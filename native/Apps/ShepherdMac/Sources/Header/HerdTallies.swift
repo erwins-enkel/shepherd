@@ -1,3 +1,4 @@
+import ShepherdAppCore
 import SwiftUI
 
 /// Aktiv / Inaktiv / Blockiert / Gesamt. Only three of the five statuses get a tally, so the three

@@ -1,3 +1,4 @@
+import ShepherdAppCore
 import SwiftUI
 import ShepherdKit
 
@@ -110,9 +111,7 @@ struct SessionDetailView: View {
     // never reads the operator's real profiles or Keychain.
     SessionDetailView(session: nil)
         .environment(
-            AppModel(
-                defaults: UserDefaults(suiteName: "preview-\(UUID().uuidString)")!,
-                credentials: InMemoryCredentialStore()))
+            MacStreamHost.makePreview())
         .frame(width: 720, height: 520)
 }
 #endif

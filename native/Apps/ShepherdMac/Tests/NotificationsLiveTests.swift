@@ -3,6 +3,7 @@ import ShepherdKit
 import Testing
 
 @testable import Shepherd
+@testable import ShepherdAppCore
 
 /// Arms `NotificationsLiveTests`.
 ///
@@ -21,6 +22,7 @@ private enum NotificationsLiveGate {
     }
 }
 
+extension MacSeamTests {
 /// The notification model, checked against a *real* Shepherd server.
 ///
 /// Skipped unless the environment arms it, so CI — which has no tailnet — never runs it. It posts
@@ -157,4 +159,5 @@ struct NotificationsLiveTests {
             #expect(live.center.posted.first?.sessionID == session.id)
         }
     }
+}
 }

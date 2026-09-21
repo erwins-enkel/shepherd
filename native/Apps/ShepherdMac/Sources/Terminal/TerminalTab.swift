@@ -1,3 +1,4 @@
+import ShepherdAppCore
 import ShepherdKit
 import SwiftUI
 
@@ -32,7 +33,12 @@ struct TerminalTab: DetailTab {
 @MainActor
 enum TerminalInstall {
     static func install(into app: AppModel) {
+        MacStreamHost.configure()
+        CoreStreamInstallers.installTerminal(into: app)
+    }
+
+    @MainActor
+    static func installTab(_ app: AppModel) {
         DetailTabRegistry.register(TerminalTab())
-        app.register(TerminalController.self)
     }
 }

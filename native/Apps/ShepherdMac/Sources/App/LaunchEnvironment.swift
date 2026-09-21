@@ -1,3 +1,4 @@
+import ShepherdAppCore
 import Darwin
 import Foundation
 import ShepherdKit
@@ -239,7 +240,8 @@ final class IsolatedLaunch {
     /// activation counter before its first suspension, and the restore backs off
     /// as soon as it has moved.
     func makeModel() -> AppModel {
-        let model = AppModel(defaults: defaults, credentials: credentials)
+        let model = AppModel(defaults: defaults, credentials: credentials,
+            notifications: MacNotificationEnvironment.make(configuration: configuration))
         model.liveRequestAudit = configuration.live == nil ? nil : ReadOnlyRequestAudit()
         model.allowsQueueRecomputation = configuration.live == nil
         model.allowsTerminalInput = configuration.live == nil

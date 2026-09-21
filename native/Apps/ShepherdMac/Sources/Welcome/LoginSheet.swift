@@ -1,18 +1,6 @@
+import ShepherdAppCore
 import SwiftUI
 import ShepherdKit
-
-/// The sheet's busy/dismiss gate, pulled out of the view so it is unit-testable
-/// without hosting SwiftUI (see LoginSheetStateTests).
-struct LoginSheetState: Equatable {
-    var busy = false
-    var error: String?
-    /// While a sign-in request is in flight, Cancel and the sheet's own
-    /// interactive dismissal must both be blocked: dismissing does not cancel
-    /// the untracked `Task` in `submit()`, so a stale success would later
-    /// activate the wrong profile and fire a dismissal closure that now
-    /// belongs to a different sheet.
-    var canDismiss: Bool { !busy }
-}
 
 /// Password → token mint → Keychain, via ProfileSetup. The password is never
 /// persisted. Also used as the re-login sheet when the store reports .needsLogin.

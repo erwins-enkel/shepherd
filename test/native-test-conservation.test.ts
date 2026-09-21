@@ -322,3 +322,96 @@ describe("native test conservation", () => {
     expect(tests[0]!.attributes).toBe("@Test");
   });
 });
+
+describe("required global seam serialization", () => {
+  const original = scan(`@Suite(.serialized) @MainActor struct A {}
+    extension A { @Test(arguments: [1, 2]) func original(_ n: Int) { #expect(n > 0) } }`)[0]!;
+  const wrapped = (target: string, wrapper: string, traits = original.attributes) => ({
+    ...original,
+    target,
+    suite: `${wrapper}.${original.suite}`,
+    attributes: `@Suite(.serialized)\n${traits}`,
+  });
+  const verify = (current: TestIdentity) =>
+    verifyConservation(
+      [original],
+      [current],
+      [
+        {
+          oldID: identity(original),
+          destinations: [identity(current)],
+          reason: "required enclosing serialization boundary",
+          assertionChanges: [],
+        },
+      ],
+      [],
+    );
+  test("allows exactly the required wrapper while preserving all effective traits", () => {
+    verify(wrapped("ShepherdAppCoreTests", "CoreSeamTests"));
+    verify(wrapped("ShepherdTests", "MacSeamTests"));
+    const scanned = scan(`@Suite(.serialized) struct MacSeamTests {}
+      extension MacSeamTests { @Suite(.serialized) @MainActor struct A {} }
+      extension MacSeamTests.A { @Test(arguments: [1, 2]) func original(_ n: Int) { #expect(n > 0) } }`)[0]!;
+    verify(scanned);
+  });
+  test("rejects lost actor, lost inner serialization, changed parameters or extra traits", () => {
+    for (const traits of [
+      original.attributes.replace("@MainActor\n", ""),
+      original.attributes.replace("@Suite(.serialized)\n", ""),
+      original.attributes.replace("[1, 2]", "[1]"),
+      `@Suite(.disabled())\n${original.attributes}`,
+    ])
+      expect(() => verify(wrapped("ShepherdAppCoreTests", "CoreSeamTests", traits))).toThrow();
+  });
+  test("rejects wrong wrappers, renamed inner suites, repeated wrappers and condition changes", () => {
+    for (const current of [
+      wrapped("ShepherdAppCoreTests", "MacSeamTests"),
+      { ...wrapped("ShepherdAppCoreTests", "MacSeamTests"), attributes: original.attributes },
+      wrapped("ShepherdTests", "CoreSeamTests"),
+      wrapped("ShepherdUITests", "MacSeamTests"),
+      { ...wrapped("ShepherdTests", "MacSeamTests"), suite: "MacSeamTests.B" },
+      {
+        ...wrapped("ShepherdTests", "MacSeamTests"),
+        attributes: `@Suite(.serialized)\n@Suite(.serialized)\n${original.attributes}`,
+      },
+      { ...wrapped("ShepherdTests", "MacSeamTests"), condition: "#if OTHER" },
+    ])
+      expect(() => verify(current)).toThrow();
+  });
+});
+
+test("migration tolerates only legacy leading testable-import metadata", () => {
+  const old = scan(`@testable import Shepherd
+    @MainActor @Suite(.serialized) struct A {
+      @Test(arguments: [1, 2]) func original(_ n: Int) { #expect(n > 0) }
+    }`)[0]!;
+  function check(source: string) {
+    const current = scan(source)[0]!;
+    verifyConservation(
+      [old],
+      [current],
+      [
+        {
+          oldID: identity(old),
+          destinations: [identity(current)],
+          reason: "mixed suite gets two testable module imports",
+          assertionChanges: [],
+        },
+      ],
+      [],
+    );
+  }
+  const current = `@testable import Shepherd
+    @testable import ShepherdAppCore
+    @Suite(.serialized) struct MacSeamTests {}
+    extension MacSeamTests {
+      @MainActor @Suite(.serialized) struct A {
+        @Test(arguments: [1, 2]) func original(_ n: Int) { #expect(n > 0) }
+      }
+    }`;
+  check(current);
+  expect(() => check(current.replace("@MainActor ", ""))).toThrow();
+  expect(() => check(current.replace("@MainActor @Suite(.serialized)", "@MainActor"))).toThrow();
+  expect(() => check(current.replace("[1, 2]", "[1]"))).toThrow();
+  expect(() => check(current.replace("@MainActor", "@Suite(.disabled()) @MainActor"))).toThrow();
+});

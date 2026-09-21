@@ -1,83 +1,8 @@
+import ShepherdAppCore
 import Foundation
 import Observation
 import ShepherdKit
 import SwiftUI
-
-@Observable
-@MainActor
-final class DoneUsageState {
-    private final class Request {
-        var alive = true
-    }
-
-    private var request: Request?
-    private(set) var usage: Components.Schemas.SessionUsage?
-
-    var display: String {
-        guard let usage, usage.available else { return "—" }
-        return usage.total.formatted()
-    }
-
-    func load(id: String, read: (String) async throws -> Components.Schemas.SessionUsage) async {
-        close()
-        let mine = Request()
-        request = mine
-        let result = try? await read(id)
-        // Cancellation alone cannot fence a transport that completes after row selection changes.
-        guard mine.alive, !Task.isCancelled else { return }
-        usage = result
-    }
-
-    func close() {
-        request?.alive = false
-        request = nil
-        usage = nil
-    }
-}
-
-struct DoneRestoreConfirmation {
-    private(set) var armedUntil: Int?
-    var isArmed: Bool { armedUntil != nil }
-
-    mutating func tap(now: Int) -> Bool {
-        if let armedUntil, now < armedUntil {
-            disarm()
-            return true
-        }
-        armedUntil = now + 3_000
-        return false
-    }
-
-    mutating func disarm() { armedUntil = nil }
-}
-
-enum DoneMarkdown {
-    static func render(_ markdown: String) -> AttributedString {
-        guard let parsed = try? AttributedString(markdown: markdown) else {
-            return AttributedString(markdown)
-        }
-        var result = AttributedString()
-        // Foundation records block boundaries as presentation intents, removing their
-        // newlines. Text handles inline emphasis/links, but needs explicit block separators.
-        for (intent, range) in parsed.runs[\.presentationIntent] {
-            if !result.characters.isEmpty { result.append(AttributedString("\n\n")) }
-            var block = AttributedString(parsed[range])
-            let components = intent?.components ?? []
-            for component in components {
-                switch component.kind {
-                case .header: block.font = .headline
-                case .codeBlock: block.font = .body.monospaced()
-                case .listItem(let ordinal):
-                    let unordered = components.contains { $0.kind == .unorderedList }
-                    result.append(AttributedString(unordered ? "• " : "\(ordinal). "))
-                default: break
-                }
-            }
-            result.append(block)
-        }
-        return result
-    }
-}
 
 struct DoneRecapView: View {
     let session: Session

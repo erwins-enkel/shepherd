@@ -1,3 +1,4 @@
+import ShepherdAppCore
 import AppKit
 import SwiftUI
 import ShepherdKit
@@ -145,7 +146,12 @@ struct SidebarView: View {
 @MainActor
 enum SidebarInstall {
     static func run(_ app: AppModel) {
-        app.register(SidebarModel.self)
+        MacStreamHost.configure()
+        CoreStreamInstallers.installSidebar(into: app)
+    }
+
+    @MainActor
+    static func installSlot(_ app: AppModel) {
         SidebarSlot.content = { app in
             guard let model = app.extension(SidebarModel.self) else { return AnyView(EmptyView()) }
             return AnyView(SidebarView(model: model))

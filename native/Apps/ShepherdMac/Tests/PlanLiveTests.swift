@@ -3,7 +3,9 @@ import ShepherdKit
 import Testing
 
 @testable import Shepherd
+@testable import ShepherdAppCore
 
+extension MacSeamTests {
 // READ-ONLY against real sessions: only planGates() and planGatesInflight().
 // NEVER call /go, /answer-plan-questions, /review-plan, or /quota/* here:
 // they release gates or steer the operator's real agents. Writes belong in fake/contract tests.
@@ -88,4 +90,5 @@ struct PlanLiveTests {
         }
         try await cleanup()
     }
+}
 }

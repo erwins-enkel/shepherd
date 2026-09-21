@@ -3,7 +3,9 @@ import ShepherdKit
 import Testing
 
 @testable import Shepherd
+@testable import ShepherdAppCore
 
+extension MacSeamTests {
 /// Read-only against real repositories and sessions. Never submit, shape, upload, or repair.
 /// Authentication may mint only our own named test token; cleanup revokes only that token.
 @MainActor
@@ -119,4 +121,5 @@ struct ComposeLiveTests {
         }
         try await cleanup()
     }
+}
 }

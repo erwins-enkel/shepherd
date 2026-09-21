@@ -1,3 +1,4 @@
+import ShepherdAppCore
 import AppKit
 import ShepherdKit
 import Testing

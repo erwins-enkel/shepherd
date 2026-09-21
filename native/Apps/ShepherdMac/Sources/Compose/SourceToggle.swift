@@ -1,7 +1,8 @@
+import ShepherdAppCore
 import SwiftUI
 
 struct SourceToggle: View {
-    enum Source: Hashable { case issues, commands }
+    typealias Source = ComposeSource
     @Binding var selection: Source
 
     var body: some View {

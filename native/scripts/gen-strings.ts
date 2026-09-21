@@ -10,13 +10,13 @@
  * numbered by first appearance in the EN string and the SAME numbering is applied
  * to DE, so a translator may reorder placeholders freely.
  */
-import { readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const EN = join(ROOT, "ui", "messages", "en.json");
 const DE = join(ROOT, "ui", "messages", "de.json");
-const OUT = join(ROOT, "native", "Apps", "ShepherdMac", "Resources", "Localizable.xcstrings");
+const OUT = join(ROOT, "native", "Sources", "ShepherdAppCore", "Resources");
 
 /**
  * Every catalog key the macOS app is allowed to use, split by the parallel
@@ -1475,7 +1475,7 @@ export function placeholderOrder(en: string): Map<string, number> {
   return order;
 }
 
-function build(): string {
+export function build() {
   const en = load(EN);
   const de = load(DE);
 
@@ -1493,7 +1493,14 @@ function build(): string {
     throw new Error(`missing catalog keys:\n  ${missing.join("\n  ")}`);
   }
 
-  const strings: Record<string, unknown> = {};
+  const strings: Record<
+    string,
+    {
+      comment?: string;
+      extractionState: string;
+      localizations: Record<"en" | "de", { stringUnit: { state: string; value: string } }>;
+    }
+  > = {};
   for (const key of [...KEYS].sort()) {
     const order = placeholderOrder(en[key]!);
     const comment =
@@ -1508,32 +1515,87 @@ function build(): string {
     };
   }
 
-  return `${JSON.stringify({ sourceLanguage: "en", strings, version: "1.0" }, null, 2)}\n`;
+  return { sourceLanguage: "en", strings, version: "1.0" };
 }
 
-// Guarded so the test suite can import `convert`/`placeholderOrder`/`KEYS`
-// above without this CLI running the (real) --check/write logic as a side
-// effect of the import.
-if (import.meta.main) {
-  const check = process.argv.includes("--check");
-  const next = build();
-
-  if (check) {
-    let current = "";
-    try {
-      current = readFileSync(OUT, "utf8");
-    } catch {
-      /* a missing file is a mismatch */
+export function stringsLiteral(value: string): string {
+  const escaped = Array.from(value, (character) => {
+    switch (character) {
+      case "\\":
+        return "\\\\";
+      case '"':
+        return '\\"';
+      case "\n":
+        return "\\n";
+      case "\r":
+        return "\\r";
+      case "\t":
+        return "\\t";
+      default: {
+        const code = character.charCodeAt(0);
+        return code < 0x20 ? "\\U" + code.toString(16).padStart(4, "0") : character;
+      }
     }
-    if (current !== next) {
+  }).join("");
+  return '"' + escaped + '"';
+}
+
+export function renderStrings(entries: Record<string, string>): string {
+  return (
+    Object.keys(entries)
+      .sort()
+      .map((key) => `${stringsLiteral(key)} = ${stringsLiteral(entries[key]!)};`)
+      .join("\n") + "\n"
+  );
+}
+
+export function buildOutputs(base: string = OUT): Record<string, string> {
+  const catalog = build();
+  const outputs: Record<string, string> = {
+    [join(base, "Catalog", "Localizable.xcstrings")]: JSON.stringify(catalog, null, 2) + "\n",
+  };
+  for (const locale of ["en", "de"] as const) {
+    outputs[join(base, locale + ".lproj", "Localizable.strings")] = renderStrings(
+      Object.fromEntries(
+        Object.entries(catalog.strings).map(([key, entry]) => [
+          key,
+          entry.localizations[locale].stringUnit.value,
+        ]),
+      ),
+    );
+  }
+  return outputs;
+}
+
+export function staleOutputs(outputs: Record<string, string>): string[] {
+  return Object.entries(outputs)
+    .filter(([path, expected]) => {
+      try {
+        return readFileSync(path, "utf8") !== expected;
+      } catch {
+        return true;
+      }
+    })
+    .map(([path]) => path);
+}
+
+// Build every expected output before writing any of them.
+if (import.meta.main) {
+  const outputs = buildOutputs();
+  if (process.argv.includes("--check")) {
+    const stale = staleOutputs(outputs);
+    if (stale.length) {
       console.error(
-        "Localizable.xcstrings is stale. Run native/scripts/gen-strings.sh and commit the result.",
+        `Missing/stale localization outputs:\n${stale.join("\n")}\nRun native/scripts/gen-strings.sh.`,
       );
       process.exit(1);
     }
-    console.log(`Localizable.xcstrings is up to date (${KEYS.length} keys).`);
+    console.log(`All three localization outputs are up to date (${KEYS.length} keys).`);
   } else {
-    writeFileSync(OUT, next, "utf8");
-    console.log(`Wrote ${OUT} (${KEYS.length} keys, en + de).`);
+    for (const [path, text] of Object.entries(outputs)) {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, text, "utf8");
+    }
+    console.log(`Wrote three localization outputs (${KEYS.length} keys, en + de).`);
   }
 }

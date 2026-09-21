@@ -1,28 +1,6 @@
+import ShepherdAppCore
 import ShepherdKit
 import SwiftUI
-
-@MainActor
-enum PlanSignals {
-    static var planReviewing: (String) -> Bool = { _ in false }
-}
-
-enum PlanStream {
-    /// S0-int: install this in the model pass before assigning HerdSignals.planReviewing
-    /// from PlanSignals.planReviewing. That assignment copies the closure; doing it first
-    /// permanently copies the conservative default. Install notification/attention consumers
-    /// before their activation-scoped observer joins the S7 and S8 attention sets.
-    @MainActor
-    static func install(_ app: AppModel) {
-        app.register(PlanModel.self)
-        DetailTabRegistry.register(PlanDetailTab())
-        SessionSignals.planQuestionsUnanswered = { [weak app] id in
-            app?.extension(PlanModel.self)?.questionsUnanswered(id) ?? false
-        }
-        PlanSignals.planReviewing = { [weak app] id in
-            app?.extension(PlanModel.self)?.reviewing.contains(id) ?? false
-        }
-    }
-}
 
 struct PlanDetailTab: DetailTab {
     let id = "plan"
@@ -45,7 +23,15 @@ struct PlanDetailTab: DetailTab {
             guard let app, let store, app.activationGeneration == activation else { return false }
             // Selection changes before SwiftUI delivers onDisappear. Guard both queued
             // taps and suspended completions during that interval.
-            return ActionBarView.isCurrent(session: session, store: store, app: app)
+            return CurrentSessionSelection.isCurrent(session: session, store: store, app: app)
         }
+    }
+}
+
+@MainActor
+enum PlanStream {
+    static func install(_ app: AppModel) {
+        MacStreamHost.configure()
+        CoreStreamInstallers.installPlan(into: app)
     }
 }

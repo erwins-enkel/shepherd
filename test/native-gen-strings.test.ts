@@ -1,3 +1,7 @@
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
+import { buildOutputs, staleOutputs } from "../native/scripts/gen-strings";
 import { describe, expect, test } from "bun:test";
 import {
   convert,
@@ -88,5 +92,26 @@ describe("gen-strings manifest", () => {
   test("no key is claimed by two manifests", () => {
     expect(duplicateKeys(KEYS)).toEqual([]);
     expect(duplicateKeys(["b", "a", "b", "a", "c"])).toEqual(["a", "b"]);
+  });
+});
+
+describe("gen-strings outputs", () => {
+  test("checks all three outputs and detects a missing German runtime file", () => {
+    const directory = mkdtempSync(join(tmpdir(), "shepherd-strings-"));
+    try {
+      const outputs = buildOutputs(directory);
+      expect(Object.keys(outputs)).toHaveLength(3);
+      expect(staleOutputs(outputs)).toHaveLength(3);
+      for (const [path, text] of Object.entries(outputs)) {
+        mkdirSync(dirname(path), { recursive: true });
+        writeFileSync(path, text);
+      }
+      expect(staleOutputs(outputs)).toEqual([]);
+      const german = join(directory, "de.lproj", "Localizable.strings");
+      unlinkSync(german);
+      expect(staleOutputs(outputs)).toEqual([german]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

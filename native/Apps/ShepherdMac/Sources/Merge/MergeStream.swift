@@ -1,3 +1,4 @@
+import ShepherdAppCore
 import SwiftUI
 import ShepherdKit
 
@@ -35,7 +36,12 @@ struct MergeLauncher: View {
             action: { $0.extension(MergeModel.self)?.showOverview = true }))
     }
     static func install(_ app: AppModel) {
-        app.register(MergeModel.self)
+        MacStreamHost.configure()
+        CoreStreamInstallers.installMerge(into: app)
+    }
+
+    @MainActor
+    static func installPresentation(_ app: AppModel) {
         DetailTabRegistry.register(MergeDetailTab())
         // S0 calls after S3/S4/S10. Never turn a nil fallback sidebar into an empty sidebar.
         guard let sidebar = SidebarSlot.content else { return }

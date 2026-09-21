@@ -1,3 +1,4 @@
+import ShepherdAppCore
 import SwiftUI
 import ShepherdKit
 
@@ -23,13 +24,14 @@ struct ShepherdApp: App {
         self.isolation = isolation
         appUpdater = AppUpdater(isIsolated: launch.isIsolated, startImmediately: false)
         installation = AppInstallationPrompt(isIsolated: launch.isIsolated)
-        let appModel = isolation?.makeModel() ?? AppModel()
+        let appModel = isolation?.makeModel() ?? AppModel(notifications: MacNotificationEnvironment.make(configuration: launch))
         // Settings is a native scene and can be opened before RootView's task.
         // Register its factories against the same model now; AppModel.register is
         // idempotent and builds them immediately if an activation already exists.
         SettingsFeature.install(appModel)
         _model = State(initialValue: appModel)
         // Before `body` is first evaluated — see StreamRegistrations.installScene().
+        MacStreamHost.configure()
         StreamRegistrations.installScene()
         SettingsPaneRegistry.register(AppUpdateSettingsPane(updater: appUpdater))
         Log.app.info("Shepherd for Mac starting — \(launch.logDescription, privacy: .public)")

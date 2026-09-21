@@ -3,6 +3,7 @@ import Synchronization
 import Testing
 import ShepherdKit
 @testable import Shepherd
+@testable import ShepherdAppCore
 
 /// `Sendable` gate for the model's injected seams (`probeExternal`, `health`),
 /// which are `@Sendable` closures and so cannot hold a main-actor `Gate`
@@ -29,6 +30,7 @@ actor LocalServerGate {
     }
 }
 
+extension MacSeamTests {
 @Suite(.serialized) @MainActor struct LocalServerModelTests {
     private func tempHome() throws -> URL {
         let url = URL(fileURLWithPath: NSTemporaryDirectory())
@@ -54,7 +56,7 @@ actor LocalServerGate {
         let suite = UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
-        return AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        return AppModel(defaults: defaults, credentials: InMemoryCredentialStore(), notifications: MacTestSupport.environment(defaults: defaults))
     }
 
     /// Writes a `/bin/sh` script under `dir` that sleeps, optionally printing
@@ -520,4 +522,5 @@ actor LocalServerGate {
         #expect(cancelled.withLock { $0 })  // `onCancel` runs synchronously
         #expect(await settle(until: { !model.busy }))
     }
+}
 }

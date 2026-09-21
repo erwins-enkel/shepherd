@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import ShepherdKit
 @testable import Shepherd
+@testable import ShepherdAppCore
 
 /// The environment variables that arm `LiveServerTests`. Outside the
 /// main-actor suite because `@Test(.enabled(if:))` evaluates its trait from a
@@ -35,6 +36,7 @@ enum LiveServerEnvironment {
     }
 }
 
+extension MacSeamTests {
 /// End-to-end smoke test against a *real* Shepherd server.
 ///
 /// Gated on two environment variables so CI — which has no server — never runs
@@ -71,7 +73,7 @@ struct LiveServerTests {
     private func makeModel(
         defaults: UserDefaults, credentials: any CredentialStore
     ) -> AppModel {
-        let model = AppModel(defaults: defaults, credentials: credentials)
+        let model = AppModel(defaults: defaults, credentials: credentials, notifications: MacTestSupport.environment(defaults: defaults))
         model.liveRequestAudit = ReadOnlyRequestAudit()
         model.allowsQueueRecomputation = false
         model.allowsTerminalInput = false
@@ -232,4 +234,5 @@ struct LiveServerTests {
         let scheme = URL(string: address)?.scheme ?? "unknown"
         print("live smoke: \(store.sessions.count) session(s) from a \(scheme) server")
     }
+}
 }

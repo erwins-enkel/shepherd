@@ -1,0 +1,509 @@
+import Foundation
+import Observation
+import ShepherdKit
+
+/// Local notifications for the active profile.
+///
+/// An `AppExtension`, so it is built in `AppModel.activate(_:)` once the store exists and torn
+/// down right before that store stops — which is also what scopes the settings, the cooldown
+/// table and the badge to one server.
+///
+/// It owns three things the rest of the app does not: the focus signal (which it also forwards
+/// to the server as a presence frame, so browser push stays quiet while the Mac app is in front),
+/// the badge, and the click that selects a session.
+@Observable
+@MainActor
+public final class NotificationsModel: AppExtension {
+    public private(set) var settings: NotificationSettings
+    public private(set) var authorization: NotificationAuthorization = .notDetermined
+    private(set) var windowFocused = false
+    private(set) var isSubscribed = false
+
+    /// Session ids that need the operator for a reason this build cannot see — S2's ci-red, and
+    /// a plan gate with unanswered questions. Empty until the integration lane assigns it; the
+    /// badge counts blocked ∪ ready-to-merge ∪ (this ∩ the live sessions).
+    ///
+    /// **Still empty after S2 and S4 merged, and the reason is the contract, not the wiring.**
+    /// The web's `deriveTabState` (`ui/src/lib/tab-signal.svelte.ts`) reads two per-session maps
+    /// this client cannot fill for *all* sessions without one HTTP request per session, which is
+    /// not something a Dock badge may cost:
+    ///
+    /// - **ci-red** is `store.git[id].checks === "failure"`. The web bootstraps that whole map
+    ///   from `GET /api/git` and keeps it live with `session:git`. `native/Sources/ShepherdKit/
+    ///   openapi.yaml` declares only the per-session `GET /api/sessions/{id}/git`; the bulk
+    ///   `/api/git` is absent, and `Session` carries no `checks` (or any other git) field. S2's
+    ///   `DetailModel.git` is therefore sparse by design — `hasCacheEntry` drops a `session:git`
+    ///   frame for a session whose Git tab nobody opened — so it answers for the sessions the
+    ///   operator happened to look at, never for the herd. Accumulating from the event tap alone
+    ///   is not a substitute: there is no snapshot to join, and this model's badge is derived
+    ///   from the store on every frame precisely so a dropped frame cannot make it drift.
+    /// - **an unanswered plan question** is `planQuestionsUnanswered(planGates[id])` over
+    ///   `gate.blocks[].questions` and `gate.answeredQuestionKeys`, bootstrapped from
+    ///   `GET /api/plan-gates`. Neither the endpoint nor a `PlanGate` schema exists in the
+    ///   contract at all — `Session` has `planGateEnabled` and `planPhase`, which are the other
+    ///   two thirds of the web's condition and useless without the questions.
+    ///
+    /// Either one is a contract addition away, and this property is still the seam that takes
+    /// it. Until then the badge is honestly two-thirds of the web's count.
+    ///
+    /// Assigning it refreshes the badge itself rather than waiting for the next frame: on a quiet
+    /// server the next frame can be minutes away, and a Dock icon that lags the reason it is
+    /// lit is a seam the integration lane cannot use. Unchanged values are ignored (a re-assign
+    /// per frame would undo the badge elision below) and a torn-down model does nothing at all.
+    var extraAttention: Set<String> = [] {
+        didSet {
+            guard extraAttention != oldValue, !isTornDown else { return }
+            Task { [weak self] in await self?.refreshBadge() }
+        }
+    }
+
+    private let center: any NotificationCenterClient
+    private let settingsStore: NotificationSettingsStore
+    private let profileID: UUID
+    /// Milliseconds since the Unix epoch. The *same* closure is handed to `NotificationTrigger`,
+    /// so the usage latch and the cooldown can never disagree about what time it is.
+    private let now: @Sendable () -> Int
+    private var trigger: NotificationTrigger
+    private var gate = NotificationGate()
+
+    @ObservationIgnored private var tap: Task<Void, Never>?
+    @ObservationIgnored private var launchTask: Task<Void, Never>?
+    @ObservationIgnored private var cancelFocusObservation: (@MainActor () -> Void)?
+    /// The hop an activation notification schedules. Tracked so `teardown()` can cancel it: an
+    /// untracked one can resume after a profile switch and write the outgoing centre's badge
+    /// over the count the incoming profile just set — the Dock badge is global.
+    @ObservationIgnored private var focusTask: Task<Void, Never>?
+    /// The last count actually written to the centre, or `nil` when the next write must go
+    /// through whatever it is. See `writeBadge(_:)`.
+    @ObservationIgnored private var lastBadge: Int?
+    /// Set by `teardown()`. Every path that can resume after it checks this before touching the
+    /// centre, because the centre outlives the teardown on purpose (it still has a badge to
+    /// clear) and the delegate macOS holds is weak.
+    @ObservationIgnored private var isTornDown = false
+    /// Monotonic, bumped by every path that asks macOS about permission. Captured before that
+    /// call's suspension and compared after it, so only the newest answer is kept. See
+    /// `refreshAuthorization()`.
+    @ObservationIgnored private var authorizationGeneration = 0
+
+    /// Monotonic, bumped by every badge write. Captured before the round trip and compared after,
+    /// so only the newest write commits `lastBadge`.
+    ///
+    /// Three callers reach `refreshBadge()` from their own `Task` — the per-frame `handle(_:)`, the
+    /// `extraAttention` didSet and `setWindowFocused` — so two writes can be in flight at once.
+    /// Without this, an older count resuming last records itself as the truth about a Dock badge
+    /// showing the newer one, and every later refresh that computes that number is elided against
+    /// it. The icon then stays wrong until the count changes twice. Same pattern as
+    /// `authorizationGeneration`, for the same reason.
+    @ObservationIgnored private var badgeGeneration = 0
+
+    /// The newest count asked for while its write is still in flight.
+    ///
+    /// The elision must compare against THIS and not `lastBadge`, or the generation stamp leaks a
+    /// reversal: with `lastBadge == 0` and a write of 7 still in flight, a fresh request for 0
+    /// matches `lastBadge` and returns early **without taking a generation** — so the in-flight 7
+    /// still wins its own comparison and commits over the newer intent. `badgeDesired` closes
+    /// that: every distinct intent takes a generation, including one that reverts to the cached
+    /// value. The winning completion clears this slot so `lastBadge` resumes governing elision:
+    /// a rejected write must be retryable, and `clearBadge()` must still force a write by dropping
+    /// `lastBadge`, even when the last successful count was already zero.
+    @ObservationIgnored private var badgeDesired: Int?
+
+    @ObservationIgnored private weak var store: SessionStore?
+    @ObservationIgnored private var badgeSource: @MainActor () -> [Session] = { [] }
+
+    // MARK: - Init
+
+    public init(store: SessionStore, app: AppModel) {
+        let environment = app.notificationEnvironment
+        self.center = environment.makeCenter()
+        let settingsStore = NotificationSettingsStore(defaults: environment.makeDefaults())
+        // A throwaway id means the settings written under it are read back by nobody: the
+        // operator mutes a category, relaunches, and it is on again. That cannot happen from
+        // `AppModel.activate` (the profile is set before the extensions are built), so if it
+        // ever does, the log is the only way anyone will find out. The identifier only — a
+        // profile's name is the operator's own.
+        let activeProfileID = app.activeProfile?.id
+        if activeProfileID == nil {
+            Log.app.error(
+                "notifications: no active profile at build time; settings will not persist")
+        }
+        let profileID = activeProfileID ?? UUID()
+        let clock: @Sendable () -> Int = { Int(Date().timeIntervalSince1970 * 1_000) }
+        self.settingsStore = settingsStore
+        self.profileID = profileID
+        self.now = clock
+        self.settings = settingsStore.load(for: profileID)
+        // One clock for the trigger's usage latch and this model's cooldown, in milliseconds.
+        self.trigger = NotificationTrigger(
+            subjectFor: { [weak store] id in store?.session(id: id)?.name },
+            now: clock)
+        self.store = store
+        self.badgeSource = { [weak store] in store?.sessions ?? [] }
+        intentPolicy = { [weak app] intent, evaluated in
+            let reduced = app?.extension(SettingsModel.self)?.snapshot?.settings.reducedPushMode ?? true
+            return SettingsReadyRules.allows(kind: intent.kind.id, reduced: reduced, evaluatedReady: evaluated)
+        }
+
+        center.onSelectSession = { [weak app] id in
+            // The seam, not an edit: `selectedSessionID` is `AppModel`'s own published property,
+            // and `MainWindow` already reconciles a selection that no longer exists.
+            app?.selectedSessionID = id
+        }
+        center.start()
+
+        subscribe(to: store)
+        cancelFocusObservation = environment.focus.observe { [weak self] focused in
+            guard let self else { return }
+            // Preserve both rapid transitions; only teardown cancels the owned task.
+            self.focusTask = Task { [weak self] in
+                guard !Task.isCancelled else { return }
+                await self?.setWindowFocused(focused)
+            }
+        }
+        // Sample the *current* activation state, synchronously, right here. `windowFocused`
+        // starts false and `observeFocus()` only ever hears about the next transition, so
+        // connecting — or switching profiles — while the app is already frontmost would leave
+        // every notification un-suppressed and the badge counting until the operator happened
+        // to click away and back.
+        //
+        // Synchronously, because a sample *applied* after the authorization await below would
+        // be a stale one: an operator who switches away while macOS is still answering would
+        // have the observer's `false` overwritten by this `true`, and notifications would stay
+        // suppressed — and presence active — until the next focus transition.
+        windowFocused = environment.focus.sample()
+        // Two suspension points, so the activation generation is captured before the first one
+        // and re-checked after it: a profile switch while macOS is still answering must not let
+        // the outgoing activation's answer land on the incoming one. `teardown()` cancels this
+        // task as well, so neither await can outlive the extension.
+        let generation = app.activationGeneration
+        launchTask = Task { [weak self, weak app] in
+            await self?.refreshAuthorization()
+            guard let self, let app, app.activationGeneration == generation else { return }
+            // The live value, never a captured one: forwarding presence and setting the first
+            // badge is still this task's job, but it forwards whatever is true now.
+            await self.setWindowFocused(self.windowFocused)
+        }
+    }
+
+    /// Test/preview seam: no store, no socket, no AppKit notifications.
+    init(
+        center: any NotificationCenterClient,
+        settingsStore: NotificationSettingsStore,
+        profileID: UUID,
+        now: @escaping @Sendable () -> Int,
+        subjectFor: @escaping @MainActor (String) -> String?,
+        select: @escaping @MainActor (String) -> Void
+    ) {
+        self.center = center
+        self.settingsStore = settingsStore
+        self.profileID = profileID
+        self.now = now
+        self.settings = settingsStore.load(for: profileID)
+        self.trigger = NotificationTrigger(subjectFor: subjectFor, now: now)
+        center.onSelectSession = select
+        center.start()
+    }
+
+    #if DEBUG
+        /// Uses the offline initializer and a throwaway defaults suite; never asks macOS for
+        /// notification permission or installs focus observers.
+        static func forTesting(center: any NotificationCenterClient) -> NotificationsModel {
+            let suite = "run.shepherd.mac.badgerace.\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suite)!
+            defaults.removePersistentDomain(forName: suite)
+            return NotificationsModel(
+                center: center,
+                settingsStore: NotificationSettingsStore(defaults: defaults),
+                profileID: UUID(), now: { 0 }, subjectFor: { _ in nil }, select: { _ in })
+        }
+
+        func setBadgeForTesting(_ count: Int) async { await writeBadge(count) }
+        var lastBadgeForTesting: Int? { lastBadge }
+    #endif
+
+    // MARK: - Events
+
+    private func subscribe(to store: SessionStore) {
+        isSubscribed = true
+        // The stream lives only inside the task, so cancelling the task is what releases the
+        // tap — a stream parked in a property would go on buffering frames nobody reads.
+        let events = store.events()
+        tap = Task { [weak self] in
+            for await event in events {
+                guard let self else { return }
+                await self.handle(event)
+            }
+            self?.isSubscribed = false
+        }
+    }
+
+    @ObservationIgnored var intentPolicy: @MainActor (NotificationIntent,Bool) -> Bool = {_,_ in true}
+    func deliver(_ intent: NotificationIntent, evaluatedReady: Bool = false) async -> Bool {
+        guard !isTornDown, !Task.isCancelled, intentPolicy(intent,evaluatedReady) else {return false}
+        let t = now()
+        guard gate.allows(intent,at:t,settings:settings,windowFocused:windowFocused,
+            authorized:authorization == .granted) else {return false}
+        let sent = await center.post(NotificationRequest.make(title:NotificationCopy.title(intent),
+            body:NotificationCopy.body(intent),threadIdentifier:intent.threadIdentifier,sessionID:intent.sessionID))
+        guard !isTornDown, !Task.isCancelled else {return false}
+        if sent {gate.posted(intent,at:t);trigger.usageWarningPosted(for:intent)}
+        return sent
+    }
+    func handle(_ event: ServerEvent) async {
+        guard !isTornDown, !Task.isCancelled else {return}
+        for intent in trigger.intents(for:event) {
+            _ = await deliver(intent)
+            guard !isTornDown, !Task.isCancelled else {return}
+        }
+        await refreshBadge()
+    }
+
+    // MARK: - Focus
+
+    func waitForFocusTaskForTesting() async { await focusTask?.value }
+    func waitForLaunchTaskForTesting() async { await launchTask?.value }
+
+    /// Records the focus state, forwards it to the server as a presence frame — so the web push
+    /// the operator's phone would get stays suppressed too, exactly as an open browser tab does —
+    /// and clears the badge when the window comes forward.
+    func setWindowFocused(_ focused: Bool) async {
+        // A torn-down model has no server to tell and no badge of its own: the Dock badge is
+        // global, so a late resign-active would clear the count the *incoming* profile set.
+        guard !isTornDown else { return }
+        // Synchronously, before any suspension: this assignment is what keeps two rapid focus
+        // transitions from landing out of order. An `await` in front of it would let the later
+        // one write first and leave `windowFocused` reading the earlier value.
+        windowFocused = focused
+        await store?.setActive(focused)
+        // Re-checked after the suspension, for the same reason as the guard above.
+        guard !isTornDown else { return }
+        // The *live* `windowFocused`, never the captured `focused`. Two focus tasks can
+        // interleave at the suspension above — an actor makes no FIFO promise about which
+        // resumes first — and branching on the capture lets the loser decide the badge: the
+        // `false` task resumes first and refreshes to N, then the `true` task resumes and
+        // clears to 0 while the window is in the background with N sessions needing the
+        // operator. The de-duplication in `writeBadge(_:)` then makes that stick, because
+        // `lastBadge` is 0 and nothing rewrites it until the derived count moves.
+        //
+        // The synchronous assignment above is what makes this read correct: whichever task
+        // assigned last is the transition that really happened, so that is the one the badge
+        // must follow, whatever order the resumptions land in.
+        if windowFocused {
+            await clearBadge()
+            // Coming forward is the one moment this app can cheaply notice that the operator
+            // changed its permission behind its back: they read the denied-permission note in
+            // the panel, switched to System Settings, flipped the toggle, and came back.
+            // Without this re-read the launch task's answer is the only one this process ever
+            // has, so every banner stays suppressed until they relaunch — and macOS will not
+            // prompt a second time, so the panel's button cannot recover it either.
+            await refreshAuthorization()
+        } else {
+            await refreshBadge()
+        }
+    }
+
+    // MARK: - Badge
+
+    /// The web's `deriveTabState` count, minus the two inputs this build cannot see (see the
+    /// plan's deviation 5). Only while the window is NOT focused, which is how the web tab
+    /// behaves: attended means the count is in front of you already.
+    ///
+    /// Derived from the store's current sessions every time, never accumulated from the event
+    /// tap: a tap is allowed to drop frames, and a count that only an unbroken sequence could
+    /// produce would drift for the rest of the session.
+    func updateBadge(sessions: [Session]) async {
+        guard !isTornDown else { return }
+        // `writeBadge`, not `clearBadge`: this is the ordinary per-frame path, and the
+        // operator spends most of their day here — window in front, several agents running,
+        // a `session:activity` / `session:claude-alive` / `session:git` frame every few
+        // hundred milliseconds. `clearBadge()` drops `lastBadge` first, so routing this
+        // branch through it meant the elision below could never fire and every one of those
+        // frames cost an XPC round trip to `notificationd`, which is precisely what the
+        // de-duplication exists to stop. The *transitions* that must not be elided force
+        // their own write: focusing the window through `clearBadge()`, and `teardown()`
+        // through the seam's synchronous `clearBadgeNow()`.
+        guard !windowFocused else {
+            await writeBadge(0)
+            return
+        }
+        var needing: Set<String> = []
+        var live: Set<String> = []
+        for session in sessions where session.status.known != .archived {
+            live.insert(session.id)
+            if session.status.known == .blocked { needing.insert(session.id) }
+            if session.readyToMerge { needing.insert(session.id) }
+        }
+        // Intersected with the live, non-archived ids rather than unioned in wholesale: an id
+        // the integration lane forgets to prune would otherwise be a phantom on the Dock that
+        // the operator has no way to clear — no session to open, no state to change.
+        // Frozen owed records remain actionable in the Owed panel after archival.
+        let owed = Set(SessionSignals.manualStepsOutstanding().keys)
+        needing.formUnion(extraAttention.intersection(live.union(owed)))
+        await writeBadge(needing.count)
+    }
+
+    /// Re-derives the badge from whatever the store holds now.
+    private func refreshBadge() async {
+        await updateBadge(sessions: badgeSource())
+    }
+
+    /// One XPC round trip to `notificationd` per *change of the count this model wrote*, not
+    /// per frame. Every caller but the two named below goes through here and is elidable,
+    /// focused or not.
+    ///
+    /// `handle(_:)` refreshes the badge for every frame the tap delivers, including the
+    /// high-rate ones this model ignores (`session:activity`, `session:claude-alive`,
+    /// `session:git`). The tap is strictly serial and `SessionStore+EventTap` buffers only
+    /// `.bufferingNewest(64)`, so parking the consumer on a round trip per frame is how a burst
+    /// of activity overflows that buffer — and the frame it drops can be the one `session:block`
+    /// the banner depended on, invisibly, because the badge is re-derived and stays correct.
+    ///
+    /// `lastBadge` records what really reached the Dock, so it is committed *after* the write,
+    /// and only when `setBadgeCount` says the write landed. A rejection leaves it `nil`, which
+    /// forces the next refresh to write the same count again rather than eliding it against a
+    /// number that was never there — the failure mode the whole cache would otherwise turn into
+    /// a permanently stale Dock icon.
+    ///
+    /// `isTornDown` is re-checked after the suspension for the same reason `setWindowFocused`
+    /// re-checks it: `teardown()` can run while this write is in flight, and it drops
+    /// `lastBadge` and forces its own clear. Committing this count afterwards would leave the
+    /// outgoing profile's number recorded as the truth about a Dock badge that is global and
+    /// has already been cleared.
+    private func writeBadge(_ count: Int) async {
+        // Against the newest INTENT, not the last landed value — see `badgeDesired`.
+        guard (badgeDesired ?? lastBadge) != count else { return }
+        badgeDesired = count
+        badgeGeneration &+= 1
+        let mine = badgeGeneration
+        let landed = await center.setBadgeCount(count)
+        // A write that was superseded while in flight commits nothing — not `lastBadge = count`
+        // (it would be a lie about the Dock) and not `lastBadge = nil` either (that would force the
+        // winner's count to be rewritten on the next refresh, one needless XPC round trip per
+        // race).
+        guard mine == badgeGeneration else { return }
+        badgeDesired = nil
+        guard landed, !isTornDown else {
+            lastBadge = nil
+            return
+        }
+        lastBadge = count
+    }
+
+    /// Clears the badge, never elided. `lastBadge` is dropped first, so a clear goes through
+    /// even when the last count this model wrote was already zero — the Dock badge is global,
+    /// and something else (the outgoing profile, a previous run) may have left a number on it.
+    ///
+    /// One caller forces a write this way: `setWindowFocused` when the window comes forward —
+    /// the operator is now looking, and whatever is up there may have been written by the
+    /// previous activation, so `lastBadge` is not evidence about the Dock. `teardown()` clears
+    /// too, but through the seam's synchronous `clearBadgeNow()` rather than here, because its
+    /// clear has to be ordered against the *next* model's first write and an `await` cannot
+    /// promise that; see there. Every other path — the per-frame refresh, focused or not — is an
+    /// ordinary `writeBadge(_:)` and is elided when the count has not changed.
+    private func clearBadge() async {
+        lastBadge = nil
+        await writeBadge(0)
+    }
+
+    // MARK: - Authorization and settings
+
+    /// Re-reads what macOS currently allows. Called at launch, whenever the app becomes active
+    /// and whenever the settings panel is opened — never by a path that could prompt, because
+    /// `authorization()` only reads the status.
+    ///
+    /// The answer is dropped if the model was torn down while macOS was thinking: a profile
+    /// switch mid-read must not write the outgoing activation's answer onto a model the panel
+    /// may still be holding.
+    ///
+    /// It is also dropped if a *newer* read has started since. These reads overlap in ordinary
+    /// use — opening the panel starts one, coming back to the app starts another — and nothing
+    /// promises they resume in the order they were issued. Without the generation, the run that
+    /// captured `.denied` before the operator flipped the switch in System Settings can land
+    /// after the run that captured `.granted` afterwards, and every banner stays suppressed
+    /// until something happens to refresh again.
+    func refreshAuthorization() async {
+        authorizationGeneration += 1
+        let generation = authorizationGeneration
+        let status = await center.authorization()
+        guard !isTornDown, generation == authorizationGeneration else { return }
+        authorization = status
+    }
+
+    /// Asks macOS once. A denial is recorded and shown in the settings panel with the path to
+    /// System Settings — asking again would do nothing, because macOS only prompts once.
+    ///
+    /// A no-op once torn down: the settings panel re-hosts against the current activation's
+    /// model on a profile switch, but a button tap already in flight when the switch happens
+    /// would otherwise resolve against the outgoing profile's model after the fact.
+    ///
+    /// It carries the same generation as `refreshAuthorization()`, and for both directions: an
+    /// explicit grant must not be overwritten by a plain read that was already in flight when
+    /// the operator pressed the button, and it must itself stand down for a read issued after
+    /// it — whichever ask started last is the one whose answer describes the world now.
+    public func requestAuthorization() async {
+        guard !isTornDown else {
+            Log.app.error("ignored a notification permission request after teardown")
+            return
+        }
+        authorizationGeneration += 1
+        let generation = authorizationGeneration
+        let status = await center.requestAuthorization()
+        guard !isTornDown, generation == authorizationGeneration else { return }
+        authorization = status
+    }
+
+    /// A no-op once torn down, logged rather than silent: a settings panel left open across a
+    /// profile switch still holds this instance, and a toggle flipped on it must not persist to
+    /// the profile that used to be active.
+    public func save(_ settings: NotificationSettings) {
+        guard !isTornDown else {
+            Log.app.error("ignored a notification-settings write after teardown")
+            return
+        }
+        self.settings = settings
+        settingsStore.save(settings, for: profileID)
+    }
+
+    // MARK: - Lifecycle
+
+    public func teardown() {
+        isTornDown = true
+        extraAttention = []
+        tap?.cancel()
+        tap = nil
+        launchTask?.cancel()
+        launchTask = nil
+        focusTask?.cancel()
+        focusTask = nil
+        isSubscribed = false
+        cancelFocusObservation?()
+        cancelFocusObservation = nil
+        // `UNUserNotificationCenter.delegate` is weak and the centre is kept alive below to
+        // clear the badge, so the outgoing profile's click handler is still installed with a
+        // live closure. A banner for profile A clicked after the operator switched to profile B
+        // would select A's session id against B's model — the list jumps to nothing selected.
+        center.onSelectSession = nil
+        store = nil
+        badgeSource = { [] }
+        // A profile switch must not leave the outgoing server's count on the Dock icon. Forced
+        // through `lastBadge`, which `clearBadge()` would drop anyway: a clear is never elided.
+        lastBadge = nil
+        // Synchronously, and deliberately NOT `Task { await center.setBadgeCount(0) }`.
+        //
+        // `AppModel.activate(_:)` calls `tearDownExtensions()` and then `makeExtensions(store:)`,
+        // and the incoming `NotificationsModel` writes its first badge from its own launch task.
+        // Both this clear and that write would be unstructured main-actor tasks, and nothing
+        // promises unstructured tasks resume in the order they were created — so the outgoing
+        // profile's zero could land *after* the incoming profile's count. The Dock would then
+        // read 0 with N sessions needing the operator, and stay there: the new model's
+        // `lastBadge` is N, so `writeBadge(_:)` elides every rewrite of N until the derived
+        // count happens to move. Issuing the clear before `teardown()` returns puts it ahead of
+        // anything the next model can queue, which is an ordering this file controls rather than
+        // one it hopes for.
+        //
+        // It is also why the centre no longer has to outlive this method for the badge's sake —
+        // only the weak `UNUserNotificationCenter.delegate` keeps it interesting, and
+        // `onSelectSession` was dropped above.
+        center.clearBadgeNow()
+    }
+}

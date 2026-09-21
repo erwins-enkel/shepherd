@@ -1,3 +1,4 @@
+import ShepherdAppCore
 import SwiftUI
 
 /// The band above the lens strip: what the herd is doing, and how much budget is left.

@@ -3,6 +3,7 @@ import ShepherdKit
 import Testing
 
 @testable import Shepherd
+@testable import ShepherdAppCore
 
 /// The environment gate for `ActionsLiveTests`. Outside the main-actor suite, like
 /// `LiveServerEnvironment` itself, because `@Test(.enabled(if:))` evaluates its trait from a
@@ -14,6 +15,7 @@ private enum ActionsLiveGate {
     }
 }
 
+extension MacSeamTests {
 /// The action bar's half of the live smoke coverage: the recap snapshot this stream added, and
 /// the bar it derives for a real herd.
 ///
@@ -133,4 +135,5 @@ struct ActionsLiveTests {
         }
         await live.done()
     }
+}
 }

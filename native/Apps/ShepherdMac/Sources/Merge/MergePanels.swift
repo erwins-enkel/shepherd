@@ -1,12 +1,7 @@
+import ShepherdAppCore
 import SwiftUI
 import ShepherdKit
 
-@MainActor enum MergeInputs {
-    static var git: (AppModel) -> [String: GitState] = { _ in [:] }
-    static var reviewing: (AppModel, String) -> Bool = { _, _ in false }
-    static var planReviewBlocked: (AppModel, String) -> Bool = { _, _ in true }
-    static var terminalEnded: (AppModel, String) -> Bool = { _, _ in true }
-}
 struct MergeQueueView: View {
     let app: AppModel
     let session: Session

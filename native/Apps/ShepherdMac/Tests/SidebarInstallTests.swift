@@ -3,7 +3,9 @@ import Testing
 import ShepherdKit
 
 @testable import Shepherd
+@testable import ShepherdAppCore
 
+extension MacSeamTests {
 /// `SidebarInstall.run(_:)` is the stream's one call site into `StreamRegistrations`, and the
 /// launch task that calls it may run more than once (see `StreamRegistrations`'s own doc comment).
 /// These assert that running it twice leaves the app exactly where running it once would.
@@ -16,7 +18,7 @@ struct SidebarInstallTests {
         let suite = UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
-        return AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        return AppModel(defaults: defaults, credentials: InMemoryCredentialStore(), notifications: MacTestSupport.environment(defaults: defaults))
     }
 
     @Test func runFillsTheSlotAndRegistersTheModelExactlyOnce() {
@@ -50,4 +52,5 @@ struct SidebarInstallTests {
         #expect(model.extension(SidebarModel.self) == nil)
         _ = SidebarSlot.content?(model)
     }
+}
 }

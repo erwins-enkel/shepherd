@@ -2,6 +2,8 @@ import Foundation
 import Testing
 import ShepherdKit
 @testable import Shepherd
+@testable import ShepherdAppCore
+extension MacSeamTests {
 @Suite(.serialized) @MainActor struct SettingsRegistrationTests {
     @Test func sceneRegistrationIsModelFreeAndIdempotent() {
         resetStreamSeams()
@@ -12,7 +14,7 @@ import ShepherdKit
         let suite = "SettingsRegistry-" + UUID().uuidString
         let defaults = UserDefaults(suiteName:suite)!
         defer {defaults.removePersistentDomain(forName:suite)}
-        let app = AppModel(defaults:defaults,credentials:InMemoryCredentialStore())
+        let app = AppModel(defaults:defaults,credentials:InMemoryCredentialStore(), notifications: MacTestSupport.environment(defaults: defaults))
         SettingsFeature.install(app); SettingsFeature.install(app)
         #expect(app.extensionFactories.count == 3)
         let rows = SettingsCommandSearch.rows(query:"",app:app)
@@ -21,4 +23,5 @@ import ShepherdKit
         #expect(SettingsCommandSearch.rows(query:"zzzz_unmatchable",app:app).isEmpty)
         app.teardown()
     }
+}
 }

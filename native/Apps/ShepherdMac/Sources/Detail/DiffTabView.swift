@@ -1,3 +1,4 @@
+import ShepherdAppCore
 import Foundation
 import ShepherdKit
 import SwiftUI

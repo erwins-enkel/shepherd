@@ -1,7 +1,9 @@
 import Foundation
 import Testing
 @testable import Shepherd
+@testable import ShepherdAppCore
 
+extension MacSeamTests {
 @MainActor
 struct FolderPickerTests {
     /// Stand-in that proves the seam exists, so FirstRunSheet never has to reach
@@ -28,4 +30,5 @@ struct FolderPickerTests {
     @Test func theSystemPickerIsTheDefault() {
         #expect(FirstRunSheet().picker is SystemFolderPicker)
     }
+}
 }

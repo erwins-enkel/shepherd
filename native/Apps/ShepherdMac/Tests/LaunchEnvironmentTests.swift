@@ -2,7 +2,9 @@ import Foundation
 import Testing
 
 @testable import Shepherd
+@testable import ShepherdAppCore
 
+extension MacSeamTests {
 /// Parsing only — `LaunchEnvironment` is deliberately side-effect free, so the
 /// switch that keeps automated launches off the Keychain is testable without
 /// launching anything.
@@ -99,7 +101,9 @@ struct LaunchEnvironmentTests {
         #expect(line.contains("example.ts.net") == false)
     }
 }
+}
 
+extension MacSeamTests {
 /// `IsolatedLaunch.sweepOrphanSuites(in:except:isAlive:)` — directory- and
 /// liveness-injected precisely so this can run against a scratch directory
 /// instead of the real `~/Library/Preferences`.
@@ -137,4 +141,5 @@ struct IsolatedLaunchOrphanSweepTests {
         #expect(remaining.contains(notAPlist))
         #expect(!remaining.contains("\(deadOrphan).plist"), "an orphan from a dead process must go")
     }
+}
 }

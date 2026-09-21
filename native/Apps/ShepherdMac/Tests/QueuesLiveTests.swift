@@ -10,6 +10,7 @@ import ShepherdKit
 import Testing
 
 @testable import Shepherd
+@testable import ShepherdAppCore
 
 private enum QueuesLiveGate {
     static var armed: Bool {
@@ -18,6 +19,7 @@ private enum QueuesLiveGate {
     }
 }
 
+extension MacSeamTests {
 @MainActor
 struct QueuesLiveTests {
     @Test("queue snapshots decode against the real server", .enabled(if: QueuesLiveGate.armed))
@@ -90,4 +92,5 @@ struct QueuesLiveTests {
             Issue.record("Could not revoke the token minted by this live queue test.")
         }
     }
+}
 }

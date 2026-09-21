@@ -335,6 +335,36 @@ export function collectTests(root: string): TestIdentity[] {
     throw new Error("duplicate current identity");
   return tests;
 }
+/** Stage 1 adds one enclosing serialization trait, without replacing any old trait.
+ * Restrict the exception to the two prescribed wrappers and unchanged inner suite.
+ * Check this before ordinary equality: otherwise losing inner serialization could
+ * be concealed by the new outer trait producing the old attribute string.
+ */
+function preservedAttributes(old: TestIdentity, dest: TestIdentity): boolean {
+  const wrapper =
+    dest.target === "ShepherdAppCoreTests"
+      ? "CoreSeamTests"
+      : dest.target === "ShepherdTests"
+        ? "MacSeamTests"
+        : undefined;
+  if (/^(CoreSeamTests|MacSeamTests)\./.test(dest.suite)) {
+    // The immutable v1 direct-test capture includes leading @testable import
+    // markers. They are not Swift suite traits; mixed targets now import two
+    // modules. Normalize only that exact historical prefix, only here.
+    const imports = (attributes: string) => attributes.replace(/^(?:@testable\n)+/, "");
+    const attributes = imports(dest.attributes);
+    const outer = "@Suite(.serialized)\n";
+    return (
+      wrapper !== undefined &&
+      old.target === "ShepherdTests" &&
+      dest.suite === `${wrapper}.${old.suite}` &&
+      attributes.startsWith(outer) &&
+      imports(attributes.slice(outer.length)) === imports(old.attributes)
+    );
+  }
+  return dest.attributes === old.attributes;
+}
+
 export function verifyConservation(
   baseline: TestIdentity[],
   current: TestIdentity[],
@@ -364,7 +394,7 @@ export function verifyConservation(
       used.add(id);
       const dest = now.get(id);
       if (!dest) throw new Error("missing destination " + id);
-      if (dest.attributes !== old.attributes || dest.condition !== old.condition)
+      if (!preservedAttributes(old, dest) || dest.condition !== old.condition)
         throw new Error("changed attributes/conditions " + id);
       return dest;
     });

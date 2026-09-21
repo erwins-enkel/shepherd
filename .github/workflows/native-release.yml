@@ -82,7 +82,8 @@ jobs:
         env:
           SHEPHERD_CODESIGN_IDENTITY: "-"
         run: |
-          native/scripts/build-app.sh Release \
+          # Use the tooling checkout's lock: the release tag may predate it.
+          "$GITHUB_WORKSPACE/native/scripts/uitest-lock.sh" native/scripts/build-app.sh Release \
             "MARKETING_VERSION=$APP_VERSION" "CURRENT_PROJECT_VERSION=$BUILD_NUMBER" \
             "SHEPHERD_UPDATE_PUBLIC_KEY=$UPDATE_PUBLIC_KEY" \
             "SHEPHERD_UPDATE_FEED_URL=https://raw.githubusercontent.com/$GITHUB_REPOSITORY/macos-update-feed/appcast.xml" \

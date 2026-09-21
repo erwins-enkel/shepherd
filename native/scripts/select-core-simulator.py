@@ -6,6 +6,8 @@ import sys
 
 
 def select(payload):
+    if not isinstance(payload, dict):
+        raise ValueError("unknown simctl schema: expected object")
     devices = payload.get("devices")
     if not isinstance(devices, dict):
         raise ValueError("unknown simctl schema: missing devices object")
@@ -17,6 +19,8 @@ def select(payload):
         version = tuple(int(part) for part in match[1].split("-"))
         if version[0] < 18:
             continue
+        if not isinstance(entries, list) or any(not isinstance(d, dict) for d in entries):
+            raise ValueError("unknown simctl schema: expected device objects")
         for device in entries:
             name, udid = device.get("name"), device.get("udid")
             if device.get("isAvailable") is True and isinstance(name, str) and name.startswith("iPhone") and isinstance(udid, str) and udid:

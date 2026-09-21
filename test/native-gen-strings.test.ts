@@ -46,16 +46,18 @@ describe("gen-strings core resources", () => {
   });
 
   test("catalog comments preserve the placeholder names", () => {
-    const catalog =
-      buildOutputs()[
-        Object.keys(buildOutputs()).find((path) => path.endsWith("Catalog/Localizable.xcstrings"))!
-      ];
+    const outputs = buildOutputs();
+    const catalogPath = Object.keys(outputs).find((path) =>
+      path.endsWith("Catalog/Localizable.xcstrings"),
+    );
+    const catalog = catalogPath === undefined ? undefined : outputs[catalogPath];
+    if (catalog === undefined) throw new Error("generated core catalog is missing");
     const parsed = JSON.parse(catalog) as {
       strings: Record<string, { comment?: string }>;
     };
-    expect(parsed.strings.native_banner_mismatch.comment).toBe(
-      "%1$@ = serverVersion, %2$@ = appVersion",
-    );
+    const mismatch = parsed.strings.native_banner_mismatch;
+    if (mismatch === undefined) throw new Error("native_banner_mismatch is missing");
+    expect(mismatch.comment).toBe("%1$@ = serverVersion, %2$@ = appVersion");
   });
 
   test("duplicate manifests and unknown German placeholders are rejected", () => {

@@ -239,10 +239,14 @@ CORE_SIMULATOR_UDID="$(python3 native/scripts/select-core-simulator.py "$EVIDENC
 )
 xcrun xcresulttool get test-results summary --path "$EVIDENCE/core-simulator.xcresult" \
   >"$EVIDENCE/core-simulator-summary.json"
-python3 native/scripts/check-core-results.py "$EVIDENCE/core-simulator-summary.json"
+xcrun xcresulttool get test-results tests --path "$EVIDENCE/core-simulator.xcresult" \
+  >"$EVIDENCE/core-simulator-tests.json"
+python3 native/scripts/check-core-results.py \
+  "$EVIDENCE/core-simulator-summary.json" "$EVIDENCE/core-simulator-tests.json" \
+  --parameters native/Tests/Conservation/issue-2431-core-parameters.json
 ~~~
 
-Selector contract: read simctl JSON, accept only available devices named iPhone under iOS runtime keys with version ≥18, sort numeric runtime version descending then name/UDID ascending, print chosen UDID only to stdout and runtime/name to stderr; absence is nonzero. Result checker contract: accept the actual installed xcresulttool summary JSON, require totalTestCount > 0, passedTests > 0, failedTests == 0; print passed/failed/skipped/total. Unknown schema fails rather than assuming zero/missing fields mean success. Compare runtime identities and counts to the mapping too; nonzero alone is insufficient.
+Selector contract: read simctl JSON, accept only available devices named iPhone under iOS runtime keys with version ≥18, sort numeric runtime version descending then name/UDID ascending, print chosen UDID only to stdout and runtime/name to stderr; absence is nonzero. Result checker contract: in JSON mode, accept the actual installed xcresulttool summary and tests JSON plus the tracked parameter inventory, require totalTestCount > 0, passedTests > 0, failedTests == 0, and compare mapped identities and every parameter argument execution; print passed/failed/skipped/total with parameterized declaration and argument-execution counts. It also accepts XML with `--xunit`, but XML aggregates parameter arguments and does not prove individual executions. Unknown schema fails rather than assuming zero/missing fields mean success; nonzero alone is insufficient.
 
 Confirm scheme includes ShepherdAppCoreTests. If generated package scheme lacks tests, commit native/.swiftpm/xcode/xcshareddata/xcschemes/ShepherdAppCore.xcscheme using discovered target identifiers, no iOS app. Disable test parallelization inside scheme/test plan as well. Preserve --no-parallel for SwiftPM and put all global-seam suites in one @Suite(.serialized) enclosing suite for Xcode; independent suite annotations and process serialization alone do not prevent async interleaving.
 

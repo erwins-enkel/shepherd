@@ -111,3 +111,11 @@ open native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app
 The [screenshot tour](screenshots.md) shows these views with real sessions. For workflows not yet
 available in the app, open the web UI of the same Shepherd server. To work on the app itself,
 continue with the [development guide](development.md).
+
+## Install a tester release
+
+Download the DMG from the [Mac releases](https://github.com/erwins-enkel/shepherd/releases?q=macos-),
+open it, and drag Shepherd.app into Applications. Open Shepherd from Applications, then eject
+the image. A direct launch from the image or Downloads also offers to install the app, with
+an option for your account only. See [first installation and updates](app-updates.md#first-installation)
+for existing installations and the ad-hoc beta's Gatekeeper limitations.

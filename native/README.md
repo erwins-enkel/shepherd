@@ -43,7 +43,8 @@ The web UI still has broader coverage. Herd lifecycle stages, plan gates, merge 
 the full new-task composer are being brought to the Mac app. Use the browser for workflows the
 native app doesn't cover yet.
 
-**Current availability:** macOS 15 or newer; build from source with Xcode. The
+**Current availability:** macOS 15 or newer; [download the tester DMG](docs/app-updates.md#first-installation)
+or build from source with Xcode. The
 [getting-started guide](docs/getting-started.md) covers requirements and setup. Connecting to a
 remote Linux server gives you the fully supported server platform; running the server on a Mac
 has [reduced capabilities](../docs/getting-started.md#os-matrix).

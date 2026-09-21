@@ -10,6 +10,7 @@ struct ShepherdApp: App {
     /// profiles. A normal launch builds the model exactly as before.
     private let isolation: IsolatedLaunch?
     private let appUpdater: AppUpdater
+    private let installation: AppInstallationPrompt
 
     init() {
         // Everything the isolated launch needs — the throwaway stores, the
@@ -20,7 +21,8 @@ struct ShepherdApp: App {
         let launch = LaunchEnvironment.configuration()
         let isolation = launch.isIsolated ? IsolatedLaunch(configuration: launch) : nil
         self.isolation = isolation
-        appUpdater = AppUpdater(isIsolated: launch.isIsolated)
+        appUpdater = AppUpdater(isIsolated: launch.isIsolated, startImmediately: false)
+        installation = AppInstallationPrompt(isIsolated: launch.isIsolated)
         let appModel = isolation?.makeModel() ?? AppModel()
         // Settings is a native scene and can be opened before RootView's task.
         // Register its factories against the same model now; AppModel.register is
@@ -35,7 +37,11 @@ struct ShepherdApp: App {
 
     var body: some Scene {
         WindowGroup("Shepherd", id: "main") {
-            RootView(startIsolatedSeed: isolation?.startLiveSeedIfNeeded)
+            RootView(startIsolatedSeed: isolation?.startLiveSeedIfNeeded, prepareLaunch: {
+                if await installation.runIfNeeded() { return false }
+                appUpdater.start()
+                return true
+            })
                 .environment(model)
                 .modifier(SettingsRootModifier(app: model))
                 .frame(minWidth: 900, minHeight: 600)
@@ -76,6 +82,7 @@ struct RootView: View {
     /// owned by the app, not the environment, and this is the one call this
     /// view needs from it.
     var startIsolatedSeed: (() -> Void)? = nil
+    var prepareLaunch: (() async -> Bool)? = nil
 
     var body: some View {
         @Bindable var model = model
@@ -108,6 +115,7 @@ struct RootView: View {
         // call would have missed the activation's first frame. See
         // `IsolatedLaunch.startLiveSeedIfNeeded()`.
         .task {
+            guard await prepareLaunch?() ?? true else { return }
             StreamRegistrations.installAll(into: model)
             startIsolatedSeed?()
             await model.restoreActiveProfile()

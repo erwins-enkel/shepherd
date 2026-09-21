@@ -98,6 +98,12 @@ jobs:
             release-source/native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app \
             "$RUNNER_TEMP/mac-update" "$TOOLS" \
             "https://github.com/$GITHUB_REPOSITORY/releases/download/$MAC_TAG/"
+      - name: Package manual installer
+        if: steps.existing.outputs.published != 'true'
+        run: |
+          native/scripts/package-dmg.sh \
+            release-source/native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app \
+            "$RUNNER_TEMP/mac-update/Shepherd-$BUILD_NUMBER.dmg"
       - name: Retain signed package for publication recovery
         if: steps.existing.outputs.published != 'true'
         uses: actions/upload-artifact@v7
@@ -114,10 +120,11 @@ jobs:
           if ! python3 -c 'import json,os,sys; sys.exit(not any(r["tag_name"] == os.environ["MAC_TAG"] for page in json.load(open(sys.argv[1])) for r in page))' "$RUNNER_TEMP/releases.json"; then
             gh release create "$MAC_TAG" --draft --prerelease --latest=false --target "$SOURCE_SHA" \
               --title "Shepherd for Mac $APP_VERSION" \
-              --notes "Native Mac tester release. Requires macOS 15+. Install Shepherd.app in Applications once; future updates arrive automatically. Ad-hoc signed; not Apple-notarized. Source release: $RELEASE_TAG."
+              --notes "Native Mac tester release. Requires macOS 15+. Download Shepherd-$BUILD_NUMBER.dmg, open it and drag Shepherd.app into Applications. Direct launch also offers installation for all users or your account. Future updates arrive automatically. Ad-hoc signed; not Apple-notarized. Source release: $RELEASE_TAG."
           fi
           gh release view "$MAC_TAG" --json isDraft --jq '.isDraft' | grep -qx true
           gh release upload "$MAC_TAG" "$RUNNER_TEMP/mac-update/Shepherd-$BUILD_NUMBER.zip" \
+            "$RUNNER_TEMP/mac-update/Shepherd-$BUILD_NUMBER.dmg" \
             "$RUNNER_TEMP/mac-update/appcast.xml" --clobber
           gh release edit "$MAC_TAG" --draft=false --latest=false
       - name: Advance the public appcast branch

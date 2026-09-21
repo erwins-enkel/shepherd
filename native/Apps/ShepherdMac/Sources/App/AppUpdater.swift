@@ -22,7 +22,17 @@ final class AppUpdater: ObservableObject {
         return true
     }
 
-    init(isIsolated: Bool, bundle: Bundle = .main) {
+    private let isIsolated: Bool
+    private let bundle: Bundle
+
+    init(isIsolated: Bool, bundle: Bundle = .main, startImmediately: Bool = true) {
+        self.isIsolated = isIsolated
+        self.bundle = bundle
+        if startImmediately { start() }
+    }
+
+    func start() {
+        guard controller == nil else { return }
         guard Self.isConfigured(info: bundle.infoDictionary ?? [:], isIsolated: isIsolated) else { return }
         let controller = SPUStandardUpdaterController(
             startingUpdater: false, updaterDelegate: nil, userDriverDelegate: nil)

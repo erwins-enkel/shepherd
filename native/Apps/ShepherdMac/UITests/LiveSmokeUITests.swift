@@ -368,16 +368,20 @@ final class LiveSmokeUITests: XCTestCase {
         var nextClick = Date.distantPast
         repeat {
             let buttons = tabButtons
-            if index < buttons.count, buttons[index].isHittable, clicks < 2, Date() >= nextClick {
+            if index < buttons.count, buttons[index].exists, buttons[index].isHittable,
+               clicks < 2, Date() >= nextClick {
                 let button = buttons[index]
                 button.click()
                 clicks += 1
                 // A missed AX click can report success before AppKit has selected its tab.
-                // Require the native tab's AX selected state as well as the expected body;
-                // then retry that same tab once inside the original interaction deadline.
+                // Require the target tab and its expected body to be hittable foreground
+                // elements, then retry that same tab once inside the original deadline.
                 nextClick = Date().addingTimeInterval(2)
             }
-            if index < buttons.count, buttons[index].isSelected, expectedBody.exists { return true }
+            if index < buttons.count, buttons[index].exists, buttons[index].isHittable,
+               expectedBody.isHittable {
+                return true
+            }
             Thread.sleep(forTimeInterval: 0.25)
         } while Date() < deadline
         let buttons = tabButtons
@@ -392,7 +396,12 @@ final class LiveSmokeUITests: XCTestCase {
                 + "[index=\(index) count=\(buttons.count) type=\(buttonType) "
                 + "hittable=\(buttonHittable) selected=\(buttonSelected) "
                 + "bodyExists=\(bodyExists) bodyHittable=\(bodyHittable)]")
-        return index < buttons.count && buttons[index].isSelected && expectedBody.exists
+        // SwiftUI's AppKit tab bridge reports `isSelected == false` for the clicked terminal
+        // tab even when both it and `detail-tab-terminal` are hittable. Body existence alone
+        // is insufficient because TabView retains visited children; paired hittability proves
+        // this indexed control and its body are both in the foreground.
+        return index < buttons.count && buttons[index].exists && buttons[index].isHittable
+            && expectedBody.isHittable
     }
 
     /// Waits for one detail tab's body to leave `detail-state-loading`.

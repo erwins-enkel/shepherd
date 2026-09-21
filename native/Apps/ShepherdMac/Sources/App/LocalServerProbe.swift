@@ -1,4 +1,5 @@
 import Foundation
+import ShepherdKit
 
 enum LocalServerStatus: Sendable, Equatable {
     case found(version: String)
@@ -10,11 +11,6 @@ enum LocalServerStatus: Sendable, Equatable {
 /// no token and no profile are needed.
 struct LocalServerProbe: Sendable {
     static let defaultURL = URL(string: "http://127.0.0.1:7330/api/health")!
-
-    private struct Health: Decodable {
-        let ok: Bool
-        let version: String
-    }
 
     private let session: URLSession
 
@@ -35,8 +31,8 @@ struct LocalServerProbe: Sendable {
                 Log.connect.debug("local probe: non-200")
                 return .absent
             }
-            let health = try JSONDecoder().decode(Health.self, from: data)
-            guard health.ok else { return .absent }
+            let health = try JSONDecoder().decode(Components.Schemas.Health.self, from: data)
+            guard health.ok, !health.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .absent }
             Log.connect.info("local server found, version \(health.version, privacy: .public)")
             return .found(version: health.version)
         } catch {

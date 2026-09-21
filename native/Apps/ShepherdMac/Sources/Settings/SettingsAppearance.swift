@@ -34,6 +34,12 @@ struct SettingsStatusShape: ViewModifier {
     static let shared = SettingsPresentation()
     var palette = false
     var openSettingsRequest = 0
+    var requestedPane: String?
+    func requestPane(_ id: String) {
+        guard SettingsPaneRegistry.panes.contains(where: { $0.id == id }) else { return }
+        requestedPane = id
+        openSettingsRequest += 1
+    }
 }
 struct SettingsAppearanceView: View {
     @AppStorage("native.appearance.theme") private var theme = "system"

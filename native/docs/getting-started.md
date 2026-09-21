@@ -62,8 +62,23 @@ Run commands from the repository root.
    See [Build](#build) and [Run](#run).
 
 5. Connect to a server. On first launch the app offers two ways in:
-   - **Run on this Mac** — the local panel supervises `~/.shepherd/app`, or detects a server
-     already listening on port 7330 and uses that instead.
+   - **Run on this Mac** — choose **Install and start** for a cold install. The app downloads
+     the official HTTPS bootstrap when no checkout installer exists, shows its progress in
+     the log, then starts the installed server. The bootstrap provisions Bun and checks its
+     prerequisites; Bun does not need to be installed before choosing this action.
+     The default install directory is `~/.shepherd/app`. `SHEPHERD_DIR` and `SHEPHERD_DB`
+     from the process environment, overlaid by `~/.shepherd/env`, select another install or
+     database. `SHEPHERD_PORT` selects the local endpoint for health checks and sign-in;
+     a different port gets its own saved profile and credential. HOME remains your home
+     directory; `SHEPHERD_REF` is preserved. These settings
+     are resolved when the app's local supervisor is created, so relaunch after changing them.
+     A server already answering locally is shown with its reported install and database paths.
+     Older servers that do not report paths are explicitly marked unknown. Choose **Keep using
+     this server** before connecting; a changed identity or a failed recheck clears that choice.
+     To stop an external server, use the terminal or service manager that started it, then
+     **Recheck**. Only an app-owned child with matching launch identity gets Stop and Restart.
+     The native supervisor supplies ephemeral local-health metadata only on loopback; ordinary
+     server health responses do not disclose install or database paths.
    - **A remote profile** — the server URL must be `https`, or `http` to loopback or a
      `.ts.net` (Tailscale) name; anything else is rejected. Enter the operator password once —
      the app signs in and mints its own access token, which it stores itself rather than

@@ -55,6 +55,7 @@ enum SettingsPaneRegistry {
 /// single-tab detail pane.
 struct SettingsSceneView: View {
     @Environment(AppModel.self) private var app
+    @State private var selection = "general"
 
     var body: some View {
         Group {
@@ -70,16 +71,26 @@ struct SettingsSceneView: View {
                 .padding(32)
                 .accessibilityIdentifier("settings-placeholder")
             case .panes:
-                TabView {
+                TabView(selection: $selection) {
                     ForEach(SettingsPaneRegistry.panes, id: \.id) { pane in
                         pane.makeView(app: app)
-                            .tabItem { Label(pane.title, systemImage: pane.systemImage) }
+                            .tabItem {
+                                Label { Text(pane.title) } icon: { Image(systemName: pane.systemImage) }
+                            }
                             .tag(pane.id)
                     }
                 }
                 .accessibilityIdentifier("settings-panes")
             }
         }
+        .onAppear { applyRequestedPane() }
+        .onChange(of: SettingsPresentation.shared.openSettingsRequest) { applyRequestedPane() }
         .frame(minWidth: 520, minHeight: 360)
+    }
+    private func applyRequestedPane() {
+        guard let id = SettingsPresentation.shared.requestedPane,
+              SettingsPaneRegistry.panes.contains(where: { $0.id == id }) else { return }
+        selection = id
+        SettingsPresentation.shared.requestedPane = nil
     }
 }

@@ -9,11 +9,30 @@ struct SettingsDiagnoseView: View {
     var body: some View {
         ScrollView {
             VStack(alignment:.leading,spacing:12) {
+                if let recovery = model.recovery,
+                   recovery.serverReachable == false || recovery.diagnosis(for: nil) == .runnerUnavailable {
+                    BackendRecoveryPanel(failure: recovery.diagnosis(for: nil))
+                }
+                if let recovery = model.recovery, recovery.diagnostics == nil {
+                    if let error = recovery.diagnosticsError {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(L.t("native_settings_diagnostics_failed_title")).font(.headline)
+                                .accessibilityIdentifier("diagnostics-unavailable-title")
+                            Text(L.t("native_settings_diagnostics_failed_body", error))
+                                .accessibilityIdentifier("diagnostics-unavailable-summary")
+                            Button(L.t("native_settings_refresh_diagnostics")) {
+                                Task { await recovery.refresh() }
+                            }.accessibilityIdentifier("diagnostics-unavailable-action")
+                        }
+                    } else {
+                        ProgressView(L.t("native_settings_diagnostics_loading"))
+                    }
+                }
                 if let error = model.error { Text(verbatim:error).foregroundStyle(.red) }
                 Button(L.t("native_settings_refresh_diagnostics")) {
-                    model.run({ try await client.getDiagnostics(refresh:"1") },commit:{ model.replaceDiagnostics($0) })
+                    Task { await model.recovery?.refresh() }
                 }
-                ForEach(model.snapshot?.diagnostics.checks ?? [],id:\.id) { check in
+                ForEach(model.diagnostics?.checks ?? [],id:\.id) { check in
                     GroupBox {
                         VStack(alignment:.leading) {
                             Text(verbatim: SettingsDiagnosticCopy.label(check.id) + " · "
@@ -47,7 +66,7 @@ struct SettingsDiagnoseView: View {
                     Button(L.t("common_cancel")) { fix = nil }.keyboardShortcut(.cancelAction)
                     Button(L.t("native_settings_fix")) {
                         let id = check.id; fix = nil
-                        model.run({try await client.fixDiagnostics(body:.init(checkId:id))},commit:{model.replaceDiagnostics($0)})
+                        Task { await model.runDiagnostic { try await client.fixDiagnostics(body: .init(checkId: id)) } }
                     }
                 }.padding()
             }

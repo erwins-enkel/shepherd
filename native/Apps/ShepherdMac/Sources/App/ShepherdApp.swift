@@ -21,7 +21,12 @@ struct ShepherdApp: App {
         let isolation = launch.isIsolated ? IsolatedLaunch(configuration: launch) : nil
         self.isolation = isolation
         appUpdater = AppUpdater(isIsolated: launch.isIsolated)
-        _model = State(initialValue: isolation?.makeModel() ?? AppModel())
+        let appModel = isolation?.makeModel() ?? AppModel()
+        // Settings is a native scene and can be opened before RootView's task.
+        // Register its factories against the same model now; AppModel.register is
+        // idempotent and builds them immediately if an activation already exists.
+        SettingsFeature.install(appModel)
+        _model = State(initialValue: appModel)
         // Before `body` is first evaluated — see StreamRegistrations.installScene().
         StreamRegistrations.installScene()
         SettingsPaneRegistry.register(AppUpdateSettingsPane(updater: appUpdater))
@@ -29,7 +34,7 @@ struct ShepherdApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Shepherd") {
+        WindowGroup("Shepherd", id: "main") {
             RootView(startIsolatedSeed: isolation?.startLiveSeedIfNeeded)
                 .environment(model)
                 .modifier(SettingsRootModifier(app: model))

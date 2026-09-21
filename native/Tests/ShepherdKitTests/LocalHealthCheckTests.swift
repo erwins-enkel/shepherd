@@ -29,6 +29,11 @@ import Testing
     #expect(LocalHealthCheck(port: 7331).url.absoluteString == "http://127.0.0.1:7331/api/health")
   }
 
+  @Test func missingOrEmptyVersionCannotCertifyAServer() async {
+    #expect(await check(body(#"{"ok":true}"#)) == false)
+    #expect(await check(body(#"{"ok":true,"version":""}"#)) == false)
+  }
+
   @Test func okTrueIsHealthyAndNothingElseIs() async {
     #expect(await check(body(#"{"ok":true,"version":"3.41.0"}"#)) == true)
     #expect(await check(body(#"{"ok":false,"version":"3.41.0"}"#)) == false)

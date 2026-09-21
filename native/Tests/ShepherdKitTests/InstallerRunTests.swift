@@ -1,6 +1,7 @@
 #if os(macOS)
 import Foundation
 import Testing
+import Synchronization
 @testable import ShepherdKit
 
 @Suite(.serialized, .timeLimit(.minutes(1))) struct InstallerRunTests {
@@ -35,6 +36,58 @@ import Testing
     """.write(to: script, atomically: true, encoding: .utf8)
     try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
     return (script, home)
+  }
+
+  @Test func coldInstallDownloadsRunsAndCleansItsScriptWithExplicitHome() async throws {
+    let home = try makeTempHome()
+    defer { try? FileManager.default.removeItem(at: home) }
+    let config = home.appendingPathComponent(".shepherd/env")
+    try FileManager.default.createDirectory(at: config.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try "SHEPHERD_DIR=\(home.path)/custom app\nSHEPHERD_REF=preview\n".write(to: config, atomically: true, encoding: .utf8)
+    let log = LogRing()
+    let run = InstallerRun(environment: LocalServerEnvironment(home: home), log: log, download: { request in
+      #expect(request.url?.scheme == "https")
+      #expect(request.timeoutInterval > 0 && request.timeoutInterval <= 60)
+      return (Data("#!/bin/bash\necho home=$HOME\necho dir=$SHEPHERD_DIR\necho ref=$SHEPHERD_REF\necho script=$0\n".utf8),
+              HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+    })
+    expectSuccess(await run.run())
+    let lines = await log.lines
+    #expect(lines.contains("home=\(home.path)"))
+    #expect(lines.contains("dir=\(home.path)/custom app"))
+    #expect(lines.contains("ref=preview"))
+    let script = try #require(lines.first { $0.hasPrefix("script=") })
+    #expect(!FileManager.default.fileExists(atPath: String(script.dropFirst(7))))
+  }
+
+  @Test func downloadErrorsAndHTMLAreNeverExecuted() async throws {
+    let home = try makeTempHome()
+    defer { try? FileManager.default.removeItem(at: home) }
+    for (status, body) in [(500, "#!/bin/bash\necho EXECUTED"), (200, "<html>error</html>")] {
+      let log = LogRing()
+      let run = InstallerRun(environment: LocalServerEnvironment(home: home), log: log, download: { request in
+        (Data(body.utf8), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
+      })
+      guard case .failure = await run.run() else { Issue.record("download must fail"); continue }
+      #expect(await log.lines.contains("EXECUTED") == false)
+    }
+  }
+
+  @Test func cancellingDuringDownloadDoesNotLaunchAnInstaller() async throws {
+    let home = try makeTempHome()
+    defer { try? FileManager.default.removeItem(at: home) }
+    let downloading = Mutex(false)
+    let log = LogRing()
+    let run = InstallerRun(environment: LocalServerEnvironment(home: home), log: log, download: { request in
+      downloading.withLock { $0 = true }
+      try await Task.sleep(for: .seconds(30))
+      return (Data("#!/bin/bash\necho EXECUTED".utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+    })
+    let task = Task { await run.run() }
+    try await waitUntil { downloading.withLock { $0 } }
+    task.cancel()
+    guard case .failure = await task.value else { Issue.record("cancel must fail"); return }
+    #expect(await log.lines.contains("EXECUTED") == false)
   }
 
   @Test func aSuccessfulRunStreamsItsOutputAndSucceeds() async throws {

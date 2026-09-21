@@ -72,6 +72,7 @@ struct ComposeSheetContent: View {
             }
             if let audit = app.liveRequestAudit { LiveRequestAuditView(audit: audit) }
             if submission.slow { spawnPanel }
+            if let failure = submission.recoveryFailure { BackendRecoveryPanel(failure: failure) }
             if let message = submission.message { Text(verbatim: message).font(.callout).textSelection(.enabled) }
             ComposeFooter(readiness: readiness, repoName: repo?.name, branch: model.repoBranches, held: revealing, submit: submit)
         }
@@ -106,7 +107,7 @@ struct ComposeSheetContent: View {
         guard current else { return }
         Task {
             let session = await submission.submit(model: model, repoResolved: repo != nil, holdLikely: holdLikely,
-                force: force, events: store.events(), create: { try await store.client.createSession($0, spawnID: $1) },
+                force: force, events: store.events(), recovery: app.extension(BackendRecoveryModel.self), create: { try await store.client.createSession($0, spawnID: $1) },
                 onHeld: { app.sheet = nil }, isCurrent: { current })
             if let session, current {
                 store.apply(.sessionNew(session))

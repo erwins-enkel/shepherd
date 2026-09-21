@@ -17,6 +17,44 @@ func makeExecutable(_ url: URL) throws {
 }
 
 @Suite(.timeLimit(.minutes(1))) struct LocalServerEnvironmentTests {
+  @Test func customInstallAndDatabaseKeepExplicitHome() throws {
+    let home = try makeTempHome()
+    defer { try? FileManager.default.removeItem(at: home) }
+    let config = home.appendingPathComponent(".shepherd/env")
+    try FileManager.default.createDirectory(at: config.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try "SHEPHERD_DIR=\(home.path)/custom app\nSHEPHERD_DB=state/custom.db\nSHEPHERD_REF=preview\n".write(to: config, atomically: true, encoding: .utf8)
+    let env = LocalServerEnvironment(home: home)
+    #expect(env.appDirectory.path == home.appendingPathComponent("custom app").path)
+    let spawn = env.spawnEnvironment(bun: URL(fileURLWithPath: "/bin/bun"))
+    #expect(spawn["HOME"] == home.path)
+    #expect(spawn["SHEPHERD_DB"] == home.appendingPathComponent("custom app/state/custom.db").path)
+    #expect(spawn["SHEPHERD_REF"] == "preview")
+    try "SHEPHERD_DIR=/changed\n".write(to: config, atomically: true, encoding: .utf8)
+    #expect(env.spawnEnvironment(bun: URL(fileURLWithPath: "/bin/bun"))["SHEPHERD_REF"] == "preview")
+  }
+
+  @Test func anInvalidPortCannotCrashTheNativeHealthURL() throws {
+    let home = try makeTempHome()
+    defer { try? FileManager.default.removeItem(at: home) }
+    for port in ["-1", "65536", "not-a-port"] {
+      let environment = LocalServerEnvironment(home: home, processEnvironment: ["SHEPHERD_PORT": port])
+      #expect(environment.port == 7330)
+      // Keep the invalid launch value: the server's existing validation reports it.
+      #expect(environment.childEnvironment()["SHEPHERD_PORT"] == port)
+    }
+  }
+
+  @Test func relativeRunnerSocketResolvesAgainstTheInstallDirectoryForEveryChild() throws {
+    let home = try makeTempHome()
+    defer { try? FileManager.default.removeItem(at: home) }
+    let install = home.appendingPathComponent("separate install", isDirectory: true)
+    let environment = LocalServerEnvironment(home: home, processEnvironment: [
+      "SHEPHERD_DIR": install.path, "HERDR_SOCKET_PATH": "state/../runner.sock",
+    ])
+    #expect(environment.childEnvironment()["HERDR_SOCKET_PATH"] == install.appendingPathComponent("runner.sock").path)
+    #expect(environment.spawnEnvironment(bun: URL(fileURLWithPath: "/fake/bun"))["HERDR_SOCKET_PATH"] == install.appendingPathComponent("runner.sock").path)
+  }
+
   @Test func pathsFollowTheInstallerDefaults() throws {
     let home = try makeTempHome()
     defer { try? FileManager.default.removeItem(at: home) }
@@ -99,7 +137,8 @@ func makeExecutable(_ url: URL) throws {
       at: env.envFilePath.deletingLastPathComponent(), withIntermediateDirectories: true)
     try "SHEPHERD_PORT=7331\n".write(to: env.envFilePath, atomically: true, encoding: .utf8)
 
-    let spawn = env.spawnEnvironment(bun: URL(fileURLWithPath: "/opt/bun/bin/bun"))
+    let resolved = LocalServerEnvironment(home: home, pathEntries: ["/usr/bin"])
+    let spawn = resolved.spawnEnvironment(bun: URL(fileURLWithPath: "/opt/bun/bin/bun"))
     #expect(spawn["SHEPHERD_HOST"] == "127.0.0.1")
     #expect(spawn["SHEPHERD_PORT"] == "7331")  // operator override survives
     #expect(spawn["HOME"] == home.path)

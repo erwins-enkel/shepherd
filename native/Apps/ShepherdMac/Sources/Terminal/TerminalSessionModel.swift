@@ -25,6 +25,9 @@ final class TerminalSessionModel {
     var promptText: String = ""
     private(set) var promptBusy = false
     private(set) var promptError: String?
+    private(set) var recoveryFailure: BackendFailure = .undetermined
+    private let recovery: BackendRecoveryModel?
+    private var recoveryTask: Task<Void, Never>?
 
     /// Set by the SwiftTerm view: raw bytes to feed the emulator. Anything that
     /// arrives before it is set is buffered, because the first bytes of an
@@ -55,6 +58,12 @@ final class TerminalSessionModel {
     let sessionID: String
     let allowsInput: Bool
 
+    private(set) var sessionRecoveryBusy = false
+    private(set) var sessionRecoveryError: String?
+    private let readSession: @MainActor () async throws -> Session
+    private let resumeSession: @MainActor () async throws -> Void
+    private let reloadSessions: @MainActor () async throws -> Void
+
     private let reply: @Sendable (String) async throws -> Void
     private let makeAttachment: @MainActor (Int, Int) -> any PTYAttaching
     private var attachment: (any PTYAttaching)?
@@ -75,9 +84,17 @@ final class TerminalSessionModel {
     init(
         sessionID: String,
         allowsInput: Bool = true,
+        recovery: BackendRecoveryModel? = nil,
+        readSession: @escaping @MainActor () async throws -> Session = { throw ShepherdError.notFound },
+        resumeSession: @escaping @MainActor () async throws -> Void = {},
+        reloadSessions: @escaping @MainActor () async throws -> Void = {},
         reply: @escaping @Sendable (String) async throws -> Void,
         makeAttachment: @escaping @MainActor (Int, Int) -> any PTYAttaching
     ) {
+        self.readSession = readSession
+        self.resumeSession = resumeSession
+        self.reloadSessions = reloadSessions
+        self.recovery = recovery
         self.sessionID = sessionID
         self.allowsInput = allowsInput
         self.reply = reply
@@ -86,11 +103,15 @@ final class TerminalSessionModel {
 
     /// The app's wiring: reply through the store's client, attach over a real
     /// socket.
-    convenience init(sessionID: String, store: SessionStore, allowsInput: Bool = true) {
+    convenience init(sessionID: String, store: SessionStore, allowsInput: Bool = true, recovery: BackendRecoveryModel? = nil) {
         let client = store.client
         self.init(
             sessionID: sessionID,
             allowsInput: allowsInput,
+            recovery: recovery,
+            readSession: { try await client.session(id: sessionID) },
+            resumeSession: { _ = try await client.resume(sessionID: sessionID) },
+            reloadSessions: { try await store.refresh() },
             reply: { text in try await client.replySession(id: sessionID, text: text) },
             makeAttachment: { cols, rows in
                 LivePTYAttachment(client: client, sessionID: sessionID, cols: cols, rows: rows)
@@ -140,6 +161,7 @@ final class TerminalSessionModel {
     /// cleared: the next `attach()` restores it instead of opening a second
     /// socket.
     func detach() {
+        recoveryTask?.cancel(); recoveryTask = nil
         generation += 1
         for pump in pumps { pump.cancel() }
         pumps = []
@@ -156,16 +178,15 @@ final class TerminalSessionModel {
         // nothing, so leaving it set would lock the prompt bar for good.
         promptBusy = false
         promptError = nil
+        sessionRecoveryBusy = false
+        sessionRecoveryError = nil
     }
 
     /// Re-attach on the operator's say-so. Keeps the same attachment, so the
     /// existing pumps stay valid.
     ///
-    /// This is the only way out of `.superseded` **and** of either `.ended`
-    /// verdict: the kit parks on all three and makes `start()` a no-op while
-    /// parked, so nothing re-enters a takeover war or an `agent_not_found` loop
-    /// behind the operator's back. `.gone` and `.unreachable` stay distinct
-    /// phases — the copy behind them differs — but both are recoverable here.
+    /// Gone sessions use `recoverGoneSession()` first; opening the same missing
+    /// PTY without an authoritative read and successful resume cannot recover it.
     func takeOver() {
         guard allowsInput else { return }
         parked = nil
@@ -177,6 +198,46 @@ final class TerminalSessionModel {
         }
         phase = .connecting
         attachment.takeOver()
+    }
+
+    /// Explicit operator recovery, distinct from reclaiming a superseded socket.
+    /// Reuse the Action Bar's resume eligibility and API; never spawn on a close frame.
+    func recoverGoneSession() async {
+        guard allowsInput, phase == .ended(.gone), !sessionRecoveryBusy else { return }
+        let mine = generation
+        sessionRecoveryBusy = true
+        sessionRecoveryError = nil
+        defer { if generation == mine { sessionRecoveryBusy = false } }
+        func current() -> Bool { generation == mine && !Task.isCancelled }
+        do {
+            let session: Session
+            do { session = try await readSession() }
+            catch ShepherdError.notFound {
+                guard current() else { return }
+                try await reloadSessions()
+                guard current() else { return }
+                sessionRecoveryError = L.t("native_terminal_session_unavailable")
+                return
+            }
+            guard current() else { return }
+            if session.status.known == .archived {
+                try await reloadSessions()
+                guard current() else { return }
+                sessionRecoveryError = L.t("native_terminal_session_unavailable")
+                return
+            }
+            guard ActionRules.allows(.resume, session: session,
+                now: Int(Date().timeIntervalSince1970 * 1000)) else {
+                sessionRecoveryError = L.t("native_terminal_session_not_resumable")
+                return
+            }
+            try await resumeSession()
+            guard current() else { return }
+            takeOver()
+        } catch {
+            guard current() else { return }
+            sessionRecoveryError = L.t("native_terminal_recovery_failed", ShepherdErrorCopy.message(error))
+        }
     }
 
     func send(_ bytes: Data) {
@@ -249,6 +310,17 @@ final class TerminalSessionModel {
             phase = .idle
         case .closed(let closure):
             phase = .ended(closure)
+            recoveryFailure = BackendRecovery.classify(serverReachable: nil, diagnostics: nil, closure: closure)
+            if closure == .unreachable, let recovery {
+                let mine = generation
+                recoveryTask?.cancel()
+                recoveryTask = Task { [weak self] in
+                    await recovery.refresh()
+                    guard let self, self.generation == mine, self.phase == .ended(.unreachable),
+                          !Task.isCancelled else { return }
+                    self.recoveryFailure = recovery.diagnosis(for: closure)
+                }
+            }
         }
     }
 }

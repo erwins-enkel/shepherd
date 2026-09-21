@@ -24,19 +24,27 @@ public struct LocalHealthCheck: Sendable {
     self.load = load
   }
 
-  private struct Health: Decodable { let ok: Bool }
-
   /// Short timeout: this runs in a poll loop while the operator watches a
   /// spinner. Any failure at all reads as "not healthy yet".
-  public func callAsFunction() async -> Bool {
+  public func callAsFunction(expectedIdentity: LocalServerIdentity? = nil) async -> Bool {
+    guard let health = await read() else { return false }
+    guard let expectedIdentity else { return true }
+    guard let actual = health.localInstall else { return false }
+    return expectedIdentity.matches(LocalServerIdentity(actual))
+  }
+
+  /// Generated contract decoding shared by discovery and owned-child readiness.
+  public func read() async -> Components.Schemas.Health? {
     var request = URLRequest(url: url)
     request.timeoutInterval = timeout
     request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
     do {
       let (data, response) = try await load(request)
-      guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return false }
-      return try JSONDecoder().decode(Health.self, from: data).ok
-    } catch { return false }
+      guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return nil }
+      let health = try JSONDecoder().decode(Components.Schemas.Health.self, from: data)
+      guard health.ok, !health.version.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+      return health
+    } catch { return nil }
   }
 }
 #endif

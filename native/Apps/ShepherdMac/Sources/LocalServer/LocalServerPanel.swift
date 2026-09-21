@@ -7,6 +7,7 @@ import ShepherdKit
 struct LocalServerPanelState: Equatable {
     let state: LocalServerState
     let busy: Bool
+    var externalAcknowledged = false
 
     var statusText: String { LocalServerCopy.label(for: state) }
     private var isFailed: Bool { if case .failed = state { return true }; return false }
@@ -32,7 +33,7 @@ struct LocalServerPanelState: Equatable {
     var canStart: Bool { !busy && showsStart }
     var canStop: Bool { !busy && showsStop }
     var canRestart: Bool { !busy && showsRestart }
-    var canConnect: Bool { !busy && (state.isRunning || state == .externallyManaged) }
+    var canConnect: Bool { !busy && (state.isRunning || (state == .externallyManaged && externalAcknowledged)) }
     var isBusyState: Bool { busy || state == .installing || state == .starting }
 }
 
@@ -42,16 +43,21 @@ struct LocalServerPanelState: Equatable {
 struct LocalServerPanel: View {
     let model: LocalServerModel
     let app: AppModel
+    var onConnect: (() -> Void)? = nil
 
     @State private var showingLog = false
 
     private var panel: LocalServerPanelState {
-        LocalServerPanelState(state: model.state, busy: model.busy)
+        LocalServerPanelState(state: model.state, busy: model.busy, externalAcknowledged: model.externalAcknowledged)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             statusLine
+            if model.state == .externallyManaged { externalNotice }
+            if let failure = model.runnerFailure {
+                Text(verbatim: LocalServerCopy.message(for: failure)).font(.callout).foregroundStyle(.orange)
+            }
             if let password = model.capturedPassword { passwordNotice(password) }
             controls
             logDisclosure
@@ -77,7 +83,8 @@ struct LocalServerPanel: View {
 
     private var symbol: String {
         switch model.state {
-        case .running, .externallyManaged: "checkmark.circle.fill"
+        case .running: "checkmark.circle.fill"
+        case .externallyManaged: "exclamationmark.triangle.fill"
         case .failed: "exclamationmark.triangle.fill"
         default: "circle"
         }
@@ -85,10 +92,37 @@ struct LocalServerPanel: View {
 
     private var tint: Color {
         switch model.state {
-        case .running, .externallyManaged: .green
+        case .running: .green
+        case .externallyManaged: .orange
         case .failed: .orange
         default: .secondary
         }
+    }
+
+    private var externalNotice: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(verbatim: L.t("native_local_external_title")).font(.callout.weight(.semibold))
+                .accessibilityIdentifier("local-external-title")
+            Text(verbatim: L.t("native_local_external_summary"))
+                .font(.caption).fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("local-external-summary")
+            Text(verbatim: L.t("native_local_external_app", model.externalIdentity?.appDirectory ?? L.t("native_local_path_unknown")))
+                .font(.caption).textSelection(.enabled)
+            Text(verbatim: L.t("native_local_external_database", model.externalIdentity?.databasePath ?? L.t("native_local_path_unknown")))
+                .font(.caption).textSelection(.enabled)
+            if !model.externalAcknowledged {
+                Button(L.t("native_local_external_keep"), action: model.acknowledgeExternalServer)
+                    .disabled(model.busy).accessibilityIdentifier("local-external-keep")
+            }
+            DisclosureGroup(L.t("native_local_external_stop_title")) {
+                Text(verbatim: L.t("native_local_external_stop_body"))
+                    .font(.caption).fixedSize(horizontal: false, vertical: true)
+                Button(L.t("native_local_recheck")) { Task { await model.refresh() } }
+                    .disabled(model.busy).accessibilityIdentifier("local-external-recheck")
+            }
+        }
+        .padding(10)
+        .background(.orange.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
     }
 
     /// Shown once, never persisted (D4). The body names the way back —
@@ -162,7 +196,9 @@ struct LocalServerPanel: View {
                     .accessibilityIdentifier("local-restart")
             }
             Spacer(minLength: 8)
-            Button(L.t("native_local_connect")) { model.connect(app) }
+            Button(L.t("native_local_connect")) {
+                if let onConnect { onConnect() } else { model.connect(app) }
+            }
                 .buttonStyle(.borderedProminent)
                 .disabled(!panel.canConnect)
                 .accessibilityIdentifier("local-connect")

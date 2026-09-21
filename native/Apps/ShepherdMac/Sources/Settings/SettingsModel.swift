@@ -4,7 +4,7 @@ import ShepherdKit
 
 struct SettingsSnapshot: Sendable {
     var settings: Components.Schemas.Settings
-    var diagnostics: DiagnosticsSnapshot
+    var diagnostics: DiagnosticsSnapshot?
     var usage: UsageLimits?
     var repos: [Components.Schemas.Repo]
 }
@@ -15,10 +15,9 @@ struct SettingsReads: Sendable {
         let client = store.client
         return .init(snapshot: {
             async let settings = client.settings()
-            async let diagnostics = client.getDiagnostics()
             async let usage = client.usage()
             async let repos = client.repos()
-            return try await .init(settings: settings, diagnostics: diagnostics,
+            return try await .init(settings: settings, diagnostics: nil,
                 usage: usage.limits, repos: repos.repos)
         }, reconcile: { try await store.refresh() })
     }
@@ -46,6 +45,9 @@ struct SettingsReads: Sendable {
     var directories: DirectoryListing?
     var verification: KeyVerification?
     let tokens = SettingsTokensModel()
+    @ObservationIgnored private var suppliedRecovery: BackendRecoveryModel?
+    var recovery: BackendRecoveryModel? { suppliedRecovery ?? app?.extension(BackendRecoveryModel.self) }
+    var diagnostics: DiagnosticsSnapshot? { recovery?.diagnostics ?? snapshot?.diagnostics }
     @ObservationIgnored private let reads: SettingsReads
     @ObservationIgnored private weak var app: AppModel?
     @ObservationIgnored private var generation = 0
@@ -55,7 +57,9 @@ struct SettingsReads: Sendable {
     @ObservationIgnored private var writeTask: Task<Void,Never>?
     @ObservationIgnored private var watcher: Task<Void,Never>?
     @ObservationIgnored private var wake: AsyncStream<Void>.Continuation?
-    init(reads: SettingsReads) { self.reads = reads }
+    init(reads: SettingsReads, recovery: BackendRecoveryModel? = nil) {
+        self.reads = reads; suppliedRecovery = recovery
+    }
     init(store: SessionStore, app: AppModel) {
         self.app = app; reads = .live(store)
         let activation = app.activationGeneration
@@ -64,7 +68,6 @@ struct SettingsReads: Sendable {
             for await event in store.events() {
                 guard let self, !self.stopped, self.app?.activationGeneration == activation,
                     !Task.isCancelled else { return }
-                if case .unknown(let name, _) = event, name == "diagnostics:status" { self.reload() }
                 if case .usageLimits = event { self.reload() }
             }
         }
@@ -141,7 +144,25 @@ struct SettingsReads: Sendable {
             }
         }
     }
-    func replaceDiagnostics(_ value: DiagnosticsSnapshot) { snapshot?.diagnostics = value }
+    /// A successful diagnostic fix is useful even when unrelated settings reads fail.
+    func runDiagnostic(_ operation: @Sendable () async throws -> DiagnosticsSnapshot) async {
+        guard !stopped, !busy else { return }
+        busy = true; error = nil
+        let activation = app?.activationGeneration
+        defer { if !stopped, app?.activationGeneration == activation { busy = false } }
+        do {
+            let value = try await operation()
+            guard !stopped, app?.activationGeneration == activation, !Task.isCancelled else { return }
+            replaceDiagnostics(value)
+        } catch {
+            guard !stopped, app?.activationGeneration == activation, !Task.isCancelled else { return }
+            self.error = L.t("native_settings_action_failed")
+        }
+    }
+    func replaceDiagnostics(_ value: DiagnosticsSnapshot) {
+        if let recovery { recovery.replaceDiagnostics(value) }
+        else { snapshot?.diagnostics = value }
+    }
     func patch(_ body: SettingsPatch, client: ShepherdClient) {
         run { try await client.patchSettings(body: body) }
     }
@@ -205,6 +226,7 @@ struct SettingsReads: Sendable {
         wake?.finish(); wake = nil
         tap?.cancel(); loadTask?.cancel(); writeTask?.cancel(); watcher?.cancel()
         tap = nil; loadTask = nil; writeTask = nil; watcher = nil
+        suppliedRecovery = nil
         tokens.close(); snapshot = nil; repoConfig = nil; roles = nil; collaborators = nil
         directories = nil; verification = nil; repo = ""; busy = false; error = nil; app = nil
     }

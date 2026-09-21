@@ -68,21 +68,18 @@ struct TerminalPane: View {
     /// happen.
     @ViewBuilder
     private func endedCard(for closure: PTYConnection.Closure) -> some View {
-        switch closure {
-        case .gone:
-            statusCard(
-                title: L.t("native_terminal_ended_title"),
-                body: L.t("native_terminal_ended_body"),
-                action: nil,
-                systemImage: "moon.zzz"
-            )
-        default:
-            statusCard(
-                title: L.t("native_terminal_unreachable_title"),
-                body: L.t("native_terminal_unreachable_body"),
-                action: (L.t("common_retry"), { model.takeOver() }),
-                systemImage: "exclamationmark.triangle"
-            )
+        VStack(spacing: 8) {
+            BackendRecoveryPanel(failure: closure == .gone ? .sessionGone : model.recoveryFailure,
+                reopen: {
+                    if closure == .gone { Task { await model.recoverGoneSession() } }
+                    else { model.takeOver() }
+                })
+                .disabled(model.sessionRecoveryBusy)
+            if model.sessionRecoveryBusy { ProgressView() }
+            if let error = model.sessionRecoveryError {
+                Text(verbatim: error).foregroundStyle(.red)
+                    .accessibilityIdentifier("terminal-recovery-error")
+            }
         }
     }
 

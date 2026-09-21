@@ -14,6 +14,21 @@ import Testing
             loadEpics: { _ in .init(epics: [], subIssues: []) })
     }
 
+    @Test func failedCreatePreservesDraftAndDiagnosesWithoutResubmitting() async {
+        let model = composer()
+        model.repoPath = "/repo"; model.prompt = "preserve this draft"
+        let recovery = BackendRecoveryModel(reads: .init(health: { false }, diagnostics: { throw ShepherdError.transport("offline") }))
+        let submission = ComposeSubmission()
+        var creates = 0
+        _ = await submission.submit(model: model, repoResolved: true, holdLikely: false,
+            recovery: recovery, create: { _, _ in creates += 1; throw ShepherdError.transport("offline") }, isCurrent: { true })
+        #expect(creates == 1)
+        #expect(model.prompt == "preserve this draft")
+        #expect(submission.recoveryFailure == .serverUnavailable)
+        #expect(!submission.busy)
+        model.teardown(); submission.teardown(); recovery.teardown()
+    }
+
     @Test func registryMatchesWebAndHasNoDuplicateChords() {
         #expect(ComposeKeymap.entries.count == 26)
         let chords = ComposeKeymap.entries.compactMap(\.chord)

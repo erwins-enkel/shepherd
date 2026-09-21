@@ -14,7 +14,7 @@ import ShepherdKit
         defer {defaults.removePersistentDomain(forName:suite)}
         let app = AppModel(defaults:defaults,credentials:InMemoryCredentialStore())
         SettingsFeature.install(app); SettingsFeature.install(app)
-        #expect(app.extensionFactories.count == 2)
+        #expect(app.extensionFactories.count == 3)
         let rows = SettingsCommandSearch.rows(query:"",app:app)
         #expect(rows.contains {$0.id == "settings.open"})
         #expect(rows.first {$0.id == "settings.refresh"}?.isEnabled(app) == false)

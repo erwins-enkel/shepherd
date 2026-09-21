@@ -77,6 +77,7 @@ enum StreamRegistrations {
     static func reset() { installation.reset() }
 
     private static func installModels(into app: AppModel) {
+        app.register(BackendRecoveryModel.self)
         TerminalInstall.install(into: app)  // S1: DetailTab "terminal" + AppExtension
         DetailFeature.install(app)          // S2: DetailTabs activity/diff/files/git + AppExtension
         SidebarInstall.run(app)             // S3: SidebarSlot + AppExtension

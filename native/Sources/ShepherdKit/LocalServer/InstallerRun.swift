@@ -3,22 +3,20 @@ import Foundation
 import Synchronization
 import os
 
-/// Runs the repo's own `deploy/install.sh` and streams its output into the same
-/// `LogRing` the server's output goes to, so the panel shows one continuous log.
-/// The app never reimplements installer logic (design spec, sub-project 3). It
-/// sets exactly the two values the macOS path needs:
-///   SHEPHERD_NO_SERVICE=1  no systemd unit (install.sh sets this itself on
-///                          Darwin; we set it too so a changed script cannot
-///                          surprise us)
-///   SHEPHERD_DIR           the same ~/.shepherd/app the supervisor will run in
-/// `SHEPHERD_REF` is left alone: whatever the operator put in ~/.shepherd/env
-/// wins, and the script's own default is `main`.
+/// Runs the checkout's `deploy/install.sh`, downloading the official bootstrap
+/// when there is no readable checkout script. Output shares the server's log ring.
+/// The script remains responsible for prerequisites and Bun provisioning. HOME,
+/// install/DB paths and executable search paths come from the same resolved
+/// environment as the supervised server; SHEPHERD_REF is preserved and
+/// SHEPHERD_NO_SERVICE=1 selects the macOS core-only installation.
 public struct InstallerRun: Sendable {
   private static let logger = Logger(subsystem: "run.shepherd.mac", category: "localserver")
 
   private let environment: LocalServerEnvironment
   private let log: LogRing
   private let scriptOverride: URL?
+  private let download: @Sendable (URLRequest) async throws -> (Data, URLResponse)
+  public static let bootstrapURL = URL(string: "https://raw.githubusercontent.com/erwins-enkel/shepherd/main/deploy/install.sh")!
 
   /// Test-only seam, mirroring `LocalServerSupervisor.testSeamAfterChildRun`:
   /// called synchronously between `process.run()` and publishing the pid, the
@@ -27,42 +25,81 @@ public struct InstallerRun: Sendable {
   /// threads for a gap a couple of instructions wide.
   var testSeamAfterRun: (@Sendable () -> Void)?
 
-  public init(environment: LocalServerEnvironment, log: LogRing, scriptOverride: URL? = nil) {
+  public init(
+    environment: LocalServerEnvironment, log: LogRing, scriptOverride: URL? = nil,
+    download: @escaping @Sendable (URLRequest) async throws -> (Data, URLResponse) = {
+      try await URLSession.shared.data(for: $0)
+    }
+  ) {
     self.environment = environment
     self.log = log
     self.scriptOverride = scriptOverride
+    self.download = download
   }
 
-  /// `deploy/install.sh` inside the checkout. On a cold start there is none, so
-  /// this fails with 127 and `LocalServerModel.install()` surfaces that — the
-  /// app downloads nothing itself.
+  /// Prefer a readable checkout installer; a cold install uses the official bootstrap.
   public var scriptURL: URL {
     scriptOverride ?? environment.appDirectory.appendingPathComponent("deploy/install.sh")
   }
 
   public func run() async -> Result<Void, LocalServerFailure> {
-    guard FileManager.default.isReadableFile(atPath: scriptURL.path) else {
-      await log.append("installer not found at \(scriptURL.path)")
-      return .failure(.installFailed(exitCode: 127))
+    guard !Task.isCancelled else { return .failure(.installFailed(exitCode: 130)) }
+    var script = scriptURL
+    var temporaryDirectory: URL?
+    defer { if let temporaryDirectory { try? FileManager.default.removeItem(at: temporaryDirectory) } }
+    if !FileManager.default.isReadableFile(atPath: script.path) {
+      if scriptOverride != nil {
+        await log.append("installer not found at \(script.path)")
+        return .failure(.installFailed(exitCode: 127))
+      }
+      await log.append("Downloading the official Shepherd installer…")
+      var request = URLRequest(url: Self.bootstrapURL)
+      request.timeoutInterval = 45
+      request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+      let data: Data
+      do {
+        let (body, response) = try await download(request)
+        try Task.checkCancellation()
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+              http.url?.scheme == "https" else {
+          await log.append("Installer download failed: expected a successful HTTPS response.")
+          return .failure(.bootstrapDownload)
+        }
+        // A success status alone cannot distinguish a script from a proxy's HTML error page.
+        guard body.starts(with: Data("#!/".utf8)), body.count <= 2_000_000 else {
+          await log.append("Installer download was not a shell script.")
+          return .failure(.bootstrapInvalid)
+        }
+        data = body
+      } catch {
+        await log.append("Installer download failed: \(error.localizedDescription)")
+        return .failure(.bootstrapDownload)
+      }
+      do {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("shepherd-bootstrap-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                                                attributes: [.posixPermissions: 0o700])
+        temporaryDirectory = directory
+        script = directory.appendingPathComponent("install.sh")
+        try data.write(to: script, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: script.path)
+      } catch {
+        await log.append("Could not save the installer: \(error.localizedDescription)")
+        return .failure(.bootstrapWrite)
+      }
     }
-    guard !Task.isCancelled else { return .failure(.installFailed(exitCode: 127)) }
-
-    var childEnvironment = ProcessInfo.processInfo.environment
-    for (key, value) in environment.envFileValues() { childEnvironment[key] = value }
-    // `appDirectory` is `<home>/.shepherd/app`; walking up two components gets
-    // back to `home` without `LocalServerEnvironment` having to expose it.
-    childEnvironment["HOME"] =
-      environment.appDirectory.deletingLastPathComponent().deletingLastPathComponent().path
+    guard !Task.isCancelled else { return .failure(.installFailed(exitCode: 130)) }
+    var childEnvironment = environment.childEnvironment()
     childEnvironment["SHEPHERD_NO_SERVICE"] = "1"
-    childEnvironment["SHEPHERD_DIR"] = environment.appDirectory.path
+    await log.append("Running the Shepherd installer…")
 
     let pipe = Pipe()
     let process = Process()
     // /bin/bash explicitly: install.sh is `#!/usr/bin/env bash` and uses
     // bash-only syntax; the app must not depend on the operator's shell.
     process.executableURL = URL(fileURLWithPath: "/bin/bash")
-    process.arguments = [scriptURL.path]
-    process.currentDirectoryURL = scriptURL.deletingLastPathComponent()
+    process.arguments = [script.path]
+    process.currentDirectoryURL = script.deletingLastPathComponent()
     process.environment = childEnvironment
     process.standardOutput = pipe
     process.standardError = pipe

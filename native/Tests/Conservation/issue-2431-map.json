@@ -12252,6 +12252,9 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/CurrentSelectionTests.swift\",\"CoreSeamTests.CurrentSelectionTests\",\"rejectsDifferentStoreAndSelection() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/NotificationHostTests.swift\",\"CoreSeamTests.NotificationHostTests\",\"focusTransitionsDuringAuthorizationAndTeardown() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/MacCoreCompositionTests.swift\",\"MacSeamTests.MacCoreCompositionTests\",\"resetThenRepeatedProductionPasses() async throws\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/MacNotificationEnvironmentTests.swift\",\"MacSeamTests.MacNotificationEnvironmentTests\",\"isolatedEnvironmentUsesFakeAndRemovesFocusObservation() async throws\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/MacNotificationEnvironmentTests.swift\",\"MacSeamTests.MacNotificationEnvironmentTests\",\"isolatedEnvironmentUsesFakeAndRemovesFocusObservation() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/CoreResourceTests.swift\",\"CoreSeamTests.CoreResourceTests\",\"everyCatalogEntryResolvesInBothLocales() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/StringCatalogTests.swift\",\"CoreSeamTests.StringCatalogTests\",\"selectedModuleLocalizationMatchesLAndArgumentFormatting() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/PlaceholderRenderingTests.swift\",\"CoreSeamTests.PlaceholderRenderingTests\",\"runtimeLocaleBundlesRenderTheCatalogFormats() throws\"]"
   ]
 }

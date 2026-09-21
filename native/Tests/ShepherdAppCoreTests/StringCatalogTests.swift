@@ -75,6 +75,18 @@ struct StringCatalogTests {
                 + "server %1$@, app %2$@. Update one of them.")
     }
 
+    @Test func selectedModuleLocalizationMatchesLAndArgumentFormatting() throws {
+        let expected = CoreResources.bundle.localizedString(
+            forKey: "native_welcome_local_title", value: "__MISSING__", table: nil)
+        #expect(L.t("native_welcome_local_title") == expected)
+        #expect(expected != "native_welcome_local_title")
+
+        let format = CoreResources.bundle.localizedString(
+            forKey: "native_banner_mismatch", value: "__MISSING__", table: nil)
+        let expectedFormatted = String(format: format, locale: .current, "server", "app")
+        #expect(L.t("native_banner_mismatch", "server", "app") == expectedFormatted)
+    }
+
     /// B2: Remove revokes a token and deletes a Keychain item, so it asks
     /// first — and the question names the server it is about.
     @Test func theRemoveConfirmationNamesTheServerAndSaysWhatItCosts() throws {

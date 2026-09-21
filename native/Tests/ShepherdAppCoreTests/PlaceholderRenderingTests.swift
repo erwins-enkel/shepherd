@@ -88,5 +88,24 @@ struct PlaceholderRenderingTests {
             }
         }
     }
+
+    @Test func runtimeLocaleBundlesRenderTheCatalogFormats() throws {
+        let catalog = try Self.load()
+        for locale in ["en", "de"] {
+            let directory = try #require(CoreResources.bundle.url(forResource: locale, withExtension: "lproj"))
+            let bundle = try #require(Bundle(url: directory))
+            for key in catalog.strings.keys {
+                let value = bundle.localizedString(forKey: key, value: "__MISSING__", table: nil)
+                #expect(value != "__MISSING__", Comment(rawValue: "missing \(locale): \(key)"))
+                let count = Self.placeholderCount(value)
+                if count > 0 {
+                    let args = (1...count).map { "runtime\($0)" }
+                    let rendered = String(format: value, locale: Locale(identifier: locale), arguments: args)
+                    #expect(!rendered.contains("{") && Self.leftoverPlaceholder(rendered) == nil,
+                        Comment(rawValue: "unrendered \(locale): \(key)"))
+                }
+            }
+        }
+    }
 }
 }

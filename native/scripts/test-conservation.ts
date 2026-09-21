@@ -15,6 +15,8 @@ export type TestIdentity = {
   bodyHash: string;
   /** Immutable assertion fingerprints enable fail-closed one-to-many splits. */
   assertionHashes?: string[];
+  /** Token text plus conditional context, including tokens inside assertion closures. */
+  assertionConditionHashes?: string[];
 };
 export type IdentityMap = {
   oldID: string;
@@ -120,7 +122,23 @@ function lex(source: string): Token[] {
   if (branches.length) throw new Error("unterminated conditional compilation");
   return tokens;
 }
-function scan(source: string, target: string, path: string): TestIdentity[] {
+type SuiteDeclaration = { parent: string; attributes: string[] };
+function scan(
+  source: string,
+  target: string,
+  path: string,
+  suites: Map<string, SuiteDeclaration>,
+  collectSuites = false,
+): TestIdentity[] {
+  function suiteAttributes(name: string, seen = new Set<string>()): string[] {
+    if (!name) return [];
+    if (seen.has(name)) throw new Error(`cyclic suite declaration ${name}`);
+    seen.add(name);
+    const declaration = suites.get(name);
+    // An extension can name a nested type whose enclosing type has traits.
+    if (!declaration) return suiteAttributes(name.split(".").slice(0, -1).join("."), seen);
+    return [...suiteAttributes(declaration.parent, seen), ...declaration.attributes];
+  }
   const tokens = lex(source);
   const at = (index: number): Token => {
     const token = tokens[index];
@@ -167,6 +185,9 @@ function scan(source: string, target: string, path: string): TestIdentity[] {
     let hasTest = false;
     for (let n = start; n < end; n++) {
       const t = at(n);
+      // The declaration registry must not propagate import attributes as suite traits.
+      // Leave legacy direct-test metadata unchanged during this supplemental capture.
+      if (collectSuites && t.text === "import") attrs = [];
       if (t.text === "@") {
         const first = n;
         if (!tokens[n + 1]) throw new Error("incomplete attribute");
@@ -194,7 +215,18 @@ function scan(source: string, target: string, path: string): TestIdentity[] {
           .join("");
         const qualified = suite ? `${suite}.${name}` : name;
         const isXCTest = tokens.slice(nameEnd, brace).some((t) => t.text === "XCTestCase");
-        declarations(brace + 1, pairs.get(brace)!, qualified, isXCTest, [...inherited, ...attrs]);
+        if (collectSuites && t.text !== "extension") {
+          const declaration = { parent: suite, attributes: [...attrs] };
+          const previous = suites.get(qualified);
+          if (previous && JSON.stringify(previous) !== JSON.stringify(declaration))
+            throw new Error(`ambiguous suite attributes ${qualified} in ${path}`);
+          suites.set(qualified, declaration);
+        }
+        const effective =
+          t.text === "extension" && !collectSuites
+            ? [...suiteAttributes(qualified), ...attrs]
+            : [...inherited, ...attrs];
+        declarations(brace + 1, pairs.get(brace)!, qualified, isXCTest, effective);
         n = pairs.get(brace)!;
         attrs = [];
         continue;
@@ -209,6 +241,7 @@ function scan(source: string, target: string, path: string): TestIdentity[] {
         const close = pairs.get(brace)!;
         if (hasTest || (xctest && at(n + 1).text.startsWith("test"))) {
           const assertionHashes: string[] = [];
+          const assertionConditionHashes: string[] = [];
           for (let k = brace + 1; k < close; k++) {
             const macro =
               at(k).text === "#" && ["expect", "require"].includes(tokens[k + 1]?.text ?? "");
@@ -229,6 +262,13 @@ function scan(source: string, target: string, path: string): TestIdentity[] {
               // Include trailing assertion closures (e.g. #expect(throws:) {}).
               if (tokens[last + 1]?.text === "{") last = pairs.get(last + 1)!;
               assertionHashes.push(hash(canonical(k, last + 1)));
+              assertionConditionHashes.push(
+                hash(
+                  JSON.stringify(
+                    tokens.slice(k, last + 1).map((token) => [token.text, token.condition]),
+                  ),
+                ),
+              );
             }
           }
           result.push({
@@ -241,6 +281,7 @@ function scan(source: string, target: string, path: string): TestIdentity[] {
             condition: t.condition,
             bodyHash: hash(source.slice(at(brace).start, at(close).end)),
             assertionHashes,
+            assertionConditionHashes,
           });
         }
         hasTest = false;
@@ -278,11 +319,17 @@ function files(dir: string): string[] {
     .sort();
 }
 export function collectTests(root: string): TestIdentity[] {
-  const tests = roots.flatMap(([target, dir]) =>
-    files(join(root, dir)).flatMap((file) =>
-      scan(readFileSync(file, "utf8"), target, relative(root, file)),
-    ),
-  );
+  const tests = roots.flatMap(([target, dir]) => {
+    const sources = files(join(root, dir)).map((file) => ({
+      path: relative(root, file),
+      source: readFileSync(file, "utf8"),
+    }));
+    // Resolve declarations before scanning extensions, irrespective of file order.
+    // Each target has its own registry; no import/type-system inference is attempted.
+    const suites = new Map<string, SuiteDeclaration>();
+    for (const { source, path } of sources) scan(source, target, path, suites, true);
+    return sources.flatMap(({ source, path }) => scan(source, target, path, suites));
+  });
   tests.sort((a, b) => identity(a).localeCompare(identity(b), "en"));
   if (new Set(tests.map(identity)).size !== tests.length)
     throw new Error("duplicate current identity");
@@ -331,10 +378,17 @@ export function verifyConservation(
         throw new Error("body changes require reviewed extraction explanations " + oldID);
     }
     if (destinations.length > 1) {
-      if (!old.assertionHashes?.length || destinations.some((d) => !d.assertionHashes))
+      if (
+        !old.assertionHashes?.length ||
+        old.assertionConditionHashes?.length !== old.assertionHashes.length ||
+        destinations.some(
+          (d) =>
+            !d.assertionHashes || d.assertionConditionHashes?.length !== d.assertionHashes.length,
+        )
+      )
         throw new Error("split requires original assertion evidence " + oldID);
-      const available = destinations.flatMap((d) => d.assertionHashes!);
-      for (const assertion of old.assertionHashes) {
+      const available = destinations.flatMap((d) => d.assertionConditionHashes!);
+      for (const assertion of old.assertionConditionHashes!) {
         const index = available.indexOf(assertion);
         if (index < 0) throw new Error("split lost original assertion " + oldID);
         available.splice(index, 1);

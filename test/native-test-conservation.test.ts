@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   collectTests,
   identity,
@@ -9,11 +9,16 @@ import {
   type TestIdentity,
 } from "../native/scripts/test-conservation";
 
-function scan(source: string, ui = false) {
+function scan(source: string | Record<string, string>, ui = false) {
   const root = mkdtempSync(join(tmpdir(), "conservation-"));
   const dir = join(root, "native/Apps/ShepherdMac", ui ? "UITests" : "Tests");
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, "Fixture.swift"), source);
+  for (const [name, contents] of Object.entries(
+    typeof source === "string" ? { "Fixture.swift": source } : source,
+  )) {
+    mkdirSync(dirname(join(dir, name)), { recursive: true });
+    writeFileSync(join(dir, name), contents);
+  }
   try {
     return collectTests(root);
   } finally {
@@ -37,6 +42,53 @@ const retained = (t: TestIdentity) => ({
   assertionChanges: [],
 });
 describe("native test conservation", () => {
+  test("reject split that compiles an original assertion out", () => {
+    const old = scan(`struct A { @Test func old() { #expect(true); #expect(false) } }`);
+    const current = scan(`struct A {
+    @Test func first() { #expect(true) }
+    @Test func second() {
+#if NEVER_ENABLED
+      #expect(false)
+#endif
+    }
+  }`);
+    expect(() =>
+      verifyConservation(
+        old,
+        current,
+        [
+          {
+            oldID: identity(old[0]!),
+            destinations: current.map(identity),
+            reason: "split",
+            assertionChanges: ["fixture: split setup"],
+          },
+        ],
+        [],
+      ),
+    ).toThrow();
+  });
+  test("reject loss of suite traits when moving an extension test", () => {
+    const old = scan(`@Suite(.serialized) @MainActor struct A {}
+    extension A { @Test func original() { #expect(true) } }`);
+    const current = scan(`struct B { @Test func original() { #expect(true) } }`);
+    expect(() =>
+      verifyConservation(
+        old,
+        current,
+        [
+          {
+            oldID: identity(old[0]!),
+            destinations: current.map(identity),
+            reason: "relocate extension case",
+            assertionChanges: [],
+          },
+        ],
+        [],
+      ),
+    ).toThrow();
+  });
+
   test("missing original cannot be replaced by a new test", () => {
     const b = { ...a, signature: "new()", bodyHash: "new" };
     expect(() => verifyConservation([a], [b], [retained(a)], [identity(b)])).toThrow();
@@ -177,5 +229,96 @@ describe("native test conservation", () => {
         [],
       ),
     ).toThrow();
+  });
+  test("split preserves conditions inside assertion closures", () => {
+    const closure = (condition: string) => `#expect(throws: Error.self) {
+#if ${condition}
+      try operation()
+#endif
+    }`;
+    const old = scan(`struct A { @Test func old() { #expect(true); ${closure("DEBUG")} } }`);
+    for (const condition of ["DEBUG", "os(macOS)", "NEVER_ENABLED"]) {
+      const current = scan(`struct A { @Test func first() { #expect(true) }
+        @Test func second() { ${closure(condition)} } }`);
+      const check = () =>
+        verifyConservation(
+          old,
+          current,
+          [
+            {
+              oldID: identity(old[0]!),
+              destinations: current.map(identity),
+              reason: "split",
+              assertionChanges: ["fixture: split setup"],
+            },
+          ],
+          [],
+        );
+      if (condition === "DEBUG") expect(check).not.toThrow();
+      else expect(check).toThrow("split lost original assertion");
+    }
+  });
+  test("extension traits resolve across files, nested suites and declaration order", () => {
+    const old = scan({
+      "A-extension.swift": "extension Outer.Inner { @Test func original() { #expect(true) } }",
+      "Z-declaration.swift":
+        "@testable import Example\n@Suite(.serialized) struct Outer { @MainActor struct Inner {} }",
+    });
+    expect(old[0]!.attributes).toBe("@Suite(.serialized)\n@MainActor\n@Test");
+    for (const traits of [
+      "",
+      "@Suite(.serialized)",
+      "@MainActor",
+      "@Suite(.serialized) @MainActor",
+    ]) {
+      const current = scan(`${traits} struct B { @Test func original() { #expect(true) } }`);
+      const check = () =>
+        verifyConservation(
+          old,
+          current,
+          [
+            {
+              oldID: identity(old[0]!),
+              destinations: current.map(identity),
+              reason: "relocate extension case",
+              assertionChanges: [],
+            },
+          ],
+          [],
+        );
+      if (traits === "@Suite(.serialized) @MainActor") expect(check).not.toThrow();
+      else expect(check).toThrow("changed attributes/conditions");
+    }
+  });
+  test("split fails closed without assertion condition evidence", () => {
+    const old = scan("struct A { @Test func old() { #expect(true); #expect(false) } }");
+    delete old[0]!.assertionConditionHashes;
+    const current = scan(
+      "struct A { @Test func first() { #expect(true) } @Test func second() { #expect(false) } }",
+    );
+    expect(() =>
+      verifyConservation(
+        old,
+        current,
+        [
+          {
+            oldID: identity(old[0]!),
+            destinations: current.map(identity),
+            reason: "split",
+            assertionChanges: ["fixture: split setup"],
+          },
+        ],
+        [],
+      ),
+    ).toThrow("split requires original assertion evidence");
+  });
+
+  test("extension suite attributes do not leak across targets", () => {
+    const tests = scan({
+      "Extension.swift": "extension A { @Test func original() { #expect(true) } }",
+      "../UITests/Declaration.swift": "@Suite(.serialized) @MainActor struct A {}",
+    });
+    expect(tests).toHaveLength(1);
+    expect(tests[0]!.attributes).toBe("@Test");
   });
 });

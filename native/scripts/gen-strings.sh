@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# ui/messages/{en,de}.json -> Sources/ShepherdAppCore/Resources catalog + EN/DE runtime .strings
+# ui/messages/{en,de}.json -> Sources/ShepherdAppCore/Resources/Catalog/Localizable.xcstrings
+#                              + en.lproj/Localizable.strings
+#                              + de.lproj/Localizable.strings
 # Pass --check to fail instead of writing when any of the three outputs is missing or stale.
 set -euo pipefail
 

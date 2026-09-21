@@ -292,6 +292,112 @@ to ad-hoc immediately — no edit to `project.yml` or the scripts is involved. T
 item survives, but its ACL now points at a certificate that is gone, so the next build prompts
 again. Nothing about CI changes either way.
 
+## Shared application core (Stage 1)
+
+Stage 1 moved the platform-neutral application layer from
+`native/Apps/ShepherdMac/Sources` (S) to `native/Sources/ShepherdAppCore` (C). The package now has
+this target graph:
+
+```text
+Shepherd (Mac views/adapters) -> ShepherdAppCore -> ShepherdKit
+```
+
+`ShepherdAppCore` owns app state, rules, registries, stream lifecycle, localized copy, and the
+model side of presentation seams. It contains no view bodies and imports neither AppKit, UIKit,
+SwiftTerm, nor the `Shepherd` app module. Mac view bodies and adapters remain under S. In
+particular, `LocalServerSessionExtension` and the child-process host remain Mac-owned: a future
+iOS client must not receive a fake or conditionally compiled local-server supervisor. The Stage 2
+iOS app skeleton and Stage 3 view extraction are later work; Stage 1 delivers neither.
+
+### Model and extension ownership
+
+`AppModel` and `AppExtension` live in `C/App`. Constructing an `AppModel` requires the explicit
+`notifications: NotificationEnvironment` argument; production supplies
+`MacNotificationEnvironment.make(configuration:)`, while previews and tests supply fakes.
+`AppModel.register(_:)` records one factory per extension type and, when a store is already live,
+immediately builds that extension for the current activation. `app.extension(MyType.self)` returns
+only the current activation's instance. Activation builds extensions in registration order after
+the store exists; profile switching and teardown call `teardown()` in reverse creation order
+before stopping the outgoing store. Suspended work must still reject stale
+`activationGeneration` values.
+
+### Host composition and installation
+
+`C/App/StreamHost.swift` is the core-to-platform contract. Its prompt callback has the exact shape
+`(Session, SessionStore, AppModel) -> AnyView`. Its scene hooks are `() -> Void` for queue panels,
+merge commands, Wave 2 panels, and settings. Its model hooks are `(AppModel) -> Void` for terminal,
+detail, sidebar, actions, the Mac-only local server, plan presentation, compose, and merge
+presentation. `MacStreamHost.configure()` supplies those callbacks exactly once.
+
+Configuration must happen before `StreamRegistrations.installScene()` and before any `Scene` body
+reads the non-observable registries. The scene order is queues, merge, Wave 2, settings. The model
+order is terminal, detail, sidebar, actions, local server, notifications, `SessionSignals`, plan,
+Herd, queues, compose, merge, `Wave2Seams`, settings, then the settings notification bridges.
+`installAll(into:)` performs the once-only scene pass and the repeatable model pass.
+
+`resetStreamSeams()` resets the installation guard, registries, slots, signal bridges, and
+conservative defaults, and releases composition owners. It deliberately preserves the immutable
+configured `StreamHost`, including the prompt renderer. Thin direct installers in the Mac target
+configure the same host and reuse the same core model statements; previews use
+`MacStreamHost.makePreview()` with in-memory credentials and notification fakes.
+
+### Localized resources
+
+`native/scripts/gen-strings.sh` derives three module outputs from the same EN/DE message input:
+
+- `C/Resources/Catalog/Localizable.xcstrings`
+- `C/Resources/en.lproj/Localizable.strings`
+- `C/Resources/de.lproj/Localizable.strings`
+
+The package uses `.copy("Resources/Catalog")` and separately processes the two locale directories.
+Copying the directory is an accepted Xcode toolchain deviation: copying the catalog file directly
+caused Xcode to compile it and duplicate the generated runtime `.strings` outputs. `L.t` reads the
+processed strings through `Bundle.module`; internal `CoreResources.bundle` lets `@testable` core
+tests inspect the copied catalog under `Catalog/` without a checkout-relative path.
+
+### Stage 1 validation commands
+
+Keep the local operator lock distinct from the portable repository wrapper. Local gates set
+`UITEST_LOCK` to the external operator-owned `uitest-lock.sh`; hosted CI uses
+`native/scripts/uitest-lock.sh`, whose lock lives under `RUNNER_TEMP`. Wrap the whole indirect
+`build-app.sh` or `test-app.sh` invocation once. Every `xcodebuild`, including `-version`, scheme
+discovery, builds, and tests, must be serialized. Local package/core/simulator/Mac gates must not
+set `SHEPHERD_KEYCHAIN_TESTS` or `TEST_RUNNER_SHEPHERD_KEYCHAIN_TESTS`.
+
+```bash
+unset SHEPHERD_KEYCHAIN_TESTS TEST_RUNNER_SHEPHERD_KEYCHAIN_TESTS
+swift build --package-path native
+swift test --package-path native --no-parallel
+
+(cd native && "$UITEST_LOCK" xcodebuild -list -json)
+(cd native && "$UITEST_LOCK" xcodebuild -scheme ShepherdAppCore \
+  -destination 'generic/platform=iOS Simulator' -skipPackagePluginValidation build)
+(cd native && "$UITEST_LOCK" xcodebuild -scheme ShepherdAppCore \
+  -destination "platform=iOS Simulator,id=$CORE_SIMULATOR_UDID" \
+  -parallel-testing-enabled NO -only-testing:ShepherdAppCoreTests \
+  -resultBundlePath "$EVIDENCE/core.xcresult" -skipPackagePluginValidation test)
+
+xcrun xcresulttool get test-results summary --path "$EVIDENCE/core.xcresult" \
+  >"$EVIDENCE/summary.json"
+xcrun xcresulttool get test-results tests --path "$EVIDENCE/core.xcresult" \
+  >"$EVIDENCE/tests.json"
+python3 native/scripts/check-core-results.py \
+  "$EVIDENCE/summary.json" "$EVIDENCE/tests.json" \
+  --parameters native/Tests/Conservation/issue-2431-core-parameters.json
+
+"$UITEST_LOCK" native/scripts/build-app.sh Release
+"$UITEST_LOCK" native/scripts/test-app.sh \
+  -parallel-testing-enabled NO -only-testing:ShepherdTests
+"$UITEST_LOCK" native/scripts/test-app.sh \
+  -parallel-testing-enabled NO -only-testing:ShepherdUITests
+```
+
+The rich simulator form proves mapped identities plus all 36 parameterized declarations and 135
+argument executions. XML validation instead uses `--xunit FILE --target ShepherdAppCoreTests`, or
+for the isolated existing Kit CI lane `--xunit FILE --target ShepherdKitTests
+--require-keychain`. XML alone validates declarations but does not prove individual parameter
+executions.
+
 ## Parallel streams: seams and rules
 
 Milestone 2 was built by four parallel streams (`terminal`, `detail`, `sidebar`, `actions`) and
@@ -314,7 +420,8 @@ of each other's way by extending the app through seams instead of editing shared
 | Schemas, routes and events       | your three `# ── stream: <name> ──` blocks in `contracts/openapi.yaml`                | anything outside them            |
 | Contract fixtures                | your own `test/contract/<stream>.test.ts`, gated on `operationsForStream("<stream>")` | the gate in `openapi.test.ts`    |
 
-- **One registration file.** Everything is wired up from `Sources/App/StreamRegistrations.swift`,
+- **One registration file.** Everything is wired up from
+  `native/Sources/ShepherdAppCore/App/StreamRegistrations.swift`,
   owned by the integration lane: a merged stream adds its installer calls to the scene pass,
   the model pass, or both as needed. Your own `installScene()` and `install(_:)` functions live
   in your own directory.

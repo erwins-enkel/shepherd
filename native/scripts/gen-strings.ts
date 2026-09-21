@@ -28,13 +28,6 @@ const OUT = join(ROOT, "native", "Apps", "ShepherdMac", "Resources", "Localizabl
  * header, shared status and effort labels.
  */
 export const KEYS_CORE: readonly string[] = [
-  "native_updates_automatic_check",
-  "native_updates_automatic_install",
-  "native_updates_check",
-  "native_updates_install_note",
-  "native_updates_title",
-  "native_updates_unavailable",
-
   "agent_provider_claude",
   "agent_provider_codex",
   "common_cancel",
@@ -95,6 +88,12 @@ export const KEYS_CORE: readonly string[] = [
   "native_toolbar_new_session",
   "native_toolbar_servers",
   "native_toolbar_sign_out",
+  "native_updates_automatic_check",
+  "native_updates_automatic_install",
+  "native_updates_check",
+  "native_updates_install_note",
+  "native_updates_title",
+  "native_updates_unavailable",
   "native_url_error_empty",
   "native_url_error_insecure",
   "native_url_error_malformed",

@@ -1,0 +1,14 @@
+<?xml version="1.0" standalone="yes"?>
+<rss xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle" version="2.0">
+    <channel>
+        <title>Shepherd</title>
+        <item>
+            <title>2.0.0-beta.1</title>
+            <pubDate>Mon, 21 Sep 2026 10:41:25 +0000</pubDate>
+            <sparkle:version>1888</sparkle:version>
+            <sparkle:shortVersionString>2.0.0-beta.1</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <enclosure url="https://github.com/erwins-enkel/shepherd/releases/download/macos-v2.0.0-beta.1/Shepherd-1888.zip" length="16598800" type="application/octet-stream" sparkle:edSignature="f1QQL+G1olp6uVU9CPYTDBmizgMOX3/LYrjxGeNjn3YkLPQsKMCiSsQvmFWsu7zJQ9yZLD29jtdhmYIcCOEQBg=="/>
+        </item>
+    </channel>
+</rss>

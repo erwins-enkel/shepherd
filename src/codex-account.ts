@@ -50,6 +50,17 @@ function resetCredits(value: unknown): CodexResetCredits | null {
   return { availableCount, credits };
 }
 
+function subscriptionWindow(
+  value: unknown,
+): Partial<Pick<CodexAccountSnapshot, "session5h" | "week">> {
+  const w = record(value);
+  const key =
+    w.windowDurationMins === 300 ? "session5h" : w.windowDurationMins === 10080 ? "week" : null;
+  return key
+    ? { [key]: { pct: Math.min(100, number(w.usedPercent)), resetAt: number(w.resetsAt) * 1000 } }
+    : {};
+}
+
 /** Normalize only Codex's recognized subscription windows; never mistake another bucket for headroom. */
 export function parseCodexAccount(value: unknown, checkedAt: number): CodexAccountSnapshot {
   const r = record(value);
@@ -67,14 +78,7 @@ export function parseCodexAccount(value: unknown, checkedAt: number): CodexAccou
   if (bucket.limitId != null && bucket.limitId !== "codex") return result;
   for (const rawWindow of [bucket.primary, bucket.secondary]) {
     if (rawWindow == null) continue;
-    const w = record(rawWindow);
-    const key =
-      w.windowDurationMins === 300 ? "session5h" : w.windowDurationMins === 10080 ? "week" : null;
-    if (key)
-      result[key] = {
-        pct: Math.min(100, number(w.usedPercent)),
-        resetAt: number(w.resetsAt) * 1000,
-      };
+    Object.assign(result, subscriptionWindow(rawWindow));
   }
   return result;
 }

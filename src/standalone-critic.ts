@@ -1,3 +1,4 @@
+import { admitRoleCapacity } from "./codex-capacity";
 /**
  * Standalone repo-level PR critic (issue #596). Reviews ANY open, CI-green, human/agent-authored
  * PR in a repo whose `criticAllPrs` flag is ON — DECOUPLED from the session lifecycle. Where
@@ -370,6 +371,38 @@ export class StandalonePrCriticService {
     return { integrationBranch: pr.headRefName!, childCount };
   }
 
+  private async admittedMetadata(
+    repoPath: string,
+    pr: PullRequest,
+    forge: GitForge,
+    key: string,
+  ): Promise<PrReviewMeta | null> {
+    if (
+      !(await admitRoleCapacity(this.deps, {
+        owner: "standalone",
+        key: `standalone:${key}`,
+        target: repoPath,
+        fingerprint: pr.headSha ?? undefined,
+      }))
+    )
+      return null;
+    // Number-keyed metadata (body/base/fork/state) — number-keyed so a recurring or fork head
+    // branch name can't resolve a different PR (unlike branch-keyed prStatus).
+    const meta = forge.prReviewMeta ? await forge.prReviewMeta(pr.number) : null;
+    if (!meta) {
+      // Host without a PR-view API, or the PR is gone/unreadable → can't review without
+      // body/base. Skip (the pr_reviews row stays absent, so a later sweep retries).
+      this.log(`[pr-critic] ${repoPath}#${pr.number}: no PR metadata available — skipping`);
+      return null;
+    }
+    if (meta.state !== "open") {
+      // Raced to merged/closed since enumeration → don't review (nothing left to gate).
+      this.log(`[pr-critic] ${repoPath}#${pr.number} no longer open (${meta.state}) — skipping`);
+      return null;
+    }
+    return meta;
+  }
+
   /**
    * Spawn a critic for one eligible PR. Mirrors ReviewService.begin: claim `starting`
    * synchronously, allocate the disposable worktree at the PR head, fingerprint the diff,
@@ -381,33 +414,8 @@ export class StandalonePrCriticService {
     const key = this.key(repoPath, pr.number);
     this.starting.add(key); // claimed SYNCHRONOUSLY, before any await — the next sweep's guard
     try {
-      const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
-      if (
-        this.deps.capacity &&
-        !(await this.deps.capacity({
-          owner: "standalone",
-          key: `standalone:${key}`,
-          target: repoPath,
-          provider: env.provider,
-          model: env.model,
-          fingerprint: pr.headSha ?? undefined,
-        }))
-      )
-        return;
-      // Number-keyed metadata (body/base/fork/state) — number-keyed so a recurring or fork head
-      // branch name can't resolve a different PR (unlike branch-keyed prStatus).
-      const meta = forge.prReviewMeta ? await forge.prReviewMeta(pr.number) : null;
-      if (!meta) {
-        // Host without a PR-view API, or the PR is gone/unreadable → can't review without
-        // body/base. Skip (the pr_reviews row stays absent, so a later sweep retries).
-        this.log(`[pr-critic] ${repoPath}#${pr.number}: no PR metadata available — skipping`);
-        return;
-      }
-      if (meta.state !== "open") {
-        // Raced to merged/closed since enumeration → don't review (nothing left to gate).
-        this.log(`[pr-critic] ${repoPath}#${pr.number} no longer open (${meta.state}) — skipping`);
-        return;
-      }
+      const meta = await this.admittedMetadata(repoPath, pr, forge, key);
+      if (!meta) return;
       // Fork PR: its head sha lives off-branch on the contributor's fork, not the base origin.
       // GitHub exposes it on the base repo under refs/pull/<n>/head, which createDetached fetches.
       const pullRef = meta.isCrossRepository ? `refs/pull/${pr.number}/head` : undefined;
@@ -715,6 +723,24 @@ export class StandalonePrCriticService {
     }
   }
 
+  private async deferCapacityInterruption(f: InFlight): Promise<boolean | undefined> {
+    const row = this.deps.capacityInterrupted
+      ? this.deps.store.listReviewerSpawns().find((r) => r.reviewerSessionId === f.criticSessionId)
+      : undefined;
+    return await this.deps.capacityInterrupted?.(
+      {
+        owner: "standalone",
+        key: `standalone:${f.repoPath}:${f.prNumber}`,
+        target: f.repoPath,
+        provider: row?.reviewerProvider ?? "claude",
+        model: row?.model ?? null,
+        fingerprint: f.headSha,
+      },
+      f.worktreePath,
+      f.criticSessionId,
+    );
+  }
+
   /**
    * Turn a finished run's raw verdict into its outward effects + dedup row. Branches on the PR's
    * LIVE, number-keyed state (re-fetched here — the critic can finish minutes after enumeration,
@@ -729,26 +755,7 @@ export class StandalonePrCriticService {
    */
   private async finalize(f: InFlight, raw: RawVerdict | null): Promise<void> {
     try {
-      const row = this.deps.capacityInterrupted
-        ? this.deps.store
-            .listReviewerSpawns()
-            .find((r) => r.reviewerSessionId === f.criticSessionId)
-        : undefined;
-      if (
-        !raw &&
-        (await this.deps.capacityInterrupted?.(
-          {
-            owner: "standalone",
-            key: `standalone:${f.repoPath}:${f.prNumber}`,
-            target: f.repoPath,
-            provider: row?.reviewerProvider ?? "claude",
-            model: row?.model ?? null,
-            fingerprint: f.headSha,
-          },
-          f.worktreePath,
-          f.criticSessionId,
-        ))
-      ) {
+      if (!raw && (await this.deferCapacityInterruption(f))) {
         await captureUsage(
           this.readUsage,
           this.deps.store.completeReviewerSpawn.bind(this.deps.store),

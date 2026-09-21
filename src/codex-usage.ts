@@ -457,6 +457,15 @@ export class CodexUsageProvider implements UsageProviderSource {
         resetStatus: account.resetStatus,
       };
     }
+    return this.rolloutSnapshot(base, st, now, account?.resetStatus);
+  }
+
+  private rolloutSnapshot(
+    base: CodexTokenSnapshot,
+    st: CodexState | null,
+    now: number,
+    resetStatus?: CodexResetStatus,
+  ): CodexTokenSnapshot {
     const fsCandidates = recentCodexRolloutPaths(this.home).flatMap((p) => {
       const c = rolloutCandidate(p);
       return c ? [c] : [];
@@ -465,7 +474,7 @@ export class CodexUsageProvider implements UsageProviderSource {
     const rl = this.rateLimits(candidates, now);
     return {
       ...base,
-      ...(account ? { resetStatus: account.resetStatus } : {}),
+      ...(resetStatus ? { resetStatus } : {}),
       session5h: rl?.session5h ?? null,
       week: rl?.week ?? null,
       rateLimitSource: rl ? "rollout" : "missing",

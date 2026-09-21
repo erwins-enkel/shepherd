@@ -1,3 +1,4 @@
+import { admitRoleCapacity } from "./codex-capacity";
 /**
  * MaintainService — the maintain loop's spawning half (#2157, from #2151 R5).
  *
@@ -891,15 +892,11 @@ export class MaintainService {
 
   private async launch(reading: BandReading, forge: GitForge): Promise<boolean> {
     const repoPath = this.deps.selfRepoPath;
-    const capacityEnv = this.deps.env?.() ?? { provider: "claude" as const, model: null };
     if (
-      this.deps.capacity &&
-      !(await this.deps.capacity({
+      !(await admitRoleCapacity(this.deps, {
         owner: "maintain",
         key: `maintain:${reading.key}`,
         target: repoPath,
-        provider: capacityEnv.provider,
-        model: capacityEnv.model,
         fingerprint: reading.key,
       }))
     )

@@ -232,65 +232,71 @@ export class CodexResetCoordinator {
     });
     return this.acting;
   }
+  private needsRefresh(manualId?: string): boolean {
+    return (
+      !this.measurement ||
+      this.unavailable ||
+      this.now() - this.measurement.checkedAt >= 30_000 ||
+      !!manualId ||
+      !!this.state.operation
+    );
+  }
+  private decisionFor(manualId?: string): { reason: Reason; creditId?: string } | null {
+    if (!manualId) return decideCodexReset(this.input()!);
+    const id = creditFor(this.measurement!, this.now());
+    if (id === null) return null;
+    return { reason: "manual", ...(id === undefined ? {} : { creditId: id }) };
+  }
+  private async resumeOperation(
+    existing: Operation,
+    m: CodexAccountSnapshot,
+    manualId?: string,
+  ): Promise<void> {
+    if (manualId) {
+      existing.aliases = [...new Set([...(existing.aliases ?? []), manualId])];
+      if (existing.phase === "verify")
+        this.state.completed = [...this.state.completed, manualId].slice(-128);
+      this.save();
+    }
+    if (
+      m.accountId !== existing.accountId ||
+      existing.phase === "verify" ||
+      this.now() < existing.retryAt
+    )
+      return;
+    await this.consume(existing);
+  }
   private async actInner(
     demand: boolean,
     manualId?: string,
     expectedAccountId?: string | null,
   ): Promise<void> {
     if (manualId && this.state.completed.includes(manualId)) return;
-    if (
-      !this.measurement ||
-      this.unavailable ||
-      this.now() - this.measurement.checkedAt >= 30_000 ||
-      manualId ||
-      this.state.operation
-    ) {
-      if (!(await this.refresh())) return;
-    }
-    let m = this.measurement!;
+    if (this.needsRefresh(manualId) && !(await this.refresh())) return;
+    const m = this.measurement!;
     if (expectedAccountId && m.accountId !== expectedAccountId) return;
     const existing = this.state.operation;
     if (existing) {
-      if (manualId) {
-        existing.aliases = [...new Set([...(existing.aliases ?? []), manualId])];
-        if (existing.phase === "verify")
-          this.state.completed = [...this.state.completed, manualId].slice(-128);
-        this.save();
-      }
-      if (
-        m.accountId !== existing.accountId ||
-        existing.phase === "verify" ||
-        this.now() < existing.retryAt
-      )
-        return;
-      await this.consume(existing);
+      await this.resumeOperation(existing, m, manualId);
       return;
     }
     if (!manualId && (!this.deps.enabled() || !demand)) return;
     if (!m.accountId) return;
-    const i = this.input()!;
-    const id = creditFor(m, this.now());
-    let decision = manualId
-      ? id === null
-        ? null
-        : { reason: "manual" as const, ...(id === undefined ? {} : { creditId: id }) }
-      : decideCodexReset(i);
+    const decision = this.decisionFor(manualId);
     if (!decision) return;
     if (
       !manualId &&
       (this.now() - this.state.lastAttemptAt < MINUTE || this.state.lastSignature === signature(m))
     )
       return;
+    await this.redeemFresh(m.accountId, manualId);
+  }
+  private async redeemFresh(accountId: string, manualId?: string): Promise<void> {
     // Admission can reuse a recent read; spending always revalidates immediately.
     if (!(await this.refresh())) return;
-    m = this.measurement!;
-    const freshId = creditFor(m, this.now());
-    decision = manualId
-      ? freshId === null
-        ? null
-        : { reason: "manual" as const, ...(freshId === undefined ? {} : { creditId: freshId }) }
-      : decideCodexReset(this.input()!);
-    if (!decision || !m.accountId || m.accountId !== i.measurement.accountId) return;
+    const m = this.measurement!;
+    const decision = this.decisionFor(manualId);
+    if (!decision || !m.accountId || m.accountId !== accountId) return;
     const op: Operation = {
       accountId: m.accountId,
       request: {

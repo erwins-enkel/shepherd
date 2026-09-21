@@ -370,6 +370,32 @@ export class AutopilotService {
     if (await this.sendSteer(s, text)) this.bump(s);
   }
 
+  private async handleFinished(s: Session, summary: string): Promise<void> {
+    if (s.landingRepair) {
+      // Repair sessions push directly to the epic integration branch and never open a PR.
+      // Always mark complete (even if a PR slipped out) so the drain's branch fence releases.
+      this.markComplete(s, summary || COMPLETE_MESSAGE);
+      return;
+    }
+    if (this.deps.hasPr(s.id)) return; // PR already open → nothing to do (full-auto rebase is steered by the merge train)
+    if (s.research) {
+      // Research sessions never open a code PR — mark complete instead of steering open-a-PR.
+      this.markComplete(s, summary || COMPLETE_MESSAGE);
+      return;
+    }
+    if (this.deps.store.getRepoConfig(s.repoPath).repoMode === "lightweight") {
+      // Lightweight repo: the agent has no `gh`, so register the pseudo-PR server-side
+      // (the deliberate completion barrier) instead of steering `gh pr create`.
+      await this.deps.openLocalPr(s.id);
+      return;
+    }
+    await this.driveSteer(
+      s,
+      openPrSteer(this.deps.store.getRepoConfig(s.repoPath).draftMode, s.baseBranch),
+    );
+    return;
+  }
+
   private async dispatch(s: Session, v: AutopilotVerdict): Promise<void> {
     if (this.deps.capacity && !(await this.deps.capacity(s))) return;
     switch (v.kind) {
@@ -377,28 +403,7 @@ export class AutopilotService {
         await this.driveSteer(s, s.research ? RESEARCH_PROCEED_STEER : PROCEED_STEER);
         return;
       case "finished":
-        if (s.landingRepair) {
-          // Repair sessions push directly to the epic integration branch and never open a PR.
-          // Always mark complete (even if a PR slipped out) so the drain's branch fence releases.
-          this.markComplete(s, v.summary || COMPLETE_MESSAGE);
-          return;
-        }
-        if (this.deps.hasPr(s.id)) return; // PR already open → nothing to do (full-auto rebase is steered by the merge train)
-        if (s.research) {
-          // Research sessions never open a code PR — mark complete instead of steering open-a-PR.
-          this.markComplete(s, v.summary || COMPLETE_MESSAGE);
-          return;
-        }
-        if (this.deps.store.getRepoConfig(s.repoPath).repoMode === "lightweight") {
-          // Lightweight repo: the agent has no `gh`, so register the pseudo-PR server-side
-          // (the deliberate completion barrier) instead of steering `gh pr create`.
-          await this.deps.openLocalPr(s.id);
-          return;
-        }
-        await this.driveSteer(
-          s,
-          openPrSteer(this.deps.store.getRepoConfig(s.repoPath).draftMode, s.baseBranch),
-        );
+        await this.handleFinished(s, v.summary);
         return;
       case "complete":
         await this.verifyAndComplete(s, v.summary || COMPLETE_MESSAGE);

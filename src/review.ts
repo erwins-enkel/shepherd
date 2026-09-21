@@ -1,3 +1,4 @@
+import { admitRoleCapacity } from "./codex-capacity";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -560,21 +561,7 @@ export class ReviewService {
       // poll picks the new head up normally (and that push reset CI to pending anyway, so the
       // green-checks precondition has genuinely lapsed too). Deliberately INSIDE the claim: this
       // await must not open a window for a second consider()/forceReview() to reach begin().
-      if (await this.headMoved(session, git.headSha!)) return "skipped";
-      const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
-      if (
-        this.deps.capacity &&
-        !(await this.deps.capacity({
-          owner: "review",
-          key: `review:${session.id}`,
-          target: session.id,
-          provider: env.provider,
-          model: env.model,
-          fingerprint: git.headSha ?? undefined,
-        }))
-      )
-        return "skipped";
-      await this.begin(session, git, force);
+      if (!(await this.beginCurrentReview(session, git, force))) return "skipped";
     } finally {
       this.starting.delete(session.id);
     }
@@ -584,6 +571,36 @@ export class ReviewService {
     // this return, so the non-force churn-skip "error" is irrelevant there; it's authoritative
     // only for the manual/force path.
     return this.inflight.has(session.id) ? "started" : "error";
+  }
+
+  private async beginCurrentReview(
+    session: Session,
+    git: GitState,
+    force: boolean,
+  ): Promise<boolean> {
+    if (await this.headMoved(session, git.headSha!)) return false;
+    if (
+      !(await admitRoleCapacity(this.deps, {
+        owner: "review",
+        key: `review:${session.id}`,
+        target: session.id,
+        fingerprint: git.headSha ?? undefined,
+      }))
+    )
+      return false;
+    await this.begin(session, git, force);
+    return true;
+  }
+
+  private captureRunUsage(f: InFlight): Promise<void> {
+    return captureUsage(
+      (wt, id) => this.readUsage(wt, id, f.reviewerProvider, f.reviewerModel),
+      this.deps.store.completeReviewerSpawn.bind(this.deps.store),
+      f.worktreePath,
+      f.criticSessionId,
+      this.now(),
+      f.sessionId,
+    );
   }
 
   /**
@@ -618,14 +635,7 @@ export class ReviewService {
       // Best-effort cost attribution — mirrors finalize(). It also closes the reviewer_spawns row;
       // if the transcript is unreadable the row stays open and the boot sweep closes it with NULL
       // totals, exactly as it does for a finalize that raced the same way.
-      await captureUsage(
-        (wt, id) => this.readUsage(wt, id, f.reviewerProvider, f.reviewerModel),
-        this.deps.store.completeReviewerSpawn.bind(this.deps.store),
-        f.worktreePath,
-        f.criticSessionId,
-        this.now(),
-        f.sessionId,
-      );
+      await this.captureRunUsage(f);
       await reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
     }
 
@@ -1500,14 +1510,7 @@ export class ReviewService {
           f.criticSessionId,
         ))
       ) {
-        await captureUsage(
-          (wt, id) => this.readUsage(wt, id, f.reviewerProvider, f.reviewerModel),
-          this.deps.store.completeReviewerSpawn.bind(this.deps.store),
-          f.worktreePath,
-          f.criticSessionId,
-          this.now(),
-          f.sessionId,
-        );
+        await this.captureRunUsage(f);
         return;
       }
       const verdict = this.buildVerdict(f, raw, cause ?? null);
@@ -1534,14 +1537,7 @@ export class ReviewService {
       // stranding finalize. The reviewer transcript lives under ~/.claude/projects (keyed by
       // worktree path) and survives the worktree removal in the `finally`, so reading it here
       // is safe. Individually guarded — a transcript-read failure must never strand finalize.
-      await captureUsage(
-        (wt, id) => this.readUsage(wt, id, f.reviewerProvider, f.reviewerModel),
-        this.deps.store.completeReviewerSpawn.bind(this.deps.store),
-        f.worktreePath,
-        f.criticSessionId,
-        this.now(),
-        f.sessionId,
-      );
+      await this.captureRunUsage(f);
       // NOTE: the resolver entry is released by dropInflight() in tick()'s finally — the single
       // place every in-flight drop goes through, so no completion path can leak it.
     } finally {

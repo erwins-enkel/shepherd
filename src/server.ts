@@ -1408,10 +1408,7 @@ function holdUpNextIssue(
     createdAt: Date.now(),
     reason: "usage",
   });
-  if ((input.agentProvider ?? config.defaultAgentProvider) === "codex") {
-    const account = deps.codexAccountId?.();
-    if (account) deps.store.setSetting(`codexHeldAccount:${id}`, account);
-  }
+  bindHeldCodexAccount(deps, id, input);
   deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
   return { id, repoPath: input.repoPath, number };
 }
@@ -2366,6 +2363,12 @@ function createErrorResponse(e: unknown): Response {
   return json({ error: taken ? "task name already in use, retry" : msg }, taken ? 409 : 502);
 }
 
+function bindHeldCodexAccount(deps: AppDeps, id: string, input: StandardCreateInput): void {
+  if ((input.agentProvider ?? config.defaultAgentProvider) !== "codex") return;
+  const account = deps.codexAccountId?.();
+  if (account) deps.store.setSetting(`codexHeldAccount:${id}`, account);
+}
+
 /** Check hold gate; if triggered, persist the held task and return the 200 response.
  *  Returns null when the task should proceed to normal creation. */
 function persistHeldTask(
@@ -2382,10 +2385,7 @@ function persistHeldTask(
     createdAt,
     reason,
   });
-  if ((value.agentProvider ?? config.defaultAgentProvider) === "codex") {
-    const account = deps.codexAccountId?.();
-    if (account) deps.store.setSetting(`codexHeldAccount:${id}`, account);
-  }
+  bindHeldCodexAccount(deps, id, value);
   deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
   return json({ held: true, id, count: deps.store.countHeldTasks() }, 200);
 }
@@ -4709,44 +4709,54 @@ async function handleUsageRefresh(deps: Ctx["deps"]): Promise<Response> {
   return json(limits); // success: unwrapped bare UsageLimits (client contract unchanged)
 }
 
+async function handleCodexUsageAction(
+  req: Request,
+  action: string,
+  deps: AppDeps,
+): Promise<Response> {
+  const blocked = firstRunBlock();
+  if (blocked) return blocked;
+  if (!deps.codexReset) return json({ error: "Codex account service unavailable" }, 503);
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: "Invalid JSON" }, 400);
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body))
+    return json({ error: "Invalid body" }, 400);
+  if (action === "automation" && req.method === "PUT") {
+    if (typeof body.enabled !== "boolean") return json({ error: "enabled must be boolean" }, 400);
+    deps.store.setSetting("codexResetAutoEnabled", String(body.enabled));
+    config.codexResetAutoEnabled = body.enabled;
+  } else if (action === "reset" && req.method === "POST") {
+    if (
+      typeof body.requestId !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(body.requestId)
+    )
+      return json({ error: "requestId must be a UUID v4" }, 400);
+    await deps.codexReset.redeemManual(body.requestId);
+  } else return json({ error: "Not found" }, 404);
+  return codexUsageResponse(deps, action);
+}
+
+function codexUsageResponse(deps: AppDeps, action: string): Response {
+  deps.events.emit("usage:limits", deps.usageLimits.limits(Date.now()));
+  const status = deps.codexReset!.snapshot().resetStatus;
+  const pending = status.state === "redeeming" || status.state === "verifying";
+  return json(
+    status,
+    pending && action === "reset"
+      ? 202
+      : status.state === "unavailable" && action === "reset"
+        ? 503
+        : 200,
+  );
+}
+
 async function handleUsageLimits({ req, parts, deps }: Ctx): Promise<Response | null> {
-  if (parts.length === 4 && parts[0] === "api" && parts[1] === "usage" && parts[2] === "codex") {
-    const blocked = firstRunBlock();
-    if (blocked) return blocked;
-    if (!deps.codexReset) return json({ error: "Codex account service unavailable" }, 503);
-    let body: Record<string, unknown>;
-    try {
-      body = await req.json();
-    } catch {
-      return json({ error: "Invalid JSON" }, 400);
-    }
-    if (!body || typeof body !== "object" || Array.isArray(body))
-      return json({ error: "Invalid body" }, 400);
-    if (parts[3] === "automation" && req.method === "PUT") {
-      if (typeof body.enabled !== "boolean") return json({ error: "enabled must be boolean" }, 400);
-      deps.store.setSetting("codexResetAutoEnabled", String(body.enabled));
-      config.codexResetAutoEnabled = body.enabled;
-    } else if (parts[3] === "reset" && req.method === "POST") {
-      if (
-        typeof body.requestId !== "string" ||
-        !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-          body.requestId,
-        )
-      )
-        return json({ error: "requestId must be a UUID v4" }, 400);
-      await deps.codexReset.redeemManual(body.requestId);
-    } else return json({ error: "Not found" }, 404);
-    deps.events.emit("usage:limits", deps.usageLimits.limits(Date.now()));
-    const status = deps.codexReset.snapshot().resetStatus;
-    const pending = status.state === "redeeming" || status.state === "verifying";
-    return json(
-      status,
-      pending && parts[3] === "reset"
-        ? 202
-        : status.state === "unavailable" && parts[3] === "reset"
-          ? 503
-          : 200,
-    );
+  if (parts.length === 4 && parts.slice(0, 3).join("/") === "api/usage/codex") {
+    return handleCodexUsageAction(req, parts[3]!, deps);
   }
   if (
     req.method === "POST" &&

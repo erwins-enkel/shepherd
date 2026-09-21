@@ -166,3 +166,15 @@ export async function heldCodexCapacity(
   if (key && !expected && account) store.setSetting(key, account);
   return reset.canRun() && (!expected || expected === account);
 }
+
+/** Resolve the helper's own provider and model before checking its admission. */
+export function admitRoleCapacity(
+  deps: { capacity?: CapacityCheck; env?: () => { provider: AgentProvider; model: string | null } },
+  intent: Omit<CapacityIntent, "provider" | "model">,
+): Promise<boolean> {
+  const env = deps.env?.() ?? { provider: "claude" as const, model: null };
+  return (
+    deps.capacity?.({ ...intent, provider: env.provider, model: env.model }) ??
+    Promise.resolve(true)
+  );
+}

@@ -3075,25 +3075,35 @@ function interruptedSessionKey(s: Session): string | null {
   return codexCapacityInterrupted(tail) ? createHash("sha256").update(tail).digest("hex") : null;
 }
 
+function capacityHelperEnvironment(owner: CapacityIntent["owner"]): RoleEnvironment | null {
+  switch (owner) {
+    case "plan":
+      return roleEnv(config.plannerCli, config.plannerModel, config.plannerEffort);
+    case "review":
+    case "standalone":
+      return roleEnv(config.criticCli, config.criticModel, config.criticEffort);
+    case "classifier":
+      return roleEnv(config.autopilotCli, config.autopilotModel, config.autopilotEffort);
+    case "docs":
+    case "docsRetarget":
+      return roleEnv(config.docAgentCli, config.docAgentModel, config.docAgentEffort);
+    case "maintain":
+      return roleEnv(config.maintainCli, config.maintainModel, config.maintainEffort);
+    default:
+      return null;
+  }
+}
+
+function capacitySessionCurrent(intent: CapacityIntent, helper: boolean): boolean {
+  const s = store.get(intent.target);
+  if (!s || s.status === "archived" || s.autopilotPaused) return false;
+  if (!helper && ((s.agentProvider ?? "claude") !== intent.provider || s.model !== intent.model))
+    return false;
+  return true;
+}
+
 function capacityIntentCurrent(intent: CapacityIntent): boolean {
-  const helper = (() => {
-    switch (intent.owner) {
-      case "plan":
-        return roleEnv(config.plannerCli, config.plannerModel, config.plannerEffort);
-      case "review":
-      case "standalone":
-        return roleEnv(config.criticCli, config.criticModel, config.criticEffort);
-      case "classifier":
-        return roleEnv(config.autopilotCli, config.autopilotModel, config.autopilotEffort);
-      case "docs":
-      case "docsRetarget":
-        return roleEnv(config.docAgentCli, config.docAgentModel, config.docAgentEffort);
-      case "maintain":
-        return roleEnv(config.maintainCli, config.maintainModel, config.maintainEffort);
-      default:
-        return null;
-    }
-  })();
+  const helper = capacityHelperEnvironment(intent.owner);
   if (helper && (helper.provider !== intent.provider || helper.model !== intent.model))
     return false;
   if (["docs", "docsRetarget"].includes(intent.owner) && !config.docAgentEnabled) return false;
@@ -3113,10 +3123,86 @@ function capacityIntentCurrent(intent: CapacityIntent): boolean {
       "docsRetarget",
     ].includes(intent.owner)
   ) {
-    const s = store.get(intent.target);
-    if (!s || s.status === "archived" || s.autopilotPaused) return false;
-    if (!helper && ((s.agentProvider ?? "claude") !== intent.provider || s.model !== intent.model))
-      return false;
+    return capacitySessionCurrent(intent, !!helper);
+  }
+  return true;
+}
+
+async function resumeInterruptedCapacitySession(
+  s: Session,
+  fingerprint?: string,
+): Promise<boolean> {
+  if (fingerprint !== interruptedSessionKey(s) || !service.hasConversation(s)) return true;
+  if (
+    !(await service.resumeAndReply(
+      s.id,
+      "Codex capacity is available again. Continue the interrupted task from its current state.",
+      { automatic: true },
+    ))
+  )
+    return false;
+  store.setSetting(`codexCapacityResume:${s.id}`, fingerprint!);
+  return true;
+}
+
+async function resumeCapacityOwner(intent: CapacityIntent, s: Session | null): Promise<boolean> {
+  switch (intent.owner) {
+    case "plan":
+      await planGate.consider(s!);
+      break;
+    case "planFindings":
+    case "planRelease":
+      await planGate.resumeCapacity(s!, intent.fingerprint);
+      break;
+    case "review": {
+      const git = prPoller.get(s!.id);
+      if (!git) return false;
+      await reviewService.consider(s!, git);
+      break;
+    }
+    case "reviewFindings": {
+      const git = prPoller.get(s!.id);
+      if (!git) return false;
+      await reviewService.resumeCapacity(s!, git, intent.fingerprint);
+      break;
+    }
+    case "session":
+      return resumeInterruptedCapacitySession(s!, intent.fingerprint);
+    case "autopilot":
+    case "classifier":
+      await autopilot.onDone(s!.id);
+      await autopilot.tick();
+      break;
+    case "buildQueue":
+      await buildQueueReminder.sweep();
+      break;
+    case "automerge":
+      await autoMerge.pump(s!.repoPath);
+      break;
+    case "drain":
+      await drain.tick();
+      break;
+    default:
+      return resumeCapacityHelper(intent);
+  }
+  return true;
+}
+
+async function resumeCapacityHelper(intent: CapacityIntent): Promise<boolean> {
+  switch (intent.owner) {
+    case "docsRetarget":
+      if (config.docAgentEnabled) return docAgent.resumeCapacity(intent.target, intent.fingerprint);
+      break;
+    case "docs":
+      if (config.docAgentEnabled) await docAgent.consider(intent.target);
+      break;
+    case "standalone":
+      await standaloneCritic.sweep();
+      break;
+    case "maintain":
+      if (config.maintainLoopEnabled)
+        await maintainService.resumeCapacity(intent.fingerprint ?? "");
+      break;
   }
   return true;
 }
@@ -3199,70 +3285,7 @@ async function pollCodexCapacity(): Promise<void> {
       )
         return true;
     }
-    switch (intent.owner) {
-      case "plan":
-        await planGate.consider(s!);
-        break;
-      case "planFindings":
-      case "planRelease":
-        await planGate.resumeCapacity(s!, intent.fingerprint);
-        break;
-      case "review": {
-        const git = prPoller.get(s!.id);
-        if (!git) return false;
-        await reviewService.consider(s!, git);
-        break;
-      }
-      case "reviewFindings": {
-        const git = prPoller.get(s!.id);
-        if (!git) return false;
-        await reviewService.resumeCapacity(s!, git, intent.fingerprint);
-        break;
-      }
-      case "session": {
-        if (intent.fingerprint !== interruptedSessionKey(s!)) break;
-        if (!service.hasConversation(s!)) return true;
-        if (
-          !(await service.resumeAndReply(
-            s!.id,
-            "Codex capacity is available again. Continue the interrupted task from its current state.",
-            { automatic: true },
-          ))
-        )
-          return false;
-        store.setSetting(`codexCapacityResume:${s!.id}`, intent.fingerprint!);
-        break;
-      }
-      case "autopilot":
-      case "classifier":
-        await autopilot.onDone(s!.id);
-        await autopilot.tick();
-        break;
-      case "buildQueue":
-        await buildQueueReminder.sweep();
-        break;
-      case "automerge":
-        await autoMerge.pump(s!.repoPath);
-        break;
-      case "drain":
-        await drain.tick();
-        break;
-      case "docsRetarget":
-        if (config.docAgentEnabled)
-          return docAgent.resumeCapacity(intent.target, intent.fingerprint);
-        break;
-      case "docs":
-        if (config.docAgentEnabled) await docAgent.consider(intent.target);
-        break;
-      case "standalone":
-        await standaloneCritic.sweep();
-        break;
-      case "maintain":
-        if (config.maintainLoopEnabled)
-          await maintainService.resumeCapacity(intent.fingerprint ?? "");
-        break;
-    }
-    return true;
+    return resumeCapacityOwner(intent, s);
   });
 }
 deferredStarts.push(() => {

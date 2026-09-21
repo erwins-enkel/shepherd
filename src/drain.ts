@@ -3189,6 +3189,23 @@ export class DrainService {
     return { base, prompt, epicParent };
   }
 
+  private async spawnCapacity(
+    repoPath: string,
+    decision: Extract<DrainDecision, { kind: "spawn" }>,
+    defaultModel: string,
+  ): Promise<boolean> {
+    if (!this.deps.capacity) return true;
+    const number = decision.issue.number;
+    return this.deps.capacity({
+      owner: "drain",
+      key: `drain:${repoPath}:${number}`,
+      target: repoPath,
+      provider: decision.epicProviderSettings?.agentProvider ?? config.defaultAgentProvider,
+      model: this.resolvedSpawnModel(decision, defaultModel),
+      fingerprint: String(number),
+    });
+  }
+
   private async doSpawn(
     repoPath: string,
     decision: Extract<DrainDecision, { kind: "spawn" }>,
@@ -3209,18 +3226,7 @@ export class DrainService {
     // backend) doesn't churn the claim label every tick. create() re-checks and throws as
     // defense-in-depth (its try releases the claim), but skipping here avoids that churn.
     const rc = this.deps.store.getRepoConfig(repoPath);
-    if (
-      this.deps.capacity &&
-      !(await this.deps.capacity({
-        owner: "drain",
-        key: `drain:${repoPath}:${number}`,
-        target: repoPath,
-        provider: decision.epicProviderSettings?.agentProvider ?? config.defaultAgentProvider,
-        model: this.resolvedSpawnModel(decision, rc.defaultModel),
-        fingerprint: String(number),
-      }))
-    )
-      return;
+    if (!(await this.spawnCapacity(repoPath, decision, rc.defaultModel))) return;
     const profile = resolveProfile(undefined, rc.sandboxProfile, config.sandboxDefaultProfile);
     // backend is backend-independent for trusted (autoHoldReason → null), so skip the real
     // bwrap self-test on a trusted repo — else auto-drain pays a probe every first tick.

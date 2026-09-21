@@ -23,6 +23,20 @@ export interface HeldReleaseDeps {
   resolveForge?: (repoDir: string) => GitForge | null;
 }
 
+async function heldCapacityAvailable(
+  deps: HeldReleaseDeps,
+  task: ReturnType<HeldReleaseDeps["store"]["listHeldTasks"]>[number],
+  cfg: { enabled: boolean; holdPct: number; autoRelease: boolean },
+  now: number,
+): Promise<boolean> {
+  if ((task.input.agentProvider ?? config.defaultAgentProvider) === "codex")
+    return deps.codexCapacity?.(task.id) ?? true;
+  if (!cfg.enabled) return true;
+  if (!cfg.autoRelease) return false;
+  const lim = deps.usageLimits.limits(now);
+  return Math.max(lim.session5h?.pct ?? 0, lim.week?.pct ?? 0) < cfg.holdPct;
+}
+
 /**
  * Releases held tasks FIFO when usage has dropped below holdPct. Bounded per call.
  *
@@ -45,14 +59,7 @@ export async function releaseHeldTasks(
 
   for (const task of tasks) {
     if (released >= maxPerTick) break;
-    const provider = task.input.agentProvider ?? config.defaultAgentProvider;
-    if (provider === "codex") {
-      if (deps.codexCapacity && !(await deps.codexCapacity(task.id))) continue;
-    } else if (cfg.enabled) {
-      if (!cfg.autoRelease) continue;
-      const lim = deps.usageLimits.limits(now);
-      if (Math.max(lim.session5h?.pct ?? 0, lim.week?.pct ?? 0) >= cfg.holdPct) continue;
-    }
+    if (!(await heldCapacityAvailable(deps, task, cfg, now))) continue;
     try {
       const s = await deps.service.create(task.input);
       // service.create does not emit session:new — emit it so the released session

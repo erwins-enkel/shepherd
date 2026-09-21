@@ -57,7 +57,8 @@ test("probe", () => {
       const r = spawnSync(
         process.execPath, // this bun, not whichever one is on PATH
         ["test", "--preload", resolve(import.meta.dir, "setup-test-env.ts"), "./probe.test.ts"],
-        { cwd, encoding: "utf8" },
+        // Bun does not reliably propagate in-process env changes to spawned children.
+        { cwd, encoding: "utf8", env: { ...process.env } },
       );
 
       // Bun writes `console.log` from a test to stderr, but don't depend on which: read both.

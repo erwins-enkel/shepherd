@@ -66,8 +66,10 @@ private struct IsolatedMintStore: CredentialStore {
 }
 
 /// A single launch's mint and shutdown handoff, independent of the main actor.
-/// Shutdown closes admission before awaiting an in-flight mint. Each of the at most four
-/// sequential requests (login, mint, DELETE, probe) has a two-second resource deadline.
+/// Shutdown closes admission before awaiting an in-flight mint. Each network attempt has
+/// a two-second resource deadline; the repos probe can retry GETs with backoff. Its total
+/// budget can exceed the UI harness's ten-second Quit guard, which fails closed. DELETE
+/// precedes the probe, and only a completed 401 verification records successful cleanup.
 actor IsolatedTokenLifecycle {
     typealias SessionFactory = @Sendable (URLSessionConfiguration) -> URLSession
     private let profile: ServerProfile

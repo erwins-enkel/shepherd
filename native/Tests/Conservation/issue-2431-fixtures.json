@@ -3,10 +3,12 @@
   "sourceSHA": "0acfc8726306e4befa48397a6d0dfaa3bb790764",
   "reviewedSHA": "5f5cf8183bd4baebe0d3c2998213362b015b299d",
   "sourceBlobs": {
-    "native/Apps/ShepherdMac/Tests/LiveServerTests.swift": "99e2bc5dc92131a12b548b2baae97b967c0a98e7"
+    "native/Apps/ShepherdMac/Tests/LiveServerTests.swift": "99e2bc5dc92131a12b548b2baae97b967c0a98e7",
+    "native/Apps/ShepherdMac/Tests/MacSeamTests.swift": "75f65944e2b5e5e0e15eb1232a1552ee75eb09a0"
   },
   "reviewedBlobs": {
-    "native/Apps/ShepherdMac/Tests/LiveServerTests.swift": "80ea807526a9b1659cc2cef0cce220250abcc9d2"
+    "native/Apps/ShepherdMac/Tests/LiveServerTests.swift": "80ea807526a9b1659cc2cef0cce220250abcc9d2",
+    "native/Apps/ShepherdMac/Tests/MacSeamTests.swift": "75f65944e2b5e5e0e15eb1232a1552ee75eb09a0"
   },
   "transitions": [
     {
@@ -131,5 +133,19 @@
         ]
       }
     }
-  ]
+  ],
+  "snapshots": {
+    "source": {
+      "file": "fixtures/live-server-source.swift.txt",
+      "sha256": "307ed27071a67a0966c7e4b02d2eb4112491b51bef07d9be2ac732a9ee946b0a"
+    },
+    "reviewed": {
+      "file": "fixtures/live-server-reviewed.swift.txt",
+      "sha256": "e852f61b32965484187000680400039dc5adbe45045a8178eba6ae94c96681d7"
+    },
+    "suite": {
+      "file": "fixtures/mac-seam-suite.swift.txt",
+      "sha256": "7a607fec597cdc0b210350e07d13c3fa88df524bef6df7586b21f524d013a286"
+    }
+  }
 }

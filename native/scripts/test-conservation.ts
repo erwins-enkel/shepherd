@@ -318,17 +318,24 @@ function files(dir: string): string[] {
     )
     .sort();
 }
+function collectTargetTests(
+  target: string,
+  sources: { path: string; source: string }[],
+): TestIdentity[] {
+  // Resolve declarations before scanning extensions, irrespective of file order.
+  // Each target has its own registry; no import/type-system inference is attempted.
+  const suites = new Map<string, SuiteDeclaration>();
+  for (const { source, path } of sources) scan(source, target, path, suites, true);
+  return sources.flatMap(({ source, path }) => scan(source, target, path, suites));
+}
+
 export function collectTests(root: string): TestIdentity[] {
   const tests = roots.flatMap(([target, dir]) => {
     const sources = files(join(root, dir)).map((file) => ({
       path: relative(root, file),
       source: readFileSync(file, "utf8"),
     }));
-    // Resolve declarations before scanning extensions, irrespective of file order.
-    // Each target has its own registry; no import/type-system inference is attempted.
-    const suites = new Map<string, SuiteDeclaration>();
-    for (const { source, path } of sources) scan(source, target, path, suites, true);
-    return sources.flatMap(({ source, path }) => scan(source, target, path, suites));
+    return collectTargetTests(target, sources);
   });
   tests.sort((a, b) => identity(a).localeCompare(identity(b), "en"));
   if (new Set(tests.map(identity)).size !== tests.length)
@@ -347,9 +354,7 @@ export function collectTestsAtRevision(root: string, revision: string): TestIden
       .split("\n")
       .filter((path) => path.endsWith(".swift"));
     const sources = paths.map((path) => ({ path, source: git("show", `${revision}:${path}`) }));
-    const suites = new Map<string, SuiteDeclaration>();
-    for (const { source, path } of sources) scan(source, target, path, suites, true);
-    return sources.flatMap(({ source, path }) => scan(source, target, path, suites));
+    return collectTargetTests(target, sources);
   });
   tests.sort((a, b) => identity(a).localeCompare(identity(b), "en"));
   if (new Set(tests.map(identity)).size !== tests.length) throw new Error("duplicate Git identity");
@@ -557,28 +562,46 @@ export type FixtureProvenance = {
   sourceBlobs: Record<string, string>;
   reviewedBlobs: Record<string, string>;
   transitions: FixtureTransition[];
+  snapshots: Record<"source" | "reviewed" | "suite", { file: string; sha256: string }>;
 };
 const fixtureSignatures = [
   "liveSignInAndRestore() async throws",
   "theSessionListRendersAgainstTheLiveServer() async throws",
 ];
 const fixturePath = "native/Apps/ShepherdMac/Tests/LiveServerTests.swift";
+const fixtureSuitePath = "native/Apps/ShepherdMac/Tests/MacSeamTests.swift";
+// Durable byte-for-byte Git exports. Feature commit IDs below are metadata only:
+// squash merges must not make these snapshots depend on unreachable Git objects.
+const fixtureSnapshotPins = {
+  source: {
+    file: "fixtures/live-server-source.swift.txt",
+    sha256: "307ed27071a67a0966c7e4b02d2eb4112491b51bef07d9be2ac732a9ee946b0a",
+  },
+  reviewed: {
+    file: "fixtures/live-server-reviewed.swift.txt",
+    sha256: "e852f61b32965484187000680400039dc5adbe45045a8178eba6ae94c96681d7",
+  },
+  suite: {
+    file: "fixtures/mac-seam-suite.swift.txt",
+    sha256: "7a607fec597cdc0b210350e07d13c3fa88df524bef6df7586b21f524d013a286",
+  },
+} as const;
 
-/** Two exact fixture adaptations, anchored to Git at both ends. Descriptive map
+/** Two exact fixture adaptations, anchored to durable Git-sourced snapshots at both ends. Descriptive map
  * strings cannot authorize drift; every assertion and condition is retained except
  * the one explicitly named token-source expression in the second test.
  */
 export function verifyFixtureTransitions(
   baseline: TestIdentity[],
-  sourceGit: TestIdentity[],
-  reviewedGit: TestIdentity[],
+  sourceSnapshot: TestIdentity[],
+  reviewedSnapshot: TestIdentity[],
   current: TestIdentity[],
   mapping: IdentityMap[],
   transitions: FixtureTransition[],
 ): TestIdentity[] {
   const effective = new Map(baseline.map((t) => [identity(t), t]));
-  const source = new Map(sourceGit.map((t) => [identity(t), t]));
-  const reviewed = new Map(reviewedGit.map((t) => [identity(t), t]));
+  const source = new Map(sourceSnapshot.map((t) => [identity(t), t]));
+  const reviewed = new Map(reviewedSnapshot.map((t) => [identity(t), t]));
   const now = new Map(current.map((t) => [identity(t), t]));
   const rows = new Map(mapping.map((t) => [t.oldID, t]));
   if (transitions.length !== 2) throw new Error("exactly two fixture transitions required");
@@ -615,9 +638,9 @@ export function verifyFixtureTransitions(
     )
       throw new Error("fixture destination mapping changed");
     if (!source.has(identity(before)) || !sameTest(source.get(identity(before))!, before))
-      throw new Error("fixture source does not match Git");
+      throw new Error("fixture source does not match Git-sourced snapshot");
     if (!reviewed.has(destID) || !sameTest(reviewed.get(destID)!, after))
-      throw new Error("fixture adaptation does not match reviewed Git");
+      throw new Error("fixture adaptation does not match reviewed Git-sourced snapshot");
     if (!now.has(destID) || !sameTest(now.get(destID)!, after))
       throw new Error("fixture destination drift");
     if (
@@ -670,23 +693,47 @@ export function readFixtureProvenance(root: string): {
     provenance.reviewedSHA !== "5f5cf8183bd4baebe0d3c2998213362b015b299d"
   )
     throw new Error("unexpected fixture provenance revision");
-  for (const [revision, blobs] of [
-    [provenance.sourceSHA, provenance.sourceBlobs],
-    [provenance.reviewedSHA, provenance.reviewedBlobs],
-  ] as const) {
-    if (JSON.stringify(Object.keys(blobs)) !== JSON.stringify([fixturePath]))
-      throw new Error("fixture source blob inventory mismatch");
-    const actual = execFileSync("git", ["rev-parse", `${revision}:${fixturePath}`], {
-      cwd: root,
-      encoding: "utf8",
-    }).trim();
-    if (actual !== blobs[fixturePath]) throw new Error("fixture source blob changed");
+  const directory = join(root, "native/Tests/Conservation");
+  const snapshots = {} as Record<keyof typeof fixtureSnapshotPins, string>;
+  if (
+    JSON.stringify(Object.keys(provenance.snapshots).sort()) !==
+    JSON.stringify(Object.keys(fixtureSnapshotPins).sort())
+  )
+    throw new Error("fixture snapshot inventory mismatch");
+  for (const role of Object.keys(fixtureSnapshotPins) as (keyof typeof fixtureSnapshotPins)[]) {
+    const pin = fixtureSnapshotPins[role];
+    const recorded = provenance.snapshots[role];
+    if (recorded.file !== pin.file || recorded.sha256 !== pin.sha256)
+      throw new Error("fixture snapshot pin changed");
+    const content = readFileSync(join(directory, pin.file), "utf8");
+    if (hash(content) !== pin.sha256) throw new Error("fixture snapshot content changed");
+    snapshots[role] = content;
   }
-  return {
-    provenance,
-    source: collectTestsAtRevision(root, provenance.sourceSHA),
-    reviewed: collectTestsAtRevision(root, provenance.reviewedSHA),
-  };
+  // Check the historical blob metadata without resolving any feature commit.
+  const gitBlob = (content: string) =>
+    createHash("sha1")
+      .update(`blob ${Buffer.byteLength(content)}\0`)
+      .update(content)
+      .digest("hex");
+  for (const role of ["source", "reviewed"] as const) {
+    const blobs = role === "source" ? provenance.sourceBlobs : provenance.reviewedBlobs;
+    if (
+      JSON.stringify(Object.keys(blobs).sort()) !==
+      JSON.stringify([fixturePath, fixtureSuitePath].sort())
+    )
+      throw new Error("fixture source blob inventory mismatch");
+    if (
+      blobs[fixturePath] !== gitBlob(snapshots[role]) ||
+      blobs[fixtureSuitePath] !== gitBlob(snapshots.suite)
+    )
+      throw new Error("fixture source blob metadata changed");
+  }
+  const collect = (role: "source" | "reviewed") =>
+    collectTargetTests("ShepherdTests", [
+      { path: fixturePath, source: snapshots[role] },
+      { path: fixtureSuitePath, source: snapshots.suite },
+    ]);
+  return { provenance, source: collect("source"), reviewed: collect("reviewed") };
 }
 
 if (import.meta.main) {

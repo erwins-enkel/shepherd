@@ -44,6 +44,17 @@ func makeExecutable(_ url: URL) throws {
     }
   }
 
+  @Test func relativeRunnerSocketResolvesAgainstTheInstallDirectoryForEveryChild() throws {
+    let home = try makeTempHome()
+    defer { try? FileManager.default.removeItem(at: home) }
+    let install = home.appendingPathComponent("separate install", isDirectory: true)
+    let environment = LocalServerEnvironment(home: home, processEnvironment: [
+      "SHEPHERD_DIR": install.path, "HERDR_SOCKET_PATH": "state/../runner.sock",
+    ])
+    #expect(environment.childEnvironment()["HERDR_SOCKET_PATH"] == install.appendingPathComponent("runner.sock").path)
+    #expect(environment.spawnEnvironment(bun: URL(fileURLWithPath: "/fake/bun"))["HERDR_SOCKET_PATH"] == install.appendingPathComponent("runner.sock").path)
+  }
+
   @Test func pathsFollowTheInstallerDefaults() throws {
     let home = try makeTempHome()
     defer { try? FileManager.default.removeItem(at: home) }

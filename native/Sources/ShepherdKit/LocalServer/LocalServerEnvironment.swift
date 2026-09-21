@@ -72,7 +72,6 @@ public struct LocalServerEnvironment: Sendable {
     self.envFilePath = envFilePath
     var values = processEnvironment
     for (key, value) in Self.readEnvFile(envFilePath) { values[key] = value }
-    self.resolvedValues = values
     self.pathEntries = pathEntries ?? (values["PATH"] ?? "").split(separator: ":").map(String.init)
     let install = values["SHEPHERD_DIR"].flatMap { $0.isEmpty ? nil : $0 } ?? ".shepherd/app"
     let appDirectory = URL(fileURLWithPath: install, isDirectory: true, relativeTo: home).standardizedFileURL
@@ -80,6 +79,20 @@ public struct LocalServerEnvironment: Sendable {
     self.databasePath = values["SHEPHERD_DB"].map {
       URL(fileURLWithPath: $0, relativeTo: appDirectory).standardizedFileURL
     } ?? home.appendingPathComponent(".shepherd/shepherd.db")
+
+    // Match src/herdr-session.ts: explicit named herds win over sockets inherited
+    // from an enclosing pane unless opted out. Then freeze one absolute socket
+    // against the HTTP child's working directory; the daemon and CLI probes use
+    // different working directories and must never reinterpret a relative path.
+    let session = values["HERDR_SESSION"] ?? "default"
+    let sessionSocket = home.appendingPathComponent(session == "default"
+      ? ".config/herdr/herdr.sock" : ".config/herdr/sessions/\(session)/herdr.sock").path
+    let inheritedConflict = values["HERDR_ENV"] == "1" && session != "default" &&
+      values["SHEPHERD_HERDR_IGNORE_SESSION"] != "1"
+    let socket = inheritedConflict ? sessionSocket : (values["HERDR_SOCKET_PATH"] ?? sessionSocket)
+    values["HERDR_SOCKET_PATH"] = URL(fileURLWithPath: socket, relativeTo: appDirectory)
+      .standardizedFileURL.path
+    self.resolvedValues = values
   }
 
   /// Always appended: a Finder-launched app inherits launchd's PATH, which
@@ -153,14 +166,6 @@ public struct LocalServerEnvironment: Sendable {
     values["SHEPHERD_DIR"] = appDirectory.path
     values["SHEPHERD_DB"] = databasePath.path
     values["PATH"] = (prepending + pathEntries + bunFallbacks).joined(separator: ":")
-    // Match src/herdr-session.ts: an explicit named herd wins over a socket
-    // inherited from an enclosing herdr pane, unless explicitly opted out.
-    let session = values["HERDR_SESSION"] ?? "default"
-    let socket = session == "default" ? ".config/herdr/herdr.sock" : ".config/herdr/sessions/\(session)/herdr.sock"
-    if values["HERDR_SOCKET_PATH"] == nil ||
-       (values["HERDR_ENV"] == "1" && session != "default" && values["SHEPHERD_HERDR_IGNORE_SESSION"] != "1") {
-      values["HERDR_SOCKET_PATH"] = homeDirectory.appendingPathComponent(socket).path
-    }
     return values
   }
 

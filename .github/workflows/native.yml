@@ -146,6 +146,8 @@ jobs:
           python3 native/scripts/check-core-results.py --xunit "$RUNNER_TEMP/kit-swift-testing.xml" --target ShepherdKitTests --require-keychain
 
       - name: Test isolated application core
+        # Swift Testing XML aggregates arguments. The blocking simulator job
+        # below must also validate the recorded per-argument xcresult inventory.
         timeout-minutes: 20
         run: |
           set -euo pipefail
@@ -272,14 +274,14 @@ jobs:
           "$UITEST_LOCK" xcodebuild -scheme ShepherdAppCore -destination 'generic/platform=iOS Simulator' -skipPackagePluginValidation build 2>&1 | tail -n 40
           "$UITEST_LOCK" xcodebuild -scheme ShepherdAppCore -destination "platform=iOS Simulator,id=$CORE_SIMULATOR_UDID" -parallel-testing-enabled NO -only-testing:ShepherdAppCoreTests -resultBundlePath "$EVIDENCE/core.xcresult" -skipPackagePluginValidation test 2>&1 | tail -n 40
 
-      - name: Validate executed core identities
+      - name: Validate executed core identities and parameter arguments
         if: always()
         run: |
           set -euo pipefail
           EVIDENCE="$RUNNER_TEMP/core-simulator"
           xcrun xcresulttool get test-results summary --path "$EVIDENCE/core.xcresult" > "$EVIDENCE/summary.json"
           xcrun xcresulttool get test-results tests --path "$EVIDENCE/core.xcresult" > "$EVIDENCE/tests.json"
-          python3 native/scripts/check-core-results.py "$EVIDENCE/summary.json" "$EVIDENCE/tests.json" | tee "$EVIDENCE/result.txt"
+          python3 native/scripts/check-core-results.py "$EVIDENCE/summary.json" "$EVIDENCE/tests.json" --parameters native/Tests/Conservation/issue-2431-core-parameters.json | tee "$EVIDENCE/result.txt"
           cat "$EVIDENCE/result.txt" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Publish simulator results

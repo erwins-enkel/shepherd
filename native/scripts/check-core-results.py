@@ -29,13 +29,32 @@ def expected_identities(path, target):
     mapping = json.loads(Path(path).read_text())
     ids = [dest for row in mapping["mappings"] for dest in row["destinations"]] + mapping["added"]
     expected = []
+    parameterized = set()
     for raw in ids:
         module, _, suite, signature = json.loads(raw)
         if module == target:
             expected.append(identity(suite, signature))
+            if signature.split("(", 1)[1].split(")", 1)[0].strip():
+                parameterized.add(identity(suite, signature))
     if not expected or len(set(expected)) != len(expected):
         raise ValueError("empty or ambiguous mapped test identities")
-    return set(expected)
+    return set(expected), parameterized
+
+
+def expected_arguments(path, target, parameterized):
+    inventory = json.loads(Path(path).read_text())
+    if (not isinstance(inventory, dict) or type(inventory.get("schemaVersion")) is not int or
+            inventory["schemaVersion"] != 1 or
+            inventory.get("target") != target or not isinstance(inventory.get("arguments"), dict)):
+        raise ValueError("unknown parameter inventory schema/target")
+    arguments = inventory["arguments"]
+    if set(arguments) != parameterized:
+        raise ValueError("parameter inventory does not match mapped parameterized declarations")
+    if any(not isinstance(names, list) or not names or
+           any(not isinstance(name, str) or not name for name in names)
+           for names in arguments.values()):
+        raise ValueError("invalid expected parameter arguments")
+    return {key: Counter(names) for key, names in arguments.items()}
 
 
 def check(summary):
@@ -54,28 +73,48 @@ def xcresult_rows(tree):
     if not isinstance(tree, dict) or not isinstance(tree.get("testNodes"), list):
         raise ValueError("unknown xcresult tests schema")
     rows = []
-    arguments = 0
+    arguments = {}
+    containers = {"Test Plan", "Unit test bundle", "Test Suite"}
+    allowed_children = {
+        None: {"Test Plan", "Test Case"},  # Also support a flat case inventory.
+        "Test Plan": {"Unit test bundle"},
+        "Unit test bundle": {"Test Suite", "Test Case"},
+        "Test Suite": {"Test Suite", "Test Case"},
+        "Test Case": {"Arguments"},
+        "Arguments": set(),
+    }
 
-    def walk(nodes):
-        nonlocal arguments
+    def walk(nodes, parent=None, case=None):
         for node in nodes:
             if not isinstance(node, dict) or not isinstance(node.get("nodeType"), str):
                 raise ValueError("unknown xcresult node schema")
             kind = node["nodeType"]
+            if kind not in containers | {"Test Case", "Arguments"}:
+                raise ValueError(f"unknown xcresult node type: {kind}")
+            if kind not in allowed_children[parent]:
+                raise ValueError("unknown xcresult node structure")
+            if node.get("result") not in ("Passed", "Skipped", "Failed"):
+                raise ValueError("unknown test result")
             if kind in ("Test Case", "Arguments"):
-                if node.get("result") not in ("Passed", "Skipped", "Failed"):
-                    raise ValueError("unknown test result")
                 if kind == "Test Case":
                     suite, signature = node["nodeIdentifier"].rsplit("/", 1)
-                    rows.append((identity(suite, signature), node["result"]))
+                    case = identity(suite, signature)
+                    rows.append((case, node["result"]))
                 else:
-                    arguments += 1
+                    name = node.get("name")
+                    if not isinstance(name, str) or not name:
+                        raise ValueError("unknown parameter argument identity")
+                    arguments.setdefault(case, Counter())[name] += 1
                     if node["result"] != "Passed":
                         raise ValueError("parameter argument did not pass")
+            elif node["result"] == "Failed":
+                raise ValueError("xcresult container did not pass")
+            if kind in containers and "children" not in node:
+                raise ValueError("unknown xcresult container structure")
             children = node.get("children", [])
             if not isinstance(children, list):
                 raise ValueError("unknown xcresult children schema")
-            walk(children)
+            walk(children, kind, case)
     walk(tree["testNodes"])
     return rows, arguments
 
@@ -134,17 +173,25 @@ if __name__ == "__main__":
     parser.add_argument("--xunit")
     parser.add_argument("--target", choices=("ShepherdAppCoreTests", "ShepherdKitTests"), default="ShepherdAppCoreTests")
     parser.add_argument("--mapping", default=Path(__file__).resolve().parents[1] / "Tests/Conservation/issue-2431-map.json")
+    parser.add_argument("--parameters", default=Path(__file__).resolve().parents[1] / "Tests/Conservation/issue-2431-core-parameters.json")
     parser.add_argument("--require-keychain", action="store_true")
     args = parser.parse_args()
     try:
-        expected = expected_identities(args.mapping, args.target)
+        expected, parameterized = expected_identities(args.mapping, args.target)
         if args.xunit and not (args.summary or args.tests):
             summary, rows = xunit_rows(args.xunit, args.target)
-            detail = "parameter arguments aggregated by Swift Testing xUnit"
+            detail = ("parameter arguments aggregated by Swift Testing xUnit; "
+                      "per-argument coverage UNVERIFIED here; core requires the simulator xcresult gate")
         elif args.summary and args.tests and not args.xunit:
             summary = json.loads(Path(args.summary).read_text())
             rows, arguments = xcresult_rows(json.loads(Path(args.tests).read_text()))
-            detail = f"parameter argument executions={arguments}"
+            required = expected_arguments(args.parameters, args.target, parameterized)
+            if arguments != required:
+                mismatches = sorted(key for key in arguments.keys() | required.keys()
+                                    if arguments.get(key) != required.get(key))
+                raise ValueError(f"parameter argument inventory mismatch: {mismatches[:5]}")
+            detail = (f"parameterized declarations={len(arguments)}; "
+                      f"parameter argument executions={sum(sum(names.values()) for names in arguments.values())}")
         else:
             raise ValueError("provide summary AND tests JSON, or --xunit XML; counts alone are insufficient")
         print(validate(summary, rows, expected, args.target, args.require_keychain) + "; " + detail)

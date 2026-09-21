@@ -45,6 +45,8 @@ describe("native core gates", () => {
         mappings: [{ oldID: sourceID("first"), destinations: [sourceID("first")] }],
         added: [sourceID("second")],
       }),
+      "--parameters",
+      file("parameters.json", { schemaVersion: 1, target, arguments: {} }),
     );
   }
   const device = (name = "iPhone 17", udid = "B", isAvailable = true) => ({
@@ -124,6 +126,119 @@ describe("native core gates", () => {
   });
   test("cannot accept counts without an identity inventory", () => {
     expect(python("check-core-results.py", file("summary.json", summary())).exitCode).not.toBe(0);
+  });
+  test("requires the complete recorded parameter inventory in a nested xcresult tree", () => {
+    const suite = "CoreSeamTests.ActionBarTests";
+    const name = "readyConfirmsBothResultingStatesWithSuccessTone";
+    const mapping = file("parameter-map.json", {
+      mappings: [],
+      added: [JSON.stringify([target, "fixture.swift", suite, `${name}(wasReady: Bool)`])],
+    });
+    const inventory = {
+      schemaVersion: 1,
+      target,
+      arguments: { [`${suite}/${name}`]: ["false", "true"] },
+    };
+    const argument = (name: string) => ({ nodeType: "Arguments", name, result: "Passed" });
+    const check = (
+      children: unknown[] | undefined,
+      parameters: unknown = inventory,
+      extra: unknown[] = [],
+    ) =>
+      python(
+        "check-core-results.py",
+        file("summary.json", summary(1)),
+        file("tests.json", {
+          testNodes: [
+            {
+              nodeType: "Test Plan",
+              result: "Passed",
+              children: [
+                {
+                  nodeType: "Unit test bundle",
+                  result: "Passed",
+                  children: [
+                    {
+                      nodeType: "Test Suite",
+                      result: "Passed",
+                      children: [
+                        {
+                          nodeType: "Test Case",
+                          result: "Passed",
+                          nodeIdentifier: `CoreSeamTests/ActionBarTests/${name}(wasReady:)`,
+                          children,
+                        },
+                        ...extra,
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+        "--mapping",
+        mapping,
+        "--parameters",
+        file("parameters.json", parameters),
+      );
+    expect(check([argument("true"), argument("false")]).exitCode).toBe(0);
+    for (const children of [
+      undefined,
+      [],
+      [argument("false")],
+      [argument("false"), argument("false")],
+      [argument("false"), argument("replacement")],
+      [argument("false"), argument("true"), argument("extra")],
+    ]) {
+      const result = check(children);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toContain("parameter argument inventory mismatch");
+    }
+    expect(
+      check([argument("false"), argument("true")], { ...inventory, arguments: {} }).exitCode,
+    ).not.toBe(0);
+    expect(
+      check([argument("false"), argument("true")], { ...inventory, target: "Other" }).exitCode,
+    ).not.toBe(0);
+    for (const result of ["Failed", "Passed"]) {
+      const unknown = { nodeType: "Future Arguments", result, name: "unknown" };
+      const rejected = check([argument("false"), argument("true")], inventory, [unknown]);
+      expect(rejected.exitCode).not.toBe(0);
+      expect(rejected.stderr.toString()).toContain("unknown xcresult node type");
+      expect(check([argument("false"), unknown]).exitCode).not.toBe(0);
+    }
+    expect(check([argument("false"), { ...argument("true"), result: "Failed" }]).exitCode).not.toBe(
+      0,
+    );
+    expect(
+      check([argument("false"), { ...argument("true"), children: [argument("nested")] }]).exitCode,
+    ).not.toBe(0);
+    expect(
+      check([argument("false"), argument("true")], inventory, [argument("orphan")]).exitCode,
+    ).not.toBe(0);
+    expect(
+      check([
+        {
+          nodeType: "Test Suite",
+          result: "Passed",
+          children: [argument("false"), argument("true")],
+        },
+      ]).exitCode,
+    ).not.toBe(0);
+    const xml = python(
+      "check-core-results.py",
+      "--mapping",
+      mapping,
+      "--xunit",
+      file(
+        "parameters.xml",
+        `<testsuites><testsuite tests="1" failures="0" errors="0" skipped="0"><testcase classname="${target}.${suite}" name="${name}(wasReady:)"/></testsuite></testsuites>`,
+      ),
+    );
+    expect(xml.exitCode).toBe(0);
+    expect(xml.stdout.toString()).toContain("per-argument coverage UNVERIFIED here");
+    expect(xml.stdout.toString()).toContain("requires the simulator xcresult gate");
   });
   test("SwiftPM XML validates mapped identities and skips", () => {
     const mapping = file("map.json", {
@@ -205,6 +320,93 @@ describe("native core gates", () => {
     ).toBe(143);
     expect(Bun.spawnSync(["bash", lock, "/missing-command"], { env }).exitCode).toBe(127);
   });
+  test("portable lock serializes and cleans up owned indirect descendants through cancellation", () => {
+    // One bounded synthetic fixture; its holder, descendant and waiter are all
+    // owned here. No process discovery, Xcode or independent concurrent work.
+    const fixture = file(
+      "cancellation.py",
+      `
+import os, pathlib, signal, subprocess, sys, time
+root, lock = pathlib.Path(sys.argv[1]), sys.argv[2]
+child = root / "child.py"
+child.write_text('''import os, pathlib, signal, sys, time
+p = pathlib.Path(sys.argv[1])
+signal.signal(signal.SIGTERM, lambda *_: (p / "term").touch())
+(p / "ready").write_text(str(os.getpgrp()))
+deadline = time.monotonic() + 8
+while not (p / "release").exists():
+    if time.monotonic() > deadline: raise SystemExit(99)
+    time.sleep(0.01)
+(p / "cleaned").touch()
+''')
+script = root / "indirect.sh"
+script.write_text('trap "" TERM\\npython3 "$1" "$2" &\\nif [ "$3" != term ]; then exit 23; fi\\nwait "$!"\\nexit 23\\n')
+def until(predicate):
+    deadline = time.monotonic() + 5
+    while not predicate():
+        if time.monotonic() > deadline: raise AssertionError("fixture deadline")
+        time.sleep(0.01)
+def group_alive(pgid):
+    try: os.killpg(pgid, 0); return True
+    except ProcessLookupError: return False
+def process_alive(pid):
+    try: os.kill(pid, 0); return True
+    except ProcessLookupError: return False
+for mode in ("term", "kill", "exit"):
+    p = root / mode
+    p.mkdir()
+    env = dict(os.environ, RUNNER_TEMP=str(p))
+    holder = subprocess.Popen([lock, "bash", str(script), str(child), str(p), mode], env=env)
+    waiter, pgid = None, None
+    try:
+        until(lambda: (p / "ready").exists() and (p / "ready").read_text())
+        pgid = int((p / "ready").read_text())
+        # The holder must own a separate group before any group signal is safe.
+        assert pgid != os.getpgrp(), "command has no owned group"
+        if mode != "term":
+            # Only the indirect descendant remains; the script leader is reaped.
+            until(lambda: not process_alive(pgid))
+            assert group_alive(pgid)
+        if mode == "term":
+            holder.send_signal(signal.SIGTERM)
+            until(lambda: (p / "term").exists())
+        elif mode == "kill":
+            holder.kill()
+            assert holder.wait(timeout=2) == -signal.SIGKILL
+        waiter = subprocess.Popen([lock, "python3", "-c",
+            'import pathlib, sys; p=pathlib.Path(sys.argv[1]); (p/"entered").touch(); assert (p/"cleaned").exists()', str(p)], env=env)
+        time.sleep(0.3)
+        assert not (p / "entered").exists(), "waiter entered before descendant cleanup"
+        if mode != "kill": assert holder.poll() is None, "holder exited before descendant cleanup"
+        (p / "release").touch()
+        assert holder.wait(timeout=5) == {"term": 143, "kill": -signal.SIGKILL, "exit": 23}[mode]
+        assert waiter.wait(timeout=5) == 0
+        until(lambda: not group_alive(pgid))
+        print(mode + ": serialized; descendant cleaned; owned group gone", flush=True)
+    finally:
+        (p / "release").touch()
+        # Only our known session/group may be cleaned up on assertion failure.
+        if pgid is not None and pgid != os.getpgrp() and group_alive(pgid):
+            os.killpg(pgid, signal.SIGKILL)
+        for process in (holder, waiter):
+            if process is not None:
+                if process.poll() is None: process.kill()
+                process.wait(timeout=5)
+`,
+    );
+    const result = Bun.spawnSync(
+      ["python3", fixture, tempDirectory, join(scripts, "uitest-lock.sh")],
+      {
+        timeout: 25_000,
+      },
+    );
+    expect(result.stderr.toString()).toBe("");
+    expect(result.exitCode).toBe(0);
+    for (const mode of ["term", "kill", "exit"])
+      expect(result.stdout.toString()).toContain(
+        `${mode}: serialized; descendant cleaned; owned group gone`,
+      );
+  }, 30_000);
   test("CI chains blocking simulator and advisory UI with scoped Kit opt-in", () => {
     const source = readFileSync(".github/workflows/native.yml", "utf8");
     const workflow = Bun.YAML.parse(source) as {
@@ -253,5 +455,6 @@ describe("native core gates", () => {
     expect(run).toContain("platform=iOS Simulator,id=$CORE_SIMULATOR_UDID");
     expect(run).toContain("get test-results tests");
     expect(run).toContain("check-core-results.py");
+    expect(run).toContain("--parameters native/Tests/Conservation/issue-2431-core-parameters.json");
   });
 });

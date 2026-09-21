@@ -1,0 +1,214 @@
+{
+  "schemaVersion": 1,
+  "target": "ShepherdAppCoreTests",
+  "provenance": {
+    "sourceCommit": "ef32f57fe5561131bb7aebfdc77d89d9201da8a8",
+    "bundle": "task4/core.xcresult",
+    "testsSHA256": "d4813d2df88399b8072ede7828da08842b237cc285bd90e7ebca21aebc862da6",
+    "summarySHA256": "69709a01e7750f81f1c017625a55d2ad783edc3ddec79392c3c20a1826d40547",
+    "toolchain": "Xcode 26.6 (17F113), Swift 6.3.3, iOS Simulator 26.5"
+  },
+  "arguments": {
+    "CoreSeamTests.ActionBarTests/failedCompletionsDoNotWriteASuccessNote": [
+      ".regenerateRecap",
+      ".resume",
+      ".toggleReady"
+    ],
+    "CoreSeamTests.ActionBarTests/readyConfirmsBothResultingStatesWithSuccessTone": [
+      "false",
+      "true"
+    ],
+    "CoreSeamTests.ActionBarTests/staleCompletionsDoNotWriteANote": [
+      ".regenerateRecap",
+      ".resume",
+      ".toggleReady"
+    ],
+    "CoreSeamTests.ComposeModelTests/anExplicitModeChoicePermanentlyOverridesDesignPreselection": [
+      ".code",
+      ".epic",
+      ".plain",
+      ".research"
+    ],
+    "CoreSeamTests.ComposeModelTests/designPreselectionFollowsThePromptWithoutTouchingGuards": [
+      "\" \t/design layout\"",
+      "\"  /design layout\"",
+      "\"/design\""
+    ],
+    "CoreSeamTests.ComposeModelTests/designPreselectionRequiresAnExactLeadingCommand": [
+      "\"\"",
+      "\"/Design\"",
+      "\"/design-system\"",
+      "\"/design/layout\"",
+      "\"/designer\"",
+      "\"fix /design\""
+    ],
+    "CoreSeamTests.ComposeModelTests/modeSelectionPinsGuardsAndResetsOnlyAnIncompatibleSandbox": [
+      ".code",
+      ".epic",
+      ".plain",
+      ".research"
+    ],
+    "CoreSeamTests.ComposeModelTests/returningToCodeNeverRestoresGuards": [
+      ".epic",
+      ".plain",
+      ".research"
+    ],
+    "CoreSeamTests.ComposeShapeTests/eachModeSerializesEveryFlagAndGuard": [
+      ".code, false",
+      ".code, true",
+      ".epic, false",
+      ".epic, true",
+      ".plain, false",
+      ".plain, true",
+      ".research, false",
+      ".research, true"
+    ],
+    "CoreSeamTests.ComposeShapeTests/sandboxMatrixPreservesEveryAllowedProfile": [
+      ".code",
+      ".epic",
+      ".plain",
+      ".research"
+    ],
+    "CoreSeamTests.DonePanelTests/everyFailureCodeHasLocalizedCopy": [
+      "\"auth-unavailable\", recap_failure_auth_headline",
+      "\"invalid-result\", recap_failure_invalid_result_headline",
+      "\"launch-failed\", recap_failure_launch_headline",
+      "\"no-result\", recap_failure_no_result_headline",
+      "\"source-unavailable\", recap_failure_source_headline",
+      "\"timed-out\", recap_failure_timeout_headline"
+    ],
+    "CoreSeamTests.HeldQueueTests/heldReasonLabelsCoverKnownUnknownAndMissingValues": [
+      "\"de\"",
+      "\"en\""
+    ],
+    "CoreSeamTests.MergeModelTests/refusedMergeCanBeExplicitlyRetriedWithAFreshConfirmation": [
+      "\"merge_confirm_required\"",
+      "\"merge_confirm_stale\""
+    ],
+    "CoreSeamTests.MergeOwedTests/eachEventChangesTheOwedSnapshot": [
+      "\"post-merge-steps:changed\"",
+      "\"session:manual-steps\""
+    ],
+    "CoreSeamTests.ModelGuidanceTests/everyGuidanceRowMatchesTheWeb": [
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.claude, model: \"auto\", cost: \"standard\", tag: \"providerDefault\", detail: \"auto\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.claude, model: \"claude-fable-5-1\", cost: \"premium\", tag: \"max\", detail: \"claude_fable_5_1\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.claude, model: \"claude-opus-5\", cost: \"high\", tag: \"strong\", detail: \"claude_opus_5\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.claude, model: \"claude-opus-5[1m]\", cost: \"premium\", tag: \"longContext\", detail: \"claude_opus_5_1m\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.claude, model: \"default\", cost: \"standard\", tag: \"providerDefault\", detail: \"default\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.claude, model: \"fable\", cost: \"premium\", tag: \"max\", detail: \"claude_fable\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.claude, model: \"haiku\", cost: \"low\", tag: \"budget\", detail: \"claude_haiku\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.claude, model: \"opus\", cost: \"high\", tag: \"strong\", detail: \"claude_opus\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.claude, model: \"opus[1m]\", cost: \"premium\", tag: \"longContext\", detail: \"claude_opus_1m\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.claude, model: \"sonnet\", cost: \"standard\", tag: \"balanced\", detail: \"claude_sonnet\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.claude, model: \"sonnet[1m]\", cost: \"high\", tag: \"longContext\", detail: \"claude_sonnet_1m\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"gpt-5\", cost: \"low\", tag: \"budget\", detail: \"codex_5\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"gpt-5-codex\", cost: \"low\", tag: \"budget\", detail: \"codex_5_codex\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"gpt-5.1\", cost: \"standard\", tag: \"balanced\", detail: \"codex_51\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"gpt-5.1-codex\", cost: \"standard\", tag: \"balanced\", detail: \"codex_51_codex\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"gpt-5.3-codex\", cost: \"standard\", tag: \"balanced\", detail: \"codex_53\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"gpt-5.4\", cost: \"high\", tag: \"strong\", detail: \"codex_54\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"gpt-5.5\", cost: \"premium\", tag: \"max\", detail: \"codex_55\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"gpt-5.6-luna\", cost: \"low\", tag: \"budget\", detail: \"codex_56_luna\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"gpt-5.6-sol\", cost: \"premium\", tag: \"max\", detail: \"codex_56_sol\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"gpt-5.6-terra\", cost: \"high\", tag: \"balanced\", detail: \"codex_56_terra\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"gpt-6-astra\", cost: \"premium\", tag: \"max\", detail: \"codex_6_astra\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"inherit\", cost: \"standard\", tag: \"providerDefault\", detail: \"inherit\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"o3\", cost: \"high\", tag: \"strong\", detail: \"codex_o3\")"
+    ],
+    "CoreSeamTests.ModelGuidanceTests/unavailableInitialFablePrecedesConfiguredClaudeDefault": [
+      "\"claude-fable-5-1\"",
+      "\"fable\""
+    ],
+    "CoreSeamTests.PlanModelTests/revokedGateReopensAfterFrameOrSnapshot": ["false", "true"],
+    "CoreSeamTests.PlanModelTests/suspendedSnapshotIsDroppedAfterTeardownOrActivationChange": [
+      "false",
+      "true"
+    ],
+    "CoreSeamTests.PlanStringsTests/bothBundledLocalesResolveAndPreserveArgumentOrder": [
+      "\"de\"",
+      "\"en\""
+    ],
+    "CoreSeamTests.PlanTabTests/transientOutcomeDoesNotSurviveTeardownAndReactivation": [
+      ".errorAuth",
+      ".errorSpawn",
+      ".errorWorktree",
+      ".skipped"
+    ],
+    "CoreSeamTests.QuestionFormTests/confirmationCannotOutliveItsContextOrAnswers": [
+      "\"answers\"",
+      "\"lock\"",
+      "\"readonly\"",
+      "\"session\""
+    ],
+    "CoreSeamTests.QuestionFormTests/confirmationCopyResolvesCountInBothLocales": [
+      "\"de\"",
+      "\"en\""
+    ],
+    "CoreSeamTests.QuestionFormTests/dropsCompletionAfterIdentityChanges": [
+      "\"session\", false",
+      "\"session\", true",
+      "\"store\", false",
+      "\"store\", true"
+    ],
+    "CoreSeamTests.QuestionFormTests/recordedAnswersAreSuccessEvenWhenNotDelivered": [
+      "false",
+      "true"
+    ],
+    "CoreSeamTests.QueueActionsTests/busyAndStaleCommandsCannotSendTwiceOrPublishALateResult": [
+      "false",
+      "true"
+    ],
+    "CoreSeamTests.QueueActionsTests/restoreConflictHasLocalizedFailure": [
+      "\"branch_gone\"",
+      "\"branch_in_use\"",
+      "\"cannot_restore\"",
+      "\"future\"",
+      "\"in_progress\"",
+      "\"not_archived\"",
+      "\"spawn_refused\""
+    ],
+    "CoreSeamTests.QueuesModelTests/archiveAndOrdinaryRecoveryInvalidateLateStrandedReads": [
+      "false",
+      "true"
+    ],
+    "CoreSeamTests.QueuesModelTests/archivedIDRemainsTombstonedUntilServerConfirmsAbsence": [
+      "false",
+      "true"
+    ],
+    "CoreSeamTests.QueuesStringsTests/bothCompiledCatalogsResolveAndInterpolate": [
+      "\"de\"",
+      "\"en\""
+    ],
+    "CoreSeamTests.SettingsFieldsTests/rejectedSaveOrRefreshPreservesDraft": ["false", "true"],
+    "CoreSeamTests.SettingsReadyTests/gitReadyPrecedence": [
+      "(\"{\\\"state\\\":\\\"merged\\\",\\\"checks\\\":\\\"success\\\",\\\"deployConfigured\\\":false}\", false)",
+      "(\"{\\\"state\\\":\\\"open\\\",\\\"checks\\\":\\\"failure\\\",\\\"deployConfigured\\\":false}\", true)",
+      "(\"{\\\"state\\\":\\\"open\\\",\\\"checks\\\":\\\"none\\\",\\\"deployConfigured\\\":false,\\\"noCi\\\":false,\\\"handoff\\\":\\\"reviewer\\\"}\", true)",
+      "(\"{\\\"state\\\":\\\"open\\\",\\\"checks\\\":\\\"none\\\",\\\"deployConfigured\\\":false,\\\"noCi\\\":true,\\\"handoff\\\":\\\"reviewer\\\"}\", false)",
+      "(\"{\\\"state\\\":\\\"open\\\",\\\"checks\\\":\\\"pending\\\",\\\"deployConfigured\\\":false}\", false)",
+      "(\"{\\\"state\\\":\\\"open\\\",\\\"checks\\\":\\\"success\\\",\\\"deployConfigured\\\":false,\\\"handoff\\\":\\\"merger\\\"}\", false)",
+      "(\"{\\\"state\\\":\\\"open\\\",\\\"checks\\\":\\\"success\\\",\\\"deployConfigured\\\":false,\\\"handoff\\\":\\\"reviewer\\\",\\\"isDraft\\\":true}\", true)",
+      "(\"{\\\"state\\\":\\\"open\\\",\\\"checks\\\":\\\"success\\\",\\\"deployConfigured\\\":false,\\\"handoff\\\":\\\"reviewer\\\"}\", false)"
+    ],
+    "CoreSeamTests.SettingsRepoTests/confirmedConfigSaveAdoptsOnlyItsNormalizedDraft": [
+      "200",
+      "400"
+    ],
+    "CoreSeamTests.SettingsTokensTests/lateSuccessAndFailureCannotPublishAfterClose": [
+      "false",
+      "true"
+    ],
+    "CoreSeamTests.SettingsTokensTests/missingActiveCredentialRefusesEveryRevoke": [
+      "false",
+      "true"
+    ],
+    "CoreSeamTests.SidebarModelTests/aPushAfterUsageReceiptWinsWhileHoldsIsStillPending": [
+      "7.0",
+      "99.0"
+    ],
+    "CoreSeamTests.SidebarModelTests/usageReceiptAfterAPushIsCommittedOnlyIfHoldsSucceeds": [
+      "false",
+      "true"
+    ]
+  }
+}

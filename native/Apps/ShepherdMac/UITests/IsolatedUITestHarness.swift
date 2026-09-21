@@ -5,6 +5,7 @@ import XCTest
 @MainActor
 final class IsolatedUITestHarness {
     private var running: XCUIApplication?
+    private var cleanupDirectory: URL?
 
     var isRunning: Bool { running.map { $0.state != .notRunning } ?? false }
 
@@ -29,6 +30,21 @@ final class IsolatedUITestHarness {
             app.launchEnvironment["TEST_RUNNER_" + name] = ""
         }
         app.launchEnvironment["SHEPHERD_ISOLATED"] = "1"
+        app.launchEnvironment["SHEPHERD_CLEANUP_STATUS_PATH"] = ""
+        app.launchEnvironment["TEST_RUNNER_SHEPHERD_CLEANUP_STATUS_PATH"] = ""
+        if liveEnvironment["SHEPHERD_LIVE_PASSWORD"] != nil {
+            let directory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("shepherd-ui-cleanup-\(UUID())", isDirectory: true)
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                    attributes: [.posixPermissions: 0o700])
+                cleanupDirectory = directory
+                app.launchEnvironment["SHEPHERD_CLEANUP_STATUS_PATH"] = directory.appendingPathComponent("status.json").path
+            } catch {
+                XCTFail("Could not create private cleanup evidence directory")
+                return
+            }
+        }
         let isolation = app.launchArguments.firstIndex(of: "-ShepherdIsolated")
         precondition(isolation.map { app.launchArguments[$0 + 1] == "1" } == true,
             "every UI launch must pass isolation arguments")
@@ -41,8 +57,24 @@ final class IsolatedUITestHarness {
         running = nil
         // From this point onward only process-state APIs may be used after the Quit keystroke.
         // No element queries, screenshots, new application handles, or activation here.
-        guard app.state != .notRunning else { return }
-        app.typeKey("q", modifierFlags: .command)
-        if !app.wait(for: .notRunning, timeout: 10) { app.terminate() }
+        defer {
+            if let cleanupDirectory { try? FileManager.default.removeItem(at: cleanupDirectory) }
+            cleanupDirectory = nil
+        }
+        if app.state != .notRunning {
+            app.typeKey("q", modifierFlags: .command)
+            let quit = app.wait(for: .notRunning, timeout: 10)
+            if !quit { app.terminate() }
+            XCTAssertTrue(quit, "Isolated app must finish bounded graceful Quit")
+        }
+        if let cleanupDirectory {
+            // Read only the fixed schema, never print file contents or attach credentials.
+            let data = try? Data(contentsOf: cleanupDirectory.appendingPathComponent("status.json"))
+            let object = data.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+            let verified = object?["owned"] as? Int == 1 && object?["verified"] as? Int == 1
+                && object?["error"] == nil
+            XCTAssertTrue(verified, "Isolated UI token cleanup must be 401 verified before Quit completes")
+            if verified { print("isolated UI launch: owned=1 verified=1 (401 verified)") }
+        }
     }
 }

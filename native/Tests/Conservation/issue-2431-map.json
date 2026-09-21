@@ -7490,7 +7490,9 @@
         "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LiveServerTests.swift\",\"MacSeamTests.LiveServerTests\",\"liveSignInAndRestore() async throws\"]"
       ],
       "reason": "Mac view/adapter/host/live scenario retained in ShepherdTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: From 0acfc8726306e4befa48397a6d0dfaa3bb790764, the existing revoke closure now calls revokeOwnedLiveToken for 401 verification. Every original assertion, scenario step and trait remains exact."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LiveServerTests.swift\",\"LiveServerTests\",\"theSessionListRendersAgainstTheLiveServer() async throws\"]",
@@ -7498,7 +7500,9 @@
         "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LiveServerTests.swift\",\"MacSeamTests.LiveServerTests\",\"theSessionListRendersAgainstTheLiveServer() async throws\"]"
       ],
       "reason": "Mac view/adapter/host/live scenario retained in ShepherdTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: From 0acfc8726306e4befa48397a6d0dfaa3bb790764, LiveTokenFixture prepares the password-minted credential before model construction; #require(LiveServerEnvironment.token) becomes #require(fixtureToken). All other original assertions and traits remain exact; model.login rejects use. Caller-token ownership remains unchanged; owned token cleanup now requires server 401 on every exit."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"LocalServerModelTests\",\"aCheckoutWithNoRunningServerReadsAsStopped() async throws\"]",
@@ -12312,5 +12316,14 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift\",\"CoreSeamTests.TerminalStateTests\",\"unavailableGoneSessionReloadsListWithoutResuming(deleted: Bool) async\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift\",\"CoreSeamTests.TerminalStateTests\",\"unreachableDiagnosesWithoutReattaching() async\"]",
     "[\"ShepherdUITests\",\"native/Apps/ShepherdMac/UITests/SettingsSceneUITests.swift\",\"SettingsSceneUITests\",\"testDisconnectedNotificationsExplainsNextStep()\"]"
+  ],
+  "harnessAdded": [
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/IsolatedCleanupTests.swift\",\"MacSeamTests.IsolatedCleanupTests\",\"cleanupEvidenceRequiresIsolationAndRevocationOptIn() throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/IsolatedCleanupTests.swift\",\"MacSeamTests.IsolatedCleanupTests\",\"isolatedLiveHostCleansUpBeforeProcessExit() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/IsolatedCleanupTests.swift\",\"MacSeamTests.IsolatedCleanupTests\",\"missingCredentialCannotProveRevocation() async\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/IsolatedCleanupTests.swift\",\"MacSeamTests.IsolatedCleanupTests\",\"passwordAndProvidedTokenArmTheOriginalStaticGate()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/IsolatedCleanupTests.swift\",\"MacSeamTests.IsolatedCleanupTests\",\"passwordFixtureMintsBeforeBodyAndCleansUpThrowingBody() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/IsolatedCleanupTests.swift\",\"MacSeamTests.IsolatedCleanupTests\",\"requiresServer401DespiteLocalCredentialRemoval() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/IsolatedCleanupTests.swift\",\"MacSeamTests.IsolatedCleanupTests\",\"suppliedTokenNeverAuthenticatesOrRevokesEvenOnFailure() async throws\"]"
   ]
 }

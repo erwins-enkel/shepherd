@@ -15,9 +15,16 @@ enum LiveServerEnvironment {
     static var token: String? { value("SHEPHERD_LIVE_TOKEN") }
     /// Both set and non-empty. An unset pair skips the suite; CI never sets them.
     static var configured: Bool { baseURL != nil && password != nil }
-    /// `baseURL` plus a pre-minted token: the gate for
-    /// `theSessionListRendersAgainstTheLiveServer`, which never logs in.
-    static var tokenConfigured: Bool { baseURL != nil && token != nil }
+    /// The fixture supplies a caller token or pre-mints its own before model construction.
+    /// The model scenario itself still never logs in.
+    static var tokenConfigured: Bool { tokenFixtureConfigured(baseURL: baseURL, token: token, password: password) }
+
+    static func tokenFixtureConfigured(baseURL: String?, token: String?, password: String?) -> Bool {
+        func present(_ value: String?) -> Bool {
+            !(value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+        }
+        return present(baseURL) && (present(token) || present(password))
+    }
 
     /// `xcodebuild` does not reliably forward the invoking shell's environment
     /// into a hosted unit-test bundle; the documented way in is the
@@ -119,7 +126,7 @@ struct LiveServerTests {
         }
         func revoke() async {
             guard let profile else { return }
-            try? await ProfileSetup.logout(profile: profile, credentials: credentials)
+            await revokeOwnedLiveToken(profile: profile, credentials: credentials)
         }
 
         do {
@@ -183,56 +190,59 @@ struct LiveServerTests {
 
     /// The other half of the live smoke coverage: a pre-minted token dropped
     /// straight into an in-memory credential store, with no `ProfileSetup.login`
-    /// round-trip at all. Gated separately from `liveSignInAndRestore` so an
+    /// round-trip in the model at all. Gated separately from `liveSignInAndRestore` so an
     /// operator who only has a token — not the operator password — can still
     /// exercise the session list against a real server.
     ///
-    /// This never mints anything, so it never revokes anything either: the
-    /// token is the caller's, and it is never written to the Keychain, only to
-    /// an `InMemoryCredentialStore` that goes away with the test.
+    /// With a password the fixture pre-mints before model construction and verifies its
+    /// cleanup. A supplied token remains caller-owned and is never revoked.
     @Test(
         "the session list renders using a pre-minted token, with no login round-trip",
         .enabled(if: LiveServerEnvironment.tokenConfigured))
     func theSessionListRendersAgainstTheLiveServer() async throws {
         let address = try #require(LiveServerEnvironment.baseURL)
-        let token = try #require(LiveServerEnvironment.token)
+        try await LiveTokenFixture.withToken(address: address,
+            suppliedToken: LiveServerEnvironment.token, password: LiveServerEnvironment.password) { fixtureToken in
+            let token = try #require(fixtureToken)
 
-        let suite = "run.shepherd.mac.livetest.\(UUID().uuidString)"
-        let defaults = UserDefaults(suiteName: suite)!
-        let credentials = InMemoryCredentialStore()
-        let model = makeModel(defaults: defaults, credentials: credentials)
-        defer { assertReadOnly(model) }
-        defer {
-            model.teardown()
-            defaults.removePersistentDomain(forName: suite)
-            UserDefaults.standard.removeSuite(named: suite)
+            let suite = "run.shepherd.mac.livetest.\(UUID().uuidString)"
+            let defaults = UserDefaults(suiteName: suite)!
+            let credentials = InMemoryCredentialStore()
+            let model = makeModel(defaults: defaults, credentials: credentials)
+            model.login = { _, _, _ in throw LiveTokenFixture.Failure.unexpectedLogin }
+            defer { assertReadOnly(model) }
+            defer {
+                model.teardown()
+                defaults.removePersistentDomain(forName: suite)
+                UserDefaults.standard.removeSuite(named: suite)
+            }
+
+            let profile = try model.addRemoteProfile(name: "live", address: address)
+            try credentials.save(
+                StoredCredential(token: token, tokenId: "live-smoke"), for: profile.credentialKey)
+
+            await model.activate(profile)
+            let store = try #require(model.store, "activation produced no store")
+
+            // start() bootstraps on its own task, so poll rather than assume. 30 s:
+            // a cold tailnet hop plus a bootstrap is slow, and a flake here would
+            // be read as a broken app.
+            let live = await wait(seconds: 30) { store.connection == .live }
+            #expect(
+                live,
+                "connection is \(store.connection); lastError \(String(describing: store.lastError))")
+            #expect(store.settings != nil, "the bootstrap delivered no settings")
+            // "The list renders": every row the sidebar would draw carries the two
+            // fields it draws with. A live server may legitimately hold zero
+            // sessions, so emptiness is reported, not asserted.
+            #expect(store.sessions.allSatisfy { !$0.id.isEmpty && !$0.desig.isEmpty })
+            // The host is redacted. `address` is the operator's own server — a tailnet name or a
+            // LAN address — and this line goes to a test log that is attached to CI runs and pasted
+            // into PRs. The count is the evidence; which machine served it is already known to
+            // whoever set `SHEPHERD_LIVE_BASE_URL`, and to nobody else.
+            let scheme = URL(string: address)?.scheme ?? "unknown"
+            print("live smoke: \(store.sessions.count) session(s) from a \(scheme) server")
         }
-
-        let profile = try model.addRemoteProfile(name: "live", address: address)
-        try credentials.save(
-            StoredCredential(token: token, tokenId: "live-smoke"), for: profile.credentialKey)
-
-        await model.activate(profile)
-        let store = try #require(model.store, "activation produced no store")
-
-        // start() bootstraps on its own task, so poll rather than assume. 30 s:
-        // a cold tailnet hop plus a bootstrap is slow, and a flake here would
-        // be read as a broken app.
-        let live = await wait(seconds: 30) { store.connection == .live }
-        #expect(
-            live,
-            "connection is \(store.connection); lastError \(String(describing: store.lastError))")
-        #expect(store.settings != nil, "the bootstrap delivered no settings")
-        // "The list renders": every row the sidebar would draw carries the two
-        // fields it draws with. A live server may legitimately hold zero
-        // sessions, so emptiness is reported, not asserted.
-        #expect(store.sessions.allSatisfy { !$0.id.isEmpty && !$0.desig.isEmpty })
-        // The host is redacted. `address` is the operator's own server — a tailnet name or a
-        // LAN address — and this line goes to a test log that is attached to CI runs and pasted
-        // into PRs. The count is the evidence; which machine served it is already known to
-        // whoever set `SHEPHERD_LIVE_BASE_URL`, and to nobody else.
-        let scheme = URL(string: address)?.scheme ?? "unknown"
-        print("live smoke: \(store.sessions.count) session(s) from a \(scheme) server")
     }
 }
 }

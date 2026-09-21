@@ -66,7 +66,7 @@ struct NotificationsLiveTests {
         var minted = false
         func giveBack() async {
             if minted {
-                try? await ProfileSetup.logout(profile: profile, credentials: credentials)
+                await revokeOwnedLiveToken(profile: profile, credentials: credentials)
             }
             // Through the same instance that wrote it: a `UserDefaults` object caches its own
             // writes, so a domain removed through a different instance comes straight back.

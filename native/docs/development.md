@@ -133,8 +133,15 @@ The test hands both values to the isolated app through `launchEnvironment`. The 
 stay in the private defaults suite and in-memory credential store. Tokens are named
 `Shepherd UI test (…)`; cleanup never revokes operator-owned tokens. UI teardown requests a real
 Quit (⌘Q), allowing the app's synchronous termination observer to revoke its minted token, then
-uses forced termination only as a bounded fallback. A later isolated seed can sweep an orphan
-with its exact test-token name.
+uses forced termination only as a bounded fallback that fails the test. Each launch uses a
+unique name and never sweeps existing server tokens. With the existing isolated revocation
+opt-in, cleanup retains an in-memory credential, logs out, and requires a real 401 from a repos
+read. The app writes only owned/verified counts and an error category to a private, per-launch
+status file before termination. UI teardown asserts the result and removes the directory.
+The hosted Mac cleanup test awaits and asserts the same verification before process exit;
+`SHEPHERD_CLEANUP_STATUS_PATH` (also accepted with `TEST_RUNNER_`) lets the runner independently
+validate that evidence. This path is honored only with isolation and revocation enabled.
+Normal operator logout is unchanged.
 
 Both suites use the committed `IsolatedUITestHarness`. It verifies isolation arguments before
 every launch and drops its query handle before sending Quit. After Quit it only waits for
@@ -410,15 +417,17 @@ executions.
 The original Stage 1 capture remains immutable: 1,519 identities at
 `83e8d45172fc63eff1336c12cf6d850cdbfdfcb8`, plus eight separately recorded Stage 1 additions.
 The rebase onto `c4961c40ec2cdfde9c011387536d2bd0bc1f9e58` adds 54 upstream declarations:
-24 core, 17 Mac, 12 Kit, and one UI. Current source totals are 960 core, 179 Mac, 428 Kit,
-and 14 UI declarations (1,581 total).
+24 core, 17 Mac, 12 Kit, and one UI. Seven separate isolated-harness tests bring current
+source totals to 960 core, 186 Mac, 428 Kit, and 14 UI declarations (1,588 total).
 
 `Tests/Conservation/issue-2431-upstream.json` independently records 65 affected upstream tests:
 11 transitions from originals (including two renamed scenarios), plus 54 additions. Its Git blob
 IDs and source snapshots anchor the upstream bodies, assertions, and traits; exact destination
 snapshots protect the integrated result. The original baseline and eight Stage 1 additions are
 hash-locked. Updated upstream assertions are explicit original → upstream → destination chains,
-not replacement baseline captures. `issue-2431-map.json` keeps `upstreamAdded` separate from `added`.
+not replacement baseline captures. `issue-2431-map.json` keeps `upstreamAdded` and `harnessAdded`
+separate from the original `added` list. The two LiveServerTests fixture adjustments name their
+exact source revision and token-requirement adaptation; all scenario assertions and traits remain.
 The checker needs the pinned upstream Git objects; the two conservation CI jobs use full-history
 checkouts. Missing provenance, omitted scenarios, changed assertions/traits, or destination drift fail.
 
@@ -554,7 +563,8 @@ testmanagerd` and rerun clears it, and never `pkill -f`/`killall` on a pattern t
   (`-ShepherdIsolated 1`) on the operator's Mac: it would prompt against their saved Keychain item.
 - **Live smoke.** `ShepherdTests/LiveServerTests` connects to a real server and asserts the session
   list renders. It is skipped unless `SHEPHERD_LIVE_BASE_URL` is set alongside either
-  `SHEPHERD_LIVE_PASSWORD` (a real sign-in, then a relaunch-restore check) or `SHEPHERD_LIVE_TOKEN`
+  `SHEPHERD_LIVE_PASSWORD` (sign-in/restore plus a fixture pre-minted before session-list model
+  construction) or `SHEPHERD_LIVE_TOKEN`
   (a pre-minted token, no login round-trip), and it never runs in CI:
 
 ```

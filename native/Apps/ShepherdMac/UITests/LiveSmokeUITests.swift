@@ -30,7 +30,7 @@ enum LiveUITestEnvironment {
 /// `ProfileSetup.login` mints is named `Shepherd UI test (<host>)`, lands in an
 /// `InMemoryCredentialStore` and the profile in a throwaway `UserDefaults`
 /// suite; `-ShepherdRevokeOnExit 1` gives that token back to the server when the
-/// app really quits, and the next run sweeps any that a killed run left behind.
+/// app really quits. Every launch uses a unique name and never sweeps existing tokens.
 ///
 /// **Read-only against the operator's herd.** These tests never submit a prompt,
 /// never archive, stop or relaunch a session, and never trigger a PR action.

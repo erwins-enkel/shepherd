@@ -1,3 +1,4 @@
+import Synchronization
 import ShepherdAppCore
 import Darwin
 import Foundation
@@ -33,6 +34,7 @@ enum LaunchEnvironment {
     /// The live server an isolated launch signs in to, if both are set.
     static let liveBaseURLVariable = "SHEPHERD_LIVE_BASE_URL"
     static let livePasswordVariable = "SHEPHERD_LIVE_PASSWORD"
+    static let cleanupStatusVariable = "SHEPHERD_CLEANUP_STATUS_PATH"
 
     /// A real server for an isolated launch to sign in to before showing its
     /// window, so a UI test can assert against live data.
@@ -49,6 +51,7 @@ enum LaunchEnvironment {
         /// is safe precisely because the minted token lands in memory.
         var live: LiveSeed?
         var revokesOnExit = false
+        var cleanupStatusPath: String?
 
         /// The launch log line. Names the mode, never a secret and never an
         /// address.
@@ -82,6 +85,9 @@ enum LaunchEnvironment {
             let password = value(of: livePasswordVariable, in: environment)
         {
             configuration.live = LiveSeed(baseURL: baseURL, password: password)
+        }
+        if configuration.revokesOnExit {
+            configuration.cleanupStatusPath = value(of: cleanupStatusVariable, in: environment)
         }
         return configuration
     }
@@ -143,15 +149,18 @@ enum LaunchEnvironment {
 /// out). Nothing here names `NSApplication`.
 @MainActor
 final class IsolatedLaunch {
+    private(set) static weak var current: IsolatedLaunch?
+    private var seedTask: Task<Void, Never>?
+    private var cleanupStatus: IsolatedCleanupStatus?
+    // Retained independently of model sign-out/profile switching; contains only our own mint.
+    private let ownedCredentials = InMemoryCredentialStore()
     /// The name the seeded profile is listed under. Not operator-facing copy —
     /// no isolated launch outlives its test — so it is not in the catalogs.
     static let liveProfileName = "Live"
     /// The token-name prefix the live seed mints under — see
     /// `ProfileSetup.tokenName(prefix:hostName:)`. Deliberately not the
     /// operator's own `"Shepherd for Mac ("`: a UI test must never mint a token
-    /// that looks like a real sign-in, and this name is also what
-    /// `seedLiveServer()` sweeps on every run so a repeatedly-run test suite
-    /// does not accumulate one live token per run forever.
+    /// that looks like a real sign-in, and each launch uses a unique suffix. Existing tokens are never swept.
     private static let testTokenPrefix = "Shepherd UI test ("
     /// Every isolated launch's private `UserDefaults` suite starts with this,
     /// which is both how `init` names its own and how `sweepOrphanSuites`
@@ -254,6 +263,7 @@ final class IsolatedLaunch {
                 + "back to the operator's own profiles."
         }
         self.model = model
+        Self.current = self
         terminationObserver = NotificationCenter.default.addObserver(
             forName: Self.willTerminate, object: nil, queue: nil
         ) { _ in
@@ -276,7 +286,7 @@ final class IsolatedLaunch {
     func startLiveSeedIfNeeded() {
         guard configuration.live != nil, !seedStarted else { return }
         seedStarted = true
-        Task { await self.seedLiveServer() }
+        seedTask = Task { await self.seedLiveServer() }
     }
 
     /// Signs in to the configured live server and activates it, so the app is on
@@ -285,20 +295,17 @@ final class IsolatedLaunch {
     /// Goes through the app's own `signIn` — `ProfileSetup.login` mints a real
     /// token against a real server — and the token lands in the in-memory store,
     /// so nothing reaches the Keychain. Mints under `testTokenPrefix`, never the
-    /// operator's own token name, and sweeps any token already carrying that
-    /// exact name — one a previous run left behind, most likely because
-    /// `tearDown()` never got its terminate notification (see
-    /// `LiveSmokeUITests`) — before minting its own. `seededProfile` is
-    /// recorded before `signIn` is even awaited, so the revoke in `tearDown()`
-    /// still has a profile to work with even if `signIn` throws or never
-    /// reaches `activate(_:)`.
+    /// operator's own token name. Never sweeps existing tokens. `seededProfile` is
+    /// recorded before sign-in, and the minted credential is retained before activation.
     private func seedLiveServer() async {
         guard let live = configuration.live, let model else { return }
-        let testTokenName = ProfileSetup.tokenName(prefix: Self.testTokenPrefix)
+        let testTokenName = ProfileSetup.tokenName(prefix: Self.testTokenPrefix,
+            hostName: "launch-\(UUID().uuidString)")
         model.login = { profile, password, credentials in
-            try await ProfileSetup.login(
+            let credential = try await ProfileSetup.login(
                 profile: profile, password: password, credentials: credentials,
-                tokenName: testTokenName, sweepPriorTokensNamed: testTokenName)
+                tokenName: testTokenName)
+            try self.ownedCredentials.save(credential, for: profile.credentialKey)
         }
         do {
             let profile = try model.addRemoteProfile(
@@ -307,41 +314,63 @@ final class IsolatedLaunch {
             try await model.signIn(profile: profile, password: live.password)
             Log.connect.info("the isolated launch signed in to the live server")
         } catch {
-            Log.connect.error(
-                """
-                the isolated launch could not sign in to the live server: \
-                \(String(describing: error), privacy: .public)
-                """)
+            Log.connect.error("the isolated launch could not sign in to the live server")
         }
     }
 
-    /// Quit-time cleanup, best effort: revoke the token the live seed minted
-    /// (only with `-ShepherdRevokeOnExit 1`), then drop the private suite.
-    ///
-    /// Revokes `seededProfile`, not `model?.activeProfile` — the operator (or
-    /// a UI test) may have switched to a different profile, signed out, or the
-    /// seed's own `activate(_:)` may never have landed, and in every one of
-    /// those cases `activeProfile` no longer names the profile whose token
-    /// this launch is responsible for. `seededProfile` still does.
-    ///
-    /// Synchronous, because nothing waits for async work once the terminate
-    /// notification is out. The revoke therefore runs on a detached task that
-    /// this call waits on under a deadline; no main-actor work happens inside it
-    /// — `ProfileSetup.logout` is `nonisolated` — so the wait cannot deadlock
-    /// against the thread it blocks, and the deadline bounds a server that never
-    /// answers.
+    /// The hosted cleanup test awaits this before process exit, so cleanup failure is a test
+    /// failure while the process is still alive. The termination observer then becomes a no-op.
+    func finishForTesting() async -> IsolatedCleanupStatus? {
+        guard configuration.isIsolated, configuration.revokesOnExit, configuration.live != nil else { return nil }
+        startLiveSeedIfNeeded()
+        await seedTask?.value
+        if let cleanupStatus { return cleanupStatus }
+        model?.deactivate()
+        let status: IsolatedCleanupStatus
+        if let profile = seededProfile {
+            status = await IsolatedTokenCleanup.revoke(profile: profile, credentials: ownedCredentials)
+        } else {
+            status = .init(owned: 0, verified: 0, error: .missingCredential)
+        }
+        completeCleanup(status)
+        return status
+    }
+
+    /// UI Quit runs synchronously. Only detached, non-main-actor network work is waited on,
+    /// bounded to five seconds; timeout is evidence of failure, never inferred success.
     private func tearDown() {
-        if configuration.revokesOnExit, let profile = seededProfile ?? model?.activeProfile {
-            let credentials = self.credentials
+        guard cleanupStatus == nil else { return }
+        model?.deactivate()
+        if configuration.isIsolated, configuration.revokesOnExit, configuration.live != nil {
+            let result = Mutex<IsolatedCleanupStatus>(.init(owned: 0, verified: 0, error: .timeout))
             let finished = DispatchSemaphore(value: 0)
-            Task.detached {
-                try? await ProfileSetup.logout(profile: profile, credentials: credentials)
+            let profile = seededProfile
+            let credentials = ownedCredentials
+            let task = Task.detached {
+                let status: IsolatedCleanupStatus
+                if let profile {
+                    status = await IsolatedTokenCleanup.revoke(profile: profile, credentials: credentials)
+                } else {
+                    status = .init(owned: 0, verified: 0, error: .missingCredential)
+                }
+                result.withLock { $0 = status }
                 finished.signal()
             }
-            if finished.wait(timeout: .now() + 5) == .timedOut {
-                Log.connect.error("the isolated launch's token revocation did not finish in time")
-            }
+            let completed = finished.wait(timeout: .now() + 5) == .success
+            if !completed { task.cancel() }
+            completeCleanup(completed ? result.withLock { $0 } : .init(owned: 1, verified: 0, error: .timeout))
+        } else {
+            removeSuite()
         }
+    }
+
+    private func completeCleanup(_ status: IsolatedCleanupStatus) {
+        cleanupStatus = status
+        status.write(to: configuration.cleanupStatusPath)
+        removeSuite()
+    }
+
+    private func removeSuite() {
         guard let suiteName else { return }
         defaults.removePersistentDomain(forName: suiteName)
         UserDefaults.standard.removeSuite(named: suiteName)

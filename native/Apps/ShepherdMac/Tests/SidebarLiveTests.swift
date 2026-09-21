@@ -67,7 +67,7 @@ struct SidebarLiveTests {
                 // Only ever the token this test minted: a pre-minted one belongs to the caller, and
                 // no sweep by name runs here, so no other token on the server is touched.
                 if minted {
-                    try? await ProfileSetup.logout(profile: profile, credentials: credentials)
+                    await revokeOwnedLiveToken(profile: profile, credentials: credentials)
                 }
             }
         )

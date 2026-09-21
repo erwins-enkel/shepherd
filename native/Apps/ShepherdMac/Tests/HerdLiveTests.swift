@@ -32,7 +32,7 @@ struct HerdLiveTests {
         func done() async {
             store?.stop()
             if minted {
-                try? await ProfileSetup.logout(profile: profile, credentials: credentials)
+                await revokeOwnedLiveToken(profile: profile, credentials: credentials)
             }
         }
 

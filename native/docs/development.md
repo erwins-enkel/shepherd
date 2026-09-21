@@ -131,17 +131,28 @@ TEST_RUNNER_SHEPHERD_LIVE_PASSWORD='…' \
 
 The test hands both values to the isolated app through `launchEnvironment`. The profile and token
 stay in the private defaults suite and in-memory credential store. Tokens are named
-`Shepherd UI test (…)`; cleanup never revokes operator-owned tokens. UI teardown requests a real
-Quit (⌘Q), allowing the app's synchronous termination observer to revoke its minted token, then
-uses forced termination only as a bounded fallback that fails the test. Each launch uses a
-unique name and never sweeps existing server tokens. With the existing isolated revocation
-opt-in, cleanup retains an in-memory credential, logs out, and requires a real 401 from a repos
-read. The app writes only owned/verified counts and an error category to a private, per-launch
-status file before termination. UI teardown asserts the result and removes the directory.
-The hosted Mac cleanup test awaits and asserts the same verification before process exit;
-`SHEPHERD_CLEANUP_STATUS_PATH` (also accepted with `TEST_RUNNER_`) lets the runner independently
-validate that evidence. This path is honored only with isolation and revocation enabled.
-Normal operator logout is unchanged.
+`Shepherd UI test (…)`; each launch uses a unique name and never sweeps existing server tokens.
+With isolation and revocation enabled, callers share a cached asynchronous shutdown: it closes
+mint admission, awaits any in-flight mint, revokes only that launch's owned token, and requires a
+real 401 from a repos read using a retained in-memory credential. AppKit defers Quit until that
+shutdown finishes. Normal operator logout is unchanged.
+
+Live UI teardown checks the read-only request audit first. The harness enables
+`SHEPHERD_UI_CLEANUP_HANDSHAKE=1` in both plain and `TEST_RUNNER_` spellings; the diagnostic command
+and status also require isolation, a live seed and revocation opt-in. It clicks **Verify isolated
+cleanup** in the app menu and waits up to 20 seconds for the exact accessibility result
+`finished owned=1 verified=1 error=none`, before sending Quit. The status survives model
+deactivation. This proof phase includes the verification probe's retry budget. The harness
+always requests Quit, including after proof failure, then allows 10 seconds for termination;
+forced termination is a fallback that fails the test. Subsequent Quit uses the cached cleanup
+result, without another token revocation. UI evidence uses the existing accessibility channel,
+with no shared status directory or broad TCC permission grant.
+
+For hosted Mac unit runs, the cleanup test awaits and asserts the same verification before
+process exit. Only the unit-host supervisor uses `SHEPHERD_CLEANUP_STATUS_PATH` (also accepted
+with `TEST_RUNNER_`) to independently validate a private status file containing owned/verified
+counts and a bounded error category. The path is honored only with isolation and revocation
+enabled; the UI harness explicitly clears both spellings.
 
 Both suites use the committed `IsolatedUITestHarness`. It verifies isolation arguments before
 every launch and drops its query handle before sending Quit. After Quit it only waits for

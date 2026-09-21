@@ -732,6 +732,7 @@
   "viewport_upload_failed": "Upload fehlgeschlagen. Zum Wiederholen tippen",
   "viewport_attach_file": "Datei anhängen",
   "viewport_notes_aria": "Notiz hinzufügen: {key} drücken",
+  "viewport_codex_questions_open": "Fragen öffnen · Alt + ↑",
   "viewport_type_steer_hint": "⌁ tippen zum Steuern",
   "viewport_detach_hint": "⇥ trennen",
   "viewport_select_hint": "{key} + markieren: Text auswählen",
@@ -2898,6 +2899,8 @@
   "plugins_repo": "REPO",
   "feat_codex_bring_back_title": "Codex-Sessions zurückholen",
   "feat_codex_bring_back_body": "Zurückholen funktioniert jetzt auch für Codex-Sessions, nicht nur für Claude. Wähle eine abgeschlossene Codex-Session in der Fertig-Ansicht und klicke auf Zurückholen — Shepherd erstellt ihren Worktree neu und setzt das exakte Codex-Gespräch anhand seiner Session-ID fort. Nur isolierte Codex-Sessions können zurückgeholt werden; andere müssen weiterhin neu gestartet werden.",
+  "feat_codex_mobile_questions_title": "Codex-Fragen auf dem Smartphone öffnen",
+  "feat_codex_mobile_questions_body": "Wenn Codex Alt + ↑ zum Beantworten wartender Fragen anbietet, öffnet ein Button über den mobilen Terminaltasten die Fragen per Touch.",
   "newtask_drop_hint_keyboard": "oder Dateien hier ablegen oder ein Bild mit {shortcut} einfügen",
   "newtask_upload_unknown_reason": "unbekannter Fehler",
   "tasktip_prompt": "Prompt",
@@ -4538,8 +4541,5 @@
   "topbar_codex_reset_outcome_nothingToReset": "Codex kann das Kontingent noch nicht zurücksetzen",
   "topbar_codex_reset_outcome_noCredit": "Kein Reset-Guthaben verfügbar",
   "topbar_codex_reset_feature_title": "Automatische Codex-Resets",
-  "topbar_codex_reset_feature_body": "Verdiente Resets im Nutzungspanel ansehen, manuell einlösen oder Kapazitätsschutz und sinnvolle Einlösung vor Verfall aktivieren. Automatische Arbeit wartet bei fehlender Kapazität.",
-  "viewport_codex_questions_open": "Fragen öffnen · Alt + ↑",
-  "feat_codex_mobile_questions_title": "Codex-Fragen auf dem Smartphone öffnen",
-  "feat_codex_mobile_questions_body": "Wenn Codex Alt + ↑ zum Beantworten wartender Fragen anbietet, öffnet ein Button über den mobilen Terminaltasten die Fragen per Touch."
+  "topbar_codex_reset_feature_body": "Verdiente Resets im Nutzungspanel ansehen, manuell einlösen oder Kapazitätsschutz und sinnvolle Einlösung vor Verfall aktivieren. Automatische Arbeit wartet bei fehlender Kapazität."
 }

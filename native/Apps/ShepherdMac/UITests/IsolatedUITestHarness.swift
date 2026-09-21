@@ -33,11 +33,8 @@ final class IsolatedUITestHarness {
         app.launchEnvironment["SHEPHERD_CLEANUP_STATUS_PATH"] = ""
         app.launchEnvironment["TEST_RUNNER_SHEPHERD_CLEANUP_STATUS_PATH"] = ""
         if liveEnvironment["SHEPHERD_LIVE_PASSWORD"] != nil {
-            let directory = FileManager.default.temporaryDirectory
-                .appendingPathComponent("shepherd-ui-cleanup-\(UUID())", isDirectory: true)
             do {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
-                    attributes: [.posixPermissions: 0o700])
+                let directory = try makeCleanupDirectory()
                 cleanupDirectory = directory
                 app.launchEnvironment["SHEPHERD_CLEANUP_STATUS_PATH"] = directory.appendingPathComponent("status.json").path
             } catch {
@@ -50,6 +47,33 @@ final class IsolatedUITestHarness {
             "every UI launch must pass isolation arguments")
         running = app
         app.launch()
+    }
+
+    /// The test runner's temporary directory can be protected by user-data TCC policy when this
+    /// path is inherited by the separately launched app. Use the system's explicit shared temp
+    /// root, with a per-launch private directory, instead.
+    private func makeCleanupDirectory() throws -> URL {
+        let fileManager = FileManager.default
+        let root = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+        let rootValues = try root.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard root.standardizedFileURL.path == "/private/tmp",
+              rootValues.isDirectory == true,
+              rootValues.isSymbolicLink != true
+        else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+
+        let directory = root.appendingPathComponent("shepherd-ui-cleanup-\(UUID())", isDirectory: true)
+        try fileManager.createDirectory(
+            at: directory,
+            withIntermediateDirectories: false,
+            attributes: [.posixPermissions: 0o700])
+        let directoryValues = try directory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+        guard directoryValues.isDirectory == true, directoryValues.isSymbolicLink != true else {
+            try? fileManager.removeItem(at: directory)
+            throw CocoaError(.fileNoSuchFile)
+        }
+        return directory
     }
 
     func shutdown() {

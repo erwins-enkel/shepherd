@@ -8858,13 +8858,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bun wurde nicht gefunden. Installiere es mit: curl -fsSL https://bun.sh/install | bash"
+            "value": "Bun wurde nicht gefunden. Wähle „Installieren und starten“, um es einzurichten, und prüfe bei Installationsfehlern das Protokoll."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bun was not found. Install it with: curl -fsSL https://bun.sh/install | bash"
+            "value": "Bun was not found. Choose Install and start to provision it, then check the log if installation fails."
           }
         }
       }
@@ -8883,6 +8883,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "The server crashed %1$@ times in a row. Open the log to see why."
+          }
+        }
+      }
+    },
+    "native_local_error_download": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Installer konnte nicht geladen werden. Prüfe die Internetverbindung und versuche „Installieren und starten“ erneut. Details stehen im Protokoll."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer download failed. Check your internet connection, then try Install and start again. See the log for details."
           }
         }
       }
@@ -8911,13 +8928,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Der Server wurde gestartet, hat aber nie auf Port 7330 geantwortet. Öffne das Log, um zu sehen, warum."
+            "value": "Der Server hat die Installationsidentität dieses Starts nicht rechtzeitig gemeldet. Prüfe im Protokoll Portkonflikte oder Startfehler und prüfe erneut."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The server started but never answered on port 7330. Open the log to see why."
+            "value": "The server did not report this launch’s install identity in time. Check the log for a port conflict or startup failure, then recheck."
           }
         }
       }
@@ -8929,13 +8946,30 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Installation ist fehlgeschlagen (Exit-Code %1$@). Öffne das Log, um zu sehen, warum."
+            "value": "Die Installation ist fehlgeschlagen (Exit %1$@). Prüfe im Protokoll, welche Voraussetzungen fehlen, erfülle sie und versuche es erneut."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The installer failed (exit %1$@). Open the log to see why."
+            "value": "Installation failed (exit %1$@). Check the log for missing prerequisites, resolve them, then try again."
+          }
+        }
+      }
+    },
+    "native_local_error_invalid_download": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Download war kein Installationsskript. Prüfe das Netzwerk oder den Proxy und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The download was not an installer script. Check your network or proxy, then try again."
           }
         }
       }
@@ -8958,19 +8992,191 @@
         }
       }
     },
+    "native_local_error_runner_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die ausführbare Runner-Datei fehlt. Installiere Shepherd, um herdr einzurichten, und prüfe erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The runner executable is missing. Install Shepherd to provision herdr, then recheck."
+          }
+        }
+      }
+    },
+    "native_local_error_runner_timeout": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Runner antwortet nicht. Prüfe das Startprotokoll und den konfigurierten herdr-Socket und prüfe erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The runner did not answer. Check the startup log and the configured herdr socket, then recheck."
+          }
+        }
+      }
+    },
+    "native_local_error_write": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Installer konnte nicht gespeichert werden. Prüfe freien Speicherplatz und die Rechte des temporären Ordners und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The installer could not be saved. Check free space and temporary-folder permissions, then try again."
+          }
+        }
+      }
+    },
+    "native_local_external_app": {
+      "comment": "%1$@ = path",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installationsverzeichnis: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install directory: %1$@"
+          }
+        }
+      }
+    },
+    "native_local_external_database": {
+      "comment": "%1$@ = path",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datenbank: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Database: %1$@"
+          }
+        }
+      }
+    },
+    "native_local_external_keep": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diesen Server weiterverwenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep using this server"
+          }
+        }
+      }
+    },
+    "native_local_external_stop_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beende ihn im Terminal oder Dienstmanager, der ihn gestartet hat, oder bitte seinen Betreiber darum. Prüfe danach hier erneut. Shepherd kann fremde Server nicht beenden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop it in the terminal or service manager that started it, or ask its owner. Then recheck here. Shepherd cannot stop a server it does not own."
+          }
+        }
+      }
+    },
+    "native_local_external_stop_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "So beendest du diesen Server"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How to stop this server"
+          }
+        }
+      }
+    },
+    "native_local_external_summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd hat diesen Server nicht gestartet. Prüfe seine Pfade, bevor du ihn weiterverwendest."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd did not start this server. Check its paths before choosing to keep using it."
+          }
+        }
+      }
+    },
+    "native_local_external_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein anderer lokaler Server läuft"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another local server is running"
+          }
+        }
+      }
+    },
     "native_local_install": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installieren"
+            "value": "Installieren und starten"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install"
+            "value": "Install and start"
           }
         }
       }
@@ -9060,6 +9266,40 @@
         }
       }
     },
+    "native_local_path_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannt – dieser Server hat seinen Pfad nicht gemeldet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unavailable — this server did not report its path"
+          }
+        }
+      }
+    },
+    "native_local_recheck": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneut prüfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recheck"
+          }
+        }
+      }
+    },
     "native_local_restart": {
       "extractionState": "manual",
       "localizations": {
@@ -9100,13 +9340,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Auf Port 7330 läuft ein Server, den du selbst gestartet hast."
+            "value": "Ein Server antwortet bereits lokal. Prüfe ihn vor dem Verbinden."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A server you started yourself is running on port 7330."
+            "value": "A server is already answering locally. Review it before connecting."
           }
         }
       }
@@ -9134,13 +9374,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Noch nicht installiert. „Installieren“ legt einen Checkout in ~/.shepherd/app an."
+            "value": "Shepherd ist hier noch nicht installiert. Lade den offiziellen Installer herunter, um es einzurichten."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not installed yet. Install puts a checkout in ~/.shepherd/app."
+            "value": "Shepherd is not installed here yet. Download the official installer to set it up."
           }
         }
       }

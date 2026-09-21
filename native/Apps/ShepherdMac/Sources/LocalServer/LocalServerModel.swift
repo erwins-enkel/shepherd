@@ -19,6 +19,11 @@ enum LocalServerCopy {
 
     static func message(for failure: LocalServerFailure) -> String {
         switch failure {
+        case .bootstrapDownload: L.t("native_local_error_download")
+        case .bootstrapInvalid: L.t("native_local_error_invalid_download")
+        case .bootstrapWrite: L.t("native_local_error_write")
+        case .runnerMissing: L.t("native_local_error_runner_missing")
+        case .runnerTimeout: L.t("native_local_error_runner_timeout")
         case .bunMissing: L.t("native_local_error_bun_missing")
         case .notAShepherdCheckout(let path): L.t("native_local_error_not_checkout", path)
         case .installFailed(let code): L.t("native_local_error_install_failed", String(code))
@@ -44,6 +49,10 @@ final class LocalServerModel {
     private(set) var state: LocalServerState = .stopped
     private(set) var logLines: [String] = []
     private(set) var busy = false
+    private(set) var externalIdentity: LocalServerIdentity?
+    private(set) var externalAcknowledged = false
+    private(set) var runnerFailure: LocalServerFailure?
+    private var externalVersion: String?
     /// In memory only, offered once, then dropped (D4): persisting the server's
     /// master password would make this app a second, weaker home for it.
     /// Production-write-only (M-4): every write goes through
@@ -68,7 +77,7 @@ final class LocalServerModel {
     private nonisolated let supervisor: LocalServerSupervisor
     /// "Is something already answering on 7330?" — injected so tests need no
     /// loopback listener. Production reuses the app's existing `LocalServerProbe`.
-    private let probeExternal: @Sendable () async -> Bool
+    private let discoverExternal: @Sendable () async -> Components.Schemas.Health?
     /// Bumped by every lifecycle action (`install`/`act`, i.e. start/stop/
     /// restart), so a `refresh()` already in flight when one of them begins
     /// cannot land afterwards and stomp the newer state back to whatever the
@@ -83,6 +92,7 @@ final class LocalServerModel {
     init(
         environment: LocalServerEnvironment = LocalServerEnvironment(),
         probeExternal: (@Sendable () async -> Bool)? = nil,
+        discoverExternal: (@Sendable () async -> Components.Schemas.Health?)? = nil,
         health: (@Sendable () async -> Bool)? = nil,
         launch: (@Sendable () -> LocalServerLaunch?)? = nil,
         installer: (
@@ -91,9 +101,11 @@ final class LocalServerModel {
         clock: any SupervisorClock = SystemSupervisorClock()
     ) {
         self.environment = environment
-        self.probeExternal = probeExternal ?? {
-            if case .found = await LocalServerProbe().probe() { return true }
-            return false
+        self.discoverExternal = discoverExternal ?? {
+            if let probeExternal {
+                return await probeExternal() ? .init(ok: true, version: "unknown") : nil
+            }
+            return await LocalHealthCheck(port: environment.port).read()
         }
         self.installer = installer ?? { environment, log in
             await InstallerRun(environment: environment, log: log).run()
@@ -101,10 +113,13 @@ final class LocalServerModel {
         let ring = log
         self.supervisor = LocalServerSupervisor(
             environment: environment, log: ring,
-            health: health ?? { await LocalHealthCheck()() },
+            health: health,
             clock: clock,
             launch: launch ?? LocalServerSupervisor.defaultLaunch(environment))
     }
+
+    /// The endpoint managed by this supervisor, also used to choose the login profile.
+    var baseURL: URL { URL(string: "http://127.0.0.1:\(environment.port)")! }
 
     private var isFailed: Bool {
         if case .failed = state { return true }
@@ -144,17 +159,26 @@ final class LocalServerModel {
         let supervised = await supervisor.state
         guard generation == expected else { return }
         if supervised.isRunning || supervised == .starting {
+            clearExternalObservation()
             state = supervised
             await pullLog()
             return
         }
-        let external = await probeExternal()
+        let external = await discoverExternal()
         guard generation == expected else { return }
-        if external {
+        if let external {
+            let identity = external.localInstall.map(LocalServerIdentity.init)
+            if externalIdentity != identity || externalVersion != external.version {
+                externalAcknowledged = false
+            }
+            externalIdentity = identity
+            externalVersion = external.version
             state = .externallyManaged
             return
         }
-        state = environment.isShepherdCheckout() ? .stopped : .notInstalled
+        clearExternalObservation()
+        if case .failed = supervised { state = supervised }
+        else { state = environment.isShepherdCheckout() ? .stopped : .notInstalled }
         await pullLog()
     }
 
@@ -163,15 +187,21 @@ final class LocalServerModel {
         busy = true
         generation += 1
         state = .installing
-        defer { busy = false }
+        let progress = sampleProgress()
+        defer { progress.cancel(); busy = false }
         let result = await installer(environment, log)
         await pullLog()
         switch result {
-        // `resolveState()`, not `refresh()`: `busy` is still true here — the
-        // `defer` above has not run yet — so `refresh()`'s M-1 guard made this
-        // a no-op and left the panel on the spinner and "Wird installiert…"
-        // with no Start button, for an install that had in fact succeeded.
-        case .success: await resolveState()
+        case .success:
+            guard !Task.isCancelled else { state = .stopped; return }
+            // Recheck discovery after installing: an unrelated listener may have
+            // appeared while the bootstrap was running. Never silently adopt it.
+            await resolveState()
+            guard state != .externallyManaged, !Task.isCancelled else { return }
+            state = .starting
+            await supervisor.start()
+            state = await supervisor.state
+            await pullLog()
         case .failure(let failure): state = .failed(failure)
         }
     }
@@ -196,6 +226,27 @@ final class LocalServerModel {
         installTask = nil
     }
 
+    func acknowledgeExternalServer() {
+        guard state == .externallyManaged else { return }
+        externalAcknowledged = true
+    }
+
+    private func clearExternalObservation() {
+        externalIdentity = nil
+        externalVersion = nil
+        externalAcknowledged = false
+    }
+
+    func startRunner() async {
+        guard !busy else { return }
+        busy = true
+        runnerFailure = nil
+        let progress = sampleProgress()
+        defer { progress.cancel(); busy = false }
+        if case .failure(let failure) = await supervisor.startRunner() { runnerFailure = failure }
+        await pullLog()
+    }
+
     func start() async { await act { await self.supervisor.start() } }
     func stop() async { await act { await self.supervisor.stop() } }
     func restart() async { await act { await self.supervisor.restart() } }
@@ -203,9 +254,10 @@ final class LocalServerModel {
     /// Routes into the app's one sheet channel, consuming the captured password so
     /// it can never be offered twice.
     func connect(_ app: AppModel) {
+        guard state != .externallyManaged || externalAcknowledged else { return }
         pendingPassword = capturedPassword
         capturedPassword = nil
-        app.beginLocalLogin()
+        app.beginLocalLogin(port: environment.port)
     }
 
     func takePendingPassword() -> String? {
@@ -229,7 +281,8 @@ final class LocalServerModel {
         guard !busy else { return }
         busy = true
         generation += 1
-        defer { busy = false }
+        let progress = sampleProgress()
+        defer { progress.cancel(); busy = false }
         await body()
         state = await supervisor.state
         // `pullLog()` drains any newly captured password too (V1) — the boot
@@ -254,6 +307,16 @@ final class LocalServerModel {
         guard let password = await supervisor.capturedPassword else { return }
         capturedPassword = password
         await supervisor.clearCapturedPassword()
+    }
+
+    private func sampleProgress() -> Task<Void, Never> {
+        Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.pullLog()
+                do { try await Task.sleep(for: .milliseconds(100)) }
+                catch { return }
+            }
+        }
     }
 
     private func pullLog() async {

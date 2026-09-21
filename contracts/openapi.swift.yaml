@@ -35,6 +35,23 @@ components:
         minClient:
           type: string
           description: Lowest native client version this server supports (semver); absent means no constraint.
+        localInstall:
+          $ref: "#/components/schemas/LocalInstallIdentity"
+    LocalInstallIdentity:
+      type: object
+      additionalProperties: false
+      required:
+        - appDirectory
+        - databasePath
+        - instanceID
+      description: Local supervision consistency evidence, emitted only with explicit opt-in on loopback. The per-launch marker is not an authentication credential.
+      properties:
+        appDirectory:
+          type: string
+        databasePath:
+          type: string
+        instanceID:
+          type: string
     Error:
       type: object
       additionalProperties: true

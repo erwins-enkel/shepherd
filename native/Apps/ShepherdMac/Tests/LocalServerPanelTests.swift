@@ -29,9 +29,10 @@ import ShepherdKit
 
     /// A server the operator started themselves is connectable but must not be
     /// stoppable or restartable from here.
-    @Test func anExternalServerIsConnectableOnly() {
+    @Test func anExternalServerNeedsAcknowledgmentBeforeConnecting() {
         let state = LocalServerPanelState(state: .externallyManaged, busy: false)
-        #expect(state.canConnect)
+        #expect(state.canConnect == false)
+        #expect(LocalServerPanelState(state: .externallyManaged, busy: false, externalAcknowledged: true).canConnect)
         #expect(state.canStop == false)
         #expect(state.canRestart == false)
         #expect(state.canStart == false)

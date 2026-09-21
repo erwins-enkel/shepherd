@@ -377,7 +377,7 @@ actor LocalServerGate {
         let gate = LocalServerGate()
         let model = LocalServerModel(
             environment: LocalServerEnvironment(home: home),
-            probeExternal: { false },
+            probeExternal: { false }, launch: { nil },
             installer: { _, _ in await gate.wait(); return .success(()) })
 
         let installTask = Task { await model.install() }
@@ -412,33 +412,74 @@ actor LocalServerGate {
 
     // MARK: - Final whole-branch review (C2, I2)
 
-    /// C2: `install()` held `busy` across its own `defer` and, on success,
-    /// called `refresh()` — whose first line is the M-1 `guard !busy`. The
-    /// refresh was therefore a no-op, the defer then cleared `busy`, and the
-    /// panel sat on the spinner and "Wird installiert…" with no Start button
-    /// until it was torn down and re-appeared.
-    @Test func aSuccessfulInstallLeavesThePanelReadyToStart() async throws {
+    @Test func aSuccessfulInstallStartsThroughTheSupervisorAndShowsProgressBeforeFinishing() async throws {
         let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
-        let environment = LocalServerEnvironment(home: home)
+        let gate = LocalServerGate()
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
         let model = LocalServerModel(
-            environment: environment,
-            probeExternal: { false },
-            // Stands in for `deploy/install.sh`: leaves a real checkout behind,
-            // which is what `refresh()` reads to decide `.stopped`.
-            installer: { environment, _ in
-                try? FileManager.default.createDirectory(
-                    at: environment.appDirectory, withIntermediateDirectories: true)
-                try? #"{"name":"shepherd"}"#.write(
-                    to: environment.appDirectory.appendingPathComponent("package.json"),
-                    atomically: true, encoding: .utf8)
+            environment: LocalServerEnvironment(home: home), probeExternal: { false },
+            health: { true }, launch: { launch },
+            installer: { _, log in
+                await log.append("fixture installer progress")
+                await gate.wait()
                 return .success(())
             })
-
-        await model.install()
-
+        let task = Task { await model.install() }
+        for _ in 0..<50 {
+            if model.logLines.contains("fixture installer progress") { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(model.state == .installing)
+        #expect(model.logLines.contains("fixture installer progress"))
+        await gate.open()
+        await task.value
         #expect(model.busy == false)
-        #expect(model.state == .stopped)
-        #expect(model.canStart)
+        #expect(model.state.isRunning)
+        await model.stop()
+    }
+
+    @Test func connectingUsesTheConfiguredPortAndDoesNotReuseAnotherEndpointsCredential() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let app = freshApp()
+        let original = app.addLocalProfile()
+        let model = LocalServerModel(environment: LocalServerEnvironment(home: home,
+            processEnvironment: ["SHEPHERD_PORT": "7349"]), probeExternal: { true })
+        await model.refresh()
+        model.acknowledgeExternalServer()
+        model.connect(app)
+        guard case .login(let profile) = app.sheet else { Issue.record("expected login"); return }
+        #expect(profile.baseURL.absoluteString == "http://127.0.0.1:7349")
+        #expect(profile.credentialKey != original.credentialKey)
+        model.connect(app)
+        #expect(app.sheet == .login(profile))
+    }
+
+    @Test func externalAcknowledgmentIsResetWhenIdentityChangesOrDisappears() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let reply = Mutex<Components.Schemas.Health?>(.init(ok: true, version: "1", localInstall: .init(
+            appDirectory: "/external", databasePath: "/external.db", instanceID: "first")))
+        let model = LocalServerModel(environment: LocalServerEnvironment(home: home),
+                                     discoverExternal: { reply.withLock { $0 } })
+        await model.refresh()
+        #expect(model.state == .externallyManaged)
+        #expect(model.externalIdentity?.databasePath == "/external.db")
+        #expect(!model.externalAcknowledged)
+        model.acknowledgeExternalServer()
+        await model.refresh()
+        #expect(model.externalAcknowledged)
+        reply.withLock { $0?.localInstall?.instanceID = "replacement" }
+        await model.refresh()
+        #expect(!model.externalAcknowledged)
+        model.acknowledgeExternalServer()
+        reply.withLock { $0 = nil }
+        await model.refresh()
+        #expect(!model.externalAcknowledged)
+        #expect(model.externalIdentity == nil)
+        reply.withLock { $0 = .init(ok: true, version: "old") }
+        await model.refresh()
+        #expect(model.state == .externallyManaged)
+        #expect(model.externalIdentity == nil)
+        #expect(!model.externalAcknowledged)
     }
 
     /// I2: the panel fired `Task { await model.install() }` and dropped the

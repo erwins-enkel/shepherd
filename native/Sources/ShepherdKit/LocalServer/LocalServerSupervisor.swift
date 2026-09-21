@@ -67,7 +67,9 @@ public actor LocalServerSupervisor {
 
   private let environment: LocalServerEnvironment
   private let log: LogRing
-  private let health: @Sendable () async -> Bool
+  private let health: @Sendable (LocalServerIdentity) async -> Bool
+  private let runner: LocalRunnerStart
+  private var launchIdentity: LocalServerIdentity?
   private let clock: any SupervisorClock
   private let makeLaunch: @Sendable () -> LocalServerLaunch?
   private let policy: RestartPolicy
@@ -205,20 +207,25 @@ public actor LocalServerSupervisor {
   public init(
     environment: LocalServerEnvironment,
     log: LogRing = LogRing(),
-    health: @escaping @Sendable () async -> Bool,
+    health: (@Sendable () async -> Bool)? = nil,
+    identityHealth: (@Sendable (LocalServerIdentity) async -> Bool)? = nil,
     clock: any SupervisorClock = SystemSupervisorClock(),
     policy: RestartPolicy = RestartPolicy(),
     launch: @escaping @Sendable () -> LocalServerLaunch?
   ) {
     self.environment = environment
     self.log = log
-    self.health = health
+    self.health = identityHealth ?? { expected in
+      if let health { return await health() }
+      return await LocalHealthCheck(port: environment.port)(expectedIdentity: expected)
+    }
+    self.runner = LocalRunnerStart(environment: environment, log: log)
     self.clock = clock
     self.policy = policy
     self.makeLaunch = launch
   }
 
-  /// The production launch spec: `bun run src/index.ts` in `~/.shepherd/app`.
+  /// The production launch spec: `bun run src/index.ts` in the resolved install directory.
   public static func defaultLaunch(
     _ environment: LocalServerEnvironment
   ) -> @Sendable () -> LocalServerLaunch? {
@@ -230,6 +237,9 @@ public actor LocalServerSupervisor {
         environment: environment.spawnEnvironment(bun: bun))
     }
   }
+
+  /// Starts only an offline runner; an answering daemon is left untouched.
+  public func startRunner() async -> Result<Void, LocalServerFailure> { await runner.run() }
 
   public func logLines() async -> [String] { await log.lines }
   public func clearCapturedPassword() { capturedPassword = nil }
@@ -480,7 +490,14 @@ public actor LocalServerSupervisor {
     child.executableURL = launch.executable
     child.arguments = launch.arguments
     child.currentDirectoryURL = launch.workingDirectory
-    child.environment = launch.environment
+    let identity = LocalServerIdentity(appDirectory: environment.appDirectory.path,
+                                       databasePath: environment.databasePath.path,
+                                       instanceID: UUID().uuidString)
+    launchIdentity = identity
+    var childEnvironment = launch.environment
+    childEnvironment["SHEPHERD_LOCAL_SUPERVISION"] = "1"
+    childEnvironment["SHEPHERD_LOCAL_INSTANCE_ID"] = identity.instanceID
+    child.environment = childEnvironment
     // One pipe for both streams: the operator reads a single interleaved log,
     // and two pipes would need two pumps and could deadlock on a full buffer.
     child.standardOutput = pipe
@@ -594,7 +611,8 @@ public actor LocalServerSupervisor {
   private func waitForHealth(generation: Int) async {
     for _ in 0..<60 {
       if Task.isCancelled || stopping { return }
-      if await health() {
+      guard let identity = launchIdentity else { return }
+      if await health(identity) {
         // The health answer is about the child that was live when it was
         // asked; a stop or the next spawn can land in that await.
         guard generation == spawnGeneration, !stopping else { return }

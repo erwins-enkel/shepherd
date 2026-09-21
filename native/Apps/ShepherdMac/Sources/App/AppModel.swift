@@ -366,15 +366,18 @@ final class AppModel {
         return profile
     }
 
-    /// The single "this Mac" profile. Idempotent: calling it twice returns the
-    /// existing row so the welcome card cannot pile up duplicates.
+    /// One profile per local endpoint. Reuse its credential only when the port
+    /// also matches; another local server must get its own sign-in and token.
     @discardableResult
-    func addLocalProfile() -> ServerProfile {
-        if let existing = profiles.first(where: { $0.mode == .local }) { return existing }
+    func addLocalProfile(port: Int = 7330) -> ServerProfile {
+        let baseURL = URL(string: "http://127.0.0.1:\(port)")!
+        if let existing = profiles.first(where: { $0.mode == .local && $0.baseURL == baseURL }) {
+            return existing
+        }
         let profile = ServerProfile(
             id: UUID(),
             name: L.t("native_welcome_local_title"),
-            baseURL: URL(string: "http://127.0.0.1:7330")!,
+            baseURL: baseURL,
             mode: .local,
             credentialKey: "run.shepherd.mac.\(UUID().uuidString)")
         profiles.append(profile)
@@ -394,8 +397,8 @@ final class AppModel {
     /// `sheet` while AppKit refused to present a second modal, so the operator
     /// was parked on an empty window with a sheet state nothing could clear.
     @discardableResult
-    func beginLocalLogin() -> ServerProfile {
-        let profile = addLocalProfile()
+    func beginLocalLogin(port: Int = 7330) -> ServerProfile {
+        let profile = addLocalProfile(port: port)
         sheet = .login(profile)
         return profile
     }

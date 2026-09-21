@@ -4,6 +4,11 @@ import Foundation
 /// Why the local server is not usable. One catalog key per case in the app layer;
 /// nothing here is an operator-facing sentence.
 public enum LocalServerFailure: Error, Equatable, Sendable {
+  case bootstrapDownload
+  case bootstrapInvalid
+  case bootstrapWrite
+  case runnerMissing
+  case runnerTimeout
   case bunMissing
   case notAShepherdCheckout(path: String)
   case installFailed(exitCode: Int32)
@@ -49,28 +54,38 @@ public struct LocalServerEnvironment: Sendable {
   /// `EnvironmentFile=-%h/.shepherd/env`.
   public let envFilePath: URL
 
-  private let home: URL
+  public let homeDirectory: URL
+  public let databasePath: URL
+  private let resolvedValues: [String: String]
   private let pathEntries: [String]
   private let fileManager: any LocalServerFileManaging
 
   public init(
     home: URL = URL(fileURLWithPath: NSHomeDirectory()),
     fileManager: any LocalServerFileManaging = LocalServerSystemFileManager(),
-    pathEntries: [String]? = nil
+    pathEntries: [String]? = nil,
+    processEnvironment: [String: String] = ProcessInfo.processInfo.environment
   ) {
-    self.home = home
+    self.homeDirectory = home
     self.fileManager = fileManager
-    self.pathEntries =
-      pathEntries
-      ?? (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").map(String.init)
-    self.appDirectory = home.appendingPathComponent(".shepherd/app", isDirectory: true)
-    self.envFilePath = home.appendingPathComponent(".shepherd/env", isDirectory: false)
+    let envFilePath = home.appendingPathComponent(".shepherd/env", isDirectory: false)
+    self.envFilePath = envFilePath
+    var values = processEnvironment
+    for (key, value) in Self.readEnvFile(envFilePath) { values[key] = value }
+    self.resolvedValues = values
+    self.pathEntries = pathEntries ?? (values["PATH"] ?? "").split(separator: ":").map(String.init)
+    let install = values["SHEPHERD_DIR"].flatMap { $0.isEmpty ? nil : $0 } ?? ".shepherd/app"
+    let appDirectory = URL(fileURLWithPath: install, isDirectory: true, relativeTo: home).standardizedFileURL
+    self.appDirectory = appDirectory
+    self.databasePath = values["SHEPHERD_DB"].map {
+      URL(fileURLWithPath: $0, relativeTo: appDirectory).standardizedFileURL
+    } ?? home.appendingPathComponent(".shepherd/shepherd.db")
   }
 
   /// Always appended: a Finder-launched app inherits launchd's PATH, which
   /// carries none of these.
   private var bunFallbacks: [String] {
-    [home.appendingPathComponent(".bun/bin").path, "/opt/homebrew/bin", "/usr/local/bin"]
+    [homeDirectory.appendingPathComponent(".bun/bin").path, homeDirectory.appendingPathComponent(".local/bin").path, "/opt/homebrew/bin", "/usr/local/bin"]
   }
 
   /// Cheaper and less brittle than shelling out to git, and it is what the app
@@ -97,7 +112,11 @@ public struct LocalServerEnvironment: Sendable {
   /// Deliberately not a shell — no `$VAR` expansion, no command substitution: the
   /// file is data here, never code.
   public func envFileValues() -> [String: String] {
-    guard let text = try? String(contentsOf: envFilePath, encoding: .utf8) else { return [:] }
+    Self.readEnvFile(envFilePath)
+  }
+
+  private static func readEnvFile(_ path: URL) -> [String: String] {
+    guard let text = try? String(contentsOf: path, encoding: .utf8) else { return [:] }
     var values: [String: String] = [:]
     for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false) {
       var line = rawLine.trimmingCharacters(in: .whitespaces)
@@ -122,13 +141,46 @@ public struct LocalServerEnvironment: Sendable {
   /// state dir, and `SHEPHERD_HOST` pinned to loopback so supervising a server
   /// can never expose it on a LAN.
   public func spawnEnvironment(bun: URL) -> [String: String] {
-    var environment = ProcessInfo.processInfo.environment
-    for (key, value) in envFileValues() { environment[key] = value }
-    environment["HOME"] = home.path
-    environment["SHEPHERD_HOST"] = "127.0.0.1"
-    environment["PATH"] = ([bun.deletingLastPathComponent().path] + pathEntries + bunFallbacks)
-      .joined(separator: ":")
-    return environment
+    childEnvironment(prepending: [bun.deletingLastPathComponent().path])
+  }
+
+  /// Frozen configuration shared by bootstrap, the server and runner operations.
+  /// HOME is explicit; changing SHEPHERD_DIR never changes the state directory.
+  public func childEnvironment(prepending: [String] = []) -> [String: String] {
+    var values = resolvedValues
+    values["HOME"] = homeDirectory.path
+    values["SHEPHERD_HOST"] = "127.0.0.1"
+    values["SHEPHERD_DIR"] = appDirectory.path
+    values["SHEPHERD_DB"] = databasePath.path
+    values["PATH"] = (prepending + pathEntries + bunFallbacks).joined(separator: ":")
+    // Match src/herdr-session.ts: an explicit named herd wins over a socket
+    // inherited from an enclosing herdr pane, unless explicitly opted out.
+    let session = values["HERDR_SESSION"] ?? "default"
+    let socket = session == "default" ? ".config/herdr/herdr.sock" : ".config/herdr/sessions/\(session)/herdr.sock"
+    if values["HERDR_SOCKET_PATH"] == nil ||
+       (values["HERDR_ENV"] == "1" && session != "default" && values["SHEPHERD_HERDR_IGNORE_SESSION"] != "1") {
+      values["HERDR_SOCKET_PATH"] = homeDirectory.appendingPathComponent(socket).path
+    }
+    return values
+  }
+
+  public var port: Int {
+    guard let value = Int(resolvedValues["SHEPHERD_PORT"] ?? "7330"), (1...65535).contains(value)
+    else { return 7330 }
+    return value
+  }
+
+  public func locateRunner() -> URL? {
+    let binary = resolvedValues["HERDR_BIN"] ?? "herdr"
+    if binary.contains("/") {
+      let candidate = URL(fileURLWithPath: binary, relativeTo: appDirectory).standardizedFileURL
+      return fileManager.isExecutableFile(atPath: candidate.path) ? candidate : nil
+    }
+    for directory in pathEntries + bunFallbacks {
+      let candidate = URL(fileURLWithPath: directory).appendingPathComponent(binary)
+      if fileManager.isExecutableFile(atPath: candidate.path) { return candidate }
+    }
+    return nil
   }
 }
 #endif

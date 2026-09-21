@@ -1,3 +1,4 @@
+import { localHealthIdentity } from "./local-health";
 import { isHerdrProtocolMismatch } from "./herdr-runtime";
 import type { RepoConfig, SessionStore } from "./store";
 import type { PluginRegistry } from "./plugins/loader";
@@ -7469,7 +7470,11 @@ function handleHealth({ req, parts }: Ctx): Response | null {
   }
   return req.method === "HEAD"
     ? new Response(null, { status: 200 })
-    : json({ ok: true, version: SHEPHERD_VERSION });
+    : json({
+        ok: true,
+        version: SHEPHERD_VERSION,
+        ...localHealthIdentity(config),
+      });
 }
 
 /** Authenticated (unlike handleHealth) — reports the herdr socket terminal transport's flag

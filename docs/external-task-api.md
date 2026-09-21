@@ -36,11 +36,12 @@ submitted by Hermes shows up live in the UI exactly like one a human typed.
 
 ### CORS / CSRF does not block programmatic clients
 
-The origin guard (`originAllowed`, `src/validate.ts`) runs **only** for
-POST/PUT/DELETE **and only when an `Origin` header is present**:
+The origin guard (`checkOrigin`, `src/server.ts`, over `classifyOrigin` /
+`originAllowed` in `src/validate.ts`) runs **only** for POST/PUT/PATCH/DELETE
+**and only when an `Origin` header is present**:
 
 ```ts
-if (!originHeader) return true; // no-browser client (curl, CLI, agent)
+if (!originHeader) return "allow"; // no-browser client (curl, CLI)
 ```
 
 A server-side HTTP client sends no `Origin`, so it passes. The check exists to

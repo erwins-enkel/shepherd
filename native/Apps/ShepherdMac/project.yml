@@ -39,7 +39,7 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
     DEAD_CODE_STRIPPING: YES
     SHEPHERD_UPDATE_PUBLIC_KEY: ""
-    SHEPHERD_UPDATE_FEED_URL: "https://github.com/erwins-enkel/shepherd/releases/download/macos-updates/appcast.xml"
+    SHEPHERD_UPDATE_FEED_URL: "https://raw.githubusercontent.com/erwins-enkel/shepherd/macos-update-feed/appcast.xml"
   configs:
     Release:
       # Drops com.apple.security.get-task-allow from the ad-hoc signature so a

@@ -29,15 +29,20 @@ with a configuration error rather than producing a build that cannot receive upd
 Local builds without `SHEPHERD_UPDATE_PUBLIC_KEY` and isolated test launches disable the updater.
 
 The pipeline builds from a published tag reachable from main, uses main's first-parent commit
-count as CFBundleVersion, and rejects a build no newer than the current feed. Marketing versions
+count as CFBundleVersion, and rejects an older build or changed metadata for the current build. Marketing versions
 come from the tag. Retries do not increment the build number or replace an existing ZIP.
-The ZIP is uploaded to that version's release first; only then is the persistent feed advanced:
+The ZIP and its appcast are uploaded to a separate `macos-<source-tag>` draft release, which
+is published only after both assets exist. This works with GitHub immutable releases, including
+source releases already published by release-please. Only then is the persistent feed advanced:
 
-`https://github.com/erwins-enkel/shepherd/releases/download/macos-updates/appcast.xml`
+`https://raw.githubusercontent.com/erwins-enkel/shepherd/macos-update-feed/appcast.xml`
 
-Do not delete the `macos-updates` release or replace previously published archives. Never move
-release tags. If upload fails after the archive has been published, recover the feed from the
-same signed package (retained as a workflow artifact for 14 days) or publish a new release; do not replace the archive with a rebuild.
+Do not delete the `macos-update-feed` branch or replace previously published archives.
+The branch contains only the appcast, with a commit history for every update. A retry reuses
+an already published Mac release and can safely finish a failed feed publication. Never move
+release tags. If publication fails after the Mac release is published, rerun the workflow: it
+reuses the immutable appcast and advances the feed without rebuilding. The signed package is
+also retained as a workflow artifact for 14 days.
 
 ## First installation
 

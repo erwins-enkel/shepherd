@@ -32,9 +32,15 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         with:
+          fetch-depth: 0
+      - name: Checkout release source
+        uses: actions/checkout@v7
+        with:
           ref: ${{ inputs.tag }}
           fetch-depth: 0
+          path: release-source
       - name: Validate release configuration
+        working-directory: release-source
         run: |
           set -euo pipefail
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9.-]+)?$ ]]
@@ -45,54 +51,74 @@ jobs:
           # of workflow run numbers, retries and marketing version/prerelease labels.
           echo "BUILD_NUMBER=$(git rev-list --first-parent --count HEAD)" >> "$GITHUB_ENV"
           echo "APP_VERSION=${RELEASE_TAG#v}" >> "$GITHUB_ENV"
+          echo "MAC_TAG=macos-$RELEASE_TAG" >> "$GITHUB_ENV"
+          echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+      - name: Reuse an already published Mac package on retry
+        id: existing
+        run: |
+          set -euo pipefail
+          gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
+          if python3 -c 'import json,os,sys; sys.exit(not any(r["tag_name"] == os.environ["MAC_TAG"] and not r["draft"] for page in json.load(open(sys.argv[1])) for r in page))' "$RUNNER_TEMP/releases.json"; then
+            mkdir -p "$RUNNER_TEMP/mac-update"
+            gh release download "$MAC_TAG" -p appcast.xml -D "$RUNNER_TEMP/mac-update"
+            echo 'published=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'published=false' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Cache release build state
+        if: steps.existing.outputs.published != 'true'
+        uses: actions/cache@v6
+        with:
+          path: release-source/native/Apps/ShepherdMac/.build
+          key: ${{ runner.os }}-mac-release-${{ hashFiles('release-source/native/Package.resolved') }}
+          restore-keys: |
+            ${{ runner.os }}-mac-release-
       - name: Install XcodeGen
+        if: steps.existing.outputs.published != 'true'
         run: brew install xcodegen
       - name: Build universal tester release
+        if: steps.existing.outputs.published != 'true'
+        working-directory: release-source
         env:
           SHEPHERD_CODESIGN_IDENTITY: "-"
         run: |
           native/scripts/build-app.sh Release \
             "MARKETING_VERSION=$APP_VERSION" "CURRENT_PROJECT_VERSION=$BUILD_NUMBER" \
             "SHEPHERD_UPDATE_PUBLIC_KEY=$UPDATE_PUBLIC_KEY" \
+            "SHEPHERD_UPDATE_FEED_URL=https://raw.githubusercontent.com/$GITHUB_REPOSITORY/macos-update-feed/appcast.xml" \
             "ARCHS=arm64 x86_64" ONLY_ACTIVE_ARCH=NO
       - name: Package and sign update
+        if: steps.existing.outputs.published != 'true'
         env:
           SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          TOOLS="$GITHUB_WORKSPACE/native/Apps/ShepherdMac/.build/SourcePackages/artifacts/sparkle/Sparkle/bin"
+          TOOLS="$GITHUB_WORKSPACE/release-source/native/Apps/ShepherdMac/.build/SourcePackages/artifacts/sparkle/Sparkle/bin"
           native/scripts/package-update.sh \
-            native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app \
+            release-source/native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app \
             "$RUNNER_TEMP/mac-update" "$TOOLS" \
-            "https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/"
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/$MAC_TAG/"
       - name: Retain signed package for publication recovery
+        if: steps.existing.outputs.published != 'true'
         uses: actions/upload-artifact@v7
         with:
           name: macos-update-${{ env.BUILD_NUMBER }}
           path: ${{ runner.temp }}/mac-update/
           retention-days: 14
-      - name: Check existing feed and prevent rollback
+      - name: Publish the complete Mac release before advancing the feed
+        if: steps.existing.outputs.published != 'true'
         run: |
           set -euo pipefail
-          # Distinguish a missing first feed from authorization/network failures.
+          # Immutable releases must receive every asset while still a draft.
           gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
-          if python3 -c 'import json,sys; sys.exit(not any(r["tag_name"] == "macos-updates" for page in json.load(open(sys.argv[1])) for r in page))' "$RUNNER_TEMP/releases.json"; then
-            HAS_FEED=$(gh release view macos-updates --json assets --jq '[.assets[] | select(.name == "appcast.xml")] | length')
-            if [ "$HAS_FEED" -gt 0 ]; then
-            gh release download macos-updates -p appcast.xml -D "$RUNNER_TEMP/current-feed"
-            python3 - "$RUNNER_TEMP/current-feed/appcast.xml" "$BUILD_NUMBER" <<'PY'
-          import sys, xml.etree.ElementTree as ET
-          versions = ET.parse(sys.argv[1]).findall('.//{http://www.andymatuschak.org/xml-namespaces/sparkle}version')
-          assert versions and max(int(v.text) for v in versions) < int(sys.argv[2]), 'Refusing an older or already published build'
-          PY
-            fi
-          else
-            gh release create macos-updates --target "$GITHUB_SHA" --prerelease --latest=false \
-              --title 'Shepherd for Mac update feed' --notes 'Automatic update feed for Mac alpha and beta testers.'
+          if ! python3 -c 'import json,os,sys; sys.exit(not any(r["tag_name"] == os.environ["MAC_TAG"] for page in json.load(open(sys.argv[1])) for r in page))' "$RUNNER_TEMP/releases.json"; then
+            gh release create "$MAC_TAG" --draft --prerelease --latest=false --target "$SOURCE_SHA" \
+              --title "Shepherd for Mac $APP_VERSION" \
+              --notes "Native Mac tester release. Requires macOS 15+. Install Shepherd.app in Applications once; future updates arrive automatically. Ad-hoc signed; not Apple-notarized. Source release: $RELEASE_TAG."
           fi
-      - name: Publish archive first, then advance feed
-        run: |
-          set -euo pipefail
-          # Immutable archive: never overwrite an asset a cached appcast may reference.
-          gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/mac-update/Shepherd-$BUILD_NUMBER.zip"
-          gh release upload macos-updates "$RUNNER_TEMP/mac-update/appcast.xml" --clobber
+          gh release view "$MAC_TAG" --json isDraft --jq '.isDraft' | grep -qx true
+          gh release upload "$MAC_TAG" "$RUNNER_TEMP/mac-update/Shepherd-$BUILD_NUMBER.zip" \
+            "$RUNNER_TEMP/mac-update/appcast.xml" --clobber
+          gh release edit "$MAC_TAG" --draft=false --latest=false
+      - name: Advance the public appcast branch
+        run: python3 native/scripts/publish-appcast.py "$GITHUB_REPOSITORY" "$RUNNER_TEMP/mac-update/appcast.xml"

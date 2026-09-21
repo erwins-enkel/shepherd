@@ -30,6 +30,26 @@ private actor SettingsReadSequence {
                      diagnostics: .init(checks: [], generatedAt: stamp, overall: .init(known: .ok)),
                      usage: nil, repos: [])
     }
+    @Test func independentDiagnosticsFailureIsVisibleAndCanRecover() async throws {
+        let snapshot = try fixture()
+        let recovery = BackendRecoveryModel(reads: .init(health: { true },
+            diagnostics: { throw ShepherdError.notFound }))
+        let model = SettingsModel(reads: .init(snapshot: { snapshot }), recovery: recovery)
+        defer { model.teardown(); recovery.teardown() }
+        await model.load()
+        for _ in 0..<2 {
+            await recovery.refresh()
+            #expect(model.snapshot != nil)
+            #expect(model.error == nil)
+            #expect(recovery.serverReachable == true)
+            #expect(recovery.diagnosticsError != nil)
+            #expect(!recovery.diagnosticsLoading)
+        }
+        recovery.replaceDiagnostics(snapshot.diagnostics!)
+        #expect(recovery.diagnosticsError == nil)
+        #expect(recovery.diagnostics != nil)
+    }
+
     @Test func failureAfterTeardownCannotReopenErrorState() async {
         let latch = SettingsReadLatch()
         let model = SettingsModel(reads:.init(snapshot:{try await latch.read()}))

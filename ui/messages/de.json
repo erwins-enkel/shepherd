@@ -4492,5 +4492,11 @@
   "native_settings_local_offline_title": "Lokaler Server ist nicht verfügbar",
   "native_settings_local_offline_summary": "Starte oder installiere den lokalen Server, um diese Einstellungen zu öffnen.",
   "native_settings_local_active_title": "Lokaler Server bereit",
-  "native_settings_local_active_summary": "Verbinde dich mit dem lokalen Server, um diese Einstellungen zu öffnen."
+  "native_settings_local_active_summary": "Verbinde dich mit dem lokalen Server, um diese Einstellungen zu öffnen.",
+  "native_terminal_session_unavailable": "Diese Sitzung wurde gelöscht oder archiviert. Die Sitzungsliste wurde aktualisiert; wähle eine andere Sitzung.",
+  "native_terminal_session_not_resumable": "Diese Sitzung kann derzeit nicht fortgesetzt werden. Prüfe ihren Status und die verfügbaren Sitzungsaktionen.",
+  "native_terminal_recovery_failed": "Diese Sitzung konnte nicht erneut geöffnet werden: {error}",
+  "native_settings_diagnostics_failed_title": "Diagnose nicht verfügbar",
+  "native_settings_diagnostics_failed_body": "Die Diagnoseprüfungen konnten nicht geladen werden. Prüfe erneut, um es noch einmal zu versuchen. {error}",
+  "native_settings_diagnostics_loading": "Diagnose wird geladen…"
 }

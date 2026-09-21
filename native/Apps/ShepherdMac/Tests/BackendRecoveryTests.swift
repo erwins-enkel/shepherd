@@ -53,6 +53,54 @@ import ShepherdKit
         #expect(model.serverReachable == true)
         #expect(model.diagnosis(for: .unreachable) == .undetermined)
     }
+    @Test func loadingIsNotFailureAndSuccessfulRecheckClearsReadError() async throws {
+        let gate = RecoveryGate()
+        let reads = DiagnosticReadSequence()
+        let model = BackendRecoveryModel(reads: .init(health: { true }, diagnostics: {
+            await gate.wait()
+            return try await reads.read()
+        }))
+        defer { model.teardown() }
+        #expect(model.diagnosticsError == nil)
+        for attempt in 0..<3 {
+            let task = Task { await model.refresh() }
+            await gate.started()
+            #expect(model.diagnosticsLoading)
+            #expect(model.diagnosticsError == nil)
+            await gate.open()
+            await task.value
+            #expect(!model.diagnosticsLoading)
+            if attempt < 2 {
+                #expect(model.diagnosticsError != nil)
+                #expect(model.diagnostics == nil)
+            } else {
+                #expect(model.diagnosticsError == nil)
+                #expect(model.diagnostics?.checks.first?.hintKey == "diagnostics_hint_herdr_ok")
+            }
+        }
+    }
+
+    @Test func diagnosticEventAndTeardownDiscardOlderReadFailures() async throws {
+        let gate = RecoveryGate()
+        let model = BackendRecoveryModel(reads: .init(health: { true }, diagnostics: {
+            await gate.wait(); throw ShepherdError.unauthenticated
+        }))
+        let task = Task { await model.refresh() }
+        await gate.started()
+        model.replaceDiagnostics(try Self.snapshot("diagnostics_hint_herdr_ok"))
+        #expect(!model.diagnosticsLoading)
+        await gate.open(); await task.value
+        #expect(model.diagnosticsError == nil)
+        #expect(model.diagnostics != nil)
+        let next = Task { await model.refresh() }
+        await gate.started()
+        model.teardown()
+        await gate.open(); await next.value
+        #expect(model.diagnostics == nil)
+        #expect(model.diagnosticsError == nil)
+        #expect(!model.diagnosticsLoading)
+    }
+
     @Test func validationAuthenticationAndCancellationDoNotOfferBackendRecovery() {
         for error in [ShepherdError.unauthenticated, .forbidden, .badRequest("bad"), .cancelled] {
             #expect(!BackendRecovery.isCompatibleCreateFailure(error))
@@ -66,4 +114,13 @@ private actor RecoveryGate {
     func wait() async { await withCheckedContinuation { continuation = $0 } }
     func started() async { while continuation == nil { await Task.yield() } }
     func open() { continuation?.resume(); continuation = nil }
+}
+
+private actor DiagnosticReadSequence {
+    private var count = 0
+    func read() throws -> DiagnosticsSnapshot {
+        count += 1
+        if count < 3 { throw ShepherdError.notFound }
+        return try JSONDecoder().decode(DiagnosticsSnapshot.self, from: Data(#"{"checks":[{"id":"herdr","state":"ok","hintKey":"diagnostics_hint_herdr_ok"}],"generatedAt":2,"overall":"ok"}"#.utf8))
+    }
 }

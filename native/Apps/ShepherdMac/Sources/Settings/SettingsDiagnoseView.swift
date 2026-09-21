@@ -13,6 +13,21 @@ struct SettingsDiagnoseView: View {
                    recovery.serverReachable == false || recovery.diagnosis(for: nil) == .runnerUnavailable {
                     BackendRecoveryPanel(failure: recovery.diagnosis(for: nil))
                 }
+                if let recovery = model.recovery, recovery.diagnostics == nil {
+                    if let error = recovery.diagnosticsError {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(L.t("native_settings_diagnostics_failed_title")).font(.headline)
+                                .accessibilityIdentifier("diagnostics-unavailable-title")
+                            Text(L.t("native_settings_diagnostics_failed_body", error))
+                                .accessibilityIdentifier("diagnostics-unavailable-summary")
+                            Button(L.t("native_settings_refresh_diagnostics")) {
+                                Task { await recovery.refresh() }
+                            }.accessibilityIdentifier("diagnostics-unavailable-action")
+                        }
+                    } else {
+                        ProgressView(L.t("native_settings_diagnostics_loading"))
+                    }
+                }
                 if let error = model.error { Text(verbatim:error).foregroundStyle(.red) }
                 Button(L.t("native_settings_refresh_diagnostics")) {
                     Task { await model.recovery?.refresh() }

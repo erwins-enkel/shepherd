@@ -9,6 +9,8 @@ struct BackendRecoveryReads: Sendable {
 
 /// Activation-scoped health and diagnostics, independent of Settings' other reads.
 @Observable @MainActor final class BackendRecoveryModel: AppExtension {
+    private(set) var diagnosticsLoading = false
+    private(set) var diagnosticsError: String?
     private(set) var diagnostics: DiagnosticsSnapshot?
     private(set) var serverReachable: Bool?
     @ObservationIgnored private let reads: BackendRecoveryReads
@@ -38,13 +40,27 @@ struct BackendRecoveryReads: Sendable {
         guard !stopped, !Task.isCancelled else { return }
         generation &+= 1
         let mine = generation
+        diagnosticsLoading = true
+        diagnosticsError = nil
+        defer { if mine == generation { diagnosticsLoading = false } }
         async let health = reads.health()
-        async let snapshot = try? reads.diagnostics()
+        async let snapshot = Self.readDiagnostics(reads.diagnostics)
         let result = await (health, snapshot)
         guard !stopped, mine == generation, !Task.isCancelled else { return }
         serverReachable = result.0
         // Failed/auth-denied reads cannot leave stale runner diagnoses behind.
-        diagnostics = result.1
+        switch result.1 {
+        case .success(let snapshot): diagnostics = snapshot
+        case .failure(let error):
+            diagnostics = nil
+            diagnosticsError = ShepherdErrorCopy.message(error)
+        }
+    }
+    private nonisolated static func readDiagnostics(
+        _ read: @Sendable () async throws -> DiagnosticsSnapshot
+    ) async -> Result<DiagnosticsSnapshot, any Error> {
+        do { return .success(try await read()) }
+        catch { return .failure(error) }
     }
     func diagnosis(for closure: PTYConnection.Closure?) -> BackendFailure {
         BackendRecovery.classify(serverReachable: serverReachable, diagnostics: diagnostics, closure: closure)
@@ -59,11 +75,14 @@ struct BackendRecoveryReads: Sendable {
         guard !stopped else { return }
         generation &+= 1
         diagnostics = snapshot
+        diagnosticsError = nil
+        diagnosticsLoading = false
         serverReachable = true
     }
     func teardown() {
         stopped = true; generation &+= 1
         tap?.cancel(); initial?.cancel(); tap = nil; initial = nil
         diagnostics = nil; serverReachable = nil
+        diagnosticsError = nil; diagnosticsLoading = false
     }
 }

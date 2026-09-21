@@ -10776,6 +10776,58 @@
         }
       }
     },
+    "native_settings_diagnostics_failed_body": {
+      "comment": "%1$@ = error",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Diagnoseprüfungen konnten nicht geladen werden. Prüfe erneut, um es noch einmal zu versuchen. %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The diagnostic checks could not be loaded. Recheck to try again. %1$@"
+          }
+        }
+      }
+    },
+    "native_settings_diagnostics_failed_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnose nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnostics unavailable"
+          }
+        }
+      }
+    },
+    "native_settings_diagnostics_loading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diagnose wird geladen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading diagnostics…"
+          }
+        }
+      }
+    },
     "native_settings_env_token": {
       "extractionState": "manual",
       "localizations": {
@@ -13653,6 +13705,58 @@
           "stringUnit": {
             "state": "translated",
             "value": "Send"
+          }
+        }
+      }
+    },
+    "native_terminal_recovery_failed": {
+      "comment": "%1$@ = error",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Sitzung konnte nicht erneut geöffnet werden: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not reopen this session: %1$@"
+          }
+        }
+      }
+    },
+    "native_terminal_session_not_resumable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Sitzung kann derzeit nicht fortgesetzt werden. Prüfe ihren Status und die verfügbaren Sitzungsaktionen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This session cannot currently be resumed. Check its status and available session actions."
+          }
+        }
+      }
+    },
+    "native_terminal_session_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Sitzung wurde gelöscht oder archiviert. Die Sitzungsliste wurde aktualisiert; wähle eine andere Sitzung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This session was deleted or archived. The session list has been refreshed; choose another session."
           }
         }
       }

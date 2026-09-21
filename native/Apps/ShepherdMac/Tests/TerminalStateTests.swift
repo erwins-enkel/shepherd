@@ -397,6 +397,121 @@ struct TerminalStateTests {
 }
 
 @MainActor
+struct TerminalResumeTests {
+    private func resumableSession() -> Session {
+        var session = PreviewData.session(id: "s1", status: .init(known: .done))
+        session.claudeSessionId = "conversation"
+        return session
+    }
+
+    @Test func resumeWaitsForTheAgentAndIgnoresRepeatedClicks() async {
+        let attachment = FakeAttachment()
+        let gate = Gate()
+        let calls = Counter()
+        let model = TerminalSessionModel(
+            sessionID: "s1", readSession: { self.resumableSession() },
+            resumeSession: { calls.bump(); await gate.wait() },
+            reply: { _ in }, makeAttachment: { _, _ in attachment })
+        model.attach(cols: 80, rows: 24)
+        defer { model.detach() }
+        attachment.emit(.closed(.gone))
+        #expect(await settle(until: { model.phase == .ended(.gone) }))
+
+        let task = Task { await model.recoverGoneSession() }
+        #expect(await settle(until: { gate.isWaiting }))
+        #expect(model.sessionRecoveryBusy)
+        #expect(attachment.takeOverCount == 0)
+        await model.recoverGoneSession()
+        #expect(calls.value == 1)
+
+        gate.open()
+        await task.value
+        #expect(!model.sessionRecoveryBusy)
+        #expect(model.sessionRecoveryError == nil)
+        #expect(attachment.takeOverCount == 1)
+        #expect(model.phase == .connecting)
+        attachment.emit(.reattached)
+        #expect(await settle(until: { model.phase == .live }))
+    }
+
+    @Test func failedResumeStaysEndedAndCanBeRetried() async {
+        let attachment = FakeAttachment()
+        let calls = Counter()
+        let model = TerminalSessionModel(
+            sessionID: "s1", readSession: { self.resumableSession() },
+            resumeSession: {
+                calls.bump()
+                if calls.value == 1 { throw ShepherdError.notFound }
+            },
+            reply: { _ in }, makeAttachment: { _, _ in attachment })
+        model.attach(cols: 80, rows: 24)
+        defer { model.detach() }
+        attachment.emit(.closed(.gone))
+        #expect(await settle(until: { model.phase == .ended(.gone) }))
+
+        await model.recoverGoneSession()
+        #expect(model.phase == .ended(.gone))
+        #expect(!model.sessionRecoveryBusy)
+        #expect(model.sessionRecoveryError == L.t(
+            "native_terminal_recovery_failed", ShepherdErrorCopy.message(ShepherdError.notFound)))
+        #expect(attachment.takeOverCount == 0)
+
+        await model.recoverGoneSession()
+        #expect(calls.value == 2)
+        #expect(model.sessionRecoveryError == nil)
+        #expect(attachment.takeOverCount == 1)
+    }
+
+    @Test(arguments: [false, true])
+    func detachDiscardsResumeCompletion(fails: Bool) async {
+        let attachment = FakeAttachment()
+        let gate = Gate()
+        let model = TerminalSessionModel(
+            sessionID: "s1", readSession: { self.resumableSession() },
+            resumeSession: {
+                await gate.wait()
+                if fails { throw ShepherdError.notFound }
+            },
+            reply: { _ in }, makeAttachment: { _, _ in attachment })
+        model.attach(cols: 80, rows: 24)
+        attachment.emit(.closed(.gone))
+        #expect(await settle(until: { model.phase == .ended(.gone) }))
+
+        let task = Task { await model.recoverGoneSession() }
+        #expect(await settle(until: { gate.isWaiting }))
+        model.detach()
+        gate.open()
+        await task.value
+
+        #expect(!model.sessionRecoveryBusy)
+        #expect(model.sessionRecoveryError == nil)
+        #expect(attachment.takeOverCount == 0)
+        #expect(model.phase == .ended(.gone))
+    }
+
+    @Test(arguments: [PTYConnection.Closure.gone, .unreachable, .superseded], [false, true])
+    func resumeOnlyRestartsGoneSessionsWithInputEnabled(
+        closure: PTYConnection.Closure, allowsInput: Bool
+    ) async {
+        let attachment = FakeAttachment()
+        let calls = Counter()
+        let model = TerminalSessionModel(
+            sessionID: "s1", allowsInput: allowsInput, readSession: { self.resumableSession() },
+            resumeSession: { calls.bump() },
+            reply: { _ in }, makeAttachment: { _, _ in attachment })
+        await model.recoverGoneSession()
+        #expect(calls.value == 0)
+        model.attach(cols: 80, rows: 24)
+        defer { model.detach() }
+        attachment.emit(.closed(closure))
+        #expect(await settle(until: { model.phase != .connecting }))
+
+        await model.recoverGoneSession()
+        #expect(calls.value == (allowsInput && closure == .gone ? 1 : 0))
+    }
+}
+
+@MainActor
 struct TerminalRegistrationTests {
     private func makeApp() -> AppModel {
         let name = UUID().uuidString

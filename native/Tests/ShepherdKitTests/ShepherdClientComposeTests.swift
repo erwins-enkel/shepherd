@@ -160,9 +160,11 @@ struct ShepherdClientComposeTests {
         defer { session.invalidateAndCancel() }
         let credentials = InMemoryCredentialStore()
         try credentials.save(.init(token: "shp_test", tokenId: "tok"), for: "k")
+        // Leave room for parallel URLProtocol traffic on CI. The 0.5-second ordinary
+        // timeout and 1-second response still catch accidentally using the short path.
         let client = try ShepherdClient(
             profile: .init(name: "fake", baseURL: server.baseURL, mode: .local, credentialKey: "k"),
-            credentials: credentials, urlSession: session, longRunningRequestTimeout: 3)
+            credentials: credentials, urlSession: session, longRunningRequestTimeout: 10)
         await #expect(throws: (any Error).self) {
             _ = try await client.generated.recommendPrompt(.init(path: .init(id: "original"),
                 body: .json(.init(provider: .codex, model: "gpt-6-astra"))))
@@ -179,9 +181,10 @@ struct ShepherdClientComposeTests {
         server.on("POST", "/api/shape") { _ in FakeResponse(body: body, delay: 1) }
         let session = server.urlSession(requestTimeout: 0.5)
         defer { session.invalidateAndCancel() }
+        // Match the recommendation probe's CI headroom without relaxing the short path.
         let client = try ShepherdClient(
             profile: .init(name: "fake", baseURL: server.baseURL, mode: .local, credentialKey: "k"),
-            credentials: InMemoryCredentialStore(), urlSession: session, longRunningRequestTimeout: 3)
+            credentials: InMemoryCredentialStore(), urlSession: session, longRunningRequestTimeout: 10)
         let request = ShapeRequest(repoPath: "/repo", prompt: "Rough", provider: .codex)
         await #expect(throws: (any Error).self) {
             _ = try await client.generated.shapeTask(.init(body: .json(request)))

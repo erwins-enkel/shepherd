@@ -4498,5 +4498,15 @@
   "native_terminal_recovery_failed": "Diese Sitzung konnte nicht erneut geöffnet werden: {error}",
   "native_settings_diagnostics_failed_title": "Diagnose nicht verfügbar",
   "native_settings_diagnostics_failed_body": "Die Diagnoseprüfungen konnten nicht geladen werden. Prüfe erneut, um es noch einmal zu versuchen. {error}",
-  "native_settings_diagnostics_loading": "Diagnose wird geladen…"
+  "native_settings_diagnostics_loading": "Diagnose wird geladen…",
+  "native_install_title": "Shepherd nach Programme verschieben?",
+  "native_install_body": "Installiere Shepherd unter Programme für dauerhaften Zugriff und Updates. Wähle alle Benutzer oder nur dein Konto. Die ursprüngliche Kopie bleibt erhalten.",
+  "native_install_all_users": "Für alle Benutzer installieren",
+  "native_install_current_user": "Nur für mich installieren",
+  "native_install_later": "Nicht jetzt",
+  "native_install_existing_title": "Shepherd ist bereits installiert",
+  "native_install_existing_body": "Die vorhandene App wird nicht ersetzt. Du kannst sie öffnen (oder zu ihr wechseln, falls sie bereits läuft) und ihre Updatefunktion verwenden.",
+  "native_install_open_existing": "Installiertes Shepherd öffnen",
+  "native_install_failed_title": "Installation konnte nicht abgeschlossen werden",
+  "native_install_failed_body": "Deine ursprüngliche App ist weiterhin verfügbar. Prüfe freien Speicher und Schreibrechte am Ziel. Versuche die Installation nur für dein Konto oder beende Shepherd und kopiere es im Finder. Falls schon eine Kopie vorhanden ist, öffne sie im Finder. Lösche deine funktionierende Kopie erst, wenn die installierte App erfolgreich startet."
 }

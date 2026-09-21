@@ -31,8 +31,8 @@ Local builds without `SHEPHERD_UPDATE_PUBLIC_KEY` and isolated test launches dis
 The pipeline builds from a published tag reachable from main, uses main's first-parent commit
 count as CFBundleVersion, and rejects an older build or changed metadata for the current build. Marketing versions
 come from the tag. Retries do not increment the build number or replace an existing ZIP.
-The ZIP and its appcast are uploaded to a separate `macos-<source-tag>` draft release, which
-is published only after both assets exist. This works with GitHub immutable releases, including
+The DMG, signed update ZIP and its appcast are uploaded to a separate `macos-<source-tag>` draft release, which
+is published only after all three assets exist. This works with GitHub immutable releases, including
 source releases already published by release-please. Only then is the persistent feed advanced:
 
 `https://raw.githubusercontent.com/erwins-enkel/shepherd/macos-update-feed/appcast.xml`
@@ -46,8 +46,22 @@ also retained as a workflow artifact for 14 days.
 
 ## First installation
 
-Download `Shepherd-<build>.zip` from the release, unzip and move Shepherd.app to `/Applications`
-(or `~/Applications`) before opening. Versions shipped before the updater was added need this
+Download `Shepherd-<build>.dmg` from the [Mac releases](https://github.com/erwins-enkel/shepherd/releases?q=macos-),
+open it and drag Shepherd.app onto the Applications shortcut. Open the installed app, then eject
+the image. For an installation only for your account, copy it to `~/Applications` instead.
+
+Opening a distributed app directly from Downloads or the disk image offers installation into
+`/Applications` or `~/Applications`, after your consent. “Not now” keeps the current app running.
+The app copies and verifies its bundle, opens the installed copy and exits the original instance;
+the original download is kept. An existing installation is never overwritten: you can open it
+(or switch to it if running) and use its updater instead. If copying or launching fails, the
+original stays available. Check disk space and write permissions, choose the current-user
+installation on the next launch, or copy with Finder. Development and isolated launches skip
+this prompt. Subfolders and resolved symbolic links under either Applications folder count
+as installed. Read-only DMGs and App Translocation are handled by copying the running bundle,
+without modifying or removing its source.
+
+The ZIP is reserved for Sparkle updates; use the DMG for manual installation. Versions shipped before the updater was added need this
 one-time replacement. After that, the app uses the feed above. Updating preserves profiles and
 credentials stored outside the app bundle. macOS can request authorization if the installation
 location is not writable by the current user.
@@ -66,6 +80,10 @@ separate distribution prerequisite for a frictionless public download and is not
   unchanged saved profiles. Test both Apple Silicon and Intel before claiming both supported.
 - Confirm a current build reports no update, a network failure leaves it usable, and a tampered
   archive is rejected. Verify automatic-check preferences survive restart.
+- Test direct launch from Downloads and a read-only DMG, including a quarantined download
+  under App Translocation. Exercise both destinations, refusal, an existing stopped/running
+  target, missing write permission, and launch failure. Confirm only the installed copy runs
+  after success, and that its next launch does not prompt. Keep the source until verified.
 - Test app replacement with an actual downloaded bundle in Applications. An isolated test launch
   deliberately cannot update, and a successful compilation alone does not prove replacement.
 
@@ -84,6 +102,16 @@ The implementation follows Sparkle's [setup](https://sparkle-project.org/documen
 A production key has since been created in the maintainer's macOS Keychain under account
 `shepherd-mac`; repository variable `SPARKLE_PUBLIC_KEY` and Actions secret `SPARKLE_PRIVATE_KEY`
 are configured. The public key matches the local signing key; the temporary private-key export
-was deleted after upload. No release has been published and
-replacement of an installed app through the public feed has not yet been exercised. The
-two-release test above remains the release acceptance check after merging and publishing the updater.
+was deleted after upload. That verification did not exercise replacement of an installed app
+through the public feed. The two-release test above remains the release acceptance check.
+
+## Installer verification
+
+Run `native/scripts/test-app.sh -only-testing:ShepherdTests/AppInstallationTests
+-only-testing:ShepherdTests/AppUpdaterTests` for path recognition, signed copying, collision
+protection, failed-copy cleanup and updater eligibility. Run
+`native/scripts/test-package-dmg.sh /path/to/Shepherd.app` to create and mount a disposable
+read-only DMG and verify its shortcut, EN/DE instructions and copied code signature.
+
+These automated checks do not replace the Finder launch and App Translocation checks above,
+or the two-release Sparkle update test. Test those on a clean Mac with the downloaded release.

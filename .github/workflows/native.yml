@@ -165,6 +165,11 @@ jobs:
             native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app \
             native/Apps/ShepherdMac/.build/SourcePackages/artifacts/sparkle/Sparkle/bin
 
+      - name: Test DMG installation from read-only image and Downloads
+        run: |
+          native/scripts/test-package-dmg.sh \
+            native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app
+
       - name: Verify the bundle is ad-hoc signed with the hardened runtime
         run: |
           APP=native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app

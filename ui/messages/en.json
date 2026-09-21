@@ -4498,5 +4498,15 @@
   "native_terminal_recovery_failed": "Could not reopen this session: {error}",
   "native_settings_diagnostics_failed_title": "Diagnostics unavailable",
   "native_settings_diagnostics_failed_body": "The diagnostic checks could not be loaded. Recheck to try again. {error}",
-  "native_settings_diagnostics_loading": "Loading diagnostics…"
+  "native_settings_diagnostics_loading": "Loading diagnostics…",
+  "native_install_title": "Move Shepherd to Applications?",
+  "native_install_body": "Install Shepherd in Applications for reliable access and updates. Choose all users or only your account. The original copy will be kept.",
+  "native_install_all_users": "Install for all users",
+  "native_install_current_user": "Install for me only",
+  "native_install_later": "Not now",
+  "native_install_existing_title": "Shepherd is already installed",
+  "native_install_existing_body": "The existing app will not be replaced. You can open it (or switch to it if it is already running) and use its app update feature.",
+  "native_install_open_existing": "Open installed Shepherd",
+  "native_install_failed_title": "Installation could not be completed",
+  "native_install_failed_body": "Your original app is still available. Check free disk space and write access to the destination. Try installing for your account, or quit Shepherd and copy it with Finder. If a copy already exists, open it in Finder; do not delete your working copy until the installed app opens successfully."
 }

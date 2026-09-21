@@ -8817,6 +8817,176 @@
         }
       }
     },
+    "native_install_all_users": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für alle Benutzer installieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install for all users"
+          }
+        }
+      }
+    },
+    "native_install_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installiere Shepherd unter Programme für dauerhaften Zugriff und Updates. Wähle alle Benutzer oder nur dein Konto. Die ursprüngliche Kopie bleibt erhalten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install Shepherd in Applications for reliable access and updates. Choose all users or only your account. The original copy will be kept."
+          }
+        }
+      }
+    },
+    "native_install_current_user": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur für mich installieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install for me only"
+          }
+        }
+      }
+    },
+    "native_install_existing_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die vorhandene App wird nicht ersetzt. Du kannst sie öffnen (oder zu ihr wechseln, falls sie bereits läuft) und ihre Updatefunktion verwenden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The existing app will not be replaced. You can open it (or switch to it if it is already running) and use its app update feature."
+          }
+        }
+      }
+    },
+    "native_install_existing_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd ist bereits installiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd is already installed"
+          }
+        }
+      }
+    },
+    "native_install_failed_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deine ursprüngliche App ist weiterhin verfügbar. Prüfe freien Speicher und Schreibrechte am Ziel. Versuche die Installation nur für dein Konto oder beende Shepherd und kopiere es im Finder. Falls schon eine Kopie vorhanden ist, öffne sie im Finder. Lösche deine funktionierende Kopie erst, wenn die installierte App erfolgreich startet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your original app is still available. Check free disk space and write access to the destination. Try installing for your account, or quit Shepherd and copy it with Finder. If a copy already exists, open it in Finder; do not delete your working copy until the installed app opens successfully."
+          }
+        }
+      }
+    },
+    "native_install_failed_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installation konnte nicht abgeschlossen werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installation could not be completed"
+          }
+        }
+      }
+    },
+    "native_install_later": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht jetzt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not now"
+          }
+        }
+      }
+    },
+    "native_install_open_existing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installiertes Shepherd öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open installed Shepherd"
+          }
+        }
+      }
+    },
+    "native_install_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd nach Programme verschieben?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move Shepherd to Applications?"
+          }
+        }
+      }
+    },
     "native_interrupt_failed": {
       "comment": "%1$@ = reason",
       "extractionState": "manual",

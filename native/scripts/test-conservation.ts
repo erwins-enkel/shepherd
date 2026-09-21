@@ -1,0 +1,411 @@
+/** Source identity accounting; never evaluates Swift conditional compilation. */
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, relative } from "node:path";
+import { execFileSync } from "node:child_process";
+
+export type TestIdentity = {
+  target: string;
+  path: string;
+  suite: string;
+  signature: string;
+  line: number;
+  attributes: string;
+  condition: string;
+  bodyHash: string;
+  /** Immutable assertion fingerprints enable fail-closed one-to-many splits. */
+  assertionHashes?: string[];
+};
+export type IdentityMap = {
+  oldID: string;
+  destinations: string[];
+  reason: string;
+  assertionChanges: string[];
+};
+export function identity(test: TestIdentity): string {
+  return JSON.stringify([test.target, test.path, test.suite, test.signature]);
+}
+const hash = (text: string) => createHash("sha256").update(text).digest("hex");
+type Token = { text: string; start: number; end: number; condition: string };
+
+/** Strings (including interpolation), nested comments and delimiters are lexical,
+ * not declaration regexes. Unsupported/malformed input fails rather than undercounts. */
+function lex(source: string): Token[] {
+  const tokens: Token[] = [];
+  const branches: string[][] = [];
+  let i = 0;
+  function comment(): boolean {
+    if (source.startsWith("//", i)) {
+      while (i < source.length && source[i] !== "\n") i++;
+      return true;
+    }
+    if (!source.startsWith("/*", i)) return false;
+    i += 2;
+    let depth = 1;
+    while (i < source.length && depth) {
+      if (source.startsWith("/*", i)) {
+        depth++;
+        i += 2;
+      } else if (source.startsWith("*/", i)) {
+        depth--;
+        i += 2;
+      } else i++;
+    }
+    if (depth) throw new Error("unterminated comment");
+    return true;
+  }
+  function string(): boolean {
+    const opening = /^(#*)("""|")/.exec(source.slice(i));
+    if (!opening) return false;
+    const hashes = opening[1]!,
+      quote = opening[2]!;
+    i += opening[0].length;
+    while (i < source.length) {
+      if (source.startsWith(quote + hashes, i)) {
+        i += quote.length + hashes.length;
+        return true;
+      }
+      if (source.startsWith("\\" + hashes, i)) {
+        i += 1 + hashes.length;
+        if (source[i] === "(") {
+          i++;
+          let depth = 1;
+          while (i < source.length && depth) {
+            if (comment() || string()) continue;
+            if (source[i] === "(") depth++;
+            if (source[i] === ")") depth--;
+            i++;
+          }
+          if (depth) throw new Error("unterminated interpolation");
+        } else i++;
+      } else i++;
+    }
+    throw new Error("unterminated string");
+  }
+  while (i < source.length) {
+    if (/\s/.test(source[i]!)) {
+      i++;
+      continue;
+    }
+    if (comment()) continue;
+    const start = i;
+    const directive = /^#(if|elseif|else|endif)\b[^\n]*/.exec(source.slice(i));
+    if (directive) {
+      const kind = directive[1];
+      const text = directive[0].replace(/\/\/.*$/, "").trim();
+      if (kind === "if") branches.push([text]);
+      else {
+        const branch = branches.at(-1);
+        if (!branch) throw new Error("unmatched conditional directive");
+        if (kind === "endif") branches.pop();
+        else {
+          if (branch.includes("#else")) throw new Error("branch after #else");
+          branch.push(text);
+        }
+      }
+      i += directive[0].length;
+      continue;
+    }
+    if (!string()) {
+      const word = /^(?:`[^`\n]+`|[A-Za-z_$][\w$]*)/.exec(source.slice(i));
+      i += word ? word[0].length : 1;
+    }
+    tokens.push({
+      text: source.slice(start, i),
+      start,
+      end: i,
+      condition: branches.map((b) => b.join(" → ")).join(" / "),
+    });
+  }
+  if (branches.length) throw new Error("unterminated conditional compilation");
+  return tokens;
+}
+function scan(source: string, target: string, path: string): TestIdentity[] {
+  const tokens = lex(source);
+  const at = (index: number): Token => {
+    const token = tokens[index];
+    if (!token) throw new Error(`incomplete declaration in ${path}`);
+    return token;
+  };
+  const pairs = new Map<number, number>();
+  const stack: number[] = [];
+  const closes: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
+  tokens.forEach((t, n) => {
+    if (["(", "[", "{"].includes(t.text)) stack.push(n);
+    else if (closes[t.text]) {
+      const open = stack.pop();
+      if (open === undefined || at(open).text !== closes[t.text])
+        throw new Error(`unmatched delimiter in ${path}`);
+      pairs.set(open, n);
+    }
+  });
+  if (stack.length) throw new Error(`unmatched delimiter in ${path}`);
+  const canonical = (start: number, end: number) =>
+    tokens
+      .slice(start, end)
+      .map((t) => t.text)
+      .join(" ");
+  const textRange = (start: number, end: number) =>
+    source.slice(at(start).start, at(end - 1).end).trim();
+  // Normalize source layout without changing whitespace inside literal tokens.
+  const signatureRange = (start: number, end: number) => {
+    let signature = at(start).text;
+    for (let n = start + 1; n < end; n++) {
+      signature += source.slice(at(n - 1).end, at(n).start).replace(/\s+/g, " ") + at(n).text;
+    }
+    return signature;
+  };
+  const result: TestIdentity[] = [];
+  function declarations(
+    start: number,
+    end: number,
+    suite: string,
+    xctest: boolean,
+    inherited: string[],
+  ) {
+    let attrs: string[] = [];
+    let hasTest = false;
+    for (let n = start; n < end; n++) {
+      const t = at(n);
+      if (t.text === "@") {
+        const first = n;
+        if (!tokens[n + 1]) throw new Error("incomplete attribute");
+        const name = at(++n).text;
+        if (tokens[n + 1]?.text === "(") {
+          n = pairs.get(n + 1)!;
+        }
+        attrs.push(textRange(first, n + 1));
+        if (name === "Test") {
+          if (hasTest) throw new Error("multiple @Test attributes");
+          hasTest = true;
+        }
+        continue;
+      }
+      if (["struct", "class", "enum", "extension", "actor"].includes(t.text)) {
+        if (hasTest) throw new Error("@Test is not attached to a function");
+        let brace = n + 1;
+        while (brace < end && at(brace).text !== "{") brace++;
+        if (brace === end) throw new Error("missing suite body");
+        let nameEnd = n + 2;
+        while (tokens[nameEnd]?.text === ".") nameEnd += 2;
+        const name = tokens
+          .slice(n + 1, nameEnd)
+          .map((t) => t.text)
+          .join("");
+        const qualified = suite ? `${suite}.${name}` : name;
+        const isXCTest = tokens.slice(nameEnd, brace).some((t) => t.text === "XCTestCase");
+        declarations(brace + 1, pairs.get(brace)!, qualified, isXCTest, [...inherited, ...attrs]);
+        n = pairs.get(brace)!;
+        attrs = [];
+        continue;
+      }
+      if (t.text === "func") {
+        let brace = n + 1;
+        while (brace < end && at(brace).text !== "{") {
+          if (at(brace).text === "(" || at(brace).text === "[") brace = pairs.get(brace)!;
+          brace++;
+        }
+        if (brace === end) throw new Error("function without body");
+        const close = pairs.get(brace)!;
+        if (hasTest || (xctest && at(n + 1).text.startsWith("test"))) {
+          const assertionHashes: string[] = [];
+          for (let k = brace + 1; k < close; k++) {
+            const macro =
+              at(k).text === "#" && ["expect", "require"].includes(tokens[k + 1]?.text ?? "");
+            const xc = /^XCT(?:Assert\w*|Fail|Unwrap)$/.test(at(k).text);
+            const issue =
+              at(k).text === "Issue" &&
+              tokens[k + 1]?.text === "." &&
+              tokens[k + 2]?.text === "record";
+            const builtin = [
+              "assert",
+              "assertionFailure",
+              "precondition",
+              "preconditionFailure",
+            ].includes(at(k).text);
+            const arg = k + (macro ? 2 : issue ? 3 : 1);
+            if ((macro || xc || issue || builtin) && tokens[arg]?.text === "(") {
+              let last = pairs.get(arg)!;
+              // Include trailing assertion closures (e.g. #expect(throws:) {}).
+              if (tokens[last + 1]?.text === "{") last = pairs.get(last + 1)!;
+              assertionHashes.push(hash(canonical(k, last + 1)));
+            }
+          }
+          result.push({
+            target,
+            path,
+            suite,
+            signature: signatureRange(n + 1, brace),
+            line: source.slice(0, t.start).split("\n").length,
+            attributes: [...inherited, ...attrs].join("\n"),
+            condition: t.condition,
+            bodyHash: hash(source.slice(at(brace).start, at(close).end)),
+            assertionHashes,
+          });
+        }
+        hasTest = false;
+        attrs = [];
+        n = close;
+        continue;
+      }
+      if (["let", "var", "init", "deinit", "subscript", "typealias"].includes(t.text)) {
+        if (hasTest) throw new Error("@Test is not attached to a function");
+        attrs = [];
+      }
+      if (["{", "(", "["].includes(t.text)) n = pairs.get(n)!;
+    }
+    if (hasTest) throw new Error("orphan @Test");
+  }
+  declarations(0, tokens.length, "", false, []);
+  return result;
+}
+const roots = [
+  ["ShepherdTests", "native/Apps/ShepherdMac/Tests"],
+  ["ShepherdUITests", "native/Apps/ShepherdMac/UITests"],
+  ["ShepherdKitTests", "native/Tests/ShepherdKitTests"],
+  ["ShepherdAppCoreTests", "native/Tests/ShepherdAppCoreTests"],
+] as const;
+function files(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true })
+    .flatMap((e) =>
+      e.isDirectory()
+        ? files(join(dir, e.name))
+        : e.name.endsWith(".swift")
+          ? [join(dir, e.name)]
+          : [],
+    )
+    .sort();
+}
+export function collectTests(root: string): TestIdentity[] {
+  const tests = roots.flatMap(([target, dir]) =>
+    files(join(root, dir)).flatMap((file) =>
+      scan(readFileSync(file, "utf8"), target, relative(root, file)),
+    ),
+  );
+  tests.sort((a, b) => identity(a).localeCompare(identity(b), "en"));
+  if (new Set(tests.map(identity)).size !== tests.length)
+    throw new Error("duplicate current identity");
+  return tests;
+}
+export function verifyConservation(
+  baseline: TestIdentity[],
+  current: TestIdentity[],
+  mapping: IdentityMap[],
+  added: string[],
+): void {
+  const originalIDs = new Set(baseline.map(identity));
+  if (originalIDs.size !== baseline.length) throw new Error("duplicate baseline identity");
+  const rows = new Map(mapping.map((row) => [row.oldID, row]));
+  if (rows.size !== mapping.length || rows.size !== originalIDs.size)
+    throw new Error("mapping must contain every original exactly once");
+  const now = new Map(current.map((t) => [identity(t), t]));
+  if (now.size !== current.length) throw new Error("duplicate current identity");
+  const used = new Set<string>();
+  for (const old of baseline) {
+    const oldID = identity(old),
+      row = rows.get(oldID);
+    if (!row || !row.destinations.length || !row.reason.trim())
+      throw new Error("missing original " + oldID);
+    if (
+      ["ShepherdKitTests", "ShepherdUITests"].includes(old.target) &&
+      (row.destinations.length !== 1 || row.destinations[0] !== oldID)
+    )
+      throw new Error("Kit/UI identities must be retained");
+    const destinations = row.destinations.map((id) => {
+      if (used.has(id)) throw new Error("duplicate destination " + id);
+      used.add(id);
+      const dest = now.get(id);
+      if (!dest) throw new Error("missing destination " + id);
+      if (dest.attributes !== old.attributes || dest.condition !== old.condition)
+        throw new Error("changed attributes/conditions " + id);
+      return dest;
+    });
+    if (destinations.some((d) => d.bodyHash !== old.bodyHash)) {
+      if (
+        !row.assertionChanges.length ||
+        row.assertionChanges.some(
+          (s) => !/^(import|fixture|resource|current-module):\s*\S.+/.test(s),
+        )
+      )
+        throw new Error("body changes require reviewed extraction explanations " + oldID);
+    }
+    if (destinations.length > 1) {
+      if (!old.assertionHashes?.length || destinations.some((d) => !d.assertionHashes))
+        throw new Error("split requires original assertion evidence " + oldID);
+      const available = destinations.flatMap((d) => d.assertionHashes!);
+      for (const assertion of old.assertionHashes) {
+        const index = available.indexOf(assertion);
+        if (index < 0) throw new Error("split lost original assertion " + oldID);
+        available.splice(index, 1);
+      }
+    }
+  }
+  for (const id of added) {
+    if (used.has(id) || originalIDs.has(id) || !now.has(id))
+      throw new Error("invalid/duplicate addition " + id);
+    used.add(id);
+  }
+  for (const id of now.keys()) if (!used.has(id)) throw new Error("unaccounted addition " + id);
+}
+if (import.meta.main) {
+  const root = process.cwd();
+  const baselinePath = join(root, "native/Tests/Conservation/issue-2431-baseline.json");
+  const mapPath = join(dirname(baselinePath), "issue-2431-map.json");
+  const mode = process.argv.slice(2);
+  if (mode.length !== 1 || !["--capture", "--check"].includes(mode[0] ?? ""))
+    throw new Error("usage: test-conservation.ts --capture|--check");
+  const current = collectTests(root);
+  if (!current.length) throw new Error("no test declarations found");
+  if (mode[0] === "--capture") {
+    if (existsSync(baselinePath) || existsSync(mapPath))
+      throw new Error("baseline/map already exist; immutable capture refused");
+    const sourceSHA = execFileSync("git", ["rev-parse", "HEAD"], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim();
+    const dirty = execFileSync(
+      "git",
+      ["status", "--porcelain", "--", ...roots.map(([, dir]) => dir)],
+      { cwd: root, encoding: "utf8" },
+    );
+    if (dirty.trim()) throw new Error("test sources must be clean for capture");
+    mkdirSync(dirname(baselinePath), { recursive: true });
+    writeFileSync(baselinePath, JSON.stringify({ sourceSHA, tests: current }, null, 2) + "\n", {
+      flag: "wx",
+    });
+    writeFileSync(
+      mapPath,
+      JSON.stringify(
+        {
+          mappings: current.map((t) => ({
+            oldID: identity(t),
+            destinations: [identity(t)],
+            reason: "retained",
+            assertionChanges: [],
+          })),
+          added: [],
+        },
+        null,
+        2,
+      ) + "\n",
+      { flag: "wx" },
+    );
+  }
+  const baseline = JSON.parse(readFileSync(baselinePath, "utf8")) as {
+    sourceSHA: string;
+    tests: TestIdentity[];
+  };
+  const map = JSON.parse(readFileSync(mapPath, "utf8")) as {
+    mappings: IdentityMap[];
+    added: string[];
+  };
+  verifyConservation(baseline.tests, current, map.mappings, map.added);
+  console.log(
+    `sourceSHA=${baseline.sourceSHA}; conserved original identities=${baseline.tests.length}; raw declarations=${current.length}; additional split declarations=${map.mappings.reduce((n, row) => n + row.destinations.length - 1, 0)}; explicit additions=${map.added.length}`,
+  );
+  for (const [target, dir] of roots)
+    console.log(
+      `${target}: files=${files(join(root, dir)).length}; declarations=${current.filter((t) => t.target === target).length}; conserved originals=${baseline.tests.filter((t) => t.target === target).length}`,
+    );
+}

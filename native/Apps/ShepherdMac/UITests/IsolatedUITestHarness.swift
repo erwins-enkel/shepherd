@@ -79,8 +79,8 @@ final class IsolatedUITestHarness {
             return
         }
         appMenu.click()
-        let command = app.menuItems.matching(NSPredicate(
-            format: "identifier == %@ OR label == %@", "isolated-cleanup-command", "Verify isolated cleanup")).firstMatch
+        // macOS exposes this NSMenuItem by title, without the SwiftUI identifier/label.
+        let command = app.menuItems["Verify isolated cleanup"]
         guard command.waitForExistence(timeout: 3), command.isEnabled else {
             app.typeKey(.escape, modifierFlags: []) // Only dismiss the menu opened just above.
             XCTFail("Isolated cleanup command unavailable [phase=command]")

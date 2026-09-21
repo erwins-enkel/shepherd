@@ -374,12 +374,12 @@ final class LiveSmokeUITests: XCTestCase {
                 button.click()
                 clicks += 1
                 // A missed AX click can report success before AppKit has selected its tab.
-                // Require the target tab and its expected body to be hittable foreground
-                // elements, then retry that same tab once inside the original deadline.
+                // Require the target's native selected value and expected body, then retry
+                // that same tab once inside the original deadline.
                 nextClick = Date().addingTimeInterval(2)
             }
             if index < buttons.count, buttons[index].exists, buttons[index].isHittable,
-               expectedBody.isHittable {
+               nativeTabValueClass(buttons[index].value) == "1", expectedBody.exists {
                 return true
             }
             Thread.sleep(forTimeInterval: 0.25)
@@ -389,19 +389,34 @@ final class LiveSmokeUITests: XCTestCase {
         let buttonType = hasButton ? String(describing: buttons[index].elementType) : "none"
         let buttonHittable = hasButton && buttons[index].isHittable
         let buttonSelected = hasButton && buttons[index].isSelected
+        let buttonValue = hasButton ? buttons[index].value : nil
+        let buttonValueType = buttonValue.map { String(describing: type(of: $0)) } ?? "nil"
+        let buttonValueClass = nativeTabValueClass(buttonValue)
         let bodyExists = expectedBody.exists
         let bodyHittable = expectedBody.isHittable
         print(
             "detail tab selection timeout "
                 + "[index=\(index) count=\(buttons.count) type=\(buttonType) "
                 + "hittable=\(buttonHittable) selected=\(buttonSelected) "
+                + "valueType=\(buttonValueType) valueClass=\(buttonValueClass) "
                 + "bodyExists=\(bodyExists) bodyHittable=\(bodyHittable)]")
-        // SwiftUI's AppKit tab bridge reports `isSelected == false` for the clicked terminal
-        // tab even when both it and `detail-tab-terminal` are hittable. Body existence alone
-        // is insufficient because TabView retains visited children; paired hittability proves
-        // this indexed control and its body are both in the foreground.
+        // AppKit exposes selected native tabs as AX value 1. XCTest may bridge that value as a
+        // number or string, so accept only those exact representations. `isSelected` reports
+        // false for these SwiftUI bridge tabs, and some bodies have multiple matching elements.
         return index < buttons.count && buttons[index].exists && buttons[index].isHittable
-            && expectedBody.isHittable
+            && nativeTabValueClass(buttons[index].value) == "1" && expectedBody.exists
+    }
+
+    /// Returns only the observed native tab-state representations; never parses arbitrary text.
+    private func nativeTabValueClass(_ value: Any?) -> String {
+        if let value = value as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID(),
+           value.doubleValue.rounded() == value.doubleValue
+        {
+            if value.doubleValue == 0 { return "0" }
+            if value.doubleValue == 1 { return "1" }
+        }
+        if let value = value as? String, value == "0" || value == "1" { return value }
+        return "other"
     }
 
     /// Waits for one detail tab's body to leave `detail-state-loading`.

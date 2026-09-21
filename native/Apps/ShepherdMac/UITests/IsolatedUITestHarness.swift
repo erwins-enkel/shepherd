@@ -33,12 +33,16 @@ final class IsolatedUITestHarness {
         app.launchEnvironment["SHEPHERD_CLEANUP_STATUS_PATH"] = ""
         app.launchEnvironment["TEST_RUNNER_SHEPHERD_CLEANUP_STATUS_PATH"] = ""
         if liveEnvironment["SHEPHERD_LIVE_PASSWORD"] != nil {
+            var cleanupDirectoryPhase = "root-resources"
             do {
-                let directory = try makeCleanupDirectory()
+                let directory = try makeCleanupDirectory(phase: &cleanupDirectoryPhase)
                 cleanupDirectory = directory
                 app.launchEnvironment["SHEPHERD_CLEANUP_STATUS_PATH"] = directory.appendingPathComponent("status.json").path
             } catch {
-                XCTFail("Could not create private cleanup evidence directory")
+                let failure = error as NSError
+                XCTFail(
+                    "Could not create private cleanup evidence directory "
+                        + "[phase=\(cleanupDirectoryPhase) error=\(failure.domain):\(failure.code)]")
                 return
             }
         }
@@ -52,9 +56,10 @@ final class IsolatedUITestHarness {
     /// The test runner's temporary directory can be protected by user-data TCC policy when this
     /// path is inherited by the separately launched app. Use the system's explicit shared temp
     /// root, with a per-launch private directory, instead.
-    private func makeCleanupDirectory() throws -> URL {
+    private func makeCleanupDirectory(phase: inout String) throws -> URL {
         let fileManager = FileManager.default
         let root = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
+        phase = "root-resources"
         let rootValues = try root.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
         // `standardizedFileURL` canonicalizes this system temp root to `/tmp` on macOS even
         // though it is not a symbolic link, so validate the resource type without comparing
@@ -66,10 +71,12 @@ final class IsolatedUITestHarness {
         }
 
         let directory = root.appendingPathComponent("shepherd-ui-cleanup-\(UUID())", isDirectory: true)
+        phase = "mkdir"
         try fileManager.createDirectory(
             at: directory,
             withIntermediateDirectories: false,
             attributes: [.posixPermissions: 0o700])
+        phase = "child-resources"
         let directoryValues = try directory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
         guard directoryValues.isDirectory == true, directoryValues.isSymbolicLink != true else {
             try? fileManager.removeItem(at: directory)

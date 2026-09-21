@@ -4,6 +4,7 @@ import ShepherdKit
 
 @main
 struct ShepherdApp: App {
+    @NSApplicationDelegateAdaptor(IsolatedTerminationDelegate.self) private var terminationDelegate
     @State private var model: AppModel
     /// Non-nil only for an isolated launch — `-ShepherdIsolated 1` or
     /// `SHEPHERD_ISOLATED=1`. See `LaunchEnvironment`: it is what keeps an

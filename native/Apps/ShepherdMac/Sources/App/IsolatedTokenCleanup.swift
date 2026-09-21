@@ -52,3 +52,74 @@ enum IsolatedTokenCleanup {
         }
     }
 }
+
+/// Saves ownership inside ProfileSetup's mint/store operation, before its caller can hop actors.
+private struct IsolatedMintStore: CredentialStore {
+    let owned: InMemoryCredentialStore
+    let model: any CredentialStore
+    func load(for key: String) throws -> StoredCredential? { try model.load(for: key) }
+    func save(_ credential: StoredCredential, for key: String) throws {
+        try owned.save(credential, for: key)
+        try model.save(credential, for: key)
+    }
+    func delete(for key: String) throws { try model.delete(for: key) }
+}
+
+/// A single launch's mint and shutdown handoff, independent of the main actor.
+/// Shutdown closes admission before awaiting an in-flight mint. Each of the at most four
+/// sequential requests (login, mint, DELETE, probe) has a two-second resource deadline.
+actor IsolatedTokenLifecycle {
+    typealias SessionFactory = @Sendable (URLSessionConfiguration) -> URLSession
+    private let profile: ServerProfile
+    private let owned = InMemoryCredentialStore()
+    private let sessionFactory: SessionFactory
+    private var mint: Task<StoredCredential, any Error>?
+    private var cleanup: Task<IsolatedCleanupStatus, Never>?
+
+    init(profile: ServerProfile, sessionFactory: @escaping SessionFactory = { URLSession(configuration: $0) }) {
+        self.profile = profile
+        self.sessionFactory = sessionFactory
+    }
+
+    func login(password: String, credentials: any CredentialStore, tokenName: String) async throws {
+        guard cleanup == nil, mint == nil else { throw CancellationError() }
+        let store = IsolatedMintStore(owned: owned, model: credentials)
+        let profile = profile
+        let factory = sessionFactory
+        let task = Task {
+            try await ProfileSetup.login(profile: profile, password: password, credentials: store,
+                tokenName: tokenName, urlSessionFactory: { configuration in
+                    configuration.timeoutIntervalForRequest = 2
+                    configuration.timeoutIntervalForResource = 2
+                    return factory(configuration)
+                })
+        }
+        mint = task
+        _ = try await task.value
+        // A delayed caller must never activate the now-revoked credential after Quit.
+        guard cleanup == nil else { throw CancellationError() }
+    }
+
+    var isShuttingDown: Bool { cleanup != nil }
+
+    func shutdown() async -> IsolatedCleanupStatus {
+        if let cleanup { return await cleanup.value }
+        let pending = mint
+        let profile = profile
+        let owned = owned
+        let factory = sessionFactory
+        let task = Task {
+            // Do not cancel a mint that may already have reached the server: receive and
+            // record its response first, then revoke exactly that token.
+            _ = await pending?.result
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.timeoutIntervalForRequest = 2
+            configuration.timeoutIntervalForResource = 2
+            let session = factory(configuration)
+            defer { session.invalidateAndCancel() }
+            return await IsolatedTokenCleanup.revoke(profile: profile, credentials: owned, urlSession: session)
+        }
+        cleanup = task
+        return await task.value
+    }
+}

@@ -545,6 +545,150 @@ export function verifyUpstreamTransitions(
   return [...effective.values()];
 }
 
+export type FixtureTransition = {
+  oldID: string;
+  source: TestIdentity;
+  destination: TestIdentity;
+};
+export type FixtureProvenance = {
+  schemaVersion: 1;
+  sourceSHA: string;
+  reviewedSHA: string;
+  sourceBlobs: Record<string, string>;
+  reviewedBlobs: Record<string, string>;
+  transitions: FixtureTransition[];
+};
+const fixtureSignatures = [
+  "liveSignInAndRestore() async throws",
+  "theSessionListRendersAgainstTheLiveServer() async throws",
+];
+const fixturePath = "native/Apps/ShepherdMac/Tests/LiveServerTests.swift";
+
+/** Two exact fixture adaptations, anchored to Git at both ends. Descriptive map
+ * strings cannot authorize drift; every assertion and condition is retained except
+ * the one explicitly named token-source expression in the second test.
+ */
+export function verifyFixtureTransitions(
+  baseline: TestIdentity[],
+  sourceGit: TestIdentity[],
+  reviewedGit: TestIdentity[],
+  current: TestIdentity[],
+  mapping: IdentityMap[],
+  transitions: FixtureTransition[],
+): TestIdentity[] {
+  const effective = new Map(baseline.map((t) => [identity(t), t]));
+  const source = new Map(sourceGit.map((t) => [identity(t), t]));
+  const reviewed = new Map(reviewedGit.map((t) => [identity(t), t]));
+  const now = new Map(current.map((t) => [identity(t), t]));
+  const rows = new Map(mapping.map((t) => [t.oldID, t]));
+  if (transitions.length !== 2) throw new Error("exactly two fixture transitions required");
+  const seen = new Set<string>();
+  const assertion = (text: string, conditional: boolean) => {
+    const tokens = lex(text);
+    return hash(
+      conditional
+        ? JSON.stringify(tokens.map((t) => [t.text, t.condition]))
+        : tokens.map((t) => t.text).join(" "),
+    );
+  };
+  for (const transition of transitions) {
+    const { oldID, source: before, destination: after } = transition;
+    const original = effective.get(oldID);
+    const destID = identity(after);
+    if (
+      !original ||
+      original.path !== fixturePath ||
+      original.suite !== "LiveServerTests" ||
+      !fixtureSignatures.includes(original.signature) ||
+      seen.has(original.signature)
+    )
+      throw new Error("unlisted or duplicate fixture transition");
+    seen.add(original.signature);
+    if (
+      identity(before) !== destID ||
+      after.path !== fixturePath ||
+      after.suite !== "MacSeamTests.LiveServerTests" ||
+      after.target !== "ShepherdTests" ||
+      after.signature !== original.signature ||
+      JSON.stringify(rows.get(oldID)?.destinations) !== JSON.stringify([destID]) ||
+      rows.get(oldID)?.assertionChanges.length !== 0
+    )
+      throw new Error("fixture destination mapping changed");
+    if (!source.has(identity(before)) || !sameTest(source.get(identity(before))!, before))
+      throw new Error("fixture source does not match Git");
+    if (!reviewed.has(destID) || !sameTest(reviewed.get(destID)!, after))
+      throw new Error("fixture adaptation does not match reviewed Git");
+    if (!now.has(destID) || !sameTest(now.get(destID)!, after))
+      throw new Error("fixture destination drift");
+    if (
+      !preservedAttributes(original, before) ||
+      before.attributes !== after.attributes ||
+      original.condition !== before.condition ||
+      before.condition !== after.condition
+    )
+      throw new Error("fixture attributes/conditions changed");
+    for (const field of ["assertionHashes", "assertionConditionHashes"] as const) {
+      if (
+        !original[field]?.length ||
+        JSON.stringify(original[field]) !== JSON.stringify(before[field])
+      )
+        throw new Error("fixture source lost original assertions");
+      const expected = [...before[field]!];
+      if (original.signature === fixtureSignatures[1]) {
+        const conditional = field === "assertionConditionHashes";
+        const from = assertion("#require(LiveServerEnvironment.token)", conditional);
+        const to = assertion("#require(fixtureToken)", conditional);
+        const index = expected.indexOf(from);
+        if (index < 0 || expected.lastIndexOf(from) !== index)
+          throw new Error("fixture token substitution missing or duplicated");
+        expected[index] = to;
+      }
+      if (JSON.stringify(expected) !== JSON.stringify(after[field]))
+        throw new Error("fixture lost or substituted an original assertion");
+    }
+    effective.set(oldID, {
+      ...original,
+      bodyHash: after.bodyHash,
+      assertionHashes: after.assertionHashes,
+      assertionConditionHashes: after.assertionConditionHashes,
+    });
+  }
+  return [...effective.values()];
+}
+
+export function readFixtureProvenance(root: string): {
+  provenance: FixtureProvenance;
+  source: TestIdentity[];
+  reviewed: TestIdentity[];
+} {
+  const provenance = JSON.parse(
+    readFileSync(join(root, "native/Tests/Conservation/issue-2431-fixtures.json"), "utf8"),
+  ) as FixtureProvenance;
+  if (
+    provenance.schemaVersion !== 1 ||
+    provenance.sourceSHA !== "0acfc8726306e4befa48397a6d0dfaa3bb790764" ||
+    provenance.reviewedSHA !== "5f5cf8183bd4baebe0d3c2998213362b015b299d"
+  )
+    throw new Error("unexpected fixture provenance revision");
+  for (const [revision, blobs] of [
+    [provenance.sourceSHA, provenance.sourceBlobs],
+    [provenance.reviewedSHA, provenance.reviewedBlobs],
+  ] as const) {
+    if (JSON.stringify(Object.keys(blobs)) !== JSON.stringify([fixturePath]))
+      throw new Error("fixture source blob inventory mismatch");
+    const actual = execFileSync("git", ["rev-parse", `${revision}:${fixturePath}`], {
+      cwd: root,
+      encoding: "utf8",
+    }).trim();
+    if (actual !== blobs[fixturePath]) throw new Error("fixture source blob changed");
+  }
+  return {
+    provenance,
+    source: collectTestsAtRevision(root, provenance.sourceSHA),
+    reviewed: collectTestsAtRevision(root, provenance.reviewedSHA),
+  };
+}
+
 if (import.meta.main) {
   const root = process.cwd();
   const baselinePath = join(root, "native/Tests/Conservation/issue-2431-baseline.json");
@@ -643,6 +787,15 @@ if (import.meta.main) {
       map.upstreamAdded,
     );
   }
+  const fixtures = readFixtureProvenance(root);
+  expected = verifyFixtureTransitions(
+    expected,
+    fixtures.source,
+    fixtures.reviewed,
+    current,
+    map.mappings,
+    fixtures.provenance.transitions,
+  );
   verifyConservation(expected, current, map.mappings, [
     ...map.added,
     ...(map.upstreamAdded ?? []),

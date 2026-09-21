@@ -23,6 +23,7 @@ struct IsolatedCleanupTests {
     }
 
     @Test func requiresServer401DespiteLocalCredentialRemoval() async throws {
+        try await shutdownDuringMintAndBeforeMainActorContinuation()
         let session = session()
         defer { session.invalidateAndCancel() }
         for mode in ["verified", "declined", "offline"] {
@@ -36,6 +37,53 @@ struct IsolatedCleanupTests {
             #expect(status.verified == (mode == "verified" ? 1 : 0))
             if mode == "declined" { #expect(status.error == .stillAuthorized) }
             if mode == "offline" { #expect(status.error == .verificationFailed) }
+        }
+    }
+
+    /// Exercise both ownership windows without time-based races or any real transport.
+    private func shutdownDuringMintAndBeforeMainActorContinuation() async throws {
+        for delayedStore in [false, true] {
+            let host = delayedStore ? "stored-before-hop.invalid" : "inflight-mint.invalid"
+            let barrier = CleanupBarrier()
+            let profile = ServerProfile(name: "fixture", baseURL: URL(string: "https://\(host)")!,
+                mode: .remote, credentialKey: "fixture")
+            let lifecycle = IsolatedTokenLifecycle(profile: profile, sessionFactory: { configuration in
+                configuration.protocolClasses = [CleanupProtocol.self]
+                return URLSession(configuration: configuration)
+            })
+            let credentials = BarrierCredentialStore(barrier: delayedStore ? barrier : nil)
+            if !delayedStore { CleanupProtocol.holdMint(host: host, barrier: barrier) }
+            let resumed = Mutex(false)
+            let login = Task { @MainActor in
+                do {
+                    try await lifecycle.login(password: "fixture", credentials: credentials, tokenName: "fixture")
+                    resumed.withLock { $0 = true }
+                } catch is CancellationError { }
+                catch { Issue.record("Unexpected offline login failure") }
+            }
+            let reached = await Task.detached { barrier.waitUntilReached() }.value
+            #expect(reached)
+            #expect(!resumed.withLock { $0 }, "Main-actor login continuation must still be pending")
+            let first = Task { await lifecycle.shutdown() }
+            // The actor admission flag makes the ordering deterministic, not a sleep heuristic.
+            while !(await lifecycle.isShuttingDown) { await Task.yield() }
+            let second = Task { await lifecycle.shutdown() }
+            #expect(CleanupProtocol.counts(host: host)["DELETE /api/access-tokens/fixture-id"] == nil)
+            barrier.release.signal()
+            let status = await first.value
+            #expect(status.succeeded)
+            #expect(await second.value == status)
+            await login.value
+            #expect(!resumed.withLock { $0 }, "Quit must suppress activation after the delayed mint")
+            let counts = CleanupProtocol.counts(host: host)
+            #expect(counts["POST /api/access-tokens"] == 1)
+            #expect(counts["DELETE /api/access-tokens/fixture-id"] == 1)
+            #expect(counts["GET /api/repos"] == 1)
+            #expect(counts["GET /api/access-tokens"] == nil)
+            #expect(CleanupProtocol.routes(host: host).suffix(2) == [
+                "DELETE /api/access-tokens/fixture-id", "GET /api/repos"])
+            #expect(await lifecycle.shutdown() == status)
+            #expect(CleanupProtocol.counts(host: host) == counts, "Repeated shutdown must not repeat DELETE or probe")
         }
     }
 
@@ -115,9 +163,36 @@ struct IsolatedCleanupTests {
 }
 }
 
+private struct CleanupBarrier: Sendable {
+    let reached = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+    func waitUntilReached() -> Bool { reached.wait(timeout: .now() + 2) == .success }
+    func wait() {
+        reached.signal()
+        #expect(release.wait(timeout: .now() + 5) == .success, "Offline barrier was not released")
+    }
+}
+
+/// Ownership is recorded by IsolatedMintStore before this synchronous model-store save.
+/// Holding it delays the login return before any main-actor continuation can execute.
+private struct BarrierCredentialStore: CredentialStore {
+    let barrier: CleanupBarrier?
+    let memory = InMemoryCredentialStore()
+    func load(for key: String) throws -> StoredCredential? { try memory.load(for: key) }
+    func save(_ credential: StoredCredential, for key: String) throws {
+        try memory.save(credential, for: key)
+        barrier?.wait()
+    }
+    func delete(for key: String) throws { try memory.delete(for: key) }
+}
+
 /// Each host selects an offline response script; no shared mutable handlers or real transport.
 private final class CleanupProtocol: URLProtocol {
     private static let requests = Mutex<[String: [String: Int]]>([:])
+    private static let order = Mutex<[String: [String]]>([:])
+    private static let barriers = Mutex<[String: CleanupBarrier]>([:])
+    static func holdMint(host: String, barrier: CleanupBarrier) { barriers.withLock { $0[host] = barrier } }
+    static func routes(host: String) -> [String] { order.withLock { $0[host] ?? [] } }
     static func counts(host: String) -> [String: Int] { requests.withLock { $0[host] ?? [:] } }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -125,6 +200,11 @@ private final class CleanupProtocol: URLProtocol {
         let host = request.url!.host!
         let route = "\(request.httpMethod!) \(request.url!.path)"
         Self.requests.withLock { $0[host, default: [:]][route, default: 0] += 1 }
+        Self.order.withLock { $0[host, default: []].append(route) }
+        if route == "POST /api/access-tokens" {
+            let barrier = Self.barriers.withLock { $0.removeValue(forKey: host) }
+            barrier?.wait()
+        }
         if host == "offline.invalid" {
             client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
             return

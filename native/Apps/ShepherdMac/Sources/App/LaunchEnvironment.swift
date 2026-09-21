@@ -1,4 +1,4 @@
-import Synchronization
+import AppKit
 import ShepherdAppCore
 import Darwin
 import Foundation
@@ -146,14 +146,16 @@ enum LaunchEnvironment {
 /// `.onReceive` of `NSApplication.willTerminateNotification` in the `App`'s body
 /// cost the app its window entirely under XCUITest (the accessibility tree came
 /// up with a menu bar and nothing under it, and every welcome assertion timed
-/// out). Nothing here names `NSApplication`.
+/// out). Deferred termination is supplied by the app delegate adaptor.
 @MainActor
 final class IsolatedLaunch {
     private(set) static weak var current: IsolatedLaunch?
     private var seedTask: Task<Void, Never>?
     private var cleanupStatus: IsolatedCleanupStatus?
     // Retained independently of model sign-out/profile switching; contains only our own mint.
-    private let ownedCredentials = InMemoryCredentialStore()
+    private var tokenLifecycle: IsolatedTokenLifecycle?
+    private var shutdownTask: Task<IsolatedCleanupStatus?, Never>?
+    private var shuttingDown = false
     /// The name the seeded profile is listed under. Not operator-facing copy —
     /// no isolated launch outlives its test — so it is not in the catalogs.
     static let liveProfileName = "Live"
@@ -284,7 +286,7 @@ final class IsolatedLaunch {
     /// for a second call — `seedStarted` makes sure only one `Task` is ever
     /// spawned.
     func startLiveSeedIfNeeded() {
-        guard configuration.live != nil, !seedStarted else { return }
+        guard configuration.live != nil, !seedStarted, !shuttingDown else { return }
         seedStarted = true
         seedTask = Task { await self.seedLiveServer() }
     }
@@ -298,19 +300,19 @@ final class IsolatedLaunch {
     /// operator's own token name. Never sweeps existing tokens. `seededProfile` is
     /// recorded before sign-in, and the minted credential is retained before activation.
     private func seedLiveServer() async {
-        guard let live = configuration.live, let model else { return }
+        guard let live = configuration.live, let model, !shuttingDown else { return }
         let testTokenName = ProfileSetup.tokenName(prefix: Self.testTokenPrefix,
             hostName: "launch-\(UUID().uuidString)")
-        model.login = { profile, password, credentials in
-            let credential = try await ProfileSetup.login(
-                profile: profile, password: password, credentials: credentials,
-                tokenName: testTokenName)
-            try self.ownedCredentials.save(credential, for: profile.credentialKey)
-        }
         do {
             let profile = try model.addRemoteProfile(
                 name: Self.liveProfileName, address: live.baseURL)
             seededProfile = profile
+            let lifecycle = IsolatedTokenLifecycle(profile: profile)
+            tokenLifecycle = lifecycle
+            model.login = { _, password, credentials in
+                try await lifecycle.login(password: password, credentials: credentials, tokenName: testTokenName)
+                guard !self.shuttingDown else { throw CancellationError() }
+            }
             try await model.signIn(profile: profile, password: live.password)
             Log.connect.info("the isolated launch signed in to the live server")
         } catch {
@@ -318,50 +320,42 @@ final class IsolatedLaunch {
         }
     }
 
-    /// The hosted cleanup test awaits this before process exit, so cleanup failure is a test
-    /// failure while the process is still alive. The termination observer then becomes a no-op.
+    /// The hosted cleanup test and AppKit's deferred Quit share one asynchronous shutdown.
     func finishForTesting() async -> IsolatedCleanupStatus? {
-        guard configuration.isIsolated, configuration.revokesOnExit, configuration.live != nil else { return nil }
         startLiveSeedIfNeeded()
         await seedTask?.value
-        if let cleanupStatus { return cleanupStatus }
-        model?.deactivate()
-        let status: IsolatedCleanupStatus
-        if let profile = seededProfile {
-            status = await IsolatedTokenCleanup.revoke(profile: profile, credentials: ownedCredentials)
-        } else {
-            status = .init(owned: 0, verified: 0, error: .missingCredential)
-        }
-        completeCleanup(status)
-        return status
+        return await shutdown()
     }
 
-    /// UI Quit runs synchronously. Only detached, non-main-actor network work is waited on,
-    /// bounded to five seconds; timeout is evidence of failure, never inferred success.
-    private func tearDown() {
-        guard cleanupStatus == nil else { return }
+    var needsDeferredTermination: Bool {
+        configuration.isIsolated && configuration.revokesOnExit && configuration.live != nil
+            && cleanupStatus == nil
+    }
+
+    func shutdown() async -> IsolatedCleanupStatus? {
+        if let shutdownTask { return await shutdownTask.value }
+        shuttingDown = true
         model?.deactivate()
-        if configuration.isIsolated, configuration.revokesOnExit, configuration.live != nil {
-            let result = Mutex<IsolatedCleanupStatus>(.init(owned: 0, verified: 0, error: .timeout))
-            let finished = DispatchSemaphore(value: 0)
-            let profile = seededProfile
-            let credentials = ownedCredentials
-            let task = Task.detached {
-                let status: IsolatedCleanupStatus
-                if let profile {
-                    status = await IsolatedTokenCleanup.revoke(profile: profile, credentials: credentials)
-                } else {
-                    status = .init(owned: 0, verified: 0, error: .missingCredential)
-                }
-                result.withLock { $0 = status }
-                finished.signal()
+        let lifecycle = tokenLifecycle
+        let task = Task { @MainActor in
+            guard self.needsDeferredTermination else {
+                self.removeSuite()
+                return self.cleanupStatus
             }
-            let completed = finished.wait(timeout: .now() + 5) == .success
-            if !completed { task.cancel() }
-            completeCleanup(completed ? result.withLock { $0 } : .init(owned: 1, verified: 0, error: .timeout))
-        } else {
-            removeSuite()
+            let status = await lifecycle?.shutdown()
+                ?? IsolatedCleanupStatus(owned: 0, verified: 0, error: .missingCredential)
+            self.completeCleanup(status)
+            return status
         }
+        shutdownTask = task
+        return await task.value
+    }
+
+    /// willTerminate is too late to suspend. Live cleanup completes through terminateLater;
+    /// this observer only removes the private suite for ordinary isolated launches.
+    private func tearDown() {
+        model?.deactivate()
+        removeSuite()
     }
 
     private func completeCleanup(_ status: IsolatedCleanupStatus) {
@@ -430,5 +424,18 @@ final class IsolatedLaunch {
         let suffix = name.dropFirst(isolatedSuitePrefix.count)
         guard let dash = suffix.firstIndex(of: "-") else { return nil }
         return Int32(suffix[suffix.startIndex..<dash])
+    }
+}
+
+/// SwiftUI keeps its own delegate; the adaptor supplies only the isolated termination decision.
+@MainActor
+final class IsolatedTerminationDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let launch = IsolatedLaunch.current, launch.needsDeferredTermination else { return .terminateNow }
+        Task {
+            _ = await launch.shutdown()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
     }
 }

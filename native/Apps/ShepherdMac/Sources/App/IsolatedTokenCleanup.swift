@@ -10,6 +10,9 @@ struct IsolatedCleanupStatus: Codable, Equatable, Sendable {
     var verified: Int
     var error: Failure?
     var succeeded: Bool { owned == 1 && verified == 1 && error == nil }
+    var accessibilitySummary: String {
+        "finished owned=\(owned) verified=\(verified) error=\(error?.rawValue ?? "none")"
+    }
 
     func write(to path: String?) {
         guard let path, let data = try? JSONEncoder().encode(self) else { return }

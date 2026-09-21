@@ -159,6 +159,20 @@ struct IsolatedCleanupTests {
         let object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
         #expect(Set(object.keys) == ["owned", "verified", "error"])
         #expect(object["error"] as? String == "timeout")
+        #expect(status.accessibilitySummary == "finished owned=1 verified=0 error=timeout")
+        #expect(IsolatedCleanupStatus(owned: 1, verified: 1, error: nil).accessibilitySummary
+            == "finished owned=1 verified=1 error=none")
+        #expect(IsolatedCleanupStatus(owned: 0, verified: 0, error: .missingCredential).accessibilitySummary
+            == "finished owned=0 verified=0 error=missingCredential")
+        let uiEnvironment = ["SHEPHERD_ISOLATED": "1", "SHEPHERD_REVOKE_ON_EXIT": "1",
+            "SHEPHERD_LIVE_BASE_URL": "https://fixture.invalid", "SHEPHERD_LIVE_PASSWORD": "fixture",
+            "SHEPHERD_UI_CLEANUP_HANDSHAKE": "1"]
+        #expect(LaunchEnvironment.configuration(arguments: [], environment: uiEnvironment).exposesCleanupHandshake)
+        for required in uiEnvironment.keys {
+            var missing = uiEnvironment
+            missing.removeValue(forKey: required)
+            #expect(!LaunchEnvironment.configuration(arguments: [], environment: missing).exposesCleanupHandshake)
+        }
     }
 }
 }

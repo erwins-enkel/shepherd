@@ -5,7 +5,7 @@ import XCTest
 @MainActor
 final class IsolatedUITestHarness {
     private var running: XCUIApplication?
-    private var cleanupDirectory: URL?
+    private var expectsCleanup = false
 
     var isRunning: Bool { running.map { $0.state != .notRunning } ?? false }
 
@@ -32,20 +32,10 @@ final class IsolatedUITestHarness {
         app.launchEnvironment["SHEPHERD_ISOLATED"] = "1"
         app.launchEnvironment["SHEPHERD_CLEANUP_STATUS_PATH"] = ""
         app.launchEnvironment["TEST_RUNNER_SHEPHERD_CLEANUP_STATUS_PATH"] = ""
-        if liveEnvironment["SHEPHERD_LIVE_PASSWORD"] != nil {
-            var cleanupDirectoryPhase = "root-resources"
-            do {
-                let directory = try makeCleanupDirectory(phase: &cleanupDirectoryPhase)
-                cleanupDirectory = directory
-                app.launchEnvironment["SHEPHERD_CLEANUP_STATUS_PATH"] = directory.appendingPathComponent("status.json").path
-            } catch {
-                let failure = error as NSError
-                XCTFail(
-                    "Could not create private cleanup evidence directory "
-                        + "[phase=\(cleanupDirectoryPhase) error=\(failure.domain):\(failure.code)]")
-                return
-            }
-        }
+        expectsCleanup = liveEnvironment["SHEPHERD_LIVE_BASE_URL"] != nil
+            && liveEnvironment["SHEPHERD_LIVE_PASSWORD"] != nil
+        app.launchEnvironment["SHEPHERD_UI_CLEANUP_HANDSHAKE"] = expectsCleanup ? "1" : "0"
+        app.launchEnvironment["TEST_RUNNER_SHEPHERD_UI_CLEANUP_HANDSHAKE"] = "0"
         let isolation = app.launchArguments.firstIndex(of: "-ShepherdIsolated")
         precondition(isolation.map { app.launchArguments[$0 + 1] == "1" } == true,
             "every UI launch must pass isolation arguments")
@@ -53,61 +43,48 @@ final class IsolatedUITestHarness {
         app.launch()
     }
 
-    /// The test runner's temporary directory can be protected by user-data TCC policy when this
-    /// path is inherited by the separately launched app. Use the system's explicit shared temp
-    /// root, with a per-launch private directory, instead.
-    private func makeCleanupDirectory(phase: inout String) throws -> URL {
-        let fileManager = FileManager.default
-        let root = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
-        phase = "root-resources"
-        let rootValues = try root.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-        // `standardizedFileURL` canonicalizes this system temp root to `/tmp` on macOS even
-        // though it is not a symbolic link, so validate the resource type without comparing
-        // its canonical spelling.
-        guard rootValues.isDirectory == true,
-              rootValues.isSymbolicLink != true
-        else {
-            throw CocoaError(.fileNoSuchFile)
-        }
-
-        let directory = root.appendingPathComponent("shepherd-ui-cleanup-\(UUID())", isDirectory: true)
-        phase = "mkdir"
-        try fileManager.createDirectory(
-            at: directory,
-            withIntermediateDirectories: false,
-            attributes: [.posixPermissions: 0o700])
-        phase = "child-resources"
-        let directoryValues = try directory.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-        guard directoryValues.isDirectory == true, directoryValues.isSymbolicLink != true else {
-            try? fileManager.removeItem(at: directory)
-            throw CocoaError(.fileNoSuchFile)
-        }
-        return directory
-    }
-
     func shutdown() {
         guard let app = running else { return }
-        running = nil
-        // From this point onward only process-state APIs may be used after the Quit keystroke.
-        // No element queries, screenshots, new application handles, or activation here.
+        // LiveSmokeUITests has already checked the request audit. The original handle
+        // remains usable for cleanup proof, then is relinquished before Quit on every path.
         defer {
-            if let cleanupDirectory { try? FileManager.default.removeItem(at: cleanupDirectory) }
-            cleanupDirectory = nil
+            running = nil
+            expectsCleanup = false
+            // After sending Quit, only process-state APIs are permitted. Never query AX,
+            // capture screenshots, attach another handle, or activate a stopped process.
+            if app.state != .notRunning {
+                app.typeKey("q", modifierFlags: .command)
+                let quit = app.wait(for: .notRunning, timeout: 10)
+                if !quit { app.terminate() }
+                XCTAssertTrue(quit, "Isolated app must finish bounded graceful Quit")
+            }
         }
-        if app.state != .notRunning {
-            app.typeKey("q", modifierFlags: .command)
-            let quit = app.wait(for: .notRunning, timeout: 10)
-            if !quit { app.terminate() }
-            XCTAssertTrue(quit, "Isolated app must finish bounded graceful Quit")
+        if expectsCleanup {
+            guard app.state != .notRunning else {
+                XCTFail("Isolated app exited before its owned-token cleanup could be verified")
+                return
+            }
+            verifyCleanupBeforeQuit(app)
         }
-        if let cleanupDirectory {
-            // Read only the fixed schema, never print file contents or attach credentials.
-            let data = try? Data(contentsOf: cleanupDirectory.appendingPathComponent("status.json"))
-            let object = data.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
-            let verified = object?["owned"] as? Int == 1 && object?["verified"] as? Int == 1
-                && object?["error"] == nil
-            XCTAssertTrue(verified, "Isolated UI token cleanup must be 401 verified before Quit completes")
-            if verified { print("isolated UI launch: owned=1 verified=1 (401 verified)") }
+    }
+
+    private func verifyCleanupBeforeQuit(_ app: XCUIApplication) {
+        // A scene command reaches the app even when a failed scenario left a sheet open.
+        // The command uses the same cached shutdown as Quit, so retries cannot mint or delete twice.
+        app.typeKey("k", modifierFlags: [.command, .option, .shift])
+        let status = app.staticTexts.matching(identifier: "isolated-cleanup-status").firstMatch
+        let completed = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == true AND label BEGINSWITH %@", "finished "),
+            object: status)
+        // The cleanup probe may retry GETs; this phase covers its approximately 12.6-second
+        // worst network budget separately from the final process Quit guard.
+        let terminal = XCTWaiter.wait(for: [completed], timeout: 20) == .completed
+        guard terminal else {
+            XCTFail("Isolated UI cleanup did not produce a terminal status before Quit")
+            return
         }
+        let verified = status.label == "finished owned=1 verified=1 error=none"
+        XCTAssertTrue(verified, "Isolated UI token cleanup must be 401 verified before Quit")
+        if verified { print("isolated UI launch: owned=1 verified=1 (401 verified)") }
     }
 }

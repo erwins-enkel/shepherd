@@ -40,7 +40,8 @@ struct ShepherdApp: App {
 
     var body: some Scene {
         WindowGroup("Shepherd", id: "main") {
-            RootView(startIsolatedSeed: isolation?.startLiveSeedIfNeeded, prepareLaunch: {
+            RootView(startIsolatedSeed: isolation?.startLiveSeedIfNeeded,
+                isolatedCleanup: isolation?.supportsCleanupHandshake == true ? isolation : nil, prepareLaunch: {
                 if await installation.runIfNeeded() { return false }
                 appUpdater.start()
                 return true
@@ -52,6 +53,17 @@ struct ShepherdApp: App {
         .defaultSize(width: 1100, height: 720)
         .windowResizability(.contentMinSize)
         .commands {
+            CommandGroup(before: .appTermination) {
+                if let isolation, isolation.supportsCleanupHandshake {
+                    Button {
+                        Task { _ = await isolation.shutdown() }
+                    } label: {
+                        Text(verbatim: "Verify isolated cleanup")
+                    }
+                    .keyboardShortcut("k", modifiers: [.command, .option, .shift])
+                    .accessibilityIdentifier("isolated-cleanup-command")
+                }
+            }
             CommandGroup(after: .appInfo) {
                 AppUpdateMenu(updater: appUpdater)
             }
@@ -85,6 +97,7 @@ struct RootView: View {
     /// owned by the app, not the environment, and this is the one call this
     /// view needs from it.
     var startIsolatedSeed: (() -> Void)? = nil
+    var isolatedCleanup: IsolatedLaunch? = nil
     var prepareLaunch: (() async -> Bool)? = nil
 
     var body: some View {
@@ -98,6 +111,7 @@ struct RootView: View {
                 NoticeBar(message: isolatedLaunchError) { model.isolatedLaunchError = nil }
             }
             if let audit = model.liveRequestAudit { LiveRequestAuditView(audit: audit) }
+            if let isolatedCleanup { IsolatedCleanupStatusView(launch: isolatedCleanup) }
             Group {
                 if model.store == nil {
                     WelcomeView()
@@ -154,6 +168,20 @@ struct LiveRequestAuditView: View {
                 .font(.caption2)
                 .accessibilityLabel(Text(verbatim: summary))
                 .accessibilityIdentifier("live-request-audit")
+        }
+    }
+}
+
+/// UI-only handshake diagnostics survive deactivation because they sit above store-dependent content.
+private struct IsolatedCleanupStatusView: View {
+    let launch: IsolatedLaunch
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 0.2)) { _ in
+            let summary = launch.cleanupAccessibilitySummary
+            Text(verbatim: summary)
+                .font(.caption2)
+                .accessibilityLabel(Text(verbatim: summary))
+                .accessibilityIdentifier("isolated-cleanup-status")
         }
     }
 }

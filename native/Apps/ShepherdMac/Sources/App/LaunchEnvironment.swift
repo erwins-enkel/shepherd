@@ -35,6 +35,7 @@ enum LaunchEnvironment {
     static let liveBaseURLVariable = "SHEPHERD_LIVE_BASE_URL"
     static let livePasswordVariable = "SHEPHERD_LIVE_PASSWORD"
     static let cleanupStatusVariable = "SHEPHERD_CLEANUP_STATUS_PATH"
+    static let cleanupHandshakeVariable = "SHEPHERD_UI_CLEANUP_HANDSHAKE"
 
     /// A real server for an isolated launch to sign in to before showing its
     /// window, so a UI test can assert against live data.
@@ -52,6 +53,10 @@ enum LaunchEnvironment {
         var live: LiveSeed?
         var revokesOnExit = false
         var cleanupStatusPath: String?
+        var uiCleanupHandshake = false
+        var exposesCleanupHandshake: Bool {
+            isIsolated && revokesOnExit && live != nil && uiCleanupHandshake
+        }
 
         /// The launch log line. Names the mode, never a secret and never an
         /// address.
@@ -86,6 +91,7 @@ enum LaunchEnvironment {
         {
             configuration.live = LiveSeed(baseURL: baseURL, password: password)
         }
+        configuration.uiCleanupHandshake = isTruthy(value(of: cleanupHandshakeVariable, in: environment) ?? "")
         if configuration.revokesOnExit {
             configuration.cleanupStatusPath = value(of: cleanupStatusVariable, in: environment)
         }
@@ -327,6 +333,13 @@ final class IsolatedLaunch {
         return await shutdown()
     }
 
+    var supportsCleanupHandshake: Bool { configuration.exposesCleanupHandshake }
+
+    /// Fixed, credential-free values only; remains available after the model's store disappears.
+    var cleanupAccessibilitySummary: String {
+        cleanupStatus?.accessibilitySummary ?? (shuttingDown ? "running" : "idle")
+    }
+
     var needsDeferredTermination: Bool {
         configuration.isIsolated && configuration.revokesOnExit && configuration.live != nil
             && cleanupStatus == nil
@@ -335,6 +348,8 @@ final class IsolatedLaunch {
     func shutdown() async -> IsolatedCleanupStatus? {
         if let shutdownTask { return await shutdownTask.value }
         shuttingDown = true
+        // Early login failure may leave a root sheet even without an active profile.
+        model?.sheet = nil
         model?.deactivate()
         let lifecycle = tokenLifecycle
         let task = Task { @MainActor in

@@ -56,5 +56,7 @@ Explore the [screenshot tour](docs/screenshots.md),
 [share feedback](https://github.com/erwins-enkel/shepherd/discussions) or
 [report an issue](https://github.com/erwins-enkel/shepherd/issues).
 
+Tester distribution: [automatic app updates and release setup](docs/app-updates.md).
+
 For contributors: [build, test, signing and architecture](docs/development.md), including
 [ShepherdKit](docs/development.md#shepherdkit), the Swift client package behind the app.

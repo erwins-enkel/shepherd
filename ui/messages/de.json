@@ -4455,5 +4455,11 @@
   "native_settings_open": "Einstellungen …",
   "native_settings_reduced_push": "Reduzierte Benachrichtigungen",
   "native_settings_workspace": "Arbeitsbereich",
-  "native_settings_search": "Einstellungen suchen"
+  "native_settings_search": "Einstellungen suchen",
+  "native_updates_title": "App-Updates",
+  "native_updates_check": "Nach Updates suchen …",
+  "native_updates_automatic_check": "Automatisch nach App-Updates suchen",
+  "native_updates_automatic_install": "App-Updates automatisch laden und installieren",
+  "native_updates_install_note": "Updates werden im Hintergrund vorbereitet und beim Beenden der App installiert. Im Update-Dialog kannst du auch sofort installieren und neu starten.",
+  "native_updates_unavailable": "Automatische Updates sind in diesem Entwicklungs- oder Test-Build nicht verfügbar. Installiere eine veröffentlichte Version, um App-Updates zu erhalten."
 }

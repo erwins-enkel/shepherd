@@ -13332,6 +13332,108 @@
         }
       }
     },
+    "native_updates_automatic_check": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisch nach App-Updates suchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically check for app updates"
+          }
+        }
+      }
+    },
+    "native_updates_automatic_install": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App-Updates automatisch laden und installieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatically download and install app updates"
+          }
+        }
+      }
+    },
+    "native_updates_check": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach Updates suchen …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check for Updates…"
+          }
+        }
+      }
+    },
+    "native_updates_install_note": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updates werden im Hintergrund vorbereitet und beim Beenden der App installiert. Im Update-Dialog kannst du auch sofort installieren und neu starten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updates are prepared in the background and installed when the app quits. You can also install and restart from the update dialog."
+          }
+        }
+      }
+    },
+    "native_updates_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App-Updates"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App updates"
+          }
+        }
+      }
+    },
+    "native_updates_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatische Updates sind in diesem Entwicklungs- oder Test-Build nicht verfügbar. Installiere eine veröffentlichte Version, um App-Updates zu erhalten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic updates are unavailable in this development or test build. Install a distributed release to receive app updates."
+          }
+        }
+      }
+    },
     "native_url_error_empty": {
       "extractionState": "manual",
       "localizations": {

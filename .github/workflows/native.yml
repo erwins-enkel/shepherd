@@ -151,8 +151,17 @@ jobs:
         # xcstrings catalog. Same script the developer runs locally.
         run: bun run check:strings
 
+      - name: Verify update archive authentication
+        run: native/scripts/test-update-signature.sh
+
       - name: Build Shepherd.app
         run: native/scripts/build-app.sh Release
+
+      - name: Test update packaging with a disposable key
+        run: |
+          native/scripts/test-package-update.sh \
+            native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app \
+            native/Apps/ShepherdMac/.build/SourcePackages/artifacts/sparkle/Sparkle/bin
 
       - name: Verify the bundle is ad-hoc signed with the hardened runtime
         run: |

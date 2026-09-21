@@ -9,6 +9,7 @@ struct ShepherdApp: App {
     /// automated launch off the login Keychain and out of the operator's saved
     /// profiles. A normal launch builds the model exactly as before.
     private let isolation: IsolatedLaunch?
+    private let appUpdater: AppUpdater
 
     init() {
         // Everything the isolated launch needs — the throwaway stores, the
@@ -19,9 +20,11 @@ struct ShepherdApp: App {
         let launch = LaunchEnvironment.configuration()
         let isolation = launch.isIsolated ? IsolatedLaunch(configuration: launch) : nil
         self.isolation = isolation
+        appUpdater = AppUpdater(isIsolated: launch.isIsolated)
         _model = State(initialValue: isolation?.makeModel() ?? AppModel())
         // Before `body` is first evaluated — see StreamRegistrations.installScene().
         StreamRegistrations.installScene()
+        SettingsPaneRegistry.register(AppUpdateSettingsPane(updater: appUpdater))
         Log.app.info("Shepherd for Mac starting — \(launch.logDescription, privacy: .public)")
     }
 
@@ -35,6 +38,9 @@ struct ShepherdApp: App {
         .defaultSize(width: 1100, height: 720)
         .windowResizability(.contentMinSize)
         .commands {
+            CommandGroup(after: .appInfo) {
+                AppUpdateMenu(updater: appUpdater)
+            }
             CommandGroup(after: .newItem) { MenuCommandItems(menu: .file, app: model) }
             CommandGroup(after: .toolbar) { MenuCommandItems(menu: .view, app: model) }
             // CommandsBuilder supports this scene-time condition. With no registered commands,

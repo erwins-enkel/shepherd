@@ -24,7 +24,7 @@ struct SettingsUnavailableView: View {
     @Environment(\.openWindow) private var openWindow
     let availability: SettingsBackendAvailability
 
-    private var local: LocalServerModel { LocalServerModel.shared }
+    private var local: LocalServerModel { .shared }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -34,7 +34,9 @@ struct SettingsUnavailableView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("settings-unavailable-summary")
             if availability == .localOffline || availability == .localActive {
-                LocalServerPanel(model: local, app: app)
+                LocalServerPanel(model: local, app: app, onConnect: {
+                    SettingsConnectionRouting.connectLocal(local, app: app, presentMain: showMainWindow)
+                })
             } else if availability == .remoteInactive {
                 Button(L.t("native_settings_connect")) { connectRemote() }
                     .buttonStyle(.borderedProminent)
@@ -69,17 +71,29 @@ struct SettingsUnavailableView: View {
     }
 
     private func showMainWindow() {
-        // The login sheet and Welcome belong to the main scene, not Settings.
-        if let window = NSApp.windows.first(where: { $0.title == "Shepherd" && $0.canBecomeMain }) {
-            window.makeKeyAndOrderFront(nil)
-        } else {
-            openWindow(id: "main")
-        }
+        SettingsConnectionRouting.showMainWindow { openWindow(id: "main") }
     }
 
     private func connectRemote() {
         guard let profile = app.activeProfile else { return }
         app.sheet = .login(profile)
         showMainWindow()
+    }
+}
+
+/// Settings does not host login sheets: every connection route presents the main scene.
+@MainActor
+enum SettingsConnectionRouting {
+    static func connectLocal(_ local: LocalServerModel, app: AppModel, presentMain: () -> Void) {
+        local.connect(app)
+        presentMain()
+    }
+
+    static func showMainWindow(windows: [NSWindow] = NSApp.windows, open: () -> Void) {
+        if let window = windows.first(where: { $0.title == "Shepherd" }) {
+            window.makeKeyAndOrderFront(nil)
+        } else {
+            open()
+        }
     }
 }

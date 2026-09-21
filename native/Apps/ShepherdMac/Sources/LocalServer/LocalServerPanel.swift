@@ -43,6 +43,7 @@ struct LocalServerPanelState: Equatable {
 struct LocalServerPanel: View {
     let model: LocalServerModel
     let app: AppModel
+    var onConnect: (() -> Void)? = nil
 
     @State private var showingLog = false
 
@@ -195,7 +196,9 @@ struct LocalServerPanel: View {
                     .accessibilityIdentifier("local-restart")
             }
             Spacer(minLength: 8)
-            Button(L.t("native_local_connect")) { model.connect(app) }
+            Button(L.t("native_local_connect")) {
+                if let onConnect { onConnect() } else { model.connect(app) }
+            }
                 .buttonStyle(.borderedProminent)
                 .disabled(!panel.canConnect)
                 .accessibilityIdentifier("local-connect")

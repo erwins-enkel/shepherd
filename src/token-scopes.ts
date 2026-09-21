@@ -47,6 +47,17 @@ export function isTokenScope(raw: unknown): raw is TokenScope {
  *
  * `GET /events` is the status/metadata event bus, not a terminal: agent bytes ride `/pty/:id`,
  * which no scope below `full` reaches.
+ *
+ * The two `/inflight` routes (#2421) are the bootstrap snapshot of a fact `GET /events` ALREADY
+ * pushes to this scope — `session:reviewing` and `session:plangate-reviewing`, reviewer env
+ * included (src/index.ts). Without them a client that loads mid-review cannot reach the
+ * `reviewerRunning` stage of the herd's own lifecycle partition, so an idle session with a green PR
+ * whose critic is still working reads as the operator's turn early. Note what they do NOT admit:
+ * `GET /api/reviews` and `GET /api/plan-gates` return the verdict bodies — findings, summaries,
+ * plan questions, round counts — and stay `full`-only. Matching is exact, so listing the
+ * `/inflight` child grants nothing at the parent. The bar a further entry has to clear is the one
+ * these pass: a status fact about a session the token can already enumerate through
+ * `GET /api/sessions`, with no verdict, no finding, no diff and no new identifier.
  */
 const READ_ROUTES: ReadonlySet<string> = new Set([
   "GET /api/sessions",
@@ -55,6 +66,8 @@ const READ_ROUTES: ReadonlySet<string> = new Set([
   "GET /api/me",
   "POST /api/ping",
   "GET /events",
+  "GET /api/reviews/inflight",
+  "GET /api/plan-gates/inflight",
 ]);
 
 /**

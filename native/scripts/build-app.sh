@@ -4,6 +4,7 @@
 set -euo pipefail
 
 CONFIG="${1:-Release}"
+if [ "$#" -gt 0 ]; then shift; fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/../Apps/ShepherdMac" && pwd)"
 
@@ -34,6 +35,7 @@ xcodebuild \
   -derivedDataPath .build \
   -skipPackagePluginValidation \
   "${CODESIGN_ARGS[@]+"${CODESIGN_ARGS[@]}"}" \
+  "$@" \
   build
 
 echo

@@ -15,6 +15,9 @@ packages:
   SwiftTerm:
     url: https://github.com/migueldeicaza/SwiftTerm
     exactVersion: 1.20.0
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.0
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -35,6 +38,8 @@ settings:
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
     DEAD_CODE_STRIPPING: YES
+    SHEPHERD_UPDATE_PUBLIC_KEY: ""
+    SHEPHERD_UPDATE_FEED_URL: "https://github.com/erwins-enkel/shepherd/releases/download/macos-updates/appcast.xml"
   configs:
     Release:
       # Drops com.apple.security.get-task-allow from the ad-hoc signature so a
@@ -51,6 +56,8 @@ targets:
     dependencies:
       - package: ShepherdKit
         product: ShepherdKit
+      - package: Sparkle
+        product: Sparkle
       - package: SwiftTerm
         product: SwiftTerm
     settings:
@@ -72,6 +79,13 @@ targets:
         NSHighResolutionCapable: true
         NSHumanReadableCopyright: ""
         CFBundleLocalizations: [en, de]
+        SUFeedURL: $(SHEPHERD_UPDATE_FEED_URL)
+        SUPublicEDKey: $(SHEPHERD_UPDATE_PUBLIC_KEY)
+        SUEnableAutomaticChecks: true
+        SUAutomaticallyUpdate: true
+        SUScheduledCheckInterval: 3600
+        SUVerifyUpdateBeforeExtraction: true
+        SUSendProfileInfo: false
     entitlements:
       path: Sources/Shepherd.entitlements
       properties:

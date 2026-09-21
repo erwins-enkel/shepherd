@@ -74,7 +74,9 @@ struct SettingsSceneView: View {
                 TabView(selection: $selection) {
                     ForEach(SettingsPaneRegistry.panes, id: \.id) { pane in
                         pane.makeView(app: app)
-                            .tabItem { Label(pane.title, systemImage: pane.systemImage) }
+                            .tabItem {
+                                Label { Text(pane.title) } icon: { Image(systemName: pane.systemImage) }
+                            }
                             .tag(pane.id)
                     }
                 }

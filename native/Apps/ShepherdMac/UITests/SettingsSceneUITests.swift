@@ -28,6 +28,28 @@ final class SettingsSceneUITests: XCTestCase {
         app.typeKey(.escape, modifierFlags: [])
     }
 
+    func testDisconnectedNotificationsExplainsNextStep() {
+        app.typeKey(",", modifierFlags: .command)
+        XCTAssertTrue(app.descendants(matching: .any)["settings-panes"].waitForExistence(timeout: 5))
+        app.toolbars.buttons["Notifications"].click()
+        XCTAssertTrue(app.staticTexts["settings-unavailable-title"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["settings-unavailable-title"].value as? String, "No connection selected")
+        XCTAssertTrue(app.staticTexts["settings-unavailable-summary"].exists)
+        let action = app.buttons["settings-unavailable-action"]
+        XCTAssertTrue(action.exists)
+        let window = app.windows.containing(.any, identifier: "settings-panes").firstMatch
+        let screenshot = XCTAttachment(screenshot: window.screenshot())
+        screenshot.name = "Settings-disconnected-notifications"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        action.click()
+        let remoteAddress = app.textFields["welcome-remote-url"]
+        XCTAssertTrue(remoteAddress.waitForExistence(timeout: 5))
+        remoteAddress.click()
+        remoteAddress.typeText("https://settings.example.invalid")
+        XCTAssertEqual(remoteAddress.value as? String, "https://settings.example.invalid")
+    }
+
     func testPaletteSearchReturnEscapeAndDisabledCommand() {
         app.typeKey("k", modifierFlags: .command)
         let search = app.textFields["Search commands"]

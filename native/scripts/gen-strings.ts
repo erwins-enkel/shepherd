@@ -1219,6 +1219,7 @@ export const KEYS_SETTINGS: readonly string[] = [
   "native_settings_colorblind",
   "native_settings_command_palette",
   "native_settings_command_search",
+  "native_settings_choose_profile",
   "native_settings_connect",
   "native_settings_contrast",
   "native_settings_credits",
@@ -1375,6 +1376,14 @@ export const KEYS_SETTINGS: readonly string[] = [
   "native_settings_verify_key",
   "native_settings_verify_ok",
   "native_settings_workspace",
+  "native_settings_no_profile_title",
+  "native_settings_no_profile_summary",
+  "native_settings_remote_inactive_title",
+  "native_settings_remote_inactive_summary",
+  "native_settings_local_offline_title",
+  "native_settings_local_offline_summary",
+  "native_settings_local_active_title",
+  "native_settings_local_active_summary",
 ];
 
 /**

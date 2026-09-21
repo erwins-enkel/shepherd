@@ -10570,6 +10570,23 @@
         }
       }
     },
+    "native_settings_choose_profile": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Profil auswählen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a profile"
+          }
+        }
+      }
+    },
     "native_settings_clis": {
       "extractionState": "manual",
       "localizations": {
@@ -11932,6 +11949,74 @@
         }
       }
     },
+    "native_settings_local_active_summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dich mit dem lokalen Server, um diese Einstellungen zu öffnen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to the local server to open these settings."
+          }
+        }
+      }
+    },
+    "native_settings_local_active_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokaler Server bereit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local server ready"
+          }
+        }
+      }
+    },
+    "native_settings_local_offline_summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starte oder installiere den lokalen Server, um diese Einstellungen zu öffnen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start or install the local server to open these settings."
+          }
+        }
+      }
+    },
+    "native_settings_local_offline_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokaler Server ist nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local server unavailable"
+          }
+        }
+      }
+    },
     "native_settings_lock_access": {
       "extractionState": "manual",
       "localizations": {
@@ -12048,6 +12133,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "No matching commands"
+          }
+        }
+      }
+    },
+    "native_settings_no_profile_summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wähle ein Profil aus, um serverabhängige Einstellungen zu öffnen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose a profile to open settings that depend on a server."
+          }
+        }
+      }
+    },
+    "native_settings_no_profile_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine Verbindung ausgewählt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No connection selected"
           }
         }
       }
@@ -12307,6 +12426,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Refresh diagnostics"
+          }
+        }
+      }
+    },
+    "native_settings_remote_inactive_summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dich mit dem ausgewählten Server, um diese Einstellungen zu bearbeiten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to the selected server to edit these settings."
+          }
+        }
+      }
+    },
+    "native_settings_remote_inactive_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht mit diesem Server verbunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not connected to this server"
           }
         }
       }

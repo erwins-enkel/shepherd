@@ -4483,5 +4483,14 @@
   "native_recovery_unknown_title": "Connection needs checking",
   "native_recovery_unknown_body": "The cause is not yet known. Check diagnostics before retrying your action.",
   "native_recovery_start_runner": "Start session runner",
-  "native_recovery_reopen": "Reopen terminal"
+  "native_recovery_reopen": "Reopen terminal",
+  "native_settings_choose_profile": "Choose a profile",
+  "native_settings_no_profile_title": "No connection selected",
+  "native_settings_no_profile_summary": "Choose a profile to open settings that depend on a server.",
+  "native_settings_remote_inactive_title": "Not connected to this server",
+  "native_settings_remote_inactive_summary": "Connect to the selected server to edit these settings.",
+  "native_settings_local_offline_title": "Local server unavailable",
+  "native_settings_local_offline_summary": "Start or install the local server to open these settings.",
+  "native_settings_local_active_title": "Local server ready",
+  "native_settings_local_active_summary": "Connect to the local server to open these settings."
 }

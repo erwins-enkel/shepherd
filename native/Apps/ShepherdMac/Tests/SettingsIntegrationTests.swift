@@ -79,4 +79,35 @@ import Testing
         }
         #expect(deliveries == [0, 1])
     }
+
+    @Test(arguments: [false, true])
+    func settingsFactoriesAreSinglePerActivationAcrossRegistrationOrders(registerFirst: Bool) async throws {
+        defer { resetStreamSeams() }
+        let suite = "settings-factory-orders-" + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        defer { app.teardown() }
+        app.health = { _ in throw CancellationError() }
+        // No credential means SessionStore never opens a socket. Health is stubbed above.
+        let local = app.addLocalProfile(port: 1)
+        if registerFirst { SettingsFeature.install(app) }
+        await app.activate(local)
+        SettingsFeature.install(app)
+        let firstSettings = try #require(app.extension(SettingsModel.self))
+        let firstRecovery = try #require(app.extension(BackendRecoveryModel.self))
+        SettingsFeature.install(app)
+        #expect(app.extension(SettingsModel.self) === firstSettings)
+        #expect(app.extension(BackendRecoveryModel.self) === firstRecovery)
+        #expect(app.extensionFactories.count == 3)
+        #expect(app.liveExtensions.count == 3)
+
+        let remote = try app.addRemoteProfile(name: "Fixture", address: "https://settings.example.invalid")
+        await app.activate(remote)
+        #expect(app.extension(SettingsModel.self) !== firstSettings)
+        #expect(app.extension(BackendRecoveryModel.self) !== firstRecovery)
+        #expect(app.liveExtensions.count == 3)
+        SettingsFeature.install(app)
+        #expect(app.liveExtensions.count == 3)
+    }
 }

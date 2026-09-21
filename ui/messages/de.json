@@ -4483,5 +4483,14 @@
   "native_recovery_unknown_title": "Verbindung prüfen",
   "native_recovery_unknown_body": "Die Ursache ist noch unbekannt. Prüfe die Diagnose, bevor du deine Aktion erneut ausführst.",
   "native_recovery_start_runner": "Sitzungsdienst starten",
-  "native_recovery_reopen": "Terminal erneut öffnen"
+  "native_recovery_reopen": "Terminal erneut öffnen",
+  "native_settings_choose_profile": "Profil auswählen",
+  "native_settings_no_profile_title": "Keine Verbindung ausgewählt",
+  "native_settings_no_profile_summary": "Wähle ein Profil aus, um serverabhängige Einstellungen zu öffnen.",
+  "native_settings_remote_inactive_title": "Nicht mit diesem Server verbunden",
+  "native_settings_remote_inactive_summary": "Verbinde dich mit dem ausgewählten Server, um diese Einstellungen zu bearbeiten.",
+  "native_settings_local_offline_title": "Lokaler Server ist nicht verfügbar",
+  "native_settings_local_offline_summary": "Starte oder installiere den lokalen Server, um diese Einstellungen zu öffnen.",
+  "native_settings_local_active_title": "Lokaler Server bereit",
+  "native_settings_local_active_summary": "Verbinde dich mit dem lokalen Server, um diese Einstellungen zu öffnen."
 }

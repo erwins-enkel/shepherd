@@ -11,15 +11,19 @@ struct SettingsPaneEntry: SettingsPane {
         app.extension(NotificationsModel.self)
     }
     @MainActor func makeView(app: AppModel) -> AnyView {
-        AnyView(Group {
+        let availability = SettingsBackendAvailability.resolve(profile: app.activeProfile,
+            localState: LocalServerModel.shared.state, endpoint: LocalServerModel.shared.baseURL)
+        return AnyView(Group {
             if id == "general" {
                 ScrollView {
                     SettingsAppearanceView()
-                    if let model = app.extension(SettingsModel.self), let store = app.store {
+                    if availability != .localOffline, let model = app.extension(SettingsModel.self), let store = app.store {
                         SettingsGeneralView(model:model,client:store.client)
+                    } else if availability == .localOffline {
+                        SettingsUnavailableView(availability: availability)
                     }
                 }
-            } else if id == "notifications", let model = Self.notifications(in: app) {
+            } else if availability != .localOffline, id == "notifications", let model = Self.notifications(in: app) {
                 VStack {
                     NotificationSettingsView(model:model,profileName:app.activeProfile?.name ?? "")
                     if let settings = app.extension(SettingsModel.self), let client = app.store?.client {
@@ -33,7 +37,7 @@ struct SettingsPaneEntry: SettingsPane {
                         }
                     }
                 }.padding()
-            } else if let model = app.extension(SettingsModel.self), let store = app.store {
+            } else if availability != .localOffline, id != "notifications", let model = app.extension(SettingsModel.self), let store = app.store {
                 switch id {
                 case "workspace": SettingsWorkspaceView(model:model,client:store.client)
                 case "clis": SettingsGeneralView(model:model,client:store.client,cli:true)
@@ -41,7 +45,9 @@ struct SettingsPaneEntry: SettingsPane {
                 case "diagnose": SettingsDiagnoseView(model:model,client:store.client)
                 default: EmptyView()
                 }
-            } else { Text(L.t("native_settings_connect")) }
+            } else {
+                SettingsUnavailableView(availability: availability)
+            }
         }.id(app.activationGeneration))
     }
 }
@@ -68,6 +74,10 @@ struct SettingsPaneEntry: SettingsPane {
             action:{ app in Task { await app.extension(BackendRecoveryModel.self)?.refresh() } }))
     }
     static func install(_ app: AppModel) {
+        // Settings can be opened before the main RootView task. Register the
+        // shared recovery dependency here as well as in the merged model pass;
+        // AppModel.register keeps this idempotent and activation-scoped.
+        app.register(BackendRecoveryModel.self)
         app.register(SettingsModel.self)
         app.register(SettingsReadyModel.self)
     }

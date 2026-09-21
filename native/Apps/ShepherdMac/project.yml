@@ -52,7 +52,6 @@ targets:
     platform: macOS
     sources:
       - path: Sources
-      - path: Resources
     dependencies:
       - package: ShepherdKit
         product: ShepherdKit

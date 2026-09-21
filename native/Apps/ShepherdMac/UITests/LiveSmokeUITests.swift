@@ -381,6 +381,17 @@ final class LiveSmokeUITests: XCTestCase {
             Thread.sleep(forTimeInterval: 0.25)
         } while Date() < deadline
         let buttons = tabButtons
+        let hasButton = index < buttons.count
+        let buttonType = hasButton ? String(describing: buttons[index].elementType) : "none"
+        let buttonHittable = hasButton && buttons[index].isHittable
+        let buttonSelected = hasButton && buttons[index].isSelected
+        let bodyExists = expectedBody.exists
+        let bodyHittable = expectedBody.isHittable
+        print(
+            "detail tab selection timeout "
+                + "[index=\(index) count=\(buttons.count) type=\(buttonType) "
+                + "hittable=\(buttonHittable) selected=\(buttonSelected) "
+                + "bodyExists=\(bodyExists) bodyHittable=\(bodyHittable)]")
         return index < buttons.count && buttons[index].isSelected && expectedBody.exists
     }
 

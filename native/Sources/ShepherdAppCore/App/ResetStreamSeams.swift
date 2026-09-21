@@ -20,6 +20,7 @@ public func resetStreamSeams() {
     SettingsNotificationBridge.sendReady = { _, _ in false }
     SettingsPresentation.shared.palette = false
     SettingsPresentation.shared.openSettingsRequest = 0
+    SettingsPresentation.shared.requestedPane = nil
     QueuesPanels.reset()
     MergeInputs.git = { _ in [:] }
     MergeInputs.reviewing = { _, _ in false }

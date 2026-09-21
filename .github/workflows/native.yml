@@ -42,6 +42,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Conservation reads the pinned upstream test Git objects.
+          fetch-depth: 0
 
       - name: Report the toolchain
         run: |
@@ -220,6 +223,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Conservation reads the pinned upstream test Git objects.
+          fetch-depth: 0
 
       - name: Report the toolchain
         run: |

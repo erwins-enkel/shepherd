@@ -1,9 +1,10 @@
-import ShepherdAppCore
+@testable import ShepherdAppCore
 import AppKit
 import ShepherdKit
 import Testing
 @testable import Shepherd
 
+extension MacSeamTests {
 @Suite(.serialized) @MainActor
 struct SettingsLocalConnectTests {
     @Test func localConnectRoutesLoginBeforePresentingMain() async throws {
@@ -13,7 +14,7 @@ struct SettingsLocalConnectTests {
         let suite = "settings-local-connect-" + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
-        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore(), notifications: MacTestSupport.environment(defaults: defaults))
         defer { app.teardown() }
         let local = LocalServerModel(environment: LocalServerEnvironment(home: home), probeExternal: { true })
         await local.refresh()
@@ -49,4 +50,5 @@ struct SettingsLocalConnectTests {
         #expect(main.isVisible)
         #expect(!opened)
     }
+}
 }

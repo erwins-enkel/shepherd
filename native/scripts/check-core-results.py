@@ -27,7 +27,7 @@ def identity(suite, signature):
 
 def expected_identities(path, target):
     mapping = json.loads(Path(path).read_text())
-    ids = [dest for row in mapping["mappings"] for dest in row["destinations"]] + mapping["added"]
+    ids = [dest for row in mapping["mappings"] for dest in row["destinations"]] + mapping["added"] + mapping.get("upstreamAdded", [])
     expected = []
     parameterized = set()
     for raw in ids:

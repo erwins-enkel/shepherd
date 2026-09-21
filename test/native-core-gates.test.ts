@@ -108,6 +108,26 @@ describe("native core gates", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout.toString()).toContain("identities=2");
   });
+  test("requires separately mapped upstream additions at runtime", () => {
+    const mapping = file("upstream-map.json", {
+      mappings: [{ oldID: sourceID("first"), destinations: [sourceID("first")] }],
+      added: [],
+      upstreamAdded: [sourceID("second")],
+    });
+    const check = (nodes: unknown[], count: number) =>
+      python(
+        "check-core-results.py",
+        file("summary.json", summary(count)),
+        file("tests.json", { testNodes: nodes }),
+        "--mapping",
+        mapping,
+        "--parameters",
+        file("parameters.json", { schemaVersion: 1, target, arguments: {} }),
+      );
+    expect(check([node("first"), node("second")], 2).exitCode).toBe(0);
+    expect(check([node("first")], 1).exitCode).not.toBe(0);
+    expect(check([node("first"), node("replacement")], 2).exitCode).not.toBe(0);
+  });
   test("rejects omitted identities even when counts agree", () => {
     expect(results(summary(1), [node("first")]).exitCode).not.toBe(0);
   });

@@ -7543,7 +7543,7 @@
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"LocalServerModelTests\",\"aSuccessfulInstallLeavesThePanelReadyToStart() async throws\"]",
       "destinations": [
-        "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"aSuccessfulInstallLeavesThePanelReadyToStart() async throws\"]"
+        "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"aSuccessfulInstallStartsThroughTheSupervisorAndShowsProgressBeforeFinishing() async throws\"]"
       ],
       "reason": "Mac view/adapter/host/live scenario retained in ShepherdTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
       "assertionChanges": []
@@ -7647,7 +7647,7 @@
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"LocalServerPanelStateTests\",\"anExternalServerIsConnectableOnly()\"]",
       "destinations": [
-        "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"anExternalServerIsConnectableOnly()\"]"
+        "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"anExternalServerNeedsAcknowledgmentBeforeConnecting()\"]"
       ],
       "reason": "Mac view/adapter/host/live scenario retained in ShepherdTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
       "assertionChanges": []
@@ -12256,5 +12256,61 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/CoreResourceTests.swift\",\"CoreSeamTests.CoreResourceTests\",\"everyCatalogEntryResolvesInBothLocales() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/StringCatalogTests.swift\",\"CoreSeamTests.StringCatalogTests\",\"selectedModuleLocalizationMatchesLAndArgumentFormatting() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/PlaceholderRenderingTests.swift\",\"CoreSeamTests.PlaceholderRenderingTests\",\"runtimeLocaleBundlesRenderTheCatalogFormats() throws\"]"
+  ],
+  "upstreamAdded": [
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/InstallerRunTests.swift\",\"InstallerRunTests\",\"cancellingDuringDownloadDoesNotLaunchAnInstaller() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/InstallerRunTests.swift\",\"InstallerRunTests\",\"coldInstallDownloadsRunsAndCleansItsScriptWithExplicitHome() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/InstallerRunTests.swift\",\"InstallerRunTests\",\"downloadErrorsAndHTMLAreNeverExecuted() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalHealthCheckTests.swift\",\"LocalHealthCheckTests\",\"missingOrEmptyVersionCannotCertifyAServer() async\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalRunnerStartTests.swift\",\"LocalRunnerStartTests\",\"liveDaemonIsANoOpAndStaleSocketStartsTheConfiguredBinary() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalRunnerStartTests.swift\",\"LocalRunnerStartTests\",\"relativeSocketTargetsTheSameInstallPathFromHTTPDaemonAndProbe() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalRunnerStartTests.swift\",\"LocalRunnerStartTests\",\"startupFailureTimesOutWithoutDeletingExternalState() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerEnvironmentTests.swift\",\"LocalServerEnvironmentTests\",\"anInvalidPortCannotCrashTheNativeHealthURL() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerEnvironmentTests.swift\",\"LocalServerEnvironmentTests\",\"customInstallAndDatabaseKeepExplicitHome() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerEnvironmentTests.swift\",\"LocalServerEnvironmentTests\",\"relativeRunnerSocketResolvesAgainstTheInstallDirectoryForEveryChild() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerIdentityTests.swift\",\"LocalServerIdentityTests\",\"anUnrelatedListenerNeverCertifiesTheOwnedChild() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerIdentityTests.swift\",\"LocalServerIdentityTests\",\"ownedHealthRequiresThisLaunchAndBothCanonicalPaths() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/AppInstallationTests.swift\",\"AppInstallationTests\",\"failedVerificationPreservesSourceAndExistingDestination() throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/AppInstallationTests.swift\",\"AppInstallationTests\",\"installedPathsRespectBoundariesAndSubfolders()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/AppInstallationTests.swift\",\"AppInstallationTests\",\"isolatedLaunchDoesNotPrompt() async\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/AppInstallationTests.swift\",\"AppInstallationTests\",\"resolvesSymlinkedRootsAndApps() throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/AppInstallationTests.swift\",\"AppInstallationTests\",\"successfulCopyAndCollisionKeepBothApps() throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/AppUpdaterTests.swift\",\"AppUpdaterTests\",\"distributedBuildCanUpdate()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/AppUpdaterTests.swift\",\"AppUpdaterTests\",\"insecureOrInvalidFeedDisablesUpdates(feed: String)\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/AppUpdaterTests.swift\",\"AppUpdaterTests\",\"isolatedBuildNeverChecksOrInstalls()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/AppUpdaterTests.swift\",\"AppUpdaterTests\",\"missingOrInvalidKeyDisablesUpdates(key: String)\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/BackendRecoveryTests.swift\",\"BackendRecoveryTests\",\"diagnosticEventAndTeardownDiscardOlderReadFailures() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/BackendRecoveryTests.swift\",\"BackendRecoveryTests\",\"eventReplacesSnapshotWithoutSettingsReadsAndInvalidatesOlderRefresh() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/BackendRecoveryTests.swift\",\"BackendRecoveryTests\",\"explicitSessionClosuresWinOverNetworkGuesses()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/BackendRecoveryTests.swift\",\"BackendRecoveryTests\",\"healthSurvivesDiagnosticsAuthenticationFailure() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/BackendRecoveryTests.swift\",\"BackendRecoveryTests\",\"loadingIsNotFailureAndSuccessfulRecheckClearsReadError() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/BackendRecoveryTests.swift\",\"BackendRecoveryTests\",\"localActionsRequireMatchingSavedLocalEndpoint()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/BackendRecoveryTests.swift\",\"BackendRecoveryTests\",\"onlyExplicitOfflineAndMissingHintsMeanRunnerUnavailable() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/BackendRecoveryTests.swift\",\"BackendRecoveryTests\",\"validationAuthenticationAndCancellationDoNotOfferBackendRecovery()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeKeymapCoreTests.swift\",\"CoreSeamTests.ComposeKeymapTests\",\"failedCreatePreservesDraftAndDiagnosesWithoutResubmitting() async\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"connectingUsesTheConfiguredPortAndDoesNotReuseAnotherEndpointsCredential() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"externalAcknowledgmentIsResetWhenIdentityChangesOrDisappears() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/SettingsDiagnosticsTests.swift\",\"CoreSeamTests.SettingsDiagnosticsTests\",\"successfulDiagnosticFixDoesNotRequireSettingsReconciliation() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/SettingsDiagnosticsTests.swift\",\"CoreSeamTests.SettingsDiagnosticsTests\",\"unrelatedSettingsFailureKeepsSharedDiagnosticsVisible() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SettingsIntegrationTests.swift\",\"MacSeamTests.SettingsIntegrationTests\",\"settingsFactoriesAreSinglePerActivationAcrossRegistrationOrders(registerFirst: Bool) async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SettingsLocalConnectTests.swift\",\"MacSeamTests.SettingsLocalConnectTests\",\"absentMainWindowOpensMainScene()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SettingsLocalConnectTests.swift\",\"MacSeamTests.SettingsLocalConnectTests\",\"existingMainWindowIsPresentedWithoutOpeningDuplicate()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SettingsLocalConnectTests.swift\",\"MacSeamTests.SettingsLocalConnectTests\",\"localConnectRoutesLoginBeforePresentingMain() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/SettingsModelTests.swift\",\"CoreSeamTests.SettingsModelTests\",\"independentDiagnosticsFailureIsVisibleAndCanRecover() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SettingsSceneTests.swift\",\"MacSeamTests.SettingsSceneTests\",\"availabilityMapsProfilesWithoutNeedingAStore()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/SettingsSceneTests.swift\",\"CoreSeamTests.SettingsSceneTests\",\"invalidPaneRequestsDoNotConsumeOrAdvancePresentation()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SettingsSceneTests.swift\",\"MacSeamTests.SettingsSceneTests\",\"registeredSettingsSymbolsResolveOnMacOS()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift\",\"CoreSeamTests.TerminalResumeTests\",\"detachDiscardsResumeCompletion(fails: Bool) async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift\",\"CoreSeamTests.TerminalResumeTests\",\"failedResumeStaysEndedAndCanBeRetried() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift\",\"CoreSeamTests.TerminalResumeTests\",\"resumeOnlyRestartsGoneSessionsWithInputEnabled( closure: PTYConnection.Closure, allowsInput: Bool ) async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift\",\"CoreSeamTests.TerminalResumeTests\",\"resumeWaitsForTheAgentAndIgnoresRepeatedClicks() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift\",\"CoreSeamTests.TerminalStateTests\",\"failedGoneSessionResumeStaysParkedWithAnExplanation() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift\",\"CoreSeamTests.TerminalStateTests\",\"goneRecoveryCoalescesClicksAndDetachInvalidatesAwaitedWork(holdResume: Bool) async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift\",\"CoreSeamTests.TerminalStateTests\",\"goneSessionReadsThenResumesBeforeReattaching() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift\",\"CoreSeamTests.TerminalStateTests\",\"ineligibleGoneSessionNeverResumesOrReattaches(reason: String) async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift\",\"CoreSeamTests.TerminalStateTests\",\"isolatedTerminalCannotResumeGoneSession() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift\",\"CoreSeamTests.TerminalStateTests\",\"unavailableGoneSessionReloadsListWithoutResuming(deleted: Bool) async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift\",\"CoreSeamTests.TerminalStateTests\",\"unreachableDiagnosesWithoutReattaching() async\"]",
+    "[\"ShepherdUITests\",\"native/Apps/ShepherdMac/UITests/SettingsSceneUITests.swift\",\"SettingsSceneUITests\",\"testDisconnectedNotificationsExplainsNextStep()\"]"
   ]
 }

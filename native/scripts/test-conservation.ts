@@ -335,6 +335,26 @@ export function collectTests(root: string): TestIdentity[] {
     throw new Error("duplicate current identity");
   return tests;
 }
+
+/** Read provenance from immutable Git objects, never from a recaptured worktree. */
+export function collectTestsAtRevision(root: string, revision: string): TestIdentity[] {
+  if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error("provenance requires a full commit SHA");
+  const git = (...args: string[]) =>
+    execFileSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+  const tests = roots.flatMap(([target, dir]) => {
+    const paths = git("ls-tree", "-r", "--name-only", revision, "--", dir)
+      .trim()
+      .split("\n")
+      .filter((path) => path.endsWith(".swift"));
+    const sources = paths.map((path) => ({ path, source: git("show", `${revision}:${path}`) }));
+    const suites = new Map<string, SuiteDeclaration>();
+    for (const { source, path } of sources) scan(source, target, path, suites, true);
+    return sources.flatMap(({ source, path }) => scan(source, target, path, suites));
+  });
+  tests.sort((a, b) => identity(a).localeCompare(identity(b), "en"));
+  if (new Set(tests.map(identity)).size !== tests.length) throw new Error("duplicate Git identity");
+  return tests;
+}
 /** Stage 1 adds one enclosing serialization trait, without replacing any old trait.
  * Restrict the exception to the two prescribed wrappers and unchanged inner suite.
  * Check this before ordinary equality: otherwise losing inner serialization could
@@ -432,6 +452,99 @@ export function verifyConservation(
   }
   for (const id of now.keys()) if (!used.has(id)) throw new Error("unaccounted addition " + id);
 }
+export type UpstreamTransition = {
+  original: TestIdentity | null;
+  upstream: TestIdentity;
+  destination: TestIdentity;
+  reason: string;
+};
+export type UpstreamProvenance = {
+  schemaVersion: 1;
+  originalSHA: string;
+  sourceSHA: string;
+  sourceBlobs: Record<string, string>;
+  transitions: UpstreamTransition[];
+};
+const sameTest = (a: TestIdentity, b: TestIdentity) =>
+  JSON.stringify({ ...a, line: 0 }) === JSON.stringify({ ...b, line: 0 });
+
+/** Every upstream delta has one Git-sourced origin and one exact destination.
+ * The original capture is never edited; changed expectations are explicitly
+ * chained through upstream. New Stage 1 and upstream tests stay separate.
+ */
+export function verifyUpstreamTransitions(
+  baseline: TestIdentity[],
+  upstream: TestIdentity[],
+  current: TestIdentity[],
+  mapping: IdentityMap[],
+  transitions: UpstreamTransition[],
+  upstreamAdded: string[],
+): TestIdentity[] {
+  const originals = new Map(baseline.map((t) => [identity(t), t]));
+  const next = new Map(upstream.map((t) => [identity(t), t]));
+  const now = new Map(current.map((t) => [identity(t), t]));
+  const rows = new Map(mapping.map((row) => [row.oldID, row]));
+  const seenOld = new Set<string>(),
+    seenNext = new Set<string>(),
+    seenDest = new Set<string>();
+  const effective = new Map(originals);
+  const additions: string[] = [];
+  for (const transition of transitions) {
+    const { original, upstream: source, destination, reason } = transition;
+    const sourceID = identity(source),
+      destID = identity(destination);
+    if (!reason.trim() || seenNext.has(sourceID) || seenDest.has(destID))
+      throw new Error("duplicate or unexplained upstream transition");
+    seenNext.add(sourceID);
+    seenDest.add(destID);
+    if (!next.has(sourceID) || !sameTest(next.get(sourceID)!, source))
+      throw new Error("upstream snapshot does not match Git source " + sourceID);
+    if (!now.has(destID) || !sameTest(now.get(destID)!, destination))
+      throw new Error("upstream destination changed " + destID);
+    if (
+      JSON.stringify(source.assertionConditionHashes) !==
+      JSON.stringify(destination.assertionConditionHashes)
+    )
+      throw new Error("upstream assertions changed " + destID);
+    if (source.condition !== destination.condition || !preservedAttributes(source, destination))
+      throw new Error("upstream attributes/conditions changed " + destID);
+    if (original) {
+      const oldID = identity(original);
+      if (seenOld.has(oldID) || !originals.has(oldID) || !sameTest(originals.get(oldID)!, original))
+        throw new Error("upstream original does not match immutable baseline " + oldID);
+      if (next.has(oldID) && oldID !== sourceID)
+        throw new Error("upstream addition cannot replace an unchanged original " + oldID);
+      seenOld.add(oldID);
+      if (sameTest(original, source)) throw new Error("unnecessary upstream replacement " + oldID);
+      if (JSON.stringify(rows.get(oldID)?.destinations) !== JSON.stringify([destID]))
+        throw new Error("upstream destination mapping mismatch " + oldID);
+      effective.set(oldID, {
+        ...source,
+        target: original.target,
+        path: original.path,
+        suite: original.suite,
+        signature: original.signature,
+        line: original.line,
+      });
+    } else {
+      if (originals.has(sourceID)) throw new Error("original mislabeled as upstream addition");
+      additions.push(destID);
+    }
+  }
+  for (const source of upstream) {
+    const old = originals.get(identity(source));
+    if ((!old || !sameTest(old, source)) && !seenNext.has(identity(source)))
+      throw new Error("unmapped upstream change " + identity(source));
+  }
+  for (const old of baseline) {
+    if (!next.has(identity(old)) && !seenOld.has(identity(old)))
+      throw new Error("original removed upstream without an explicit successor " + identity(old));
+  }
+  if (JSON.stringify([...additions].sort()) !== JSON.stringify([...upstreamAdded].sort()))
+    throw new Error("upstream additions do not match independent provenance");
+  return [...effective.values()];
+}
+
 if (import.meta.main) {
   const root = process.cwd();
   const baselinePath = join(root, "native/Tests/Conservation/issue-2431-baseline.json");
@@ -483,10 +596,55 @@ if (import.meta.main) {
   const map = JSON.parse(readFileSync(mapPath, "utf8")) as {
     mappings: IdentityMap[];
     added: string[];
+    upstreamAdded?: string[];
   };
-  verifyConservation(baseline.tests, current, map.mappings, map.added);
+  if (mode[0] === "--check" && !Array.isArray(map.upstreamAdded))
+    throw new Error("pinned upstream provenance mapping is required");
+  let expected = baseline.tests;
+  if (map.upstreamAdded) {
+    if (
+      hash(JSON.stringify(map.added)) !==
+      "cc26d62201498a1302326a5decd3e0fab0b7d8f01c9f26b66a35d1cf3e6619f7"
+    )
+      throw new Error("original eight Stage 1 additions changed");
+    if (
+      hash(readFileSync(baselinePath, "utf8")) !==
+      "4597df722a42ac93012462cbbcda09f68cd3d21af86a54c4b1b0242597325af0"
+    )
+      throw new Error("immutable original baseline changed");
+    const provenance = JSON.parse(
+      readFileSync(join(dirname(baselinePath), "issue-2431-upstream.json"), "utf8"),
+    ) as UpstreamProvenance;
+    if (
+      provenance.schemaVersion !== 1 ||
+      provenance.originalSHA !== baseline.sourceSHA ||
+      provenance.sourceSHA !== "c4961c40ec2cdfde9c011387536d2bd0bc1f9e58"
+    )
+      throw new Error("unexpected upstream provenance revision");
+    const upstream = collectTestsAtRevision(root, provenance.sourceSHA);
+    const paths = [...new Set(provenance.transitions.map((t) => t.upstream.path))].sort();
+    if (JSON.stringify(Object.keys(provenance.sourceBlobs).sort()) !== JSON.stringify(paths))
+      throw new Error("upstream source blob inventory mismatch");
+    for (const path of paths) {
+      const blob = execFileSync("git", ["rev-parse", `${provenance.sourceSHA}:${path}`], {
+        cwd: root,
+        encoding: "utf8",
+      }).trim();
+      if (blob !== provenance.sourceBlobs[path])
+        throw new Error("upstream source blob changed " + path);
+    }
+    expected = verifyUpstreamTransitions(
+      baseline.tests,
+      upstream,
+      current,
+      map.mappings,
+      provenance.transitions,
+      map.upstreamAdded,
+    );
+  }
+  verifyConservation(expected, current, map.mappings, [...map.added, ...(map.upstreamAdded ?? [])]);
   console.log(
-    `sourceSHA=${baseline.sourceSHA}; conserved original identities=${baseline.tests.length}; raw declarations=${current.length}; additional split declarations=${map.mappings.reduce((n, row) => n + row.destinations.length - 1, 0)}; explicit additions=${map.added.length}`,
+    `sourceSHA=${baseline.sourceSHA}; conserved original identities=${baseline.tests.length}; raw declarations=${current.length}; additional split declarations=${map.mappings.reduce((n, row) => n + row.destinations.length - 1, 0)}; explicit Stage 1 additions=${map.added.length}; upstream additions=${map.upstreamAdded?.length ?? 0}`,
   );
   for (const [target, dir] of roots)
     console.log(

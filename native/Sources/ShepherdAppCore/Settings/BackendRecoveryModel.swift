@@ -2,7 +2,7 @@ import Foundation
 import Observation
 import ShepherdKit
 
-public struct BackendRecoveryReads: Sendable {
+struct BackendRecoveryReads: Sendable {
     var health: @Sendable () async -> Bool?
     var diagnostics: @Sendable () async throws -> DiagnosticsSnapshot
 }
@@ -65,13 +65,13 @@ public struct BackendRecoveryReads: Sendable {
     public func diagnosis(for closure: PTYConnection.Closure?) -> BackendFailure {
         BackendRecovery.classify(serverReachable: serverReachable, diagnostics: diagnostics, closure: closure)
     }
-    public func receive(_ event: ServerEvent) {
+    func receive(_ event: ServerEvent) {
         guard !stopped, case .unknown(let name, let data) = event,
               name == "diagnostics:status", let data,
               let snapshot = try? JSONDecoder().decode(DiagnosticsSnapshot.self, from: data) else { return }
         replaceDiagnostics(snapshot)
     }
-    public func replaceDiagnostics(_ snapshot: DiagnosticsSnapshot) {
+    func replaceDiagnostics(_ snapshot: DiagnosticsSnapshot) {
         guard !stopped else { return }
         generation &+= 1
         diagnostics = snapshot

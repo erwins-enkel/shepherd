@@ -56,8 +56,10 @@ final class IsolatedUITestHarness {
         let fileManager = FileManager.default
         let root = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
         let rootValues = try root.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
-        guard root.standardizedFileURL.path == "/private/tmp",
-              rootValues.isDirectory == true,
+        // `standardizedFileURL` canonicalizes this system temp root to `/tmp` on macOS even
+        // though it is not a symbolic link, so validate the resource type without comparing
+        // its canonical spelling.
+        guard rootValues.isDirectory == true,
               rootValues.isSymbolicLink != true
         else {
             throw CocoaError(.fileNoSuchFile)

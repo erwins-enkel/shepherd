@@ -1,6 +1,13 @@
 /** Source identity accounting; never evaluates Swift conditional compilation. */
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { execFileSync } from "node:child_process";
 
@@ -746,8 +753,6 @@ if (import.meta.main) {
   const current = collectTests(root);
   if (!current.length) throw new Error("no test declarations found");
   if (mode[0] === "--capture") {
-    if (existsSync(baselinePath) || existsSync(mapPath))
-      throw new Error("baseline/map already exist; immutable capture refused");
     const sourceSHA = execFileSync("git", ["rev-parse", "HEAD"], {
       cwd: root,
       encoding: "utf8",
@@ -759,26 +764,37 @@ if (import.meta.main) {
     );
     if (dirty.trim()) throw new Error("test sources must be clean for capture");
     mkdirSync(dirname(baselinePath), { recursive: true });
-    writeFileSync(baselinePath, JSON.stringify({ sourceSHA, tests: current }, null, 2) + "\n", {
-      flag: "wx",
-    });
-    writeFileSync(
-      mapPath,
-      JSON.stringify(
-        {
-          mappings: current.map((t) => ({
-            oldID: identity(t),
-            destinations: [identity(t)],
-            reason: "retained",
-            assertionChanges: [],
-          })),
-          added: [],
-        },
-        null,
-        2,
-      ) + "\n",
-      { flag: "wx" },
-    );
+    let createdMap = false;
+    try {
+      // Create the map first: if it already exists, the baseline is untouched. If the baseline
+      // collides after the map was created, remove only that just-created map before refusing.
+      writeFileSync(
+        mapPath,
+        JSON.stringify(
+          {
+            mappings: current.map((t) => ({
+              oldID: identity(t),
+              destinations: [identity(t)],
+              reason: "retained",
+              assertionChanges: [],
+            })),
+            added: [],
+          },
+          null,
+          2,
+        ) + "\n",
+        { flag: "wx" },
+      );
+      createdMap = true;
+      writeFileSync(baselinePath, JSON.stringify({ sourceSHA, tests: current }, null, 2) + "\n", {
+        flag: "wx",
+      });
+    } catch (error) {
+      if (createdMap) unlinkSync(mapPath);
+      if ((error as NodeJS.ErrnoException).code === "EEXIST")
+        throw new Error("baseline/map already exist; immutable capture refused", { cause: error });
+      throw error;
+    }
   }
   const baseline = JSON.parse(readFileSync(baselinePath, "utf8")) as {
     sourceSHA: string;

@@ -376,22 +376,26 @@ final class LiveSmokeUITests: XCTestCase {
                 clicks += 1
                 if attempt == 1 {
                     logTabSelectionSnapshot(
-                        phase: "before", index: index, attempt: attempt, method: "element", targetFrame: frame)
+                        phase: "before", index: index, attempt: attempt, method: "element", targetFrame: frame,
+                        bodyIdentifiers: bodyIdentifiers)
                     button.click()
                     logTabSelectionSnapshot(
-                        phase: "after", index: index, attempt: attempt, method: "element", targetFrame: frame)
+                        phase: "after", index: index, attempt: attempt, method: "element", targetFrame: frame,
+                        bodyIdentifiers: bodyIdentifiers)
                 } else if frame.origin.x.isFinite, frame.origin.y.isFinite,
                           frame.width.isFinite, frame.height.isFinite,
                           frame.width > 0, frame.height > 0 {
                     logTabSelectionSnapshot(
-                        phase: "before", index: index, attempt: attempt, method: "center", targetFrame: frame)
-                    button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+                        phase: "before", index: index, attempt: attempt, method: "left-inside", targetFrame: frame,
+                        bodyIdentifiers: bodyIdentifiers)
+                    button.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).click()
                     logTabSelectionSnapshot(
-                        phase: "after", index: index, attempt: attempt, method: "center", targetFrame: frame)
+                        phase: "after", index: index, attempt: attempt, method: "left-inside", targetFrame: frame,
+                        bodyIdentifiers: bodyIdentifiers)
                 }
                 // A missed AX click can report success before AppKit has selected its tab.
                 // Require the target's native selected value and expected body, then retry the
-                // same tab at its center once inside the original deadline.
+                // same tab at a left-inside point once inside the original deadline.
                 nextClick = Date().addingTimeInterval(2)
             }
             if index < buttons.count, buttons[index].exists, buttons[index].isHittable,
@@ -425,16 +429,21 @@ final class LiveSmokeUITests: XCTestCase {
 
     /// Logs fixed, non-content state before and after each bounded tab-hit attempt.
     private func logTabSelectionSnapshot(
-        phase: String, index: Int, attempt: Int, method: String, targetFrame: CGRect
+        phase: String, index: Int, attempt: Int, method: String, targetFrame: CGRect,
+        bodyIdentifiers: [String]
     ) {
         let states = tabButtons.prefix(8).enumerated().map { tabIndex, tab in
             "\(tabIndex):\(nativeTabValueClass(tab.value))"
         }.joined(separator: ",")
+        let bodyStates = phase == "after" ? bodyIdentifiers.enumerated().map { bodyIndex, identifier in
+            "\(bodyIndex):\(app.descendants(matching: .any)[identifier].exists)"
+        }.joined(separator: ",") : ""
         print(
             "[tab-selection] phase=\(phase) index=\(index) attempt=\(attempt) method=\(method) "
                 + "windows=\(app.windows.count) foreground=\(app.state == .runningForeground) "
                 + "targetFrame=(x=\(targetFrame.origin.x),y=\(targetFrame.origin.y),w=\(targetFrame.width),h=\(targetFrame.height)) "
-                + "states=[\(states)]")
+                + "states=[\(states)]"
+                + (bodyStates.isEmpty ? "" : " bodies=[\(bodyStates)]"))
     }
 
     /// Returns only the observed native tab-state representations; never parses arbitrary text.

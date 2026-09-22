@@ -22,7 +22,9 @@ def source_inventory(directory, suite_filter=None):
     expected = []
     for path in sorted(Path(directory).glob("*.swift")):
         source = path.read_text()
-        suites = re.findall(r"(?:final\s+)?(?:class|struct)\s+(\w+)(?:\s*:\s*XCTestCase)?\s*\{", source)
+        suites = re.findall(r"^(?:final\s+)?class\s+(\w+)\s*:\s*XCTestCase\s*\{", source, re.MULTILINE)
+        if not suites and "@Test" in source:
+            suites = re.findall(r"^struct\s+(\w+)\s*\{", source, re.MULTILINE)
         methods = re.findall(r"\bfunc\s+(test\w+)\s*\(\s*\)", source)
         methods += re.findall(r"@Test(?:\([^\n]*\))?\s*(?:@MainActor\s*)?func\s+(\w+)\s*\(\s*\)", source)
         if not methods:

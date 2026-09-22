@@ -18,4 +18,30 @@ final class IOSSessionViewTests: XCTestCase {
         XCTAssertNotEqual(DetailTaskKey(session: "same", model: first), DetailTaskKey(session: "same", model: second))
         XCTAssertEqual(SessionStatusStyle.label(.init(unknown: "future")), "FUTURE")
     }
+    func testFailedForegroundActivityRetriesOnLiveRecovery() async {
+        var reads = 0
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.activity = { _ in
+            reads += 1
+            if reads == 1 { throw ShepherdError.unauthenticated }
+            return []
+        }
+        let detail = DetailModel(loaders: loaders)
+        let recovery = IOSVisibleActivityRecovery(detail: detail, selectedID: { "s1" }, isCurrent: { true })
+        await recovery.reloadVisibleActivityIfNeeded()
+        XCTAssertNotNil(detail.activity["s1"]?.failure)
+        await recovery.reloadVisibleActivityIfNeeded()
+        XCTAssertEqual(detail.activity["s1"], .ready([]))
+        XCTAssertEqual(reads, 2)
+    }
+    func testSupersededActivationCannotRecover() async {
+        var reads = 0
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.activity = { _ in reads += 1; return [] }
+        let detail = DetailModel(loaders: loaders)
+        let recovery = IOSVisibleActivityRecovery(detail: detail, selectedID: { "s1" }, isCurrent: { false })
+        await recovery.reloadVisibleActivityIfNeeded()
+        XCTAssertEqual(reads, 0)
+    }
+
 }

@@ -523,6 +523,10 @@
 "native_install_open_existing" = "Open installed Shepherd";
 "native_install_title" = "Move Shepherd to Applications?";
 "native_interrupt_failed" = "Could not interrupt the session: %1$@";
+"native_ios_connecting" = "Connecting…";
+"native_ios_first_run" = "Complete server setup in the web app, then retry.";
+"native_ios_remove_body" = "This removes the saved sign-in from this device. Server-side revocation is not confirmed.";
+"native_ios_welcome_subtitle" = "Connect to a Shepherd server to follow your sessions.";
 "native_local_connect" = "Sign in";
 "native_local_error_bun_missing" = "Bun was not found. Choose Install and start to provision it, then check the log if installation fails.";
 "native_local_error_crash_loop" = "The server crashed %1$@ times in a row. Open the log to see why.";

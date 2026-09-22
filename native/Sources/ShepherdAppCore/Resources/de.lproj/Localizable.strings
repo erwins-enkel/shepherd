@@ -523,6 +523,10 @@
 "native_install_open_existing" = "Installiertes Shepherd öffnen";
 "native_install_title" = "Shepherd nach Programme verschieben?";
 "native_interrupt_failed" = "Session konnte nicht unterbrochen werden: %1$@";
+"native_ios_connecting" = "Verbinde…";
+"native_ios_first_run" = "Schließe die Servereinrichtung in der Web-App ab und versuche es erneut.";
+"native_ios_remove_body" = "Die gespeicherte Anmeldung wird von diesem Gerät entfernt. Der serverseitige Widerruf ist nicht bestätigt.";
+"native_ios_welcome_subtitle" = "Verbinde dich mit einem Shepherd-Server, um deine Sitzungen zu verfolgen.";
 "native_local_connect" = "Anmelden";
 "native_local_error_bun_missing" = "Bun wurde nicht gefunden. Wähle „Installieren und starten“, um es einzurichten, und prüfe bei Installationsfehlern das Protokoll.";
 "native_local_error_crash_loop" = "Der Server ist %1$@-mal hintereinander abgestürzt. Öffne das Log, um zu sehen, warum.";

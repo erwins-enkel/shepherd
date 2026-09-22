@@ -8,6 +8,8 @@ from pathlib import Path
 import re
 import sys
 
+sys.dont_write_bytecode = True
+
 spec = importlib.util.spec_from_file_location("core_results", Path(__file__).with_name("check-core-results.py"))
 core = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(core)

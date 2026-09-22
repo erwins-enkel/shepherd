@@ -299,7 +299,7 @@
         "line": 40,
         "attributes": "@testable\n@Suite(.serialized, .timeLimit(.minutes(1)))\n@Test",
         "condition": "#if os(macOS)",
-        "bodyHash": "694c4c92c9c8242dd3e8a5b539f0125798a61963649f72d4e48a5412f038590a",
+        "bodyHash": "a48106c15ab3e937a569b6170afda1c2599790b9a6290e704745763bf32da302",
         "assertionHashes": [
           "33376c6f227a95d044bc81019e4e580d0567e1cf3288ef51ea802edd8cfb7162",
           "967da76491d285b1499dd2f2b6d70b88d38157c044b449866d0c17300be90b31",
@@ -323,7 +323,7 @@
           "ea8847f6b84d72cfa1edf5e0a4befa2c7e8ed4efcc0b44bb2064f97f28faa38a"
         ]
       },
-      "reason": "Pinned upstream test retains identical assertion tokens and conditional context; its fake daemon writes the readiness marker with a shell builtin and emits bounded failure-only readiness/call-order diagnostics."
+      "reason": "Pinned upstream test retains identical assertion tokens and conditional context; its fake CLI returns the first probe offline, then paces the later real probe until the fake daemon writes readiness, preserving default launch/probe ordering without a scheduler race."
     },
     {
       "original": null,

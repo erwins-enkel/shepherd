@@ -47,7 +47,21 @@ import Testing
     let script = """
     #!/bin/bash
     printf '%s|%s\\n' "$1" "$HERDR_SOCKET_PATH" >> "$HOME/socket-calls"
-    if [ "$1" = agent ]; then test -f "$HERDR_SOCKET_PATH.ready"; exit $?; fi
+    if [ "$1" = agent ]; then
+      if [ ! -f "$HERDR_SOCKET_PATH.first-probe" ]; then
+        : > "$HERDR_SOCKET_PATH.first-probe"
+        exit 1
+      fi
+      # The real probe owns the authoritative 1.5s cancellation/kill bound.
+      # This secondary pacing cap prevents a failed fixture from spinning.
+      attempts=0
+      while [ ! -f "$HERDR_SOCKET_PATH.ready" ] && [ "$attempts" -lt 140 ]; do
+        sleep 0.01
+        attempts=$((attempts + 1))
+      done
+      test -f "$HERDR_SOCKET_PATH.ready"
+      exit $?
+    fi
     if [ "$1" = server ]; then : > "$HERDR_SOCKET_PATH.ready"; fi
     """
     for name in ["bun", "herdr"] {

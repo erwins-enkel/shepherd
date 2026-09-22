@@ -9,7 +9,6 @@
   import InstrumentToggle from "./InstrumentToggle.svelte";
   import GuardTimeline from "./GuardTimeline.svelte";
   import type { GuardRepoConfig } from "$lib/guard-timeline";
-  import type { ComposeMode } from "$lib/keymap/types";
   import {
     AGENT_PROVIDERS,
     type AgentProvider,
@@ -37,7 +36,6 @@
     autopilot,
     modeLocked,
     sandboxLocked,
-    mode,
     planGateLoading,
     autopilotLoading,
     planGateDefault,
@@ -71,12 +69,10 @@
     sandboxProfile: "default" | SandboxProfile;
     planGate: boolean;
     autopilot: boolean;
-    /** Any non-code mode: the guard toggles give way to a sentence naming why there are none. */
+    /** Any non-code mode: that mode has no guards, so the whole guards block is omitted. */
     modeLocked: boolean;
     /** Research/epic mode: the autonomous sandbox is locked (they need open web egress). */
     sandboxLocked: boolean;
-    /** Which mode is selected — picks the no-guards sentence while `modeLocked`. */
-    mode: ComposeMode;
     planGateLoading: boolean;
     autopilotLoading: boolean;
     planGateDefault: boolean;
@@ -268,22 +264,17 @@
   </div>
 </div>
 
-<div class="rule"></div>
+<!-- Guards are a Code-mode concern, so a non-code mode omits the block entirely —
+     heading and divider included. #2333 kept the heading and answered "why none?" with a
+     sentence; a section for a setting the mode does not have earns no screen space at
+     all. Each mode segment's hover text says what that mode does instead.
+     The newtask_guards_none_* strings stay in the catalogs: the native macOS compose
+     surface (ComposeModel.guardExplanation) still renders them. -->
+{#if !modeLocked}
+  <div class="rule"></div>
 
-<div class="group">
-  <span class="group-label">{m.newtask_group_guards()}</span>
-  <!-- Guards are a Code-mode concern. Every non-code mode replaces the toggles (and the
-       timeline they drive) with one sentence saying why there are none — a greyed-out
-       switch would only raise the question the sentence answers. -->
-  {#if modeLocked}
-    <p class="field-note">
-      {mode === "plain"
-        ? m.newtask_guards_none_plain()
-        : mode === "research"
-          ? m.newtask_guards_none_research()
-          : m.newtask_guards_none_epic()}
-    </p>
-  {:else}
+  <div class="group">
+    <span class="group-label">{m.newtask_group_guards()}</span>
     <div class="guards">
       <div use:coachTarget={"plan-gate"}>
         <InstrumentToggle
@@ -318,8 +309,8 @@
         repo={guardRepo}
       />
     </div>
-  {/if}
-</div>
+  </div>
+{/if}
 
 <style>
   .group {

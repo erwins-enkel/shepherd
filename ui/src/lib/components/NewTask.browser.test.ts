@@ -249,6 +249,11 @@ const switchByLabel = (label: string) =>
 const planGateSwitch = () => switchByLabel(glossLabel(m.newtask_guard_plan_gate()));
 const autopilotSwitch = () => switchByLabel(glossLabel(m.newtask_guard_autopilot()));
 const isOn = (sw: HTMLButtonElement | undefined) => sw?.getAttribute("aria-checked") === "true";
+// The GUARDS group as a whole — a mode without guards must not render it at all.
+const guardsGroup = () =>
+  Array.from(document.querySelectorAll<HTMLElement>(".group-label")).find(
+    (el) => el.textContent?.trim() === m.newtask_group_guards(),
+  );
 const segButton = (label: string) =>
   Array.from(document.querySelectorAll<HTMLButtonElement>(".seg-btn")).find(
     (el) => el.textContent?.trim() === label,
@@ -1271,30 +1276,39 @@ describe("NewTask research mode (segmented control)", () => {
     expect(segActive(m.newtask_mode_code())).toBe(true);
   });
 
-  it("toggling Research on unchecks plan-gate", async () => {
+  it("toggling Research on clears plan-gate and submits it off", async () => {
     const repoPath = "/repo/research-clears-plangate";
     mockGetRepoConfig.mockResolvedValue(repoConfig(true));
-    render(NewTask, { props: base({ initialRepoPath: repoPath }) });
+    const onsubmit = vi.fn();
+    render(NewTask, { props: base({ onsubmit, initialRepoPath: repoPath }) });
 
     // wait for plan-gate to reflect repo default
     await expect.poll(() => isOn(planGateBox())).toBe(true);
 
     researchSeg().click();
     await expect.poll(() => segActive(m.newtask_mode_research())).toBe(true);
-    await expect.poll(() => isOn(planGateBox())).toBe(false);
+    // The switch is gone with the block, so the cleared value only shows in the payload.
+    await expect.poll(() => planGateBox()).toBeUndefined();
+    await fillAndSubmit();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ planGateEnabled: false });
   });
 
-  it("toggling Research on unchecks Autopilot", async () => {
+  it("toggling Research on clears Autopilot and submits it off", async () => {
     const repoPath = "/repo/research-clears-autopilot";
     mockGetRepoConfig.mockResolvedValue({ ...repoConfig(false), autopilotEnabled: true });
-    render(NewTask, { props: base({ initialRepoPath: repoPath }) });
+    const onsubmit = vi.fn();
+    render(NewTask, { props: base({ onsubmit, initialRepoPath: repoPath }) });
 
     // box mirrors the autopilot-ON default once config settles
     await expect.poll(() => isOn(autopilotBox())).toBe(true);
 
     researchSeg().click();
     await expect.poll(() => segActive(m.newtask_mode_research())).toBe(true);
-    await expect.poll(() => isOn(autopilotBox())).toBe(false);
+    await expect.poll(() => autopilotBox()).toBeUndefined();
+    await fillAndSubmit();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ autopilotEnabled: false });
   });
 
   it("keeps Autopilot unchecked after a repo switch (touched pin survives)", async () => {
@@ -1339,7 +1353,6 @@ describe("NewTask research mode (segmented control)", () => {
 
     // with autopilotTouched pinned, the re-seed $effect must NOT flip it back on
     await expect.poll(() => segActive(m.newtask_mode_research())).toBe(true);
-    await expect.poll(() => isOn(autopilotBox())).toBe(false);
 
     // backstop: submit carries explicit false (not null) — proves the touched pin held
     await fillAndSubmit();
@@ -1351,17 +1364,18 @@ describe("NewTask research mode (segmented control)", () => {
     render(NewTask, { props: base() });
     await expect.poll(() => researchSeg()).toBeTruthy();
 
-    // Research on → both rows give way to the no-guards sentence (nothing greyed out to
-    // wonder about)
+    // Research on → the whole block goes, heading included (nothing to wonder about)
+    expect(guardsGroup()).toBeTruthy();
     researchSeg().click();
     await expect.poll(() => segActive(m.newtask_mode_research())).toBe(true);
-    await expect.poll(() => planGateBox()).toBeUndefined();
-    await expect.poll(() => autopilotBox()).toBeUndefined();
-    await expect.element(page.getByText(m.newtask_guards_none_research())).toBeInTheDocument();
+    await expect.poll(() => guardsGroup()).toBeUndefined();
+    expect(planGateBox()).toBeUndefined();
+    expect(autopilotBox()).toBeUndefined();
 
-    // back to Code → both rows return, enabled (values stay pinned off — checkbox parity)
+    // back to Code → the block returns, enabled (values stay pinned off — checkbox parity)
     codeSeg().click();
     await expect.poll(() => segActive(m.newtask_mode_code())).toBe(true);
+    await expect.poll(() => guardsGroup()).toBeTruthy();
     await expect.poll(() => planGateBox()?.disabled).toBe(false);
     await expect.poll(() => autopilotBox()?.disabled).toBe(false);
   });
@@ -3062,7 +3076,7 @@ describe("NewTask mode segments payload parity", () => {
     await expect.poll(() => isOn(planGateSwitch())).toBe(true);
 
     segButton(m.newtask_mode_research()).click();
-    await expect.poll(() => isOn(planGateSwitch())).toBe(false);
+    await expect.poll(() => guardsGroup()).toBeUndefined();
     segButton(m.newtask_mode_code()).click();
     await expect.poll(() => segActive(m.newtask_mode_code())).toBe(true);
     // Parity with unchecking the old Research checkbox: the guards stay off + pinned.
@@ -5196,24 +5210,27 @@ describe("NewTask plain mode", () => {
     expect(onsubmit.mock.calls[0]![0].launchUiState).toMatchObject({ plainChecked: true });
   });
 
-  it("replaces the guard switches with a per-mode sentence in every non-code mode", async () => {
+  it("omits the whole guards block in every non-code mode", async () => {
     render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo/mode-plain-guards" } });
     await expect.poll(() => plainSeg()).toBeTruthy();
     expect(guardSwitches().length).toBe(2);
+    expect(guardsGroup()).toBeTruthy();
 
     plainSeg().click();
-    await expect.poll(() => guardSwitches().length).toBe(0);
-    await expect.element(page.getByText(m.newtask_guards_none_plain())).toBeInTheDocument();
+    await expect.poll(() => guardsGroup()).toBeUndefined();
+    expect(guardSwitches().length).toBe(0);
 
     segButton(m.newtask_mode_research()).click();
-    await expect.element(page.getByText(m.newtask_guards_none_research())).toBeInTheDocument();
+    await expect.poll(() => guardsGroup()).toBeUndefined();
     expect(guardSwitches().length).toBe(0);
 
     segButton(m.newtask_mode_epic()).click();
-    await expect.element(page.getByText(m.newtask_guards_none_epic())).toBeInTheDocument();
+    await expect.poll(() => guardsGroup()).toBeUndefined();
+    expect(guardSwitches().length).toBe(0);
 
     segButton(m.newtask_mode_code()).click();
-    await expect.poll(() => guardSwitches().length).toBe(2);
+    await expect.poll(() => guardsGroup()).toBeTruthy();
+    expect(guardSwitches().length).toBe(2);
   });
 
   it("a /design prompt pre-selects plain until the operator picks a mode", async () => {

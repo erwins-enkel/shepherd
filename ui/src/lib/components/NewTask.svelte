@@ -1891,11 +1891,16 @@
             onclick={() => (activeSheet = "engine")}
           >
             <span class="ctx-dim"
-              >{agentProvider === "codex" ? m.agent_provider_codex() : m.agent_provider_claude()} ·
-            </span>
-            <span class="es-gate" class:on={planGate}
-              >{planGate ? m.newtask_gate_on() : m.newtask_gate_off()}</span
+              >{agentProvider === "codex"
+                ? m.agent_provider_codex()
+                : m.agent_provider_claude()}{modeLocked ? "" : " · "}</span
             >
+            <!-- No gate readout in a mode that has no guards — see RunSettingsGroups. -->
+            {#if !modeLocked}
+              <span class="es-gate" class:on={planGate}
+                >{planGate ? m.newtask_gate_on() : m.newtask_gate_off()}</span
+              >
+            {/if}
             <span class="chev" aria-hidden="true">▾</span>
           </button>
         </span>
@@ -2322,10 +2327,12 @@
               <span class="es-label">{m.newtask_group_engine()}</span>
               <span class="es-value">
                 {agentProvider === "codex" ? m.agent_provider_codex() : m.agent_provider_claude()}
-                · {modelSummary} ·
-                <span class="es-gate" class:on={planGate}
-                  >{planGate ? m.newtask_gate_on() : m.newtask_gate_off()}</span
-                >
+                · {modelSummary}{#if !modeLocked}
+                  ·
+                  <span class="es-gate" class:on={planGate}
+                    >{planGate ? m.newtask_gate_on() : m.newtask_gate_off()}</span
+                  >
+                {/if}
               </span>
               <span class="chev" aria-hidden="true">▾</span>
             </button>
@@ -2736,7 +2743,6 @@
     {autopilot}
     {modeLocked}
     {sandboxLocked}
-    {mode}
     {planGateLoading}
     {autopilotLoading}
     {planGateDefault}

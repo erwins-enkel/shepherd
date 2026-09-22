@@ -375,17 +375,19 @@ final class LiveSmokeUITests: XCTestCase {
                 let frame = button.frame
                 clicks += 1
                 if attempt == 1 {
-                    logTabHit(
-                        index: index, attempt: attempt, method: "element", frame: frame,
-                        valueClass: nativeTabValueClass(button.value))
+                    logTabSelectionSnapshot(
+                        phase: "before", index: index, attempt: attempt, method: "element", targetFrame: frame)
                     button.click()
+                    logTabSelectionSnapshot(
+                        phase: "after", index: index, attempt: attempt, method: "element", targetFrame: frame)
                 } else if frame.origin.x.isFinite, frame.origin.y.isFinite,
                           frame.width.isFinite, frame.height.isFinite,
                           frame.width > 0, frame.height > 0 {
-                    logTabHit(
-                        index: index, attempt: attempt, method: "center", frame: frame,
-                        valueClass: nativeTabValueClass(button.value))
+                    logTabSelectionSnapshot(
+                        phase: "before", index: index, attempt: attempt, method: "center", targetFrame: frame)
                     button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+                    logTabSelectionSnapshot(
+                        phase: "after", index: index, attempt: attempt, method: "center", targetFrame: frame)
                 }
                 // A missed AX click can report success before AppKit has selected its tab.
                 // Require the target's native selected value and expected body, then retry the
@@ -421,12 +423,18 @@ final class LiveSmokeUITests: XCTestCase {
             && nativeTabValueClass(buttons[index].value) == "1" && expectedBody.exists
     }
 
-    /// Logs fixed, non-content evidence for the two bounded tab-hit attempts.
-    private func logTabHit(index: Int, attempt: Int, method: String, frame: CGRect, valueClass: String) {
+    /// Logs fixed, non-content state before and after each bounded tab-hit attempt.
+    private func logTabSelectionSnapshot(
+        phase: String, index: Int, attempt: Int, method: String, targetFrame: CGRect
+    ) {
+        let states = tabButtons.prefix(8).enumerated().map { tabIndex, tab in
+            "\(tabIndex):\(nativeTabValueClass(tab.value))"
+        }.joined(separator: ",")
         print(
-            "[DEBUG-tab-hit] index=\(index) attempt=\(attempt) method=\(method) "
-                + "frame=(x=\(frame.origin.x),y=\(frame.origin.y),w=\(frame.width),h=\(frame.height)) "
-                + "valueClass=\(valueClass)")
+            "[tab-selection] phase=\(phase) index=\(index) attempt=\(attempt) method=\(method) "
+                + "windows=\(app.windows.count) foreground=\(app.state == .runningForeground) "
+                + "targetFrame=(x=\(targetFrame.origin.x),y=\(targetFrame.origin.y),w=\(targetFrame.width),h=\(targetFrame.height)) "
+                + "states=[\(states)]")
     }
 
     /// Returns only the observed native tab-state representations; never parses arbitrary text.

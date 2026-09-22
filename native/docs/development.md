@@ -100,6 +100,11 @@ Scope a run to just the UI smoke suite the same way:
 native/scripts/test-app.sh -only-testing:ShepherdUITests
 ```
 
+For unattended UI runs, the macOS Automation Mode tool is optional administrator-managed host
+setup. Read its status only from a normal logged-in macOS host context, not from a sandbox. The
+isolated detail-tab smoke test normalizes its window to safe fixed tab geometry before traversal
+when the display has room.
+
 ### Isolated launches
 
 Every automated launch of the app runs **isolated**, and the real app is unaffected: the switch is

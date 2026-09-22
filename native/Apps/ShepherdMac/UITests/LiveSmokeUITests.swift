@@ -374,28 +374,8 @@ final class LiveSmokeUITests: XCTestCase {
             if index < buttons.count, buttons[index].exists, buttons[index].isHittable,
                clicks < 2, Date() >= nextClick {
                 let button = buttons[index]
-                let attempt = clicks + 1
-                let frame = button.frame
                 clicks += 1
-                if attempt == 1 {
-                    logTabSelectionSnapshot(
-                        phase: "before", index: index, attempt: attempt, method: "element", targetFrame: frame,
-                        bodyIdentifiers: bodyIdentifiers)
-                    button.click()
-                    logTabSelectionSnapshot(
-                        phase: "after", index: index, attempt: attempt, method: "element", targetFrame: frame,
-                        bodyIdentifiers: bodyIdentifiers)
-                } else if frame.origin.x.isFinite, frame.origin.y.isFinite,
-                          frame.width.isFinite, frame.height.isFinite,
-                          frame.width > 0, frame.height > 0 {
-                    logTabSelectionSnapshot(
-                        phase: "before", index: index, attempt: attempt, method: "element-retry", targetFrame: frame,
-                        bodyIdentifiers: bodyIdentifiers)
-                    button.click()
-                    logTabSelectionSnapshot(
-                        phase: "after", index: index, attempt: attempt, method: "element-retry", targetFrame: frame,
-                        bodyIdentifiers: bodyIdentifiers)
-                }
+                button.click()
                 // A missed AX click can report success before AppKit has selected its tab.
                 // Require the target's native selected value and expected body, then retry the
                 // same tab once inside the original deadline.
@@ -430,10 +410,12 @@ final class LiveSmokeUITests: XCTestCase {
             && nativeTabValueClass(buttons[index].value) == "1" && expectedBody.exists
     }
 
-    /// Expands the isolated window once before the first tab query. AppKit uses a bottom-left
-    /// origin while AX uses top-left coordinates, so translate through the primary display before
-    /// selecting the display that contains this window. The bottom-right drag is the bounded,
-    /// no-key resize already used by the terminal smoke test.
+    /// Expands the isolated window once before the first tab query. At a 900-point window, the
+    /// rendered NSTabView labels were compressed while AX retained wider hit frames, progressively
+    /// sending later tab clicks rightward. AppKit uses a bottom-left origin while AX uses top-left
+    /// coordinates, so translate through the primary display before selecting the display that
+    /// contains this window. The bottom-right drag is the bounded, no-key resize used by the
+    /// terminal smoke test.
     private func normalizeTabWindowWidthIfNeeded(at index: Int) {
         guard index == 0, !didNormalizeTabWindow else { return }
         didNormalizeTabWindow = true
@@ -484,25 +466,6 @@ final class LiveSmokeUITests: XCTestCase {
         print(
             "[tab-window-normalization] outcome=drag-attempted width=\(frame.width) "
                 + "targetWidth=\(targetWidth) actualWidth=\(actualWidthText)")
-    }
-
-    /// Logs fixed, non-content state before and after each bounded tab-hit attempt.
-    private func logTabSelectionSnapshot(
-        phase: String, index: Int, attempt: Int, method: String, targetFrame: CGRect,
-        bodyIdentifiers: [String]
-    ) {
-        let states = tabButtons.prefix(8).enumerated().map { tabIndex, tab in
-            "\(tabIndex):\(nativeTabValueClass(tab.value))"
-        }.joined(separator: ",")
-        let bodyStates = phase == "after" ? bodyIdentifiers.enumerated().map { bodyIndex, identifier in
-            "\(bodyIndex):\(app.descendants(matching: .any)[identifier].exists)"
-        }.joined(separator: ",") : ""
-        print(
-            "[tab-selection] phase=\(phase) index=\(index) attempt=\(attempt) method=\(method) "
-                + "windows=\(app.windows.count) foreground=\(app.state == .runningForeground) "
-                + "targetFrame=(x=\(targetFrame.origin.x),y=\(targetFrame.origin.y),w=\(targetFrame.width),h=\(targetFrame.height)) "
-                + "states=[\(states)]"
-                + (bodyStates.isEmpty ? "" : " bodies=[\(bodyStates)]"))
     }
 
     /// Returns only the observed native tab-state representations; never parses arbitrary text.

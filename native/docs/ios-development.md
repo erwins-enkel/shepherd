@@ -46,13 +46,23 @@ and invalidate old selections and detail tasks.
 
 Only `native/scripts/live-ios-smoke.sh --config
 ~/.config/shepherd/codex/live-smoke.json`, wrapped in the same native lock, may read
-the operator-supplied live configuration. Ordinary CI never reads it. The live
+the operator-supplied live configuration. Its JSON fields are `baseURL` and
+`password`; the file must be owned by the current user and have mode `0600`.
+Ordinary CI never reads it. The live
 harness owns one uniquely named token, records ownership before activation, performs
 audited reads and verifies that the exact token receives HTTP 401 after revocation.
 An empty server cannot pass the detail gate. Missing cleanup proof fails the run.
 Do not print secrets, put them on command lines, upload live xcresults, or sweep
 tokens by a shared name. Production sign-out only confirms local removal because
 the current logout API does not reliably report remote revocation.
+
+The harness creates a private `0700` run directory. The isolated app atomically
+writes a `0600` handoff containing `runID`, `tokenID`, `token` and `baseURL` before
+activation; UI/status records contain no token. The verifier checks run and origin
+ownership, rejects redirects, revokes only that ID, then probes the authenticated
+sessions route. Verified cleanup deletes the token handoff. Unverified cleanup
+retains private evidence and reports an unmet gate with the nonsecret run ID.
+Never publish those private diagnostics or xcresults as CI artifacts.
 
 ## Adaptive and Duo validation
 

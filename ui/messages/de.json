@@ -4538,5 +4538,9 @@
   "topbar_codex_reset_outcome_nothingToReset": "Codex kann das Kontingent noch nicht zurücksetzen",
   "topbar_codex_reset_outcome_noCredit": "Kein Reset-Guthaben verfügbar",
   "topbar_codex_reset_feature_title": "Automatische Codex-Resets",
-  "topbar_codex_reset_feature_body": "Verdiente Resets im Nutzungspanel ansehen, manuell einlösen oder Kapazitätsschutz und sinnvolle Einlösung vor Verfall aktivieren. Automatische Arbeit wartet bei fehlender Kapazität."
+  "topbar_codex_reset_feature_body": "Verdiente Resets im Nutzungspanel ansehen, manuell einlösen oder Kapazitätsschutz und sinnvolle Einlösung vor Verfall aktivieren. Automatische Arbeit wartet bei fehlender Kapazität.",
+  "gearmenu_mac_app": "Native macOS App",
+  "gearmenu_mac_app_download": "Downloads",
+  "feat_mac_app_download_title": "Mac-App-Downloads im Einstellungsmenü",
+  "feat_mac_app_download_body": "Auf einem Mac findest du im Einstellungsmenü unter Native macOS App die verfügbaren Mac-Versionen zum Herunterladen. Auf anderen Geräten bleibt der Eintrag ausgeblendet."
 }

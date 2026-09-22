@@ -4,6 +4,8 @@ export const REPO = "erwins-enkel/shepherd";
 export const REPO_URL = `https://github.com/${REPO}`;
 // Hosted documentation site — distinct from REPO_URL (the GitHub source/README).
 export const DOCS_URL = "https://docs.shepherd.run/";
+// Mac builds are published separately from the server releases.
+export const MAC_APP_DOWNLOAD_URL = `${REPO_URL}/releases?q=macos-`;
 // Public Chrome Web Store listing for the Shepherd Capture extension. The extension
 // ID in this URL is the SAME published id as `SHEPHERD_CAPTURE_EXTENSION_ID` in
 // src/config.ts — which is the CANONICAL origin/allowlist source (the server appends

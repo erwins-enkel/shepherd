@@ -4538,5 +4538,9 @@
   "topbar_codex_reset_outcome_nothingToReset": "Codex has no allowance to reset yet",
   "topbar_codex_reset_outcome_noCredit": "No reset credit available",
   "topbar_codex_reset_feature_title": "Codex reset automation",
-  "topbar_codex_reset_feature_body": "See earned resets in the usage panel, redeem one manually or enable capacity protection and useful redemption before expiry. Automatic work waits when capacity is unavailable."
+  "topbar_codex_reset_feature_body": "See earned resets in the usage panel, redeem one manually or enable capacity protection and useful redemption before expiry. Automatic work waits when capacity is unavailable.",
+  "gearmenu_mac_app": "Native macOS App",
+  "gearmenu_mac_app_download": "Downloads",
+  "feat_mac_app_download_title": "Mac app downloads in the gear menu",
+  "feat_mac_app_download_body": "On a Mac, open the gear menu and choose Native macOS App to find the available Mac releases. The entry stays hidden on other devices."
 }

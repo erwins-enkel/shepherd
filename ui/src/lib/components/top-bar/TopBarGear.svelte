@@ -1,9 +1,10 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { m } from "$lib/paraglide/messages";
-  import { DOCS_URL } from "$lib/build-info";
+  import { DOCS_URL, MAC_APP_DOWNLOAD_URL } from "$lib/build-info";
   import type { FeedbackKind } from "$lib/feedback-link";
   import type { UsageLimits } from "$lib/types";
-  import { isMacPlatform } from "$lib/platform";
+  import { isMacPlatform, isMacOSPlatform } from "$lib/platform";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { settingsChordHint } from "../herd-keynav";
   import type { GaugeKey } from "../usage-gauges";
@@ -97,6 +98,10 @@
   } = $props();
 
   const chordHint = settingsChordHint(isMacPlatform());
+  let showMacApp = $state(false);
+  onMount(() => {
+    showMacApp = isMacOSPlatform();
+  });
 
   // Clamp the popover to the space below its anchor (the gear sits near the viewport
   // top, so no flip-up branch). Direct resize handling — a transient 300px popover
@@ -214,6 +219,15 @@
           />
         {/if}
         <GearRow glyph="↗" label={m.topbar_docs()} href={DOCS_URL} onclick={closeMenu} />
+        {#if showMacApp}
+          <GearRow
+            glyph="↓"
+            label={m.gearmenu_mac_app()}
+            meta={m.gearmenu_mac_app_download()}
+            href={MAC_APP_DOWNLOAD_URL}
+            onclick={closeMenu}
+          />
+        {/if}
       </div>
 
       <!-- Plugins group: dynamic — one row per installed plugin with a gear item. -->

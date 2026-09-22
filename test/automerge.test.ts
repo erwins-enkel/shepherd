@@ -969,3 +969,15 @@ test("an in-flight async merge neither settles the session nor records a failure
     "merge_error",
   );
 });
+
+test("Codex capacity: automatic rebase waits without consuming attempt budget", async () => {
+  let free = false;
+  const d = deps({ capacity: async () => free, worktree: { behindBase: async () => true } as any });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  expect(d.service.reply).not.toHaveBeenCalled();
+  expect(d.store.setAutoMergeState).not.toHaveBeenCalled();
+  free = true;
+  await svc.pump("/r");
+  expect(d.service.reply).toHaveBeenCalledTimes(1);
+});

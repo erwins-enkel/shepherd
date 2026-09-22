@@ -9224,3 +9224,74 @@ test("createSession: plain suppresses plan gate, autopilot and build queue even 
   expect(prompt).not.toContain("<single-pr-invariant>");
   expect(calls.start.argv).not.toContain("--mcp-config");
 });
+
+test("Codex capacity: blocked automatic reply sends no partial paste or Enter", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+    agentProvider: "codex",
+  });
+  let free = false;
+  const sent: string[] = [];
+  const svc = new SessionService({
+    store,
+    capacity: async () => free,
+    namer: async () => "x",
+    worktree: {} as any,
+    herdr: {
+      list: () => [{ terminalId: "term_z" }],
+      send: async (_id: string, text: string) => {
+        sent.push(text);
+      },
+    } as any,
+  });
+  expect(await svc.reply(s.id, "continue", { automatic: true })).toBe(false);
+  expect(sent).toHaveLength(0);
+  free = true;
+  expect(await svc.reply(s.id, "continue", { automatic: true })).toBe(true);
+  expect(sent).toHaveLength(2);
+});
+
+test("Codex capacity review: manual replies bypass automatic protection", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+    agentProvider: "codex",
+  });
+  let checks = 0;
+  const sent: string[] = [];
+  const svc = new SessionService({
+    store,
+    capacity: async () => {
+      checks++;
+      return false;
+    },
+    namer: async () => "x",
+    worktree: {} as any,
+    herdr: {
+      list: () => [{ terminalId: "term_z" }],
+      send: async (_id: string, t: string) => {
+        sent.push(t);
+      },
+    } as any,
+  });
+  expect(await svc.reply(s.id, "my instruction")).toBe(true);
+  expect(checks).toBe(0);
+  expect(sent).toHaveLength(2);
+});

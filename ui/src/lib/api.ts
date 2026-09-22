@@ -1081,6 +1081,30 @@ export async function getUsageTimeline(range: UsageRange): Promise<UsageTimeline
   return r.json();
 }
 
+export async function redeemCodexReset(
+  requestId: string,
+): Promise<import("./types").CodexResetStatus> {
+  const r = await fetch("/api/usage/codex/reset", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ requestId }),
+  });
+  if (!r.ok) throw await failed(r, "codex-reset");
+  return r.json();
+}
+
+export async function setCodexResetAutomation(
+  enabled: boolean,
+): Promise<import("./types").CodexResetStatus> {
+  const r = await fetch("/api/usage/codex/automation", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!r.ok) throw await failed(r, "codex-reset-automation");
+  return r.json();
+}
+
 export async function refreshUsage(): Promise<UsageLimits> {
   const r = await fetch("/api/usage/refresh", { method: "POST" });
   if (!r.ok) throw await failed(r, "refresh");

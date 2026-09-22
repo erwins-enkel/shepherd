@@ -3544,3 +3544,59 @@ for (const provider of ["claude", "codex"] as const) {
     }
   }
 }
+
+test("Codex capacity: plan review waits before allocating or spending a review round", async () => {
+  let free = false;
+  const h = harness({
+    env: () => ({ provider: "codex", model: null, effort: null }),
+    capacity: async () => free,
+  });
+  await h.svc.consider(planningSession() as any);
+  expect(h.started).toHaveLength(0);
+  expect(h.recordedSpawns).toHaveLength(0);
+  free = true;
+  await h.svc.consider(planningSession() as any);
+  expect(h.started).toHaveLength(1);
+});
+
+test("Codex capacity: pending plan findings revalidate hash and round before one delivery", async () => {
+  const hash = await PlanGateService.hashPlan("PLAN TEXT");
+  let delivered = 0;
+  const gate: any = {
+    sessionId: "s1",
+    planHash: hash,
+    round: 1,
+    findings: ["fix"],
+    decision: "request-changes",
+    approved: false,
+  };
+  const h = harness({
+    store: { getPlanGate: () => gate, putPlanGate: (next: any) => Object.assign(gate, next) },
+    reply: async () => {
+      delivered++;
+      return true;
+    },
+  });
+  const s = planningSession() as any;
+  await h.svc.resumeCapacity(s, `${hash}:1`);
+  await h.svc.resumeCapacity(s, `${hash}:1`);
+  expect(delivered).toBe(1);
+  expect(gate.round).toBe(2);
+  await h.svc.resumeCapacity(s, "old-hash:2");
+  expect(delivered).toBe(1);
+});
+
+test("Codex capacity: an interrupted plan helper is reaped without an error verdict", async () => {
+  let now = 1000;
+  const h = harness({
+    env: () => ({ provider: "codex", model: null, effort: null }),
+    now: () => now,
+    capacityInterrupted: async () => true,
+  });
+  await h.svc.consider(planningSession() as any);
+  now += 60_000;
+  await h.svc.tick();
+  expect(h.store.gate).toBeUndefined();
+  expect(h.completedSpawns).toHaveLength(1);
+  expect(h.removed).toHaveLength(1);
+});

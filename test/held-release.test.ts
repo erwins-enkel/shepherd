@@ -334,3 +334,45 @@ test("capacity-last: failing capacity task does not block releasable usage task 
   // c1 still queued
   expect(rowsCopy.some((r) => r.id === "c1")).toBe(true);
 });
+
+test("Codex capacity: held Codex work does not block a free Claude task", async () => {
+  const deps = makeDeps([
+    { id: "cx", input: { ...makeInput("codex"), agentProvider: "codex" } },
+    { id: "cl", input: { ...makeInput("claude"), agentProvider: "claude" } },
+  ]);
+  deps.codexCapacity = async () => false;
+  await releaseHeldTasks(deps, { enabled: true, holdPct: 80, autoRelease: true }, 0);
+  expect(deps.creates.map((i) => i.prompt)).toEqual(["claude"]);
+  expect(deps.store.listHeldTasks().map((t) => t.id)).toEqual(["cx"]);
+});
+
+test("Codex capacity review: held release preserves the account captured at admission", async () => {
+  const { heldCodexCapacity } = await import("../src/codex-capacity");
+  const settings = new Map([["codexHeldAccount:cx", "account-a"]]);
+  let account = "account-b";
+  const expected: (string | null | undefined)[] = [];
+  const reset = {
+    ensureCapacity: async (_demand: boolean, id?: string | null) => {
+      expected.push(id);
+    },
+    canRun: () => true,
+    currentAccountId: () => account,
+  };
+  const deps = makeDeps([{ id: "cx", input: { ...makeInput("codex"), agentProvider: "codex" } }]);
+  deps.codexCapacity = (id) =>
+    heldCodexCapacity(
+      {
+        getSetting: (k) => settings.get(k) ?? null,
+        setSetting: (k, v) => {
+          settings.set(k, v);
+        },
+      },
+      reset,
+      id,
+    );
+  const cfg = { enabled: false, holdPct: 80, autoRelease: true };
+  expect((await releaseHeldTasks(deps, cfg, 0)).released).toBe(0);
+  expect(expected).toEqual(["account-a"]);
+  account = "account-a";
+  expect((await releaseHeldTasks(deps, cfg, 0)).released).toBe(1);
+});

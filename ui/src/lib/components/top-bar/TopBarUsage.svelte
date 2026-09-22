@@ -135,6 +135,11 @@
     popoverOpen = false;
     onusage?.();
   }
+  const activeTokenLabel = $derived(
+    activeCompactUsageView?.mode === "tokens" && activeCompactUsageView.totalTokens !== null
+      ? formatTokenLabel(activeCompactUsageView.totalTokens)
+      : "—",
+  );
 </script>
 
 {#snippet usagePopover(desktop: boolean)}
@@ -213,7 +218,7 @@
             ? overspend
               ? m.topbar_credits_alert_aria({ amount: creditAmount })
               : `${m.topbar_credits_period()} · ${creditAmount}`
-            : `${activeProviderName} · ${formatTokenLabel(activeCompactUsageView.totalTokens)}`}
+            : `${activeProviderName} · ${activeTokenLabel}`}
           onclick={togglePopover}
         >
           {#if compactUsageRotating}<span class="g-provider micro">{activeProviderShort}</span>{/if}
@@ -225,9 +230,7 @@
             >
             <span class="g-pct credit-amount" style="color:{creditColor}">{creditAmount}</span>
           {:else}
-            <span class="g-pct credit-amount"
-              >{formatTokenLabel(activeCompactUsageView.totalTokens)}</span
-            >
+            <span class="g-pct credit-amount">{activeTokenLabel}</span>
           {/if}
         </button>
       {:else if activeCompactUsageView.mode === "model"}
@@ -299,9 +302,7 @@
           <CreditGauge {credits} {overspend} {creditFill} {creditColor} {creditAmount} />
         {:else if activeCompactUsageView.mode === "tokens"}
           <span class="gauge">
-            <span class="g-pct credit-amount"
-              >{formatTokenLabel(activeCompactUsageView.totalTokens)}</span
-            >
+            <span class="g-pct credit-amount">{activeTokenLabel}</span>
           </span>
         {:else if activeCompactUsageView.mode === "limits"}
           {#each activeCompactUsageView.gauges as g (g.label)}

@@ -263,6 +263,7 @@ interface InFlight {
   headBranch?: string;
   /** The originating session's worktree path, for the best-effort owner-branch ff (retarget only). */
   ownerWorktreePath?: string;
+  ownerSessionId?: string;
   /** The code PR head SHA at re-target start — the worktree base + the ff safety guard (retarget). */
   headSha?: string;
 }
@@ -397,7 +398,13 @@ export class DocAgentService {
   /** Serialize + write the re-target marker JSON (best-effort caller catches). */
   private writeMarker(
     path: string,
-    data: { prNumber: number; headBranch: string; base: string },
+    data: {
+      prNumber: number;
+      headBranch: string;
+      base: string;
+      ownerSessionId?: string;
+      headSha?: string;
+    },
   ): void {
     this.writeMarkerFn(path, JSON.stringify(data));
   }
@@ -459,7 +466,7 @@ export class DocAgentService {
     // prSyncedKey before spawning). If that key is set the doc commit is already (or about to be) on
     // this PR's own branch — DEFER, and crucially do NOT consume the per-PR mergedSeenKey below, so
     // the merge fast-path stays available should the re-target run later fall through to a fresh PR.
-    if (this.deps.store.getSetting(prSyncedKey(repoPath, prNumber)) != null)
+    if (this.deps.store.getSetting(prSyncedKey(repoPath, prNumber)) === "1")
       return { status: "skipped", reason: "re-target already owns this PR's docs" };
     const key = mergedSeenKey(repoPath, prNumber);
     if (this.deps.store.getSetting(key) != null)
@@ -600,7 +607,7 @@ export class DocAgentService {
     if (!git || git.state !== "open" || git.checks !== "success") return null;
     if (!git.headSha || git.number == null) return null;
     if (!isDocRelevantMerge(git.title)) return null;
-    if (this.deps.store.getSetting(prSyncedKey(s.repoPath, git.number)) != null) return null;
+    if (this.deps.store.getSetting(prSyncedKey(s.repoPath, git.number)) === "1") return null;
     return git;
   }
 
@@ -613,6 +620,17 @@ export class DocAgentService {
    * the code PR merges mid-run. Re-checks the per-repo lock (the sweep checked it without holding it).
    * Does NOT call stampLastSha — that is the nightly gate's marker, irrelevant to a PR-targeted run.
    */
+  async resumeCapacity(sessionId: string, headSha?: string): Promise<boolean> {
+    const s = this.deps.store.list().find((s) => s.id === sessionId);
+    if (!s || s.status === "archived" || s.autopilotPaused) return true;
+    if (s.status === "running" || s.status === "blocked" || !this.deps.gitState?.(s.id))
+      return false;
+    const git = this.retargetCandidate(s);
+    if (!git || git.headSha !== headSha) return true;
+    await this.beginRetarget(s, git);
+    return true;
+  }
+
   private async beginRetarget(session: Session, git: GitState): Promise<DocAgentResult> {
     const repoPath = session.repoPath;
     if (this.inflight.has(repoPath) || this.starting.has(repoPath))
@@ -632,6 +650,20 @@ export class DocAgentService {
         return { status: "error", reason: "could not resolve default branch" };
       }
 
+      const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
+      if (
+        this.deps.capacity &&
+        !(await this.deps.capacity({
+          owner: "docsRetarget",
+          key: `docsRetarget:${session.id}`,
+          target: session.id,
+          provider: env.provider,
+          model: env.model,
+          fingerprint: headSha,
+        }))
+      )
+        return { status: "skipped", reason: "capacity" };
+
       // Claim ownership BEFORE the spawn: if the code PR merges mid-run, onMergedPr now defers and the
       // re-target run's own finalize fallback opens the single fresh PR (no double PR).
       this.deps.store.setSetting(prSyncedKey(repoPath, prNumber), "1");
@@ -646,6 +678,7 @@ export class DocAgentService {
           prNumber,
           headBranch: session.branch!,
           ownerWorktreePath: session.worktreePath,
+          ownerSessionId: session.id,
           headSha,
         },
         promptCtx,
@@ -657,6 +690,8 @@ export class DocAgentService {
               prNumber,
               headBranch: session.branch!,
               base,
+              ownerSessionId: session.id,
+              headSha,
             });
           } catch (err) {
             console.warn(`[doc-agent] writing re-target marker failed for ${repoPath}:`, err);
@@ -691,6 +726,20 @@ export class DocAgentService {
     promptCtx?: RetargetPromptCtx,
     afterCreate?: (worktreePath: string) => void,
   ): Promise<{ ok: true } | { ok: false; result: DocAgentResult }> {
+    const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
+    if (
+      extra.mode !== "retarget" &&
+      this.deps.capacity &&
+      !(await this.deps.capacity({
+        owner: "docs",
+        key: `docs:${repoPath}`,
+        target: repoPath,
+        provider: env.provider,
+        model: env.model,
+        fingerprint: extra.headSha,
+      }))
+    )
+      return { ok: false, result: { status: "skipped", reason: "capacity" } };
     const id8 = randomUUID().slice(0, 8);
     const wtName = DOC_BRANCH_PREFIX + id8;
     let wt;
@@ -1024,6 +1073,26 @@ export class DocAgentService {
   private async finalize(f: InFlight, sentinel: string | null): Promise<void> {
     let result: { url: string | null; hadStagedChanges: boolean; stageFailed: boolean } | undefined;
     try {
+      const row = this.uncompletedRowFor(f.worktreePath);
+      if (
+        !sentinel &&
+        (await this.deps.capacityInterrupted?.(
+          {
+            owner: f.mode === "retarget" ? "docsRetarget" : "docs",
+            key: f.mode === "retarget" ? `docsRetarget:${f.ownerSessionId}` : `docs:${f.repoPath}`,
+            target: f.mode === "retarget" ? (f.ownerSessionId ?? "") : f.repoPath,
+            provider: row?.reviewerProvider ?? "claude",
+            model: row?.model ?? null,
+            fingerprint: f.headSha,
+          },
+          f.worktreePath,
+          f.spawnSessionId,
+        ))
+      ) {
+        if (f.mode === "retarget" && f.prNumber != null)
+          this.deps.store.setSetting(prSyncedKey(f.repoPath, f.prNumber), "capacity");
+        return;
+      }
       result = await this.stageAndPublish(f, sentinel);
     } finally {
       // Complete the durable cost row with real usage (best-effort) on EVERY finalize path (observe
@@ -1413,7 +1482,14 @@ export class DocAgentService {
       startedAt: row?.spawnedAt ?? this.now(),
       spawnSessionId: row?.reviewerSessionId ?? "",
       mode: marker ? "retarget" : "fresh",
-      ...(marker ? { prNumber: marker.prNumber, headBranch: marker.headBranch } : {}),
+      ...(marker
+        ? {
+            prNumber: marker.prNumber,
+            headBranch: marker.headBranch,
+            ownerSessionId: marker.ownerSessionId,
+            headSha: marker.headSha,
+          }
+        : {}),
     });
     this.starting.delete(repo);
     return true;
@@ -1574,18 +1650,30 @@ export class DocAgentService {
   }
 
   /** Read + parse the re-target marker at a worktree root, or null when absent/unparseable. */
-  private readRetargetMarker(
-    worktreePath: string,
-  ): { prNumber: number; headBranch: string; base: string } | null {
+  private readRetargetMarker(worktreePath: string): {
+    prNumber: number;
+    headBranch: string;
+    base: string;
+    ownerSessionId?: string;
+    headSha?: string;
+  } | null {
     const raw = this.readMarkerFn(join(worktreePath, RETARGET_MARKER));
     if (raw == null) return null;
     try {
-      const m = JSON.parse(raw) as { prNumber?: unknown; headBranch?: unknown; base?: unknown };
+      const m = JSON.parse(raw) as {
+        prNumber?: unknown;
+        headBranch?: unknown;
+        base?: unknown;
+        ownerSessionId?: unknown;
+        headSha?: unknown;
+      };
       if (typeof m.prNumber !== "number" || typeof m.headBranch !== "string") return null;
       return {
         prNumber: m.prNumber,
         headBranch: m.headBranch,
         base: typeof m.base === "string" ? m.base : "",
+        ownerSessionId: typeof m.ownerSessionId === "string" ? m.ownerSessionId : undefined,
+        headSha: typeof m.headSha === "string" ? m.headSha : undefined,
       };
     } catch {
       return null;

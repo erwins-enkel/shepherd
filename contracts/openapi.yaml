@@ -704,13 +704,47 @@ components:
           oneOf:
             - $ref: "#/components/schemas/LimitWindow"
             - type: "null"
+        tokenDataAvailable: { type: boolean }
+        resetStatus: { $ref: "#/components/schemas/CodexResetStatus" }
         rateLimitSource:
           type: string
-          enum: [rollout, missing]
+          enum: [rollout, missing, app-server]
           x-shepherd-open-enum: true
         rateLimitCheckedAt: { type: integer }
         rateLimitFilesScanned: { type: integer }
         rateLimitLatestEventAt: { type: [integer, "null"] }
+    CodexResetStatus:
+      type: object
+      additionalProperties: true
+      required:
+        [
+          autoEnabled,
+          state,
+          checkedAt,
+          availableCount,
+          nextExpiryAt,
+          reason,
+          lastOutcome,
+          waitingCount,
+        ]
+      properties:
+        autoEnabled: { type: boolean }
+        state:
+          type: string
+          enum: [ready, unavailable, redeeming, verifying, waiting, account_changed]
+          x-shepherd-open-enum: true
+        checkedAt: { type: [integer, "null"] }
+        availableCount: { type: [integer, "null"], minimum: 0 }
+        nextExpiryAt: { type: [integer, "null"] }
+        reason:
+          type: [string, "null"]
+          enum: [capacity, expiry, manual, null]
+          x-shepherd-open-enum: true
+        lastOutcome:
+          type: [string, "null"]
+          enum: [reset, alreadyRedeemed, nothingToReset, noCredit, null]
+          x-shepherd-open-enum: true
+        waitingCount: { type: integer, minimum: 0 }
     EventName:
       type: string
       enum:
@@ -4563,6 +4597,55 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/BlockMap" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/usage/codex/reset:
+    post:
+      operationId: redeemCodexReset
+      description: Redeem one earned Codex reset. Retry uncertain requests with the same UUID. Operator ingress only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [requestId]
+              properties:
+                requestId: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Current reset result and capacity status.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CodexResetStatus" }
+        "202":
+          description: Redemption or capacity verification remains pending.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CodexResetStatus" }
+        "400": { description: Invalid request UUID or JSON body. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { description: Account service unavailable or first-run setup incomplete. }
+  /api/usage/codex/automation:
+    put:
+      operationId: setCodexResetAutomation
+      description: Persist the operator's opt-in for proactive and useful pre-expiry redemption. Operator ingress only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled: { type: boolean }
+      responses:
+        "200":
+          description: Updated reset automation status.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CodexResetStatus" }
+        "400": { description: Invalid enabled value or JSON body. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503": { description: Account service unavailable or first-run setup incomplete. }
   /api/usage/limits:
     get:
       operationId: getUsageLimits

@@ -1,3 +1,4 @@
+import { admitRoleCapacity } from "./codex-capacity";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -560,8 +561,7 @@ export class ReviewService {
       // poll picks the new head up normally (and that push reset CI to pending anyway, so the
       // green-checks precondition has genuinely lapsed too). Deliberately INSIDE the claim: this
       // await must not open a window for a second consider()/forceReview() to reach begin().
-      if (await this.headMoved(session, git.headSha!)) return "skipped";
-      await this.begin(session, git, force);
+      if (!(await this.beginCurrentReview(session, git, force))) return "skipped";
     } finally {
       this.starting.delete(session.id);
     }
@@ -571,6 +571,36 @@ export class ReviewService {
     // this return, so the non-force churn-skip "error" is irrelevant there; it's authoritative
     // only for the manual/force path.
     return this.inflight.has(session.id) ? "started" : "error";
+  }
+
+  private async beginCurrentReview(
+    session: Session,
+    git: GitState,
+    force: boolean,
+  ): Promise<boolean> {
+    if (await this.headMoved(session, git.headSha!)) return false;
+    if (
+      !(await admitRoleCapacity(this.deps, {
+        owner: "review",
+        key: `review:${session.id}`,
+        target: session.id,
+        fingerprint: git.headSha ?? undefined,
+      }))
+    )
+      return false;
+    await this.begin(session, git, force);
+    return true;
+  }
+
+  private captureRunUsage(f: InFlight): Promise<void> {
+    return captureUsage(
+      (wt, id) => this.readUsage(wt, id, f.reviewerProvider, f.reviewerModel),
+      this.deps.store.completeReviewerSpawn.bind(this.deps.store),
+      f.worktreePath,
+      f.criticSessionId,
+      this.now(),
+      f.sessionId,
+    );
   }
 
   /**
@@ -605,14 +635,7 @@ export class ReviewService {
       // Best-effort cost attribution — mirrors finalize(). It also closes the reviewer_spawns row;
       // if the transcript is unreadable the row stays open and the boot sweep closes it with NULL
       // totals, exactly as it does for a finalize that raced the same way.
-      await captureUsage(
-        (wt, id) => this.readUsage(wt, id, f.reviewerProvider, f.reviewerModel),
-        this.deps.store.completeReviewerSpawn.bind(this.deps.store),
-        f.worktreePath,
-        f.criticSessionId,
-        this.now(),
-        f.sessionId,
-      );
+      await this.captureRunUsage(f);
       await reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
     }
 
@@ -1472,6 +1495,24 @@ export class ReviewService {
     // Reap the critic terminal + disposable worktree no matter what happens above
     // (a forge/store/steer failure must not strand them).
     try {
+      if (
+        !raw &&
+        (await this.deps.capacityInterrupted?.(
+          {
+            owner: "review",
+            key: `review:${f.sessionId}`,
+            target: f.sessionId,
+            provider: f.reviewerProvider ?? "claude",
+            model: f.reviewerModel,
+            fingerprint: f.headSha,
+          },
+          f.worktreePath,
+          f.criticSessionId,
+        ))
+      ) {
+        await this.captureRunUsage(f);
+        return;
+      }
       const verdict = this.buildVerdict(f, raw, cause ?? null);
       // ONE live PR read for this finalize, shared by the supersession check below and by the
       // publish/error arms (which each used to fetch their own — mutually exclusive, so this is
@@ -1496,14 +1537,7 @@ export class ReviewService {
       // stranding finalize. The reviewer transcript lives under ~/.claude/projects (keyed by
       // worktree path) and survives the worktree removal in the `finally`, so reading it here
       // is safe. Individually guarded — a transcript-read failure must never strand finalize.
-      await captureUsage(
-        (wt, id) => this.readUsage(wt, id, f.reviewerProvider, f.reviewerModel),
-        this.deps.store.completeReviewerSpawn.bind(this.deps.store),
-        f.worktreePath,
-        f.criticSessionId,
-        this.now(),
-        f.sessionId,
-      );
+      await this.captureRunUsage(f);
       // NOTE: the resolver entry is released by dropInflight() in tick()'s finally — the single
       // place every in-flight drop goes through, so no completion path can leak it.
     } finally {
@@ -1746,6 +1780,51 @@ export class ReviewService {
    * At/over the cap we stop steering and leave the round in place; the posted review,
    * the stalled badge, and (for blocking verdicts) the critic signal escalate it.
    */
+  async resumeCapacity(session: Session, git: GitState, fingerprint?: string): Promise<void> {
+    const verdict = this.deps.store.getReview(session.id);
+    if (
+      !verdict ||
+      session.status === "archived" ||
+      session.autopilotPaused ||
+      verdict.dismissed ||
+      fingerprint !== `${verdict.headSha}:${verdict.addressRound}` ||
+      verdict.addressRound >= this.cap ||
+      !verdict.findings.length ||
+      !this.deps.store.getRepoConfig(session.repoPath).autoAddressEnabled ||
+      !this.deps.autoAddress ||
+      git.state !== "open" ||
+      git.headSha !== verdict.headSha
+    )
+      return;
+    const live = await this.deps.resolveForge(session.repoPath)?.prStatus(session.branch ?? "");
+    if (!live || live.state !== "open" || live.headSha !== verdict.headSha) return;
+    if (!(await this.findingsCapacity(session, verdict.headSha, verdict.addressRound))) return;
+    if (
+      await this.deps.autoAddress(
+        session.id,
+        steerText(verdict.findings, git.number!, session.epicParent ? session.baseBranch : null),
+      )
+    ) {
+      verdict.addressRound++;
+      verdict.finalRoundPending = verdict.addressRound >= this.cap;
+      this.deps.store.putReview(verdict);
+      this.deps.onChange(session.id, verdict);
+    }
+  }
+
+  private findingsCapacity(s: Session, head: string, round: number): Promise<boolean> {
+    return (
+      this.deps.capacity?.({
+        owner: "reviewFindings",
+        key: `reviewFindings:${s.id}`,
+        target: s.id,
+        provider: s.agentProvider ?? "claude",
+        model: s.model,
+        fingerprint: `${head}:${round}`,
+      }) ?? Promise.resolve(true)
+    );
+  }
+
   private async runAutoAddress(f: InFlight, verdict: ReviewVerdict): Promise<number> {
     if (verdict.findings.length === 0) return 0; // clean → streak resets
     const enabled =
@@ -1764,6 +1843,11 @@ export class ReviewService {
     // narrow race — the pane dies between the liveness check and herdr.send — and still
     // counts as not-delivered: the round must not advance on a steer that never landed,
     // and the rejection must not strand finalize().
+    if (this.deps.capacity) {
+      const task = this.deps.store.get(f.sessionId);
+      if (!task || !(await this.findingsCapacity(task, verdict.headSha, f.priorRound)))
+        return f.priorRound;
+    }
     let delivered = false;
     try {
       delivered = await this.deps.autoAddress!(

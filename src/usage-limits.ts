@@ -342,6 +342,17 @@ export interface UsageProjection {
   burnRatePerHour: number; // recent weighted units/hour
 }
 
+export interface CodexResetStatus {
+  autoEnabled: boolean;
+  state: "ready" | "unavailable" | "redeeming" | "verifying" | "waiting" | "account_changed";
+  checkedAt: number | null;
+  availableCount: number | null;
+  nextExpiryAt: number | null;
+  reason: "capacity" | "expiry" | "manual" | null;
+  lastOutcome: "reset" | "alreadyRedeemed" | "nothingToReset" | "noCredit" | null;
+  waitingCount: number;
+}
+
 export type UsageProviderSnapshot =
   | {
       provider: "claude";
@@ -368,7 +379,9 @@ export type UsageProviderSnapshot =
       // a rate-limit event yet, so the UI falls back to the raw token counts.
       session5h: LimitWindow | null;
       week: LimitWindow | null;
-      rateLimitSource?: "rollout" | "missing";
+      rateLimitSource?: "rollout" | "missing" | "app-server";
+      tokenDataAvailable?: boolean;
+      resetStatus?: CodexResetStatus;
       rateLimitCheckedAt?: number;
       rateLimitFilesScanned?: number;
       rateLimitLatestEventAt?: number | null;

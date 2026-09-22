@@ -121,6 +121,8 @@ const inlineDelivery = {
 vi.mock("$lib/api", async () => {
   const { mockBreakdown } = await import("$lib/usage-mock");
   return {
+    redeemCodexReset: vi.fn(),
+    setCodexResetAutomation: vi.fn(),
     getUsageBreakdown: vi.fn((range: UsageRange) => Promise.resolve(mockBreakdown(range))),
     getUsageTimeline: vi.fn((range: UsageRange) => Promise.resolve({ ...inlineTimeline, range })),
     getUsageLimits: vi.fn(() =>

@@ -1093,6 +1093,7 @@ export const config = {
   usageHoldEnabled: !["0", "false"].includes(
     (process.env.SHEPHERD_USAGE_HOLD_ENABLED ?? "").toLowerCase(),
   ),
+  codexResetAutoEnabled: false,
   usageHoldPct: clampCap(Number(process.env.SHEPHERD_USAGE_HOLD_PCT ?? 80), 0, 100, 80),
   // When true (default), the 30s sweeper auto-starts held tasks once usage drops below the
   // threshold. When false, held tasks stay queued indefinitely — the operator starts each one

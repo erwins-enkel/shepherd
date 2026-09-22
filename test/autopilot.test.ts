@@ -89,6 +89,7 @@ function block(tail = ["Shall I start? (y/n)"]): BlockReason {
 }
 
 function harness(opts: {
+  capacity?: () => Promise<boolean>;
   session: Session;
   verdict?: AutopilotVerdict;
   repoEnabled?: boolean;
@@ -128,6 +129,7 @@ function harness(opts: {
   }> = [];
   let classifyCalls = 0;
   const svc = new AutopilotService({
+    capacity: opts.capacity,
     store: {
       get: () => cur,
       list: () => [cur],
@@ -1908,3 +1910,84 @@ for (const provider of ["claude", "codex"] as const) {
     });
   }
 }
+
+test("Codex capacity: autopilot waits without classifying, pausing or spending a step", async () => {
+  let free = false;
+  const h = harness({
+    session: sess({
+      agentProvider: "codex",
+      providerSessionId: "thread-one",
+      codexLaunchId: "launch-one",
+    }),
+    verdict: { kind: "gate", summary: "continue" },
+    capacity: async () => free,
+  });
+  await h.svc.onBlock("s1", block());
+  expect(h.classifyCount()).toBe(0);
+  expect(h.state().autopilotStepCount).toBe(0);
+  expect(h.state().autopilotPaused).toBe(false);
+  free = true;
+  await h.svc.onBlock("s1", block());
+  expect(h.classifyCount()).toBe(1);
+  expect(h.state().autopilotStepCount).toBe(1);
+});
+
+test("Codex capacity review: idle sessions without an eligible action do not request quota", async () => {
+  let checks = 0;
+  for (const over of [
+    { autopilotEnabled: false },
+    { autopilotPaused: true },
+    { autopilotComplete: true },
+    {},
+  ]) {
+    const h = harness({
+      session: sess({ status: "done", ...over }),
+      capacity: async () => {
+        checks++;
+        return false;
+      },
+    });
+    await h.svc.tick();
+  }
+  expect(checks).toBe(0);
+});
+test("Codex capacity review: done-edge red CI waits without spending steps or pausing", async () => {
+  const h = harness({
+    session: sess({ status: "done", auto: true }),
+    fullAuto: true,
+    openPr: true,
+    prGit: git(),
+    capacity: async () => false,
+  });
+  await h.svc.onDone("s1");
+  expect(h.state().autopilotStepCount).toBe(0);
+  expect(h.state().autopilotPaused).toBe(false);
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+});
+
+test("Codex capacity review: paused and already nudged CI events do not create reset demand", async () => {
+  let calls = 0;
+  const paused = harness({
+    session: sess({ autopilotPaused: true }),
+    capacity: async () => {
+      calls++;
+      return true;
+    },
+  });
+  paused.svc.onGit("s1", git());
+  await flush();
+  expect(calls).toBe(0);
+  const active = harness({
+    session: sess(),
+    capacity: async () => {
+      calls++;
+      return true;
+    },
+  });
+  active.svc.onGit("s1", git());
+  await flush();
+  const prior = calls;
+  active.svc.onGit("s1", git());
+  await flush();
+  expect(calls).toBe(prior);
+});

@@ -1,3 +1,4 @@
+import { CodexCapacityWait } from "./codex-capacity";
 import type { SessionStore } from "./store";
 import type { Session, AutopilotVerdict, ReviewVerdict } from "./types";
 import { looksLikeDemotedMenu, type BlockReason } from "./blocked";
@@ -151,6 +152,8 @@ export const EMPTY_COMPLETION_MESSAGE =
 const STEERABLE_SHAPES = new Set(["awaiting-input", "yes-no"]);
 
 export interface AutopilotDeps {
+  /** Checks both the task and its classifier before consuming a workflow budget. */
+  capacity?: (session: Session) => Promise<boolean>;
   /** Resolve launch provenance before unattended action (including exited planners). */
   hasConversation?: (s: Session) => boolean;
   store: Pick<
@@ -341,6 +344,7 @@ export class AutopilotService {
   }
 
   private async handleEmptyCompletion(s: Session): Promise<void> {
+    if (this.deps.capacity && !(await this.deps.capacity(s))) return;
     if (s.completionRepromptCount >= 1) {
       this.pause(s, EMPTY_COMPLETION_MESSAGE); // re-prompt already spent → needs-human
       return;
@@ -353,6 +357,10 @@ export class AutopilotService {
    *  resumeThenSteer). Returns whether the steer landed; does NOT bump the step (the caller decides
    *  whether the attempt counts). */
   private sendSteer(s: Session, text: string): Promise<boolean> {
+    if (this.deps.capacity)
+      return this.deps
+        .capacity(s)
+        .then((ready) => (ready ? resumeThenSteer(s.id, text, this.deps) : false));
     return resumeThenSteer(s.id, text, this.deps);
   }
 
@@ -362,34 +370,40 @@ export class AutopilotService {
     if (await this.sendSteer(s, text)) this.bump(s);
   }
 
+  private async handleFinished(s: Session, summary: string): Promise<void> {
+    if (s.landingRepair) {
+      // Repair sessions push directly to the epic integration branch and never open a PR.
+      // Always mark complete (even if a PR slipped out) so the drain's branch fence releases.
+      this.markComplete(s, summary || COMPLETE_MESSAGE);
+      return;
+    }
+    if (this.deps.hasPr(s.id)) return; // PR already open → nothing to do (full-auto rebase is steered by the merge train)
+    if (s.research) {
+      // Research sessions never open a code PR — mark complete instead of steering open-a-PR.
+      this.markComplete(s, summary || COMPLETE_MESSAGE);
+      return;
+    }
+    if (this.deps.store.getRepoConfig(s.repoPath).repoMode === "lightweight") {
+      // Lightweight repo: the agent has no `gh`, so register the pseudo-PR server-side
+      // (the deliberate completion barrier) instead of steering `gh pr create`.
+      await this.deps.openLocalPr(s.id);
+      return;
+    }
+    await this.driveSteer(
+      s,
+      openPrSteer(this.deps.store.getRepoConfig(s.repoPath).draftMode, s.baseBranch),
+    );
+    return;
+  }
+
   private async dispatch(s: Session, v: AutopilotVerdict): Promise<void> {
+    if (this.deps.capacity && !(await this.deps.capacity(s))) return;
     switch (v.kind) {
       case "gate":
         await this.driveSteer(s, s.research ? RESEARCH_PROCEED_STEER : PROCEED_STEER);
         return;
       case "finished":
-        if (s.landingRepair) {
-          // Repair sessions push directly to the epic integration branch and never open a PR.
-          // Always mark complete (even if a PR slipped out) so the drain's branch fence releases.
-          this.markComplete(s, v.summary || COMPLETE_MESSAGE);
-          return;
-        }
-        if (this.deps.hasPr(s.id)) return; // PR already open → nothing to do (full-auto rebase is steered by the merge train)
-        if (s.research) {
-          // Research sessions never open a code PR — mark complete instead of steering open-a-PR.
-          this.markComplete(s, v.summary || COMPLETE_MESSAGE);
-          return;
-        }
-        if (this.deps.store.getRepoConfig(s.repoPath).repoMode === "lightweight") {
-          // Lightweight repo: the agent has no `gh`, so register the pseudo-PR server-side
-          // (the deliberate completion barrier) instead of steering `gh pr create`.
-          await this.deps.openLocalPr(s.id);
-          return;
-        }
-        await this.driveSteer(
-          s,
-          openPrSteer(this.deps.store.getRepoConfig(s.repoPath).draftMode, s.baseBranch),
-        );
+        await this.handleFinished(s, v.summary);
         return;
       case "complete":
         await this.verifyAndComplete(s, v.summary || COMPLETE_MESSAGE);
@@ -403,6 +417,7 @@ export class AutopilotService {
   private async consider(id: string, tail: string[], label: string): Promise<void> {
     const s = this.eligible(id);
     if (!s) return;
+    if (this.deps.capacity && !(await this.deps.capacity(s))) return;
     if (s.autopilotStepCount >= this.stepCap) {
       this.pause(s, CAP_MESSAGE); // runaway guard
       return;
@@ -411,6 +426,9 @@ export class AutopilotService {
     let v: AutopilotVerdict;
     try {
       v = await this.deps.classify(tail, s.prompt, label, s.id);
+    } catch (error) {
+      if (error instanceof CodexCapacityWait) return;
+      throw error;
     } finally {
       this.pending.delete(id);
     }
@@ -488,6 +506,14 @@ export class AutopilotService {
     // classifier could otherwise mark this idle red session complete/finished (silencing it AND
     // making the tick skip it, since complete/paused sessions are ineligible). Lower latency than
     // waiting for the next tick. reEngageCi returns true when it owned the session (steered/paused).
+    const candidate = this.deps.store.get(id);
+    if (
+      candidate &&
+      this.hasReengagementWork(candidate) &&
+      this.deps.capacity &&
+      !(await this.deps.capacity(candidate))
+    )
+      return;
     if (this.reEngageCi(id)) return;
     // Same idea for a non-full-auto session idling on a review-passed PR that's behind its base:
     // steer a rebase BEFORE classifying (the classifier would otherwise mark this idle session
@@ -584,7 +610,25 @@ export class AutopilotService {
       // its persisted CI-fix budget below.
       if (git.checks !== "failure" && !s.autopilotPaused) this.onPrOpen(id);
     }
-    if (git.checks === "failure") this.considerCi(s, git);
+    if (git.checks === "failure") {
+      if (
+        s.mergingSince !== null ||
+        s.autopilotPaused ||
+        this.pending.has(s.id) ||
+        !git.headSha ||
+        this.ciNudged.get(s.id) === git.headSha ||
+        this.conflictOwnedByRebaser(s, git)
+      )
+        return;
+      if (!this.deps.capacity) this.considerCi(s, git);
+      else
+        void this.deps
+          .capacity(s)
+          .then((ready) => {
+            if (ready) this.considerCi(this.deps.store.get(id) ?? s, git);
+          })
+          .catch((err) => console.warn("[autopilot] capacity:", err));
+    }
   }
 
   /** Open PR + red CI → steer the task agent to fix it. The responsive FIRST-RESPONSE to a
@@ -907,10 +951,35 @@ export class AutopilotService {
    *  eligibility/red/full-auto checks live inside the re-engage helpers. The two are disjoint by
    *  the full-auto gate (reEngageCi acts only on full-auto, reEngageRebase only on non-full-auto),
    *  so the guard just avoids a redundant second call when the first already owned the session. */
+  private hasReengagementWork(s: Session): boolean {
+    if (
+      s.mergingSince !== null ||
+      this.authPending.has(s.id) ||
+      !this.enabled(s) ||
+      s.autopilotPaused ||
+      s.autopilotComplete ||
+      this.pending.has(s.id)
+    )
+      return false;
+    if (this.deps.fullAuto(s.id)) {
+      const git = this.deps.prGit(s.id);
+      return (
+        !!git &&
+        git.state === "open" &&
+        git.checks === "failure" &&
+        !this.conflictOwnedByRebaser(s, git)
+      );
+    }
+    const git = this.rebaseCandidate(s);
+    return !!git && (git.mergeStateStatus === "behind" || isDefiniteConflict(git));
+  }
+
   async tick(): Promise<void> {
     for (const s of this.deps.store.list()) {
       if (s.status === "archived") continue;
       if (s.status === "running" || s.status === "blocked") continue; // working — don't interrupt
+      if (this.deps.capacity && this.hasReengagementWork(s) && !(await this.deps.capacity(s)))
+        continue;
       if (!this.reEngageCi(s.id)) this.reEngageRebase(s.id);
     }
   }

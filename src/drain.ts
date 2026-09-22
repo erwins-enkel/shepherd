@@ -1,3 +1,4 @@
+import type { CapacityCheck } from "./codex-capacity";
 import type { RepoConfig, SessionStore } from "./store";
 import type { GitForge, GitState, Issue, PrStatus, SubIssueRef } from "./forge/types";
 import type { CreateSessionInput, Session, SessionArchiveReason } from "./types";
@@ -219,6 +220,7 @@ export interface QueuedItem {
 }
 
 export interface DrainDeps {
+  capacity?: CapacityCheck;
   store: Pick<
     SessionStore,
     | "get"
@@ -2448,6 +2450,18 @@ export class DrainService {
       `Drive the landing PR's CI green: commit your fix, then publish it by pushing your commit to the ` +
       `integration branch with \`git push origin HEAD:${branch}\` — this updates the landing PR's head ` +
       `and re-triggers its CI. Do NOT open a new pull request.`;
+    if (
+      this.deps.capacity &&
+      !(await this.deps.capacity({
+        owner: "drain",
+        key: `drain:repair:${repoPath}:${parent}`,
+        target: repoPath,
+        provider: config.defaultAgentProvider,
+        model: cfgModel,
+        fingerprint: head ?? undefined,
+      }))
+    )
+      return;
     try {
       await this.deps.service.create({
         repoPath,
@@ -3175,6 +3189,23 @@ export class DrainService {
     return { base, prompt, epicParent };
   }
 
+  private async spawnCapacity(
+    repoPath: string,
+    decision: Extract<DrainDecision, { kind: "spawn" }>,
+    defaultModel: string,
+  ): Promise<boolean> {
+    if (!this.deps.capacity) return true;
+    const number = decision.issue.number;
+    return this.deps.capacity({
+      owner: "drain",
+      key: `drain:${repoPath}:${number}`,
+      target: repoPath,
+      provider: decision.epicProviderSettings?.agentProvider ?? config.defaultAgentProvider,
+      model: this.resolvedSpawnModel(decision, defaultModel),
+      fingerprint: String(number),
+    });
+  }
+
   private async doSpawn(
     repoPath: string,
     decision: Extract<DrainDecision, { kind: "spawn" }>,
@@ -3195,6 +3226,7 @@ export class DrainService {
     // backend) doesn't churn the claim label every tick. create() re-checks and throws as
     // defense-in-depth (its try releases the claim), but skipping here avoids that churn.
     const rc = this.deps.store.getRepoConfig(repoPath);
+    if (!(await this.spawnCapacity(repoPath, decision, rc.defaultModel))) return;
     const profile = resolveProfile(undefined, rc.sandboxProfile, config.sandboxDefaultProfile);
     // backend is backend-independent for trusted (autoHoldReason → null), so skip the real
     // bwrap self-test on a trusted repo — else auto-drain pays a probe every first tick.

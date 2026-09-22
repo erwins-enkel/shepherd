@@ -1,3 +1,8 @@
+import {
+  CodexCapacityWait,
+  type CapacityInterruptionCheck,
+  type CapacityCheck,
+} from "./codex-capacity";
 import { readRoleResultText, CODEX_LAST_MESSAGE_FILE } from "./codex-last-message";
 import type { HerdrDriver } from "./herdr";
 import {
@@ -37,6 +42,8 @@ export { VERDICT_FILE, preClassify, classifierPrompt } from "./autopilot-classif
 export type { RawVerdict } from "./autopilot-classify-core";
 
 export interface ClassifierDeps {
+  capacity?: CapacityCheck;
+  capacityInterrupted?: CapacityInterruptionCheck;
   herdr: Pick<HerdrDriver, "start" | "stop">;
   store: Pick<
     SessionStore,
@@ -337,6 +344,17 @@ export async function classifyStop(
   }
 
   if (spawnBarred) return SURFACE;
+  if (
+    deps.capacity &&
+    !(await deps.capacity({
+      owner: "classifier",
+      key: `classifier:${deps.taskSessionId}`,
+      target: deps.taskSessionId,
+      provider,
+      model,
+    }))
+  )
+    throw new CodexCapacityWait();
 
   let cwd: string | null = null;
   let terminalId: string | null = null;
@@ -356,6 +374,21 @@ export async function classifyStop(
       return SURFACE; // herdr/claude unavailable → surface (don't auto-proceed blind)
     }
     const raw = await pollForVerdict(readVerdict, cwd, { now, sleep, timeoutMs, pollMs });
+    if (
+      !raw &&
+      (await deps.capacityInterrupted?.(
+        {
+          owner: "classifier",
+          key: `classifier:${deps.taskSessionId}`,
+          target: deps.taskSessionId ?? "",
+          provider,
+          model: model ?? null,
+        },
+        cwd,
+        classifierSessionId!,
+      ))
+    )
+      throw new CodexCapacityWait();
     return normalize(raw);
   } finally {
     await teardownClassifier(

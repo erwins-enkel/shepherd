@@ -1196,3 +1196,17 @@ describe("reportFromFailedExit", () => {
     expect(reportFromFailedExit({ code: 127, stdout: "" })).toBeNull();
   });
 });
+
+it("Codex capacity: maintenance diagnosis waits before allocating a helper", async () => {
+  let free = false;
+  const h = harness({
+    repoDelivery: () => collapsing(),
+    env: () => ({ provider: "codex", model: null, effort: null }),
+    capacity: async () => free,
+  });
+  await h.svc.sweep();
+  expect(h.spawns).toHaveLength(0);
+  free = true;
+  await h.svc.sweep({ force: true });
+  expect(h.spawns).toHaveLength(1);
+});

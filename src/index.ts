@@ -1,7 +1,17 @@
+import { CodexAccountClient } from "./codex-account";
+import { CodexResetCoordinator } from "./codex-reset";
+import {
+  CodexCapacityGate,
+  codexCapacityInterrupted,
+  heldCodexCapacity,
+  type CapacityInterruptionCheck,
+  type CapacityCheck,
+  type CapacityIntent,
+} from "./codex-capacity";
 import { mkdirSync, existsSync, readdirSync, statSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   config,
   SESSION_RETENTION_MS,
@@ -108,7 +118,7 @@ import { ReviewService, isTerminalPr } from "./review";
 import { StandalonePrCriticService } from "./standalone-critic";
 import { createIssueLogger } from "./issue-log";
 import { PlanGateService, shouldConsiderOnSettle, shouldCheckPlanDrift } from "./plan-gate";
-import { backfillCodexSpawnUsage } from "./codex-activity";
+import { backfillCodexSpawnUsage, createCodexRolloutResolver } from "./codex-activity";
 import { backfillRuntimeIdentity } from "./runtime-identity";
 import { AutopilotService, AUTOPILOT_LABEL } from "./autopilot";
 import { NAMER_LABEL } from "./namer";
@@ -814,7 +824,60 @@ const telemetry = new TelemetryService({
   persist: (h) => store.setSetting(TELEMETRY_HEALTH_KEY, JSON.stringify(h)),
 });
 
+config.codexResetAutoEnabled = store.getSetting("codexResetAutoEnabled") === "true";
+const codexAccount = new CodexAccountClient();
+const codexReset = new CodexResetCoordinator({
+  store,
+  enabled: () => config.codexResetAutoEnabled,
+  client: {
+    readLimits: () => {
+      if (readCodexAuthMode() !== "chatgpt")
+        return Promise.reject(new Error("ChatGPT sign-in required"));
+      return codexAccount.readLimits();
+    },
+    consumeReset: (request) => {
+      if (readCodexAuthMode() !== "chatgpt")
+        return Promise.reject(new Error("ChatGPT sign-in required"));
+      return codexAccount.consumeReset(request);
+    },
+  },
+});
+const codexCapacity = new CodexCapacityGate({ store, reset: codexReset });
+const codexReady = async (taskId?: string): Promise<boolean> => {
+  if (readCodexAuthMode() === "apikey")
+    return !taskId || !store.getSetting(`codexHeldAccount:${taskId}`);
+  return heldCodexCapacity(store, codexReset, taskId);
+};
+const capacityCheck: CapacityCheck = (intent) =>
+  readCodexAuthMode() === "apikey" ? Promise.resolve(true) : codexCapacity.admit(intent);
+const sessionCapacity = (owner: CapacityIntent["owner"], s: Session) =>
+  capacityCheck({
+    owner,
+    key: `${owner}:${s.id}`,
+    target: s.id,
+    provider: s.agentProvider ?? "claude",
+    model: s.model,
+  });
+
+const capacityRollouts = createCodexRolloutResolver();
+const capacityInterrupted: CapacityInterruptionCheck = async (intent, worktreePath, trackingId) => {
+  if (intent.provider !== "codex" || readCodexAuthMode() === "apikey") return false;
+  try {
+    const hit = capacityRollouts.resolve(
+      { trackingId, worktreePath, source: "exec" },
+      { bypassBackoff: true },
+    );
+    if (!hit || !codexCapacityInterrupted(readTranscriptTail(hit.path))) return false;
+    await codexReset.refresh();
+    codexCapacity.defer(intent);
+    return true;
+  } finally {
+    capacityRollouts.reset(trackingId);
+  }
+};
+
 const service = new SessionService({
+  capacity: (s) => (s.agentProvider !== "codex" ? Promise.resolve(true) : codexReady()),
   store,
   readCodexAuthMode,
   worktree,
@@ -863,10 +926,14 @@ const service = new SessionService({
   // Best-effort pre-teardown recap: generate a durable recap while the worktree still
   // exists (the generator reads it to build its prompt). Bounded + swallowed inside
   // archive() so it can never block teardown / the merge train.
-  beforeArchive: (s) =>
-    Promise.all([recapService.considerForArchive(s), snapshotSessionUsage(s, store)]).then(
+  beforeArchive: (s) => {
+    codexCapacity.forget(s.id);
+    capacityRollouts.reset(s.id);
+    store.setSetting(`codexCapacityResume:${s.id}`, "");
+    return Promise.all([recapService.considerForArchive(s), snapshotSessionUsage(s, store)]).then(
       () => {},
-    ),
+    );
+  },
   telemetry,
 });
 
@@ -885,7 +952,14 @@ const accessTokenSvc = new AccessTokenService(store);
 // store.setBuildStepStatus. Steers a drifted, settled-idle session to post its progress.
 const buildQueueReminder = new BuildQueueReminderService({
   store,
-  steer: (id, text) => service.reply(id, text),
+  steer: async (id, text) => {
+    const s = store.get(id);
+    return (
+      !!s &&
+      (await sessionCapacity("buildQueue", s)) &&
+      (await service.reply(id, text, { automatic: true }))
+    );
+  },
 });
 
 const accountIndex = new AccountUsageIndex();
@@ -896,7 +970,7 @@ const usageLimits = new UsageLimitsService(
   new HerdrUsageProbe(herdr),
   store,
   store,
-  [new CodexUsageProvider()],
+  [new CodexUsageProvider(undefined, undefined, () => codexReset.snapshot())],
 );
 
 deferredStarts.push(() => {
@@ -1559,6 +1633,8 @@ deferredStarts.push(() => {
 // (config.docAgentEnabled / SHEPHERD_DOC_AGENT). Manual trigger only; the boot orphan-sweep +
 // 15s finalize tick below are gated on the flag so the feature is fully inert when off.
 const docAgent = new DocAgentService({
+  capacity: capacityCheck,
+  capacityInterrupted,
   herdr,
   worktree,
   resolveForge,
@@ -1596,6 +1672,8 @@ if (config.docAgentEnabled) {
 }
 
 const reviewService = new ReviewService({
+  capacity: capacityCheck,
+  capacityInterrupted,
   store,
   herdr,
   worktree,
@@ -1619,7 +1697,9 @@ const reviewService = new ReviewService({
   // retries next cycle) rather than steer findings into the wrong-account husk. The poller heals it
   // within ~1 tick (Locus A); shouldDeferSteer goes false once healed or bounded-out (degraded).
   autoAddress: async (id, text) =>
-    service.shouldDeferSteer(id) ? false : await service.reply(id, text),
+    service.shouldDeferSteer(id)
+      ? false
+      : await service.resumeAndReply(id, text, { automatic: true }),
   // global, UI-configurable max auto-address rounds before escalating to the human.
   // A thunk so a settings change takes effect on the next critic run, no restart.
   cap: () => config.prReviewCyclesCap,
@@ -1639,6 +1719,8 @@ const reviewService = new ReviewService({
 // leaving this twin at the service default would half-apply an operator's raise); concurrency
 // stays at the service default.
 const standaloneCritic = new StandalonePrCriticService({
+  capacity: capacityCheck,
+  capacityInterrupted,
   store,
   herdr,
   worktree,
@@ -1673,6 +1755,8 @@ deferredStarts.push(() => {
 // execution; interactive ones wait for the operator's explicit Go). Mirrors
 // reviewService's deps, cap thunk, and model source.
 const planGate = new PlanGateService({
+  capacity: capacityCheck,
+  capacityInterrupted,
   store,
   herdr,
   worktree,
@@ -1683,14 +1767,14 @@ const planGate = new PlanGateService({
   // Raw steer, delivered THROUGH resumeThenSteer (paneAlive/resume/deferSteer below): findings now
   // revive an exited planner before landing rather than holding the round on a dead pane. This is
   // what makes a Codex planner (which exits after its turn) actually receive the findings and revise.
-  reply: (id, text) => service.resumeAndReply(id, text),
+  reply: (id, text) => service.resumeAndReply(id, text, { automatic: true }),
   // Whether the planning session is still a live agent (mirrors autopilot.paneAlive).
   paneAlive: (id) => {
     const s = store.get(id);
     return !!s && matchAgent(s, herdr.list(), liveTabLabels) !== null;
   },
   // SessionService resolves the exact conversation or refuses without steering.
-  resume: (id) => service.resume(id),
+  resume: (id) => service.resume(id, { automatic: true }),
   hasConversation: (s) => service.hasConversation(s),
   // Defer + re-drive a herdr-restored account pane first (Locus A) so the steer lands on the healed
   // pane, not the wrong-account husk; resumeThenSteer resumes it rather than dropping the round.
@@ -1698,7 +1782,7 @@ const planGate = new PlanGateService({
   // Discards releasePlanGate's boolean: the plan-gate DI contract is "release it", not "was it
   // releasable" — a no-op release (not planning / not approved) is not an error here.
   release: async (id) => {
-    await service.releasePlanGate(id);
+    await service.releasePlanGate(id, { automatic: true });
   },
   // Mirror of `release` for the re-gate direction (#2224): discards the boolean for the same reason
   // — the contract is "re-gate it", not "was it re-gatable".
@@ -1722,6 +1806,8 @@ const planGate = new PlanGateService({
 // sweepStaleReviewWorktrees — its `inflightWorktrees()` is unioned into that sweep's
 // protectedPaths below, and the const must exist before the sweep closure runs.
 const maintainService = new MaintainService({
+  capacity: capacityCheck,
+  capacityInterrupted,
   herdr,
   worktree,
   store,
@@ -2201,6 +2287,7 @@ if (blockBackstop) {
 // yet, a transient classifier decides gate (auto-proceed) / question (surface) / finished
 // (drive to a PR). Genuine questions pause the session loudly (distinct state + push).
 const autopilot = new AutopilotService({
+  capacity: (s) => sessionCapacity("autopilot", s),
   store,
   hasConversation: (s) => service.hasConversation(s),
   classify: (tail, taskPrompt, label, taskSessionId) => {
@@ -2212,6 +2299,8 @@ const autopilot = new AutopilotService({
         herdr,
         store,
         taskSessionId,
+        capacity: capacityCheck,
+        capacityInterrupted,
         provider: env.provider,
         model: env.model,
         effort: env.effort,
@@ -2227,8 +2316,8 @@ const autopilot = new AutopilotService({
       label,
     );
   },
-  steer: (id, text) => service.resumeAndReply(id, text),
-  resume: (id) => service.resume(id),
+  steer: (id, text) => service.resumeAndReply(id, text, { automatic: true }),
+  resume: (id) => service.resume(id, { automatic: true }),
   paneAlive: (id) => {
     const s = store.get(id);
     return !!s && matchAgent(s, herdr.list(), liveTabLabels) !== null;
@@ -2374,6 +2463,7 @@ events.subscribe((event, data) => {
 // spawn the next labeled backlog issue, bounded by the per-repo rails. Pure decision
 // core (computeNext) with side effects here; driven off the same poller events.
 const drain = new DrainService({
+  capacity: capacityCheck,
   store,
   readCodexAuthMode,
   service,
@@ -2502,8 +2592,14 @@ deferredStarts.push(() => {
 });
 
 const autoMerge = new AutoMergeService({
+  capacity: (s) => sessionCapacity("automerge", s),
   store,
-  service, // archive, reply, resume, resolveMerging
+  service: {
+    archive: (...args) => service.archive(...args),
+    reply: (id, text) => service.reply(id, text, { automatic: true }),
+    resume: (id) => service.resume(id, { automatic: true }),
+    resolveMerging: (id, didMerge) => service.resolveMerging(id, didMerge),
+  },
   resolveForge,
   worktree, // has behindBase
   prCache: prPoller,
@@ -2938,6 +3034,7 @@ deferredStarts.push(() => {
   setInterval(
     timerTask("usage", async () => {
       await accountIndex.refresh(Date.now());
+      await pollCodexCapacity();
       events.emit("usage:limits", usageLimits.limits(Date.now()));
       // Restore the operator's default CLI once the provider a capacity failover switched away
       // from has weekly headroom again. Synchronous and self-guarding (no-op unless a failover
@@ -2947,7 +3044,7 @@ deferredStarts.push(() => {
       releasingHeld = true;
       try {
         await releaseHeldTasks(
-          { store, service, usageLimits, events, resolveForge },
+          { store, service, usageLimits, events, resolveForge, codexCapacity: codexReady },
           {
             enabled: config.usageHoldEnabled,
             holdPct: config.usageHoldPct,
@@ -2965,6 +3062,238 @@ deferredStarts.push(() => {
   );
 });
 
+function interruptedSessionKey(s: Session): string | null {
+  if (s.agentProvider !== "codex" || !s.providerSessionId) return null;
+  const hit = capacityRollouts.resolve({
+    trackingId: s.id,
+    worktreePath: s.worktreePath,
+    source: "cli",
+    providerSessionId: s.providerSessionId,
+  });
+  if (!hit) return null;
+  const tail = readTranscriptTail(hit.path);
+  return codexCapacityInterrupted(tail) ? createHash("sha256").update(tail).digest("hex") : null;
+}
+
+function capacityHelperEnvironment(owner: CapacityIntent["owner"]): RoleEnvironment | null {
+  switch (owner) {
+    case "plan":
+      return roleEnv(config.plannerCli, config.plannerModel, config.plannerEffort);
+    case "review":
+    case "standalone":
+      return roleEnv(config.criticCli, config.criticModel, config.criticEffort);
+    case "classifier":
+      return roleEnv(config.autopilotCli, config.autopilotModel, config.autopilotEffort);
+    case "docs":
+    case "docsRetarget":
+      return roleEnv(config.docAgentCli, config.docAgentModel, config.docAgentEffort);
+    case "maintain":
+      return roleEnv(config.maintainCli, config.maintainModel, config.maintainEffort);
+    default:
+      return null;
+  }
+}
+
+function capacitySessionCurrent(intent: CapacityIntent, helper: boolean): boolean {
+  const s = store.get(intent.target);
+  if (!s || s.status === "archived" || s.autopilotPaused) return false;
+  if (!helper && ((s.agentProvider ?? "claude") !== intent.provider || s.model !== intent.model))
+    return false;
+  return true;
+}
+
+function capacityIntentCurrent(intent: CapacityIntent): boolean {
+  const helper = capacityHelperEnvironment(intent.owner);
+  if (helper && (helper.provider !== intent.provider || helper.model !== intent.model))
+    return false;
+  if (["docs", "docsRetarget"].includes(intent.owner) && !config.docAgentEnabled) return false;
+  if (intent.owner === "maintain" && !config.maintainLoopEnabled) return false;
+  if (
+    [
+      "session",
+      "autopilot",
+      "classifier",
+      "plan",
+      "planFindings",
+      "planRelease",
+      "review",
+      "reviewFindings",
+      "automerge",
+      "buildQueue",
+      "docsRetarget",
+    ].includes(intent.owner)
+  ) {
+    return capacitySessionCurrent(intent, !!helper);
+  }
+  return true;
+}
+
+async function resumeInterruptedCapacitySession(
+  s: Session,
+  fingerprint?: string,
+): Promise<boolean> {
+  if (fingerprint !== interruptedSessionKey(s) || !service.hasConversation(s)) return true;
+  if (
+    !(await service.resumeAndReply(
+      s.id,
+      "Codex capacity is available again. Continue the interrupted task from its current state.",
+      { automatic: true },
+    ))
+  )
+    return false;
+  store.setSetting(`codexCapacityResume:${s.id}`, fingerprint!);
+  return true;
+}
+
+async function resumeCapacityOwner(intent: CapacityIntent, s: Session | null): Promise<boolean> {
+  switch (intent.owner) {
+    case "plan":
+      await planGate.consider(s!);
+      break;
+    case "planFindings":
+    case "planRelease":
+      await planGate.resumeCapacity(s!, intent.fingerprint);
+      break;
+    case "review": {
+      const git = prPoller.get(s!.id);
+      if (!git) return false;
+      await reviewService.consider(s!, git);
+      break;
+    }
+    case "reviewFindings": {
+      const git = prPoller.get(s!.id);
+      if (!git) return false;
+      await reviewService.resumeCapacity(s!, git, intent.fingerprint);
+      break;
+    }
+    case "session":
+      return resumeInterruptedCapacitySession(s!, intent.fingerprint);
+    case "autopilot":
+    case "classifier":
+      await autopilot.onDone(s!.id);
+      await autopilot.tick();
+      break;
+    case "buildQueue":
+      await buildQueueReminder.sweep();
+      break;
+    case "automerge":
+      await autoMerge.pump(s!.repoPath);
+      break;
+    case "drain":
+      await drain.tick();
+      break;
+    default:
+      return resumeCapacityHelper(intent);
+  }
+  return true;
+}
+
+async function resumeCapacityHelper(intent: CapacityIntent): Promise<boolean> {
+  switch (intent.owner) {
+    case "docsRetarget":
+      if (config.docAgentEnabled) return docAgent.resumeCapacity(intent.target, intent.fingerprint);
+      break;
+    case "docs":
+      if (config.docAgentEnabled) await docAgent.consider(intent.target);
+      break;
+    case "standalone":
+      await standaloneCritic.sweep();
+      break;
+    case "maintain":
+      if (config.maintainLoopEnabled)
+        await maintainService.resumeCapacity(intent.fingerprint ?? "");
+      break;
+  }
+  return true;
+}
+
+async function pollCodexCapacity(): Promise<void> {
+  if (readCodexAuthMode() === "apikey") return;
+  const live = herdr.list();
+  await codexReset.refresh();
+  for (const s of store.list({ activeOnly: true })) {
+    if (
+      s.agentProvider !== "codex" ||
+      s.status === "running" ||
+      s.autopilotPaused ||
+      s.autopilotComplete ||
+      !(s.auto || (s.autopilotEnabled ?? store.getRepoConfig(s.repoPath).autopilotEnabled))
+    )
+      continue;
+    const fingerprint = interruptedSessionKey(s);
+    if (fingerprint && store.getSetting(`codexCapacityResume:${s.id}`) !== fingerprint)
+      codexCapacity.defer({
+        owner: "session",
+        key: `session:${s.id}`,
+        target: s.id,
+        provider: "codex",
+        model: s.model,
+        fingerprint,
+      });
+  }
+  codexCapacity.prune(capacityIntentCurrent);
+  const demand =
+    codexCapacity
+      .pending()
+      .some((i) => !i.accountId || i.accountId === codexReset.currentAccountId()) ||
+    store
+      .listHeldTasks()
+      .some(
+        (t) =>
+          t.input.agentProvider === "codex" &&
+          (!store.getSetting(`codexHeldAccount:${t.id}`) ||
+            store.getSetting(`codexHeldAccount:${t.id}`) === codexReset.currentAccountId()),
+      ) ||
+    store
+      .list({ activeOnly: true })
+      .some(
+        (s) =>
+          s.agentProvider === "codex" &&
+          live.some((a) => a.terminalId === s.herdrAgentId && a.agentStatus === "working"),
+      ) ||
+    store
+      .listReviewerSpawns()
+      .some(
+        (r) =>
+          r.reviewerProvider === "codex" &&
+          r.completedAt === null &&
+          live.some((a) => a.cwd === r.worktreePath && a.agentStatus === "working"),
+      );
+  await codexReset.ensureCapacity(demand);
+  await codexCapacity.reconcile(async (intent) => {
+    const s = store.get(intent.target);
+    if (
+      [
+        "session",
+        "autopilot",
+        "classifier",
+        "plan",
+        "planFindings",
+        "planRelease",
+        "review",
+        "reviewFindings",
+        "automerge",
+        "buildQueue",
+      ].includes(intent.owner)
+    ) {
+      if (!s || s.status === "archived" || s.autopilotPaused) return true;
+      if (s.status === "running") return false;
+      const taskOwner = !["plan", "review", "classifier"].includes(intent.owner);
+      if (
+        taskOwner &&
+        ((s.agentProvider ?? "claude") !== intent.provider || s.model !== intent.model)
+      )
+        return true;
+    }
+    return resumeCapacityOwner(intent, s);
+  });
+}
+deferredStarts.push(() => {
+  void pollCodexCapacity()
+    .then(() => events.emit("usage:limits", usageLimits.limits(Date.now())))
+    .catch((err) => console.warn("[codex-capacity] boot:", err));
+});
+
 // One coordinator owns the boot probe, reset-aware cadence, manual refreshes, and the sole timer.
 // Account indexing runs inside UsageLimitsService.calibrate's refresh lifecycle so an index failure
 // is published as a failed refresh just like a probe failure.
@@ -2975,7 +3304,12 @@ const usageCalibration = new UsageCalibrationCoordinator({
   maintenanceActive: () => maintenance.active,
 });
 deferredStarts.push(() => usageCalibration.start());
-const refreshUsage = () => usageCalibration.refresh();
+const refreshUsage = async () => {
+  await codexReset.refresh();
+  const result = await usageCalibration.refresh();
+  events.emit("usage:limits", usageLimits.limits(Date.now()));
+  return { ...result, limits: usageLimits.limits(Date.now()) };
+};
 
 // watch origin/main for new commits and push the result to clients; the badge in
 // the UI keys off `behind > 0`, so it only appears when main has moved ahead.
@@ -3252,6 +3586,9 @@ const appDeps: AppDeps = {
   // block (see judgeSpendForLens).
   ...(judgeSpend ? { judgeSpend } : {}),
   refreshUsage,
+  codexReset,
+  codexCapacity: codexReady,
+  codexAccountId: () => codexReset.currentAccountId(),
   // Live GitHub REST + GraphQL buckets for the usage view. `gh api rate_limit`
   // is quota-exempt, so it works even when the GraphQL bucket is at zero.
   githubRateLimit: () => fetchGithubRateLimit(ghRunnerAsync),
@@ -3452,6 +3789,7 @@ else startBackground();
 
 // Best-effort teardown of preview listeners and tailscale mappings on process exit / SIGTERM.
 process.on("exit", () => {
+  codexAccount.close();
   previewService.stopAll();
   tailscaleServe.stopAll();
   standaloneCritic.stopAll();

@@ -1154,3 +1154,18 @@ test("restarting a standalone review of the same head gives each rollout its own
   expect(first.spies.created[0]?.slug).toBeTruthy();
   expect(first.spies.created[0]?.slug).not.toBe(restarted.spies.created[0]?.slug);
 });
+
+test("Codex capacity: standalone critic waits and remains eligible", async () => {
+  let free = false;
+  const { deps, spies } = makeDeps({
+    env: () => ({ provider: "codex", model: null, effort: null }),
+    capacity: async () => free,
+  });
+  const svc = new StandalonePrCriticService(deps as any);
+  await svc.sweep();
+  expect(spies.started).toHaveLength(0);
+  expect(spies.recordedSpawns).toHaveLength(0);
+  free = true;
+  await svc.sweep();
+  expect(spies.started).toHaveLength(1);
+});

@@ -6846,6 +6846,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   removeHeldTask(id: string): void {
     this.db.run(`DELETE FROM held_tasks WHERE id = ?`, [id]);
+    this.db.run(`DELETE FROM settings WHERE key = ?`, [`codexHeldAccount:${id}`]);
   }
 
   /** Replace a held task's stored input (e.g. an operator edited it while it stays

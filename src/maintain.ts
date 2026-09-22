@@ -1,3 +1,4 @@
+import { admitRoleCapacity } from "./codex-capacity";
 /**
  * MaintainService — the maintain loop's spawning half (#2157, from #2151 R5).
  *
@@ -229,6 +230,7 @@ export type MaintainStore = Pick<
   | "listInflightMaintainRuns"
   | "lastCompletedMaintainRun"
   | "listMaintainRuns"
+  | "listReviewerSpawns"
   | "recordReviewerSpawn"
   | "completeReviewerSpawn"
 >;
@@ -402,6 +404,19 @@ export class MaintainService {
    * path is exercisable without waiting for the cadence; it does NOT skip suppression, which is the
    * spend bound.
    */
+  async resumeCapacity(bandKey: string): Promise<void> {
+    if (this.isRunning(bandKey)) return;
+    this.starting.add(bandKey);
+    try {
+      const reading = breaches(
+        evaluateBands(await this.gather(this.now()), this.thresholds, this.now()),
+      ).find((r) => r.key === bandKey && r.tier === 2);
+      if (reading) await this.beginDiagnosis(reading);
+    } finally {
+      this.starting.delete(bandKey);
+    }
+  }
+
   async sweep(opts?: { force?: boolean }): Promise<void> {
     const now = this.now();
     if (!opts?.force && !this.claimToday(now)) return;
@@ -877,6 +892,15 @@ export class MaintainService {
 
   private async launch(reading: BandReading, forge: GitForge): Promise<boolean> {
     const repoPath = this.deps.selfRepoPath;
+    if (
+      !(await admitRoleCapacity(this.deps, {
+        owner: "maintain",
+        key: `maintain:${reading.key}`,
+        target: repoPath,
+        fingerprint: reading.key,
+      }))
+    )
+      return false;
     let base: string;
     try {
       base = await forge.defaultBranch();
@@ -1041,6 +1065,29 @@ export class MaintainService {
     let outcome: MaintainOutcome = "error";
     let issue: { number: number; url: string } | null = null;
     try {
+      const row = this.deps.capacityInterrupted
+        ? this.deps.store
+            .listReviewerSpawns()
+            .find((r) => r.reviewerSessionId === f.run.spawnSessionId)
+        : undefined;
+      if (
+        !draft &&
+        (await this.deps.capacityInterrupted?.(
+          {
+            owner: "maintain",
+            key: `maintain:${f.run.bandKey}`,
+            target: this.deps.selfRepoPath,
+            provider: row?.reviewerProvider ?? "claude",
+            model: row?.model ?? null,
+            fingerprint: f.run.bandKey,
+          },
+          f.run.worktreePath,
+          f.run.spawnSessionId,
+        ))
+      ) {
+        outcome = "skipped";
+        return;
+      }
       if (draft === null) {
         this.log(
           `[maintain] ${f.run.bandKey}: no usable draft (${readStatus === "absent" ? "none written" : readStatus})`,

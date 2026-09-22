@@ -20,6 +20,7 @@
   } from "../usage-gauges";
   import type { ProviderFailoverOffer } from "$lib/provider-capacity";
   import type { ProviderFailoverStatus } from "$lib/types";
+  import CodexResetControls from "./CodexResetControls.svelte";
   import CreditDetail from "./CreditDetail.svelte";
   import UsageFailoverAction from "./UsageFailoverAction.svelte";
   import UsageRefreshButton from "./UsageRefreshButton.svelte";
@@ -321,20 +322,23 @@
             : m.topbar_codex_limits_checked_age({ age: codexLimitAge })}
         </div>
       {/if}
-      <div class="token-line">
-        <span
-          >{m.topbar_tokens_window({ period: "5H" })}
-          <span class="token-value">{compactTokens(codexUsage.session5hTokens)}</span></span
-        >
-        <span
-          >{m.topbar_tokens_window({ period: "WK" })}
-          <span class="token-value">{compactTokens(codexUsage.weekTokens)}</span></span
-        >
-        <span
-          >{m.topbar_tokens_total()}
-          <span class="token-value">{compactTokens(codexUsage.totalTokens)}</span></span
-        >
-      </div>
+      {#if codexUsage.tokenDataAvailable !== false}
+        <div class="token-line">
+          <span
+            >{m.topbar_tokens_window({ period: "5H" })}
+            <span class="token-value">{compactTokens(codexUsage.session5hTokens)}</span></span
+          >
+          <span
+            >{m.topbar_tokens_window({ period: "WK" })}
+            <span class="token-value">{compactTokens(codexUsage.weekTokens)}</span></span
+          >
+          <span
+            >{m.topbar_tokens_total()}
+            <span class="token-value">{compactTokens(codexUsage.totalTokens)}</span></span
+          >
+        </div>
+      {/if}
+      {#if codexUsage.resetStatus}<CodexResetControls status={codexUsage.resetStatus} />{/if}
     </div>
   {/if}
 

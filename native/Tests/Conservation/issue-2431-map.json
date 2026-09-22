@@ -5149,8 +5149,10 @@
       "destinations": [
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectionBannerTests.swift\",\"CoreSeamTests.AppModelHealthTests\",\"aCancelledRetryDoesNotClearANewerActivationsRetryingFlag() async throws\"]"
       ],
-      "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained; fixture waits for activation health before parking Retry A on its single gate.",
+      "assertionChanges": [
+        "fixture: injected store refresh keeps retry health sequencing independent of loopback I/O"
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ConnectionBannerTests.swift\",\"AppModelHealthTests\",\"aFailedHealthRefreshForgetsTheVersionsItHad() async throws\"]",
@@ -5230,7 +5232,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectionBannerTests.swift\",\"CoreSeamTests.AppModelHealthTests\",\"retryIgnoresASecondClickWhileTheFirstIsRunning() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: injected store refresh keeps retry health sequencing independent of loopback I/O"
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ConnectionBannerTests.swift\",\"AppModelHealthTests\",\"retryingWithNoActiveStoreDoesNothing() async\"]",
@@ -5270,7 +5274,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectionBannerTests.swift\",\"CoreSeamTests.AppModelHealthTests\",\"twoSynchronousRetryCallsMakeOnlyOneHealthRequest() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: injected store refresh keeps retry health sequencing independent of loopback I/O"
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ConnectionBannerTests.swift\",\"ConnectionBannerTests\",\"aCommandFailureIsNotABanner()\"]",

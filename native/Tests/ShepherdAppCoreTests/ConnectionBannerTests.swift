@@ -566,6 +566,7 @@ struct AppModelHealthTests {
     /// rather than as a deadlock.
     @Test func retryIgnoresASecondClickWhileTheFirstIsRunning() async throws {
         let model = makeModel()
+        model.refreshStore = { _ in }
         let gate = Gate()
         let calls = Box(0)
         model.health = { _ in
@@ -573,8 +574,8 @@ struct AppModelHealthTests {
             if calls.value == 2 { await gate.wait() }
             return Health(ok: true, version: "3.42.0")
         }
-        // Loopback with nothing listening: `SessionStore.refresh()` fails fast
-        // instead of waiting out a DNS lookup.
+        // Loopback avoids an external bootstrap target; the stubbed retry
+        // refresh lets this health gate control the scenario's progress.
         let profile = try model.addRemoteProfile(name: "Studio", address: "http://127.0.0.1:9")
 
         await model.activate(profile)
@@ -602,6 +603,7 @@ struct AppModelHealthTests {
     /// had a chance to run, and only one health request must ever be made.
     @Test func twoSynchronousRetryCallsMakeOnlyOneHealthRequest() async throws {
         let model = makeModel()
+        model.refreshStore = { _ in }
         let gate = Gate()
         let calls = Box(0)
         model.health = { _ in
@@ -609,8 +611,8 @@ struct AppModelHealthTests {
             if calls.value == 2 { await gate.wait() }
             return Health(ok: true, version: "3.42.0")
         }
-        // Loopback with nothing listening: `SessionStore.refresh()` fails fast
-        // instead of waiting out a DNS lookup.
+        // Loopback avoids an external bootstrap target; the stubbed retry
+        // refresh lets this health gate control the scenario's progress.
         let profile = try model.addRemoteProfile(name: "Studio", address: "http://127.0.0.1:9")
 
         await model.activate(profile)
@@ -638,11 +640,15 @@ struct AppModelHealthTests {
     /// or it would clear the flag B is relying on while B is still in flight.
     @Test func aCancelledRetryDoesNotClearANewerActivationsRetryingFlag() async throws {
         let model = makeModel()
+        model.refreshStore = { _ in }
         let gateA = Gate()
         let gateB = Gate()
+        let studioCalls = Box(0)
         let loftCalls = Box(0)
         model.health = { client in
             if client.profile.name == "Studio" {
+                studioCalls.value += 1
+                guard studioCalls.value == 2 else { return Health(ok: true, version: "1.0.0") }
                 await gateA.wait()
                 return Health(ok: true, version: "1.0.0")
             }
@@ -654,10 +660,12 @@ struct AppModelHealthTests {
         let studio = try model.addRemoteProfile(name: "Studio", address: "http://127.0.0.1:9")
         // A *different* address: `addRemoteProfile` reuses the saved row for an
         // address that is already stored (B8), and this test needs two profiles.
-        // Both ports are closed, which is all the stubbed health call needs.
+        // Both ports are closed to keep activation's background bootstrap local;
+        // the health closure and retry refresh are already stubbed for this scenario.
         let loft = try model.addRemoteProfile(name: "Loft", address: "http://127.0.0.1:10")
 
         await model.activate(studio)
+        guard await settle(until: { model.serverVersion == "1.0.0" }) else { throw URLError(.timedOut) }
         model.retry()
         #expect(await settle(until: { gateA.isWaiting }))
         #expect(model.retrying)

@@ -231,6 +231,11 @@ public final class AppModel {
     @ObservationIgnored
     var health: @MainActor (ShepherdClient) async throws -> Health = { try await $0.health() }
 
+    /// The store reconciliation that precedes a retry health check. Kept behind
+    /// an internal seam so health-state tests can control that unrelated I/O.
+    @ObservationIgnored
+    var refreshStore: @MainActor (SessionStore) async throws -> Void = { try await $0.refresh() }
+
     /// One read of a profile's stored credential, for `activate(_:)`'s
     /// pre-flight. The value is thrown away — what the activation needs to know
     /// is only whether the store *answers*. Behind the same seam as the two
@@ -785,7 +790,7 @@ public final class AppModel {
             if activationGeneration == generation { retrying = false }
         }
         guard let store else { return }
-        try? await store.refresh()
+        try? await refreshStore(store)
         guard store === self.store else { return }
         await refreshHealth()
     }

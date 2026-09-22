@@ -57,7 +57,7 @@ function executable(source: string): string {
       const commentEnd = source.indexOf("*/", index + 2);
       if (commentEnd < 0) throw new Error("unclosed Swift comment");
       index = commentEnd + 1;
-    } else if (!/\s/.test(character)) {
+    } else if (character !== undefined && !/\s/.test(character)) {
       normalized += character;
     }
   }

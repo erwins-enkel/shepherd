@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -51,5 +51,28 @@ describe("native iOS acceptance tools", () => {
     const result = Bun.spawnSync(["bash", resolve("native/scripts/archive-ios-app.sh"), "Release"], { env: { PATH: process.env.PATH!, HOME: directory } });
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr.toString()).toContain("UNMET:");
+  });
+  test("cleanup verifier rejects a handoff owned by another run without revealing credentials", () => {
+    const handoff = json("token.json", { runID: "another-run", tokenID: "owned-id", token: "DO-NOT-PRINT", baseURL: "http://127.0.0.1:1" });
+    chmodSync(handoff, 0o600);
+    const result = python("verify-ios-live-cleanup.py", "--handoff", handoff, "--status", join(directory, "proof.json"), "--run-id", "our-run", "--server-url", "http://127.0.0.1:1", "--revoke");
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr.toString()).toContain("UNMET: cleanup ownership");
+    expect(result.stderr.toString()).not.toContain("DO-NOT-PRINT");
+  });
+  test("cleanup verifier requires a real HTTP 401 after revoking the exact token", async () => {
+    const requests: string[] = [];
+    const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(request) {
+      requests.push(`${request.method} ${new URL(request.url).pathname} ${request.headers.get("authorization")}`);
+      return new Response(null, { status: request.method === "DELETE" ? 204 : 401 });
+    }});
+    try {
+      const handoff = json("token.json", { runID: "our-run", tokenID: "owned-id", token: "fixture-token", baseURL: server.url.origin });
+      chmodSync(handoff, 0o600);
+      const result = Bun.spawn(["python3", resolve("native/scripts/verify-ios-live-cleanup.py"), "--handoff", handoff, "--status", join(directory, "proof.json"), "--run-id", "our-run", "--server-url", server.url.origin, "--revoke"]);
+      expect(await result.exited).toBe(0);
+      expect(requests).toEqual(["DELETE /api/access-tokens/owned-id Bearer fixture-token", "GET /api/sessions Bearer fixture-token"]);
+      expect(JSON.parse(readFileSync(join(directory, "proof.json"), "utf8")).verifiedHTTPStatus).toBe(401);
+    } finally { server.stop(true); }
   });
 });

@@ -27,6 +27,7 @@ if [[ "$MODE" != live ]]; then
   unset SHEPHERD_LIVE_BASE_URL SHEPHERD_LIVE_PASSWORD TEST_RUNNER_SHEPHERD_LIVE_BASE_URL TEST_RUNNER_SHEPHERD_LIVE_PASSWORD
 fi
 export SHEPHERD_ISOLATED=1 TEST_RUNNER_SHEPHERD_ISOLATED=1
+export SHEPHERD_IOS_SURFACE="$FAMILY" TEST_RUNNER_SHEPHERD_IOS_SURFACE="$FAMILY"
 command -v xcodegen >/dev/null || { echo 'UNMET: xcodegen is required' >&2; exit 1; }
 mkdir -p "$APP_DIR/.build/results"
 if [[ -z "$RESULT" ]]; then RESULT="$APP_DIR/.build/results/$MODE-$FAMILY-$(date +%s)-$$.xcresult"; fi

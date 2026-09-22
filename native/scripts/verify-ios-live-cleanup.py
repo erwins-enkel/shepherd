@@ -106,14 +106,20 @@ def run_harness(config_path):
     if Path(config_path).expanduser().absolute() != allowed:
         raise Unmet("only the operator-named live-smoke configuration may be read")
     config = private_json(allowed)
-    if not isinstance(config, dict) or not isinstance(config.get("baseURL"), str) or not isinstance(config.get("password"), str) or not config["password"]:
+    if not isinstance(config, dict):
+        raise Unmet("live-smoke config must be an object")
+    # The operator-managed file predates this harness and uses snake_case names;
+    # accept both spellings without ever printing any value.
+    configured_url = config.get("baseURL", config.get("base_url"))
+    configured_password = config.get("password", config.get("operator_password"))
+    if not isinstance(configured_url, str) or not isinstance(configured_password, str) or not configured_password:
         raise Unmet("live-smoke config must provide baseURL and password")
-    base_url = server_url(config["baseURL"])
+    base_url = server_url(configured_url)
     run_id = str(uuid.uuid4())
     directory = Path(tempfile.mkdtemp(prefix="shepherd-ios-live-"))
     handoff, app_status, proof = (directory / name for name in ("owned-token.json", "app-status.json", "cleanup-proof.json"))
     environment = os.environ.copy()
-    values = {"SHEPHERD_LIVE_BASE_URL": base_url, "SHEPHERD_LIVE_PASSWORD": config["password"],
+    values = {"SHEPHERD_LIVE_BASE_URL": base_url, "SHEPHERD_LIVE_PASSWORD": configured_password,
               "SHEPHERD_IOS_RUN_ID": run_id, "SHEPHERD_IOS_CLEANUP_STATUS_PATH": str(app_status),
               "SHEPHERD_IOS_TOKEN_HANDOFF_PATH": str(handoff), "SHEPHERD_ISOLATED": "1"}
     for name, value in values.items():

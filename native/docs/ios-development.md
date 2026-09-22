@@ -46,8 +46,9 @@ and invalidate old selections and detail tasks.
 
 Only `native/scripts/live-ios-smoke.sh --config
 ~/.config/shepherd/codex/live-smoke.json`, wrapped in the same native lock, may read
-the operator-supplied live configuration. Its JSON fields are `baseURL` and
-`password`; the file must be owned by the current user and have mode `0600`.
+the operator-supplied live configuration. The harness accepts the existing
+`base_url`/`operator_password` fields (and the equivalent `baseURL`/`password`
+spellings); the file must be owned by the current user and have mode `0600`.
 Ordinary CI never reads it. The live
 harness owns one uniquely named token, records ownership before activation, performs
 audited reads and verifies that the exact token receives HTTP 401 after revocation.

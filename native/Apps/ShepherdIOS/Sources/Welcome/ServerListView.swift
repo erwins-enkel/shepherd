@@ -6,6 +6,7 @@ struct ServerListView: View {
     @Environment(AppModel.self) private var app
     @State private var adding = false
     @State private var removing: ServerProfile?
+    @State private var pendingLogin: ServerProfile?
     var body: some View {
         List {
             Section {
@@ -32,7 +33,9 @@ struct ServerListView: View {
         }
         .navigationTitle(L.t("native_welcome_title"))
         .accessibilityIdentifier("server-list")
-        .sheet(isPresented: $adding) { RemoteServerFormView().environment(app) }
+        .sheet(isPresented: $adding, onDismiss: {
+            if let profile = pendingLogin { app.sheet = .login(profile); pendingLogin = nil }
+        }) { RemoteServerFormView { pendingLogin = $0 }.environment(app) }
         .confirmationDialog(L.t("native_welcome_saved_remove_confirm_title", removing?.name ?? ""),
             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
             if let profile = removing {

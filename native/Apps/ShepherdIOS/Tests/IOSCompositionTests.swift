@@ -21,4 +21,16 @@ final class IOSCompositionTests: XCTestCase {
     func testStorageFailureFailsClosed() {
         XCTAssertThrowsError(try IOSLaunchEnvironment(configuration: .init(isIsolated: true), makeDefaults: { _ in nil }))
     }
+    func testActivationRegistersOnlyReadingModels() async throws {
+        let launch = try IOSLaunchEnvironment(configuration: .init(isIsolated: true))
+        let app = launch.makeModel()
+        let profile = try app.addRemoteProfile(name: "Fixture", address: "http://127.0.0.1:1")
+        await app.activate(profile)
+        defer { app.deactivate() }
+        XCTAssertNotNil(app.extension(SidebarModel.self))
+        XCTAssertNotNil(app.extension(DetailModel.self))
+        XCTAssertNil(app.extension(ActionsModel.self))
+        XCTAssertNil(app.extension(NotificationsModel.self))
+    }
+
 }

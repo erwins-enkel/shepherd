@@ -1,7 +1,9 @@
 import SwiftUI
 import ShepherdAppCore
+import ShepherdKit
 
 struct RemoteServerFormView: View {
+    let onConnect: (ServerProfile) -> Void
     @Environment(AppModel.self) private var app
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
@@ -34,7 +36,8 @@ struct RemoteServerFormView: View {
     }
     private func submit() {
         do {
-            _ = try app.beginRemoteLogin(name: name, address: address)
+            let profile = try app.addRemoteProfile(name: name, address: address)
+            onConnect(profile)
             dismiss()
         } catch { self.error = ShepherdErrorCopy.message(error) }
     }

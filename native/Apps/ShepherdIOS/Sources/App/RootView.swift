@@ -67,9 +67,13 @@ struct RootView: View {
             await lifecycle?.update(mappedPhase)
         }
         .onChange(of: app.store.map(ObjectIdentifier.init)) { _, _ in bindStore() }
-        .onChange(of: scenePhase) { _, _ in Task { await lifecycle?.update(mappedPhase) } }
+        .onChange(of: scenePhase) { _, phase in
+            let mapped = Self.map(phase)
+            Task { await lifecycle?.update(mapped) }
+        }
         .onChange(of: app.store?.connection) { _, state in Task { await lifecycle?.connectionDidChange(state) } }
         .onChange(of: app.selectedSessionID) { _, selected in
+            recovery?.cancelVisibleWork()
             path = selected.map { [$0] } ?? []
         }
         .onChange(of: path) { _, path in
@@ -96,8 +100,9 @@ struct RootView: View {
                 .accessibilityIdentifier("sign-out")
         }
     }
-    private var mappedPhase: IOSScenePhase {
-        switch scenePhase {
+    private var mappedPhase: IOSScenePhase { Self.map(scenePhase) }
+    private static func map(_ phase: ScenePhase) -> IOSScenePhase {
+        switch phase {
         case .active: .active
         case .inactive: .inactive
         case .background: .background
@@ -105,6 +110,7 @@ struct RootView: View {
         }
     }
     private func bindStore() {
+        recovery?.storeDidChange(to: nil)
         if let detail = app.extension(DetailModel.self) {
             recovery = IOSVisibleActivityRecovery(app: app, detail: detail, selectedID: { app.selectedSessionID })
             recovery?.storeDidChange(to: app.store)

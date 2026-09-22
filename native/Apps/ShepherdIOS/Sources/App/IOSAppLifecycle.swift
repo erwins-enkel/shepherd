@@ -67,7 +67,7 @@ final class IOSAppLifecycle {
                 await target.setActive(active)
             }
             guard generation == self.generation else { return }
-            if recover {
+            if recover, self.phase == .active {
                 self.app?.retry()
                 await self.onForegroundRecovery()
             }

@@ -11,7 +11,9 @@ struct SessionDetailView: View {
                 LabeledContent(L.t("native_detail_status_label"), value: SessionStatusStyle.label(session.status))
                 Text(verbatim: session.desig).font(.caption.monospaced())
                 Text(verbatim: session.repoPath).font(.callout).textSelection(.enabled)
-                Text(verbatim: session.branch).font(.callout.monospaced()).textSelection(.enabled)
+                if let branch = session.branch {
+                    Text(verbatim: branch).font(.callout.monospaced()).textSelection(.enabled)
+                }
             }
             Section(L.t("newtask_prompt_label")) {
                 Text(verbatim: session.prompt).textSelection(.enabled)

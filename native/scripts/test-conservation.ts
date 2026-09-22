@@ -344,7 +344,7 @@ export function collectTests(root: string): TestIdentity[] {
 }
 
 /** Read provenance from immutable Git objects, never from a recaptured worktree. */
-export function collectTestsAtRevision(root: string, revision: string): TestIdentity[] {
+function collectTestsAtRevision(root: string, revision: string): TestIdentity[] {
   if (!/^[0-9a-f]{40}$/.test(revision)) throw new Error("provenance requires a full commit SHA");
   const git = (...args: string[]) =>
     execFileSync("git", args, { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
@@ -463,7 +463,7 @@ export type UpstreamTransition = {
   destination: TestIdentity;
   reason: string;
 };
-export type UpstreamProvenance = {
+type UpstreamProvenance = {
   schemaVersion: 1;
   originalSHA: string;
   sourceSHA: string;

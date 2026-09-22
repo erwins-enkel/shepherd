@@ -366,13 +366,8 @@ final class LiveSmokeUITests: XCTestCase {
         let deadline = Date().addingTimeInterval(12)
         var clicks = 0
         var nextClick = Date.distantPast
-        var loggedGitBeforeFirstClick = false
         repeat {
             let buttons = tabButtons
-            if index == 4, !loggedGitBeforeFirstClick {
-                logGitTabSelectionDiagnostics(buttons, bodyIdentifiers: bodyIdentifiers, phase: "before-first-click")
-                loggedGitBeforeFirstClick = true
-            }
             if index < buttons.count, buttons[index].exists, buttons[index].isHittable,
                clicks < 2, Date() >= nextClick {
                 let button = buttons[index]
@@ -405,28 +400,11 @@ final class LiveSmokeUITests: XCTestCase {
                 + "hittable=\(buttonHittable) selected=\(buttonSelected) "
                 + "valueType=\(buttonValueType) valueClass=\(buttonValueClass) "
                 + "bodyExists=\(bodyExists) bodyHittable=\(bodyHittable)]")
-        if index == 4 {
-            logGitTabSelectionDiagnostics(buttons, bodyIdentifiers: bodyIdentifiers, phase: "timeout")
-        }
         // AppKit exposes selected native tabs as AX value 1. XCTest may bridge that value as a
         // number or string, so accept only those exact representations. `isSelected` reports
         // false for these SwiftUI bridge tabs, and some bodies have multiple matching elements.
         return index < buttons.count && buttons[index].exists && buttons[index].isHittable
             && nativeTabValueClass(buttons[index].value) == "1" && expectedBody.exists
-    }
-
-    /// Logs only fixed tab geometry and classified selection state for the Git-tab investigation.
-    private func logGitTabSelectionDiagnostics(
-        _ buttons: [XCUIElement], bodyIdentifiers: [String], phase: String
-    ) {
-        let tabs = (0..<8).map { tabIndex -> String in
-            let button = tabIndex < buttons.count ? buttons[tabIndex] : nil
-            let frame = button?.frame ?? .zero
-            let valueClass = button.map { nativeTabValueClass($0.value) } ?? "other"
-            let bodyExists = app.descendants(matching: .any)[bodyIdentifiers[tabIndex]].exists
-            return "index=\(tabIndex) frame=(x=\(frame.origin.x),y=\(frame.origin.y),w=\(frame.size.width),h=\(frame.size.height)) valueClass=\(valueClass) bodyExists=\(bodyExists)"
-        }
-        print("detail git tab diagnostic [phase=\(phase) \(tabs.joined(separator: "; "))]")
     }
 
     /// Returns only the observed native tab-state representations; never parses arbitrary text.

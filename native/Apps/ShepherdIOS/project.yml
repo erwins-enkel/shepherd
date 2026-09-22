@@ -1,0 +1,106 @@
+name: ShepherdIOS
+options:
+  bundleIdPrefix: run.shepherd
+  createIntermediateGroups: true
+  minimumXcodeGenVersion: "2.46.0"
+  deploymentTarget:
+    iOS: "18.0"
+packages:
+  ShepherdKit:
+    path: ../..
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_UPCOMING_FEATURE_EXISTENTIAL_ANY: YES
+    CODE_SIGN_STYLE: Manual
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    DEAD_CODE_STRIPPING: YES
+  configs:
+    Release:
+      SWIFT_COMPILATION_MODE: wholemodule
+targets:
+  ShepherdIOS:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+    dependencies:
+      - package: ShepherdKit
+        product: ShepherdAppCore
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: run.shepherd.ios
+        PRODUCT_NAME: ShepherdIOS
+        GENERATE_INFOPLIST_FILE: NO
+    info:
+      path: Sources/Info.plist
+      properties:
+        CFBundleDisplayName: Shepherd
+        CFBundleName: Shepherd
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        CFBundleLocalizations: [en, de]
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+  ShepherdIOSTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: ShepherdIOS
+      - package: ShepherdKit
+        product: ShepherdAppCore
+        link: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: run.shepherd.ios.tests
+        GENERATE_INFOPLIST_FILE: YES
+  ShepherdIOSUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: ShepherdIOS
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: run.shepherd.ios.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: ShepherdIOS
+schemes:
+  ShepherdIOS:
+    build:
+      targets:
+        ShepherdIOS: all
+        ShepherdIOSTests: [test]
+        ShepherdIOSUITests: [test]
+    run:
+      config: Debug
+    test:
+      config: Debug
+      parallelizeBuild: false
+      targets:
+        - name: ShepherdIOSTests
+          parallelizable: false
+        - name: ShepherdIOSUITests
+          parallelizable: false
+    archive:
+      config: Release

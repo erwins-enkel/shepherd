@@ -12320,7 +12320,6 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/IsolatedCleanupTests.swift\",\"MacSeamTests.IsolatedCleanupTests\",\"passwordAndProvidedTokenArmTheOriginalStaticGate()\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/IsolatedCleanupTests.swift\",\"MacSeamTests.IsolatedCleanupTests\",\"passwordFixtureMintsBeforeBodyAndCleansUpThrowingBody() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/IsolatedCleanupTests.swift\",\"MacSeamTests.IsolatedCleanupTests\",\"requiresServer401DespiteLocalCredentialRemoval() async throws\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/IsolatedCleanupTests.swift\",\"MacSeamTests.IsolatedCleanupTests\",\"suppliedTokenNeverAuthenticatesOrRevokesEvenOnFailure() async throws\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SessionDetailTabHitTestingTests.swift\",\"MacSeamTests.SessionDetailTabHitTestingTests\",\"inProcessTabCentersSelectTheirMappedDetailBodies() async throws\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/IsolatedCleanupTests.swift\",\"MacSeamTests.IsolatedCleanupTests\",\"suppliedTokenNeverAuthenticatesOrRevokesEvenOnFailure() async throws\"]"
   ]
 }

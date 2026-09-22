@@ -38,6 +38,7 @@ struct RootView: View {
             if launch.configuration.isIsolated, launch.cleanup != nil {
                 Button(L.t("native_toolbar_sign_out")) {
                     Task {
+                        app.deactivate()
                         do { try await launch.cleanup?.revoke(); cleanupState = "revocation_returned" }
                         catch { cleanupState = "pending" }
                     }
@@ -71,7 +72,6 @@ struct RootView: View {
             let mapped = Self.map(phase)
             Task { await lifecycle?.update(mapped) }
         }
-        .onChange(of: app.store?.connection) { _, state in Task { await lifecycle?.connectionDidChange(state) } }
         .onChange(of: app.selectedSessionID) { _, selected in
             recovery?.cancelVisibleWork()
             path = selected.map { [$0] } ?? []

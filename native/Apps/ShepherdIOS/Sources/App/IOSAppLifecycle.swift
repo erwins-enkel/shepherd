@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 import ShepherdAppCore
 import ShepherdKit
 
@@ -13,6 +14,8 @@ final class IOSAppLifecycle {
     private var connection: ConnectionState?
     private var pending: Task<Void, Never>?
     private var generation = 0
+    private var watcher: Task<Void, Never>?
+    private var connectionSignal: AsyncStream<Void>.Continuation?
     private let setPresence: (@MainActor (Bool) async -> Void)?
     private let onForegroundRecovery: @MainActor () async -> Void
 
@@ -31,8 +34,28 @@ final class IOSAppLifecycle {
     func storeDidChange(_ store: SessionStore?) {
         guard self.store !== store else { return }
         generation &+= 1
+        watcher?.cancel()
+        connectionSignal?.finish()
         self.store = store
         connection = nil
+        if let store {
+            let (changes, signal) = AsyncStream<Void>.makeStream()
+            connectionSignal = signal
+            let generation = generation
+            watcher = Task { [weak self, weak store] in
+                var iterator = changes.makeAsyncIterator()
+                while !Task.isCancelled {
+                    guard let state = store?.connection, self?.generation == generation else { return }
+                    Task { [weak self] in
+                        guard self?.generation == generation else { return }
+                        await self?.connectionDidChange(state)
+                    }
+                    withObservationTracking { _ = store?.connection } onChange: { signal.yield() }
+                    guard await iterator.next() != nil else { return }
+                    await Task.yield()
+                }
+            }
+        }
         if let phase { enqueuePresence(phase == .active, recover: phase == .active) }
     }
 

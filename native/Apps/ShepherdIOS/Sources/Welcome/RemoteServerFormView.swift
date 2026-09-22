@@ -26,10 +26,11 @@ struct RemoteServerFormView: View {
                 Button(L.t("native_welcome_connect"), action: submit)
                     .disabled(address.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityIdentifier("connect-server")
+                    .keyboardShortcut(.defaultAction)
             }
             .navigationTitle(L.t("native_welcome_remote_title"))
             .toolbar { ToolbarItem(placement: .cancellationAction) {
-                Button(L.t("common_cancel")) { dismiss() }
+                Button(L.t("common_cancel")) { dismiss() }.keyboardShortcut(.cancelAction)
             } }
             .onAppear { focused = true }
         }

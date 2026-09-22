@@ -19,10 +19,12 @@ struct LoginSheet: View {
                 Button(state.busy ? L.t("login_busy") : L.t("login_submit"), action: submit)
                     .disabled(state.busy || password.isEmpty)
                     .accessibilityIdentifier("login-submit")
+                    .keyboardShortcut(.defaultAction)
             }
             .navigationTitle(L.t("native_login_sheet_title", profile.name))
             .toolbar { ToolbarItem(placement: .cancellationAction) {
-                Button(L.t("common_cancel")) { dismissIfMatching() }.disabled(state.busy)
+                Button(L.t("common_cancel")) { dismissIfMatching() }
+                    .disabled(state.busy).keyboardShortcut(.cancelAction)
             } }
             .onAppear { focused = true }
         }

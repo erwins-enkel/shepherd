@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import type { GaugeKey } from "../usage-gauges";
   import type { UpdateStatus, DiagnosticState, UsageLimits } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
@@ -9,7 +10,8 @@
   import GearHaltHero from "./GearHaltHero.svelte";
   import GearGroupHead from "./GearGroupHead.svelte";
   import GearRow from "./GearRow.svelte";
-  import { REPO_URL, DOCS_URL } from "$lib/build-info";
+  import { REPO_URL, DOCS_URL, MAC_APP_DOWNLOAD_URL } from "$lib/build-info";
+  import { isMacOSPlatform } from "$lib/platform";
   import type { FeedbackKind } from "$lib/feedback-link";
   import { fly } from "svelte/transition";
   import { dialog } from "$lib/a11yDialog";
@@ -109,6 +111,11 @@
     onPluginItem?: (id: string) => void;
     onManagePlugins?: () => void;
   } = $props();
+
+  let showMacApp = $state(false);
+  onMount(() => {
+    showMacApp = isMacOSPlatform();
+  });
 
   // ── Swipe-down dismiss ─────────────────────────────────────────────────────
   // Armed ONLY by a pointerdown on the grab-handle row (touch-action:none there),
@@ -353,6 +360,16 @@
         href={DOCS_URL}
         onclick={() => closeMenu()}
       />
+      {#if showMacApp}
+        <GearRow
+          mobile
+          glyph="↓"
+          label={m.gearmenu_mac_app()}
+          meta={m.gearmenu_mac_app_download()}
+          href={MAC_APP_DOWNLOAD_URL}
+          onclick={closeMenu}
+        />
+      {/if}
       <GearRow
         mobile
         glyph="↗"

@@ -42,6 +42,56 @@ afterEach(() => {
   document.body.style.width = "";
 });
 
+describe("Mac app download in the gear menu", () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  const devices = [
+    { platform: "MacIntel", maxTouchPoints: 0, visible: true },
+    { platform: "MacIntel", maxTouchPoints: 5, visible: false },
+    { platform: "iPad", maxTouchPoints: 5, visible: false },
+    { platform: "iPhone", maxTouchPoints: 5, visible: false },
+    { platform: "Win32", maxTouchPoints: 0, visible: false },
+    { platform: "Linux x86_64", maxTouchPoints: 0, visible: false },
+  ];
+  it.each(devices.flatMap((device) => [false, true].map((mobile) => ({ ...device, mobile }))))(
+    "$platform with $maxTouchPoints touch points, mobile=$mobile: visible=$visible",
+    async (device) => {
+      vi.spyOn(navigator, "platform", "get").mockReturnValue(device.platform);
+      vi.spyOn(navigator, "maxTouchPoints", "get").mockReturnValue(device.maxTouchPoints);
+      await page.viewport(1280, 900);
+      document.body.style.width = "1280px";
+      render(TopBar, {
+        nowMs: 1_700_000_000_000,
+        connected: true,
+        mobile: device.mobile,
+        touch: false,
+        sessions: [],
+      });
+      await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+      const download = page.getByRole("link", { name: /Native macOS App/i });
+      if (device.visible) {
+        await expect.element(download).toBeVisible();
+        await expect.element(download).toHaveAttribute("href", `${REPO_URL}/releases?q=macos-`);
+        await expect.element(download).toHaveAttribute("target", "_blank");
+        const link = download.element();
+        expect(link.scrollWidth).toBeLessThanOrEqual(link.clientWidth);
+        // Exercise the close handler without navigating to the external release page.
+        link.addEventListener("click", (event) => event.preventDefault(), { once: true });
+        await download.click();
+        await expect
+          .element(
+            page.getByRole("dialog", {
+              name: device.mobile ? m.topbar_sheet_title() : m.topbar_menu_label(),
+            }),
+          )
+          .not.toBeInTheDocument();
+      } else {
+        await expect.element(download).not.toBeInTheDocument();
+      }
+    },
+  );
+});
+
 type Mode = "mobile" | "touch-desktop" | "desktop";
 const FLAGS: Record<Mode, { mobile: boolean; touch: boolean }> = {
   mobile: { mobile: true, touch: true },

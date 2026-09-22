@@ -43,11 +43,11 @@
     "*.{ts,svelte}": "eslint --cache --cache-strategy content --cache-location .cache/eslint --fix"
   },
   "devDependencies": {
-    "@commitlint/cli": "^21.2.2",
-    "@commitlint/config-conventional": "^21.2.2",
+    "@commitlint/cli": "^21.2.3",
+    "@commitlint/config-conventional": "^21.2.3",
     "@eslint/js": "^10.0.1",
     "@types/bun": "latest",
-    "@types/node": "^26.6.1",
+    "@types/node": "^26.6.2",
     "@types/web-push": "^3.6.4",
     "ajv": "^8",
     "eslint": "^10.11.0",
@@ -60,7 +60,7 @@
     "prettier": "^3.9.8",
     "prettier-plugin-svelte": "^4.1.1",
     "prettier-plugin-tailwindcss": "^0.8.1",
-    "svelte": "^5.57.0",
+    "svelte": "^5.57.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.70.0",
     "varlock": "^1.20.0",

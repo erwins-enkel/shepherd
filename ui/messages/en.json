@@ -4538,5 +4538,8 @@
   "topbar_codex_reset_outcome_nothingToReset": "Codex has no allowance to reset yet",
   "topbar_codex_reset_outcome_noCredit": "No reset credit available",
   "topbar_codex_reset_feature_title": "Codex reset automation",
-  "topbar_codex_reset_feature_body": "See earned resets in the usage panel, redeem one manually or enable capacity protection and useful redemption before expiry. Automatic work waits when capacity is unavailable."
+  "topbar_codex_reset_feature_body": "See earned resets in the usage panel, redeem one manually or enable capacity protection and useful redemption before expiry. Automatic work waits when capacity is unavailable.",
+  "newtask_preview_image_unavailable": "Image preview unavailable",
+  "feat_task_image_preview_title": "Preview task screenshots",
+  "feat_task_image_preview_body": "Hover over an image filename in the task-ID details to see its saved screenshot. You can also focus the filename with the keyboard or tap it on touch devices."
 }

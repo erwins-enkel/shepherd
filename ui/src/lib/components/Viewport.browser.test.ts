@@ -9,6 +9,10 @@ import "../../app.css";
 // by subcomponents; they can fail silently under test — existing tests pass
 // without mocking them).
 // The fn is declared BEFORE vi.mock so vitest's hoisting can close over it.
+const scratchpadDownloadUrlFn = vi.fn(
+  () =>
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aN1cAAAAASUVORK5CYII=",
+);
 const startPreviewFn = vi.fn(async () => ({ ok: true as const, command: "npm run dev" }));
 const stopPreviewFn = vi.fn(
   async () =>
@@ -54,6 +58,7 @@ vi.mock("$lib/api", async (importOriginal) => {
   return {
     ...actual,
     startPreview: startPreviewFn,
+    scratchpadDownloadUrl: scratchpadDownloadUrlFn,
     stopPreview: stopPreviewFn,
     renameSession: renameSessionFn,
     getLeftovers: getLeftoversFn,
@@ -422,52 +427,53 @@ describe("Viewport preview tab", () => {
 });
 
 describe("Viewport task detail tooltip", () => {
+  const launchMetadata = {
+    sourceKind: "user" as const,
+    prompt: "build the task tooltip",
+    issue: { number: 42, title: "Hover details", url: "https://example.test/42" },
+    attachments: [
+      {
+        submittedName: "mockup.png",
+        launchedName: "mockup.png",
+        dropped: false,
+        storedName: "uuid.png",
+      },
+      {
+        submittedName: "lost-notes.md",
+        launchedName: null,
+        dropped: true,
+        storedName: null,
+      },
+    ],
+    branch: { baseBranch: "main", workBranch: "shepherd/task-tooltip", sharedCheckout: false },
+    uiState: {
+      researchChecked: false,
+      planGateChecked: true,
+      autopilotChecked: true,
+    },
+    submittedChoices: {
+      planGateOverride: true,
+      autopilotOverride: true,
+      sandboxProfile: "autonomous" as const,
+      model: "opus",
+      effort: "high",
+    },
+    resolvedLaunch: {
+      research: false,
+      epicAuthoring: false,
+      planGateOptIn: true,
+      autopilotOptIn: true,
+      storedModel: "opus",
+      effort: "high",
+      sandboxApplied: "autonomous" as const,
+      sandboxDegraded: false,
+      egressApplied: true,
+      egressDegraded: false,
+    },
+    agent: { provider: "claude" as const, model: "opus", effort: "high" },
+  };
+
   it("shows launch metadata and updates live plan-gate state", async () => {
-    const launchMetadata = {
-      sourceKind: "user" as const,
-      prompt: "build the task tooltip",
-      issue: { number: 42, title: "Hover details", url: "https://example.test/42" },
-      attachments: [
-        {
-          submittedName: "mockup.png",
-          launchedName: "mockup.png",
-          dropped: false,
-          storedName: "uuid.png",
-        },
-        {
-          submittedName: "lost-notes.md",
-          launchedName: null,
-          dropped: true,
-          storedName: null,
-        },
-      ],
-      branch: { baseBranch: "main", workBranch: "shepherd/task-tooltip", sharedCheckout: false },
-      uiState: {
-        researchChecked: false,
-        planGateChecked: true,
-        autopilotChecked: true,
-      },
-      submittedChoices: {
-        planGateOverride: true,
-        autopilotOverride: true,
-        sandboxProfile: "autonomous" as const,
-        model: "opus",
-        effort: "high",
-      },
-      resolvedLaunch: {
-        research: false,
-        epicAuthoring: false,
-        planGateOptIn: true,
-        autopilotOptIn: true,
-        storedModel: "opus",
-        effort: "high",
-        sandboxApplied: "autonomous" as const,
-        sandboxDegraded: false,
-        egressApplied: true,
-        egressDegraded: false,
-      },
-      agent: { provider: "claude" as const, model: "opus", effort: "high" },
-    };
     const initial = session({
       id: "tooltip",
       prompt: "fallback prompt",
@@ -500,6 +506,28 @@ describe("Viewport task detail tooltip", () => {
     expect(tooltip.element().textContent).toContain("Autonomous");
     expect(tooltip.element().textContent).toContain("Egress allowlist");
 
+    const imageTrigger = page.getByRole("button", {
+      name: m.newtask_preview_image_aria({ name: "mockup.png" }),
+    });
+    await expect.element(imageTrigger).toBeVisible();
+    await imageTrigger.hover();
+    await expect
+      .poll(() => document.querySelector(".attachment-preview:popover-open"))
+      .not.toBeNull();
+    expect(scratchpadDownloadUrlFn).toHaveBeenCalledWith("tooltip", "attachments/uuid.png");
+    await expect
+      .poll(() => document.querySelector<HTMLImageElement>(".attachment-preview img")?.naturalWidth)
+      .toBe(1);
+    await page
+      .getByRole("tooltip", {
+        name: m.newtask_preview_image_aria({ name: "mockup.png" }),
+        exact: true,
+      })
+      .hover();
+    await expect.element(tooltip.filter({ hasText: "build the task tooltip" })).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => document.querySelector(".attachment-preview:popover-open")).toBeNull();
+
     await rerender({
       session: session({
         ...initial,
@@ -511,6 +539,76 @@ describe("Viewport task detail tooltip", () => {
 
     await page.getByText("TASK-01").hover();
     expect(page.getByRole("tooltip").element().textContent).toContain("Released");
+  });
+
+  it("supports keyboard and touch previews and clears them when task details close", async () => {
+    const { container, rerender } = await render(Viewport, {
+      session: session({ id: "input-preview", launchMetadata }),
+      previewPort: null,
+      openPreviewTick: 0,
+      consumeAutoFocusTerm: () => false,
+    });
+    const desig = container.querySelector<HTMLButtonElement>(".desig")!;
+    desig.focus();
+    await tick();
+    const trigger = page.getByRole("button", {
+      name: m.newtask_preview_image_aria({ name: "mockup.png" }),
+    });
+    await expect.element(trigger).toBeVisible();
+    (trigger.element() as HTMLButtonElement).focus();
+    await expect
+      .poll(() => document.querySelector(".attachment-preview:popover-open"))
+      .not.toBeNull();
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => document.querySelector(".attachment-preview:popover-open")).toBeNull();
+
+    await rerender({ touch: true });
+    desig.dispatchEvent(fakeTouch("touchstart", 0, 0));
+    await new Promise((r) => setTimeout(r, 600));
+    desig.dispatchEvent(fakeTouch("touchend", 0, 0));
+    await trigger.click();
+    await expect
+      .poll(() => document.querySelector(".attachment-preview:popover-open"))
+      .not.toBeNull();
+    await trigger.click();
+    await expect.poll(() => document.querySelector(".attachment-preview:popover-open")).toBeNull();
+    await trigger.click();
+    await rerender({ session: session({ id: "another-task" }) });
+    await expect.poll(() => document.querySelector(".attachment-preview:popover-open")).toBeNull();
+  });
+
+  it("keeps unavailable and non-image attachments readable", async () => {
+    await render(Viewport, {
+      session: session({
+        id: "preview-fallback",
+        launchMetadata: {
+          ...launchMetadata,
+          attachments: [
+            ...launchMetadata.attachments,
+            {
+              submittedName: "notes.txt",
+              launchedName: "notes.txt",
+              storedName: "notes.txt",
+              dropped: false,
+            },
+            { submittedName: "legacy.png", launchedName: "legacy.png", dropped: false },
+          ],
+        },
+      }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await page.getByText("TASK-01").hover();
+    const tooltip = page.getByRole("tooltip");
+    expect(tooltip.element().textContent).toContain("notes.txt");
+    expect(tooltip.element().textContent).toContain("legacy.png");
+    expect(tooltip.element().querySelectorAll(".preview-trigger")).toHaveLength(1);
+    await page
+      .getByRole("button", { name: m.newtask_preview_image_aria({ name: "mockup.png" }) })
+      .hover();
+    await expect.poll(() => document.querySelector(".attachment-preview img")).not.toBeNull();
+    document.querySelector(".attachment-preview img")!.dispatchEvent(new Event("error"));
+    await expect.element(page.getByText(m.newtask_preview_image_unavailable())).toBeVisible();
   });
 });
 

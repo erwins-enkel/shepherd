@@ -1,0 +1,120 @@
+@testable import ShepherdAppCore
+import Foundation
+import Testing
+
+extension CoreSeamTests {
+/// Asserts the committed string catalog against the source-of-truth manifest.
+/// Reads the copied source catalog from the built core resource bundle.
+struct StringCatalogTests {
+    private static let catalogURL = CoreResources.bundle.url(forResource: "Localizable", withExtension: "xcstrings", subdirectory: "Catalog")!
+
+    private struct Catalog: Decodable {
+        struct Entry: Decodable {
+            struct Localization: Decodable {
+                struct Unit: Decodable {
+                    let state: String
+                    let value: String
+                }
+                let stringUnit: Unit
+            }
+            let localizations: [String: Localization]
+        }
+        let sourceLanguage: String
+        let version: String
+        let strings: [String: Entry]
+    }
+
+    private static func load() throws -> Catalog {
+        let data = try Data(contentsOf: catalogURL)
+        return try JSONDecoder().decode(Catalog.self, from: data)
+    }
+
+    @Test func catalogIsVersion1EnglishSourced() throws {
+        let catalog = try Self.load()
+        #expect(catalog.version == "1.0")
+        #expect(catalog.sourceLanguage == "en")
+    }
+
+    @Test func everyKeyHasTranslatedEnAndDe() throws {
+        let catalog = try Self.load()
+        // The exact key count is asserted by gen-strings.ts's own --check gate
+        // (it fails the build if the manifest and the committed catalog
+        // disagree); this test only needs to know every key the catalog does
+        // carry has a translated en and de value.
+        #expect(!catalog.strings.isEmpty)
+        for (key, entry) in catalog.strings {
+            guard let en = entry.localizations["en"], let de = entry.localizations["de"] else {
+                Issue.record("\(key) is missing en or de")
+                continue
+            }
+            #expect(en.stringUnit.state == "translated", "\(key) en not translated")
+            #expect(de.stringUnit.state == "translated", "\(key) de not translated")
+            #expect(!en.stringUnit.value.isEmpty, "\(key) en is empty")
+            #expect(!de.stringUnit.value.isEmpty, "\(key) de is empty")
+        }
+    }
+
+    @Test func placeholderIndicesMatchAcrossLocales() throws {
+        let catalog = try Self.load()
+        for (key, entry) in catalog.strings {
+            guard let en = entry.localizations["en"], let de = entry.localizations["de"] else { continue }
+            let enIndices = Self.placeholderIndices(en.stringUnit.value)
+            let deIndices = Self.placeholderIndices(de.stringUnit.value)
+            #expect(enIndices == deIndices, "\(key): en uses \(enIndices), de uses \(deIndices)")
+        }
+    }
+
+    @Test func knownKeysCarryTheExpectedCopy() throws {
+        let catalog = try Self.load()
+        #expect(catalog.strings["native_welcome_local_title"]?.localizations["en"]?.stringUnit.value
+            == "Run on this Mac")
+        #expect(catalog.strings["native_welcome_remote_title"]?.localizations["de"]?.stringUnit.value
+            == "Mit einem entfernten Server verbinden")
+        #expect(catalog.strings["native_banner_mismatch"]?.localizations["en"]?.stringUnit.value
+            == "The server speaks a different API version than this app — "
+                + "server %1$@, app %2$@. Update one of them.")
+    }
+
+    @Test func selectedModuleLocalizationMatchesLAndArgumentFormatting() throws {
+        let expected = CoreResources.bundle.localizedString(
+            forKey: "native_welcome_local_title", value: "__MISSING__", table: nil)
+        #expect(L.t("native_welcome_local_title") == expected)
+        #expect(expected != "native_welcome_local_title")
+
+        let format = CoreResources.bundle.localizedString(
+            forKey: "native_banner_mismatch", value: "__MISSING__", table: nil)
+        let expectedFormatted = String(format: format, locale: .current, "server", "app")
+        #expect(L.t("native_banner_mismatch", "server", "app") == expectedFormatted)
+    }
+
+    /// B2: Remove revokes a token and deletes a Keychain item, so it asks
+    /// first — and the question names the server it is about.
+    @Test func theRemoveConfirmationNamesTheServerAndSaysWhatItCosts() throws {
+        let catalog = try Self.load()
+        #expect(
+            catalog.strings["native_welcome_saved_remove_confirm_title"]?
+                .localizations["en"]?.stringUnit.value == "Remove %1$@?")
+        #expect(
+            catalog.strings["native_welcome_saved_remove_confirm_title"]?
+                .localizations["de"]?.stringUnit.value == "%1$@ entfernen?")
+        #expect(
+            catalog.strings["native_welcome_saved_remove_confirm_body"]?
+                .localizations["en"]?.stringUnit.value
+                == "The saved sign-in for this server will be revoked and deleted from the Keychain.")
+        #expect(
+            catalog.strings["native_welcome_saved_remove_confirm_action"]?
+                .localizations["de"]?.stringUnit.value == "Entfernen")
+    }
+
+    /// Set of positional indices used by %N$@ placeholders.
+    private static func placeholderIndices(_ value: String) -> Set<Int> {
+        var found: Set<Int> = []
+        let pattern = try! NSRegularExpression(pattern: "%(\\d+)\\$@")
+        let range = NSRange(value.startIndex..., in: value)
+        for match in pattern.matches(in: value, range: range) {
+            if let r = Range(match.range(at: 1), in: value), let n = Int(value[r]) { found.insert(n) }
+        }
+        return found
+    }
+}
+}

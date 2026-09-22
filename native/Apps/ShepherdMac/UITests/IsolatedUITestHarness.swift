@@ -5,6 +5,7 @@ import XCTest
 @MainActor
 final class IsolatedUITestHarness {
     private var running: XCUIApplication?
+    private var expectsCleanup = false
 
     var isRunning: Bool { running.map { $0.state != .notRunning } ?? false }
 
@@ -29,6 +30,12 @@ final class IsolatedUITestHarness {
             app.launchEnvironment["TEST_RUNNER_" + name] = ""
         }
         app.launchEnvironment["SHEPHERD_ISOLATED"] = "1"
+        app.launchEnvironment["SHEPHERD_CLEANUP_STATUS_PATH"] = ""
+        app.launchEnvironment["TEST_RUNNER_SHEPHERD_CLEANUP_STATUS_PATH"] = ""
+        expectsCleanup = liveEnvironment["SHEPHERD_LIVE_BASE_URL"] != nil
+            && liveEnvironment["SHEPHERD_LIVE_PASSWORD"] != nil
+        app.launchEnvironment["SHEPHERD_UI_CLEANUP_HANDSHAKE"] = expectsCleanup ? "1" : "0"
+        app.launchEnvironment["TEST_RUNNER_SHEPHERD_UI_CLEANUP_HANDSHAKE"] = expectsCleanup ? "1" : "0"
         let isolation = app.launchArguments.firstIndex(of: "-ShepherdIsolated")
         precondition(isolation.map { app.launchArguments[$0 + 1] == "1" } == true,
             "every UI launch must pass isolation arguments")
@@ -38,11 +45,91 @@ final class IsolatedUITestHarness {
 
     func shutdown() {
         guard let app = running else { return }
-        running = nil
-        // From this point onward only process-state APIs may be used after the Quit keystroke.
-        // No element queries, screenshots, new application handles, or activation here.
-        guard app.state != .notRunning else { return }
-        app.typeKey("q", modifierFlags: .command)
-        if !app.wait(for: .notRunning, timeout: 10) { app.terminate() }
+        // LiveSmokeUITests has already checked the request audit. The original handle
+        // remains usable for cleanup proof, then is relinquished before Quit on every path.
+        defer {
+            running = nil
+            expectsCleanup = false
+            // After sending Quit, only process-state APIs are permitted. Never query AX,
+            // capture screenshots, attach another handle, or activate a stopped process.
+            if app.state != .notRunning {
+                app.typeKey("q", modifierFlags: .command)
+                let quit = app.wait(for: .notRunning, timeout: 10)
+                if !quit { app.terminate() }
+                XCTAssertTrue(quit, "Isolated app must finish bounded graceful Quit")
+            }
+        }
+        if expectsCleanup {
+            guard app.state != .notRunning else {
+                XCTFail("Isolated app exited before its owned-token cleanup could be verified")
+                return
+            }
+            verifyCleanupBeforeQuit(app)
+        }
+    }
+
+    private func verifyCleanupBeforeQuit(_ app: XCUIApplication) {
+        let status = app.descendants(matching: .any).matching(identifier: "isolated-cleanup-status").firstMatch
+        reportCleanupState(status, phase: "before-command")
+        // Click the app-menu command explicitly: an embedded terminal can consume shortcuts.
+        // Menu lookup follows the same app-menu path used by SettingsSceneUITests.
+        let appMenu = app.menuBars.menuBarItems["Shepherd"]
+        guard appMenu.waitForExistence(timeout: 3) else {
+            XCTFail("Isolated cleanup command unavailable [phase=app-menu]")
+            return
+        }
+        appMenu.click()
+        // macOS exposes this NSMenuItem by title, without the SwiftUI identifier/label.
+        let command = app.menuItems["Verify isolated cleanup"]
+        guard command.waitForExistence(timeout: 3), command.isEnabled else {
+            app.typeKey(.escape, modifierFlags: []) // Only dismiss the menu opened just above.
+            XCTFail("Isolated cleanup command unavailable [phase=command]")
+            return
+        }
+        command.click()
+        // SwiftUI can expose text through an AX label or value, and the element's AX type
+        // is not part of the handshake. Only this exact identifier and fixed schema count.
+        let summaries = (0...1).flatMap { owned in
+            (0...1).flatMap { verified in
+                ["none", "missingCredential", "stillAuthorized", "verificationFailed", "timeout"].map {
+                    "finished owned=\(owned) verified=\(verified) error=\($0)"
+                }
+            }
+        }
+        let completed = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == true AND (label IN %@ OR value IN %@)",
+                argumentArray: [summaries, summaries]),
+            object: status)
+        // The cleanup probe may retry GETs; this phase covers its approximately 12.6-second
+        // worst network budget separately from the final process Quit guard.
+        let terminal = XCTWaiter.wait(for: [completed], timeout: 20) == .completed
+        reportCleanupState(status, phase: "after-wait")
+        guard terminal else {
+            XCTFail("Isolated UI cleanup did not produce a terminal status before Quit")
+            return
+        }
+        let success = "finished owned=1 verified=1 error=none"
+        let verified = status.label == success || status.value as? String == success
+        XCTAssertTrue(verified, "Isolated UI token cleanup must be 401 verified before Quit")
+        if verified { print("isolated UI launch: owned=1 verified=1 (401 verified)") }
+    }
+
+    /// Never print arbitrary AX text, app hierarchy, paths or credentials on a failure.
+    private func reportCleanupState(_ status: XCUIElement, phase: String) {
+        func category(_ value: Any?) -> String {
+            guard let value = value as? String else { return "non-string" }
+            if value == "idle" || value == "running" { return value }
+            if value == "finished owned=1 verified=1 error=none" { return "verified" }
+            for error in ["missingCredential", "stillAuthorized", "verificationFailed", "timeout"] {
+                if value == "finished owned=0 verified=0 error=\(error)"
+                    || value == "finished owned=1 verified=0 error=\(error)" { return error }
+            }
+            return "unrecognized"
+        }
+        let exists = status.exists
+        let type = exists ? String(status.elementType.rawValue) : "missing"
+        let label = exists ? category(status.label) : "missing"
+        let value = exists ? category(status.value) : "missing"
+        print("isolated cleanup AX: phase=\(phase) exists=\(exists) type=\(type) label=\(label) value=\(value)")
     }
 }

@@ -1,0 +1,151 @@
+{
+  "schemaVersion": 1,
+  "sourceSHA": "0acfc8726306e4befa48397a6d0dfaa3bb790764",
+  "reviewedSHA": "5f5cf8183bd4baebe0d3c2998213362b015b299d",
+  "sourceBlobs": {
+    "native/Apps/ShepherdMac/Tests/LiveServerTests.swift": "99e2bc5dc92131a12b548b2baae97b967c0a98e7",
+    "native/Apps/ShepherdMac/Tests/MacSeamTests.swift": "75f65944e2b5e5e0e15eb1232a1552ee75eb09a0"
+  },
+  "reviewedBlobs": {
+    "native/Apps/ShepherdMac/Tests/LiveServerTests.swift": "80ea807526a9b1659cc2cef0cce220250abcc9d2",
+    "native/Apps/ShepherdMac/Tests/MacSeamTests.swift": "75f65944e2b5e5e0e15eb1232a1552ee75eb09a0"
+  },
+  "transitions": [
+    {
+      "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LiveServerTests.swift\",\"LiveServerTests\",\"liveSignInAndRestore() async throws\"]",
+      "source": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/LiveServerTests.swift",
+        "suite": "MacSeamTests.LiveServerTests",
+        "signature": "liveSignInAndRestore() async throws",
+        "line": 91,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test(\n        \"a real sign-in reaches .live, and a relaunch restores it\",\n        .enabled(if: LiveServerEnvironment.configured))",
+        "condition": "",
+        "bodyHash": "82d097fa558c94c7f20807428a4abd6992d50da64e32552c877b16f2424bed60",
+        "assertionHashes": [
+          "06de2b970bf0de2b9b52833144c2c26ed89a59f0cfd56d5aedd0c9ff23b558e7",
+          "e30a1570fcaaae437a20bd24c3b8b7ab15e35da09fe0f15ca34031e30cb2c535",
+          "052272737c2a96f46a9ec76921a9595ab57b9b58e969aa807f920d73379dd89f",
+          "f6d64c6f367e96cc681a4ef12e3c53a00877730fc1886411996e6e31fbd77a2b",
+          "29707b37a5705c46c82d8ba2ac1ede206736f90bd8ffcd41b6be5402957bb82b",
+          "2578b5b1a4d2aaa23c3eb6ebc08879697615a881296c0067b3a5427ad1c76afa",
+          "2bf586db73f8ca13350622ad4f1a28f4c0ec847adf74bb5de2987d08a4f61e34",
+          "617089c284cc7c63404322f87f30592eabd30ce194aa71585f7621ff3bb7e0bf",
+          "06285140a27c2e9642987d6cbfd75c44e50b315240f1297fd3bd42c5df00a78d"
+        ],
+        "assertionConditionHashes": [
+          "cf3dcde67933b3363f5fa1d541c119e3b70e00193734b401d5c5a84171ed70c2",
+          "ec50553bf23cdc2c7adf2e33a0de72b17c42f58c03eb0d31b6200ed4c8ff49e4",
+          "d50b8b3dcad2a09444239b6bb9cc25561063677654aa723d8dd378133382de77",
+          "798718f9caf3668c0fc2c4249fdcc92f7cc46b3a17e0845fe27afc02ac06cf7f",
+          "71334c80038e20011ede667fcd382a82cfc789d60ecf205676abdf38a162aeff",
+          "8e5b9ab7ce8358472210c60e7c58eb46c2db11bd5b4f57818ff9da18618ba8a4",
+          "7ba0423c14dfa57c04cb6846e9acdf5c8cf7153d0054779f899da39023116976",
+          "97de56230770f6412389a0dd0a4137d4b2580b268ca777fd529173b9e23e6473",
+          "05f77a22ca2d5d371f28b2c7f8a75a4e65f5a554e79faa9cf66aedbf53817bfd"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/LiveServerTests.swift",
+        "suite": "MacSeamTests.LiveServerTests",
+        "signature": "liveSignInAndRestore() async throws",
+        "line": 98,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test(\n        \"a real sign-in reaches .live, and a relaunch restores it\",\n        .enabled(if: LiveServerEnvironment.configured))",
+        "condition": "",
+        "bodyHash": "fa39fb517f3e1062a7a643ec7bf882437a615870a3c226fbd7cf44739bf1d1b6",
+        "assertionHashes": [
+          "06de2b970bf0de2b9b52833144c2c26ed89a59f0cfd56d5aedd0c9ff23b558e7",
+          "e30a1570fcaaae437a20bd24c3b8b7ab15e35da09fe0f15ca34031e30cb2c535",
+          "052272737c2a96f46a9ec76921a9595ab57b9b58e969aa807f920d73379dd89f",
+          "f6d64c6f367e96cc681a4ef12e3c53a00877730fc1886411996e6e31fbd77a2b",
+          "29707b37a5705c46c82d8ba2ac1ede206736f90bd8ffcd41b6be5402957bb82b",
+          "2578b5b1a4d2aaa23c3eb6ebc08879697615a881296c0067b3a5427ad1c76afa",
+          "2bf586db73f8ca13350622ad4f1a28f4c0ec847adf74bb5de2987d08a4f61e34",
+          "617089c284cc7c63404322f87f30592eabd30ce194aa71585f7621ff3bb7e0bf",
+          "06285140a27c2e9642987d6cbfd75c44e50b315240f1297fd3bd42c5df00a78d"
+        ],
+        "assertionConditionHashes": [
+          "cf3dcde67933b3363f5fa1d541c119e3b70e00193734b401d5c5a84171ed70c2",
+          "ec50553bf23cdc2c7adf2e33a0de72b17c42f58c03eb0d31b6200ed4c8ff49e4",
+          "d50b8b3dcad2a09444239b6bb9cc25561063677654aa723d8dd378133382de77",
+          "798718f9caf3668c0fc2c4249fdcc92f7cc46b3a17e0845fe27afc02ac06cf7f",
+          "71334c80038e20011ede667fcd382a82cfc789d60ecf205676abdf38a162aeff",
+          "8e5b9ab7ce8358472210c60e7c58eb46c2db11bd5b4f57818ff9da18618ba8a4",
+          "7ba0423c14dfa57c04cb6846e9acdf5c8cf7153d0054779f899da39023116976",
+          "97de56230770f6412389a0dd0a4137d4b2580b268ca777fd529173b9e23e6473",
+          "05f77a22ca2d5d371f28b2c7f8a75a4e65f5a554e79faa9cf66aedbf53817bfd"
+        ]
+      }
+    },
+    {
+      "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LiveServerTests.swift\",\"LiveServerTests\",\"theSessionListRendersAgainstTheLiveServer() async throws\"]",
+      "source": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/LiveServerTests.swift",
+        "suite": "MacSeamTests.LiveServerTests",
+        "signature": "theSessionListRendersAgainstTheLiveServer() async throws",
+        "line": 196,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test(\n        \"the session list renders using a pre-minted token, with no login round-trip\",\n        .enabled(if: LiveServerEnvironment.tokenConfigured))",
+        "condition": "",
+        "bodyHash": "3812333f554f1c2cb5a44fc5a97e2232fb1cb8ab4103c63ba1573c7020f36222",
+        "assertionHashes": [
+          "06de2b970bf0de2b9b52833144c2c26ed89a59f0cfd56d5aedd0c9ff23b558e7",
+          "68e87ec41e95122492bfe2d2a6dd0baeeb770d799867a6500e63b564e85e091d",
+          "cf347f5eacfe7503772482e913d9d8072bbc67c110212c5c3e860fa965b46ca8",
+          "a9aa8b22ff090d5da4367caa34b741881f75b4703e4c4116643225773db2e403",
+          "93f37293f51d4773f248bad6b2a274942be25bbc27766fd0ca2de9f6d74a02dc",
+          "196e25b50487367ba3fed78d1ebbc291cd1df040d984b8d1918938e85dcec0b1"
+        ],
+        "assertionConditionHashes": [
+          "cf3dcde67933b3363f5fa1d541c119e3b70e00193734b401d5c5a84171ed70c2",
+          "a10e85d014c4cf0b8782071447b3d4f287e980d95ff379bd4e0875c249de29d3",
+          "04d7ed3ad227d833bc7bbb9a7a0d276bd383517107aebaca0bdd082811559b04",
+          "03a2a05ec43ec086f8588f9eccf0d79a5deeb7ca089fdea8f311f39ea2c42cad",
+          "1e8c75cb99f08788b1ea1a12d0ea4e55be1686ce1ec80723f2e272013de71051",
+          "efe871907e0dd3d5c8470157d79c777ab648930929cbc954209a7ec4ee9d2319"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/LiveServerTests.swift",
+        "suite": "MacSeamTests.LiveServerTests",
+        "signature": "theSessionListRendersAgainstTheLiveServer() async throws",
+        "line": 202,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test(\n        \"the session list renders using a pre-minted token, with no login round-trip\",\n        .enabled(if: LiveServerEnvironment.tokenConfigured))",
+        "condition": "",
+        "bodyHash": "133fbe2fac327d7e7e4e47013897277382d72184c0d5b2455d33c0a756dff1f8",
+        "assertionHashes": [
+          "06de2b970bf0de2b9b52833144c2c26ed89a59f0cfd56d5aedd0c9ff23b558e7",
+          "174e7286890ece56afd39370b041ca10a570eb3dafcd9047f91b9738c34f75b3",
+          "cf347f5eacfe7503772482e913d9d8072bbc67c110212c5c3e860fa965b46ca8",
+          "a9aa8b22ff090d5da4367caa34b741881f75b4703e4c4116643225773db2e403",
+          "93f37293f51d4773f248bad6b2a274942be25bbc27766fd0ca2de9f6d74a02dc",
+          "196e25b50487367ba3fed78d1ebbc291cd1df040d984b8d1918938e85dcec0b1"
+        ],
+        "assertionConditionHashes": [
+          "cf3dcde67933b3363f5fa1d541c119e3b70e00193734b401d5c5a84171ed70c2",
+          "0f88ab5899688817b7aa3851607ffedfc326a0641bbbf6a3ceda1c84c3a4918f",
+          "04d7ed3ad227d833bc7bbb9a7a0d276bd383517107aebaca0bdd082811559b04",
+          "03a2a05ec43ec086f8588f9eccf0d79a5deeb7ca089fdea8f311f39ea2c42cad",
+          "1e8c75cb99f08788b1ea1a12d0ea4e55be1686ce1ec80723f2e272013de71051",
+          "efe871907e0dd3d5c8470157d79c777ab648930929cbc954209a7ec4ee9d2319"
+        ]
+      }
+    }
+  ],
+  "snapshots": {
+    "source": {
+      "file": "fixtures/live-server-source.swift.txt",
+      "sha256": "307ed27071a67a0966c7e4b02d2eb4112491b51bef07d9be2ac732a9ee946b0a"
+    },
+    "reviewed": {
+      "file": "fixtures/live-server-reviewed.swift.txt",
+      "sha256": "e852f61b32965484187000680400039dc5adbe45045a8178eba6ae94c96681d7"
+    },
+    "suite": {
+      "file": "fixtures/mac-seam-suite.swift.txt",
+      "sha256": "7a607fec597cdc0b210350e07d13c3fa88df524bef6df7586b21f524d013a286"
+    }
+  }
+}

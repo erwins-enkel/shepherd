@@ -4,6 +4,7 @@ import ShepherdKit
 import Testing
 
 @testable import Shepherd
+@testable import ShepherdAppCore
 
 private enum HerdLiveGate {
     static var armed: Bool {
@@ -11,6 +12,7 @@ private enum HerdLiveGate {
     }
 }
 
+extension MacSeamTests {
 /// Read-only snapshots and classification. Never triggers a critic or changes a real session.
 /// CI skips both tests; credentials stay in memory and tokens minted here are given back.
 @MainActor
@@ -30,7 +32,7 @@ struct HerdLiveTests {
         func done() async {
             store?.stop()
             if minted {
-                try? await ProfileSetup.logout(profile: profile, credentials: credentials)
+                await revokeOwnedLiveToken(profile: profile, credentials: credentials)
             }
         }
 
@@ -95,4 +97,5 @@ struct HerdLiveTests {
             print("live herd: \(store.sessions.count) session(s); stages=\(names)")
         }
     }
+}
 }

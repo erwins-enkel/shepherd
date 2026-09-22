@@ -1,3 +1,4 @@
+import ShepherdAppCore
 import SwiftUI
 import ShepherdKit
 
@@ -9,9 +10,14 @@ import ShepherdKit
 enum DetailFeature {
     @MainActor
     static func install(_ app: AppModel) {
+        MacStreamHost.configure()
+        CoreStreamInstallers.installDetail(into: app)
+    }
+
+    @MainActor
+    static func installTabs(_ app: AppModel) {
         // One per SessionStore: AppModel builds it in activate(_:) and tears it down with the
         // store, so every cache dies with the server it belongs to.
-        app.register(DetailModel.self)
         DetailTabRegistry.register(ActivityTab())
         DetailTabRegistry.register(DiffTab())
         DetailTabRegistry.register(FilesTab())
@@ -21,22 +27,6 @@ enum DetailFeature {
     /// The model for the active store, or nil between activations. Every tab view starts here.
     @MainActor
     static func model(_ app: AppModel) -> DetailModel? { app.extension(DetailModel.self) }
-}
-
-/// The identity a detail tab's `.task(id:)` keys on: the selected session **and** the model
-/// showing it.
-///
-/// The session id alone is not enough. `AppModel` builds a fresh `DetailModel` per activation, so
-/// a profile switch can leave the same session id selected in front of an empty cache — and a
-/// task that did not re-run would sit on loading chrome nothing ever fills.
-struct DetailTaskKey: Hashable {
-    let session: String
-    let model: ObjectIdentifier
-
-    init(session: String, model: DetailModel) {
-        self.session = session
-        self.model = ObjectIdentifier(model)
-    }
 }
 
 /// The Refresh control every detail tab shows, rendered *inside* the tab instead of in the
@@ -83,14 +73,6 @@ extension DetailRefreshBar where Leading == EmptyView {
             title: title, isDisabled: isDisabled, accessibilityID: accessibilityID,
             action: action, leading: { EmptyView() })
     }
-}
-
-/// What a tab should render. A tab maps its own `Loaded` value onto this.
-enum DetailStatePhase: Equatable {
-    case loading
-    case empty(String)
-    case failed(String)
-    case content
 }
 
 /// The loading / empty / error chrome every detail tab shares, so the four cannot drift apart on

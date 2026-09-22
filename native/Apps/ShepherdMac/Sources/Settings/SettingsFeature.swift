@@ -1,3 +1,4 @@
+import ShepherdAppCore
 import SwiftUI
 import ShepherdKit
 
@@ -74,11 +75,7 @@ struct SettingsPaneEntry: SettingsPane {
             action:{ app in Task { await app.extension(BackendRecoveryModel.self)?.refresh() } }))
     }
     static func install(_ app: AppModel) {
-        // Settings can be opened before the main RootView task. Register the
-        // shared recovery dependency here as well as in the merged model pass;
-        // AppModel.register keeps this idempotent and activation-scoped.
-        app.register(BackendRecoveryModel.self)
-        app.register(SettingsModel.self)
-        app.register(SettingsReadyModel.self)
+        MacStreamHost.configure()
+        CoreStreamInstallers.installSettings(into: app)
     }
 }

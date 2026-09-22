@@ -1,0 +1,3380 @@
+{
+  "schemaVersion": 1,
+  "originalSHA": "83e8d45172fc63eff1336c12cf6d850cdbfdfcb8",
+  "sourceSHA": "c4961c40ec2cdfde9c011387536d2bd0bc1f9e58",
+  "sourceBlobs": {
+    "native/Apps/ShepherdMac/Tests/AppInstallationTests.swift": "8abd368d1a2a67ddb33c8f343e1426a43fa9b9af",
+    "native/Apps/ShepherdMac/Tests/AppUpdaterTests.swift": "74105a9539d20cf336d104dc090aa7903500e921",
+    "native/Apps/ShepherdMac/Tests/BackendRecoveryTests.swift": "c8ac920f43a0b745100b76e91c24cdb59d28dbb7",
+    "native/Apps/ShepherdMac/Tests/ComposeKeymapTests.swift": "42e397ba57ed26c93dbe07c3d996e6970408982c",
+    "native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift": "135d3e4b2819076f67e96558ca8daca074fa996c",
+    "native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift": "b49a75543796803e288a770dc0ab40abf33ed85a",
+    "native/Apps/ShepherdMac/Tests/SettingsDiagnosticsTests.swift": "4eeaca089fb4db06935dce5a86c64eb3dd79b740",
+    "native/Apps/ShepherdMac/Tests/SettingsIntegrationTests.swift": "684b00373b7d0544a36275143fc873a4a465a1d8",
+    "native/Apps/ShepherdMac/Tests/SettingsLocalConnectTests.swift": "82beb5860eb7a20cb81673232509ed3c09cc4fdb",
+    "native/Apps/ShepherdMac/Tests/SettingsModelTests.swift": "4bf0fc7017986ec5172f0e1cdcdac4bcf4465df5",
+    "native/Apps/ShepherdMac/Tests/SettingsRegistrationTests.swift": "431544032572de30d740f5dc8076fc678c19caad",
+    "native/Apps/ShepherdMac/Tests/SettingsSceneTests.swift": "bc646597f336e99afe1d66fe8604b65ffbf6486b",
+    "native/Apps/ShepherdMac/Tests/TerminalStateTests.swift": "b6939055a8e0faf69d382dc17536d6700ca4a202",
+    "native/Apps/ShepherdMac/UITests/SettingsSceneUITests.swift": "b124c7bda1a71304cef6a23053f66208f775a454",
+    "native/Tests/ShepherdKitTests/InstallerRunTests.swift": "b89ebacf9ef8f35aee3dc05c4e0d07cde41ea1b1",
+    "native/Tests/ShepherdKitTests/LocalHealthCheckTests.swift": "1329f27d2046b81e27701d8731c68997fc2a3aff",
+    "native/Tests/ShepherdKitTests/LocalRunnerStartTests.swift": "03263f52aff6e14553b90c2fc612d92d7cf3c35d",
+    "native/Tests/ShepherdKitTests/LocalServerEnvironmentTests.swift": "515ebb5a848f5956f80c4b04a3eb8daa1b8d8274",
+    "native/Tests/ShepherdKitTests/LocalServerIdentityTests.swift": "56120d4bb80b35daacb8e23a7051a13d2a69f9ad",
+    "native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift": "1e9b0b94bee0a79f027a54ca136aebf96a5a1715"
+  },
+  "transitions": [
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/InstallerRunTests.swift",
+        "suite": "InstallerRunTests",
+        "signature": "cancellingDuringDownloadDoesNotLaunchAnInstaller() async throws",
+        "line": 76,
+        "attributes": "@testable\n@Suite(.serialized, .timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "2becf7adf2b427e2eeee65cd42522e03869858b56fadffb8fa267266c974351c",
+        "assertionHashes": [
+          "bd93ef9885991d53886277d49693e06cfce106b17783fecb53d0b6d0de509cf3",
+          "89ede5a06f8bf78327196efda39d12d3590314e78e2fae7f3a4d22e0968a2bc8"
+        ],
+        "assertionConditionHashes": [
+          "f0a200902a589e14d792bd94a986f57d78704ced371f1f56882ba4dd24ecca35",
+          "e356ce6a7c8333e7a7f118badb3f60465a4d398a009042cb3af99d08e3df620d"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/InstallerRunTests.swift",
+        "suite": "InstallerRunTests",
+        "signature": "cancellingDuringDownloadDoesNotLaunchAnInstaller() async throws",
+        "line": 76,
+        "attributes": "@testable\n@Suite(.serialized, .timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "2becf7adf2b427e2eeee65cd42522e03869858b56fadffb8fa267266c974351c",
+        "assertionHashes": [
+          "bd93ef9885991d53886277d49693e06cfce106b17783fecb53d0b6d0de509cf3",
+          "89ede5a06f8bf78327196efda39d12d3590314e78e2fae7f3a4d22e0968a2bc8"
+        ],
+        "assertionConditionHashes": [
+          "f0a200902a589e14d792bd94a986f57d78704ced371f1f56882ba4dd24ecca35",
+          "e356ce6a7c8333e7a7f118badb3f60465a4d398a009042cb3af99d08e3df620d"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/InstallerRunTests.swift",
+        "suite": "InstallerRunTests",
+        "signature": "coldInstallDownloadsRunsAndCleansItsScriptWithExplicitHome() async throws",
+        "line": 41,
+        "attributes": "@testable\n@Suite(.serialized, .timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "10a2993cbff1064b716670c4f6e932c3ce857d2c3e85049c03308a6a367f68d1",
+        "assertionHashes": [
+          "569d2e89df622af8a9faef80c4072a60d3e540e20010b58a6467a53a9fd44cef",
+          "7afacd263644f08dcdca7fa9e8d451641d58cbd1433248fb6528095216f533c2",
+          "b8b906b7bc11a550281b6d1a87bd59697246155da7f4908464ce34d38d1d4da1",
+          "6530dc0317c09556d774dc0e806fd87f10651604902a6979feb8d186e941606c",
+          "c00da34d80adaa79aebe4c8187626d1e004383c56c9ea2e5decd73eb8239d435",
+          "b51dadab6cb663c3b7e3bd7f1f8c020061f3c6ceb5388b3abc158a84a3d6f0a2",
+          "21bc0c92ca87ddb32e8dbe44120ad72b95f302ef9e84244a2c7e1ab124a2de63"
+        ],
+        "assertionConditionHashes": [
+          "c83a194540ac1ab4bd5ae5c9c045b7f4a9451d5f2001848e9022e93f7a56fc3a",
+          "71bf752fe3ad066e4b7b46bb6f5749732fd654bd826745bca93b3f987b86481a",
+          "1ca022d28b4832b5a6a0074ece9cb8668b45fd62a0689ec4fab849920e28f0ce",
+          "73794fcf949fad59beea9cd2630466782489324a17ae00d6fcc7ac19e67b8f32",
+          "90150cfe8a7d00e0731a0f643bc174440d830353397c49e134de54d7a712eca3",
+          "58e14be2eaa066b539a640358b56322eb781e646ce0aa01f1a676acff418e0fa",
+          "75ebc7003fd0fa454ff2909413242f693c0f3b87984b0b5b49ed428655919691"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/InstallerRunTests.swift",
+        "suite": "InstallerRunTests",
+        "signature": "coldInstallDownloadsRunsAndCleansItsScriptWithExplicitHome() async throws",
+        "line": 41,
+        "attributes": "@testable\n@Suite(.serialized, .timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "10a2993cbff1064b716670c4f6e932c3ce857d2c3e85049c03308a6a367f68d1",
+        "assertionHashes": [
+          "569d2e89df622af8a9faef80c4072a60d3e540e20010b58a6467a53a9fd44cef",
+          "7afacd263644f08dcdca7fa9e8d451641d58cbd1433248fb6528095216f533c2",
+          "b8b906b7bc11a550281b6d1a87bd59697246155da7f4908464ce34d38d1d4da1",
+          "6530dc0317c09556d774dc0e806fd87f10651604902a6979feb8d186e941606c",
+          "c00da34d80adaa79aebe4c8187626d1e004383c56c9ea2e5decd73eb8239d435",
+          "b51dadab6cb663c3b7e3bd7f1f8c020061f3c6ceb5388b3abc158a84a3d6f0a2",
+          "21bc0c92ca87ddb32e8dbe44120ad72b95f302ef9e84244a2c7e1ab124a2de63"
+        ],
+        "assertionConditionHashes": [
+          "c83a194540ac1ab4bd5ae5c9c045b7f4a9451d5f2001848e9022e93f7a56fc3a",
+          "71bf752fe3ad066e4b7b46bb6f5749732fd654bd826745bca93b3f987b86481a",
+          "1ca022d28b4832b5a6a0074ece9cb8668b45fd62a0689ec4fab849920e28f0ce",
+          "73794fcf949fad59beea9cd2630466782489324a17ae00d6fcc7ac19e67b8f32",
+          "90150cfe8a7d00e0731a0f643bc174440d830353397c49e134de54d7a712eca3",
+          "58e14be2eaa066b539a640358b56322eb781e646ce0aa01f1a676acff418e0fa",
+          "75ebc7003fd0fa454ff2909413242f693c0f3b87984b0b5b49ed428655919691"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/InstallerRunTests.swift",
+        "suite": "InstallerRunTests",
+        "signature": "downloadErrorsAndHTMLAreNeverExecuted() async throws",
+        "line": 63,
+        "attributes": "@testable\n@Suite(.serialized, .timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "341758b281c6277977692b1f884ff51a4fb560f5b1ea9336d14929617580f003",
+        "assertionHashes": [
+          "3d43fc1991850327621df5a8c544a6f89e703da11be475bb477263db4f728197",
+          "89ede5a06f8bf78327196efda39d12d3590314e78e2fae7f3a4d22e0968a2bc8"
+        ],
+        "assertionConditionHashes": [
+          "8a155114b50ed045d63281bcd8cdd4328dc5f4545ac2a50e58ae5932958123a9",
+          "e356ce6a7c8333e7a7f118badb3f60465a4d398a009042cb3af99d08e3df620d"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/InstallerRunTests.swift",
+        "suite": "InstallerRunTests",
+        "signature": "downloadErrorsAndHTMLAreNeverExecuted() async throws",
+        "line": 63,
+        "attributes": "@testable\n@Suite(.serialized, .timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "341758b281c6277977692b1f884ff51a4fb560f5b1ea9336d14929617580f003",
+        "assertionHashes": [
+          "3d43fc1991850327621df5a8c544a6f89e703da11be475bb477263db4f728197",
+          "89ede5a06f8bf78327196efda39d12d3590314e78e2fae7f3a4d22e0968a2bc8"
+        ],
+        "assertionConditionHashes": [
+          "8a155114b50ed045d63281bcd8cdd4328dc5f4545ac2a50e58ae5932958123a9",
+          "e356ce6a7c8333e7a7f118badb3f60465a4d398a009042cb3af99d08e3df620d"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalHealthCheckTests.swift",
+        "suite": "LocalHealthCheckTests",
+        "signature": "missingOrEmptyVersionCannotCertifyAServer() async",
+        "line": 32,
+        "attributes": "@testable\n@Suite(.timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "1c3905055fb983606675a5d10c9b05ea46926c906d162661ba7175f2766309d8",
+        "assertionHashes": [
+          "3576347ad1fe16385265db7faaa48c9075c574f68734d91ccace57d50aebba60",
+          "ac6b3f76988fb8c40239aa8a9cafd7934f0a147d31b7a287480fdcfbcc798427"
+        ],
+        "assertionConditionHashes": [
+          "f3cf6a010938e6f5b1b9dc6ef87cdf5b8bc9e7fb7015bace7ec2f18e48e0df2e",
+          "e3ddfbcd45f909d6885217a8dbdf3fd9e2a05342dfe0c58deed0a2c2b754e135"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalHealthCheckTests.swift",
+        "suite": "LocalHealthCheckTests",
+        "signature": "missingOrEmptyVersionCannotCertifyAServer() async",
+        "line": 32,
+        "attributes": "@testable\n@Suite(.timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "1c3905055fb983606675a5d10c9b05ea46926c906d162661ba7175f2766309d8",
+        "assertionHashes": [
+          "3576347ad1fe16385265db7faaa48c9075c574f68734d91ccace57d50aebba60",
+          "ac6b3f76988fb8c40239aa8a9cafd7934f0a147d31b7a287480fdcfbcc798427"
+        ],
+        "assertionConditionHashes": [
+          "f3cf6a010938e6f5b1b9dc6ef87cdf5b8bc9e7fb7015bace7ec2f18e48e0df2e",
+          "e3ddfbcd45f909d6885217a8dbdf3fd9e2a05342dfe0c58deed0a2c2b754e135"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalRunnerStartTests.swift",
+        "suite": "LocalRunnerStartTests",
+        "signature": "liveDaemonIsANoOpAndStaleSocketStartsTheConfiguredBinary() async throws",
+        "line": 26,
+        "attributes": "@testable\n@Suite(.serialized, .timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "88127ea916252e145a129ebde029cd122b0dd717ff425c0b3b9b70b9c6ee88e7",
+        "assertionHashes": [
+          "ab3029e3de80df6b7818214c53133e35972232b58a9e26780792d6300cf8e54a",
+          "1a86947bbb86e0b3175f58fda8b06f3cd496b45fa09baf9b5b0619ed6c6d81ff",
+          "89e306dc6b996d7473e90245a29a03f0c41ea6ad5506de17f2de2ab0cdbfb1b8",
+          "84c6e8f94b9427d997fc6df8aa69d54d179faa7a7c60f847fdab7828c188a380",
+          "bcc25a738b04698e8b874b8919b826997c8dfe66604b980badd6c62c586b653f"
+        ],
+        "assertionConditionHashes": [
+          "5dbd668e88875f3da7b72b5d6393649e293995c9180fb7f66c8ad2231346f9fc",
+          "54ac10aa4bad998fc88f774db95e0ce3211c7263b752a7bede37ec4e2c00af79",
+          "85f03467e275385722639230f0333c70fc3567591ba10587c2e19813424e9436",
+          "c597c5cd86a73e8b859f2167da2684351c55b81bf906356465596844a76da584",
+          "8bb50dd34427318904646c45bae7e7565259178c8c1a806439e0032f01fc56dc"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalRunnerStartTests.swift",
+        "suite": "LocalRunnerStartTests",
+        "signature": "liveDaemonIsANoOpAndStaleSocketStartsTheConfiguredBinary() async throws",
+        "line": 26,
+        "attributes": "@testable\n@Suite(.serialized, .timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "88127ea916252e145a129ebde029cd122b0dd717ff425c0b3b9b70b9c6ee88e7",
+        "assertionHashes": [
+          "ab3029e3de80df6b7818214c53133e35972232b58a9e26780792d6300cf8e54a",
+          "1a86947bbb86e0b3175f58fda8b06f3cd496b45fa09baf9b5b0619ed6c6d81ff",
+          "89e306dc6b996d7473e90245a29a03f0c41ea6ad5506de17f2de2ab0cdbfb1b8",
+          "84c6e8f94b9427d997fc6df8aa69d54d179faa7a7c60f847fdab7828c188a380",
+          "bcc25a738b04698e8b874b8919b826997c8dfe66604b980badd6c62c586b653f"
+        ],
+        "assertionConditionHashes": [
+          "5dbd668e88875f3da7b72b5d6393649e293995c9180fb7f66c8ad2231346f9fc",
+          "54ac10aa4bad998fc88f774db95e0ce3211c7263b752a7bede37ec4e2c00af79",
+          "85f03467e275385722639230f0333c70fc3567591ba10587c2e19813424e9436",
+          "c597c5cd86a73e8b859f2167da2684351c55b81bf906356465596844a76da584",
+          "8bb50dd34427318904646c45bae7e7565259178c8c1a806439e0032f01fc56dc"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalRunnerStartTests.swift",
+        "suite": "LocalRunnerStartTests",
+        "signature": "relativeSocketTargetsTheSameInstallPathFromHTTPDaemonAndProbe() async throws",
+        "line": 40,
+        "attributes": "@testable\n@Suite(.serialized, .timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "a354ef02f681ffa39fdd2ba9560b92201fc5eab167e4c39add74a7bc813e7300",
+        "assertionHashes": [
+          "33376c6f227a95d044bc81019e4e580d0567e1cf3288ef51ea802edd8cfb7162",
+          "967da76491d285b1499dd2f2b6d70b88d38157c044b449866d0c17300be90b31",
+          "9ed8cd0cee15e89cff2ccb1a3d8979d0d06cf9c95b9fd54ecadeaa8eeed5033d",
+          "14fa140e369aecef29fc39694e93d7f21316e09f76564095c72624c934235e73",
+          "5d6c7f3e96097d8ea28b46a22c0b22f8cdbd3e93bdc00b46aa739763d79a240b",
+          "812d2e01af5fb999ce7feb37bf757fdfe4665b34902ce77b23a6c489cc3339a5",
+          "6bccb2b901caab75fc27cbd97f9210a55ee9c0e30726c0ba85e0066788ca095a",
+          "c778ac76363c4a913cdf944805142c24bcc15fc180874bf47a92fa8a9bef94ed",
+          "4f687d0b7b8ae7ef9a5a1b35415111e3cae4218f9033c03d542b221386557209"
+        ],
+        "assertionConditionHashes": [
+          "d4a41b21dfddb66c851d5d0ea3d701d7c03f6539f7caba2c35b58e17dbaba0d7",
+          "c82b00bc6e040deb78fe2b5ca412091f8c3651f7125b0deaf1827389284a5bc9",
+          "13da52ce8084239de264d65835c2ba9a6f10017628fbad17468ccbc231972ac9",
+          "20b2a990a310b769a40b9d4c774bf0f638b9293b3aaf8faf2da99c342a12ae7a",
+          "9e0ce5df3784433cbe539b162d1e150c745a3ff9f587235bcfabc0c512bc99ad",
+          "b750c5284f09776458196740cdeb26302b13e7fe1d222ed5cc5569b077cd9088",
+          "47ef0a4637faa56dd98b1b4c496b6f5b501ef8b2288ed342d6265d4400c0ef16",
+          "0e6fe94e2c36122304680473e4cdd25d70af3183ac86dc97d2fcd75a7787ed47",
+          "ea8847f6b84d72cfa1edf5e0a4befa2c7e8ed4efcc0b44bb2064f97f28faa38a"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalRunnerStartTests.swift",
+        "suite": "LocalRunnerStartTests",
+        "signature": "relativeSocketTargetsTheSameInstallPathFromHTTPDaemonAndProbe() async throws",
+        "line": 40,
+        "attributes": "@testable\n@Suite(.serialized, .timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "a48106c15ab3e937a569b6170afda1c2599790b9a6290e704745763bf32da302",
+        "assertionHashes": [
+          "33376c6f227a95d044bc81019e4e580d0567e1cf3288ef51ea802edd8cfb7162",
+          "967da76491d285b1499dd2f2b6d70b88d38157c044b449866d0c17300be90b31",
+          "9ed8cd0cee15e89cff2ccb1a3d8979d0d06cf9c95b9fd54ecadeaa8eeed5033d",
+          "14fa140e369aecef29fc39694e93d7f21316e09f76564095c72624c934235e73",
+          "5d6c7f3e96097d8ea28b46a22c0b22f8cdbd3e93bdc00b46aa739763d79a240b",
+          "812d2e01af5fb999ce7feb37bf757fdfe4665b34902ce77b23a6c489cc3339a5",
+          "6bccb2b901caab75fc27cbd97f9210a55ee9c0e30726c0ba85e0066788ca095a",
+          "c778ac76363c4a913cdf944805142c24bcc15fc180874bf47a92fa8a9bef94ed",
+          "4f687d0b7b8ae7ef9a5a1b35415111e3cae4218f9033c03d542b221386557209"
+        ],
+        "assertionConditionHashes": [
+          "d4a41b21dfddb66c851d5d0ea3d701d7c03f6539f7caba2c35b58e17dbaba0d7",
+          "c82b00bc6e040deb78fe2b5ca412091f8c3651f7125b0deaf1827389284a5bc9",
+          "13da52ce8084239de264d65835c2ba9a6f10017628fbad17468ccbc231972ac9",
+          "20b2a990a310b769a40b9d4c774bf0f638b9293b3aaf8faf2da99c342a12ae7a",
+          "9e0ce5df3784433cbe539b162d1e150c745a3ff9f587235bcfabc0c512bc99ad",
+          "b750c5284f09776458196740cdeb26302b13e7fe1d222ed5cc5569b077cd9088",
+          "47ef0a4637faa56dd98b1b4c496b6f5b501ef8b2288ed342d6265d4400c0ef16",
+          "0e6fe94e2c36122304680473e4cdd25d70af3183ac86dc97d2fcd75a7787ed47",
+          "ea8847f6b84d72cfa1edf5e0a4befa2c7e8ed4efcc0b44bb2064f97f28faa38a"
+        ]
+      },
+      "reason": "Pinned upstream test retains identical assertion tokens and conditional context; its fake CLI returns the first probe offline, then paces the later real probe until the fake daemon writes readiness, preserving default launch/probe ordering without a scheduler race."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalRunnerStartTests.swift",
+        "suite": "LocalRunnerStartTests",
+        "signature": "startupFailureTimesOutWithoutDeletingExternalState() async throws",
+        "line": 86,
+        "attributes": "@testable\n@Suite(.serialized, .timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "7917339bd8708b91e1fc755c0271c4e1fdfcc1fae71e13cebb4faa1bd7fc59ca",
+        "assertionHashes": [
+          "d101df71e5bd24c766255450a7b52fe18e8fbbf26531979a0a794d3ad0aa0a47",
+          "f51b33aab6c0a08f6e0fc3f5eedf8f1453f020aaac07b45c7b26e505535b7d04",
+          "89e306dc6b996d7473e90245a29a03f0c41ea6ad5506de17f2de2ab0cdbfb1b8"
+        ],
+        "assertionConditionHashes": [
+          "b9eb2b2a30d290456282a29c951e1b178d0d36d6037a95025c54976b2962ca02",
+          "8f10aef2ac3fab4247151e65f4dfe0cccda6a9a161446cc39baeef24c2b12c82",
+          "85f03467e275385722639230f0333c70fc3567591ba10587c2e19813424e9436"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalRunnerStartTests.swift",
+        "suite": "LocalRunnerStartTests",
+        "signature": "startupFailureTimesOutWithoutDeletingExternalState() async throws",
+        "line": 86,
+        "attributes": "@testable\n@Suite(.serialized, .timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "7917339bd8708b91e1fc755c0271c4e1fdfcc1fae71e13cebb4faa1bd7fc59ca",
+        "assertionHashes": [
+          "d101df71e5bd24c766255450a7b52fe18e8fbbf26531979a0a794d3ad0aa0a47",
+          "f51b33aab6c0a08f6e0fc3f5eedf8f1453f020aaac07b45c7b26e505535b7d04",
+          "89e306dc6b996d7473e90245a29a03f0c41ea6ad5506de17f2de2ab0cdbfb1b8"
+        ],
+        "assertionConditionHashes": [
+          "b9eb2b2a30d290456282a29c951e1b178d0d36d6037a95025c54976b2962ca02",
+          "8f10aef2ac3fab4247151e65f4dfe0cccda6a9a161446cc39baeef24c2b12c82",
+          "85f03467e275385722639230f0333c70fc3567591ba10587c2e19813424e9436"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalServerEnvironmentTests.swift",
+        "suite": "LocalServerEnvironmentTests",
+        "signature": "anInvalidPortCannotCrashTheNativeHealthURL() throws",
+        "line": 36,
+        "attributes": "@Suite(.timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "d96d8f8030906dd52ede3f7c9b8f35bfc8dc1c4414cb7dc2a21bb00cd3f38764",
+        "assertionHashes": [
+          "7e5fca139a83b1aec3fd1ed52d1d9cec53b33f68a1f157468b315482c4e58946",
+          "617f4f2e3f9c37a6eb651e63bfbe6d03a9115afee6f44172f2a854b4538ea839"
+        ],
+        "assertionConditionHashes": [
+          "1ef67f68a7a10475f8b12344c3ab33adaff621ae0f84adcdb941ee2ab221deb3",
+          "122b4425457a788284b6f59c47d033a170c28d02b22b6c4d987b81005cad5922"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalServerEnvironmentTests.swift",
+        "suite": "LocalServerEnvironmentTests",
+        "signature": "anInvalidPortCannotCrashTheNativeHealthURL() throws",
+        "line": 36,
+        "attributes": "@Suite(.timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "d96d8f8030906dd52ede3f7c9b8f35bfc8dc1c4414cb7dc2a21bb00cd3f38764",
+        "assertionHashes": [
+          "7e5fca139a83b1aec3fd1ed52d1d9cec53b33f68a1f157468b315482c4e58946",
+          "617f4f2e3f9c37a6eb651e63bfbe6d03a9115afee6f44172f2a854b4538ea839"
+        ],
+        "assertionConditionHashes": [
+          "1ef67f68a7a10475f8b12344c3ab33adaff621ae0f84adcdb941ee2ab221deb3",
+          "122b4425457a788284b6f59c47d033a170c28d02b22b6c4d987b81005cad5922"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalServerEnvironmentTests.swift",
+        "suite": "LocalServerEnvironmentTests",
+        "signature": "customInstallAndDatabaseKeepExplicitHome() throws",
+        "line": 20,
+        "attributes": "@Suite(.timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "68e7be6898d0808bb723fc0ed1c4cb7f2b3a46128abb175ad43ebdd062442fd6",
+        "assertionHashes": [
+          "9ea4785157b3149184123c4516183f5eb403b433354c2a77af0d10a9592d5b28",
+          "ed0a8f61b6bf37137f1fe58d2d468e1a1aa263c4ef8da331a30ffa323a12b007",
+          "34f1ab3e7f010755fbecbd119df65042e6263d4541f66961b185e58603ea9b97",
+          "71def16e37728ae41974947bd90cbd3b8cd11cf8f7fa6bd226f177c14a951587",
+          "aaea2fdcb431eaee86bcbeee7db5314e62d28e1da96dd90d445611721f1c5966"
+        ],
+        "assertionConditionHashes": [
+          "be2319aa516a69e4fdca2881abba88c4a802903b2e377319c6952d6516e98b5f",
+          "b9c595bb3fb50e342f9de3e56654bddeb71d2aaa29ee96a5b2eb8119d0cb6954",
+          "5d747042582680417b028ed16bf21a103d5c0a7c87a4ed07a1c8e7ad16cef2e2",
+          "ed7a25a9221436bbbd4d90d5363dfb9f063fbe5df3e8f481d492b7b06d00a1f7",
+          "f9e5da0cffb3b8618be80915d270972e35840f99a743d6aebb4bb70e50915a74"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalServerEnvironmentTests.swift",
+        "suite": "LocalServerEnvironmentTests",
+        "signature": "customInstallAndDatabaseKeepExplicitHome() throws",
+        "line": 20,
+        "attributes": "@Suite(.timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "68e7be6898d0808bb723fc0ed1c4cb7f2b3a46128abb175ad43ebdd062442fd6",
+        "assertionHashes": [
+          "9ea4785157b3149184123c4516183f5eb403b433354c2a77af0d10a9592d5b28",
+          "ed0a8f61b6bf37137f1fe58d2d468e1a1aa263c4ef8da331a30ffa323a12b007",
+          "34f1ab3e7f010755fbecbd119df65042e6263d4541f66961b185e58603ea9b97",
+          "71def16e37728ae41974947bd90cbd3b8cd11cf8f7fa6bd226f177c14a951587",
+          "aaea2fdcb431eaee86bcbeee7db5314e62d28e1da96dd90d445611721f1c5966"
+        ],
+        "assertionConditionHashes": [
+          "be2319aa516a69e4fdca2881abba88c4a802903b2e377319c6952d6516e98b5f",
+          "b9c595bb3fb50e342f9de3e56654bddeb71d2aaa29ee96a5b2eb8119d0cb6954",
+          "5d747042582680417b028ed16bf21a103d5c0a7c87a4ed07a1c8e7ad16cef2e2",
+          "ed7a25a9221436bbbd4d90d5363dfb9f063fbe5df3e8f481d492b7b06d00a1f7",
+          "f9e5da0cffb3b8618be80915d270972e35840f99a743d6aebb4bb70e50915a74"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalServerEnvironmentTests.swift",
+        "suite": "LocalServerEnvironmentTests",
+        "signature": "relativeRunnerSocketResolvesAgainstTheInstallDirectoryForEveryChild() throws",
+        "line": 47,
+        "attributes": "@Suite(.timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "3588b19030facd291dc90fb85318ec4b05ea8691a492a49390dbf88387811f87",
+        "assertionHashes": [
+          "63b54da5145818addf19be2d0617bd08d28adb2ea0bf3757cf59af6efa461cc2",
+          "b21acbe24492ae6d139edd8c8a3d1c92026cd3fef4b269581876bd3c767dbe29"
+        ],
+        "assertionConditionHashes": [
+          "abc0a8f6524b09933265bb6f401a7415a13d08c9ecc201e192200e1fd04f50b9",
+          "6f6f1b570d67c6f60422af7b6c0befd9c0fe88cfc96f7ceb254b1b2d712b17e2"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalServerEnvironmentTests.swift",
+        "suite": "LocalServerEnvironmentTests",
+        "signature": "relativeRunnerSocketResolvesAgainstTheInstallDirectoryForEveryChild() throws",
+        "line": 47,
+        "attributes": "@Suite(.timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "3588b19030facd291dc90fb85318ec4b05ea8691a492a49390dbf88387811f87",
+        "assertionHashes": [
+          "63b54da5145818addf19be2d0617bd08d28adb2ea0bf3757cf59af6efa461cc2",
+          "b21acbe24492ae6d139edd8c8a3d1c92026cd3fef4b269581876bd3c767dbe29"
+        ],
+        "assertionConditionHashes": [
+          "abc0a8f6524b09933265bb6f401a7415a13d08c9ecc201e192200e1fd04f50b9",
+          "6f6f1b570d67c6f60422af7b6c0befd9c0fe88cfc96f7ceb254b1b2d712b17e2"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalServerEnvironmentTests.swift",
+        "suite": "LocalServerEnvironmentTests",
+        "signature": "spawnEnvironmentPinsLoopbackAndPrependsBunToPath() throws",
+        "line": 94,
+        "attributes": "@Suite(.timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "7df0757f430712b0af5504e4bc1591e69f30f81f06d3f828bf86b65f0fccac2f",
+        "assertionHashes": [
+          "135f9b81422c76f219ca2020dc06667107e6118f1a97f1d78a25e6f67ddb355b",
+          "d60499f0549d190a002f340a28efe023a21c320782ab8d968d5c43ba439235d2",
+          "ed0a8f61b6bf37137f1fe58d2d468e1a1aa263c4ef8da331a30ffa323a12b007",
+          "d631b66690ef1ee134ac552b464a3c23047e80090f06ea0bb255df44cc2b0efa"
+        ],
+        "assertionConditionHashes": [
+          "d039e4706db6616e6be9d3caece39f5e4e21812d02cbe0778cefbf0cfaa8060d",
+          "c69e64bd053ab1bdfd008364e510624983e1b83770f438bab0e635a9de6a4e68",
+          "b9c595bb3fb50e342f9de3e56654bddeb71d2aaa29ee96a5b2eb8119d0cb6954",
+          "6223721c8c63d02f51f7b844a5bc04e426794c8d9c1e9acea4fb357b655cca48"
+        ]
+      },
+      "upstream": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalServerEnvironmentTests.swift",
+        "suite": "LocalServerEnvironmentTests",
+        "signature": "spawnEnvironmentPinsLoopbackAndPrependsBunToPath() throws",
+        "line": 132,
+        "attributes": "@Suite(.timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "94489806619eb4adb5ce336188f2e6c415db1c5a8b0365c87abd54b722da2690",
+        "assertionHashes": [
+          "135f9b81422c76f219ca2020dc06667107e6118f1a97f1d78a25e6f67ddb355b",
+          "d60499f0549d190a002f340a28efe023a21c320782ab8d968d5c43ba439235d2",
+          "ed0a8f61b6bf37137f1fe58d2d468e1a1aa263c4ef8da331a30ffa323a12b007",
+          "d631b66690ef1ee134ac552b464a3c23047e80090f06ea0bb255df44cc2b0efa"
+        ],
+        "assertionConditionHashes": [
+          "d039e4706db6616e6be9d3caece39f5e4e21812d02cbe0778cefbf0cfaa8060d",
+          "c69e64bd053ab1bdfd008364e510624983e1b83770f438bab0e635a9de6a4e68",
+          "b9c595bb3fb50e342f9de3e56654bddeb71d2aaa29ee96a5b2eb8119d0cb6954",
+          "6223721c8c63d02f51f7b844a5bc04e426794c8d9c1e9acea4fb357b655cca48"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalServerEnvironmentTests.swift",
+        "suite": "LocalServerEnvironmentTests",
+        "signature": "spawnEnvironmentPinsLoopbackAndPrependsBunToPath() throws",
+        "line": 132,
+        "attributes": "@Suite(.timeLimit(.minutes(1)))\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "94489806619eb4adb5ce336188f2e6c415db1c5a8b0365c87abd54b722da2690",
+        "assertionHashes": [
+          "135f9b81422c76f219ca2020dc06667107e6118f1a97f1d78a25e6f67ddb355b",
+          "d60499f0549d190a002f340a28efe023a21c320782ab8d968d5c43ba439235d2",
+          "ed0a8f61b6bf37137f1fe58d2d468e1a1aa263c4ef8da331a30ffa323a12b007",
+          "d631b66690ef1ee134ac552b464a3c23047e80090f06ea0bb255df44cc2b0efa"
+        ],
+        "assertionConditionHashes": [
+          "d039e4706db6616e6be9d3caece39f5e4e21812d02cbe0778cefbf0cfaa8060d",
+          "c69e64bd053ab1bdfd008364e510624983e1b83770f438bab0e635a9de6a4e68",
+          "b9c595bb3fb50e342f9de3e56654bddeb71d2aaa29ee96a5b2eb8119d0cb6954",
+          "6223721c8c63d02f51f7b844a5bc04e426794c8d9c1e9acea4fb357b655cca48"
+        ]
+      },
+      "reason": "Upstream b9c65d23 resolves environment configuration at initialization; reconstruct environment after fixture env file write. Assertions unchanged."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalServerIdentityTests.swift",
+        "suite": "LocalServerIdentityTests",
+        "signature": "anUnrelatedListenerNeverCertifiesTheOwnedChild() async throws",
+        "line": 38,
+        "attributes": "@testable\n@Suite\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "ad383778ae4c78bbdcef2a3421a8504db9b6dd8829333dbfb4f88826a470a86f",
+        "assertionHashes": [
+          "0a019aa57faf0e266fe325494dccf60ee863727c7f9f3dc53b22ac51aa94b0a2",
+          "ef0e44731af2a714dc6ea0d2d71c21359972abf2bc48b7d0af8dab39c397a64e"
+        ],
+        "assertionConditionHashes": [
+          "ead23b81b181ae9cdcedeca22cbb6f6c244bc436c91778a1f167db5d1cca3211",
+          "4d0ae72478e805c53a69111798109a2e3a02ca6f79b48244d88b816b341581a4"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalServerIdentityTests.swift",
+        "suite": "LocalServerIdentityTests",
+        "signature": "anUnrelatedListenerNeverCertifiesTheOwnedChild() async throws",
+        "line": 38,
+        "attributes": "@testable\n@Suite\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "ad383778ae4c78bbdcef2a3421a8504db9b6dd8829333dbfb4f88826a470a86f",
+        "assertionHashes": [
+          "0a019aa57faf0e266fe325494dccf60ee863727c7f9f3dc53b22ac51aa94b0a2",
+          "ef0e44731af2a714dc6ea0d2d71c21359972abf2bc48b7d0af8dab39c397a64e"
+        ],
+        "assertionConditionHashes": [
+          "ead23b81b181ae9cdcedeca22cbb6f6c244bc436c91778a1f167db5d1cca3211",
+          "4d0ae72478e805c53a69111798109a2e3a02ca6f79b48244d88b816b341581a4"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalServerIdentityTests.swift",
+        "suite": "LocalServerIdentityTests",
+        "signature": "ownedHealthRequiresThisLaunchAndBothCanonicalPaths() async throws",
+        "line": 7,
+        "attributes": "@testable\n@Suite\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "750600f92e92c8c11c2bb8105475cd0b774443e78ce4ea9f9b64f85d2d7aef23",
+        "assertionHashes": [
+          "2fdf64bcaab1ab7fe6bc1213eb4cdd74d3b371578a7aa49ad21e940daca21fc8",
+          "22ce9ffde05a69adb84626e8b3a3b804d29687b6f4c22efd932239268b65db71",
+          "35005e6737792b63218311fcf041de850059054c9caccafafdde9a4529746820"
+        ],
+        "assertionConditionHashes": [
+          "ae4be9bd7f5254c26c68586940c821337d1b6bc87d572e76ab5e74b821fe4f29",
+          "41f65c5f52cd11aa9938e6c0fcd1d04c075e05ff7468f6542e67ec85b0f487b7",
+          "3146f2669a32b0e9bcdb0dfdd15d1757333b4c04079476d57b3db46e26a3d96b"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/LocalServerIdentityTests.swift",
+        "suite": "LocalServerIdentityTests",
+        "signature": "ownedHealthRequiresThisLaunchAndBothCanonicalPaths() async throws",
+        "line": 7,
+        "attributes": "@testable\n@Suite\n@Test",
+        "condition": "#if os(macOS)",
+        "bodyHash": "750600f92e92c8c11c2bb8105475cd0b774443e78ce4ea9f9b64f85d2d7aef23",
+        "assertionHashes": [
+          "2fdf64bcaab1ab7fe6bc1213eb4cdd74d3b371578a7aa49ad21e940daca21fc8",
+          "22ce9ffde05a69adb84626e8b3a3b804d29687b6f4c22efd932239268b65db71",
+          "35005e6737792b63218311fcf041de850059054c9caccafafdde9a4529746820"
+        ],
+        "assertionConditionHashes": [
+          "ae4be9bd7f5254c26c68586940c821337d1b6bc87d572e76ab5e74b821fe4f29",
+          "41f65c5f52cd11aa9938e6c0fcd1d04c075e05ff7468f6542e67ec85b0f487b7",
+          "3146f2669a32b0e9bcdb0dfdd15d1757333b4c04079476d57b3db46e26a3d96b"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift",
+        "suite": "ShepherdClientComposeTests",
+        "signature": "recommendationOutlastsOrdinaryTimeout() async throws",
+        "line": 152,
+        "attributes": "@testable\n@Suite(\"ShepherdClient composer\")\n@Test",
+        "condition": "",
+        "bodyHash": "7950998c4f72a6531ec85e36d40c83b62ebf4516481a52e01a52f400115551c7",
+        "assertionHashes": [
+          "7f11550284e3046a115658da26c73568c04ca9608bdb03c23ac6d7af426aa134",
+          "e10d1ef96b08ae3b828f01b14638ea11d50a861b4bee271f80ceae3bc2422836",
+          "41de62d6bd245333fe64c00cb825a9cd511c3da32c12289a63c0cde45020225a",
+          "ba83c66088c4b6ba00091708b738e69105c01d484790e4a76d2f0c377d1e39dd"
+        ],
+        "assertionConditionHashes": [
+          "d453a08e17654b0209a550c80d3e7710b4564241e787dd92d7fec7b47ba17714",
+          "f7858a369ee4a1b46b9bba96119730560ad4c5675d13b943df6bf5fe80d0eb8d",
+          "b1f83fc6fd24b356a9782e741de46e5e23d221f40f1fd62c42e15754b7834f2c",
+          "6e285581f863051cac1ea5a87ec16ae4714687a34eefeeea18b39643bb922fa3"
+        ]
+      },
+      "upstream": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift",
+        "suite": "ShepherdClientComposeTests",
+        "signature": "recommendationOutlastsOrdinaryTimeout() async throws",
+        "line": 152,
+        "attributes": "@testable\n@Suite(\"ShepherdClient composer\")\n@Test",
+        "condition": "",
+        "bodyHash": "2e1ee2d2db268e736bd1090f30a5133847f164c57181ef9e4f9d686921e721d2",
+        "assertionHashes": [
+          "7f11550284e3046a115658da26c73568c04ca9608bdb03c23ac6d7af426aa134",
+          "e10d1ef96b08ae3b828f01b14638ea11d50a861b4bee271f80ceae3bc2422836",
+          "41de62d6bd245333fe64c00cb825a9cd511c3da32c12289a63c0cde45020225a",
+          "ba83c66088c4b6ba00091708b738e69105c01d484790e4a76d2f0c377d1e39dd"
+        ],
+        "assertionConditionHashes": [
+          "d453a08e17654b0209a550c80d3e7710b4564241e787dd92d7fec7b47ba17714",
+          "f7858a369ee4a1b46b9bba96119730560ad4c5675d13b943df6bf5fe80d0eb8d",
+          "b1f83fc6fd24b356a9782e741de46e5e23d221f40f1fd62c42e15754b7834f2c",
+          "6e285581f863051cac1ea5a87ec16ae4714687a34eefeeea18b39643bb922fa3"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift",
+        "suite": "ShepherdClientComposeTests",
+        "signature": "recommendationOutlastsOrdinaryTimeout() async throws",
+        "line": 152,
+        "attributes": "@testable\n@Suite(\"ShepherdClient composer\")\n@Test",
+        "condition": "",
+        "bodyHash": "2e1ee2d2db268e736bd1090f30a5133847f164c57181ef9e4f9d686921e721d2",
+        "assertionHashes": [
+          "7f11550284e3046a115658da26c73568c04ca9608bdb03c23ac6d7af426aa134",
+          "e10d1ef96b08ae3b828f01b14638ea11d50a861b4bee271f80ceae3bc2422836",
+          "41de62d6bd245333fe64c00cb825a9cd511c3da32c12289a63c0cde45020225a",
+          "ba83c66088c4b6ba00091708b738e69105c01d484790e4a76d2f0c377d1e39dd"
+        ],
+        "assertionConditionHashes": [
+          "d453a08e17654b0209a550c80d3e7710b4564241e787dd92d7fec7b47ba17714",
+          "f7858a369ee4a1b46b9bba96119730560ad4c5675d13b943df6bf5fe80d0eb8d",
+          "b1f83fc6fd24b356a9782e741de46e5e23d221f40f1fd62c42e15754b7834f2c",
+          "6e285581f863051cac1ea5a87ec16ae4714687a34eefeeea18b39643bb922fa3"
+        ]
+      },
+      "reason": "Upstream b9c65d23 increases long-running request timeout from 3 to 10 seconds for CI headroom; ordinary 0.5-second timeout and 1-second response are unchanged. Same long-request scenario and assertions."
+    },
+    {
+      "original": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift",
+        "suite": "ShepherdClientComposeTests",
+        "signature": "shapingRoundOutlastsOrdinaryTimeout() async throws",
+        "line": 175,
+        "attributes": "@testable\n@Suite(\"ShepherdClient composer\")\n@Test",
+        "condition": "",
+        "bodyHash": "8003c302b1fa499eea05ebf7a04b7bebf30b530392db18966798a7bfbee68804",
+        "assertionHashes": [
+          "e3454b941d83809915b59a8a996b1d192c01173c6ea839b28c8a0bb853625a53",
+          "e266f81a10ec71c73e322312f7aa354185b183739e36284df52c9bd1506953fb",
+          "a81a3e1c24b1ded7b43079d6655e86033ea899d6e2454e5ff25bd24373970f2a",
+          "8f4040b6775eb5e77d48015482d32069cab3a18aa40d42211eb0cbcdb60d2e21"
+        ],
+        "assertionConditionHashes": [
+          "e4017882e8920a4624e82cfafc3dd9ab266566622fc3511401d58ddfb496887d",
+          "1d87402011a9c2dacae6b9f8e71ae9630653cd7aa0b2482d3754c9842764353a",
+          "1c0f0d0278e43c6e6f360fad8a68b6ae36ac86bb75c9e72f0720a8f1b160de76",
+          "7266b4f3eef1bc83ce3a47d8ae3154f3e7491715ec5a60bee4989666d8a3c11e"
+        ]
+      },
+      "upstream": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift",
+        "suite": "ShepherdClientComposeTests",
+        "signature": "shapingRoundOutlastsOrdinaryTimeout() async throws",
+        "line": 177,
+        "attributes": "@testable\n@Suite(\"ShepherdClient composer\")\n@Test",
+        "condition": "",
+        "bodyHash": "aabd2c5aae297d924de4255288c1d4ed12766c1ce4ed92f1a0ea86dda78e706c",
+        "assertionHashes": [
+          "e3454b941d83809915b59a8a996b1d192c01173c6ea839b28c8a0bb853625a53",
+          "e266f81a10ec71c73e322312f7aa354185b183739e36284df52c9bd1506953fb",
+          "a81a3e1c24b1ded7b43079d6655e86033ea899d6e2454e5ff25bd24373970f2a",
+          "8f4040b6775eb5e77d48015482d32069cab3a18aa40d42211eb0cbcdb60d2e21"
+        ],
+        "assertionConditionHashes": [
+          "e4017882e8920a4624e82cfafc3dd9ab266566622fc3511401d58ddfb496887d",
+          "1d87402011a9c2dacae6b9f8e71ae9630653cd7aa0b2482d3754c9842764353a",
+          "1c0f0d0278e43c6e6f360fad8a68b6ae36ac86bb75c9e72f0720a8f1b160de76",
+          "7266b4f3eef1bc83ce3a47d8ae3154f3e7491715ec5a60bee4989666d8a3c11e"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdKitTests",
+        "path": "native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift",
+        "suite": "ShepherdClientComposeTests",
+        "signature": "shapingRoundOutlastsOrdinaryTimeout() async throws",
+        "line": 177,
+        "attributes": "@testable\n@Suite(\"ShepherdClient composer\")\n@Test",
+        "condition": "",
+        "bodyHash": "aabd2c5aae297d924de4255288c1d4ed12766c1ce4ed92f1a0ea86dda78e706c",
+        "assertionHashes": [
+          "e3454b941d83809915b59a8a996b1d192c01173c6ea839b28c8a0bb853625a53",
+          "e266f81a10ec71c73e322312f7aa354185b183739e36284df52c9bd1506953fb",
+          "a81a3e1c24b1ded7b43079d6655e86033ea899d6e2454e5ff25bd24373970f2a",
+          "8f4040b6775eb5e77d48015482d32069cab3a18aa40d42211eb0cbcdb60d2e21"
+        ],
+        "assertionConditionHashes": [
+          "e4017882e8920a4624e82cfafc3dd9ab266566622fc3511401d58ddfb496887d",
+          "1d87402011a9c2dacae6b9f8e71ae9630653cd7aa0b2482d3754c9842764353a",
+          "1c0f0d0278e43c6e6f360fad8a68b6ae36ac86bb75c9e72f0720a8f1b160de76",
+          "7266b4f3eef1bc83ce3a47d8ae3154f3e7491715ec5a60bee4989666d8a3c11e"
+        ]
+      },
+      "reason": "Upstream b9c65d23 increases long-running request timeout from 3 to 10 seconds for CI headroom; ordinary 0.5-second timeout and 1-second response are unchanged. Same long-request scenario and assertions."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/AppInstallationTests.swift",
+        "suite": "AppInstallationTests",
+        "signature": "failedVerificationPreservesSourceAndExistingDestination() throws",
+        "line": 27,
+        "attributes": "@testable\n@Test",
+        "condition": "",
+        "bodyHash": "8a87a83beef7140ce0e54335a60b68d91e06ae69995a07171d99aadada773d6e",
+        "assertionHashes": [
+          "9756e50de57daca6b63c09a6e71ed2079171bb1ef14ee4bd4b0aa5ec6444fd8a",
+          "d95c5972c57cc50659c46e567dad8f36bff0fc21675f5c1c26779ec9bff99ff1",
+          "8e565289a0dd8c94380e0b51561f745935a6b5455580683a7253ed9505dc0d6f",
+          "b158027db20ed14e37e919722184879ecc715bb421f8e98794a5e0df754325cd",
+          "92b86ab8e316c7311e4d08fafe19bc6e74784ec694d57803a51d700c0cd71ee0",
+          "90763b8c98b52f2c3b59339db6104e8f8aa9e72b0ad021c737735209981fc4e3",
+          "bbb4197c9f43e02f4992c4d3acc635dc3bdca1b682faddfd4dc25946be3d399c"
+        ],
+        "assertionConditionHashes": [
+          "0b0308351e851587afaf43429746021148359550337ed43978338266a7058f56",
+          "1d2806d07d32674cf1fadc53bf737cead5d39be838aa8d383f107aa8aebb4107",
+          "9b8fbd830dde4aa79f7184e73823b7b36cfe58f93e261623a93149e615621ad5",
+          "306412bd1cc13f8904d533c880facba7f16c5c567fa10cb460e34e4191a3abf4",
+          "78e3b73ce4a89f89333d34d7f9172b59ef149643f815f1f155e341de7db4c654",
+          "5dedf9027287f725d4313a8a69f49621c8db6e12a5200ee30ae0cc0efd3008f2",
+          "e957f8f2b1c72653628733349e8a33062243c959ce73f30a0c9971031bed4df9"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/AppInstallationTests.swift",
+        "suite": "AppInstallationTests",
+        "signature": "failedVerificationPreservesSourceAndExistingDestination() throws",
+        "line": 27,
+        "attributes": "@testable\n@Test",
+        "condition": "",
+        "bodyHash": "8a87a83beef7140ce0e54335a60b68d91e06ae69995a07171d99aadada773d6e",
+        "assertionHashes": [
+          "9756e50de57daca6b63c09a6e71ed2079171bb1ef14ee4bd4b0aa5ec6444fd8a",
+          "d95c5972c57cc50659c46e567dad8f36bff0fc21675f5c1c26779ec9bff99ff1",
+          "8e565289a0dd8c94380e0b51561f745935a6b5455580683a7253ed9505dc0d6f",
+          "b158027db20ed14e37e919722184879ecc715bb421f8e98794a5e0df754325cd",
+          "92b86ab8e316c7311e4d08fafe19bc6e74784ec694d57803a51d700c0cd71ee0",
+          "90763b8c98b52f2c3b59339db6104e8f8aa9e72b0ad021c737735209981fc4e3",
+          "bbb4197c9f43e02f4992c4d3acc635dc3bdca1b682faddfd4dc25946be3d399c"
+        ],
+        "assertionConditionHashes": [
+          "0b0308351e851587afaf43429746021148359550337ed43978338266a7058f56",
+          "1d2806d07d32674cf1fadc53bf737cead5d39be838aa8d383f107aa8aebb4107",
+          "9b8fbd830dde4aa79f7184e73823b7b36cfe58f93e261623a93149e615621ad5",
+          "306412bd1cc13f8904d533c880facba7f16c5c567fa10cb460e34e4191a3abf4",
+          "78e3b73ce4a89f89333d34d7f9172b59ef149643f815f1f155e341de7db4c654",
+          "5dedf9027287f725d4313a8a69f49621c8db6e12a5200ee30ae0cc0efd3008f2",
+          "e957f8f2b1c72653628733349e8a33062243c959ce73f30a0c9971031bed4df9"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/AppInstallationTests.swift",
+        "suite": "AppInstallationTests",
+        "signature": "installedPathsRespectBoundariesAndSubfolders()",
+        "line": 6,
+        "attributes": "@testable\n@Test",
+        "condition": "",
+        "bodyHash": "b5354022e9249604186d7d785a7014aedb6df00f7ba1e04a9e56934f12b4684b",
+        "assertionHashes": [
+          "f34df54b486088b7fca9e142ecc499e0b96f8ab5fbad1266b317239bbea93340",
+          "b10108d2e8e0528a48104e758c37459b75f76ec314c766ce232557671ad6785f"
+        ],
+        "assertionConditionHashes": [
+          "ed353f2152e15a7d274d7499220ee444fb0bb0764b0c9a7b0e4c5e6253f047f9",
+          "31ba5dd31948d5b8632bf0aa87bf66f48336587678c2032f143e727050039b16"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/AppInstallationTests.swift",
+        "suite": "AppInstallationTests",
+        "signature": "installedPathsRespectBoundariesAndSubfolders()",
+        "line": 6,
+        "attributes": "@testable\n@Test",
+        "condition": "",
+        "bodyHash": "b5354022e9249604186d7d785a7014aedb6df00f7ba1e04a9e56934f12b4684b",
+        "assertionHashes": [
+          "f34df54b486088b7fca9e142ecc499e0b96f8ab5fbad1266b317239bbea93340",
+          "b10108d2e8e0528a48104e758c37459b75f76ec314c766ce232557671ad6785f"
+        ],
+        "assertionConditionHashes": [
+          "ed353f2152e15a7d274d7499220ee444fb0bb0764b0c9a7b0e4c5e6253f047f9",
+          "31ba5dd31948d5b8632bf0aa87bf66f48336587678c2032f143e727050039b16"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/AppInstallationTests.swift",
+        "suite": "AppInstallationTests",
+        "signature": "isolatedLaunchDoesNotPrompt() async",
+        "line": 76,
+        "attributes": "@testable\n@Test\n@MainActor",
+        "condition": "",
+        "bodyHash": "d5686e0600e4f4a0ddbb7ea70d7cbb6848e2670d43bbe2ae20f7db9fff150480",
+        "assertionHashes": [
+          "e6640a5aed626df0e8f44d85253e4d50bc03269c59daa1c472a74cc86ca4d5aa",
+          "e6640a5aed626df0e8f44d85253e4d50bc03269c59daa1c472a74cc86ca4d5aa"
+        ],
+        "assertionConditionHashes": [
+          "381ad3a2a42019ff44bee1835593c23e7ebc8d71ce8ecd18adbf3bdaeb4db3ac",
+          "381ad3a2a42019ff44bee1835593c23e7ebc8d71ce8ecd18adbf3bdaeb4db3ac"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/AppInstallationTests.swift",
+        "suite": "AppInstallationTests",
+        "signature": "isolatedLaunchDoesNotPrompt() async",
+        "line": 76,
+        "attributes": "@testable\n@Test\n@MainActor",
+        "condition": "",
+        "bodyHash": "d5686e0600e4f4a0ddbb7ea70d7cbb6848e2670d43bbe2ae20f7db9fff150480",
+        "assertionHashes": [
+          "e6640a5aed626df0e8f44d85253e4d50bc03269c59daa1c472a74cc86ca4d5aa",
+          "e6640a5aed626df0e8f44d85253e4d50bc03269c59daa1c472a74cc86ca4d5aa"
+        ],
+        "assertionConditionHashes": [
+          "381ad3a2a42019ff44bee1835593c23e7ebc8d71ce8ecd18adbf3bdaeb4db3ac",
+          "381ad3a2a42019ff44bee1835593c23e7ebc8d71ce8ecd18adbf3bdaeb4db3ac"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/AppInstallationTests.swift",
+        "suite": "AppInstallationTests",
+        "signature": "resolvesSymlinkedRootsAndApps() throws",
+        "line": 16,
+        "attributes": "@testable\n@Test",
+        "condition": "",
+        "bodyHash": "1dfcb0bef8aacb2102d0480315cd4af8c0a9cbb986753cbc3494ba9c7cac1c02",
+        "assertionHashes": [
+          "8724febc57782f31258d177a5ed35c80b93ff56814aa4b82873a78d143b39868",
+          "b1ae7e48db7b2f619236903baefe1bd6ce6b9b0ac89ae78b94f46b64f88cf289"
+        ],
+        "assertionConditionHashes": [
+          "b337136911ffacbe35a6a1cabe4ec3b3cc136832c19caec2bcc1c1e274beadec",
+          "e8cb18673c338edf6a5135210fe8d5565a945e382fe6229a2fb3687f430c5b4d"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/AppInstallationTests.swift",
+        "suite": "AppInstallationTests",
+        "signature": "resolvesSymlinkedRootsAndApps() throws",
+        "line": 16,
+        "attributes": "@testable\n@Test",
+        "condition": "",
+        "bodyHash": "1dfcb0bef8aacb2102d0480315cd4af8c0a9cbb986753cbc3494ba9c7cac1c02",
+        "assertionHashes": [
+          "8724febc57782f31258d177a5ed35c80b93ff56814aa4b82873a78d143b39868",
+          "b1ae7e48db7b2f619236903baefe1bd6ce6b9b0ac89ae78b94f46b64f88cf289"
+        ],
+        "assertionConditionHashes": [
+          "b337136911ffacbe35a6a1cabe4ec3b3cc136832c19caec2bcc1c1e274beadec",
+          "e8cb18673c338edf6a5135210fe8d5565a945e382fe6229a2fb3687f430c5b4d"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/AppInstallationTests.swift",
+        "suite": "AppInstallationTests",
+        "signature": "successfulCopyAndCollisionKeepBothApps() throws",
+        "line": 47,
+        "attributes": "@testable\n@Test",
+        "condition": "",
+        "bodyHash": "8d17dde9ff3c4e319150f004af1b96cf4c7ffd4a1a72ffde46f302349548c348",
+        "assertionHashes": [
+          "922a46b9d5162bf0357a238c277999701dd34f24af8242342eea8514113c1f7d",
+          "70e2e997103d952fe67d27723766d66bfa2966611197ac37cf00a31cd73845e3",
+          "f8196ca94ceb2c3b2247a20bd838e3efdf825bdd388617fb3425d80d4cabee5a",
+          "9756e50de57daca6b63c09a6e71ed2079171bb1ef14ee4bd4b0aa5ec6444fd8a",
+          "b158027db20ed14e37e919722184879ecc715bb421f8e98794a5e0df754325cd",
+          "19e58a37bd9249b7623f4d957febb81fd8e344ad3e14675411032054bf553748"
+        ],
+        "assertionConditionHashes": [
+          "047b85fdb9ffcf5e37756e686ebaba43c3cb73afce4b1a5203e67ced15cabd03",
+          "4e7aef00e724be43d7fb5e8bf8ad72dc328df8646246d6cc1ad2dae2f24cd44c",
+          "42b1a704a72c2ccf531322b725fdea253847b8d8865584152a5b89bbfa27ab2c",
+          "0b0308351e851587afaf43429746021148359550337ed43978338266a7058f56",
+          "306412bd1cc13f8904d533c880facba7f16c5c567fa10cb460e34e4191a3abf4",
+          "5712953f46cae2b3525a882e343ab3345837d874fe32d442d69054b4829d4815"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/AppInstallationTests.swift",
+        "suite": "AppInstallationTests",
+        "signature": "successfulCopyAndCollisionKeepBothApps() throws",
+        "line": 47,
+        "attributes": "@testable\n@Test",
+        "condition": "",
+        "bodyHash": "8d17dde9ff3c4e319150f004af1b96cf4c7ffd4a1a72ffde46f302349548c348",
+        "assertionHashes": [
+          "922a46b9d5162bf0357a238c277999701dd34f24af8242342eea8514113c1f7d",
+          "70e2e997103d952fe67d27723766d66bfa2966611197ac37cf00a31cd73845e3",
+          "f8196ca94ceb2c3b2247a20bd838e3efdf825bdd388617fb3425d80d4cabee5a",
+          "9756e50de57daca6b63c09a6e71ed2079171bb1ef14ee4bd4b0aa5ec6444fd8a",
+          "b158027db20ed14e37e919722184879ecc715bb421f8e98794a5e0df754325cd",
+          "19e58a37bd9249b7623f4d957febb81fd8e344ad3e14675411032054bf553748"
+        ],
+        "assertionConditionHashes": [
+          "047b85fdb9ffcf5e37756e686ebaba43c3cb73afce4b1a5203e67ced15cabd03",
+          "4e7aef00e724be43d7fb5e8bf8ad72dc328df8646246d6cc1ad2dae2f24cd44c",
+          "42b1a704a72c2ccf531322b725fdea253847b8d8865584152a5b89bbfa27ab2c",
+          "0b0308351e851587afaf43429746021148359550337ed43978338266a7058f56",
+          "306412bd1cc13f8904d533c880facba7f16c5c567fa10cb460e34e4191a3abf4",
+          "5712953f46cae2b3525a882e343ab3345837d874fe32d442d69054b4829d4815"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/AppUpdaterTests.swift",
+        "suite": "AppUpdaterTests",
+        "signature": "distributedBuildCanUpdate()",
+        "line": 12,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "dc001c9564261e02a8f3c2799d2bd24dde7b3045c581788b5f1ff8bf75402127",
+        "assertionHashes": ["7c02bce3419d1bb218b45bdae86b7ba4d14e59914394363746acafd26eee00ab"],
+        "assertionConditionHashes": [
+          "0bdeacd4126e272cbe47d979e0e802211430fe54fcafae6243e292e1282ed7ef"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/AppUpdaterTests.swift",
+        "suite": "AppUpdaterTests",
+        "signature": "distributedBuildCanUpdate()",
+        "line": 12,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "dc001c9564261e02a8f3c2799d2bd24dde7b3045c581788b5f1ff8bf75402127",
+        "assertionHashes": ["7c02bce3419d1bb218b45bdae86b7ba4d14e59914394363746acafd26eee00ab"],
+        "assertionConditionHashes": [
+          "0bdeacd4126e272cbe47d979e0e802211430fe54fcafae6243e292e1282ed7ef"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/AppUpdaterTests.swift",
+        "suite": "AppUpdaterTests",
+        "signature": "insecureOrInvalidFeedDisablesUpdates(feed: String)",
+        "line": 32,
+        "attributes": "@testable\n@MainActor\n@Test(arguments: [\"http://example.com/feed.xml\", \"file:///tmp/feed.xml\", \"\", \"https:\"])",
+        "condition": "",
+        "bodyHash": "6bba5dcfc575f7591416edfcb4267733cdd170a3e27498d3ba608898962c8d74",
+        "assertionHashes": ["9b8b20fef86aced8574f5fc10bd4b04dab8e501847083eedea77a506d7e69fb6"],
+        "assertionConditionHashes": [
+          "a9b41c41c2f4c3d491e34892ef0ed0b857b006b1541da5fb4f6da37fa96c94e3"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/AppUpdaterTests.swift",
+        "suite": "AppUpdaterTests",
+        "signature": "insecureOrInvalidFeedDisablesUpdates(feed: String)",
+        "line": 32,
+        "attributes": "@testable\n@MainActor\n@Test(arguments: [\"http://example.com/feed.xml\", \"file:///tmp/feed.xml\", \"\", \"https:\"])",
+        "condition": "",
+        "bodyHash": "6bba5dcfc575f7591416edfcb4267733cdd170a3e27498d3ba608898962c8d74",
+        "assertionHashes": ["9b8b20fef86aced8574f5fc10bd4b04dab8e501847083eedea77a506d7e69fb6"],
+        "assertionConditionHashes": [
+          "a9b41c41c2f4c3d491e34892ef0ed0b857b006b1541da5fb4f6da37fa96c94e3"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/AppUpdaterTests.swift",
+        "suite": "AppUpdaterTests",
+        "signature": "isolatedBuildNeverChecksOrInstalls()",
+        "line": 16,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "b6d9cccb108bf1b16918351694bafbbd4c14027d3dc487ceb6a6345e4b8b886b",
+        "assertionHashes": [
+          "af4a431674b1b27c97b0c801de054d8ac0cb2e1f0c0a45ba0ffeba6c9c10e0c2",
+          "222e9937f0a8b4e0bdd66299d4cef5bcc5c62c96fdd361986c6d2a4a84de2656",
+          "cfb4da07c08067bb7b3331b2a81e9459f8d1d88ebf29f21368f563cc10a5d5ca"
+        ],
+        "assertionConditionHashes": [
+          "e16618d9515ebbff4d767df351e199e5e1a37062fa701de995b5aebec2cfb1d6",
+          "f485e85a2207c9f5c96881af9bb15d55b840208c0eb488005faad2ff73657009",
+          "456e693a4574187886010fea8d4035992fd95a759365c1848758616131f89659"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/AppUpdaterTests.swift",
+        "suite": "AppUpdaterTests",
+        "signature": "isolatedBuildNeverChecksOrInstalls()",
+        "line": 16,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "b6d9cccb108bf1b16918351694bafbbd4c14027d3dc487ceb6a6345e4b8b886b",
+        "assertionHashes": [
+          "af4a431674b1b27c97b0c801de054d8ac0cb2e1f0c0a45ba0ffeba6c9c10e0c2",
+          "222e9937f0a8b4e0bdd66299d4cef5bcc5c62c96fdd361986c6d2a4a84de2656",
+          "cfb4da07c08067bb7b3331b2a81e9459f8d1d88ebf29f21368f563cc10a5d5ca"
+        ],
+        "assertionConditionHashes": [
+          "e16618d9515ebbff4d767df351e199e5e1a37062fa701de995b5aebec2cfb1d6",
+          "f485e85a2207c9f5c96881af9bb15d55b840208c0eb488005faad2ff73657009",
+          "456e693a4574187886010fea8d4035992fd95a759365c1848758616131f89659"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/AppUpdaterTests.swift",
+        "suite": "AppUpdaterTests",
+        "signature": "missingOrInvalidKeyDisablesUpdates(key: String)",
+        "line": 25,
+        "attributes": "@testable\n@MainActor\n@Test(arguments: [\"\", \"$(SHEPHERD_UPDATE_PUBLIC_KEY)\", \"not-a-key\", \"AQ==\"])",
+        "condition": "",
+        "bodyHash": "d593e511843d92f2a4c0ac7772c676bca32c0081984c906a19a6dfb59a7aeb1d",
+        "assertionHashes": ["9b8b20fef86aced8574f5fc10bd4b04dab8e501847083eedea77a506d7e69fb6"],
+        "assertionConditionHashes": [
+          "a9b41c41c2f4c3d491e34892ef0ed0b857b006b1541da5fb4f6da37fa96c94e3"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/AppUpdaterTests.swift",
+        "suite": "AppUpdaterTests",
+        "signature": "missingOrInvalidKeyDisablesUpdates(key: String)",
+        "line": 25,
+        "attributes": "@testable\n@MainActor\n@Test(arguments: [\"\", \"$(SHEPHERD_UPDATE_PUBLIC_KEY)\", \"not-a-key\", \"AQ==\"])",
+        "condition": "",
+        "bodyHash": "d593e511843d92f2a4c0ac7772c676bca32c0081984c906a19a6dfb59a7aeb1d",
+        "assertionHashes": ["9b8b20fef86aced8574f5fc10bd4b04dab8e501847083eedea77a506d7e69fb6"],
+        "assertionConditionHashes": [
+          "a9b41c41c2f4c3d491e34892ef0ed0b857b006b1541da5fb4f6da37fa96c94e3"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/BackendRecoveryTests.swift",
+        "suite": "BackendRecoveryTests",
+        "signature": "diagnosticEventAndTeardownDiscardOlderReadFailures() async throws",
+        "line": 83,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "be14af8825c5bfe23b0efced36346a0cfa11369e41dc8f7fcb227cc4b75a9957",
+        "assertionHashes": [
+          "b4a121bf1885b620b1c23a5edea5bc4a8cfa1ae985db5218b31434ea36f13b08",
+          "4cc5dca23153e555a64e1c13f27bfeb2f62be3506768faca1734241c5e6db455",
+          "ae93f094f99865df784b23c02282201eec5b1bc34a43dabbb51c0314523326d1",
+          "4d53fad6900872950f9955489e0efee9930d70c8ac3832ed79b01691d601f1e2",
+          "4cc5dca23153e555a64e1c13f27bfeb2f62be3506768faca1734241c5e6db455",
+          "b4a121bf1885b620b1c23a5edea5bc4a8cfa1ae985db5218b31434ea36f13b08"
+        ],
+        "assertionConditionHashes": [
+          "ac108ab0b4ef40e16805d9a3b22184a5116bacd2ee70f851d5cf2165bd96d69b",
+          "476b82b4c59bb87fcb26b3a70224a51fb861b6158ce8ba5f22c4e3f28d4b14b7",
+          "8cb08f75ece549f043d6924746297263ae210f9eefc39bf8a49e029b5fdd3d70",
+          "efa70826c5e93a743fdb73409bb4b0a9f24bd10df367ef9830abdc77d82eaa49",
+          "476b82b4c59bb87fcb26b3a70224a51fb861b6158ce8ba5f22c4e3f28d4b14b7",
+          "ac108ab0b4ef40e16805d9a3b22184a5116bacd2ee70f851d5cf2165bd96d69b"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/BackendRecoveryTests.swift",
+        "suite": "BackendRecoveryTests",
+        "signature": "diagnosticEventAndTeardownDiscardOlderReadFailures() async throws",
+        "line": 83,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "be14af8825c5bfe23b0efced36346a0cfa11369e41dc8f7fcb227cc4b75a9957",
+        "assertionHashes": [
+          "b4a121bf1885b620b1c23a5edea5bc4a8cfa1ae985db5218b31434ea36f13b08",
+          "4cc5dca23153e555a64e1c13f27bfeb2f62be3506768faca1734241c5e6db455",
+          "ae93f094f99865df784b23c02282201eec5b1bc34a43dabbb51c0314523326d1",
+          "4d53fad6900872950f9955489e0efee9930d70c8ac3832ed79b01691d601f1e2",
+          "4cc5dca23153e555a64e1c13f27bfeb2f62be3506768faca1734241c5e6db455",
+          "b4a121bf1885b620b1c23a5edea5bc4a8cfa1ae985db5218b31434ea36f13b08"
+        ],
+        "assertionConditionHashes": [
+          "ac108ab0b4ef40e16805d9a3b22184a5116bacd2ee70f851d5cf2165bd96d69b",
+          "476b82b4c59bb87fcb26b3a70224a51fb861b6158ce8ba5f22c4e3f28d4b14b7",
+          "8cb08f75ece549f043d6924746297263ae210f9eefc39bf8a49e029b5fdd3d70",
+          "efa70826c5e93a743fdb73409bb4b0a9f24bd10df367ef9830abdc77d82eaa49",
+          "476b82b4c59bb87fcb26b3a70224a51fb861b6158ce8ba5f22c4e3f28d4b14b7",
+          "ac108ab0b4ef40e16805d9a3b22184a5116bacd2ee70f851d5cf2165bd96d69b"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/BackendRecoveryTests.swift",
+        "suite": "BackendRecoveryTests",
+        "signature": "eventReplacesSnapshotWithoutSettingsReadsAndInvalidatesOlderRefresh() async throws",
+        "line": 35,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "c795432c74d6bc44346c1f09e77b941dbc1104e129b56313df3f27e1e9cd30e1",
+        "assertionHashes": [
+          "91025955eca4952b405a4da0e65d8dec52ff4beb23050e86758bcf1b8f6bf006",
+          "4d53fad6900872950f9955489e0efee9930d70c8ac3832ed79b01691d601f1e2",
+          "e5d666d57f927598b3d3f1094c01e0615cdac0f26bb852fb9c3f05ea7e17f424"
+        ],
+        "assertionConditionHashes": [
+          "cc131d7da21cfb46353315cb1733e99ffa1d06b11d272d6bad7d6397090b16f3",
+          "efa70826c5e93a743fdb73409bb4b0a9f24bd10df367ef9830abdc77d82eaa49",
+          "edd02094687c25ce6d6455a628bdd72165c6311cd4d8cffd1dbd53400a2af3c0"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/BackendRecoveryTests.swift",
+        "suite": "BackendRecoveryTests",
+        "signature": "eventReplacesSnapshotWithoutSettingsReadsAndInvalidatesOlderRefresh() async throws",
+        "line": 35,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "c795432c74d6bc44346c1f09e77b941dbc1104e129b56313df3f27e1e9cd30e1",
+        "assertionHashes": [
+          "91025955eca4952b405a4da0e65d8dec52ff4beb23050e86758bcf1b8f6bf006",
+          "4d53fad6900872950f9955489e0efee9930d70c8ac3832ed79b01691d601f1e2",
+          "e5d666d57f927598b3d3f1094c01e0615cdac0f26bb852fb9c3f05ea7e17f424"
+        ],
+        "assertionConditionHashes": [
+          "cc131d7da21cfb46353315cb1733e99ffa1d06b11d272d6bad7d6397090b16f3",
+          "efa70826c5e93a743fdb73409bb4b0a9f24bd10df367ef9830abdc77d82eaa49",
+          "edd02094687c25ce6d6455a628bdd72165c6311cd4d8cffd1dbd53400a2af3c0"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/BackendRecoveryTests.swift",
+        "suite": "BackendRecoveryTests",
+        "signature": "explicitSessionClosuresWinOverNetworkGuesses()",
+        "line": 21,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "3f72cb846b97f961caeef79ddd9a515629d52843f66e874a2d16c30160b494f9",
+        "assertionHashes": [
+          "31e3c8303ad93178f07563960f7c324683d7f47987cdf9ee21154e3aee56a87b",
+          "91aae4eefe061c7a66da59a9b8d5bc3b22accfc9189c54f7b705341c1ad868a2",
+          "ae6f04a400e0b91f51b938c468d24c88e59ca2d95ea507212b13e6dc6772959c",
+          "2a96ae4b99996729ea57848b07d5f3790e48d9eea58ddbf0e1ec11995167af6a"
+        ],
+        "assertionConditionHashes": [
+          "0dc0426362f767a6c0520c15a3fed4e78ba1ea0678e561bf95f1bce888e7d52d",
+          "5c82bdf972b068078a4bbe92b7d5b704a46924424f7fbcfb6d47af637d626f98",
+          "6a2aac38b201c7b5b8842e009a698d7b485c25e91be58bd78af0fbaf1de00bb4",
+          "b1f3faf98a9b901bd9e941d7b5c2549c59572d3c597445ae1a82c5fa2579d8dc"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/BackendRecoveryTests.swift",
+        "suite": "BackendRecoveryTests",
+        "signature": "explicitSessionClosuresWinOverNetworkGuesses()",
+        "line": 21,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "3f72cb846b97f961caeef79ddd9a515629d52843f66e874a2d16c30160b494f9",
+        "assertionHashes": [
+          "31e3c8303ad93178f07563960f7c324683d7f47987cdf9ee21154e3aee56a87b",
+          "91aae4eefe061c7a66da59a9b8d5bc3b22accfc9189c54f7b705341c1ad868a2",
+          "ae6f04a400e0b91f51b938c468d24c88e59ca2d95ea507212b13e6dc6772959c",
+          "2a96ae4b99996729ea57848b07d5f3790e48d9eea58ddbf0e1ec11995167af6a"
+        ],
+        "assertionConditionHashes": [
+          "0dc0426362f767a6c0520c15a3fed4e78ba1ea0678e561bf95f1bce888e7d52d",
+          "5c82bdf972b068078a4bbe92b7d5b704a46924424f7fbcfb6d47af637d626f98",
+          "6a2aac38b201c7b5b8842e009a698d7b485c25e91be58bd78af0fbaf1de00bb4",
+          "b1f3faf98a9b901bd9e941d7b5c2549c59572d3c597445ae1a82c5fa2579d8dc"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/BackendRecoveryTests.swift",
+        "suite": "BackendRecoveryTests",
+        "signature": "healthSurvivesDiagnosticsAuthenticationFailure() async",
+        "line": 50,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "23550b20413589de999da8a3ff7d53a071eafc2be52b5dbd4b4d9dc171511ae8",
+        "assertionHashes": [
+          "4335f18a0195f4d1777f7c807dc75eada54d69c8729e580e0bef2c7925985cd5",
+          "bafa47097f62c81a82c86e902d68f4f36e689361a362adb87ffacb9522777fb2"
+        ],
+        "assertionConditionHashes": [
+          "10a1984e1846b0b43079f980ff1d3d95a6cdad511c3f0f902a849c5c364dad8f",
+          "a5faa636fb5a09248f032cbaa6447500fe563aa41f1a63e850f3b5dab5e9220f"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/BackendRecoveryTests.swift",
+        "suite": "BackendRecoveryTests",
+        "signature": "healthSurvivesDiagnosticsAuthenticationFailure() async",
+        "line": 50,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "23550b20413589de999da8a3ff7d53a071eafc2be52b5dbd4b4d9dc171511ae8",
+        "assertionHashes": [
+          "4335f18a0195f4d1777f7c807dc75eada54d69c8729e580e0bef2c7925985cd5",
+          "bafa47097f62c81a82c86e902d68f4f36e689361a362adb87ffacb9522777fb2"
+        ],
+        "assertionConditionHashes": [
+          "10a1984e1846b0b43079f980ff1d3d95a6cdad511c3f0f902a849c5c364dad8f",
+          "a5faa636fb5a09248f032cbaa6447500fe563aa41f1a63e850f3b5dab5e9220f"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/BackendRecoveryTests.swift",
+        "suite": "BackendRecoveryTests",
+        "signature": "loadingIsNotFailureAndSuccessfulRecheckClearsReadError() async throws",
+        "line": 56,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "a1db091b8d5e028e36b666b391b86aa5e42ec9cd0eb539701e8f55523d67019c",
+        "assertionHashes": [
+          "4cc5dca23153e555a64e1c13f27bfeb2f62be3506768faca1734241c5e6db455",
+          "342d1de3ae58f90738662e37e60e9c13d753c24666f5ff22e60557b45bdd6e08",
+          "4cc5dca23153e555a64e1c13f27bfeb2f62be3506768faca1734241c5e6db455",
+          "b4a121bf1885b620b1c23a5edea5bc4a8cfa1ae985db5218b31434ea36f13b08",
+          "e2a41caca07d34af5782eb632415a4d48c5c912f24f2c974de82c538ec9e469f",
+          "4d53fad6900872950f9955489e0efee9930d70c8ac3832ed79b01691d601f1e2",
+          "4cc5dca23153e555a64e1c13f27bfeb2f62be3506768faca1734241c5e6db455",
+          "91025955eca4952b405a4da0e65d8dec52ff4beb23050e86758bcf1b8f6bf006"
+        ],
+        "assertionConditionHashes": [
+          "476b82b4c59bb87fcb26b3a70224a51fb861b6158ce8ba5f22c4e3f28d4b14b7",
+          "658184e5b678a7671bc8c1f62859bd262588eff15c8035abcd0e05d2414daa66",
+          "476b82b4c59bb87fcb26b3a70224a51fb861b6158ce8ba5f22c4e3f28d4b14b7",
+          "ac108ab0b4ef40e16805d9a3b22184a5116bacd2ee70f851d5cf2165bd96d69b",
+          "57ef986920ff4466e4e38a6398800ddce6149752cca7cc768c8227037b15c7d2",
+          "efa70826c5e93a743fdb73409bb4b0a9f24bd10df367ef9830abdc77d82eaa49",
+          "476b82b4c59bb87fcb26b3a70224a51fb861b6158ce8ba5f22c4e3f28d4b14b7",
+          "cc131d7da21cfb46353315cb1733e99ffa1d06b11d272d6bad7d6397090b16f3"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/BackendRecoveryTests.swift",
+        "suite": "BackendRecoveryTests",
+        "signature": "loadingIsNotFailureAndSuccessfulRecheckClearsReadError() async throws",
+        "line": 56,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "a1db091b8d5e028e36b666b391b86aa5e42ec9cd0eb539701e8f55523d67019c",
+        "assertionHashes": [
+          "4cc5dca23153e555a64e1c13f27bfeb2f62be3506768faca1734241c5e6db455",
+          "342d1de3ae58f90738662e37e60e9c13d753c24666f5ff22e60557b45bdd6e08",
+          "4cc5dca23153e555a64e1c13f27bfeb2f62be3506768faca1734241c5e6db455",
+          "b4a121bf1885b620b1c23a5edea5bc4a8cfa1ae985db5218b31434ea36f13b08",
+          "e2a41caca07d34af5782eb632415a4d48c5c912f24f2c974de82c538ec9e469f",
+          "4d53fad6900872950f9955489e0efee9930d70c8ac3832ed79b01691d601f1e2",
+          "4cc5dca23153e555a64e1c13f27bfeb2f62be3506768faca1734241c5e6db455",
+          "91025955eca4952b405a4da0e65d8dec52ff4beb23050e86758bcf1b8f6bf006"
+        ],
+        "assertionConditionHashes": [
+          "476b82b4c59bb87fcb26b3a70224a51fb861b6158ce8ba5f22c4e3f28d4b14b7",
+          "658184e5b678a7671bc8c1f62859bd262588eff15c8035abcd0e05d2414daa66",
+          "476b82b4c59bb87fcb26b3a70224a51fb861b6158ce8ba5f22c4e3f28d4b14b7",
+          "ac108ab0b4ef40e16805d9a3b22184a5116bacd2ee70f851d5cf2165bd96d69b",
+          "57ef986920ff4466e4e38a6398800ddce6149752cca7cc768c8227037b15c7d2",
+          "efa70826c5e93a743fdb73409bb4b0a9f24bd10df367ef9830abdc77d82eaa49",
+          "476b82b4c59bb87fcb26b3a70224a51fb861b6158ce8ba5f22c4e3f28d4b14b7",
+          "cc131d7da21cfb46353315cb1733e99ffa1d06b11d272d6bad7d6397090b16f3"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/BackendRecoveryTests.swift",
+        "suite": "BackendRecoveryTests",
+        "signature": "localActionsRequireMatchingSavedLocalEndpoint()",
+        "line": 12,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "52d072095b592324417ba050f96e776b23ead83218ce04b3a7a8b3fb56469dc9",
+        "assertionHashes": [
+          "be575ca67bb563973a3bfc627b6801f2aff7471a714be9295dc00934c423724d",
+          "63670a583e51a594e86a8b7da04e8005f2b2eebff0955f5e0844ec91c2607cb7",
+          "63670a583e51a594e86a8b7da04e8005f2b2eebff0955f5e0844ec91c2607cb7"
+        ],
+        "assertionConditionHashes": [
+          "d1ecf8e3b2ea657c85032f342dba950441a2953025f3d6bab4f26974f79e578a",
+          "f04cd449c0abe1e9d46021bf12dfb4b6da7ea5e99cc7b9a7d58ed9d2d2f2aa57",
+          "f04cd449c0abe1e9d46021bf12dfb4b6da7ea5e99cc7b9a7d58ed9d2d2f2aa57"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/BackendRecoveryTests.swift",
+        "suite": "BackendRecoveryTests",
+        "signature": "localActionsRequireMatchingSavedLocalEndpoint()",
+        "line": 12,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "52d072095b592324417ba050f96e776b23ead83218ce04b3a7a8b3fb56469dc9",
+        "assertionHashes": [
+          "be575ca67bb563973a3bfc627b6801f2aff7471a714be9295dc00934c423724d",
+          "63670a583e51a594e86a8b7da04e8005f2b2eebff0955f5e0844ec91c2607cb7",
+          "63670a583e51a594e86a8b7da04e8005f2b2eebff0955f5e0844ec91c2607cb7"
+        ],
+        "assertionConditionHashes": [
+          "d1ecf8e3b2ea657c85032f342dba950441a2953025f3d6bab4f26974f79e578a",
+          "f04cd449c0abe1e9d46021bf12dfb4b6da7ea5e99cc7b9a7d58ed9d2d2f2aa57",
+          "f04cd449c0abe1e9d46021bf12dfb4b6da7ea5e99cc7b9a7d58ed9d2d2f2aa57"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/BackendRecoveryTests.swift",
+        "suite": "BackendRecoveryTests",
+        "signature": "onlyExplicitOfflineAndMissingHintsMeanRunnerUnavailable() throws",
+        "line": 27,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "f4fcea2febb99c6e27055481448f01ba48f055e3ebdb347db7eb52a32c43ee1a",
+        "assertionHashes": [
+          "0366ac27ad40d1dafb1664abd1cfe858967c004a55b6a4804d094cfb36c83215",
+          "d6d9586cd7a43615b51165060e3e98897b14d4d26bd17d1dffc5024580556b58"
+        ],
+        "assertionConditionHashes": [
+          "921dab0794cddb3ae02af8b199f7afa81ac19a8260bd7c277addb6011ef823af",
+          "7c6f140e7672a41820211ad31ef63cc2285ff6454e9cc434fe4cd919461c2134"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/BackendRecoveryTests.swift",
+        "suite": "BackendRecoveryTests",
+        "signature": "onlyExplicitOfflineAndMissingHintsMeanRunnerUnavailable() throws",
+        "line": 27,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "f4fcea2febb99c6e27055481448f01ba48f055e3ebdb347db7eb52a32c43ee1a",
+        "assertionHashes": [
+          "0366ac27ad40d1dafb1664abd1cfe858967c004a55b6a4804d094cfb36c83215",
+          "d6d9586cd7a43615b51165060e3e98897b14d4d26bd17d1dffc5024580556b58"
+        ],
+        "assertionConditionHashes": [
+          "921dab0794cddb3ae02af8b199f7afa81ac19a8260bd7c277addb6011ef823af",
+          "7c6f140e7672a41820211ad31ef63cc2285ff6454e9cc434fe4cd919461c2134"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/BackendRecoveryTests.swift",
+        "suite": "BackendRecoveryTests",
+        "signature": "validationAuthenticationAndCancellationDoNotOfferBackendRecovery()",
+        "line": 104,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "be920ee324cf786b95b2bb433ad33716343ab9621a8cd362b9a08461e88f2632",
+        "assertionHashes": [
+          "4884ba3bf742a8dd0ba9965c88b2a4bf259c90b6c61cd67e8ca233d3acd39467",
+          "c8b9b34b444b9f6de37e7ef74c596848a385c117bd09459024a9d9f450db58bd",
+          "69aec286e87d5ef664d0cb940469dc39c5187c279ed2eedb9c3a3bc3f7aeef1a"
+        ],
+        "assertionConditionHashes": [
+          "181cf1bd586915c58c64df7400c8a8977cadfc8f91a575a7f613449a2b886f7e",
+          "116d2a5ae41cc1b3a15095a1bc3a7555e94146c81aaaaa7d8b0b6189b3504290",
+          "a03b1fff503e1ec6652f266cc10a6f1e18b99f68ff6af13323346ea1c0f4f34d"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/BackendRecoveryTests.swift",
+        "suite": "BackendRecoveryTests",
+        "signature": "validationAuthenticationAndCancellationDoNotOfferBackendRecovery()",
+        "line": 104,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "be920ee324cf786b95b2bb433ad33716343ab9621a8cd362b9a08461e88f2632",
+        "assertionHashes": [
+          "4884ba3bf742a8dd0ba9965c88b2a4bf259c90b6c61cd67e8ca233d3acd39467",
+          "c8b9b34b444b9f6de37e7ef74c596848a385c117bd09459024a9d9f450db58bd",
+          "69aec286e87d5ef664d0cb940469dc39c5187c279ed2eedb9c3a3bc3f7aeef1a"
+        ],
+        "assertionConditionHashes": [
+          "181cf1bd586915c58c64df7400c8a8977cadfc8f91a575a7f613449a2b886f7e",
+          "116d2a5ae41cc1b3a15095a1bc3a7555e94146c81aaaaa7d8b0b6189b3504290",
+          "a03b1fff503e1ec6652f266cc10a6f1e18b99f68ff6af13323346ea1c0f4f34d"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/ComposeKeymapTests.swift",
+        "suite": "ComposeKeymapTests",
+        "signature": "failedCreatePreservesDraftAndDiagnosesWithoutResubmitting() async",
+        "line": 17,
+        "attributes": "@testable\n@MainActor\n@Suite\n@Test",
+        "condition": "",
+        "bodyHash": "89db6bb7e7bbc36a47060e4cc04ae67c132924418ec154de0f77aa77a3d49c26",
+        "assertionHashes": [
+          "cd302f8741e868137dcfee901c2d0ad329de1ffe1f9109c8af1077ae79ab7ca0",
+          "36cade6f99ec8af25e2347fec6e6b5c3459ba8ec9ddc429d810a07bb3accd568",
+          "7264cdf849409d3e4bc2a913b8fe13614860e3a369702283abf437bbcc800140",
+          "f61cedec53eda9128986230efd2004c065cf007a5bea3fa5b430d9fd9ced6f27"
+        ],
+        "assertionConditionHashes": [
+          "96024de170e34fe775e29630ab66fb0b3373d5a4aa9fd22119bffc4cdf8228bf",
+          "94b24cf748932ae6acb29fa79d059f4ec02981cff23261dba1dcb3a521e8036d",
+          "3803cbdf922d199c22afe979d666d39cf9d0d56de8c0f680f2b099653d408084",
+          "b6a8aa179bc623d219dc225f833f5497a1eee26dd9d21ccf80aa672ae52f9445"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/ComposeKeymapCoreTests.swift",
+        "suite": "CoreSeamTests.ComposeKeymapTests",
+        "signature": "failedCreatePreservesDraftAndDiagnosesWithoutResubmitting() async",
+        "line": 258,
+        "attributes": "@Suite(.serialized)\n@testable\n@MainActor\n@Suite\n@Test",
+        "condition": "",
+        "bodyHash": "89db6bb7e7bbc36a47060e4cc04ae67c132924418ec154de0f77aa77a3d49c26",
+        "assertionHashes": [
+          "cd302f8741e868137dcfee901c2d0ad329de1ffe1f9109c8af1077ae79ab7ca0",
+          "36cade6f99ec8af25e2347fec6e6b5c3459ba8ec9ddc429d810a07bb3accd568",
+          "7264cdf849409d3e4bc2a913b8fe13614860e3a369702283abf437bbcc800140",
+          "f61cedec53eda9128986230efd2004c065cf007a5bea3fa5b430d9fd9ced6f27"
+        ],
+        "assertionConditionHashes": [
+          "96024de170e34fe775e29630ab66fb0b3373d5a4aa9fd22119bffc4cdf8228bf",
+          "94b24cf748932ae6acb29fa79d059f4ec02981cff23261dba1dcb3a521e8036d",
+          "3803cbdf922d199c22afe979d666d39cf9d0d56de8c0f680f2b099653d408084",
+          "b6a8aa179bc623d219dc225f833f5497a1eee26dd9d21ccf80aa672ae52f9445"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift",
+        "suite": "LocalServerModelTests",
+        "signature": "aSuccessfulInstallLeavesThePanelReadyToStart() async throws",
+        "line": 420,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "151fd746e41bf9bdad09f9731afa8593e782121612633ea192c84a1a4398a43f",
+        "assertionHashes": [
+          "a2794fa90be655f557ecfabc968dad759f86052a6547ea638d0e161b4d444763",
+          "f773e04ceac44a220e8481023022c0bd16b9a5becba18b980b2de4108a920d40",
+          "8fa7f072926bec8bf7b9e382f3b4347712bdcfb9eba9a4e6eea82b8deb7a66d8"
+        ],
+        "assertionConditionHashes": [
+          "212120a578a0b1799475fc36948ba549b279a889d027fd008b734485b68db12e",
+          "95cdf4afb9175bb84c1a4126ecc56cb3040feeea6092e89620952efbd6b51243",
+          "561cbe66e3e196a5eb7183ab987dbe27bafe475467858ddc15e87680879ee4cf"
+        ]
+      },
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift",
+        "suite": "LocalServerModelTests",
+        "signature": "aSuccessfulInstallStartsThroughTheSupervisorAndShowsProgressBeforeFinishing() async throws",
+        "line": 415,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "8bbc8fcc031c4f6e7f1f4d475ae4cb640eda172958f1af8df18a1c54c3b0868d",
+        "assertionHashes": [
+          "fdef350afb5b2963fec8297575d7f1a4f965e1a9cf1266bc03f6277fc4c80b08",
+          "ad8e4bde9371c5390704432d0c6371740150cfd97fd9dcf01768a6a5e482e415",
+          "a2794fa90be655f557ecfabc968dad759f86052a6547ea638d0e161b4d444763",
+          "71f05f605c855ddf7c3b4fbb6bf06023f0fc9073321019c4b980f80b887509a9"
+        ],
+        "assertionConditionHashes": [
+          "86ba563015854bfe9b86cdccd1fce56873c4e5fbec2100ff77e2dfabef8a998d",
+          "71cb0e8df700bbe99e276cf3deab537e41ec7f1fe88b527677fdda1538424f5a",
+          "212120a578a0b1799475fc36948ba549b279a889d027fd008b734485b68db12e",
+          "3c9fddb38e07b66aeb45b51c53611e72db3e2762918dd12cc17a1fbb1eb525c6"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift",
+        "suite": "MacSeamTests.LocalServerModelTests",
+        "signature": "aSuccessfulInstallStartsThroughTheSupervisorAndShowsProgressBeforeFinishing() async throws",
+        "line": 417,
+        "attributes": "@Suite(.serialized)\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "8bbc8fcc031c4f6e7f1f4d475ae4cb640eda172958f1af8df18a1c54c3b0868d",
+        "assertionHashes": [
+          "fdef350afb5b2963fec8297575d7f1a4f965e1a9cf1266bc03f6277fc4c80b08",
+          "ad8e4bde9371c5390704432d0c6371740150cfd97fd9dcf01768a6a5e482e415",
+          "a2794fa90be655f557ecfabc968dad759f86052a6547ea638d0e161b4d444763",
+          "71f05f605c855ddf7c3b4fbb6bf06023f0fc9073321019c4b980f80b887509a9"
+        ],
+        "assertionConditionHashes": [
+          "86ba563015854bfe9b86cdccd1fce56873c4e5fbec2100ff77e2dfabef8a998d",
+          "71cb0e8df700bbe99e276cf3deab537e41ec7f1fe88b527677fdda1538424f5a",
+          "212120a578a0b1799475fc36948ba549b279a889d027fd008b734485b68db12e",
+          "3c9fddb38e07b66aeb45b51c53611e72db3e2762918dd12cc17a1fbb1eb525c6"
+        ]
+      },
+      "reason": "Upstream b9c65d23 changes successful install to automatically start the supervised server. Original busy-clear scenario now also checks installing state, progress delivery and running completion instead of waiting for manual Start."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift",
+        "suite": "LocalServerModelTests",
+        "signature": "connectingUsesTheConfiguredPortAndDoesNotReuseAnotherEndpointsCredential() async throws",
+        "line": 441,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "5a938138b2ee7a4e797fb5b147f3191db75f15b0a068540a992c70d7b8329f06",
+        "assertionHashes": [
+          "a30bbcc064a5aa34a4f839374089a4d448cb6d021901ffdcaa1b87f06355c519",
+          "c80aad4be6a7819c9e46e6d9c41be2b9a50bf7f11ad890b05fa7507dcfd819a0",
+          "9ce513121b5acb439230c4b8d36366c6390bb7abcb98e85455bf9079d6d142e5",
+          "926f92492b0640659735f5aa68c5b3b8acf00826a44cae875a376c75cbb27cb6"
+        ],
+        "assertionConditionHashes": [
+          "15daf0fc47999236edd0211090f02c44f6b632aa470f64e50505c86c44cc8579",
+          "6f8ab9a395fb10d90aec98f231a0860e28db80855aaaa9c5974ac1b06210b15c",
+          "28cc3dcc3fce93a496c83f06424d0de27a0acb95108ccbd578785794910d6ab1",
+          "7dcff62030166dbe085d7b5a5501cf2f9ccd7479fb96a31364aed9b241ad2e46"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift",
+        "suite": "MacSeamTests.LocalServerModelTests",
+        "signature": "connectingUsesTheConfiguredPortAndDoesNotReuseAnotherEndpointsCredential() async throws",
+        "line": 443,
+        "attributes": "@Suite(.serialized)\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "5a938138b2ee7a4e797fb5b147f3191db75f15b0a068540a992c70d7b8329f06",
+        "assertionHashes": [
+          "a30bbcc064a5aa34a4f839374089a4d448cb6d021901ffdcaa1b87f06355c519",
+          "c80aad4be6a7819c9e46e6d9c41be2b9a50bf7f11ad890b05fa7507dcfd819a0",
+          "9ce513121b5acb439230c4b8d36366c6390bb7abcb98e85455bf9079d6d142e5",
+          "926f92492b0640659735f5aa68c5b3b8acf00826a44cae875a376c75cbb27cb6"
+        ],
+        "assertionConditionHashes": [
+          "15daf0fc47999236edd0211090f02c44f6b632aa470f64e50505c86c44cc8579",
+          "6f8ab9a395fb10d90aec98f231a0860e28db80855aaaa9c5974ac1b06210b15c",
+          "28cc3dcc3fce93a496c83f06424d0de27a0acb95108ccbd578785794910d6ab1",
+          "7dcff62030166dbe085d7b5a5501cf2f9ccd7479fb96a31364aed9b241ad2e46"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift",
+        "suite": "LocalServerModelTests",
+        "signature": "externalAcknowledgmentIsResetWhenIdentityChangesOrDisappears() async throws",
+        "line": 457,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "0035e747f427690b762de5eb7730d3d21bd15241534b14e2cf108315037bb04f",
+        "assertionHashes": [
+          "e999e81eb88958839a1c73ed29f6b1b72cc0293e4466f15c781e117de8b4921f",
+          "d4dd48c9efa14bd2c3b36e37b17463b8db674ea4c1bc689431da29a58981b177",
+          "5401f291b3d519ea42a18687927eb0205e10e7e3bc6d9f2a6b0d9efcba9a50a4",
+          "2ba13c9b8befd7e97020757ba5852ca9a2e0fcf55fd02ccd8aea1cd80de636c3",
+          "5401f291b3d519ea42a18687927eb0205e10e7e3bc6d9f2a6b0d9efcba9a50a4",
+          "5401f291b3d519ea42a18687927eb0205e10e7e3bc6d9f2a6b0d9efcba9a50a4",
+          "80cea5d6e3bc476c630958f7d6ac2cd4df2747816ee594456065519d17fa71e3",
+          "e999e81eb88958839a1c73ed29f6b1b72cc0293e4466f15c781e117de8b4921f",
+          "80cea5d6e3bc476c630958f7d6ac2cd4df2747816ee594456065519d17fa71e3",
+          "5401f291b3d519ea42a18687927eb0205e10e7e3bc6d9f2a6b0d9efcba9a50a4"
+        ],
+        "assertionConditionHashes": [
+          "4f04f32c483ce87a3fc64ed5598f4147fa3be95d584cc24606d5e5437204f079",
+          "7a477ef3ab84cb1992a3df4505128ba24a24202b1e140af50b3fd527fa496835",
+          "8c58a37a64e30a967431a91903c5aa1671a2d64c6a8252144d3bd96a558f6392",
+          "25087920b5b25b255a213f34b619dfd2069fe5dd86e5f411595a8d736d39ed01",
+          "8c58a37a64e30a967431a91903c5aa1671a2d64c6a8252144d3bd96a558f6392",
+          "8c58a37a64e30a967431a91903c5aa1671a2d64c6a8252144d3bd96a558f6392",
+          "90cd9992554410acebf8379ec89381e8f5bcf16fdf66994cf91b670e01c9b125",
+          "4f04f32c483ce87a3fc64ed5598f4147fa3be95d584cc24606d5e5437204f079",
+          "90cd9992554410acebf8379ec89381e8f5bcf16fdf66994cf91b670e01c9b125",
+          "8c58a37a64e30a967431a91903c5aa1671a2d64c6a8252144d3bd96a558f6392"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift",
+        "suite": "MacSeamTests.LocalServerModelTests",
+        "signature": "externalAcknowledgmentIsResetWhenIdentityChangesOrDisappears() async throws",
+        "line": 459,
+        "attributes": "@Suite(.serialized)\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "0035e747f427690b762de5eb7730d3d21bd15241534b14e2cf108315037bb04f",
+        "assertionHashes": [
+          "e999e81eb88958839a1c73ed29f6b1b72cc0293e4466f15c781e117de8b4921f",
+          "d4dd48c9efa14bd2c3b36e37b17463b8db674ea4c1bc689431da29a58981b177",
+          "5401f291b3d519ea42a18687927eb0205e10e7e3bc6d9f2a6b0d9efcba9a50a4",
+          "2ba13c9b8befd7e97020757ba5852ca9a2e0fcf55fd02ccd8aea1cd80de636c3",
+          "5401f291b3d519ea42a18687927eb0205e10e7e3bc6d9f2a6b0d9efcba9a50a4",
+          "5401f291b3d519ea42a18687927eb0205e10e7e3bc6d9f2a6b0d9efcba9a50a4",
+          "80cea5d6e3bc476c630958f7d6ac2cd4df2747816ee594456065519d17fa71e3",
+          "e999e81eb88958839a1c73ed29f6b1b72cc0293e4466f15c781e117de8b4921f",
+          "80cea5d6e3bc476c630958f7d6ac2cd4df2747816ee594456065519d17fa71e3",
+          "5401f291b3d519ea42a18687927eb0205e10e7e3bc6d9f2a6b0d9efcba9a50a4"
+        ],
+        "assertionConditionHashes": [
+          "4f04f32c483ce87a3fc64ed5598f4147fa3be95d584cc24606d5e5437204f079",
+          "7a477ef3ab84cb1992a3df4505128ba24a24202b1e140af50b3fd527fa496835",
+          "8c58a37a64e30a967431a91903c5aa1671a2d64c6a8252144d3bd96a558f6392",
+          "25087920b5b25b255a213f34b619dfd2069fe5dd86e5f411595a8d736d39ed01",
+          "8c58a37a64e30a967431a91903c5aa1671a2d64c6a8252144d3bd96a558f6392",
+          "8c58a37a64e30a967431a91903c5aa1671a2d64c6a8252144d3bd96a558f6392",
+          "90cd9992554410acebf8379ec89381e8f5bcf16fdf66994cf91b670e01c9b125",
+          "4f04f32c483ce87a3fc64ed5598f4147fa3be95d584cc24606d5e5437204f079",
+          "90cd9992554410acebf8379ec89381e8f5bcf16fdf66994cf91b670e01c9b125",
+          "8c58a37a64e30a967431a91903c5aa1671a2d64c6a8252144d3bd96a558f6392"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift",
+        "suite": "LocalServerModelTests",
+        "signature": "refreshDuringAnInstallCannotOverwriteInstallingState() async throws",
+        "line": 375,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "bb7fee97a3b90c29d43778aacfd966f2b9be891c4698627b42b597af7451b461",
+        "assertionHashes": [
+          "c74fbeab7c70259ce68626c11ce312fbb88f53a6245af0567f37e5b04dd2cd99",
+          "fdef350afb5b2963fec8297575d7f1a4f965e1a9cf1266bc03f6277fc4c80b08",
+          "fdef350afb5b2963fec8297575d7f1a4f965e1a9cf1266bc03f6277fc4c80b08"
+        ],
+        "assertionConditionHashes": [
+          "6fff2ebe522e2d6c83a99070b3c1656061e1072b4a2c4747181df1b88212f416",
+          "86ba563015854bfe9b86cdccd1fce56873c4e5fbec2100ff77e2dfabef8a998d",
+          "86ba563015854bfe9b86cdccd1fce56873c4e5fbec2100ff77e2dfabef8a998d"
+        ]
+      },
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift",
+        "suite": "LocalServerModelTests",
+        "signature": "refreshDuringAnInstallCannotOverwriteInstallingState() async throws",
+        "line": 375,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "1e7c33fafe96a0a5f123ca3d028d8da59d86585b66372803a0fc0964b8974611",
+        "assertionHashes": [
+          "c74fbeab7c70259ce68626c11ce312fbb88f53a6245af0567f37e5b04dd2cd99",
+          "fdef350afb5b2963fec8297575d7f1a4f965e1a9cf1266bc03f6277fc4c80b08",
+          "fdef350afb5b2963fec8297575d7f1a4f965e1a9cf1266bc03f6277fc4c80b08"
+        ],
+        "assertionConditionHashes": [
+          "6fff2ebe522e2d6c83a99070b3c1656061e1072b4a2c4747181df1b88212f416",
+          "86ba563015854bfe9b86cdccd1fce56873c4e5fbec2100ff77e2dfabef8a998d",
+          "86ba563015854bfe9b86cdccd1fce56873c4e5fbec2100ff77e2dfabef8a998d"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift",
+        "suite": "MacSeamTests.LocalServerModelTests",
+        "signature": "refreshDuringAnInstallCannotOverwriteInstallingState() async throws",
+        "line": 377,
+        "attributes": "@Suite(.serialized)\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "1e7c33fafe96a0a5f123ca3d028d8da59d86585b66372803a0fc0964b8974611",
+        "assertionHashes": [
+          "c74fbeab7c70259ce68626c11ce312fbb88f53a6245af0567f37e5b04dd2cd99",
+          "fdef350afb5b2963fec8297575d7f1a4f965e1a9cf1266bc03f6277fc4c80b08",
+          "fdef350afb5b2963fec8297575d7f1a4f965e1a9cf1266bc03f6277fc4c80b08"
+        ],
+        "assertionConditionHashes": [
+          "6fff2ebe522e2d6c83a99070b3c1656061e1072b4a2c4747181df1b88212f416",
+          "86ba563015854bfe9b86cdccd1fce56873c4e5fbec2100ff77e2dfabef8a998d",
+          "86ba563015854bfe9b86cdccd1fce56873c4e5fbec2100ff77e2dfabef8a998d"
+        ]
+      },
+      "reason": "Upstream b9c65d23 injects no-op launch because successful install now starts the backend. Original install state assertions unchanged."
+    },
+    {
+      "original": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift",
+        "suite": "LocalServerPanelStateTests",
+        "signature": "anExternalServerIsConnectableOnly()",
+        "line": 32,
+        "attributes": "@testable\n@Suite\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "212652071ce579fff553a999c3f353985be274678959b5f8b29d653661439bac",
+        "assertionHashes": [
+          "8397ca7acc2535a6aebea11627cd1701ee308b09be89637f4485140fb227000b",
+          "b586182f0a91f5659804d5e507db3e4e82202347e8b00c513ecb85740aff1db0",
+          "e7aa420abc359fe5ce4087cb1f1403e916f03d91ef4af53cfa6ce56981c34e3c",
+          "4b9393cc8330bd815babd45a5a148e1aaad41240e9f03107163cc31db8c7a354"
+        ],
+        "assertionConditionHashes": [
+          "03675d92094525d064f5def2190f2b0bfac20065106d12cac35183bef66ce974",
+          "0af04474d2b612c437aa4e4c431cead3f0d178b31c5fe2e294ae3e0df611246a",
+          "2bf5bd686bf983d1276426a5ec77ddf31e1e6f84bd74dd261f86cf486f8f498d",
+          "c4feb7899d25ef7c365e00aea7c53159761f6609eef6963f973d43d5163fccee"
+        ]
+      },
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift",
+        "suite": "LocalServerPanelStateTests",
+        "signature": "anExternalServerNeedsAcknowledgmentBeforeConnecting()",
+        "line": 32,
+        "attributes": "@testable\n@Suite\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "4f2f59b1968d6d3a35254ad83400f507565c18a9f2efaaef3398e7e330bb7e4f",
+        "assertionHashes": [
+          "b96eb2a246e7d5e7cf35190221f568545c576b016a2f7766e58cc448ebad3a60",
+          "2cfae5efba9d24c3b25c4fd52aaf50f2d647f854935d1f8a83ca9f6a67ab6bb8",
+          "b586182f0a91f5659804d5e507db3e4e82202347e8b00c513ecb85740aff1db0",
+          "e7aa420abc359fe5ce4087cb1f1403e916f03d91ef4af53cfa6ce56981c34e3c",
+          "4b9393cc8330bd815babd45a5a148e1aaad41240e9f03107163cc31db8c7a354"
+        ],
+        "assertionConditionHashes": [
+          "f9410c8a0898b7855db88c5460d4362d1ebdb0ed610509a44339f1e1cac2c2f5",
+          "98ada50515906362261464a38b6de1a51267d4fcae763daf886859d94c60cb2f",
+          "0af04474d2b612c437aa4e4c431cead3f0d178b31c5fe2e294ae3e0df611246a",
+          "2bf5bd686bf983d1276426a5ec77ddf31e1e6f84bd74dd261f86cf486f8f498d",
+          "c4feb7899d25ef7c365e00aea7c53159761f6609eef6963f973d43d5163fccee"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift",
+        "suite": "MacSeamTests.LocalServerPanelStateTests",
+        "signature": "anExternalServerNeedsAcknowledgmentBeforeConnecting()",
+        "line": 34,
+        "attributes": "@Suite(.serialized)\n@testable\n@testable\n@Suite\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "4f2f59b1968d6d3a35254ad83400f507565c18a9f2efaaef3398e7e330bb7e4f",
+        "assertionHashes": [
+          "b96eb2a246e7d5e7cf35190221f568545c576b016a2f7766e58cc448ebad3a60",
+          "2cfae5efba9d24c3b25c4fd52aaf50f2d647f854935d1f8a83ca9f6a67ab6bb8",
+          "b586182f0a91f5659804d5e507db3e4e82202347e8b00c513ecb85740aff1db0",
+          "e7aa420abc359fe5ce4087cb1f1403e916f03d91ef4af53cfa6ce56981c34e3c",
+          "4b9393cc8330bd815babd45a5a148e1aaad41240e9f03107163cc31db8c7a354"
+        ],
+        "assertionConditionHashes": [
+          "f9410c8a0898b7855db88c5460d4362d1ebdb0ed610509a44339f1e1cac2c2f5",
+          "98ada50515906362261464a38b6de1a51267d4fcae763daf886859d94c60cb2f",
+          "0af04474d2b612c437aa4e4c431cead3f0d178b31c5fe2e294ae3e0df611246a",
+          "2bf5bd686bf983d1276426a5ec77ddf31e1e6f84bd74dd261f86cf486f8f498d",
+          "c4feb7899d25ef7c365e00aea7c53159761f6609eef6963f973d43d5163fccee"
+        ]
+      },
+      "reason": "Upstream b9c65d23 requires acknowledgment before connecting to an external server. Original prohibitions on stop/restart/start survive; connection assertion now protects both acknowledgment states."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsDiagnosticsTests.swift",
+        "suite": "SettingsDiagnosticsTests",
+        "signature": "successfulDiagnosticFixDoesNotRequireSettingsReconciliation() async throws",
+        "line": 17,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "9428ef981e21e88c5f2398a0d079eabac66a6337014213c57e1849b7cada6af8",
+        "assertionHashes": [
+          "91025955eca4952b405a4da0e65d8dec52ff4beb23050e86758bcf1b8f6bf006",
+          "ea3231b0118f8db0c0fd70a5bec117a8caab017c8b29cd6b89bc2e88761db3df"
+        ],
+        "assertionConditionHashes": [
+          "cc131d7da21cfb46353315cb1733e99ffa1d06b11d272d6bad7d6397090b16f3",
+          "6276f8e55372377edda3ea77747bac7477aaa38237c205c02e286148200d9f3d"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/SettingsDiagnosticsTests.swift",
+        "suite": "CoreSeamTests.SettingsDiagnosticsTests",
+        "signature": "successfulDiagnosticFixDoesNotRequireSettingsReconciliation() async throws",
+        "line": 18,
+        "attributes": "@Suite(.serialized)\n@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "9428ef981e21e88c5f2398a0d079eabac66a6337014213c57e1849b7cada6af8",
+        "assertionHashes": [
+          "91025955eca4952b405a4da0e65d8dec52ff4beb23050e86758bcf1b8f6bf006",
+          "ea3231b0118f8db0c0fd70a5bec117a8caab017c8b29cd6b89bc2e88761db3df"
+        ],
+        "assertionConditionHashes": [
+          "cc131d7da21cfb46353315cb1733e99ffa1d06b11d272d6bad7d6397090b16f3",
+          "6276f8e55372377edda3ea77747bac7477aaa38237c205c02e286148200d9f3d"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsDiagnosticsTests.swift",
+        "suite": "SettingsDiagnosticsTests",
+        "signature": "unrelatedSettingsFailureKeepsSharedDiagnosticsVisible() async throws",
+        "line": 6,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "f50bdf1bd8a069a601d212f6702a6ce438996f83d17198313116e130f04f2e62",
+        "assertionHashes": [
+          "a3f44d21ecab5b39d0d868d88b8b8ea4dcffc61695ad5b585e87a30af0c38c4c",
+          "c27320f44bdbd2c6b251eba8d9fb42e9ff7adca80e58b5392572382e77bc81e2"
+        ],
+        "assertionConditionHashes": [
+          "08f7b297b78861f2db84142bbe315bb0c6ed77d6ef164cb2a66c5b5e8303e92b",
+          "9eacd7aaf4810f9570cc1105ee65ec06624d7a064355d2e75a0762d24f75640c"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/SettingsDiagnosticsTests.swift",
+        "suite": "CoreSeamTests.SettingsDiagnosticsTests",
+        "signature": "unrelatedSettingsFailureKeepsSharedDiagnosticsVisible() async throws",
+        "line": 7,
+        "attributes": "@Suite(.serialized)\n@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "f50bdf1bd8a069a601d212f6702a6ce438996f83d17198313116e130f04f2e62",
+        "assertionHashes": [
+          "a3f44d21ecab5b39d0d868d88b8b8ea4dcffc61695ad5b585e87a30af0c38c4c",
+          "c27320f44bdbd2c6b251eba8d9fb42e9ff7adca80e58b5392572382e77bc81e2"
+        ],
+        "assertionConditionHashes": [
+          "08f7b297b78861f2db84142bbe315bb0c6ed77d6ef164cb2a66c5b5e8303e92b",
+          "9eacd7aaf4810f9570cc1105ee65ec06624d7a064355d2e75a0762d24f75640c"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsIntegrationTests.swift",
+        "suite": "SettingsIntegrationTests",
+        "signature": "settingsFactoriesAreSinglePerActivationAcrossRegistrationOrders(registerFirst: Bool) async throws",
+        "line": 84,
+        "attributes": "@testable\n@Suite(.serialized)\n@MainActor\n@Test(arguments: [false, true])",
+        "condition": "",
+        "bodyHash": "37e4319c7189c832ebb2e6075dccd9f85a4afe6c2d214bb0374386951d199f10",
+        "assertionHashes": [
+          "1f49534c22d5a920dda547a723c8c517a167332809f84efb47cdc954189dbdf2",
+          "b19236c8fd097995ab1d3821391c628f54c07ee546b2e6b9b9a01623dceda3ce",
+          "c8c8c6d64d690b8f05a91571baf585c44bcda24e15343fa32eda06eb94618ffc",
+          "f2008b9e2a25a35c71a89a0f081f225d14a73051ec97dfb2dac3dbeae311efea",
+          "ef680d16c0222987eb55bffbec5b5c546bc796c401c0eda5e5c6dcb2f1431833",
+          "a6ece334155f8ee551e6259af355532941f28ba0751ce64b04f8f9c628c70df6",
+          "44eecee470bc2a3b67f9c5bd562f99c68ddf0c12c48dde1652239af92ce72619",
+          "320d7a816a38bddf6f6f63b9f732faf28aaca2fcf9d276540e373d3f3aa9a2ec",
+          "a6ece334155f8ee551e6259af355532941f28ba0751ce64b04f8f9c628c70df6",
+          "a6ece334155f8ee551e6259af355532941f28ba0751ce64b04f8f9c628c70df6"
+        ],
+        "assertionConditionHashes": [
+          "0c27cb6addb606a425d4c5071fe128ec663a2db888db305a8e777d6c5d357797",
+          "a1f6fa3acd3bd63c0fe4f63c63126c818434bfe4b97bcc7a770d862f523f2379",
+          "3e1bd44cfd7864e3543b24b55ed2544eea77dc4182ad70b25c72316169fa8e20",
+          "48dfee00f5c4ab9d2582ff2cc55d5e26d2732801400ab8e5f9697034b22adee2",
+          "f7703122c75707b5d2ebe31240bdeca5674c1b98809eb85ab2f1552d3a40b4b4",
+          "68fcf50d5e49a25ec11f1ee7e62329983dd6ad849bc1643cb2a978fa096075df",
+          "9494d6c33750d72f89c82da37933470be6a3f3a0de3a455b752285be92f002a3",
+          "b0c4ef84350cc1b7be2271d6df66872fa75e6afd6be6226fc063999c0fec4ab7",
+          "68fcf50d5e49a25ec11f1ee7e62329983dd6ad849bc1643cb2a978fa096075df",
+          "68fcf50d5e49a25ec11f1ee7e62329983dd6ad849bc1643cb2a978fa096075df"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsIntegrationTests.swift",
+        "suite": "MacSeamTests.SettingsIntegrationTests",
+        "signature": "settingsFactoriesAreSinglePerActivationAcrossRegistrationOrders(registerFirst: Bool) async throws",
+        "line": 47,
+        "attributes": "@Suite(.serialized)\n@testable\n@testable\n@Suite(.serialized)\n@MainActor\n@Test(arguments: [false, true])",
+        "condition": "",
+        "bodyHash": "7add97e8ee7135312255bb841b091b1b8255c022356ac2506c50b98cfc0a9885",
+        "assertionHashes": [
+          "1f49534c22d5a920dda547a723c8c517a167332809f84efb47cdc954189dbdf2",
+          "b19236c8fd097995ab1d3821391c628f54c07ee546b2e6b9b9a01623dceda3ce",
+          "c8c8c6d64d690b8f05a91571baf585c44bcda24e15343fa32eda06eb94618ffc",
+          "f2008b9e2a25a35c71a89a0f081f225d14a73051ec97dfb2dac3dbeae311efea",
+          "ef680d16c0222987eb55bffbec5b5c546bc796c401c0eda5e5c6dcb2f1431833",
+          "a6ece334155f8ee551e6259af355532941f28ba0751ce64b04f8f9c628c70df6",
+          "44eecee470bc2a3b67f9c5bd562f99c68ddf0c12c48dde1652239af92ce72619",
+          "320d7a816a38bddf6f6f63b9f732faf28aaca2fcf9d276540e373d3f3aa9a2ec",
+          "a6ece334155f8ee551e6259af355532941f28ba0751ce64b04f8f9c628c70df6",
+          "a6ece334155f8ee551e6259af355532941f28ba0751ce64b04f8f9c628c70df6"
+        ],
+        "assertionConditionHashes": [
+          "0c27cb6addb606a425d4c5071fe128ec663a2db888db305a8e777d6c5d357797",
+          "a1f6fa3acd3bd63c0fe4f63c63126c818434bfe4b97bcc7a770d862f523f2379",
+          "3e1bd44cfd7864e3543b24b55ed2544eea77dc4182ad70b25c72316169fa8e20",
+          "48dfee00f5c4ab9d2582ff2cc55d5e26d2732801400ab8e5f9697034b22adee2",
+          "f7703122c75707b5d2ebe31240bdeca5674c1b98809eb85ab2f1552d3a40b4b4",
+          "68fcf50d5e49a25ec11f1ee7e62329983dd6ad849bc1643cb2a978fa096075df",
+          "9494d6c33750d72f89c82da37933470be6a3f3a0de3a455b752285be92f002a3",
+          "b0c4ef84350cc1b7be2271d6df66872fa75e6afd6be6226fc063999c0fec4ab7",
+          "68fcf50d5e49a25ec11f1ee7e62329983dd6ad849bc1643cb2a978fa096075df",
+          "68fcf50d5e49a25ec11f1ee7e62329983dd6ad849bc1643cb2a978fa096075df"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner. Stage 1 injects MacTestSupport.environment(defaults:) into AppModel; no assertion changed."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsLocalConnectTests.swift",
+        "suite": "SettingsLocalConnectTests",
+        "signature": "absentMainWindowOpensMainScene()",
+        "line": 34,
+        "attributes": "@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "a07c906f9d2f6fcd6eaca1a663c5721700dd4ee26a9a16b723bea07d8c121c42",
+        "assertionHashes": ["b7a74f5a0263976a09b7144632fc5edc38c68dd3c4ffb08bbb176b764f4c5218"],
+        "assertionConditionHashes": [
+          "0be0877ef1b0ba75823685ec453b2d7740c157d9ba9f2967e83adba97f3c64c3"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsLocalConnectTests.swift",
+        "suite": "MacSeamTests.SettingsLocalConnectTests",
+        "signature": "absentMainWindowOpensMainScene()",
+        "line": 36,
+        "attributes": "@Suite(.serialized)\n@testable\n@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "a07c906f9d2f6fcd6eaca1a663c5721700dd4ee26a9a16b723bea07d8c121c42",
+        "assertionHashes": ["b7a74f5a0263976a09b7144632fc5edc38c68dd3c4ffb08bbb176b764f4c5218"],
+        "assertionConditionHashes": [
+          "0be0877ef1b0ba75823685ec453b2d7740c157d9ba9f2967e83adba97f3c64c3"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner. Preserves inner serialized trait under MacSeamTests; @testable shared import keeps teardown internal."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsLocalConnectTests.swift",
+        "suite": "SettingsLocalConnectTests",
+        "signature": "existingMainWindowIsPresentedWithoutOpeningDuplicate()",
+        "line": 40,
+        "attributes": "@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "71eee3f574a639a6c55c11cd192dde0e94dbe39b3591ddece83280040319f25f",
+        "assertionHashes": [
+          "0bbebf1f02525aa79f7a3a8978d9cb44fbb9b44ff2b7cb165a6a69d813efc0cb",
+          "df78200ced56af5ca8164f49652db27018f92d7ba8b5186df468a0ca115601dc",
+          "2015f0acaa9e7e639153137e3cd1dbd473749a4b38d9a8d58835dfd87d063c96"
+        ],
+        "assertionConditionHashes": [
+          "9c06ddbd4b71aa2af76025affbb7b7dfce362beb7b8549e713ab382e866213b6",
+          "2454d5dfce76418f04075af29eff5078d3d9a98f98fd657a917e3ece1fe743e4",
+          "8a05a8fb17fb6f182e40bd2c9afa74cdb8c60df38ef8d8a95639580201d40301"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsLocalConnectTests.swift",
+        "suite": "MacSeamTests.SettingsLocalConnectTests",
+        "signature": "existingMainWindowIsPresentedWithoutOpeningDuplicate()",
+        "line": 42,
+        "attributes": "@Suite(.serialized)\n@testable\n@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "71eee3f574a639a6c55c11cd192dde0e94dbe39b3591ddece83280040319f25f",
+        "assertionHashes": [
+          "0bbebf1f02525aa79f7a3a8978d9cb44fbb9b44ff2b7cb165a6a69d813efc0cb",
+          "df78200ced56af5ca8164f49652db27018f92d7ba8b5186df468a0ca115601dc",
+          "2015f0acaa9e7e639153137e3cd1dbd473749a4b38d9a8d58835dfd87d063c96"
+        ],
+        "assertionConditionHashes": [
+          "9c06ddbd4b71aa2af76025affbb7b7dfce362beb7b8549e713ab382e866213b6",
+          "2454d5dfce76418f04075af29eff5078d3d9a98f98fd657a917e3ece1fe743e4",
+          "8a05a8fb17fb6f182e40bd2c9afa74cdb8c60df38ef8d8a95639580201d40301"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner. Preserves inner serialized trait under MacSeamTests; @testable shared import keeps teardown internal."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsLocalConnectTests.swift",
+        "suite": "SettingsLocalConnectTests",
+        "signature": "localConnectRoutesLoginBeforePresentingMain() async throws",
+        "line": 8,
+        "attributes": "@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "a0b11cc54eccd6444c75ac6b387a1faf6fed2f7c3d7684e6371da0ae821dd8e1",
+        "assertionHashes": [
+          "a4d54e1b03dd9e9d94cd9d2814544e2364149b6a5fc3aea04bb33952acbc1307",
+          "122fe0253695f7ada0fc90aed7144ee9716641d02f4d010cbc1cb0ae79e61d91",
+          "aa68d6e2b091dca3bbea96eb003332936276f8d73e57074edf149da5873633a7",
+          "ec2ad8c7af8ba8bc1b5daed8e11b1e6c16bcabe1fe3c71b996d74031dbc54df7",
+          "0cb5b074b19be2c5e1d7897b598329b277dc376c137b9dff7280da97e4f0039a",
+          "7c0776e62822c3474008266c37a52112c3bd5ffdba79e3f2ec238648fb377907"
+        ],
+        "assertionConditionHashes": [
+          "e30bbd2b84cd0e990608ac989cfccfd732bc015f654918f6939d2b949f08e64e",
+          "a2e5ae2279f6481ae097aa7abf2dad22f3551e2e65585cbd45c0c910701c8827",
+          "ea9ed3c8a8c6023958a4ed78d116e95d8285d8b089382af638f48ab06dc9a961",
+          "aa0b1718f3f5919fa6d50c0f179ac121fb17fa5e25d96c4897e2cdee22154389",
+          "3cbfc0c96206993e00e932cf448a951b63b2ecc4dbb9cd13b6ae2e3722bc88cd",
+          "f36a3d42fb8554c9f57e43e53c2682de7ad459755cf077ea4ffb65b03e9d1b60"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsLocalConnectTests.swift",
+        "suite": "MacSeamTests.SettingsLocalConnectTests",
+        "signature": "localConnectRoutesLoginBeforePresentingMain() async throws",
+        "line": 10,
+        "attributes": "@Suite(.serialized)\n@testable\n@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "d630396a0b21cfcdc5d12ea527d32e76e9e2802c811812f97a25288ed767617a",
+        "assertionHashes": [
+          "a4d54e1b03dd9e9d94cd9d2814544e2364149b6a5fc3aea04bb33952acbc1307",
+          "122fe0253695f7ada0fc90aed7144ee9716641d02f4d010cbc1cb0ae79e61d91",
+          "aa68d6e2b091dca3bbea96eb003332936276f8d73e57074edf149da5873633a7",
+          "ec2ad8c7af8ba8bc1b5daed8e11b1e6c16bcabe1fe3c71b996d74031dbc54df7",
+          "0cb5b074b19be2c5e1d7897b598329b277dc376c137b9dff7280da97e4f0039a",
+          "7c0776e62822c3474008266c37a52112c3bd5ffdba79e3f2ec238648fb377907"
+        ],
+        "assertionConditionHashes": [
+          "e30bbd2b84cd0e990608ac989cfccfd732bc015f654918f6939d2b949f08e64e",
+          "a2e5ae2279f6481ae097aa7abf2dad22f3551e2e65585cbd45c0c910701c8827",
+          "ea9ed3c8a8c6023958a4ed78d116e95d8285d8b089382af638f48ab06dc9a961",
+          "aa0b1718f3f5919fa6d50c0f179ac121fb17fa5e25d96c4897e2cdee22154389",
+          "3cbfc0c96206993e00e932cf448a951b63b2ecc4dbb9cd13b6ae2e3722bc88cd",
+          "f36a3d42fb8554c9f57e43e53c2682de7ad459755cf077ea4ffb65b03e9d1b60"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner. Stage 1 injects MacTestSupport.environment(defaults:) into AppModel; no assertion changed. Preserves inner serialized trait under MacSeamTests; @testable shared import keeps teardown internal."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsModelTests.swift",
+        "suite": "SettingsModelTests",
+        "signature": "independentDiagnosticsFailureIsVisibleAndCanRecover() async throws",
+        "line": 33,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "544e95a8a889a3006111f731fb0d06eb9c14606179e6356928b222142707da33",
+        "assertionHashes": [
+          "a0b7406cc8b5c02709e0e640522966869c4e3b41b9e30bf46ddbea4f9faf9ffb",
+          "ea3231b0118f8db0c0fd70a5bec117a8caab017c8b29cd6b89bc2e88761db3df",
+          "51e2df0652e7a6fac4602bf1a5498829f1e3716e0979db262d954766011257f7",
+          "b59c382f9fd01cc04c3bcaf8acf05ab95838c61dd7955a9120769e15bd98f887",
+          "effb616f28a321882aa48942267d7e92ff590d60eceffef91dae2051a28f7d36",
+          "1cb0f4ab5060fb1b017689b14d8c8238648c31751df9ce58f8520d352d36135b",
+          "eb7972d717b0d9ee0ede3f4922d566cbedb48c6fc8aee5f499c819877bad7f6f"
+        ],
+        "assertionConditionHashes": [
+          "9f825dae3b40782a4c0eb9f249e080da985edfeb4ad3ef8c8ead9ef56e9ee07c",
+          "6276f8e55372377edda3ea77747bac7477aaa38237c205c02e286148200d9f3d",
+          "81aaac0a89a467ddfd723ef16ac43fa0cf147b2f0c7734822f6fcc50db0b96fe",
+          "d52b2c9bd0c01399f17f45d85bfcf0ededaf3f2818049043e868c037846122f0",
+          "6d1219adb184ef327d4dc4d2415a88bb9086fe95c40956eaea0f64fbffa7d806",
+          "3b43ec2f70b094c4ebf89376d56f4fbd9ed89c5d41ffdae7ff1728c8ddfe3948",
+          "9d6ec9203b0dad8fca94fefcf78de9e4e10b47373717529263facf44b1278816"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/SettingsModelTests.swift",
+        "suite": "CoreSeamTests.SettingsModelTests",
+        "signature": "independentDiagnosticsFailureIsVisibleAndCanRecover() async throws",
+        "line": 34,
+        "attributes": "@Suite(.serialized)\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "544e95a8a889a3006111f731fb0d06eb9c14606179e6356928b222142707da33",
+        "assertionHashes": [
+          "a0b7406cc8b5c02709e0e640522966869c4e3b41b9e30bf46ddbea4f9faf9ffb",
+          "ea3231b0118f8db0c0fd70a5bec117a8caab017c8b29cd6b89bc2e88761db3df",
+          "51e2df0652e7a6fac4602bf1a5498829f1e3716e0979db262d954766011257f7",
+          "b59c382f9fd01cc04c3bcaf8acf05ab95838c61dd7955a9120769e15bd98f887",
+          "effb616f28a321882aa48942267d7e92ff590d60eceffef91dae2051a28f7d36",
+          "1cb0f4ab5060fb1b017689b14d8c8238648c31751df9ce58f8520d352d36135b",
+          "eb7972d717b0d9ee0ede3f4922d566cbedb48c6fc8aee5f499c819877bad7f6f"
+        ],
+        "assertionConditionHashes": [
+          "9f825dae3b40782a4c0eb9f249e080da985edfeb4ad3ef8c8ead9ef56e9ee07c",
+          "6276f8e55372377edda3ea77747bac7477aaa38237c205c02e286148200d9f3d",
+          "81aaac0a89a467ddfd723ef16ac43fa0cf147b2f0c7734822f6fcc50db0b96fe",
+          "d52b2c9bd0c01399f17f45d85bfcf0ededaf3f2818049043e868c037846122f0",
+          "6d1219adb184ef327d4dc4d2415a88bb9086fe95c40956eaea0f64fbffa7d806",
+          "3b43ec2f70b094c4ebf89376d56f4fbd9ed89c5d41ffdae7ff1728c8ddfe3948",
+          "9d6ec9203b0dad8fca94fefcf78de9e4e10b47373717529263facf44b1278816"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsModelTests.swift",
+        "suite": "SettingsModelTests",
+        "signature": "olderReadCannotReplaceANewerSnapshot() async throws",
+        "line": 91,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "a134c446bc7bc1d6ed8fb0f70eeb272f06fe4e43040ce4209ba91c38b5121cec",
+        "assertionHashes": ["05b419230042e39e238cd7d81751a095acdb45fc36c7677686b9754b4bebd30b"],
+        "assertionConditionHashes": [
+          "ad03a5b68d65f021bbb243b278e4f1fd6877ee465e9e6b95f0d850537b2ec10d"
+        ]
+      },
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsModelTests.swift",
+        "suite": "SettingsModelTests",
+        "signature": "olderReadCannotReplaceANewerSnapshot() async throws",
+        "line": 111,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "87cc9e31226159b82e226a8a4d6b2ef9f6aad0ffa0701f6f72f25e7592c79298",
+        "assertionHashes": ["ce87003903cec8e97197c05937af132fc366ff0ffb4f975d5fe59d7c6744d8ea"],
+        "assertionConditionHashes": [
+          "2e02326bf3274d07767a5870b9c06a11137d14a03f3fa9b1c765bf5ba353d37e"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/SettingsModelTests.swift",
+        "suite": "CoreSeamTests.SettingsModelTests",
+        "signature": "olderReadCannotReplaceANewerSnapshot() async throws",
+        "line": 112,
+        "attributes": "@Suite(.serialized)\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "87cc9e31226159b82e226a8a4d6b2ef9f6aad0ffa0701f6f72f25e7592c79298",
+        "assertionHashes": ["ce87003903cec8e97197c05937af132fc366ff0ffb4f975d5fe59d7c6744d8ea"],
+        "assertionConditionHashes": [
+          "2e02326bf3274d07767a5870b9c06a11137d14a03f3fa9b1c765bf5ba353d37e"
+        ]
+      },
+      "reason": "Upstream b9c65d23 makes diagnostics optional because recovery owns independent reads. Optional chaining preserves the original latest-snapshot assertion."
+    },
+    {
+      "original": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsRegistrationTests.swift",
+        "suite": "SettingsRegistrationTests",
+        "signature": "sceneRegistrationIsModelFreeAndIdempotent()",
+        "line": 6,
+        "attributes": "@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "276bcfca8122bb4dab7e0622d68ea5dce2da9d8d56af9ca47326791af04b25cc",
+        "assertionHashes": [
+          "da041c8826f00b0234f6fc679cae8c71e3f8cd027e450a7d150a872747953ce0",
+          "d91f2e63490c53edde5d1918079d91f52594b2f05b1ec49c8bcd5e95dba64c87",
+          "c12e73e57271ac06aeba6af25304dffc162c3e9482d6baa07bc35b6c5341d6e5",
+          "ff156115fbd320b19a81914847d7c230ce709c143f2913673eda82d924dae77f",
+          "6ad84b05db0baee2803c5b67550c17a95a51f9daba8197719b31fbcc7d60a61f",
+          "c0721bbb42bba90c4731c255d03be60b7531f01e563c06178c2de441ab8e0be1"
+        ],
+        "assertionConditionHashes": [
+          "33b1da7f18b5d80519ce0b4e741cfd48375966f8af59110bde741382a0c12959",
+          "ce9252e84b859230db5c7b4fd9060186d0123530d37dc55e8a9177eed8585f95",
+          "7fc6151050e0c927cd776e539da719cd06f6ad5e345beea63f9daf75fc204c68",
+          "dfc7e3c724763cb82c4aef5dd79c35ebff46c1cd3af91c28b74b1c2efdbf7bff",
+          "87f4274ffb8a402e7fadd4cf829a81250a1361abbd5f0efdd50d549d47c90f7d",
+          "a1f00342b816b91856baeef6fa62b29e66d92b039b26e6ad56339ba1434dd854"
+        ]
+      },
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsRegistrationTests.swift",
+        "suite": "SettingsRegistrationTests",
+        "signature": "sceneRegistrationIsModelFreeAndIdempotent()",
+        "line": 6,
+        "attributes": "@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "0ee1e80b62ef6d1716f24aa788fdd0b88f3e0184bbd5df0ac39394ec00bfc2ab",
+        "assertionHashes": [
+          "da041c8826f00b0234f6fc679cae8c71e3f8cd027e450a7d150a872747953ce0",
+          "d91f2e63490c53edde5d1918079d91f52594b2f05b1ec49c8bcd5e95dba64c87",
+          "ef680d16c0222987eb55bffbec5b5c546bc796c401c0eda5e5c6dcb2f1431833",
+          "ff156115fbd320b19a81914847d7c230ce709c143f2913673eda82d924dae77f",
+          "6ad84b05db0baee2803c5b67550c17a95a51f9daba8197719b31fbcc7d60a61f",
+          "c0721bbb42bba90c4731c255d03be60b7531f01e563c06178c2de441ab8e0be1"
+        ],
+        "assertionConditionHashes": [
+          "33b1da7f18b5d80519ce0b4e741cfd48375966f8af59110bde741382a0c12959",
+          "ce9252e84b859230db5c7b4fd9060186d0123530d37dc55e8a9177eed8585f95",
+          "f7703122c75707b5d2ebe31240bdeca5674c1b98809eb85ab2f1552d3a40b4b4",
+          "dfc7e3c724763cb82c4aef5dd79c35ebff46c1cd3af91c28b74b1c2efdbf7bff",
+          "87f4274ffb8a402e7fadd4cf829a81250a1361abbd5f0efdd50d549d47c90f7d",
+          "a1f00342b816b91856baeef6fa62b29e66d92b039b26e6ad56339ba1434dd854"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsRegistrationTests.swift",
+        "suite": "MacSeamTests.SettingsRegistrationTests",
+        "signature": "sceneRegistrationIsModelFreeAndIdempotent()",
+        "line": 8,
+        "attributes": "@Suite(.serialized)\n@testable\n@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "0867b5a47d7c2251b0ee585cff3f464c77288d7d4139a73c4045ea98525b9085",
+        "assertionHashes": [
+          "da041c8826f00b0234f6fc679cae8c71e3f8cd027e450a7d150a872747953ce0",
+          "d91f2e63490c53edde5d1918079d91f52594b2f05b1ec49c8bcd5e95dba64c87",
+          "ef680d16c0222987eb55bffbec5b5c546bc796c401c0eda5e5c6dcb2f1431833",
+          "ff156115fbd320b19a81914847d7c230ce709c143f2913673eda82d924dae77f",
+          "6ad84b05db0baee2803c5b67550c17a95a51f9daba8197719b31fbcc7d60a61f",
+          "c0721bbb42bba90c4731c255d03be60b7531f01e563c06178c2de441ab8e0be1"
+        ],
+        "assertionConditionHashes": [
+          "33b1da7f18b5d80519ce0b4e741cfd48375966f8af59110bde741382a0c12959",
+          "ce9252e84b859230db5c7b4fd9060186d0123530d37dc55e8a9177eed8585f95",
+          "f7703122c75707b5d2ebe31240bdeca5674c1b98809eb85ab2f1552d3a40b4b4",
+          "dfc7e3c724763cb82c4aef5dd79c35ebff46c1cd3af91c28b74b1c2efdbf7bff",
+          "87f4274ffb8a402e7fadd4cf829a81250a1361abbd5f0efdd50d549d47c90f7d",
+          "a1f00342b816b91856baeef6fa62b29e66d92b039b26e6ad56339ba1434dd854"
+        ]
+      },
+      "reason": "Upstream b9c65d23 adds recovery to Settings registration, changing expected factory count from two to three. Existing Stage 1 fake notification injection retained."
+    },
+    {
+      "original": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsSceneTests.swift",
+        "suite": "SettingsSceneTests",
+        "signature": "anEmptyRegistryResolvesToThePlaceholder()",
+        "line": 16,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "ff0ee9a7cc100fc2cbd3ae89c795bf3571232fb512c3b3e2969cc6cd0191af57",
+        "assertionHashes": [
+          "8996e701d9bb95ed4087514da89316e68c01e283e1b8f5852926d66415db130b",
+          "7a5991cb33ca45195dd1837b72be8f88dd59db467f06e14c067b03c414b7d324"
+        ],
+        "assertionConditionHashes": [
+          "d4eb2751bcfa1d8473de9e0daaabbc64eede0073333dba9f14c6e28e1429c6e1",
+          "ef375319e12e815c5dd36e5f7994e6ccee67b674a8d5b3c27c30e98400420816"
+        ]
+      },
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsSceneTests.swift",
+        "suite": "SettingsSceneTests",
+        "signature": "anEmptyRegistryResolvesToThePlaceholder()",
+        "line": 18,
+        "attributes": "@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "ff0ee9a7cc100fc2cbd3ae89c795bf3571232fb512c3b3e2969cc6cd0191af57",
+        "assertionHashes": [
+          "8996e701d9bb95ed4087514da89316e68c01e283e1b8f5852926d66415db130b",
+          "7a5991cb33ca45195dd1837b72be8f88dd59db467f06e14c067b03c414b7d324"
+        ],
+        "assertionConditionHashes": [
+          "d4eb2751bcfa1d8473de9e0daaabbc64eede0073333dba9f14c6e28e1429c6e1",
+          "ef375319e12e815c5dd36e5f7994e6ccee67b674a8d5b3c27c30e98400420816"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/SettingsSceneTests.swift",
+        "suite": "CoreSeamTests.SettingsSceneTests",
+        "signature": "anEmptyRegistryResolvesToThePlaceholder()",
+        "line": 18,
+        "attributes": "@Suite(.serialized)\n@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "ff0ee9a7cc100fc2cbd3ae89c795bf3571232fb512c3b3e2969cc6cd0191af57",
+        "assertionHashes": [
+          "8996e701d9bb95ed4087514da89316e68c01e283e1b8f5852926d66415db130b",
+          "7a5991cb33ca45195dd1837b72be8f88dd59db467f06e14c067b03c414b7d324"
+        ],
+        "assertionConditionHashes": [
+          "d4eb2751bcfa1d8473de9e0daaabbc64eede0073333dba9f14c6e28e1429c6e1",
+          "ef375319e12e815c5dd36e5f7994e6ccee67b674a8d5b3c27c30e98400420816"
+        ]
+      },
+      "reason": "Upstream b9c65d23 adds inner serialized suite trait; original body and assertions unchanged, beneath Stage 1 CoreSeamTests serialization."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsSceneTests.swift",
+        "suite": "SettingsSceneTests",
+        "signature": "availabilityMapsProfilesWithoutNeedingAStore()",
+        "line": 41,
+        "attributes": "@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "01e3c55bf146e65f169c3d89e1a4157ba9a6368f7f43d5de934ed414ff0ba860",
+        "assertionHashes": [
+          "d0a40b2aa948737488b39d8803ae24b5b1bf202539a1c709b39830d6b30e0996",
+          "8667d18a81184d7e2093c120fbbaa42a29d794549e3f46eeea7a95db914af44c",
+          "acc941b49e68251b4b2d11c814c40ed737f12a5a35573751c57e65be238f0670",
+          "bf03705d2a049cc67cc4e0c7f2d1a5aa64dbf72ac5e3b295e780d71aad0505df",
+          "c17845b733044dc0c09d87e24ef60dc30223c8cb9fa79d3dc24e2b47dabe71d2",
+          "db1acc02ab585519429ae7a6a41c9e9f7e02c7e565284f5db9c39417aa7462a8",
+          "491d9de080acba1f373580cd2eca52c2cdb8801ab46e8a9033a138fcd22798c7"
+        ],
+        "assertionConditionHashes": [
+          "a1036029d116a32d3ec79a2020b548b9168331b986caee458bb1464f91fad1cf",
+          "ca7217c4781924ffd353ded3e0fe96228dd619de5dc3bc7821be4df70d1dc01c",
+          "bf89239469b351fdbdebe610a7b75aa976db38651a2163074e50d98160cb160a",
+          "8d2274bf00870d078e8a1839ad8ef1b4ed056780a9bf78cad76a81dfb537a76f",
+          "ba36ebbaa343cb2e2527bc236fde153882efc6b8e16d67e0ed3e3060f80d6b58",
+          "8100f4873b447e56555c6626430cfcd23aa5e2b21f8ae44ab2be89f72fc709ce",
+          "2f4dfe1f1f93dc81e2709719601a6f7f167ec944bf5ce615cdac4f66f5b1bb7d"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsSceneTests.swift",
+        "suite": "MacSeamTests.SettingsSceneTests",
+        "signature": "availabilityMapsProfilesWithoutNeedingAStore()",
+        "line": 11,
+        "attributes": "@Suite(.serialized)\n@testable\n@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "01e3c55bf146e65f169c3d89e1a4157ba9a6368f7f43d5de934ed414ff0ba860",
+        "assertionHashes": [
+          "d0a40b2aa948737488b39d8803ae24b5b1bf202539a1c709b39830d6b30e0996",
+          "8667d18a81184d7e2093c120fbbaa42a29d794549e3f46eeea7a95db914af44c",
+          "acc941b49e68251b4b2d11c814c40ed737f12a5a35573751c57e65be238f0670",
+          "bf03705d2a049cc67cc4e0c7f2d1a5aa64dbf72ac5e3b295e780d71aad0505df",
+          "c17845b733044dc0c09d87e24ef60dc30223c8cb9fa79d3dc24e2b47dabe71d2",
+          "db1acc02ab585519429ae7a6a41c9e9f7e02c7e565284f5db9c39417aa7462a8",
+          "491d9de080acba1f373580cd2eca52c2cdb8801ab46e8a9033a138fcd22798c7"
+        ],
+        "assertionConditionHashes": [
+          "a1036029d116a32d3ec79a2020b548b9168331b986caee458bb1464f91fad1cf",
+          "ca7217c4781924ffd353ded3e0fe96228dd619de5dc3bc7821be4df70d1dc01c",
+          "bf89239469b351fdbdebe610a7b75aa976db38651a2163074e50d98160cb160a",
+          "8d2274bf00870d078e8a1839ad8ef1b4ed056780a9bf78cad76a81dfb537a76f",
+          "ba36ebbaa343cb2e2527bc236fde153882efc6b8e16d67e0ed3e3060f80d6b58",
+          "8100f4873b447e56555c6626430cfcd23aa5e2b21f8ae44ab2be89f72fc709ce",
+          "2f4dfe1f1f93dc81e2709719601a6f7f167ec944bf5ce615cdac4f66f5b1bb7d"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsSceneTests.swift",
+        "suite": "SettingsSceneTests",
+        "signature": "invalidPaneRequestsDoNotConsumeOrAdvancePresentation()",
+        "line": 56,
+        "attributes": "@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "36cf43e14edf3f7a45bc7677d5bf55bc48a41778577c5e7af548165a3b72f73f",
+        "assertionHashes": [
+          "9ac4f15888285ab4264ff2505d14a3deeaaf246b8d919335adc776f9872c6ccf",
+          "2510fe56748805cf5afd3ce8b2ee7b45e97b1160c539853d88574ee827bda3c6",
+          "0fdab5dbc1e74b4bcedc430bb3f8a61e09c762c9e8a518ac62fd971888f7fdaa",
+          "9ba3407c7a91a513c2bbcdd52dac6c7c6ff99cf66d12dbb9fa59cc87b12198b6",
+          "0fdab5dbc1e74b4bcedc430bb3f8a61e09c762c9e8a518ac62fd971888f7fdaa",
+          "9f63c9733091c8692081c88eaec65e1677ed37e441c5f805ceb56118a07c4a3c"
+        ],
+        "assertionConditionHashes": [
+          "f04d08fcfaed677b5771f48bdfd630850516ff6aa4f0192cb8694694c0322df6",
+          "4aa0487666784d12aad234bef307867f4caaf8b70ef7d966e819b0b1e1f9a1d3",
+          "5e052b7efc417f7a1562b978a185ac2e902d5ce10993dbb7d6f8cac96d5a9ef9",
+          "834d9e0572fb2ab19c40a2010172a75e6a58df9dcbc520c21d0f1e234b9b34d7",
+          "5e052b7efc417f7a1562b978a185ac2e902d5ce10993dbb7d6f8cac96d5a9ef9",
+          "0220b7880ad1da4e420912a77d8d9dc3b5b01f5545b5257692869f4fbe8fe064"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/SettingsSceneTests.swift",
+        "suite": "CoreSeamTests.SettingsSceneTests",
+        "signature": "invalidPaneRequestsDoNotConsumeOrAdvancePresentation()",
+        "line": 42,
+        "attributes": "@Suite(.serialized)\n@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "36cf43e14edf3f7a45bc7677d5bf55bc48a41778577c5e7af548165a3b72f73f",
+        "assertionHashes": [
+          "9ac4f15888285ab4264ff2505d14a3deeaaf246b8d919335adc776f9872c6ccf",
+          "2510fe56748805cf5afd3ce8b2ee7b45e97b1160c539853d88574ee827bda3c6",
+          "0fdab5dbc1e74b4bcedc430bb3f8a61e09c762c9e8a518ac62fd971888f7fdaa",
+          "9ba3407c7a91a513c2bbcdd52dac6c7c6ff99cf66d12dbb9fa59cc87b12198b6",
+          "0fdab5dbc1e74b4bcedc430bb3f8a61e09c762c9e8a518ac62fd971888f7fdaa",
+          "9f63c9733091c8692081c88eaec65e1677ed37e441c5f805ceb56118a07c4a3c"
+        ],
+        "assertionConditionHashes": [
+          "f04d08fcfaed677b5771f48bdfd630850516ff6aa4f0192cb8694694c0322df6",
+          "4aa0487666784d12aad234bef307867f4caaf8b70ef7d966e819b0b1e1f9a1d3",
+          "5e052b7efc417f7a1562b978a185ac2e902d5ce10993dbb7d6f8cac96d5a9ef9",
+          "834d9e0572fb2ab19c40a2010172a75e6a58df9dcbc520c21d0f1e234b9b34d7",
+          "5e052b7efc417f7a1562b978a185ac2e902d5ce10993dbb7d6f8cac96d5a9ef9",
+          "0220b7880ad1da4e420912a77d8d9dc3b5b01f5545b5257692869f4fbe8fe064"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsSceneTests.swift",
+        "suite": "SettingsSceneTests",
+        "signature": "panesSortByOrderThenID()",
+        "line": 22,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "a1a300e149967627357284e6f0373dea2af19b613e7f92489e91d5d7f4a04b39",
+        "assertionHashes": [
+          "e3f91c1111508be586057ddf534549487d94d03bb7058819eacc1827152893dd",
+          "3b995febe19d150bd2034024ac8f33b72a92431addeb656e128ab6fc0fe7cc3e"
+        ],
+        "assertionConditionHashes": [
+          "fa5b188e9ae76f16641806412ee3ba192c77c7d74fc4b8d9a48dbf3b5b1dbf4f",
+          "1c0a5ddfa4cf17cb515831815d4c48c4031830abc307808189f08a358ad95f61"
+        ]
+      },
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsSceneTests.swift",
+        "suite": "SettingsSceneTests",
+        "signature": "panesSortByOrderThenID()",
+        "line": 24,
+        "attributes": "@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "a1a300e149967627357284e6f0373dea2af19b613e7f92489e91d5d7f4a04b39",
+        "assertionHashes": [
+          "e3f91c1111508be586057ddf534549487d94d03bb7058819eacc1827152893dd",
+          "3b995febe19d150bd2034024ac8f33b72a92431addeb656e128ab6fc0fe7cc3e"
+        ],
+        "assertionConditionHashes": [
+          "fa5b188e9ae76f16641806412ee3ba192c77c7d74fc4b8d9a48dbf3b5b1dbf4f",
+          "1c0a5ddfa4cf17cb515831815d4c48c4031830abc307808189f08a358ad95f61"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/SettingsSceneTests.swift",
+        "suite": "CoreSeamTests.SettingsSceneTests",
+        "signature": "panesSortByOrderThenID()",
+        "line": 24,
+        "attributes": "@Suite(.serialized)\n@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "a1a300e149967627357284e6f0373dea2af19b613e7f92489e91d5d7f4a04b39",
+        "assertionHashes": [
+          "e3f91c1111508be586057ddf534549487d94d03bb7058819eacc1827152893dd",
+          "3b995febe19d150bd2034024ac8f33b72a92431addeb656e128ab6fc0fe7cc3e"
+        ],
+        "assertionConditionHashes": [
+          "fa5b188e9ae76f16641806412ee3ba192c77c7d74fc4b8d9a48dbf3b5b1dbf4f",
+          "1c0a5ddfa4cf17cb515831815d4c48c4031830abc307808189f08a358ad95f61"
+        ]
+      },
+      "reason": "Upstream b9c65d23 adds inner serialized suite trait; original body and assertions unchanged, beneath Stage 1 CoreSeamTests serialization."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsSceneTests.swift",
+        "suite": "SettingsSceneTests",
+        "signature": "registeredSettingsSymbolsResolveOnMacOS()",
+        "line": 74,
+        "attributes": "@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "2a02f4deb82900964e014d07af5cf8af7f540d40c5fb90fd40b1859d5e9dc371",
+        "assertionHashes": [
+          "6d537a8482f4feed73fc81f33083913083bded62d9a5b0d8b4a940097c3b8d5a",
+          "d2f4e183438635b30279346796e1c83da05d38a594492b1ffc08a0bb99cc7c00"
+        ],
+        "assertionConditionHashes": [
+          "16135d8aa8af5821cef72c2a673d1e76fd46df878a19e7f5acb30720cc202e9e",
+          "e27076804633474897563903eb17edeac50151d9ef90801c903d77afaf2f0a7f"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsSceneTests.swift",
+        "suite": "MacSeamTests.SettingsSceneTests",
+        "signature": "registeredSettingsSymbolsResolveOnMacOS()",
+        "line": 26,
+        "attributes": "@Suite(.serialized)\n@testable\n@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "2a02f4deb82900964e014d07af5cf8af7f540d40c5fb90fd40b1859d5e9dc371",
+        "assertionHashes": [
+          "6d537a8482f4feed73fc81f33083913083bded62d9a5b0d8b4a940097c3b8d5a",
+          "d2f4e183438635b30279346796e1c83da05d38a594492b1ffc08a0bb99cc7c00"
+        ],
+        "assertionConditionHashes": [
+          "16135d8aa8af5821cef72c2a673d1e76fd46df878a19e7f5acb30720cc202e9e",
+          "e27076804633474897563903eb17edeac50151d9ef90801c903d77afaf2f0a7f"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsSceneTests.swift",
+        "suite": "SettingsSceneTests",
+        "signature": "registrationIsIdempotentPerID()",
+        "line": 31,
+        "attributes": "@testable\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "4055035c4622d1decd2a9c9fd8d10daaee0eb8a168ade9507e0fe911d59e2f41",
+        "assertionHashes": [
+          "5974fd3de095d3a0d5fb72135de0a1ed6ca976948557376e84a7cd26b3a6d923",
+          "f4e8fc426bc6a7f0378b3eaa89662fd0e3b2aa9494e6215caddd7e05501ed349"
+        ],
+        "assertionConditionHashes": [
+          "130174ad14df27c170d5f04cbdd6b102df58fba87e2bc90d682d04b5b7fa0744",
+          "62f2bef3912b66efde81947613798dc087cde78141ca9144815571c9905911ec"
+        ]
+      },
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/SettingsSceneTests.swift",
+        "suite": "SettingsSceneTests",
+        "signature": "registrationIsIdempotentPerID()",
+        "line": 33,
+        "attributes": "@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "4055035c4622d1decd2a9c9fd8d10daaee0eb8a168ade9507e0fe911d59e2f41",
+        "assertionHashes": [
+          "5974fd3de095d3a0d5fb72135de0a1ed6ca976948557376e84a7cd26b3a6d923",
+          "f4e8fc426bc6a7f0378b3eaa89662fd0e3b2aa9494e6215caddd7e05501ed349"
+        ],
+        "assertionConditionHashes": [
+          "130174ad14df27c170d5f04cbdd6b102df58fba87e2bc90d682d04b5b7fa0744",
+          "62f2bef3912b66efde81947613798dc087cde78141ca9144815571c9905911ec"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/SettingsSceneTests.swift",
+        "suite": "CoreSeamTests.SettingsSceneTests",
+        "signature": "registrationIsIdempotentPerID()",
+        "line": 33,
+        "attributes": "@Suite(.serialized)\n@testable\n@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "4055035c4622d1decd2a9c9fd8d10daaee0eb8a168ade9507e0fe911d59e2f41",
+        "assertionHashes": [
+          "5974fd3de095d3a0d5fb72135de0a1ed6ca976948557376e84a7cd26b3a6d923",
+          "f4e8fc426bc6a7f0378b3eaa89662fd0e3b2aa9494e6215caddd7e05501ed349"
+        ],
+        "assertionConditionHashes": [
+          "130174ad14df27c170d5f04cbdd6b102df58fba87e2bc90d682d04b5b7fa0744",
+          "62f2bef3912b66efde81947613798dc087cde78141ca9144815571c9905911ec"
+        ]
+      },
+      "reason": "Upstream b9c65d23 adds inner serialized suite trait; original body and assertions unchanged, beneath Stage 1 CoreSeamTests serialization."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/TerminalStateTests.swift",
+        "suite": "TerminalResumeTests",
+        "signature": "detachDiscardsResumeCompletion(fails: Bool) async",
+        "line": 466,
+        "attributes": "@MainActor\n@Test(arguments: [false, true])",
+        "condition": "",
+        "bodyHash": "de33f4c8561e3cd397efa705e34c3d55e1fadf3797641bf342a4bd1f88e7a705",
+        "assertionHashes": [
+          "d01efa617554df0719cfb6e31f2e14ac6de9b173ea431edbe0df27a112ddc68e",
+          "05b7ec53bda2f67063af0c7451e160d022c7f7ac05590eb2f09bd5b71349c2e5",
+          "318c8622a1e1f5aded894ad3417fd26c02614a957d3f22558b4e8ab44f5e7b23",
+          "54ef83281301607ae9d16d466d1bcdad6fa501618635dabe879990b1752dd4fb",
+          "22ef5712208d76b95942b71ab57c176abdc37ad6752d6d5efcc0128d86a7b281",
+          "c71e09990f0d51f08d418c945aab91e123d551d19a9162a6a0788b34e2405b02"
+        ],
+        "assertionConditionHashes": [
+          "ec77c9ae1bdfadd48c9470fdfca6fa1036f104afc9a95329b90db5bdb4888279",
+          "55f749b54fe44c51b440b1fb532112c289be5723e199b1eadb0c7305ae7c1cf4",
+          "71a8f6e982c4997a51bbf84a04ef813ad0387b2ff41342e4e072db6bb1b0be1e",
+          "da2391fed796073290657cf4355bcc3bbac5bbcfba7d752d48886334eb0bc88f",
+          "804bbdd90071be830eeb0adf99f7c24ddb2b1c4f1b182e4fdf3f8dc6bec1199c",
+          "42d06a70cc5fad10d90a0dcdb5ab45b36497a11c422179677b9220cb89971e15"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift",
+        "suite": "CoreSeamTests.TerminalResumeTests",
+        "signature": "detachDiscardsResumeCompletion(fails: Bool) async",
+        "line": 809,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test(arguments: [false, true])",
+        "condition": "",
+        "bodyHash": "de33f4c8561e3cd397efa705e34c3d55e1fadf3797641bf342a4bd1f88e7a705",
+        "assertionHashes": [
+          "d01efa617554df0719cfb6e31f2e14ac6de9b173ea431edbe0df27a112ddc68e",
+          "05b7ec53bda2f67063af0c7451e160d022c7f7ac05590eb2f09bd5b71349c2e5",
+          "318c8622a1e1f5aded894ad3417fd26c02614a957d3f22558b4e8ab44f5e7b23",
+          "54ef83281301607ae9d16d466d1bcdad6fa501618635dabe879990b1752dd4fb",
+          "22ef5712208d76b95942b71ab57c176abdc37ad6752d6d5efcc0128d86a7b281",
+          "c71e09990f0d51f08d418c945aab91e123d551d19a9162a6a0788b34e2405b02"
+        ],
+        "assertionConditionHashes": [
+          "ec77c9ae1bdfadd48c9470fdfca6fa1036f104afc9a95329b90db5bdb4888279",
+          "55f749b54fe44c51b440b1fb532112c289be5723e199b1eadb0c7305ae7c1cf4",
+          "71a8f6e982c4997a51bbf84a04ef813ad0387b2ff41342e4e072db6bb1b0be1e",
+          "da2391fed796073290657cf4355bcc3bbac5bbcfba7d752d48886334eb0bc88f",
+          "804bbdd90071be830eeb0adf99f7c24ddb2b1c4f1b182e4fdf3f8dc6bec1199c",
+          "42d06a70cc5fad10d90a0dcdb5ab45b36497a11c422179677b9220cb89971e15"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/TerminalStateTests.swift",
+        "suite": "TerminalResumeTests",
+        "signature": "failedResumeStaysEndedAndCanBeRetried() async",
+        "line": 437,
+        "attributes": "@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "896a7c76808cb3258a4e9e9eaa4b01e777bc1aa9ebf2765daeae2e865672fcc9",
+        "assertionHashes": [
+          "d01efa617554df0719cfb6e31f2e14ac6de9b173ea431edbe0df27a112ddc68e",
+          "c71e09990f0d51f08d418c945aab91e123d551d19a9162a6a0788b34e2405b02",
+          "318c8622a1e1f5aded894ad3417fd26c02614a957d3f22558b4e8ab44f5e7b23",
+          "7f60905d65b01ba241fd9d7aa69b6fcafddbff35fde99fbc6e6a1a7ad40ba94a",
+          "22ef5712208d76b95942b71ab57c176abdc37ad6752d6d5efcc0128d86a7b281",
+          "aff48cb97c132b86c52aabfb0c2137f64057294520029c1ba8e9fc3684557d93",
+          "54ef83281301607ae9d16d466d1bcdad6fa501618635dabe879990b1752dd4fb",
+          "3bdd7e57c7a1f00212de015f6350cdda8e1c07a37ef1885bfa1107f18925eaac"
+        ],
+        "assertionConditionHashes": [
+          "ec77c9ae1bdfadd48c9470fdfca6fa1036f104afc9a95329b90db5bdb4888279",
+          "42d06a70cc5fad10d90a0dcdb5ab45b36497a11c422179677b9220cb89971e15",
+          "71a8f6e982c4997a51bbf84a04ef813ad0387b2ff41342e4e072db6bb1b0be1e",
+          "aa304aaf7a6996a0001bfdc0ac4987eeb297011c5c5b3dbfc9287bfa9d673f5d",
+          "804bbdd90071be830eeb0adf99f7c24ddb2b1c4f1b182e4fdf3f8dc6bec1199c",
+          "180df46e52a10a4b481ae4b079e01142fc93bd6e5b1ee111b1166030e951f745",
+          "da2391fed796073290657cf4355bcc3bbac5bbcfba7d752d48886334eb0bc88f",
+          "8499e0589df7f712b64519d0c31af01758def15593094fe5069dcab59d9331db"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift",
+        "suite": "CoreSeamTests.TerminalResumeTests",
+        "signature": "failedResumeStaysEndedAndCanBeRetried() async",
+        "line": 780,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "896a7c76808cb3258a4e9e9eaa4b01e777bc1aa9ebf2765daeae2e865672fcc9",
+        "assertionHashes": [
+          "d01efa617554df0719cfb6e31f2e14ac6de9b173ea431edbe0df27a112ddc68e",
+          "c71e09990f0d51f08d418c945aab91e123d551d19a9162a6a0788b34e2405b02",
+          "318c8622a1e1f5aded894ad3417fd26c02614a957d3f22558b4e8ab44f5e7b23",
+          "7f60905d65b01ba241fd9d7aa69b6fcafddbff35fde99fbc6e6a1a7ad40ba94a",
+          "22ef5712208d76b95942b71ab57c176abdc37ad6752d6d5efcc0128d86a7b281",
+          "aff48cb97c132b86c52aabfb0c2137f64057294520029c1ba8e9fc3684557d93",
+          "54ef83281301607ae9d16d466d1bcdad6fa501618635dabe879990b1752dd4fb",
+          "3bdd7e57c7a1f00212de015f6350cdda8e1c07a37ef1885bfa1107f18925eaac"
+        ],
+        "assertionConditionHashes": [
+          "ec77c9ae1bdfadd48c9470fdfca6fa1036f104afc9a95329b90db5bdb4888279",
+          "42d06a70cc5fad10d90a0dcdb5ab45b36497a11c422179677b9220cb89971e15",
+          "71a8f6e982c4997a51bbf84a04ef813ad0387b2ff41342e4e072db6bb1b0be1e",
+          "aa304aaf7a6996a0001bfdc0ac4987eeb297011c5c5b3dbfc9287bfa9d673f5d",
+          "804bbdd90071be830eeb0adf99f7c24ddb2b1c4f1b182e4fdf3f8dc6bec1199c",
+          "180df46e52a10a4b481ae4b079e01142fc93bd6e5b1ee111b1166030e951f745",
+          "da2391fed796073290657cf4355bcc3bbac5bbcfba7d752d48886334eb0bc88f",
+          "8499e0589df7f712b64519d0c31af01758def15593094fe5069dcab59d9331db"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/TerminalStateTests.swift",
+        "suite": "TerminalResumeTests",
+        "signature": "resumeOnlyRestartsGoneSessionsWithInputEnabled( closure: PTYConnection.Closure, allowsInput: Bool ) async",
+        "line": 493,
+        "attributes": "@MainActor\n@Test(arguments: [PTYConnection.Closure.gone, .unreachable, .superseded], [false, true])",
+        "condition": "",
+        "bodyHash": "e41eeae5902bf8afb3ee992d625b16669a5c003eead6af299e187355df718250",
+        "assertionHashes": [
+          "c37ab1327ad2a44c9879ebe0b8daca1dad6561240c966817dbaf366f8ea9fb8d",
+          "65a881657e1213606fd8c627ca84b9b3207c33eff9c3cc8215c35aee1e9a400f",
+          "ce5748e2817d020fd46198737be7196963c956b7cd764e96c40d45c970543f88"
+        ],
+        "assertionConditionHashes": [
+          "32ca775df0898fe83ba54f0796afbc4d4197ad9c55636fad4b445d8e3b70633d",
+          "1222ac415ab1361c79c06d31e239846dbb2e4c35574a0d785455d2dfb5ac4354",
+          "41c3d2e7050f7344569c6cf26543d39eba216bc9f866e55a52016510e3b17d5e"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift",
+        "suite": "CoreSeamTests.TerminalResumeTests",
+        "signature": "resumeOnlyRestartsGoneSessionsWithInputEnabled( closure: PTYConnection.Closure, allowsInput: Bool ) async",
+        "line": 836,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test(arguments: [PTYConnection.Closure.gone, .unreachable, .superseded], [false, true])",
+        "condition": "",
+        "bodyHash": "e41eeae5902bf8afb3ee992d625b16669a5c003eead6af299e187355df718250",
+        "assertionHashes": [
+          "c37ab1327ad2a44c9879ebe0b8daca1dad6561240c966817dbaf366f8ea9fb8d",
+          "65a881657e1213606fd8c627ca84b9b3207c33eff9c3cc8215c35aee1e9a400f",
+          "ce5748e2817d020fd46198737be7196963c956b7cd764e96c40d45c970543f88"
+        ],
+        "assertionConditionHashes": [
+          "32ca775df0898fe83ba54f0796afbc4d4197ad9c55636fad4b445d8e3b70633d",
+          "1222ac415ab1361c79c06d31e239846dbb2e4c35574a0d785455d2dfb5ac4354",
+          "41c3d2e7050f7344569c6cf26543d39eba216bc9f866e55a52016510e3b17d5e"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/TerminalStateTests.swift",
+        "suite": "TerminalResumeTests",
+        "signature": "resumeWaitsForTheAgentAndIgnoresRepeatedClicks() async",
+        "line": 407,
+        "attributes": "@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "479ac27999801cc130f25f7bc2255f59fdb89206bfa15f03248fa75be3e9c638",
+        "assertionHashes": [
+          "d01efa617554df0719cfb6e31f2e14ac6de9b173ea431edbe0df27a112ddc68e",
+          "05b7ec53bda2f67063af0c7451e160d022c7f7ac05590eb2f09bd5b71349c2e5",
+          "76034a3c6f92b91e4391f33d44e91250c16077217e1d5e27015d68f96bc936bb",
+          "22ef5712208d76b95942b71ab57c176abdc37ad6752d6d5efcc0128d86a7b281",
+          "d168f7b0e482588156a543cdc6c7c9c353633f5f4a56fe9f137dc31086f1496c",
+          "318c8622a1e1f5aded894ad3417fd26c02614a957d3f22558b4e8ab44f5e7b23",
+          "54ef83281301607ae9d16d466d1bcdad6fa501618635dabe879990b1752dd4fb",
+          "3bdd7e57c7a1f00212de015f6350cdda8e1c07a37ef1885bfa1107f18925eaac",
+          "9aca2a95101d12f758bab8e1f4daa50070e1bf5b1a56897f2de06aba6712b748",
+          "79dcdf09780bf505a6013522d61bf5dfd5ee075fc20d9cf86c2c934816c266e5"
+        ],
+        "assertionConditionHashes": [
+          "ec77c9ae1bdfadd48c9470fdfca6fa1036f104afc9a95329b90db5bdb4888279",
+          "55f749b54fe44c51b440b1fb532112c289be5723e199b1eadb0c7305ae7c1cf4",
+          "cb3f64f9694b4fec374c7aa521c70c044a972075e69f9955bc0b677ffc47da9e",
+          "804bbdd90071be830eeb0adf99f7c24ddb2b1c4f1b182e4fdf3f8dc6bec1199c",
+          "57af8350e80a149cb930f3fdee180656ea5ceea92ab4d8cb425251561942c4f2",
+          "71a8f6e982c4997a51bbf84a04ef813ad0387b2ff41342e4e072db6bb1b0be1e",
+          "da2391fed796073290657cf4355bcc3bbac5bbcfba7d752d48886334eb0bc88f",
+          "8499e0589df7f712b64519d0c31af01758def15593094fe5069dcab59d9331db",
+          "acdd4bb8531125304a0e4c178d50b18d9f3da8d6280b0d41687229f4d4f61083",
+          "99f004d5be0626286b4a98c8a434d27a259912d586606b5736034ead318c3f9f"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift",
+        "suite": "CoreSeamTests.TerminalResumeTests",
+        "signature": "resumeWaitsForTheAgentAndIgnoresRepeatedClicks() async",
+        "line": 750,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "479ac27999801cc130f25f7bc2255f59fdb89206bfa15f03248fa75be3e9c638",
+        "assertionHashes": [
+          "d01efa617554df0719cfb6e31f2e14ac6de9b173ea431edbe0df27a112ddc68e",
+          "05b7ec53bda2f67063af0c7451e160d022c7f7ac05590eb2f09bd5b71349c2e5",
+          "76034a3c6f92b91e4391f33d44e91250c16077217e1d5e27015d68f96bc936bb",
+          "22ef5712208d76b95942b71ab57c176abdc37ad6752d6d5efcc0128d86a7b281",
+          "d168f7b0e482588156a543cdc6c7c9c353633f5f4a56fe9f137dc31086f1496c",
+          "318c8622a1e1f5aded894ad3417fd26c02614a957d3f22558b4e8ab44f5e7b23",
+          "54ef83281301607ae9d16d466d1bcdad6fa501618635dabe879990b1752dd4fb",
+          "3bdd7e57c7a1f00212de015f6350cdda8e1c07a37ef1885bfa1107f18925eaac",
+          "9aca2a95101d12f758bab8e1f4daa50070e1bf5b1a56897f2de06aba6712b748",
+          "79dcdf09780bf505a6013522d61bf5dfd5ee075fc20d9cf86c2c934816c266e5"
+        ],
+        "assertionConditionHashes": [
+          "ec77c9ae1bdfadd48c9470fdfca6fa1036f104afc9a95329b90db5bdb4888279",
+          "55f749b54fe44c51b440b1fb532112c289be5723e199b1eadb0c7305ae7c1cf4",
+          "cb3f64f9694b4fec374c7aa521c70c044a972075e69f9955bc0b677ffc47da9e",
+          "804bbdd90071be830eeb0adf99f7c24ddb2b1c4f1b182e4fdf3f8dc6bec1199c",
+          "57af8350e80a149cb930f3fdee180656ea5ceea92ab4d8cb425251561942c4f2",
+          "71a8f6e982c4997a51bbf84a04ef813ad0387b2ff41342e4e072db6bb1b0be1e",
+          "da2391fed796073290657cf4355bcc3bbac5bbcfba7d752d48886334eb0bc88f",
+          "8499e0589df7f712b64519d0c31af01758def15593094fe5069dcab59d9331db",
+          "acdd4bb8531125304a0e4c178d50b18d9f3da8d6280b0d41687229f4d4f61083",
+          "99f004d5be0626286b4a98c8a434d27a259912d586606b5736034ead318c3f9f"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/TerminalStateTests.swift",
+        "suite": "TerminalStateTests",
+        "signature": "failedGoneSessionResumeStaysParkedWithAnExplanation() async",
+        "line": 87,
+        "attributes": "@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "b9512513e6f6720e50200c55d8f27a8b0f8e776066fe8c5fc33a749bd0321a1b",
+        "assertionHashes": [
+          "d01efa617554df0719cfb6e31f2e14ac6de9b173ea431edbe0df27a112ddc68e",
+          "c71e09990f0d51f08d418c945aab91e123d551d19a9162a6a0788b34e2405b02",
+          "22ef5712208d76b95942b71ab57c176abdc37ad6752d6d5efcc0128d86a7b281",
+          "2f8c86fb0cebe7165e519d1148101aade53bf882ededddc4e653a5647440471c"
+        ],
+        "assertionConditionHashes": [
+          "ec77c9ae1bdfadd48c9470fdfca6fa1036f104afc9a95329b90db5bdb4888279",
+          "42d06a70cc5fad10d90a0dcdb5ab45b36497a11c422179677b9220cb89971e15",
+          "804bbdd90071be830eeb0adf99f7c24ddb2b1c4f1b182e4fdf3f8dc6bec1199c",
+          "8f7245dca091031981057182bae11b41d29cda89546307b2a10f2e6241d8edf2"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift",
+        "suite": "CoreSeamTests.TerminalStateTests",
+        "signature": "failedGoneSessionResumeStaysParkedWithAnExplanation() async",
+        "line": 88,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "b9512513e6f6720e50200c55d8f27a8b0f8e776066fe8c5fc33a749bd0321a1b",
+        "assertionHashes": [
+          "d01efa617554df0719cfb6e31f2e14ac6de9b173ea431edbe0df27a112ddc68e",
+          "c71e09990f0d51f08d418c945aab91e123d551d19a9162a6a0788b34e2405b02",
+          "22ef5712208d76b95942b71ab57c176abdc37ad6752d6d5efcc0128d86a7b281",
+          "2f8c86fb0cebe7165e519d1148101aade53bf882ededddc4e653a5647440471c"
+        ],
+        "assertionConditionHashes": [
+          "ec77c9ae1bdfadd48c9470fdfca6fa1036f104afc9a95329b90db5bdb4888279",
+          "42d06a70cc5fad10d90a0dcdb5ab45b36497a11c422179677b9220cb89971e15",
+          "804bbdd90071be830eeb0adf99f7c24ddb2b1c4f1b182e4fdf3f8dc6bec1199c",
+          "8f7245dca091031981057182bae11b41d29cda89546307b2a10f2e6241d8edf2"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/TerminalStateTests.swift",
+        "suite": "TerminalStateTests",
+        "signature": "goneRecoveryCoalescesClicksAndDetachInvalidatesAwaitedWork(holdResume: Bool) async",
+        "line": 150,
+        "attributes": "@MainActor\n@Test(arguments: [false, true])",
+        "condition": "",
+        "bodyHash": "4ea69ebba7ad2a8ffa583c4d8749da2458f48b3b2b765426a6a4a8bab2b92e1a",
+        "assertionHashes": [
+          "d01efa617554df0719cfb6e31f2e14ac6de9b173ea431edbe0df27a112ddc68e",
+          "05b7ec53bda2f67063af0c7451e160d022c7f7ac05590eb2f09bd5b71349c2e5",
+          "76034a3c6f92b91e4391f33d44e91250c16077217e1d5e27015d68f96bc936bb",
+          "ca6be3c663f7f5fe8206403d927f9bc2922bb798f325c716742d84806678dbf9",
+          "058b7ad379d2959c600d9ab0fa0cc1b1885ecce02bbbe165265321d82a8a2dca",
+          "22ef5712208d76b95942b71ab57c176abdc37ad6752d6d5efcc0128d86a7b281",
+          "318c8622a1e1f5aded894ad3417fd26c02614a957d3f22558b4e8ab44f5e7b23",
+          "54ef83281301607ae9d16d466d1bcdad6fa501618635dabe879990b1752dd4fb",
+          "c71e09990f0d51f08d418c945aab91e123d551d19a9162a6a0788b34e2405b02"
+        ],
+        "assertionConditionHashes": [
+          "ec77c9ae1bdfadd48c9470fdfca6fa1036f104afc9a95329b90db5bdb4888279",
+          "55f749b54fe44c51b440b1fb532112c289be5723e199b1eadb0c7305ae7c1cf4",
+          "cb3f64f9694b4fec374c7aa521c70c044a972075e69f9955bc0b677ffc47da9e",
+          "37918a5eb8d27cf1bee086e5b6f514d27cf9fadccba1d4d15d6de871b30d3890",
+          "98dc4cad866205c31c114d0d535d811ee0f2ae1c6450c4c69e63a56989cf72a2",
+          "804bbdd90071be830eeb0adf99f7c24ddb2b1c4f1b182e4fdf3f8dc6bec1199c",
+          "71a8f6e982c4997a51bbf84a04ef813ad0387b2ff41342e4e072db6bb1b0be1e",
+          "da2391fed796073290657cf4355bcc3bbac5bbcfba7d752d48886334eb0bc88f",
+          "42d06a70cc5fad10d90a0dcdb5ab45b36497a11c422179677b9220cb89971e15"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift",
+        "suite": "CoreSeamTests.TerminalStateTests",
+        "signature": "goneRecoveryCoalescesClicksAndDetachInvalidatesAwaitedWork(holdResume: Bool) async",
+        "line": 151,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test(arguments: [false, true])",
+        "condition": "",
+        "bodyHash": "4ea69ebba7ad2a8ffa583c4d8749da2458f48b3b2b765426a6a4a8bab2b92e1a",
+        "assertionHashes": [
+          "d01efa617554df0719cfb6e31f2e14ac6de9b173ea431edbe0df27a112ddc68e",
+          "05b7ec53bda2f67063af0c7451e160d022c7f7ac05590eb2f09bd5b71349c2e5",
+          "76034a3c6f92b91e4391f33d44e91250c16077217e1d5e27015d68f96bc936bb",
+          "ca6be3c663f7f5fe8206403d927f9bc2922bb798f325c716742d84806678dbf9",
+          "058b7ad379d2959c600d9ab0fa0cc1b1885ecce02bbbe165265321d82a8a2dca",
+          "22ef5712208d76b95942b71ab57c176abdc37ad6752d6d5efcc0128d86a7b281",
+          "318c8622a1e1f5aded894ad3417fd26c02614a957d3f22558b4e8ab44f5e7b23",
+          "54ef83281301607ae9d16d466d1bcdad6fa501618635dabe879990b1752dd4fb",
+          "c71e09990f0d51f08d418c945aab91e123d551d19a9162a6a0788b34e2405b02"
+        ],
+        "assertionConditionHashes": [
+          "ec77c9ae1bdfadd48c9470fdfca6fa1036f104afc9a95329b90db5bdb4888279",
+          "55f749b54fe44c51b440b1fb532112c289be5723e199b1eadb0c7305ae7c1cf4",
+          "cb3f64f9694b4fec374c7aa521c70c044a972075e69f9955bc0b677ffc47da9e",
+          "37918a5eb8d27cf1bee086e5b6f514d27cf9fadccba1d4d15d6de871b30d3890",
+          "98dc4cad866205c31c114d0d535d811ee0f2ae1c6450c4c69e63a56989cf72a2",
+          "804bbdd90071be830eeb0adf99f7c24ddb2b1c4f1b182e4fdf3f8dc6bec1199c",
+          "71a8f6e982c4997a51bbf84a04ef813ad0387b2ff41342e4e072db6bb1b0be1e",
+          "da2391fed796073290657cf4355bcc3bbac5bbcfba7d752d48886334eb0bc88f",
+          "42d06a70cc5fad10d90a0dcdb5ab45b36497a11c422179677b9220cb89971e15"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/TerminalStateTests.swift",
+        "suite": "TerminalStateTests",
+        "signature": "goneSessionReadsThenResumesBeforeReattaching() async",
+        "line": 65,
+        "attributes": "@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "8ff70ded1f4dbdf7545dc548a020b101bc8895b196978036d216f09c449e321e",
+        "assertionHashes": [
+          "22ef5712208d76b95942b71ab57c176abdc37ad6752d6d5efcc0128d86a7b281",
+          "d01efa617554df0719cfb6e31f2e14ac6de9b173ea431edbe0df27a112ddc68e",
+          "7c47f7dd148d99815afa00d48c508f5353a07f6a940d5258ede553c2e7941df4",
+          "f1bda34975829b2048961c8a295e2cef09aa79bfbc54704cde7adb3a6fd48cb2",
+          "3bdd7e57c7a1f00212de015f6350cdda8e1c07a37ef1885bfa1107f18925eaac",
+          "9aca2a95101d12f758bab8e1f4daa50070e1bf5b1a56897f2de06aba6712b748"
+        ],
+        "assertionConditionHashes": [
+          "804bbdd90071be830eeb0adf99f7c24ddb2b1c4f1b182e4fdf3f8dc6bec1199c",
+          "ec77c9ae1bdfadd48c9470fdfca6fa1036f104afc9a95329b90db5bdb4888279",
+          "02178ef14a561f47742f6b2f01290925fa63e6a4378848926f42f27391d6ff05",
+          "448f80879c5a765d4e1f317aac4e1f86a4640f09ab66f0d3a34c114185b93e2b",
+          "8499e0589df7f712b64519d0c31af01758def15593094fe5069dcab59d9331db",
+          "acdd4bb8531125304a0e4c178d50b18d9f3da8d6280b0d41687229f4d4f61083"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift",
+        "suite": "CoreSeamTests.TerminalStateTests",
+        "signature": "goneSessionReadsThenResumesBeforeReattaching() async",
+        "line": 66,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "8ff70ded1f4dbdf7545dc548a020b101bc8895b196978036d216f09c449e321e",
+        "assertionHashes": [
+          "22ef5712208d76b95942b71ab57c176abdc37ad6752d6d5efcc0128d86a7b281",
+          "d01efa617554df0719cfb6e31f2e14ac6de9b173ea431edbe0df27a112ddc68e",
+          "7c47f7dd148d99815afa00d48c508f5353a07f6a940d5258ede553c2e7941df4",
+          "f1bda34975829b2048961c8a295e2cef09aa79bfbc54704cde7adb3a6fd48cb2",
+          "3bdd7e57c7a1f00212de015f6350cdda8e1c07a37ef1885bfa1107f18925eaac",
+          "9aca2a95101d12f758bab8e1f4daa50070e1bf5b1a56897f2de06aba6712b748"
+        ],
+        "assertionConditionHashes": [
+          "804bbdd90071be830eeb0adf99f7c24ddb2b1c4f1b182e4fdf3f8dc6bec1199c",
+          "ec77c9ae1bdfadd48c9470fdfca6fa1036f104afc9a95329b90db5bdb4888279",
+          "02178ef14a561f47742f6b2f01290925fa63e6a4378848926f42f27391d6ff05",
+          "448f80879c5a765d4e1f317aac4e1f86a4640f09ab66f0d3a34c114185b93e2b",
+          "8499e0589df7f712b64519d0c31af01758def15593094fe5069dcab59d9331db",
+          "acdd4bb8531125304a0e4c178d50b18d9f3da8d6280b0d41687229f4d4f61083"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/TerminalStateTests.swift",
+        "suite": "TerminalStateTests",
+        "signature": "ineligibleGoneSessionNeverResumesOrReattaches(reason: String) async",
+        "line": 127,
+        "attributes": "@MainActor\n@Test(arguments: [\"running\", \"terminal\", \"no-conversation\", \"authentication\"])",
+        "condition": "",
+        "bodyHash": "b41a311bafae9cd61fb6d47a4690bcba05fe28b4a62cb93861946bf3ebcbedf3",
+        "assertionHashes": [
+          "d01efa617554df0719cfb6e31f2e14ac6de9b173ea431edbe0df27a112ddc68e",
+          "30f0a7a694312137c7181fb63841ede035b3a27afc909ede59229c598a98cf90",
+          "22ef5712208d76b95942b71ab57c176abdc37ad6752d6d5efcc0128d86a7b281",
+          "2f8c86fb0cebe7165e519d1148101aade53bf882ededddc4e653a5647440471c"
+        ],
+        "assertionConditionHashes": [
+          "ec77c9ae1bdfadd48c9470fdfca6fa1036f104afc9a95329b90db5bdb4888279",
+          "07cdc601267e0f5ef0ee1e86a4dd93812541a228bfa9cda5d066e7573d1a4de9",
+          "804bbdd90071be830eeb0adf99f7c24ddb2b1c4f1b182e4fdf3f8dc6bec1199c",
+          "8f7245dca091031981057182bae11b41d29cda89546307b2a10f2e6241d8edf2"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift",
+        "suite": "CoreSeamTests.TerminalStateTests",
+        "signature": "ineligibleGoneSessionNeverResumesOrReattaches(reason: String) async",
+        "line": 128,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test(arguments: [\"running\", \"terminal\", \"no-conversation\", \"authentication\"])",
+        "condition": "",
+        "bodyHash": "b41a311bafae9cd61fb6d47a4690bcba05fe28b4a62cb93861946bf3ebcbedf3",
+        "assertionHashes": [
+          "d01efa617554df0719cfb6e31f2e14ac6de9b173ea431edbe0df27a112ddc68e",
+          "30f0a7a694312137c7181fb63841ede035b3a27afc909ede59229c598a98cf90",
+          "22ef5712208d76b95942b71ab57c176abdc37ad6752d6d5efcc0128d86a7b281",
+          "2f8c86fb0cebe7165e519d1148101aade53bf882ededddc4e653a5647440471c"
+        ],
+        "assertionConditionHashes": [
+          "ec77c9ae1bdfadd48c9470fdfca6fa1036f104afc9a95329b90db5bdb4888279",
+          "07cdc601267e0f5ef0ee1e86a4dd93812541a228bfa9cda5d066e7573d1a4de9",
+          "804bbdd90071be830eeb0adf99f7c24ddb2b1c4f1b182e4fdf3f8dc6bec1199c",
+          "8f7245dca091031981057182bae11b41d29cda89546307b2a10f2e6241d8edf2"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/TerminalStateTests.swift",
+        "suite": "TerminalStateTests",
+        "signature": "isolatedTerminalCannotResumeGoneSession() async",
+        "line": 181,
+        "attributes": "@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "4982a4d1c660f2ca9e68b0e46eb24e92c52ec09c94e43d844716e7a0bbc997c3",
+        "assertionHashes": [
+          "d01efa617554df0719cfb6e31f2e14ac6de9b173ea431edbe0df27a112ddc68e",
+          "efc83167c26d7a89a3fe84b518957a9ac08f2ffed9ecdd1bbee5e2ba8febf01c",
+          "22ef5712208d76b95942b71ab57c176abdc37ad6752d6d5efcc0128d86a7b281"
+        ],
+        "assertionConditionHashes": [
+          "ec77c9ae1bdfadd48c9470fdfca6fa1036f104afc9a95329b90db5bdb4888279",
+          "f7d0631ac84742e1c5732ed13652b780fc35b344a887e388cb4a80cf558c5adb",
+          "804bbdd90071be830eeb0adf99f7c24ddb2b1c4f1b182e4fdf3f8dc6bec1199c"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift",
+        "suite": "CoreSeamTests.TerminalStateTests",
+        "signature": "isolatedTerminalCannotResumeGoneSession() async",
+        "line": 182,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "4982a4d1c660f2ca9e68b0e46eb24e92c52ec09c94e43d844716e7a0bbc997c3",
+        "assertionHashes": [
+          "d01efa617554df0719cfb6e31f2e14ac6de9b173ea431edbe0df27a112ddc68e",
+          "efc83167c26d7a89a3fe84b518957a9ac08f2ffed9ecdd1bbee5e2ba8febf01c",
+          "22ef5712208d76b95942b71ab57c176abdc37ad6752d6d5efcc0128d86a7b281"
+        ],
+        "assertionConditionHashes": [
+          "ec77c9ae1bdfadd48c9470fdfca6fa1036f104afc9a95329b90db5bdb4888279",
+          "f7d0631ac84742e1c5732ed13652b780fc35b344a887e388cb4a80cf558c5adb",
+          "804bbdd90071be830eeb0adf99f7c24ddb2b1c4f1b182e4fdf3f8dc6bec1199c"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/TerminalStateTests.swift",
+        "suite": "TerminalStateTests",
+        "signature": "unavailableGoneSessionReloadsListWithoutResuming(deleted: Bool) async",
+        "line": 105,
+        "attributes": "@MainActor\n@Test(arguments: [false, true])",
+        "condition": "",
+        "bodyHash": "9e7fa0cab3f5bbee3e874e4aaf656d3024e3b0e510acb8e8030caa34df601015",
+        "assertionHashes": [
+          "d01efa617554df0719cfb6e31f2e14ac6de9b173ea431edbe0df27a112ddc68e",
+          "55cfbc1fd56792226950838d1e73c0d7eafa915634cec721d47b28eded1eebf2",
+          "30f0a7a694312137c7181fb63841ede035b3a27afc909ede59229c598a98cf90",
+          "22ef5712208d76b95942b71ab57c176abdc37ad6752d6d5efcc0128d86a7b281",
+          "c71e09990f0d51f08d418c945aab91e123d551d19a9162a6a0788b34e2405b02",
+          "2f8c86fb0cebe7165e519d1148101aade53bf882ededddc4e653a5647440471c"
+        ],
+        "assertionConditionHashes": [
+          "ec77c9ae1bdfadd48c9470fdfca6fa1036f104afc9a95329b90db5bdb4888279",
+          "9c54abc441bc4a662b86b25454dc56eb730e1798c66b194c8b3ae8194d141fc5",
+          "07cdc601267e0f5ef0ee1e86a4dd93812541a228bfa9cda5d066e7573d1a4de9",
+          "804bbdd90071be830eeb0adf99f7c24ddb2b1c4f1b182e4fdf3f8dc6bec1199c",
+          "42d06a70cc5fad10d90a0dcdb5ab45b36497a11c422179677b9220cb89971e15",
+          "8f7245dca091031981057182bae11b41d29cda89546307b2a10f2e6241d8edf2"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift",
+        "suite": "CoreSeamTests.TerminalStateTests",
+        "signature": "unavailableGoneSessionReloadsListWithoutResuming(deleted: Bool) async",
+        "line": 106,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test(arguments: [false, true])",
+        "condition": "",
+        "bodyHash": "9e7fa0cab3f5bbee3e874e4aaf656d3024e3b0e510acb8e8030caa34df601015",
+        "assertionHashes": [
+          "d01efa617554df0719cfb6e31f2e14ac6de9b173ea431edbe0df27a112ddc68e",
+          "55cfbc1fd56792226950838d1e73c0d7eafa915634cec721d47b28eded1eebf2",
+          "30f0a7a694312137c7181fb63841ede035b3a27afc909ede59229c598a98cf90",
+          "22ef5712208d76b95942b71ab57c176abdc37ad6752d6d5efcc0128d86a7b281",
+          "c71e09990f0d51f08d418c945aab91e123d551d19a9162a6a0788b34e2405b02",
+          "2f8c86fb0cebe7165e519d1148101aade53bf882ededddc4e653a5647440471c"
+        ],
+        "assertionConditionHashes": [
+          "ec77c9ae1bdfadd48c9470fdfca6fa1036f104afc9a95329b90db5bdb4888279",
+          "9c54abc441bc4a662b86b25454dc56eb730e1798c66b194c8b3ae8194d141fc5",
+          "07cdc601267e0f5ef0ee1e86a4dd93812541a228bfa9cda5d066e7573d1a4de9",
+          "804bbdd90071be830eeb0adf99f7c24ddb2b1c4f1b182e4fdf3f8dc6bec1199c",
+          "42d06a70cc5fad10d90a0dcdb5ab45b36497a11c422179677b9220cb89971e15",
+          "8f7245dca091031981057182bae11b41d29cda89546307b2a10f2e6241d8edf2"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdTests",
+        "path": "native/Apps/ShepherdMac/Tests/TerminalStateTests.swift",
+        "suite": "TerminalStateTests",
+        "signature": "unreachableDiagnosesWithoutReattaching() async",
+        "line": 196,
+        "attributes": "@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "1c9eb762a07249f34e6ce32f22a5d47138fcf9b17ae22477f84a0e15321f9b9e",
+        "assertionHashes": [
+          "e9ca1ede99e2ba82f9dc6c7d0dc71999907762f376f46d554943f6a752c1e3d1",
+          "792d871a4fb34c26976e9e1b4a68e1420769acea7c076a7bea403b867529a5a4",
+          "22ef5712208d76b95942b71ab57c176abdc37ad6752d6d5efcc0128d86a7b281"
+        ],
+        "assertionConditionHashes": [
+          "e2e180ede0992bd5b2199e6ce818fa11fa02c2c420c3482a8aacdc10b7b9adad",
+          "7cb221a08f65743effce0b5822b8c18353b58930c5eba0d052466f7eafcc123f",
+          "804bbdd90071be830eeb0adf99f7c24ddb2b1c4f1b182e4fdf3f8dc6bec1199c"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdAppCoreTests",
+        "path": "native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift",
+        "suite": "CoreSeamTests.TerminalStateTests",
+        "signature": "unreachableDiagnosesWithoutReattaching() async",
+        "line": 197,
+        "attributes": "@Suite(.serialized)\n@MainActor\n@Test",
+        "condition": "",
+        "bodyHash": "1c9eb762a07249f34e6ce32f22a5d47138fcf9b17ae22477f84a0e15321f9b9e",
+        "assertionHashes": [
+          "e9ca1ede99e2ba82f9dc6c7d0dc71999907762f376f46d554943f6a752c1e3d1",
+          "792d871a4fb34c26976e9e1b4a68e1420769acea7c076a7bea403b867529a5a4",
+          "22ef5712208d76b95942b71ab57c176abdc37ad6752d6d5efcc0128d86a7b281"
+        ],
+        "assertionConditionHashes": [
+          "e2e180ede0992bd5b2199e6ce818fa11fa02c2c420c3482a8aacdc10b7b9adad",
+          "7cb221a08f65743effce0b5822b8c18353b58930c5eba0d052466f7eafcc123f",
+          "804bbdd90071be830eeb0adf99f7c24ddb2b1c4f1b182e4fdf3f8dc6bec1199c"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    },
+    {
+      "original": null,
+      "upstream": {
+        "target": "ShepherdUITests",
+        "path": "native/Apps/ShepherdMac/UITests/SettingsSceneUITests.swift",
+        "suite": "SettingsSceneUITests",
+        "signature": "testDisconnectedNotificationsExplainsNextStep()",
+        "line": 31,
+        "attributes": "@MainActor",
+        "condition": "",
+        "bodyHash": "055717eaaf1e2f6a94e87c87ef459e5475a1c42ba049aa024e0cbb79165ac043",
+        "assertionHashes": [
+          "bff7f07a03e3977cbe58d9cac6b053e7ab5af552b1053461ad667090e7797313",
+          "c0663bacef766d8cf6c00ea853dea73f9785bfab8998189c2add183d47cdff41",
+          "dc668ad42b5773c716d1ab0711b243390520130d2e0e9137d5381cb18d5e5f76",
+          "9411c2270095136801fabd9c7bc35c3a6f96f9b8775c1c7098a68c1007d8368e",
+          "c97b965a03a36ad77a3957175db246fed49990a2155ab36b616ab5c0659f83b1",
+          "82221072659c9cccf5ce36ce7861c6c568137c5b97e9d0f5eb7c164d137863c5",
+          "fd2203d3c95e00f6805d5d6c9af2bd7e9c80ff36e46b8997779ddba50f6e6e46"
+        ],
+        "assertionConditionHashes": [
+          "a84ba56ee1bc5a718b6cc6a89cc82986fa0724599532c2a5437bec395fd1ed64",
+          "4eb12a87e5dd31c8841d24d85fab149df797eea69fa2c02afa7a8e7ea9365cc2",
+          "1cfe17210cf2de43bf110a4f5a614c513c45d3c3c798b4aa8af9222c96fc79b0",
+          "b793ce1530f32f4b3b2fd2c08b705559c9bab2c5072757cd1725058d94268f7a",
+          "d318da4c6087341e36389cafe9a118abadc9bb7cea0c8fb2da3155671c0b6cf0",
+          "efb3364dcd8b5d07e7bd4dce57083c8a90f6091002063fd965ad578cd0e4dae0",
+          "352e094913da11004ef2cc34d0d7dfdafcb8e037aa13abb46a7438ad01cab431"
+        ]
+      },
+      "destination": {
+        "target": "ShepherdUITests",
+        "path": "native/Apps/ShepherdMac/UITests/SettingsSceneUITests.swift",
+        "suite": "SettingsSceneUITests",
+        "signature": "testDisconnectedNotificationsExplainsNextStep()",
+        "line": 31,
+        "attributes": "@MainActor",
+        "condition": "",
+        "bodyHash": "055717eaaf1e2f6a94e87c87ef459e5475a1c42ba049aa024e0cbb79165ac043",
+        "assertionHashes": [
+          "bff7f07a03e3977cbe58d9cac6b053e7ab5af552b1053461ad667090e7797313",
+          "c0663bacef766d8cf6c00ea853dea73f9785bfab8998189c2add183d47cdff41",
+          "dc668ad42b5773c716d1ab0711b243390520130d2e0e9137d5381cb18d5e5f76",
+          "9411c2270095136801fabd9c7bc35c3a6f96f9b8775c1c7098a68c1007d8368e",
+          "c97b965a03a36ad77a3957175db246fed49990a2155ab36b616ab5c0659f83b1",
+          "82221072659c9cccf5ce36ce7861c6c568137c5b97e9d0f5eb7c164d137863c5",
+          "fd2203d3c95e00f6805d5d6c9af2bd7e9c80ff36e46b8997779ddba50f6e6e46"
+        ],
+        "assertionConditionHashes": [
+          "a84ba56ee1bc5a718b6cc6a89cc82986fa0724599532c2a5437bec395fd1ed64",
+          "4eb12a87e5dd31c8841d24d85fab149df797eea69fa2c02afa7a8e7ea9365cc2",
+          "1cfe17210cf2de43bf110a4f5a614c513c45d3c3c798b4aa8af9222c96fc79b0",
+          "b793ce1530f32f4b3b2fd2c08b705559c9bab2c5072757cd1725058d94268f7a",
+          "d318da4c6087341e36389cafe9a118abadc9bb7cea0c8fb2da3155671c0b6cf0",
+          "efb3364dcd8b5d07e7bd4dce57083c8a90f6091002063fd965ad578cd0e4dae0",
+          "352e094913da11004ef2cc34d0d7dfdafcb8e037aa13abb46a7438ad01cab431"
+        ]
+      },
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+    }
+  ]
+}

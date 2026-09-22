@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import Shepherd
+@testable import ShepherdAppCore
 
 /// URLProtocol stub. `nonisolated(unsafe)` is unavoidable here: URLProtocol is a
 /// class-cluster API with no injection point, and the suite below is .serialized.
@@ -28,6 +29,7 @@ final class StubProtocol: URLProtocol, @unchecked Sendable {
     override func stopLoading() {}
 }
 
+extension MacSeamTests {
 @Suite(.serialized)
 struct LocalServerProbeTests {
     private func makeProbe(
@@ -84,4 +86,5 @@ struct LocalServerProbeTests {
         let probe = makeProbe { _ in throw URLError(.timedOut) }
         #expect(await probe.probe() == .absent)
     }
+}
 }

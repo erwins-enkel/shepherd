@@ -1,7 +1,9 @@
 import Testing
 import ShepherdKit
 @testable import Shepherd
+@testable import ShepherdAppCore
 
+extension MacSeamTests {
 /// The panel's enablement logic, pulled out of the view so it is testable without
 /// hosting SwiftUI — same pattern as LoginSheetState.
 @Suite @MainActor struct LocalServerPanelStateTests {
@@ -101,4 +103,5 @@ import ShepherdKit
         let stopped = LocalServerPanelState(state: .stopped, busy: false)
         #expect(stopped.showsStart == stopped.canStart)
     }
+}
 }

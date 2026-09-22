@@ -3,6 +3,7 @@ import ShepherdKit
 import Testing
 
 @testable import Shepherd
+@testable import ShepherdAppCore
 
 /// The environment gate for `ActionsLiveTests`. Outside the main-actor suite, like
 /// `LiveServerEnvironment` itself, because `@Test(.enabled(if:))` evaluates its trait from a
@@ -14,6 +15,7 @@ private enum ActionsLiveGate {
     }
 }
 
+extension MacSeamTests {
 /// The action bar's half of the live smoke coverage: the recap snapshot this stream added, and
 /// the bar it derives for a real herd.
 ///
@@ -76,7 +78,7 @@ struct ActionsLiveTests {
                 // Only ever the token this test minted: a pre-minted one belongs to the caller,
                 // and no sweep by name runs here, so no other token on the server is touched.
                 if minted {
-                    try? await ProfileSetup.logout(profile: profile, credentials: credentials)
+                    await revokeOwnedLiveToken(profile: profile, credentials: credentials)
                 }
             }
         )
@@ -133,4 +135,5 @@ struct ActionsLiveTests {
         }
         await live.done()
     }
+}
 }

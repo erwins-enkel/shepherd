@@ -42,11 +42,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Conservation reads the pinned upstream test Git objects.
+          fetch-depth: 0
 
       - name: Report the toolchain
         run: |
           swift --version
-          xcodebuild -version
+          native/scripts/uitest-lock.sh xcodebuild -version
 
       # The three Apple OpenAPI packages all ship swift-tools-version:6.1. This
       # job also builds Shepherd.app below, and Terminal/TerminalHostView.swift
@@ -128,7 +131,7 @@ jobs:
           security list-keychains -d user -s ci.keychain-db $(security list-keychains -d user | tr -d '"')
           security default-keychain -s ci.keychain-db
 
-      - name: Test
+      - name: Test ShepherdKit
         # Test traits use cooperative cancellation; also bound a blocked thread
         # or an unresumed continuation that cannot respond to cancellation.
         timeout-minutes: 20
@@ -140,7 +143,43 @@ jobs:
         # `keychainIsUsableOnCI` fail rather than silently skipping the suite.
         env:
           SHEPHERD_KEYCHAIN_TESTS: "1"
-        run: swift test --package-path native
+        run: |
+          set -euo pipefail
+          swift test --package-path native --no-parallel --filter ShepherdKitTests --xunit-output "$RUNNER_TEMP/kit.xml" 2>&1 | tee "$RUNNER_TEMP/kit.log"
+          python3 native/scripts/check-core-results.py --xunit "$RUNNER_TEMP/kit-swift-testing.xml" --target ShepherdKitTests --require-keychain
+
+      - name: Test isolated application core
+        # Swift Testing XML aggregates arguments. The blocking simulator job
+        # below must also validate the recorded per-argument xcresult inventory.
+        timeout-minutes: 20
+        run: |
+          set -euo pipefail
+          unset SHEPHERD_KEYCHAIN_TESTS TEST_RUNNER_SHEPHERD_KEYCHAIN_TESTS
+          swift test --package-path native --no-parallel --filter ShepherdAppCoreTests --xunit-output "$RUNNER_TEMP/core.xml" 2>&1 | tee "$RUNNER_TEMP/core.log"
+          python3 native/scripts/check-core-results.py --xunit "$RUNNER_TEMP/core-swift-testing.xml"
+
+      - name: Conserve original native scenarios
+        run: bun run native/scripts/test-conservation.ts --check
+
+      - name: Remove the test keychain
+        if: always() && runner.os == 'macOS'
+        working-directory: ${{ runner.temp }}
+        run: security delete-keychain ci.keychain-db
+
+      - name: Publish package test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-package-tests
+          path: |
+            ${{ runner.temp }}/kit.log
+            ${{ runner.temp }}/kit.xml
+            ${{ runner.temp }}/kit-swift-testing.xml
+            ${{ runner.temp }}/core.log
+            ${{ runner.temp }}/core.xml
+            ${{ runner.temp }}/core-swift-testing.xml
+          if-no-files-found: warn
+          retention-days: 7
 
       # ── Shepherd for Mac (sub-project 4a) ───────────────────────────────
       - name: Install XcodeGen
@@ -157,7 +196,9 @@ jobs:
           python3 native/scripts/test-publish-appcast.py
 
       - name: Build Shepherd.app
-        run: native/scripts/build-app.sh Release
+        run: |
+          set -euo pipefail
+          native/scripts/uitest-lock.sh native/scripts/build-app.sh Release 2>&1 | tail -n 40
 
       - name: Test update packaging with a disposable key
         run: |
@@ -185,9 +226,95 @@ jobs:
       - name: Unit tests
         # Blocking. The XCUITest bundle is deliberately NOT run here — see the
         # shepherd-mac-ui job below.
-        run: native/scripts/test-app.sh -only-testing:ShepherdTests
+        run: |
+          set -euo pipefail
+          native/scripts/uitest-lock.sh native/scripts/test-app.sh -parallel-testing-enabled NO -only-testing:ShepherdTests 2>&1 | tail -n 40
+
+  shepherd-app-core-simulator:
+    name: ShepherdAppCore (iOS Simulator)
+    needs: shepherdkit
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # Conservation reads the pinned upstream test Git objects.
+          fetch-depth: 0
+
+      - name: Report the toolchain
+        run: |
+          swift --version
+          native/scripts/uitest-lock.sh xcodebuild -version
+
+      - name: Require Swift 6.2 or newer
+        run: |
+          set -euo pipefail
+          version="$(swift -version 2>&1 | sed -n 's/.*Swift version \([0-9][0-9.]*\).*/\1/p')"
+          if [ -z "$version" ]; then
+            echo "::error::could not parse swift version"
+            exit 1
+          fi
+          echo "detected swift $version"
+          major="${version%%.*}"
+          rest="${version#*.}"
+          minor="${rest%%.*}"
+          if [ "$major" -lt 6 ] || { [ "$major" -eq 6 ] && [ "$minor" -lt 2 ]; }; then
+            echo "::error::Swift $version is too old; Shepherd.app needs 6.2+."
+            echo "Installed Xcodes:"; ls /Applications | grep -i '^Xcode' || true
+            echo "Pin a newer one with: sudo xcode-select -s /Applications/<Xcode>.app"
+            exit 1
+          fi
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Install root deps
+        uses: ./.github/actions/bun-install-retry
+
+      - name: Check generated sources and scenario conservation
+        run: |
+          set -euo pipefail
+          bun run check:contract-swift
+          native/scripts/sync-contract.sh --check
+          bun run check:strings
+          bun run native/scripts/test-conservation.ts --check
+
+      - name: Build and test the shared core on iOS Simulator
+        run: |
+          set -euo pipefail
+          unset SHEPHERD_KEYCHAIN_TESTS TEST_RUNNER_SHEPHERD_KEYCHAIN_TESTS
+          UITEST_LOCK="$GITHUB_WORKSPACE/native/scripts/uitest-lock.sh"
+          EVIDENCE="$RUNNER_TEMP/core-simulator"
+          mkdir -p "$EVIDENCE"
+          xcrun simctl list devices available -j > "$EVIDENCE/devices.json"
+          CORE_SIMULATOR_UDID="$(python3 native/scripts/select-core-simulator.py "$EVIDENCE/devices.json")"
+          cd native
+          "$UITEST_LOCK" xcodebuild -scheme ShepherdAppCore -destination 'generic/platform=iOS Simulator' -skipPackagePluginValidation build 2>&1 | tail -n 40
+          "$UITEST_LOCK" xcodebuild -scheme ShepherdAppCore -destination "platform=iOS Simulator,id=$CORE_SIMULATOR_UDID" -parallel-testing-enabled NO -only-testing:ShepherdAppCoreTests -resultBundlePath "$EVIDENCE/core.xcresult" -skipPackagePluginValidation test 2>&1 | tail -n 40
+
+      - name: Validate executed core identities and parameter arguments
+        if: always()
+        run: |
+          set -euo pipefail
+          EVIDENCE="$RUNNER_TEMP/core-simulator"
+          xcrun xcresulttool get test-results summary --path "$EVIDENCE/core.xcresult" > "$EVIDENCE/summary.json"
+          xcrun xcresulttool get test-results tests --path "$EVIDENCE/core.xcresult" > "$EVIDENCE/tests.json"
+          python3 native/scripts/check-core-results.py "$EVIDENCE/summary.json" "$EVIDENCE/tests.json" --parameters native/Tests/Conservation/issue-2431-core-parameters.json | tee "$EVIDENCE/result.txt"
+          cat "$EVIDENCE/result.txt" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish simulator results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: shared-core-simulator
+          path: ${{ runner.temp }}/core-simulator
+          if-no-files-found: error
 
   shepherd-mac-ui:
+    needs: shepherd-app-core-simulator
     name: Shepherd for Mac (XCUITest)
     runs-on: macos-latest
     # Non-blocking on purpose. XCUITest needs a real GUI login session; on a
@@ -209,7 +336,7 @@ jobs:
       - name: Report the toolchain
         run: |
           swift --version
-          xcodebuild -version
+          native/scripts/uitest-lock.sh xcodebuild -version
 
       - name: Require Swift 6.2 or newer
         run: |
@@ -246,4 +373,6 @@ jobs:
         run: brew install xcodegen
 
       - name: UI smoke test
-        run: native/scripts/test-app.sh -only-testing:ShepherdUITests
+        run: |
+          set -euo pipefail
+          native/scripts/uitest-lock.sh native/scripts/test-app.sh -parallel-testing-enabled NO -only-testing:ShepherdUITests 2>&1 | tail -n 40

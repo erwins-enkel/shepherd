@@ -1,3 +1,4 @@
+import ShepherdAppCore
 import SwiftUI
 import UniformTypeIdentifiers
 

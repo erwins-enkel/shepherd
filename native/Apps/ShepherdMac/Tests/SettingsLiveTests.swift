@@ -2,7 +2,9 @@ import Foundation
 import Testing
 import ShepherdKit
 @testable import Shepherd
+@testable import ShepherdAppCore
 
+extension MacSeamTests {
 @MainActor
 struct SettingsLiveTests {
     private enum LiveFailure: Error { case read, revocation }
@@ -69,4 +71,5 @@ struct SettingsLiveTests {
         }
         try await cleanup()
     }
+}
 }

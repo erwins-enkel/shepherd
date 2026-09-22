@@ -3,6 +3,8 @@ import SwiftUI
 import Testing
 import ShepherdKit
 @testable import Shepherd
+@testable import ShepherdAppCore
+extension MacSeamTests {
 @Suite(.serialized) @MainActor struct MergeRegistrationTests {
     @Test func installsOnceAndPreservesEarlierSlots() throws {
         resetStreamSeams()
@@ -13,7 +15,7 @@ import ShepherdKit
             SidebarSlot.reset(); ActionBarSlot.reset(); DetailTabRegistry.reset()
             CommandRegistry.reset()
         }
-        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore(), notifications: MacTestSupport.environment(defaults: defaults))
         defer { app.teardown() }
         var sidebarCalls = 0; var actionCalls = 0
         SidebarSlot.content = { _ in sidebarCalls += 1; return AnyView(EmptyView()) }
@@ -41,7 +43,7 @@ import ShepherdKit
     private func withApp(_ body: (AppModel) throws -> Void) rethrows {
         let suite = "MergeRegistration-" + UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!
-        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore(), notifications: MacTestSupport.environment(defaults: defaults))
         defer { app.teardown(); defaults.removePersistentDomain(forName: suite) }
         try body(app)
     }
@@ -61,7 +63,7 @@ import ShepherdKit
         defer { resetStreamSeams() }
         let suite = "MergeReinstall-" + UUID().uuidString
         let defaults = try #require(UserDefaults(suiteName: suite))
-        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore())
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore(), notifications: MacTestSupport.environment(defaults: defaults))
         defer { app.teardown(); defaults.removePersistentDomain(forName: suite) }
         let client = try ShepherdClient(profile: .init(name: "fixture",
             baseURL: URL(string: "http://127.0.0.1:1")!, mode: .local, credentialKey: "merge"),
@@ -151,4 +153,5 @@ import ShepherdKit
             #expect(!first.showOverview)
         }
     }
+}
 }

@@ -1,47 +1,7 @@
+import ShepherdAppCore
 import SwiftUI
 import Observation
 import ShepherdKit
-
-@MainActor struct MergeOwedActions {
-    var toggle: @MainActor (String, String, ManualStepToggle) async throws -> Void
-    var dismiss: @MainActor (String) async throws -> Void
-
-    static func live(_ client: ShepherdClient) -> Self {
-        .init(toggle: { id, stepID, body in
-            _ = try await client.setManualStepDone(id: id, stepId: stepID, body: body)
-        }, dismiss: { id in
-            _ = try await client.dismissManualSteps(id: id)
-        })
-    }
-}
-
-@Observable @MainActor final class MergeOwedState {
-    let model: MergeModel
-    private let actions: MergeOwedActions
-    private(set) var dismissID: String?
-
-    init(model: MergeModel, actions: MergeOwedActions) {
-        self.model = model
-        self.actions = actions
-    }
-    func records(repos: Set<String>) -> [PostMergeSteps] {
-        MergeRules.owed(model.snapshot.owed, repos: repos)
-    }
-    func toggle(recordID: String, stepID: String, done: Bool) {
-        model.perform { [actions] in
-            try await actions.toggle(recordID, stepID, .init(done: done))
-        }
-    }
-    func requestDismiss(_ id: String) { dismissID = id }
-    func cancelDismiss() { dismissID = nil }
-    func confirmDismiss() {
-        guard let id = dismissID else { return }
-        // Like the web panel, accept dismissal while a toggle is in flight. Preserve it
-        // behind that write so the serial model cannot silently drop the confirmation.
-        model.perform(queueIfBusy: true) { [actions] in try await actions.dismiss(id) }
-        dismissID = nil
-    }
-}
 
 struct MergeOwedView: View {
     let model: MergeModel

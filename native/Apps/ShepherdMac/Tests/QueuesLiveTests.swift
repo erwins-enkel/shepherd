@@ -10,6 +10,7 @@ import ShepherdKit
 import Testing
 
 @testable import Shepherd
+@testable import ShepherdAppCore
 
 private enum QueuesLiveGate {
     static var armed: Bool {
@@ -18,6 +19,7 @@ private enum QueuesLiveGate {
     }
 }
 
+extension MacSeamTests {
 @MainActor
 struct QueuesLiveTests {
     @Test("queue snapshots decode against the real server", .enabled(if: QueuesLiveGate.armed))
@@ -84,10 +86,7 @@ struct QueuesLiveTests {
     ) async {
         // No sweep by name and no logout for a caller-owned token.
         guard minted else { return }
-        do {
-            try await ProfileSetup.logout(profile: profile, credentials: credentials)
-        } catch {
-            Issue.record("Could not revoke the token minted by this live queue test.")
-        }
+        await revokeOwnedLiveToken(profile: profile, credentials: credentials)
     }
+}
 }

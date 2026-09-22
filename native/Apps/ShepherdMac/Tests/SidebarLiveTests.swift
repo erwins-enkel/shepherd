@@ -3,6 +3,7 @@ import ShepherdKit
 import Testing
 
 @testable import Shepherd
+@testable import ShepherdAppCore
 
 /// The environment gate for `SidebarLiveTests`. Outside the main-actor suite, like
 /// `LiveServerEnvironment` itself, because `@Test(.enabled(if:))` evaluates its trait from a
@@ -14,6 +15,7 @@ private enum SidebarLiveGate {
     }
 }
 
+extension MacSeamTests {
 /// The sidebar's half of the live smoke coverage: the four snapshot reads this stream added, and
 /// the groups the sidebar builds out of a real herd.
 ///
@@ -65,7 +67,7 @@ struct SidebarLiveTests {
                 // Only ever the token this test minted: a pre-minted one belongs to the caller, and
                 // no sweep by name runs here, so no other token on the server is touched.
                 if minted {
-                    try? await ProfileSetup.logout(profile: profile, credentials: credentials)
+                    await revokeOwnedLiveToken(profile: profile, credentials: credentials)
                 }
             }
         )
@@ -116,4 +118,5 @@ struct SidebarLiveTests {
         }
         await live.done()
     }
+}
 }

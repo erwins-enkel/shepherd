@@ -47,8 +47,22 @@ import Testing
     let script = """
     #!/bin/bash
     printf '%s|%s\\n' "$1" "$HERDR_SOCKET_PATH" >> "$HOME/socket-calls"
-    if [ "$1" = agent ]; then test -f "$HERDR_SOCKET_PATH.ready"; exit $?; fi
-    if [ "$1" = server ]; then touch "$HERDR_SOCKET_PATH.ready"; fi
+    if [ "$1" = agent ]; then
+      if [ ! -f "$HERDR_SOCKET_PATH.first-probe" ]; then
+        : > "$HERDR_SOCKET_PATH.first-probe"
+        exit 1
+      fi
+      # The real probe owns the authoritative 1.5s cancellation/kill bound.
+      # This secondary pacing cap prevents a failed fixture from spinning.
+      attempts=0
+      while [ ! -f "$HERDR_SOCKET_PATH.ready" ] && [ "$attempts" -lt 140 ]; do
+        sleep 0.01
+        attempts=$((attempts + 1))
+      done
+      test -f "$HERDR_SOCKET_PATH.ready"
+      exit $?
+    fi
+    if [ "$1" = server ]; then : > "$HERDR_SOCKET_PATH.ready"; fi
     """
     for name in ["bun", "herdr"] {
       let binary = bin.appendingPathComponent(name)
@@ -78,7 +92,21 @@ import Testing
     #expect(calls.contains("server|\(expected)"))
     #expect(calls.contains("agent|\(expected)"))
     #expect(calls.allSatisfy { $0.hasSuffix("|\(expected)") })
-    guard case .success = result else { Issue.record("probe must observe the daemon's socket"); return }
+    let callOrder = calls.prefix(4).map { call in
+      switch call.split(separator: "|", maxSplits: 1).first {
+      case "run": "run"
+      case "server": "server"
+      case "agent": "agent"
+      default: "other"
+      }
+    }.joined(separator: ",")
+    let readyMarker = FileManager.default.fileExists(
+      atPath: install.appendingPathComponent("runner.sock.ready").path)
+    guard case .success = result else {
+      print("LocalRunnerStart probe failure result=failure ready=\(readyMarker) calls=\(callOrder)")
+      Issue.record("probe must observe the daemon's socket")
+      return
+    }
     #expect(FileManager.default.fileExists(atPath: install.appendingPathComponent("runner.sock.ready").path))
     #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent("runner.sock.ready").path))
   }

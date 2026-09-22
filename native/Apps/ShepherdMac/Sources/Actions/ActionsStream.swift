@@ -1,3 +1,4 @@
+import ShepherdAppCore
 import ShepherdKit
 import SwiftUI
 
@@ -11,7 +12,12 @@ import SwiftUI
 @MainActor
 enum ActionsStream {
     static func install(_ app: AppModel) {
-        app.register(ActionsModel.self)
+        MacStreamHost.configure()
+        CoreStreamInstallers.installActions(into: app)
+    }
+
+    @MainActor
+    static func installSlot(_ app: AppModel) {
         ActionBarSlot.content = { session, store, app in
             // A bar with no live extension has no recap and no seams to read, which happens
             // only between `register` and the first activation. Rendering nothing is right:

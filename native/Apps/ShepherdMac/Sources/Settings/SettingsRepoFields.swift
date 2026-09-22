@@ -1,3 +1,4 @@
+import ShepherdAppCore
 import SwiftUI
 import Observation
 import ShepherdKit
@@ -52,13 +53,6 @@ struct SettingsRepoFields: View {
             guard let body = patch(text) else { return }
             save(body) { adopt(value($0)) }
         }
-    }
-}
-
-@Observable @MainActor final class SettingsRepoTextDraft {
-    var text = ""
-    func submit(_ save: (String, @escaping @MainActor (String) -> Void) -> Void) {
-        save(text) { [weak self] in self?.text = $0 }
     }
 }
 

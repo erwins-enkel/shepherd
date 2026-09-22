@@ -5,7 +5,9 @@ import SwiftUI
 import Testing
 
 @testable import Shepherd
+@testable import ShepherdAppCore
 
+extension MacSeamTests {
 @Suite(.serialized)
 @MainActor
 struct VisualBlocksTests {
@@ -119,18 +121,6 @@ struct VisualBlocksTests {
     @Test func fileTreeRendersDirectoriesAndChangeBadges() async throws {
         try await assertBlock(#"{"type":"file-tree","id":"b","title":"Files","entries":[{"path":"src/a.swift","change":"added","note":"New"},{"path":"src/nested/b.swift","change":"modified"},{"path":"old.swift","change":"removed"},{"path":"renamed.swift","change":"renamed"}]}"#,
                         type: "file-tree", text: ["Files", "src", "nested", "a.swift", "b.swift", "old.swift", "renamed.swift", "New", "A", "M", "D", "R"])
-    }
-
-    @Test func treeGroupsInterleavedPathsAndIndentsTwelvePoints() {
-        let rows = VisualFileTree.rows([
-            .init(path: "src/a.swift", change: .init(known: .added)),
-            .init(path: "README.md", change: .init(known: .modified)),
-            .init(path: "/src/nested/b.swift", change: .init(known: .removed)),
-            .init(path: "src/c.swift", change: .init(known: .renamed)),
-            .init(path: "///", change: .init(known: .added)),
-        ])
-        #expect(rows.map(\.name) == ["src", "a.swift", "nested", "b.swift", "c.swift", "README.md"])
-        #expect(rows.map(\.indent) == [0, 12, 12, 24, 12, 0])
     }
 
     @Test func tableRendersHeaderAndEveryCellIncludingRaggedRows() async throws {
@@ -248,4 +238,5 @@ struct VisualBlocksTests {
         #expect(!(await rendered([mermaid])).contains { $0.text.contains(L.t("vblock_inferred")) })
         #expect((await rendered([mermaid], inferred: true)).contains { $0.text.contains(L.t("vblock_inferred")) })
     }
+}
 }

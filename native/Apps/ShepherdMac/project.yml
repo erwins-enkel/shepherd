@@ -52,12 +52,13 @@ targets:
     platform: macOS
     sources:
       - path: Sources
-      - path: Resources
     dependencies:
       - package: ShepherdKit
         product: ShepherdKit
       - package: Sparkle
         product: Sparkle
+      - package: ShepherdKit
+        product: ShepherdAppCore
       - package: SwiftTerm
         product: SwiftTerm
     settings:
@@ -100,6 +101,10 @@ targets:
       - path: Tests
     dependencies:
       - target: Shepherd
+      - package: ShepherdKit
+        product: ShepherdAppCore
+        # Hosted tests use the host's core instance, including its process-wide seams.
+        link: false
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: run.shepherd.mac.tests

@@ -1,24 +1,5 @@
+import ShepherdAppCore
 import SwiftUI
-
-/// Panel factories for the lenses that replace the herd's live session groups.
-/// Register at launch; views are built lazily in the sidebar's environment.
-@MainActor
-enum QueuesPanels {
-    private static var registered: [HerdLens: @MainActor () -> AnyView] = [:]
-
-    /// Idempotent per lens: the last registration wins.
-    static func register(_ lens: HerdLens, panel: @escaping @MainActor () -> AnyView) {
-        registered[lens] = panel
-    }
-
-    /// A missing factory leaves the sidebar's ordinary herd groups in place.
-    static func panel(for lens: HerdLens) -> (@MainActor () -> AnyView)? {
-        registered[lens]
-    }
-
-    /// Tests and previews only.
-    static func reset() { registered.removeAll() }
-}
 
 /// Integration lane: call installScene() from StreamRegistrations.installScene(), before
 /// any view reads the non-observable panel registry. Call install(_:) from installAll(into:),
@@ -38,7 +19,7 @@ enum QueuesStream {
 
     static func install(_ app: AppModel) {
         // Keep direct installers/previews safe; production registers before scene construction.
-        installScene()
-        app.register(QueuesModel.self)
+        MacStreamHost.configure()
+        CoreStreamInstallers.installQueues(into: app)
     }
 }

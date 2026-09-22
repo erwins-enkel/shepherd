@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 /// The two variables that arm `LiveSmokeUITests`, read in both spellings:
@@ -30,7 +31,7 @@ enum LiveUITestEnvironment {
 /// `ProfileSetup.login` mints is named `Shepherd UI test (<host>)`, lands in an
 /// `InMemoryCredentialStore` and the profile in a throwaway `UserDefaults`
 /// suite; `-ShepherdRevokeOnExit 1` gives that token back to the server when the
-/// app really quits, and the next run sweeps any that a killed run left behind.
+/// app really quits. Every launch uses a unique name and never sweeps existing tokens.
 ///
 /// **Read-only against the operator's herd.** These tests never submit a prompt,
 /// never archive, stop or relaunch a session, and never trigger a PR action.
@@ -46,6 +47,7 @@ enum LiveUITestEnvironment {
 @MainActor
 final class LiveSmokeUITests: XCTestCase {
     private let harness = IsolatedUITestHarness()
+    private var didNormalizeTabWindow = false
     private var app: XCUIApplication { harness.application }
 
     override func setUp() async throws {
@@ -343,20 +345,139 @@ final class LiveSmokeUITests: XCTestCase {
         return tabs.isEmpty ? group.radioButtons.allElementsBoundByIndex : tabs
     }
 
-    /// Clicks the tab at `index`. See `testEveryDetailTabLoadsForASelectedSession` for why this
-    /// goes by position rather than by title.
+    /// Clicks the tab at `index` and waits for the selected tab and its paired body.
+    /// See `testEveryDetailTabLoadsForASelectedSession` for why this goes by position rather
+    /// than by title.
     @discardableResult
     private func selectTab(at index: Int) -> Bool {
-        let deadline = Date().addingTimeInterval(30)
+        let bodyIdentifiers = [
+            "detail-tab-terminal",
+            "detail-tab-activity",
+            "detail-tab-diff",
+            "detail-tab-files",
+            "detail-tab-git",
+            "detail-tab-plan",
+            "detail-tab-merge",
+            "detail-tab-prompt",
+        ]
+        guard index < bodyIdentifiers.count else { return false }
+
+        normalizeTabWindowWidthIfNeeded(at: index)
+        let expectedBody = app.descendants(matching: .any)[bodyIdentifiers[index]]
+        // Keep selection in a bounded 12-second window. The caller's existing separate
+        // 30-second body-resolution assertion remains unchanged.
+        let deadline = Date().addingTimeInterval(12)
+        var clicks = 0
+        var nextClick = Date.distantPast
         repeat {
             let buttons = tabButtons
-            if index < buttons.count, buttons[index].isHittable {
-                buttons[index].click()
+            if index < buttons.count, buttons[index].exists, buttons[index].isHittable,
+               clicks < 2, Date() >= nextClick {
+                let button = buttons[index]
+                clicks += 1
+                button.click()
+                // A missed AX click can report success before AppKit has selected its tab.
+                // Require the target's native selected value and expected body, then retry the
+                // same tab once inside the original deadline.
+                nextClick = Date().addingTimeInterval(2)
+            }
+            if index < buttons.count, buttons[index].exists, buttons[index].isHittable,
+               nativeTabValueClass(buttons[index].value) == "1", expectedBody.exists {
                 return true
             }
             Thread.sleep(forTimeInterval: 0.25)
         } while Date() < deadline
-        return false
+        let buttons = tabButtons
+        let hasButton = index < buttons.count
+        let buttonType = hasButton ? String(describing: buttons[index].elementType) : "none"
+        let buttonHittable = hasButton && buttons[index].isHittable
+        let buttonSelected = hasButton && buttons[index].isSelected
+        let buttonValue = hasButton ? buttons[index].value : nil
+        let buttonValueType = buttonValue.map { String(describing: type(of: $0)) } ?? "nil"
+        let buttonValueClass = nativeTabValueClass(buttonValue)
+        let bodyExists = expectedBody.exists
+        let bodyHittable = expectedBody.isHittable
+        print(
+            "detail tab selection timeout "
+                + "[index=\(index) count=\(buttons.count) type=\(buttonType) "
+                + "hittable=\(buttonHittable) selected=\(buttonSelected) "
+                + "valueType=\(buttonValueType) valueClass=\(buttonValueClass) "
+                + "bodyExists=\(bodyExists) bodyHittable=\(bodyHittable)]")
+        // AppKit exposes selected native tabs as AX value 1. XCTest may bridge that value as a
+        // number or string, so accept only those exact representations. `isSelected` reports
+        // false for these SwiftUI bridge tabs, and some bodies have multiple matching elements.
+        return index < buttons.count && buttons[index].exists && buttons[index].isHittable
+            && nativeTabValueClass(buttons[index].value) == "1" && expectedBody.exists
+    }
+
+    /// Expands the isolated window once before the first tab query. At a 900-point window, the
+    /// rendered NSTabView labels were compressed while AX retained wider hit frames, progressively
+    /// sending later tab clicks rightward. AppKit uses a bottom-left origin while AX uses top-left
+    /// coordinates, so translate through the primary display before selecting the display that
+    /// contains this window. The bottom-right drag is the bounded, no-key resize used by the
+    /// terminal smoke test.
+    private func normalizeTabWindowWidthIfNeeded(at index: Int) {
+        guard index == 0, !didNormalizeTabWindow else { return }
+        didNormalizeTabWindow = true
+        guard let window = app.windows.allElementsBoundByIndex.first else {
+            print("[tab-window-normalization] outcome=no-window")
+            return
+        }
+        let frame = window.frame
+        let primaryHeight = CGDisplayBounds(CGMainDisplayID()).height
+        guard frame.origin.x.isFinite, frame.origin.y.isFinite,
+              frame.width.isFinite, frame.height.isFinite,
+              frame.width > 0, frame.height > 0, primaryHeight.isFinite, primaryHeight > 0
+        else {
+            print("[tab-window-normalization] outcome=invalid-frame")
+            return
+        }
+        let cocoaFrame = CGRect(
+            x: frame.minX, y: primaryHeight - frame.maxY, width: frame.width, height: frame.height)
+        let midpoint = CGPoint(x: cocoaFrame.midX, y: cocoaFrame.midY)
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(midpoint) }) else {
+            print("[tab-window-normalization] outcome=no-display")
+            return
+        }
+        guard frame.width < 1400 else {
+            print("[tab-window-normalization] outcome=already-wide width=\(frame.width)")
+            return
+        }
+        let usableFrame = screen.visibleFrame.insetBy(dx: 16, dy: 16)
+        let targetWidth = min(1400, usableFrame.maxX - cocoaFrame.minX - 1)
+        guard targetWidth.isFinite, targetWidth > frame.width else {
+            print("[tab-window-normalization] outcome=no-room width=\(frame.width)")
+            return
+        }
+        let dragStart = CGPoint(x: cocoaFrame.maxX, y: cocoaFrame.minY)
+        let dragEnd = CGPoint(x: cocoaFrame.minX + targetWidth, y: cocoaFrame.minY)
+        guard usableFrame.contains(dragStart), usableFrame.contains(dragEnd) else {
+            print("[tab-window-normalization] outcome=unsafe-display-bounds")
+            return
+        }
+        let corner = window.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: frame.width, dy: frame.height))
+        corner.press(
+            forDuration: 0.1,
+            thenDragTo: window.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: targetWidth, dy: frame.height)))
+        let actualWidth = window.frame.width
+        let actualWidthText = actualWidth.isFinite ? "\(actualWidth)" : "invalid"
+        print(
+            "[tab-window-normalization] outcome=drag-attempted width=\(frame.width) "
+                + "targetWidth=\(targetWidth) actualWidth=\(actualWidthText)")
+    }
+
+    /// Returns only the observed native tab-state representations; never parses arbitrary text.
+    private func nativeTabValueClass(_ value: Any?) -> String {
+        if let value = value as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID(),
+           value.doubleValue.rounded() == value.doubleValue
+        {
+            if value.doubleValue == 0 { return "0" }
+            if value.doubleValue == 1 { return "1" }
+        }
+        if let value = value as? String, value == "0" || value == "1" { return value }
+        return "other"
     }
 
     /// Waits for one detail tab's body to leave `detail-state-loading`.

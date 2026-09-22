@@ -4601,5 +4601,8 @@
   "newtask_draft_restored": "Entwurf wiederhergestellt",
   "newtask_draft_discard": "Verwerfen & neue Aufgabe",
   "feat_newtask_draft_restore_title": "Versehentlich geschlossenen Aufgabenentwurf zurückholen",
-  "feat_newtask_draft_restore_body": "„Neue Aufgabe“ aus Versehen geschlossen – per Klick daneben, Escape oder ✕? Innerhalb von zwei Minuten wieder öffnen, und alles Geschriebene und Eingestellte ist zurück, markiert mit „Entwurf wiederhergestellt“. „Verwerfen & neue Aufgabe“ beginnt stattdessen mit einem leeren Dialog."
+  "feat_newtask_draft_restore_body": "„Neue Aufgabe“ aus Versehen geschlossen – per Klick daneben, Escape oder ✕? Innerhalb von zwei Minuten wieder öffnen, und alles Geschriebene und Eingestellte ist zurück, markiert mit „Entwurf wiederhergestellt“. „Verwerfen & neue Aufgabe“ beginnt stattdessen mit einem leeren Dialog.",
+  "newtask_preview_image_unavailable": "Bildvorschau nicht verfügbar",
+  "feat_task_image_preview_title": "Screenshots einer Aufgabe ansehen",
+  "feat_task_image_preview_body": "Fahre in den Task-ID-Details über einen Bilddateinamen, um den gespeicherten Screenshot zu sehen. Du kannst den Dateinamen auch per Tastatur fokussieren oder auf Touch-Geräten antippen."
 }

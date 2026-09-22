@@ -480,7 +480,7 @@ final class LiveSmokeUITests: XCTestCase {
             thenDragTo: window.coordinate(withNormalizedOffset: .zero)
                 .withOffset(CGVector(dx: targetWidth, dy: frame.height)))
         let actualWidth = window.frame.width
-        let actualWidthText = actualWidth.isFinite ? String(actualWidth) : "invalid"
+        let actualWidthText = actualWidth.isFinite ? "\(actualWidth)" : "invalid"
         print(
             "[tab-window-normalization] outcome=drag-attempted width=\(frame.width) "
                 + "targetWidth=\(targetWidth) actualWidth=\(actualWidthText)")

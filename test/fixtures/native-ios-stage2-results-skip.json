@@ -1,0 +1,20 @@
+{
+  "summary": {
+    "totalTestCount": 1,
+    "passedTests": 0,
+    "failedTests": 0,
+    "skippedTests": 1
+  },
+  "tests": {
+    "testNodes": [
+      {
+        "nodeType": "Test Case",
+        "nodeIdentifier": "IOSFixtureTests/testFlow()",
+        "result": "Skipped"
+      }
+    ]
+  },
+  "expected": [
+    "IOSFixtureTests/testFlow"
+  ]
+}

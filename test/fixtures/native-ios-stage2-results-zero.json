@@ -1,0 +1,14 @@
+{
+  "summary": {
+    "totalTestCount": 0,
+    "passedTests": 0,
+    "failedTests": 0,
+    "skippedTests": 0
+  },
+  "tests": {
+    "testNodes": []
+  },
+  "expected": [
+    "IOSFixtureTests/testFlow"
+  ]
+}

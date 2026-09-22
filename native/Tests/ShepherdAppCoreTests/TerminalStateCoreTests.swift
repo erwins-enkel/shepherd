@@ -726,9 +726,9 @@ struct ConnectingOverlayDebouncerTests {
     }
 
     @Test func hidesImmediatelyOnceConnectingEndsAfterShowing() async {
-        let debouncer = ConnectingOverlayDebouncer(delay: .milliseconds(10))
+        let debouncer = ConnectingOverlayDebouncer(delay: .zero)
         debouncer.phaseChanged(toConnecting: true)
-        try? await Task.sleep(for: .milliseconds(60))
+        _ = await settle(until: { debouncer.isVisible })
         #expect(debouncer.isVisible)
 
         debouncer.phaseChanged(toConnecting: false)

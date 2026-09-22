@@ -11378,7 +11378,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift\",\"CoreSeamTests.ConnectingOverlayDebouncerTests\",\"hidesImmediatelyOnceConnectingEndsAfterShowing() async\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: zero-delay debouncer plus bounded scheduler settling establishes the already-shown precondition without wall-clock timing."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/TerminalStateTests.swift\",\"ConnectingOverlayDebouncerTests\",\"showsOnceConnectingPersistsPastTheDelay() async\"]",

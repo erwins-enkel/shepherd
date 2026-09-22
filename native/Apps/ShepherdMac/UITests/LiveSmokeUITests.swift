@@ -371,11 +371,25 @@ final class LiveSmokeUITests: XCTestCase {
             if index < buttons.count, buttons[index].exists, buttons[index].isHittable,
                clicks < 2, Date() >= nextClick {
                 let button = buttons[index]
-                button.click()
+                let attempt = clicks + 1
+                let frame = button.frame
                 clicks += 1
+                if attempt == 1 {
+                    logTabHit(
+                        index: index, attempt: attempt, method: "element", frame: frame,
+                        valueClass: nativeTabValueClass(button.value))
+                    button.click()
+                } else if frame.origin.x.isFinite, frame.origin.y.isFinite,
+                          frame.width.isFinite, frame.height.isFinite,
+                          frame.width > 0, frame.height > 0 {
+                    logTabHit(
+                        index: index, attempt: attempt, method: "center", frame: frame,
+                        valueClass: nativeTabValueClass(button.value))
+                    button.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).click()
+                }
                 // A missed AX click can report success before AppKit has selected its tab.
-                // Require the target's native selected value and expected body, then retry
-                // that same tab once inside the original deadline.
+                // Require the target's native selected value and expected body, then retry the
+                // same tab at its center once inside the original deadline.
                 nextClick = Date().addingTimeInterval(2)
             }
             if index < buttons.count, buttons[index].exists, buttons[index].isHittable,
@@ -405,6 +419,14 @@ final class LiveSmokeUITests: XCTestCase {
         // false for these SwiftUI bridge tabs, and some bodies have multiple matching elements.
         return index < buttons.count && buttons[index].exists && buttons[index].isHittable
             && nativeTabValueClass(buttons[index].value) == "1" && expectedBody.exists
+    }
+
+    /// Logs fixed, non-content evidence for the two bounded tab-hit attempts.
+    private func logTabHit(index: Int, attempt: Int, method: String, frame: CGRect, valueClass: String) {
+        print(
+            "[DEBUG-tab-hit] index=\(index) attempt=\(attempt) method=\(method) "
+                + "frame=(x=\(frame.origin.x),y=\(frame.origin.y),w=\(frame.width),h=\(frame.height)) "
+                + "valueClass=\(valueClass)")
     }
 
     /// Returns only the observed native tab-state representations; never parses arbitrary text.

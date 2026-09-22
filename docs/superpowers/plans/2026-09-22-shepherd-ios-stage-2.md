@@ -37,15 +37,15 @@
 
 ## File ownership and dependency order
 
-| Task | Owner | Exclusive files | Depends on |
-| --- | --- | --- | --- |
-| 1 | Integrator | `native/Apps/ShepherdIOS/project.yml`, `Sources/Info.plist`, package/app target wiring | none |
-| 2 | Integrator | `native/Sources/ShepherdAppCore/App/AppModel.swift`, `native/Tests/ShepherdAppCoreTests/AppModelEventCompositionTests.swift` | 1 |
-| 3 | Composition owner | `native/Apps/ShepherdIOS/Sources/App/{ShepherdIOSApp,RootView,IOSAppLifecycle,IOSNotificationEnvironment,IOSLaunchEnvironment,IOSLiveCleanup}.swift`, composition/lifecycle tests | 1, 2 |
-| 4 | Presentation owner | Welcome, profile and connection views plus their unit tests | 3 |
-| 5 | Session/detail owner | Sessions list/detail/activity views plus lifecycle recovery tests | 3, 4 |
-| 6 | Acceptance owner | iOS scripts, UI tests, result checker and `native-ios.yml` | 1–5 |
-| 7 | Documentation/integrator | `native/docs/ios-development.md`, manifests/catalog generation and final evidence | 1–6 |
+| Task | Owner                    | Exclusive files                                                                                                                                                                   | Depends on |
+| ---- | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
+| 1    | Integrator               | `native/Apps/ShepherdIOS/project.yml`, `Sources/Info.plist`, package/app target wiring                                                                                            | none       |
+| 2    | Integrator               | `native/Sources/ShepherdAppCore/App/AppModel.swift`, `native/Tests/ShepherdAppCoreTests/AppModelEventCompositionTests.swift`                                                      | 1          |
+| 3    | Composition owner        | `native/Apps/ShepherdIOS/Sources/App/{ShepherdIOSApp,RootView,IOSAppLifecycle,IOSNotificationEnvironment,IOSLaunchEnvironment,IOSLiveCleanup}.swift`, composition/lifecycle tests | 1, 2       |
+| 4    | Presentation owner       | Welcome, profile and connection views plus their unit tests                                                                                                                       | 3          |
+| 5    | Session/detail owner     | Sessions list/detail/activity views plus lifecycle recovery tests                                                                                                                 | 3, 4       |
+| 6    | Acceptance owner         | iOS scripts, UI tests, result checker and `native-ios.yml`                                                                                                                        | 1–5        |
+| 7    | Documentation/integrator | `native/docs/ios-development.md`, manifests/catalog generation and final evidence                                                                                                 | 1–6        |
 
 Tasks 3–5 can be drafted independently after their interfaces are fixed, but integration and all native validation remain sequential. Task 3 owns the initial `RootView` and lifecycle API; after its checkpoint, Task 5 has an explicit handoff to add only the session destination wiring in the marked integration region of `RootView`, while preserving the lifecycle API. No other worker edits that file. The integrator owns any required generated localization output.
 

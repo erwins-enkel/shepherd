@@ -299,7 +299,7 @@
         "line": 40,
         "attributes": "@testable\n@Suite(.serialized, .timeLimit(.minutes(1)))\n@Test",
         "condition": "#if os(macOS)",
-        "bodyHash": "a354ef02f681ffa39fdd2ba9560b92201fc5eab167e4c39add74a7bc813e7300",
+        "bodyHash": "694c4c92c9c8242dd3e8a5b539f0125798a61963649f72d4e48a5412f038590a",
         "assertionHashes": [
           "33376c6f227a95d044bc81019e4e580d0567e1cf3288ef51ea802edd8cfb7162",
           "967da76491d285b1499dd2f2b6d70b88d38157c044b449866d0c17300be90b31",
@@ -323,7 +323,7 @@
           "ea8847f6b84d72cfa1edf5e0a4befa2c7e8ed4efcc0b44bb2064f97f28faa38a"
         ]
       },
-      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+      "reason": "Pinned upstream test retains identical assertion tokens and conditional context; its fake daemon writes the readiness marker with a shell builtin and emits bounded failure-only readiness/call-order diagnostics."
     },
     {
       "original": null,

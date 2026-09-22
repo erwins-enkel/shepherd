@@ -4538,5 +4538,8 @@
   "topbar_codex_reset_outcome_nothingToReset": "Codex kann das Kontingent noch nicht zurücksetzen",
   "topbar_codex_reset_outcome_noCredit": "Kein Reset-Guthaben verfügbar",
   "topbar_codex_reset_feature_title": "Automatische Codex-Resets",
-  "topbar_codex_reset_feature_body": "Verdiente Resets im Nutzungspanel ansehen, manuell einlösen oder Kapazitätsschutz und sinnvolle Einlösung vor Verfall aktivieren. Automatische Arbeit wartet bei fehlender Kapazität."
+  "topbar_codex_reset_feature_body": "Verdiente Resets im Nutzungspanel ansehen, manuell einlösen oder Kapazitätsschutz und sinnvolle Einlösung vor Verfall aktivieren. Automatische Arbeit wartet bei fehlender Kapazität.",
+  "newtask_preview_image_unavailable": "Bildvorschau nicht verfügbar",
+  "feat_task_image_preview_title": "Screenshots einer Aufgabe ansehen",
+  "feat_task_image_preview_body": "Fahre in den Task-ID-Details über einen Bilddateinamen, um den gespeicherten Screenshot zu sehen. Du kannst den Dateinamen auch per Tastatur fokussieren oder auf Touch-Geräten antippen."
 }

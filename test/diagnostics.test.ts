@@ -2427,3 +2427,116 @@ describe("classifyPreviewProbes (#1912)", () => {
     expect(row?.hintKey).toBe("diagnostics_hint_preview_probes_stale");
   });
 });
+
+describe("claude_model_cli advisory", () => {
+  // Save/restore the live role config the check enumerates, as the codex advisory above does.
+  function withCritic(
+    cli: typeof config.criticCli,
+    model: typeof config.criticModel,
+    fn: () => Promise<void>,
+  ): Promise<void> {
+    const savedCli = config.criticCli;
+    const savedModel = config.criticModel;
+    config.criticCli = cli;
+    config.criticModel = model;
+    return fn().finally(() => {
+      config.criticCli = savedCli;
+      config.criticModel = savedModel;
+    });
+  }
+
+  /** HEALTHY_VERSIONS pins claude at 1.2.3 — below every floor — so the default deps model a
+   *  too-old CLI. Pass a version to model a host that is new enough. */
+  const withClaudeVersion = (version: string): Partial<DiagnosticsDeps> => ({
+    runVersion: versionRunner({ ...HEALTHY_VERSIONS, claude: `${version} (Claude Code)` }),
+  });
+
+  it("warns when a configured role model needs a newer Claude Code, naming both versions", async () => {
+    await withCritic("claude", "claude-opus-5-5", async () => {
+      const svc = new DiagnosticsService(healthyDeps());
+      const c = byId((await svc.check(0)).checks, "claude_model_cli");
+      expect(c.state).toBe("warning");
+      expect(c.hintKey).toBe("diagnostics_hint_claude_model_cli_outdated");
+      expect(c.hintParams).toEqual({
+        model: "claude-opus-5-5",
+        required: "2.1.280",
+        running: "1.2.3",
+      });
+      // Guidance-only: the operator updates their own CLI, so no Fix button either way.
+      expect(c.remediation).toBeUndefined();
+      expect(c.fixActionKey).toBeUndefined();
+      assertPure(c);
+    });
+  });
+
+  it("does NOT warn once the installed CLI reaches the floor", async () => {
+    await withCritic("claude", "claude-opus-5-5", async () => {
+      const svc = new DiagnosticsService({ ...healthyDeps(), ...withClaudeVersion("2.1.280") });
+      const checks = (await svc.check(0)).checks;
+      expect(checks.find((c) => c.id === "claude_model_cli")).toBeUndefined();
+    });
+  });
+
+  it("does NOT warn when no model with a floor is configured", async () => {
+    await withCritic("claude", "claude-opus-5", async () => {
+      const svc = new DiagnosticsService(healthyDeps());
+      const checks = (await svc.check(0)).checks;
+      expect(checks.find((c) => c.id === "claude_model_cli")).toBeUndefined();
+    });
+  });
+
+  it("covers the [1m] variant, which shares its base model's floor", async () => {
+    await withCritic("claude", "claude-opus-5-5[1m]", async () => {
+      const svc = new DiagnosticsService(healthyDeps());
+      const c = byId((await svc.check(0)).checks, "claude_model_cli");
+      expect(c.state).toBe("warning");
+      expect(c.hintParams?.model).toBe("claude-opus-5-5[1m]");
+    });
+  });
+
+  it("checks the global Claude default too", async () => {
+    const savedProvider = config.defaultAgentProvider;
+    const savedModel = config.defaultModel;
+    config.defaultAgentProvider = "claude";
+    config.defaultModel = "claude-opus-5-5";
+    try {
+      const svc = new DiagnosticsService(healthyDeps());
+      expect(byId((await svc.check(0)).checks, "claude_model_cli").state).toBe("warning");
+    } finally {
+      config.defaultAgentProvider = savedProvider;
+      config.defaultModel = savedModel;
+    }
+  });
+
+  it("warns for a per-repo or epic Claude model", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      configuredClaudeModels: () => ["claude-opus-5-5"],
+    });
+    const c = byId((await svc.check(0)).checks, "claude_model_cli");
+    expect(c.state).toBe("warning");
+    expect(c.hintParams?.model).toBe("claude-opus-5-5");
+  });
+
+  it("stays SILENT when the installed version cannot be read — never a guess", async () => {
+    await withCritic("claude", "claude-opus-5-5", async () => {
+      const svc = new DiagnosticsService({
+        ...healthyDeps(),
+        runVersion: versionRunner({ ...HEALTHY_VERSIONS, claude: "Claude Code (dev build)" }),
+      });
+      const checks = (await svc.check(0)).checks;
+      expect(checks.find((c) => c.id === "claude_model_cli")).toBeUndefined();
+    });
+  });
+
+  it("stays silent when claude is absent — the `claude` row already says so", async () => {
+    await withCritic("claude", "claude-opus-5-5", async () => {
+      const svc = new DiagnosticsService({
+        ...healthyDeps(),
+        runVersion: versionRunner({ ...HEALTHY_VERSIONS, claude: new Error("ENOENT") }),
+      });
+      const checks = (await svc.check(0)).checks;
+      expect(checks.find((c) => c.id === "claude_model_cli")).toBeUndefined();
+    });
+  });
+});

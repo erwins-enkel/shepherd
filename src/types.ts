@@ -422,20 +422,30 @@ export interface RelaunchOverrides {
  *
  *  Two KINDS of entry live here, and the difference is the point:
  *    - FLOATING aliases ("fable"/"opus"/"sonnet"/"haiku") resolve to whatever the
- *      installed CLI calls the latest model of that tier — `--model opus` reaches
- *      the API as `claude-opus-5` today, `--model fable` as `claude-fable-5-1`.
- *    - PINNED full model names ("claude-opus-5", "claude-fable-5-1") lock the exact
+ *      installed CLI calls the latest model of that tier — which is why they are
+ *      NOT labelled with a version anywhere (see model-label.ts's tense split).
+ *    - PINNED full model names ("claude-opus-5-5", "claude-fable-5-1") lock the exact
  *      version, so a future Opus or Fable release can't silently change a task's
  *      model. The short form `opus-5` is NOT a valid CLI value (it errors) — only
  *      the full name is.
- *  Both forms were probed against the pinned CLI: `claude-opus-5[1m]` sends wire
+ *  The Opus 5 pair was probed against the pinned CLI: `claude-opus-5[1m]` sends wire
  *  model `claude-opus-5` with a beta set byte-identical to `opus[1m]`'s, i.e. it
- *  really does carry `context-1m-2025-08-07`. */
+ *  really does carry `context-1m-2025-08-07`. The Opus 5.5 pair could NOT be probed
+ *  the same way — the CLI on hand 400s on the model before sending any header — so
+ *  `claude-opus-5-5[1m]` carries the 1M beta by the same construction, not by
+ *  measurement; re-probe it once a CLI at the floor below is installed.
+ *
+ *  A pinned name is only spawnable on a CLI whose catalog carries it: Claude Code
+ *  rejects an unknown one with a hard 400 naming the version it needs. That floor
+ *  lives in `claude-model-cli.ts` and surfaces as the `claude_model_cli` DIAGNOSE
+ *  row; it is deliberately NOT enforced here, so the list stays a plain value space. */
 const CLAUDE_MODELS = [
   "fable",
   "claude-fable-5-1",
   "opus",
   "opus[1m]",
+  "claude-opus-5-5",
+  "claude-opus-5-5[1m]",
   "claude-opus-5",
   "claude-opus-5[1m]",
   "sonnet",

@@ -2494,13 +2494,15 @@ export interface HeldResult {
  *  The "[1m]" suffix enables Claude Code's 1M-context window and passes straight
  *  through to --model; each 1M variant sits next to its 200K base.
  *  Floating aliases ("opus") track the latest model of their tier; pinned full
- *  names ("claude-opus-5") lock an exact version. Mirrors src/types.ts
+ *  names ("claude-opus-5-5") lock an exact version. Mirrors src/types.ts
  *  CLAUDE_MODELS — keep both lists identical (see the note there). */
 const CLAUDE_MODELS = [
   "fable",
   "claude-fable-5-1",
   "opus",
   "opus[1m]",
+  "claude-opus-5-5",
+  "claude-opus-5-5[1m]",
   "claude-opus-5",
   "claude-opus-5[1m]",
   "sonnet",
@@ -2549,6 +2551,8 @@ export const PREMIUM_MODELS: readonly string[] = [
   "claude-fable-5-1",
   "opus",
   "opus[1m]",
+  "claude-opus-5-5",
+  "claude-opus-5-5[1m]",
   "claude-opus-5",
   "claude-opus-5[1m]",
   "sonnet[1m]",

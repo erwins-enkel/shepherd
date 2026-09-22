@@ -43,6 +43,30 @@ describe("modelGuidance", () => {
     );
   });
 
+  it("gives pinned Opus 5.5 the Opus tier and fit, despite listing cheaper than Opus 5", () => {
+    // 5.5 lists at $4/$20 against Opus 5's $5/$25, but the tier band drives the unattended-default
+    // cost warning and 5.5 is still Opus-priced against sonnet.
+    expect(modelGuidance("claude", "claude-opus-5-5").costTier).toBe(
+      modelGuidance("claude", "claude-opus-5").costTier,
+    );
+    expect(modelGuidance("claude", "claude-opus-5-5").tag).toBe(
+      modelGuidance("claude", "claude-opus-5").tag,
+    );
+    expect(modelGuidance("claude", "claude-opus-5-5[1m]").costTier).toBe("premium");
+    expect(modelGuidance("claude", "claude-opus-5-5[1m]").tag).toBe(
+      modelGuidance("claude", "opus[1m]").tag,
+    );
+    // Its own guidance copy, not the unknown-model fallback and not Opus 5's.
+    for (const alias of ["claude-opus-5-5", "claude-opus-5-5[1m]"]) {
+      expect(modelGuidance("claude", alias).detail).not.toBe(
+        modelGuidance("claude", "nope").detail,
+      );
+    }
+    expect(modelGuidance("claude", "claude-opus-5-5").detail).not.toBe(
+      modelGuidance("claude", "claude-opus-5").detail,
+    );
+  });
+
   it("gives pinned Fable 5.1 the same tier and fit as the floating alias it pins", () => {
     expect(modelGuidance("claude", "claude-fable-5-1").costTier).toBe(
       modelGuidance("claude", "fable").costTier,
@@ -132,9 +156,17 @@ describe("record vs configured labels", () => {
 
   it("labels pinned models identically on both surfaces", () => {
     // A pinned name means the same model forever, so there is no tense to disambiguate.
-    for (const alias of ["claude-opus-5", "claude-opus-5[1m]", "claude-fable-5-1"]) {
+    for (const alias of [
+      "claude-opus-5-5",
+      "claude-opus-5-5[1m]",
+      "claude-opus-5",
+      "claude-opus-5[1m]",
+      "claude-fable-5-1",
+    ]) {
       expect(configuredModelLabel(alias)).toBe(modelLabel(alias));
     }
+    expect(modelLabel("claude-opus-5-5")).toBe("Opus 5.5");
+    expect(modelLabel("claude-opus-5-5[1m]")).toBe("Opus 5.5 (1M context)");
     expect(modelLabel("claude-opus-5")).toBe("Opus 5");
     expect(modelLabel("claude-opus-5[1m]")).toBe("Opus 5 (1M context)");
     expect(modelLabel("claude-fable-5-1")).toBe("Fable 5.1");
@@ -155,6 +187,8 @@ describe("runtime model labels", () => {
 
   it("formats concrete Claude model slugs", () => {
     expect(runtimeModelLabel("claude-opus-5-1")).toBe("Opus 5.1");
+    expect(runtimeModelLabel("claude-opus-5-5")).toBe("Opus 5.5");
+    expect(runtimeModelLabel("claude-opus-5-5-20260922")).toBe("Opus 5.5");
     expect(runtimeModelLabel("claude-sonnet-4-8-20260901")).toBe("Sonnet 4.8");
   });
 

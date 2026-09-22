@@ -162,6 +162,27 @@ launcher script you may have put there on purpose, and deleting a several-hundre
 tree is your call, not Shepherd's. On a host where mise doesn't manage `claude` the row is
 absent entirely.
 
+### Claude Code version and model support
+
+Claude Code validates `--model` against a model catalog **compiled into the binary**. Picking a
+model newer than the installed CLI is not a slow failure or a quiet downgrade — every spawn dies
+with a `400` naming the version it needs:
+
+```
+API Error: 400 Claude Code 2.1.277 does not support this model;
+           version 2.1.280 or newer is required.
+```
+
+The **claude model support** row in Settings → Diagnose warns before that happens: when a model
+you have configured — as the global default, a repo default, a per-role model, or on a live epic
+run — needs a newer Claude Code than the one on `PATH`, the row names the model, the version
+required and the version running. It stays silent otherwise, including when `claude --version`
+can't be read: Shepherd would rather say nothing than guess at a version it never established.
+
+Like the install row above it, this one has no **Fix** button — updating your Claude Code is your
+call. On a mise-managed host that's `mise upgrade claude`; otherwise `claude update`. Currently
+only `claude-opus-5-5` (and its `[1m]` variant) carries a floor, at 2.1.280.
+
 ## Agent launch inside the sandbox
 
 Shepherd's startup self-test proves that **bubblewrap can build a sandbox** on this

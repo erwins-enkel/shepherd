@@ -84,6 +84,83 @@ test("Fable in/out and cache-write rates are identical across both rows", () => 
   );
 });
 
+// ── Opus 5.5 ────────────────────────────────────────────────────────────────
+// Opus 5.5 lists at $4/$20 with cache reads at 5% of input, against the $5/$25 + 10% the earlier
+// Opus generation charges. The generic /opus/i row would swallow it and overstate every record by
+// 25%, so the narrower row's PLACEMENT and its MATCH SHAPE are both load-bearing.
+
+/** One Mtok of every token class — a fingerprint of the whole weight row, so a test comparing two
+ *  ids proves they landed on the SAME row rather than merely agreeing on one number. */
+const allClasses = (model: string) =>
+  weightedUnits(
+    {
+      input: 1_000_000,
+      output: 1_000_000,
+      cacheRead: 1_000_000,
+      cacheWrite5m: 1_000_000,
+      cacheWrite1h: 1_000_000,
+    },
+    model,
+  );
+
+test("Opus 5.5 prices at $4 in / $20 out / $0.20 cache read per Mtok", () => {
+  expect(
+    weightedUnits(
+      { input: 1_000_000, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
+      "claude-opus-5-5",
+    ),
+  ).toBe(4);
+  expect(
+    weightedUnits(
+      { input: 0, output: 1_000_000, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
+      "claude-opus-5-5",
+    ),
+  ).toBe(20);
+  expect(cacheRead("claude-opus-5-5")).toBe(0.2);
+  expect(cacheWriteUnits({ cacheWrite5m: 1_000_000, cacheWrite1h: 0 }, "claude-opus-5-5")).toBe(5);
+  expect(cacheWriteUnits({ cacheWrite5m: 0, cacheWrite1h: 1_000_000 }, "claude-opus-5-5")).toBe(8);
+});
+
+test("Opus 5.5 — the dated, -v1 and provider-prefixed wire ids all price the same", () => {
+  // These are the shapes that actually reach weightsFor: usage.ts reads `message.model` off a
+  // transcript record, and a `$`-anchored match would drop every one onto the generic Opus row.
+  const base = allClasses("claude-opus-5-5");
+  for (const id of [
+    "claude-opus-5-5-20260922",
+    "claude-opus-5-5-20260922-v1",
+    "claude-opus-5-5-v1",
+    "us.anthropic.claude-opus-5-5",
+    "anthropic.claude-opus-5-5",
+    "claude-opus-5-5@20260922",
+  ])
+    expect(allClasses(id)).toBe(base);
+});
+
+test("Opus 5.5 — the row does not swallow other Opus ids", () => {
+  const opus5 = allClasses("claude-opus-5");
+  expect(allClasses("claude-opus-5-5")).not.toBe(opus5);
+  // Earlier/other generations keep the $5/$25 row, dated forms included.
+  for (const id of ["claude-opus-5", "claude-opus-5-20260401", "claude-opus-4-8", "opus"])
+    expect(allClasses(id)).toBe(opus5);
+  // The lookahead is what keeps a longer numeric suffix off the 5.5 price.
+  expect(allClasses("claude-opus-5-50")).toBe(opus5);
+});
+
+test("an unknown model still prices sonnet-like after the Opus 5.5 row was inserted", () => {
+  // DEFAULT used to be read out of TABLE by INDEX, so inserting any row above sonnet silently
+  // repriced every unrecognised model. It is a named constant now; this pins that.
+  const unknown = {
+    input: 1_000_000,
+    output: 1_000_000,
+    cacheRead: 0,
+    cacheWrite5m: 0,
+    cacheWrite1h: 0,
+  };
+  expect(weightedUnits(unknown, "totally-unknown-model")).toBe(3 + 15);
+  expect(weightedUnits(unknown, "claude-sonnet-5")).toBe(3 + 15);
+  expect(weightedUnits(unknown, "<synthetic>")).toBe(3 + 15);
+});
+
 // ── coldResumeUnits (#2042) ─────────────────────────────────────────────────
 // The estimate behind the HUD's cold-resume marker. Its accuracy is what makes showing a NUMBER
 // defensible rather than a bare warning icon, so the arithmetic is pinned exactly.

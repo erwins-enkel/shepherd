@@ -33,6 +33,11 @@ export const DOC_LINKS: Record<string, string> = {
     "https://docs.shepherd.run/operating/#the-claude-code-install-row",
   diagnostics_hint_claude_install_native_residue:
     "https://docs.shepherd.run/operating/#the-claude-code-install-row",
+  // claude_model_cli is guidance-only for the same reason — Shepherd never upgrades an
+  // operator's Claude Code — so the row links the section documenting the CLI model floor.
+  // Anchor coupled to the heading by test/host-capacity-doc-anchor.test.ts.
+  diagnostics_hint_claude_model_cli_outdated:
+    "https://docs.shepherd.run/operating/#claude-code-version-and-model-support",
 };
 
 /** Per-state PWA-install help URL; undefined for `optional`/`installed`

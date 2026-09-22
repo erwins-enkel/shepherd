@@ -145,7 +145,7 @@ jobs:
           SHEPHERD_KEYCHAIN_TESTS: "1"
         run: |
           set -euo pipefail
-          swift test --package-path native --no-parallel --filter ShepherdKitTests --xunit-output "$RUNNER_TEMP/kit.xml" 2>&1 | tail -n 40
+          swift test --package-path native --no-parallel --filter ShepherdKitTests --xunit-output "$RUNNER_TEMP/kit.xml" 2>&1 | tee "$RUNNER_TEMP/kit.log"
           python3 native/scripts/check-core-results.py --xunit "$RUNNER_TEMP/kit-swift-testing.xml" --target ShepherdKitTests --require-keychain
 
       - name: Test isolated application core
@@ -155,7 +155,7 @@ jobs:
         run: |
           set -euo pipefail
           unset SHEPHERD_KEYCHAIN_TESTS TEST_RUNNER_SHEPHERD_KEYCHAIN_TESTS
-          swift test --package-path native --no-parallel --filter ShepherdAppCoreTests --xunit-output "$RUNNER_TEMP/core.xml" 2>&1 | tail -n 40
+          swift test --package-path native --no-parallel --filter ShepherdAppCoreTests --xunit-output "$RUNNER_TEMP/core.xml" 2>&1 | tee "$RUNNER_TEMP/core.log"
           python3 native/scripts/check-core-results.py --xunit "$RUNNER_TEMP/core-swift-testing.xml"
 
       - name: Conserve original native scenarios
@@ -165,6 +165,21 @@ jobs:
         if: always() && runner.os == 'macOS'
         working-directory: ${{ runner.temp }}
         run: security delete-keychain ci.keychain-db
+
+      - name: Publish package test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: native-package-tests
+          path: |
+            ${{ runner.temp }}/kit.log
+            ${{ runner.temp }}/kit.xml
+            ${{ runner.temp }}/kit-swift-testing.xml
+            ${{ runner.temp }}/core.log
+            ${{ runner.temp }}/core.xml
+            ${{ runner.temp }}/core-swift-testing.xml
+          if-no-files-found: warn
+          retention-days: 7
 
       # ── Shepherd for Mac (sub-project 4a) ───────────────────────────────
       - name: Install XcodeGen

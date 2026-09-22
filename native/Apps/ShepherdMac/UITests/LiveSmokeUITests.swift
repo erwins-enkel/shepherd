@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 
 /// The two variables that arm `LiveSmokeUITests`, read in both spellings:
@@ -46,6 +47,7 @@ enum LiveUITestEnvironment {
 @MainActor
 final class LiveSmokeUITests: XCTestCase {
     private let harness = IsolatedUITestHarness()
+    private var didNormalizeTabWindow = false
     private var app: XCUIApplication { harness.application }
 
     override func setUp() async throws {
@@ -360,6 +362,7 @@ final class LiveSmokeUITests: XCTestCase {
         ]
         guard index < bodyIdentifiers.count else { return false }
 
+        normalizeTabWindowWidthIfNeeded(at: index)
         let expectedBody = app.descendants(matching: .any)[bodyIdentifiers[index]]
         // Keep selection in a bounded 12-second window. The caller's existing separate
         // 30-second body-resolution assertion remains unchanged.
@@ -386,16 +389,16 @@ final class LiveSmokeUITests: XCTestCase {
                           frame.width.isFinite, frame.height.isFinite,
                           frame.width > 0, frame.height > 0 {
                     logTabSelectionSnapshot(
-                        phase: "before", index: index, attempt: attempt, method: "left-inside", targetFrame: frame,
+                        phase: "before", index: index, attempt: attempt, method: "element-retry", targetFrame: frame,
                         bodyIdentifiers: bodyIdentifiers)
-                    button.coordinate(withNormalizedOffset: CGVector(dx: 0.2, dy: 0.5)).click()
+                    button.click()
                     logTabSelectionSnapshot(
-                        phase: "after", index: index, attempt: attempt, method: "left-inside", targetFrame: frame,
+                        phase: "after", index: index, attempt: attempt, method: "element-retry", targetFrame: frame,
                         bodyIdentifiers: bodyIdentifiers)
                 }
                 // A missed AX click can report success before AppKit has selected its tab.
                 // Require the target's native selected value and expected body, then retry the
-                // same tab at a left-inside point once inside the original deadline.
+                // same tab once inside the original deadline.
                 nextClick = Date().addingTimeInterval(2)
             }
             if index < buttons.count, buttons[index].exists, buttons[index].isHittable,
@@ -425,6 +428,62 @@ final class LiveSmokeUITests: XCTestCase {
         // false for these SwiftUI bridge tabs, and some bodies have multiple matching elements.
         return index < buttons.count && buttons[index].exists && buttons[index].isHittable
             && nativeTabValueClass(buttons[index].value) == "1" && expectedBody.exists
+    }
+
+    /// Expands the isolated window once before the first tab query. AppKit uses a bottom-left
+    /// origin while AX uses top-left coordinates, so translate through the primary display before
+    /// selecting the display that contains this window. The bottom-right drag is the bounded,
+    /// no-key resize already used by the terminal smoke test.
+    private func normalizeTabWindowWidthIfNeeded(at index: Int) {
+        guard index == 0, !didNormalizeTabWindow else { return }
+        didNormalizeTabWindow = true
+        guard let window = app.windows.allElementsBoundByIndex.first else {
+            print("[tab-window-normalization] outcome=no-window")
+            return
+        }
+        let frame = window.frame
+        let primaryHeight = CGDisplayBounds(CGMainDisplayID()).height
+        guard frame.origin.x.isFinite, frame.origin.y.isFinite,
+              frame.width.isFinite, frame.height.isFinite,
+              frame.width > 0, frame.height > 0, primaryHeight.isFinite, primaryHeight > 0
+        else {
+            print("[tab-window-normalization] outcome=invalid-frame")
+            return
+        }
+        let cocoaFrame = CGRect(
+            x: frame.minX, y: primaryHeight - frame.maxY, width: frame.width, height: frame.height)
+        let midpoint = CGPoint(x: cocoaFrame.midX, y: cocoaFrame.midY)
+        guard let screen = NSScreen.screens.first(where: { $0.frame.contains(midpoint) }) else {
+            print("[tab-window-normalization] outcome=no-display")
+            return
+        }
+        guard frame.width < 1400 else {
+            print("[tab-window-normalization] outcome=already-wide width=\(frame.width)")
+            return
+        }
+        let usableFrame = screen.visibleFrame.insetBy(dx: 16, dy: 16)
+        let targetWidth = min(1400, usableFrame.maxX - cocoaFrame.minX - 1)
+        guard targetWidth.isFinite, targetWidth > frame.width else {
+            print("[tab-window-normalization] outcome=no-room width=\(frame.width)")
+            return
+        }
+        let dragStart = CGPoint(x: cocoaFrame.maxX, y: cocoaFrame.minY)
+        let dragEnd = CGPoint(x: cocoaFrame.minX + targetWidth, y: cocoaFrame.minY)
+        guard usableFrame.contains(dragStart), usableFrame.contains(dragEnd) else {
+            print("[tab-window-normalization] outcome=unsafe-display-bounds")
+            return
+        }
+        let corner = window.coordinate(withNormalizedOffset: .zero)
+            .withOffset(CGVector(dx: frame.width, dy: frame.height))
+        corner.press(
+            forDuration: 0.1,
+            thenDragTo: window.coordinate(withNormalizedOffset: .zero)
+                .withOffset(CGVector(dx: targetWidth, dy: frame.height)))
+        let actualWidth = window.frame.width
+        let actualWidthText = actualWidth.isFinite ? String(actualWidth) : "invalid"
+        print(
+            "[tab-window-normalization] outcome=drag-attempted width=\(frame.width) "
+                + "targetWidth=\(targetWidth) actualWidth=\(actualWidthText)")
     }
 
     /// Logs fixed, non-content state before and after each bounded tab-hit attempt.

@@ -34,7 +34,9 @@ import {
   resolveRoleEnvironment,
   CHATGPT_INCOMPATIBLE_CODEX_MODELS,
   type CodexAuthMode,
+  type RoleEnvironment,
 } from "./default-model";
+import { modelNeedingNewerCli } from "./claude-model-cli";
 import { matchAgents, tabLabelMap, type IHerdrDriver } from "./herdr";
 import { formatResidueSize, verdictFor, type MiseClaudeState } from "./mise-claude";
 import { isShepherdHelperLabel } from "./tab-reaper";
@@ -152,6 +154,9 @@ export interface DiagnosticsDeps {
   readCodexAuthMode?: () => CodexAuthMode;
   /** Additional live Codex models configured outside role/global settings (repo defaults, epics). */
   configuredCodexModels?: () => readonly (string | null)[];
+  /** Additional live Claude models configured outside role/global settings (repo defaults, epics).
+   *  Feeds the `claude_model_cli` CLI-floor advisory, the Claude twin of the codex list above. */
+  configuredClaudeModels?: () => readonly (string | null)[];
   /** True iff Claude Code trusts `config.repoRoot` (`hasTrustDialogAccepted`). Default reads the
    *  config-dir-aware `.claude.json`. Injected in tests to drive the `claude_trust` check. */
   readClaudeTrusted?: () => Promise<boolean>;
@@ -1140,6 +1145,7 @@ export class DiagnosticsService {
   private anyLightweightRepo: () => boolean;
   private detectCodexAuthMode: () => CodexAuthMode;
   private configuredCodexModels: () => readonly (string | null)[];
+  private configuredClaudeModels: () => readonly (string | null)[];
   private readClaudeTrusted: () => Promise<boolean>;
   private readMiseClaude: () => Promise<MiseClaudeState>;
   private trustClaude: () => Promise<void>;
@@ -1202,6 +1208,7 @@ export class DiagnosticsService {
     this.anyLightweightRepo = deps.anyLightweightRepo ?? (() => false);
     this.detectCodexAuthMode = deps.readCodexAuthMode ?? readCodexAuthMode;
     this.configuredCodexModels = deps.configuredCodexModels ?? (() => []);
+    this.configuredClaudeModels = deps.configuredClaudeModels ?? (() => []);
     const trust = resolveClaudeTrustDeps(deps);
     this.readClaudeTrusted = trust.readClaudeTrusted;
     this.readMiseClaude = trust.readMiseClaude;
@@ -1234,32 +1241,12 @@ export class DiagnosticsService {
    */
   private codexModelAuthCheck(): DiagnosticCheck | null {
     if (this.detectCodexAuthMode() !== "chatgpt") return null;
-    const pairs: Array<[string, string]> = [
-      [config.recapCli, config.recapModel],
-      [config.namerCli, config.namerModel],
-      [config.autopilotCli, config.autopilotModel],
-      [config.criticCli, config.criticModel],
-      [config.docAgentCli, config.docAgentModel],
-      ["inherit", "default"], // the global default provider and its matching model
-    ];
-    const roleOrGlobalHit = pairs.some(([cli, model]) => {
-      const globalModelSetting =
-        config.defaultAgentProvider === "codex" ? config.defaultCodexModel : config.defaultModel;
-      const env = resolveRoleEnvironment(
-        cli,
-        model,
-        config.defaultAgentProvider,
-        globalModelSetting,
-        config.fableAvailable,
-        "default",
-        "unknown",
-      );
-      return (
+    const roleOrGlobalHit = this.roleAndGlobalEnvs().some(
+      (env) =>
         env.provider === "codex" &&
         env.model !== null &&
-        CHATGPT_INCOMPATIBLE_CODEX_MODELS.has(env.model)
-      );
-    });
+        CHATGPT_INCOMPATIBLE_CODEX_MODELS.has(env.model),
+    );
     const configuredHit = this.configuredCodexModels().some(
       (model) => model !== null && CHATGPT_INCOMPATIBLE_CODEX_MODELS.has(model),
     );
@@ -1269,6 +1256,64 @@ export class DiagnosticsService {
           id: "codex_model_auth",
           state: "warning",
           hintKey: "diagnostics_hint_codex_model_chatgpt_incompatible",
+        }
+      : null;
+  }
+
+  /** The resolved spawn environment of every per-role cli/model pair plus the global default.
+   *  Resolved UNCLAMPED (authMode "unknown") so a caller sees the model that WOULD be spawned
+   *  without any guard rewriting it. Shared by the two model advisories, which differ only in what
+   *  they then look for in the result. */
+  private roleAndGlobalEnvs(): RoleEnvironment[] {
+    const pairs: Array<[string, string]> = [
+      [config.recapCli, config.recapModel],
+      [config.namerCli, config.namerModel],
+      [config.autopilotCli, config.autopilotModel],
+      [config.criticCli, config.criticModel],
+      [config.docAgentCli, config.docAgentModel],
+      ["inherit", "default"], // the global default provider and its matching model
+    ];
+    const globalModelSetting =
+      config.defaultAgentProvider === "codex" ? config.defaultCodexModel : config.defaultModel;
+    return pairs.map(([cli, model]) =>
+      resolveRoleEnvironment(
+        cli,
+        model,
+        config.defaultAgentProvider,
+        globalModelSetting,
+        config.fableAvailable,
+        "default",
+        "unknown",
+      ),
+    );
+  }
+
+  /**
+   * Warn when a live-configured CLAUDE model needs a newer Claude Code than the installed one.
+   * Claude Code validates `--model` against a catalog compiled into the binary and rejects an
+   * unknown pinned id with a hard 400 naming the version required, so without this the operator
+   * sees only a dead spawn.
+   *
+   * Returns null unless a configured model actually outranks the installed CLI — never `ok` noise,
+   * exactly like {@link codexModelAuthCheck}. An unreadable version is `null` and returns no row:
+   * the `absent` idiom `claude_install` uses, never a guess. GUIDANCE-ONLY (no `remediation`, no
+   * `fixActionKey`) — upgrading an operator's CLI is not something Shepherd does behind a button.
+   */
+  private claudeModelCliCheck(installedVersion: string | null): DiagnosticCheck | null {
+    if (!installedVersion) return null;
+    const configured = [
+      ...this.roleAndGlobalEnvs()
+        .filter((env) => env.provider === "claude")
+        .map((env) => env.model),
+      ...this.configuredClaudeModels(),
+    ];
+    const hit = modelNeedingNewerCli(configured, installedVersion);
+    return hit
+      ? {
+          id: "claude_model_cli",
+          state: "warning",
+          hintKey: "diagnostics_hint_claude_model_cli_outdated",
+          hintParams: { model: hit.model, required: hit.required, running: installedVersion },
         }
       : null;
   }
@@ -1428,14 +1473,13 @@ export class DiagnosticsService {
    *  PRESENCE-ONLY (no login/auth probe, no config-dir parsing). Claude presence
    *  ALSO gates the `claude_trust` folder-trust check (below).  */
   private agentCliProbes = async (): Promise<DiagnosticCheck[]> => {
-    const [claudeOk, codexOk] = await Promise.all([
-      this.runVersion("claude", ["--version"])
-        .then(() => true)
-        .catch(() => false),
+    const [claudeVersionOut, codexOk] = await Promise.all([
+      this.runVersion("claude", ["--version"]).catch(() => null),
       this.runVersion("codex", ["--version"])
         .then(() => true)
         .catch(() => false),
     ]);
+    const claudeOk = claudeVersionOut !== null;
     const anyAgentCli = claudeOk || codexOk;
     const checks: DiagnosticCheck[] = [
       agentCliCheck("claude", claudeOk, anyAgentCli),
@@ -1461,6 +1505,12 @@ export class DiagnosticsService {
     // so a slow or exploding `mise` can only cost this row, never the claude/codex rows above.
     const installCheck = claudeOk ? await this.claudeInstallCheck() : null;
     if (installCheck) checks.push(installCheck);
+    // Model-vs-CLI-floor advisory: reuses the `--version` output already read above rather than
+    // spawning `claude` a second time. Unparseable output ⇒ null version ⇒ no row.
+    const modelCliCheck = claudeVersionOut
+      ? this.claudeModelCliCheck(this.parseVersion(claudeVersionOut))
+      : null;
+    if (modelCliCheck) checks.push(modelCliCheck);
     return checks;
   };
 

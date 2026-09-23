@@ -3429,6 +3429,21 @@ const diagnostics = new DiagnosticsService({
       .filter((run) => run.agentProvider === "codex")
       .map((run) => modelForProviderOrDefault(run.model ?? null, "codex")),
   ],
+  // claude_model_cli: the Claude twin of the list above — repo default-model overrides and live
+  // epic runs, the two places a Claude model is chosen outside role/global settings. `claude` is
+  // the implicit provider for a run that names none, so an absent `agentProvider` counts here.
+  configuredClaudeModels: () => [
+    ...(config.defaultAgentProvider === "claude"
+      ? listRepos(config.repoRoot).map((r) => {
+          const setting = store.getRepoConfig(r.path).defaultModel;
+          return drainSpawnModel(setting === "inherit" ? config.defaultModel : setting);
+        })
+      : []),
+    ...store
+      .listEpicRuns()
+      .filter((run) => (run.agentProvider ?? "claude") === "claude")
+      .map((run) => modelForProviderOrDefault(run.model ?? null, "claude")),
+  ],
   // herdr_health (#1835): reconcile active sessions vs the herdr fleet. Wired here (not a ctor
   // default) because it needs the store + herdr driver the service doesn't hold.
   readHerdrFleet: () => defaultReadHerdrFleet(store, herdr),

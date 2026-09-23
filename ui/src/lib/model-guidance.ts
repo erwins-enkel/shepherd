@@ -105,6 +105,17 @@ function claudeGuidance(model: string): {
         tag: "longContext",
         detail: m.model_guidance_claude_opus_1m(),
       };
+    // Opus 5.5 lists below Opus 5 ($4/$20 vs $5/$25) but stays in the same tier band — the
+    // warning these tiers drive is about the unattended-default cost case, and 5.5 is still
+    // Opus-priced against sonnet.
+    case "claude-opus-5-5":
+      return { costTier: "high", tag: "strong", detail: m.model_guidance_claude_opus_5_5() };
+    case "claude-opus-5-5[1m]":
+      return {
+        costTier: "premium",
+        tag: "longContext",
+        detail: m.model_guidance_claude_opus_5_5_1m(),
+      };
     // Pinned Opus 5 mirrors the tier/fit of the floating alias it pins — same model,
     // same price; only the version-drift guarantee differs.
     case "claude-opus-5":

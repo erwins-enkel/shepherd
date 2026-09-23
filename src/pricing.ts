@@ -2,8 +2,11 @@
 // be rescaled (e.g. normalized so a tier = 1), because /usage renders them as real currency via
 // dollars() (and as USD-denominated "units" in the spend breakdown). A rescale would silently
 // corrupt displayed money. The limit-% math (weightedUnits feeding the daily calibration) is
-// ratio-only, so it is unaffected by keeping the absolute anchor. Keep the rows in price order
-// so Fable stays the heaviest tier — its weight must exceed Opus's, matching the cost copy.
+// ratio-only, so it is unaffected by keeping the absolute anchor. Fable stays the heaviest tier —
+// its weight must exceed Opus's, matching the cost copy.
+//
+// Row ORDER is match order, not price order: weightsFor returns the FIRST hit, so a narrower row
+// must precede any broader one that would swallow it (see the Opus 5.5 row below).
 
 interface ModelWeights {
   input: number;
@@ -13,7 +16,33 @@ interface ModelWeights {
   cacheWrite1h: number;
 }
 
+/** Sonnet's weights, named rather than read out of TABLE by index. {@link DEFAULT} is
+ *  "sonnet-like", and deriving it positionally meant inserting any row above sonnet silently
+ *  repriced every UNKNOWN model at the row that happened to land on that index. */
+const SONNET_WEIGHTS: ModelWeights = {
+  input: 3,
+  output: 15,
+  cacheRead: 0.3,
+  cacheWrite5m: 3.75,
+  cacheWrite1h: 6,
+};
+
 const TABLE: { match: RegExp; w: ModelWeights }[] = [
+  {
+    // Opus 5.5 — $4/$20 per Mtok, with cache reads at 5% of input ($0.20) rather than the
+    // 10% the earlier Opus generation charges; cache WRITES keep the usual 1.25x / 2x ratios.
+    // Must precede the generic /opus/i row below, which would otherwise swallow it at $5/$25.
+    //
+    // NOT anchored with `$`, unlike the fable-5 row. What reaches weightsFor is the wire model id
+    // off a transcript record (usage.ts parseLine reads `message.model`), and those carry date and
+    // `-v1` suffixes plus cloud prefixes/separators — `claude-opus-5-5-20260922`,
+    // `us.anthropic.claude-opus-5-5`, `claude-opus-5-5@20260922`. An anchored match would drop
+    // every one of them onto the generic row, silently overpricing real usage by 25%. The negative
+    // lookahead is what keeps a hypothetical `claude-opus-5-50` out; no other Opus generation
+    // contains the `opus-5-5` substring.
+    match: /opus-5-5(?![0-9])/i,
+    w: { input: 4, output: 20, cacheRead: 0.2, cacheWrite5m: 5, cacheWrite1h: 8 },
+  },
   {
     // Opus — $5/$25 per Mtok. Unchanged across the current Opus generation
     // (Opus 5 lists at the same $5/$25 as 4.8), and the /opus/i match already
@@ -26,7 +55,7 @@ const TABLE: { match: RegExp; w: ModelWeights }[] = [
   },
   {
     match: /sonnet/i,
-    w: { input: 3, output: 15, cacheRead: 0.3, cacheWrite5m: 3.75, cacheWrite1h: 6 },
+    w: SONNET_WEIGHTS,
   },
   {
     match: /haiku/i,
@@ -50,14 +79,12 @@ const TABLE: { match: RegExp; w: ModelWeights }[] = [
     // whatever the installed CLI calls the latest Fable — 5.1 today. An
     // unrecognised future id (`claude-fable-6`) lands here rather than on the
     // retired prices above; give it its own row when its price is known.
-    // Both fable rows sit after haiku so the DEFAULT index (TABLE[1]) below
-    // stays sonnet-like.
     match: /fable/i,
     w: { input: 10, output: 50, cacheRead: 0.25, cacheWrite5m: 12.5, cacheWrite1h: 20 },
   },
 ];
 
-const DEFAULT: ModelWeights = TABLE[1]!.w; // sonnet-like
+const DEFAULT: ModelWeights = SONNET_WEIGHTS;
 
 const warned = new Set<string>();
 

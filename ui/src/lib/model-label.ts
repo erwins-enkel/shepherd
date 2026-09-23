@@ -30,6 +30,10 @@ export function modelLabel(alias: string): string {
       return m.model_label_opus_1m();
     case "sonnet[1m]":
       return m.model_label_sonnet_1m();
+    case "claude-opus-5-5":
+      return m.model_label_opus_5_5();
+    case "claude-opus-5-5[1m]":
+      return m.model_label_opus_5_5_1m();
     case "claude-opus-5":
       return m.model_label_opus_5();
     case "claude-opus-5[1m]":

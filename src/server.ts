@@ -235,6 +235,7 @@ import { homedir, tmpdir } from "node:os";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import type { ServerWebSocket } from "bun";
 import { execFileSync, markPtyEvent } from "./instrument";
+import { opStart } from "./loop-watchdog";
 import { isOperatorKeystroke, stampOperatorKeystroke } from "./operator-activity";
 import {
   normalizeDefaultCodexModelSetting,
@@ -8695,13 +8696,21 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
   // otherwise bubble out as Bun's HTML error page — which the UI can't parse, so it
   // only sees a bare status code. Convert it to a JSON 500 carrying the real message.
   return {
-    fetch: (req: Request): Promise<Response> =>
-      app
-        .fetch(req)
-        // Sliding re-stamp at this single HTTP seam (never on the skipAuth ingress app — agents
-        // carry no cookie — and never on WS upgrades, which return before reaching makeApp).
-        .then((res) => (opts.skipAuth ? res : maybeRestamp(req, res)))
-        .catch((e) => json({ error: e instanceof Error ? e.message : "internal error" }, 500)),
+    fetch: (req: Request): Promise<Response> => {
+      // Both listeners funnel through here (the agent ingress delegates to this seam), so every
+      // HTTP request — hooks included — is visible to the loop watchdog's stall report. Path only:
+      // the query string can carry anything and this label is what lands in the log.
+      const settled = opStart(`${req.method} ${new URL(req.url).pathname}`);
+      return (
+        app
+          .fetch(req)
+          // Sliding re-stamp at this single HTTP seam (never on the skipAuth ingress app — agents
+          // carry no cookie — and never on WS upgrades, which return before reaching makeApp).
+          .then((res) => (opts.skipAuth ? res : maybeRestamp(req, res)))
+          .catch((e) => json({ error: e instanceof Error ? e.message : "internal error" }, 500))
+          .finally(settled)
+      );
+    },
   };
 }
 

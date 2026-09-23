@@ -183,6 +183,7 @@ import { maintenance } from "./maintenance";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { startLoopLagSampler, logRemainingOnLoopBlockers, execFileSync } from "./instrument";
+import { startLoopWatchdog, opStart } from "./loop-watchdog";
 import { firstRun } from "./first-run";
 import { preflightHerdr } from "./preflight";
 import {
@@ -249,6 +250,11 @@ const execFileAsync = promisify(execFile);
 // a live critic's background work as a runaway. Delete it once, here, at the top of boot: the
 // server is not an agent's child in any sense the reaper should honour.
 delete process.env[SESSION_MARKER_ENV];
+
+// Event-loop watchdog (loop-watchdog.ts): heartbeat + off-thread stall report + systemd ping.
+// Started here, before anything spawns, for the same reason as the scrub above — it also claims
+// systemd's NOTIFY_SOCKET out of process.env so no child can inherit it and vouch for a frozen loop.
+startLoopWatchdog();
 
 startLoopLagSampler(); // no-op unless SHEPHERD_PROFILE_LOOP=1
 logRemainingOnLoopBlockers(); // one-time operator map of intentionally-sync calls
@@ -3023,8 +3029,14 @@ attachCreditsPush(events, store, push);
  * unhandled rejection instead of being logged. Every periodic tick below is best-effort — a
  * failed check must log and let the next tick retry, never take the process down.
  */
-const timerTask = (label: string, fn: () => Promise<unknown>) => () =>
-  void fn().catch((err) => console.warn(`[${label}] tick failed:`, err));
+const timerTask = (label: string, fn: () => Promise<unknown>) => () => {
+  // Registered with the loop watchdog so a stall report can name a background tick, not just the
+  // HTTP requests that happened to be in flight around it.
+  const settled = opStart(`timer ${label}`);
+  void fn()
+    .catch((err) => console.warn(`[${label}] tick failed:`, err))
+    .finally(settled);
+};
 
 // Re-entrancy guard: a release can still be awaiting service.create() when the next
 // 30s tick fires; without this a second tick re-reads the not-yet-removed head task and

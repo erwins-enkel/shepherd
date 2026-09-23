@@ -137,6 +137,18 @@ describe("templateUnit", () => {
     const templated = templateUnit(unit, "/x");
     expect(templated.match(/^WorkingDirectory=/gm)?.length).toBe(1);
   });
+
+  it("never arms the watchdog without NotifyAccess=all", () => {
+    // The loop watchdog pings from a `systemd-notify` child, not the main PID. WatchdogSec without
+    // NotifyAccess=all gets every ping rejected — a guaranteed restart loop every WatchdogSec.
+    const watchdog = unit.match(/^WatchdogSec=/m) !== null;
+    expect(watchdog).toBe(true);
+    expect(unit).toMatch(/^NotifyAccess=all$/m);
+    // The templater must carry both through untouched.
+    const templated = templateUnit(unit, "/x");
+    expect(templated).toMatch(/^WatchdogSec=60$/m);
+    expect(templated).toMatch(/^NotifyAccess=all$/m);
+  });
 });
 
 describe("rotate-shepherd-log.sh (self-contained rotator — no external logrotate dep)", () => {

@@ -18,6 +18,19 @@ RestartSec=2
 # herdr — restarting won't fix it, so don't crash-loop on this exit code.
 RestartPreventExitStatus=78
 
+# Event-loop watchdog (src/loop-watchdog.ts). The server is one Bun event loop; code that spins on
+# it freezes HTTP, the web terminal AND its own SIGTERM handler, so without this a frozen HUD stays
+# frozen until a human notices. A worker thread pings systemd only while that loop is still
+# turning; once it stops, the worker writes a `[loop-watchdog]` stall report naming the in-flight
+# requests/timers to shepherd.log, and systemd restarts the service after WatchdogSec.
+#   NotifyAccess=all — the ping comes from a `systemd-notify` child, not the main PID. REQUIRED:
+#     with WatchdogSec but without it, every ping is rejected and the service restarts every 60s.
+#   WatchdogSignal=SIGKILL — a spinning loop cannot run a SIGABRT handler either, and the stall
+#     report already names the culprit; skip a ~GB core dump of the JS heap.
+WatchdogSec=60
+WatchdogSignal=SIGKILL
+NotifyAccess=all
+
 # herdr lives in ~/.local/bin; bun in ~/.bun/bin — make both resolvable
 Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=SHEPHERD_PORT=7330

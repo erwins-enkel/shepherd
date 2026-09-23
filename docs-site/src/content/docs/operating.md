@@ -17,6 +17,29 @@ systemctl --user restart shepherd    # restart it
 The unit runs straight from the working tree, so **whatever is checked out is what
 runs**.
 
+### If the HUD freezes
+
+HTTP, the web terminal and all background work share **one event loop**. If code ever spins
+on it, the whole HUD stops responding — and `systemctl --user restart` hangs for its full
+90 s stop timeout, because a frozen loop never runs its shutdown handler.
+
+The unit arms a **watchdog** for this. A separate thread pings systemd only while the loop
+is still turning:
+
+- **After 10 s frozen** it writes a stall report to `~/.shepherd/shepherd.log`: the requests
+  and timers that were in flight, and what finished just before, with timestamps.
+- **After `WatchdogSec` (60 s)** without a ping, systemd kills and restarts the service.
+
+```bash
+grep -a 'loop-watchdog' ~/.shepherd/shepherd.log | tail -20   # the stall report
+journalctl --user -u shepherd | grep -i watchdog               # the restart itself
+```
+
+The in-flight entry that started just before the stall is the prime suspect — attach the
+report when you file an issue. A later `event loop recovered after …` line means the block
+was long but finite, and the service was never restarted. An install from before the
+watchdog picks it up on the next `bun run update`.
+
 ## Expose it over the network
 
 Reach Shepherd over the network by putting it behind a trusted proxy — e.g.

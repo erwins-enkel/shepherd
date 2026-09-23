@@ -14,6 +14,7 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { shepherdRuntimeDir } from "../src/runtime-dir";
 import { SessionStore } from "../src/store";
+import { sanitizeHerdrAgentName } from "../src/herdr";
 import {
   SessionService,
   RestoreError,
@@ -1494,6 +1495,79 @@ test("createSession: falls back to numeric suffix when bare AND herd-qualified b
   expect(s.branch).toBe("shepherd/work-issue-773-native-myrepo-2");
   expect(calls.wtName).toBe("work-issue-773-native-myrepo-2");
   expect(calls.startName).toBe("work-issue-773-native-myrepo-2");
+});
+
+// Regression (2026-09-23 live freeze): a live agent is compared in herdr's SANITIZED name space,
+// which keeps only the first 32 chars. A 32-char slug ("diagnose-feedback-attached-issue" — what
+// every click of a steer with fixed text produces) whose name is already live made every
+// candidate `${composed}-${n}` truncate back onto that same live name, so the numeric scan never
+// terminated: a synchronous spin that froze the whole server. The suffix must survive truncation.
+test("createSession: suffixes stay unique in herdr's 32-char name space (no infinite scan)", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const live = "diagnose-feedback-attached-issue"; // exactly 32 chars
+  const service = new SessionService({
+    store,
+    namer: async () => live,
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: (_repo: string, _base: string, name: string) => {
+        calls.wtName = name;
+        return { worktreePath: `/wt/${name}`, branch: `shepherd/${name}`, isolated: true };
+      },
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: async (name: string) => {
+        calls.startName = name;
+        return { terminalId: "term_z", cwd: `/wt/${name}`, agentStatus: "working" };
+      },
+      // An earlier session still holds the slug in herdr's name space.
+      list: () => [{ name: live, terminalId: "term_old", tabId: "t_old", agentStatus: "done" }],
+    } as any,
+  });
+
+  const s = await service.create({
+    repoPath: "/x/flowagent",
+    baseBranch: "main",
+    prompt: "/diagnose-feedback attached issue",
+    model: null,
+    images: [],
+  });
+  expect(s.name.length).toBeLessThanOrEqual(32);
+  expect(sanitizeHerdrAgentName(s.name)).not.toBe(live);
+  expect(s.name.endsWith("-2")).toBe(true);
+  expect(calls.startName).toBe(s.name);
+});
+
+// Defense in depth: whatever the next name-space mismatch is, the scan must end in an error the
+// route can report, never spin the single event loop.
+test("createSession: an exhausted name scan throws instead of spinning", async () => {
+  const store = new SessionStore(":memory:");
+  const service = new SessionService({
+    store,
+    namer: async () => "fix-login",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => true, // every candidate's branch "exists"
+      create: () => {
+        throw new Error("must not reach worktree creation");
+      },
+      remove: () => {},
+    } as any,
+    herdr: { start: async () => ({}), list: () => [] } as any,
+  });
+
+  await expect(
+    service.create({
+      repoPath: "/x/myrepo",
+      baseBranch: "main",
+      prompt: "fix login",
+      model: null,
+      images: [],
+    }),
+  ).rejects.toThrow(/no free session name/);
 });
 
 test("createSession: passes --model and persists it when a model is chosen", async () => {

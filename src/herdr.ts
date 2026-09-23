@@ -525,8 +525,12 @@ export function parseAgentInfo(agent: unknown): HerdrAgent {
 export function sanitizeHerdrAgentName(raw: string): string {
   const lowered = raw.toLowerCase().replace(/[^a-z0-9_-]+/g, "-");
   const trimmed = lowered.replace(/^[^a-z]+/, "");
-  return (trimmed.length > 0 ? trimmed : "agent").slice(0, 32);
+  return (trimmed.length > 0 ? trimmed : "agent").slice(0, HERDR_AGENT_NAME_MAX);
 }
+
+/** herdr's agent-name length cap (`^[a-z][a-z0-9_-]{0,31}$`). Anything de-duplicated in herdr's
+ *  name space must keep its distinguishing part inside this many chars — see `uniqueName`. */
+export const HERDR_AGENT_NAME_MAX = 32;
 
 /**
  * The agents that HOLD herdr agent name `rawName` — the squatters an `agent_name_taken` retry has

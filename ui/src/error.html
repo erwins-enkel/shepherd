@@ -1,0 +1,135 @@
+<!doctype html>
+<!--
+  SvelteKit's last-resort error template. This is what the operator actually sees when the app
+  cannot render its own `+error.svelte` — most importantly when the ROOT layout chunk itself never
+  arrives, so there is no layout left to render an error page into. Without this file SvelteKit
+  serves an unstyled `%sveltekit.status%` + message in the browser's default monospace, which reads
+  as a crash even when the cause is just a dropped chunk on a slow link.
+
+  Two deliberate deviations from the usual UI rules, both forced by this file standing OUTSIDE the
+  app bundle:
+    - Colors are literals, not `var(--color-*)`. `app.css` is not loaded here (its hashed URL
+      changes every build), so the token layer is unreachable. Values are copied from the `--bg` /
+      `--panel` / `--line` / `--ink` / `--muted` / `--amber` ramps in `src/app.css`; both schemes
+      are mirrored below so this page never flashes white on a dark device.
+    - Copy is inline EN+DE rather than Paraglide. The compiled catalog lives in the bundle that, by
+      definition, failed to load. This follows the same hand-synced precedent as `NOTIFY_TEXT` in
+      `src/push.ts`: keep both locales together and edit them together.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0a0d0c" />
+    <title>Shepherd</title>
+    <style>
+      :root {
+        --bg: #0a0d0c;
+        --panel: #0f1413;
+        --line: #1b2422;
+        --ink: #eef4f0;
+        --muted: #7c8c86;
+        --amber: #e8a13a;
+        --mono: "Berkeley Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+      }
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #e7ebe9;
+          --panel: #f7f9f8;
+          --line: #d2dad6;
+          --ink: #131a18;
+          --muted: #5a6862;
+          --amber: #a8680a;
+        }
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: var(--mono);
+        display: grid;
+        place-items: center;
+        /* 16px side gutter + safe-area so the card clears a phone's rounded corners. */
+        padding: max(24px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+        box-sizing: border-box;
+      }
+      .card {
+        width: min(420px, 100%);
+        box-sizing: border-box;
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        padding: 24px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 4px;
+      }
+      h1 {
+        margin: 0;
+        font-size: 1.125rem;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+      }
+      p {
+        margin: 0;
+        font-size: 0.8125rem;
+        line-height: 1.5;
+        color: var(--muted);
+      }
+      button {
+        margin-top: 4px;
+        background: transparent;
+        border: 1px solid var(--line);
+        border-radius: 2px;
+        color: var(--muted);
+        font-family: inherit;
+        font-size: 0.8125rem;
+        letter-spacing: 0.08em;
+        padding: 10px;
+        cursor: pointer;
+      }
+      button:hover,
+      button:focus-visible {
+        border-color: var(--amber);
+        color: var(--amber);
+        outline: none;
+      }
+      .detail {
+        font-size: 0.8125rem;
+        color: var(--muted);
+        opacity: 0.8;
+        /* Chunk URLs are long and unbreakable; keep them inside the card on a phone. */
+        overflow-wrap: anywhere;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card" role="alert">
+      <h1 id="t">Couldn't finish loading</h1>
+      <p id="b">
+        The connection dropped while loading part of Shepherd. Nothing is lost — the server keeps
+        your sessions running. Retry, or check that you're still on the tailnet.
+      </p>
+      <button type="button" id="r" onclick="location.reload()">Retry</button>
+      <p class="detail">
+        <span id="d">Details</span> · %sveltekit.status% %sveltekit.error.message%
+      </p>
+    </div>
+    <script>
+      // Hand-synced DE copy (see the header comment: the Paraglide catalog is in the bundle that
+      // failed to load). Anything other than German keeps the EN markup already in the document.
+      if ((navigator.language || "").toLowerCase().startsWith("de")) {
+        document.documentElement.lang = "de";
+        document.getElementById("t").textContent = "Laden nicht abgeschlossen";
+        document.getElementById("b").textContent =
+          "Die Verbindung brach ab, während ein Teil von Shepherd geladen wurde. Es geht nichts verloren — der Server hält deine Sessions am Laufen. Erneut versuchen oder prüfen, ob du noch im Tailnet bist.";
+        document.getElementById("r").textContent = "Erneut versuchen";
+        document.getElementById("d").textContent = "Details";
+      }
+    </script>
+  </body>
+</html>

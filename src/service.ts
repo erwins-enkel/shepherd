@@ -18,6 +18,7 @@ import { worktreePathFor, type WorktreeMgr } from "./worktree";
 import type { HerdrAgent, HerdrDriver } from "./herdr";
 import {
   createSerializer,
+  HERDR_AGENT_NAME_MAX,
   matchAgents,
   needsAccountRedrive,
   sanitizeHerdrAgentName,
@@ -216,6 +217,11 @@ export const TRAIN_TRACKER_MAX_MS = 24 * 60 * 60_000;
 
 /** Attachment extensions that get the video-consumption note in the launch prompt. */
 const VIDEO_EXT_RE = /\.(mp4|mov|m4v|webm|mkv)$/i;
+
+/** Upper bound on uniqueName's numeric scan. Far beyond any real pile-up of same-named sessions
+ *  (each probe may cost a sync `git rev-parse`), and what turns a name-space mismatch into an
+ *  error the create route reports instead of a scan that never ends. */
+const UNIQUE_NAME_MAX_PROBES = 100;
 
 export interface ServiceDeps {
   capacity?: (session: Session) => Promise<boolean>;
@@ -4689,22 +4695,35 @@ export class SessionService {
 
     if (!isTaken(base)) return base;
 
-    if (herd) {
-      // Cap at 60 chars (matching slugifyManual's convention). If base is already 59–60 chars
-      // the herd may be truncated away entirely; numeric fallback below still produces a valid name.
-      const composed = `${base}-${herd}`.slice(0, 60).replace(/-+$/, "");
-      if (!isTaken(composed)) return composed;
-      for (let i = 2; ; i++) {
-        const candidate = `${composed}-${i}`;
+    // Numeric fallback — bounded, and with the suffix kept INSIDE herdr's name cap. Live agents are
+    // compared in herdr's sanitized space, which keeps only the first HERDR_AGENT_NAME_MAX chars; a
+    // `-<n>` appended past that was truncated away, so every candidate collapsed onto the same live
+    // name and this scan never ended — a synchronous spin that froze the whole server (2026-09-23:
+    // a steer with fixed text names every session `diagnose-feedback-attached-issue`, exactly 32
+    // chars, so the second click while the first session lived hung). Shortening the stem keeps the
+    // suffix visible to herdr; the probe cap turns any future mismatch into a reported error.
+    const scan = (stem: string): string => {
+      for (let i = 2; i < 2 + UNIQUE_NAME_MAX_PROBES; i++) {
+        const suffix = `-${i}`;
+        const head = stem.slice(0, HERDR_AGENT_NAME_MAX - suffix.length).replace(/-+$/, "");
+        const candidate = `${head}${suffix}`;
         if (!isTaken(candidate)) return candidate;
       }
+      throw new Error(
+        `no free session name for "${base}" after ${UNIQUE_NAME_MAX_PROBES} candidates`,
+      );
+    };
+
+    if (herd) {
+      // Cap at 60 chars (matching slugifyManual's convention). If base is already 59–60 chars
+      // the herd may be truncated away entirely; the numeric scan still produces a valid name.
+      const composed = `${base}-${herd}`.slice(0, 60).replace(/-+$/, "");
+      if (!isTaken(composed)) return composed;
+      return scan(composed);
     }
 
-    // No usable herd — fall back to the original numeric scan.
-    for (let i = 2; ; i++) {
-      const candidate = `${base}-${i}`;
-      if (!isTaken(candidate)) return candidate;
-    }
+    // No usable herd — numeric scan on the bare slug.
+    return scan(base);
   }
 
   /** Kick off the background name refine without blocking create(). No-op when disabled. */

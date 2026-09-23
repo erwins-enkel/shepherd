@@ -4549,5 +4549,13 @@
   "gearmenu_mac_app": "Native macOS App",
   "gearmenu_mac_app_download": "Downloads",
   "feat_mac_app_download_title": "Mac-App-Downloads im Einstellungsmenü",
-  "feat_mac_app_download_body": "Auf einem Mac findest du im Einstellungsmenü unter Native macOS App die verfügbaren Mac-Versionen zum Herunterladen. Auf anderen Geräten bleibt der Eintrag ausgeblendet."
+  "feat_mac_app_download_body": "Auf einem Mac findest du im Einstellungsmenü unter Native macOS App die verfügbaren Mac-Versionen zum Herunterladen. Auf anderen Geräten bleibt der Eintrag ausgeblendet.",
+  "errorpage_chunk_title": "Laden nicht abgeschlossen",
+  "errorpage_chunk_body": "Die Verbindung brach ab, während ein Teil von Shepherd geladen wurde. Es geht nichts verloren — der Server hält deine Sessions am Laufen. Erneut versuchen oder prüfen, ob du noch im Tailnet bist.",
+  "errorpage_generic_title": "Etwas ist schiefgelaufen",
+  "errorpage_generic_body": "Shepherd ist auf einen unerwarteten Fehler gestoßen und konnte nicht fortfahren. „Erneut versuchen“ lädt die App neu; die Details unten helfen beim Eingrenzen.",
+  "errorpage_retry": "Erneut versuchen",
+  "errorpage_detail_label": "Details",
+  "errorpage_reloading_title": "Wird neu geladen …",
+  "errorpage_reloading_body": "Die aktuelle Version der App wird geladen."
 }

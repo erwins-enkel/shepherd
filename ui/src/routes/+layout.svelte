@@ -1,6 +1,7 @@
 <script lang="ts">
   import "../app.css";
   import { onMount } from "svelte";
+  import { page } from "$app/state";
   import { theme } from "$lib/theme.svelte";
   import { m } from "$lib/paraglide/messages";
   import { auth } from "$lib/auth.svelte";
@@ -29,7 +30,12 @@
      keyboard users straight past the chrome to the primary <main> region. -->
 <a class="skip-link" href="#main-content">{m.a11y_skip_to_main()}</a>
 
-{#if auth.checked && auth.unauthenticated}
+{#if page.error}
+  <!-- `+error.svelte` renders through this slot. It must bypass the auth gate below: an error
+       thrown before `getMe()` settles leaves `auth.checked` false, and gating it would render a
+       blank page instead of the error surface — the failure mode this boundary exists to fix. -->
+  {@render children()}
+{:else if auth.checked && auth.unauthenticated}
   <Login />
 {:else if auth.checked}
   {@render children()}

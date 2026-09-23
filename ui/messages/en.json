@@ -4549,5 +4549,13 @@
   "gearmenu_mac_app": "Native macOS App",
   "gearmenu_mac_app_download": "Downloads",
   "feat_mac_app_download_title": "Mac app downloads in the gear menu",
-  "feat_mac_app_download_body": "On a Mac, open the gear menu and choose Native macOS App to find the available Mac releases. The entry stays hidden on other devices."
+  "feat_mac_app_download_body": "On a Mac, open the gear menu and choose Native macOS App to find the available Mac releases. The entry stays hidden on other devices.",
+  "errorpage_chunk_title": "Couldn't finish loading",
+  "errorpage_chunk_body": "The connection dropped while loading part of Shepherd. Nothing is lost — the server keeps your sessions running. Retry, or check that you're still on the tailnet.",
+  "errorpage_generic_title": "Something went wrong",
+  "errorpage_generic_body": "Shepherd hit an unexpected error and couldn't continue. Retry reloads the app; the details below help pin down what failed.",
+  "errorpage_retry": "Retry",
+  "errorpage_detail_label": "Details",
+  "errorpage_reloading_title": "Reloading…",
+  "errorpage_reloading_body": "Fetching the current version of the app."
 }

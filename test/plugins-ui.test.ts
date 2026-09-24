@@ -358,6 +358,16 @@ test("text-input: secret and placeholder must be well-typed when present", () =>
   expect(ti({ name: "a", secret: true, placeholder: "…", label: "A" })).not.toBeNull();
 });
 
+test("text-input: a secret field's seeded value is stripped (write-only); plain fields keep it", () => {
+  const secret = { type: "text-input", props: { name: "tok", secret: true, value: "s3cr3t" } };
+  const plain = { type: "text-input", props: { name: "dsn", value: "https://x" } };
+  const input: PluginUIView = formView(secret, plain);
+  const v = validatePluginUIView(input)!;
+  expect(v.root.children![0]!.props).toEqual({ name: "tok", secret: true });
+  expect(v.root.children![1]!.props!["value"]).toBe("https://x");
+  expect(secret.props.value).toBe("s3cr3t"); // the plugin's own object is untouched
+});
+
 // ── loader integration tests ─────────────────────────────────────────────────
 
 test("publishUI: valid view sets list().ui and emits plugin:ui event", async () => {

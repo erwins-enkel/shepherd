@@ -39,6 +39,10 @@ const codexUpdateLogPath =
 // repo. Default ~/.shepherd/plugins; SHEPHERD_PLUGINS_DIR overrides. A missing/empty dir
 // loads nothing (the clean zero-plugin invariant).
 const pluginsDir = process.env.SHEPHERD_PLUGINS_DIR ?? join(dirname(dbPath), "plugins");
+// Plugin secret store (`ctx.secrets`, issue #2461): one 0600 JSON file beside the db, never
+// served by any route. SHEPHERD_PLUGIN_SECRETS overrides.
+const pluginSecretsPath =
+  process.env.SHEPHERD_PLUGIN_SECRETS ?? join(dirname(dbPath), "plugin-secrets.json");
 
 // herdr session id ("default" for a single-session install; a named daemon otherwise) and
 // the Unix-socket path for herdr's native JSON-RPC API (issue #1529). Resolved via the shared
@@ -635,6 +639,7 @@ export const config = {
   agentIngressPort: Number(process.env.SHEPHERD_AGENT_INGRESS_PORT ?? mainPort + 1),
   dbPath,
   pluginsDir,
+  pluginSecretsPath,
   herdrBin: process.env.HERDR_BIN ?? "herdr",
   herdrUpdateLogPath,
   codexBin: process.env.CODEX_BIN ?? "codex",

@@ -85,6 +85,8 @@ describe("resolvePersistedDefaultCodexModel", () => {
   test.each([
     [null, "gpt-5.6-sol"],
     ["gpt-5.5", "gpt-5.5"],
+    ["gpt-6-sol", "gpt-6-sol"],
+    ["gpt-6-luna", "gpt-6-luna"],
     ["default", "default"],
     ["invalid-model", "default"],
   ])("stored %s resolves to %s", (saved, expected) => {

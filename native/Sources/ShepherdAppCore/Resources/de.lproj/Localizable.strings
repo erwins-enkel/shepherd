@@ -435,6 +435,8 @@
 "model_guidance_codex_56_terra" = "Ausgewogene GPT-5.6-Codex-Option für alltägliche agentische Coding-Arbeit.";
 "model_guidance_codex_5_codex" = "Sparsame Codex-spezifische Option für kleine Edits und Routine-Follow-ups.";
 "model_guidance_codex_6_astra" = "Leistungsfähigstes Codex-Modell für komplexes, mehrstufiges Coding, Recherche und Dokumentarbeit.";
+"model_guidance_codex_6_luna" = "Schnelles und günstiges GPT-6-Modell für gezieltes Coding und klar umrissene, wiederkehrende Aufgaben.";
+"model_guidance_codex_6_sol" = "GPT-6-Modell für Alltagsarbeit und komplexes Coding, mit niedrigeren Token-Kosten als GPT-5.6 Sol.";
 "model_guidance_codex_o3" = "Reasoning-lastige Option. Gut für Analyse, teuer für Routine-Coding.";
 "model_guidance_default" = "Provider-Standard. Nutze ihn, wenn die CLI den aktuellen Baseline-Standard wählen soll.";
 "model_guidance_inherit" = "Erbt den globalen Standard für dieses Repo oder diese Rolle.";

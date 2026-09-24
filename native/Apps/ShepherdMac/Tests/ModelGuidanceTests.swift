@@ -47,8 +47,8 @@ extension MacSeamTests {
             #expect(ComposeRunConfig.providerEfforts(.claude, model: model) == Array(all.prefix(5)))
         }
         for model in ComposeRunConfig.codexModels + ["default", "unknown"] {
-            let count = ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "default", "unknown"].contains(model)
-                ? 6 : model == "gpt-5.6-luna" ? 5 : 4
+            let count = ["gpt-6-astra", "gpt-6-sol", "gpt-5.6-sol", "gpt-5.6-terra", "default", "unknown"].contains(model)
+                ? 6 : ["gpt-6-luna", "gpt-5.6-luna"].contains(model) ? 5 : 4
             #expect(ComposeRunConfig.providerEfforts(.codex, model: model) == Array(all.prefix(count)))
         }
         #expect(EffortPicker.label("max") == L.t("effort_label_max"))

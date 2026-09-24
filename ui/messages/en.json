@@ -4557,5 +4557,9 @@
   "errorpage_retry": "Retry",
   "errorpage_detail_label": "Details",
   "errorpage_reloading_title": "Reloading…",
-  "errorpage_reloading_body": "Fetching the current version of the app."
+  "errorpage_reloading_body": "Fetching the current version of the app.",
+  "model_guidance_codex_6_sol": "GPT-6 model for everyday work and complex coding, with lower token costs than GPT-5.6 Sol.",
+  "model_guidance_codex_6_luna": "Fast and affordable GPT-6 model for focused coding and clear, repeatable tasks.",
+  "feat_codex_6_sol_luna_title": "GPT-6 Sol and Luna",
+  "feat_codex_6_sol_luna_body": "Choose GPT-6 Sol or Luna for Codex tasks and saved model settings. Sol supports reasoning up to Ultra; Luna supports up to Max."
 }

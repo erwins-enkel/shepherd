@@ -8112,7 +8112,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ModelGuidanceCoreTests.swift\",\"CoreSeamTests.ModelGuidanceTests\",\"constraintNormalizesAgainstTheCorrectedModelsEfforts()\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: Extend normalization coverage to preserve GPT-6 Sol and Luna defaults, retain Max for both, and reject Ultra only for Luna."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ModelGuidanceTests.swift\",\"ModelGuidanceTests\",\"effortMatrixMatchesEveryCuratedModelAndTheFallback()\"]",
@@ -8120,7 +8122,9 @@
         "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ModelGuidanceTests.swift\",\"MacSeamTests.ModelGuidanceTests\",\"effortMatrixMatchesEveryCuratedModelAndTheFallback()\"]"
       ],
       "reason": "Mac view/adapter/host/live scenario retained in ShepherdTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: Extend the existing effort matrix for GPT-6 Sol (six tiers) and Luna (five tiers); preserve all previous cases."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ModelGuidanceTests.swift\",\"ModelGuidanceTests\",\"everyGuidanceRowMatchesTheWeb(_ expected: Expected)\"]",
@@ -8162,7 +8166,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ModelGuidanceCoreTests.swift\",\"CoreSeamTests.ModelGuidanceTests\",\"listsAndUnknownFallbackAreExact()\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: Add GPT-6 Sol and Luna to the curated list and guidance row count; preserve all previous models and fallback assertions."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ModelGuidanceTests.swift\",\"ModelGuidanceTests\",\"manualEngineChangeResetsEvenAValidTouchedModel()\"]",

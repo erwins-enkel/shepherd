@@ -1843,10 +1843,12 @@ describe("NewTask Codex model picker", () => {
     await expect.poll(() => modelSelect().value).toBe("gpt-5.4");
     const options = Array.from(modelSelect().options).map((o) => o.value);
     expect(options).toContain("gpt-5.5");
-    expect(options.slice(0, 5)).toEqual([
+    expect(options.slice(0, 7)).toEqual([
       "default",
       "gpt-5.6-sol",
       "gpt-6-astra",
+      "gpt-6-sol",
+      "gpt-6-luna",
       "gpt-5.6-terra",
       "gpt-5.6-luna",
     ]);
@@ -1894,12 +1896,12 @@ describe("NewTask Codex model picker", () => {
     });
     const effort = () => document.querySelector<HTMLSelectElement>("#nt-effort")!;
     await expect.poll(() => effort().value).toBe("ultra");
-    for (const nextModel of ["gpt-5.6-sol", "gpt-5.6-terra"]) {
+    for (const nextModel of ["gpt-6-sol", "gpt-5.6-sol", "gpt-5.6-terra"]) {
       modelSelect().value = nextModel;
       modelSelect().dispatchEvent(new Event("change", { bubbles: true }));
       await expect.poll(() => effort().value).toBe("ultra");
     }
-    modelSelect().value = "gpt-5.6-luna";
+    modelSelect().value = "gpt-6-luna";
     modelSelect().dispatchEvent(new Event("change", { bubbles: true }));
     await expect.poll(() => effort().value).toBe("default");
     effort().value = "max";
@@ -1907,7 +1909,11 @@ describe("NewTask Codex model picker", () => {
     await expect.poll(() => effort().value).toBe("max");
   });
 
-  it("submits the selected Astra model and ultra effort", async () => {
+  it.each([
+    ["gpt-6-astra", "ultra"],
+    ["gpt-6-sol", "ultra"],
+    ["gpt-6-luna", "max"],
+  ])("submits the selected %s model and %s effort", async (model, effort) => {
     const repoPath = "/repo/codex-model";
     mockGetRepoConfig.mockResolvedValue(confirmedRepoConfig());
     const onsubmit = vi.fn().mockResolvedValue(undefined);
@@ -1915,25 +1921,21 @@ describe("NewTask Codex model picker", () => {
       props: { onsubmit, initialRepoPath: repoPath, defaultAgentProvider: "codex" },
     });
 
-    await expect
-      .poll(() => Array.from(modelSelect().options).map((o) => o.value))
-      .toContain("gpt-6-astra");
-    modelSelect().value = "gpt-6-astra";
+    await expect.poll(() => Array.from(modelSelect().options).map((o) => o.value)).toContain(model);
+    modelSelect().value = model;
     modelSelect().dispatchEvent(new Event("change", { bubbles: true }));
 
     const effortSelect = document.querySelector<HTMLSelectElement>("#nt-effort")!;
-    await expect
-      .poll(() => Array.from(effortSelect.options).map((o) => o.value))
-      .toContain("ultra");
-    effortSelect.value = "ultra";
+    await expect.poll(() => Array.from(effortSelect.options).map((o) => o.value)).toContain(effort);
+    effortSelect.value = effort;
     effortSelect.dispatchEvent(new Event("change", { bubbles: true }));
     await fillPromptAndClickRun();
 
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
     expect(onsubmit.mock.calls[0]?.[0]).toMatchObject({
       agentProvider: "codex",
-      model: "gpt-6-astra",
-      effort: "ultra",
+      model,
+      effort,
     });
   });
 

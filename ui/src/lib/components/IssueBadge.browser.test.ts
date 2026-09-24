@@ -224,7 +224,9 @@ describe("IssueBadge hover preview", () => {
     const fetchSpy = stubIssueFetch({ issue: issue({ number: n, labels: ["enhancement"] }) });
     render(IssueBadge, { session: linkedSession(n, "Stufe B: die Niederschrift") });
 
-    await page.getByText(`#${n}`, { exact: true }).hover();
+    await page
+      .getByRole("link", { name: m.issuebadge_open_label({ number: n }), exact: true })
+      .hover();
     // Title from what the session recorded at launch — no waiting on the network.
     await expect.element(page.getByText("Stufe B: die Niederschrift")).toBeVisible();
     // …then the parts only the forge knows.
@@ -241,7 +243,9 @@ describe("IssueBadge hover preview", () => {
     stubIssueFetch({ issue: null });
     render(IssueBadge, { session: linkedSession(n) });
 
-    await page.getByText(`#${n}`, { exact: true }).hover();
+    await page
+      .getByRole("link", { name: m.issuebadge_open_label({ number: n }), exact: true })
+      .hover();
     await expect.element(page.getByText(m.issuepeek_unavailable())).toBeVisible();
   });
 
@@ -252,7 +256,9 @@ describe("IssueBadge hover preview", () => {
     stubIssueFetch({ issue: issue({ number: n, title: "leaving again" }) });
     render(IssueBadge, { session: linkedSession(n, "leaving again") });
 
-    await page.getByText(`#${n}`, { exact: true }).hover();
+    await page
+      .getByRole("link", { name: m.issuebadge_open_label({ number: n }), exact: true })
+      .hover();
     await expect.element(page.getByText("leaving again")).toBeVisible();
     const el = document.querySelector("a.issue-badge") as HTMLElement;
     el.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "mouse" }));

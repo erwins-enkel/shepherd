@@ -6,7 +6,9 @@
 
 import { chmod, readFile, rename, rm, writeFile } from "node:fs/promises";
 
-type SecretMap = Record<string, Record<string, string>>;
+/** Maps, not plain objects: a plugin id or key like `__proto__`/`constructor` must be an
+ *  ordinary entry, never a prototype lookup or a setter that silently drops the write. */
+type SecretMap = Map<string, Map<string, string>>;
 
 /** Shorter values are not redacted — substring-matching a 1–3 char "secret" would mangle
  *  unrelated text, and a secret that short protects nothing anyway. */
@@ -26,12 +28,24 @@ function isStringMap(v: unknown): v is Record<string, string> {
   );
 }
 
-function isSecretMap(v: unknown): v is SecretMap {
+function isSecretRecord(v: unknown): v is Record<string, Record<string, string>> {
   return !!v && typeof v === "object" && !Array.isArray(v) && Object.values(v).every(isStringMap);
 }
 
+/** JSON.parse keeps `__proto__` as an OWN key, so `Object.entries` round-trips it safely. */
+function toSecretMap(parsed: Record<string, Record<string, string>>): SecretMap {
+  return new Map(Object.entries(parsed).map(([id, keys]) => [id, new Map(Object.entries(keys))]));
+}
+
+/** `Object.fromEntries` defines own data properties (no `__proto__` setter), so every entry
+ *  survives into the JSON. */
+function serialize(data: SecretMap): string {
+  const obj = Object.fromEntries([...data].map(([id, keys]) => [id, Object.fromEntries(keys)]));
+  return JSON.stringify(obj, null, 2) + "\n";
+}
+
 export class PluginSecretStore {
-  private data: SecretMap = {};
+  private data: SecretMap = new Map();
   private loading: Promise<void> | null = null;
   /** Set when the file exists but can't be read/parsed: writes then REFUSE, so a
    *  hand-broken file is never clobbered with a near-empty map (mirrors `setConfig`). */
@@ -61,8 +75,8 @@ export class PluginSecretStore {
     }
     try {
       const parsed: unknown = JSON.parse(raw);
-      if (!isSecretMap(parsed)) throw new Error("not a { pluginId: { key: string } } object");
-      this.data = parsed;
+      if (!isSecretRecord(parsed)) throw new Error("not a { pluginId: { key: string } } object");
+      this.data = toSecretMap(parsed);
     } catch (e) {
       this.readError = `secrets file is invalid (${errMsg(e)}) — fix or delete it`;
       console.warn(`[plugins] ${this.readError}`);
@@ -70,12 +84,12 @@ export class PluginSecretStore {
   }
 
   get(pluginId: string, key: string): string | null {
-    return this.data[pluginId]?.[key] ?? null;
+    return this.data.get(pluginId)?.get(key) ?? null;
   }
 
   /** Every secret value this plugin holds — the redaction set for its outbound payloads. */
   values(pluginId: string): string[] {
-    return Object.values(this.data[pluginId] ?? {});
+    return [...(this.data.get(pluginId)?.values() ?? [])];
   }
 
   set(pluginId: string, key: string, value: string | null): Promise<void> {
@@ -97,13 +111,14 @@ export class PluginSecretStore {
     await this.load();
     if (this.readError) throw new Error(`${tag} refused: ${this.readError}`);
 
-    const own = { ...this.data[pluginId] };
-    if (value === null) delete own[key];
-    else own[key] = value;
-    const next: SecretMap = { ...this.data, [pluginId]: own };
-    if (Object.keys(own).length === 0) delete next[pluginId];
+    const own = new Map(this.data.get(pluginId));
+    if (value === null) own.delete(key);
+    else own.set(key, value);
+    const next: SecretMap = new Map(this.data);
+    if (own.size === 0) next.delete(pluginId);
+    else next.set(pluginId, own);
 
-    await writeSecretsFile(this.path, JSON.stringify(next, null, 2) + "\n");
+    await writeSecretsFile(this.path, serialize(next));
     this.data = next; // commit to memory only once it is durably on disk
   }
 }

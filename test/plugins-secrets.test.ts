@@ -153,3 +153,22 @@ test("a secret never reaches config.json, list(), plugin:* events or GET /api/pl
   expect(res.status).toBe(200);
   expect(await res.text()).not.toContain(TOKEN);
 });
+
+test("prototype-named keys and plugin ids are ordinary entries, not prototype lookups", async () => {
+  const { pluginsDir, secretsPath } = setup();
+  const k = writePlugin(pluginsDir, "constructor");
+  await load(pluginsDir, secretsPath);
+  const ctx = g[k]!;
+  expect(ctx.secrets.get("token")).toBeNull();
+  await ctx.secrets.set("token", TOKEN);
+  expect(ctx.secrets.get("constructor")).toBeNull();
+  expect(ctx.secrets.get("toString")).toBeNull();
+  await ctx.secrets.set("__proto__", "proto-value");
+  expect(ctx.secrets.get("__proto__")).toBe("proto-value");
+
+  const k2 = writePlugin(pluginsDir, "other");
+  await load(pluginsDir, secretsPath); // round-trips through the file
+  expect(g[k]!.secrets.get("__proto__")).toBe("proto-value");
+  expect(g[k]!.secrets.get("token")).toBe(TOKEN);
+  expect(g[k2]!.secrets.get("constructor")).toBeNull();
+});

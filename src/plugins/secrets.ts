@@ -141,7 +141,11 @@ async function writeSecretsFile(path: string, contents: string): Promise<void> {
 /** Deep-copy `value`, replacing every occurrence of any of `secrets` inside any string (keys
  *  included) with `[redacted]`. Returns `value` untouched when there is nothing to redact. */
 export function redactSecrets<T>(value: T, secrets: string[]): T {
-  const needles = secrets.filter((s) => s.length >= MIN_REDACT_LENGTH);
+  // Longest first: a secret nested inside another (`abcd1234` ⊂ `abcd1234-TAIL`) must not be
+  // replaced first, or the longer one no longer matches and its tail ships.
+  const needles = secrets
+    .filter((s) => s.length >= MIN_REDACT_LENGTH)
+    .sort((a, b) => b.length - a.length);
   if (needles.length === 0) return value;
   const scrub = (s: string): string =>
     needles.reduce((acc, n) => (acc.includes(n) ? acc.split(n).join(REDACTED) : acc), s);

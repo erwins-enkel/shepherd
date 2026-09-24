@@ -172,3 +172,17 @@ test("prototype-named keys and plugin ids are ordinary entries, not prototype lo
   expect(g[k]!.secrets.get("token")).toBe(TOKEN);
   expect(g[k2]!.secrets.get("constructor")).toBeNull();
 });
+
+test("a secret nested inside a longer one is redacted without leaking the longer one's tail", async () => {
+  const { pluginsDir, secretsPath } = setup();
+  const k = writePlugin(pluginsDir, "p");
+  const registry = await load(pluginsDir, secretsPath);
+  const ctx = g[k]!;
+  await ctx.secrets.set("short", "abcd1234"); // inserted first — the failure order
+  await ctx.secrets.set("long", "abcd1234-SECRET-TAIL");
+  ctx.publishStatus({ note: "abcd1234-SECRET-TAIL and abcd1234" });
+  const out = JSON.stringify(registry.list());
+  expect(out).not.toContain("SECRET-TAIL");
+  expect(out).not.toContain("abcd1234");
+  expect(out).toContain("[redacted] and [redacted]");
+});

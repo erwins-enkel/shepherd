@@ -159,20 +159,21 @@ Neither auto-loads from the repo (the loader only ever scans `~/.shepherd/plugin
 everything goes through `ctx`, so a future Shepherd can swap the implementation (curated /
 permission-scoped / out-of-process) without changing your call sites.
 
-| Capability                         | What it does                                                                                                                                                            |
-| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ctx.onSpawn(fn)`                  | Mutate how an agent launches (see below). The load-bearing capability.                                                                                                  |
-| `ctx.events.subscribe(fn)`         | Observe the **read-only** core event stream (`session:hold`, `session:status`, …). Returns an unsubscribe fn. Plugins cannot _emit_ core events.                        |
-| `ctx.publishStatus(json)`          | Push a small free-form JSON blob to the status panel (rendered verbatim).                                                                                               |
-| `ctx.publishUI(view)`              | Push a declarative UI view to the Settings → Plugins panel (`null` clears). Additive.                                                                                   |
-| `ctx.publishGearItem(item)`        | Add a single item to the top-bar gear menu (`null` clears). Additive.                                                                                                   |
-| `ctx.state`                        | Durable, **per-plugin-scoped** key/value: `get`/`set`/`delete`/`keys`. Values are JSON. Backed by a `plugin_state` table — you never touch the session schema.          |
-| `ctx.sessions`                     | Read-only session lookup: `get(id)` / `list()` → a curated `PluginSessionSnapshot`. Resolves the bare ids that `session:*` events carry. Plugins cannot write sessions. |
-| `ctx.route(method, path, handler)` | Register an HTTP route under `/api/plugins/<id>/<path>`. Sits behind operator auth.                                                                                     |
-| `ctx.log`                          | Namespaced logger into `shepherd.log` (`ctx.log.log` / `ctx.log.warn`).                                                                                                 |
-| `ctx.config`                       | Your plugin's own `config.json` (parsed; `{}` when absent). Updated **in place** by `setConfig`, so the object you capture stays live.                                  |
-| `ctx.setConfig(patch)`             | Shallow-merge `patch` into your `config.json` and persist it (atomic; re-reads the file first). **Throws** on failure — never fails open. Additive.                     |
-| `ctx.abortSpawn(reason)`           | Hard-block the in-flight spawn from inside an `onSpawn` hook (throws).                                                                                                  |
+| Capability                         | What it does                                                                                                                                                                        |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ctx.onSpawn(fn)`                  | Mutate how an agent launches (see below). The load-bearing capability.                                                                                                              |
+| `ctx.events.subscribe(fn)`         | Observe the **read-only** core event stream (`session:hold`, `session:status`, …). Returns an unsubscribe fn. Plugins cannot _emit_ core events.                                    |
+| `ctx.publishStatus(json)`          | Push a small free-form JSON blob to the status panel (rendered verbatim).                                                                                                           |
+| `ctx.publishUI(view)`              | Push a declarative UI view to the Settings → Plugins panel (`null` clears). Additive.                                                                                               |
+| `ctx.publishGearItem(item)`        | Add a single item to the top-bar gear menu (`null` clears). Additive.                                                                                                               |
+| `ctx.state`                        | Durable, **per-plugin-scoped** key/value: `get`/`set`/`delete`/`keys`. Values are JSON. Backed by a `plugin_state` table — you never touch the session schema.                      |
+| `ctx.sessions`                     | Read-only session lookup: `get(id)` / `list()` → a curated `PluginSessionSnapshot`. Resolves the bare ids that `session:*` events carry. Plugins cannot write sessions.             |
+| `ctx.issues`                       | Create / close / read forge issues: `create(repo, {title, body, labels?, untrusted?})`, `close(repo, n, comment?)`, `get(repo, n)`. Untrusted text is fenced **by core**. Additive. |
+| `ctx.route(method, path, handler)` | Register an HTTP route under `/api/plugins/<id>/<path>`. Sits behind operator auth.                                                                                                 |
+| `ctx.log`                          | Namespaced logger into `shepherd.log` (`ctx.log.log` / `ctx.log.warn`).                                                                                                             |
+| `ctx.config`                       | Your plugin's own `config.json` (parsed; `{}` when absent). Updated **in place** by `setConfig`, so the object you capture stays live.                                              |
+| `ctx.setConfig(patch)`             | Shallow-merge `patch` into your `config.json` and persist it (atomic; re-reads the file first). **Throws** on failure — never fails open. Additive.                                 |
+| `ctx.abortSpawn(reason)`           | Hard-block the in-flight spawn from inside an `onSpawn` hook (throws).                                                                                                              |
 
 ## Reading sessions (`ctx.sessions`)
 
@@ -217,6 +218,63 @@ cache holds only non-archived sessions). That is **not** the same as a polled
 
 > **Additive API.** Older cores don't expose it — guard with
 > `typeof ctx.sessions?.get === "function"` if your plugin must run on both.
+
+## Filing issues (`ctx.issues`)
+
+A plugin that turns an outside signal (an error tracker, a monitor) into backlog work files it
+as a forge issue, which the normal drain then picks up. `repo` is a **repo path** under
+Shepherd's repo root — the same value as `PluginSessionSnapshot.repoPath`.
+
+```ts
+const { number, url } = await ctx.issues.create("/home/me/Work/app", {
+  title: `Sentry ${shortId}: unhandled TypeError in checkout`, // plugin-authored, NOT event.message
+  body: "Filed by the Sentry plugin. 42 events in 1h.",
+  labels: ["sentry"],
+  untrusted: [
+    { label: "sentry message", content: event.message },
+    { label: "stack trace", content: trimmedFrames },
+  ],
+});
+
+const issue = await ctx.issues.get(repo, number); // { number, title, body, url, labels, state } | null
+await ctx.issues.close(repo, number, "Resolved in Sentry."); // comment first, then close
+```
+
+- **`title` and `body` are TRUSTED.** The drain uses the title verbatim as the spawned agent's
+  task, outside any fence. Compose it yourself from values you control (ids, counts, your own
+  wording) and never paste third-party text into it. Core collapses newlines/control characters
+  in the title to spaces and scrubs fence markers, but that is a backstop, not a fence.
+- **`untrusted` is fenced by core, never by you.** `body` comes first; each section follows in
+  its own `⟦UNTRUSTED:<label>:<nonce>⟧ … ⟦/UNTRUSTED:<label>:<nonce>⟧` fence with a nonce the
+  content can't predict. Anything a third party wrote (error messages, user reports, stack
+  traces) belongs here, not in `body`. Fence markers already present in `body` or a section
+  are scrubbed, so nothing can close a fence early. When the drain later spawns from the
+  issue, core fences the **whole** issue body again, and the inner markers show up as
+  `[fence-token removed]`. The content is still fenced.
+- **Labels are best-effort.** Each one is stamped after creation (and created on the host if
+  missing). A label failure is logged. The issue is still returned.
+- **`get` returns `null`** when the issue is gone **or** the forge read failed transiently.
+  Don't treat `null` alone as proof of deletion. `state` is `"open"`/`"closed"`, or `null`
+  when the host didn't report one.
+- **Limits:** title 1–200 chars; ≤ 20 labels of 1–50 chars without `,` or newlines;
+  ≤ 20 untrusted sections, labels matching `[A-Za-z0-9_ .#:-]{1,64}`; composed body
+  ≤ 60 000 chars.
+
+Refusals reject with an error whose `name` is `"PluginIssuesError"` (plugins can't import
+core, so match on the name) and whose `code` says why:
+
+| `code`          | Meaning                                                                           |
+| --------------- | --------------------------------------------------------------------------------- |
+| `invalid-repo`  | `repo` is not an existing directory under the repo root.                          |
+| `invalid-input` | Bad title, labels, sections, issue number or comment. Nothing was sent.           |
+| `no-forge`      | No forge resolves for the repo (or this core has no issue wiring).                |
+| `lightweight`   | A lightweight (local-only git) repo. It has no issue backlog.                     |
+| `unsupported`   | The host lacks the API, e.g. `close` with a comment on a host that can't comment. |
+
+Forge failures (network, auth, rate limit) propagate as ordinary errors.
+
+> **Additive API.** Guard with `typeof ctx.issues?.create === "function"` if your plugin must
+> run on older cores.
 
 ## The `onSpawn` hook
 

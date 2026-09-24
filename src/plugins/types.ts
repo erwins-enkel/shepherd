@@ -162,6 +162,70 @@ export interface PluginSessions {
   list(): PluginSessionSnapshot[];
 }
 
+/** A labelled chunk of externally-sourced text (an error message, a stack trace, a user report)
+ *  that core embeds in an issue body inside an unforgeable `⟦UNTRUSTED:<label>:<nonce>⟧` fence.
+ *  The SERVER mints the fence — plugins never write fence markers themselves. */
+export interface PluginUntrustedSection {
+  /** Short fence label, `[A-Za-z0-9_ .#:-]`, 1–64 chars. */
+  label: string;
+  content: string;
+}
+
+export interface PluginIssueCreateInput {
+  /** TRUSTED, plugin-authored. Non-empty, ≤ 200 chars (trimmed). The drain uses it verbatim as
+   *  the spawned agent's task, OUTSIDE any fence — never put third-party text (an exception
+   *  message, a user report) here; put that in {@link untrusted}. Newlines/control chars are
+   *  collapsed to spaces and fence markers scrubbed as a backstop. */
+  title: string;
+  /** TRUSTED, plugin-authored markdown. Any fence markers in it are scrubbed. */
+  body: string;
+  /** Labels to stamp after creation (created on the host if absent). Best-effort: a label
+   *  failure is logged, the issue is still returned. ≤ 20, each 1–50 chars, no `,`/newline. */
+  labels?: string[];
+  /** Appended after `body`, each in its own fence. ≤ 20 sections. */
+  untrusted?: PluginUntrustedSection[];
+}
+
+/** Curated copy of one forge issue. `state` is null when the host didn't report one. */
+export interface PluginIssue {
+  number: number;
+  title: string;
+  body: string;
+  url: string;
+  labels: string[];
+  state: "open" | "closed" | null;
+}
+
+/** Forge issue access. `repo` is a repo PATH under Shepherd's repo root (as on
+ *  `PluginSessionSnapshot.repoPath`). Every method rejects with {@link PluginIssuesError}
+ *  for bad input or a repo that can't serve issues; forge failures propagate as-is. */
+export interface PluginIssues {
+  create(repo: string, o: PluginIssueCreateInput): Promise<{ number: number; url: string }>;
+  /** Close an issue, posting `comment` first when given. */
+  close(repo: string, number: number, comment?: string): Promise<void>;
+  /** One issue, fresh. `null` when gone OR on a transient forge error — never treat `null`
+   *  alone as proof of deletion. */
+  get(repo: string, number: number): Promise<PluginIssue | null>;
+}
+
+/** Why a `ctx.issues` call was refused: `invalid-repo` (not a directory under the repo root),
+ *  `invalid-input`, `no-forge` (no forge for the repo, or core has no issue wiring),
+ *  `lightweight` (a local-only repo — no backlog), `unsupported` (host lacks the API). */
+export type PluginIssuesErrorCode =
+  "invalid-repo" | "invalid-input" | "no-forge" | "lightweight" | "unsupported";
+
+/** Typed `ctx.issues` refusal. Plugins can't import core, so match on
+ *  `err.name === "PluginIssuesError"` and read `err.code`. */
+export class PluginIssuesError extends Error {
+  constructor(
+    public readonly code: PluginIssuesErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "PluginIssuesError";
+  }
+}
+
 export type PluginRouteHandler = (req: Request) => Response | Promise<Response>;
 
 /** The SOLE seam between a plugin and core. */
@@ -187,6 +251,9 @@ export interface PluginContext {
    *  a curated {@link PluginSessionSnapshot}. Additive; plugins that must run on an older
    *  core guard with `typeof ctx.sessions?.get === "function"`. */
   sessions: PluginSessions;
+  /** Create / close / read forge issues, with untrusted sections fenced by core (#2462).
+   *  Additive — guard with `typeof ctx.issues?.create === "function"`. */
+  issues: PluginIssues;
   /** Register an HTTP route under the fixed `/api/plugins/<id>/<path>` namespace. */
   route(method: string, path: string, handler: PluginRouteHandler): void;
   /** Namespaced logger into `shepherd.log`. */

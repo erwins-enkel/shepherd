@@ -719,7 +719,12 @@ const resolveForge = makeProductionForgeResolver(store, config.forges);
 // spawn path can call its hook runner; plugins are actually loaded (register(ctx)) later,
 // after ALL core services exist and just before serve() — runSpawnHooks is a safe no-op
 // until then (no spawn can be requested over HTTP before the server boots).
-const pluginRegistry = new PluginRegistry({ pluginsDir: config.pluginsDir, store, events });
+const pluginRegistry = new PluginRegistry({
+  pluginsDir: config.pluginsDir,
+  store,
+  events,
+  issues: { repoRoot: config.repoRoot, resolveForge },
+});
 
 /** Pre-accept Claude Code's workspace-trust dialog for a reviewer-style spawn's cwd (#2112). Each
  *  aux role runs in a fresh detached worktree, so without this Claude asks "do you trust this

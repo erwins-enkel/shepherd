@@ -27,6 +27,7 @@ import {
 import {
   CRITIC_REVIEW_MARKER,
   EmptyDiffError,
+  issueStateField,
   MergeEnqueuedError,
   MergePendingError,
   StackedMergeRefusedError,
@@ -440,6 +441,7 @@ interface RestIssue {
   html_url?: string;
   labels?: Array<{ name?: string | null; color?: string | null }> | null;
   created_at?: string;
+  state?: string | null;
   author_association?: string | null;
   assignees?: Array<{ login?: string | null }> | null;
   user?: { login?: string | null } | null;
@@ -881,7 +883,7 @@ export class GithubForge implements GitForge {
         "api",
         "graphql",
         "-f",
-        "query=query($owner:String!,$repo:String!,$num:Int!){repository(owner:$owner,name:$repo){issue(number:$num){number title body url createdAt author{login} authorAssociation labels(first:50){nodes{name}} assignees(first:20){nodes{login}}}}}",
+        "query=query($owner:String!,$repo:String!,$num:Int!){repository(owner:$owner,name:$repo){issue(number:$num){number title state body url createdAt author{login} authorAssociation labels(first:50){nodes{name}} assignees(first:20){nodes{login}}}}}",
         "-F",
         `owner=${owner}`,
         "-F",
@@ -896,6 +898,7 @@ export class GithubForge implements GitForge {
               issue?: {
                 number: number;
                 title: string;
+                state?: string;
                 body?: string;
                 url: string;
                 createdAt?: string;
@@ -920,6 +923,7 @@ export class GithubForge implements GitForge {
         assignees: (i.assignees?.nodes ?? []).map((a) => a.login),
         author: i.author?.login,
         authorAssociation: i.authorAssociation ?? undefined,
+        ...issueStateField(i.state),
       };
     } catch (err) {
       if (isRateLimitError(err)) return this.getIssueRest(issueNumber);
@@ -932,7 +936,7 @@ export class GithubForge implements GitForge {
       const out = await this.run(this.restGetArgs(`repos/${this.slug}/issues/${issueNumber}`));
       const issue = JSON.parse(out || "null") as RestIssue | null;
       if (!issue || issue.pull_request != null) return null;
-      return this.mapRestIssue(issue);
+      return { ...this.mapRestIssue(issue), ...issueStateField(issue.state) };
     } catch {
       return null;
     }

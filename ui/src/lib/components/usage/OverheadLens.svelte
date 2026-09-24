@@ -27,6 +27,8 @@
         return m.usage_kind_doc_agent();
       case "maintain":
         return m.usage_kind_maintain();
+      case "plugin":
+        return m.usage_kind_plugin();
       default:
         return kind;
     }

@@ -8,7 +8,7 @@ import {
   type CapacityCheck,
   type CapacityIntent,
 } from "./codex-capacity";
-import { mkdirSync, existsSync, readdirSync, statSync } from "node:fs";
+import { mkdirSync, existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -173,6 +173,7 @@ import {
 import { Promoter } from "./promote";
 import { DocAgentService, SERVER_INSTALL_ROOT } from "./doc-agent";
 import { MaintainService } from "./maintain";
+import { PluginAgentService } from "./plugin-agents";
 import { FIRST_PASS_RANGE } from "./maintain-core";
 import { buildDeliveryMetrics } from "./delivery-metrics";
 import { ensureRepoRootTrusted } from "./claude-trust";
@@ -719,11 +720,14 @@ const resolveForge = makeProductionForgeResolver(store, config.forges);
 // spawn path can call its hook runner; plugins are actually loaded (register(ctx)) later,
 // after ALL core services exist and just before serve() — runSpawnHooks is a safe no-op
 // until then (no spawn can be requested over HTTP before the server boots).
+// `runAgent` backs ctx.agents.runReadonly; `pluginAgents` is declared further down, and this closure
+// only runs once a plugin calls it — after loadAll(), long after that const exists.
 const pluginRegistry = new PluginRegistry({
   pluginsDir: config.pluginsDir,
   store,
   events,
   issues: { repoRoot: config.repoRoot, resolveForge },
+  runAgent: (pluginId, opts): Promise<unknown> => pluginAgents.run(pluginId, opts),
 });
 
 /** Pre-accept Claude Code's workspace-trust dialog for a reviewer-style spawn's cwd (#2112). Each
@@ -1671,6 +1675,12 @@ if (config.maintainLoopEnabled) {
     void maintainService.reapOrphans().catch((err) => console.warn("[maintain] reapOrphans:", err));
   });
 }
+// Boot reconcile for plugin diagnosis runs (#2463): a run cut off by the restart has no promise left
+// to resolve — close its pane, settle its cost row, reclaim its worktree. Same ordering constraint
+// as the maintain loop: before the boot sweepStaleReviewWorktrees below.
+deferredStarts.push(() => {
+  void pluginAgents.reapOrphans().catch((err) => console.warn("[plugin-agent] reapOrphans:", err));
+});
 if (config.docAgentEnabled) {
   // Boot reconcile: re-adopt a finished/in-progress interrupted run (its SENTINEL edits are the
   // deliverable), prune dead ones + husk tabs + dangling cost rows, and reap orphan remote
@@ -1842,6 +1852,33 @@ const maintainService = new MaintainService({
   trustDir: trustAuxDir,
 });
 
+function realpathOrNull(p: string): string | null {
+  try {
+    return realpathSync(p);
+  } catch {
+    return null;
+  }
+}
+
+// `ctx.agents.runReadonly` (#2463): read-only plugin diagnosis runs. Constructed ABOVE
+// sweepStaleReviewWorktrees for the same reason as the maintain loop — its `-review-`-shaped
+// checkouts are unioned into that sweep's protectedPaths.
+const pluginAgents = new PluginAgentService({
+  herdr,
+  worktree,
+  store,
+  resolveForge,
+  // Managed repos + Shepherd's own checkout, compared by real path.
+  isKnownRepo: (p) => {
+    const real = realpathOrNull(p);
+    if (real === null) return false;
+    if (realpathOrNull(SERVER_INSTALL_ROOT) === real) return true;
+    return listRepos(config.repoRoot).some((r) => r.realPath === real);
+  },
+  runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
+  trustDir: trustAuxDir,
+});
+
 // Grace window for a recent uncompleted reviewer_spawns row: spares a plan-gate reviewer during
 // its durable pre-launch/pre-inflight window and any recent restart-orphan before re-adoption.
 // The directory-age guard in reapStaleReviewWorktrees reuses this threshold as an independent
@@ -1874,6 +1911,8 @@ const sweepStaleReviewWorktrees = async () => {
       // scanClaudeAliveByWorktree cannot see a Codex spawn holding it. Without this union such a
       // run has its worktree deleted underneath it (#2157).
       ...maintainService.inflightWorktrees(),
+      // Plugin diagnosis runs (#2463): same `-review-` shape, timeouts up to 30 minutes.
+      ...pluginAgents.inflightWorktrees(),
     ]);
     const sessions = store.list();
     const sessionWorktreePaths = new Set(sessions.map((s) => s.worktreePath));

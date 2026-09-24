@@ -5,6 +5,7 @@ import {
   slugifyManual,
   selectWords,
   isHeuristicNameStrong,
+  withIssueNumber,
 } from "../src/namer";
 
 test("normalize keeps the topical words, dropping common ones, up to 4", () => {
@@ -225,4 +226,31 @@ test("no-drift pinning: normalize and isHeuristicNameStrong derive from selectWo
       expect(normalize(p)).toContain("-");
     }
   }
+});
+
+test("withIssueNumber appends the issue number", () => {
+  expect(withIssueNumber("diagnose-feedback", 908, 28)).toBe("diagnose-feedback-908");
+});
+
+test("withIssueNumber moves an existing number token to the end, leaving lookalikes", () => {
+  expect(withIssueNumber("work-issue-2459-include", 2459, 28)).toBe("work-issue-include-2459");
+  expect(withIssueNumber("fix-24590-crash", 2459, 28)).toBe("fix-24590-crash-2459");
+});
+
+test("withIssueNumber drops trailing words to keep the number inside the cap", () => {
+  // the fixed-text steer slug is exactly 32 chars (#2459)
+  const name = withIssueNumber("diagnose-feedback-attached-issue", 908, 28);
+  expect(name).toBe("diagnose-feedback-908");
+  expect(name.length).toBeLessThanOrEqual(28);
+});
+
+test("withIssueNumber hard-slices a single over-long word", () => {
+  const name = withIssueNumber("supercalifragilisticexpialidocious", 12345, 28);
+  expect(name).toBe("supercalifragilisticex-12345");
+  expect(name.length).toBe(28);
+});
+
+test("withIssueNumber falls back to task when nothing else remains", () => {
+  expect(withIssueNumber("", 7, 28)).toBe("task-7");
+  expect(withIssueNumber("7", 7, 28)).toBe("task-7");
 });

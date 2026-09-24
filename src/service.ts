@@ -61,7 +61,7 @@ import {
   uploadFilename,
   worktreeUploadsDir,
 } from "./uploads";
-import { slugifyManual, isHeuristicNameStrong, NAMER_LABEL } from "./namer";
+import { slugifyManual, isHeuristicNameStrong, NAMER_LABEL, withIssueNumber } from "./namer";
 import { SpawnCanceled, SpawnPhaseTracker } from "./spawn-progress";
 import {
   clampCodexModelForAuth,
@@ -222,6 +222,11 @@ const VIDEO_EXT_RE = /\.(mp4|mov|m4v|webm|mkv)$/i;
  *  (each probe may cost a sync `git rev-parse`), and what turns a name-space mismatch into an
  *  error the create route reports instead of a scan that never ends. */
 const UNIQUE_NAME_MAX_PROBES = 100;
+
+/** Length cap for an issue-numbered session name (#2459): herdr's name cap minus the longest
+ *  `-<n>` uniqueName's scan can append, so neither the de-dupe suffix nor herdr's 32-char
+ *  sanitize can cut the trailing issue number off. */
+const ISSUE_NAME_MAX = HERDR_AGENT_NAME_MAX - `-${UNIQUE_NAME_MAX_PROBES + 1}`.length;
 
 export interface ServiceDeps {
   capacity?: (session: Session) => Promise<boolean>;
@@ -3880,6 +3885,13 @@ export class SessionService {
     }
   }
 
+  /** The pre-de-dupe session name: the namer's slug, with the issue number folded in when the
+   *  session is spawned from an issue (#2459). No issueRef → the slug byte-identical. */
+  private async baseName(input: StandardCreateInput): Promise<string> {
+    const slug = await this.deps.namer(input.prompt);
+    return input.issueRef ? withIssueNumber(slug, input.issueRef.number, ISSUE_NAME_MAX) : slug;
+  }
+
   private async createAgentSession(
     input: StandardCreateInput,
     phases: SpawnPhaseTracker,
@@ -3887,7 +3899,7 @@ export class SessionService {
     await this.assertIssueAuthorTrusted(input);
     const repoBasename = input.repoPath.split("/").filter(Boolean).at(-1) ?? "";
     const herdSlug = repoBasename ? slugifyManual(repoBasename) : undefined;
-    const name = this.uniqueName(await this.deps.namer(input.prompt), herdSlug, input.repoPath);
+    const name = this.uniqueName(await this.baseName(input), herdSlug, input.repoPath);
     const baseRef = await phases.phase("base", () => this.resolveBaseRef(input));
     const wt = await phases.phase("worktree", () =>
       this.deps.worktree.create(input.repoPath, baseRef, name),
@@ -4751,7 +4763,10 @@ export class SessionService {
       label: `${NAMER_LABEL}${session.desig}`,
     });
     if (!raw) return;
-    const slug = this.uniqueName(raw, herd);
+    // Keep the issue number the create path folded in (#2459) through the comprehended name.
+    const base =
+      session.issueNumber != null ? withIssueNumber(raw, session.issueNumber, ISSUE_NAME_MAX) : raw;
+    const slug = this.uniqueName(base, herd);
     if (slug === session.name) return;
     // Don't clobber a manual rename that landed during the (up-to-60s) refine window:
     // re-read the row and bail if its name no longer matches the snapshot we started

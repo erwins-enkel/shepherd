@@ -1541,6 +1541,51 @@ test("createSession: suffixes stay unique in herdr's 32-char name space (no infi
   expect(calls.startName).toBe(s.name);
 });
 
+// #2459: a fixed-text steer names every session alike; an issue-spawned session carries the issue
+// number, kept inside herdr's 32-char name space even when the name is already live.
+test("createSession: an issue-spawned name keeps the issue number through de-duping", async () => {
+  const store = new SessionStore(":memory:");
+  const live = ["diagnose-feedback-908", "diagnose-feedback-908-flowagent"];
+  const service = new SessionService({
+    store,
+    namer: async () => "diagnose-feedback-attached-issue", // exactly 32 chars
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: (_repo: string, _base: string, name: string) => ({
+        worktreePath: `/wt/${name}`,
+        branch: `shepherd/${name}`,
+        isolated: true,
+      }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: async (name: string) => ({ terminalId: "term_z", cwd: `/wt/${name}` }),
+      list: () =>
+        live.map((name) => ({ name, terminalId: name, tabId: name, agentStatus: "done" })),
+    } as any,
+  });
+  const create = (prompt: string) =>
+    service.create({
+      repoPath: "/x/flowagent",
+      baseBranch: "main",
+      prompt,
+      model: null,
+      images: [],
+      issueRef: { number: 908, url: "https://x/908", title: "t", body: "b" },
+    });
+
+  const s = await create("/diagnose-feedback attached issue");
+  expect(s.name).toBe("diagnose-feedback-908-flowagen-2");
+  expect(sanitizeHerdrAgentName(s.name)).toContain("-908");
+  expect(live).not.toContain(sanitizeHerdrAgentName(s.name));
+
+  live.length = 0;
+  const fresh = await create("/diagnose-feedback attached issue");
+  expect(fresh.name).toBe("diagnose-feedback-908");
+  expect(fresh.branch).toBe("shepherd/diagnose-feedback-908");
+});
+
 // Defense in depth: whatever the next name-space mismatch is, the scan must end in an error the
 // route can report, never spin the single event loop.
 test("createSession: an exhausted name scan throws instead of spinning", async () => {
@@ -4224,6 +4269,23 @@ test("create schedules a refine that renames session, branch, and herdr tab", as
   expect(
     events.emitted.some((x: any) => x.e === "session:renamed" && x.d.name === "session-naming"),
   ).toBe(true);
+});
+
+test("refine keeps the issue number on an issue-spawned session (#2459)", async () => {
+  const { store, deps } = svcDeps();
+  const svc = new SessionService(deps);
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "make the button nice",
+    model: null,
+    images: [],
+    issueRef: { number: 42, url: "https://x/42", title: "t", body: "b" },
+  });
+  expect(s.name).toBe("even-two-recent-prs-42");
+  await new Promise((r) => setTimeout(r, 10));
+  expect(store.get(s.id)?.name).toBe("session-naming-42");
+  expect(store.get(s.id)?.branch).toBe("shepherd/session-naming-42");
 });
 
 test("refine updates display name only (no branch rename) once commits exist", async () => {

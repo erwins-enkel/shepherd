@@ -28,6 +28,7 @@ import {
   type SpawnPatch,
 } from "./types";
 import { browserRepositoryUrl } from "./repository";
+import { makePluginIssues, type PluginIssuesDeps } from "./issues";
 import { toPluginSessionSnapshot } from "./session-view";
 import { validatePluginGearItem, validatePluginUIView } from "./ui-validate";
 import type { Session } from "../types";
@@ -68,6 +69,8 @@ export interface PluginRegistryDeps {
   events: PluginEventBus;
   /** Per-hook timeout (ms); default 5000. Tests inject a small value. */
   hookTimeoutMs?: number;
+  /** Seams backing `ctx.issues`; absent → every `ctx.issues` call rejects `no-forge`. */
+  issues?: PluginIssuesDeps;
 }
 
 /** Internal per-plugin record. `health`/`lastError`/`status`/`ui` back the status panel; `gearItem` backs the gear menu. */
@@ -449,6 +452,7 @@ export class PluginRegistry {
           .list()
           .map((s) => toPluginSessionSnapshot(s, this.deps.store.getSessionGitCache(s.id))),
     };
+    const issues = makePluginIssues(this.deps.issues, (msg) => log.warn(msg));
     return {
       manifest: Object.freeze({ ...rec.manifest }),
       onSpawn: (fn) => {
@@ -502,6 +506,7 @@ export class PluginRegistry {
       },
       state,
       sessions,
+      issues,
       route: (method, path, handler) => {
         rec.routes.set(routeKey(method, path), handler);
       },

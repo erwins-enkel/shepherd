@@ -28,6 +28,11 @@ export function randomFenceToken(): string {
 // closing marker unguessable; the scrub below is belt-and-suspenders for the rare literal collision.
 const FENCE_TOKEN_RE = /⟦\/?UNTRUSTED:[^⟧]*⟧/g;
 
+/** Replace any literal fence marker in `text` so it cannot open or close a fence. Pure. */
+export function scrubFenceTokens(text: string): string {
+  return text.replace(FENCE_TOKEN_RE, "[fence-token removed]");
+}
+
 /**
  * Wrap externally-sourced, untrusted `content` (an issue body, a comment thread, a PR description, a
  * terminal tail) so the reading model treats it as DATA, never as instructions. Defends against
@@ -48,7 +53,7 @@ export function fenceUntrusted(
   content: string,
   nonce: string = randomFenceToken(),
 ): string {
-  const scrubbed = content.replaceAll(nonce, "").replace(FENCE_TOKEN_RE, "[fence-token removed]");
+  const scrubbed = scrubFenceTokens(content.replaceAll(nonce, ""));
   return [`⟦UNTRUSTED:${label}:${nonce}⟧`, scrubbed, `⟦/UNTRUSTED:${label}:${nonce}⟧`].join("\n");
 }
 

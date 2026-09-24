@@ -19,7 +19,7 @@ import type {
   WorkflowJob,
   WorkflowRun,
 } from "./types";
-import { EmptyDiffError } from "./types";
+import { EmptyDiffError, issueStateField } from "./types";
 
 interface GiteaPr {
   number: number;
@@ -164,6 +164,7 @@ export class GiteaForge implements GitForge {
         title: string;
         body?: string;
         html_url: string;
+        state?: string;
         labels?: Array<{ name: string }>;
         created_at?: string;
         assignees?: Array<{ login?: string }> | null;
@@ -178,6 +179,7 @@ export class GiteaForge implements GitForge {
         labels: (i.labels ?? []).map((l) => l.name),
         createdAt: Number.isFinite(ts) ? ts : Date.now(),
         assignees: (i.assignees ?? []).map((a) => a.login).filter((l): l is string => !!l),
+        ...issueStateField(i.state),
       };
     } catch {
       return null;

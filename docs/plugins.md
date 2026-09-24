@@ -227,7 +227,7 @@ Shepherd's repo root — the same value as `PluginSessionSnapshot.repoPath`.
 
 ```ts
 const { number, url } = await ctx.issues.create("/home/me/Work/app", {
-  title: "TypeError: cannot read 'id' of undefined",
+  title: `Sentry ${shortId}: unhandled TypeError in checkout`, // plugin-authored, NOT event.message
   body: "Filed by the Sentry plugin. 42 events in 1h.",
   labels: ["sentry"],
   untrusted: [
@@ -240,6 +240,10 @@ const issue = await ctx.issues.get(repo, number); // { number, title, body, url,
 await ctx.issues.close(repo, number, "Resolved in Sentry."); // comment first, then close
 ```
 
+- **`title` and `body` are TRUSTED.** The drain uses the title verbatim as the spawned agent's
+  task, outside any fence. Compose it yourself from values you control (ids, counts, your own
+  wording) and never paste third-party text into it. Core collapses newlines/control characters
+  in the title to spaces and scrubs fence markers, but that is a backstop, not a fence.
 - **`untrusted` is fenced by core, never by you.** `body` comes first; each section follows in
   its own `⟦UNTRUSTED:<label>:<nonce>⟧ … ⟦/UNTRUSTED:<label>:<nonce>⟧` fence with a nonce the
   content can't predict. Anything a third party wrote (error messages, user reports, stack

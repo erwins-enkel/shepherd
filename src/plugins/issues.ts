@@ -9,6 +9,7 @@ import {
   type IssueOp,
 } from "../issue-create";
 import { safeRepoDir } from "../validate";
+import { scrubFenceTokens } from "../untrusted";
 import {
   PluginIssuesError,
   type PluginIssue,
@@ -74,9 +75,16 @@ function checkSections(untrusted: unknown): PluginUntrustedSection[] {
   return untrusted.map(checkSection);
 }
 
+/** Backstop for the TRUSTED title (the drain's unfenced task prompt): one line, no control
+ *  characters, no fence markers. */
+function cleanTitle(raw: string): string {
+  // eslint-disable-next-line no-control-regex -- stripping control chars is the point
+  return scrubFenceTokens(raw.replace(/[\u0000-\u001f\u007f\u2028\u2029]+/g, " ")).trim();
+}
+
 /** Validate a create call into the forge-ready title/body/labels. */
 function checkCreate(o: PluginIssueCreateInput): { title: string; body: string; labels: string[] } {
-  const title = typeof o?.title === "string" ? o.title.trim() : "";
+  const title = typeof o?.title === "string" ? cleanTitle(o.title) : "";
   if (!title || title.length > MAX_TITLE) {
     invalid(`title must be a non-empty string ≤ ${MAX_TITLE} chars`);
   }

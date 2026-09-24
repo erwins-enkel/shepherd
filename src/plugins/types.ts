@@ -172,9 +172,12 @@ export interface PluginUntrustedSection {
 }
 
 export interface PluginIssueCreateInput {
-  /** Non-empty, ≤ 200 chars (trimmed). */
+  /** TRUSTED, plugin-authored. Non-empty, ≤ 200 chars (trimmed). The drain uses it verbatim as
+   *  the spawned agent's task, OUTSIDE any fence — never put third-party text (an exception
+   *  message, a user report) here; put that in {@link untrusted}. Newlines/control chars are
+   *  collapsed to spaces and fence markers scrubbed as a backstop. */
   title: string;
-  /** Trusted, plugin-authored markdown. Any fence markers in it are scrubbed. */
+  /** TRUSTED, plugin-authored markdown. Any fence markers in it are scrubbed. */
   body: string;
   /** Labels to stamp after creation (created on the host if absent). Best-effort: a label
    *  failure is logged, the issue is still returned. ≤ 20, each 1–50 chars, no `,`/newline. */

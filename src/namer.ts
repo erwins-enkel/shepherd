@@ -479,3 +479,27 @@ export function isHeuristicNameStrong(prompt: string): boolean {
 export function generateName(prompt: string): string {
   return normalize(prompt) || "task";
 }
+
+/**
+ * Fold an issue number into a session slug as a trailing `-<n>` (#2459), so sessions spawned
+ * from the same fixed-text steer on different issues stay tellable apart. A standalone `<n>`
+ * token already in the slug (the New Task issue template names `work-issue-<n>-…`) is moved to
+ * the end rather than doubled. The result never exceeds `max`: whole trailing words are dropped
+ * first, a lone over-long word is hard-sliced — the number itself is never truncated. The caller
+ * sizes `max` so later de-dupe suffixes and herdr's name cap can't cut the number off either.
+ */
+export function withIssueNumber(slug: string, n: number, max: number): string {
+  const suffix = `-${n}`;
+  const budget = max - suffix.length;
+  const words = slug.split("-").filter((w) => w && w !== String(n));
+  const kept: string[] = [];
+  for (const w of words) {
+    const next = [...kept, w].join("-");
+    if (next.length > budget) {
+      if (kept.length === 0) kept.push(w.slice(0, budget));
+      break;
+    }
+    kept.push(w);
+  }
+  return `${kept.join("-") || "task"}${suffix}`;
+}

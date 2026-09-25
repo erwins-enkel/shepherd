@@ -70,10 +70,10 @@ By default, filed issues get only the `sentry` label. You decide when to start t
 
 ```
 GET /api/0/organizations/{org}/issues/?project=-1&sort=new&limit=100
-    &query=is:unresolved issue.priority:high (is:new OR is:escalating OR is:regressed) times_seen:>N
+    &query=is:unresolved issue.priority:high substatus:[new,escalating,regressed] times_seen:>N
 ```
 
-If Sentry rejects the grouped query, the plugin retries once without the group and filters
+If Sentry rejects the `substatus` filter, the plugin retries once without it and filters
 the status itself.
 
 **Rules**: an issue is considered only when all of these hold:

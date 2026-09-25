@@ -62,14 +62,19 @@ describe("scrub", () => {
 });
 
 describe("frames", () => {
-  test("candidatePaths strips schemes/queries, longest first, refuses .. and node_modules", () => {
+  test("candidatePaths strips schemes/queries/leading .., longest first, refuses inner .. and node_modules", () => {
     expect(candidatePaths("app:///src/routes/+page.ts?v=3")).toEqual([
       "src/routes/+page.ts",
       "routes/+page.ts",
       "+page.ts",
     ]);
     expect(candidatePaths("webpack://my-app/./src/a.ts")[0]).toBe("my-app/src/a.ts");
-    expect(candidatePaths("../../etc/passwd")).toEqual([]);
+    // Bundler-relative frames (FLOWAGENT-6R): leading `..` is relative to the build dir, not a
+    // climb out of the repo — `isRepoFile` still confines the result.
+    expect(candidatePaths("app:///../src/lib/auth.ts")[0]).toBe("src/lib/auth.ts");
+    expect(candidatePaths("../../src/lib/auth.ts")[0]).toBe("src/lib/auth.ts");
+    expect(candidatePaths("src/../../etc/passwd")).toEqual([]);
+    expect(candidatePaths("../../node_modules/x/index.js")).toEqual([]);
     expect(candidatePaths("/app/node_modules/x/index.js")).toEqual([]);
   });
 

@@ -249,8 +249,9 @@ the server refuses the merge and the CLI exits `6` and suggests `--takeover`. `-
 the takeover with the PR state the server has cached (head commit, target branch and who is
 responsible), and the server refuses again if any of it changed.
 
-`train` is the full-auto merge train. `train start` and `train stop` flip the repo's setting;
-`train set` overrides it for one session, and `default` goes back to the repo setting.
+`train` is the full-auto merge train. `train start` and `train stop` flip the repo's setting.
+Like the UI toggle, `train start` also turns off the repo's draft mode, because the two can't both
+be on. `train set` overrides the train for one session, and `default` goes back to the repo setting.
 
 ```bash
 shepherd up-next list

@@ -134,11 +134,14 @@ async fn train_status_start_stop() {
         }])))
         .mount(&s)
         .await;
-    for on in [true, false] {
+    for body in [
+        json!({"autoMergeEnabled": true, "draftMode": false}),
+        json!({"autoMergeEnabled": false}),
+    ] {
         Mock::given(method("PUT"))
             .and(path("/api/repo-config"))
             .and(query_param("repo", "/work/repo"))
-            .and(body_json(json!({"autoMergeEnabled": on})))
+            .and(body_json(body))
             .respond_with(ResponseTemplate::new(200).set_body_json(repo_config_json()))
             .expect(1)
             .mount(&s)

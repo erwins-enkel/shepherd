@@ -156,7 +156,13 @@ async fn train_status(ctx: &mut Ctx<'_>) -> Result<()> {
 async fn train_toggle(ctx: &mut Ctx<'_>, args: RepoArg, on: bool) -> Result<()> {
     let repo = repo_path(ctx, args.repo)?;
     let op = if on { TRAIN_START } else { TRAIN_STOP };
-    put_repo_flag(ctx, repo.clone(), op, |b| b.auto_merge_enabled(Some(on))).await?;
+    // Draft mode and full-auto merge are mutually exclusive: like the UI toggle, turning the
+    // train on clears draft mode, or the server refuses the patch with a 400.
+    put_repo_flag(ctx, repo.clone(), op, |b| {
+        let b = b.auto_merge_enabled(Some(on));
+        if on { b.draft_mode(Some(false)) } else { b }
+    })
+    .await?;
     let verb = if on { "started" } else { "stopped" };
     print_done(
         ctx,

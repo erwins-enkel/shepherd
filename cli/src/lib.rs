@@ -170,6 +170,15 @@ async fn dispatch(cli: Cli, io: &mut Io) -> Result<()> {
         Command::Resume { session, force } => {
             commands::control::resume(&mut ctx, &session, force).await
         }
+        Command::Backlog => commands::intake::backlog(&mut ctx).await,
+        Command::Issues(args) => commands::intake::issues(&mut ctx, args).await,
+        Command::Drain(cmd) => commands::intake::drain(&mut ctx, cmd).await,
+        Command::UpNext(cmd) => commands::upnext::run(&mut ctx, cmd).await,
+        Command::Held(cmd) => commands::intake::held(&mut ctx, cmd).await,
+        Command::ReviewPr { session } => commands::merge::review_pr(&mut ctx, &session).await,
+        Command::ReviewPlan { session } => commands::merge::review_plan(&mut ctx, &session).await,
+        Command::Merge(args) => commands::merge::merge(&mut ctx, args).await,
+        Command::Train(cmd) => commands::merge::train(&mut ctx, cmd).await,
         Command::Login { .. } => unreachable!("handled above"),
     };
     result.map_err(|e| {

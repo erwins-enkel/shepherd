@@ -878,6 +878,146 @@ components:
         reviewer: { type: string }
         state: { type: string, enum: [changes_requested] }
         latestAt: { type: [integer, "null"] }
+    # CLI `events tail` (#2482): the session:* frames the web UI consumes beyond the native set.
+    SessionEpicDraftEvent:
+      type: object
+      additionalProperties: true
+      description: EpicDraft (src/types.ts) — a session's full epic authoring draft plus its materialize state.
+      required: [sessionId, status, parent, children, materializedChildren, parentNumber, parentUrl]
+      properties:
+        sessionId: { type: string }
+        status:
+          type: string
+          enum: [draft, materializing, approved]
+          x-shepherd-open-enum: true
+        parent:
+          type: object
+          additionalProperties: true
+          required: [title, body, acceptanceCriteria, nonGoals]
+          properties:
+            title: { type: string }
+            body: { type: string }
+            acceptanceCriteria: { type: array, items: { type: string } }
+            nonGoals: { type: array, items: { type: string } }
+        children:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            required: [key, title, body, acceptanceCriteria, blockedBy]
+            properties:
+              key: { type: string }
+              title: { type: string }
+              body: { type: string }
+              acceptanceCriteria: { type: array, items: { type: string } }
+              blockedBy: { type: array, items: { type: string } }
+        materializedChildren:
+          type: object
+          description: Child key → the real issue number created for it.
+          additionalProperties: { type: integer }
+        parentNumber: { type: [integer, "null"] }
+        parentUrl: { type: [string, "null"] }
+    SessionExperimentEvent:
+      type: object
+      additionalProperties: true
+      required: [id, experimentId, experimentRole]
+      properties:
+        id: { type: string }
+        experimentId: { type: [string, "null"] }
+        experimentRole:
+          oneOf:
+            - $ref: "#/components/schemas/ExperimentRole"
+            - type: "null"
+    SessionInjectionDetectedEvent:
+      type: object
+      additionalProperties: true
+      required: [id, count, labels]
+      properties:
+        id: { type: string }
+        count: { type: integer, minimum: 0 }
+        labels: { type: array, items: { type: string } }
+    SessionPreviewEvent:
+      type: object
+      additionalProperties: true
+      required: [id, previewPort]
+      properties:
+        id: { type: string }
+        previewPort: { type: [integer, "null"] }
+    SessionPreviewServeEvent:
+      type: object
+      additionalProperties: true
+      required: [id, serve]
+      properties:
+        id: { type: string }
+        serve:
+          type: [string, "null"]
+          enum: [ok, failed, null]
+          x-shepherd-open-enum: true
+    SpawnNotice:
+      type: object
+      additionalProperties: true
+      description: SpawnNotice (src/types.ts) — a transient-agent spawn that was clamped or refused. Display-only.
+      required: [sessionId, kind, severity, detail, steers, updatedAt]
+      properties:
+        sessionId: { type: string }
+        kind:
+          type: string
+          enum: [plan, review]
+          x-shepherd-open-enum: true
+        severity:
+          type: string
+          enum: [clamped, failed]
+          x-shepherd-open-enum: true
+        reason:
+          type: [string, "null"]
+          enum: [over-budget, plan-unreviewable, null]
+          x-shepherd-open-enum: true
+        detail: { type: string }
+        steers: { type: integer, minimum: 0 }
+        inputKey: { type: [string, "null"] }
+        updatedAt: { type: integer }
+    SessionSpawnNoticesEvent:
+      type: object
+      additionalProperties: true
+      required: [id, notices]
+      properties:
+        id: { type: string }
+        notices:
+          type: array
+          items: { $ref: "#/components/schemas/SpawnNotice" }
+    SubagentEntry:
+      type: object
+      additionalProperties: true
+      description: SubagentEntry (src/hooks-ingest.ts). `endedAt` is absent while the sub-agent is live.
+      required: [agentId, agentType, startedAt]
+      properties:
+        agentId: { type: string }
+        agentType: { type: string }
+        startedAt: { type: integer }
+        endedAt: { type: integer }
+    SessionSubagentsEvent:
+      type: object
+      additionalProperties: true
+      required: [id, subagents]
+      properties:
+        id: { type: string }
+        subagents:
+          type: array
+          items: { $ref: "#/components/schemas/SubagentEntry" }
+    SessionUploadsDroppedEvent:
+      type: object
+      additionalProperties: true
+      required: [id, count]
+      properties:
+        id: { type: string }
+        count: { type: integer, minimum: 0 }
+    SessionEgressDropEvent:
+      type: object
+      additionalProperties: true
+      required: [id, host]
+      properties:
+        id: { type: string }
+        host: { type: string }
     # ── stream: terminal ──
     ReplyRequest:
       type: object
@@ -6549,6 +6689,33 @@ x-shepherd-events:
   usage:limits:
     schema:
       $ref: "#/components/schemas/UsageLimits"
+  session:epic-draft:
+    description: A session's epic draft was authored, replaced, approved or reverted. Carries the whole draft.
+    schema: { $ref: "#/components/schemas/SessionEpicDraftEvent" }
+  session:experiment:
+    description: A session joined an experiment (the original, once a variant is spawned).
+    schema: { $ref: "#/components/schemas/SessionExperimentEvent" }
+  session:injection-detected:
+    description: Issue content tripped a prompt-injection signature at spawn. Advisory, not a blocker.
+    schema: { $ref: "#/components/schemas/SessionInjectionDetectedEvent" }
+  session:preview:
+    description: The session's preview port was assigned (or released, null).
+    schema: { $ref: "#/components/schemas/SessionPreviewEvent" }
+  session:preview-serve:
+    description: The Tailscale serve mapping for the preview slot settled (null after release).
+    schema: { $ref: "#/components/schemas/SessionPreviewServeEvent" }
+  session:spawn-notices:
+    description: The session's clamp/refusal notices changed. Always the FULL current list.
+    schema: { $ref: "#/components/schemas/SessionSpawnNoticesEvent" }
+  session:subagents:
+    description: The session's sub-agent roster changed. Always the FULL current roster.
+    schema: { $ref: "#/components/schemas/SessionSubagentsEvent" }
+  session:uploads-dropped:
+    description: Attached files were lost before spawn; the session started without them.
+    schema: { $ref: "#/components/schemas/SessionUploadsDroppedEvent" }
+  session:egress-drop:
+    description: The egress firewall dropped a host for an autonomous session (reported once per host).
+    schema: { $ref: "#/components/schemas/SessionEgressDropEvent" }
   # ── stream: terminal ──
   # ── /stream: terminal ──
   # ── stream: detail ──

@@ -1,13 +1,19 @@
-# Shepherd native client contract
+# Shepherd client contract
 
 `openapi.yaml` is the **only** description of the server surface the native macOS/iOS client
-(`native/`) may use. Swift models and client stubs are generated from it; nothing about the server
-is hand-typed on the Swift side.
+(`native/`) and the `shepherd` CLI (epic #2487) may use. Swift models and client stubs, and the
+CLI's Rust client, are generated from it; nothing about the server is hand-typed on either side.
 
 **What it covers.** Health and version, password login and access tokens, the first-run settings
 handshake, sessions (list, detail, create, archive, interrupt), repos, the `/events` WebSocket
 catalogue and the `/pty/{id}` terminal protocol. Everything else the web UI does is out of the
-contract until a native feature needs it. The spec calls the terminal block `x-shepherd-protocol`;
+contract until a native or CLI feature needs it.
+
+**The v1 CLI surface** is `getHealth` (its `version` drives the CLI's version-mismatch warning),
+`listSessions`, `getSession`, `getHolds`, `gitStates`, `listReviewsInflight`, `createSession`,
+`replySession` (steer), `interruptSession`, `archiveSession` (`DELETE /api/sessions/{id}`) and
+`resumeSession`, plus every `session:*` frame on `/events` for `shepherd events tail`.
+`test/contract/rust-derivation.test.ts` pins that list. The spec calls the terminal block `x-shepherd-protocol`;
 here it is `x-shepherd-pty`, next to `x-shepherd-events`, so the two socket catalogues read as a
 pair.
 
@@ -33,8 +39,9 @@ as"). The narrower rule has no field to live in — it lives in the operation's 
 test case matters: it is what actually pins the narrow behavior down.
 
 **How to extend it.** Add the schema under `components.schemas`, the path or event, then the test
-that exercises every declared status. Run `bun run test:contract` and `bun run gen:contract-swift`,
-and commit the regenerated `openapi.swift.yaml` alongside your change.
+that exercises every declared status. Run `bun run test:contract`, `bun run gen:contract-swift` and
+`bun run gen:contract-rust`, and commit the regenerated `openapi.swift.yaml` and
+`openapi.rust.yaml` alongside your change.
 
 ## Stream blocks — three per stream
 
@@ -71,7 +78,7 @@ status it declares — 401 included — from that same file.
 
 ## Generator compatibility
 
-There are two files here and they are not interchangeable:
+There are three files here and they are not interchangeable:
 
 - **`openapi.yaml` is the truth.** It describes the wire exactly, in whatever JSON Schema says it,
   and it is what the ajv drift test validates the live server against. Nothing rewrites it for a
@@ -79,6 +86,9 @@ There are two files here and they are not interchangeable:
 - **`openapi.swift.yaml` is generator input, derived mechanically** by
   `scripts/gen-contract-swift.ts`. **Swift is generated ONLY from `openapi.swift.yaml`** — never
   from the truth file, which Apple's [swift-openapi-generator][gen] cannot consume.
+- **`openapi.rust.yaml` is generator input, derived mechanically** by
+  `scripts/gen-contract-rust.ts` for [progenitor][progenitor], which reads only OpenAPI 3.0. See
+  [Rust derivation](#rust-derivation).
 
 Four constructs are rewritten, each for an upstream limitation:
 
@@ -129,7 +139,47 @@ swift-openapi-generator 1.13.1: the derived file builds with zero unsupported-sc
 `native/` regeneration target and the `native.yml` CI freshness job that runs it are **planned for
 sub-project 2** and are not on this branch yet.
 
+## Rust derivation
+
+`openapi.rust.yaml` is OpenAPI 3.0.3. The CLI's client is generated from it and never from the
+truth file. The schema walk is the same shape as the Swift one: it rewrites only where a schema
+lives, treats `properties` keys as names, and throws with a JSON pointer rather than weakening the
+contract.
+
+| In `openapi.yaml`                                     | In `openapi.rust.yaml`                                          |
+| ----------------------------------------------------- | --------------------------------------------------------------- |
+| `openapi: 3.1.0`                                      | `openapi: 3.0.3`                                                |
+| `type: [T, "null"]`                                   | `type: T`, `nullable: true`                                     |
+| `oneOf: [$ref X, {type: "null"}]`                     | `allOf: [$ref X]`, `nullable: true` (3.0 `$ref` drops siblings) |
+| `const: v`                                            | `enum: [v]`                                                     |
+| `null` inside an `enum` array                         | dropped (nullability rides on `nullable`)                       |
+| `x-shepherd-open-enum: true`                          | the `enum` list dropped: a plain string                         |
+| differing bodies across one operation's 2xx or errors | one `<OperationId>Success`/`Error` `oneOf` component            |
+
+**Open enums are plain strings.** typify's generated enums are closed, so an unknown member would
+fail the whole response. Request-side enums stay closed, as on the Swift side.
+
+**One body type per response group.** progenitor asserts that an operation has one success type and
+one error type. Where the truth answers different bodies (`createSession` answers `HeldTask` on 200
+and `Session` on 201), the derivation adds a `oneOf` component that every response in the group
+references. typify turns it into an untagged enum, with the generic `Error` ordered last. An error
+group that mixes bodyless and JSON responses loses its body schemas instead, and the client gets the
+raw body. A success group like that throws.
+
+**Excluded operations** live in `RUST_EXCLUDED_OPERATIONS` with their reason. Today that is only
+`uploadFile`, because progenitor 0.15 rejects `multipart/form-data`. The derivation test fails if a
+v1 CLI operation is ever excluded.
+
+**Staying fresh.** `bun run gen:contract-rust` regenerates the file. `bun run check:contract-rust`
+regenerates it and fails on any diff; CI runs it. `test/contract/rust-derivation.test.ts` asserts the
+same under `bun run test`, plus that no 3.1 construct survives and no operation still has more than
+one body type per group. Verified on 2026-09-25 with progenitor 0.15.0 (typify 0.8.0): the
+generated client builds without warnings, decodes `GET /api/health` from a live server, decodes an
+unknown `SessionStatus`, and picks the `HeldTask` variant of `CreateSessionSuccess`. The committed
+Rust build and its CI job belong to the `cli/` crate (#2483).
+
 [gen]: https://github.com/apple/swift-openapi-generator
+[progenitor]: https://github.com/oxidecomputer/progenitor
 
 ## Rules
 

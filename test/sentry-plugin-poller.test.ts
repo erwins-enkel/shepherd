@@ -317,6 +317,29 @@ test("regressed after a fix PR: the re-filing links the prior issue + PR; past M
   expect(third.labels).toEqual(["sentry"]);
 });
 
+test("regression re-filing links the fix PR even when no sync saw it before the issue closed", async () => {
+  regressions = ["2026-09-25T09:00:00Z"];
+  respond = (u) =>
+    u.pathname.endsWith("/issues/") ? ok(issuesResponse([4501], "regressed")) : defaultRespond(u);
+  const { poller } = setup();
+  await poller.poll();
+  // PR opened + merged + issue closed with no poll in between; the re-filing poll files first.
+  sessions = [
+    {
+      repoPath: repo,
+      issueNumber: 101,
+      createdAt: clock,
+      pr: { state: "merged", number: 9, url: "https://github.com/o/r/pull/9" },
+    } as PluginSessionSnapshot,
+  ];
+  ghClosed.add(101);
+  regressions.push("2026-09-26T08:00:00Z");
+  clock += 24 * 3600_000;
+  await poller.poll();
+  expect(created).toHaveLength(2);
+  expect(created[1]!.input.body).toContain("https://github.com/o/r/pull/9");
+});
+
 test("regressed while the GitHub issue is still open → no re-file", async () => {
   const { poller } = setup();
   await poller.poll();

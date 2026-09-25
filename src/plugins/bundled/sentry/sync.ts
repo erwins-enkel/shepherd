@@ -5,7 +5,13 @@
 //    or a human was assigned to it there. A claimed one is left alone.
 // It only READS sessions — it has no way to steer, nudge or re-wake one (house rule).
 
-import type { PluginIssues, PluginLogger, PluginSessions, PluginState } from "../../types";
+import type {
+  PluginIssues,
+  PluginLogger,
+  PluginSessionSnapshot,
+  PluginSessions,
+  PluginState,
+} from "../../types";
 import { parseIssueStatus, type SentryResult } from "./api";
 import { listFiled, readFiled, writeFiled, type FiledRecord } from "./state";
 
@@ -83,11 +89,38 @@ async function note(d: SyncDeps, sentryId: string, text: string): Promise<boolea
 }
 
 /** The newest session spawned for this GitHub issue, if any. */
-function claimingSession(d: SyncDeps, r: FiledRecord) {
-  return d.sessions
+export function claimingSession(
+  sessions: Pick<PluginSessions, "list">,
+  r: Pick<FiledRecord, "repo" | "number">,
+): PluginSessionSnapshot | undefined {
+  return sessions
     .list()
     .filter((s) => s.repoPath === r.repo && s.issueNumber === r.number)
     .sort((a, b) => b.createdAt - a.createdAt)[0];
+}
+
+/** The session's fix PR (open or merged), or null. */
+export function fixPr(session: PluginSessionSnapshot | undefined): FiledRecord["pr"] | null {
+  const pr = session?.pr;
+  return pr?.url && (pr.state === "open" || pr.state === "merged")
+    ? { number: pr.number ?? null, url: pr.url }
+    : null;
+}
+
+/** Record the fix PR and note it on Sentry once per distinct URL. */
+async function syncPr(
+  d: SyncDeps,
+  sentryId: string,
+  r: FiledRecord,
+  pr: FiledRecord["pr"] | null,
+  set: (p: Partial<FiledRecord>) => void,
+): Promise<string[]> {
+  if (!pr) return [];
+  set({ pr });
+  if (r.notedPr === pr.url || !(await note(d, sentryId, `Shepherd opened a fix: ${pr.url}`)))
+    return [];
+  set({ notedPr: pr.url });
+  return ["noted-pr"];
 }
 
 /** Why Sentry says the (unclaimed) GitHub issue should close, or null. */
@@ -108,24 +141,18 @@ async function syncOne(d: SyncDeps, sentryId: string, r: FiledRecord): Promise<s
 
   const gh = await d.issues.get(r.repo, r.number);
   if (!gh) return ["gh-unavailable"];
+  // Before the closed check: a fix PR that opened AND merged (closing the issue) between two
+  // visits must still be recorded — a regression re-filing links it.
+  const session = claimingSession(d.sessions, r);
+  out.push(...(await syncPr(d, sentryId, r, fixPr(session), set)));
   if (gh.state === "closed") {
     set({ sync: "closed" });
-    return ["gh-closed"];
+    return [...out, "gh-closed"];
   }
 
   if (!r.notedIssue && (await note(d, sentryId, `Shepherd filed this error as ${r.url}`))) {
     set({ notedIssue: true });
     out.push("noted-issue");
-  }
-
-  const session = claimingSession(d, r);
-  const pr = session?.pr;
-  if (pr?.url && (pr.state === "open" || pr.state === "merged")) {
-    set({ pr: { number: pr.number ?? null, url: pr.url } });
-    if (r.notedPr !== pr.url && (await note(d, sentryId, `Shepherd opened a fix: ${pr.url}`))) {
-      set({ notedPr: pr.url });
-      out.push("noted-pr");
-    }
   }
 
   if (session || gh.labels.includes(CLAIM_LABEL)) return [...out, "claimed"];

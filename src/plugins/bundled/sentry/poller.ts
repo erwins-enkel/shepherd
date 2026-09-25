@@ -50,7 +50,7 @@ import {
   type Settings,
   type Suggestion,
 } from "./state";
-import { syncFiled } from "./sync";
+import { claimingSession, fixPr, syncFiled } from "./sync";
 import { createTriageStage, triageSettled, type TriageFileFn, type TriageStage } from "./triage";
 
 /** Latest-event fetches per poll — bounds API use when many issues become eligible at once. */
@@ -118,7 +118,10 @@ export function createPoller(deps: PollerDeps): Poller {
     const humanOnly = (prev?.attempts ?? 0) >= MAX_AUTO_ATTEMPTS;
     const labels = ["sentry"];
     if (mapping?.autoDrain && repo?.autoLabel && !humanOnly) labels.push(repo.autoLabel);
-    const prior = prev ? { url: prev.url, prUrl: prev.pr?.url ?? null, humanOnly } : null;
+    // The sync may never have seen the PR (e.g. the issue closed between visits): fall back to
+    // the session that worked the previous issue.
+    const prevPr = prev ? (prev.pr ?? fixPr(claimingSession(deps.sessions, prev))) : null;
+    const prior = prev ? { url: prev.url, prUrl: prevPr?.url ?? null, humanOnly } : null;
     const res = await deps.issues.create(candidate.repo, {
       title: candidate.title,
       body: issueBody(candidate, readMeta(state, candidate.sentryId), extra.overridden, prior),

@@ -208,6 +208,26 @@ test("unclaimed + a human assigned in Sentry → closed; a team assignee is not 
   expect(rec()).toMatchObject({ sync: "closed", closedReason: "human-assigned" });
 });
 
+test("fix PR opened AND merged between visits (issue already closed) → PR still recorded + noted", async () => {
+  file("4501", { notedIssue: true });
+  gh = { state: "closed", labels: [] };
+  sessions = [
+    session(
+      { state: "merged", number: 7, url: "https://github.com/o/r/pull/7", checks: "success" },
+      { status: "done" },
+    ),
+  ];
+  expect(await syncFiled(deps())).toEqual({ "sync-noted-pr": 1, "sync-gh-closed": 1 });
+  expect(posts.map((p) => p.text)).toEqual([
+    "Shepherd opened a fix: https://github.com/o/r/pull/7",
+  ]);
+  expect(rec()).toMatchObject({
+    sync: "closed",
+    pr: { number: 7, url: "https://github.com/o/r/pull/7" },
+    notedPr: "https://github.com/o/r/pull/7",
+  });
+});
+
 test("GitHub issue closed elsewhere → record goes terminal without any Sentry call", async () => {
   file();
   gh = { state: "closed", labels: [] };

@@ -89,8 +89,11 @@ test("plannedLaneCount: matches buildLanes' conditional lane inclusion", () => {
   expect(plannedLaneCount(true, ["README.md"])).toBe(6);
   // delta with no changes → no prettier, no eslint = 5
   expect(plannedLaneCount(true, [])).toBe(5);
-  // whole-repo fallback (no origin/main) → prettier + eslint always = 7
-  expect(plannedLaneCount(false, [])).toBe(7);
+  // delta touching the Rust CLI or its derived contract → +prettier +cli = 7
+  expect(plannedLaneCount(true, ["cli/src/lib.rs"])).toBe(7);
+  expect(plannedLaneCount(true, ["contracts/openapi.rust.yaml"])).toBe(7);
+  // whole-repo fallback (no origin/main) → prettier + eslint + cli always = 8
+  expect(plannedLaneCount(false, [])).toBe(8);
 });
 
 // ── Scheduler lifecycle (injected fakes — no real processes) ─────────────────

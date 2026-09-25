@@ -693,6 +693,7 @@ export class PluginRegistry {
       name: r.manifest.name,
       version: r.manifest.version,
       repository: browserRepositoryUrl(r.manifest.repository),
+      ...(r.bundled ? { bundled: true } : {}),
       health: r.health,
       lastError: this.redact(r, r.lastError),
       status: this.redact(r, r.status),

@@ -2192,6 +2192,8 @@ export interface PluginInfo {
   version: string;
   /** Browser-clickable manifest repository URL, when declared and valid. */
   repository?: string;
+  /** Shipped in Shepherd's source tree — never in the plugins-dir scan, so never "removed". */
+  bundled?: boolean;
   health: "ok" | "errored" | "timed-out";
   lastError: string | null;
   status: unknown;

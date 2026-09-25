@@ -2501,6 +2501,7 @@ async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response 
     releaseSpawn(tracker.spawnId);
   }
   deps.events.emit("session:new", s);
+  tracker.complete(s.id);
   // A human linked an issue: stamp the drain claim so the board reflects it's being
   // worked and the drain won't double-spawn it. Deferred (macrotask) + best-effort:
   // addIssueLabel shells out synchronously via execFileSync, so merely not awaiting

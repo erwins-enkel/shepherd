@@ -76,6 +76,33 @@ test("emits nothing when the spawn is unobserved, but still measures", async () 
   expect(lines[0]).toBe("[create] spawn ok base 0.7s total 0.7s");
 });
 
+test("complete announces the created session with every phase that ran", async () => {
+  const { tracker, events, advance } = makeTracker("spawn-abc12345");
+  await tracker.phase("base", () => advance(400));
+  await tracker.phase("agent", () => advance(1_000));
+  events.length = 0;
+  tracker.complete("sess-1");
+
+  expect(events).toEqual([
+    {
+      spawnId: "spawn-abc12345",
+      phase: "agent",
+      startedAt: 2_400,
+      completed: [
+        { phase: "base", ms: 400 },
+        { phase: "agent", ms: 1_000 },
+      ],
+      sessionId: "sess-1",
+    },
+  ]);
+});
+
+test("complete emits nothing when the spawn is unobserved", () => {
+  const { tracker, events } = makeTracker();
+  tracker.complete("sess-1");
+  expect(events).toEqual([]);
+});
+
 test("cancel makes the next phase throw SpawnCanceled", async () => {
   const { tracker } = makeTracker("spawn-abc12345");
   expect(tracker.cancel()).toBe(true);

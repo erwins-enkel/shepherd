@@ -228,6 +228,32 @@ test("start (0.7.5, TRUSTED): auto-detect polls the agent list until the agent a
   expect(listCalls).toBeGreaterThanOrEqual(3);
 });
 
+test("start (0.7.5, TRUSTED): the 30s auto-detect budget is wall-clock, list latency included", async () => {
+  // Each `agent list` is a real round-trip. A budget that counted only the sleeps would run to
+  // 30s + (polls × list latency) — ~90s at 1s per list — while the dialog promises "at most 30 s".
+  let clock = 0;
+  let listCalls = 0;
+  const runner = (args: string[]) => {
+    if (args[0] === "agent" && args[1] === "list") {
+      listCalls++;
+      clock += 1_000;
+      return JSON.stringify({ result: { type: "agent_list", agents: [] } });
+    }
+    return route(args);
+  };
+  const d = new HerdrDriver(
+    runner,
+    async (args) => runner(args),
+    async (ms) => {
+      clock += ms;
+    },
+    () => clock,
+  );
+  await expect(d.start("x", "/wt/a", ["claude", "go"])).rejects.toThrow(/not auto-detected/);
+  expect(clock).toBeLessThanOrEqual(31_500);
+  expect(listCalls).toBeLessThan(25);
+});
+
 test("start (0.7.5, SANDBOXED): a cancel after pane run rolls the tab back, registering nothing", async () => {
   // The sandboxed branch resolves through a quick registration, not a poll loop, so without a
   // checkpoint right after `pane run` it would hand back a live agent for a spawn the operator

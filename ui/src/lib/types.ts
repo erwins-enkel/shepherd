@@ -2268,6 +2268,8 @@ export interface SpawnProgress {
   phase: SpawnPhase;
   startedAt: number;
   completed: { phase: SpawnPhase; ms: number }[];
+  /** Final frame of a successful create only — the session now exists (sent after session:new). */
+  sessionId?: string;
 }
 
 export type WsEvent =

@@ -3829,6 +3829,7 @@
   "newtask_spawn_why_launch": "Startbefehl, Sandbox und Plugin-Hooks werden zusammengebaut.",
   "newtask_spawn_why_agent": "Der Agent fährt in seinem Terminal hoch. Shepherd wartet, bis er sich meldet — höchstens 30 s.",
   "newtask_spawn_slow": "Dauert länger als üblich",
+  "newtask_spawn_stale": "Noch keine Antwort vom Server. Der Agent läuft vielleicht schon — sieh in der Sitzungsliste nach.",
   "newtask_spawn_cancel": "Start abbrechen",
   "newtask_spawn_canceling": "Wird abgebrochen…",
   "newtask_spawn_canceled": "Start abgebrochen. Dein Prompt steht noch da.",

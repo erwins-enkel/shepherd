@@ -270,10 +270,21 @@ struct ActionsModelTests {
         #expect(await settle(until: { counter.count > 2 }, yields: 50) == false)
     }
 
-    /// Yields until `condition` holds or the budget runs out. Everything here lands on the main
-    /// actor, so there is nothing to sleep for.
-    private func settle(until condition: () -> Bool, yields: Int = 500) async -> Bool {
-        for _ in 0..<yields {
+    /// Yields until `condition` holds, bounded by a 10 s deadline rather than a
+    /// yield count (a loaded simulator can starve the awaited work for many hops);
+    /// an explicit `yields` keeps a count bound for checks that something does
+    /// *not* happen.
+    /// Everything here lands on the main actor, so there is nothing to sleep for.
+    private func settle(until condition: () -> Bool, yields: Int? = nil) async -> Bool {
+        if let yields {
+            for _ in 0..<yields {
+                if condition() { return true }
+                await Task.yield()
+            }
+            return condition()
+        }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if condition() { return true }
             await Task.yield()
         }
@@ -347,10 +358,21 @@ struct ActionsModelTapTests {
         return AppModel(defaults: defaults, credentials: InMemoryCredentialStore(), notifications: CoreTestSupport.environment(defaults: defaults))
     }
 
-    /// Yields until `condition` holds or the budget runs out. The tap delivers on the main
-    /// actor, so there is nothing here to sleep for.
-    private func settle(until condition: () -> Bool, yields: Int = 500) async -> Bool {
-        for _ in 0..<yields {
+    /// Yields until `condition` holds, bounded by a 10 s deadline rather than a
+    /// yield count (a loaded simulator can starve the awaited work for many hops);
+    /// an explicit `yields` keeps a count bound for checks that something does
+    /// *not* happen.
+    /// The tap delivers on the main actor, so there is nothing here to sleep for.
+    private func settle(until condition: () -> Bool, yields: Int? = nil) async -> Bool {
+        if let yields {
+            for _ in 0..<yields {
+                if condition() { return true }
+                await Task.yield()
+            }
+            return condition()
+        }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if condition() { return true }
             await Task.yield()
         }

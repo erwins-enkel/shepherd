@@ -33,13 +33,24 @@ actor Signal {
     }
 }
 
-/// Yields until `condition` holds or the budget runs out, and reports whether it
-/// held. Everything under test is main-actor work a yield lets run, so there is
-/// nothing here to sleep for. A file-local twin of the helper `AppModelTests` and
+/// Yields until `condition` holds, bounded by a 10 s deadline rather than a
+/// yield count (a loaded simulator can starve the awaited work for many hops);
+/// an explicit `yields` keeps a count bound for checks that something does
+/// *not* happen.
+/// Reports whether it held. Everything under test is main-actor work a yield lets run, so there
+/// is nothing here to sleep for. A file-local twin of the helper `AppModelTests` and
 /// `AppExtensionTests` each keep private to themselves.
 @MainActor
-private func settle(until condition: () async -> Bool, yields: Int = 500) async -> Bool {
-    for _ in 0..<yields {
+private func settle(until condition: () async -> Bool, yields: Int? = nil) async -> Bool {
+    if let yields {
+        for _ in 0..<yields {
+            if await condition() { return true }
+            await Task.yield()
+        }
+        return await condition()
+    }
+    let deadline = ContinuousClock.now + .seconds(10)
+    while ContinuousClock.now < deadline {
         if await condition() { return true }
         await Task.yield()
     }

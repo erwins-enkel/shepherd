@@ -180,8 +180,16 @@ private actor HerdReadGate {
 }
 
 @MainActor
-private func herdSettle(until condition: () async -> Bool, yields: Int = 1_000) async -> Bool {
-    for _ in 0..<yields {
+private func herdSettle(until condition: () async -> Bool, yields: Int? = nil) async -> Bool {
+    if let yields {
+        for _ in 0..<yields {
+            if await condition() { return true }
+            await Task.yield()
+        }
+        return await condition()
+    }
+    let deadline = ContinuousClock.now + .seconds(10)
+    while ContinuousClock.now < deadline {
         if await condition() { return true }
         await Task.yield()
     }

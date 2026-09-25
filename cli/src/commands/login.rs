@@ -33,9 +33,14 @@ pub async fn run(
     })?;
     let mut cfg = config::load(&path)?;
     let profile = config::profile_name(&cfg, profile_flag);
+    // Same precedence as every other command (`config::resolve`): `--url` > `SHEPHERD_URL` >
+    // profile > default. An override is stored in the profile, so the saved token stays bound to
+    // the server it was validated against.
+    let override_url = config::override_url(&io.env, url_flag);
     let stored_url = cfg.profiles.get(&profile).and_then(|p| p.url.clone());
     let url = config::validate_url(
-        url_flag
+        override_url
+            .as_deref()
             .or(stored_url.as_deref())
             .unwrap_or(config::DEFAULT_URL),
     )?;
@@ -50,7 +55,7 @@ pub async fn run(
 
     let entry = cfg.profiles.entry(profile.clone()).or_default();
     entry.token = Some(token.to_string());
-    if url_flag.is_some() {
+    if override_url.is_some() {
         entry.url = Some(url.clone());
     }
     config::save(&path, &cfg)?;

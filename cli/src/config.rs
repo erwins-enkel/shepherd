@@ -125,6 +125,13 @@ pub fn profile_name(cfg: &ConfigFile, flag: Option<&str>) -> String {
         .unwrap_or_else(|| DEFAULT_PROFILE.to_string())
 }
 
+/// The URL override, if any: `--url`, else a non-empty `SHEPHERD_URL`.
+pub fn override_url(env: &HashMap<String, String>, url_flag: Option<&str>) -> Option<String> {
+    url_flag
+        .map(str::to_string)
+        .or_else(|| env.get("SHEPHERD_URL").filter(|u| !u.is_empty()).cloned())
+}
+
 /// URL: `--url` > `SHEPHERD_URL` > profile > default. Token: `SHEPHERD_TOKEN` > profile.
 ///
 /// A profile's token is only sent to that profile's own URL: overriding the URL with `--url` or
@@ -144,10 +151,7 @@ pub fn resolve(
         ));
     }
     let profile_url = validate_url(stored.url.as_deref().unwrap_or(DEFAULT_URL))?;
-    let override_url = url_flag
-        .map(str::to_string)
-        .or_else(|| env.get("SHEPHERD_URL").filter(|u| !u.is_empty()).cloned());
-    let url = match override_url {
+    let url = match override_url(env, url_flag) {
         Some(u) => validate_url(&u)?,
         None => profile_url.clone(),
     };

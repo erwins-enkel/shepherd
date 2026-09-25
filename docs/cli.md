@@ -28,7 +28,9 @@ shepherd --profile remote --url https://box.tail1234.ts.net login --token shp_â€
 ```
 
 `--token -` reads the token from stdin, which keeps it out of your shell history and the process
-list. `login` first checks the token against the server and stores nothing if it is rejected. The CLI
+list. `login` picks its server the same way as every other command (see below) and first checks the
+token against it, storing nothing if it is rejected. A URL given by `--url` or `SHEPHERD_URL` is
+saved in the profile with the token, so the two stay paired. The CLI
 can't mint tokens itself, because the server mints only for an interactive operator session.
 
 The config file is `$XDG_CONFIG_HOME/shepherd/config.toml`, or `~/.config/shepherd/config.toml`

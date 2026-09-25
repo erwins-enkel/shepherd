@@ -108,3 +108,38 @@ async fn token_from_stdin() {
     );
     assert!(config_text(&h).unwrap().contains("token = \"shp_piped\""));
 }
+
+#[tokio::test]
+async fn login_honors_shepherd_url_and_stores_it() {
+    let s = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/sessions"))
+        .and(header("authorization", "Bearer shp_env_url"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([])))
+        .expect(2)
+        .mount(&s)
+        .await;
+    let mut h = Harness::new();
+    h.env.remove("SHEPHERD_TOKEN");
+    h.env.insert("SHEPHERD_URL".into(), s.uri());
+    assert_eq!(
+        h.run(&["login", "--token", "shp_env_url"]).await,
+        0,
+        "{}",
+        h.err.text()
+    );
+    assert!(
+        config_text(&h)
+            .unwrap()
+            .contains(&format!("url = \"{}\"", s.uri()))
+    );
+
+    // Later, without SHEPHERD_URL, the stored profile URL + token still pair up.
+    let mut h2 = Harness {
+        env: h.env.clone(),
+        ..Harness::new()
+    };
+    h2.env.remove("SHEPHERD_URL");
+    assert_eq!(h2.run(&["sessions", "list"]).await, 0, "{}", h2.err.text());
+    assert!(!h2.err.text().contains("not sending"), "{}", h2.err.text());
+}

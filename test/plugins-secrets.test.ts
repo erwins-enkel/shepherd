@@ -18,7 +18,10 @@ import { PluginRegistry } from "../src/plugins/loader";
 import { makeApp, type AppDeps } from "../src/server";
 import type { PluginContext } from "../src/plugins/types";
 
-const g = globalThis as unknown as Record<string, PluginContext | undefined>;
+/** Test plugins stash their ctx here under their manifest id (static source, no code built from data). */
+const g = ((
+  globalThis as unknown as { __shepTestCtx?: Record<string, PluginContext> }
+).__shepTestCtx ??= {});
 const TOKEN = "sntrys_supersecret_token_123";
 
 function setup() {
@@ -29,7 +32,6 @@ function setup() {
 }
 
 function writePlugin(pluginsDir: string, id: string): string {
-  const key = `${id}-${Math.random().toString(36).slice(2)}`;
   mkdirSync(join(pluginsDir, id));
   writeFileSync(
     join(pluginsDir, id, "plugin.json"),
@@ -37,9 +39,9 @@ function writePlugin(pluginsDir: string, id: string): string {
   );
   writeFileSync(
     join(pluginsDir, id, "index.js"),
-    `export function register(ctx) { globalThis[${JSON.stringify(key)}] = ctx; }`,
+    `export function register(ctx) { (globalThis.__shepTestCtx ??= {})[ctx.manifest.id] = ctx; }`,
   );
-  return key;
+  return id;
 }
 
 async function load(pluginsDir: string, secretsPath: string | undefined, events = new EventHub()) {
@@ -65,7 +67,7 @@ test("get/set/unset round-trip, isolated per plugin, persisted across reload", a
   expect(a.secrets.get("token")).toBe(TOKEN);
   expect(b.secrets.get("token")).toBeNull();
 
-  const ka2 = writePlugin(pluginsDir, "c"); // fresh key so the reloaded ctx is distinct
+  const ka2 = writePlugin(pluginsDir, "c"); // a new plugin sees none of a's secrets
   await load(pluginsDir, secretsPath);
   expect(g[ka]!.secrets.get("token")).toBe(TOKEN);
   expect(g[ka2]!.secrets.get("token")).toBeNull();

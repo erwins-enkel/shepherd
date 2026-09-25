@@ -30,7 +30,8 @@ private final class QueueConnectionBox {
 
 @MainActor
 private func queueSettle(_ condition: () async -> Bool) async -> Bool {
-    for _ in 0..<1_000 {
+    let deadline = ContinuousClock.now + .seconds(10)
+    while ContinuousClock.now < deadline {
         if await condition() { return true }
         await Task.yield()
     }

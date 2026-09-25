@@ -4,11 +4,22 @@ import ShepherdKit
 
 @testable import ShepherdAppCore
 
-/// Yields until `condition` holds or the budget runs out. Mirrors
-/// `AppModelTests.settle`: everything here is main-actor work a yield lets run.
+/// Yields until `condition` holds, bounded by a 10 s deadline rather than a
+/// yield count (a loaded simulator can starve the awaited work for many hops);
+/// an explicit `yields` keeps a count bound for checks that something does
+/// *not* happen.
+/// Mirrors `AppModelTests.settle`: everything here is main-actor work a yield lets run.
 @MainActor
-private func settle(until condition: () -> Bool, yields: Int = 500) async -> Bool {
-    for _ in 0..<yields {
+private func settle(until condition: () -> Bool, yields: Int? = nil) async -> Bool {
+    if let yields {
+        for _ in 0..<yields {
+            if condition() { return true }
+            await Task.yield()
+        }
+        return condition()
+    }
+    let deadline = ContinuousClock.now + .seconds(10)
+    while ContinuousClock.now < deadline {
         if condition() { return true }
         await Task.yield()
     }
@@ -718,9 +729,7 @@ struct ConnectingOverlayDebouncerTests {
         let debouncer = ConnectingOverlayDebouncer(delay: .milliseconds(20))
 
         debouncer.phaseChanged(toConnecting: true)
-        // `settle`'s yield loop cannot wait out real time — `Task.sleep` needs
-        // the clock to actually move, not just a chance to run.
-        try? await Task.sleep(for: .milliseconds(80))
+        _ = await settle(until: { debouncer.isVisible })
 
         #expect(debouncer.isVisible)
     }

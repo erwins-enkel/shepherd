@@ -9570,7 +9570,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/PlanModelCoreTests.swift\",\"CoreSeamTests.PlanTabTests\",\"bridgeExpiresAtFourSecondsAndOutcomeAtSix() async\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: condition-bounded yield/sleep wait replaced by a 10 s ContinuousClock deadline wait (#2473); all assertions retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/PlanModelTests.swift\",\"PlanTabTests\",\"changedGateAndCancelledConsentNeverRelease() async throws\"]",
@@ -9646,7 +9648,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/PlanModelCoreTests.swift\",\"CoreSeamTests.PlanTabTests\",\"teardownAndActivationChangeDiscardLateResponses() async\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: condition-bounded yield/sleep wait replaced by a 10 s ContinuousClock deadline wait (#2473); all assertions retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/PlanModelTests.swift\",\"PlanTabTests\",\"transientOutcomeDoesNotSurviveTeardownAndReactivation(status: PlanReviewTriggerKnown) async throws\"]",
@@ -9654,7 +9658,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/PlanModelCoreTests.swift\",\"CoreSeamTests.PlanTabTests\",\"transientOutcomeDoesNotSurviveTeardownAndReactivation(status: PlanReviewTriggerKnown) async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: condition-bounded yield/sleep wait replaced by a 10 s ContinuousClock deadline wait (#2473); all assertions retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/PlanStringsTests.swift\",\"PlanStringsTests\",\"argumentCarryingKeysInterpolate()\"]",
@@ -9836,7 +9842,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QuestionFormCoreTests.swift\",\"CoreSeamTests.QuestionFormTests\",\"writeInFlightLocksInputsAndRejectsDuplicateSubmission() async\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: condition-bounded yield/sleep wait replaced by a 10 s ContinuousClock deadline wait (#2473); all assertions retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/QueuesLiveTests.swift\",\"QueuesLiveTests\",\"queueSnapshotsDecodeAgainstTheRealServer() async\"]",
@@ -11400,7 +11408,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift\",\"CoreSeamTests.ConnectingOverlayDebouncerTests\",\"showsOnceConnectingPersistsPastTheDelay() async\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: condition-bounded yield/sleep wait replaced by a 10 s ContinuousClock deadline wait (#2473); all assertions retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/TerminalStateTests.swift\",\"ConnectingOverlayDebouncerTests\",\"staysHiddenWhileConnectingHasNotPersistedPastTheDelay() async\"]",
@@ -11914,7 +11924,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/UpNextTests.swift\",\"CoreSeamTests.UpNextTests\",\"busyGateRejectsDuplicatesAndStaleCompletionsHaveNoNotices() async\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: condition-bounded yield/sleep wait replaced by a 10 s ContinuousClock deadline wait (#2473); all assertions retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/UpNextTests.swift\",\"UpNextTests\",\"defaultNewestAndEverySortModePersistInAnAppOwnedSuiteKey()\"]",

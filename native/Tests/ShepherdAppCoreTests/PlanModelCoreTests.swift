@@ -31,7 +31,8 @@ extension CoreSeamTests {
 @MainActor
 struct PlanModelTests {
     private func settle(_ condition: () async -> Bool) async -> Bool {
-        for _ in 0..<1_000 {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if await condition() { return true }
             await Task.yield()
         }
@@ -459,11 +460,13 @@ struct PlanTabTests {
         await skipped.review()
         #expect(started.awaitingReview)
         #expect(skipped.outcome != nil)
-        for _ in 0..<100 where clock.durations.count < 2 { await Task.yield() }
+        var deadline = ContinuousClock.now + .seconds(10)
+        while clock.durations.count < 2, ContinuousClock.now < deadline { await Task.yield() }
         #expect(clock.durations.contains(.milliseconds(4_000)))
         #expect(clock.durations.contains(.milliseconds(6_000)))
         clock.finish()
-        for _ in 0..<100 where started.awaitingReview || skipped.outcome != nil { await Task.yield() }
+        deadline = ContinuousClock.now + .seconds(10)
+        while started.awaitingReview || skipped.outcome != nil, ContinuousClock.now < deadline { await Task.yield() }
         #expect(!started.awaitingReview && skipped.outcome == nil)
     }
 
@@ -477,7 +480,8 @@ struct PlanTabTests {
         defer { actions.teardown(); model.teardown(); clock.finish() }
         await actions.review()
         _ = try #require(actions.outcome)
-        for _ in 0..<100 where clock.durations.isEmpty { await Task.yield() }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while clock.durations.isEmpty, ContinuousClock.now < deadline { await Task.yield() }
         try #require(clock.durations == [.milliseconds(6_000)])
 
         // Leave before the dismissal timer fires, retaining the tab's action state.
@@ -534,7 +538,8 @@ struct PlanTabTests {
         var current = true
         let actions = PlanTabActions(session: session, model: model, writer: writer, isCurrent: { current })
         let task = Task { await actions.review() }
-        for _ in 0..<100 { if await latch.count > 0 { break }; await Task.yield() }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while await latch.count == 0, ContinuousClock.now < deadline { await Task.yield() }
         current = false
         actions.teardown()
         await latch.open()

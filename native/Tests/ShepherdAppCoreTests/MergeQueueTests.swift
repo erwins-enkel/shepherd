@@ -9,7 +9,7 @@ extension CoreSeamTests {
         .init(id: id, title: id, detail: "", status: .init(known: .pending), position: 0)
     }
     private func eventually(_ condition: () async -> Bool) async -> Bool {
-        let deadline = ContinuousClock.now + .seconds(2)
+        let deadline = ContinuousClock.now + .seconds(10)
         while !(await condition()), ContinuousClock.now < deadline { await Task.yield() }
         return await condition()
     }

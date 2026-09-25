@@ -83,7 +83,7 @@ import Testing
     try http.run()
     http.waitUntilExit()
     #expect(http.terminationStatus == 0)
-    let runner = LocalRunnerStart(environment: environment, log: LogRing(), timeout: 0.2, pollInterval: 0.02)
+    let runner = LocalRunnerStart(environment: environment, log: LogRing(), timeout: 5, pollInterval: 0.02)
     let result = await runner.run()
     let calls = try String(contentsOf: home.appendingPathComponent("socket-calls"), encoding: .utf8)
       .split(separator: "\n").map(String.init)

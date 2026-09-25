@@ -224,7 +224,8 @@ extension CoreSeamTests {
     }
 
     private func eventually(_ condition: () -> Bool) async throws {
-        for _ in 0..<200 {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if condition() { return }
             try await Task.sleep(for: .milliseconds(5))
         }

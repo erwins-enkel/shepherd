@@ -583,7 +583,8 @@ struct NotificationsModelTests {
     /// parked read has really reached the centre before it starts the next one. Bounded, so a
     /// read that never arrives fails the assertion that follows instead of hanging the suite.
     private func awaitReads(_ reads: Int, on center: FakeNotificationCenter) async {
-        for _ in 0..<1_000 {
+        let deadline = ContinuousClock.now + .seconds(10)
+        while ContinuousClock.now < deadline {
             if center.authorizationReads >= reads { return }
             await Task.yield()
         }

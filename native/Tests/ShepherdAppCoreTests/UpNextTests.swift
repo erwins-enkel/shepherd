@@ -44,14 +44,16 @@ struct UpNextTests {
             app.teardown()
             defaults.removePersistentDomain(forName: suite)
         }
-        for _ in 0..<1_000 where model.isRefreshing { await Task.yield() }
+        var deadline = ContinuousClock.now + .seconds(10)
+        while model.isRefreshing, ContinuousClock.now < deadline { await Task.yield() }
         #expect(!model.isRefreshing && !model.upNextLoadFailed)
         #expect(await probe.calls == 1)
         #expect(UpNextPresentation.phase(model.upNext, failed: false, groups: []) == .computing)
         let snap = snapshot([section([item(1)]), section([item(2, repo: "/b")], repo: "/b")])
         store.apply(.unknown(name: "upnext:snapshot", payload: try JSONEncoder().encode(
             Components.Schemas.UpNextSnapshotEvent(snapshot: snap))))
-        for _ in 0..<1_000 where model.upNext == nil { await Task.yield() }
+        deadline = ContinuousClock.now + .seconds(10)
+        while model.upNext == nil, ContinuousClock.now < deadline { await Task.yield() }
         #expect(model.upNext == snap)
         await model.refresh()
         #expect(await probe.calls == 2)
@@ -249,7 +251,8 @@ struct UpNextTests {
         })
         let first = Task { await state.requestStart([item(1)], commands: commands, gate: gate,
                                                     isCurrent: { current }) }
-        for _ in 0..<1_000 where release == nil { await Task.yield() }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while release == nil, ContinuousClock.now < deadline { await Task.yield() }
         #expect(release != nil && gate.busy)
         #expect(await state.requestStart([item(1)], commands: commands, gate: gate, isCurrent: { true }) == false)
         current = false

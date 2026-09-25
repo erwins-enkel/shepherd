@@ -150,10 +150,8 @@ struct QuestionFormTests {
         fill(m)
         m.requestConfirmation()
         let sending = Task { await m.confirmSubmission() }
-        for _ in 0..<1_000 {
-            if !fake.calls.isEmpty { break }
-            await Task.yield()
-        }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while fake.calls.isEmpty, ContinuousClock.now < deadline { await Task.yield() }
         #expect(fake.calls.count == 1)
         #expect(m.submitting && m.locked && m.inputsDisabled && !m.canSubmit)
         m.requestConfirmation()
@@ -189,10 +187,8 @@ struct QuestionFormTests {
         fill(m)
         m.requestConfirmation()
         let sending = Task { await m.confirmSubmission() }
-        for _ in 0..<1_000 {
-            if !fake.calls.isEmpty { break }
-            await Task.yield()
-        }
+        let deadline = ContinuousClock.now + .seconds(10)
+        while fake.calls.isEmpty, ContinuousClock.now < deadline { await Task.yield() }
         #expect(fake.calls.count == 1)
         if change == "session" {
             app.selectedSessionID = "s2"

@@ -77,7 +77,7 @@ export default function register(ctx: PluginContext): void {
   const poller: Poller = createPoller({
     state,
     secrets: ctx.secrets,
-    env: process.env,
+    envToken: () => process.env.SHEPHERD_SENTRY_TOKEN,
     issues: ctx.issues,
     agents: ctx.agents,
     repos: () => ctx.repos.list(),

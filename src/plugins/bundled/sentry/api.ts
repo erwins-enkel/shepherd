@@ -84,7 +84,7 @@ function assigneeKind(v: unknown): SentryIssue["assignee"] {
   return a.type === "team" ? "team" : "user";
 }
 
-export function parseIssue(v: unknown): SentryIssue | null {
+function parseIssue(v: unknown): SentryIssue | null {
   const o = obj(v);
   const project = obj(o?.project);
   if (!o || !project) return null;

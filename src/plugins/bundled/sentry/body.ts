@@ -28,13 +28,13 @@ const TAG_ALLOWLIST = new Set([
 ]);
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z?$/;
 
-export function issueTitle(shortId: string, projectSlug: string): string {
+function issueTitle(shortId: string, projectSlug: string): string {
   return `Sentry ${shortId}: production error in ${projectSlug}`;
 }
 
 /** The permalink when it is an http(s) URL on the configured Sentry host (or a subdomain of
  *  it, e.g. `acme.sentry.io`); otherwise null. */
-export function safePermalink(permalink: string, host: string): string | null {
+function safePermalink(permalink: string, host: string): string | null {
   try {
     const u = new URL(permalink);
     const h = new URL(host).hostname;
@@ -54,10 +54,7 @@ function oneLine(s: string, max: number): string {
   return s.replace(/\s+/g, " ").trim().slice(0, max);
 }
 
-export function untrustedSections(
-  ev: SentryEvent,
-  frames: ResolvedFrame[],
-): PluginUntrustedSection[] {
+function untrustedSections(ev: SentryEvent, frames: ResolvedFrame[]): PluginUntrustedSection[] {
   const tags = ev.tags
     .filter((t) => TAG_ALLOWLIST.has(t.key))
     .map((t) => `${t.key}: ${oneLine(t.value, 200)}`);

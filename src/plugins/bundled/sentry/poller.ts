@@ -53,12 +53,11 @@ import { createTriageStage, triageSettled, type TriageFileFn, type TriageStage }
 const MAX_EVENT_FETCHES = 10;
 const SUBSTATUS_GROUP = "(is:new OR is:escalating OR is:regressed)";
 
-export const TOKEN_ENV = "SHEPHERD_SENTRY_TOKEN";
-
 export interface PollerDeps {
   state: PluginState;
   secrets: Pick<PluginSecrets, "get">;
-  env: Record<string, string | undefined>;
+  /** Fallback token (`SHEPHERD_SENTRY_TOKEN`) when none is saved in the secret store. */
+  envToken: () => string | undefined;
   issues: Pick<PluginIssues, "create" | "get">;
   agents: Pick<PluginAgents, "runReadonly">;
   repos: () => PluginRepo[];
@@ -99,7 +98,7 @@ export function createPoller(deps: PollerDeps): Poller {
   const read = deps.readText ?? readText;
   let running = false;
 
-  const token = (): string | null => deps.secrets.get("token") || deps.env[TOKEN_ENV] || null;
+  const token = (): string | null => deps.secrets.get("token") || deps.envToken() || null;
 
   /** Forge-backed repo paths currently under the repo root. */
   function usableRepos(): PluginRepo[] {
@@ -277,6 +276,42 @@ export function createPoller(deps: PollerDeps): Poller {
     }
   }
 
+  /** `owner/repo` slugs from each repo's `origin` remote (unreadable/unparseable skipped). */
+  async function originSlugs(repos: PluginRepo[]): Promise<Array<{ path: string; slug: string }>> {
+    const out: Array<{ path: string; slug: string }> = [];
+    for (const r of repos) {
+      const url = await originUrl(r.path, read);
+      const slug = url ? repoSlugFromUrl(url) : null;
+      if (slug) out.push({ path: r.path, slug });
+    }
+    return out;
+  }
+
+  /** Suggestions from Sentry's private code-mappings endpoint for `repos`; `[]` when not
+   *  configured, backing off, or the endpoint fails (it is undocumented — never fatal). */
+  async function codeMappingSuggestions(repos: PluginRepo[]): Promise<Suggestion[]> {
+    const s = readSettings(state);
+    const tok = token();
+    const st = readStatus(state);
+    if (!s.org || !tok || st.backoffUntil > deps.now().getTime()) return [];
+    const backoff = { b: { until: 0, strikes: st.strikes } };
+    const res = await client(
+      s,
+      tok,
+      backoff,
+    )(`organizations/${encodeURIComponent(s.org)}/code-mappings/`, { project: "-1" });
+    writeStatus(state, {
+      ...readStatus(state),
+      backoffUntil: backoff.b.until,
+      strikes: backoff.b.strikes,
+    });
+    if (!res.ok) {
+      log.warn(`code-mappings unavailable (${res.error}) — ignored`);
+      return [];
+    }
+    return matchCodeMappings(res.data, await originSlugs(repos));
+  }
+
   async function detect(): Promise<Suggestion[]> {
     const repos = usableRepos();
     const found: Suggestion[] = [];
@@ -284,33 +319,9 @@ export function createPoller(deps: PollerDeps): Poller {
       const hit = await detectFromFiles(r.path, read);
       if (hit) found.push(hit);
     }
-    const s = readSettings(state);
-    const tok = token();
-    const st = readStatus(state);
-    if (s.org && tok && st.backoffUntil <= deps.now().getTime()) {
-      const backoff = { b: { until: 0, strikes: st.strikes } };
-      const res = await client(
-        s,
-        tok,
-        backoff,
-      )(`organizations/${encodeURIComponent(s.org)}/code-mappings/`, { project: "-1" });
-      writeStatus(state, {
-        ...readStatus(state),
-        backoffUntil: backoff.b.until,
-        strikes: backoff.b.strikes,
-      });
-      if (res.ok) {
-        const slugs: Array<{ path: string; slug: string }> = [];
-        for (const r of repos.filter((x) => !found.some((f) => f.repo === x.path))) {
-          const url = await originUrl(r.path, read);
-          const slug = url ? repoSlugFromUrl(url) : null;
-          if (slug) slugs.push({ path: r.path, slug });
-        }
-        found.push(...matchCodeMappings(res.data, slugs));
-      } else {
-        log.warn(`code-mappings unavailable (${res.error}) — ignored`);
-      }
-    }
+    found.push(
+      ...(await codeMappingSuggestions(repos.filter((r) => !found.some((f) => f.repo === r.path)))),
+    );
     const mappings = readMappings(state);
     const suggestions = found.filter((x) => !mappings[x.repo]);
     writeSuggestions(state, suggestions);

@@ -5,7 +5,7 @@ import type { SentryIssue } from "./api";
 import type { FiledRecord, Mapping } from "./state";
 
 /** Auto-fix attempts (filings) per Sentry issue. */
-export const MAX_ATTEMPTS = 2;
+const MAX_ATTEMPTS = 2;
 /** Issues filed per repo per UTC day. */
 export const DAILY_CAP = 3;
 

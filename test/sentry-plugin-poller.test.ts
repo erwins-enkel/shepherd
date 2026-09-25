@@ -81,7 +81,7 @@ function setup(
   const deps: PollerDeps = {
     state,
     secrets: { get: () => (over.token === undefined ? "tok-secret" : over.token) },
-    env: {},
+    envToken: () => undefined,
     issues: {
       create: async (r, input) => {
         created.push({ repo: r, input });

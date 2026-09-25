@@ -9,7 +9,7 @@ import type { SentryFrame } from "./api";
 /** Deepest suffix tried — deeper build prefixes than this are not worth a stat each. */
 const MAX_SEGMENTS = 8;
 /** In-app frames examined per event (innermost first). */
-export const MAX_FRAMES = 10;
+const MAX_FRAMES = 10;
 
 /** Repo-relative candidate paths for a raw frame path, longest (most specific) first.
  *  `[]` for vendored code or a path that tries to climb (`..`). */

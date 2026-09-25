@@ -7,6 +7,38 @@ same HTTP API and `/events` socket as the web UI. The client is generated from
 server is hand-typed. The CLI ships in lockstep with the server and warns on stderr when
 `/api/health` reports a different version.
 
+## Install
+
+You don't need a Rust toolchain. `deploy/install.sh` installs a prebuilt `shepherd` binary into
+`~/.local/bin`, and `deploy/update.sh` (`bun run update`) refreshes it on every deploy, so the CLI
+stays at the server's version. When the installed binary is already at that version, nothing is
+downloaded. Both scripts only warn, and carry on, when no binary is published for the version, for
+example on a dev checkout or while the release is still building.
+
+Prebuilt targets:
+
+| Host                  | Target                      |
+| --------------------- | --------------------------- |
+| Linux x86_64          | `x86_64-unknown-linux-gnu`  |
+| Linux aarch64         | `aarch64-unknown-linux-gnu` |
+| macOS (Apple Silicon) | `aarch64-apple-darwin`      |
+
+The Linux builds need glibc 2.35 or newer, for example Ubuntu 22.04 or Debian 12. Other hosts,
+including Intel Macs, build from source (below).
+
+Each release `vX.Y.Z` has a companion release `cli-vX.Y.Z` that holds the binaries, each with a
+`.sha256` file. They live in a separate release because Shepherd's releases are immutable once
+published. To install or refresh by hand, run the same script the installer runs, from a checkout:
+
+```bash
+deploy/install-cli.sh            # the checkout's version, into ~/.local/bin
+deploy/install-cli.sh 1.48.0     # a specific version
+```
+
+`SHEPHERD_CLI_DIR` changes the install directory. `SHEPHERD_NO_CLI=1` makes `install.sh` and
+`update.sh` skip the CLI. If `~/.cargo/bin` comes before `~/.local/bin` on your `PATH`, a
+`cargo install`ed `shepherd` shadows the managed one.
+
 ## Build
 
 The crate lives in `cli/`. It needs a Rust toolchain (stable, 1.88 or newer):

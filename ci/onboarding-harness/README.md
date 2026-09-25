@@ -29,6 +29,13 @@ therefore leaves a running server: a `Restart=always` user unit (`deploy/herdr.s
 the service path, a detached `herdr server` on this `SHEPHERD_NO_SERVICE` path. herdr does
 **not** auto-spawn its daemon on a CLI call.
 
+Once that set is green, the harness also checks the prebuilt `shepherd` CLI (#2484): if the
+`cli-v<version>` release for the checkout's `package.json` version is published, it asserts
+`~/.local/bin/shepherd --version` reports that version and that re-running
+`deploy/install-cli.sh` is a no-op. If the version isn't published yet, the check is logged as
+skipped. Requiring it would deadlock the release gate, which gates the very release that
+publishes the binary. Both install scenarios run this check.
+
 `gh` and `tailscale` stay non-ok on a throw-away host (no tailnet, no gh login) and are
 intentionally excluded from `expect` — success is scoped to the installer's auto-fixable set,
 same as every other scenario.

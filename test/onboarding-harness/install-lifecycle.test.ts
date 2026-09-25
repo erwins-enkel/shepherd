@@ -1,10 +1,30 @@
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
 import { HERDR_LAST_SUPPORTED_VERSION } from "../../src/herdr-capabilities";
 import { IncusDriver } from "../../ci/onboarding-harness/incus";
 import { runScenario } from "../../ci/onboarding-harness/run";
 import { SCENARIOS } from "../../ci/onboarding-harness/scenarios";
 import type { IncusExec } from "../../ci/onboarding-harness/types";
 import type { DiagnosticsSnapshot } from "../../src/types";
+
+/** The version the harness expects the CLI at (the checkout's package.json). */
+const VERSION = (
+  JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as {
+    version: string;
+  }
+).version;
+
+/** Fake answers for the CLI install check (#2484): published + installed + idempotent. */
+function cliAnswer(joined: string): IncusExec | undefined {
+  if (joined.includes("curl -fsIL")) return { stdout: "", stderr: "", code: 0 };
+  if (joined.includes(".local/bin/shepherd")) {
+    return { stdout: `shepherd ${VERSION}\n`, stderr: "", code: 0 };
+  }
+  if (joined.includes("deploy/install-cli.sh")) {
+    return { stdout: `shepherd CLI already at ${VERSION}\n`, stderr: "", code: 0 };
+  }
+  return undefined;
+}
 
 const lifecycle = SCENARIOS.find((s) => s.id === "install-e2e-service")!;
 
@@ -34,6 +54,8 @@ function recorder(snapshot: DiagnosticsSnapshot, deadUnit?: "herdr" | "shepherd"
   const run = async (args: string[]): Promise<IncusExec> => {
     calls.push(args);
     const joined = args.join(" ");
+    const cliRes = cliAnswer(joined);
+    if (cliRes) return cliRes;
     if (joined.includes("--version")) {
       // The installed-version assertion (#1896): the harness demands the PINNED herdr, not merely
       // a working one, so the fake must answer as a correctly-pinned host would.

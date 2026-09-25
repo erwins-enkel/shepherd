@@ -2,6 +2,7 @@
 // seams and a real in-memory SessionStore, plus the loader wiring end-to-end.
 import { test, expect, afterEach } from "bun:test";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore } from "../src/store";
@@ -354,6 +355,17 @@ test("readResultFile ignores a symlinked result and parses a regular one", async
     repaired: false,
   });
   expect((await readResultFile(join(dir, "missing.json"))).status).toBe("absent");
+});
+
+test("readResultFile reads an oversize result as unparseable and a FIFO as absent", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "shepherd-plugin-agent-"));
+  tmpDirs.push(dir);
+  const big = join(dir, "big.json");
+  await writeFile(big, `"${"x".repeat(1024 * 1024)}"`);
+  expect((await readResultFile(big)).status).toBe("unparseable");
+  const fifo = join(dir, "fifo.json");
+  execFileSync("mkfifo", [fifo]);
+  expect((await readResultFile(fifo)).status).toBe("absent");
 });
 
 // ── loader wiring ──────────────────────────────────────────────────────────────

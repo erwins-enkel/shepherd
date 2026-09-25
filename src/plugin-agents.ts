@@ -17,7 +17,8 @@
  */
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
-import { lstat, readFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import Ajv, { type ValidateFunction } from "ajv";
@@ -147,22 +148,22 @@ function resultFileName(sessionId: string): string {
 }
 
 /** Read + tolerantly parse a result file. A symlink or non-regular file reads as absent (a repo
- *  cannot redirect the read), an oversize file as unparseable. */
+ *  cannot redirect the read), an oversize file as unparseable. One handle serves the check and the
+ *  read (O_NOFOLLOW, O_NONBLOCK so a FIFO cannot hang the open), so the file cannot be swapped in
+ *  between. */
 export async function readResultFile(file: string): Promise<VerdictRead<unknown>> {
-  let size: number;
-  try {
-    const st = await lstat(file);
-    if (!st.isFile()) return { status: "absent" };
-    size = st.size;
-  } catch {
-    return { status: "absent" };
-  }
-  if (size > MAX_RESULT_BYTES) return { status: "unparseable" };
+  let fh: FileHandle | undefined;
   let text: string;
   try {
-    text = await readFile(file, "utf8");
+    fh = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const st = await fh.stat();
+    if (!st.isFile()) return { status: "absent" };
+    if (st.size > MAX_RESULT_BYTES) return { status: "unparseable" };
+    text = await fh.readFile("utf8");
   } catch {
     return { status: "absent" };
+  } finally {
+    await fh?.close().catch(() => {});
   }
   const parsed = tolerantParseJson(text);
   return parsed.status === "ok"

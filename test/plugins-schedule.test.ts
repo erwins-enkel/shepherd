@@ -10,7 +10,10 @@ import { PluginRegistry } from "../src/plugins/loader";
 import type { PluginContext } from "../src/plugins/types";
 
 const TICK = 10;
-const g = globalThis as unknown as Record<string, PluginContext | undefined>;
+/** Test plugins stash their ctx here under their manifest id (static source, no code built from data). */
+const g = ((
+  globalThis as unknown as { __shepTestCtx?: Record<string, PluginContext> }
+).__shepTestCtx ??= {});
 const registries: PluginRegistry[] = [];
 
 afterEach(() => {
@@ -19,7 +22,7 @@ afterEach(() => {
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-/** Load one plugin that stashes its ctx on globalThis so the test drives ctx.schedule. */
+/** Load one plugin that stashes its ctx on `g` so the test drives ctx.schedule. */
 async function loadCtx(opts: { maintenance?: () => boolean; index?: string } = {}) {
   const root = mkdtempSync(join(tmpdir(), "shep-sched-"));
   const id = `sched-${Math.random().toString(36).slice(2)}`;
@@ -30,7 +33,8 @@ async function loadCtx(opts: { maintenance?: () => boolean; index?: string } = {
   );
   writeFileSync(
     join(root, id, "index.js"),
-    opts.index ?? `export function register(ctx) { globalThis[${JSON.stringify(id)}] = ctx; }`,
+    opts.index ??
+      `export function register(ctx) { (globalThis.__shepTestCtx ??= {})[ctx.manifest.id] = ctx; }`,
   );
   const events = new EventHub();
   const registry = new PluginRegistry({

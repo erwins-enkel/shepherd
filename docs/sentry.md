@@ -20,12 +20,12 @@ map here. Self-hosted Sentry has no Seer.
 In Sentry, go to **Settings → Developer Settings → Custom Integrations** and create an
 **internal integration** with these scopes:
 
-| Scope          | Why                                         |
-| -------------- | ------------------------------------------- |
-| `org:read`     | List the organization's issues              |
-| `project:read` | Project slugs and code mappings             |
-| `event:read`   | The latest event (stack trace, breadcrumbs) |
-| `event:write`  | Reserved for writeback (resolve/link) later |
+| Scope          | Why                                                           |
+| -------------- | ------------------------------------------------------------- |
+| `org:read`     | List the organization's issues                                |
+| `project:read` | Project slugs and code mappings                               |
+| `event:read`   | The latest event (stack trace, breadcrumbs)                   |
+| `event:write`  | Notes on the Sentry issue linking the GitHub issue and fix PR |
 
 Copy the token.
 
@@ -82,8 +82,8 @@ the status itself.
 - it is new, escalating or regressed;
 - it is not assigned to a person (team assignment is fine);
 - it has not been filed yet. A regressed issue is filed again only for a regression Sentry
-  recorded after the earlier filing, once that GitHub issue was closed, and at most **2 times**
-  in total (Sentry's `set_regression` activity timestamp is the evidence);
+  recorded after the earlier filing, once that GitHub issue was closed (Sentry's
+  `set_regression` activity timestamp is the evidence). See [Lifecycle sync](#lifecycle-sync);
 - the repo has had fewer than **3** issues filed today (UTC);
 - its latest event has at least one in-app stack frame that points to a file that exists in
   the repo.
@@ -113,6 +113,29 @@ scrubs:
 
 User, request, context and extra payloads are never included.
 
+## Lifecycle sync
+
+After filing, every poll also syncs up to 10 of the issues it filed before (oldest sync
+first). A record stops syncing once its GitHub issue is closed.
+
+- **Writeback**: a Sentry note links the GitHub issue. When the session working on it opens
+  a PR, another note links the PR. Shepherd never resolves the Sentry issue itself — the
+  `Fixes <SHORT-ID>` line and your release commits do that. If Sentry refuses a note (for
+  example, the token lacks `event:write`), the plugin logs it and doesn't retry.
+- **Resolved or ignored in Sentry before anyone started**: the GitHub issue is closed with a
+  comment.
+- **A person assigned in Sentry**: an unstarted GitHub issue is closed with a comment, so
+  the drain stays out of their way.
+- **Already started**: an issue is started once any Shepherd session was spawned for it, or
+  it has the `shepherd:active` label. Shepherd never closes it and never steers or wakes
+  that session.
+- **Regressed after a fix**: the new GitHub issue links the earlier issue and its PR under
+  "Previous fix didn't hold". After **2** automatic attempts, a regression is still filed but
+  without the drain label, so a person decides.
+
+The sync also runs when every mapped repo is at its daily cap. It is skipped while Sentry
+asks the plugin to back off.
+
 ## Rate limits and failures
 
 The plugin honours `Retry-After` and `X-Sentry-Rate-Limit-Reset` on a 429. If neither
@@ -121,8 +144,9 @@ header is present, it backs off exponentially, up to 1 hour. It also pauses when
 
 - herdr maintenance is running;
 - the plugin is disabled or not configured;
-- no repo is mapped;
-- every mapped repo is at its daily cap.
+- no repo is mapped.
+
+When every mapped repo is at its daily cap, only the [lifecycle sync](#lifecycle-sync) runs.
 
 The status block in the panel shows:
 

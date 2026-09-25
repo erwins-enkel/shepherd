@@ -11,6 +11,7 @@ import type {
   PluginIssue,
   PluginIssueCreateInput,
   PluginRepo,
+  PluginSessionSnapshot,
   PluginState,
 } from "../src/plugins/types";
 
@@ -40,6 +41,10 @@ let verdict: { fixable: boolean; confidence: string };
 let clock: number;
 /** `set_regression` activity timestamps served by the issue-details endpoint. */
 let regressions: string[];
+/** Per-number override of `ghState` (closed issues). */
+let ghClosed: Set<number>;
+let closed: Array<{ number: number; comment?: string }>;
+let sessions: PluginSessionSnapshot[];
 
 const ok = (body: string, headers: Record<string, string> = {}) =>
   new Response(body, { status: 200, headers });
@@ -72,6 +77,9 @@ beforeEach(() => {
   verdict = { fixable: true, confidence: "high" };
   clock = Date.parse("2026-09-25T10:00:00Z");
   regressions = [];
+  closed = [];
+  ghClosed = new Set();
+  sessions = [];
 });
 
 afterEach(() => rmSync(repo, { recursive: true, force: true }));
@@ -104,9 +112,11 @@ function setup(
         body: "",
         url: "u",
         labels: [],
-        state: ghState,
+        state: ghClosed.has(number) ? "closed" : ghState,
       }),
+      close: async (_r, number, comment) => void closed.push({ number, comment }),
     },
+    sessions: { list: () => sessions },
     agents: {
       runReadonly: async () => ({
         ...verdict,
@@ -233,7 +243,7 @@ test("daily cap: at most 3 filed per repo per day; next day resumes; all-capped 
   ]);
   calls = [];
   expect(await poller.poll()).toBe("capped");
-  expect(calls).toHaveLength(0);
+  expect(calls.filter((c) => c.url.pathname.endsWith("/issues/"))).toHaveLength(0);
 
   clock += 24 * 3600_000;
   await poller.poll();
@@ -262,12 +272,72 @@ test("regressed: re-filed only for a regression AFTER the filing whose GitHub is
   await poller.poll();
   expect(created).toHaveLength(2);
   expect(state.get("map:4501")).toMatchObject({ attempts: 2, number: 102 });
+});
 
-  // Attempt cap holds even for a later regression.
-  regressions.push("2026-09-27T08:00:00Z");
+test("regressed after a fix PR: the re-filing links the prior issue + PR; past MAX_AUTO_ATTEMPTS it is human-only", async () => {
+  regressions = ["2026-09-25T09:00:00Z"];
+  respond = (u) =>
+    u.pathname.endsWith("/issues/") ? ok(issuesResponse([4501], "regressed")) : defaultRespond(u);
+  const { poller } = setup({ autoDrain: true });
+  const claim = (number: number, pr: number) =>
+    (sessions = [
+      {
+        repoPath: repo,
+        issueNumber: number,
+        createdAt: clock,
+        pr: { state: "merged", number: pr, url: `https://github.com/o/r/pull/${pr}` },
+      } as PluginSessionSnapshot,
+    ]);
+  await poller.poll();
+  claim(101, 7);
+  await poller.poll(); // sync records the fix PR
+  ghClosed.add(101);
+
+  regressions.push("2026-09-26T08:00:00Z");
   clock += 24 * 3600_000;
   await poller.poll();
   expect(created).toHaveLength(2);
+  const second = created[1]!.input;
+  expect(second.body).toContain("## Previous fix didn't hold");
+  expect(second.body).toContain("https://github.com/o/r/issues/101");
+  expect(second.body).toContain("https://github.com/o/r/pull/7");
+  expect(second.body).not.toContain("needs a human");
+  expect(second.labels).toEqual(["sentry", "shepherd:auto"]);
+
+  claim(102, 8);
+  await poller.poll();
+  ghClosed.add(102);
+  regressions.push("2026-09-27T08:00:00Z");
+  clock += 24 * 3600_000;
+  await poller.poll();
+  expect(created).toHaveLength(3);
+  const third = created[2]!.input;
+  expect(third.body).toContain("https://github.com/o/r/pull/8");
+  expect(third.body).toContain("needs a human");
+  expect(third.labels).toEqual(["sentry"]);
+});
+
+test("regression re-filing links the fix PR even when no sync saw it before the issue closed", async () => {
+  regressions = ["2026-09-25T09:00:00Z"];
+  respond = (u) =>
+    u.pathname.endsWith("/issues/") ? ok(issuesResponse([4501], "regressed")) : defaultRespond(u);
+  const { poller } = setup();
+  await poller.poll();
+  // PR opened + merged + issue closed with no poll in between; the re-filing poll files first.
+  sessions = [
+    {
+      repoPath: repo,
+      issueNumber: 101,
+      createdAt: clock,
+      pr: { state: "merged", number: 9, url: "https://github.com/o/r/pull/9" },
+    } as PluginSessionSnapshot,
+  ];
+  ghClosed.add(101);
+  regressions.push("2026-09-26T08:00:00Z");
+  clock += 24 * 3600_000;
+  await poller.poll();
+  expect(created).toHaveLength(2);
+  expect(created[1]!.input.body).toContain("https://github.com/o/r/pull/9");
 });
 
 test("regressed while the GitHub issue is still open → no re-file", async () => {

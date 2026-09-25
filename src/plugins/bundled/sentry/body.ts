@@ -125,8 +125,34 @@ export function buildCandidate(
   };
 }
 
+/** The previous filing of a regressed Sentry issue (our own GitHub URLs — trusted). */
+export interface PriorFiling {
+  url: string;
+  prUrl: string | null;
+  /** Auto-fix attempts are used up: this filing is for a human, not the drain. */
+  humanOnly: boolean;
+}
+
+function priorBlock(p: PriorFiling): string[] {
+  return [
+    "",
+    "## Previous fix didn't hold",
+    "",
+    `This error regressed after it was filed as ${p.url}.`,
+    ...(p.prUrl ? [`The previous fix was ${p.prUrl} — find out why it didn't hold.`] : []),
+    ...(p.humanOnly
+      ? ["", "_Automatic fix attempts are used up — this issue needs a human._"]
+      : []),
+  ];
+}
+
 /** The trusted issue body: facts + the fix directive. Untrusted sections are appended by core. */
-export function issueBody(c: TriageCandidate, meta: IssueMeta | null, overridden: boolean): string {
+export function issueBody(
+  c: TriageCandidate,
+  meta: IssueMeta | null,
+  overridden: boolean,
+  prior: PriorFiling | null = null,
+): string {
   const facts: string[] = [];
   if (c.permalink) facts.push(`- Sentry issue: ${c.permalink}`);
   if (meta) {
@@ -146,6 +172,7 @@ export function issueBody(c: TriageCandidate, meta: IssueMeta | null, overridden
     "",
     ...facts,
     ...(overridden ? ["", "_Filed by an operator override of a triage rejection._"] : []),
+    ...(prior ? priorBlock(prior) : []),
     "",
     "## Task",
     "",

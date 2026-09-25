@@ -4,14 +4,15 @@
 import type { SentryIssue } from "./api";
 import type { FiledRecord, Mapping } from "./state";
 
-/** Auto-fix attempts (filings) per Sentry issue. */
-const MAX_ATTEMPTS = 2;
+/** Auto-fix attempts per Sentry issue: later re-filings go without the drain's autoLabel
+ *  (human only, #2466). */
+export const MAX_AUTO_ATTEMPTS = 2;
 /** Issues filed per repo per UTC day. */
 export const DAILY_CAP = 3;
 
 const SUBSTATUSES = new Set(["new", "escalating", "regressed"]);
 
-export type SkipReason = "unmapped" | "substatus" | "assigned" | "filed" | "attempts" | "cap";
+export type SkipReason = "unmapped" | "substatus" | "assigned" | "filed" | "cap";
 
 export type RuleVerdict =
   | {
@@ -54,7 +55,6 @@ export function evaluateIssue(issue: SentryIssue, ctx: RuleContext): RuleVerdict
   const regressed = issue.substatus === "regressed";
   const f = ctx.filed;
   if (f && !regressed) return { ok: false, reason: "filed" };
-  if (f && f.attempts >= MAX_ATTEMPTS) return { ok: false, reason: "attempts" };
   if (ctx.filedToday(repo) >= DAILY_CAP) return { ok: false, reason: "cap" };
   return { ok: true, repo, regressed, refile: !!f };
 }

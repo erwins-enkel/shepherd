@@ -8,6 +8,7 @@ import type {
   PluginLogger,
   PluginRepo,
   PluginSecrets,
+  PluginSessions,
   PluginState,
 } from "../../types";
 import {
@@ -16,6 +17,7 @@ import {
   parseIssues,
   parseRegressedAt,
   sentryGet,
+  sentryPost,
   type Backoff,
   type Fetch,
   type SentryIssue,
@@ -30,7 +32,7 @@ import {
   repoSlugFromUrl,
   type ReadText,
 } from "./mapping";
-import { DAILY_CAP, evaluateIssue, projectIndex, regressedSince } from "./rules";
+import { DAILY_CAP, evaluateIssue, MAX_AUTO_ATTEMPTS, projectIndex, regressedSince } from "./rules";
 import {
   bumpDaily,
   dayKey,
@@ -48,6 +50,7 @@ import {
   type Settings,
   type Suggestion,
 } from "./state";
+import { claimingSession, fixPr, syncFiled } from "./sync";
 import { createTriageStage, triageSettled, type TriageFileFn, type TriageStage } from "./triage";
 
 /** Latest-event fetches per poll — bounds API use when many issues become eligible at once. */
@@ -59,7 +62,9 @@ export interface PollerDeps {
   secrets: Pick<PluginSecrets, "get">;
   /** Fallback token (`SHEPHERD_SENTRY_TOKEN`) when none is saved in the secret store. */
   envToken: () => string | undefined;
-  issues: Pick<PluginIssues, "create" | "get">;
+  issues: Pick<PluginIssues, "create" | "get" | "close">;
+  /** Read-only: the lifecycle sync looks up the session that claimed a filed issue. */
+  sessions: Pick<PluginSessions, "list">;
   agents: Pick<PluginAgents, "runReadonly">;
   repos: () => PluginRepo[];
   fetch: Fetch;
@@ -109,16 +114,21 @@ export function createPoller(deps: PollerDeps): Poller {
   const file: TriageFileFn = async (candidate, extra) => {
     const repo = deps.repos().find((r) => r.path === candidate.repo);
     const mapping = readMappings(state)[candidate.repo];
+    const prev = readFiled(state, candidate.sentryId);
+    const humanOnly = (prev?.attempts ?? 0) >= MAX_AUTO_ATTEMPTS;
     const labels = ["sentry"];
-    if (mapping?.autoDrain && repo?.autoLabel) labels.push(repo.autoLabel);
+    if (mapping?.autoDrain && repo?.autoLabel && !humanOnly) labels.push(repo.autoLabel);
+    // The sync may never have seen the PR (e.g. the issue closed between visits): fall back to
+    // the session that worked the previous issue.
+    const prevPr = prev ? (prev.pr ?? fixPr(claimingSession(deps.sessions, prev))) : null;
+    const prior = prev ? { url: prev.url, prUrl: prevPr?.url ?? null, humanOnly } : null;
     const res = await deps.issues.create(candidate.repo, {
       title: candidate.title,
-      body: issueBody(candidate, readMeta(state, candidate.sentryId), extra.overridden),
+      body: issueBody(candidate, readMeta(state, candidate.sentryId), extra.overridden, prior),
       labels,
       untrusted: [...candidate.untrusted, ...extra.untrusted],
     });
     const now = deps.now();
-    const prev = readFiled(state, candidate.sentryId);
     writeFiled(state, candidate.sentryId, {
       repo: candidate.repo,
       number: res.number,
@@ -142,6 +152,15 @@ export function createPoller(deps: PollerDeps): Poller {
     };
   }
 
+  /** A Sentry POST folding into the same `backoff` as `client`. */
+  function poster(s: Settings, tok: string, backoff: { b: Backoff }) {
+    return async (path: string, body: unknown) => {
+      const r = await sentryPost({ fetch: deps.fetch, host: s.host, token: tok }, path, body);
+      backoff.b = nextBackoff(r.status, r.headers, deps.now().getTime(), backoff.b);
+      return r;
+    };
+  }
+
   /** Is the previously filed GitHub issue closed (the precondition for a re-filing)? */
   async function previousClosed(sentryId: string): Promise<boolean> {
     const f = readFiled(state, sentryId);
@@ -150,16 +169,13 @@ export function createPoller(deps: PollerDeps): Poller {
     return gh?.state === "closed";
   }
 
-  async function runPoll(
+  /** List eligible Sentry issues and file what passes; outcome counts, or the list error. */
+  async function fileNew(
     s: Settings,
-    tok: string,
-    st: PollStatus,
+    get: ReturnType<typeof client>,
     repoForProject: Map<string, string>,
-  ): Promise<PollOutcome> {
-    const now = deps.now();
-    const day = dayKey(now);
-    const backoff = { b: { until: 0, strikes: st.strikes } };
-    const get = client(s, tok, backoff);
+    day: string,
+  ): Promise<{ counts: Record<string, number> } | { error: string }> {
     const org = encodeURIComponent(s.org);
     const base = { project: "-1", sort: "new", limit: "100" };
     let list = await get(`organizations/${org}/issues/`, {
@@ -173,18 +189,7 @@ export function createPoller(deps: PollerDeps): Poller {
         query: pollQuery(s.minTimesSeen, false),
       });
     }
-    const done = (patch: Partial<PollStatus>) =>
-      writeStatus(state, {
-        ...st,
-        lastPollAt: now.getTime(),
-        backoffUntil: backoff.b.until,
-        strikes: backoff.b.strikes,
-        ...patch,
-      });
-    if (!list.ok) {
-      done({ lastError: list.error });
-      return "error";
-    }
+    if (!list.ok) return { error: list.error };
 
     const counts: Record<string, number> = {};
     const count = (k: string) => (counts[k] = (counts[k] ?? 0) + 1);
@@ -200,8 +205,55 @@ export function createPoller(deps: PollerDeps): Poller {
       count(outcome);
       if (outcome === "rate-limited") break;
     }
+    return { counts };
+  }
+
+  /** One poll: file new issues (unless every mapped repo is capped today), then the lifecycle
+   *  sync over already-filed ones (#2466) unless Sentry asked us to back off. */
+  async function runPoll(
+    s: Settings,
+    tok: string,
+    st: PollStatus,
+    repoForProject: Map<string, string>,
+    capped: boolean,
+  ): Promise<PollOutcome> {
+    const now = deps.now();
+    const backoff = { b: { until: 0, strikes: st.strikes } };
+    const get = client(s, tok, backoff);
+    const done = (patch: Partial<PollStatus>) =>
+      writeStatus(state, {
+        ...st,
+        lastPollAt: now.getTime(),
+        backoffUntil: backoff.b.until,
+        strikes: backoff.b.strikes,
+        ...patch,
+      });
+    let counts: Record<string, number> = {};
+    if (!capped) {
+      const filed = await fileNew(s, get, repoForProject, dayKey(now));
+      if ("error" in filed) {
+        done({ lastError: filed.error });
+        return "error";
+      }
+      counts = filed.counts;
+    }
+    if (backoff.b.until <= deps.now().getTime()) {
+      Object.assign(
+        counts,
+        await syncFiled({
+          state,
+          issues: deps.issues,
+          sessions: deps.sessions,
+          get,
+          post: poster(s, tok, backoff),
+          org: s.org,
+          now: deps.now,
+          log,
+        }),
+      );
+    }
     done({ lastError: null, lastResult: counts });
-    return "ok";
+    return capped ? "capped" : "ok";
   }
 
   interface ConsiderCtx {
@@ -286,10 +338,10 @@ export function createPoller(deps: PollerDeps): Poller {
       return why;
     };
     if (mapped.length === 0) return skip("no-mapping");
-    if (mapped.every((r) => filedToday(state, r, day) >= DAILY_CAP)) return skip("capped");
+    const capped = mapped.every((r) => filedToday(state, r, day) >= DAILY_CAP);
     running = true;
     try {
-      return await runPoll(s, tok, st, repoForProject);
+      return await runPoll(s, tok, st, repoForProject, capped);
     } finally {
       running = false;
     }

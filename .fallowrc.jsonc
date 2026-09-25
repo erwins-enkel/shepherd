@@ -88,8 +88,13 @@
   // static import — so fallow reports each as an unused file. They are reference
   // teaching material loaded dynamically (the same string/runtime-loaded class as
   // sw.js above), not dead code. Narrow to the entry index; the rest of each folder
-  // (plugin.json/config.json) is non-TS and not analyzed.
-  "dynamicallyLoaded": ["ui/static/sw.js", "examples/plugins/*/index.ts"],
+  // (plugin.json/config.json) is non-TS and not analyzed. Bundled plugins
+  // (src/plugins/bundled/*/index.ts) are loaded the same way.
+  "dynamicallyLoaded": [
+    "ui/static/sw.js",
+    "examples/plugins/*/index.ts",
+    "src/plugins/bundled/*/index.ts"
+  ],
 
   // tailwindcss is pulled in through `@import "tailwindcss"` in app.css + the
   // @tailwindcss/vite plugin, not an ESM import — so fallow sees it as unlisted.

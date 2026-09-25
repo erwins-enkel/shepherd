@@ -142,6 +142,12 @@ export const DOCS_PAGES: readonly DocsPage[] = [
       "sandbox membrane, egress firewall, and accepted security residuals. r3 — in-membrane token readability (accepted) attended-mode egress coverage launch probe — the membrane is proven, the launcher is not (#2111) r4 — prompt-injection posture see also",
   },
   {
+    title: "Sentry",
+    path: "/reference/sentry/",
+    keywords:
+      "turn production errors into triaged github issues shepherd can fix — setup, mapping, caps. before you start: turn seer off 1. create a sentry token 2. connect 3. map repos to sentry projects auto-drain sentry issues (per repo, default off) what gets filed rate limits and failures",
+  },
+  {
     title: "Stacked epic children",
     path: "/reference/stacked-epic-children/",
     keywords:

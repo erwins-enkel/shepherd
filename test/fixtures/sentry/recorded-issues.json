@@ -1,0 +1,54 @@
+[
+  {
+    "id": "4501",
+    "shortId": "FLOWAGENT-1A",
+    "title": "TypeError: Cannot read properties of undefined (reading 'id')",
+    "culprit": "src/lib/server/session.ts in loadUser",
+    "permalink": "https://sentry.io/organizations/acme/issues/4501/",
+    "level": "error",
+    "status": "unresolved",
+    "substatus": "new",
+    "priority": "high",
+    "count": "57",
+    "userCount": 12,
+    "firstSeen": "2026-09-24T08:00:00.000000Z",
+    "lastSeen": "2026-09-25T07:55:00.000000Z",
+    "assignedTo": null,
+    "project": {
+      "id": "11",
+      "name": "flowagent",
+      "slug": "flowagent",
+      "platform": "javascript-sveltekit"
+    },
+    "metadata": {
+      "type": "TypeError",
+      "value": "Cannot read properties of undefined (reading 'id')"
+    }
+  },
+  {
+    "id": "4502",
+    "shortId": "FLOWAGENT-1B",
+    "title": "Error: owned by a human",
+    "permalink": "https://sentry.io/organizations/acme/issues/4502/",
+    "status": "unresolved",
+    "substatus": "escalating",
+    "count": "300",
+    "userCount": 40,
+    "firstSeen": "2026-09-20T08:00:00.000000Z",
+    "lastSeen": "2026-09-25T07:00:00.000000Z",
+    "assignedTo": { "type": "user", "id": "7", "name": "Jane Doe", "email": "jane@example.com" },
+    "project": { "id": "11", "name": "flowagent", "slug": "flowagent" }
+  },
+  {
+    "id": "4503",
+    "shortId": "OTHER-9",
+    "title": "Error in an unmapped project",
+    "permalink": "https://sentry.io/organizations/acme/issues/4503/",
+    "status": "unresolved",
+    "substatus": "new",
+    "count": "20",
+    "userCount": 2,
+    "assignedTo": null,
+    "project": { "id": "12", "name": "other", "slug": "other" }
+  }
+]

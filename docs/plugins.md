@@ -33,6 +33,10 @@ and documented. Specific plugin **implementations** stay private under
   **hand-editing its `config.json`** (read at load), and **unloading** one whose folder you
   removed. A plugin changing its _own_ config through [`ctx.setConfig`](#writing-config-ctxsetconfig)
   does not need a restart — that write updates `ctx.config` live.
+- **Bundled plugins** ship inside Shepherd (`src/plugins/bundled/`) and load after the
+  plugins dir, so an installed plugin with the same `id` wins. They keep their settings in
+  `ctx.state` (their folder is the source tree, so `ctx.config` is `{}` and `ctx.setConfig`
+  rejects) and can't be uninstalled. Today: [Sentry](sentry.md), off until enabled in its panel.
 - A **missing or empty** plugins dir is a clean no-op: no hooks and `/api/plugins/<id>/*`
   returns 404 — a fresh clone behaves exactly as a stock Shepherd. The Settings → Plugins
   tab still renders (so you can install the first plugin), just with an empty list.
@@ -170,6 +174,7 @@ permission-scoped / out-of-process) without changing your call sites.
 | `ctx.sessions`                     | Read-only session lookup: `get(id)` / `list()` → a curated `PluginSessionSnapshot`. Resolves the bare ids that `session:*` events carry. Plugins cannot write sessions.             |
 | `ctx.issues`                       | Create / close / read forge issues: `create(repo, {title, body, labels?, untrusted?})`, `close(repo, n, comment?)`, `get(repo, n)`. Untrusted text is fenced **by core**. Additive. |
 | `ctx.agents.runReadonly(opts)`     | Run one read-only diagnosis agent over a managed repo and get back its schema-validated JSON result (see below). Capped per plugin. Additive.                                       |
+| `ctx.repos.list()`                 | Read-only list of repos under the repo root: `{ path, name, autoLabel, lightweight }[]`. `path` is the form `ctx.issues` / `ctx.agents` accept. Additive.                           |
 | `ctx.route(method, path, handler)` | Register an HTTP route under `/api/plugins/<id>/<path>`. Sits behind operator auth.                                                                                                 |
 | `ctx.log`                          | Namespaced logger into `shepherd.log` (`ctx.log.log` / `ctx.log.warn`).                                                                                                             |
 | `ctx.config`                       | Your plugin's own `config.json` (parsed; `{}` when absent). Updated **in place** by `setConfig`, so the object you capture stays live.                                              |

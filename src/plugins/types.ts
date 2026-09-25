@@ -292,6 +292,24 @@ export interface PluginAgents {
   runReadonly(opts: PluginAgentRunOptions): Promise<unknown>;
 }
 
+/** A repo under Shepherd's repo root, as a plugin sees it (curated read-only view). */
+export interface PluginRepo {
+  /** Repo PATH under the repo root — the form `ctx.issues` and `ctx.agents` accept. */
+  path: string;
+  /** Directory name. */
+  name: string;
+  /** The repo's drain opt-in label (per-repo `autoLabel`). */
+  autoLabel: string;
+  /** Local-only repo (no forge, no issues). */
+  lightweight: boolean;
+}
+
+/** Read-only repo enumeration. */
+export interface PluginRepos {
+  /** Every repo under the repo root, alphabetical. Read live per call. */
+  list(): PluginRepo[];
+}
+
 export type PluginRouteHandler = (req: Request) => Response | Promise<Response>;
 
 /** The SOLE seam between a plugin and core. */
@@ -323,6 +341,8 @@ export interface PluginContext {
   /** Read-only diagnosis agents (issue #2463). Additive; plugins that must run on an older core
    *  guard with `typeof ctx.agents?.runReadonly === "function"`. */
   agents: PluginAgents;
+  /** Read-only repo list. Additive — guard with `typeof ctx.repos?.list === "function"`. */
+  repos: PluginRepos;
   /** Register an HTTP route under the fixed `/api/plugins/<id>/<path>` namespace. */
   route(method: string, path: string, handler: PluginRouteHandler): void;
   /** Namespaced logger into `shepherd.log`. */

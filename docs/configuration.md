@@ -139,4 +139,6 @@ never enter the public repo. A plugin reaches core only through a versioned `ctx
 (`onSpawn`, read-only events, scoped state, HTTP routes, status panel), and a missing dir is
 a clean no-op. See [docs/plugins.md](plugins.md) for the manifest schema, the `ctx` API,
 and the `onSpawn` contract. Plugin secrets (`ctx.secrets`) live in `~/.shepherd/plugin-secrets.json` (mode 0600;
-override `SHEPHERD_PLUGIN_SECRETS`).
+override `SHEPHERD_PLUGIN_SECRETS`). Shepherd also ships **bundled** plugins; the Sentry
+plugin (off by default) accepts `SHEPHERD_SENTRY_TOKEN` as a fallback token — see
+[docs/sentry.md](sentry.md).

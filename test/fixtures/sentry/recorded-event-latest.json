@@ -1,0 +1,94 @@
+{
+  "id": "ab12cd34ef56ab12cd34ef56ab12cd34",
+  "eventID": "ab12cd34ef56ab12cd34ef56ab12cd34",
+  "groupID": "4501",
+  "title": "TypeError: Cannot read properties of undefined (reading 'id')",
+  "dateCreated": "2026-09-25T07:55:00Z",
+  "release": { "version": "flowagent@2.3.1" },
+  "user": {
+    "id": "u-991",
+    "email": "victim@example.com",
+    "ip_address": "203.0.113.9",
+    "username": "victim"
+  },
+  "tags": [
+    { "key": "environment", "value": "production" },
+    { "key": "release", "value": "flowagent@2.3.1" },
+    { "key": "browser", "value": "Chrome 140" },
+    { "key": "user", "value": "email:victim@example.com" },
+    { "key": "url", "value": "https://app.example.com/dash?token=abc123SECRET" },
+    { "key": "handled", "value": "no" }
+  ],
+  "entries": [
+    {
+      "type": "exception",
+      "data": {
+        "values": [
+          {
+            "type": "TypeError",
+            "value": "Cannot read properties of undefined (reading 'id') for victim@example.com",
+            "mechanism": { "type": "onunhandledrejection", "handled": false },
+            "stacktrace": {
+              "frames": [
+                {
+                  "filename": "node:internal/process/task_queues",
+                  "function": "processTicksAndRejections",
+                  "inApp": false,
+                  "lineNo": 95
+                },
+                {
+                  "filename": "/app/node_modules/@sveltejs/kit/src/runtime/server/respond.js",
+                  "function": "respond",
+                  "inApp": false,
+                  "lineNo": 300
+                },
+                {
+                  "filename": "/app/build/server/chunks/hooks.server.js",
+                  "absPath": "/app/src/hooks.server.ts",
+                  "function": "handle",
+                  "inApp": true,
+                  "lineNo": 14
+                },
+                {
+                  "filename": "app:///src/lib/server/session.ts",
+                  "absPath": "/app/src/lib/server/session.ts",
+                  "function": "loadUser",
+                  "inApp": true,
+                  "lineNo": 42,
+                  "colNo": 18
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "breadcrumbs",
+      "data": {
+        "values": [
+          {
+            "category": "http",
+            "level": "info",
+            "message": "GET /api/me?session=deadbeefcafe",
+            "timestamp": "2026-09-25T07:54:59Z"
+          },
+          {
+            "category": "console",
+            "level": "error",
+            "message": "login failed for victim@example.com from 203.0.113.9",
+            "timestamp": "2026-09-25T07:55:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "type": "request",
+      "data": {
+        "url": "https://app.example.com/dash",
+        "headers": [["Cookie", "sid=SUPERSECRETCOOKIE"]]
+      }
+    }
+  ],
+  "contexts": { "browser": { "name": "Chrome" } }
+}

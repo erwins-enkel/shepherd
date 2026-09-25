@@ -724,6 +724,17 @@ const resolveForge = makeProductionForgeResolver(store, config.forges);
 // only runs once a plugin calls it — after loadAll(), long after that const exists.
 const pluginRegistry = new PluginRegistry({
   pluginsDir: config.pluginsDir,
+  bundledPluginsDir: join(import.meta.dir, "plugins/bundled"),
+  repos: () =>
+    listRepos(config.repoRoot).map((r) => {
+      const cfg = store.getRepoConfig(r.path);
+      return {
+        path: r.path,
+        name: r.name,
+        autoLabel: cfg.autoLabel,
+        lightweight: cfg.repoMode === "lightweight",
+      };
+    }),
   store,
   events,
   issues: { repoRoot: config.repoRoot, resolveForge },

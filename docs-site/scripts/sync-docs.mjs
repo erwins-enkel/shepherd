@@ -56,6 +56,14 @@ export const PAGES = [
   },
   {
     srcDir: "docs",
+    src: "sentry.md",
+    dest: "reference/sentry.md",
+    linkBase: GITHUB_DOCS_BASE,
+    title: "Sentry",
+    description: "Turn production errors into triaged GitHub issues Shepherd can fix — setup, mapping, caps.",
+  },
+  {
+    srcDir: "docs",
     src: "external-task-api.md",
     dest: "reference/external-task-api.md",
     linkBase: GITHUB_DOCS_BASE,

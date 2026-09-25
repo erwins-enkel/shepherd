@@ -107,7 +107,7 @@ export default function register(ctx: PluginContext): void {
 
   /** Run a background job, then refresh the panel; failures are logged, never thrown. */
   function background(what: string, job: () => Promise<unknown>): void {
-    job()
+    void job()
       .catch((e: unknown) => log.warn(`${what} failed: ${(e as Error).message}`))
       .finally(republish);
   }

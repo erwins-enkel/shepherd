@@ -4558,5 +4558,7 @@
   "errorpage_retry": "Erneut versuchen",
   "errorpage_detail_label": "Details",
   "errorpage_reloading_title": "Wird neu geladen …",
-  "errorpage_reloading_body": "Die aktuelle Version der App wird geladen."
+  "errorpage_reloading_body": "Die aktuelle Version der App wird geladen.",
+  "feat_sentry_plugin_title": "Sentry-Fehler werden zu Fix-Issues",
+  "feat_sentry_plugin_body": "Das mitgelieferte Sentry-Plugin (Einstellungen → Plugins, standardmäßig aus) fragt Sentry nach neuen, eskalierenden oder wiederaufgetretenen Fehlern in zugeordneten Repos ab, prüft sie schreibgeschützt und legt ein bereinigtes GitHub-Issue an, das einen Reproduktionstest und einen Fix verlangt."
 }

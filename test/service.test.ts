@@ -38,7 +38,7 @@ import {
   detectEpicIntent,
   UntrustedIssueAuthorError,
 } from "../src/service";
-import { agentTools } from "../src/agent-control";
+import { agentMcpConfigArg, agentTools } from "../src/agent-control";
 import { operatorLanguageBlock } from "../src/operator-language";
 import { agentSkillsArgs } from "../src/agent-skills";
 import { WorktreeRestoreError } from "../src/worktree";
@@ -46,6 +46,12 @@ import { HOUSE_RULES_TAG } from "../src/house-rules";
 import { config, parseKillSwitch, parseTrimAutoContext } from "../src/config";
 import { MAX_IMAGES } from "../src/validate";
 import { stubBaseRef } from "./helpers/base-ref";
+
+/** The read tools (#2485) ride every non-plain Claude session, so its argv carries this pair. */
+const mcpArgs = (sessionId: string) => [
+  "--mcp-config",
+  agentMcpConfigArg(sessionId, "http://127.0.0.1:7330"),
+];
 
 test("createSession: names, makes worktree, starts herdr, persists", async () => {
   const store = new SessionStore(":memory:");
@@ -103,6 +109,7 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
     s.claudeSessionId,
     "--settings",
     spawnSettingsOverlay(),
+    ...mcpArgs(s.id),
     "--append-system-prompt",
     composeSystemPrompt(null, false, { previewHint: true }), // no learnings → engineering-posture + branch-rename notice, no house-rules block
     "flatten it",
@@ -1652,6 +1659,7 @@ test("createSession: passes --model and persists it when a model is chosen", asy
     s.claudeSessionId,
     "--settings",
     spawnSettingsOverlay(),
+    ...mcpArgs(s.id),
     "--append-system-prompt",
     composeSystemPrompt(null, false, { previewHint: true }), // no learnings → engineering-posture + branch-rename notice, no house-rules block
     "--model",
@@ -2989,6 +2997,7 @@ test("resume respawns claude --resume in the worktree and re-points the agent", 
     "abc-123",
     "--settings",
     spawnSettingsOverlay(),
+    ...mcpArgs(s.id),
     "--model",
     "opus",
   ]);
@@ -3026,6 +3035,7 @@ test("resume omits --model when the session had none", async () => {
     "abc-123",
     "--settings",
     spawnSettingsOverlay(),
+    ...mcpArgs(s.id),
   ]);
 });
 
@@ -3068,6 +3078,7 @@ test("resume re-appends ONLY the operator-language block when operatorLanguage=d
       "abc-123",
       "--settings",
       spawnSettingsOverlay(),
+      ...mcpArgs(s.id),
       "--append-system-prompt",
       block,
     ]);
@@ -3188,6 +3199,7 @@ test("resume re-emits the persisted --effort for a Claude session", async () => 
     "abc-123",
     "--settings",
     spawnSettingsOverlay(),
+    ...mcpArgs(s.id),
     "--model",
     "opus",
     "--effort",
@@ -5823,7 +5835,7 @@ test("create research in a buildQueueEnabled repo: no queue tools — the same s
   const svc = new SessionService(
     buildQueueDeps(store, captured, { buildQueueEnabled: true }) as any,
   );
-  await svc.create({
+  const s = await svc.create({
     repoPath: "/repo",
     baseBranch: "main",
     prompt: "research it",
@@ -5833,7 +5845,13 @@ test("create research in a buildQueueEnabled repo: no queue tools — the same s
   });
   const sp = sysPrompt(captured.argv!);
   expect(sp).not.toContain("<build-queue>");
-  expect(captured.argv).not.toContain("--mcp-config");
+  // Wired for the read tools (#2485) only — the catalog carries no queue tools.
+  expect(captured.argv).toContain("--mcp-config");
+  expect(agentTools({ store }, s.id).map((t) => t.name)).toEqual([
+    "sessions_list",
+    "sessions_show",
+    "self_status",
+  ]);
 });
 
 test("create epic-authoring in a buildQueueEnabled repo: epic_draft only, no queue tools (#2003)", async () => {
@@ -5854,7 +5872,10 @@ test("create epic-authoring in a buildQueueEnabled repo: epic_draft only, no que
   expect(captured.argv).toContain("--mcp-config");
   // … but the catalog it serves carries no queue tools, matching the suppressed prompt block.
   expect(sysPrompt(captured.argv!)).not.toContain("<build-queue>");
-  expect(agentTools({ store }, s.id).map((t) => t.name)).toEqual(["epic_draft"]);
+  expect(agentTools({ store }, s.id).map((t) => t.name)).toEqual([
+    "epic_draft",
+    ...["sessions_list", "sessions_show", "self_status"],
+  ]);
 });
 
 test("resume of a research session re-passes no queue tools either (#2003)", async () => {
@@ -5883,14 +5904,40 @@ test("resume of a research session re-passes no queue tools either (#2003)", asy
   const s = resumable(store, { model: null, research: true });
 
   await svc.resume(s.id);
-  expect(calls.argv).not.toContain("--mcp-config");
+  expect(calls.argv).toContain("--mcp-config"); // read tools (#2485)
+  expect(agentTools({ store }, s.id).map((t) => t.name)).toEqual([
+    "sessions_list",
+    "sessions_show",
+    "self_status",
+  ]);
 });
 
-test("create with buildQueueEnabled=false: no --mcp-config — a session with no control plane pays nothing (#2003)", async () => {
+test("create with buildQueueEnabled=false: --mcp-config serves the read tools only (#2485)", async () => {
   const store = new SessionStore(":memory:");
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(
     buildQueueDeps(store, captured, { buildQueueEnabled: false }) as any,
+  );
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do it",
+    model: null,
+    images: [],
+  });
+  expect(captured.argv).toContain("--mcp-config");
+  expect(agentTools({ store }, s.id).map((t) => t.name)).toEqual([
+    "sessions_list",
+    "sessions_show",
+    "self_status",
+  ]);
+});
+
+test("create plain in a buildQueueEnabled repo: no --mcp-config at all — bare-CLI parity (#2485)", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(
+    buildQueueDeps(store, captured, { buildQueueEnabled: true }) as any,
   );
   await svc.create({
     repoPath: "/repo",
@@ -5898,6 +5945,7 @@ test("create with buildQueueEnabled=false: no --mcp-config — a session with no
     prompt: "do it",
     model: null,
     images: [],
+    plain: true,
   });
   expect(captured.argv).not.toContain("--mcp-config");
 });
@@ -6662,7 +6710,7 @@ test("interactive spawn (trim on): untouched — no flag, no enabledPlugins, no 
       ["tdd"],
     );
     const svc = new SessionService(deps as any);
-    await svc.create({
+    const created = await svc.create({
       repoPath: "/repo",
       baseBranch: "main",
       prompt: "do the thing",
@@ -6679,6 +6727,7 @@ test("interactive spawn (trim on): untouched — no flag, no enabledPlugins, no 
       argv[argv.indexOf("--session-id") + 1]!,
       "--settings",
       spawnSettingsOverlay(),
+      ...mcpArgs(created.id),
       "--append-system-prompt",
       composeSystemPrompt(null, false, { previewHint: true }),
       "do the thing",
@@ -7694,6 +7743,7 @@ test("resume of a non-auto session stays untrimmed even with trim on", async () 
       "abc-123",
       "--settings",
       spawnSettingsOverlay(),
+      ...mcpArgs(s.id),
     ]);
   } finally {
     config.trimAutoContext = prev;

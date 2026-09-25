@@ -17,9 +17,10 @@ export type RuleVerdict =
   | {
       ok: true;
       repo: string;
-      /** Re-triage marker for a regression (see `TriageCandidate.regressionKey`). */
-      regressionKey: string | null;
-      /** A re-filing: the poller must confirm the previous GitHub issue is closed first. */
+      /** Sentry reports the issue as regressed; the poller looks up when (see `regressedSince`). */
+      regressed: boolean;
+      /** A re-filing: the poller must confirm the previous GitHub issue is closed AND that the
+       *  regression happened after that filing. */
       refile: boolean;
     }
   | { ok: false; reason: SkipReason };
@@ -55,10 +56,15 @@ export function evaluateIssue(issue: SentryIssue, ctx: RuleContext): RuleVerdict
   if (f && !regressed) return { ok: false, reason: "filed" };
   if (f && f.attempts >= MAX_ATTEMPTS) return { ok: false, reason: "attempts" };
   if (ctx.filedToday(repo) >= DAILY_CAP) return { ok: false, reason: "cap" };
-  return {
-    ok: true,
-    repo,
-    regressionKey: regressed ? `r${f?.attempts ?? 0}` : null,
-    refile: !!f,
-  };
+  return { ok: true, repo, regressed, refile: !!f };
+}
+
+/** True only for a regression Sentry recorded AFTER `filedAt`. A `regressed` substatus alone is
+ *  no evidence: it stays set from the regression that was already filed until the fix is
+ *  released and the issue resolves. */
+export function regressedSince(regressedAt: string | null, filedAt: string): boolean {
+  if (!regressedAt) return false;
+  const r = Date.parse(regressedAt);
+  const f = Date.parse(filedAt);
+  return Number.isFinite(r) && Number.isFinite(f) && r > f;
 }

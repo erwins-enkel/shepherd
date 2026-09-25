@@ -38,11 +38,20 @@ let respond: (url: URL) => Response;
 let ghState: PluginIssue["state"];
 let verdict: { fixable: boolean; confidence: string };
 let clock: number;
+/** `set_regression` activity timestamps served by the issue-details endpoint. */
+let regressions: string[];
 
 const ok = (body: string, headers: Record<string, string> = {}) =>
   new Response(body, { status: 200, headers });
 
 function defaultRespond(url: URL): Response {
+  if (/\/issues\/\d+\/$/.test(url.pathname)) {
+    return ok(
+      JSON.stringify({
+        activity: regressions.map((dateCreated) => ({ type: "set_regression", dateCreated })),
+      }),
+    );
+  }
   if (url.pathname.endsWith("/events/latest/"))
     return ok(fixtureText("recorded-event-latest.json"));
   if (url.pathname.endsWith("/issues/")) return ok(fixtureText("recorded-issues.json"));
@@ -62,6 +71,7 @@ beforeEach(() => {
   ghState = "open";
   verdict = { fixable: true, confidence: "high" };
   clock = Date.parse("2026-09-25T10:00:00Z");
+  regressions = [];
 });
 
 afterEach(() => rmSync(repo, { recursive: true, force: true }));
@@ -230,22 +240,63 @@ test("daily cap: at most 3 filed per repo per day; next day resumes; all-capped 
   expect(created).toHaveLength(5);
 });
 
-test("regressed after the GitHub issue closed → re-filed once; attempt cap then holds", async () => {
-  const { poller, state } = setup();
-  await poller.poll();
+test("regressed: re-filed only for a regression AFTER the filing whose GitHub issue closed", async () => {
+  // Filed while already regressed (regression before the filing).
+  regressions = ["2026-09-25T09:00:00Z"];
   respond = (u) =>
     u.pathname.endsWith("/issues/") ? ok(issuesResponse([4501], "regressed")) : defaultRespond(u);
-
-  await poller.poll(); // GitHub issue still open → no refile
+  const { poller, state } = setup();
+  await poller.poll();
   expect(created).toHaveLength(1);
 
+  // Fix merged → GitHub issue closed, but Sentry still says regressed (release not shipped):
+  // the SAME regression must not burn the second attempt.
   ghState = "closed";
+  clock += 3600_000;
+  await poller.poll();
+  expect(created).toHaveLength(1);
+
+  // A genuinely new regression after the filing → one re-file.
+  regressions.push("2026-09-26T08:00:00Z");
+  clock += 24 * 3600_000;
   await poller.poll();
   expect(created).toHaveLength(2);
   expect(state.get("map:4501")).toMatchObject({ attempts: 2, number: 102 });
 
+  // Attempt cap holds even for a later regression.
+  regressions.push("2026-09-27T08:00:00Z");
+  clock += 24 * 3600_000;
   await poller.poll();
   expect(created).toHaveLength(2);
+});
+
+test("regressed while the GitHub issue is still open → no re-file", async () => {
+  const { poller } = setup();
+  await poller.poll();
+  regressions = ["2026-09-26T08:00:00Z"];
+  clock += 24 * 3600_000;
+  respond = (u) =>
+    u.pathname.endsWith("/issues/") ? ok(issuesResponse([4501], "regressed")) : defaultRespond(u);
+  await poller.poll();
+  expect(created).toHaveLength(1);
+});
+
+test("a triage-rejected regressed issue re-triages on a later regression, not before", async () => {
+  verdict = { fixable: false, confidence: "low" };
+  regressions = ["2026-09-25T09:00:00Z"];
+  respond = (u) =>
+    u.pathname.endsWith("/issues/") ? ok(issuesResponse([4501], "regressed")) : defaultRespond(u);
+  const { poller } = setup();
+  await poller.poll();
+  expect(created).toHaveLength(0);
+  calls = [];
+  await poller.poll(); // same regression → settled, no event fetch
+  expect(calls.filter((c) => c.url.pathname.endsWith("/events/latest/"))).toHaveLength(0);
+
+  verdict = { fixable: true, confidence: "high" };
+  regressions.push("2026-09-26T08:00:00Z");
+  await poller.poll();
+  expect(created).toHaveLength(1);
 });
 
 test("429 on the list call backs off; no calls until it expires", async () => {

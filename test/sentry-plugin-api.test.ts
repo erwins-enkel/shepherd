@@ -10,6 +10,7 @@ import {
   nextBackoff,
   parseEvent,
   parseIssues,
+  parseRegressedAt,
   sentryGet,
   type Fetch,
 } from "../src/plugins/bundled/sentry/api";
@@ -43,6 +44,23 @@ describe("parsing", () => {
     expect(ev.tags.find((t) => t.key === "environment")?.value).toBe("production");
     expect(parseEvent("nope")).toBeNull();
   });
+});
+
+test("parseRegressedAt picks the newest set_regression activity; none → null", () => {
+  expect(
+    parseRegressedAt({
+      activity: [
+        { type: "set_regression", dateCreated: "2026-09-20T08:00:00Z" },
+        { type: "set_resolved", dateCreated: "2026-09-24T08:00:00Z" },
+        { type: "set_regression", dateCreated: "2026-09-25T08:00:00Z" },
+        { type: "set_regression", dateCreated: "not a date" },
+      ],
+    }),
+  ).toBe("2026-09-25T08:00:00.000Z");
+  expect(
+    parseRegressedAt({ activity: [{ type: "first_seen", dateCreated: "2026-09-20T08:00:00Z" }] }),
+  ).toBeNull();
+  expect(parseRegressedAt(null)).toBeNull();
 });
 
 describe("backoff", () => {

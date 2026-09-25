@@ -174,6 +174,18 @@ export function parseEvent(v: unknown): SentryEvent | null {
   };
 }
 
+/** When Sentry last marked the issue regressed: the newest `set_regression` activity's
+ *  `dateCreated` (ISO) in an issue-details response, or null when there is none. */
+export function parseRegressedAt(v: unknown): string | null {
+  let best: number | null = null;
+  for (const a of arr(obj(v)?.activity)) {
+    const o = obj(a);
+    const t = o?.type === "set_regression" ? Date.parse(str(o.dateCreated) ?? "") : NaN;
+    if (Number.isFinite(t) && (best === null || t > best)) best = t;
+  }
+  return best === null ? null : new Date(best).toISOString();
+}
+
 // ── rate-limit backoff ───────────────────────────────────────────────────────────────────
 
 export interface Backoff {

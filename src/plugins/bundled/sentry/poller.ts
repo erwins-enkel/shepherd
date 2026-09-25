@@ -14,6 +14,7 @@ import {
   nextBackoff,
   parseEvent,
   parseIssues,
+  parseRegressedAt,
   sentryGet,
   type Backoff,
   type Fetch,
@@ -29,7 +30,7 @@ import {
   repoSlugFromUrl,
   type ReadText,
 } from "./mapping";
-import { DAILY_CAP, evaluateIssue, projectIndex } from "./rules";
+import { DAILY_CAP, evaluateIssue, projectIndex, regressedSince } from "./rules";
 import {
   bumpDaily,
   dayKey,
@@ -212,16 +213,34 @@ export function createPoller(deps: PollerDeps): Poller {
     fetches: () => number;
   }
 
+  /** For a regressed issue, when Sentry last recorded the regression (the triage
+   *  `regressionKey`), or a skip reason. Non-regressed → `{ key: null }`. */
+  async function regression(
+    issue: SentryIssue,
+    regressed: boolean,
+    c: ConsiderCtx,
+  ): Promise<{ key: string | null } | { skip: string }> {
+    if (!regressed) return { key: null };
+    if (c.fetches() >= MAX_EVENT_FETCHES) return { skip: "deferred" };
+    const res = await c.get(`organizations/${encodeURIComponent(c.s.org)}/issues/${issue.id}/`);
+    if (!res.ok) return { skip: res.status === 429 ? "rate-limited" : "event-error" };
+    return { key: parseRegressedAt(res.data) };
+  }
+
   /** Decide one Sentry issue; returns the outcome/skip reason counted in the poll status. */
   async function consider(issue: SentryIssue, c: ConsiderCtx): Promise<string> {
+    const filed = readFiled(state, issue.id);
     const v = evaluateIssue(issue, {
       repoForProject: c.repoForProject,
-      filed: readFiled(state, issue.id),
+      filed,
       filedToday: (repo) => filedToday(state, repo, c.day),
     });
     if (!v.ok) return v.reason;
     if (v.refile && !(await previousClosed(issue.id))) return "filed";
-    if (triageSettled(state, issue.id, v.regressionKey)) return "triaged";
+    const reg = await regression(issue, v.regressed, c);
+    if ("skip" in reg) return reg.skip;
+    if (filed && !regressedSince(reg.key, filed.filedAt)) return "filed";
+    if (triageSettled(state, issue.id, reg.key)) return "triaged";
     if (c.fetches() >= MAX_EVENT_FETCHES) return "deferred";
 
     const org = encodeURIComponent(c.s.org);
@@ -236,7 +255,7 @@ export function createPoller(deps: PollerDeps): Poller {
     );
     if (frames.length === 0) return "not-in-repo";
 
-    const built = buildCandidate(issue, ev, frames, v.repo, c.s.host, v.regressionKey);
+    const built = buildCandidate(issue, ev, frames, v.repo, c.s.host, reg.key);
     writeMeta(state, issue.id, built.meta);
     try {
       return (await stage.process(built.candidate)).outcome;

@@ -14,6 +14,7 @@ import {
   DAILY_CAP,
   evaluateIssue,
   projectIndex,
+  regressedSince,
   type RuleContext,
 } from "../src/plugins/bundled/sentry/rules";
 import type { SentryFrame, SentryIssue } from "../src/plugins/bundled/sentry/api";
@@ -127,7 +128,7 @@ describe("rules", () => {
     expect(evaluateIssue(issue(), ctx())).toEqual({
       ok: true,
       repo: "/r/web",
-      regressionKey: null,
+      regressed: false,
       refile: false,
     });
   });
@@ -143,18 +144,27 @@ describe("rules", () => {
     expect(evaluateIssue(issue({ assignee: "team" }), ctx()).ok).toBe(true);
   });
 
-  test("dedup: filed → skip; regressed refiles until MAX_ATTEMPTS", () => {
+  test("dedup: filed → skip; regressed is a refile candidate until MAX_ATTEMPTS", () => {
     const filed = { repo: "/r/web", number: 5, url: "u", attempts: 1, filedAt: "t" };
     expect(evaluateIssue(issue(), ctx({ filed }))).toMatchObject({ reason: "filed" });
     expect(evaluateIssue(issue({ substatus: "regressed" }), ctx({ filed }))).toEqual({
       ok: true,
       repo: "/r/web",
-      regressionKey: "r1",
+      regressed: true,
       refile: true,
     });
     expect(
       evaluateIssue(issue({ substatus: "regressed" }), ctx({ filed: { ...filed, attempts: 2 } })),
     ).toMatchObject({ reason: "attempts" });
+  });
+
+  test("regressedSince needs a regression strictly after the filing", () => {
+    const filedAt = "2026-09-25T10:00:00.000Z";
+    expect(regressedSince(null, filedAt)).toBe(false);
+    expect(regressedSince("2026-09-25T09:00:00.000Z", filedAt)).toBe(false);
+    expect(regressedSince(filedAt, filedAt)).toBe(false);
+    expect(regressedSince("2026-09-26T08:00:00.000Z", filedAt)).toBe(true);
+    expect(regressedSince("garbage", filedAt)).toBe(false);
   });
 
   test("daily cap per repo", () => {

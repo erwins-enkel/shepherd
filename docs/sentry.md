@@ -81,8 +81,9 @@ the status itself.
 - its project is mapped to a repo;
 - it is new, escalating or regressed;
 - it is not assigned to a person (team assignment is fine);
-- it has not been filed yet. A regressed issue is filed again only after the earlier GitHub
-  issue was closed, and at most **2 times** in total;
+- it has not been filed yet. A regressed issue is filed again only for a regression Sentry
+  recorded after the earlier filing, once that GitHub issue was closed, and at most **2 times**
+  in total (Sentry's `set_regression` activity timestamp is the evidence);
 - the repo has had fewer than **3** issues filed today (UTC);
 - its latest event has at least one in-app stack frame that points to a file that exists in
   the repo.

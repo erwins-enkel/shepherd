@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { readFileSync } from "node:fs";
 import { HERDR_LAST_SUPPORTED_VERSION } from "../../src/herdr-capabilities";
 import { IncusDriver } from "../../ci/onboarding-harness/incus";
 import { seedInstance } from "../../ci/onboarding-harness/seed";
@@ -6,6 +7,30 @@ import { runScenario } from "../../ci/onboarding-harness/run";
 import { SCENARIOS } from "../../ci/onboarding-harness/scenarios";
 import type { IncusExec } from "../../ci/onboarding-harness/types";
 import type { DiagnosticsSnapshot } from "../../src/types";
+
+/** The version the harness expects the CLI at (the checkout's package.json). */
+const VERSION = (
+  JSON.parse(readFileSync(new URL("../../package.json", import.meta.url), "utf8")) as {
+    version: string;
+  }
+).version;
+
+/** Fake answers for the CLI install check (#2484). `unpublished`: the release asset 404s;
+ *  `missing`: it is published but ~/.local/bin/shepherd isn't there. */
+type CliState = "installed" | "unpublished" | "missing";
+function cliAnswer(joined: string, cli: CliState): IncusExec | undefined {
+  if (joined.includes("curl -fsIL"))
+    return { stdout: "", stderr: "", code: cli === "unpublished" ? 22 : 0 };
+  if (joined.includes(".local/bin/shepherd")) {
+    return cli === "missing"
+      ? { stdout: "", stderr: "not found", code: 127 }
+      : { stdout: `shepherd ${VERSION}\n`, stderr: "", code: 0 };
+  }
+  if (joined.includes("deploy/install-cli.sh")) {
+    return { stdout: `shepherd CLI already at ${VERSION}\n`, stderr: "", code: 0 };
+  }
+  return undefined;
+}
 
 const installE2E = SCENARIOS.find((s) => s.id === "install-e2e")!;
 
@@ -29,11 +54,13 @@ function greenSnapshot(): DiagnosticsSnapshot {
 
 /** Recorder runner: code 0 for everything, but serves a diagnostics snapshot for
  *  the probe call (the `?refresh=1` curl). Boot's poll loop also returns code 0. */
-function recorder(snapshot: DiagnosticsSnapshot) {
+function recorder(snapshot: DiagnosticsSnapshot, cli: CliState = "installed") {
   const calls: string[][] = [];
   const run = async (args: string[]): Promise<IncusExec> => {
     calls.push(args);
     const joined = args.join(" ");
+    const cliRes = cliAnswer(joined, cli);
+    if (cliRes) return cliRes;
     if (joined.includes("--version")) {
       // The installed-version assertion (#1896): the harness demands the PINNED herdr, not merely
       // a working one, so the fake must answer as a correctly-pinned host would.
@@ -143,6 +170,44 @@ describe("install-e2e runScenario", () => {
     expect(result.detection.misses.some((m) => m.id === "herdr")).toBe(true);
     // still torn down
     expect(calls.some((c) => c[0] === "delete")).toBe(true);
+  });
+});
+
+describe("install-e2e shepherd CLI check (#2484)", () => {
+  it("asserts the published CLI landed and a re-run is a no-op", async () => {
+    const { calls, run } = recorder(greenSnapshot());
+    const result = await runScenario(
+      new IncusDriver(run, "shep-onb-"),
+      installE2E,
+      "/tmp/shepherd.tar",
+    );
+    expect(result.reachedGreen).toBe(true);
+    const flat = calls.map((c) => c.join(" "));
+    expect(flat.some((c) => c.includes(`/cli-v${VERSION}/shepherd-`))).toBe(true);
+    expect(flat.some((c) => c.includes("bash /opt/shepherd/deploy/install-cli.sh"))).toBe(true);
+  });
+
+  it("skips (stays green) when the version's CLI isn't published", async () => {
+    const { calls, run } = recorder(greenSnapshot(), "unpublished");
+    const result = await runScenario(
+      new IncusDriver(run, "shep-onb-"),
+      installE2E,
+      "/tmp/shepherd.tar",
+    );
+    expect(result.reachedGreen).toBe(true);
+    expect(calls.some((c) => c.join(" ").includes(".local/bin/shepherd"))).toBe(false);
+  });
+
+  it("fails closed when the CLI is published but install.sh didn't land it", async () => {
+    const { run } = recorder(greenSnapshot(), "missing");
+    const result = await runScenario(
+      new IncusDriver(run, "shep-onb-"),
+      installE2E,
+      "/tmp/shepherd.tar",
+    );
+    expect(result.reachedGreen).toBe(false);
+    expect(result.installE2E).toBe(true);
+    expect(result.error).toContain("install.sh did not land it");
   });
 });
 

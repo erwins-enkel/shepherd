@@ -90,7 +90,10 @@ async fn http(mut stream: TcpStream, state: Arc<State>) {
         let created = vec![session_json("id-9", "TASK-09")];
         (201, json!({"created": created, "held": [], "errors": []}))
     } else if line.starts_with("GET /api/health ") {
-        (200, json!({"ok": true, "version": shepherd_cli::CLI_VERSION}))
+        (
+            200,
+            json!({"ok": true, "version": shepherd_cli::CLI_VERSION}),
+        )
     } else {
         (404, json!({"error": "not found"}))
     };
@@ -163,7 +166,15 @@ async fn start_sends_the_snapshot_items_issue_refs() {
     let (url, state) = serve().await;
     let h = Harness::new();
     let args = [
-        "--url", &url, "up-next", "start", "5", "beta#7", "--provider", "codex", "--effort",
+        "--url",
+        &url,
+        "up-next",
+        "start",
+        "5",
+        "beta#7",
+        "--provider",
+        "codex",
+        "--effort",
         "high",
     ];
     assert_eq!(h.run(&args).await, 0, "{}", h.err.text());
@@ -186,16 +197,31 @@ async fn ambiguous_or_missing_items_are_usage_errors() {
     let (url, state) = serve().await;
     let h = Harness::new();
     assert_eq!(h.run(&["--url", &url, "up-next", "start", "7"]).await, 2);
-    assert!(h.err.text().contains("o/alpha#7, o/beta#7"), "{}", h.err.text());
+    assert!(
+        h.err.text().contains("o/alpha#7, o/beta#7"),
+        "{}",
+        h.err.text()
+    );
     let h = Harness::new();
-    assert_eq!(h.run(&["--url", &url, "up-next", "start", "alpha#9"]).await, 2);
+    assert_eq!(
+        h.run(&["--url", &url, "up-next", "start", "alpha#9"]).await,
+        2
+    );
     assert!(state.started.lock().unwrap().is_empty());
 }
 
 #[tokio::test]
 async fn model_without_provider_is_usage() {
     let h = Harness::new();
-    let args = ["--url", "http://127.0.0.1:1", "up-next", "start", "5", "--model", "m"];
+    let args = [
+        "--url",
+        "http://127.0.0.1:1",
+        "up-next",
+        "start",
+        "5",
+        "--model",
+        "m",
+    ];
     assert_eq!(h.run(&args).await, 2);
 }
 

@@ -74,9 +74,11 @@ pub async fn issues(ctx: &mut Ctx<'_>, args: RepoArg) -> Result<()> {
         output::json(&mut ctx.io.stdout, &listing)?;
     } else {
         if let Some(err) = &listing.error {
-            ctx.io.warn(&format!("warning: the forge fetch failed ({err})"));
+            ctx.io
+                .warn(&format!("warning: the forge fetch failed ({err})"));
         } else if listing.slug.is_none() {
-            ctx.io.warn("warning: this repo has no forge, so it has no issues");
+            ctx.io
+                .warn("warning: this repo has no forge, so it has no issues");
         }
         let mut t = output::table(&["#", "TITLE", "LABELS", "AGE"]);
         for i in &listing.issues {
@@ -206,7 +208,10 @@ pub async fn held(ctx: &mut Ctx<'_>, cmd: HeldCmd) -> Result<()> {
                 Ok(s) => s.into_inner(),
                 Err(e) => return Err(api_error(e, HELD_SPAWN).await),
             };
-            let text = format!("spawned {} ({}) — {}", session.desig, session.id, session.name);
+            let text = format!(
+                "spawned {} ({}) — {}",
+                session.desig, session.id, session.name
+            );
             print_done(ctx, &session, &text)?;
         }
         HeldCmd::Discard { id } => {

@@ -5,6 +5,7 @@ use serde_json::json;
 use super::intake::put_repo_flag;
 use super::{VersionCheck, print_done, repo_path, session_id};
 use crate::Ctx;
+use crate::api::Client;
 use crate::api::types::{GitState, MergeConfirmation, Session};
 use crate::cli::{MergeArgs, Override, RepoArg, TrainCmd};
 use crate::error::{CliError, Exit, Op, Result, Scope, api_error};
@@ -59,8 +60,8 @@ pub fn takeover_confirm(git: &GitState) -> MergeConfirmation {
     }
 }
 
-async fn git_state(ctx: &Ctx<'_>, id: &str) -> Result<GitState> {
-    let map = match ctx.client.git_states().send().await {
+async fn git_state(client: &Client, id: &str) -> Result<GitState> {
+    let map = match client.git_states().send().await {
         Ok(m) => m.into_inner(),
         Err(e) => return Err(api_error(e, MERGE).await),
     };
@@ -76,7 +77,7 @@ pub async fn merge(ctx: &mut Ctx<'_>, args: MergeArgs) -> Result<()> {
     let check = VersionCheck::start(&ctx.client);
     let id = session_id(&ctx.client, &args.session, MERGE).await?;
     let confirm = if args.takeover {
-        Some(takeover_confirm(&git_state(ctx, &id).await?))
+        Some(takeover_confirm(&git_state(&ctx.client, &id).await?))
     } else {
         None
     };
@@ -110,7 +111,9 @@ pub async fn merge(ctx: &mut Ctx<'_>, args: MergeArgs) -> Result<()> {
     let text = format!(
         "merged {}{}",
         args.session,
-        git.number.map(|n| format!(" (PR #{n})")).unwrap_or_default()
+        git.number
+            .map(|n| format!(" (PR #{n})"))
+            .unwrap_or_default()
     );
     print_done(ctx, &git, &text)?;
     check.finish(ctx.io).await;

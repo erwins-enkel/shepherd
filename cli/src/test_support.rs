@@ -26,10 +26,22 @@ pub fn repo_config_json() -> Value {
         "previewOpenMode": "tab"
     });
     for flag in [
-        "criticEnabled", "criticAllPrs", "criticSmellLensEnabled", "autoAddressEnabled",
-        "learningsEnabled", "autopilotEnabled", "planGateEnabled", "autoDrainEnabled",
-        "autoMergeEnabled", "buildQueueEnabled", "draftMode", "autoOptimizeFlagged",
-        "manualStepsIssueEnabled", "preWarmEpicLandingCi", "epicStacksEnabled", "hidden",
+        "criticEnabled",
+        "criticAllPrs",
+        "criticSmellLensEnabled",
+        "autoAddressEnabled",
+        "learningsEnabled",
+        "autopilotEnabled",
+        "planGateEnabled",
+        "autoDrainEnabled",
+        "autoMergeEnabled",
+        "buildQueueEnabled",
+        "draftMode",
+        "autoOptimizeFlagged",
+        "manualStepsIssueEnabled",
+        "preWarmEpicLandingCi",
+        "epicStacksEnabled",
+        "hidden",
     ] {
         v[flag] = json!(false);
     }

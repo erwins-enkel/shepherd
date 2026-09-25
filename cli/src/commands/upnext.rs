@@ -14,6 +14,7 @@ use super::events::{connect, events_url, parse};
 use super::intake::summary;
 use super::{VersionCheck, print_done};
 use crate::Ctx;
+use crate::api::Client;
 use crate::api::types::{UpNextItem, UpNextSnapshot, UpNextStartItem, UpNextStartResult};
 use crate::cli::{UpNextCmd, UpNextStartArgs};
 use crate::error::{CliError, Exit, Op, Result, Scope, api_error};
@@ -34,10 +35,23 @@ pub async fn run(ctx: &mut Ctx<'_>, cmd: UpNextCmd) -> Result<()> {
     Ok(())
 }
 
-async fn fetch_snapshot(ctx: &Ctx<'_>, op: Op) -> Result<UpNextSnapshot> {
-    let url = events_url(&ctx.target.url)?;
-    let mut socket = connect(&url, ctx.target.token.as_deref(), op).await?;
-    if let Err(e) = ctx.client.refresh_up_next().send().await {
+/// Owns everything it needs, so the returned future does not borrow `ctx` (whose `Io` is not
+/// `Sync`) across an await.
+fn fetch_snapshot(ctx: &Ctx<'_>, op: Op) -> impl Future<Output = Result<UpNextSnapshot>> + use<> {
+    let url = events_url(&ctx.target.url);
+    let token = ctx.target.token.clone();
+    let client = ctx.client.clone();
+    async move { snapshot_from(&client, &url?, token.as_deref(), op).await }
+}
+
+async fn snapshot_from(
+    client: &Client,
+    url: &str,
+    token: Option<&str>,
+    op: Op,
+) -> Result<UpNextSnapshot> {
+    let mut socket = connect(url, token, op).await?;
+    if let Err(e) = client.refresh_up_next().send().await {
         return Err(api_error(e, op).await);
     }
     let wait = async {
@@ -47,7 +61,10 @@ async fn fetch_snapshot(ctx: &Ctx<'_>, op: Op) -> Result<UpNextSnapshot> {
             if frame.get("event").and_then(Value::as_str) != Some("upnext:snapshot") {
                 continue;
             }
-            let data = frame.pointer("/data/snapshot").cloned().unwrap_or(Value::Null);
+            let data = frame
+                .pointer("/data/snapshot")
+                .cloned()
+                .unwrap_or(Value::Null);
             return serde_json::from_value::<UpNextSnapshot>(data).map_err(|e| {
                 CliError::new(
                     Exit::Server,
@@ -92,9 +109,14 @@ fn item_ref(item: &UpNextItem) -> String {
 fn repo_matches(item: &UpNextItem, repo: &str) -> bool {
     let slug = item.repo_slug.as_deref().unwrap_or("");
     let short = slug.rsplit('/').next().unwrap_or("");
-    [slug, short, item.repo_label.as_str(), item.repo_path.as_str()]
-        .iter()
-        .any(|c| !c.is_empty() && c.eq_ignore_ascii_case(repo))
+    [
+        slug,
+        short,
+        item.repo_label.as_str(),
+        item.repo_path.as_str(),
+    ]
+    .iter()
+    .any(|c| !c.is_empty() && c.eq_ignore_ascii_case(repo))
 }
 
 /// Finds the item `key` names: `<repo>#<n>` or a bare `<n>`/`#<n>` that is unique in the queue.
@@ -124,7 +146,10 @@ pub fn pick<'a>(items: &[&'a UpNextItem], key: &str) -> Result<&'a UpNextItem> {
             Exit::Usage,
             format!(
                 "{key} is ambiguous; name the repo: {}",
-                many.iter().map(|i| item_ref(i)).collect::<Vec<_>>().join(", ")
+                many.iter()
+                    .map(|i| item_ref(i))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
         )),
     }
@@ -195,7 +220,11 @@ async fn start(ctx: &mut Ctx<'_>, args: UpNextStartArgs) -> Result<()> {
         text.push(format!("created {} ({}) — {}", s.desig, s.id, s.name));
     }
     for h in &outcome.held {
-        let how = if h.reused == Some(true) { "already held" } else { "held" };
+        let how = if h.reused == Some(true) {
+            "already held"
+        } else {
+            "held"
+        };
         text.push(format!("{how}: #{} as {}", h.number, h.id));
     }
     for e in &outcome.errors {

@@ -38,6 +38,25 @@ const CLI_V1_OPERATIONS = [
   "resumeSession",
 ];
 
+/** The follow-up verbs (#2486): work intake, reviews and the merge train. */
+const CLI_V2_OPERATIONS = [
+  "getBacklog",
+  "listIssues",
+  "listDrain",
+  "listDrainQueue",
+  "putRepoConfig",
+  "refreshUpNext",
+  "startUpNext",
+  "listHeld",
+  "spawnHeld",
+  "discardHeld",
+  "reviewPr",
+  "reviewPlan",
+  "mergePullRequest",
+  "listAutomerge",
+  "setSessionAutomerge",
+];
+
 function nodes(root: unknown): { path: string; node: Obj }[] {
   const out: { path: string; node: Obj }[] = [];
   const walk = (v: unknown, path: string): void => {
@@ -117,9 +136,9 @@ describe("progenitor (OpenAPI 3.0) derivation", () => {
     }
   });
 
-  test("the v1 CLI surface is present and never excluded", () => {
+  test("the CLI surface is present and never excluded", () => {
     const ids = operationIds(derived);
-    for (const id of CLI_V1_OPERATIONS) {
+    for (const id of [...CLI_V1_OPERATIONS, ...CLI_V2_OPERATIONS]) {
       expect(ids).toContain(id);
       expect(RUST_EXCLUDED_OPERATIONS).not.toHaveProperty(id);
     }

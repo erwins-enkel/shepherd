@@ -366,6 +366,9 @@ test("makeAgentIngressApp: the MCP endpoint delegates and drives the queue throu
   expect((await list.json()).result.tools.map((t: { name: string }) => t.name)).toEqual([
     "queue_write",
     "queue_step",
+    "sessions_list",
+    "sessions_show",
+    "self_status",
   ]);
 
   await rpc("tools/call", {

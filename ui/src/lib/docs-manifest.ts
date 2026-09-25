@@ -148,6 +148,12 @@ export const DOCS_PAGES: readonly DocsPage[] = [
       "turn production errors into triaged github issues shepherd can fix — setup, mapping, caps. before you start: turn seer off 1. create a sentry token 2. connect 3. map repos to sentry projects auto-drain sentry issues (per repo, default off) what gets filed lifecycle sync rate limits and failures",
   },
   {
+    title: "shepherd CLI",
+    path: "/reference/shepherd-cli/",
+    keywords:
+      "read the herd, tail events and steer sessions from the terminal or an agent. build connect and authenticate token scopes output exit codes commands read events session control",
+  },
+  {
     title: "Stacked epic children",
     path: "/reference/stacked-epic-children/",
     keywords:

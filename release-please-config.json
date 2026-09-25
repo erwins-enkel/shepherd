@@ -19,7 +19,15 @@
   "packages": {
     ".": {
       "package-name": "shepherd",
-      "extra-files": [{ "type": "json", "path": "package.json", "jsonpath": "$.version" }]
+      "extra-files": [
+        { "type": "json", "path": "package.json", "jsonpath": "$.version" },
+        { "type": "toml", "path": "cli/Cargo.toml", "jsonpath": "$.package.version" },
+        {
+          "type": "toml",
+          "path": "cli/Cargo.lock",
+          "jsonpath": "$.package[?(@.name.value==='shepherd-cli')].version"
+        }
+      ]
     }
   }
 }

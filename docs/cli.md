@@ -1,0 +1,164 @@
+# The `shepherd` CLI
+
+`shepherd` is a command-line client for a Shepherd server, for operators and for external
+agents. It reads the herd, streams server events, and steers sessions. Everything goes over the
+same HTTP API and `/events` socket as the web UI. The client is generated from
+[`contracts/openapi.rust.yaml`](../contracts/README.md#rust-derivation), so nothing about the
+server is hand-typed. The CLI ships in lockstep with the server and warns on stderr when
+`/api/health` reports a different version.
+
+## Build
+
+The crate lives in `cli/`. It needs a Rust toolchain (stable, 1.88 or newer):
+
+```bash
+cargo install --path cli     # installs `shepherd` into ~/.cargo/bin
+```
+
+## Connect and authenticate
+
+By default the CLI talks to `http://127.0.0.1:7330`. To reach a remote server, for example the
+Tailscale `ts.net` origin, pass `--url`, set `SHEPHERD_URL`, or store it in a profile.
+
+Mint an access token in the web UI under **Settings → Access**, then store it:
+
+```bash
+shepherd login --token shp_…                                   # default profile, local server
+shepherd --profile remote --url https://box.tail1234.ts.net login --token shp_…
+```
+
+`--token -` reads the token from stdin, which keeps it out of your shell history and the process
+list. `login` first checks the token against the server and stores nothing if it is rejected. The CLI
+can't mint tokens itself, because the server mints only for an interactive operator session.
+
+The config file is `$XDG_CONFIG_HOME/shepherd/config.toml`, or `~/.config/shepherd/config.toml`
+when that variable is unset. This path is the same on every OS. The file is written with mode
+`0600` and its directory with `0700`, because it holds a bearer token.
+
+```toml
+default_profile = "default"
+
+[profiles.default]
+token = "shp_…"
+
+[profiles.remote]
+url = "https://box.tail1234.ts.net"
+token = "shp_…"
+```
+
+**Where the URL comes from** (first match wins): `--url`, then `SHEPHERD_URL`, then the profile's
+`url`, then `http://127.0.0.1:7330`.
+
+**Where the token comes from:** `SHEPHERD_TOKEN`, then the profile's `token`. A profile's token is
+sent only to that profile's own URL. If `--url` or `SHEPHERD_URL` points somewhere else, the CLI
+withholds the stored token and says so on stderr. Set `SHEPHERD_TOKEN` to authenticate there.
+
+`--profile <name>` picks a profile. Without it the CLI uses `default_profile`, and falls back to
+`default` when that isn't set.
+
+### Token scopes
+
+A token's scope, set when it is minted, limits what the CLI can do:
+
+| Scope    | Commands                                                                                                        |
+| -------- | --------------------------------------------------------------------------------------------------------------- |
+| `read`   | `sessions list`, `sessions show` (active sessions), `status`, `holds`, `git`, `reviews`, `events tail`, `login` |
+| `submit` | everything `read` can, plus `new`                                                                               |
+| `full`   | everything, including `steer`, `interrupt`, `archive`, `resume`, and `sessions show` of an archived session     |
+
+The server's `403` doesn't say which scope was missing. The CLI names it for you, for example:
+``error: `shepherd steer` needs a 'full' token; this token's scope does not include it.``
+
+## Output
+
+- **Tables** when stdout is a terminal.
+- **JSON** when stdout is not a terminal, or when you pass `--json`. Each command prints one
+  JSON document.
+- **NDJSON** from `events tail`, always.
+- Errors and warnings go to **stderr** only, so stdout stays machine-readable.
+
+The CLI never prompts. It reads stdin only when you pass `-` as the text argument of `new` or
+`steer`.
+
+## Exit codes
+
+These codes are stable. New ones may be added, but existing ones never change meaning.
+
+| Code | Meaning                                                         |
+| ---- | --------------------------------------------------------------- |
+| 0    | Success                                                         |
+| 1    | Unexpected failure                                              |
+| 2    | Usage error (bad flag or argument, bad URL, unknown profile)    |
+| 3    | Unauthenticated (`401`, or no token configured)                 |
+| 4    | Insufficient token scope (`403 insufficient_scope`)             |
+| 5    | Not found (`404`)                                               |
+| 6    | Refused by the server (`400`, other `403`, `409`, `415`, `422`) |
+| 7    | Server unreachable (connection, DNS, TLS, timeout)              |
+| 8    | Server error (`5xx`, or a response the CLI cannot decode)       |
+
+## Commands
+
+A `<session>` argument takes a session id or the designation the UI shows: `TASK-07`, `task-7`,
+or a bare `7`. The CLI resolves designations against the active session list.
+
+### Read
+
+| Command                            | What it shows                                                                    |
+| ---------------------------------- | -------------------------------------------------------------------------------- |
+| `shepherd sessions list`           | Active (non-archived) sessions                                                   |
+| `shepherd sessions show <session>` | One session. Archived sessions aren't in the active list and need a `full` token |
+| `shepherd status`                  | Server URL and version, CLI version, session counts by status, held sessions     |
+| `shepherd holds`                   | Sessions parked by a hold, and why                                               |
+| `shepherd git`                     | Each session's cached pull-request state                                         |
+| `shepherd reviews`                 | Critic reviews running right now, with the provider, model and effort of each    |
+
+### Events
+
+```bash
+shepherd events tail [--session <session>] [--event <prefix>]… [--no-snapshot]
+```
+
+`/events` doesn't replay past events. So the CLI opens the socket first, then prints one synthetic
+line, and only then streams:
+
+```json
+{"event":"snapshot","data":{"sessions":[…],"holds":{…},"git":{…}}}
+```
+
+After that line, every frame is printed verbatim as it arrives, as `{"event": …, "data": …}`.
+Frames that arrived while the snapshot was loading are printed right after it, so nothing falls
+between the snapshot and the stream.
+
+If the connection drops, the CLI reconnects with backoff (1 s up to 30 s) and prints a fresh
+snapshot. `--event` keeps only frames whose name starts with the prefix, and you can repeat it.
+`--session` keeps only frames about one session and narrows the snapshot to that session.
+Ctrl-C exits `0`.
+
+### Session control
+
+| Command                               | Route                              | Scope    |
+| ------------------------------------- | ---------------------------------- | -------- |
+| `shepherd new [flags] <prompt\|->`    | `POST /api/sessions`               | `submit` |
+| `shepherd steer <session> <text\|->`  | `POST /api/sessions/:id/reply`     | `full`   |
+| `shepherd interrupt <session>`        | `POST /api/sessions/:id/interrupt` | `full`   |
+| `shepherd archive <session>`          | `DELETE /api/sessions/:id`         | `full`   |
+| `shepherd resume <session> [--force]` | `POST /api/sessions/:id/resume`    | `full`   |
+
+Flags for `new`:
+
+- `--repo <path>`: the repository path on the server. Defaults to the current directory's git
+  toplevel, which is only right when the CLI runs on the server's host.
+- `--base <branch>`: the base branch. Defaults to `main`.
+- `--model`, `--effort <low|medium|high|xhigh|max|ultra>`, `--provider <claude|codex>`: override
+  the server's defaults.
+- `--plan-gate`, `--autopilot`: turn on the plan gate or autopilot for this session.
+- `--force`: spawn now even if the usage hold would queue the task.
+
+When the usage hold trips, `new` still exits `0`. It prints the held task (`{"held": true, …}`)
+instead of a session.
+
+```bash
+shepherd new --repo ~/Work/my-repo "Add OAuth login to the settings page"
+echo "please rebase onto main" | shepherd steer TASK-07 -
+shepherd --json sessions list | jq -r '.[] | select(.status == "done") | .desig'
+```

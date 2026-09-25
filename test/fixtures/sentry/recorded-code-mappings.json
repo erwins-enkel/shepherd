@@ -1,0 +1,13 @@
+[
+  {
+    "id": "1",
+    "projectId": "11",
+    "projectSlug": "flowagent",
+    "repoId": "5",
+    "repoName": "ltdovr/flowagent",
+    "provider": { "key": "github", "name": "GitHub" },
+    "stackRoot": "app:///",
+    "sourceRoot": "",
+    "defaultBranch": "main"
+  }
+]

@@ -4558,5 +4558,7 @@
   "errorpage_retry": "Retry",
   "errorpage_detail_label": "Details",
   "errorpage_reloading_title": "Reloading…",
-  "errorpage_reloading_body": "Fetching the current version of the app."
+  "errorpage_reloading_body": "Fetching the current version of the app.",
+  "feat_sentry_plugin_title": "Sentry errors become fix issues",
+  "feat_sentry_plugin_body": "The bundled Sentry plugin (Settings → Plugins, off by default) polls Sentry for new, escalating or regressed errors in mapped repos, triages them read-only and files a scrubbed GitHub issue asking for a reproduction test and a fix."
 }

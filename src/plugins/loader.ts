@@ -20,6 +20,7 @@ import {
   type PluginLogger,
   type PluginManifest,
   type PluginRegister,
+  type PluginRepo,
   type PluginRouteHandler,
   type PluginSessions,
   type PluginState,
@@ -72,6 +73,11 @@ export interface PluginEventBus {
 
 export interface PluginRegistryDeps {
   pluginsDir: string;
+  /** Shepherd's own bundled plugins (shipped in the source tree), scanned AFTER `pluginsDir` so
+   *  an operator-installed plugin with the same id wins. Absent → none. */
+  bundledPluginsDir?: string;
+  /** Backs `ctx.repos.list`; absent → an empty list. */
+  repos?: () => PluginRepo[];
   store: PluginStateStore & PluginSessionReadStore;
   events: PluginEventBus;
   /** Per-hook timeout (ms); default 5000. Tests inject a small value. */
@@ -96,6 +102,8 @@ interface LoadedPlugin {
    *  idempotent re-activation. Set at BOTH `plugins.set()` sites so it's present for
    *  errored/apiVersion-mismatch records too. */
   folder: string;
+  /** Loaded from `bundledPluginsDir` (the source tree): no `config.json` read or write. */
+  bundled: boolean;
   manifest: PluginManifest;
   health: PluginInfo["health"];
   lastError: string | null;
@@ -153,36 +161,14 @@ export class PluginRegistry {
     this.secrets = new PluginSecretStore(deps.secretsPath);
   }
 
-  /** Scan the plugins dir and load every plugin. No-op (clean) when the dir is
-   *  missing/empty — the zero-plugin invariant a fresh public clone relies on. */
+  /** Scan the plugins dir, then the bundled dir, and load every plugin. No-op (clean) when
+   *  the dirs are missing/empty — the zero-plugin invariant a fresh public clone relies on. */
   async loadAll(): Promise<void> {
     await this.secrets.load();
-    let names: string[];
-    try {
-      // `readdir(..., { withFileTypes: true })` does NOT follow symlinks: a
-      // symlink-to-directory Dirent reports isDirectory()===false. Resolve such
-      // entries with stat() (which follows the link) so a symlinked install — the
-      // natural "run a plugin from its checkout" workflow — loads like a copy (#1176).
-      const entries = await readdir(this.deps.pluginsDir, { withFileTypes: true });
-      names = [];
-      for (const e of entries) {
-        if (e.isDirectory()) {
-          names.push(e.name);
-        } else if (e.isSymbolicLink()) {
-          try {
-            if ((await stat(join(this.deps.pluginsDir, e.name))).isDirectory()) names.push(e.name);
-          } catch {
-            /* dangling symlink — skip */
-          }
-        }
-      }
-      names.sort();
-    } catch {
-      return; // missing dir → nothing to load
-    }
-    for (const name of names) {
-      await this.loadOne(join(this.deps.pluginsDir, name));
-    }
+    for (const dir of await pluginFolders(this.deps.pluginsDir)) await this.loadOne(dir, false);
+    if (!this.deps.bundledPluginsDir) return;
+    for (const dir of await pluginFolders(this.deps.bundledPluginsDir))
+      await this.loadOne(dir, true);
   }
 
   /** Activate a SINGLE installed plugin folder in-process, without a restart — the
@@ -224,12 +210,12 @@ export class PluginRegistry {
     // or to a DIFFERENT one (collision) — never a fresh activation.
     const existing = this.plugins.get(manifest.id);
     if (existing) {
-      return existing.folder === folder
+      return existing.folder === folder && !existing.bundled
         ? { ok: true, plugin: this.toInfo(existing) }
         : { ok: false, error: "id_collision" };
     }
 
-    await this.loadOne(dir);
+    await this.loadOne(dir, false);
     const rec = this.plugins.get(manifest.id);
     // For a valid+enabled, non-duplicate manifest loadOne always records an entry (ok or
     // errored). A missing entry here is only a TOCTOU edge (folder vanished mid-load) —
@@ -238,7 +224,7 @@ export class PluginRegistry {
     return { ok: true, plugin: this.toInfo(rec) };
   }
 
-  private async loadOne(dir: string): Promise<void> {
+  private async loadOne(dir: string, bundled: boolean): Promise<void> {
     const folder = basename(dir);
     const manifestPath = join(dir, "plugin.json");
     let raw: string;
@@ -269,6 +255,7 @@ export class PluginRegistry {
       // Record it so the panel surfaces the mismatch; register no hooks.
       this.plugins.set(manifest.id, {
         folder,
+        bundled,
         manifest,
         health: "errored",
         lastError: `apiVersion ${manifest.apiVersion} != supported ${PLUGIN_API_VERSION}`,
@@ -288,9 +275,10 @@ export class PluginRegistry {
       return;
     }
 
-    const config = await this.readConfig(dir);
+    const config = bundled ? {} : await this.readConfig(dir);
     const rec: LoadedPlugin = {
       folder,
+      bundled,
       manifest,
       health: "ok",
       lastError: null,
@@ -413,6 +401,11 @@ export class PluginRegistry {
     patch: Record<string, unknown>,
   ): Promise<void> {
     const id = rec.manifest.id;
+    if (rec.bundled) {
+      throw new Error(
+        `[plugin:${id}] setConfig refused: bundled plugins keep settings in ctx.state`,
+      );
+    }
     if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
       throw new Error(`[plugin:${id}] setConfig expects a plain object patch`);
     }
@@ -533,6 +526,7 @@ export class PluginRegistry {
       state,
       sessions,
       issues,
+      repos: { list: () => this.deps.repos?.() ?? [] },
       agents: {
         runReadonly: (opts) =>
           this.deps.runAgent
@@ -791,6 +785,33 @@ function clearTimers(rec: LoadedPlugin): void {
 /** Stable route-table key: `"GET /status"`. Leading slashes on the path are normalized. */
 function routeKey(method: string, path: string): string {
   return `${method.toUpperCase()} /${path.replace(/^\/+/, "")}`;
+}
+
+/** Plugin folder paths under `root`, sorted by name. Missing dir → `[]`.
+ *  `readdir(..., { withFileTypes: true })` does NOT follow symlinks: a symlink-to-directory
+ *  Dirent reports isDirectory()===false. Resolve such entries with stat() (which follows the
+ *  link) so a symlinked install — the natural "run a plugin from its checkout" workflow —
+ *  loads like a copy (#1176). */
+async function pluginFolders(root: string): Promise<string[]> {
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await readdir(root, { withFileTypes: true });
+  } catch {
+    return []; // missing dir → nothing to load
+  }
+  const names: string[] = [];
+  for (const e of entries) {
+    if (e.isDirectory()) {
+      names.push(e.name);
+    } else if (e.isSymbolicLink()) {
+      try {
+        if ((await stat(join(root, e.name))).isDirectory()) names.push(e.name);
+      } catch {
+        /* dangling symlink — skip */
+      }
+    }
+  }
+  return names.sort().map((n) => join(root, n));
 }
 
 async function exists(p: string): Promise<boolean> {

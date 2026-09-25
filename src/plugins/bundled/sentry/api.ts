@@ -186,6 +186,19 @@ export function parseRegressedAt(v: unknown): string | null {
   return best === null ? null : new Date(best).toISOString();
 }
 
+export interface SentryIssueStatus {
+  /** `resolved` / `ignored` / `unresolved` / … as Sentry reports it; null when absent. */
+  status: string | null;
+  assignee: SentryIssue["assignee"];
+}
+
+/** Lifecycle facts from an issue-details response; null on an unexpected shape. */
+export function parseIssueStatus(v: unknown): SentryIssueStatus | null {
+  const o = obj(v);
+  if (!o) return null;
+  return { status: str(o.status), assignee: assigneeKind(o.assignedTo) };
+}
+
 // ── rate-limit backoff ───────────────────────────────────────────────────────────────────
 
 export interface Backoff {
@@ -240,17 +253,22 @@ export function apiUrl(host: string, path: string, query: Record<string, string>
   return u.href;
 }
 
-/** One authenticated GET. Never throws: network/timeout/oversize/parse failures come back as
+/** One authenticated request. Never throws: network/timeout/oversize/parse failures come back as
  *  `ok:false` with status 0. The token is never included in `error`. */
-export async function sentryGet(
+async function sentryRequest(
   c: SentryClient,
-  path: string,
-  query: Record<string, string> = {},
+  url: string,
+  init: RequestInit,
 ): Promise<SentryResult> {
   let res: Response;
   try {
-    res = await c.fetch(apiUrl(c.host, path, query), {
-      headers: { Authorization: `Bearer ${c.token}`, Accept: "application/json" },
+    res = await c.fetch(url, {
+      ...init,
+      headers: {
+        Authorization: `Bearer ${c.token}`,
+        Accept: "application/json",
+        ...(init.body ? { "Content-Type": "application/json" } : {}),
+      },
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (e) {
@@ -269,8 +287,27 @@ export async function sentryGet(
     if (text.length > MAX_BODY_BYTES) {
       return { ok: false, status: 0, headers: res.headers, error: "response too large" };
     }
-    return { ok: true, data: JSON.parse(text), status: res.status, headers: res.headers };
+    return {
+      ok: true,
+      data: text ? JSON.parse(text) : null,
+      status: res.status,
+      headers: res.headers,
+    };
   } catch {
     return { ok: false, status: 0, headers: res.headers, error: "invalid JSON" };
   }
+}
+
+/** One authenticated GET (see `sentryRequest`). */
+export function sentryGet(
+  c: SentryClient,
+  path: string,
+  query: Record<string, string> = {},
+): Promise<SentryResult> {
+  return sentryRequest(c, apiUrl(c.host, path, query), { method: "GET" });
+}
+
+/** One authenticated JSON POST (see `sentryRequest`). */
+export function sentryPost(c: SentryClient, path: string, body: unknown): Promise<SentryResult> {
+  return sentryRequest(c, apiUrl(c.host, path), { method: "POST", body: JSON.stringify(body) });
 }

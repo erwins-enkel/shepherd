@@ -55,6 +55,19 @@ export interface FiledRecord {
   /** How many times this Sentry issue has been filed (auto-fix attempts). */
   attempts: number;
   filedAt: string;
+  // Lifecycle sync (#2466) — all optional so records filed before it still read.
+  /** A Sentry note linking the GitHub issue was posted. */
+  notedIssue?: boolean;
+  /** The fix PR, from the session that claimed the issue. */
+  pr?: { number: number | null; url: string };
+  /** PR URL a Sentry note was last posted for. */
+  notedPr?: string;
+  /** `closed` once the GitHub issue is closed (by anyone) — the record is no longer synced. */
+  sync?: "open" | "closed";
+  /** Why the sync closed the GitHub issue itself. */
+  closedReason?: "sentry-resolved" | "sentry-ignored" | "human-assigned";
+  /** Epoch ms of the last sync pass over this record (oldest first). */
+  syncedAt?: number;
 }
 
 /** Trusted issue-level facts captured when a candidate is built, read back by `file()`. */
@@ -142,6 +155,17 @@ export function readFiled(state: PluginState, sentryId: string): FiledRecord | n
 
 export function writeFiled(state: PluginState, sentryId: string, r: FiledRecord): void {
   state.set(`map:${sentryId}`, r);
+}
+
+/** Every filed record, keyed by Sentry issue id. */
+export function listFiled(state: PluginState): Array<{ sentryId: string; record: FiledRecord }> {
+  const out: Array<{ sentryId: string; record: FiledRecord }> = [];
+  for (const k of state.keys()) {
+    if (!k.startsWith("map:")) continue;
+    const record = state.get<FiledRecord>(k);
+    if (record) out.push({ sentryId: k.slice(4), record });
+  }
+  return out;
 }
 
 export function readMeta(state: PluginState, sentryId: string): IssueMeta | null {

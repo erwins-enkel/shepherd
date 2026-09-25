@@ -144,7 +144,7 @@ describe("rules", () => {
     expect(evaluateIssue(issue({ assignee: "team" }), ctx()).ok).toBe(true);
   });
 
-  test("dedup: filed → skip; regressed is a refile candidate until MAX_ATTEMPTS", () => {
+  test("dedup: filed → skip; regressed is a refile candidate", () => {
     const filed = { repo: "/r/web", number: 5, url: "u", attempts: 1, filedAt: "t" };
     expect(evaluateIssue(issue(), ctx({ filed }))).toMatchObject({ reason: "filed" });
     expect(evaluateIssue(issue({ substatus: "regressed" }), ctx({ filed }))).toEqual({
@@ -153,9 +153,10 @@ describe("rules", () => {
       regressed: true,
       refile: true,
     });
+    // Past MAX_AUTO_ATTEMPTS it is still a refile — filed human-only (no autoLabel) by the poller.
     expect(
       evaluateIssue(issue({ substatus: "regressed" }), ctx({ filed: { ...filed, attempts: 2 } })),
-    ).toMatchObject({ reason: "attempts" });
+    ).toMatchObject({ ok: true, refile: true });
   });
 
   test("regressedSince needs a regression strictly after the filing", () => {

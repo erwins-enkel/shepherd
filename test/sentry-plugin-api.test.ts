@@ -10,8 +10,10 @@ import {
   nextBackoff,
   parseEvent,
   parseIssues,
+  parseIssueStatus,
   parseRegressedAt,
   sentryGet,
+  sentryPost,
   type Fetch,
 } from "../src/plugins/bundled/sentry/api";
 
@@ -19,6 +21,18 @@ const FIX = join(import.meta.dir, "fixtures/sentry");
 const fixture = (name: string): unknown => JSON.parse(readFileSync(join(FIX, name), "utf8"));
 
 describe("parsing", () => {
+  test("parseIssueStatus reads status + assignee kind from issue details", () => {
+    expect(parseIssueStatus(fixture("recorded-issue-details.json"))).toEqual({
+      status: "resolved",
+      assignee: "user",
+    });
+    expect(parseIssueStatus({ assignedTo: { type: "team" } })).toEqual({
+      status: null,
+      assignee: "team",
+    });
+    expect(parseIssueStatus("nope")).toBeNull();
+  });
+
   test("parseIssues keeps well-formed issues and normalizes assignee/count", () => {
     const issues = parseIssues(fixture("recorded-issues.json"));
     expect(issues.map((i) => [i.shortId, i.assignee, i.count])).toEqual([
@@ -147,5 +161,23 @@ describe("client", () => {
       "x/",
     );
     expect(big).toMatchObject({ ok: false, error: "response too large" });
+  });
+
+  test("sentryPost sends a JSON body with the bearer token; empty 2xx body is ok", async () => {
+    let seen: { url: string; init?: RequestInit } | undefined;
+    const fetch: Fetch = async (url, init) => {
+      seen = { url, init };
+      return new Response("", { status: 201 });
+    };
+    const r = await sentryPost({ fetch, host: "https://s.io", token: "tok" }, "x/notes/", {
+      text: "hi",
+    });
+    expect(r).toMatchObject({ ok: true, status: 201, data: null });
+    expect(seen!.url).toBe("https://s.io/api/0/x/notes/");
+    expect(seen!.init!.method).toBe("POST");
+    expect(seen!.init!.body).toBe('{"text":"hi"}');
+    const h = seen!.init!.headers as Record<string, string>;
+    expect(h.Authorization).toBe("Bearer tok");
+    expect(h["Content-Type"]).toBe("application/json");
   });
 });

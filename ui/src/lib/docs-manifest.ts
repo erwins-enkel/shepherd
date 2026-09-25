@@ -145,7 +145,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Sentry",
     path: "/reference/sentry/",
     keywords:
-      "turn production errors into triaged github issues shepherd can fix — setup, mapping, caps. before you start: turn seer off 1. create a sentry token 2. connect 3. map repos to sentry projects auto-drain sentry issues (per repo, default off) what gets filed rate limits and failures",
+      "turn production errors into triaged github issues shepherd can fix — setup, mapping, caps. before you start: turn seer off 1. create a sentry token 2. connect 3. map repos to sentry projects auto-drain sentry issues (per repo, default off) what gets filed lifecycle sync rate limits and failures",
   },
   {
     title: "Stacked epic children",

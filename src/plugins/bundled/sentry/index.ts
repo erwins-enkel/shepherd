@@ -79,6 +79,7 @@ export default function register(ctx: PluginContext): void {
     secrets: ctx.secrets,
     envToken: () => process.env.SHEPHERD_SENTRY_TOKEN,
     issues: ctx.issues,
+    sessions: ctx.sessions,
     agents: ctx.agents,
     repos: () => ctx.repos.list(),
     fetch: (input, init) => fetch(input, init),

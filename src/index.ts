@@ -728,6 +728,9 @@ const pluginRegistry = new PluginRegistry({
   events,
   issues: { repoRoot: config.repoRoot, resolveForge },
   runAgent: (pluginId, opts): Promise<unknown> => pluginAgents.run(pluginId, opts),
+  // ctx.schedule ticks pause while herdr is mid-update, like every core periodic loop.
+  maintenanceActive: () => maintenance.active,
+  secretsPath: config.pluginSecretsPath,
 });
 
 /** Pre-accept Claude Code's workspace-trust dialog for a reviewer-style spawn's cwd (#2112). Each

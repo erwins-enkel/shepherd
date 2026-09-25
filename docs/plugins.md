@@ -174,6 +174,8 @@ permission-scoped / out-of-process) without changing your call sites.
 | `ctx.log`                          | Namespaced logger into `shepherd.log` (`ctx.log.log` / `ctx.log.warn`).                                                                                                             |
 | `ctx.config`                       | Your plugin's own `config.json` (parsed; `{}` when absent). Updated **in place** by `setConfig`, so the object you capture stays live.                                              |
 | `ctx.setConfig(patch)`             | Shallow-merge `patch` into your `config.json` and persist it (atomic; re-reads the file first). **Throws** on failure — never fails open. Additive.                                 |
+| `ctx.schedule(ms, fn)`             | Run an async `fn` on a server-owned interval; paused during herdr maintenance, cleared on teardown. Returns a cancel fn. Additive — see below.                                      |
+| `ctx.secrets`                      | Per-plugin secret store: `get(key)` / `set(key, value \| null)`. 0600 file, never served to the UI. Additive — see below.                                                           |
 | `ctx.abortSpawn(reason)`           | Hard-block the in-flight spawn from inside an `onSpawn` hook (throws).                                                                                                              |
 
 ## Reading sessions (`ctx.sessions`)
@@ -511,6 +513,9 @@ Contract details worth knowing before you build a panel:
   yours to validate in the route handler; the host does not clamp.
 - **`secret` masks, it does not protect.** The value still travels as plaintext JSON to your
   route (as does everything else); it only keeps a token off the screen.
+- **A `secret` field is write-only.** The host strips any `value` you seed on it, so it always
+  renders empty. Treat an empty submitted string as "unchanged", store the rest with
+  [`ctx.secrets.set`](#secrets-ctxsecrets), and show "set / not set" as separate text.
 - **Autofill is off on every input node, and you need do nothing to get it.** A panel is a
   configuration surface, so the host renders each control with `autocomplete` disabled, a
   meaningless `name` (the value you receive is still keyed on the `name` you declared — the
@@ -558,6 +563,62 @@ ctx.route("POST", "config", async (req) => {
   queue rather than interleaving their read-modify-write.
 - **Only config goes live this way.** Changing your plugin's _code_ still needs a restart — the
   module stays cached.
+
+## Scheduling (`ctx.schedule`)
+
+`ctx.schedule(intervalMs, fn)` runs `fn` every `intervalMs` on a timer the server owns — use it
+for a poller instead of your own `setInterval`, so core can pause and clean it up.
+
+```ts
+if (typeof ctx.schedule === "function") {
+  const cancel = ctx.schedule(60_000, async () => {
+    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+    ctx.publishStatus({ lastPoll: new Date().toISOString(), ok: res.ok });
+  });
+  // return cancel from register() if you want explicit teardown; core clears it anyway
+}
+```
+
+- **The first run is one interval after the call**, not immediately.
+- **`fn` must be async and yield.** It runs on the single event loop (see
+  [the single-loop discipline](#the-single-loop-discipline-important)) — no sync I/O.
+- **Paused during herdr maintenance.** Ticks that fall while herdr is mid-update are skipped,
+  like every core periodic loop.
+- **No overlap.** A tick is skipped while the previous run is still in flight, so a slow
+  poll never stacks. Bound your own I/O with a timeout.
+- **Failures surface, then it keeps going.** A throw/rejection is caught, the plugin's health
+  becomes `errored` with the message as its last error (live in the status panel), and the next
+  tick still runs. Health stays `errored` until restart, the same as a failed `onSpawn` hook.
+- **Cleared on teardown** (shutdown) and when `register()` throws. The returned fn cancels it
+  earlier.
+- **`intervalMs` must be ≥ 1000**; anything lower (or not a finite number) throws.
+
+## Secrets (`ctx.secrets`)
+
+`ctx.secrets` stores credentials (API tokens, DSNs with keys) **outside** `config.json` and
+`ctx.state`, in `~/.shepherd/plugin-secrets.json` (mode **0600**, override with
+`SHEPHERD_PLUGIN_SECRETS`), keyed by plugin id — one plugin can't read another's.
+
+```ts
+ctx.route("POST", "token", async (req) => {
+  const { token } = await req.json();
+  if (typeof token === "string" && token !== "") await ctx.secrets.set("token", token); // "" = unchanged
+  publishPanel(); // shows `ctx.secrets.get("token") ? "set" : "not set"` — never the value
+  return new Response("Saved");
+});
+```
+
+- **`get(key)`** is sync (served from memory, loaded once at boot) and returns `null` when unset.
+- **`set(key, value)`** persists atomically (temp file + rename, re-`chmod`ed to 0600) and
+  **rejects** on failure; `set(key, null)` unsets. Values must be strings.
+- **Never served by core.** No core route or UI payload carries a secret: it is not in your
+  config, state or `PluginInfo`, a `secret` text-input never gets a seeded value, and core
+  replaces any of your secret values (4+ characters) that appear in your published status, UI
+  view, gear item or last error with `[redacted]`. Your **own** route handlers are your code — don't
+  return a secret from them.
+- **An unreadable/unparseable secrets file is never overwritten**: `get` returns `null` and
+  `set` rejects until you fix or delete the file.
+- Not encrypted at rest — protection is the file mode, like `~/.claude/.credentials.json`.
 
 ## Gear-menu item (`publishGearItem`)
 

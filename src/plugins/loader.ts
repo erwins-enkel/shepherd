@@ -31,12 +31,17 @@ import {
 } from "./types";
 import { browserRepositoryUrl } from "./repository";
 import { makePluginIssues, type PluginIssuesDeps } from "./issues";
+import { PluginSecretStore, redactSecrets } from "./secrets";
 import { toPluginSessionSnapshot } from "./session-view";
 import { validatePluginGearItem, validatePluginUIView } from "./ui-validate";
 import type { Session } from "../types";
 import type { GitState } from "../forge/types";
 
 const DEFAULT_HOOK_TIMEOUT_MS = 5_000;
+
+/** Floor on a `ctx.schedule` interval — a plugin poller never needs sub-second ticks, and a
+ *  tiny interval on the shared event loop would starve the web terminal. */
+const MIN_SCHEDULE_INTERVAL_MS = 1_000;
 
 /** Ceiling on a plugin's own `config.json` after a `ctx.setConfig` merge. A config file is
  *  tiny in practice; the cap exists to catch a runaway writer, not to constrain a real one. */
@@ -75,6 +80,13 @@ export interface PluginRegistryDeps {
   issues?: PluginIssuesDeps;
   /** Backs `ctx.agents.runReadonly` (PluginAgentService.run). Absent → it rejects `unavailable`. */
   runAgent?: (pluginId: string, opts: PluginAgentRunOptions) => Promise<unknown>;
+  /** True while herdr maintenance is active — `ctx.schedule` ticks are skipped then.
+   *  Default: never active. */
+  maintenanceActive?: () => boolean;
+  /** Path of the 0600 `ctx.secrets` file. Absent → secrets unavailable (`set` rejects). */
+  secretsPath?: string;
+  /** Floor on `ctx.schedule` intervals (ms); default 1000. Tests inject a small value. */
+  minScheduleIntervalMs?: number;
 }
 
 /** Internal per-plugin record. `health`/`lastError`/`status`/`ui` back the status panel; `gearItem` backs the gear menu. */
@@ -93,6 +105,8 @@ interface LoadedPlugin {
   hooks: SpawnHook[];
   routes: Map<string, PluginRouteHandler>;
   unsubs: Array<() => void>;
+  /** Live `ctx.schedule` intervals — cleared on cancel, teardown, or a failed register(). */
+  timers: Set<ReturnType<typeof setInterval>>;
   teardown?: () => void;
   config: Record<string, unknown>;
   /** Tail of this plugin's serialized `ctx.setConfig` chain, so two concurrent patches cannot
@@ -133,12 +147,16 @@ export class PluginRegistry {
   private readonly plugins = new Map<string, LoadedPlugin>();
   /** Flat, registration-ordered spawn-hook list (load order, then within-plugin order). */
   private readonly allSpawnHooks: Array<{ pluginId: string; fn: SpawnHook }> = [];
+  private readonly secrets: PluginSecretStore;
 
-  constructor(private readonly deps: PluginRegistryDeps) {}
+  constructor(private readonly deps: PluginRegistryDeps) {
+    this.secrets = new PluginSecretStore(deps.secretsPath);
+  }
 
   /** Scan the plugins dir and load every plugin. No-op (clean) when the dir is
    *  missing/empty — the zero-plugin invariant a fresh public clone relies on. */
   async loadAll(): Promise<void> {
+    await this.secrets.load();
     let names: string[];
     try {
       // `readdir(..., { withFileTypes: true })` does NOT follow symlinks: a
@@ -190,6 +208,7 @@ export class PluginRegistry {
     ) {
       return { ok: false, error: "invalid_folder" };
     }
+    await this.secrets.load();
     const dir = join(this.deps.pluginsDir, folder);
     let manifest: PluginManifest;
     try {
@@ -259,6 +278,7 @@ export class PluginRegistry {
         hooks: [],
         routes: new Map(),
         unsubs: [],
+        timers: new Set(),
         config: {},
         configWrite: Promise.resolve(),
       });
@@ -280,6 +300,7 @@ export class PluginRegistry {
       hooks: [],
       routes: new Map(),
       unsubs: [],
+      timers: new Set(),
       config,
       configWrite: Promise.resolve(),
     };
@@ -303,6 +324,7 @@ export class PluginRegistry {
       if (typeof teardown === "function") rec.teardown = teardown;
       console.log(`[plugins] loaded ${manifest.id} v${manifest.version}`);
     } catch (e) {
+      clearTimers(rec); // a half-registered plugin must not keep ticking
       rec.health = "errored";
       rec.lastError = errMsg(e);
       console.warn(`[plugins] ${manifest.id} failed to register: ${errMsg(e)}`);
@@ -523,10 +545,57 @@ export class PluginRegistry {
       log,
       config: rec.config,
       setConfig: (patch) => this.setPluginConfig(rec, patch),
+      schedule: (intervalMs, fn) => this.schedule(rec, intervalMs, fn),
+      secrets: {
+        get: (key) => this.secrets.get(id, key),
+        set: (key, value) => this.secrets.set(id, key, value),
+      },
       abortSpawn: (reason) => {
         throw new PluginSpawnAborted(reason, id);
       },
     };
+  }
+
+  /** `ctx.schedule`: a server-owned interval. Skips a tick during herdr maintenance and while
+   *  the previous run is in flight; a failure marks the plugin errored (same path as a failed
+   *  onSpawn hook) without stopping the schedule. */
+  private schedule(rec: LoadedPlugin, intervalMs: number, fn: () => Promise<void>): () => void {
+    const id = rec.manifest.id;
+    const min = this.deps.minScheduleIntervalMs ?? MIN_SCHEDULE_INTERVAL_MS;
+    if (typeof intervalMs !== "number" || !Number.isFinite(intervalMs) || intervalMs < min) {
+      throw new Error(`[plugin:${id}] schedule interval must be a finite number >= ${min}ms`);
+    }
+    if (typeof fn !== "function") throw new Error(`[plugin:${id}] schedule expects a function`);
+    let running = false;
+    const timer = setInterval(() => {
+      if (running || this.deps.maintenanceActive?.()) return;
+      running = true;
+      void this.runScheduled(rec, fn).finally(() => {
+        running = false;
+      });
+    }, intervalMs);
+    timer.unref?.();
+    rec.timers.add(timer);
+    return () => {
+      clearInterval(timer);
+      rec.timers.delete(timer);
+    };
+  }
+
+  private async runScheduled(rec: LoadedPlugin, fn: () => Promise<void>): Promise<void> {
+    try {
+      await fn();
+    } catch (e) {
+      rec.health = "errored";
+      rec.lastError = errMsg(e);
+      this.emitStatus(rec);
+      console.warn(`[plugins] ${rec.manifest.id} scheduled task failed: ${errMsg(e)}`);
+    }
+  }
+
+  /** This plugin's outbound payload with its own secret values scrubbed out. */
+  private redact<T>(rec: LoadedPlugin, value: T): T {
+    return redactSecrets(value, this.secrets.values(rec.manifest.id));
   }
 
   /** Run every registered `onSpawn` hook in registration order, each timeout-bounded,
@@ -550,18 +619,21 @@ export class PluginRegistry {
     this.deps.events.emit("plugin:status", {
       id: rec.manifest.id,
       health: rec.health,
-      status: rec.status,
+      status: this.redact(rec, rec.status),
     });
   }
 
   /** Emit a `plugin:ui` event carrying this plugin's last validated UI view (or null). */
   private emitUI(rec: LoadedPlugin): void {
-    this.deps.events.emit("plugin:ui", { id: rec.manifest.id, ui: rec.ui });
+    this.deps.events.emit("plugin:ui", { id: rec.manifest.id, ui: this.redact(rec, rec.ui) });
   }
 
   /** Emit a `plugin:gear` event carrying this plugin's last validated gear item (or null). */
   private emitGear(rec: LoadedPlugin): void {
-    this.deps.events.emit("plugin:gear", { id: rec.manifest.id, gearItem: rec.gearItem });
+    this.deps.events.emit("plugin:gear", {
+      id: rec.manifest.id,
+      gearItem: this.redact(rec, rec.gearItem),
+    });
   }
 
   /** Invoke one hook, timeout-bounded. Returns its patch, or null on a fail-open
@@ -628,10 +700,10 @@ export class PluginRegistry {
       version: r.manifest.version,
       repository: browserRepositoryUrl(r.manifest.repository),
       health: r.health,
-      lastError: r.lastError,
-      status: r.status,
-      ui: r.ui,
-      gearItem: r.gearItem,
+      lastError: this.redact(r, r.lastError),
+      status: this.redact(r, r.status),
+      ui: this.redact(r, r.ui),
+      gearItem: this.redact(r, r.gearItem),
     };
   }
 
@@ -642,6 +714,7 @@ export class PluginRegistry {
   /** Invoke each plugin's teardown + drop its event subscriptions (best-effort). */
   teardown(): void {
     for (const rec of this.plugins.values()) {
+      clearTimers(rec);
       for (const unsub of rec.unsubs) {
         try {
           unsub();
@@ -707,6 +780,12 @@ async function writeConfigFile(dir: string, contents: string): Promise<void> {
     await rm(tmp, { force: true }).catch(() => {});
     throw e;
   }
+}
+
+/** Stop every `ctx.schedule` interval this plugin holds. */
+function clearTimers(rec: LoadedPlugin): void {
+  for (const t of rec.timers) clearInterval(t);
+  rec.timers.clear();
 }
 
 /** Stable route-table key: `"GET /status"`. Leading slashes on the path are normalized. */

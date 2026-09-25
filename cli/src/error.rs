@@ -150,6 +150,24 @@ impl ErrorBody for crate::api::types::Error {
     }
 }
 
+/// `POST /api/up-next/start` answers its result body with 502 when every item failed.
+impl ErrorBody for crate::api::types::StartUpNextError {
+    fn message(&self) -> Option<String> {
+        use crate::api::types::StartUpNextError as E;
+        match self {
+            E::UpNextStartResult(r) if !r.errors.is_empty() => Some(
+                r.errors
+                    .iter()
+                    .map(|e| format!("#{}: {}", e.number, e.error))
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            ),
+            E::UpNextStartResult(_) => None,
+            E::Error(e) => e.message(),
+        }
+    }
+}
+
 fn transport(e: &reqwest::Error) -> CliError {
     let mut msg = e.to_string();
     let mut source = std::error::Error::source(e);

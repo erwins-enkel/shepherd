@@ -8,6 +8,7 @@ import {
   WorktreeOccupiedError,
   WorktreeRestoreError,
 } from "../../src/worktree";
+import type { RepoCounts } from "../../src/forge/types";
 import * as fx from "./queues-fixtures";
 import {
   bearer,
@@ -176,6 +177,31 @@ describe("held queue", () => {
     });
     expect(created).toMatchObject({ agentProvider: "codex" });
     expect(s.deps.store.getHeldTask(entry.id)).toBeNull();
+  });
+});
+
+describe("backlog", () => {
+  test("answers the empty overview without a counts service, and repo rows with one", async () => {
+    expect(await check("GET", "/api/backlog", 200)).toEqual({
+      pinnedPath: null,
+      projects: [],
+      totals: { openIssues: 0, openPRs: 0 },
+    });
+    const counts: RepoCounts = {
+      openIssues: 3,
+      openPRs: 1,
+      ciStatus: "success",
+      prKinds: { release: 0, dependabot: 1, regular: 0 },
+    };
+    s.deps.backlog = { counts: async () => counts };
+    try {
+      const payload = (await check("GET", "/api/backlog", 200)) as {
+        projects: { path: string; kind: string }[];
+      };
+      expect(payload.projects.map((p) => p.kind)).toContain("local");
+    } finally {
+      delete s.deps.backlog;
+    }
   });
 });
 
@@ -394,7 +420,7 @@ describe("restore and usage", () => {
 
 test("all queue operations require authentication", async () => {
   const ops = OPERATIONS.filter((op) => op.endsWith(" 401"));
-  expect(ops).toHaveLength(13);
+  expect(ops).toHaveLength(14);
   for (const op of ops) {
     const [method, template] = op.split(" ") as [string, string, string];
     const res = await request(method, template.replace("{id}", "missing"), undefined, false);

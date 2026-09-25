@@ -27,7 +27,7 @@ const MAX_BACKOFF: Duration = Duration::from_secs(30);
 /// re-snapshotted every second.
 const STABLE_CONNECTION: Duration = Duration::from_secs(30);
 
-type Socket =
+pub type Socket =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
 /// Which frames to print.
@@ -65,11 +65,11 @@ pub fn events_url(base: &str) -> Result<String> {
     Ok(format!("{}/events", rest.trim_end_matches('/')))
 }
 
-fn ws_error(e: tungstenite::Error) -> CliError {
+fn ws_error(e: tungstenite::Error, op: Op) -> CliError {
     match e {
         tungstenite::Error::Http(resp) => {
             let body = resp.body().as_deref().unwrap_or_default();
-            from_status(resp.status().as_u16(), body_message(body), TAIL)
+            from_status(resp.status().as_u16(), body_message(body), op)
         }
         other => CliError::new(
             Exit::Unreachable,
@@ -78,7 +78,8 @@ fn ws_error(e: tungstenite::Error) -> CliError {
     }
 }
 
-async fn connect(url: &str, token: Option<&str>) -> Result<Socket> {
+/// Opens `/events`, sending the token as a bearer header. `op` names the verb in a 401/403.
+pub async fn connect(url: &str, token: Option<&str>, op: Op) -> Result<Socket> {
     let mut request = url
         .into_client_request()
         .map_err(|e| CliError::new(Exit::Usage, format!("invalid events URL: {e}")))?;
@@ -91,7 +92,7 @@ async fn connect(url: &str, token: Option<&str>) -> Result<Socket> {
     }
     let (socket, _) = tokio_tungstenite::connect_async(request)
         .await
-        .map_err(ws_error)?;
+        .map_err(|e| ws_error(e, op))?;
     Ok(socket)
 }
 
@@ -147,7 +148,7 @@ fn emit(out: &mut dyn Write, frame: &Value) -> bool {
     writeln!(out, "{frame}").and_then(|()| out.flush()).is_ok()
 }
 
-fn parse(msg: Message) -> Option<Value> {
+pub fn parse(msg: Message) -> Option<Value> {
     match msg {
         Message::Text(t) => serde_json::from_str(t.as_str()).ok(),
         Message::Binary(b) => serde_json::from_slice(&b).ok(),
@@ -205,7 +206,7 @@ async fn tail_loop(ctx: &mut Ctx<'_>, filter: Filter, with_snapshot: bool) -> Re
     let mut first = true;
     let mut backoff = Duration::from_secs(1);
     loop {
-        match connect(&url, token.as_deref()).await {
+        match connect(&url, token.as_deref(), TAIL).await {
             Ok(socket) => {
                 if first && let Ok(h) = ctx.client.get_health().send().await {
                     warn_mismatch(ctx.io, &h.into_inner().version);

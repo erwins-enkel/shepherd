@@ -1,10 +1,8 @@
 //! Session control: `new`, `steer`, `interrupt`, `archive`, `resume`.
 
-use std::path::Path;
-
 use serde_json::json;
 
-use super::{VersionCheck, session_id};
+use super::{VersionCheck, repo_path, session_id};
 use crate::Ctx;
 use crate::api::types::{CreateSessionSuccess, Session};
 use crate::cli::NewArgs;
@@ -16,16 +14,6 @@ const STEER: Op = Op::new("steer", Scope::Full);
 const INTERRUPT: Op = Op::new("interrupt", Scope::Full);
 const ARCHIVE: Op = Op::new("archive", Scope::Full);
 const RESUME: Op = Op::new("resume", Scope::Full);
-
-fn git_toplevel(cwd: &Path) -> Option<String> {
-    let out = std::process::Command::new("git")
-        .args(["rev-parse", "--show-toplevel"])
-        .current_dir(cwd)
-        .output()
-        .ok()?;
-    let path = String::from_utf8(out.stdout).ok()?.trim().to_string();
-    (out.status.success() && !path.is_empty()).then_some(path)
-}
 
 fn print_created(ctx: &mut Ctx<'_>, verb: &str, s: &Session) -> Result<()> {
     if ctx.mode == Mode::Json {
@@ -42,15 +30,7 @@ pub async fn new(ctx: &mut Ctx<'_>, args: NewArgs) -> Result<()> {
     if prompt.trim().is_empty() {
         return Err(CliError::new(Exit::Usage, "the prompt is empty"));
     }
-    let repo = match args.repo.or_else(|| git_toplevel(&ctx.io.cwd)) {
-        Some(r) => r,
-        None => {
-            return Err(CliError::new(
-                Exit::Usage,
-                "not inside a git repository: pass --repo <path on the server>",
-            ));
-        }
-    };
+    let repo = repo_path(ctx, args.repo)?;
     let check = VersionCheck::start(&ctx.client);
     let result = ctx
         .client

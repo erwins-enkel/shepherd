@@ -3008,6 +3008,69 @@ components:
       properties:
         error: { "type": "string" }
         code: { "$ref": "#/components/schemas/RestoreConflictReason" }
+    BacklogProject:
+      type: "object"
+      additionalProperties: true
+      description: "BacklogProject (src/server.ts) — one repo row of the backlog overview. Counts are null when unknown or the repo has no forge."
+      required:
+        [
+          "path",
+          "display",
+          "slug",
+          "kind",
+          "lastUsedAt",
+          "recentAgentCount",
+          "openIssues",
+          "openPRs",
+          "prKinds",
+          "workflows",
+          "ciStatus",
+          "hidden",
+        ]
+      properties:
+        path: { "type": "string" }
+        display: { "type": "string" }
+        slug: { "type": ["string", "null"] }
+        kind: { "type": "string" }
+        lastUsedAt: { "type": ["integer", "null"] }
+        recentAgentCount: { "type": ["integer", "null"] }
+        openIssues: { "type": ["integer", "null"] }
+        openPRs: { "type": ["integer", "null"] }
+        prKinds:
+          oneOf:
+            - $ref: "#/components/schemas/BacklogPrKinds"
+            - type: "null"
+        workflows: { "type": ["integer", "null"] }
+        ciStatus:
+          type: ["string", "null"]
+          enum: ["success", "failure", "pending", null]
+          x-shepherd-open-enum: true
+        hidden: { "type": "boolean" }
+    BacklogPrKinds:
+      type: "object"
+      additionalProperties: true
+      description: "Open-PR breakdown by kind; null on BacklogProject for non-GitHub forges."
+      required: ["release", "dependabot", "regular"]
+      properties:
+        release: { "type": "integer" }
+        dependabot: { "type": "integer" }
+        regular: { "type": "integer" }
+    BacklogTotals:
+      type: "object"
+      additionalProperties: true
+      required: ["openIssues", "openPRs"]
+      properties:
+        openIssues: { "type": "integer" }
+        openPRs: { "type": "integer" }
+    BacklogPayload:
+      type: "object"
+      additionalProperties: true
+      description: "GET /api/backlog — every repo under the repo root with open issue/PR counts."
+      required: ["pinnedPath", "projects", "totals"]
+      properties:
+        pinnedPath: { "type": ["string", "null"] }
+        projects: { "type": "array", "items": { "$ref": "#/components/schemas/BacklogProject" } }
+        totals: { "$ref": "#/components/schemas/BacklogTotals" }
     # ── /stream: queues ──
     # ── stream: compose ──
     UploadResponse:
@@ -5873,6 +5936,17 @@ paths:
         "400":
           description: "Invalid body."
           content: { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/backlog:
+    get:
+      operationId: "getBacklog"
+      description: "The backlog overview: every repo under the repo root, with open issue and PR counts."
+      responses:
+        "200":
+          description: "Success."
+          content:
+            { "application/json": { "schema": { "$ref": "#/components/schemas/BacklogPayload" } } }
         "401":
           $ref: "#/components/responses/Unauthorized"
   # ── /stream: queues ──

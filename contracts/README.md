@@ -13,7 +13,11 @@ contract until a native or CLI feature needs it.
 `listSessions`, `getSession`, `getHolds`, `gitStates`, `listReviewsInflight`, `createSession`,
 `replySession` (steer), `interruptSession`, `archiveSession` (`DELETE /api/sessions/{id}`) and
 `resumeSession`, plus every `session:*` frame on `/events` for `shepherd events tail`.
-`test/contract/rust-derivation.test.ts` pins that list. The spec calls the terminal block `x-shepherd-protocol`;
+The follow-up verbs (#2486) add `getBacklog`, `listIssues`, `listDrain`, `listDrainQueue`,
+`putRepoConfig` (drain and merge-train toggles), `refreshUpNext` plus the `upnext:snapshot` frame,
+`startUpNext`, `listHeld`, `spawnHeld`, `discardHeld`, `reviewPr`, `reviewPlan`,
+`mergePullRequest`, `listAutomerge` and `setSessionAutomerge`.
+`test/contract/rust-derivation.test.ts` pins both lists. The spec calls the terminal block `x-shepherd-protocol`;
 here it is `x-shepherd-pty`, next to `x-shepherd-events`, so the two socket catalogues read as a
 pair.
 

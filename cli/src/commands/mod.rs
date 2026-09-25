@@ -2,16 +2,20 @@
 
 pub mod control;
 pub mod events;
+pub mod intake;
 pub mod login;
+pub mod merge;
 pub mod read;
+pub mod upnext;
 
+use std::path::Path;
 use std::time::Duration;
 
 use tokio::task::JoinHandle;
 
 use crate::api::{Client, types::Session};
-use crate::error::{Op, Result, api_error};
-use crate::{CLI_VERSION, Io, resolve};
+use crate::error::{CliError, Exit, Op, Result, api_error};
+use crate::{CLI_VERSION, Ctx, Io, resolve};
 
 /// Best-effort `/api/health` probe run alongside a command, to warn when the server's version
 /// differs from this CLI's (they release in lockstep). Never fails the command.
@@ -68,4 +72,32 @@ pub fn label(sessions: &[Session], id: &str) -> String {
         .find(|s| s.id == id)
         .map(|s| s.desig.clone())
         .unwrap_or_else(|| id.to_string())
+}
+
+fn git_toplevel(cwd: &Path) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(cwd)
+        .output()
+        .ok()?;
+    let path = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    (out.status.success() && !path.is_empty()).then_some(path)
+}
+
+/// `--repo`, else this directory's git toplevel (the server resolves it under its repo root).
+pub fn repo_path(ctx: &Ctx<'_>, repo: Option<String>) -> Result<String> {
+    repo.or_else(|| git_toplevel(&ctx.io.cwd)).ok_or_else(|| {
+        CliError::new(
+            Exit::Usage,
+            "not inside a git repository: pass --repo <path on the server>",
+        )
+    })
+}
+
+/// Prints `value` as JSON, or `text` on a terminal.
+pub fn print_done(ctx: &mut Ctx<'_>, value: &impl serde::Serialize, text: &str) -> Result<()> {
+    if ctx.mode == crate::output::Mode::Json {
+        return crate::output::json(&mut ctx.io.stdout, value);
+    }
+    crate::output::line(&mut ctx.io.stdout, text)
 }

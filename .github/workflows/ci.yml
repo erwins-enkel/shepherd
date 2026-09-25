@@ -121,6 +121,9 @@ jobs:
       - name: herdr protocol types freshness (schema ⇒ regenerated types)
         run: bun run check:herdr-types
 
+      - name: Rust contract freshness (openapi.yaml ⇒ derived progenitor spec)
+        run: bun run check:contract-rust
+
       # Env-schema drift (#2347): every env var src/, scripts/ and deploy/ read must be
       # declared in .env.schema, and every declared key must still be read. Both directions
       # exit 1 with file:line. The scanner cannot see shell scripts or indirect reads, so

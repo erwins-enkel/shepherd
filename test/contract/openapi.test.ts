@@ -564,6 +564,7 @@ describe("realtime /events", () => {
       ["session:ready", fx.readyEvent],
       ["automerge:status", fx.automergeEvent],
       ...fx.usageCases.map(([, data]): [string, unknown] => ["usage:limits", data]),
+      ...fx.cliSessionEvents,
     ];
     const frames = await collectEvents(s, token, async () => {
       for (const [name, data] of emits) s.deps.events.emit(name, data);

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { IncusDriver } from "./incus";
@@ -32,6 +32,9 @@ function buildTarball(): string {
   execFileSync("git", ["archive", "--format=tar", "-o", tar, "HEAD"]);
   return tar;
 }
+
+/** Where deploy/install-cli.sh downloads the CLI from (its SHEPHERD_CLI_BASE_URL default). */
+const CLI_RELEASE_BASE = "https://github.com/erwins-enkel/shepherd/releases/download";
 
 /** Local repo path to the installer the install-e2e scenario stages + runs. */
 const INSTALL_SCRIPT = join(import.meta.dir, "..", "..", "deploy", "install.sh");
@@ -73,6 +76,42 @@ async function assertPinnedHerdrInstalled(driver: IncusDriver, name: string): Pr
   }
 }
 
+/** The server version the harness installs: the tarball is `git archive HEAD` of this checkout. */
+function checkoutVersion(): string {
+  const pkg = join(import.meta.dir, "..", "..", "package.json");
+  return (JSON.parse(readFileSync(pkg, "utf8")) as { version: string }).version;
+}
+
+/** Assert install.sh landed the prebuilt `shepherd` CLI at the server's version, and that a re-run
+ *  of deploy/install-cli.sh is an idempotent no-op (#2484).
+ *
+ *  Only when that version's binary is actually published: install-cli.sh soft-fails on a missing
+ *  asset by design, and requiring one here would deadlock the release gate (this harness gates the
+ *  release that creates the asset). An unpublished version is logged as a skip, not a pass.
+ *  Instances are Linux, so the target is `$(uname -m)-unknown-linux-gnu` (x86_64 / aarch64). */
+async function assertCliInstalled(driver: IncusDriver, name: string): Promise<void> {
+  const version = checkoutVersion();
+  const url = `${CLI_RELEASE_BASE}/cli-v${version}/shepherd-$(uname -m)-unknown-linux-gnu`;
+  const published = await driver.exec(name, ["sh", "-c", `curl -fsIL -o /dev/null "${url}"`]);
+  if (published.code !== 0) {
+    console.log(`[${name}] shepherd CLI ${version} not published — CLI install check skipped`);
+    return;
+  }
+  const got = await driver.exec(name, ["sh", "-c", '"$HOME/.local/bin/shepherd" --version']);
+  if (got.stdout.trim() !== `shepherd ${version}`) {
+    throw new Error(
+      `${name}: shepherd CLI ${version} is published but install.sh did not land it ` +
+        `(~/.local/bin/shepherd --version → ${JSON.stringify(got.stdout.trim() || got.stderr.trim())})`,
+    );
+  }
+  const again = await driver.exec(name, ["bash", "/opt/shepherd/deploy/install-cli.sh"]);
+  if (again.code !== 0 || !again.stdout.includes(`already at ${version}`)) {
+    throw new Error(
+      `${name}: re-running install-cli.sh was not an idempotent no-op:\n${again.stdout}${again.stderr}`,
+    );
+  }
+}
+
 /** Shared tail of BOTH install-e2e runners: probe the freshly-installed host, assert the
  *  target-ok set, and shape the result. `expect` is the target state (not a seeded defect),
  *  so `reachedGreen` is just whether detection saw every check reach `ok`. */
@@ -85,7 +124,10 @@ async function finishInstallE2E(
   const detection = assertDetection(after, scenario.id, scenario.expect);
   // Only once the target set (herdr included) is green: an install that failed outright keeps its
   // own INSTALL GAP diagnosis rather than being re-labelled a pin failure.
-  if (detection.detected) await assertPinnedHerdrInstalled(driver, scenario.id);
+  if (detection.detected) {
+    await assertPinnedHerdrInstalled(driver, scenario.id);
+    await assertCliInstalled(driver, scenario.id);
+  }
   return {
     ...base,
     detection,

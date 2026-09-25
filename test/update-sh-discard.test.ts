@@ -84,6 +84,8 @@ function run(bin: string, opts: RunOpts = {}): { code: number; git: string } {
     ...process.env,
     PATH: `${bin}:${process.env.PATH}`,
     STUB_BRANCH: opts.branch ?? "main",
+    // never install the real CLI into the host's ~/.local/bin
+    SHEPHERD_NO_CLI: "1",
   };
   if (opts.sig != null) env.SHEPHERD_DISCARD_SIG = opts.sig;
   if (opts.dir != null) env.SHEPHERD_DISCARD_DIR = opts.dir;

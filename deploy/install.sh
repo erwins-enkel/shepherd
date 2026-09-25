@@ -26,6 +26,7 @@
 #                     state home (db, env, logs) so the whole install is self-contained.
 #   SHEPHERD_NO_SERVICE  Passed through to provision.ts: skip the systemd unit.
 #                        Set automatically on macOS (core-only mode).
+#   SHEPHERD_NO_CLI   Skip installing the prebuilt `shepherd` CLI (deploy/install-cli.sh).
 #
 # RAM floor: Claude Code's installer transiently needs ~2 GB RSS; hosts below ~3 GB
 #   total RAM may OOM-kill the install. Add RAM or swap if the install fails.
@@ -258,6 +259,9 @@ main() {
   resolve_source
 
   cd "$SHEPHERD_DIR" || die "cannot cd into $SHEPHERD_DIR"
+  # Prebuilt `shepherd` CLI at this checkout's version (#2484). SOFT-fail: a version with no
+  # published binary must not abort the install. update.sh refreshes it on every deploy.
+  bash deploy/install-cli.sh || warn "shepherd CLI not installed (see above) — continuing"
   # Mirror the systemd units' EnvironmentFile=-%h/.shepherd/env so any SHEPHERD_DB /
   # SHEPHERD_BACKUP_DIR override reaches provision via process.env — otherwise provision would
   # write the .backup-configured marker to the DEFAULT dir while the server (which DOES read the

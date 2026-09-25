@@ -123,6 +123,12 @@ bun scripts/fix-node-pty-perms.mjs
 note "building UI"
 (cd ui && bun run build)
 
+# ── shepherd CLI (#2484) ──────────────────────────────────────────────────────
+# Keep the prebuilt `shepherd` CLI at this checkout's version (lockstep with the server). Before the
+# systemd block so macOS / core-only hosts refresh it too. SOFT-fail: a version with no published
+# binary (dev checkout, release still building) must never fail a deploy. No-op when current.
+bash "$REPO/deploy/install-cli.sh" || warn "shepherd CLI not refreshed (see above) — the deploy continues"
+
 # ── sync backup units (#1080) ─────────────────────────────────────────────────
 # update.sh historically only restarts; provision.ts installs units only on a fresh box. So an
 # existing live host would never pick up the hourly-backup timer. Re-sync it here, idempotently, so

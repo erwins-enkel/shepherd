@@ -3829,6 +3829,7 @@
   "newtask_spawn_why_launch": "Assembling the launch command, the sandbox and any plugin hooks.",
   "newtask_spawn_why_agent": "The agent is booting in its terminal. Shepherd waits until it reports in — at most 30 s.",
   "newtask_spawn_slow": "Taking longer than usual",
+  "newtask_spawn_stale": "No answer from the server yet. The agent may already be running — check the session list.",
   "newtask_spawn_cancel": "Cancel start",
   "newtask_spawn_canceling": "Cancelling…",
   "newtask_spawn_canceled": "Start cancelled. Your prompt is still here.",

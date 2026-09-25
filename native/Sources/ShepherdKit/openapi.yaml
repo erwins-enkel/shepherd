@@ -4512,6 +4512,9 @@ components:
                 $ref: "#/components/schemas/SpawnPhase"
               ms:
                 type: number
+        sessionId:
+          type: string
+          description: Set only on the final frame of a successful create, emitted after `session:new`. A client may treat the create as done on it even while the HTTP answer is still in transit.
     SpawnCancelResponse:
       type: object
       additionalProperties: true

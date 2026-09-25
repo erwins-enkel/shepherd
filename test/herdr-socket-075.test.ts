@@ -161,6 +161,31 @@ describe("SocketHerdrDriver — 0.7.5 (protocol 17) external-registration spawn"
     expect(rec.some((r) => r.method === "agent.list")).toBe(true);
   });
 
+  it("start() TRUSTED: the 30s auto-detect budget is wall-clock, list latency included", async () => {
+    let clock = 0;
+    let listCalls = 0;
+    const { client } = mkClient({
+      agents: () => {
+        listCalls++;
+        clock += 1_000;
+        return [];
+      },
+    });
+    const driver = new SocketHerdrDriver(
+      client,
+      noCli,
+      async (ms) => {
+        clock += ms;
+      },
+      () => clock,
+    );
+    await expect(driver.start("review-task-09", "/wt/a", ["claude", "go"])).rejects.toThrow(
+      /not auto-detected/,
+    );
+    expect(clock).toBeLessThanOrEqual(31_500);
+    expect(listCalls).toBeLessThan(25);
+  });
+
   it("start() SANDBOXED: a cancel after the run rolls the tab back, registering nothing", async () => {
     // Socket sibling of the CLI driver's checkpoint test: the sandboxed branch resolves through a
     // quick registration, so without a check right after the run it would hand back a live agent

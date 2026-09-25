@@ -329,6 +329,10 @@
   const spawn = $derived(spawnId && spawnProgress?.spawnId === spawnId ? spawnProgress : null);
   const spawnElapsedMs = $derived(spawnStartedAt ? Math.max(0, spawnNow - spawnStartedAt) : 0);
   const spawnSlow = $derived(submitting && spawnElapsedMs >= SPAWN_SLOW_MS);
+  // Past the server's 30s agent bound plus margin, the server has almost certainly answered — the
+  // answer is stuck in transit (or the WS is down too). Say so rather than keep counting silently.
+  const SPAWN_STALE_MS = 45_000;
+  const spawnStale = $derived(submitting && spawnElapsedMs >= SPAWN_STALE_MS);
 
   // Runs only while a create is in flight. 250ms so the seconds counter ticks over cleanly
   // without the display lagging a beat behind the real elapsed time.
@@ -2393,6 +2397,9 @@
                   </ul>
                 {/if}
               {/if}
+              {#if spawnStale}
+                <p class="spawn-stale">{m.newtask_spawn_stale()}</p>
+              {/if}
               <button
                 type="button"
                 class="spawn-cancel"
@@ -3329,6 +3336,10 @@
   .spawn-why {
     margin: 0;
     color: var(--color-muted);
+  }
+  .spawn-stale {
+    margin: 0;
+    color: var(--color-ink-bright);
   }
   .spawn-done {
     list-style: none;

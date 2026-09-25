@@ -5081,6 +5081,26 @@ describe("NewTask spawn progress", () => {
     expect(panel.textContent).toContain(m.newtask_spawn_seconds({ seconds: "0.4" }));
   });
 
+  it("says the answer may be stuck in transit once the wait outlives the server bound", async () => {
+    pinSpawnId();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-24T12:00:00Z"));
+    const onsubmit = vi.fn(() => deferred<void>().promise);
+    render(NewTask, {
+      props: base({ onsubmit, initialRepoPath: "/repo/spawn", spawnProgress: progress("agent") }),
+    });
+
+    await submitTask(onsubmit);
+    vi.setSystemTime(new Date("2026-07-24T12:00:40Z"));
+    await expect.poll(() => document.querySelector(".spawn")).toBeTruthy();
+    expect(document.querySelector(".spawn-stale")).toBeNull();
+
+    vi.setSystemTime(new Date("2026-07-24T12:00:46Z"));
+    await expect
+      .poll(() => document.querySelector(".spawn-stale")?.textContent)
+      .toBe(m.newtask_spawn_stale());
+  });
+
   it("cancels the in-flight spawn by its id", async () => {
     pinSpawnId();
     vi.useFakeTimers({ toFake: ["Date"] });

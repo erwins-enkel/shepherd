@@ -9,6 +9,7 @@
   import { MediaQuery, SvelteSet } from "svelte/reactivity";
   import { HerdStore } from "$lib/store.svelte";
   import { bootstrapBuildQueues } from "$lib/build-queue-bootstrap";
+  import { raceSpawnCompletion } from "$lib/spawn-completion";
   import type { SettingsSectionId } from "$lib/settings-search";
   import { createTabSignal, deriveTabState } from "$lib/tab-signal.svelte";
   import { tabTicker } from "$lib/tab-ticker.svelte";
@@ -2189,7 +2190,11 @@
     // branches to submitRelaunch; otherwise the normal New Task create.
     if (editHeldId !== null) return submitEditHeld(editHeldId, taskInput);
     if (relaunchOriginalId !== null) return submitRelaunch(relaunchOriginalId, taskInput);
-    const r = await createSession(taskInput, spawnId);
+    // With a spawn id the WS completion frame can settle this before a slow 201 arrives.
+    const request = createSession(taskInput, spawnId);
+    const r = spawnId
+      ? await raceSpawnCompletion(request, spawnId, () => store.spawnProgress)
+      : await request;
     if ("held" in r) {
       // Held tasks are queued (visible via the TopBar badge); close the composer like a
       // normal submit so the populated prompt can't be re-clicked into a duplicate hold.

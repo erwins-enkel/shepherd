@@ -67,6 +67,8 @@ export class SocketHerdrDriver implements IHerdrDriver {
     /** Injectable delay for the trusted-spawn auto-detect poll; overridden in tests to run instantly. */
     private sleep: (ms: number) => Promise<void> = (ms) =>
       new Promise((r) => setTimeout(r, ms).unref?.()),
+    /** Injectable clock for the auto-detect deadline; tests pair it with a fake `sleep`. */
+    private now: () => number = Date.now,
   ) {}
 
   // ── Socket-backed async reads ────────────────────────────────────────────
@@ -277,10 +279,14 @@ export class SocketHerdrDriver implements IHerdrDriver {
   ): Promise<HerdrAgent> {
     const DEADLINE_MS = 30_000;
     const POLL_MS = 500;
-    for (let waited = 0; waited <= DEADLINE_MS; waited += POLL_MS) {
+    // Wall-clock deadline: each `listAsync` is a real round-trip, so counting only the sleeps
+    // would stretch the budget by every list call's latency.
+    const deadline = this.now() + DEADLINE_MS;
+    for (;;) {
       if (signal?.aborted) throw new SpawnCanceled();
       const agent = (await this.listAsync()).find((a) => a.paneId === paneId);
       if (agent?.terminalId) return agent;
+      if (this.now() >= deadline) break;
       await this.sleep(POLL_MS);
     }
     throw new Error(`herdr: agent for pane ${paneId} (${name}) not auto-detected within 30s`);

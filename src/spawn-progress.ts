@@ -44,6 +44,9 @@ export interface SpawnPhaseProgress {
   /** Wall clock at which the CURRENT phase started, so the client can run its own counter. */
   startedAt: number;
   completed: { phase: SpawnPhase; ms: number }[];
+  /** Set only on the final frame of a successful create: the session now exists. The dialog
+   *  completes on it even when the create's HTTP answer is still in transit. */
+  sessionId?: string;
 }
 
 export interface SpawnPhaseTrackerDeps {
@@ -145,6 +148,23 @@ export class SpawnPhaseTracker {
 
   throwIfCanceled(): void {
     if (this.#controller.signal.aborted) throw new SpawnCanceled();
+  }
+
+  /**
+   * Announce the created session to the observer. The HTTP answer carries the same fact, but on a
+   * slow link (a phone over a relayed tailnet) it can trail the WS stream by tens of seconds while
+   * the dialog keeps counting. The caller emits this AFTER `session:new`, on the same stream, so
+   * the client already holds the row when the frame lands.
+   */
+  complete(sessionId: string): void {
+    if (!this.#emit || !this.spawnId) return;
+    this.#emit({
+      spawnId: this.spawnId,
+      phase: this.#completed.at(-1)?.phase ?? "agent",
+      startedAt: this.#now(),
+      completed: [...this.#completed],
+      sessionId,
+    });
   }
 
   /** The one line per spawn: every phase that ran, with its duration, plus the total. */

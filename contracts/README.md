@@ -40,8 +40,9 @@ test case matters: it is what actually pins the narrow behavior down.
 
 **How to extend it.** Add the schema under `components.schemas`, the path or event, then the test
 that exercises every declared status. Run `bun run test:contract`, `bun run gen:contract-swift` and
-`bun run gen:contract-rust`, and commit the regenerated `openapi.swift.yaml` and
-`openapi.rust.yaml` alongside your change.
+`bun run gen:contract-rust`, then `native/scripts/sync-contract.sh` to copy the Swift spec into
+ShepherdKit, and commit the regenerated `openapi.swift.yaml`, `openapi.rust.yaml` and
+`native/Sources/ShepherdKit/openapi.yaml` alongside your change.
 
 ## Stream blocks — three per stream
 

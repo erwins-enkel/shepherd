@@ -12,6 +12,7 @@ import {
 import { PROBE_NAME } from "../src/usage-probe";
 import { DOC_AGENT_LABEL } from "../src/doc-agent";
 import { MAINTAIN_AGENT_LABEL } from "../src/maintain";
+import { PLUGIN_AGENT_LABEL } from "../src/plugin-agents";
 import { DISTILL_LABEL } from "../src/distiller";
 import { OPTIMIZE_LABEL } from "../src/optimizer";
 import type { HerdrPane, HerdrTab } from "../src/herdr";
@@ -859,6 +860,8 @@ describe("isShepherdHelperLabel", () => {
     // unattended agent in a tab no reaper could reach.
     [MAINTAIN_AGENT_LABEL, "maintain diagnosis bare prefix (underscore marker)"],
     [`${MAINTAIN_AGENT_LABEL}a1b2c3d4`, "maintain diagnosis unique label (prefix + 8hex suffix)"],
+    // #2463: plugin ctx.agents.runReadonly run
+    [`${PLUGIN_AGENT_LABEL}a1b2c3d4`, "plugin agent unique label (prefix + 8hex suffix)"],
   ];
 
   for (const [label, desc] of trueLabels) {

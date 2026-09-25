@@ -3788,6 +3788,7 @@
   "feat_shape_task_title": "Shape a task before you start it",
   "feat_shape_task_body": "New Task has an optional Shape button. It runs a short agent over your rough prompt and the repo, then asks you the few questions only you can settle — and turns your answers into a brief with problem, outcome, constraints and non-goals. No session is started until you press Start, so an under-specified ask costs a clarifying round instead of a burnt session. Typing a prompt and starting it still works exactly as before. The Readiness tab now also prescribes a matching issue template, so drained backlog issues arrive in the same shape.",
   "usage_kind_maintain": "Maintain loop",
+  "usage_kind_plugin": "Plugin agents",
   "usage_maintain_heading": "Maintain loop",
   "usage_maintain_disabled": "Off. Set SHEPHERD_MAINTAIN_LOOP=1 to evaluate these bands daily.",
   "usage_maintain_observe": "Armed, not filing. Breaches are logged and diagnosed; set SHEPHERD_MAINTAIN_ACT=1 to let a diagnosis open an issue.",

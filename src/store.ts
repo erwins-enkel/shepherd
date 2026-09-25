@@ -4371,7 +4371,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   recordReviewerSpawn(r: {
     reviewerSessionId: string;
     taskSessionId: string;
-    kind: "review" | "plan_gate" | "recap" | "doc_agent" | "maintain" | "classifier";
+    kind: "review" | "plan_gate" | "recap" | "doc_agent" | "maintain" | "classifier" | "plugin";
     worktreePath: string;
     reviewerProvider?: AgentProvider | null;
     model: string | null;
@@ -4429,6 +4429,24 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         reviewerSessionId,
       ],
     );
+  }
+
+  /** How many `kind` spawns for `taskSessionId` started at or after `since` — completed or not.
+   *  Backs the per-plugin rolling run cap (PluginAgentService, #2463). Indexed by
+   *  `reviewer_spawns_task`. */
+  countReviewerSpawnsSince(
+    kind: ReviewerSpawnRow["kind"],
+    taskSessionId: string,
+    since: number,
+  ): number {
+    return (
+      this.db
+        .query(
+          `SELECT COUNT(*) AS c FROM reviewer_spawns
+             WHERE taskSessionId = ? AND kind = ? AND spawnedAt >= ?`,
+        )
+        .get(taskSessionId, kind, since) as { c: number }
+    ).c;
   }
 
   /** True when a reviewer (critic / plan-gate / doc-agent …) spawn for `taskSessionId` is still

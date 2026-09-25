@@ -12,7 +12,9 @@ import { join, basename } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
   PLUGIN_API_VERSION,
+  PluginAgentError,
   PluginSpawnAborted,
+  type PluginAgentRunOptions,
   type PluginContext,
   type PluginInfo,
   type PluginLogger,
@@ -71,6 +73,8 @@ export interface PluginRegistryDeps {
   hookTimeoutMs?: number;
   /** Seams backing `ctx.issues`; absent → every `ctx.issues` call rejects `no-forge`. */
   issues?: PluginIssuesDeps;
+  /** Backs `ctx.agents.runReadonly` (PluginAgentService.run). Absent → it rejects `unavailable`. */
+  runAgent?: (pluginId: string, opts: PluginAgentRunOptions) => Promise<unknown>;
 }
 
 /** Internal per-plugin record. `health`/`lastError`/`status`/`ui` back the status panel; `gearItem` backs the gear menu. */
@@ -507,6 +511,12 @@ export class PluginRegistry {
       state,
       sessions,
       issues,
+      agents: {
+        runReadonly: (opts) =>
+          this.deps.runAgent
+            ? this.deps.runAgent(id, opts)
+            : Promise.reject(new PluginAgentError("unavailable", "plugin agents are not wired")),
+      },
       route: (method, path, handler) => {
         rec.routes.set(routeKey(method, path), handler);
       },

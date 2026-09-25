@@ -5216,7 +5216,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectionBannerTests.swift\",\"CoreSeamTests.AppModelHealthTests\",\"deactivateDuringARetryTriggeredHealthRefreshCancelsTheModelOwnedTask() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: refreshStore stubbed like the sibling gated-Retry tests, so the Retry reaches the gated health call without a real network round trip to 127.0.0.1:9; all actions and assertions retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ConnectionBannerTests.swift\",\"AppModelHealthTests\",\"healthRecordsTheServerVersionAndItsMinimumClient() async throws\"]",
@@ -5258,7 +5260,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectionBannerTests.swift\",\"CoreSeamTests.AppModelHealthTests\",\"teardownDuringARetryTriggeredHealthRefreshCancelsTheModelOwnedTask() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: refreshStore stubbed like the sibling gated-Retry tests, so the Retry reaches the gated health call without a real network round trip to 127.0.0.1:9; all actions and assertions retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ConnectionBannerTests.swift\",\"AppModelHealthTests\",\"tearingDownForgetsTheServerVersion() async throws\"]",

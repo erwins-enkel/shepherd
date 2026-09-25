@@ -702,6 +702,10 @@ struct AppModelHealthTests {
     /// resurrecting state for a profile the operator has already left.
     @Test func teardownDuringARetryTriggeredHealthRefreshCancelsTheModelOwnedTask() async throws {
         let model = makeModel()
+        // Stubbed like every other gated-Retry test: `performRetry` refreshes the store before
+        // health, and the real refresh is a network round trip to 127.0.0.1:9 that can outlast
+        // `settle`'s 5 s deadline on a loaded simulator, so the gate is never reached.
+        model.refreshStore = { _ in }
         let gate = Gate()
         let calls = Box(0)
         let observedCancellation = Box(false)
@@ -736,6 +740,10 @@ struct AppModelHealthTests {
     /// outlive it either.
     @Test func deactivateDuringARetryTriggeredHealthRefreshCancelsTheModelOwnedTask() async throws {
         let model = makeModel()
+        // Stubbed like every other gated-Retry test: `performRetry` refreshes the store before
+        // health, and the real refresh is a network round trip to 127.0.0.1:9 that can outlast
+        // `settle`'s 5 s deadline on a loaded simulator, so the gate is never reached.
+        model.refreshStore = { _ in }
         let gate = Gate()
         let calls = Box(0)
         let observedCancellation = Box(false)

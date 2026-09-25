@@ -36,7 +36,7 @@ export interface SpawnDescriptor {
    *  (create/drain/resume); the others are the reviewer-style auto-process spawns that also
    *  fire onSpawn so a plugin can route their quota (e.g. onto a pool account) — see
    *  {@link SpawnPatch.credentialDir} for how a returned credentialDir is bound (#1213). */
-  kind: "session" | "review" | "plan-gate" | "doc" | "maintain";
+  kind: "session" | "review" | "plan-gate" | "doc" | "maintain" | "plugin";
   /** For an aux spawn tied to a managed session (review, plan-gate): that session's id, so a
    *  plugin can keep the aux spawn on the parent session's account. Undefined for a normal
    *  session (it IS the parent) and for session-less aux spawns (doc-agent, standalone critic). */
@@ -226,6 +226,55 @@ export class PluginIssuesError extends Error {
   }
 }
 
+/** Options for {@link PluginAgents.runReadonly}. */
+export interface PluginAgentRunOptions {
+  /** Absolute path of a repo Shepherd manages (or Shepherd's own checkout). The agent reads a
+   *  disposable detached worktree of its `origin/<default branch>` — never the live checkout. */
+  repo: string;
+  /** The task, written by the plugin (trusted). ≤ 16 000 chars. */
+  prompt: string;
+  /** External text the agent should read as DATA (error payloads, stack traces, …). Each item is
+   *  fenced as untrusted in the prompt. ≤ 20 items, ≤ 48 000 chars of text in total. */
+  untrusted?: PluginUntrustedSection[];
+  /** JSON Schema the agent's result must satisfy. Shown to the agent AND enforced by the server. */
+  schema: Record<string, unknown>;
+  /** Claude model alias; null/absent = the CLI default. */
+  model?: string | null;
+  /** Hard deadline, clamped to [60 000, 1 800 000] ms. */
+  timeoutMs: number;
+}
+
+/** Why a {@link PluginAgents.runReadonly} call rejected. */
+export type PluginAgentErrorCode =
+  | "invalid-args"
+  | "cap-exceeded"
+  | "unavailable"
+  | "timeout"
+  | "no-output"
+  | "invalid-output"
+  | "schema-violation";
+
+/** The typed rejection of {@link PluginAgents.runReadonly}. Plugins cannot import core, so they
+ *  discriminate on `err.name === "PluginAgentError"` and `err.code`. */
+export class PluginAgentError extends Error {
+  constructor(
+    public readonly code: PluginAgentErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "PluginAgentError";
+  }
+}
+
+/** Transient read-only agent runs on the operator's subscription (issue #2463). */
+export interface PluginAgents {
+  /** Spawn one read-only diagnosis agent over `opts.repo` and resolve with its schema-valid JSON
+   *  result. Rejects with a {@link PluginAgentError}. The result is produced by an agent that read
+   *  untrusted input — treat it as untrusted data too. Capped per plugin (concurrency and a rolling
+   *  24h count); spend is recorded against this plugin. */
+  runReadonly(opts: PluginAgentRunOptions): Promise<unknown>;
+}
+
 export type PluginRouteHandler = (req: Request) => Response | Promise<Response>;
 
 /** The SOLE seam between a plugin and core. */
@@ -254,6 +303,9 @@ export interface PluginContext {
   /** Create / close / read forge issues, with untrusted sections fenced by core (#2462).
    *  Additive — guard with `typeof ctx.issues?.create === "function"`. */
   issues: PluginIssues;
+  /** Read-only diagnosis agents (issue #2463). Additive; plugins that must run on an older core
+   *  guard with `typeof ctx.agents?.runReadonly === "function"`. */
+  agents: PluginAgents;
   /** Register an HTTP route under the fixed `/api/plugins/<id>/<path>` namespace. */
   route(method: string, path: string, handler: PluginRouteHandler): void;
   /** Namespaced logger into `shepherd.log`. */

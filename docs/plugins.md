@@ -169,6 +169,7 @@ permission-scoped / out-of-process) without changing your call sites.
 | `ctx.state`                        | Durable, **per-plugin-scoped** key/value: `get`/`set`/`delete`/`keys`. Values are JSON. Backed by a `plugin_state` table — you never touch the session schema.                      |
 | `ctx.sessions`                     | Read-only session lookup: `get(id)` / `list()` → a curated `PluginSessionSnapshot`. Resolves the bare ids that `session:*` events carry. Plugins cannot write sessions.             |
 | `ctx.issues`                       | Create / close / read forge issues: `create(repo, {title, body, labels?, untrusted?})`, `close(repo, n, comment?)`, `get(repo, n)`. Untrusted text is fenced **by core**. Additive. |
+| `ctx.agents.runReadonly(opts)`     | Run one read-only diagnosis agent over a managed repo and get back its schema-validated JSON result (see below). Capped per plugin. Additive.                                       |
 | `ctx.route(method, path, handler)` | Register an HTTP route under `/api/plugins/<id>/<path>`. Sits behind operator auth.                                                                                                 |
 | `ctx.log`                          | Namespaced logger into `shepherd.log` (`ctx.log.log` / `ctx.log.warn`).                                                                                                             |
 | `ctx.config`                       | Your plugin's own `config.json` (parsed; `{}` when absent). Updated **in place** by `setConfig`, so the object you capture stays live.                                              |
@@ -275,6 +276,66 @@ Forge failures (network, auth, rate limit) propagate as ordinary errors.
 
 > **Additive API.** Guard with `typeof ctx.issues?.create === "function"` if your plugin must
 > run on older cores.
+
+## Read-only diagnosis agents (`ctx.agents.runReadonly`)
+
+Spawn one transient agent that **reads** a repo and answers in JSON, e.g. to diagnose a
+production error from its stack trace:
+
+```ts
+const result = await ctx.agents.runReadonly({
+  repo: "/home/me/code/app", // a repo Shepherd manages (or Shepherd's own checkout)
+  prompt: "Find the most likely root cause of this error and the file to fix.",
+  untrusted: [{ label: "sentry event", content: eventJson }], // external text — fenced as data
+  schema: {
+    type: "object",
+    properties: { cause: { type: "string" }, file: { type: "string" } },
+    required: ["cause", "file"],
+  },
+  timeoutMs: 10 * 60_000,
+});
+```
+
+**What runs.** An interactive `claude` on the operator's subscription (never `claude -p`),
+in a disposable detached worktree at `origin/<default branch>`, never the live checkout. It
+runs with the same posture as Shepherd's own reviewers: read-only git/Read/Grep/Glob tools
+plus `Write` for its result file, `--permission-mode dontAsk`, `--safe-mode`, hooks off, the
+sandbox membrane when one is available, and your plugins' `onSpawn` hooks (descriptor
+`kind: "plugin"`). It gets no network or `gh` tools and cannot commit. The pane, the worktree and
+the cost row are torn down on every outcome.
+
+**Options.**
+
+| Field       | Rules                                                                                                                   |
+| ----------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `repo`      | Absolute path of a managed repo or Shepherd's own checkout.                                                             |
+| `prompt`    | Your task, non-empty, ≤ 16 000 chars. Trusted: it comes from your code.                                                 |
+| `untrusted` | Optional `{ label, content }[]` (same shape as `ctx.issues`), ≤ 20 items, ≤ 48 000 chars in total. Each item is fenced. |
+| `schema`    | A JSON Schema (draft-07, ajv). Shown to the agent **and** enforced on its answer.                                       |
+| `model`     | Optional Claude model alias (`opus`, `sonnet`, …). Omit it for the CLI default.                                         |
+| `timeoutMs` | Hard deadline, clamped to 1–30 minutes.                                                                                 |
+
+**Errors.** The promise rejects with a `PluginAgentError`. You cannot import core, so check
+`err.name === "PluginAgentError"` and switch on `err.code`:
+
+| `code`             | Meaning                                                                           |
+| ------------------ | --------------------------------------------------------------------------------- |
+| `invalid-args`     | An option broke the rules above, or the schema does not compile. Nothing ran.     |
+| `cap-exceeded`     | This plugin already has 2 runs in flight, or started 20 in the last 24 hours.     |
+| `unavailable`      | Could not start: api-key mode without a key, no `origin/<default>`, spawn failed. |
+| `timeout`          | No result by `timeoutMs`.                                                         |
+| `no-output`        | The agent exited without writing a result.                                        |
+| `invalid-output`   | The result is not JSON.                                                           |
+| `schema-violation` | The result is JSON but does not match `schema` (`message` has ajv's errors).      |
+
+**Cost.** Every run is recorded like Shepherd's other helper agents and shows up as
+**Plugin agents** in the usage views, attributed to `plugin:<your id>`.
+
+**Treat the result as untrusted.** The agent read external text and repo contents; a schema
+bounds the shape of its answer, not the truth of it.
+
+> **Additive API.** Guard with `typeof ctx.agents?.runReadonly === "function"` if your plugin
+> must run on an older core.
 
 ## The `onSpawn` hook
 

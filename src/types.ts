@@ -1028,7 +1028,15 @@ export interface ReviewerSpawnRow {
   taskSessionId: string;
   /** `rundown` is READ-ONLY history: the Herd Rundown was removed and nothing writes that
    *  kind any more, but its past rows carry real token spend the usage breakdown attributes. */
-  kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent" | "maintain" | "classifier";
+  kind:
+    | "review"
+    | "plan_gate"
+    | "recap"
+    | "rundown"
+    | "doc_agent"
+    | "maintain"
+    | "classifier"
+    | "plugin";
   worktreePath: string;
   reviewerProvider: AgentProvider | null;
   model: string | null;
@@ -1671,13 +1679,21 @@ export interface UsageRepoBreakdown {
 // per-task `satelliteUnits` attribution (different filter axis + includes unattributed
 // buckets like doc_agent/standalone-critic) — see buildUsageBreakdown.
 export interface UsageKindUnits {
-  kind: string; // "review" | "plan_gate" | "recap" | "doc_agent" | "maintain" | "classifier" (+ historical "rundown") — data, not translated
+  kind: string; // "review" | "plan_gate" | "recap" | "doc_agent" | "maintain" | "classifier" | "plugin" (+ historical "rundown") — data, not translated
   units: number; // weighted units for that kind, in range
   count: number; // number of completed passes of that kind, in range
 }
 
 export type UsageRole =
-  "coding" | "classifier" | "review" | "plan_gate" | "recap" | "rundown" | "doc_agent" | "maintain";
+  | "coding"
+  | "classifier"
+  | "review"
+  | "plan_gate"
+  | "recap"
+  | "rundown"
+  | "doc_agent"
+  | "maintain"
+  | "plugin";
 export type UsageByRole = Partial<Record<UsageRole, Record<string, number>>>;
 
 export interface UsageModelBreakdown {

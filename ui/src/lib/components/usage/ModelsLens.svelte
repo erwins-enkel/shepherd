@@ -42,6 +42,7 @@
     "rundown",
     "doc_agent",
     "maintain",
+    "plugin",
   ];
 
   function roleLabel(role: UsageRole): string {
@@ -62,6 +63,8 @@
         return m.usage_kind_maintain();
       case "doc_agent":
         return m.usage_kind_doc_agent();
+      case "plugin":
+        return m.usage_kind_plugin();
     }
   }
 

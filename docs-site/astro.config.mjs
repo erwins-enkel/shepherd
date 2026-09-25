@@ -132,6 +132,7 @@ export default defineConfig({
             { label: "Concepts & glossary", slug: "reference/glossary" },
             { label: "Keyboard shortcuts", slug: "reference/keyboard-shortcuts" },
             { label: "Plugins", slug: "reference/plugins" },
+            { label: "Sentry", slug: "reference/sentry" },
             { label: "External Task API", slug: "reference/external-task-api" },
             { label: "Security", slug: "reference/security" },
             // Repo-root CLAUDE.md, imported verbatim by scripts/sync-docs.mjs.

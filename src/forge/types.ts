@@ -41,6 +41,16 @@ export interface Issue {
    *  consumers that attach it (Up Next, /api/issues) via listBlockedByOpen — absent/empty means
    *  not blocked. NOT fetched by listIssues (which has no dependency data). */
   blockedBy?: number[];
+  /** Open/closed state. Populated only by the single-issue `getIssue` reads (the plugin
+   *  `ctx.issues.get` lifecycle sync reads it); absent on listings, which are open-only. */
+  state?: "open" | "closed";
+}
+
+/** Normalize a forge issue state (`OPEN`/`open`, `CLOSED`/`closed`) into the `state` field,
+ *  spread-ready: an unrecognized or absent value yields `{}` rather than a guess. */
+export function issueStateField(raw: string | null | undefined): Pick<Issue, "state"> {
+  const s = raw?.toLowerCase();
+  return s === "open" || s === "closed" ? { state: s } : {};
 }
 
 /** An open PR linked to an issue (via `closingIssuesReferences`), reduced to the PR's

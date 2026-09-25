@@ -36,7 +36,7 @@ export interface SpawnDescriptor {
    *  (create/drain/resume); the others are the reviewer-style auto-process spawns that also
    *  fire onSpawn so a plugin can route their quota (e.g. onto a pool account) — see
    *  {@link SpawnPatch.credentialDir} for how a returned credentialDir is bound (#1213). */
-  kind: "session" | "review" | "plan-gate" | "doc" | "maintain";
+  kind: "session" | "review" | "plan-gate" | "doc" | "maintain" | "plugin";
   /** For an aux spawn tied to a managed session (review, plan-gate): that session's id, so a
    *  plugin can keep the aux spawn on the parent session's account. Undefined for a normal
    *  session (it IS the parent) and for session-less aux spawns (doc-agent, standalone critic). */
@@ -100,6 +100,23 @@ export interface PluginState {
   keys(): string[];
 }
 
+/** Per-plugin secret store (issue #2461), backed by a single 0600 file under `~/.shepherd/`.
+ *  Values NEVER reach any HTTP route or UI payload core serves: they are kept out of
+ *  `config.json`/`plugin_state`/`PluginInfo`, and core redacts this plugin's secret values from
+ *  everything it publishes (status, UI, gear item, last error). A plugin's OWN route handler
+ *  is trusted code and can still return one — don't. */
+export interface PluginSecrets {
+  /** The stored value, or `null` when unset (or the store is unavailable/unreadable). Sync —
+   *  served from an in-memory cache loaded once at boot. */
+  get(key: string): string | null;
+  /** Store `value` (`null` unsets it) and persist atomically. REJECTS on failure — a secret
+   *  write that silently no-ops would look saved but vanish on restart. */
+  set(key: string, value: string | null): Promise<void>;
+}
+
+/** A scheduled task body. Must be ASYNC and yield — Shepherd runs one event loop. */
+export type PluginScheduledFn = () => Promise<void>;
+
 export interface PluginLogger {
   log(...args: unknown[]): void;
   warn(...args: unknown[]): void;
@@ -162,6 +179,137 @@ export interface PluginSessions {
   list(): PluginSessionSnapshot[];
 }
 
+/** A labelled chunk of externally-sourced text (an error message, a stack trace, a user report)
+ *  that core embeds in an issue body inside an unforgeable `⟦UNTRUSTED:<label>:<nonce>⟧` fence.
+ *  The SERVER mints the fence — plugins never write fence markers themselves. */
+export interface PluginUntrustedSection {
+  /** Short fence label, `[A-Za-z0-9_ .#:-]`, 1–64 chars. */
+  label: string;
+  content: string;
+}
+
+export interface PluginIssueCreateInput {
+  /** TRUSTED, plugin-authored. Non-empty, ≤ 200 chars (trimmed). The drain uses it verbatim as
+   *  the spawned agent's task, OUTSIDE any fence — never put third-party text (an exception
+   *  message, a user report) here; put that in {@link untrusted}. Newlines/control chars are
+   *  collapsed to spaces and fence markers scrubbed as a backstop. */
+  title: string;
+  /** TRUSTED, plugin-authored markdown. Any fence markers in it are scrubbed. */
+  body: string;
+  /** Labels to stamp after creation (created on the host if absent). Best-effort: a label
+   *  failure is logged, the issue is still returned. ≤ 20, each 1–50 chars, no `,`/newline. */
+  labels?: string[];
+  /** Appended after `body`, each in its own fence. ≤ 20 sections. */
+  untrusted?: PluginUntrustedSection[];
+}
+
+/** Curated copy of one forge issue. `state` is null when the host didn't report one. */
+export interface PluginIssue {
+  number: number;
+  title: string;
+  body: string;
+  url: string;
+  labels: string[];
+  state: "open" | "closed" | null;
+}
+
+/** Forge issue access. `repo` is a repo PATH under Shepherd's repo root (as on
+ *  `PluginSessionSnapshot.repoPath`). Every method rejects with {@link PluginIssuesError}
+ *  for bad input or a repo that can't serve issues; forge failures propagate as-is. */
+export interface PluginIssues {
+  create(repo: string, o: PluginIssueCreateInput): Promise<{ number: number; url: string }>;
+  /** Close an issue, posting `comment` first when given. */
+  close(repo: string, number: number, comment?: string): Promise<void>;
+  /** One issue, fresh. `null` when gone OR on a transient forge error — never treat `null`
+   *  alone as proof of deletion. */
+  get(repo: string, number: number): Promise<PluginIssue | null>;
+}
+
+/** Why a `ctx.issues` call was refused: `invalid-repo` (not a directory under the repo root),
+ *  `invalid-input`, `no-forge` (no forge for the repo, or core has no issue wiring),
+ *  `lightweight` (a local-only repo — no backlog), `unsupported` (host lacks the API). */
+export type PluginIssuesErrorCode =
+  "invalid-repo" | "invalid-input" | "no-forge" | "lightweight" | "unsupported";
+
+/** Typed `ctx.issues` refusal. Plugins can't import core, so match on
+ *  `err.name === "PluginIssuesError"` and read `err.code`. */
+export class PluginIssuesError extends Error {
+  constructor(
+    public readonly code: PluginIssuesErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "PluginIssuesError";
+  }
+}
+
+/** Options for {@link PluginAgents.runReadonly}. */
+export interface PluginAgentRunOptions {
+  /** Absolute path of a repo Shepherd manages (or Shepherd's own checkout). The agent reads a
+   *  disposable detached worktree of its `origin/<default branch>` — never the live checkout. */
+  repo: string;
+  /** The task, written by the plugin (trusted). ≤ 16 000 chars. */
+  prompt: string;
+  /** External text the agent should read as DATA (error payloads, stack traces, …). Each item is
+   *  fenced as untrusted in the prompt. ≤ 20 items, ≤ 48 000 chars of text in total. */
+  untrusted?: PluginUntrustedSection[];
+  /** JSON Schema the agent's result must satisfy. Shown to the agent AND enforced by the server. */
+  schema: Record<string, unknown>;
+  /** Claude model alias; null/absent = the CLI default. */
+  model?: string | null;
+  /** Hard deadline, clamped to [60 000, 1 800 000] ms. */
+  timeoutMs: number;
+}
+
+/** Why a {@link PluginAgents.runReadonly} call rejected. */
+export type PluginAgentErrorCode =
+  | "invalid-args"
+  | "cap-exceeded"
+  | "unavailable"
+  | "timeout"
+  | "no-output"
+  | "invalid-output"
+  | "schema-violation";
+
+/** The typed rejection of {@link PluginAgents.runReadonly}. Plugins cannot import core, so they
+ *  discriminate on `err.name === "PluginAgentError"` and `err.code`. */
+export class PluginAgentError extends Error {
+  constructor(
+    public readonly code: PluginAgentErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "PluginAgentError";
+  }
+}
+
+/** Transient read-only agent runs on the operator's subscription (issue #2463). */
+export interface PluginAgents {
+  /** Spawn one read-only diagnosis agent over `opts.repo` and resolve with its schema-valid JSON
+   *  result. Rejects with a {@link PluginAgentError}. The result is produced by an agent that read
+   *  untrusted input — treat it as untrusted data too. Capped per plugin (concurrency and a rolling
+   *  24h count); spend is recorded against this plugin. */
+  runReadonly(opts: PluginAgentRunOptions): Promise<unknown>;
+}
+
+/** A repo under Shepherd's repo root, as a plugin sees it (curated read-only view). */
+export interface PluginRepo {
+  /** Repo PATH under the repo root — the form `ctx.issues` and `ctx.agents` accept. */
+  path: string;
+  /** Directory name. */
+  name: string;
+  /** The repo's drain opt-in label (per-repo `autoLabel`). */
+  autoLabel: string;
+  /** Local-only repo (no forge, no issues). */
+  lightweight: boolean;
+}
+
+/** Read-only repo enumeration. */
+export interface PluginRepos {
+  /** Every repo under the repo root, alphabetical. Read live per call. */
+  list(): PluginRepo[];
+}
+
 export type PluginRouteHandler = (req: Request) => Response | Promise<Response>;
 
 /** The SOLE seam between a plugin and core. */
@@ -187,6 +335,14 @@ export interface PluginContext {
    *  a curated {@link PluginSessionSnapshot}. Additive; plugins that must run on an older
    *  core guard with `typeof ctx.sessions?.get === "function"`. */
   sessions: PluginSessions;
+  /** Create / close / read forge issues, with untrusted sections fenced by core (#2462).
+   *  Additive — guard with `typeof ctx.issues?.create === "function"`. */
+  issues: PluginIssues;
+  /** Read-only diagnosis agents (issue #2463). Additive; plugins that must run on an older core
+   *  guard with `typeof ctx.agents?.runReadonly === "function"`. */
+  agents: PluginAgents;
+  /** Read-only repo list. Additive — guard with `typeof ctx.repos?.list === "function"`. */
+  repos: PluginRepos;
   /** Register an HTTP route under the fixed `/api/plugins/<id>/<path>` namespace. */
   route(method: string, path: string, handler: PluginRouteHandler): void;
   /** Namespaced logger into `shepherd.log`. */
@@ -212,6 +368,16 @@ export interface PluginContext {
    *  read-modify-write. Only CONFIG becomes live this way: changing plugin CODE still needs a
    *  restart, because the module stays cached. */
   setConfig(patch: Record<string, unknown>): Promise<void>;
+  /** Run `fn` every `intervalMs` (first run after one interval) on a server-owned timer
+   *  (issue #2461). Ticks are SKIPPED while herdr maintenance is active and while the previous
+   *  run is still in flight (no overlap). A throw/rejection marks this plugin `errored` and
+   *  surfaces via the status panel; later ticks still run. Cleared on plugin teardown. Throws
+   *  when `intervalMs` is below the 1000ms floor. Returns a cancel fn. Additive — guard with
+   *  `typeof ctx.schedule === "function"`. */
+  schedule(intervalMs: number, fn: PluginScheduledFn): () => void;
+  /** Per-plugin secret store — see {@link PluginSecrets}. Additive — guard with
+   *  `typeof ctx.secrets?.get === "function"`. */
+  secrets: PluginSecrets;
   /** Hard-block the in-flight spawn (opt out of the default fail-open). Throws. */
   abortSpawn(reason: string): never;
 }
@@ -302,6 +468,9 @@ export interface PluginGearItem {
  *
  *  - `text-input`   — free text. `secret: true` renders a masked field; that is MASKING ONLY,
  *                     the value still travels as plaintext JSON to the plugin's own route.
+ *                     A secret field is WRITE-ONLY: the host strips any seeded `value`, so it
+ *                     always renders empty — treat an empty submitted string as "unchanged"
+ *                     and persist the rest with `ctx.secrets.set`.
  *                     props: { name: string; label?: string; value?: string;
  *                              placeholder?: string; secret?: boolean }   → posts a string
  *  - `select`       — a choice among values the plugin enumerates. When `value` is absent or

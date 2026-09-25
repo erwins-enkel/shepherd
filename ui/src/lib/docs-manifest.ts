@@ -99,7 +99,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Plugins",
     path: "/reference/plugins/",
     keywords:
-      "write server-side plugins: spawn hooks, routes, status/ui panels, and gear-menu items. location & loading installing from the ui updates — in place, one click manifest (plugin.json) entry contract the ctx capability seam reading sessions (ctx.sessions) the onspawn hook failure behavior the single-loop discipline (important) status panel declarative ui panel (publishui) editable settings — input nodes + a submitting button writing config (ctx.setconfig) gear-menu item (publishgearitem) three action kinds validation & security additive guard http routes a fuller example: spawn-labeler",
+      "write server-side plugins: spawn hooks, routes, status/ui panels, and gear-menu items. location & loading installing from the ui updates — in place, one click manifest (plugin.json) entry contract the ctx capability seam reading sessions (ctx.sessions) filing issues (ctx.issues) read-only diagnosis agents (ctx.agents.runreadonly) the onspawn hook failure behavior the single-loop discipline (important) status panel declarative ui panel (publishui) editable settings — input nodes + a submitting button writing config (ctx.setconfig) scheduling (ctx.schedule) secrets (ctx.secrets) gear-menu item (publishgearitem) three action kinds validation & security additive guard http routes a fuller example: spawn-labeler",
   },
   {
     title: "Review policy (REVIEW.md)",
@@ -140,6 +140,12 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     path: "/reference/security/",
     keywords:
       "sandbox membrane, egress firewall, and accepted security residuals. r3 — in-membrane token readability (accepted) attended-mode egress coverage launch probe — the membrane is proven, the launcher is not (#2111) r4 — prompt-injection posture see also",
+  },
+  {
+    title: "Sentry",
+    path: "/reference/sentry/",
+    keywords:
+      "turn production errors into triaged github issues shepherd can fix — setup, mapping, caps. before you start: turn seer off 1. create a sentry token 2. connect 3. map repos to sentry projects auto-drain sentry issues (per repo, default off) what gets filed lifecycle sync rate limits and failures",
   },
   {
     title: "Stacked epic children",

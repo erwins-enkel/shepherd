@@ -229,6 +229,7 @@ import { repoHasNoCiCached } from "./checks-gate";
 import { parseEpicBody } from "./epic-parse";
 import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./backlog";
 import { peekIssue } from "./issue-peek";
+import { createIssueWithLabels, issueForgeGap } from "./issue-create";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { join, normalize, basename } from "node:path";
 import { homedir, tmpdir } from "node:os";
@@ -6634,6 +6635,17 @@ async function handleIssuePeek({ req, parts, url, deps }: Ctx): Promise<Response
   return json({ issue: await peekIssue(forge, dir, Number(number)) });
 }
 
+/** The 400 message for a bad POST /api/issues title/body, or null when both are valid. */
+function issueCreateInputError(title: unknown, body: unknown): string | null {
+  if (typeof title !== "string" || !title.trim() || title.length > 200) {
+    return "title must be a non-empty string ≤ 200 chars";
+  }
+  if (typeof body !== "string" || body.length > 16000) {
+    return "body must be a string ≤ 16000 chars";
+  }
+  return null;
+}
+
 // POST /api/issues — open a new issue on a repo's forge (capture-extension
 // delivery path). Coexists with handleIssues' GET on the same path.
 async function handleIssueCreate({ req, parts, deps }: Ctx): Promise<Response | null> {
@@ -6648,18 +6660,20 @@ async function handleIssueCreate({ req, parts, deps }: Ctx): Promise<Response | 
   if (!body) return json({ error: "invalid json" }, 400);
   const dir = safeRepoDir(body.repo ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
-  const title = body.title;
-  if (typeof title !== "string" || !title.trim() || title.length > 200) {
-    return json({ error: "title must be a non-empty string ≤ 200 chars" }, 400);
-  }
-  const issueBody = body.body;
-  if (typeof issueBody !== "string" || issueBody.length > 16000) {
-    return json({ error: "body must be a string ≤ 16000 chars" }, 400);
+  const { title, body: issueBody } = body;
+  const inputErr = issueCreateInputError(title, issueBody);
+  if (inputErr || typeof title !== "string" || typeof issueBody !== "string") {
+    return json({ error: inputErr }, 400);
   }
   const forge = deps.resolveForge?.(dir) ?? null;
-  if (!forge?.createIssue) return json({ error: "issues unavailable for repo" }, 400);
+  if (!forge || issueForgeGap(forge, "createIssue"))
+    return json({ error: "issues unavailable for repo" }, 400);
   try {
-    const issue = await forge.createIssue({ title: title.trim(), body: issueBody });
+    const issue = await createIssueWithLabels(
+      forge,
+      { title: title.trim(), body: issueBody },
+      (msg) => console.warn(`[issues] ${msg}`),
+    );
     return json({ ...issue, slug: forge.slug }, 201);
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : "issue create failed" }, 502);

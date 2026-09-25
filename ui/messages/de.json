@@ -4561,5 +4561,8 @@
   "model_guidance_codex_6_sol": "GPT-6-Modell für Alltagsarbeit und komplexes Coding, mit niedrigeren Token-Kosten als GPT-5.6 Sol.",
   "model_guidance_codex_6_luna": "Schnelles und günstiges GPT-6-Modell für gezieltes Coding und klar umrissene, wiederkehrende Aufgaben.",
   "feat_codex_6_sol_luna_title": "GPT-6 Sol und Luna",
-  "feat_codex_6_sol_luna_body": "Wähle GPT-6 Sol oder Luna für Codex-Aufgaben und gespeicherte Modelleinstellungen. Sol unterstützt Reasoning bis Ultra, Luna bis Max."
+  "feat_codex_6_sol_luna_body": "Wähle GPT-6 Sol oder Luna für Codex-Aufgaben und gespeicherte Modelleinstellungen. Sol unterstützt Reasoning bis Ultra, Luna bis Max.",
+  "usage_kind_plugin": "Plugin-Agents",
+  "feat_sentry_plugin_title": "Sentry-Fehler werden zu Fix-Issues",
+  "feat_sentry_plugin_body": "Das mitgelieferte Sentry-Plugin (Einstellungen → Plugins, standardmäßig aus) fragt Sentry nach neuen, eskalierenden oder wiederaufgetretenen Fehlern in zugeordneten Repos ab, prüft sie schreibgeschützt und legt ein bereinigtes GitHub-Issue an, das einen Reproduktionstest und einen Fix verlangt."
 }

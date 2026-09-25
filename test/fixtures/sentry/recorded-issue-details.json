@@ -1,0 +1,12 @@
+{
+  "id": "4500000001",
+  "shortId": "FLOWAGENT-1A",
+  "status": "resolved",
+  "substatus": null,
+  "assignedTo": { "type": "user", "id": "1", "name": "Jane Operator", "email": "jane@example.com" },
+  "project": { "id": "1", "slug": "flowagent", "name": "flowagent" },
+  "activity": [
+    { "id": "10", "type": "set_resolved", "dateCreated": "2026-09-25T11:00:00Z", "data": {} },
+    { "id": "9", "type": "set_regression", "dateCreated": "2026-09-24T09:00:00Z", "data": {} }
+  ]
+}

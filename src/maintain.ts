@@ -33,6 +33,7 @@ import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import { EmptyDiffError, type GitForge } from "./forge/types";
+import { createIssueWithLabels, issueForgeGap } from "./issue-create";
 import type { BandReading, MaintainOutcome, MaintainRun, SignalKind } from "./types";
 import type { RoleEnvironment } from "./default-model";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
@@ -1167,23 +1168,20 @@ export class MaintainService {
     body: string,
   ): Promise<{ number: number; url: string } | null> {
     const forge = this.deps.resolveForge(this.deps.selfRepoPath);
-    if (!forge?.createIssue) {
+    if (!forge || issueForgeGap(forge, "createIssue")) {
       this.log(`[maintain] ${run.bandKey}: forge cannot create issues`);
       return null;
     }
     let created: { number: number; url: string };
     try {
-      created = await forge.createIssue({ title, body });
+      created = await createIssueWithLabels(
+        forge,
+        { title, body, labels: [MAINTAIN_ISSUE_LABEL] },
+        (msg) => this.log(`[maintain] ${run.bandKey}: ${msg}`),
+      );
     } catch (err) {
       this.log(`[maintain] ${run.bandKey}: createIssue failed: ${String(err)}`);
       return null;
-    }
-    // Best-effort: the issue is the deliverable, the label is only a backlog filter. `addIssueLabel`
-    // creates the label if the repo lacks it.
-    try {
-      await forge.addIssueLabel?.(created.number, MAINTAIN_ISSUE_LABEL);
-    } catch (err) {
-      this.log(`[maintain] ${run.bandKey}: labelling #${created.number} failed: ${String(err)}`);
     }
     this.log(`[maintain] ${run.bandKey}: filed ${created.url}`);
     return created;

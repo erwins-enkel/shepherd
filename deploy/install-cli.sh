@@ -21,6 +21,7 @@
 #                          Test seam — a file:// URL works.
 #   SHEPHERD_NO_CLI        When set, skip entirely (exit 0).
 #   SHEPHERD_UNAME_S/_M    Override `uname -s` / `uname -m` (test seams).
+#   SHEPHERD_LIBC          Override Linux libc detection: gnu | musl (test seam).
 #   SHEPHERD_INSTALL_LIB   When set, define functions only (sourceable by tests).
 set -euo pipefail
 
@@ -31,9 +32,24 @@ die() {
   exit 1
 }
 
+# cli_libc: "musl" or "gnu" for this Linux host (musl has no prebuilt: the binaries are glibc).
+cli_libc() {
+  if [ -n "${SHEPHERD_LIBC:-}" ]; then
+    echo "$SHEPHERD_LIBC"
+  elif compgen -G "/lib/ld-musl-*" >/dev/null; then
+    echo "musl"
+  else
+    echo "gnu"
+  fi
+}
+
 # cli_target: echo the Rust target triple for this host, or nothing when no prebuilt exists.
 cli_target() {
   local os="${SHEPHERD_UNAME_S:-$(uname -s)}" arch="${SHEPHERD_UNAME_M:-$(uname -m)}"
+  if [ "$os" = "Linux" ] && [ "$(cli_libc)" = "musl" ]; then
+    echo ""
+    return 0
+  fi
   case "$os/$arch" in
     Linux/x86_64 | Linux/amd64) echo "x86_64-unknown-linux-gnu" ;;
     Linux/aarch64 | Linux/arm64) echo "aarch64-unknown-linux-gnu" ;;
@@ -102,8 +118,12 @@ main() {
   [ "$(sha256_file "$CLI_TMP")" = "$expected" ] || die "checksum mismatch for $asset — not installed"
 
   chmod 755 "$CLI_TMP"
+  # A matching checksum doesn't mean it runs here (e.g. glibc older than the 2.35 build floor).
+  # Prove it before replacing a possibly-working binary; the non-zero exit makes callers warn.
+  [ "$("$CLI_TMP" --version 2>/dev/null || true)" = "shepherd $version" ] \
+    || die "downloaded shepherd CLI does not run on this host — dest left untouched; build it with: cargo install --path cli"
   mv -f "$CLI_TMP" "$dest"
-  note "installed $("$dest" --version 2>/dev/null || echo "shepherd $version") at $dest"
+  note "installed shepherd $version at $dest"
   case ":$PATH:" in
     *":$dir:"*) ;;
     *) warn "$dir is not on PATH — add it to use \`shepherd\`" ;;

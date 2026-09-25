@@ -24,7 +24,8 @@ Prebuilt targets:
 | macOS (Apple Silicon) | `aarch64-apple-darwin`      |
 
 The Linux builds need glibc 2.35 or newer, for example Ubuntu 22.04 or Debian 12. Other hosts,
-including Intel Macs, build from source (below).
+including musl distros such as Alpine and Intel Macs, build from source (below). If a downloaded
+binary doesn't run on the host, the script leaves the existing one in place.
 
 Each release `vX.Y.Z` has a companion release `cli-vX.Y.Z` that holds the binaries, each with a
 `.sha256` file. They live in a separate release because Shepherd's releases are immutable once

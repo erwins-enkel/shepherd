@@ -35,11 +35,11 @@ afterEach(() => {
 /** A fake CLI binary that reports `version`. */
 const fakeBin = (version: string) => `#!/bin/sh\necho "shepherd ${version}"\n`;
 
-/** Publish a fake `cli-v<version>` release under `base`; `sum` overrides the checksum. */
-function publish(base: string, version: string, sum?: string): void {
+/** Publish a fake `cli-v<version>` release under `base`; `sum` overrides the checksum, `body` the
+ *  binary. */
+function publish(base: string, version: string, sum?: string, body = fakeBin(version)): void {
   const dir = join(base, `cli-v${version}`);
   mkdirSync(dir, { recursive: true });
-  const body = fakeBin(version);
   writeFileSync(join(dir, `shepherd-${TARGET}`), body);
   const hex = sum ?? createHash("sha256").update(body).digest("hex");
   writeFileSync(join(dir, `shepherd-${TARGET}.sha256`), `${hex}  shepherd-${TARGET}\n`);
@@ -51,7 +51,13 @@ function run(
 ): { status: number; stdout: string; stderr: string } {
   const r = spawnSync("bash", [SCRIPT, ...args], {
     encoding: "utf8",
-    env: { ...process.env, SHEPHERD_UNAME_S: "Linux", SHEPHERD_UNAME_M: "x86_64", ...env },
+    env: {
+      ...process.env,
+      SHEPHERD_UNAME_S: "Linux",
+      SHEPHERD_UNAME_M: "x86_64",
+      SHEPHERD_LIBC: "gnu",
+      ...env,
+    },
   });
   return { status: r.status ?? -1, stdout: r.stdout ?? "", stderr: r.stderr ?? "" };
 }
@@ -63,10 +69,16 @@ function setup() {
 }
 
 describe("cli_target", () => {
-  const target = (s: string, m: string) =>
+  const target = (s: string, m: string, libc = "gnu") =>
     spawnSync("bash", ["-c", `source "${SCRIPT}"; cli_target`], {
       encoding: "utf8",
-      env: { ...process.env, SHEPHERD_INSTALL_LIB: "1", SHEPHERD_UNAME_S: s, SHEPHERD_UNAME_M: m },
+      env: {
+        ...process.env,
+        SHEPHERD_INSTALL_LIB: "1",
+        SHEPHERD_UNAME_S: s,
+        SHEPHERD_UNAME_M: m,
+        SHEPHERD_LIBC: libc,
+      },
     }).stdout.trim();
 
   it("maps supported hosts to release targets", () => {
@@ -79,6 +91,11 @@ describe("cli_target", () => {
   it("has no target for Intel macOS or other arches", () => {
     expect(target("Darwin", "x86_64")).toBe("");
     expect(target("Linux", "riscv64")).toBe("");
+  });
+
+  it("has no target on musl Linux (the binaries are glibc)", () => {
+    expect(target("Linux", "x86_64", "musl")).toBe("");
+    expect(target("Linux", "aarch64", "musl")).toBe("");
   });
 });
 
@@ -126,6 +143,21 @@ describe("install-cli.sh", () => {
     const r = run(["1.3.0"], env);
     expect(r.status).not.toBe(0);
     expect(r.stderr).toContain("checksum mismatch");
+    const out = spawnSync(join(dir, "shepherd"), ["--version"], { encoding: "utf8" }).stdout;
+    expect(out.trim()).toBe("shepherd 1.2.3");
+    expect(readdirSync(dir)).toEqual(["shepherd"]);
+  });
+
+  it("refuses a checksum-valid binary that doesn't run here and leaves the old one", () => {
+    const { base, dir, env } = setup();
+    publish(base, "1.2.3");
+    // e.g. a glibc-too-old host: the loader fails, so --version prints nothing useful
+    publish(base, "1.3.0", undefined, "#!/bin/sh\necho 'GLIBC_2.35 not found' >&2\nexit 1\n");
+    expect(run(["1.2.3"], env).status).toBe(0);
+    const r = run(["1.3.0"], env);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("does not run on this host");
+    expect(r.stderr).toContain("cargo install --path cli");
     const out = spawnSync(join(dir, "shepherd"), ["--version"], { encoding: "utf8" }).stdout;
     expect(out.trim()).toBe("shepherd 1.2.3");
     expect(readdirSync(dir)).toEqual(["shepherd"]);

@@ -4,11 +4,29 @@ import "../../app.css";
 import { statusTip } from "./statusTip.svelte";
 import type { TooltipExplanation } from "./content";
 import StatusTipHarness from "./StatusTipHarness.test.svelte";
+import { page } from "vitest/browser";
 
 let cleanup: (() => void) | undefined;
 afterEach(() => cleanup?.());
 
 describe("structured statusTip", () => {
+  it("does not open from programmatic focus", async () => {
+    const node = document.createElement("button");
+    const outside = document.createElement("button");
+    outside.textContent = "Outside";
+    document.body.append(node);
+    document.body.append(outside);
+    const action = statusTip(node, { text: "Details" });
+    cleanup = () => {
+      action?.destroy?.();
+      node.remove();
+      outside.remove();
+    };
+    await page.getByRole("button", { name: "Outside" }).click();
+    node.focus();
+    expect(document.querySelector(".status-tip")).toBeNull();
+  });
+
   it("updates visible content and accessible text, escapes markup, and dismisses an unfocused hover with Escape", async () => {
     const node = document.createElement("span");
     document.body.append(node);

@@ -189,7 +189,10 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
     scheduleClose();
   }
   function onFocus() {
-    show();
+    // Programmatic focus (for example a dialog moving focus to its first control) must not
+    // leave an explanation open when the pointer is elsewhere. Keep keyboard focus access via
+    // the browser's focus-visible modality signal.
+    if (node.matches(":focus-visible")) show();
   }
   function onBlur() {
     hide();

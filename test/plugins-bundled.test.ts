@@ -51,6 +51,7 @@ test("bundled dir loads; its config.json is ignored and setConfig refuses to wri
     const reg = registry(ops, bundled);
     await reg.loadAll();
     expect(reg.list().map((p) => p.id)).toEqual(["bundled-one"]);
+    expect(reg.list()[0]!.bundled).toBe(true);
     const ctx = ctxAt("__bundledOne");
     expect(ctx.config).toEqual({});
     await expect(ctx.setConfig({ a: 1 })).rejects.toThrow(/bundled/);
@@ -70,6 +71,7 @@ test("an operator plugin with the same id wins over the bundled one", async () =
     const reg = registry(ops, bundled);
     await reg.loadAll();
     expect(reg.list().map((p) => p.name)).toEqual(["__dupOps"]);
+    expect(reg.list()[0]!.bundled).toBeUndefined();
   } finally {
     rmSync(ops, { recursive: true, force: true });
     rmSync(bundled, { recursive: true, force: true });

@@ -262,6 +262,18 @@ describe("SettingsPluginsPanel", () => {
     await expect.element(page.getByText("systemctl --user restart shepherd")).toBeVisible();
   });
 
+  it("a bundled plugin absent from the scan renders as a loaded card, not removed", async () => {
+    stubScan([]);
+    render(SettingsPluginsPanel, {
+      plugins: [plugin({ id: "sentry", name: "Sentry", bundled: true })],
+    });
+    // Let the (empty) scan land first — before it, every loaded plugin renders as a card.
+    await vi.waitFor(() => expect(document.body.textContent).not.toMatch(/loading/i));
+    await expect.element(page.getByRole("button", { name: /Sentry/ })).toBeVisible();
+    expect(document.body.textContent).not.toMatch(/restart to unload/i);
+    expect(document.body.textContent).not.toContain("systemctl --user restart shepherd");
+  });
+
   it("a loaded plugin confirmation offers uninstall plus Shepherd-only restart", async () => {
     const calls = stubUninstallRestart([inst({ loaded: true })]);
     render(SettingsPluginsPanel, { plugins: [plugin()] });

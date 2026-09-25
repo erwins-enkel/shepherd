@@ -94,6 +94,7 @@
    *  - a loaded plugin → rich card (with its folder from the scan, when known, for uninstall);
    *  - a loaded plugin absent from a SUCCESSFUL scan (its folder was just uninstalled but it
    *    is still running in-process) → a "removed, restart to unload" row (no uninstall);
+   *    bundled plugins are never in the scan, so they always render as loaded cards;
    *  - an on-disk folder not loaded → pending-restart / disabled / broken row. */
   type Row =
     | { kind: "loaded"; info: PluginInfo; folder: string | null }
@@ -107,7 +108,7 @@
     // Loaded plugins first (rich cards), in their existing order.
     for (const p of plugins) {
       const inst = scanById.get(p.id);
-      if (scanLoaded && !inst) out.push({ kind: "removed", info: p });
+      if (scanLoaded && !inst && !p.bundled) out.push({ kind: "removed", info: p });
       else out.push({ kind: "loaded", info: p, folder: inst?.folder ?? null });
     }
     // On-disk folders that aren't loaded → pending / disabled / broken.

@@ -1,0 +1,7 @@
+{
+  "id": "sentry",
+  "name": "Sentry",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "capabilities": ["schedule", "secrets", "issues", "agents", "repos", "routes", "ui"]
+}

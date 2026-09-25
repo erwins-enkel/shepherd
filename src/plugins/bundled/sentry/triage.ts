@@ -167,6 +167,23 @@ function toCandidate(r: TriageCandidate): TriageCandidate {
   };
 }
 
+/** Already triaged, and no NEW regression since. */
+function settled(existing: TriageRecord | null, regressionKey: string | null): boolean {
+  if (!existing) return false;
+  return regressionKey === null || regressionKey === existing.regressionKey;
+}
+
+/** True when `process()` would skip this Sentry issue without running anything — lets the caller
+ *  avoid fetching the event for an issue triage already decided. */
+export function triageSettled(
+  state: PluginState,
+  sentryId: string,
+  regressionKey: string | null,
+): boolean {
+  const existing = state.get<TriageRecord>(key(sentryId));
+  return existing?.outcome !== "pending-file" && settled(existing, regressionKey);
+}
+
 export function createTriageStage(deps: TriageDeps): TriageStage {
   const now = deps.now ?? (() => new Date());
   const model = deps.model ?? "sonnet";
@@ -224,18 +241,12 @@ export function createTriageStage(deps: TriageDeps): TriageStage {
     }
   }
 
-  /** Already triaged, and no NEW regression since. */
-  function settled(existing: TriageRecord | null, c: TriageCandidate): boolean {
-    if (!existing) return false;
-    return c.regressionKey === null || c.regressionKey === existing.regressionKey;
-  }
-
   async function run(c: TriageCandidate): Promise<ProcessResult> {
     const existing = read(c.sentryId);
     if (existing?.outcome === "pending-file") {
       return { outcome: "filed", record: await fileRecord(existing, false) };
     }
-    if (settled(existing, c)) return { outcome: "skipped" };
+    if (settled(existing, c.regressionKey)) return { outcome: "skipped" };
     const r = await triage(c);
     if (!r) return { outcome: "deferred" };
     if (r.outcome === "rejected") return { outcome: "rejected", record: r };

@@ -12,6 +12,7 @@ CHANGELOG.md
 
 # Build outputs
 node_modules
+cli/target
 .svelte-kit
 build
 dist

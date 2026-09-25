@@ -1,0 +1,41 @@
+[package]
+name = "shepherd-cli"
+version = "1.47.0"
+edition = "2024"
+rust-version = "1.88"
+description = "Command-line client for the Shepherd server"
+license-file = "../LICENSE"
+publish = false
+
+[lib]
+name = "shepherd_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "shepherd"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4.6", features = ["derive"] }
+comfy-table = "8.0"
+futures = "0.3"
+progenitor-client = "0.15"
+regress = "0.10"
+reqwest = { version = "0.13", features = ["json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time", "signal", "process", "io-util"] }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
+toml = "1"
+uuid = { version = "1", features = ["serde", "v4"] }
+
+[build-dependencies]
+openapiv3 = "2.2"
+prettyplease = "0.2"
+progenitor = "0.15"
+serde_norway = "0.9"
+syn = "2"
+
+[dev-dependencies]
+tempfile = "3"
+wiremock = "0.6"

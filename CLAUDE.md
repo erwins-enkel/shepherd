@@ -5,7 +5,9 @@ Five Bun/Node packages, each with its own deps and lockfile: root (herdr/server,
 the marketing site). Plus `native/`, a Swift package (`ShepherdKit`) generated from
 `contracts/openapi.swift.yaml` (derived from `contracts/openapi.yaml` by
 `bun run gen:contract-swift`) — build and test it with `swift build --package-path native` and
-`swift test --package-path native`, never with `bun`. See `native/README.md`.
+`swift test --package-path native`, never with `bun`. See `native/README.md`. And `cli/`, the Rust
+`shepherd` CLI (Cargo crate), whose client is generated at build time from
+`contracts/openapi.rust.yaml` — see `docs/cli.md`.
 
 > Conventions for UI, i18n, feature announcements and the glossary live in `.claude/rules/` and
 > load automatically when you touch the files they govern. They are published under
@@ -34,9 +36,11 @@ an explanation surface. Longer instructions belong in a disclosure or docs.
 | `ui/`        | `bun run check`                     | `bun run test`                     |
 | `extension/` | `bun run check`                     | `bun run test`                     |
 | `native/`    | `swift build --package-path native` | `swift test --package-path native` |
+| `cli/`       | `bash scripts/check-cli.sh`         | (same: fmt, clippy, `cargo test`)  |
 
-Run both halves when a change spans server + UI. `native/` is Swift, not Bun/Node — build and
-test it with the two commands above, not `bun run`. The `Shepherd.app` shell built on top of it
+Run both halves when a change spans server + UI. `cli/` is Rust: run the script above (or `cargo`
+in `cli/`), never `bun`; a change to `contracts/openapi.rust.yaml` needs it too. `native/` is
+Swift, not Bun/Node — build and test it with the two commands above, not `bun run`. The `Shepherd.app` shell built on top of it
 has its own build/run/test scripts under `native/scripts/`; see `native/README.md`.
 
 Deps for those three install themselves — the `ensure-deps.sh` SessionStart hook runs

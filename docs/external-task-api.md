@@ -9,17 +9,14 @@ see [What actually gates access](#what-actually-gates-access)).
 ## TL;DR
 
 ```bash
-curl -X POST http://localhost:7330/api/sessions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $SHEPHERD_TOKEN" \   # required — the server is gated by default
-                                                 # (a token minted in Settings → Access works here too)
-  -d '{
-        "repoPath": "~/Work/my-repo",
-        "baseBranch": "main",
-        "prompt": "Add OAuth login to the settings page",
-        "model": "opus"
-      }'
+shepherd login --token shp_…     # once — a token minted in Settings → Access
+shepherd new --repo ~/Work/my-repo --base main --model opus \
+  "Add OAuth login to the settings page"
 ```
+
+The [`shepherd` CLI](cli.md) is a thin client over `POST /api/sessions` (schema
+[below](#request-schema)); any HTTP client can call the route directly with
+`Authorization: Bearer <token>` — the server is gated by default.
 
 A `201` returns the full session, including its designation (`TASK-07`) and
 `id` — the agent spawns immediately on an isolated git worktree. When the
@@ -227,7 +224,10 @@ for a single submission, send `"force": true` in the create body.
 
 ## Steering and ending a task
 
-Once a task exists, an external agent can also drive it:
+Once a task exists, an external agent can also drive it. The CLI covers the
+common verbs — `shepherd steer`, `shepherd interrupt`, `shepherd archive` and
+`shepherd resume` (see [the CLI reference](cli.md#session-control)); the routes
+underneath are:
 
 - `POST /api/sessions/:id/reply` — send follow-up text to the live agent
   (`{ "text": "..." }`).

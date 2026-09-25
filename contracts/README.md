@@ -176,8 +176,10 @@ regenerates it and fails on any diff; CI runs it. `test/contract/rust-derivation
 same under `bun run test`, plus that no 3.1 construct survives and no operation still has more than
 one body type per group. Verified on 2026-09-25 with progenitor 0.15.0 (typify 0.8.0): the
 generated client builds without warnings, decodes `GET /api/health` from a live server, decodes an
-unknown `SessionStatus`, and picks the `HeldTask` variant of `CreateSessionSuccess`. The committed
-Rust build and its CI job belong to the `cli/` crate (#2483).
+unknown `SessionStatus`, and picks the `HeldTask` variant of `CreateSessionSuccess`. The `cli/` crate
+generates its client from this file in `cli/build.rs` on every build, so the `cli` CI job
+(`scripts/check-cli.sh`) is the gate that a contract change still yields a client the CLI compiles
+against.
 
 [gen]: https://github.com/apple/swift-openapi-generator
 [progenitor]: https://github.com/oxidecomputer/progenitor

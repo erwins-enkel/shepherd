@@ -46,7 +46,7 @@ threshold that tolerates the classifier's nondeterminism.
 ## How to run
 
 ```bash
-# Needs a key (this is a paid, live-model run — one Haiku call per trial, ~54 per full run).
+# Needs a key (this is a paid, live-model run — one Haiku call per trial, ~80 per full run).
 ANTHROPIC_API_KEY=… bun run eval:stop-classifier            # human-readable report
 ANTHROPIC_API_KEY=… bun run eval:stop-classifier --json     # machine-readable (for this doc)
 
@@ -128,7 +128,7 @@ kind-distribution baseline below — the overall floor only catches a catastroph
 
 | id                       | kind     | gating | lang | T   | intent                                                            |
 | ------------------------ | -------- | ------ | ---- | --- | ----------------------------------------------------------------- |
-| `gate-commit-now`        | gate     | ✔      | en   | 5   | "ready to commit?" — proceed-obvious                              |
+| `gate-commit-now`        | gate     | ✔      | en   | 9   | "ready to commit?" — proceed-obvious                              |
 | `question-jwt-vs-cookie` | question | ✔      | en   | 5   | real product fork needing a human                                 |
 | `finished-pr-pending`    | finished | ✔      | en   | 5   | code done, PR deliverable, not yet opened                         |
 | `complete-investigation` | complete | ✔      | en   | 5   | research/analysis, no PR to produce                               |
@@ -144,7 +144,7 @@ kind-distribution baseline below — the overall floor only catches a catastroph
 `gate-spec-first` started gating and was demoted to baseline per the contingency rule after the first
 run (see **Known gaps** below).
 
-**Bounded coverage:** the eval samples `T` trials over this **curated** set (~54 calls/run). It is not
+**Bounded coverage:** the eval samples `T` trials over this **curated** set (~80 calls/run). It is not
 exhaustive over real-world tails — it is a stable measuring stick for #1627, not a coverage guarantee.
 
 ## Baseline numbers
@@ -213,6 +213,12 @@ shown at the bottom (demoted — see Known gaps).
   scorer could see an out-of-enum verdict and was **re-validated under the fixed scorer by #2368** —
   27/27 again, `unrecognised` 0. See
   [Re-validation under the fixed scorer (#2368)](#re-validation-under-the-fixed-scorer-2368).
+
+- **`gate-commit-now` — kept gating, deepened to `T=9` (2026-09-25).** The nightly run lost its
+  majority at `T=5` (`gate:2 finished:3`) with no classifier change. Across the last 16 scheduled
+  `T=5` runs (this one included) it scored `gate` **61/80 ≈ 0.76** (every miss `finished`), which predicts a lost majority
+  in ~9% of runs — model noise, not a mislabel or a regression. It now runs at `T=9` like its German
+  twin `de-gate-commit`, cutting that to ~3%. Not demoted: the label is right and the majority holds.
 
 > The contingency rule (applied above): (1) revise a fixture only if genuinely under-specified/mislabeled;
 > (2) else demote to non-gating baseline + record here; (3) never silently lower the floor to paper over a
@@ -744,7 +750,7 @@ deliberately diverge and declare the `Write` tool.
 - **Not in the hermetic gate.** `bun test ./test` stays hermetic and free; it covers only the harness's
   pure logic.
 - **Nightly (#2156).** `eval-stop-classifier.yml` now carries a `schedule:` at 06:00 UTC, plus its
-  `workflow_dispatch` inputs for reproducing a specific leg (notably the #1627 A/B). At ~54 Haiku calls
+  `workflow_dispatch` inputs for reproducing a specific leg (notably the #1627 A/B). At ~80 Haiku calls
   a run this costs pennies, and it turns the eval from an instrument someone has to remember to use
   into standing drift detection.
 - **Per-PR, fingerprint-triggered (#2156).** `eval-prompts.yml` runs the classifier's GATING fixtures on
@@ -755,5 +761,5 @@ deliberately diverge and declare the `Write` tool.
 - **Not on `ci/self-hosted-runner`.** Because we chose the direct-API path, the run needs only a key on
   `ubuntu-latest` (mirroring `issue-triage.yml`). Self-hosted (where subscription OAuth lives) would only
   be warranted for a subscription-fidelity variant, which we deliberately don't build.
-- **Cost is bounded and logged.** ~54 Haiku calls per full run; the report prints the call count and the
+- **Cost is bounded and logged.** ~80 Haiku calls per full run; the report prints the call count and the
   gating/baseline split so coverage is never overstated.

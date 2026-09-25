@@ -324,6 +324,12 @@ test("the German gating fixtures cover gate, question, and the unknown abstain b
   }
 });
 
+test("gate-commit-now runs at T≥9 (measured p(gate)≈0.76 — T=5 lost majority ~9% of runs)", () => {
+  const f = FIXTURES.find((f) => f.id === "gate-commit-now");
+  expect(f?.gating).toBe(true);
+  expect(f?.trials ?? 0).toBeGreaterThanOrEqual(9);
+});
+
 test("German gating fixtures run at T≥9 (temperature-1.0 noise band — no 1-trial flips)", () => {
   for (const f of FIXTURES.filter((f) => f.gating && f.lang === "de")) {
     expect(f.trials ?? 0).toBeGreaterThanOrEqual(9);

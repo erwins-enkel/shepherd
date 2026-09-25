@@ -116,6 +116,9 @@ export const FIXTURES: Fixture[] = [
     tail: ["The rate limiter is implemented and the tests pass.", "Ready to commit now? (y/n)"],
     expectedKind: "gate",
     gating: true,
+    // T=9, twin parity with `de-gate-commit`: measured p(gate)≈0.76 over the last 16 T=5 runs (rest
+    // `finished`), so T=5 lost majority ~9% of runs (2026-09-25: gate:2 finished:3). T=9 ≈ 3%.
+    trials: 9,
     lang: "en",
     note: "Proceed-obvious — committing its own work is clearly correct.",
   },
@@ -212,7 +215,7 @@ export const FIXTURES: Fixture[] = [
       "Soll ich jetzt committen? (j/n)",
     ],
     expectedKind: "gate",
-    // GATING (#1627): the German proceed-obvious gate — German twin of the SOLID `gate-commit-now`,
+    // GATING (#1627): the German proceed-obvious gate — German twin of `gate-commit-now`,
     // not the known-gap spec-first exemplar. T=9 for a noise-tolerant German-input signal.
     gating: true,
     trials: 9,

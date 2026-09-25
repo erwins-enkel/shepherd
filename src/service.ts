@@ -3072,8 +3072,8 @@ export class SessionService {
   /**
    * Push `--mcp-config` for the session's own MCP endpoint (issue #2003) — the control plane the
    * build-queue / epic-draft prose used to teach as `curl`. Pushed only when the session actually
-   * has tools (build queue on, or an epic-authoring session), so a plain session's argv and
-   * context surface are untouched.
+   * has tools (the read tools on every non-plain session, plus build-queue / epic-draft tools), so
+   * a plain session's argv and context surface are untouched.
    *
    * Claude-only, and it must ride BOTH the spawn and the Claude resume argv: `--mcp-config` is
    * per-process, so a resumed/compacted session that didn't re-pass it would silently lose the
@@ -3267,6 +3267,7 @@ export class SessionService {
     this.pushAgentMcpFlag(argv, sessionId, baseUrl, {
       buildQueue: repoConfig.buildQueueEnabled && !isNonCodeMode(input),
       epicDraft: Boolean(input.epicAuthoring),
+      sessionRead: !input.plain,
     });
     argv.push(
       "--append-system-prompt",

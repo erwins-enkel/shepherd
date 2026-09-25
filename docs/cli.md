@@ -95,11 +95,11 @@ withholds the stored token and says so on stderr. Set `SHEPHERD_TOKEN` to authen
 
 A token's scope, set when it is minted, limits what the CLI can do:
 
-| Scope    | Commands                                                                                                        |
-| -------- | --------------------------------------------------------------------------------------------------------------- |
-| `read`   | `sessions list`, `sessions show` (active sessions), `status`, `holds`, `git`, `reviews`, `events tail`, `login` |
-| `submit` | everything `read` can, plus `new`                                                                               |
-| `full`   | everything, including `steer`, `interrupt`, `archive`, `resume`, and `sessions show` of an archived session     |
+| Scope    | Commands                                                                                                                                      |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `read`   | `sessions list`, `sessions show` (active sessions), `status`, `holds`, `git`, `reviews`, `events tail`, `login`                               |
+| `submit` | everything `read` can, plus `new` and `held list\|spawn\|discard`                                                                             |
+| `full`   | everything else, including `steer`, `interrupt`, `archive`, `resume`, `merge`, `drain`, `up-next`, and `sessions show` of an archived session |
 
 The server's `403` doesn't say which scope was missing. The CLI names it for you, for example:
 ``error: `shepherd steer` needs a 'full' token; this token's scope does not include it.``
@@ -196,4 +196,64 @@ instead of a session.
 shepherd new --repo ~/Work/my-repo "Add OAuth login to the settings page"
 echo "please rebase onto main" | shepherd steer TASK-07 -
 shepherd --json sessions list | jq -r '.[] | select(.status == "done") | .desig'
+```
+
+### Work intake
+
+A `--repo <path>` flag defaults to the current directory's git toplevel, as it does for `new`.
+
+| Command                                  | Route                                             | Scope    |
+| ---------------------------------------- | ------------------------------------------------- | -------- |
+| `shepherd backlog`                       | `GET /api/backlog`                                | `full`   |
+| `shepherd issues [--repo]`               | `GET /api/issues?repo=`                           | `full`   |
+| `shepherd drain status`                  | `GET /api/drain`                                  | `full`   |
+| `shepherd drain queue [--repo]`          | `GET /api/drain/queue?repo=`                      | `full`   |
+| `shepherd drain start\|stop [--repo]`    | `PUT /api/repo-config?repo=` (`autoDrainEnabled`) | `full`   |
+| `shepherd up-next list`                  | `POST /api/up-next/refresh`, then `/events`       | `full`   |
+| `shepherd up-next start <item>… [flags]` | same, then `POST /api/up-next/start`              | `full`   |
+| `shepherd held list`                     | `GET /api/held`                                   | `submit` |
+| `shepherd held spawn <id> [--provider]`  | `POST /api/held/:id/spawn`                        | `submit` |
+| `shepherd held discard <id>`             | `DELETE /api/held/:id`                            | `submit` |
+
+`backlog` hides repos hidden in the UI from its table. Its JSON carries every repo with a `hidden`
+flag. `drain start` and `drain stop` flip the repo's auto-drain setting, the same one the UI
+toggles.
+
+The server has no read route for Up Next. So `up-next` opens `/events`, asks the server to
+recompute the queue, and prints the first `upnext:snapshot` frame. The recompute lists every repo
+on its forge, so it can take a while; the CLI waits up to 90 s and then exits `1`.
+
+`up-next start` takes items as `<repo>#<number>`, where `<repo>` is the slug (`owner/repo`), the
+repo name or its label. A bare `<number>` works when only one queued item has it. An unknown or
+ambiguous item exits `2` and names the candidates. `--provider <claude|codex>`, `--model` and
+`--effort` override the defaults; `--model` and `--effort` need `--provider`. A start that fails
+for every item exits `8` and names each failure.
+
+### Reviews and merge
+
+| Command                                                            | Route                                             | Scope  |
+| ------------------------------------------------------------------ | ------------------------------------------------- | ------ |
+| `shepherd review-pr <session>`                                     | `POST /api/sessions/:id/review-pr`                | `full` |
+| `shepherd review-plan <session>`                                   | `POST /api/sessions/:id/review-plan`              | `full` |
+| `shepherd merge <session> [--method] [--keep-branch] [--takeover]` | `POST /api/sessions/:id/git/merge`                | `full` |
+| `shepherd train status`                                            | `GET /api/automerge`                              | `full` |
+| `shepherd train start\|stop [--repo]`                              | `PUT /api/repo-config?repo=` (`autoMergeEnabled`) | `full` |
+| `shepherd train set <session> on\|off\|default`                    | `PUT /api/sessions/:id/automerge`                 | `full` |
+
+`review-pr` and `review-plan` start the critic or the plan review now and print what the server
+did, for example `started` or `running`.
+
+`merge --method <merge|squash|rebase>` picks the merge method; the forge default applies without
+it. `--keep-branch` keeps the head branch. When someone else is responsible for the pull request,
+the server refuses the merge and the CLI exits `6` and suggests `--takeover`. `--takeover` confirms
+the takeover with the PR state the server has cached (head commit, target branch and who is
+responsible), and the server refuses again if any of it changed.
+
+`train` is the full-auto merge train. `train start` and `train stop` flip the repo's setting;
+`train set` overrides it for one session, and `default` goes back to the repo setting.
+
+```bash
+shepherd up-next list
+shepherd up-next start owner/repo#42 --provider claude
+shepherd merge TASK-07 --method squash
 ```

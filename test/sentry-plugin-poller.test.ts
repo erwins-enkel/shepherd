@@ -160,7 +160,7 @@ test("one org-wide list call with the rule query, then files the eligible issue"
   expect(list[0]!.url.searchParams.get("sort")).toBe("new");
   expect(list[0]!.url.searchParams.get("query")).toBe(pollQuery(10));
   expect(pollQuery(10)).toBe(
-    "is:unresolved issue.priority:high (is:new OR is:escalating OR is:regressed) times_seen:>10",
+    "is:unresolved issue.priority:high substatus:[new,escalating,regressed] times_seen:>10",
   );
   // Only the mapped, unassigned issue gets its event fetched (1B is human-assigned, OTHER unmapped).
   expect(
@@ -384,7 +384,7 @@ test("429 on the list call backs off; no calls until it expires", async () => {
   expect(await poller.poll()).toBe("ok");
 });
 
-test("400 on the grouped query retries once without the group", async () => {
+test("400 on the substatus filter retries once without it", async () => {
   let first = true;
   respond = (u) => {
     if (u.pathname.endsWith("/issues/") && first) {

@@ -55,7 +55,8 @@ import { createTriageStage, triageSettled, type TriageFileFn, type TriageStage }
 
 /** Latest-event fetches per poll — bounds API use when many issues become eligible at once. */
 const MAX_EVENT_FETCHES = 10;
-const SUBSTATUS_GROUP = "(is:new OR is:escalating OR is:regressed)";
+// Sentry rejects `OR` in issue search (400); the list form is accepted.
+const SUBSTATUS_GROUP = "substatus:[new,escalating,regressed]";
 
 export interface PollerDeps {
   state: PluginState;
@@ -183,7 +184,7 @@ export function createPoller(deps: PollerDeps): Poller {
       query: pollQuery(s.minTimesSeen),
     });
     if (!list.ok && list.status === 400) {
-      log.warn("issues query rejected (400); retrying without the substatus group");
+      log.warn("issues query rejected (400); retrying without the substatus filter");
       list = await get(`organizations/${org}/issues/`, {
         ...base,
         query: pollQuery(s.minTimesSeen, false),

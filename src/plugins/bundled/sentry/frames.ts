@@ -12,13 +12,15 @@ const MAX_SEGMENTS = 8;
 const MAX_FRAMES = 10;
 
 /** Repo-relative candidate paths for a raw frame path, longest (most specific) first.
- *  `[]` for vendored code or a path that tries to climb (`..`). */
+ *  `[]` for vendored code or a path that climbs mid-way (`src/../..`). */
 export function candidatePaths(raw: string): string[] {
   const path = raw
     .replace(/[?#].*$/, "")
     .replace(/^[a-z][a-z0-9+.-]*:\/\/\/?/i, "")
     .replace(/\\/g, "/");
   const segs = path.split("/").filter((s) => s !== "" && s !== "." && s !== "~");
+  // Leading `..` is bundler-relative (`app:///../src/x.ts`), not a climb: drop it.
+  while (segs[0] === "..") segs.shift();
   if (segs.includes("..") || segs.includes("node_modules")) return [];
   const tail = segs.slice(-MAX_SEGMENTS);
   return tail.map((_, i) => tail.slice(i).join("/"));

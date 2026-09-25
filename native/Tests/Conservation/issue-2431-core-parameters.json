@@ -113,6 +113,8 @@
       "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"gpt-5.6-sol\", cost: \"premium\", tag: \"max\", detail: \"codex_56_sol\")",
       "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"gpt-5.6-terra\", cost: \"high\", tag: \"balanced\", detail: \"codex_56_terra\")",
       "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"gpt-6-astra\", cost: \"premium\", tag: \"max\", detail: \"codex_6_astra\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"gpt-6-luna\", cost: \"low\", tag: \"budget\", detail: \"codex_6_luna\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"gpt-6-sol\", cost: \"high\", tag: \"strong\", detail: \"codex_6_sol\")",
       "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"inherit\", cost: \"standard\", tag: \"providerDefault\", detail: \"inherit\")",
       "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"o3\", cost: \"high\", tag: \"strong\", detail: \"codex_o3\")"
     ],

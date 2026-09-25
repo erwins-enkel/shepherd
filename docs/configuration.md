@@ -138,4 +138,5 @@ from `~/.shepherd/plugins/` (override `SHEPHERD_PLUGINS_DIR`), so they survive r
 never enter the public repo. A plugin reaches core only through a versioned `ctx` seam
 (`onSpawn`, read-only events, scoped state, HTTP routes, status panel), and a missing dir is
 a clean no-op. See [docs/plugins.md](plugins.md) for the manifest schema, the `ctx` API,
-and the `onSpawn` contract.
+and the `onSpawn` contract. Plugin secrets (`ctx.secrets`) live in `~/.shepherd/plugin-secrets.json` (mode 0600;
+override `SHEPHERD_PLUGIN_SECRETS`).

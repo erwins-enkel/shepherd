@@ -100,6 +100,23 @@ export interface PluginState {
   keys(): string[];
 }
 
+/** Per-plugin secret store (issue #2461), backed by a single 0600 file under `~/.shepherd/`.
+ *  Values NEVER reach any HTTP route or UI payload core serves: they are kept out of
+ *  `config.json`/`plugin_state`/`PluginInfo`, and core redacts this plugin's secret values from
+ *  everything it publishes (status, UI, gear item, last error). A plugin's OWN route handler
+ *  is trusted code and can still return one — don't. */
+export interface PluginSecrets {
+  /** The stored value, or `null` when unset (or the store is unavailable/unreadable). Sync —
+   *  served from an in-memory cache loaded once at boot. */
+  get(key: string): string | null;
+  /** Store `value` (`null` unsets it) and persist atomically. REJECTS on failure — a secret
+   *  write that silently no-ops would look saved but vanish on restart. */
+  set(key: string, value: string | null): Promise<void>;
+}
+
+/** A scheduled task body. Must be ASYNC and yield — Shepherd runs one event loop. */
+export type PluginScheduledFn = () => Promise<void>;
+
 export interface PluginLogger {
   log(...args: unknown[]): void;
   warn(...args: unknown[]): void;
@@ -331,6 +348,16 @@ export interface PluginContext {
    *  read-modify-write. Only CONFIG becomes live this way: changing plugin CODE still needs a
    *  restart, because the module stays cached. */
   setConfig(patch: Record<string, unknown>): Promise<void>;
+  /** Run `fn` every `intervalMs` (first run after one interval) on a server-owned timer
+   *  (issue #2461). Ticks are SKIPPED while herdr maintenance is active and while the previous
+   *  run is still in flight (no overlap). A throw/rejection marks this plugin `errored` and
+   *  surfaces via the status panel; later ticks still run. Cleared on plugin teardown. Throws
+   *  when `intervalMs` is below the 1000ms floor. Returns a cancel fn. Additive — guard with
+   *  `typeof ctx.schedule === "function"`. */
+  schedule(intervalMs: number, fn: PluginScheduledFn): () => void;
+  /** Per-plugin secret store — see {@link PluginSecrets}. Additive — guard with
+   *  `typeof ctx.secrets?.get === "function"`. */
+  secrets: PluginSecrets;
   /** Hard-block the in-flight spawn (opt out of the default fail-open). Throws. */
   abortSpawn(reason: string): never;
 }
@@ -421,6 +448,9 @@ export interface PluginGearItem {
  *
  *  - `text-input`   — free text. `secret: true` renders a masked field; that is MASKING ONLY,
  *                     the value still travels as plaintext JSON to the plugin's own route.
+ *                     A secret field is WRITE-ONLY: the host strips any seeded `value`, so it
+ *                     always renders empty — treat an empty submitted string as "unchanged"
+ *                     and persist the rest with `ctx.secrets.set`.
  *                     props: { name: string; label?: string; value?: string;
  *                              placeholder?: string; secret?: boolean }   → posts a string
  *  - `select`       — a choice among values the plugin enumerates. When `value` is absent or

@@ -129,6 +129,13 @@ function validNodeProps(type: string, props: Record<string, unknown>, names: Set
   return validInputProps(type, props, names);
 }
 
+/** Secret fields are WRITE-ONLY (issue #2461): a `secret: true` text-input never carries a
+ *  seeded `value` to the UI, so a plugin cannot echo a stored secret back into the panel.
+ *  Mutates the re-parsed copy, never the plugin's own object. */
+function stripSecretSeed(type: string, props: Record<string, unknown>): void {
+  if (type === "text-input" && props["secret"] === true) delete props["value"];
+}
+
 /** Recursively validate one node (re-parsed JSON) against the structural caps.
  *  `counter` accumulates the total node count across the whole tree; `names` accumulates
  *  every input field name so a cross-tree duplicate can be rejected. */
@@ -146,6 +153,7 @@ function validateNode(
   const props = node["props"];
   if (props !== undefined && (!isPlainObject(props) || !propsWithinBounds(props))) return false;
   if (!validNodeProps(node["type"], isPlainObject(props) ? props : {}, names)) return false;
+  if (isPlainObject(props)) stripSecretSeed(node["type"], props);
 
   const children = node["children"];
   if (children === undefined) return true;

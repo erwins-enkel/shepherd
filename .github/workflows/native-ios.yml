@@ -1,0 +1,69 @@
+name: native-ios
+
+on:
+  pull_request:
+    branches: [main, "epic/**"]
+    paths:
+      - "native/**"
+      - "contracts/**"
+      - "ui/messages/*.json"
+      - "scripts/gen-contract-swift.ts"
+      - "test/native-ios-*.test.ts"
+      - "test/fixtures/native-ios-*.json"
+      - ".github/workflows/native-ios.yml"
+  push:
+    branches: [main]
+    paths:
+      - "native/**"
+      - "contracts/**"
+      - "ui/messages/*.json"
+      - "scripts/gen-contract-swift.ts"
+      - "test/native-ios-*.test.ts"
+      - "test/fixtures/native-ios-*.json"
+      - ".github/workflows/native-ios.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ios:
+    name: iOS simulator build and isolated tests
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - uses: ./.github/actions/bun-install-retry
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Report toolchain and check generated resources
+        run: |
+          set -euo pipefail
+          native/scripts/uitest-lock.sh xcodebuild -version
+          native/scripts/uitest-lock.sh swift --version
+          bun run check:contract-swift
+          native/scripts/sync-contract.sh --check
+          bun run check:strings
+      - name: Build generic iOS Simulator application
+        run: native/scripts/uitest-lock.sh native/scripts/build-ios-app.sh Debug
+      - name: Run isolated hosted unit tests
+        run: native/scripts/uitest-lock.sh native/scripts/test-ios-app.sh unit --result-bundle-path "$RUNNER_TEMP/ios-unit.xcresult"
+      - name: Run isolated iPhone UI tests
+        run: native/scripts/uitest-lock.sh native/scripts/test-ios-app.sh ui --family iPhone --result-bundle-path "$RUNNER_TEMP/ios-iphone.xcresult"
+      - name: Run isolated iPad UI tests
+        run: native/scripts/uitest-lock.sh native/scripts/test-ios-app.sh ui --family iPad --result-bundle-path "$RUNNER_TEMP/ios-ipad.xcresult"
+      - name: Preserve simulator results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-simulator-results
+          path: |
+            ${{ runner.temp }}/ios-*.xcresult
+            ${{ runner.temp }}/ios-*.xcresult.summary.json
+            ${{ runner.temp }}/ios-*.xcresult.tests.json
+          if-no-files-found: warn
+          retention-days: 7

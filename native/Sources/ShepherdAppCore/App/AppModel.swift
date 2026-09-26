@@ -586,8 +586,9 @@ public final class AppModel {
 
         let store: SessionStore
         do {
-            store = try SessionStore(client: ShepherdClient(profile: profile, credentials: credentials,
-                readOnlyAudit: liveRequestAudit))
+            let client = try ShepherdClient(profile: profile, credentials: credentials,
+                readOnlyAudit: liveRequestAudit)
+            store = SessionStore(client: client, events: EventStream(client: client))
         } catch {
             // The only failure `SessionStore.init(profile:credentials:)` has is
             // ServerProfileError.insecureRemoteURL, and addRemoteProfile already

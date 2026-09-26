@@ -9107,6 +9107,74 @@
         }
       }
     },
+    "native_ios_connecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connecting…"
+          }
+        }
+      }
+    },
+    "native_ios_first_run": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließe die Servereinrichtung in der Web-App ab und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Complete server setup in the web app, then retry."
+          }
+        }
+      }
+    },
+    "native_ios_remove_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die gespeicherte Anmeldung wird von diesem Gerät entfernt. Der serverseitige Widerruf ist nicht bestätigt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This removes the saved sign-in from this device. Server-side revocation is not confirmed."
+          }
+        }
+      }
+    },
+    "native_ios_welcome_subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbinde dich mit einem Shepherd-Server, um deine Sitzungen zu verfolgen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connect to a Shepherd server to follow your sessions."
+          }
+        }
+      }
+    },
     "native_local_connect": {
       "extractionState": "manual",
       "localizations": {

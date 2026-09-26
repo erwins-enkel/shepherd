@@ -73,6 +73,12 @@ updates:
       progenitor:
         patterns: ["progenitor", "progenitor-client", "typify*"]
         update-types: ["major", "minor", "patch"]
+      # build.rs hands a syn::File to prettyplease::unparse, and each prettyplease line only accepts
+      # its own syn major (0.2 → syn 2, 0.3 → syn 3), so a lone bump of either fails the build
+      # (#2503/#2505). Majors included, same as above.
+      syn:
+        patterns: ["syn", "prettyplease"]
+        update-types: ["major", "minor", "patch"]
       cargo-minor-patch:
         patterns: ["*"]
         update-types: ["minor", "patch"]

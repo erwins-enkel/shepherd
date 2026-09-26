@@ -57,6 +57,15 @@ const CLI_V2_OPERATIONS = [
   "setSessionAutomerge",
 ];
 
+/** Settings and diagnostics verbs (#2494). */
+const CLI_V3_OPERATIONS = [
+  "getSettings",
+  "patchSettings",
+  "getRepoConfig",
+  "getDiagnostics",
+  "fixDiagnostics",
+];
+
 function nodes(root: unknown): { path: string; node: Obj }[] {
   const out: { path: string; node: Obj }[] = [];
   const walk = (v: unknown, path: string): void => {
@@ -138,7 +147,7 @@ describe("progenitor (OpenAPI 3.0) derivation", () => {
 
   test("the CLI surface is present and never excluded", () => {
     const ids = operationIds(derived);
-    for (const id of [...CLI_V1_OPERATIONS, ...CLI_V2_OPERATIONS]) {
+    for (const id of [...CLI_V1_OPERATIONS, ...CLI_V2_OPERATIONS, ...CLI_V3_OPERATIONS]) {
       expect(ids).toContain(id);
       expect(RUST_EXCLUDED_OPERATIONS).not.toHaveProperty(id);
     }

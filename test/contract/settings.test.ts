@@ -62,8 +62,9 @@ test("repo config, role no-op, push refusal and collaborator fallback", async ()
     200,
     { hidden: true },
     "/api/repo-config" + query,
-  )) as { hidden: boolean };
+  )) as { hidden: boolean; automationConfirmed: boolean };
   expect(cfg.hidden).toBe(true);
+  expect(typeof cfg.automationConfirmed).toBe("boolean");
   await request("PUT", "/api/repo-config", 400, { maxAuto: "many" }, "/api/repo-config" + query);
   await request(
     "PUT",
@@ -261,6 +262,9 @@ test("approved core PATCH exception writes one field, preserves GET and refuses 
     expect(settings.reducedPushMode).toBe(!saved);
     expect(typeof settings.hasApiKey).toBe("boolean");
     expect(settings).not.toHaveProperty("anthropicApiKey");
+    // #2494: the CLI's generated type keeps only schema'd fields, so these must be in the contract.
+    expect(settings).toHaveProperty("providerFailover");
+    expect(settings).toHaveProperty("telemetryHealth");
     await request("PATCH", "/api/settings", 400, { reducedPushMode: "yes" });
     await request("PATCH", "/api/settings", 400, {
       reducedPushMode: true,

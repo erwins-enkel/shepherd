@@ -101,6 +101,27 @@ pub enum Command {
     /// The full-auto merge train: status, start, stop, per-session override
     #[command(subcommand)]
     Train(TrainCmd),
+    /// Operator settings: show them, or set one
+    Settings {
+        #[command(subcommand)]
+        cmd: Option<SettingsCmd>,
+    },
+    /// A repo's config: show it, or set one key
+    RepoConfig {
+        /// Repository path on the server (default: this directory's git toplevel)
+        #[arg(long, global = true, value_name = "PATH")]
+        repo: Option<String>,
+        #[command(subcommand)]
+        cmd: Option<RepoConfigCmd>,
+    },
+    /// Environment-readiness checks, and running a check's fix
+    Diagnose {
+        /// Probe again instead of answering from the cached snapshot
+        #[arg(long)]
+        refresh: bool,
+        #[command(subcommand)]
+        cmd: Option<DiagnoseCmd>,
+    },
     /// Store an access token (minted in Settings → Access) in the config file
     Login {
         /// The access token (shp_…); `-` reads it from stdin, keeping it out of shell history
@@ -138,6 +159,37 @@ pub enum DrainCmd {
     Start(RepoArg),
     /// Turn auto-drain off for a repo
     Stop(RepoArg),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SettingsCmd {
+    /// Set one setting (value is a JSON literal like `true`, `80`, or plain text)
+    Set {
+        /// Setting name as `shepherd settings` prints it, e.g. usageHoldPct
+        key: String,
+        /// New value; `-` reads it from stdin (the only way to pass anthropicApiKey; `null` clears it)
+        value: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum RepoConfigCmd {
+    /// Set one key (value is a JSON literal like `true`, `3`, `["a.com"]`, or plain text)
+    Set {
+        /// Key as `shepherd repo-config` prints it, e.g. maxAuto
+        key: String,
+        /// New value; `""` clears a text field
+        value: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum DiagnoseCmd {
+    /// Run a check's fix, then print the re-probed check
+    Fix {
+        /// Check id as `shepherd diagnose` prints it
+        check: String,
+    },
 }
 
 #[derive(Debug, Subcommand)]

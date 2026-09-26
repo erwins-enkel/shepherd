@@ -168,7 +168,7 @@ impl ErrorBody for crate::api::types::StartUpNextError {
     }
 }
 
-fn transport(e: &reqwest::Error) -> CliError {
+pub fn transport(e: &reqwest::Error) -> CliError {
     let mut msg = e.to_string();
     let mut source = std::error::Error::source(e);
     while let Some(s) = source {

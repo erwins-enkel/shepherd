@@ -332,6 +332,45 @@ components:
         previewHost:
           type: string
           nullable: true
+        providerFailover:
+          $ref: "#/components/schemas/ProviderFailoverStatus"
+        telemetryHealth:
+          allOf:
+            - $ref: "#/components/schemas/TelemetryHealth"
+          nullable: true
+    ProviderFailoverStatus:
+      type: object
+      additionalProperties: false
+      required:
+        - active
+        - from
+        - current
+      properties:
+        active:
+          type: boolean
+        from:
+          allOf:
+            - $ref: "#/components/schemas/AgentProvider"
+          nullable: true
+        current:
+          $ref: "#/components/schemas/AgentProvider"
+    TelemetryHealth:
+      type: object
+      additionalProperties: false
+      required:
+        - lastSentAt
+        - lastErrorAt
+        - lastError
+      properties:
+        lastSentAt:
+          type: integer
+          nullable: true
+        lastErrorAt:
+          type: integer
+          nullable: true
+        lastError:
+          type: string
+          nullable: true
     RepoRootRequest:
       type: object
       additionalProperties: false
@@ -4857,6 +4896,10 @@ components:
           nullable: true
         previewOpenMode:
           type: string
+        automationConfirmed:
+          type: boolean
+        automationRowExists:
+          type: boolean
     RepoConfigPatch:
       type: object
       additionalProperties: false

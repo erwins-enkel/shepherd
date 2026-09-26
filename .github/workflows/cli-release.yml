@@ -93,7 +93,7 @@ jobs:
       RELEASE_TAG: ${{ inputs.tag }}
       CLI_TAG: cli-${{ inputs.tag }}
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@v8
         with:
           pattern: cli-*
           merge-multiple: true

@@ -55,3 +55,29 @@ test("the shepherd.service WorkingDirectory rewrite renders a well-formed, corre
   expect(out).toMatch(/^After=network-online\.target herdr\.service$/m);
   expect(out).toMatch(/^Wants=herdr\.service$/m);
 });
+
+// herdr.service's ExecStartPre (the session.json prune, #2031) runs a script from the checkout;
+// update.sh must retarget it like templateHerdrUnit does. Same coverage limit as above: the grep
+// bridges to the replicated sed expression.
+test("update.sh retargets herdr.service's ExecStartPre to the checkout, leaving ExecStart alone", () => {
+  expect(src).toContain(`-e "/^ExecStartPre=/s|%h/\\.shepherd/app/|\${REPO}/|"`);
+  const unitPath = new URL("../deploy/herdr.service", import.meta.url).pathname;
+  const rendered = spawnSync(
+    "sed",
+    [
+      "-e",
+      "s|^ExecStart=.*|ExecStart=/usr/local/bin/herdr server|",
+      "-e",
+      "/^ExecStartPre=/s|%h/\\.shepherd/app/|/tmp/some/checkout/|",
+      unitPath,
+    ],
+    { encoding: "utf8" },
+  );
+  expect(rendered.status).toBe(0);
+  expect(rendered.stdout.match(/^ExecStartPre=.*$/gm)).toEqual([
+    "ExecStartPre=-%h/.bun/bin/bun /tmp/some/checkout/deploy/herdr-prune-session.ts",
+  ]);
+  expect(rendered.stdout.match(/^ExecStart=.*$/gm)).toEqual([
+    "ExecStart=/usr/local/bin/herdr server",
+  ]);
+});

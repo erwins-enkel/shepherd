@@ -527,12 +527,27 @@ describe("extracted helpers (direct)", () => {
 
   it("templateHerdrUnit rewrites ExecStart to the resolved herdr path (#1574)", () => {
     const unit = readFileSync("deploy/herdr.service", "utf8");
-    const out = templateHerdrUnit(unit, "/usr/local/bin/herdr");
+    const out = templateHerdrUnit(unit, "/usr/local/bin/herdr", "/home/op/.shepherd/app");
     expect(out).toContain("ExecStart=/usr/local/bin/herdr server");
     expect(out).not.toContain("ExecStart=%h/.local/bin/herdr server");
     // Everything else survives, incl. the restart policy that makes Restart=always honest.
     expect(out).toContain("StartLimitIntervalSec=0");
     expect(out).toContain("Restart=always");
+  });
+
+  it("templateHerdrUnit points the session.json prune at the checkout; ships TasksMax (#2031)", () => {
+    const unit = readFileSync("deploy/herdr.service", "utf8");
+    // `-`: a prune failure must never block herdr from starting.
+    expect(unit).toMatch(
+      /^ExecStartPre=-%h\/\.bun\/bin\/bun %h\/\.shepherd\/app\/deploy\/herdr-prune-session\.ts$/m,
+    );
+    expect(unit).toMatch(/^TasksMax=16384$/m);
+    const out = templateHerdrUnit(unit, "/usr/local/bin/herdr", "/srv/my$&checkout");
+    expect(out.match(/^ExecStartPre=.*$/gm)).toEqual([
+      "ExecStartPre=-%h/.bun/bin/bun /srv/my$&checkout/deploy/herdr-prune-session.ts",
+    ]);
+    // ExecStart's rewrite does not swallow ExecStartPre, and vice versa.
+    expect(out.match(/^ExecStart=.*$/gm)).toEqual(["ExecStart=/usr/local/bin/herdr server"]);
   });
 
   it("installService writes a TEMPLATED herdr unit and adopts the socket before enabling (#1574)", () => {
@@ -572,7 +587,11 @@ describe("extracted helpers (direct)", () => {
     const { calls, writes, run, fileIO } = recorder();
     const herdrPath = "/usr/local/bin/herdr";
     const unitPath = join("/home/op", ".config", "systemd", "user", "herdr.service");
-    const desired = templateHerdrUnit(readFileSync("deploy/herdr.service", "utf8"), herdrPath);
+    const desired = templateHerdrUnit(
+      readFileSync("deploy/herdr.service", "utf8"),
+      herdrPath,
+      "/repo",
+    );
     // Installed unit already matches what we would write.
     const preloaded: FileIO = {
       read: (p) => (p === unitPath ? desired : fileIO.read(p)),

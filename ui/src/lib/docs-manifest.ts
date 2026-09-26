@@ -33,7 +33,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Operating Shepherd",
     path: "/operating/",
     keywords:
-      "run shepherd as a systemd service, expose it over tailscale, and deploy code changes. run as a systemd user service if the hud freezes expose it over the network deploy a code change backups & restore preview detection agent clis managed by mise the claude code install row claude code version and model support agent launch inside the sandbox host tuning — tmpfs inodes host tuning — resource guardrails add a limit (one click) add a limit (copy-paste)",
+      "run shepherd as a systemd service, expose it over tailscale, and deploy code changes. run as a systemd user service if the hud freezes expose it over the network deploy a code change backups & restore preview detection agent clis managed by mise the claude code install row claude code version and model support agent launch inside the sandbox host tuning — tmpfs inodes host tuning — resource guardrails add a limit (one click) add a limit (copy-paste) herdr restarts and the task limit",
   },
   {
     title: "CLI reference",

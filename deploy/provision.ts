@@ -124,9 +124,13 @@ export function selectPrereqCommand(
  *  absolute executable, and herdr is NOT always at `~/.local/bin` — a package install can land
  *  it in `/usr/local/bin`. Presence (`probeVersion`) and liveness (`config.herdrBin`) both
  *  resolve `herdr` on `$PATH`, so a hardcoded unit path could point at nothing while the checks
- *  are perfectly happy, and `enable --now herdr` would fail the whole provision. #1574 */
-export function templateHerdrUnit(unit: string, herdrPath: string): string {
-  return unit.replace(/^ExecStart=.*$/m, `ExecStart=${herdrPath} server`);
+ *  are perfectly happy, and `enable --now herdr` would fail the whole provision. #1574
+ *  Also points the session.json prune (`ExecStartPre`, #2031) at the actual checkout, like
+ *  {@link templateUnit} does for shepherd.service's WorkingDirectory. */
+export function templateHerdrUnit(unit: string, herdrPath: string, repo: string): string {
+  return unit
+    .replace(/^ExecStart=.*$/m, `ExecStart=${herdrPath} server`)
+    .replace(/^(ExecStartPre=.*)%h\/\.shepherd\/app\//m, (_m, pre: string) => `${pre}${repo}/`);
 }
 
 /** Adopt the socket before enabling the unit: if the unit is NOT already the active herdr, stop
@@ -459,6 +463,7 @@ export function installService(
   const desiredHerdrUnit = templateHerdrUnit(
     fileIO.read(join(repo, "deploy", "herdr.service")),
     herdrPath,
+    repo,
   );
   const herdrUnitChanged = readIfPresent(fileIO, herdrUnitPath) !== desiredHerdrUnit;
   if (herdrUnitChanged) fileIO.write(herdrUnitPath, desiredHerdrUnit);

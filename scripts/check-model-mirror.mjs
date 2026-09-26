@@ -11,6 +11,11 @@
 //                      `unknown model` at task-create time.
 //   • server-only add → the API accepts the value but no picker can reach it.
 //
+// The native Mac app (#2450) holds a THIRD hand-copied mirror as Swift
+// `static let` arrays in ComposeRunConfig.swift; it is compared against the server
+// side with the same contract. A native-missing model is not just unreachable: the
+// Mac composer's normalization silently rewrites a configured default to "default".
+//
 // WHY TEXTUAL rather than importing both halves into one test: all three wiring
 // points (the `check:model-mirror` package script, the pre-push `gates` lane, the
 // PR-hygiene workflow) invoke a gate as a bare command, which a `bun test`
@@ -41,6 +46,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SERVER_REL = "src/types.ts";
 const UI_REL = "ui/src/lib/types.ts";
+const NATIVE_REL = "native/Sources/ShepherdAppCore/Compose/ComposeRunConfig.swift";
 
 /**
  * The constants declared in both files that must stay identical.
@@ -56,6 +62,16 @@ const UI_REL = "ui/src/lib/types.ts";
  * UI-only (no server counterpart), so it is not a mirror at all.
  */
 export const MIRRORED_CONSTANTS = ["CLAUDE_MODELS", "CODEX_MODELS", "EFFORTS"];
+
+/**
+ * Server constant → its `static let` mirror in NATIVE_REL (the Mac app's picker
+ * lists). Compared against the server side only; server ↔ UI is gated above.
+ */
+export const NATIVE_MIRRORED = {
+  CLAUDE_MODELS: "claudeModels",
+  CODEX_MODELS: "codexModels",
+  EFFORTS: "efforts",
+};
 
 /**
  * Walk a `[ … ]` literal from its opening bracket, returning the body with
@@ -174,78 +190,147 @@ export function extractArrayLiteral(source, constName) {
 }
 
 /**
+ * Membership/order delta between two parsed lists, or null when identical. The
+ * second side is named by `otherKey` ("onlyInUi" / "onlyInNative") so each
+ * comparison keeps a self-describing delta shape.
+ */
+function listDelta(constant, server, other, otherSide, otherKey) {
+  // Fail CLOSED on EITHER side — a one-sided rename/reshape is the likeliest
+  // real drift, and two absent literals must never compare as equal empties.
+  const missingIn = [];
+  if (!server) missingIn.push("server");
+  if (!other) missingIn.push(otherSide);
+  if (missingIn.length) {
+    return { constant, missingIn, onlyInServer: [], [otherKey]: [], orderMismatch: false };
+  }
+
+  const onlyInServer = server.filter((v) => !other.includes(v));
+  const onlyInOther = other.filter((v) => !server.includes(v));
+  // Only meaningful once membership matches: same elements, different sequence.
+  // The separator is written as the ESCAPE "\0", never a literal NUL byte — an
+  // embedded NUL makes this file binary to grep/ripgrep/file(1) (matching lines
+  // are suppressed) and invisible in review. NUL is the separator because it
+  // cannot occur in a model alias, so no pair of distinct lists can join equal.
+  const orderMismatch =
+    onlyInServer.length === 0 && onlyInOther.length === 0 && server.join("\0") !== other.join("\0");
+
+  if (onlyInServer.length || onlyInOther.length || orderMismatch) {
+    return { constant, missingIn: [], onlyInServer, [otherKey]: onlyInOther, orderMismatch };
+  }
+  return null;
+}
+
+/**
  * Compare every mirrored constant across the two sources. Returns STRUCTURED
  * deltas — prose formatting lives only in the CLI below, so tests assert on data
  * rather than substring-matching a message that is free to be reworded.
  */
 export function compareMirror(serverSource, uiSource, constants = MIRRORED_CONSTANTS) {
-  const deltas = [];
+  const deltas = constants
+    .map((constant) =>
+      listDelta(
+        constant,
+        extractArrayLiteral(serverSource, constant),
+        extractArrayLiteral(uiSource, constant),
+        "ui",
+        "onlyInUi",
+      ),
+    )
+    .filter(Boolean);
+  return { ok: deltas.length === 0, deltas };
+}
 
-  for (const constant of constants) {
-    const server = extractArrayLiteral(serverSource, constant);
-    const ui = extractArrayLiteral(uiSource, constant);
+/**
+ * Extract the string elements of Swift `static let <name> = [ … ]`, or null when
+ * the literal cannot be parsed. Swift shares line/block comment and `"…"` syntax with
+ * TS, so `scanArrayBody` applies unchanged; the same empty-means-unparseable rule
+ * holds.
+ */
+export function extractSwiftArrayLiteral(source, name) {
+  const anchor = new RegExp(`static\\s+let\\s+${name}\\b\\s*(?::[^=]*)?=\\s*\\[`);
+  const match = anchor.exec(source);
+  if (!match) return null;
 
-    // Fail CLOSED on EITHER side — a one-sided rename/reshape is the likeliest
-    // real drift, and two absent literals must never compare as equal empties.
-    const missingIn = [];
-    if (!server) missingIn.push("server");
-    if (!ui) missingIn.push("ui");
-    if (missingIn.length) {
-      deltas.push({ constant, missingIn, onlyInServer: [], onlyInUi: [], orderMismatch: false });
-      continue;
-    }
+  const body = scanArrayBody(source, match.index + match[0].length - 1);
+  if (body === null) return null;
 
-    const onlyInServer = server.filter((v) => !ui.includes(v));
-    const onlyInUi = ui.filter((v) => !server.includes(v));
-    // Only meaningful once membership matches: same elements, different sequence.
-    // The separator is written as the ESCAPE "\0", never a literal NUL byte — an
-    // embedded NUL makes this file binary to grep/ripgrep/file(1) (matching lines
-    // are suppressed) and invisible in review. NUL is the separator because it
-    // cannot occur in a model alias, so no pair of distinct lists can join equal.
-    const orderMismatch =
-      onlyInServer.length === 0 && onlyInUi.length === 0 && server.join("\0") !== ui.join("\0");
+  const elements = [];
+  const elementRe = /"((?:[^"\\]|\\.)*)"/g;
+  let el;
+  while ((el = elementRe.exec(body)) !== null) elements.push(el[1]);
 
-    if (onlyInServer.length || onlyInUi.length || orderMismatch) {
-      deltas.push({ constant, missingIn: [], onlyInServer, onlyInUi, orderMismatch });
-    }
-  }
+  return elements.length ? elements : null;
+}
 
+/**
+ * Compare the server lists against the native Mac app's hand-copied mirrors in
+ * ComposeRunConfig.swift. Same fail-closed, order-sensitive contract as
+ * `compareMirror`: a model missing natively makes the Mac composer silently
+ * rewrite a server-configured default to "default" (#2450).
+ */
+export function compareNativeMirror(serverSource, swiftSource, mirrored = NATIVE_MIRRORED) {
+  const deltas = Object.entries(mirrored)
+    .map(([constant, swiftName]) =>
+      listDelta(
+        constant,
+        extractArrayLiteral(serverSource, constant),
+        extractSwiftArrayLiteral(swiftSource, swiftName),
+        "native",
+        "onlyInNative",
+      ),
+    )
+    .filter(Boolean);
   return { ok: deltas.length === 0, deltas };
 }
 
 // ── CLI ──────────────────────────────────────────────────────────────────────
 
+/** Per-comparison wording: the second side's path, delta key and consequences. */
+const SIDES = {
+  ui: {
+    rel: UI_REL,
+    key: "onlyInUi",
+    missingThere: "the API accepts these but no picker can reach them",
+    onlyThere: "the picker offers these but task-create rejects them as unknown",
+    order: "the UI order is the order the picker renders",
+  },
+  native: {
+    rel: NATIVE_REL,
+    key: "onlyInNative",
+    missingThere: 'the Mac composer silently rewrites a configured default of these to "default"',
+    onlyThere: "the Mac picker offers these but task-create rejects them as unknown",
+    order: "the Swift order is the order the Mac picker renders",
+  },
+};
+
 /** Human-readable lines for one delta. Wording is intentionally untested. */
-function formatDelta(delta) {
+function formatDelta(delta, side) {
+  const { rel, key, missingThere, onlyThere, order } = SIDES[side];
   const lines = [];
   if (delta.missingIn.length) {
-    const where = delta.missingIn
-      .map((side) => (side === "server" ? SERVER_REL : UI_REL))
-      .join(" and ");
+    const where = delta.missingIn.map((s) => (s === "server" ? SERVER_REL : rel)).join(" and ");
     lines.push(
       `  ${delta.constant}: could not parse the array literal in ${where}` +
-        ` — expected \`const ${delta.constant} = [ "…", … ]\` with string elements.`,
+        ` — expected a \`${delta.constant}\` (or its Swift \`static let\` mirror) literal with string elements.`,
     );
     return lines;
   }
   if (delta.onlyInServer.length) {
     lines.push(
       `  ${delta.constant}: ${delta.onlyInServer.map((v) => `"${v}"`).join(", ")}` +
-        ` present in ${SERVER_REL} but MISSING from ${UI_REL}` +
-        ` — the API accepts these but no picker can reach them.`,
+        ` present in ${SERVER_REL} but MISSING from ${rel} — ${missingThere}.`,
     );
   }
-  if (delta.onlyInUi.length) {
+  if (delta[key].length) {
     lines.push(
-      `  ${delta.constant}: ${delta.onlyInUi.map((v) => `"${v}"`).join(", ")}` +
-        ` present in ${UI_REL} but MISSING from ${SERVER_REL}` +
-        ` — the picker offers these but task-create rejects them as unknown.`,
+      `  ${delta.constant}: ${delta[key].map((v) => `"${v}"`).join(", ")}` +
+        ` present in ${rel} but MISSING from ${SERVER_REL} — ${onlyThere}.`,
     );
   }
   if (delta.orderMismatch) {
     lines.push(
       `  ${delta.constant}: same elements, DIFFERENT ORDER between ${SERVER_REL}` +
-        ` and ${UI_REL} — the UI order is the order the picker renders, so keep both identical.`,
+        ` and ${rel} — ${order}, so keep both identical.`,
     );
   }
   return lines;
@@ -281,19 +366,26 @@ function isMainModule() {
 if (isMainModule()) {
   const serverSource = readFileSync(join(ROOT, SERVER_REL), "utf8");
   const uiSource = readFileSync(join(ROOT, UI_REL), "utf8");
-  const { ok, deltas } = compareMirror(serverSource, uiSource);
+  const nativeSource = readFileSync(join(ROOT, NATIVE_REL), "utf8");
+  const results = [
+    ["ui", compareMirror(serverSource, uiSource)],
+    ["native", compareNativeMirror(serverSource, nativeSource)],
+  ];
 
-  if (!ok) {
-    console.error(
-      `model mirror: ${SERVER_REL} and ${UI_REL} have diverged:\n` +
-        `${deltas.flatMap(formatDelta).join("\n")}\n\n` +
-        `Fix: edit BOTH files so each list has the same elements in the same order.`,
-    );
+  const failed = results.filter(([, r]) => !r.ok);
+  if (failed.length) {
+    for (const [side, { deltas }] of failed) {
+      console.error(
+        `model mirror: ${SERVER_REL} and ${SIDES[side].rel} have diverged:\n` +
+          `${deltas.flatMap((d) => formatDelta(d, side)).join("\n")}\n`,
+      );
+    }
+    console.error(`Fix: edit ALL mirrors so each list has the same elements in the same order.`);
     process.exit(1);
   }
 
   const counts = MIRRORED_CONSTANTS.map(
     (c) => `${c} (${extractArrayLiteral(serverSource, c).length})`,
   ).join(", ");
-  console.log(`✓ model mirror: ${SERVER_REL} ↔ ${UI_REL} identical — ${counts}`);
+  console.log(`✓ model mirror: ${SERVER_REL} ↔ ${UI_REL} ↔ ${NATIVE_REL} identical — ${counts}`);
 }

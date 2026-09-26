@@ -7277,6 +7277,40 @@
         }
       }
     },
+    "model_guidance_claude_opus_5_5": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fixiert genau Opus 5.5, damit ein künftiges Opus-Release dieses Modell nicht still ändert. Benötigt Claude Code 2.1.280 oder neuer."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pins Opus 5.5 exactly, so a future Opus release can't quietly change this model. Needs Claude Code 2.1.280 or newer."
+          }
+        }
+      }
+    },
+    "model_guidance_claude_opus_5_5_1m": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus 5.5 fixiert, mit 1 Mio. Kontext. Für Läufe mit großem Kontext reservieren. Benötigt Claude Code 2.1.280 oder neuer."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus 5.5 pinned, with 1M context. Reserve it for large-context runs. Needs Claude Code 2.1.280 or newer."
+          }
+        }
+      }
+    },
     "model_guidance_claude_sonnet": {
       "extractionState": "manual",
       "localizations": {
@@ -7647,6 +7681,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Opus 5 (1M context)"
+          }
+        }
+      }
+    },
+    "model_label_opus_5_5": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus 5.5"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus 5.5"
+          }
+        }
+      }
+    },
+    "model_label_opus_5_5_1m": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus 5.5 (1 Mio. Kontext)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus 5.5 (1M context)"
           }
         }
       }

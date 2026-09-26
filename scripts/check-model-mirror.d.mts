@@ -45,3 +45,35 @@ export function compareMirror(
   uiSource: string,
   constants?: string[],
 ): MirrorResult;
+
+/** Which side of the server ↔ native (Swift) mirror a finding refers to. */
+export type NativeMirrorSide = "server" | "native";
+
+/** One constant's server ↔ native divergence; same semantics as `MirrorDelta`. */
+export interface NativeMirrorDelta {
+  constant: string;
+  missingIn: NativeMirrorSide[];
+  /** Elements in src/types.ts but not the Swift mirror. */
+  onlyInServer: string[];
+  /** Elements in the Swift mirror but not src/types.ts. */
+  onlyInNative: string[];
+  orderMismatch: boolean;
+}
+
+export interface NativeMirrorResult {
+  ok: boolean;
+  deltas: NativeMirrorDelta[];
+}
+
+/** Server constant → its `static let` name in ComposeRunConfig.swift. */
+export const NATIVE_MIRRORED: Record<string, string>;
+
+/** String elements of Swift `static let <name> = [ … ]`, or null when unparseable. */
+export function extractSwiftArrayLiteral(source: string, name: string): string[] | null;
+
+/** Compare server constants against their Swift mirrors, as structured deltas. */
+export function compareNativeMirror(
+  serverSource: string,
+  swiftSource: string,
+  mirrored?: Record<string, string>,
+): NativeMirrorResult;

@@ -30,8 +30,9 @@ public enum ComposeRunConfig {
         var effort: String
     }
 
-    static let claudeModels = ["fable", "claude-fable-5-1", "opus", "opus[1m]", "claude-opus-5",
-                               "claude-opus-5[1m]", "sonnet", "sonnet[1m]", "haiku"]
+    static let claudeModels = ["fable", "claude-fable-5-1", "opus", "opus[1m]", "claude-opus-5-5",
+                               "claude-opus-5-5[1m]", "claude-opus-5", "claude-opus-5[1m]", "sonnet",
+                               "sonnet[1m]", "haiku"]
     static let codexModels = ["gpt-5.6-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4",
                               "gpt-5.3-codex", "gpt-5.1-codex", "gpt-5-codex", "gpt-5.1", "gpt-5", "o3"]
     static let efforts = ["low", "medium", "high", "xhigh", "max", "ultra"]

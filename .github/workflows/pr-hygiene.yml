@@ -55,7 +55,7 @@ jobs:
         run: node scripts/check-glossary.mjs
       - name: Announcement versions (new entry ⇒ unreleased version)
         run: node scripts/check-announcement-versions.mjs
-      - name: Model-list mirror (src/types.ts ↔ ui/src/lib/types.ts)
+      - name: Model-list mirror (src/types.ts ↔ ui/src/lib/types.ts ↔ native ComposeRunConfig.swift)
         run: node scripts/check-model-mirror.mjs
       - name: Fallow version pin (identical at every site)
         run: node scripts/check-fallow-pin.mjs

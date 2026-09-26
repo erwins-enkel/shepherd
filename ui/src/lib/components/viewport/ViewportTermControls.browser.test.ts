@@ -1,6 +1,6 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import { tick } from "svelte";
 import "../../../app.css";
 import { enterKey } from "$lib/controlKeys";
@@ -83,5 +83,49 @@ describe("ViewportTermControls arrow visibility (portrait)", () => {
       barRect.right - lastArrowRight,
       "arrows clear the frozen upload/Enter edges",
     ).toBeGreaterThanOrEqual(0);
+  });
+});
+
+describe("Codex questions control", () => {
+  const questionButton = () => page.getByRole("button", { name: /Open questions|Fragen öffnen/ });
+
+  it("sends Alt+Up once per click and keyboard activation", async () => {
+    const send = vi.fn();
+    render(ViewportTermControls, { ...baseProps(), codexQuestions: true, send });
+    await questionButton().click();
+    expect(send.mock.calls).toEqual([["\x1b[1;3A"]]);
+    await userEvent.keyboard("{Enter}");
+    await userEvent.keyboard(" ");
+    expect(send.mock.calls).toEqual([["\x1b[1;3A"], ["\x1b[1;3A"], ["\x1b[1;3A"]]);
+  });
+
+  it.each([
+    { mobile: true, touch: true, tab: "term", codexQuestions: false },
+    { mobile: false, touch: true, tab: "term", codexQuestions: true },
+    { mobile: false, touch: false, tab: "term", codexQuestions: true },
+    { mobile: true, touch: true, tab: "diff", codexQuestions: true },
+  ])("hides when inapplicable: %j", async (props) => {
+    render(ViewportTermControls, { ...baseProps(), ...props });
+    await expect.element(questionButton()).not.toBeInTheDocument();
+  });
+
+  it.each([320, 390])("fits above the key row at %ipx", async (width) => {
+    await page.viewport(width, 844);
+    render(ViewportTermControls, { ...baseProps(), codexQuestions: true });
+    await expect.element(questionButton()).toBeVisible();
+    const button = questionButton().element().getBoundingClientRect();
+    const row = document.querySelector(".ctrl-row")!.getBoundingClientRect();
+    expect(button.height).toBeGreaterThanOrEqual(44);
+    expect(button.left).toBeGreaterThanOrEqual(0);
+    expect(button.right).toBeLessThanOrEqual(width);
+    expect(button.bottom).toBeLessThanOrEqual(row.top);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(width);
+    if (width === 390) {
+      const bar = document.querySelector(".ctrl-bar")!.getBoundingClientRect();
+      for (const arrow of ["←", "→", "↑", "↓"]) {
+        expect(rectOf(arrow).left).toBeGreaterThanOrEqual(bar.left - 0.5);
+        expect(rectOf(arrow).right).toBeLessThanOrEqual(bar.right + 0.5);
+      }
+    }
   });
 });

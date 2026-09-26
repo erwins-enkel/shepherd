@@ -10,6 +10,7 @@
     tab,
     send,
     notesKey,
+    codexQuestions = false,
     enter,
     uploading,
     uploadFailed,
@@ -21,6 +22,7 @@
     tab: string;
     send: (seq: string) => void;
     notesKey: string | null;
+    codexQuestions?: boolean;
     enter: ControlKey;
     uploading: boolean;
     uploadFailed: boolean;
@@ -71,6 +73,13 @@
 </script>
 
 {#if (mobile || touch) && tab === "term"}
+  {#if mobile && codexQuestions}
+    <div class="questions-row" data-swipe-ignore>
+      <button type="button" onclick={() => send("\x1b[1;3A")}
+        >{m.viewport_codex_questions_open()}</button
+      >
+    </div>
+  {/if}
   <div class="ctrl-row" bind:this={ctrlRowEl} data-swipe-ignore>
     <!-- image upload frozen on the far left; Tab/Space + arrows + ^-keys scroll in
          the middle; Enter frozen on the right. Esc + the dictate mic now live on
@@ -171,6 +180,33 @@
 {/if}
 
 <style>
+  .questions-row {
+    flex: 0 0 auto;
+    padding: 6px 10px;
+    background: var(--color-head);
+    border-top: 1px solid var(--color-line);
+  }
+  .questions-row button {
+    width: 100%;
+    min-height: 44px;
+    padding: 6px 8px;
+    border: 1px solid var(--color-amber);
+    border-radius: 2px;
+    background: transparent;
+    color: var(--color-amber);
+    font-family: var(--font-mono);
+    font-size: var(--fs-base);
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .questions-row button:hover,
+  .questions-row button:active {
+    background: var(--color-hover);
+  }
+  .questions-row button:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
   /* one unified bar across the whole row (scroll palette + pinned actions) */
   .ctrl-row {
     display: flex;

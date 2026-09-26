@@ -351,6 +351,11 @@ struct EventStreamTests {
       server.setRejectUpgrades(true)
       await stream.start()
 
+      // Wait for a real retry before measuring its rate: the first handshake
+      // can take longer than the observation window on a busy CI runner.
+      try #require(try await eventually { server.connectionCount() >= 2 })
+      let attemptsBeforeWindow = server.connectionCount()
+
       // Give the stream a fixed window to retry against the rejecting server.
       // A flat, non-backing-off 20 ms retry would fit roughly window / 20 ms
       // attempts in that time (~40 for an 800 ms window); capped exponential
@@ -358,9 +363,8 @@ struct EventStreamTests {
       // The upper bound below is comfortably between the two, so only a
       // growing delay between attempts explains staying under it.
       try await Task.sleep(for: .milliseconds(800))
-      let attemptsWhileRejecting = server.connectionCount()
-      #expect(attemptsWhileRejecting >= 2)
-      #expect(attemptsWhileRejecting < 20)
+      let attemptsDuringWindow = server.connectionCount() - attemptsBeforeWindow
+      #expect(attemptsDuringWindow < 20)
 
       server.setRejectUpgrades(false)
       // The next attempt after un-rejecting succeeds: the presence frame is

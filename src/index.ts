@@ -221,6 +221,7 @@ import { PostMergeStepsService } from "./post-merge-steps";
 import { DeliveryFactsService } from "./delivery";
 import { BuildQueueReminderService } from "./build-queue-reminder";
 import { TurnEndBackstopService } from "./turn-end-backstop";
+import { PlanStopTrigger } from "./plan-stop-trigger";
 import { jsonlPathFor } from "./usage";
 import { detectPendingAuthUrl, detectLoginAuthUrl } from "./auth-url";
 import { readTranscriptTail } from "./activity";
@@ -1412,15 +1413,20 @@ if (hookSignalsWanted && !config.hooksIngest) {
       "Enable ingest first.",
   );
 } else if (hookSignalsWanted) {
+  // `planStopTrigger` is declared further down and only read when a hook arrives, long after boot.
   hookIngest.setSink((id, ev) => {
     if (ev.event === "PostToolUse" || ev.event === "PostToolUseFailure") {
+      planStopTrigger.cancel(id);
       poller.ingestActivity(id, { toolName: ev.toolName, status: ev.status, ts: ev.receivedAt });
     } else if (ev.event === "Notification") {
+      if (ev.notificationType === "permission_prompt") planStopTrigger.cancel(id);
       poller.ingestNotification(id, ev.notificationType ?? "");
     } else if (ev.event === "SessionStart") {
+      planStopTrigger.cancel(id);
       poller.ingestSessionStart(id);
     } else if (ev.event === "Stop") {
       poller.ingestStopMeasure(id, ev.receivedAt);
+      planStopTrigger.onStop(id);
     }
     // Stop now feeds an observe-only window MEASUREMENT (no status mutation): the offset
     // between the Stop hook and herdr's done flip (issue #713). SessionEnd stays observe-only
@@ -2178,6 +2184,14 @@ const turnEndBackstop = new TurnEndBackstopService({
   // missed (same kind/tag/cooldown key) rather than a second, separate notification.
   notifyDone: (id) => notifySessionDone(push, store, id),
 });
+// Fast path for the plan gate's first review: herdr's `done` edge no longer arrives in practice (every
+// review was waiting on the backstop above), but Claude's `Stop` hook does. A short quiet dwell,
+// cancelled by any later hook activity or running/blocked status, guards a Stop hook that keeps
+// the turn going.
+const planStopTrigger = new PlanStopTrigger({
+  store,
+  considerPlan: (s) => planGate.consider(s),
+});
 deferredStarts.push(() => {
   setInterval(() => {
     if (maintenance.active) return;
@@ -2246,6 +2260,7 @@ events.subscribe((event, data) => {
     autoMergedRecapEvidence.delete(id);
     buildQueueReminder.forget(id);
     turnEndBackstop.forget(id);
+    planStopTrigger.forget(id);
     docAgent.onArchived(id);
   }
 });
@@ -2610,7 +2625,10 @@ events.subscribe((event, data) => {
     // buildQueueReminder.markRan above). Without this a short turn never arms the gate, a stale
     // `delivered` suppresses the NEXT turn's genuinely lost edge, and a carried-over settle clock
     // fires the backstop mid-turn against a half-written plan.
-    if (status === "running" || status === "blocked") turnEndBackstop.markActive(id);
+    if (status === "running" || status === "blocked") {
+      turnEndBackstop.markActive(id);
+      planStopTrigger.cancel(id);
+    }
     void sessionRouter
       .onStatus(id, status)
       .catch((err) => console.warn("[session-router] onStatus:", err));

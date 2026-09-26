@@ -387,3 +387,27 @@ systemctl --user restart herdr.service shepherd.service
 
 A **system**-level install (unit under `/etc/systemd/system/`) takes the same
 properties via `sudo systemctl set-property …` or an equivalent drop-in there.
+
+### herdr restarts and the task limit
+
+When herdr starts, it restores every tab saved in `~/.config/herdr/session.json`
+(or `sessions/<name>/session.json` when you set `HERDR_SESSION`) as a fresh shell.
+Every agent process dies with the server, so a restarted herdr brings those tabs
+back as empty shells. If the tabs include hundreds of leftover Shepherd helper
+tabs (reviewers, the namer, the usage probe…), they all spawn at once.
+
+To prevent that, `herdr.service` runs `deploy/herdr-prune-session.ts` before herdr
+starts. It removes helper tabs from `session.json`, keeps a copy of the original as
+`session.json.pre-prune`, and logs one `[herdr-prune]` line to the journal
+(`journalctl --user -u herdr`). The script doesn't touch your own tabs or session
+tabs. It makes no change when:
+
+- the file's format isn't one it recognizes,
+- a herdr server is still answering on the socket, or
+- a process from a previous pane is still running.
+
+If the script fails, herdr still starts.
+
+The unit also sets `TasksMax=16384`. Every pane and its threads count against
+herdr's task limit, and a low systemd default (2500 on some hosts) can make herdr
+crash with `pthread_create: EAGAIN`.

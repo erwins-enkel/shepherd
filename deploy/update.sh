@@ -223,7 +223,10 @@ if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/d
   if [[ -n "$HERDR_PATH" ]]; then
     note "syncing herdr daemon unit"
     HERDR_UNIT_TMP="$(mktemp)"
-    sed "s|^ExecStart=.*|ExecStart=${HERDR_PATH} server|" \
+    # ExecStartPre (the session.json prune, #2031) runs a script from THIS checkout — same
+    # retargeting as shepherd.service's WorkingDirectory above.
+    sed -e "s|^ExecStart=.*|ExecStart=${HERDR_PATH} server|" \
+      -e "/^ExecStartPre=/s|%h/\.shepherd/app/|${REPO}/|" \
       "$REPO/deploy/herdr.service" >"$HERDR_UNIT_TMP"
     # Only reload+bounce when the unit ACTUALLY changed. `try-restart` kills the daemon that
     # backs every live agent session, so doing it on every `bun run update` would bounce the

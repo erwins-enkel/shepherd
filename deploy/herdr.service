@@ -27,15 +27,27 @@ EnvironmentFile=-%h/.shepherd/env
 # different herdr than the one diagnostics probes. The value below is the common default, used
 # verbatim only if templating is somehow skipped.
 ExecStart=%h/.local/bin/herdr server
+# Prune Shepherd helper tabs from herdr's session.json while herdr is down (#2031): restore
+# re-spawns EVERY persisted tab as a fresh shell, so after a husk leak a restart re-materialised
+# them all at once (#2029: ~500 pane spawns in the first minute). The `-` makes any failure
+# non-fatal — herdr must start regardless; the script itself refuses to write on any doubt.
+# `%h/.shepherd/app` is TEMPLATED to the actual checkout (provision.ts / update.sh), the same
+# way shepherd.service's WorkingDirectory is.
+ExecStartPre=-%h/.bun/bin/bun %h/.shepherd/app/deploy/herdr-prune-session.ts
 # Restart=always (not on-failure): a `herdr server stop`, an OOM kill, or a crashed daemon
-# must all come back — panes OUTLIVE the server and reattach, so a restart is always safe
-# and always preferable to a host that silently can't start agents. This is the "durable
+# must all come back — always preferable to a host that silently can't start agents. Note a
+# restart is NOT free: pane processes die with the server (verified on herdr 0.9.1, stop and
+# SIGKILL alike), so every live agent session ends and its tab is restored as a bare shell. This is the "durable
 # operator-side fix" src/herdr-update.ts refers to; with it, that module's last-resort
 # `setsid herdr server` fallback becomes dead code on a provisioned host (it stays for
 # hand-rolled installs).
 Restart=always
 RestartSec=2
 Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+# Every pane and its threads count against this cgroup. #2029 hit the systemd default ceiling
+# (TasksMax=2500 on that host) and took the daemon out with `pthread_create: EAGAIN`. Explicit
+# and bounded: well above a healthy herd, still stops a runaway leak before it eats the host.
+TasksMax=16384
 
 [Install]
 WantedBy=default.target

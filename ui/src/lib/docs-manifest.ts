@@ -151,7 +151,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "shepherd CLI",
     path: "/reference/shepherd-cli/",
     keywords:
-      "read the herd, tail events and steer sessions from the terminal or an agent. install build connect and authenticate token scopes output exit codes commands read events session control work intake reviews and merge settings and diagnostics",
+      "read the herd, tail events and steer sessions from the terminal or an agent. install build connect and authenticate token scopes output exit codes commands read events session control work intake reviews and merge epics settings and diagnostics",
   },
   {
     title: "Stacked epic children",

@@ -405,6 +405,11 @@ async fn reviewing_ids(client: &Client) -> Result<HashSet<String>> {
         .collect())
 }
 
+/// Repo paths as given on the command line may carry a trailing slash the server's do not.
+fn same_repo(a: &str, b: &str) -> bool {
+    a.trim_end_matches('/') == b.trim_end_matches('/')
+}
+
 /// The flagged-ready PRs of one repo, warning about ready PRs the train leaves out.
 async fn ready_train(ctx: &mut Ctx<'_>, repo: Option<String>) -> Result<(String, Vec<ReadyPr>)> {
     let (sessions, git, reviewing) = tokio::join!(
@@ -415,7 +420,10 @@ async fn ready_train(ctx: &mut Ctx<'_>, repo: Option<String>) -> Result<(String,
     let ready = collect_ready_prs(&sessions?, &git?, &reviewing?);
     let (repo, prs, others) = match repo {
         Some(repo) => {
-            let prs: Vec<ReadyPr> = ready.into_iter().filter(|p| p.repo_path == repo).collect();
+            let prs: Vec<ReadyPr> = ready
+                .into_iter()
+                .filter(|p| same_repo(&p.repo_path, &repo))
+                .collect();
             (Some(repo), prs, 0)
         }
         None => pick_train_repo(ready),
@@ -443,7 +451,7 @@ async fn selected_train(client: &Client, repo: &str, numbers: &[i64]) -> Result<
     let known = |n: i64| {
         sessions
             .iter()
-            .filter(|s| s.repo_path == repo)
+            .filter(|s| same_repo(&s.repo_path, repo))
             .filter_map(|s| git.get(&s.id))
             .find(|g| g.number == Some(n))
     };

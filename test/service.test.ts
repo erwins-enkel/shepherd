@@ -7929,7 +7929,9 @@ test("landingRepairDirective: repair-and-push substance, no PR", () => {
   // Anchor on the durable substance from the task brief, not incidental wording.
   expect(sp).toContain("epic LANDING pull request");
   expect(sp).toContain("scratch branch");
-  expect(sp).toContain("git push origin HEAD:<integration-branch>");
+  // Goal-neutral: the task prompt (CI repair or conflict rework) owns goal + push command.
+  expect(sp).toContain("EXACT push command from the task prompt");
+  expect(sp).not.toContain("drive the epic integration branch's CI green");
   expect(sp).toContain("A plain `git push` will NOT work");
   expect(sp).toContain("Do NOT open a pull request");
   expect(sp).toContain("gh pr create");

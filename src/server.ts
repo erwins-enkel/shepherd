@@ -614,6 +614,12 @@ export interface AppDeps {
     approveEpicNext(repoPath: string): void;
     /** Drive one pump cycle across all drain-enabled repos. */
     tick(): Promise<void>;
+    /** #1841: operator-triggered conflict rework for a conflicting epic landing PR
+     *  (POST /api/epics/completed/resolve-conflicts). Optional — absent in tests that don't need it. */
+    resolveLandingConflict?(
+      repoPath: string,
+      parent: number,
+    ): Promise<import("./drain").ResolveLandingConflictResult>;
   };
   /** Full-auto merge train snapshot; absent in tests that don't exercise it. */
   autoMerge?: { snapshot(): Promise<import("./automerge").AutoMergeStatus[]> };
@@ -8246,6 +8252,7 @@ async function backfillIdleEpic(
       landingRebasePauseReason: null,
       landingRepairCount: 0,
       landingRepairHead: null,
+      landingConflictReworkCount: 0,
     };
     deps.store.recordEpicCompleted({
       repoPath: completed.repoPath,
@@ -8534,6 +8541,7 @@ async function handleEpicsCompletedLand({ req, parts, deps }: Ctx): Promise<Resp
         landingRebasePauseReason: updatedRow.landingRebasePauseReason,
         landingRepairCount: updatedRow.landingRepairCount,
         landingRepairHead: updatedRow.landingRepairHead,
+        landingConflictReworkCount: updatedRow.landingConflictReworkCount,
       };
       deps.events?.emit("epic:completed", completed);
     } catch {
@@ -8545,6 +8553,52 @@ async function handleEpicsCompletedLand({ req, parts, deps }: Ctx): Promise<Resp
 }
 
 // Ordered dispatch chain — preserves the original guard sequence verbatim.
+// #1841: result code → HTTP status + generic client message for resolve-conflicts. Constant
+// strings only — no forge/spawn error text reaches the client (CodeQL js/stack-trace-exposure).
+const RESOLVE_CONFLICT_ERRORS: Record<
+  Extract<import("./drain").ResolveLandingConflictResult, { ok: false }>["error"],
+  { status: number; message: string }
+> = {
+  "no-landing": { status: 404, message: "no open landing PR" },
+  unsupported: { status: 409, message: "conflict rework unsupported for this forge" },
+  busy: { status: 409, message: "landing busy, retry shortly" },
+  repairing: { status: 409, message: "a repair session is already working this landing" },
+  "not-conflicting": { status: 409, message: "landing PR is not conflicting" },
+  "spawn-failed": { status: 502, message: "conflict rework could not be started" },
+};
+
+// POST /api/epics/completed/resolve-conflicts — body { repo, parent }. #1841: dispatch a
+// conflict-rework session (rebase onto the default branch, resolve, force-with-lease push) for a
+// conflicting epic landing PR. Manual: bypasses auto-drain + the auto cap, still refused while a
+// repair session is live. 202 dispatched · 404 no open landing · 409 repairing/not-conflicting/
+// busy/unsupported · 502 spawn failed · 503 no drain.
+async function handleEpicsCompletedResolveConflicts({
+  req,
+  parts,
+  deps,
+}: Ctx): Promise<Response | null> {
+  if (!(
+    req.method === "POST" &&
+    parts[0] === "api" &&
+    parts[1] === "epics" &&
+    parts[2] === "completed" &&
+    parts[3] === "resolve-conflicts"
+  ))
+    return null;
+  const body = (await req.json().catch(() => null)) as { repo?: string; parent?: number } | null;
+  const dir = safeRepoDir(body?.repo ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const parent = body?.parent;
+  if (typeof parent !== "number" || !Number.isInteger(parent) || parent <= 0)
+    return json({ error: "parent must be a positive integer" }, 400);
+  const resolve = deps.drain?.resolveLandingConflict;
+  if (!resolve) return json({ error: "drain unavailable" }, 503);
+  const r = await resolve.call(deps.drain, dir, parent);
+  if (r.ok) return json({ ok: true }, 202);
+  const e = RESOLVE_CONFLICT_ERRORS[r.error];
+  return json({ error: e.message, reason: r.error }, e.status);
+}
+
 const ROUTE_HANDLERS = [
   handleLogin,
   handleLogout,
@@ -8580,6 +8634,7 @@ const ROUTE_HANDLERS = [
   handleSessionsAckManualSteps,
   handleManualSteps,
   handleEpicsCompletedLand,
+  handleEpicsCompletedResolveConflicts,
   handleEpicsCompletedList,
   handleEpicApproveNext,
   handleEpicImport,

@@ -1,9 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import {
   anyLiveRepairSession,
+  enrichLandingEpics,
   isLiveRepairSession,
   REPAIR_ACTIVE_TTL_MS,
 } from "../src/completed-epic";
+import type { CompletedEpic } from "../src/completed-epic";
+import type { PrStatus } from "../src/forge/types";
 import type { Session } from "../src/types";
 
 // ── isLiveRepairSession ───────────────────────────────────────────────────────
@@ -140,5 +143,59 @@ describe("anyLiveRepairSession", () => {
 
   it("false on an empty list", () => {
     expect(anyLiveRepairSession([], "/repo", "epic/7", 0)).toBe(false);
+  });
+});
+
+// ── enrichLandingEpics: conflict rework in flight (#1841) ────────────────────
+// A CONFLICTING landing PR held by a live repair session is a conflict rework in flight: the card
+// shows the non-actionable landingRepairing chip (not the "Resolve conflicts" CTA), and
+// landingCiFailing stays false (conflict-owned).
+describe("enrichLandingEpics — conflict rework in flight", () => {
+  const epic = (): CompletedEpic => ({
+    repoPath: "/repo",
+    parentIssueNumber: 7,
+    parentTitle: "Epic",
+    completedAt: 0,
+    children: [],
+    landingPrNumber: 42,
+    landingPrUrl: "http://x/42",
+    landingState: "open",
+    migrationPaths: [],
+    migrationsAckedAt: null,
+    landingRebasePauseReason: "conflict",
+    landingRepairCount: 0,
+    landingRepairHead: null,
+    landingConflictReworkCount: 1,
+  });
+  const conflicting = (checks: PrStatus["checks"]): PrStatus =>
+    ({ state: "open", checks, mergeable: false, mergeStateStatus: "dirty" }) as PrStatus;
+
+  async function enrich(live: boolean, checks: PrStatus["checks"] = "success") {
+    const rows = [epic()];
+    await enrichLandingEpics(rows, {
+      getEpicIntegrationBranch: () => "epic/7",
+      resolveForge: () => ({ kind: "github", prStatus: async () => conflicting(checks) }),
+      hasLiveRepairSession: () => live,
+      now: 0,
+    });
+    return rows[0]!;
+  }
+
+  it("conflicting + live repair session → landingRepairing true, landingCiFailing false", async () => {
+    const r = await enrich(true);
+    expect(r.landingRepairing).toBe(true);
+    expect(r.landingCiFailing).toBe(false);
+  });
+
+  it("conflicting + red checks + live session → still landingRepairing, never landingCiFailing", async () => {
+    const r = await enrich(true, "failure");
+    expect(r.landingRepairing).toBe(true);
+    expect(r.landingCiFailing).toBe(false);
+  });
+
+  it("conflicting + no live session → landingRepairing false (the CTA shows)", async () => {
+    const r = await enrich(false);
+    expect(r.landingRepairing).toBe(false);
+    expect(r.landingCiFailing).toBe(false);
   });
 });

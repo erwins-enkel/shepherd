@@ -2556,11 +2556,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     migrationsAckedAt: number | null;
     landingRepairCount: number;
     landingRepairHead: string | null;
+    landingConflictReworkCount: number;
   }[] {
     const sql = `SELECT repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson,
                 landingPrNumber, landingPrUrl, landingState, landingAttempts,
                 landingRebaseCount, landingRebaseDriverMisses, landingRebasePauseReason,
-                migrationPathsJson, migrationsAckedAt, landingRepairCount, landingRepairHead
+                migrationPathsJson, migrationsAckedAt, landingRepairCount, landingRepairHead,
+                landingConflictReworkCount
          FROM epic_completed WHERE dismissedAt IS NULL`;
     type Raw = {
       repoPath: string;
@@ -2579,6 +2581,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       migrationsAckedAt: number | null;
       landingRepairCount: number;
       landingRepairHead: string | null;
+      landingConflictReworkCount: number;
     };
     const rows =
       repoPath !== undefined
@@ -2659,6 +2662,21 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       `UPDATE epic_completed SET landingRepairCount = ?, landingRepairHead = ?
        WHERE repoPath = ? AND parentIssueNumber = ?`,
       [count, head, repoPath, parentIssueNumber],
+    );
+  }
+
+  /** Write the lifetime count of conflict-rework sessions dispatched for a completed epic's landing
+   *  PR (#1841). Separate from {@link setEpicLandingRepairCount} so a conflict rework never burns
+   *  the CI-repair budget. Direct UPDATE, mirroring {@link setEpicLandingPr}'s style. */
+  setEpicLandingConflictReworkCount(
+    repoPath: string,
+    parentIssueNumber: number,
+    count: number,
+  ): void {
+    this.db.run(
+      `UPDATE epic_completed SET landingConflictReworkCount = ?
+       WHERE repoPath = ? AND parentIssueNumber = ?`,
+      [count, repoPath, parentIssueNumber],
     );
   }
 
@@ -5386,6 +5404,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // nullable-TEXT handling.
     add("landingRepairCount", `landingRepairCount INTEGER NOT NULL DEFAULT 0`);
     add("landingRepairHead", `landingRepairHead TEXT`);
+    // #1841: lifetime conflict-rework dispatch count — its own budget, independent of the CI
+    // repair counter above.
+    add("landingConflictReworkCount", `landingConflictReworkCount INTEGER NOT NULL DEFAULT 0`);
   }
 
   /** Retained first-push CI columns (#2159) for a DB created before they existed. Both are

@@ -328,3 +328,94 @@ describe("POST /api/epics/completed/land", () => {
     expect(emitted.parentIssueNumber).toBe(42);
   });
 });
+
+// ── POST /api/epics/completed/resolve-conflicts (#1841) ───────────────────────
+
+describe("POST /api/epics/completed/resolve-conflicts", () => {
+  function conflictHarness(
+    resolve?: (
+      repoPath: string,
+      parent: number,
+    ) => Promise<import("../src/drain").ResolveLandingConflictResult>,
+  ) {
+    const store = new SessionStore(":memory:");
+    const calls: Array<[string, number]> = [];
+    const drain: AppDeps["drain"] = {
+      snapshot: async () => [],
+      queue: async () => [],
+      retainClaim: () => {},
+      buildEpic: async () => null,
+      diagnoseEpic: async () => null,
+      approveEpicNext: () => {},
+      tick: async () => {},
+      ...(resolve
+        ? {
+            resolveLandingConflict: (repoPath: string, parent: number) => {
+              calls.push([repoPath, parent]);
+              return resolve(repoPath, parent);
+            },
+          }
+        : {}),
+    };
+    const deps: AppDeps = {
+      store,
+      service: {} as AppDeps["service"],
+      events: new EventHub(),
+      usageLimits: { limits: () => ({}) } as any,
+      drain,
+    };
+    return { app: makeApp(deps), calls };
+  }
+
+  const post = (app: ReturnType<typeof makeApp>, body: unknown) =>
+    app.fetch(
+      new Request("http://x/api/epics/completed/resolve-conflicts", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+
+  test("invalid repo → 400, drain not called", async () => {
+    const { app, calls } = conflictHarness(async () => ({ ok: true }));
+    const res = await post(app, { repo: "/nope/not/here", parent: 5 });
+    expect(res.status).toBe(400);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("non-positive parent → 400", async () => {
+    const { app } = conflictHarness(async () => ({ ok: true }));
+    const res = await post(app, { repo: repoDir, parent: 0 });
+    expect(res.status).toBe(400);
+  });
+
+  test("no drain wired → 503", async () => {
+    const { app } = conflictHarness();
+    const res = await post(app, { repo: repoDir, parent: 5 });
+    expect(res.status).toBe(503);
+  });
+
+  test("dispatched → 202 ok, drain called with the resolved repo dir + parent", async () => {
+    const { app, calls } = conflictHarness(async () => ({ ok: true }));
+    const res = await post(app, { repo: repoDir, parent: 5 });
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(calls).toEqual([[repoDir, 5]]);
+  });
+
+  test.each([
+    ["no-landing", 404],
+    ["repairing", 409],
+    ["not-conflicting", 409],
+    ["busy", 409],
+    ["unsupported", 409],
+    ["spawn-failed", 502],
+  ] as const)("%s → %d with reason code + generic message", async (error, status) => {
+    const { app } = conflictHarness(async () => ({ ok: false, error }));
+    const res = await post(app, { repo: repoDir, parent: 5 });
+    expect(res.status).toBe(status);
+    const body = (await res.json()) as { error: string; reason: string };
+    expect(body.reason).toBe(error);
+    expect(typeof body.error).toBe("string");
+  });
+});

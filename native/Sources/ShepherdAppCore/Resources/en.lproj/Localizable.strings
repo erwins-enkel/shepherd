@@ -422,6 +422,8 @@
 "model_guidance_claude_opus_1m" = "Latest Opus with 1M context. Use only when the transcript or repo context truly needs it.";
 "model_guidance_claude_opus_5" = "Pins Opus 5 exactly, so a future Opus release can't quietly change this model.";
 "model_guidance_claude_opus_5_1m" = "Opus 5 pinned, with 1M context. Reserve it for large-context runs.";
+"model_guidance_claude_opus_5_5" = "Pins Opus 5.5 exactly, so a future Opus release can't quietly change this model. Needs Claude Code 2.1.280 or newer.";
+"model_guidance_claude_opus_5_5_1m" = "Opus 5.5 pinned, with 1M context. Reserve it for large-context runs. Needs Claude Code 2.1.280 or newer.";
 "model_guidance_claude_sonnet" = "Balanced default for everyday coding, reviews, and recaps.";
 "model_guidance_claude_sonnet_1m" = "Sonnet behavior with 1M context. Reserve it for large-context runs.";
 "model_guidance_codex_5" = "Budget general GPT-5 profile for light tasks.";
@@ -444,6 +446,8 @@
 "model_label_fable_5_1" = "Fable 5.1";
 "model_label_opus_5" = "Opus 5";
 "model_label_opus_5_1m" = "Opus 5 (1M context)";
+"model_label_opus_5_5" = "Opus 5.5";
+"model_label_opus_5_5_1m" = "Opus 5.5 (1M context)";
 "model_label_sonnet_1m" = "Sonnet (1M context)";
 "model_tag_balanced" = "balanced";
 "model_tag_budget" = "budget";

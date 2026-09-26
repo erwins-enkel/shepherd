@@ -8112,7 +8112,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ModelGuidanceCoreTests.swift\",\"CoreSeamTests.ModelGuidanceTests\",\"configuredLabelsBadgesAndProseUseTheExistingCopy()\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: Add Opus 5.5 and Opus 5.5 (1M) configured-label assertions; preserve all previous label assertions."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ModelGuidanceTests.swift\",\"ModelGuidanceTests\",\"constraintNormalizesAgainstTheCorrectedModelsEfforts()\"]",
@@ -8175,7 +8177,8 @@
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
       "assertionChanges": [
-        "current-module: Add GPT-6 Sol and Luna to the curated list and guidance row count; preserve all previous models and fallback assertions."
+        "current-module: Add GPT-6 Sol and Luna to the curated list and guidance row count; preserve all previous models and fallback assertions.",
+        "current-module: Add Opus 5.5 and Opus 5.5 (1M) to the curated Claude list and guidance row count; preserve all previous models and fallback assertions."
       ]
     },
     {

@@ -14,8 +14,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   MIRRORED_CONSTANTS,
+  NATIVE_MIRRORED,
   compareMirror,
+  compareNativeMirror,
   extractArrayLiteral,
+  extractSwiftArrayLiteral,
 } from "../scripts/check-model-mirror.mjs";
 
 // Resolved from this file, never process.cwd(), so the live-tree case below behaves
@@ -26,6 +29,11 @@ const ROOT = join(import.meta.dir, "..");
 function src(name: string, elements: string[]): string {
   const body = elements.map((e) => `  "${e}",`).join("\n");
   return `export const ${name} = [\n${body}\n] as const;\n`;
+}
+
+/** A minimal Swift `static let name = [...]` source, the ComposeRunConfig.swift shape. */
+function swift(name: string, elements: string[]): string {
+  return `    static let ${name} = [${elements.map((e) => `"${e}"`).join(", ")}]\n`;
 }
 
 // ── extractArrayLiteral ──────────────────────────────────────────────────────
@@ -181,6 +189,61 @@ test("reports every diverged constant, not just the first", () => {
   expect(deltas[1]!.orderMismatch).toBe(true);
 });
 
+// ── Swift native mirror ──────────────────────────────────────────────────────
+
+test("extractSwiftArrayLiteral parses a multi-line literal with `]` inside elements", () => {
+  const source = `    static let claudeModels = ["fable", "opus[1m]",\n        "sonnet[1m]", "haiku"] // trailing\n`;
+  expect(extractSwiftArrayLiteral(source, "claudeModels")).toEqual([
+    "fable",
+    "opus[1m]",
+    "sonnet[1m]",
+    "haiku",
+  ]);
+});
+
+test("extractSwiftArrayLiteral: absent, prefix-sharing, unterminated or empty → null", () => {
+  expect(extractSwiftArrayLiteral(swift("codexModels", ["o3"]), "claudeModels")).toBeNull();
+  expect(extractSwiftArrayLiteral(swift("claudeModelsExtra", ["x"]), "claudeModels")).toBeNull();
+  expect(extractSwiftArrayLiteral(`static let efforts = ["low",\n`, "efforts")).toBeNull();
+  expect(extractSwiftArrayLiteral(`static let efforts: [String] = []\n`, "efforts")).toBeNull();
+});
+
+const ONLY_CLAUDE_NATIVE = { CLAUDE_MODELS: "claudeModels" };
+
+test("native mirror: identical lists → ok", () => {
+  const server = src("CLAUDE_MODELS", ["opus", "opus[1m]", "haiku"]);
+  const native = swift("claudeModels", ["opus", "opus[1m]", "haiku"]);
+  expect(compareNativeMirror(server, native, ONLY_CLAUDE_NATIVE)).toEqual({ ok: true, deltas: [] });
+});
+
+test("native mirror: server-only model (the #2450 drift) → onlyInServer names it", () => {
+  const server = src("CLAUDE_MODELS", ["opus", "claude-opus-5-5", "haiku"]);
+  const native = swift("claudeModels", ["opus", "haiku"]);
+  const { ok, deltas } = compareNativeMirror(server, native, ONLY_CLAUDE_NATIVE);
+  expect(ok).toBe(false);
+  expect(deltas[0]!.onlyInServer).toEqual(["claude-opus-5-5"]);
+  expect(deltas[0]!.onlyInNative).toEqual([]);
+});
+
+test("native mirror: native-only model and reorder are both reported", () => {
+  const server = `${src("CLAUDE_MODELS", ["opus"])}${src("EFFORTS", ["low", "high"])}`;
+  const native = `${swift("claudeModels", ["opus", "haiku"])}${swift("efforts", ["high", "low"])}`;
+  const { deltas } = compareNativeMirror(server, native, {
+    CLAUDE_MODELS: "claudeModels",
+    EFFORTS: "efforts",
+  });
+  expect(deltas.map((d) => d.constant)).toEqual(["CLAUDE_MODELS", "EFFORTS"]);
+  expect(deltas[0]!.onlyInNative).toEqual(["haiku"]);
+  expect(deltas[1]!.orderMismatch).toBe(true);
+});
+
+test("native mirror: unparseable Swift side fails closed with missingIn native", () => {
+  const server = src("CLAUDE_MODELS", ["opus"]);
+  const { ok, deltas } = compareNativeMirror(server, swift("other", ["opus"]), ONLY_CLAUDE_NATIVE);
+  expect(ok).toBe(false);
+  expect(deltas[0]!.missingIn).toEqual(["native"]);
+});
+
 // ── the CLI entry point ──────────────────────────────────────────────────────
 //
 // Both cases below exercise the main guard, whose two failure modes are
@@ -194,7 +257,8 @@ test("reports every diverged constant, not just the first", () => {
 
 /** Build a throwaway checkout at `dir` with a copy of the gate + divergent halves. */
 function fakeCheckout(dir: string): string {
-  for (const d of ["scripts", "src", join("ui", "src", "lib")]) {
+  const nativeDir = join("native", "Sources", "ShepherdAppCore", "Compose");
+  for (const d of ["scripts", "src", join("ui", "src", "lib"), nativeDir]) {
     mkdirSync(join(dir, d), { recursive: true });
   }
   const script = join(dir, "scripts", "check-model-mirror.mjs");
@@ -203,6 +267,10 @@ function fakeCheckout(dir: string): string {
     src("CLAUDE_MODELS", claude) + src("CODEX_MODELS", ["gpt-5"]) + src("EFFORTS", ["low"]);
   writeFileSync(join(dir, "src", "types.ts"), halves(["opus"]));
   writeFileSync(join(dir, "ui", "src", "lib", "types.ts"), halves(["opus", "haiku"]));
+  writeFileSync(
+    join(dir, nativeDir, "ComposeRunConfig.swift"),
+    swift("claudeModels", ["opus"]) + swift("codexModels", ["gpt-5"]) + swift("efforts", ["low"]),
+  );
   return script;
 }
 
@@ -262,4 +330,17 @@ test("every mirrored constant actually parses out of both real files", () => {
     expect(extractArrayLiteral(server, constant)?.length).toBeGreaterThan(0);
     expect(extractArrayLiteral(ui, constant)?.length).toBeGreaterThan(0);
   }
+});
+
+test("the real src/types.ts and native ComposeRunConfig.swift are in sync", () => {
+  const server = readFileSync(join(ROOT, "src", "types.ts"), "utf8");
+  const native = readFileSync(
+    join(ROOT, "native", "Sources", "ShepherdAppCore", "Compose", "ComposeRunConfig.swift"),
+    "utf8",
+  );
+  expect(Object.keys(NATIVE_MIRRORED)).toEqual(MIRRORED_CONSTANTS);
+  for (const name of Object.values(NATIVE_MIRRORED)) {
+    expect(extractSwiftArrayLiteral(native, name)?.length).toBeGreaterThan(0);
+  }
+  expect(compareNativeMirror(server, native)).toEqual({ ok: true, deltas: [] });
 });

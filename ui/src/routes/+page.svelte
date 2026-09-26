@@ -52,6 +52,7 @@
     ackEpicMigrations,
     ackManualSteps,
     landEpic,
+    resolveLandingConflicts,
     getEpic,
     getDiagnostics,
     getPlugins,
@@ -2739,6 +2740,27 @@
     }
   }
 
+  // #1841: dispatch a conflict-rework agent for a conflicting epic landing PR. Success needs no
+  // toast — an immediate re-seed flips landingRepairing (GET-only enrichment) and the card shows
+  // the auto-repairing chip. Failure copy is keyed off the server's stable `reason`.
+  async function onResolveEpicConflicts(repoPath: string, parent: number) {
+    try {
+      await resolveLandingConflicts(repoPath, parent);
+      getCompletedEpics()
+        .then((l) => store.seedCompletedEpics(l))
+        .catch(() => {});
+    } catch (err) {
+      const reason = err instanceof ApiError ? err.code : undefined;
+      const msg =
+        reason === "repairing"
+          ? m.integrated_epics_resolve_conflicts_repairing()
+          : reason === "not-conflicting"
+            ? m.integrated_epics_resolve_conflicts_not_conflicting()
+            : m.integrated_epics_resolve_conflicts_failed();
+      toasts.info(msg, { alert: true, key: `epic-resolve-fail:${repoPath}#${parent}` });
+    }
+  }
+
   // Confirmed: clear the dialog state (before the await, so it can't double-submit),
   // then run the bulk archive.
   function confirmClearMerged() {
@@ -2967,6 +2989,7 @@
             completedEpics={completedEpicsShown}
             ondismissepic={onDismissEpic}
             onlandepic={onLandEpic}
+            onresolveconflictsepic={onResolveEpicConflicts}
             doneList={shownDoneSessions}
             {doneSelectedId}
             ondoneselect={(id) => {
@@ -3137,6 +3160,7 @@
               completedEpics={completedEpicsShown}
               ondismissepic={onDismissEpic}
               onlandepic={onLandEpic}
+              onresolveconflictsepic={onResolveEpicConflicts}
               doneList={shownDoneSessions}
               {doneSelectedId}
               ondoneselect={(id) => (doneSelectedId = id)}

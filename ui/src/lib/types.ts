@@ -1067,6 +1067,8 @@ export interface CompletedEpic {
    *  server CompletedEpic.landingRepairing). A stuck/finished session falls back to the plain
    *  CI-failing state instead. */
   landingRepairing?: boolean;
+  /** Conflict-rework sessions dispatched against this landing PR so far (#1841; auto + manual). */
+  landingConflictReworkCount: number;
 }
 
 /** One queued backlog issue behind DrainStatus.queued — a row in the queue popover.

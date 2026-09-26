@@ -4,6 +4,8 @@
   import { formatAgo } from "$lib/format";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { deriveFooterSituation } from "$lib/integrated-epic-status";
+  import { statusTip } from "$lib/tooltips/statusTip.svelte";
+  import { landingConflictReworkExplanation } from "$lib/tooltips/explanations";
 
   let {
     epic,
@@ -11,12 +13,15 @@
     onland,
     ondismiss,
     onackmigrations,
+    onresolveconflicts,
   }: {
     epic: CompletedEpic;
     nowMs?: number;
     onland: (repoPath: string, parent: number) => void;
     ondismiss: (repoPath: string, parent: number) => void;
     onackmigrations: (repoPath: string, parent: number) => void;
+    /** #1841: dispatch a conflict-rework agent for a conflicting landing PR. */
+    onresolveconflicts: (repoPath: string, parent: number) => void;
   } = $props();
 
   let confirming = $state(false);
@@ -68,6 +73,14 @@
     return m.integrated_epics_land_not_ready_generic();
   });
 
+  // #1841: offer the conflict-rework agent when the landing PR conflicts with the default branch
+  // (auto-rebase paused on a real conflict, or the forge reports it unmergeable) and no repair
+  // session is already working it — while one is live, the auto-repairing chip stands in.
+  const canResolveConflicts = $derived(
+    !epic.landingRepairing &&
+      (epic.landingRebasePauseReason === "conflict" || epic.landingMergeable === false),
+  );
+
   function handleLandConfirm() {
     confirming = false;
     onland(epic.repoPath, epic.parentIssueNumber);
@@ -106,8 +119,22 @@
           >
         {/if}
         {#if epic.landingRepairing}
-          <!-- Non-actionable: an auto-repair session is live, driving CI back to green. -->
+          <!-- Non-actionable: an auto-repair session is live — driving CI back to green, or
+               reworking a conflict (#1841). Shown regardless of the conflict state. -->
           <span class="chip-repairing">{m.integrated_epics_auto_repairing()}</span>
+        {/if}
+        {#if canResolveConflicts}
+          <button
+            class="gbtn"
+            type="button"
+            use:statusTip={{
+              text: landingConflictReworkExplanation(),
+              stopClickPropagation: false,
+            }}
+            onclick={() => onresolveconflicts(epic.repoPath, epic.parentIssueNumber)}
+          >
+            {m.integrated_epics_resolve_conflicts()}
+          </button>
         {/if}
         {#if epic.landingReady === true}
           <button class="gbtn" type="button" onclick={() => (confirming = true)}>

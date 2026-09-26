@@ -89,6 +89,7 @@
     completedEpics = [],
     ondismissepic = undefined,
     onlandepic = undefined,
+    onresolveconflictsepic = undefined,
     doneList = [],
     doneSelectedId = null,
     ondoneselect = undefined,
@@ -213,6 +214,8 @@
     ondismissepic?: (repoPath: string, parent: number) => void;
     // merge the landing PR for a completed epic (#1039); server emits epic:completed on success
     onlandepic?: (repoPath: string, parent: number) => void;
+    /** #1841: dispatch a conflict-rework agent for a completed epic's conflicting landing PR. */
+    onresolveconflictsepic?: (repoPath: string, parent: number) => void;
     // Done lens: the archived ("done") sessions to list when filter === "done" (newest
     // first; the endpoint already orders them). These are NOT live sessions — they live in
     // the page's lazy doneSessions store, distinct from `sessions`.
@@ -759,6 +762,7 @@
         ondismiss={ondismissepic ?? (() => {})}
         onackmigrations={onackmigrationsepic ?? (() => {})}
         onland={onlandepic ?? (() => {})}
+        onresolveconflicts={onresolveconflictsepic ?? (() => {})}
         {nowMs}
       />
     {/if}

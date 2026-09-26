@@ -2945,6 +2945,31 @@ export async function landEpic(repoPath: string, parent: number): Promise<{ ok: 
   return postJson("/api/epics/completed/land", { repo: repoPath, parent }, "land epic");
 }
 
+/** Dispatch a conflict-rework agent for a completed epic's conflicting landing PR (#1841): rebases
+ *  the integration branch onto the default branch, resolves conflicts and force-with-lease pushes
+ *  it (no PR). 202 → dispatched. Non-2xx throws an {@link ApiError} whose `code` is the server's
+ *  `reason` (`no-landing` · `repairing` · `not-conflicting` · `busy` · `unsupported` ·
+ *  `spawn-failed`), so callers can pick copy without message-matching. */
+export async function resolveLandingConflicts(
+  repoPath: string,
+  parent: number,
+): Promise<{ ok: boolean }> {
+  const r = await fetch("/api/epics/completed/resolve-conflicts", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ repo: repoPath, parent }),
+  });
+  if (!r.ok) {
+    const body = (await r.json().catch(() => null)) as { error?: string; reason?: string } | null;
+    throw apiError(
+      r.status,
+      body ? { error: body.error, code: body.reason } : null,
+      `resolve landing conflicts failed: ${r.status}`,
+    );
+  }
+  return r.json();
+}
+
 /** Manually trigger the PR-gated doc agent for a repo. 202 → started; 409 → skipped
  *  (with the server's reason); other non-2xx throws. */
 export async function triggerDocAgent(

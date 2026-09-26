@@ -1133,6 +1133,7 @@ function completedEpic(repoPath: string, parentIssueNumber: number): CompletedEp
     landingState: "pending",
     migrationPaths: [],
     migrationsAckedAt: null,
+    landingConflictReworkCount: 0,
   };
 }
 

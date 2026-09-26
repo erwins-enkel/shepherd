@@ -40,3 +40,18 @@ export function coldResumeExplanation(params: {
     ],
   };
 }
+
+/** "Resolve conflicts" on a conflicting epic landing PR (#1841): what the agent does + its cost. */
+export function landingConflictReworkExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_landing_conflicts_title(),
+    summary: m.tooltip_landing_conflicts_summary(),
+    sections: [
+      { label: m.tooltip_landing_conflicts_does(), text: m.tooltip_landing_conflicts_does_body() },
+      {
+        label: m.tooltip_landing_conflicts_consequence(),
+        text: m.tooltip_landing_conflicts_consequence_body(),
+      },
+    ],
+  };
+}

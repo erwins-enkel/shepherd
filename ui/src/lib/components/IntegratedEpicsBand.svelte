@@ -8,12 +8,14 @@
     ondismiss,
     onackmigrations,
     onland,
+    onresolveconflicts = () => {},
     nowMs = Date.now(),
   }: {
     epics: CompletedEpic[];
     ondismiss: (repoPath: string, parent: number) => void;
     onackmigrations: (repoPath: string, parent: number) => void;
     onland: (repoPath: string, parent: number) => void;
+    onresolveconflicts?: (repoPath: string, parent: number) => void;
     nowMs?: number;
   } = $props();
 
@@ -38,7 +40,14 @@
     {#if !collapsed}
       <div class="rows">
         {#each epics as epic (`${epic.repoPath}#${epic.parentIssueNumber}`)}
-          <IntegratedEpicRow {epic} {ondismiss} {onackmigrations} {onland} {nowMs} />
+          <IntegratedEpicRow
+            {epic}
+            {ondismiss}
+            {onackmigrations}
+            {onland}
+            {onresolveconflicts}
+            {nowMs}
+          />
         {/each}
       </div>
     {/if}

@@ -670,6 +670,7 @@ function buildCompletedEpics(): CompletedEpic[] {
       landingState: "merged",
       migrationPaths: [],
       migrationsAckedAt: null,
+      landingConflictReworkCount: 0,
     },
     {
       repoPath: API,
@@ -692,6 +693,7 @@ function buildCompletedEpics(): CompletedEpic[] {
       landingState: "merged",
       migrationPaths: [],
       migrationsAckedAt: null,
+      landingConflictReworkCount: 0,
     },
   ];
 }

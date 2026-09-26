@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import Ajv2020 from "ajv/dist/2020";
 import { clearBranchStatusCacheForTests } from "../../src/server";
 import { SpawnPhaseTracker, registerSpawn, releaseSpawn } from "../../src/spawn-progress";
+import type { Epic, EpicRun } from "../../src/epic-core";
 import * as fx from "./compose-fixtures";
 import {
   bearer,
@@ -15,6 +16,7 @@ import {
   startContractServer,
   validateResponse,
   validateEvent,
+  validateRequest,
   withAuth,
   type ContractServer,
 } from "./harness";
@@ -182,6 +184,105 @@ describe("epics", () => {
     const anon = await get(`/api/epics?repo=${encodeURIComponent(s.validRepo)}`, false);
     expect(anon.status).toBe(401);
     await validateResponse("GET", "/api/epics", anon);
+  });
+});
+
+describe("epic", () => {
+  const q = () => `?repo=${encodeURIComponent(s.validRepo)}&parent=412`;
+  async function call(
+    method: string,
+    template: string,
+    path: string,
+    status: number,
+    body?: unknown,
+    auth = true,
+  ): Promise<unknown> {
+    if (body !== undefined && status === 200) validateRequest(method, template, body);
+    const res = await fetch(`${s.baseUrl}${path}`, {
+      method,
+      headers: { "content-type": "application/json", ...(auth ? bearer(token) : {}) },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    expect(res.status, `${method} ${path}`).toBe(status);
+    return await validateResponse(method, template, res);
+  }
+
+  test("503 without a drain, 400 on a bad repo or parent, 401 without a credential", async () => {
+    for (const [method, template, body] of [
+      ["GET", "/api/epic", undefined],
+      ["PUT", "/api/epic", { status: "running" }],
+      ["POST", "/api/epic/approve-next", undefined],
+    ] as const) {
+      expect(await call(method, template, `${template}${q()}`, 503, body)).toEqual({
+        error: "drain unavailable",
+      });
+      await call(method, template, `${template}?repo=/etc&parent=412`, 400, body);
+      await call(
+        method,
+        template,
+        `${template}?repo=${encodeURIComponent(s.validRepo)}&parent=0`,
+        400,
+        body,
+      );
+      await call(method, template, `${template}${q()}`, 401, body, false);
+    }
+  });
+
+  test("get, patch and approve-next answer the assembled epic, or ok when it vanished", async () => {
+    const previousDrain = s.deps.drain;
+    let found = true;
+    let ticks = 0;
+    const approved: string[] = [];
+    s.deps.drain = {
+      buildEpic: async (_dir: string, run: EpicRun) => (found ? fx.epic(run) : null),
+      approveEpicNext: (dir: string) => {
+        approved.push(dir);
+      },
+      tick: async () => {
+        ticks++;
+      },
+    } as unknown as NonNullable<typeof s.deps.drain>;
+    try {
+      const got = (await call("GET", "/api/epic", `/api/epic${q()}`, 200)) as Epic;
+      expect(got.run).toMatchObject({ parentIssueNumber: 412, mode: "auto", status: "idle" });
+      expect(got.children.map((c) => c.state)).toEqual(["in-review", "blocked"]);
+
+      const patch = { mode: "attended", status: "paused", agentProvider: "claude", effort: "high" };
+      const patched = (await call("PUT", "/api/epic", `/api/epic${q()}`, 200, patch)) as Epic;
+      expect(patched.run).toMatchObject({ ...patch, repoPath: s.validRepo });
+      expect(s.deps.store.getEpicRun(s.validRepo)).toMatchObject(patch);
+      for (const bad of [{ status: "done" }, { mode: "auto", extra: 1 }]) {
+        expect(() => validateRequest("PUT", "/api/epic", bad)).toThrow();
+        await call("PUT", "/api/epic", `/api/epic${q()}`, 400, bad);
+      }
+
+      const next = (await call(
+        "POST",
+        "/api/epic/approve-next",
+        `/api/epic/approve-next${q()}`,
+        200,
+      )) as Epic;
+      expect(next.run.mode).toBe("attended");
+      expect(approved).toEqual([s.validRepo]);
+      expect(ticks).toBe(1);
+
+      found = false;
+      await call("GET", "/api/epic", `/api/epic${q()}`, 404);
+      expect(await call("PUT", "/api/epic", `/api/epic${q()}`, 200, { status: "idle" })).toEqual({
+        ok: true,
+      });
+      expect(
+        await call("POST", "/api/epic/approve-next", `/api/epic/approve-next${q()}`, 200),
+      ).toEqual({ ok: true });
+    } finally {
+      s.deps.drain = previousDrain;
+      s.deps.store.setEpicRun({
+        repoPath: s.validRepo,
+        parentIssueNumber: 412,
+        mode: "auto",
+        status: "idle",
+      });
+    }
   });
 });
 

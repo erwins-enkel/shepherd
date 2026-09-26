@@ -1,0 +1,11 @@
+Run a merge train for the pull requests I've flagged ready to merge. Review each for correctness and product-fit, propose a safe merge order, and stop for my approval before merging anything; then re-check the queue after every merge, because main moves under you.
+
+Ready-to-merge PRs:
+{prs}
+
+If this repo provides a /merge-train command or skill, use it. Otherwise work the train yourself:
+1. For each PR, gather status with gh (CI rollup, mergeability/conflicts, how far behind main, and which files overlap other PRs in this list).
+2. Move any PR that is CI-red, conflicting, gate-failing, or that we don't actually want into a separate hold list with a one-line reason; never merge past a red gate.
+3. Order the rest: smallest and most independent first; when two overlap, sequence them so the riskier one rebases onto the other; release-please PRs last.
+4. Present the numbered merge order plus the hold list and WAIT for my approval.
+5. On approval, merge in order: rebase onto latest main first (never merge main into the branch), confirm gates are green, then gh pr merge --squash --delete-branch, and re-check the remaining PRs against main before the next one.

@@ -205,3 +205,143 @@ async fn empty_steer_text_is_usage() {
         2
     );
 }
+
+fn halted(id: &str, desig: &str, reason: Option<&str>) -> serde_json::Value {
+    let mut s = session_json(id, desig);
+    s["haltReason"] = json!(reason);
+    s
+}
+
+#[tokio::test]
+async fn go_releases_the_plan_gate() {
+    let s = server().await;
+    Mock::given(method("POST"))
+        .and(path("/api/sessions/id-7/go"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"ok": true})))
+        .expect(1)
+        .mount(&s)
+        .await;
+    let mut h = Harness::new();
+    h.tty = true;
+    assert_eq!(h.run(&["--url", &s.uri(), "go", "TASK-07"]).await, 0);
+    assert!(h.out.text().contains("plan gate released for TASK-07"));
+}
+
+#[tokio::test]
+async fn go_not_releasable_is_refused() {
+    let s = server().await;
+    Mock::given(method("POST"))
+        .and(path("/api/sessions/id-7/go"))
+        .respond_with(
+            ResponseTemplate::new(409).set_body_json(json!({"error": "plan gate not approved"})),
+        )
+        .mount(&s)
+        .await;
+    let h = Harness::new();
+    assert_eq!(h.run(&["--url", &s.uri(), "go", "TASK-07"]).await, 6);
+    assert!(h.err.text().contains("plan gate not approved"));
+}
+
+#[tokio::test]
+async fn halt_without_yes_is_usage_and_sends_nothing() {
+    let s = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/halt"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"halted": 3})))
+        .expect(0)
+        .mount(&s)
+        .await;
+    let h = Harness::new();
+    assert_eq!(h.run(&["--url", &s.uri(), "halt"]).await, 2);
+    assert!(h.err.text().contains("--yes"), "{}", h.err.text());
+    assert!(s.received_requests().await.unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn halt_yes_halts_the_herd() {
+    let s = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/api/halt"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({"halted": 3})))
+        .expect(1)
+        .mount(&s)
+        .await;
+    let mut h = Harness::new();
+    h.tty = true;
+    assert_eq!(h.run(&["--url", &s.uri(), "halt", "--yes"]).await, 0);
+    assert!(h.out.text().contains("halted 3 agents"), "{}", h.out.text());
+}
+
+#[tokio::test]
+async fn retry_defaults_to_usage_limit_sessions_and_continue_text() {
+    let s = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/sessions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            halted("id-1", "TASK-01", Some("usage_limit")),
+            halted("id-2", "TASK-02", Some("operator")),
+            halted("id-3", "TASK-03", None),
+            halted("id-4", "TASK-04", Some("usage_limit")),
+        ])))
+        .mount(&s)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/retry"))
+        .and(body_json(json!({
+            "ids": ["id-1", "id-4"],
+            "text": "Please continue — your usage limit should have reset."
+        })))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"resumed": 1, "steered": 1, "total": 2})),
+        )
+        .expect(1)
+        .mount(&s)
+        .await;
+    let mut h = Harness::new();
+    h.tty = true;
+    assert_eq!(
+        h.run(&["--url", &s.uri(), "retry"]).await,
+        0,
+        "{}",
+        h.err.text()
+    );
+    assert!(h.out.text().contains("resumed 1, steered 1 of 2"));
+}
+
+#[tokio::test]
+async fn retry_named_sessions_with_text() {
+    let s = server().await;
+    Mock::given(method("POST"))
+        .and(path("/api/retry"))
+        .and(body_json(json!({"ids": ["id-7"], "text": "go on"})))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"resumed": 1, "steered": 0, "total": 1})),
+        )
+        .expect(1)
+        .mount(&s)
+        .await;
+    let h = Harness::new();
+    let args = ["--url", &s.uri(), "retry", "TASK-07", "--text", "go on"];
+    assert_eq!(h.run(&args).await, 0, "{}", h.err.text());
+    assert_eq!(h.json()["resumed"], 1);
+}
+
+#[tokio::test]
+async fn retry_with_nothing_halted_posts_nothing() {
+    let s = server().await;
+    Mock::given(method("POST"))
+        .and(path("/api/retry"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(&s)
+        .await;
+    let h = Harness::new();
+    assert_eq!(h.run(&["--url", &s.uri(), "retry"]).await, 0);
+    assert_eq!(h.json(), json!({"resumed": 0, "steered": 0, "total": 0}));
+    let mut h = Harness::new();
+    h.tty = true;
+    assert_eq!(h.run(&["--url", &s.uri(), "retry"]).await, 0);
+    assert!(h.out.text().contains("nothing to retry"));
+}

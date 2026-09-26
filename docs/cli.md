@@ -95,11 +95,11 @@ withholds the stored token and says so on stderr. Set `SHEPHERD_TOKEN` to authen
 
 A token's scope, set when it is minted, limits what the CLI can do:
 
-| Scope    | Commands                                                                                                                                                                             |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `read`   | `sessions list`, `sessions show` (active sessions), `status`, `holds`, `git`, `reviews`, `events tail`, `login`                                                                      |
-| `submit` | everything `read` can, plus `new` and `held list\|spawn\|discard`                                                                                                                    |
-| `full`   | everything else, including `steer`, `interrupt`, `archive`, `resume`, `merge`, `drain`, `up-next`, `settings`, `repo-config`, `diagnose`, and `sessions show` of an archived session |
+| Scope    | Commands                                                                                                                                                                                                                         |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `read`   | `sessions list`, `sessions show` (active sessions), `status`, `holds`, `git`, `reviews`, `events tail`, `login`                                                                                                                  |
+| `submit` | everything `read` can, plus `new`, `held list\|spawn\|discard` and `train launch`                                                                                                                                                |
+| `full`   | everything else, including `steer`, `interrupt`, `archive`, `resume`, `merge`, `merge-pr`, `go`, `halt`, `retry`, `epics`, `drain`, `up-next`, `settings`, `repo-config`, `diagnose`, and `sessions show` of an archived session |
 
 The server's `403` doesn't say which scope was missing. The CLI names it for you, for example:
 ``error: `shepherd steer` needs a 'full' token; this token's scope does not include it.``
@@ -171,13 +171,26 @@ Ctrl-C exits `0`.
 
 ### Session control
 
-| Command                               | Route                              | Scope    |
-| ------------------------------------- | ---------------------------------- | -------- |
-| `shepherd new [flags] <prompt\|->`    | `POST /api/sessions`               | `submit` |
-| `shepherd steer <session> <text\|->`  | `POST /api/sessions/:id/reply`     | `full`   |
-| `shepherd interrupt <session>`        | `POST /api/sessions/:id/interrupt` | `full`   |
-| `shepherd archive <session>`          | `DELETE /api/sessions/:id`         | `full`   |
-| `shepherd resume <session> [--force]` | `POST /api/sessions/:id/resume`    | `full`   |
+| Command                                | Route                              | Scope    |
+| -------------------------------------- | ---------------------------------- | -------- |
+| `shepherd new [flags] <prompt\|->`     | `POST /api/sessions`               | `submit` |
+| `shepherd steer <session> <text\|->`   | `POST /api/sessions/:id/reply`     | `full`   |
+| `shepherd interrupt <session>`         | `POST /api/sessions/:id/interrupt` | `full`   |
+| `shepherd archive <session>`           | `DELETE /api/sessions/:id`         | `full`   |
+| `shepherd resume <session> [--force]`  | `POST /api/sessions/:id/resume`    | `full`   |
+| `shepherd go <session>`                | `POST /api/sessions/:id/go`        | `full`   |
+| `shepherd halt --yes`                  | `POST /api/halt`                   | `full`   |
+| `shepherd retry [<session>…] [--text]` | `POST /api/retry`                  | `full`   |
+
+`go` releases an approved plan gate and starts execution. The server refuses (exit `6`) when the
+session isn't in the planning phase or its plan isn't approved.
+
+`halt` interrupts every live working agent at once, the fleet-wide emergency stop. It needs
+`--yes`; without it the CLI exits `2` and sends nothing.
+
+`retry` resumes halted sessions and steers each to continue. Without sessions it takes every
+session the usage limit halted, and prints `nothing to retry` when there is none. `--text` replaces
+the default steer, the one the UI's Retry dialog sends.
 
 Flags for `new`:
 
@@ -231,14 +244,16 @@ for every item exits `8` and names each failure.
 
 ### Reviews and merge
 
-| Command                                                            | Route                                             | Scope  |
-| ------------------------------------------------------------------ | ------------------------------------------------- | ------ |
-| `shepherd review-pr <session>`                                     | `POST /api/sessions/:id/review-pr`                | `full` |
-| `shepherd review-plan <session>`                                   | `POST /api/sessions/:id/review-plan`              | `full` |
-| `shepherd merge <session> [--method] [--keep-branch] [--takeover]` | `POST /api/sessions/:id/git/merge`                | `full` |
-| `shepherd train status`                                            | `GET /api/automerge`                              | `full` |
-| `shepherd train start\|stop [--repo]`                              | `PUT /api/repo-config?repo=` (`autoMergeEnabled`) | `full` |
-| `shepherd train set <session> on\|off\|default`                    | `PUT /api/sessions/:id/automerge`                 | `full` |
+| Command                                                                       | Route                                             | Scope    |
+| ----------------------------------------------------------------------------- | ------------------------------------------------- | -------- |
+| `shepherd review-pr <session>`                                                | `POST /api/sessions/:id/review-pr`                | `full`   |
+| `shepherd review-plan <session>`                                              | `POST /api/sessions/:id/review-plan`              | `full`   |
+| `shepherd merge <session> [--method] [--keep-branch] [--takeover]`            | `POST /api/sessions/:id/git/merge`                | `full`   |
+| `shepherd train status`                                                       | `GET /api/automerge`                              | `full`   |
+| `shepherd train start\|stop [--repo]`                                         | `PUT /api/repo-config?repo=` (`autoMergeEnabled`) | `full`   |
+| `shepherd train set <session> on\|off\|default`                               | `PUT /api/sessions/:id/automerge`                 | `full`   |
+| `shepherd merge-pr <number> [--repo] [--method] [--keep-branch] [--takeover]` | `POST /api/prs/merge`                             | `full`   |
+| `shepherd train launch [<number>…] [--repo] [--base]`                         | `POST /api/sessions`                              | `submit` |
 
 `review-pr` and `review-plan` start the critic or the plan review now and print what the server
 did, for example `started` or `running`.
@@ -249,15 +264,53 @@ the server refuses the merge and the CLI exits `6` and suggests `--takeover`. `-
 the takeover with the PR state the server has cached (head commit, target branch and who is
 responsible), and the server refuses again if any of it changed.
 
+`merge-pr` merges a repo's pull request by number, with or without a session, like **Merge** in
+the backlog's PR panel. `--method` and `--keep-branch` work as for `merge`. `--takeover` has no
+cached state to echo, so it sends the merge unconfirmed first. When the server refuses because
+someone else is responsible, the CLI echoes the PR state from that refusal and retries once; the
+server rechecks every field, and a second refusal is final.
+
 `train` is the full-auto merge train. `train start` and `train stop` flip the repo's setting.
 Like the UI toggle, `train start` also turns off the repo's draft mode, because the two can't both
 be on. `train set` overrides the train for one session, and `default` goes back to the repo setting.
+
+`train launch` spawns a merge-train agent session, like **Merge train** in the Herd or the PR
+panel: it reviews the PRs, proposes a merge order and waits for your approval before merging.
+Without numbers it takes every PR flagged ready to merge whose review isn't running. `--repo`
+narrows them to one repo; without it the CLI picks the repo with the most ready PRs and warns on
+stderr about the ones it left out. No ready PR exits `6`. With numbers it runs over exactly those
+PRs in `--repo` (default: the current directory's git toplevel). The session skips the plan gate
+and autopilot and bypasses the usage hold. `--base` defaults to `main`.
 
 ```bash
 shepherd up-next list
 shepherd up-next start owner/repo#42 --provider claude
 shepherd merge TASK-07 --method squash
+shepherd merge-pr 1234 --repo ~/Work/my-repo
+shepherd train launch --repo ~/Work/my-repo
 ```
+
+### Epics
+
+`<parent>` is the epic's parent issue number. `--repo` defaults to the current directory's git
+toplevel.
+
+| Command                                                                    | Route                                       | Scope  |
+| -------------------------------------------------------------------------- | ------------------------------------------- | ------ |
+| `shepherd epics list [--repo]`                                             | `GET /api/epics?repo=`                      | `full` |
+| `shepherd epics show <parent> [--repo]`                                    | `GET /api/epic?repo=&parent=`               | `full` |
+| `shepherd epics start <parent> [--mode] [--provider] [--model] [--effort]` | `PUT /api/epic?repo=&parent=`               | `full` |
+| `shepherd epics pause\|stop <parent> [--repo]`                             | `PUT /api/epic?repo=&parent=`               | `full` |
+| `shepherd epics approve-next <parent> [--repo]`                            | `POST /api/epic/approve-next?repo=&parent=` | `full` |
+
+`epics show` prints the epic's run settings, its warnings and one row per child with its state,
+blockers, PR and session. `start` sets the run to running and, when given, its mode
+(`auto|attended`), coding agent, model and effort; `pause` and `stop` set it to paused or idle,
+like the epic panel's buttons. `approve-next` approves the next child spawn of an attended epic.
+The server keeps one epic run per repo, so `pause`, `stop` and `approve-next` first read the
+epic and exit `6` unless its own run is in the right state: running for `pause`, running or paused
+for `stop`, running and attended for `approve-next`.
+A server without the drain answers `503`, so these exit `8`.
 
 ### Settings and diagnostics
 

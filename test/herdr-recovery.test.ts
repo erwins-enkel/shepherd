@@ -521,7 +521,8 @@ test("aborting after detached launch leaves the recovered daemon alive", async (
 });
 
 test("the detached worker completes start after its initiating process dies", async () => {
-  const f = fixture({ stopDelay: 0.05 });
+  // Slow runners: a cold child `bun` plus a 180ms per-command timeout overran the 2s budget (#2533).
+  const f = fixture({ stopDelay: 0.05, timeoutMs: 1_000 });
   const driver = join(f.dir, "driver.ts");
   writeFileSync(
     driver,
@@ -530,7 +531,7 @@ await runHerdrRecovery({ restart: true, logPath: ${JSON.stringify(f.logPath)}, s
 `,
   );
   const parent = spawn(process.execPath, [driver], { env: f.env, stdio: "ignore" });
-  const deadline = Date.now() + 2_000;
+  const deadline = Date.now() + 10_000;
   while (!existsSync(f.stopped) && Date.now() < deadline) await Bun.sleep(10);
   expect(existsSync(f.stopped)).toBe(true);
   parent.kill("SIGKILL");
@@ -539,4 +540,4 @@ await runHerdrRecovery({ restart: true, logPath: ${JSON.stringify(f.logPath)}, s
     await Bun.sleep(10);
   }
   expect(readFileSync(f.state, "utf8").trim()).toBe("ready");
-});
+}, 15_000);

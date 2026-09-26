@@ -333,6 +333,109 @@ test("pollSession ignores archived/unknown sessions", async () => {
   expect(emitted).toHaveLength(0);
 });
 
+test("pollNow resolves only once the fresh PR state is cached", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const forge = forgeReturning(() => OPEN);
+  forge.prStatus = async () => {
+    await gate;
+    return OPEN;
+  };
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    120_000,
+    0,
+  );
+
+  let done = false;
+  const p = poller.pollNow(s.id).then(() => (done = true));
+  await tick();
+  expect(done).toBe(false);
+  release();
+  await p;
+  expect(poller.get(s.id)?.state).toBe("open");
+});
+
+test("pollNow cancels a pending debounced pollSession", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  let calls = 0;
+  const poller = new PrPoller(
+    store,
+    () =>
+      forgeReturning(() => {
+        calls++;
+        return OPEN;
+      }),
+    () => {},
+    120_000,
+    5,
+  );
+
+  poller.pollSession(s.id);
+  await poller.pollNow(s.id);
+  await new Promise((r) => setTimeout(r, 20));
+  expect(calls).toBe(1);
+});
+
+test("pollNow re-polls even while an older poll for the session is in flight", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  let cur = NONE;
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  let first = true;
+  const forge = forgeReturning(() => cur);
+  forge.prStatus = async () => {
+    const snap = cur; // the in-flight poll started before the PR existed
+    if (first) {
+      first = false;
+      await gate;
+    }
+    return snap;
+  };
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    120_000,
+    0,
+  );
+
+  poller.pollSession(s.id); // stale poll: reads NONE, then stalls
+  await tick();
+  cur = OPEN; // agent runs `gh pr create`
+  const p = poller.pollNow(s.id);
+  release();
+  await p;
+  expect(poller.get(s.id)?.state).toBe("open");
+});
+
+test("pollNow ignores archived/unknown sessions", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  store.archive(s.id);
+  let calls = 0;
+  const poller = new PrPoller(
+    store,
+    () =>
+      forgeReturning(() => {
+        calls++;
+        return OPEN;
+      }),
+    () => {},
+    120_000,
+    0,
+  );
+  await poller.pollNow(s.id);
+  await poller.pollNow("nope");
+  expect(calls).toBe(0);
+});
+
 test("emits when only the latest review changes", async () => {
   const store = new SessionStore(":memory:");
   store.create(baseSession);

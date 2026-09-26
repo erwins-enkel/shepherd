@@ -583,6 +583,24 @@ export class PrPoller implements PrCache {
     );
   }
 
+  /**
+   * Awaitable, undebounced poll for a caller that must act on FRESH PR state (autopilot's
+   * open-a-PR re-check). Deliberately NOT de-duped on `inFlight`: a poll already in flight may
+   * have started before the agent's `gh pr create`, so its answer can be stale. `withGh`
+   * serializes it behind that poll, and the change-gated set/emit makes the repeat harmless.
+   * Supersedes a pending debounced `pollSession` for the same session.
+   */
+  async pollNow(id: string): Promise<void> {
+    const pending = this.debounce.get(id);
+    if (pending) {
+      clearTimeout(pending);
+      this.debounce.delete(id);
+    }
+    const s = this.store.get(id);
+    if (!s || s.status === "archived") return;
+    await this.withGh(() => this.refresh(s));
+  }
+
   private async refreshOne(id: string): Promise<void> {
     if (this.inFlight.has(id)) return;
     const s = this.store.get(id);

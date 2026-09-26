@@ -117,8 +117,14 @@ function harness(opts: {
   rebaseCap?: number;
   /** Injected clock (default 0) so the conflict-ownership window is deterministic. */
   now?: number;
+  /** Optional awaited fresh-PR poll; receives a setter that flips what hasPr reports. */
+  pollPrNow?: (setPr: (open: boolean) => void) => Promise<void>;
+  /** Cap on the pollPrNow wait (default: the service's own). */
+  prRecheckTimeoutMs?: number;
 }) {
   let cur = opts.session;
+  let prOpen = opts.openPr ?? false;
+  const setPr = (open: boolean) => (prOpen = open);
   const events: any[] = [];
   const setAutoMergeStateCalls: any[] = [];
   const classified: Array<{
@@ -201,7 +207,7 @@ function harness(opts: {
     deferSteer: opts.deferSteer,
     readTail: () => ["finished, nothing else"],
     pendingAuthUrl: () => opts.pendingAuthUrl ?? null,
-    hasPr: () => opts.openPr ?? false,
+    hasPr: () => prOpen,
     hasDiff: async () => opts.hasDiff ?? true,
     openLocalPr: async (id) => {
       events.push({ openLocalPr: id });
@@ -210,6 +216,13 @@ function harness(opts: {
     fullAuto: () => opts.fullAuto ?? false,
     getReview: () => opts.review ?? null,
     refreshPr: (id) => events.push({ refreshPr: id }),
+    pollPrNow: opts.pollPrNow
+      ? (id) => {
+          events.push({ pollPrNow: id });
+          return opts.pollPrNow!(setPr);
+        }
+      : undefined,
+    prRecheckTimeoutMs: opts.prRecheckTimeoutMs,
     onPause: (id, q) => events.push({ pause: id, q }),
     onComplete: (id, summary) => events.push({ complete: id, summary }),
     onState: (id) => events.push({ state: id }),
@@ -276,6 +289,88 @@ test("finished verdict in forge repo → openPrSteer, never openLocalPr", async 
   await h.svc.onBlock("s1", block(["I'm done."]));
   expect(h.events).toContainEqual({ steer: OPEN_PR_STEER_MAIN });
   expect(h.events.some((e) => "openLocalPr" in e)).toBe(false);
+});
+
+test("finished verdict: fresh PR poll finds the just-opened PR → no open-PR steer", async () => {
+  const h = harness({
+    session: sess(),
+    verdict: { kind: "finished", summary: "opened PR" },
+    pollPrNow: async (setPr) => setPr(true), // the agent's `gh pr create` lands in the fresh poll
+  });
+  await h.svc.onBlock("s1", block(["I opened PR #7."]));
+  expect(h.events).toContainEqual({ pollPrNow: "s1" });
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.state().autopilotStepCount).toBe(0);
+});
+
+test("finished verdict: fresh PR poll still finds no PR → open-PR steer", async () => {
+  const h = harness({
+    session: sess(),
+    verdict: { kind: "finished", summary: "done, no PR" },
+    pollPrNow: async () => {},
+  });
+  await h.svc.onBlock("s1", block(["I'm done."]));
+  expect(h.events).toContainEqual({ pollPrNow: "s1" });
+  expect(h.events).toContainEqual({ steer: OPEN_PR_STEER_MAIN });
+});
+
+test("finished verdict: a failed fresh PR poll fails open → open-PR steer", async () => {
+  const warn = mock(() => {});
+  const orig = console.warn;
+  console.warn = warn;
+  try {
+    const h = harness({
+      session: sess(),
+      verdict: { kind: "finished", summary: "done, no PR" },
+      pollPrNow: async () => {
+        throw new Error("gh down");
+      },
+    });
+    await h.svc.onBlock("s1", block(["I'm done."]));
+    expect(h.events).toContainEqual({ steer: OPEN_PR_STEER_MAIN });
+    expect(warn).toHaveBeenCalled();
+  } finally {
+    console.warn = orig;
+  }
+});
+
+test("finished verdict: a hung fresh PR poll is capped → open-PR steer", async () => {
+  const h = harness({
+    session: sess(),
+    verdict: { kind: "finished", summary: "done, no PR" },
+    pollPrNow: () => new Promise<void>(() => {}), // never settles
+    prRecheckTimeoutMs: 5,
+  });
+  await h.svc.onBlock("s1", block(["I'm done."]));
+  expect(h.events).toContainEqual({ steer: OPEN_PR_STEER_MAIN });
+});
+
+test("finished verdict: session paused during the fresh PR poll → no steer", async () => {
+  const h: ReturnType<typeof harness> = harness({
+    session: sess(),
+    verdict: { kind: "finished", summary: "done, no PR" },
+    pollPrNow: async () => {
+      h.svc["deps"].store.setAutopilotState("s1", { paused: true });
+    },
+  });
+  await h.svc.onBlock("s1", block(["I'm done."]));
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+});
+
+test("finished verdict: a second turn-end during the fresh PR poll can't double-steer", async () => {
+  let release!: () => void;
+  const h = harness({
+    session: sess({ status: "done" }),
+    verdict: { kind: "finished", summary: "done, no PR" },
+    pollPrNow: () => new Promise<void>((r) => (release = r)),
+  });
+  const first = h.svc.onDone("s1");
+  await flush(); // first is now parked on the fresh PR poll
+  await h.svc.onDone("s1"); // second turn-end edge
+  expect(h.classifyCount()).toBe(1);
+  release();
+  await first;
+  expect(h.events.filter((e) => "steer" in e)).toHaveLength(1);
 });
 
 test("openPrSteer carries an explicit --base for the session's base branch", () => {

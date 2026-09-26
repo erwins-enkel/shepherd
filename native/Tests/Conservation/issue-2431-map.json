@@ -110,7 +110,9 @@
         "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/EventStreamTests.swift\",\"EventStreamTests\",\"backsOffOnRejectedUpgrades() async throws\"]"
       ],
       "reason": "Retained unchanged in ShepherdKitTests.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: waits via #require(eventually { connectionCount() >= 2 }) for a real retry before the 800 ms window, then bounds only in-window attempts (< 20) (#2428); the >= 2 retry check becomes that #require precondition, backoff bound retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/EventStreamTests.swift\",\"EventStreamTests\",\"dropsMalformedFrames() async throws\"]",

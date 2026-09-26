@@ -164,6 +164,8 @@ So a finding can't rot in an overwritten file — it surfaces as an open, tracka
 
 The same full run also publishes a **commit status** (`onboarding-harness` context, success/failure) on the tested SHA, so every nightly leaves a visible green/red record on the commit — even a clean run that files no issue — linked to the regression issue when red.
 
+**herdr-ceiling advisory (#1905, non-gating).** Each full run also fetches herdr's `latest.json`. When it is above `HERDR_LAST_SUPPORTED_VERSION`, the gap report gets an `## Advisories` section, the commit-status description a `· herdr X > ceiling Y` note (state unchanged), and a **separate** rolling issue (label `herdr-ceiling-advisory`) is opened/commented nightly until the ceiling catches up, then closed. It deliberately does **not** use `onboarding-regression` — the release gate below blocks on that label, and an upstream herdr release must never block a Shepherd release (#1896). An unreachable/malformed `latest.json` is logged and otherwise ignored (advisory issue left untouched).
+
 **Scope — the verdict (issue, status, exit code) is the deterministic GATE subset only** (`structured` AND not `detectionOnly` — the same scenarios `onboarding-gate.sh` runs). A prose/agent gap (e.g. `git-missing`, whose distro-specific fix runs through the LLM agent) or a detection-only scenario shows in the report but **never** opens the issue, flips the status to red, or fails the run — it can't auto-heal unattended, so it must not block releases. The full gap report still lists every scenario.
 
 ## Release gate

@@ -18,7 +18,8 @@ import {
 import { applyAgent, applyVerbatim } from "./apply";
 import { assertDetection } from "./assert";
 import { buildGapReport, gateGapScenarios, statusDescription } from "./report";
-import { reportToGitHub, publishStatus } from "./issue";
+import { checkHerdrCeiling, type HerdrCeilingCheck } from "./herdr-advisory";
+import { reportToGitHub, publishStatus, reportHerdrAdvisory } from "./issue";
 import { remediationsFor } from "../../src/remediations";
 import { HERDR_LAST_SUPPORTED_VERSION } from "../../src/herdr-capabilities";
 import { HERDR_MISSING_EXIT_CODE, HERDR_MISSING_MARKER } from "../../src/preflight";
@@ -429,16 +430,28 @@ async function maybeReportRun(
   report: string,
   only: string | null | undefined,
   ok: boolean,
+  herdrCheck: HerdrCeilingCheck | null,
 ): Promise<void> {
   if (only || process.env.SHEPHERD_ONBOARDING_REPORT_ISSUE !== "1") return;
   try {
     const outcome = await reportToGitHub(results, report, new Date().toISOString());
     console.log(`[github] issue: ${outcome.summary}`);
     const sha = execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-    await publishStatus(sha, ok, statusDescription(results), outcome.issueUrl);
+    await publishStatus(sha, ok, statusDescription(results, herdrCheck), outcome.issueUrl);
     console.log(`[github] status: ${ok ? "success" : "failure"} on ${sha.slice(0, 7)}`);
   } catch (err) {
     console.error(`[github] reporting failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  // Separate try: the non-gating advisory issue must neither block nor be blocked by the
+  // regression reporting above.
+  try {
+    console.log(
+      `[github] herdr advisory: ${await reportHerdrAdvisory(herdrCheck, new Date().toISOString())}`,
+    );
+  } catch (err) {
+    console.error(
+      `[github] herdr advisory failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -659,7 +672,9 @@ async function main() {
     release();
   }
 
-  const report = buildGapReport(results);
+  // Non-gating (#1905): an upstream herdr release past the ceiling is surfaced, never gated.
+  const herdrCheck = await checkHerdrCeiling();
+  const report = buildGapReport(results, herdrCheck);
   const out = join(process.cwd(), "onboarding-gap-report.md");
   writeFileSync(out, report);
   console.log(`\n${report}\nReport written to ${out}`);
@@ -669,7 +684,7 @@ async function main() {
   // never flips the gate red. Non-launch crashes (BOOT CRASH) are NOT harness errors and
   // still gate.
   const gateOk = gateGapScenarios(results).length === 0;
-  await maybeReportRun(results, report, only, gateOk);
+  await maybeReportRun(results, report, only, gateOk, herdrCheck);
   recordRunCompleted(only);
   process.exit(gateOk ? 0 : 1);
 }

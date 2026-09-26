@@ -1,3 +1,4 @@
+import { advisoryLine, type HerdrCeilingCheck } from "./herdr-advisory";
 import { LAUNCH_FAILURE_PREFIX } from "./incus";
 import type { ScenarioResult } from "./types";
 
@@ -80,7 +81,10 @@ export function gateGapScenarios(results: ScenarioResult[]): ScenarioResult[] {
  *  wire) — scoped to the deterministic subset, so an informational prose/agent
  *  gap (e.g. git-missing) doesn't flip the release verdict. Harness errors are
  *  excluded from the denominator (they didn't get a fair attempt) but noted. */
-export function statusDescription(results: ScenarioResult[]): string {
+export function statusDescription(
+  results: ScenarioResult[],
+  herdrCheck: HerdrCeilingCheck | null = null,
+): string {
   const gate = results.filter((r) => r.gateEligible && !isHarnessError(r));
   const green = gate.filter((r) => r.reachedGreen).length;
   const gaps = gateGapScenarios(results);
@@ -88,9 +92,13 @@ export function statusDescription(results: ScenarioResult[]): string {
   const harnessNote = harness.length
     ? ` (${harness.length} harness error${harness.length > 1 ? "s" : ""})`
     : "";
+  // Non-gating herdr-ceiling note (#1905) — appended, so it's the part a 140-char cut drops.
+  const advisoryNote = herdrCheck?.ahead
+    ? ` · herdr ${herdrCheck.latest} > ceiling ${herdrCheck.ceiling}`
+    : "";
   return gaps.length === 0
-    ? `${green}/${gate.length} gate scenarios green${harnessNote}`
-    : `${gaps.length} gate gap(s): ${gaps.map((g) => g.scenarioId).join(", ")}${harnessNote}`;
+    ? `${green}/${gate.length} gate scenarios green${harnessNote}${advisoryNote}`
+    : `${gaps.length} gate gap(s): ${gaps.map((g) => g.scenarioId).join(", ")}${harnessNote}${advisoryNote}`;
 }
 
 /** Compact wall-clock for the report: `48s`, `2m 31s`. `—` when a scenario was never
@@ -167,7 +175,10 @@ function runtimeTotal(results: ScenarioResult[]): string[] {
   ];
 }
 
-export function buildGapReport(results: ScenarioResult[]): string {
+export function buildGapReport(
+  results: ScenarioResult[],
+  herdrCheck: HerdrCeilingCheck | null = null,
+): string {
   // Both detection-only (by design) and harness-errored (never booted) scenarios
   // are excluded from the green ratio — neither got a fair coaching attempt, so
   // counting them as non-green would read as a product regression.
@@ -197,6 +208,9 @@ export function buildGapReport(results: ScenarioResult[]): string {
   }
   if (unverified.length) {
     lines.push("", "## Not verified", "", ...unverified);
+  }
+  if (herdrCheck?.ahead) {
+    lines.push("", "## Advisories", "", advisoryLine(herdrCheck));
   }
   return lines.join("\n") + "\n";
 }

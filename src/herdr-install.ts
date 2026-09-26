@@ -14,6 +14,10 @@
 // unaffected.
 import { HERDR_LAST_SUPPORTED_VERSION } from "./herdr-capabilities";
 
+/** herdr's published "latest release" manifest — read by the in-app updater and the nightly
+ *  onboarding harness's ceiling advisory (#1905). */
+export const HERDR_LATEST_URL = "https://herdr.dev/latest.json";
+
 /** Versions are regex-captured (digits + dots) before they reach here, but they ultimately
  *  originate from herdr.dev/latest.json — an external source. Strip anything that isn't a version
  *  char before embedding in a shell program so a poisoned payload can never inject commands.

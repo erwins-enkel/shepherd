@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { reportToGitHub, publishStatus } from "../../ci/onboarding-harness/issue";
+import {
+  reportToGitHub,
+  publishStatus,
+  reportHerdrAdvisory,
+} from "../../ci/onboarding-harness/issue";
 import type { GhRunner } from "../../ci/onboarding-harness/issue";
 import type { ScenarioResult } from "../../ci/onboarding-harness/types";
 
@@ -126,6 +130,52 @@ describe("reportToGitHub", () => {
     // The comment should name the harness error scenario
     const commentCall = callsKeep.find((c) => c[0] === "issue" && c[1] === "comment");
     expect(commentCall?.join(" ")).toContain("harness error");
+  });
+});
+
+describe("reportHerdrAdvisory (#1905)", () => {
+  const AHEAD = { latest: "0.10.0", ceiling: "0.9.1", ahead: true };
+  const WITHIN = { latest: "0.9.1", ceiling: "0.9.1", ahead: false };
+  const OPEN = { number: 7, url: "https://github.com/x/y/issues/7" };
+  const mutating = (calls: string[][]) =>
+    calls.filter((c) => ["create", "edit", "comment", "close"].includes(c[1]!));
+
+  it("opens an advisory issue under its own label — never onboarding-regression", async () => {
+    const { calls, gh } = fakeGh(null);
+    await reportHerdrAdvisory(AHEAD, "2026-09-26", gh);
+    const list = calls.find((c) => c[0] === "issue" && c[1] === "list");
+    expect(list).toContain("herdr-ceiling-advisory");
+    const create = calls.find((c) => c[0] === "issue" && c[1] === "create");
+    expect(create).toContain("herdr-ceiling-advisory");
+    expect(create!.join(" ")).not.toContain("onboarding-regression");
+    expect(create!.join(" ")).toContain("0.10.0");
+    expect(create!.join(" ")).toContain("0.9.1");
+  });
+
+  it("refreshes + comments on the open advisory issue while still ahead", async () => {
+    const { calls, gh } = fakeGh(OPEN);
+    await reportHerdrAdvisory(AHEAD, "2026-09-26", gh);
+    expect(calls.some((c) => c[1] === "edit" && c[2] === "7")).toBe(true);
+    expect(calls.some((c) => c[1] === "comment" && c[2] === "7")).toBe(true);
+    expect(calls.some((c) => c[1] === "close" || c[1] === "create")).toBe(false);
+  });
+
+  it("closes the advisory issue once the ceiling catches up", async () => {
+    const { calls, gh } = fakeGh(OPEN);
+    await reportHerdrAdvisory(WITHIN, "2026-09-26", gh);
+    expect(calls.some((c) => c[1] === "close" && c[2] === "7")).toBe(true);
+  });
+
+  it("does nothing when within the ceiling and no issue is open", async () => {
+    const { calls, gh } = fakeGh(null);
+    await reportHerdrAdvisory(WITHIN, "2026-09-26", gh);
+    expect(mutating(calls)).toHaveLength(0);
+  });
+
+  it("leaves everything untouched when latest is unknown (fetch failed)", async () => {
+    const { calls, gh } = fakeGh(OPEN);
+    await reportHerdrAdvisory(null, "2026-09-26", gh);
+    expect(calls).toHaveLength(0);
   });
 });
 

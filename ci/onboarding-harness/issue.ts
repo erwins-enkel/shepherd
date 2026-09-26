@@ -1,3 +1,4 @@
+import { advisoryLine, type HerdrCeilingCheck } from "./herdr-advisory";
 import { gateGapScenarios, harnessErrorScenarios } from "./report";
 import { captureSpawn, type Captured } from "./spawn";
 import type { ScenarioResult } from "./types";
@@ -18,12 +19,15 @@ const TITLE = "Onboarding harness: nightly regression detected";
 // is eventually-consistent (a just-created issue isn't returned for a few seconds),
 // so back-to-back runs within that window could double-file. Runs 24h apart never
 // hit it — by the next night the issue is long-indexed.
-async function findOpenIssue(gh: GhRunner): Promise<{ number: number; url: string } | null> {
+async function findOpenIssue(
+  gh: GhRunner,
+  label: string = LABEL,
+): Promise<{ number: number; url: string } | null> {
   const r = await gh([
     "issue",
     "list",
     "--label",
-    LABEL,
+    label,
     "--state",
     "open",
     "--json",
@@ -158,4 +162,85 @@ export async function publishStatus(
   if (targetUrl) args.push("-f", `target_url=${targetUrl}`);
   const r = await gh(args);
   if (r.code !== 0) throw new Error(`gh status publish failed: ${r.stderr || r.stdout}`);
+}
+
+// The herdr-ceiling advisory (#1905) gets its OWN rolling issue: the release gate
+// (onboarding-release-gate.yml) blocks on any open `onboarding-regression` issue, and an
+// upstream herdr release must never block a Shepherd release (#1896).
+const ADVISORY_LABEL = "herdr-ceiling-advisory";
+
+/**
+ * Keep ONE rolling advisory issue while herdr's latest release is above Shepherd's
+ * supported ceiling — the team-wide daily nudge the pinned install removed:
+ *  - ahead + no open issue → open one
+ *  - ahead + open issue    → refresh title/body + dated comment
+ *  - not ahead + open      → close it (the ceiling caught up)
+ *  - unknown (null: latest.json unreachable/malformed) → leave everything untouched
+ */
+export async function reportHerdrAdvisory(
+  check: HerdrCeilingCheck | null,
+  stamp: string,
+  gh: GhRunner = defaultGh,
+): Promise<string> {
+  if (!check) return "herdr latest unknown — advisory issue untouched";
+  const existing = await findOpenIssue(gh, ADVISORY_LABEL);
+  if (!check.ahead) {
+    if (existing == null) return "herdr within ceiling — nothing to do";
+    const r = await gh([
+      "issue",
+      "close",
+      String(existing.number),
+      "--comment",
+      `herdr latest ${check.latest} is within the supported ceiling ${check.ceiling} as of ${stamp}. Closing.`,
+    ]);
+    if (r.code !== 0) throw new Error(`gh issue close failed: ${r.stderr || r.stdout}`);
+    return `closed #${existing.number} (ceiling caught up)`;
+  }
+
+  const title = `herdr ${check.latest} is above Shepherd's supported ceiling ${check.ceiling}`;
+  const body = `${advisoryLine(check)}\n\nNon-gating: this issue does not block releases.\n\n_Nightly run: ${stamp}_\n`;
+  if (existing == null) {
+    await gh([
+      "label",
+      "create",
+      ADVISORY_LABEL,
+      "--color",
+      "FBCA04",
+      "--description",
+      "herdr released above Shepherd's supported ceiling (non-gating)",
+      "--force",
+    ]);
+    const r = await gh([
+      "issue",
+      "create",
+      "--title",
+      title,
+      "--label",
+      ADVISORY_LABEL,
+      "--body",
+      body,
+    ]);
+    if (r.code !== 0) throw new Error(`gh issue create failed: ${r.stderr || r.stdout}`);
+    return `opened advisory issue: ${r.stdout.trim()}`;
+  }
+  const edit = await gh([
+    "issue",
+    "edit",
+    String(existing.number),
+    "--title",
+    title,
+    "--body",
+    body,
+  ]);
+  if (edit.code !== 0) throw new Error(`gh issue edit failed: ${edit.stderr || edit.stdout}`);
+  const comment = await gh([
+    "issue",
+    "comment",
+    String(existing.number),
+    "--body",
+    `Nightly run ${stamp}: herdr ${check.latest} still above ceiling ${check.ceiling}.`,
+  ]);
+  if (comment.code !== 0)
+    throw new Error(`gh issue comment failed: ${comment.stderr || comment.stdout}`);
+  return `updated advisory #${existing.number}`;
 }

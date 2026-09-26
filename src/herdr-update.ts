@@ -9,7 +9,7 @@ import {
 } from "./herdr-capabilities";
 import { maintenance as sharedMaintenance } from "./maintenance";
 import { compareSemver } from "./semver";
-import { herdrAssetKey, herdrReleaseUrl, sanitizeVersion } from "./herdr-install";
+import { HERDR_LATEST_URL, herdrAssetKey, herdrReleaseUrl, sanitizeVersion } from "./herdr-install";
 import { runScriptChild } from "./script-child";
 import { readInstalledVersion, readActualVersion } from "./version-probe";
 import type { HerdrUpdateStatus, HerdrUpdateResult } from "./types";
@@ -27,7 +27,6 @@ export { compareSemver };
 export { herdrAssetKey, herdrReleaseUrl };
 
 const SEMVER_RE = /(\d+\.\d+\.\d+)/;
-const LATEST_URL = "https://herdr.dev/latest.json";
 
 /** Prefix every step marker the update script echoes. Stable + greppable so the
  *  operator can `cat ~/.shepherd/herdr-update.log | grep '>>> herdr-update'` and
@@ -315,7 +314,8 @@ export class HerdrUpdateService {
       deps.versionRunner ??
       (() => execFileSync(config.herdrBin, ["--version"], { encoding: "utf8" }));
     this.fetchLatest =
-      deps.fetchLatest ?? (() => fetch(LATEST_URL).then((r) => r.json() as Promise<HerdrManifest>));
+      deps.fetchLatest ??
+      (() => fetch(HERDR_LATEST_URL).then((r) => r.json() as Promise<HerdrManifest>));
     this.runUpdate = deps.runUpdate ?? ((onLine, signal) => this.defaultRunUpdate(onLine, signal));
     this.runDowngrade =
       deps.runDowngrade ?? ((script, onLine, signal) => this.spawnScript(script, onLine, signal));

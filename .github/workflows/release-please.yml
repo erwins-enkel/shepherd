@@ -75,6 +75,13 @@ jobs:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
+  cli-release:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release_created == 'true' }}
+    uses: ./.github/workflows/cli-release.yml
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+
   macos-update:
     needs: release-please
     if: ${{ needs.release-please.outputs.release_created == 'true' && vars.SPARKLE_PUBLIC_KEY != '' }}

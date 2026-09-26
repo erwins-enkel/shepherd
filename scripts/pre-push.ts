@@ -48,6 +48,14 @@ export function isEslintFile(path: string): boolean {
 }
 
 /**
+ * Whether the push touches the Rust CLI: its own sources, or the derived contract its client is
+ * generated from at build time.
+ */
+export function touchesCli(changed: string[]): boolean {
+  return changed.some((f) => f.startsWith("cli/") || f === "contracts/openapi.rust.yaml");
+}
+
+/**
  * Route changed files to the correct eslint invocation. `ui/` has no own lint
  * script — `ui/src` is linted by the ROOT eslint; `extension/src` by the
  * EXTENSION eslint (run with cwd=extension, so paths are returned relative to it).
@@ -343,7 +351,7 @@ function changedFiles(repoRoot: string): string[] {
  * Number of lanes `buildLanes` will produce, computed WITHOUT side effects so
  * concurrency can be sized before the single (temp-dir-creating) build. MUST mirror
  * `buildLanes`' lane-inclusion logic: gates/tsc/root-tests/ui/ext always run;
- * prettier/eslint are conditional under delta scoping.
+ * prettier/eslint/cli are conditional under delta scoping.
  */
 export function plannedLaneCount(delta: boolean, changed: string[]): number {
   let n = 5; // gates, tsc, root-tests, ui, ext
@@ -351,8 +359,9 @@ export function plannedLaneCount(delta: boolean, changed: string[]): number {
     if (changed.length) n++; // prettier (delta)
     const routed = routeEslintFiles(changed);
     if (routed.root.length || routed.ext.length) n++; // eslint (delta)
+    if (touchesCli(changed)) n++; // cli (delta)
   } else {
-    n += 2; // prettier + eslint (whole-repo fallback)
+    n += 3; // prettier + eslint + cli (whole-repo fallback)
   }
   return n;
 }
@@ -604,6 +613,22 @@ function buildLanes(
       { label: "build", cmd: join(repoRoot, "scripts/check-ui-build.sh"), args: [], cwd: ui },
     ],
   });
+
+  if (!opts.delta || touchesCli(opts.changed)) {
+    lanes.push({
+      name: "cli",
+      // A cold build compiles the generated client and every dependency; warm runs are seconds.
+      timeoutMs: t(600_000),
+      steps: [
+        {
+          label: "cargo fmt/clippy/test",
+          cmd: "bash",
+          args: ["scripts/check-cli.sh"],
+          cwd: repoRoot,
+        },
+      ],
+    });
+  }
 
   lanes.push({
     name: "ext",

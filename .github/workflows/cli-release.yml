@@ -1,0 +1,124 @@
+name: Publish CLI binaries
+
+# Prebuilt `shepherd` CLI (cli/) for each release, installed by deploy/install-cli.sh (#2484).
+#
+# release-please calls this explicitly: releases created with GITHUB_TOKEN do not trigger another
+# release workflow. Manual dispatch re-runs or backfills a tag.
+#
+# Assets go to a SEPARATE `cli-<tag>` release, not the release-please one: this repo has immutable
+# releases on, so a published release can't take new assets. Same draft → upload → publish shape as
+# native-release.yml's `macos-<tag>` release.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag (vX.Y.Z) whose CLI binaries to build and publish
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cli-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          # 22.04, not ubuntu-latest: the binary links the runner's glibc, so an older image keeps
+          # Debian 12 / Ubuntu 22.04 hosts (glibc 2.35) supported. rustls → no OpenSSL link.
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04-arm
+          - target: aarch64-apple-darwin
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    env:
+      RELEASE_TAG: ${{ inputs.tag }}
+      TARGET: ${{ matrix.target }}
+    steps:
+      - name: Validate tag
+        run: '[[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9.-]+)?$ ]]'
+        shell: bash
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - name: Build
+        working-directory: cli
+        run: cargo build --release --locked --target "$TARGET"
+      - name: Check version matches the tag (lockstep with the server)
+        shell: bash
+        run: |
+          set -euo pipefail
+          got="$(cli/target/$TARGET/release/shepherd --version)"
+          want="shepherd ${RELEASE_TAG#v}"
+          [ "$got" = "$want" ] || { echo "::error::binary reports '$got', expected '$want'"; exit 1; }
+      - name: Stage binary + checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir dist
+          cp "cli/target/$TARGET/release/shepherd" "dist/shepherd-$TARGET"
+          (cd dist && shasum -a 256 "shepherd-$TARGET" > "shepherd-$TARGET.sha256")
+          cat "dist/shepherd-$TARGET.sha256"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: cli-${{ matrix.target }}
+          path: dist/
+          retention-days: 14
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag }}
+      CLI_TAG: cli-${{ inputs.tag }}
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: cli-*
+          merge-multiple: true
+          path: dist
+      - name: Publish the complete CLI release
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9.-]+)?$ ]]
+          # Only for a real, published source release.
+          gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' | grep -qx false
+          ls -l dist
+          test "$(ls dist | wc -l)" -eq 6
+          # Drafts have no tag yet, so look the CLI release up by listing (not `release view`).
+          state="$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" \
+            --jq ".[] | select(.tag_name == \"$CLI_TAG\") | .draft")"
+          if [ "$state" = "false" ]; then
+            echo "$CLI_TAG already published — nothing to do (immutable)"
+            exit 0
+          fi
+          if [ -z "$state" ]; then
+            sha="$(gh api "repos/$GH_REPO/commits/$RELEASE_TAG" --jq .sha)"
+            gh release create "$CLI_TAG" --draft --latest=false --target "$sha" \
+              --title "Shepherd CLI ${RELEASE_TAG#v}" \
+              --notes "Prebuilt \`shepherd\` CLI for $RELEASE_TAG (x86_64/aarch64 Linux, Apple Silicon macOS), each with a .sha256. deploy/install.sh installs it and deploy/update.sh keeps it at the server's version; see docs/cli.md."
+          fi
+          # Immutable releases must receive every asset while still a draft.
+          gh release upload "$CLI_TAG" dist/* --clobber
+          gh release edit "$CLI_TAG" --draft=false --latest=false

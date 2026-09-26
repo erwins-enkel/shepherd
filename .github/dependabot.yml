@@ -53,3 +53,26 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+
+  # The Rust CLI (cli/). Same cooldown rationale as the bun block above.
+  - package-ecosystem: "cargo"
+    directory: "/cli"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 3
+      semver-major-days: 7
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "chore(deps)"
+      prefix-development: "chore(deps-dev)"
+    groups:
+      # progenitor's generator, its runtime client and typify are released in lockstep and the
+      # generated code must match the runtime, so they only ever move as a set — majors included
+      # (same lesson as the vitest group, #2260). Listed first so it wins the match.
+      progenitor:
+        patterns: ["progenitor", "progenitor-client", "typify*"]
+        update-types: ["major", "minor", "patch"]
+      cargo-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]

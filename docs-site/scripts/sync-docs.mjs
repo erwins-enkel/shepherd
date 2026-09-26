@@ -72,6 +72,14 @@ export const PAGES = [
   },
   {
     srcDir: "docs",
+    src: "cli.md",
+    dest: "reference/shepherd-cli.md",
+    linkBase: GITHUB_DOCS_BASE,
+    title: "shepherd CLI",
+    description: "Read the herd, tail events and steer sessions from the terminal or an agent.",
+  },
+  {
+    srcDir: "docs",
     src: "sandbox-security.md",
     dest: "reference/security.md",
     linkBase: GITHUB_DOCS_BASE,

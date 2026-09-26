@@ -18,7 +18,10 @@ curl -fsSL https://raw.githubusercontent.com/erwins-enkel/shepherd/main/deploy/i
 ```
 
 The installer provisions prerequisites, clones the repo to `~/.shepherd/app`,
-builds the UI, and on Linux installs and enables the systemd user service. It is
+builds the UI, and on Linux installs and enables the systemd user service. It also
+installs the prebuilt `shepherd` CLI into `~/.local/bin` (checksum-verified, from the
+companion `cli-vX.Y.Z` release); if no binary is published for the version it only
+warns and carries on. It is
 **idempotent** — safe to re-run: it never clobbers an existing `~/.shepherd/`
 state dir and never force-resets a dirty checkout.
 
@@ -54,6 +57,8 @@ before running it. Read it first:
 | `SHEPHERD_REF` | `main` | Git ref to clone or check out |
 | `SHEPHERD_SRC` | _(none)_ | Install from a local tarball or directory instead of cloning |
 | `SHEPHERD_NO_SERVICE` | _(none)_ | Skip the systemd unit step (set automatically on macOS) |
+| `SHEPHERD_NO_CLI` | _(none)_ | Set to `1` to skip installing the prebuilt `shepherd` CLI binary (also honored by `bun run update`) |
+| `SHEPHERD_CLI_DIR` | `~/.local/bin` | Where the prebuilt `shepherd` CLI binary is installed |
 
 ## Finish setup
 

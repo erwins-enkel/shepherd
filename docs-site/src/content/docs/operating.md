@@ -81,7 +81,8 @@ bun run update --pull   # fast-forward main from origin first (skip on a dev==pr
 ```
 
 It is idempotent and safe to re-run — sessions survive the restart (herdr owns the
-PTYs). UI-only changes don't strictly need it: a fresh `cd ui && bun run build` is
+PTYs). It also refreshes the prebuilt `shepherd` CLI to the server's version (skipped
+when already current or when `SHEPHERD_NO_CLI=1`; a missing binary only warns). UI-only changes don't strictly need it: a fresh `cd ui && bun run build` is
 served on the next request, since the core reads `ui/build` from disk per request.
 
 ## Backups & restore

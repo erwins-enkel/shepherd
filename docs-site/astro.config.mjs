@@ -134,6 +134,7 @@ export default defineConfig({
             { label: "Plugins", slug: "reference/plugins" },
             { label: "Sentry", slug: "reference/sentry" },
             { label: "External Task API", slug: "reference/external-task-api" },
+            { label: "shepherd CLI", slug: "reference/shepherd-cli" },
             { label: "Security", slug: "reference/security" },
             // Repo-root CLAUDE.md, imported verbatim by scripts/sync-docs.mjs.
             { label: "Project house rules", slug: "reference/house-rules" },

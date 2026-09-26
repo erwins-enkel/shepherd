@@ -2484,6 +2484,7 @@ const autopilot = new AutopilotService({
   },
   getReview: (id) => store.getReview(id),
   refreshPr: (id) => prPoller.pollSession(id),
+  pollPrNow: (id) => prPoller.pollNow(id),
   onPause: (id, question) => {
     const s = store.get(id);
     if (!s) return;

@@ -210,6 +210,12 @@ export interface AutopilotDeps {
    *  so the `hasPr` snapshot — which otherwise lags on a ~120s cadence — catches a PR the
    *  agent just opened before autopilot redundantly steers it to open one. */
   refreshPr?: (id: string) => void;
+  /** Awaited, undebounced PR poll (PrPoller.pollNow). handleFinished runs it right before the
+   *  open-a-PR steer and re-checks `hasPr`, so an agent that just ran `gh pr create` is never told
+   *  to open one. Omitted → the steer trusts the cached snapshot (legacy behavior). */
+  pollPrNow?: (id: string) => Promise<void>;
+  /** Cap on the pollPrNow wait (defaults to PR_RECHECK_TIMEOUT_MS). Injectable for tests. */
+  prRecheckTimeoutMs?: number;
   /** Fired when autopilot hands a session back for a genuine question / step-cap. */
   onPause: (id: string, question: string) => void;
   /** Fired when autopilot marks a session complete (non-PR deliverable done). */
@@ -228,6 +234,10 @@ export interface AutopilotDeps {
 const DEFAULT_STEP_CAP = 10;
 /** Fallback when no rebaseCap dep is supplied (mirrors config.autoMergeRebaseCap's default). */
 const DEFAULT_REBASE_CAP = 5;
+/** Cap on the fresh-PR re-check before an open-a-PR steer. `gh` calls carry no timeout of their
+ *  own and queue behind every other poll, so this is what bounds the wait; on expiry the steer
+ *  falls back to the cached snapshot. */
+const PR_RECHECK_TIMEOUT_MS = 30_000;
 /** Shown when the pre-PR runaway guard trips rather than a classifier question. */
 const CAP_MESSAGE = "Autopilot reached its step limit without opening a PR — over to you.";
 /** Hand-back when the post-PR CI-fix loop exhausts its step budget. Distinct from CAP_MESSAGE:
@@ -258,11 +268,13 @@ export class AutopilotService {
   private authPending = new Set<string>();
   private stepCap: number;
   private rebaseCap: number;
+  private prRecheckTimeoutMs: number;
   private now: () => number;
 
   constructor(private deps: AutopilotDeps) {
     this.stepCap = deps.stepCap ?? DEFAULT_STEP_CAP;
     this.rebaseCap = deps.rebaseCap ?? DEFAULT_REBASE_CAP;
+    this.prRecheckTimeoutMs = deps.prRecheckTimeoutMs ?? PR_RECHECK_TIMEOUT_MS;
     this.now = deps.now ?? Date.now;
   }
 
@@ -389,11 +401,39 @@ export class AutopilotService {
       await this.deps.openLocalPr(s.id);
       return;
     }
+    const cur = await this.recheckNoPr(s);
+    if (!cur) return;
     await this.driveSteer(
-      s,
-      openPrSteer(this.deps.store.getRepoConfig(s.repoPath).draftMode, s.baseBranch),
+      cur,
+      openPrSteer(this.deps.store.getRepoConfig(cur.repoPath).draftMode, cur.baseBranch),
     );
     return;
+  }
+
+  /** Fresh-PR re-check before the open-a-PR steer. The cached `hasPr` snapshot lags an agent's
+   *  just-run `gh pr create` (the judge classifier answers in under a second, well before the
+   *  debounced turn-end poll lands), so await a bounded fresh poll first. Holds `pending` across
+   *  the await so a second turn-end edge can't classify and steer in parallel. Returns the
+   *  re-read session when the steer should still go out, else null. Fails open: a rejected or
+   *  timed-out poll falls back to the cached snapshot, as before. */
+  private async recheckNoPr(s: Session): Promise<Session | null> {
+    const poll = this.deps.pollPrNow;
+    if (!poll) return s;
+    this.pending.add(s.id);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        poll(s.id),
+        new Promise<void>((r) => (timer = setTimeout(r, this.prRecheckTimeoutMs))),
+      ]);
+    } catch (err) {
+      console.warn("[autopilot] pollPrNow:", err);
+    } finally {
+      clearTimeout(timer);
+      this.pending.delete(s.id);
+    }
+    const cur = this.eligible(s.id);
+    return cur && !this.deps.hasPr(cur.id) ? cur : null;
   }
 
   private async dispatch(s: Session, v: AutopilotVerdict): Promise<void> {
@@ -498,9 +538,10 @@ export class AutopilotService {
       return;
     }
     // Kick a PR refresh up front: an agent that just ran `gh pr create` then idled may not
-    // be in the cached PR snapshot yet. Firing it here puts the poll in flight during the
-    // (multi-second) classify spawn, so the post-classify eligible()/hasPr re-check in
-    // consider() sees the fresh PR and stands down instead of redundantly steering "open a PR".
+    // be in the cached PR snapshot yet. Firing it here puts the poll in flight during classify,
+    // so the post-classify eligible()/hasPr re-check in consider() usually sees the fresh PR.
+    // Not load-bearing: the judge classifier can beat this debounced poll, so the open-a-PR
+    // steer itself awaits a fresh poll first (handleFinished → recheckNoPr).
     this.deps.refreshPr?.(id);
     // Stuck-red full-auto: re-engage the CI-fix loop and stand down BEFORE classifying. The LLM
     // classifier could otherwise mark this idle red session complete/finished (silencing it AND

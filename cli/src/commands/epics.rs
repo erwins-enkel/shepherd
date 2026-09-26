@@ -5,9 +5,10 @@ use std::num::NonZeroU64;
 use super::intake::summary;
 use super::{VersionCheck, print_done, repo_path};
 use crate::Ctx;
+use crate::api::Client;
 use crate::api::types::{Epic, EpicRunPatch, EpicRunPatchStatus, EpicUpdateResult};
 use crate::cli::{EpicStartArgs, EpicsCmd};
-use crate::error::{Op, Result, Scope, api_error};
+use crate::error::{CliError, Exit, Op, Result, Scope, api_error};
 use crate::output::{self, Mode, or_dash};
 
 const EPICS_LIST: Op = Op::new("epics list", Scope::Full);
@@ -25,14 +26,29 @@ pub async fn run(ctx: &mut Ctx<'_>, repo: Option<String>, cmd: EpicsCmd) -> Resu
         EpicsCmd::Show { parent } => show(ctx, repo, parent).await?,
         EpicsCmd::Start(args) => start(ctx, repo, args).await?,
         EpicsCmd::Pause { parent } => {
+            require_run(&ctx.client, &repo, parent, &["running"], None, EPICS_PAUSE).await?;
             let patch = status_patch(EpicRunPatchStatus::Paused);
             patch_run(ctx, repo, parent, patch, EPICS_PAUSE).await?
         }
         EpicsCmd::Stop { parent } => {
+            let states = ["running", "paused"];
+            require_run(&ctx.client, &repo, parent, &states, None, EPICS_STOP).await?;
             let patch = status_patch(EpicRunPatchStatus::Idle);
             patch_run(ctx, repo, parent, patch, EPICS_STOP).await?
         }
-        EpicsCmd::ApproveNext { parent } => approve_next(ctx, repo, parent).await?,
+        EpicsCmd::ApproveNext { parent } => {
+            let op = EPICS_APPROVE_NEXT;
+            require_run(
+                &ctx.client,
+                &repo,
+                parent,
+                &["running"],
+                Some("attended"),
+                op,
+            )
+            .await?;
+            approve_next(ctx, repo, parent).await?
+        }
     }
     check.finish(ctx.io).await;
     Ok(())
@@ -59,11 +75,46 @@ async fn list(ctx: &mut Ctx<'_>, repo: String) -> Result<()> {
     output::print_table(&mut ctx.io.stdout, &t)
 }
 
+async fn get_epic(client: &Client, repo: &str, parent: NonZeroU64, op: Op) -> Result<Epic> {
+    match client.get_epic().repo(repo).parent(parent).send().await {
+        Ok(e) => Ok(e.into_inner()),
+        Err(e) => Err(api_error(e, op).await),
+    }
+}
+
+/// The server keeps one epic run per repo, and a PUT or approve for another parent would replace
+/// or act on the live run. So `pause`, `stop` and `approve-next` act only on this parent's own run,
+/// in a state the epic panel offers the button for.
+async fn require_run(
+    client: &Client,
+    repo: &str,
+    parent: NonZeroU64,
+    statuses: &[&str],
+    mode: Option<&str>,
+    op: Op,
+) -> Result<()> {
+    let run = get_epic(client, repo, parent, op).await?.run;
+    let status_ok = statuses.contains(&run.status.as_str());
+    let mode_ok = mode.is_none_or(|m| run.mode.to_string() == m);
+    if status_ok && mode_ok {
+        return Ok(());
+    }
+    let mut want = statuses.join(" or ");
+    if let Some(m) = mode {
+        want = format!("{want} and {m}");
+    }
+    Err(CliError::new(
+        Exit::Refused,
+        format!(
+            "`shepherd {}` needs epic #{parent}'s run to be {want}; it is {} ({}). \
+             The repo keeps one epic run, so another epic's run may be the live one.",
+            op.verb, run.status, run.mode
+        ),
+    ))
+}
+
 async fn show(ctx: &mut Ctx<'_>, repo: String, parent: NonZeroU64) -> Result<()> {
-    let epic = match ctx.client.get_epic().repo(repo).parent(parent).send().await {
-        Ok(e) => e.into_inner(),
-        Err(e) => return Err(api_error(e, EPICS_SHOW).await),
-    };
+    let epic = get_epic(&ctx.client, &repo, parent, EPICS_SHOW).await?;
     if ctx.mode == Mode::Json {
         return output::json(&mut ctx.io.stdout, &epic);
     }

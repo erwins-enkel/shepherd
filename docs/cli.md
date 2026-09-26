@@ -307,6 +307,9 @@ toplevel.
 blockers, PR and session. `start` sets the run to running and, when given, its mode
 (`auto|attended`), coding agent, model and effort; `pause` and `stop` set it to paused or idle,
 like the epic panel's buttons. `approve-next` approves the next child spawn of an attended epic.
+The server keeps one epic run per repo, so `pause`, `stop` and `approve-next` first read the
+epic and exit `6` unless its own run is in the right state: running for `pause`, running or paused
+for `stop`, running and attended for `approve-next`.
 A server without the drain answers `503`, so these exit `8`.
 
 ### Settings and diagnostics

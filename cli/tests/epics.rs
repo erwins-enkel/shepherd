@@ -37,6 +37,16 @@ fn epic_query() -> (
     )
 }
 
+/// The pre-check `pause`, `stop` and `approve-next` make: GET /api/epic answers this run.
+async fn mount_run(s: &MockServer, status: &str, mode: &str) {
+    Mock::given(method("GET"))
+        .and(path("/api/epic"))
+        .and(query_param("parent", "12"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(epic_json(status, mode)))
+        .mount(s)
+        .await;
+}
+
 #[tokio::test]
 async fn list_prints_json_and_a_table() {
     let s = MockServer::start().await;
@@ -173,6 +183,7 @@ async fn start_without_options_sends_only_the_status() {
 #[tokio::test]
 async fn pause_and_stop_send_their_status() {
     let s = MockServer::start().await;
+    mount_run(&s, "running", "auto").await;
     for status in ["paused", "idle"] {
         Mock::given(method("PUT"))
             .and(path("/api/epic"))
@@ -197,6 +208,7 @@ async fn pause_and_stop_send_their_status() {
 #[tokio::test]
 async fn approve_next_posts_and_accepts_the_ok_answer() {
     let s = MockServer::start().await;
+    mount_run(&s, "running", "attended").await;
     let (repo, parent) = epic_query();
     Mock::given(method("POST"))
         .and(path("/api/epic/approve-next"))
@@ -230,6 +242,7 @@ async fn approve_next_posts_and_accepts_the_ok_answer() {
 async fn server_errors_map_to_exit_codes() {
     for (status, exit) in [(503, 8), (400, 6)] {
         let s = MockServer::start().await;
+        mount_run(&s, "running", "auto").await;
         Mock::given(method("PUT"))
             .and(path("/api/epic"))
             .respond_with(
@@ -246,6 +259,52 @@ async fn server_errors_map_to_exit_codes() {
             h.err.text()
         );
     }
+}
+
+#[tokio::test]
+async fn run_state_mismatch_is_refused_without_a_write() {
+    // (verb, run status, run mode): the parent's own run is not in a state the verb acts on —
+    // e.g. another epic is the repo's live run, so this parent reads as the idle default.
+    let cases = [
+        ("pause", "idle", "auto"),
+        ("pause", "paused", "auto"),
+        ("stop", "idle", "auto"),
+        ("approve-next", "running", "auto"),
+        ("approve-next", "paused", "attended"),
+        ("approve-next", "idle", "auto"),
+    ];
+    for (verb, status, mode) in cases {
+        let s = MockServer::start().await;
+        mount_run(&s, status, mode).await;
+        for m in ["PUT", "POST"] {
+            Mock::given(method(m))
+                .respond_with(ResponseTemplate::new(200).set_body_json(json!({"ok": true})))
+                .expect(0)
+                .mount(&s)
+                .await;
+        }
+        let h = Harness::new();
+        let args = ["--url", &s.uri(), "epics", verb, "12", "--repo", "/r"];
+        assert_eq!(h.run(&args).await, 6, "{verb} {status} {mode}");
+        let err = h.err.text();
+        assert!(err.contains("epic #12") && err.contains(status), "{err}");
+    }
+}
+
+#[tokio::test]
+async fn stop_accepts_a_paused_run() {
+    let s = MockServer::start().await;
+    mount_run(&s, "paused", "auto").await;
+    Mock::given(method("PUT"))
+        .and(path("/api/epic"))
+        .and(body_json(json!({"status": "idle"})))
+        .respond_with(ResponseTemplate::new(200).set_body_json(epic_json("idle", "auto")))
+        .expect(1)
+        .mount(&s)
+        .await;
+    let h = Harness::new();
+    let args = ["--url", &s.uri(), "epics", "stop", "12", "--repo", "/r"];
+    assert_eq!(h.run(&args).await, 0, "{}", h.err.text());
 }
 
 #[tokio::test]

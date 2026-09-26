@@ -42,6 +42,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Full history: the full suite's native-fixture-conservation test clones
+          # an older commit, which a shallow checkout can't serve (#2519).
+          fetch-depth: 0
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -65,4 +69,14 @@ jobs:
 
       - name: Full root suite (manual baseline)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_suite }}
-        run: bun run test
+        # Same test env as ci.yml "Test (root)": writable repoRoot + a git identity
+        # for tests that author real commits (createProject's bootstrap commit).
+        env:
+          SHEPHERD_REPO_ROOT: ${{ runner.temp }}/reporoot
+          GIT_AUTHOR_NAME: t
+          GIT_AUTHOR_EMAIL: t@t
+          GIT_COMMITTER_NAME: t
+          GIT_COMMITTER_EMAIL: t@t
+        run: |
+          mkdir -p "$SHEPHERD_REPO_ROOT"
+          bun run test

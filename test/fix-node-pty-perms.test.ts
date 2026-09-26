@@ -84,6 +84,11 @@ test("resolveNodePtyDir is absolute and repo-anchored (not cwd-dependent)", () =
 
 // Wiring assertions: prove the guaranteed install paths actually invoke the script.
 // (This proves wiring, not execution — execution is proven by the on-Mac provision run.)
+test("package.json postinstall invokes the perms script on every bun install", () => {
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  expect(pkg.scripts.postinstall).toContain("bun scripts/fix-node-pty-perms.mjs");
+});
+
 test("deploy/provision.ts buildOnly invokes the perms script", () => {
   const src = readFileSync(new URL("../deploy/provision.ts", import.meta.url), "utf8");
   expect(src).toContain("bun scripts/fix-node-pty-perms.mjs");

@@ -95,11 +95,11 @@ withholds the stored token and says so on stderr. Set `SHEPHERD_TOKEN` to authen
 
 A token's scope, set when it is minted, limits what the CLI can do:
 
-| Scope    | Commands                                                                                                                                      |
-| -------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `read`   | `sessions list`, `sessions show` (active sessions), `status`, `holds`, `git`, `reviews`, `events tail`, `login`                               |
-| `submit` | everything `read` can, plus `new` and `held list\|spawn\|discard`                                                                             |
-| `full`   | everything else, including `steer`, `interrupt`, `archive`, `resume`, `merge`, `drain`, `up-next`, and `sessions show` of an archived session |
+| Scope    | Commands                                                                                                                                                                             |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `read`   | `sessions list`, `sessions show` (active sessions), `status`, `holds`, `git`, `reviews`, `events tail`, `login`                                                                      |
+| `submit` | everything `read` can, plus `new` and `held list\|spawn\|discard`                                                                                                                    |
+| `full`   | everything else, including `steer`, `interrupt`, `archive`, `resume`, `merge`, `drain`, `up-next`, `settings`, `repo-config`, `diagnose`, and `sessions show` of an archived session |
 
 The server's `403` doesn't say which scope was missing. The CLI names it for you, for example:
 ``error: `shepherd steer` needs a 'full' token; this token's scope does not include it.``
@@ -257,4 +257,45 @@ be on. `train set` overrides the train for one session, and `default` goes back 
 shepherd up-next list
 shepherd up-next start owner/repo#42 --provider claude
 shepherd merge TASK-07 --method squash
+```
+
+### Settings and diagnostics
+
+| Command                                           | Route                        | Scope  |
+| ------------------------------------------------- | ---------------------------- | ------ |
+| `shepherd settings`                               | `GET /api/settings`          | `full` |
+| `shepherd settings set <key> <value\|->`          | `PATCH /api/settings`        | `full` |
+| `shepherd repo-config [--repo]`                   | `GET /api/repo-config?repo=` | `full` |
+| `shepherd repo-config set <key> <value> [--repo]` | `PUT /api/repo-config?repo=` | `full` |
+| `shepherd diagnose [--refresh]`                   | `GET /api/diagnostics`       | `full` |
+| `shepherd diagnose fix <check>`                   | `POST /api/diagnostics/fix`  | `full` |
+
+`settings` and `repo-config` print one row per key. Use the key names they print with `set`.
+`set` changes one key per call. The value is read as a JSON literal first (`true`, `80`,
+`["a.com"]`) and as plain text when it isn't one, so `shepherd settings set defaultModel opus`
+needs no quotes. The CLI checks the key and the value's type before sending anything; an unknown
+key or a value of the wrong type exits `2`. The validated value is sent as written, so `null` and
+`[]` reach the server, which reads them as "clear": `repo-config set egressExtraHosts '[]'`
+removes every extra egress host.
+
+`anthropicApiKey` is only read from stdin, so the key stays out of your shell history and the
+process list. A value on the command line exits `2`, and so does empty stdin, because the server
+would read a blank key as "clear". `shepherd settings set anthropicApiKey null` clears it. The line
+the CLI prints comes from the server's `hasApiKey`, not from what was sent:
+
+```bash
+shepherd settings set anthropicApiKey - < ~/.secrets/anthropic-key
+```
+
+`diagnose` prints each environment check with its state, its hint key and, when the check has
+one, the fix the server can run. It exits `0` whatever the checks say; read `overall` in the JSON
+to branch on it. `--refresh` probes again instead of answering from the cached snapshot.
+`diagnose fix <check>` runs that check's fix on the server host, then prints the check as it
+stands after a fresh probe. An unknown check, or one without a fix, exits `6`; a fix that fails on
+the server exits `8`.
+
+```bash
+shepherd settings set usageHoldPct 80
+shepherd repo-config set maxAuto 3 --repo ~/Work/my-repo
+shepherd --json diagnose | jq -r '.checks[] | select(.state != "ok") | .id'
 ```

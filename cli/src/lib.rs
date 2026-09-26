@@ -179,6 +179,13 @@ async fn dispatch(cli: Cli, io: &mut Io) -> Result<()> {
         Command::ReviewPlan { session } => commands::merge::review_plan(&mut ctx, &session).await,
         Command::Merge(args) => commands::merge::merge(&mut ctx, args).await,
         Command::Train(cmd) => commands::merge::train(&mut ctx, cmd).await,
+        Command::Settings { cmd } => commands::settings::settings(&mut ctx, cmd).await,
+        Command::RepoConfig { repo, cmd } => {
+            commands::settings::repo_config(&mut ctx, repo, cmd).await
+        }
+        Command::Diagnose { refresh, cmd } => {
+            commands::settings::diagnose(&mut ctx, refresh, cmd).await
+        }
         Command::Login { .. } => unreachable!("handled above"),
     };
     result.map_err(|e| {

@@ -25,6 +25,7 @@ function fixture(
     stopDelay?: number;
     stopIgnoresTerm?: boolean;
     agentListDelay?: number;
+    timeoutMs?: number;
   } = {},
 ) {
   const dir = mkdtempSync(join(tmpdir(), "shepherd-herdr-recovery-"));
@@ -85,7 +86,7 @@ exit 19
     PATH: `${binDir}:/usr/bin:/bin`,
     HERDR_SESSION: "herd with spaces",
     HERDR_SOCKET_PATH: join(dir, "socket path"),
-    SHEPHERD_HERDR_RECOVERY_TIMEOUT_MS: "180",
+    SHEPHERD_HERDR_RECOVERY_TIMEOUT_MS: String(options.timeoutMs ?? 180),
     SHEPHERD_HERDR_RECOVERY_POLL_MS: "10",
   };
   return { dir, bin, state, calls, stopped, stopping, started, logPath, env, binDir };
@@ -458,7 +459,9 @@ exit 91
 });
 
 test("aborting before start terminates the worker group and prevents a later competing start", async () => {
-  const f = fixture({ stopDelay: 0.05 });
+  // Generous per-command timeout: slow runners must not time out the stop stub. It also sets the
+  // 1s post-stop supervisor grace, so the post-abort wait below must outlast grace + start.
+  const f = fixture({ stopDelay: 0.05, timeoutMs: 1_000 });
   const controller = new AbortController();
   const recovery = runHerdrRecovery({
     restart: true,
@@ -471,13 +474,13 @@ test("aborting before start terminates the worker group and prevents a later com
   while (!existsSync(f.stopped) && Date.now() < deadline) await Bun.sleep(10);
   controller.abort();
   await expect(recovery).rejects.toBeInstanceOf(Error);
-  await Bun.sleep(300);
+  await Bun.sleep(2_000);
   expect(readFileSync(f.state, "utf8").trim()).toBe("offline");
   expect(readFileSync(f.calls, "utf8")).not.toMatch(/\|server$/m);
 });
 
 test("abort kills a signal-ignoring stop descendant before releasing the caller", async () => {
-  const f = fixture({ stopDelay: 0.4, stopIgnoresTerm: true });
+  const f = fixture({ stopDelay: 0.4, stopIgnoresTerm: true, timeoutMs: 1_000 });
   const controller = new AbortController();
   const recovery = runHerdrRecovery({
     restart: true,

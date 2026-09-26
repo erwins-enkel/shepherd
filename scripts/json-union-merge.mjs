@@ -12,7 +12,7 @@
 // Registered as `merge.i18n-union.driver` (see scripts/register-merge-driver.mjs,
 // run from husky `prepare`) and bound to the catalogs in .gitattributes.
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -153,7 +153,18 @@ function main(argv) {
   return 1;
 }
 
-const isMain = Boolean(process.argv[1]) && fileURLToPath(import.meta.url) === process.argv[1];
+// Node realpaths the main module's URL but not argv[1], so compare realpaths —
+// else a symlinked invocation path (macOS /var) silently skips the merge (#2521).
+function invokedDirectly() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(process.argv[1]);
+  } catch {
+    return false;
+  }
+}
+
+const isMain = invokedDirectly();
 if (isMain) {
   process.exit(main(process.argv.slice(2)));
 }

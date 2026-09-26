@@ -28,6 +28,7 @@ const epic = (children: CompletedEpicChild[], p: Partial<CompletedEpic> = {}): C
   landingState: "pending",
   migrationPaths: [],
   migrationsAckedAt: null,
+  landingConflictReworkCount: 0,
   ...p,
 });
 

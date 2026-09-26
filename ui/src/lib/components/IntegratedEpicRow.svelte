@@ -9,12 +9,14 @@
     ondismiss,
     onackmigrations,
     onland,
+    onresolveconflicts = () => {},
     nowMs = Date.now(),
   }: {
     epic: CompletedEpic;
     ondismiss: (repoPath: string, parent: number) => void;
     onackmigrations: (repoPath: string, parent: number) => void;
     onland: (repoPath: string, parent: number) => void;
+    onresolveconflicts?: (repoPath: string, parent: number) => void;
     nowMs?: number;
   } = $props();
 
@@ -109,7 +111,14 @@
       {/each}
     </ul>
 
-    <IntegratedEpicLanding {epic} {nowMs} {onland} {ondismiss} {onackmigrations} />
+    <IntegratedEpicLanding
+      {epic}
+      {nowMs}
+      {onland}
+      {ondismiss}
+      {onackmigrations}
+      {onresolveconflicts}
+    />
   {/if}
 </div>
 

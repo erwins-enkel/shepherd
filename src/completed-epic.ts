@@ -42,6 +42,9 @@ export interface CompletedEpic {
   // dispatched yet).
   landingRepairCount: number;
   landingRepairHead: string | null;
+  // #1841: lifetime count of conflict-rework sessions dispatched for this landing (auto cap 1;
+  // the manual "Resolve conflicts" dispatch bypasses the cap). Independent of landingRepairCount.
+  landingConflictReworkCount: number;
   /** Live, non-persisted landing-PR gate signals (present only when the landing PR could be fetched). */
   landingChecks?: ChecksState;
   landingMergeable?: boolean | null;
@@ -52,7 +55,8 @@ export interface CompletedEpic {
   /** Live, non-persisted: the landing PR's CI is terminally failing (not behind/conflicting). */
   landingCiFailing?: boolean;
   /** Live, non-persisted: a genuinely-live landingRepair session currently holds this landing's
-   *  integration branch, driving a fix. Non-actionable — suppresses `landingCiFailing` while true
+   *  integration branch, driving a fix — a CI repair (red PR) or a conflict rework (#1841,
+   *  conflicting PR). Non-actionable — suppresses `landingCiFailing` while true
    *  (a stuck/finished session falls back to `landingCiFailing`, the backstop). */
   landingRepairing?: boolean;
 }
@@ -180,9 +184,13 @@ export async function enrichLandingEpics(
         // rebase pass's landingRebasePauseReason). Surfaced as a distinct Tier-1 item (index.ts) —
         // UNLESS a genuinely-live repair session is already holding the branch and fixing it, in
         // which case the non-actionable landingRepairing surface takes over instead.
+        // #1841: a CONFLICTING landing PR held by a live repair session is a conflict rework in
+        // flight — same non-actionable landingRepairing surface (the card shows the chip, not the
+        // "Resolve conflicts" CTA). landingCiFailing stays false for it (conflict-owned).
         const red =
           pr.checks === "failure" && pr.mergeStateStatus !== "behind" && pr.mergeable !== false;
-        const repairing = red && deps.hasLiveRepairSession(row.repoPath, branch);
+        const conflicting = pr.mergeable === false;
+        const repairing = (red || conflicting) && deps.hasLiveRepairSession(row.repoPath, branch);
         row.landingRepairing = repairing;
         row.landingCiFailing = red && !repairing;
       } catch {

@@ -27,6 +27,7 @@ const epic = (n: number): CompletedEpic => ({
   landingState: "pending",
   migrationPaths: [],
   migrationsAckedAt: null,
+  landingConflictReworkCount: 0,
 });
 
 afterEach(() => {

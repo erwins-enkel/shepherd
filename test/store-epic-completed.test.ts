@@ -509,6 +509,24 @@ test("setEpicLandingRepairCount writes both fields", () => {
   expect(row.landingRepairHead).toBe("abc123");
 });
 
+test("setEpicLandingConflictReworkCount writes its own counter, CI-repair budget untouched (#1841)", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "E",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+  expect(s.listEpicCompleted()[0]!.landingConflictReworkCount).toBe(0);
+
+  s.setEpicLandingConflictReworkCount("/r", 10, 1);
+
+  const row = s.listEpicCompleted()[0]!;
+  expect(row.landingConflictReworkCount).toBe(1);
+  expect(row.landingRepairCount).toBe(0);
+});
+
 test("listEpicRuns returns all persisted epic_run rows", () => {
   const s = new SessionStore(":memory:");
   expect(s.listEpicRuns()).toEqual([]);

@@ -1158,11 +1158,12 @@ export function epicAuthoringDirective(args: {
 
 /**
  * Injected as the highest-priority directive for an epic-landing-PR REPAIR session
- * (`landingRepair: true`). Spawned by the drain (Task 5) when an epic's landing PR is RED — the
- * failing integration branch is already checked out as the working branch. The session's sole job
- * is to drive that branch's CI green and push the fix straight to it; it opens NO pull request (the
- * landing PR already exists and its head is the checked-out branch — a plain `git push` is the
- * entire deliverable). Like research/epicAuthoring it SUPPRESSES the plan-gate, autopilot, and
+ * (`landingRepair: true`). Spawned by the drain when an epic's landing PR is RED (CI repair) or
+ * has a genuine merge conflict with the default branch (conflict rework, #1841) — or manually via
+ * the landing card. Goal-NEUTRAL: the task prompt carries the goal and the exact push command
+ * (plain push for CI repair, `--force-with-lease` after a rebase for conflict rework); this block
+ * only fixes the shared rules. It opens NO pull request (the landing PR already exists and its head
+ * is the integration branch — the push is the entire deliverable). Like research/epicAuthoring it SUPPRESSES the plan-gate, autopilot, and
  * build-queue blocks (see composeSystemPrompt) — none of those fit a push-only repair with no PR
  * deliverable. Unlike research/epicAuthoring it is UNATTENDED (auto-spawned by the drain), so it
  * carries no "ask the operator" clause. Not user-facing chrome (an instruction to the agent), so no
@@ -1175,22 +1176,22 @@ export function epicAuthoringDirective(args: {
 function landingRepairDirective(agentProvider: AgentProvider): string {
   const investigate =
     agentProvider === "codex"
-      ? "Inspect the failing checks directly — `gh pr checks <n>`, `gh run view`, read the logs.\n"
-      : "Inspect the failing checks — `gh pr checks <n>`, `gh run view`, read the logs — dispatching " +
+      ? "- Investigate directly — `gh pr checks <n>`, `gh run view`, logs, `git log`/`git diff`.\n"
+      : "- Investigate — `gh pr checks <n>`, `gh run view`, logs, `git log`/`git diff` — dispatching " +
         "sub-agents to investigate in parallel if it helps.\n";
   return (
-    "You are repairing a RED epic LANDING pull request — you are working in a scratch branch " +
-    "cut from the epic integration branch (the task prompt names that branch and gives the " +
-    "exact push command).\n" +
-    "- Goal: drive the epic integration branch's CI green.\n" +
+    "You are repairing an epic LANDING pull request — you are working in a scratch branch " +
+    "cut from the epic integration branch. The task prompt states the goal (e.g. a red CI or a " +
+    "merge conflict with the default branch), names the integration branch, and gives the exact " +
+    "push command.\n" +
+    "- Goal: exactly what the task prompt asks — nothing broader.\n" +
     investigate +
-    "- Find the cause (code/test/config drift or a gate failure), fix it, and commit.\n" +
-    "- Publish by pushing your commit to the epic INTEGRATION branch with the " +
-    "`git push origin HEAD:<integration-branch>` command from the task prompt — this updates " +
-    "the open landing PR and re-triggers its CI. A plain `git push` will NOT work (your scratch " +
-    "branch has no upstream).\n" +
+    "- Fix the cause, run the repo's own checks, and commit.\n" +
+    "- Publish by pushing to the epic INTEGRATION branch with the EXACT push command from the " +
+    "task prompt — this updates the open landing PR and re-triggers its CI. A plain `git push` " +
+    "will NOT work (your scratch branch has no upstream).\n" +
     "- Do NOT open a pull request; do NOT run `gh pr create` — there is no child PR for this work.\n" +
-    "- When CI is green, or once you have pushed your best fix, you are done."
+    "- Once the task prompt's goal is met, or you have pushed your best fix, you are done."
   );
 }
 

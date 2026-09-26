@@ -20,6 +20,7 @@ describe("enrichLandingEpics — landingCiFailing", () => {
     landingRebasePauseReason: null,
     landingRepairCount: 0,
     landingRepairHead: null,
+    landingConflictReworkCount: 0,
     ...over,
   });
 
@@ -104,6 +105,7 @@ describe("enrichLandingEpics — landingRepairing", () => {
     landingRebasePauseReason: null,
     landingRepairCount: 0,
     landingRepairHead: null,
+    landingConflictReworkCount: 0,
     ...over,
   });
 

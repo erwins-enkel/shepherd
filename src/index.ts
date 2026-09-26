@@ -3802,6 +3802,7 @@ const appDeps: AppDeps = {
     buildEpic: (repoPath, run) => drain.buildEpic(repoPath, run),
     diagnoseEpic: (repoPath, run) => drain.diagnoseEpic(repoPath, run),
     approveEpicNext: (repoPath) => drain.approveEpicNext(repoPath),
+    resolveLandingConflict: (repoPath, parent) => drain.resolveLandingConflict(repoPath, parent),
     tick: () => drain.tick(),
   },
   autoMerge: { snapshot: () => autoMerge.snapshot() },

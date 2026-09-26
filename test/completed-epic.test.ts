@@ -331,6 +331,7 @@ describe("enrichLandingEpics", () => {
     landingRebasePauseReason: null,
     landingRepairCount: 0,
     landingRepairHead: null,
+    landingConflictReworkCount: 0,
     ...over,
   });
 

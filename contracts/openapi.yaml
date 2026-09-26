@@ -2702,6 +2702,42 @@ components:
           type:
             - integer
             - "null"
+    BacklogMergeBody:
+      type: object
+      additionalProperties: false
+      description: >-
+        POST /api/prs/merge — merge a backlog PR by repo + number, no session involved. method
+        defaults to the forge default, deleteBranch to true. confirm echoes the takeover the
+        operator saw (see MergeConfirmation); omit it for a PR that is the operator's own
+        responsibility.
+      required: [repo, number]
+      properties:
+        repo: { type: string }
+        number: { type: integer }
+        method:
+          $ref: "#/components/schemas/MergeMethod"
+        deleteBranch: { type: boolean }
+        confirm:
+          $ref: "#/components/schemas/MergeConfirmation"
+    MergeConfirmRefusal:
+      type: object
+      additionalProperties: true
+      description: >-
+        A 409 from a manual merge. With code merge_confirm_required / merge_confirm_stale it is the
+        responsibility gate (mergeGateRefusal): gate, headSha and baseRefName are the freshly read
+        values to show and echo back as MergeConfirmation. A merge conflict or a busy base
+        checkout answers only error.
+      required: [error]
+      properties:
+        error: { type: string }
+        code:
+          type: string
+          enum: [merge_confirm_required, merge_confirm_stale]
+          x-shepherd-open-enum: true
+        gate:
+          $ref: "#/components/schemas/MergeResponsibility"
+        headSha: { type: [string, "null"] }
+        baseRefName: { type: [string, "null"] }
     AutomergeStatusList:
       type: array
       items:
@@ -3220,11 +3256,44 @@ components:
     EpicSummary:
       type: object
       additionalProperties: true
-      description: Enough of an epic to tag an issue row and to build the sub-issue filter's parent set. The epic PANEL is out of scope for milestone 3.
-      required: [parentIssueNumber, parentTitle]
+      description: >-
+        One row of GET /api/epics (the inline literal in buildEpicSummaries, src/server.ts). Counts
+        are the cheap backlog-badge numbers and may diverge from GET /api/epic, which is
+        authoritative. The "someone else is working this" flags are always sent by the current
+        server; optional so an older server stays valid.
+      required: [parentIssueNumber, parentTitle, total, merged, status, source]
       properties:
         parentIssueNumber: { type: integer }
         parentTitle: { type: string }
+        total: { type: integer, description: Child issues in the epic. }
+        merged: { type: integer, description: Children done (issue closed / sub-issue completed). }
+        status: { $ref: "#/components/schemas/EpicRunStatus" }
+        source: { $ref: "#/components/schemas/EpicSource" }
+        inFlight:
+          {
+            type: integer,
+            description: Children with an OPEN PR by someone other than the viewer. 0 means no pill.,
+          }
+        inFlightBy:
+          {
+            type: array,
+            items: { type: string },
+            description: Distinct non-viewer authors of those in-flight child PRs,
+            sorted.,
+          }
+        assignedOthers:
+          {
+            type: array,
+            items: { type: string },
+            description: Parent assignees other than the viewer,
+            sorted.,
+          }
+        authoredByOther:
+          {
+            type: [string, "null"],
+            description: Parent author when it is not the viewer,
+            else null.,
+          }
     EpicListing:
       type: object
       additionalProperties: true
@@ -3238,6 +3307,116 @@ components:
             items: { type: integer },
             description: Issue numbers that are children of an epic. The "hide sub-issues" filter removes these.,
           }
+    EpicSource:
+      type: string
+      x-shepherd-open-enum: true
+      enum: [native, markdown]
+    EpicMode:
+      type: string
+      x-shepherd-open-enum: true
+      enum: [auto, attended]
+    EpicRunStatus:
+      type: string
+      x-shepherd-open-enum: true
+      enum: [idle, running, paused]
+    EpicChildState:
+      type: string
+      x-shepherd-open-enum: true
+      enum: [merged, in-review, running, ready, blocked]
+    EpicChild:
+      type: object
+      additionalProperties: true
+      description: One child issue of an epic (EpicChild in src/epic-core.ts).
+      required:
+        [
+          number,
+          title,
+          url,
+          order,
+          body,
+          blockedBy,
+          state,
+          sessionId,
+          prNumber,
+          issueClosed,
+          integrationMerged,
+          claimed,
+        ]
+      properties:
+        number: { type: integer }
+        title: { type: string }
+        url: { type: string }
+        order: { type: integer, description: Zero-based position in the epic. }
+        body: { type: string }
+        blockedBy:
+          {
+            type: array,
+            items: { type: integer },
+            description: In-epic blockers only; self and outside-epic edges are dropped with a warning.,
+          }
+        state: { $ref: "#/components/schemas/EpicChildState" }
+        sessionId: { type: [string, "null"] }
+        prNumber: { type: [integer, "null"] }
+        issueClosed: { type: boolean }
+        integrationMerged:
+          {
+            type: boolean,
+            description: Squash-merged into the epic integration branch; counts as done like issueClosed.,
+          }
+        claimed: { type: boolean }
+    EpicRun:
+      type: object
+      additionalProperties: true
+      description: The persisted per-repo epic run (EpicRun in src/epic-core.ts). One per repo; a request for another parent answers the idle auto default.
+      required: [repoPath, parentIssueNumber, mode, status]
+      properties:
+        repoPath: { type: string }
+        parentIssueNumber: { type: integer }
+        mode: { $ref: "#/components/schemas/EpicMode" }
+        status: { $ref: "#/components/schemas/EpicRunStatus" }
+        agentProvider:
+          { "oneOf": [{ "$ref": "#/components/schemas/AgentProvider" }, { "type": "null" }] }
+        model: { type: [string, "null"] }
+        effort: { type: [string, "null"] }
+    Epic:
+      type: object
+      additionalProperties: true
+      description: GET /api/epic — one epic assembled by the drain (Epic in src/epic-core.ts).
+      required: [repoPath, parentIssueNumber, parentTitle, source, children, warnings, run]
+      properties:
+        repoPath: { type: string }
+        parentIssueNumber: { type: integer }
+        parentTitle: { type: string }
+        source: { $ref: "#/components/schemas/EpicSource" }
+        children: { type: array, items: { $ref: "#/components/schemas/EpicChild" } }
+        warnings: { type: array, items: { type: string } }
+        noDependencyEdges:
+          {
+            type: boolean,
+            description: At least two ready children and no dependency edges — everything drains in parallel.,
+          }
+        run: { $ref: "#/components/schemas/EpicRun" }
+    EpicRunPatch:
+      type: object
+      additionalProperties: false
+      description: >-
+        PUT /api/epic body (validateEpicRunPatch in src/validate.ts). Every field optional; absent
+        keeps the stored value. model/effort null or "default" clear back to the provider default;
+        model is checked against agentProvider when both are sent.
+      properties:
+        mode: { type: string, enum: [auto, attended] }
+        status: { type: string, enum: [idle, running, paused] }
+        agentProvider:
+          { "oneOf": [{ "$ref": "#/components/schemas/AgentProvider" }, { "type": "null" }] }
+        model: { type: [string, "null"] }
+        effort: { type: [string, "null"] }
+    EpicUpdateResult:
+      description: >-
+        PUT /api/epic and POST /api/epic/approve-next answer the re-assembled Epic, or `{ok: true}`
+        when the drain can no longer assemble it (the run was still saved / approved).
+      oneOf:
+        - $ref: "#/components/schemas/Epic"
+        - $ref: "#/components/schemas/Ok"
     BranchListing:
       type: object
       additionalProperties: true
@@ -5346,6 +5525,42 @@ paths:
                 $ref: "#/components/schemas/AutomergeStatusList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/prs/merge:
+    post:
+      operationId: mergeBacklogPr
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BacklogMergeBody"
+      responses:
+        "200":
+          description: Merged.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "400":
+          description: 'error is "invalid repo", "number required" or "no forge for repo".'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: The takeover confirmation is missing or stale (code set), a merge conflict, or a busy base checkout.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MergeConfirmRefusal"
+        "502":
+          description: The merge did not complete (code set when classified) or the forge failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/sessions/{id}/autopilot:
     parameters:
       - name: id
@@ -6093,6 +6308,107 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+  /api/epic:
+    get:
+      operationId: getEpic
+      description: Assemble one epic. Uses the repo's stored run when it is for this parent, else the idle auto default.
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema: { type: string }
+        - name: parent
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: The epic.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Epic" }
+        "400":
+          description: 'error is "invalid repo" or "parent must be a positive integer".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404":
+          description: 'error is "not found": the parent issue could not be read.'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: 'error is "drain unavailable".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    put:
+      operationId: patchEpicRun
+      description: >-
+        Patch the repo's epic run for this parent (superseding a run for another parent), persist
+        it, and answer the re-assembled epic. status running kicks the drain at once.
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema: { type: string }
+        - name: parent
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EpicRunPatch" }
+      responses:
+        "200":
+          description: The re-assembled epic, or {ok:true} when it can no longer be assembled.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EpicUpdateResult" }
+        "400":
+          description: 'error is "invalid repo", "parent must be a positive integer", "invalid epic run patch", or a model the Codex ChatGPT login cannot run.'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503":
+          description: 'error is "drain unavailable".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/epic/approve-next:
+    post:
+      operationId: approveEpicNext
+      description: Approve the next attended epic spawn, run one drain tick, and answer the re-assembled epic.
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema: { type: string }
+        - name: parent
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: The re-assembled epic, or {ok:true} when it can no longer be assembled.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EpicUpdateResult" }
+        "400":
+          description: 'error is "invalid repo" or "parent must be a positive integer".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503":
+          description: 'error is "drain unavailable".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/branches:
     get:
       operationId: listBranches

@@ -8,12 +8,15 @@ import {
   restoreAuth,
   startContractServer,
   validateEvent,
+  validateRequest,
   validateResponse,
   withAuth,
   type ContractServer,
 } from "./harness";
 import { eventsForStream, operationsForStream } from "./stream-blocks";
 import * as fx from "./merge-fixtures";
+import { takeoverConfirm, takeoverStatus } from "./detail-fixtures";
+import { MergeConflictError } from "../../src/forge/local";
 let s: ContractServer;
 let token: string;
 let id: string;
@@ -267,6 +270,88 @@ test("eight frames, including null-clearing variants, arrive over the socket", a
     const received = frames.filter((f) => f.event === name);
     expect(received.length).toBeGreaterThan(0);
     for (const frame of received) validateEvent(frame.event, frame.data);
+  }
+});
+
+test("backlog merge validates input, gates takeovers and maps classified failures", async () => {
+  const p = "/api/prs/merge";
+  const savedForge = s.stubs.resolveForge.forge;
+  const savedRoles = s.deps.readRoles;
+  const roles = { reviewer: "reviewer", merger: "owner" };
+  const calls: { number: number; options: unknown }[] = [];
+  let mergeImpl = async (number: number, options: unknown) => {
+    calls.push({ number, options });
+  };
+  const forge = {
+    kind: "github",
+    mergeMethod: "squash",
+    currentUser: async () => "operator",
+    listPullRequests: async () => [{ number: 12, headRefName: "feature" }],
+    prStatus: async () => takeoverStatus,
+    merge: (number: number, options: unknown) => mergeImpl(number, options),
+  };
+  const send = async (status: number, body: Record<string, unknown>) => {
+    validateRequest("POST", p, body);
+    return await request("POST", p, status, body);
+  };
+  try {
+    await request("POST", p, 400, { repo: "/outside", number: 12 });
+    await request("POST", p, 400, { repo: s.validRepo });
+    expect(await send(400, { repo: s.validRepo, number: 12 })).toEqual({
+      error: "no forge for repo",
+    });
+    s.stubs.resolveForge.forge = forge;
+    s.deps.readRoles = () => roles;
+    expect(await send(409, { repo: s.validRepo, number: 12 })).toMatchObject({
+      code: "merge_confirm_required",
+      headSha: "head-a",
+      baseRefName: "release",
+      gate: { handoff: "reviewer", handoffWho: "reviewer", reviewBlockBy: "reviewer" },
+    });
+    expect(
+      await send(409, {
+        repo: s.validRepo,
+        number: 12,
+        confirm: { ...takeoverConfirm, headSha: "old" },
+      }),
+    ).toMatchObject({ code: "merge_confirm_stale" });
+    expect(calls).toEqual([]);
+    expect(
+      await send(200, {
+        repo: s.validRepo,
+        number: 12,
+        method: "rebase",
+        deleteBranch: false,
+        confirm: takeoverConfirm,
+      }),
+    ).toEqual({ ok: true });
+    expect(calls).toEqual([
+      {
+        number: 12,
+        options: {
+          method: "rebase",
+          deleteBranch: false,
+          allowStacked: true,
+          expectedHeadSha: "head-a",
+        },
+      },
+    ]);
+    const confirmed = { repo: s.validRepo, number: 12, confirm: takeoverConfirm };
+    mergeImpl = async () => {
+      throw new MergeConflictError("feature", "release");
+    };
+    expect(await send(409, confirmed)).toEqual({
+      error: "merge conflict — resolve manually before merging",
+    });
+    mergeImpl = async () => {
+      throw new Error("fixture failure");
+    };
+    expect(await send(502, confirmed)).toEqual({ error: "fixture failure" });
+    expect(() => validateRequest("POST", p, { number: 12 })).toThrow();
+    expect(() => validateRequest("POST", p, { repo: "r", number: 1, extra: true })).toThrow();
+  } finally {
+    s.stubs.resolveForge.forge = savedForge;
+    s.deps.readRoles = savedRoles;
   }
 });
 

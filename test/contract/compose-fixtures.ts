@@ -1,5 +1,6 @@
 import type { Issue } from "../../src/forge/types";
 import type { SlashCommand } from "../../src/commands";
+import type { Epic, EpicRun } from "../../src/epic-core";
 
 /** Every field the picker and the filter pipeline read, across four rows that exercise each
  *  filter stage: one plain, one assigned to somebody else, one labelled shepherd:active, one
@@ -152,3 +153,47 @@ export const leftovers = [
     command: { bin: "proxy", args: ["stop"] },
   },
 ] satisfies import("../../src/process-reaper").Leftover[];
+
+/** What drain.buildEpic assembles (src/epic-model.ts assembleEpic), typed with the server's Epic so
+ *  a field rename breaks the typecheck before it can drift past the contract. */
+export function epic(run: EpicRun): Epic {
+  return {
+    repoPath: run.repoPath,
+    parentIssueNumber: run.parentIssueNumber,
+    parentTitle: "Rate-limit the admin route",
+    source: "native",
+    children: [
+      {
+        number: 413,
+        title: "Limiter",
+        url: "https://example.test/i/413",
+        order: 0,
+        body: "Add the limiter.",
+        blockedBy: [],
+        state: "in-review",
+        sessionId: "s-413",
+        prNumber: 9,
+        issueClosed: false,
+        integrationMerged: false,
+        claimed: true,
+      },
+      {
+        number: 414,
+        title: "Metrics",
+        url: "https://example.test/i/414",
+        order: 1,
+        body: "",
+        blockedBy: [413],
+        state: "blocked",
+        sessionId: null,
+        prNumber: null,
+        issueClosed: false,
+        integrationMerged: false,
+        claimed: false,
+      },
+    ],
+    warnings: ["#414 blocked_by #999 is outside the epic — ignored"],
+    noDependencyEdges: false,
+    run,
+  };
+}

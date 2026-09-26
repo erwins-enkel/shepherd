@@ -168,6 +168,20 @@ impl ErrorBody for crate::api::types::StartUpNextError {
     }
 }
 
+/// `POST /api/prs/merge` answers a merge-confirmation refusal (409) with the PR state to echo.
+impl ErrorBody for crate::api::types::MergeBacklogPrError {
+    fn message(&self) -> Option<String> {
+        use crate::api::types::MergeBacklogPrError as E;
+        match self {
+            E::MergeConfirmRefusal(r) => match &r.code {
+                Some(code) if code != &r.error => Some(format!("{} ({code})", r.error)),
+                _ => Some(r.error.clone()),
+            },
+            E::Error(e) => e.message(),
+        }
+    }
+}
+
 pub fn transport(e: &reqwest::Error) -> CliError {
     let mut msg = e.to_string();
     let mut source = std::error::Error::source(e);

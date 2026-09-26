@@ -177,6 +177,12 @@ async fn dispatch(cli: Cli, io: &mut Io) -> Result<()> {
         Command::Held(cmd) => commands::intake::held(&mut ctx, cmd).await,
         Command::ReviewPr { session } => commands::merge::review_pr(&mut ctx, &session).await,
         Command::ReviewPlan { session } => commands::merge::review_plan(&mut ctx, &session).await,
+        Command::Go { session } => commands::control::go(&mut ctx, &session).await,
+        Command::Halt { yes } => commands::control::halt(&mut ctx, yes).await,
+        Command::Retry { sessions, text } => {
+            commands::control::retry(&mut ctx, &sessions, text).await
+        }
+        Command::MergePr(args) => commands::merge::merge_pr(&mut ctx, args).await,
         Command::Merge(args) => commands::merge::merge(&mut ctx, args).await,
         Command::Train(cmd) => commands::merge::train(&mut ctx, cmd).await,
         Command::Settings { cmd } => commands::settings::settings(&mut ctx, cmd).await,

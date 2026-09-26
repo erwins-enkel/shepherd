@@ -96,8 +96,30 @@ pub enum Command {
         /// Session id or designation (TASK-07)
         session: String,
     },
+    /// Release an approved plan gate and start execution
+    Go {
+        /// Session id or designation (TASK-07)
+        session: String,
+    },
+    /// Interrupt every live working agent (needs --yes)
+    Halt {
+        /// Confirm: halt interrupts every live working agent
+        #[arg(long)]
+        yes: bool,
+    },
+    /// Resume halted sessions (default: every session the usage limit halted)
+    Retry {
+        /// Sessions to retry, by id or designation (TASK-07)
+        #[arg(value_name = "SESSION")]
+        sessions: Vec<String>,
+        /// Text to steer each session with (default: the usage-limit continue prompt)
+        #[arg(long, value_name = "TEXT")]
+        text: Option<String>,
+    },
     /// Merge a session's pull request
     Merge(MergeArgs),
+    /// Merge a repo's pull request by number (a backlog PR, with or without a session)
+    MergePr(MergePrArgs),
     /// The full-auto merge train: status, start, stop, per-session override
     #[command(subcommand)]
     Train(TrainCmd),
@@ -250,6 +272,39 @@ pub struct MergeArgs {
     pub takeover: bool,
 }
 
+#[derive(Debug, Args)]
+pub struct MergePrArgs {
+    /// Pull-request number
+    #[arg(value_parser = clap::value_parser!(i64).range(1..))]
+    pub number: i64,
+    /// Repository path on the server (default: this directory's git toplevel)
+    #[arg(long, value_name = "PATH")]
+    pub repo: Option<String>,
+    /// Merge method (forge default when omitted)
+    #[arg(long, value_parser = parse_method)]
+    pub method: Option<MergeMethod>,
+    /// Keep the head branch after merging
+    #[arg(long)]
+    pub keep_branch: bool,
+    /// Take the merge over from whoever is responsible for it (echoes the PR state to confirm)
+    #[arg(long)]
+    pub takeover: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct TrainLaunchArgs {
+    /// PR numbers to run the train over (default: every ready-to-merge PR)
+    #[arg(value_name = "NUMBER", value_parser = clap::value_parser!(i64).range(1..))]
+    pub numbers: Vec<i64>,
+    /// Repository path on the server (default: this directory's git toplevel with numbers,
+    /// else the repo with the most ready PRs)
+    #[arg(long, value_name = "PATH")]
+    pub repo: Option<String>,
+    /// Base branch
+    #[arg(long, value_name = "BRANCH", default_value = "main")]
+    pub base: String,
+}
+
 #[derive(Debug, Subcommand)]
 pub enum TrainCmd {
     /// A status per auto-merge-enabled repo
@@ -266,6 +321,8 @@ pub enum TrainCmd {
         #[arg(value_parser = parse_override)]
         value: Override,
     },
+    /// Spawn an agent that works a merge train over ready (or the given) PRs
+    Launch(TrainLaunchArgs),
 }
 
 /// A per-session automation override: `None` follows the repo setting.

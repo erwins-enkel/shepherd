@@ -6,6 +6,7 @@ import {
   mkdtempSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -27,7 +28,7 @@ function fixture(
     agentListDelay?: number;
   } = {},
 ) {
-  const dir = mkdtempSync(join(tmpdir(), "shepherd-herdr-recovery-"));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "shepherd-herdr-recovery-")));
   dirs.push(dir);
   const binDir = join(dir, "bin");
   mkdirSync(binDir);

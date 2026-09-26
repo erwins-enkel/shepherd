@@ -1,5 +1,5 @@
 import { test, expect, afterAll } from "bun:test";
-import { mkdtempSync, rmSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, realpathSync, rmSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -117,7 +117,7 @@ function git(args: string[], cwd: string): string {
 }
 
 function makeGitRepo(): string {
-  const dir = mkdtempSync(join(tmpdir(), "shepherd-exclude-test-"));
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "shepherd-exclude-test-")));
   tempDirs.push(dir);
   git(["init"], dir);
   git(["config", "user.email", "test@example.com"], dir);
@@ -129,7 +129,7 @@ function makeGitRepo(): string {
 
 test("excludePath(worktreePath) === excludePath(mainRepoPath) — shared common-dir", () => {
   const mainRepo = makeGitRepo();
-  const worktreeDir = mkdtempSync(join(tmpdir(), "shepherd-exclude-wt-"));
+  const worktreeDir = realpathSync(mkdtempSync(join(tmpdir(), "shepherd-exclude-wt-")));
   tempDirs.push(worktreeDir);
   git(["worktree", "add", "--detach", worktreeDir], mainRepo);
 
@@ -140,7 +140,7 @@ test("excludePath(worktreePath) === excludePath(mainRepoPath) — shared common-
 
 test("ensureShepherdExclude writes block visible from both main and worktree", () => {
   const mainRepo = makeGitRepo();
-  const worktreeDir = mkdtempSync(join(tmpdir(), "shepherd-exclude-wt2-"));
+  const worktreeDir = realpathSync(mkdtempSync(join(tmpdir(), "shepherd-exclude-wt2-")));
   tempDirs.push(worktreeDir);
   git(["worktree", "add", "--detach", worktreeDir], mainRepo);
 
@@ -178,7 +178,7 @@ test("ensureShepherdExclude does not throw on a non-git path (best-effort)", () 
 
 test("git status in worktree ignores .shepherd-* artifacts after ensureShepherdExclude", () => {
   const mainRepo = makeGitRepo();
-  const worktreeDir = mkdtempSync(join(tmpdir(), "shepherd-exclude-gitstatus-"));
+  const worktreeDir = realpathSync(mkdtempSync(join(tmpdir(), "shepherd-exclude-gitstatus-")));
   tempDirs.push(worktreeDir);
   git(["worktree", "add", "--detach", worktreeDir], mainRepo);
 

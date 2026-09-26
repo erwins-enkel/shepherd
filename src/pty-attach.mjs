@@ -37,7 +37,7 @@ try {
     process.stderr.write(
       `pty-attach: node-pty could not launch its spawn-helper — likely a missing ` +
         `execute bit (EACCES) on node_modules/node-pty/{build/Release,prebuilds/${arch}}/spawn-helper. ` +
-        `Fix: run \`bun scripts/fix-node-pty-perms.mjs\` or re-run deploy/provision.ts, then retry.\n`,
+        `Fix: re-run \`bun install\` (or \`bun scripts/fix-node-pty-perms.mjs\`), then retry.\n`,
     );
     process.exit(1);
   }

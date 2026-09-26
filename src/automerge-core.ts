@@ -174,7 +174,9 @@ function readyToMerge(
  *  simultaneously shuts the critic (review.ts's consider), this predicate, and autopilot's
  *  rebaseCandidate. A rebase would require green CI, and green CI would require a rebase. So the
  *  CI-green gate is waived for a DEFINITE conflict only, where it is unsatisfiable by
- *  construction; a `behind` PR with pending checks keeps it (CI is genuinely still coming).
+ *  construction; a `behind` PR with pending checks keeps it (CI is genuinely still coming). The
+ *  same deadlock means a verdict on an older head can never be refreshed, so under a definite
+ *  conflict it is treated as no verdict (its changes_requested/error/head-mismatch legs waived).
  */
 function rebaseEligible(
   s: MergeSessionView,
@@ -190,14 +192,22 @@ function rebaseEligible(
   if (!isDefiniteConflict(s) && !checksCleared(s.checks, s.noCi)) return false;
   // draftMode: never rebase an unsigned PR (don't churn CI on a draft awaiting sign-off).
   if (draftMode && !signedOff(authority, signoffView(s))) return false;
-  if (s.reviewDecision === "changes_requested" || s.reviewDecision === "error") return false;
-  if (criticEnabled && s.reviewDecision !== null && s.reviewHeadSha !== s.headSha) {
-    // a re-review is already pending for a newer head → let the critic settle first
-    return false;
-  }
+  if (!rebaseVerdictAllows(s, criticEnabled)) return false;
   // `|| isDefiniteConflict` is load-bearing: a `dirty` PR whose `mergeable` is still null would
   // otherwise clear every gate above and then decline here, contradicting the predicate itself.
   return s.behind === true || s.mergeable === false || isDefiniteConflict(s);
+}
+
+/** The critic-verdict leg of {@link rebaseEligible}. Under a definite conflict a verdict on an
+ *  OLDER head counts as none: no CI runs, so the critic can never re-review and that verdict can
+ *  never refresh (changes_requested → fix push → base moves would otherwise wedge the PR forever).
+ *  A current-head verdict still gates. */
+function rebaseVerdictAllows(s: MergeSessionView, criticEnabled: boolean): boolean {
+  const stale = s.reviewDecision !== null && s.reviewHeadSha !== s.headSha;
+  if (stale && isDefiniteConflict(s)) return true;
+  if (s.reviewDecision === "changes_requested" || s.reviewDecision === "error") return false;
+  // a re-review is already pending for a newer head → let the critic settle first
+  return !(criticEnabled && stale);
 }
 
 /** AVAILABILITY — is NOW the moment to act on an eligible PR? */

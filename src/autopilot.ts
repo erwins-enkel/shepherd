@@ -262,6 +262,10 @@ export class AutopilotService {
   // deliver (the poller emits no `session:git` without a state change) — is owned by tick().
   private openSeen = new Set<string>();
   private ciNudged = new Map<string, string>();
+  // Conflict fast path (onGit → nudgeConflict): the head SHA we last steered a rebase for on the
+  // git EDGE, so a later `session:git` for the same still-dirty head (e.g. a checks flip) doesn't
+  // re-steer. The sustained re-steer on an unchanged conflicting head stays tick()'s job.
+  private conflictNudged = new Map<string, string>();
   // Sessions sitting on a pending MCP OAuth prompt (human-only). Stands autopilot down across
   // every steer path until the operator completes it: set from onBlock(authUrl) / a pendingAuthUrl
   // re-check, cleared on a null block, on `running` (operator resumed), and on archive (forget).
@@ -608,6 +612,7 @@ export class AutopilotService {
     this.authPending.delete(id);
     this.openSeen.delete(id);
     this.ciNudged.delete(id);
+    this.conflictNudged.delete(id);
     this.pending.delete(id);
   }
 
@@ -626,9 +631,11 @@ export class AutopilotService {
     this.deps.onState?.(id);
   }
 
-  /** session:git handler. Two jobs, both keyed off the PR's live state:
+  /** session:git handler. Three jobs, all keyed off the PR's live state:
    *  1. PR-open transition (none/closed → open): hand off to the critic loop once (onPrOpen).
-   *  2. Open PR with FAILING CI: the dead zone — the critic only reviews a green PR and pre-PR
+   *  2. Open PR with a DEFINITE CONFLICT on a resting non-full-auto session: steer the rebase now
+   *     (nudgeConflict) instead of waiting for the next tick().
+   *  3. Open PR with FAILING CI: the dead zone — the critic only reviews a green PR and pre-PR
    *     autopilot has stood down (a PR exists), so nobody steers a red PR. Drive the task agent
    *     to fix its own CI. Replaces the old `if (open) onPrOpen` wiring in index.ts. */
   onGit(id: string, git: GitState): void {
@@ -637,6 +644,7 @@ export class AutopilotService {
       // the handoff reset and the CI-fix nudge.
       this.openSeen.delete(id);
       this.ciNudged.delete(id);
+      this.conflictNudged.delete(id);
       return;
     }
     const s = this.deps.store.get(id);
@@ -651,6 +659,7 @@ export class AutopilotService {
       // its persisted CI-fix budget below.
       if (git.checks !== "failure" && !s.autopilotPaused) this.onPrOpen(id);
     }
+    this.nudgeConflict(s, git);
     if (git.checks === "failure") {
       if (
         s.mergingSince !== null ||
@@ -670,6 +679,45 @@ export class AutopilotService {
           })
           .catch((err) => console.warn("[autopilot] capacity:", err));
     }
+  }
+
+  /** Conflict fast path: the git-EDGE counterpart of tick()'s reEngageRebase. The PR poller emits
+   *  `session:git` the moment a PR turns dirty, while the tick samples every 30s and onDone usually
+   *  runs before a fresh PR is even cached — so without this an idle agent sat on a conflicting PR
+   *  until the operator nudged it (TASK-2491). Conflict-only (a `behind` PR stays tick-driven),
+   *  resting sessions only (never mid-work), non-full-auto only (the merge train owns full-auto),
+   *  and deduped per head: a later `session:git` for the same dirty head (a checks flip) is
+   *  skipped. reEngageRebase owns every other gate (review, cap, pause) and the attempt count; the
+   *  head stays recorded only when it actually acted, so a declined head can still steer later. */
+  private nudgeConflict(s: Session, git: GitState): void {
+    if (!isDefiniteConflict(git) || !git.headSha) return;
+    if (s.status === "running" || s.status === "blocked") return;
+    if (this.conflictNudged.get(s.id) === git.headSha) return;
+    // Eligibility BEFORE capacity, like tick()'s hasReengagementWork: the codex capacity gate
+    // records demand + a resumable intent, so a paused / complete / full-auto / declined session
+    // must never reach it. rebaseCandidate is the same gate reEngageRebase re-runs.
+    if (!this.rebaseCandidate(s)) return;
+    // Claim the head BEFORE the (possibly async) capacity wait so a second `session:git` inside it
+    // can't steer too; released again if reEngageRebase declines.
+    const head = git.headSha;
+    this.conflictNudged.set(s.id, head);
+    const act = () => {
+      const cur = this.deps.store.get(s.id);
+      const busy = !cur || cur.status === "running" || cur.status === "blocked";
+      if (busy || !this.reEngageRebase(s.id)) this.conflictNudged.delete(s.id);
+    };
+    if (!this.deps.capacity) act();
+    else
+      void this.deps
+        .capacity(s)
+        .then((ready) => {
+          if (ready) act();
+          else this.conflictNudged.delete(s.id);
+        })
+        .catch((err) => {
+          this.conflictNudged.delete(s.id);
+          console.warn("[autopilot] capacity:", err);
+        });
   }
 
   /** Open PR + red CI → steer the task agent to fix it. The responsive FIRST-RESPONSE to a
@@ -831,9 +879,10 @@ export class AutopilotService {
    *                   so requiring it deadlocks: rebase needs CI, CI needs the rebase.
    *    • non-draft  — DRAFT masks BEHIND but NOT DIRTY, so GitHub does report a conflicting draft,
    *                   and a rebase genuinely unblocks its CI.
-   *    • a verdict must exist — the same deadlock stops the critic ever producing one. The
-   *                   changes_requested / error / head-match / ZERO-FINDINGS legs all still stand,
-   *                   so the no-double-steer guarantee above is intact.
+   *    • a verdict must exist — the same deadlock stops the critic ever producing one, so a
+   *                   verdict on an OLDER head counts as none too (it can never refresh). For a
+   *                   current-head verdict the changes_requested / error / ZERO-FINDINGS legs all
+   *                   still stand, so the no-double-steer guarantee above is intact.
    *
    *  "Behind" is read from the cached GitState's mergeStateStatus rather than a git fetch (the
    *  merge train uses worktree.behindBase); on forges that don't supply mergeStateStatus (Gitea /
@@ -873,6 +922,7 @@ export class AutopilotService {
     }
     // Cap BEFORE any bump/steer: hand back rather than thrash on a PR the agent can't unstick.
     if (s.autoMergeRebaseCount >= this.rebaseCap) {
+      console.log(`[autopilot] rebase cap hand-back ${s.desig} after ${s.autoMergeRebaseCount}`);
       this.pause(s, REBASE_CAP_MESSAGE);
       return true;
     }
@@ -892,6 +942,10 @@ export class AutopilotService {
       rebaseCount: s.autoMergeRebaseCount + 1,
       ...(conflict ? { rebaseSteeredAt: this.now() } : {}),
     });
+    console.log(
+      `[autopilot] rebase steer ${s.desig} ${conflict ? "conflict" : "behind"} ` +
+        `head=${(git.headSha ?? "?").slice(0, 7)} attempt=${s.autoMergeRebaseCount + 1}/${this.rebaseCap}`,
+    );
     const steer = conflict ? conflictRebaseSteer(s.baseBranch) : rebaseSteer(s.baseBranch);
     void this.sendSteer(s, steer).catch((err) =>
       console.warn("[autopilot] rebase re-engage steer:", err),
@@ -955,24 +1009,27 @@ export class AutopilotService {
    *  steer loop (which only fires on findings) is NOT also driving this idle session. Critic off →
    *  green CI alone suffices.
    *
-   *  UNDER isDefiniteConflict exactly ONE leg is waived: "a verdict must exist". The deadlock means
-   *  one can never arrive (no CI → review.ts's consider() skips), so demanding it would re-wedge
-   *  the conflict path. changes_requested / error / head-match / zero-findings all still apply —
-   *  in particular zero-findings, which is what keeps runAutoAddress off the same idle pane. */
+   *  UNDER isDefiniteConflict "a verdict must exist" is waived, and a verdict on an OLDER head
+   *  counts as no verdict. The deadlock means no fresh one can arrive (no CI → review.ts's
+   *  consider() skips), so demanding one would re-wedge the conflict path. For a CURRENT-head
+   *  verdict changes_requested / error / zero-findings all still apply — in particular
+   *  zero-findings, which is what keeps runAutoAddress off the same idle pane. */
   private rebaseReviewPassed(s: Session, git: GitState): boolean {
     if (!this.deps.store.getRepoConfig(s.repoPath).criticEnabled) return true;
     const review = this.deps.getReview(s.id);
     if (isDefiniteConflict(git)) {
-      // Waive EXACTLY ONE leg of signedOff — "a verdict must exist" — because the deadlock means
-      // one can never arrive (no CI → review.ts's consider() skips). Every other leg stands.
-      if (review?.decision == null) return true;
+      // Waive "a verdict must exist" — the deadlock means one can never arrive (no CI → review.ts's
+      // consider() skips). For the same reason a verdict on an OLDER head counts as none: it can
+      // never be refreshed, and its findings were already steered once at publish (runAutoAddress
+      // fires per verdict), which is why the head moved. Without this, changes_requested → fix
+      // push → base moves wedged the session forever (TASK-2435).
+      if (review?.decision == null || review.headSha !== git.headSha) return true;
       if (review.decision === "changes_requested" || review.decision === "error") return false;
       // Zero-findings is KEPT and is NOT redundant with the check above: review.ts's
       // runAutoAddress bails only on findings.length === 0 and steers regardless of `decision`,
       // so admitting a findings-bearing "commented" verdict would put the auto-address loop and
       // the rebase loop on the same idle pane.
-      if ((review.findings ?? []).length > 0) return false;
-      return review.headSha === git.headSha;
+      return (review.findings ?? []).length === 0;
     }
     return signedOff("critic", {
       humanApproved: git.latestReview?.state === "approved",

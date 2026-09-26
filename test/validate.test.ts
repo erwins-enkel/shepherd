@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import {
@@ -40,7 +40,7 @@ let root: string;
 let validRepo: string;
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), "shepherd-val-root-"));
+  root = realpathSync(mkdtempSync(join(tmpdir(), "shepherd-val-root-")));
   validRepo = join(root, "myrepo");
   mkdirSync(validRepo);
 });

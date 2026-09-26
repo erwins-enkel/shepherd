@@ -185,6 +185,7 @@ async fn dispatch(cli: Cli, io: &mut Io) -> Result<()> {
         Command::MergePr(args) => commands::merge::merge_pr(&mut ctx, args).await,
         Command::Merge(args) => commands::merge::merge(&mut ctx, args).await,
         Command::Train(cmd) => commands::merge::train(&mut ctx, cmd).await,
+        Command::Epics { repo, cmd } => commands::epics::run(&mut ctx, repo, cmd).await,
         Command::Settings { cmd } => commands::settings::settings(&mut ctx, cmd).await,
         Command::RepoConfig { repo, cmd } => {
             commands::settings::repo_config(&mut ctx, repo, cmd).await

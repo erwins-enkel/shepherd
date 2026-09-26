@@ -1,8 +1,10 @@
 //! Argument grammar. Every command is non-interactive: nothing here ever prompts.
 
+use std::num::NonZeroU64;
+
 use clap::{Args, Parser, Subcommand};
 
-use crate::api::types::{AgentProvider, Effort, MergeMethod};
+use crate::api::types::{AgentProvider, Effort, EpicRunPatchMode, MergeMethod};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -123,6 +125,14 @@ pub enum Command {
     /// The full-auto merge train: status, start, stop, per-session override
     #[command(subcommand)]
     Train(TrainCmd),
+    /// Epics of a repo: list, inspect, and control their runs
+    Epics {
+        /// Repository path on the server (default: this directory's git toplevel)
+        #[arg(long, global = true, value_name = "PATH")]
+        repo: Option<String>,
+        #[command(subcommand)]
+        cmd: EpicsCmd,
+    },
     /// Operator settings: show them, or set one
     Settings {
         #[command(subcommand)]
@@ -181,6 +191,52 @@ pub enum DrainCmd {
     Start(RepoArg),
     /// Turn auto-drain off for a repo
     Stop(RepoArg),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum EpicsCmd {
+    /// The repo's epics, with progress and run status
+    List,
+    /// One epic: its run and children
+    Show {
+        /// Parent issue number
+        parent: NonZeroU64,
+    },
+    /// Start (or resume) an epic's run
+    Start(EpicStartArgs),
+    /// Pause an epic's run
+    Pause {
+        /// Parent issue number
+        parent: NonZeroU64,
+    },
+    /// Stop an epic's run (back to idle)
+    Stop {
+        /// Parent issue number
+        parent: NonZeroU64,
+    },
+    /// Approve the next child of an attended epic run
+    ApproveNext {
+        /// Parent issue number
+        parent: NonZeroU64,
+    },
+}
+
+#[derive(Debug, Args)]
+pub struct EpicStartArgs {
+    /// Parent issue number
+    pub parent: NonZeroU64,
+    /// `auto` drains children unattended; `attended` waits for approve-next
+    #[arg(long, value_parser = parse_epic_mode)]
+    pub mode: Option<EpicRunPatchMode>,
+    /// Coding agent
+    #[arg(long, value_parser = parse_provider)]
+    pub provider: Option<AgentProvider>,
+    /// Model
+    #[arg(long)]
+    pub model: Option<String>,
+    /// Reasoning effort
+    #[arg(long, value_parser = parse_effort)]
+    pub effort: Option<Effort>,
 }
 
 #[derive(Debug, Subcommand)]
@@ -381,6 +437,11 @@ pub struct NewArgs {
 fn parse_effort(s: &str) -> Result<Effort, String> {
     s.parse()
         .map_err(|_| "expected one of: low, medium, high, xhigh, max, ultra".to_string())
+}
+
+fn parse_epic_mode(s: &str) -> Result<EpicRunPatchMode, String> {
+    s.parse()
+        .map_err(|_| "expected one of: auto, attended".to_string())
 }
 
 fn parse_method(s: &str) -> Result<MergeMethod, String> {

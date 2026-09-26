@@ -1,6 +1,7 @@
 //! One module per verb family. Shared helpers live here.
 
 pub mod control;
+pub mod epics;
 pub mod events;
 pub mod intake;
 pub mod login;

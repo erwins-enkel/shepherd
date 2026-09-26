@@ -7524,7 +7524,9 @@
         "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"aLatePasswordLineStillSurfacesAfterHealthResolves() async throws\"]"
       ],
       "reason": "Mac view/adapter/host/live scenario retained in ShepherdTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: fixed 40x20ms refresh loop replaced by wall-clock-bounded refreshUntilPasswordCaptured helper (#2493); same refresh()/capturedPassword condition, all assertions retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"LocalServerModelTests\",\"aMissingCheckoutReadsAsNotInstalled() async throws\"]",
@@ -7620,7 +7622,9 @@
         "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"restartDoesNotResurrectAPasswordAlreadyHandedToConnect() async throws\"]"
       ],
       "reason": "Mac view/adapter/host/live scenario retained in ShepherdTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: 50ms health sleep dropped; post-start capture now polled via refreshUntilPasswordCaptured (#2493); connect/restart assertions retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"LocalServerModelTests\",\"somethingAlreadyOnPort7330IsExternallyManaged() async throws\"]",

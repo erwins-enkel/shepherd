@@ -118,6 +118,26 @@ describe("seedInstance", () => {
     expect(/timeout 120 systemctl stop "\$u" >\/dev\/null(?! ?2>&1)/.test(step)).toBe(true);
   });
 
+  it("Arch baseline appends fallback mirrors before the first pacman sync (#2500)", async () => {
+    const { calls, run } = recorder();
+    const d = new IncusDriver(run, "shep-onb-");
+    await seedInstance(d, scenario, "/tmp/shepherd.tar");
+
+    const step = calls
+      .map((c) => c.join(" "))
+      .find((c) => c.includes("pacman-key --populate archlinux"))!;
+    // The image ships ONE mirror (kernel.org); one connect timeout on it failed the baseline.
+    // `$repo`/`$arch` must reach the file literally (single-quoted), for pacman to expand.
+    for (const host of ["geo.mirror.pkgbuild.com", "fastly.mirror.pkgbuild.com"]) {
+      const line = `'Server = https://${host}/$repo/os/$arch'`;
+      // Leading \n: the stock mirrorlist lacks a trailing newline (else kernel.org's line breaks).
+      expect(step).toContain(
+        `grep -qxF ${line} /etc/pacman.d/mirrorlist || printf '\\n%s\\n' ${line} >>`,
+      );
+    }
+    expect(step.indexOf("/etc/pacman.d/mirrorlist")).toBeLessThan(step.indexOf("pacman -Sy"));
+  });
+
   it("the herdr stub is a CHECKED baseline step (a failure aborts the seed)", async () => {
     const calls: string[][] = [];
     const run = async (args: string[]): Promise<IncusExec> => {

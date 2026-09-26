@@ -9,6 +9,8 @@ const SHEPHERD_DIR = "/opt/shepherd";
 // replace default and leave the instance with no root device.
 const PROFILES = ["default", "shep-onb"];
 
+const ARCH_FALLBACK_MIRRORS = ["geo.mirror.pkgbuild.com", "fastly.mirror.pkgbuild.com"];
+
 /** Take sole ownership of Arch's pacman keyring, then refresh it from the mirror.
  *
  *  WHY refresh at all (#1422): the base image's `archlinux-keyring` drifts behind the
@@ -68,7 +70,11 @@ const PROFILES = ["default", "shep-onb"];
  *
  *  Guarded on `command -v pacman` so it's a clean no-op on apt/apk/dnf images (the 8 non-Arch
  *  scenarios). Runs as root — `driver.exec` → `incus exec` is root by default, which
- *  `pacman-key` and `systemctl` require. */
+ *  `pacman-key` and `systemctl` require.
+ *
+ *  The image's mirrorlist carries ONE server (mirrors.kernel.org), so a single connect timeout
+ *  on it failed this checked step (#2500). We append fallback mirrors — kernel.org stays
+ *  primary and pacman falls over per file — which also covers every later pacman call. */
 function archKeyringRefresh(): string {
   return [
     "command -v pacman >/dev/null 2>&1 || exit 0",
@@ -98,6 +104,12 @@ function archKeyringRefresh(): string {
     "  done",
     "  systemctl reset-failed pacman-init.service >/dev/null 2>&1 || true",
     "fi",
+    // Leading \n: the image's mirrorlist has no trailing newline, and a bare `echo >>` would
+    // glue the first fallback onto the kernel.org line, corrupting it.
+    ...ARCH_FALLBACK_MIRRORS.map((host) => {
+      const line = `'Server = https://${host}/$repo/os/$arch'`;
+      return `grep -qxF ${line} /etc/pacman.d/mirrorlist || printf '\\n%s\\n' ${line} >> /etc/pacman.d/mirrorlist`;
+    }),
     "gpgconf --homedir /etc/pacman.d/gnupg --kill all >/dev/null 2>&1 || true",
     "rm -rf /etc/pacman.d/gnupg",
     "pacman-key --init",

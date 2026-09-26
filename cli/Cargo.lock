@@ -1707,7 +1707,7 @@ dependencies = [
 
 [[package]]
 name = "shepherd-cli"
-version = "1.47.0"
+version = "2.0.0"
 dependencies = [
  "clap",
  "comfy-table",

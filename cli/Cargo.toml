@@ -1,6 +1,6 @@
 [package]
 name = "shepherd-cli"
-version = "1.47.0"
+version = "2.0.0"
 edition = "2024"
 rust-version = "1.88"
 description = "Command-line client for the Shepherd server"

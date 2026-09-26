@@ -529,3 +529,42 @@ test("stacked: a stacked PR does not starve a mergeable sibling", () => {
     computeMerge(state([sess({ stacked: true }), sess({ id: "s2", desig: "TASK-02", number: 8 })])),
   ).toEqual({ kind: "merge", sessionId: "s2", prNumber: 8, headSha: "h1" });
 });
+
+// ── Stale verdict under conflict: a verdict on an older head counts as no verdict ────────────
+// A conflicting PR gets no CI, so the critic can never re-review it; a verdict on a superseded
+// head would otherwise block the train's rebase forever.
+
+const dirty = (o: Partial<MergeSessionView> = {}) =>
+  sess({ checks: "none", mergeable: false, mergeStateStatus: "dirty", ...o });
+
+test("conflict + stale changes_requested → rebase", () => {
+  const d = computeMerge(
+    state([dirty({ reviewDecision: "changes_requested", reviewHeadSha: "OLD", findings: ["x"] })], {
+      criticEnabled: true,
+    }),
+  );
+  expect(d).toEqual({ kind: "rebase", sessionId: "s1", headSha: "h1", conflict: true });
+});
+
+test("conflict + stale error → rebase", () => {
+  const d = computeMerge(
+    state([dirty({ reviewDecision: "error", reviewHeadSha: "OLD" })], { criticEnabled: true }),
+  );
+  expect(d.kind).toBe("rebase");
+});
+
+test("conflict + stale commented → rebase", () => {
+  const d = computeMerge(
+    state([dirty({ reviewDecision: "commented", reviewHeadSha: "OLD" })], { criticEnabled: true }),
+  );
+  expect(d.kind).toBe("rebase");
+});
+
+test("conflict + current-head changes_requested → no rebase", () => {
+  const d = computeMerge(
+    state([dirty({ reviewDecision: "changes_requested", reviewHeadSha: "h1" })], {
+      criticEnabled: true,
+    }),
+  );
+  expect(d.kind).not.toBe("rebase");
+});

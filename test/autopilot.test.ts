@@ -2086,3 +2086,178 @@ test("Codex capacity review: paused and already nudged CI events do not create r
   await flush();
   expect(calls).toBe(prior);
 });
+
+// ── Stale verdict under conflict: a verdict on an OLDER head counts as no verdict ────────────
+// A conflicting PR gets no CI, so the critic can never re-review it and a verdict on a superseded
+// head would otherwise block the rebase steer forever (TASK-2435: changes_requested → fix push →
+// base moved → idle 3h).
+
+const CONFLICT_STEER = (h: { events: any[] }) =>
+  h.events.some((e) => typeof e.steer === "string" && e.steer.includes("merge conflicts"));
+
+for (const [label, verdict] of [
+  ["changes_requested + findings", { decision: "changes_requested", findings: ["x"] }],
+  ["error", { decision: "error", findings: [] }],
+  ["commented + 0 findings", { decision: "commented", findings: [] }],
+  ["commented + findings", { decision: "commented", findings: ["x"] }],
+] as const) {
+  test(`stale ${label} verdict on a conflicting PR → conflict rebase steer`, async () => {
+    const h = harness({
+      session: sess({ status: "idle" }),
+      repoEnabled: true,
+      prGit: dirtyGit(), // head sha1
+      review: review({ ...verdict, findings: [...verdict.findings], headSha: "old" }),
+    });
+    await h.svc.tick();
+    await flush();
+    expect(CONFLICT_STEER(h)).toBe(true);
+    expect(rebased(h, 1)).toBe(true);
+  });
+}
+
+test("current-head changes_requested on a conflicting PR → NOT steered", async () => {
+  const h = harness({
+    session: sess({ status: "idle" }),
+    repoEnabled: true,
+    prGit: dirtyGit(),
+    review: review({ decision: "changes_requested", findings: ["x"], headSha: "sha1" }),
+  });
+  await h.svc.tick();
+  await flush();
+  expect(CONFLICT_STEER(h)).toBe(false);
+});
+
+test("current-head commented + findings on a conflicting PR → NOT steered", async () => {
+  const h = harness({
+    session: sess({ status: "idle" }),
+    repoEnabled: true,
+    prGit: dirtyGit(),
+    review: review({ findings: ["x"], headSha: "sha1" }),
+  });
+  await h.svc.tick();
+  await flush();
+  expect(CONFLICT_STEER(h)).toBe(false);
+});
+
+test("red + dirty with a stale verdict: the rebase actor owns it → no CI-fix steer", async () => {
+  const h = harness({
+    session: sess({ status: "idle" }),
+    repoEnabled: true,
+    prGit: dirtyGit({ checks: "failure" }),
+    review: review({ decision: "changes_requested", findings: ["x"], headSha: "old" }),
+  });
+  h.svc.onGit("s1", dirtyGit({ checks: "failure" }));
+  await flush();
+  expect(h.events).not.toContainEqual({ steer: CI_FIX_STEER });
+});
+
+// ── onGit conflict fast path: steer on the git edge, not only on the 30s tick ──────────────
+// TASK-2491: PR conflicting at creation, no verdict, operator nudged 90s before autopilot did.
+
+function fastPath(over: Partial<Parameters<typeof harness>[0]> = {}) {
+  return harness({
+    session: sess({ status: "idle" }),
+    repoEnabled: true,
+    prGit: dirtyGit(),
+    review: null,
+    ...over,
+  });
+}
+
+test("fast path: onGit with a conflicting PR steers a rebase without a tick", async () => {
+  const h = fastPath();
+  h.svc.onGit("s1", dirtyGit());
+  await flush();
+  expect(CONFLICT_STEER(h)).toBe(true);
+  expect(rebased(h, 1)).toBe(true);
+});
+
+test("fast path: same dirty head again → no second steer; a new head → steers again", async () => {
+  const h = fastPath();
+  h.svc.onGit("s1", dirtyGit());
+  h.svc.onGit("s1", dirtyGit({ checks: "pending" }));
+  await flush();
+  expect(h.events.filter((e) => typeof e.steer === "string")).toHaveLength(1);
+  h.svc.onGit("s1", dirtyGit({ headSha: "sha2" }));
+  await flush();
+  expect(h.events.filter((e) => typeof e.steer === "string")).toHaveLength(2);
+});
+
+test("fast path: a running session is not steered", async () => {
+  const h = fastPath({ session: sess({ status: "running" }) });
+  h.svc.onGit("s1", dirtyGit());
+  await flush();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+});
+
+test("fast path: a full-auto session is not steered (the train owns it)", async () => {
+  const h = fastPath({ fullAuto: true });
+  h.svc.onGit("s1", dirtyGit());
+  await flush();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+});
+
+test("fast path: a behind-only PR is left to the tick", async () => {
+  const pr = greenPr({ mergeStateStatus: "behind" });
+  const h = fastPath({ prGit: pr, criticEnabled: false });
+  h.svc.onGit("s1", pr);
+  await flush();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+});
+
+test("fast path: no capacity → no steer", async () => {
+  const h = fastPath({ capacity: async () => false });
+  h.svc.onGit("s1", dirtyGit());
+  await flush();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+});
+
+test("fast path: PR gone clears the dedup, so the same head steers again", async () => {
+  const h = fastPath();
+  h.svc.onGit("s1", dirtyGit());
+  await flush();
+  h.svc.onGit("s1", { state: "none" } as GitState);
+  h.svc.onGit("s1", dirtyGit());
+  await flush();
+  expect(h.events.filter((e) => typeof e.steer === "string")).toHaveLength(2);
+});
+
+test("fast path: two git edges inside the capacity wait steer only once", async () => {
+  const h = fastPath({ capacity: async () => true });
+  h.svc.onGit("s1", dirtyGit());
+  h.svc.onGit("s1", dirtyGit({ checks: "pending" }));
+  await flush();
+  expect(h.events.filter((e) => typeof e.steer === "string")).toHaveLength(1);
+});
+
+test("fast path: current-head changes_requested declines — no steer, no attempt counted", async () => {
+  const h = fastPath({
+    review: review({ decision: "changes_requested", findings: ["x"], headSha: "sha1" }),
+  });
+  h.svc.onGit("s1", dirtyGit());
+  await flush();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.mergeStateCalls).toHaveLength(0);
+});
+
+test("fast path: an ineligible session never reaches the capacity gate", async () => {
+  for (const over of [
+    { session: sess({ status: "idle", autopilotPaused: true }) },
+    { session: sess({ status: "idle", autopilotComplete: true }) },
+    { fullAuto: true },
+    { review: review({ decision: "changes_requested", findings: ["x"], headSha: "sha1" }) },
+  ]) {
+    let calls = 0;
+    const h = fastPath({
+      capacity: async () => {
+        calls++;
+        return true;
+      },
+      ...over,
+    });
+    h.svc.onGit("s1", dirtyGit());
+    await flush();
+    expect(calls).toBe(0);
+    expect(h.events.some((e) => "steer" in e)).toBe(false);
+  }
+});

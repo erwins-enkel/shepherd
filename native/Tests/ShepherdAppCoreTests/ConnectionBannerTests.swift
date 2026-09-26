@@ -356,8 +356,10 @@ struct AppModelHealthTests {
     /// it held. The yield is for the main-actor work under test; the
     /// millisecond sleep is for the tests that also wait on real I/O — a
     /// refused loopback connection, which yields alone never let finish.
+    /// The default is generous because only a failure waits it out, and a
+    /// loaded iOS Simulator runner blew through 5 s (#2493).
     private func settle(until condition: () -> Bool,
-                        timeout: Duration = .seconds(5)) async -> Bool {
+                        timeout: Duration = .seconds(30)) async -> Bool {
         let deadline = ContinuousClock.now + timeout
         while ContinuousClock.now < deadline {
             if condition() { return true }

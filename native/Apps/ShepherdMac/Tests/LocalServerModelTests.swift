@@ -117,6 +117,22 @@ extension MacSeamTests {
         return condition()
     }
 
+    /// `act()` drains the supervisor's captured password once, when its
+    /// lifecycle turn ends; a boot line still on the pump then only surfaces
+    /// through a later `refresh()` → `pullLog()`. Polls that, bounded by
+    /// wall-clock so a slow runner gets time instead of a fixed budget.
+    private func refreshUntilPasswordCaptured(
+        _ model: LocalServerModel, timeout: Duration = .seconds(10)
+    ) async -> Bool {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            await model.refresh()
+            if model.capturedPassword != nil { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return model.capturedPassword != nil
+    }
+
     @Test func aMissingCheckoutReadsAsNotInstalled() async throws {
         let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
         let model = LocalServerModel(
@@ -206,20 +222,13 @@ extension MacSeamTests {
         let model = LocalServerModel(
             environment: LocalServerEnvironment(home: home),
             probeExternal: { false },
-            // A small delay, not an instant `true`: the boot line reaches
-            // `capturedPassword` through the supervisor's output pump, a
-            // concurrent `Task` racing this closure. A real health check hits
-            // a network round trip and loses that race in practice; an
-            // instant stub here would not. `act()` reads `capturedPassword`
-            // exactly once, right after `start()` returns — pattern:
-            // `theGeneratedPasswordIsCapturedAndRedacted` in
-            // LocalServerSupervisorTests.swift, which polls with `waitUntil`
-            // for the same reason.
-            health: { try? await Task.sleep(for: .milliseconds(50)); return true },
+            // The boot line can still be on the pump when `start()` returns;
+            // `refreshUntilPasswordCaptured` re-drains until it lands.
+            health: { true },
             launch: { launch })
 
         await model.start()
-        #expect(model.capturedPassword != nil)
+        #expect(await refreshUntilPasswordCaptured(model))
 
         model.connect(app)
         #expect(model.capturedPassword == nil)
@@ -360,13 +369,7 @@ extension MacSeamTests {
             return
         }
 
-        var found = false
-        for _ in 0..<40 {
-            await model.refresh()
-            if model.capturedPassword != nil { found = true; break }
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        #expect(found)
+        #expect(await refreshUntilPasswordCaptured(model))
         #expect(model.capturedPassword?.hasPrefix("late") == true)
     }
 

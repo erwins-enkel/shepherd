@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { TurnEndBackstopService } from "../src/turn-end-backstop";
-import type { Session, SessionStatus } from "../src/types";
+import type { PlanDecision, Session, SessionStatus } from "../src/types";
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
@@ -13,12 +13,20 @@ const THRESHOLD = 1000;
 
 /** Build a service over a single session whose status + phase are mutable between sweeps. */
 function harness(planPhase: Session["planPhase"] = "planning") {
-  const state = { status: "running" as SessionStatus, planPhase, t: 0 };
+  const state = {
+    status: "running" as SessionStatus,
+    planPhase,
+    t: 0,
+    gateDecision: undefined as PlanDecision | undefined,
+  };
   const plans: string[] = [];
   const dones: string[] = [];
   const pushes: string[] = [];
   const svc = new TurnEndBackstopService({
-    store: { list: () => [session(state.status, state.planPhase)] } as never,
+    store: {
+      list: () => [session(state.status, state.planPhase)],
+      getPlanGate: () => (state.gateDecision ? { decision: state.gateDecision } : null),
+    } as never,
     considerPlan: async (s: Session) => {
       plans.push(s.id);
     },
@@ -68,14 +76,82 @@ test("does not fire before the settle threshold elapses", async () => {
 
 // ── guards ──────────────────────────────────────────────────────────────────
 
-test("never fires for a session it did not observe running (restart safety)", async () => {
-  const h = harness("planning");
+test("never fires autopilot for a session it did not observe running (restart safety)", async () => {
+  const h = harness("executing");
   // Process starts with the session already at rest — no running was ever observed.
   h.state.status = "idle";
   await h.svc.sweep();
   h.state.t += THRESHOLD * 10;
   await h.svc.sweep();
+  expect(h.dones).toEqual([]);
+  expect(h.pushes).toEqual([]);
+});
+
+test("a planning session resting across a restart still gets its plan review — no push", async () => {
+  const h = harness("planning");
+  h.state.status = "idle"; // at rest when the process started
+  await h.svc.sweep(); // first sighting → clock only
   expect(h.plans).toEqual([]);
+  h.state.t += THRESHOLD + 1;
+  await h.svc.sweep();
+  expect(h.plans).toEqual(["S"]);
+  expect(h.pushes).toEqual([]); // push keeps the evidence gate
+  h.state.t += THRESHOLD * 5;
+  await h.svc.sweep();
+  expect(h.plans).toEqual(["S"]); // once per episode
+});
+
+test("an errored plan gate is not re-driven after a restart", async () => {
+  const h = harness("planning");
+  h.state.gateDecision = "error";
+  h.state.status = "idle";
+  await h.svc.sweep();
+  h.state.t += THRESHOLD * 10;
+  await h.svc.sweep();
+  expect(h.plans).toEqual([]);
+});
+
+test("a hung dispatch for one session does not block another session's recovery", async () => {
+  const t = { now: 0 };
+  const statuses: Record<string, SessionStatus> = { A: "running", B: "running" };
+  const plans: string[] = [];
+  let autopilotCalls = 0;
+  const svc = new TurnEndBackstopService({
+    store: {
+      list: () => [
+        { id: "A", status: statuses.A, planPhase: "executing" },
+        { id: "B", status: statuses.B, planPhase: "planning" },
+      ],
+      getPlanGate: () => null,
+    } as never,
+    considerPlan: async (s: Session) => {
+      plans.push(s.id);
+    },
+    autopilotDone: () => {
+      autopilotCalls++;
+      return new Promise<void>(() => {}); // classifier never returns
+    },
+    notifyDone: async () => {},
+    now: () => t.now,
+    idleThresholdMs: THRESHOLD,
+    maxConsecutiveFailures: 3,
+  });
+  await svc.sweep(); // both observed running
+  statuses.A = "idle";
+  statuses.B = "idle";
+  await svc.sweep(); // clocks start
+  t.now += THRESHOLD + 1;
+  void svc.sweep(); // A's autopilot dispatch hangs forever
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(plans).toEqual(["B"]);
+  expect(autopilotCalls).toBe(1);
+  // Overlapping ticks never re-dispatch the still-in-flight session.
+  void svc.sweep();
+  void svc.sweep();
+  await Promise.resolve();
+  expect(autopilotCalls).toBe(1);
+  expect(plans).toEqual(["B"]);
 });
 
 test("a delivered done edge suppresses the backstop for that resting episode", async () => {
@@ -289,13 +365,13 @@ test("markActive resets the settle clock so a resumed session can't fire mid-tur
 
 test("sweep prunes state for sessions that are no longer listed", async () => {
   const state = { status: "running" as SessionStatus, t: 0, listed: true };
-  const plans: string[] = [];
+  const dones: string[] = [];
   const svc = new TurnEndBackstopService({
-    store: { list: () => (state.listed ? [session(state.status, "planning")] : []) } as never,
-    considerPlan: async (s: Session) => {
-      plans.push(s.id);
+    store: { list: () => (state.listed ? [session(state.status, "executing")] : []) } as never,
+    considerPlan: async () => {},
+    autopilotDone: async (id: string) => {
+      dones.push(id);
     },
-    autopilotDone: async () => {},
     notifyDone: async () => {},
     now: () => state.t,
     idleThresholdMs: THRESHOLD,
@@ -309,7 +385,7 @@ test("sweep prunes state for sessions that are no longer listed", async () => {
   await svc.sweep(); // first sighting again, no running observed since the prune
   state.t += THRESHOLD + 1;
   await svc.sweep();
-  expect(plans).toEqual([]);
+  expect(dones).toEqual([]);
 });
 
 // ── the finish push (#2267): a third consumer of the same lost edge ──────────

@@ -72,7 +72,8 @@ interface DebounceEntry {
   delivered: boolean;
   /** true once we've observed this session NOT resting. The evidence gate that makes a restart
    *  safe: a session already at rest when the process starts was never observed active, so it is
-   *  never backstopped and no restart storm of classify spawns can happen. Mirrors
+   *  never backstopped and no restart storm of classify spawns can happen (the plan-gate dispatch
+   *  alone is exempt — see `planReviewOwedAtBoot`). Mirrors
    *  BuildQueueReminderService's `sawRunning`. Deliberately NOT reset per episode — it is evidence
    *  about the session, not about the current rest. */
   sawActive: boolean;
@@ -90,7 +91,7 @@ interface DebounceEntry {
 }
 
 interface Deps {
-  store: Pick<SessionStore, "list">;
+  store: Pick<SessionStore, "list" | "getPlanGate">;
   /** Re-drive the plan gate for a planning-phase session. Idempotent; see the header note. */
   considerPlan: (s: Session) => Promise<unknown>;
   /** Re-drive autopilot's turn-end handler. Self-guarding via eligible(); see the header note. */
@@ -108,13 +109,13 @@ export class TurnEndBackstopService {
   private idleThresholdMs: number;
   private maxConsecutiveFailures: number;
   private debounce = new Map<string, DebounceEntry>();
-  /** True while a sweep is in flight. The sweep awaits each dispatch, so a slow one can still be
-   *  running when the next tick fires; without this an overlapping sweep would re-pass readyToFire
-   *  for the same session (a consumer's `fired` flag is only set once its dispatch resolves) and
-   *  deliver a duplicate. The tick is DROPPED rather than queued — this is an idle-debounced
-   *  recovery, so the next tick re-evaluates from fresh state. Mirrors
-   *  BuildQueueReminderService's guard. */
-  private sweeping = false;
+  /** Sessions whose recovery is still dispatching. Per session, NOT one global sweep lock: a
+   *  dispatch can take minutes (autopilot's onDone runs a classifier spawn with a 120s timeout),
+   *  and a global lock queued every other session — including a planning session waiting on its
+   *  plan review — behind it, or wedged them all behind one that never settled. An overlapping
+   *  tick still must not re-evaluate the SAME session (a consumer's `fired` flag is
+   *  only set once its dispatch resolves), so that session alone is skipped until it lands. */
+  private inflight = new Set<string>();
 
   constructor(private deps: Deps) {
     this.now = deps.now ?? Date.now;
@@ -149,8 +150,7 @@ export class TurnEndBackstopService {
    * invisible to it (the same problem #1617 fixed for BuildQueueReminderService's `markRan`).
    *
    * All three consequences of missing a burst are real, and the third is the dangerous one:
-   *  - `sawActive` never arms, so {@link readyToFire} is false forever and the backstop silently
-   *    does nothing — for exactly the short turns a plan-gate question round produces;
+   *  - `sawActive` never arms, so the push and autopilot recoveries silently do nothing;
    *  - the PREVIOUS turn's `delivered` flag survives into the next episode, suppressing a genuinely
    *    lost `done` edge so the session hangs anyway;
    *  - `settledSince` is carried over, so a session that resumed work seconds ago already reads as
@@ -193,26 +193,25 @@ export class TurnEndBackstopService {
    * retries, bounded by the per-session attempt cap (see {@link recover}).
    */
   async sweep(): Promise<void> {
-    if (this.sweeping) return; // prior sweep still dispatching — skip this tick
-    this.sweeping = true;
-    try {
-      const now = this.now();
-      const live = new Set<string>();
-      for (const s of this.deps.store.list({ activeOnly: true })) {
-        live.add(s.id);
-        await this.considerSession(s, now);
-      }
-      // Forget sessions that are no longer active/listed.
-      for (const id of [...this.debounce.keys()]) {
-        if (!live.has(id)) this.debounce.delete(id);
-      }
-    } finally {
-      this.sweeping = false; // a thrown store error must not wedge the sweep off
+    const now = this.now();
+    const live = new Set<string>();
+    const started: Promise<void>[] = [];
+    for (const s of this.deps.store.list({ activeOnly: true })) {
+      live.add(s.id);
+      const p = this.considerSession(s, now);
+      if (p) started.push(p);
     }
+    // Forget sessions that are no longer active/listed.
+    for (const id of [...this.debounce.keys()]) {
+      if (!live.has(id)) this.debounce.delete(id);
+    }
+    // Recoveries run concurrently across sessions; awaiting them here only lets a caller observe
+    // completion — the next tick does not wait on it (see `inflight`).
+    await Promise.allSettled(started);
   }
 
-  /** Advance one session's debounce and recover its turn end if it's overdue. */
-  private async considerSession(s: Session, now: number): Promise<void> {
+  /** Advance one session's debounce; returns the started recovery when its turn end is overdue. */
+  private considerSession(s: Session, now: number): Promise<void> | null {
     const e = this.entry(s.id);
 
     // Active (running/blocked) → the episode is over. `blocked` counts as active: a session waiting
@@ -220,34 +219,40 @@ export class TurnEndBackstopService {
     // coarse sample and the 1 Hz event path can never diverge.
     if (!isResting(s.status)) {
       this.markActive(s.id);
-      return;
+      return null;
     }
 
     // First tick at rest only stamps the clock — per the once-on-settled-idle house rule, since
     // sessions go idle after every steer and firing on the first tick would run mid-work.
     if (e.settledSince === null) {
       e.settledSince = now;
-      return;
+      return null;
     }
 
-    if (!isSettledIdle(s.status, now - e.settledSince, this.idleThresholdMs)) return;
-    if (!this.readyToFire(e)) return;
-    await this.recover(s, e);
-  }
-
-  /** Whether this resting episode still owes at least one consumer a recovered turn end. */
-  private readyToFire(e: DebounceEntry): boolean {
-    return (
-      !e.delivered && // the real edge already fired
-      e.sawActive && // evidence gate → restart-safe
-      (this.owes(e, "push") || this.owes(e, "phase"))
-    );
+    if (!isSettledIdle(s.status, now - e.settledSince, this.idleThresholdMs)) return null;
+    if (this.inflight.has(s.id)) return null; // previous recovery still dispatching
+    if (e.delivered) return null; // the real edge already fired
+    if (!this.owes(s, e, "push") && !this.owes(s, e, "phase")) return null;
+    this.inflight.add(s.id);
+    return this.recover(s, e).finally(() => this.inflight.delete(s.id));
   }
 
   /** Whether one consumer still owes this episode a dispatch: not yet fired (once per consumer per
-   *  episode) and not written off by its own runaway guard. */
-  private owes(e: DebounceEntry, c: Consumer): boolean {
-    return !e.fired[c] && e.failStreak[c] < this.maxConsecutiveFailures;
+   *  episode), not written off by its own runaway guard, and past the evidence gate. */
+  private owes(s: Session, e: DebounceEntry, c: Consumer): boolean {
+    if (e.fired[c] || e.failStreak[c] >= this.maxConsecutiveFailures) return false;
+    return e.sawActive || (c === "phase" && this.planReviewOwedAtBoot(s));
+  }
+
+  /** The evidence gate (`sawActive`) exists so a restart can't storm autopilot classifies and finish
+   *  pushes for every session that was already resting. The plan gate needs no such protection —
+   *  consider() dedupes on the plan hash and a refused spawn — while the gate itself is what left a
+   *  planning session that was resting across a restart unreviewed forever. So the plan-gate
+   *  dispatch alone skips it. An `error` gate is excluded: consider() does not dedupe those, and a
+   *  failed review stays the operator's call. */
+  private planReviewOwedAtBoot(s: Session): boolean {
+    if (s.planPhase !== "planning") return false;
+    return this.deps.store.getPlanGate(s.id)?.decision !== "error";
   }
 
   /**
@@ -270,12 +275,12 @@ export class TurnEndBackstopService {
     const phase = s.planPhase ?? "none";
     const fired: Consumer[] = [];
 
-    if (this.owes(e, "push")) {
+    if (this.owes(s, e, "push")) {
       if (await this.run(s.id, phase, e, "push", () => this.deps.notifyDone(s.id)))
         fired.push("push");
     }
 
-    if (this.owes(e, "phase")) {
+    if (this.owes(s, e, "phase")) {
       const dispatch = () =>
         s.planPhase === "planning" ? this.deps.considerPlan(s) : this.deps.autopilotDone(s.id);
       if (await this.run(s.id, phase, e, "phase", dispatch)) fired.push("phase");

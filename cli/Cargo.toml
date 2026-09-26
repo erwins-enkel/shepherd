@@ -34,7 +34,7 @@ openapiv3 = "2.2"
 prettyplease = "0.3"
 progenitor = "0.15"
 serde_norway = "0.9"
-syn = "2"
+syn = "3"
 
 [dev-dependencies]
 tempfile = "3"

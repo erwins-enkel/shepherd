@@ -64,7 +64,7 @@ extension CoreSeamTests {
     }
 
     @Test func emittedEpicParentStaysVisibleWhenItIsAlsoASubIssue() async throws {
-        let payload = Data(#"{"epics":[{"parentIssueNumber":412,"parentTitle":"Parent"}],"subIssues":[412,413]}"#.utf8)
+        let payload = Data(#"{"epics":[{"parentIssueNumber":412,"parentTitle":"Parent","total":1,"merged":0,"status":"idle","source":"native"}],"subIssues":[412,413]}"#.utf8)
         let listing = try JSONDecoder().decode(EpicListing.self, from: payload)
         let rows = [issue(), issue(413)]
         let m = model(issues: { _ in .init(issues: rows) }, epics: { _ in listing })

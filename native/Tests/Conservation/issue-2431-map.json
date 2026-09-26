@@ -7334,7 +7334,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/IssuePickerTests.swift\",\"CoreSeamTests.IssuePickerTests\",\"emittedEpicParentStaysVisibleWhenItIsAlsoASubIssue() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: the EpicListing payload gains total/merged/status/source, which EpicSummary now requires (#2508); assertions unchanged."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/IssuePickerTests.swift\",\"IssuePickerTests\",\"filterCountAndPersistence()\"]",

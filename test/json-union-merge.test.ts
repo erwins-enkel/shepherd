@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { mergeCatalogs } from "../scripts/json-union-merge.mjs";
 
 // The merge driver's whole reason to exist: two branches that each only *add*
@@ -99,5 +103,42 @@ describe("mergeCatalogs — genuine conflicts (must fail loud)", () => {
     // the additive keys are preserved even though `b` conflicts
     expect(merged.o).toBe("o");
     expect(merged.t).toBe("t");
+  });
+});
+
+// Git invokes the driver as a CLI. Its isMain guard must hold when the script
+// path runs through a symlink (macOS /var -> /private/var), or it exits 0 without
+// merging and landing-rebase's self-test reports a false driver-broken (#2521).
+describe("CLI entry", () => {
+  const scriptsDir = resolve(import.meta.dir, "../scripts");
+
+  function runMerge(scriptDir: (tmp: string) => string): Record<string, string> {
+    const tmp = mkdtempSync(join(tmpdir(), "json-union-cli-"));
+    try {
+      const base = join(tmp, "base.json");
+      const ours = join(tmp, "ours.json");
+      const theirs = join(tmp, "theirs.json");
+      writeFileSync(base, JSON.stringify({ a: "1" }));
+      writeFileSync(ours, JSON.stringify({ a: "1", b: "2" }));
+      writeFileSync(theirs, JSON.stringify({ a: "1", c: "3" }));
+      const script = join(scriptDir(tmp), "json-union-merge.mjs");
+      execFileSync("node", [script, base, ours, theirs, "x.json"]);
+      return JSON.parse(readFileSync(ours, "utf8"));
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  }
+
+  test("merges when invoked via the real path", () => {
+    expect(runMerge(() => scriptsDir)).toEqual({ a: "1", b: "2", c: "3" });
+  });
+
+  test("merges when invoked via a symlinked path", () => {
+    const merged = runMerge((tmp) => {
+      const link = join(tmp, "link");
+      symlinkSync(scriptsDir, link);
+      return link;
+    });
+    expect(merged).toEqual({ a: "1", b: "2", c: "3" });
   });
 });

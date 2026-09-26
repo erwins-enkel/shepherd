@@ -400,3 +400,34 @@ describe("runtime reporting (#2229)", () => {
     expect(report).toContain("Total scenario runtime: **30s** across 1 scenario.");
   });
 });
+
+describe("herdr-ceiling advisory (#1905)", () => {
+  const advisory = { latest: "0.10.0", ceiling: "0.9.1", ahead: true };
+  const green: ScenarioResult = {
+    scenarioId: "herdr-missing",
+    image: "images:archlinux",
+    detection: { scenarioId: "herdr-missing", detected: true, misses: [] },
+    appliedVia: "verbatim",
+    reachedGreen: true,
+    gateEligible: true,
+  };
+
+  it("adds an Advisories section naming both versions", () => {
+    const md = buildGapReport([green], advisory);
+    expect(md).toContain("## Advisories");
+    expect(md).toContain("0.10.0");
+    expect(md).toContain("0.9.1");
+    expect(buildGapReport([green])).not.toContain("## Advisories");
+    expect(buildGapReport([green], { ...advisory, ahead: false })).not.toContain("## Advisories");
+  });
+
+  it("notes the advisory in the status line without gating", () => {
+    expect(statusDescription([green], advisory)).toBe(
+      "1/1 gate scenarios green · herdr 0.10.0 > ceiling 0.9.1",
+    );
+    expect(statusDescription([green], { ...advisory, ahead: false })).toBe(
+      "1/1 gate scenarios green",
+    );
+    expect(gateGapScenarios([green])).toHaveLength(0);
+  });
+});

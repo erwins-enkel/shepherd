@@ -108,27 +108,31 @@ test("staged add is preserved as an untracked file (never deleted)", async () =>
   expect(git(repo, "status", "--porcelain")).toContain("?? created.txt"); // now untracked
 });
 
-test("non-UTF-8 path is restored via the byte-verbatim pathspec", async () => {
-  const repo = newRepo();
-  // a real 0xff byte in the filename → only expressible as a Buffer path (a
-  // string round-trip would re-encode it as UTF-8 and defeat the test)
-  const fullPath = Buffer.concat([
-    Buffer.from(`${repo}/`, "utf8"),
-    Buffer.from([0x66, 0x6f, 0x6f, 0xff, 0x2e, 0x74, 0x78, 0x74]),
-  ]);
-  writeFileSync(fullPath, "orig\n");
-  git(repo, "add", "-A");
-  git(repo, "commit", "-qm", "init");
-  writeFileSync(fullPath, "changed\n");
+// APFS rejects non-UTF-8 filenames (EILSEQ), so the fixture can't exist on macOS; Linux covers it
+test.skipIf(process.platform === "darwin")(
+  "non-UTF-8 path is restored via the byte-verbatim pathspec",
+  async () => {
+    const repo = newRepo();
+    // a real 0xff byte in the filename → only expressible as a Buffer path (a
+    // string round-trip would re-encode it as UTF-8 and defeat the test)
+    const fullPath = Buffer.concat([
+      Buffer.from(`${repo}/`, "utf8"),
+      Buffer.from([0x66, 0x6f, 0x6f, 0xff, 0x2e, 0x74, 0x78, 0x74]),
+    ]);
+    writeFileSync(fullPath, "orig\n");
+    git(repo, "add", "-A");
+    git(repo, "commit", "-qm", "init");
+    writeFileSync(fullPath, "changed\n");
 
-  const d = await new UpdateService({ repoDir: repo, launch: () => {} }).dirtyStatus();
-  // the raw pathspec must carry the 0xff byte verbatim (a lossy string would drop it)
-  expect(d.pathspecAll.includes(0xff)).toBe(true);
-  scopedDiscard(repo, d.pathspecAll, d.pathspecWorktree);
+    const d = await new UpdateService({ repoDir: repo, launch: () => {} }).dirtyStatus();
+    // the raw pathspec must carry the 0xff byte verbatim (a lossy string would drop it)
+    expect(d.pathspecAll.includes(0xff)).toBe(true);
+    scopedDiscard(repo, d.pathspecAll, d.pathspecWorktree);
 
-  expect(trackedClean(repo)).toBe(true);
-  expect(readFileSync(fullPath, "utf8")).toBe("orig\n");
-});
+    expect(trackedClean(repo)).toBe(true);
+    expect(readFileSync(fullPath, "utf8")).toBe("orig\n");
+  },
+);
 
 test("pathspec magic in a confirmed filename stays literal (no fan-out)", async () => {
   const repo = newRepo();

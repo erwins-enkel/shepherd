@@ -520,3 +520,112 @@ describe("buildUpNextRepos", () => {
     });
   });
 });
+
+describe("UpNextService readiness rerank (#2535)", () => {
+  type Readiness = NonNullable<UpNextDeps["readiness"]>;
+  /** A fake scorer: `cache` is the lookup; `scoreMissing` resolves when the test releases it,
+   *  after writing `adds` into the cache. */
+  function fakeScorer(cache: Map<number, number>, adds: Record<number, number> = {}) {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let runs = 0;
+    const scorer: Readiness["scorer"] = {
+      scoreLookup: () => (it) => cache.get(it.number) ?? null,
+      scoreMissing: async () => {
+        runs++;
+        await gate;
+        for (const [n, p] of Object.entries(adds)) cache.set(Number(n), p);
+        return Object.keys(adds).length;
+      },
+    };
+    return { scorer, release, runs: () => runs };
+  }
+  const nums = (snap: { sections: { kind: string; items: { number: number }[] }[] }) =>
+    snap.sections.find((x) => x.kind === "repo")!.items.map((i) => i.number);
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  test("setting off ⇒ snapshot identical to no readiness deps, scorer never consulted", async () => {
+    const plain = await svc().refresh();
+    const { scorer, runs } = fakeScorer(new Map([[2, 0.9]]));
+    const off = await svc({ readiness: { enabled: () => false, scorer } }).refresh();
+    expect(off).toEqual(plain);
+    expect(runs()).toBe(0);
+  });
+
+  test("on ⇒ emits cached order immediately, then re-emits once scoring lands", async () => {
+    const emits: number[][] = [];
+    const { scorer, release } = fakeScorer(new Map([[2, 0.9]]), { 1: 0.1 });
+    const s = svc({
+      resolveForge: () => fakeForge({ issues: [issue(1), issue(2), issue(3)] }),
+      readiness: { enabled: () => true, scorer },
+      onChange: (snap) => void emits.push(nums(snap)),
+    });
+    const first = await s.refresh();
+    // Resolved before the (gated) judge answered: cached #2 ready first, rest in today's order.
+    expect(nums(first)).toEqual([2, 1, 3]);
+    expect(emits).toEqual([[2, 1, 3]]);
+    release();
+    await flush();
+    expect(emits).toEqual([
+      [2, 1, 3],
+      [2, 3, 1],
+    ]);
+    expect(nums(s.snapshot()!)).toEqual([2, 3, 1]);
+  });
+
+  test("a stale generation does not re-emit over a newer compute", async () => {
+    const emits: number[][] = [];
+    const cache = new Map<number, number>();
+    const a = fakeScorer(cache, { 1: 0.1 });
+    let scorer = a.scorer;
+    const s = svc({
+      readiness: {
+        enabled: () => true,
+        scorer: {
+          scoreLookup: (i) => scorer.scoreLookup(i),
+          scoreMissing: (i) => scorer.scoreMissing(i),
+        },
+      },
+      onChange: (snap) => void emits.push(nums(snap)),
+    });
+    await s.refresh(); // gen 1, its scoring is gated
+    const b = fakeScorer(cache); // gen 2 scores nothing new
+    scorer = b.scorer;
+    await s.refresh();
+    b.release();
+    a.release(); // gen 1 finishes AFTER gen 2 published
+    await flush();
+    expect(emits).toHaveLength(2);
+  });
+
+  test("toggling off mid-scoring suppresses the re-emit", async () => {
+    let on = true;
+    let emits = 0;
+    const { scorer, release } = fakeScorer(new Map(), { 1: 0.1 });
+    const s = svc({ readiness: { enabled: () => on, scorer }, onChange: () => void emits++ });
+    await s.refresh();
+    on = false;
+    release();
+    await flush();
+    expect(emits).toBe(1);
+  });
+
+  test("a throwing scorer never fails the refresh", async () => {
+    const s = svc({
+      readiness: {
+        enabled: () => true,
+        scorer: {
+          scoreLookup: () => {
+            throw new Error("boom");
+          },
+          scoreMissing: async () => {
+            throw new Error("boom");
+          },
+        },
+      },
+    });
+    const snap = await s.refresh();
+    expect(nums(snap)).toEqual([1, 2]);
+    await flush();
+  });
+});

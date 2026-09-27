@@ -11,6 +11,7 @@
 import type { Issue } from "./forge/types";
 import { PRIORITY_LABEL, ACTIVE_LABEL } from "./drain-core";
 import { isDependabotAuthor } from "./forge/pr-kind";
+import { BAND_RANK, band } from "./up-next-readiness-core";
 
 export type UpNextKind = "epic" | "bug" | "feature";
 
@@ -320,6 +321,37 @@ export function buildSnapshot(
   }
 
   return { generatedAt: now, sections, repoCount: repos.length, fallback, failedRepoCount };
+}
+
+/** One section's items stable-sorted by readiness band, the ORIGINAL index breaking ties — so each
+ *  band keeps the order the section already had (warm order for priority, compareInRepo per repo). */
+function rankByBand(
+  items: UpNextItem[],
+  scoreOf: (item: UpNextItem) => number | null,
+): UpNextItem[] {
+  return items
+    .map((item, index) => ({ item, index, rank: BAND_RANK[band(scoreOf(item))] }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((x) => x.item);
+}
+
+/**
+ * Readiness rerank (#2535): reorder items WITHIN each section by readiness band (ready → maybe →
+ * notReady; an unscored item is `maybe`). Deliberately narrow — sections keep their order, no item
+ * crosses a section, and the priority label still dominates — so the judge can only refine today's
+ * order, never override it. All-null scores are therefore the identity (every item lands in `maybe`).
+ */
+export function applyReadiness(
+  snap: UpNextSnapshot,
+  scoreOf: (item: UpNextItem) => number | null,
+): UpNextSnapshot {
+  return {
+    ...snap,
+    sections: snap.sections.map((section) => ({
+      ...section,
+      items: rankByBand(section.items, scoreOf),
+    })),
+  };
 }
 
 /**

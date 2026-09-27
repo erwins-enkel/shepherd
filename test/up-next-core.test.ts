@@ -1,5 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import {
+  applyReadiness,
   buildSnapshot,
   excludeHiddenSections,
   PRIORITY_CAP,
@@ -511,5 +512,92 @@ describe("excludeHiddenSections", () => {
     const result = excludeHiddenSections(snap, new Set(["/r/z"]));
     expect(result.sections).toHaveLength(1);
     expect(result.repoCount).toBe(1);
+  });
+});
+
+describe("applyReadiness (#2535)", () => {
+  // Two warm-ordered repos plus cross-repo priority items: /r/a is warmer than /r/b.
+  const snap = () =>
+    buildSnapshot(
+      [
+        repo({
+          repoPath: "/r/a",
+          lastUsedAt: 10,
+          openIssues: [
+            issue(1),
+            issue(2, { labels: ["bug"] }),
+            issue(3),
+            issue(4),
+            issue(5, { labels: ["shepherd:priority"], createdAt: 50 }),
+          ],
+        }),
+        repo({
+          repoPath: "/r/b",
+          repoLabel: "b",
+          lastUsedAt: 5,
+          openIssues: [
+            issue(6),
+            issue(7),
+            issue(8, { labels: ["shepherd:priority"], createdAt: 1 }),
+          ],
+        }),
+      ],
+      NOW,
+    );
+  const order = (s: UpNextSnapshot) => s.sections.map((x) => x.items.map((i) => i.number));
+  const scores =
+    (m: Record<number, number>) =>
+    (i: UpNextItem): number | null =>
+      m[i.number] ?? null;
+
+  test("all-null scores are the identity", () => {
+    const raw = snap();
+    const out = applyReadiness(raw, () => null);
+    expect(order(out)).toEqual(order(raw));
+    expect(out).toEqual(raw);
+  });
+
+  test("reorders within a section by band, stable inside each band", () => {
+    const raw = snap();
+    // repo a (non-priority) today: [2 (bug), 1, 3, 4]. 4 ready, 2 not-ready, 1/3 unscored (maybe).
+    expect(raw.sections[1]!.items.map((i) => i.number)).toEqual([2, 1, 3, 4]);
+    const out = applyReadiness(raw, scores({ 4: 0.9, 2: 0.1 }));
+    expect(out.sections[1]!.items.map((i) => i.number)).toEqual([4, 1, 3, 2]);
+    // Two ready items keep their compareInRepo order relative to each other.
+    const both = applyReadiness(raw, scores({ 4: 0.9, 3: 0.95 }));
+    expect(both.sections[1]!.items.map((i) => i.number)).toEqual([3, 4, 2, 1]);
+  });
+
+  test("never reorders sections or moves items between them; totalCount unchanged", () => {
+    const raw = snap();
+    const out = applyReadiness(raw, scores({ 1: 0, 2: 0, 3: 0, 4: 0, 6: 1, 7: 1, 5: 0, 8: 1 }));
+    expect(out.sections.map((x) => [x.kind, x.repoPath, x.totalCount])).toEqual(
+      raw.sections.map((x) => [x.kind, x.repoPath, x.totalCount]),
+    );
+    out.sections.forEach((sec, i) =>
+      expect([...sec.items.map((x) => x.number)].sort()).toEqual(
+        [...raw.sections[i]!.items.map((x) => x.number)].sort(),
+      ),
+    );
+  });
+
+  test("priority section keeps its cross-repo warm order within a band", () => {
+    const raw = snap();
+    // Warm-first: /r/a's #5 before /r/b's #8, despite #8 being older.
+    expect(raw.sections[0]!.items.map((i) => i.number)).toEqual([5, 8]);
+    expect(
+      applyReadiness(raw, scores({ 5: 0.9, 8: 0.9 })).sections[0]!.items.map((i) => i.number),
+    ).toEqual([5, 8]);
+    // A band difference is the only thing that reorders it.
+    expect(applyReadiness(raw, scores({ 5: 0.1 })).sections[0]!.items.map((i) => i.number)).toEqual(
+      [8, 5],
+    );
+  });
+
+  test("does not mutate the input snapshot", () => {
+    const raw = snap();
+    const before = order(raw);
+    applyReadiness(raw, scores({ 4: 0.9, 2: 0.1 }));
+    expect(order(raw)).toEqual(before);
   });
 });

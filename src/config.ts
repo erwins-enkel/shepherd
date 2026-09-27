@@ -1209,6 +1209,23 @@ export const config = {
     3650,
     90,
   ),
+  // ── Up Next readiness rerank (issue #2535) ───────────────────────────────────
+  // Whether the judge's "could an agent finish this unattended in one PR?" score reorders items
+  // WITHIN each Up Next section (banded, so score wobble never reshuffles). Needs the judge armed
+  // (`judgeEnabled` + a key); inert otherwise. Env seeds a fresh DB; persisted + UI-configurable.
+  upNextReadiness: process.env.SHEPHERD_UP_NEXT_READINESS === "1",
+  // How many days of cached readiness scores the daily sweep keeps. Rows are content-addressed, so
+  // this only bounds dead keys (closed/edited issues); a live issue re-scores after it expires.
+  upNextReadinessRetentionDays: clampCap(
+    parseEnvNumber(
+      process.env.SHEPHERD_UP_NEXT_READINESS_RETENTION_DAYS,
+      "SHEPHERD_UP_NEXT_READINESS_RETENTION_DAYS",
+      90,
+    ),
+    1,
+    3650,
+    90,
+  ),
 };
 
 // #1430 guardrail: the critic is a rigor role seeded to "high". Warn at startup when

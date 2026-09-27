@@ -10,7 +10,9 @@ import { parseEpicBody } from "./epic-parse";
 import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
 import type { GitForge } from "./forge/types";
 import { reconcileRealPathsToRaw, type RepoEntry } from "./repos";
+import type { ReadinessScorer } from "./up-next-readiness";
 import {
+  applyReadiness,
   buildSnapshot,
   type RepoInput,
   type EpicUnitInput,
@@ -75,6 +77,12 @@ export interface UpNextDeps {
   /** realpath resolver, injectable for tests. Used only to reconcile started-item paths
    *  (safeRepoDir/realpath space) against snapshot paths (raw listRepos space). */
   realpath?: (p: string) => string;
+  /** Readiness rerank (#2535). Absent (no judge key) or `enabled()` false ⇒ the snapshot is exactly
+   *  today's. `enabled` is read per compute so the Settings toggle lands on the next refresh. */
+  readiness?: {
+    enabled: () => boolean;
+    scorer: Pick<ReadinessScorer, "scoreLookup" | "scoreMissing">;
+  };
 }
 
 /** A just-started item, keyed for the post-start membership check. `repoPath` is in
@@ -103,6 +111,10 @@ export async function startSerially<T, R>(
   return out;
 }
 
+function allItems(snap: UpNextSnapshot) {
+  return snap.sections.flatMap((s) => s.items);
+}
+
 export class UpNextService {
   private snap: UpNextSnapshot | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
@@ -112,6 +124,9 @@ export class UpNextService {
   private readonly intervalMs: number;
   private readonly postStartRetryDelays: number[];
   private readonly realpath: (p: string) => string;
+  /** Bumped on every compute publish. A background readiness run re-publishes only while its own
+   *  generation is still the latest, so a slow judge can never overwrite a newer snapshot. */
+  private generation = 0;
 
   constructor(private deps: UpNextDeps) {
     this.now = deps.now ?? (() => Date.now());
@@ -143,7 +158,18 @@ export class UpNextService {
     );
     const ok = resolved.filter((r): r is RepoInput => r !== null && r !== "fetch_failed");
     const failedRepoCount = resolved.filter((r) => r === "fetch_failed").length;
-    const snap = buildSnapshot(ok, this.now(), null, failedRepoCount);
+    const raw = buildSnapshot(ok, this.now(), null, failedRepoCount);
+    const gen = ++this.generation;
+    const readiness = this.activeReadiness();
+    if (!readiness) return this.publish(raw);
+    // Publish on cached scores NOW, then score the misses in the background — Up Next never
+    // awaits the judge.
+    const snap = this.publish(this.rerank(raw, readiness));
+    this.scoreInBackground(raw, gen, readiness);
+    return snap;
+  }
+
+  private publish(snap: UpNextSnapshot): UpNextSnapshot {
     this.snap = snap;
     try {
       this.deps.onChange(snap);
@@ -151,6 +177,45 @@ export class UpNextService {
       console.warn("[up-next] onChange:", err);
     }
     return snap;
+  }
+
+  /** The readiness deps when the rerank is on right now, else null. A throwing `enabled` reads as
+   *  off — the feature must never cost a snapshot. */
+  private activeReadiness(): NonNullable<UpNextDeps["readiness"]> | null {
+    const r = this.deps.readiness;
+    if (!r) return null;
+    try {
+      return r.enabled() ? r : null;
+    } catch (err) {
+      console.warn("[up-next] readiness enabled():", err);
+      return null;
+    }
+  }
+
+  private rerank(
+    raw: UpNextSnapshot,
+    readiness: NonNullable<UpNextDeps["readiness"]>,
+  ): UpNextSnapshot {
+    try {
+      return applyReadiness(raw, readiness.scorer.scoreLookup(allItems(raw)));
+    } catch (err) {
+      console.warn("[up-next] readiness rerank failed (publishing today's order):", err);
+      return raw;
+    }
+  }
+
+  /** Fire-and-forget: score the misses, then re-publish `raw` with the larger cache — only when
+   *  something new was scored, the feature is still on, and no newer compute has published. */
+  private scoreInBackground(
+    raw: UpNextSnapshot,
+    gen: number,
+    readiness: NonNullable<UpNextDeps["readiness"]>,
+  ): void {
+    void (async () => {
+      const scored = await readiness.scorer.scoreMissing(allItems(raw));
+      if (scored <= 0 || gen !== this.generation || !this.activeReadiness()) return;
+      this.publish(this.rerank(raw, readiness));
+    })().catch((err) => console.warn("[up-next] readiness background scoring:", err));
   }
 
   /** A recompute guaranteed to START after this call. `refresh` is single-flight, so a bare

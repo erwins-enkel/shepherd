@@ -80,6 +80,16 @@ import { normalizeRule } from "./learning-rule";
 import { trimRuleToLimit } from "./learning-shape";
 import type { GitState } from "./forge/types";
 
+/** One cached Up Next readiness score (#2535). `hash` is `readinessHash(model, item)`. */
+export interface ReadinessRow {
+  hash: string;
+  p: number;
+  model: string;
+  scoredAt: number;
+}
+
+const READINESS_LOOKUP_CHUNK = 500;
+
 /** A rejected evidence write; its diagnostic signal is persisted before this is thrown. */
 export class LearningEvidenceRepoMismatchError extends Error {
   constructor(
@@ -1637,6 +1647,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(
       `CREATE INDEX IF NOT EXISTS idx_learning_relevance_learning ON learning_relevance (learningId)`,
     );
+    // Up Next readiness scores (#2535), keyed by a content hash that already folds in the model
+    // (`readinessHash`), so an edited issue or a model re-pin simply misses and is rescored — no
+    // invalidation path. Only a usable `p` is ever stored: an unusable answer stays uncached and is
+    // retried on the next refresh. Content-addressed rows have no parent to cascade from, so the
+    // daily sweep's `pruneReadiness` age bound is the only thing that removes one.
+    this.db.run(`CREATE TABLE IF NOT EXISTS up_next_readiness (
+      hash TEXT PRIMARY KEY, p REAL NOT NULL, model TEXT NOT NULL, scoredAt INTEGER NOT NULL)`);
     // Phase 4 background merge-suggestions (#843). kind='intra': repoPath+targetId set,
     // repoPaths NULL. kind='cross': repoPath/targetId NULL, repoPaths set. signature is a
     // hash of the sorted member rule ids only (never text) for dedupe.
@@ -4828,6 +4845,38 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     ).c;
     this.db.run(`DELETE FROM learning_relevance WHERE judgedAt < ?`, [beforeTs]);
     return n;
+  }
+
+  // ── Up Next readiness cache (issue #2535) ────────────────────────────────────
+  /** Cached `p` for each hash that has one; misses are simply absent. Chunked so a large Up Next
+   *  (200 issues per repo × many repos) never approaches SQLite's bound-parameter limit. */
+  getReadiness(hashes: readonly string[]): Map<string, number> {
+    const out = new Map<string, number>();
+    for (let i = 0; i < hashes.length; i += READINESS_LOOKUP_CHUNK) {
+      const chunk = hashes.slice(i, i + READINESS_LOOKUP_CHUNK);
+      const rows = this.db
+        .query(
+          `SELECT hash, p FROM up_next_readiness WHERE hash IN (${chunk.map(() => "?").join(",")})`,
+        )
+        .all(...chunk) as { hash: string; p: number }[];
+      for (const r of rows) out.set(r.hash, r.p);
+    }
+    return out;
+  }
+
+  /** Upsert one score. A rescore of the same hash (same content, same model) just refreshes it. */
+  putReadiness(row: ReadinessRow): void {
+    this.db.run(
+      `INSERT INTO up_next_readiness (hash, p, model, scoredAt) VALUES (?, ?, ?, ?)
+       ON CONFLICT(hash) DO UPDATE SET
+         p = excluded.p, model = excluded.model, scoredAt = excluded.scoredAt`,
+      [row.hash, row.p, row.model, row.scoredAt],
+    );
+  }
+
+  /** Drop scores taken before `beforeTs`. Returns the count removed. */
+  pruneReadiness(beforeTs: number): number {
+    return this.db.run(`DELETE FROM up_next_readiness WHERE scoredAt < ?`, [beforeTs]).changes;
   }
 
   // ── learning signals ─────────────────────────────────────────────────────────

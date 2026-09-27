@@ -5704,6 +5704,8 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       // house-rule relevance (#2376): off | shadow | enforce. Inert unless the judge is armed, which
       // `judgeEnabled` + `judgeHasKey` above let the client say out loud.
       houseRuleRelevance: config.houseRuleRelevance,
+      // Up Next readiness rerank (#2535). Same inertness rule as above.
+      upNextReadiness: config.upNextReadiness,
       ...telemetrySettings(deps.telemetry),
     });
   }
@@ -5790,6 +5792,7 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["judgeDailyUsd", putJudgeDailyUsd],
   ["blockJudgeMode", putBlockJudgeMode],
   ["houseRuleRelevance", putHouseRuleRelevance],
+  ["upNextReadiness", putUpNextReadiness],
   ["tuiFullscreen", putTuiFullscreen],
   ["tuiDisableMouse", putTuiDisableMouse],
   ["telemetryConsent", putTelemetryConsent],
@@ -6114,6 +6117,16 @@ function putHouseRuleRelevance(value: unknown, deps: Ctx["deps"]): Response {
   config.houseRuleRelevance = value;
   deps.store.setSetting("houseRuleRelevance", value);
   return json({ houseRuleRelevance: config.houseRuleRelevance });
+}
+
+/** Toggle the Up Next readiness rerank (#2535). Kicks a refresh so the reorder (or its removal) shows
+ *  now rather than at the next 15-min tick; the refresh never waits on the judge. */
+function putUpNextReadiness(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "boolean") return json({ error: "upNextReadiness must be a boolean" }, 400);
+  config.upNextReadiness = value;
+  deps.store.setSetting("upNextReadiness", value ? "1" : "0");
+  void deps.upNext?.refresh().catch((err) => console.warn("[up-next] readiness toggle:", err));
+  return json({ upNextReadiness: config.upNextReadiness });
 }
 
 function putUsageHoldPct(value: unknown, deps: Ctx["deps"]): Response {

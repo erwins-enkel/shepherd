@@ -1489,3 +1489,51 @@ test("GET /api/settings reports the relevance mode", async () => {
   const body = await (await app.fetch(new Request("http://x/api/settings"))).json();
   expect(body.houseRuleRelevance).toBe(config.houseRuleRelevance);
 });
+
+test("PUT upNextReadiness accepts a boolean, persists, kicks an Up Next refresh; GET echoes", async () => {
+  const store = new SessionStore(":memory:");
+  let refreshes = 0;
+  const app = makeApp({
+    store,
+    events: new EventHub(),
+    service: {} as any,
+    usageLimits: { limits: () => ({}) } as any,
+    readCodexAuthMode: () => "unknown",
+    upNext: {
+      snapshot: () => null,
+      refresh: async () => {
+        refreshes++;
+        return {} as any;
+      },
+      recomputeUntilCleared: async () => {},
+      hiddenRepoPathsRaw: () => new Set(),
+    },
+  });
+  const prev = config.upNextReadiness;
+  try {
+    for (const v of [true, false]) {
+      expect(await (await put(app, { upNextReadiness: v })).json()).toEqual({ upNextReadiness: v });
+      expect(config.upNextReadiness).toBe(v);
+      expect(store.getSetting("upNextReadiness")).toBe(v ? "1" : "0");
+      const body = await (await app.fetch(new Request("http://x/api/settings"))).json();
+      expect(body.upNextReadiness).toBe(v);
+    }
+    expect(refreshes).toBe(2);
+  } finally {
+    config.upNextReadiness = prev;
+  }
+});
+
+test("PUT upNextReadiness rejects non-booleans", async () => {
+  const { app, store } = harness();
+  const prev = config.upNextReadiness;
+  try {
+    for (const bad of ["1", 1, "true", null]) {
+      expect((await put(app, { upNextReadiness: bad })).status).toBe(400);
+    }
+    expect(config.upNextReadiness).toBe(prev);
+    expect(store.getSetting("upNextReadiness")).toBeNull();
+  } finally {
+    config.upNextReadiness = prev;
+  }
+});

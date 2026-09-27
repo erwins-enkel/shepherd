@@ -1299,6 +1299,7 @@ export const KEYS_SETTINGS: readonly string[] = [
   "native_settings_field_telemetryconsent",
   "native_settings_field_tuidisablemouse",
   "native_settings_field_tuifullscreen",
+  "native_settings_field_upnextreadiness",
   "native_settings_field_upnextskipclipicker",
   "native_settings_field_usagedowngradeenabled",
   "native_settings_field_usagedowngrademodel",

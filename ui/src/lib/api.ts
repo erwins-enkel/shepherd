@@ -412,6 +412,11 @@ export const putHouseRuleRelevance = (
 ): Promise<{ houseRuleRelevance: HouseRuleRelevanceMode }> =>
   patchSettings({ houseRuleRelevance: mode });
 
+// Toggle the Up Next readiness rerank (#2535): reorders within each Up Next group by whether an
+// agent could finish the issue unattended in one PR. Inert unless the judge is armed.
+export const putUpNextReadiness = (enabled: boolean): Promise<{ upNextReadiness: boolean }> =>
+  patchSettings({ upNextReadiness: enabled });
+
 // Toggle the global reduced-notifications mode (only ready-after-5s + cost alerts when on).
 export const putReducedPushMode = (enabled: boolean): Promise<{ reducedPushMode: boolean }> =>
   patchSettings({ reducedPushMode: enabled });

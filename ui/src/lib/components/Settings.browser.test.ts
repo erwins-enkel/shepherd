@@ -15,6 +15,7 @@ import {
   putSessionHousekeeping,
   putRoleEffort,
   putDefaultEffort,
+  putUpNextReadiness,
 } from "$lib/api";
 import { toasts } from "$lib/toasts.svelte";
 import { roleTitle } from "$lib/settings-search";
@@ -45,6 +46,7 @@ vi.mock("$lib/api", async (importOriginal) => {
     putDefaultCodexModel: vi.fn(async (model) => ({ defaultCodexModel: model })),
     putTelemetryConsent: vi.fn(async (consent) => ({ telemetryConsent: consent })),
     putSessionHousekeeping: vi.fn(async (enabled) => ({ sessionHousekeepingEnabled: enabled })),
+    putUpNextReadiness: vi.fn(async (enabled) => ({ upNextReadiness: enabled })),
   };
 });
 
@@ -74,6 +76,7 @@ const mockPutModel = vi.mocked(putDefaultModel);
 const mockFix = vi.mocked(fixDiagnostic);
 const mockPutTelemetry = vi.mocked(putTelemetryConsent);
 const mockPutHousekeeping = vi.mocked(putSessionHousekeeping);
+const mockPutUpNextReadiness = vi.mocked(putUpNextReadiness);
 
 function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
   return {
@@ -139,6 +142,7 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
     judgeDailyUsd: 1,
     blockJudgeMode: "off" as const,
     houseRuleRelevance: "off",
+    upNextReadiness: false,
     docAgentAct: true,
     ...over,
   };
@@ -186,6 +190,8 @@ beforeEach(() => {
   mockPutHousekeeping.mockImplementation(async (enabled) => ({
     sessionHousekeepingEnabled: enabled,
   }));
+  mockPutUpNextReadiness.mockReset();
+  mockPutUpNextReadiness.mockImplementation(async (enabled) => ({ upNextReadiness: enabled }));
   // Default seed: api-key mode, key configured → Verify button renders.
   mockGetSettings.mockResolvedValue(settings());
 });
@@ -1211,5 +1217,79 @@ describe("rows whose flip is invisible are toggle-only", () => {
     await expect
       .element(page.getByRole("switch", { name: m.settings_housekeeping_title() }))
       .toHaveAttribute("aria-checked", "false");
+  });
+});
+
+// #2535: the Up Next readiness rerank only runs while the judge is armed, so its toggle is inert
+// (and says why) until then, and flips through the settings PATCH once armed.
+describe("Up Next readiness toggle", () => {
+  const readinessSwitch = () =>
+    page.getByRole("switch", { name: m.settings_up_next_readiness_label() });
+
+  it("is disabled with the needs-classifier hint while the judge is off", async () => {
+    mockGetSettings.mockResolvedValue(settings({ judgeEnabled: false, judgeHasKey: true }));
+    await mountSession();
+
+    await expect.element(readinessSwitch()).toBeDisabled();
+    await expect
+      .element(page.getByText(m.settings_up_next_readiness_no_key_hint(), { exact: true }))
+      .toBeInTheDocument();
+    await page.getByText(m.settings_up_next_readiness_label(), { exact: true }).click();
+    expect(mockPutUpNextReadiness).not.toHaveBeenCalled();
+  });
+
+  it("flips on through the settings PATCH once the judge is armed", async () => {
+    mockGetSettings.mockResolvedValue(settings({ judgeEnabled: true, judgeHasKey: true }));
+    await mountSession();
+
+    await expect.element(readinessSwitch()).toHaveAttribute("aria-checked", "false");
+    await readinessSwitch().click();
+
+    await vi.waitFor(() => expect(mockPutUpNextReadiness).toHaveBeenCalledWith(true));
+    await expect.element(readinessSwitch()).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("stays put and toasts when saving fails", async () => {
+    mockGetSettings.mockResolvedValue(settings({ judgeEnabled: true, judgeHasKey: true }));
+    mockPutUpNextReadiness.mockRejectedValueOnce(new Error("boom"));
+    toasts.items = [];
+    await mountSession();
+
+    await readinessSwitch().click();
+
+    await vi.waitFor(() =>
+      expect(toasts.items.some((t) => t.text === m.settings_up_next_readiness_save_failed())).toBe(
+        true,
+      ),
+    );
+    await expect.element(readinessSwitch()).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("explains itself through the structured info tip", async () => {
+    await mountSession();
+
+    const tip = page.getByRole("button", { name: m.tooltip_up_next_readiness_title() });
+    await tip.hover();
+
+    const panel = page.getByRole("tooltip");
+    await expect.element(panel).toBeVisible();
+    const text = panel.element().textContent ?? "";
+    expect(text).toContain(m.tooltip_up_next_readiness_cost_body());
+    expect(text).toContain(m.tooltip_up_next_readiness_fallback_body());
+  });
+
+  // The tooltip is a DOM descendant of the clickable row and stays open on touch; a tap on its
+  // text must not bubble into the row's toggle and silently flip the billed rerank.
+  it("tapping the open info tip does not toggle the setting", async () => {
+    mockGetSettings.mockResolvedValue(settings({ judgeEnabled: true, judgeHasKey: true }));
+    await mountSession();
+
+    await page.getByRole("button", { name: m.tooltip_up_next_readiness_title() }).hover();
+    const panel = page.getByRole("tooltip");
+    await expect.element(panel).toBeVisible();
+    (panel.element() as HTMLElement).click();
+
+    expect(mockPutUpNextReadiness).not.toHaveBeenCalled();
+    await expect.element(readinessSwitch()).toHaveAttribute("aria-checked", "false");
   });
 });

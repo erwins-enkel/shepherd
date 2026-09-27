@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import HighlightText from "./HighlightText.svelte";
+  import InfoTip from "$lib/components/InfoTip.svelte";
+  import type { TooltipExplanation } from "$lib/tooltips/content";
 
   // The aligned setting row from the 5a/5b handoff: title + description on the
   // left, the control on a fixed 200px column on the right, hairline top
@@ -15,6 +17,10 @@
   // The widened hit target turns a stray click on the title or description text
   // into a change nothing in the app ever reports back (#2331). Rows whose effect
   // shows up the next time they matter keep it.
+  //
+  // `explanation` adds an "i" affordance after the title that reveals a structured
+  // TooltipExplanation (hover/focus, tap on touch, Esc to dismiss). The visible
+  // description must still carry the essentials; the explanation is the detail.
   let {
     title,
     description = "",
@@ -23,6 +29,7 @@
     onrowclick,
     control,
     below,
+    explanation,
   }: {
     title: string;
     description?: string;
@@ -31,13 +38,21 @@
     onrowclick?: () => void;
     control?: Snippet;
     below?: Snippet;
+    explanation?: TooltipExplanation;
   } = $props();
 
   function rowClick(e: MouseEvent) {
     if (!onrowclick) return;
     // The real control (switch/select/…) handles its own clicks; forwarding
-    // those too would double-toggle.
-    if ((e.target as HTMLElement).closest("button, select, input, textarea, a, label")) return;
+    // those too would double-toggle. An open `explanation` tooltip is a DOM
+    // descendant too (top-layer popover, but events still bubble) and stays open
+    // on touch — a tap on its text must not flip the setting.
+    if (
+      (e.target as HTMLElement).closest(
+        "button, select, input, textarea, a, label, [role='tooltip']",
+      )
+    )
+      return;
     onrowclick();
   }
 </script>
@@ -50,7 +65,14 @@
   onclick={rowClick}
 >
   <div class="main">
-    <span class="title"><HighlightText text={title} {query} /></span>
+    {#if explanation}
+      <div class="head">
+        <span class="title"><HighlightText text={title} {query} /></span>
+        <InfoTip text={explanation} label={explanation.title} />
+      </div>
+    {:else}
+      <span class="title"><HighlightText text={title} {query} /></span>
+    {/if}
     {#if description}
       <span class="desc"><HighlightText text={description} {query} /></span>
     {/if}
@@ -85,6 +107,11 @@
   .title {
     font-size: var(--fs-base);
     color: var(--color-ink-bright);
+  }
+  .head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
   }
   .desc {
     font-size: var(--fs-meta);

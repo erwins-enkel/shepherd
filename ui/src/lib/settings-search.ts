@@ -205,6 +205,11 @@ function sessionRows(ctx: SessionRowsCtx): string[][] {
       m.settings_house_rule_relevance_hint(),
       m.settings_house_rule_relevance_no_key_hint(),
     ],
+    [
+      m.settings_up_next_readiness_label(),
+      m.settings_up_next_readiness_hint(),
+      m.settings_up_next_readiness_no_key_hint(),
+    ],
     [m.settings_tui_fullscreen_label(), m.settings_tui_fullscreen_hint()],
     [m.settings_tui_disable_mouse_label(), m.settings_tui_disable_mouse_hint()],
   ];

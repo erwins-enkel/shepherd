@@ -695,6 +695,7 @@
 "native_settings_field_telemetryconsent" = "Telemetrie-Zustimmung";
 "native_settings_field_tuidisablemouse" = "TUI-Mauserfassung deaktivieren";
 "native_settings_field_tuifullscreen" = "Vollbild-TUI";
+"native_settings_field_upnextreadiness" = "Als Nächstes nach Agent-Tauglichkeit ordnen";
 "native_settings_field_upnextskipclipicker" = "CLI-Auswahl für Als Nächstes überspringen";
 "native_settings_field_usagedowngradeenabled" = "Modell am Nutzungslimit herabstufen";
 "native_settings_field_usagedowngrademodel" = "Ersatzmodell am Nutzungslimit";

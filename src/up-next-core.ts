@@ -11,6 +11,7 @@
 import type { Issue } from "./forge/types";
 import { PRIORITY_LABEL, ACTIVE_LABEL } from "./drain-core";
 import { isDependabotAuthor } from "./forge/pr-kind";
+import { BAND_RANK, band } from "./up-next-readiness-core";
 
 export type UpNextKind = "epic" | "bug" | "feature";
 
@@ -142,6 +143,20 @@ function isBotAuthored(issue: Issue): boolean {
 
 function classifyKind(labelSet: Set<string>): "bug" | "feature" {
   return intersects(labelSet, BUG_LABELS) ? "bug" : "feature";
+}
+
+/** A standalone issue's kind from its labels — exported so the readiness eval (#2535) rebuilds
+ *  today's in-repo order with the same rule. */
+export function standaloneKind(labels: string[]): "bug" | "feature" {
+  return classifyKind(lc(labels));
+}
+
+/** Today's in-repo order: epic > bug > feature, then oldest, then issue number. */
+export function compareInRepo(
+  a: Pick<UpNextItem, "kind" | "createdAt" | "number">,
+  b: Pick<UpNextItem, "kind" | "createdAt" | "number">,
+): number {
+  return KIND_RANK[a.kind] - KIND_RANK[b.kind] || a.createdAt - b.createdAt || a.number - b.number;
 }
 
 /** The "mine & unassigned" predicate (#824): true when the issue is assigned to at least one
@@ -294,10 +309,7 @@ export function buildSnapshot(
   for (const repo of warmOrder) {
     const items = byRepo.get(repo.repoPath);
     if (!items || items.length === 0) continue; // silently omit fully-excluded repos
-    items.sort(
-      (a, b) =>
-        KIND_RANK[a.kind] - KIND_RANK[b.kind] || a.createdAt - b.createdAt || a.number - b.number,
-    );
+    items.sort(compareInRepo);
     sections.push({
       kind: "repo",
       repoPath: repo.repoPath,
@@ -309,6 +321,37 @@ export function buildSnapshot(
   }
 
   return { generatedAt: now, sections, repoCount: repos.length, fallback, failedRepoCount };
+}
+
+/** One section's items stable-sorted by readiness band, the ORIGINAL index breaking ties — so each
+ *  band keeps the order the section already had (warm order for priority, compareInRepo per repo). */
+function rankByBand(
+  items: UpNextItem[],
+  scoreOf: (item: UpNextItem) => number | null,
+): UpNextItem[] {
+  return items
+    .map((item, index) => ({ item, index, rank: BAND_RANK[band(scoreOf(item))] }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((x) => x.item);
+}
+
+/**
+ * Readiness rerank (#2535): reorder items WITHIN each section by readiness band (ready → maybe →
+ * notReady; an unscored item is `maybe`). Deliberately narrow — sections keep their order, no item
+ * crosses a section, and the priority label still dominates — so the judge can only refine today's
+ * order, never override it. All-null scores are therefore the identity (every item lands in `maybe`).
+ */
+export function applyReadiness(
+  snap: UpNextSnapshot,
+  scoreOf: (item: UpNextItem) => number | null,
+): UpNextSnapshot {
+  return {
+    ...snap,
+    sections: snap.sections.map((section) => ({
+      ...section,
+      items: rankByBand(section.items, scoreOf),
+    })),
+  };
 }
 
 /**

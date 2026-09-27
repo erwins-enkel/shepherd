@@ -695,6 +695,7 @@
 "native_settings_field_telemetryconsent" = "Telemetry consent";
 "native_settings_field_tuidisablemouse" = "Disable TUI mouse capture";
 "native_settings_field_tuifullscreen" = "Fullscreen TUI";
+"native_settings_field_upnextreadiness" = "Rank Up Next by agent readiness";
 "native_settings_field_upnextskipclipicker" = "Skip CLI picker for Up Next";
 "native_settings_field_usagedowngradeenabled" = "Downgrade model at usage limit";
 "native_settings_field_usagedowngrademodel" = "Fallback model at usage limit";

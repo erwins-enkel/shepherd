@@ -519,6 +519,23 @@ so the drop threshold can be re-tuned against history rather than guessed again.
 | `SHEPHERD_LEARNINGS_RELEVANCE_MAX` | `32` | Most candidate rules one call may ask about. Overflow is injected unjudged, never dropped |
 | `SHEPHERD_LEARNINGS_RELEVANCE_RETENTION_DAYS` | `90` | How many days of relevance verdicts the daily sweep keeps (1–3650). They deliberately outlive their session, so this sweep is the only thing that removes one |
 
+### Up Next readiness
+
+Up Next's **Recommended** sort can put the issues an agent is most likely to finish on its own
+first. With this on, Shepherd asks the decision model one yes/no question per open issue — could an
+agent start it unattended and finish it in one PR? — and sorts the answer into three bands: ready,
+maybe, not ready. Issues move only **within** their existing group; the priority group and the repo
+groups never change, and there is no badge — only the order.
+
+Spend counts against `SHEPHERD_JUDGE_DAILY_USD`. Answers are cached per issue content, so only new
+or edited issues cost anything. On any failure — unarmed, over the daily ceiling, an error — Up Next
+keeps its usual order.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_UP_NEXT_READINESS` | `0` (off) | Set `1` to rerank Up Next within each group by agent readiness. Needs the judge armed. Seeds a fresh DB; persisted + UI-configurable (Settings → Session) |
+| `SHEPHERD_UP_NEXT_READINESS_RETENTION_DAYS` | `90` | How many days of cached readiness answers the daily sweep keeps (1–3650). Rows are keyed by issue content, so this only bounds dead keys; a live issue re-scores after its row expires |
+
 ## Maintain loop (self-health bands)
 
 Opt-in, default-off, and fully inert when off. Once per local day Shepherd scores four

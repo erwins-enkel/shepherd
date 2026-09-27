@@ -139,6 +139,7 @@ import { CountsService } from "./backlog";
 import { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { BacklogPoller } from "./backlog-poller";
 import { UpNextService, buildUpNextRepos } from "./up-next";
+import { ReadinessScorer } from "./up-next-readiness";
 import {
   ProcessReaper,
   reapDeletedWorktreeOrphans,
@@ -462,6 +463,9 @@ if (savedJudgeUsd !== null && savedJudgeUsd.trim() !== "" && Number.isFinite(Num
 // unrecognised stored value keeps the default rather than arming something unreadable.
 const savedRelevance = store.getSetting("houseRuleRelevance");
 if (isRelevanceMode(savedRelevance)) config.houseRuleRelevance = savedRelevance;
+// Up Next readiness rerank (#2535): same persisted-overrides-env rule.
+const savedUpNextReadiness = store.getSetting("upNextReadiness");
+if (savedUpNextReadiness !== null) config.upNextReadiness = savedUpNextReadiness === "1";
 // a UI-chosen auth mode (persisted) overrides the env seed; absent or unrecognised → keep default.
 const savedAm = store.getSetting("authMode");
 if (savedAm !== null) {
@@ -3082,6 +3086,8 @@ const runDailySweep = (opts?: { skipTmpSweep?: boolean }) => {
   // the drawer reads, so they are NOT cascaded by the sessions prune (same standing as
   // delivery_facts). That makes this age sweep the only thing that ever removes one.
   store.pruneLearningRelevance(Date.now() - config.relevanceRetentionDays * 86_400_000);
+  // Up Next readiness cache (#2535): content-addressed rows with no parent — same reasoning.
+  store.pruneReadiness(Date.now() - config.upNextReadinessRetentionDays * 86_400_000);
   // Skip on the boot-time run: fireTmpSweep("boot") already ran the fallow/worktree
   // sweep seconds earlier, so re-running it here only duplicates the work (and the log).
   if (!opts?.skipTmpSweep) fireTmpSweep("daily");
@@ -3667,6 +3673,21 @@ const upNext = new UpNextService({
   buildEpic: (repoPath, run) => drain.buildEpic(repoPath, run),
   getEpicRun: (repoPath) => store.getEpicRun(repoPath),
   onChange: (snapshot) => events.emit("upnext:snapshot", { snapshot }),
+  // Readiness rerank (#2535): only when a key exists, and effective only while BOTH the setting and
+  // the judge itself are on — read per compute, so either toggle lands on the next refresh.
+  ...(judgeClient
+    ? {
+        readiness: {
+          enabled: () => config.upNextReadiness && armedJudge() !== null,
+          scorer: new ReadinessScorer({
+            judge: armedJudge,
+            model: () => config.judgeModel,
+            spend: judgeSpend,
+            store,
+          }),
+        },
+      }
+    : {}),
 });
 deferredStarts.push(() => {
   upNext.start();

@@ -2,6 +2,8 @@
   import { getContext } from "svelte";
   import { anchorPopover } from "$lib/floating-anchor";
   import { infoTips, INFO_TIPS_FORCE } from "$lib/info-tips.svelte";
+  import TooltipBody from "$lib/tooltips/TooltipBody.svelte";
+  import type { TooltipContent } from "$lib/tooltips/content";
 
   // A small circular "i" affordance that reveals an explanation in a floating
   // tooltip — opens above the icon on hover/focus (fine pointer) and tap-toggles
@@ -14,11 +16,16 @@
   // `prominent` bumps the resting glyph one step brighter (muted → ink) for hosts where
   // the icon must actively invite discovery — e.g. the Herd stage headers, where a
   // newcomer needs to notice the affordance. Default off: every existing site is unchanged.
+  //
+  // `text` may be a structured `TooltipExplanation` (title, summary, labelled sections — see
+  // CLAUDE.md); it then renders through the shared `TooltipBody` in a wider panel. Plain
+  // strings render verbatim as before.
   let {
     text,
     label,
     prominent = false,
-  }: { text: string; label: string; prominent?: boolean } = $props();
+  }: { text: TooltipContent; label: string; prominent?: boolean } = $props();
+  const rich = $derived(typeof text !== "string");
 
   // Operator opt-out (Settings → Device). The /design-system catalogue forces specimens to
   // render regardless, so the component reference never lies about what a component looks like.
@@ -129,8 +136,18 @@
 
   <!-- popover="manual": native top-layer, escapes overflow:hidden containers.
        position:fixed + inset:auto + margin:0 so Floating UI's left/top drive placement. -->
-  <div id={tooltipId} bind:this={popEl} class="info-tooltip" role="tooltip" popover="manual">
-    {text}
+  <div
+    id={tooltipId}
+    bind:this={popEl}
+    class={["info-tooltip", { rich }]}
+    role="tooltip"
+    popover="manual"
+  >
+    {#if typeof text === "string"}
+      {text}
+    {:else}
+      <TooltipBody content={text} />
+    {/if}
   </div>
 {/if}
 
@@ -199,6 +216,11 @@
        (e.g. a `.micro` header) so the explanation reads as a normal sentence. */
     text-transform: none;
     letter-spacing: normal;
+  }
+
+  /* Structured explanations carry a title and labelled sections; give them reading room. */
+  [popover].info-tooltip.rich {
+    width: min(340px, 90vw);
   }
 
   /* Entrance animation. The global blanket in app.css suppresses this under

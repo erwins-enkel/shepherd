@@ -19,6 +19,7 @@
     putJudgeDailyUsd,
     putBlockJudgeMode,
     putHouseRuleRelevance,
+    putUpNextReadiness,
     logout,
   } from "$lib/api";
   import { MODELS, type HouseRuleRelevanceMode, type Settings } from "$lib/types";
@@ -28,6 +29,7 @@
   import { relativeAge } from "$lib/format";
   import SettingRow from "./SettingRow.svelte";
   import SettingToggle from "./SettingToggle.svelte";
+  import { upNextReadinessExplanation } from "$lib/tooltips/explanations";
   import "./settings-controls.css";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -127,6 +129,10 @@
   let houseRuleRelevance = $state<HouseRuleRelevanceMode>("off");
   let houseRuleRelevanceSaved: HouseRuleRelevanceMode = "off";
   let houseRuleRelevanceBusy = $state(false);
+  let upNextReadiness = $state(false);
+  let upNextReadinessBusy = $state(false);
+  // Like house-rule relevance: the rerank only runs while the judge is armed (#2535).
+  const judgeArmed = $derived(judgeEnabled && judgeHasKey);
 
   // Seed once from the parent's single getSettings() payload; server-seed
   // fallbacks keep controls sensible against an older backend.
@@ -169,6 +175,7 @@
       blockJudgeModeSaved = blockJudgeMode;
       houseRuleRelevance = s.houseRuleRelevance ?? "off";
       houseRuleRelevanceSaved = houseRuleRelevance;
+      upNextReadiness = s.upNextReadiness ?? false;
       telemetryOn = s.telemetryConsent === "granted";
       telemetryAvailable = s.telemetryAvailable;
       telemetryHealth = s.telemetryHealth;
@@ -409,6 +416,22 @@
       });
     } finally {
       houseRuleRelevanceBusy = false;
+    }
+  }
+
+  async function toggleUpNextReadiness() {
+    if (upNextReadinessBusy || !judgeArmed) return;
+    upNextReadinessBusy = true;
+    try {
+      const r = await putUpNextReadiness(!upNextReadiness);
+      upNextReadiness = r.upNextReadiness;
+    } catch {
+      toasts.info(m.settings_up_next_readiness_save_failed(), {
+        key: "up-next-readiness",
+        alert: true,
+      });
+    } finally {
+      upNextReadinessBusy = false;
     }
   }
 
@@ -874,6 +897,26 @@
       </select>
       <span class="set-chev" aria-hidden="true">▾</span>
     </span>
+  {/snippet}
+</SettingRow>
+
+<SettingRow
+  title={m.settings_up_next_readiness_label()}
+  description={judgeArmed
+    ? m.settings_up_next_readiness_hint()
+    : m.settings_up_next_readiness_no_key_hint()}
+  explanation={upNextReadinessExplanation()}
+  {query}
+  inlineOnMobile
+  onrowclick={judgeArmed ? toggleUpNextReadiness : undefined}
+>
+  {#snippet control()}
+    <SettingToggle
+      checked={upNextReadiness}
+      disabled={upNextReadinessBusy || !judgeArmed}
+      label={m.settings_up_next_readiness_label()}
+      onchange={toggleUpNextReadiness}
+    />
   {/snippet}
 </SettingRow>
 

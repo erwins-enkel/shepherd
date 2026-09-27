@@ -1237,6 +1237,7 @@ function buildSettings(): Settings {
     judgeDailyUsd: 1,
     blockJudgeMode: "off",
     houseRuleRelevance: "off",
+    upNextReadiness: false,
   };
 }
 

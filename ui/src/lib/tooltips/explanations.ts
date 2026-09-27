@@ -55,3 +55,19 @@ export function landingConflictReworkExplanation(): TooltipExplanation {
     ],
   };
 }
+
+/** Settings → Up Next readiness rerank (#2535): what reorders, what it costs, what happens when it can't. */
+export function upNextReadinessExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_up_next_readiness_title(),
+    summary: m.tooltip_up_next_readiness_summary(),
+    sections: [
+      { label: m.tooltip_up_next_readiness_does(), text: m.tooltip_up_next_readiness_does_body() },
+      { label: m.tooltip_up_next_readiness_cost(), text: m.tooltip_up_next_readiness_cost_body() },
+      {
+        label: m.tooltip_up_next_readiness_fallback(),
+        text: m.tooltip_up_next_readiness_fallback_body(),
+      },
+    ],
+  };
+}

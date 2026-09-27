@@ -11950,6 +11950,23 @@
         }
       }
     },
+    "native_settings_field_upnextreadiness": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als Nächstes nach Agent-Tauglichkeit ordnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rank Up Next by agent readiness"
+          }
+        }
+      }
+    },
     "native_settings_field_upnextskipclipicker": {
       "extractionState": "manual",
       "localizations": {

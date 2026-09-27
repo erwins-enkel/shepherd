@@ -225,6 +225,8 @@ components:
           type: boolean
         judgeEnabled:
           type: boolean
+        upNextReadiness:
+          type: boolean
         tuiFullscreen:
           type: boolean
         tuiDisableMouse:
@@ -4812,6 +4814,8 @@ components:
           type: boolean
         judgeEnabled:
           type: boolean
+        upNextReadiness:
+          type: boolean
         tuiFullscreen:
           type: boolean
         tuiDisableMouse:
@@ -4931,6 +4935,8 @@ components:
         fableAvailable:
           type: boolean
         judgeEnabled:
+          type: boolean
+        upNextReadiness:
           type: boolean
         tuiFullscreen:
           type: boolean

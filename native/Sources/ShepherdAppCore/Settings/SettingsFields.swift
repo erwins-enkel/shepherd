@@ -45,6 +45,7 @@ public struct SettingsField: Identifiable {
         .init(id:"usageDowngradeEnabled", title:"native_settings_field_usagedowngradeenabled", kind:.toggle, value:{ String($0.usageDowngradeEnabled ?? false) }, patch:{ .init(usageDowngradeEnabled: $0 == "true") }, cli:false),
         .init(id:"fableAvailable", title:"native_settings_field_fableavailable", kind:.toggle, value:{ String($0.fableAvailable ?? false) }, patch:{ .init(fableAvailable: $0 == "true") }, cli:false),
         .init(id:"judgeEnabled", title:"native_settings_field_judgeenabled", kind:.toggle, value:{ String($0.judgeEnabled ?? false) }, patch:{ .init(judgeEnabled: $0 == "true") }, cli:false),
+        .init(id:"upNextReadiness", title:"native_settings_field_upnextreadiness", kind:.toggle, value:{ String($0.upNextReadiness ?? false) }, patch:{ .init(upNextReadiness: $0 == "true") }, cli:false),
         .init(id:"tuiFullscreen", title:"native_settings_field_tuifullscreen", kind:.toggle, value:{ String($0.tuiFullscreen ?? false) }, patch:{ .init(tuiFullscreen: $0 == "true") }, cli:false),
         .init(id:"tuiDisableMouse", title:"native_settings_field_tuidisablemouse", kind:.toggle, value:{ String($0.tuiDisableMouse ?? false) }, patch:{ .init(tuiDisableMouse: $0 == "true") }, cli:false),
         .init(id:"prReviewCyclesCap", title:"native_settings_field_prreviewcyclescap", kind:.number, value:{ String($0.prReviewCyclesCap ?? 0) }, patch:{ value in guard let n = Double(value), n.isFinite else { return nil }; return .init(prReviewCyclesCap: n) }, cli:false),

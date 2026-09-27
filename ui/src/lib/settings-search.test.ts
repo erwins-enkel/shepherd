@@ -40,9 +40,10 @@ describe("the Session section's searchable rows mirror the panel", () => {
     // once however many of its strings hit, so carrying both keeps it findable either way.
     expect(matchCount(rows, "frees subscription quota")).toBe(1);
     expect(matchCount(rows, "keeps using a Claude agent spawn")).toBe(1);
-    // THREE key-gated rows now point at the same credential file — the judge toggle, the
-    // blocked-pane backstop and the house-rule relevance gate — and each must be findable by it.
-    expect(matchCount(rows, "~/.shepherd/env")).toBe(3);
+    // FOUR key-gated rows now point at the same credential file — the judge toggle, the
+    // blocked-pane backstop, the house-rule relevance gate and the Up Next readiness rerank —
+    // and each must be findable by it.
+    expect(matchCount(rows, "~/.shepherd/env")).toBe(4);
   });
 
   it("finds the blocked-pane backstop row by title and by either hint", () => {
@@ -57,6 +58,16 @@ describe("the Session section's searchable rows mirror the panel", () => {
     expect(matchCount(rows, "House rules for this task only")).toBe(1);
     // Same dual-hint contract as the judge toggle: the row renders whichever matches the key state.
     expect(matchCount(rows, "leave the rest out of the agent")).toBe(1);
-    expect(matchCount(rows, "Needs the fast stop classifier turned on")).toBe(1);
+    expect(matchCount(rows, "every house rule is sent to every session")).toBe(1);
+  });
+
+  it("finds the Up Next readiness row by title and by either hint", () => {
+    const rows = sessionRows();
+    expect(matchCount(rows, "Rank Up Next by agent readiness")).toBe(1);
+    // Same dual-hint contract: the row renders whichever matches the judge's armed state.
+    expect(matchCount(rows, "finish unattended in one PR")).toBe(1);
+    expect(matchCount(rows, "Up Next keeps its usual order")).toBe(1);
+    // Both judge-gated rows share the needs-classifier lead-in.
+    expect(matchCount(rows, "Needs the fast stop classifier turned on")).toBe(2);
   });
 });

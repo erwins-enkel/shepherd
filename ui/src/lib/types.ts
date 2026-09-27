@@ -263,6 +263,9 @@ export interface Settings {
   /** House-rule relevance gate (#2376). `shadow` judges and records without acting, so the
    *  evidence for arming `enforce` comes from real sessions. Inert unless the judge is armed. */
   houseRuleRelevance: HouseRuleRelevanceMode;
+  /** Up Next readiness rerank (#2535): reorders the Recommended sort within each group by a judge
+   *  readiness band. Priority and repo groups never move. Inert unless the judge is armed. */
+  upNextReadiness: boolean;
 }
 
 /** The three states of the house-rule relevance gate (#2376). */

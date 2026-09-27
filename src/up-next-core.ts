@@ -144,6 +144,20 @@ function classifyKind(labelSet: Set<string>): "bug" | "feature" {
   return intersects(labelSet, BUG_LABELS) ? "bug" : "feature";
 }
 
+/** A standalone issue's kind from its labels — exported so the readiness eval (#2535) rebuilds
+ *  today's in-repo order with the same rule. */
+export function standaloneKind(labels: string[]): "bug" | "feature" {
+  return classifyKind(lc(labels));
+}
+
+/** Today's in-repo order: epic > bug > feature, then oldest, then issue number. */
+export function compareInRepo(
+  a: Pick<UpNextItem, "kind" | "createdAt" | "number">,
+  b: Pick<UpNextItem, "kind" | "createdAt" | "number">,
+): number {
+  return KIND_RANK[a.kind] - KIND_RANK[b.kind] || a.createdAt - b.createdAt || a.number - b.number;
+}
+
 /** The "mine & unassigned" predicate (#824): true when the issue is assigned to at least one
  *  person and the viewer is NOT among them (i.e. assigned solely to others → hide). Fails open
  *  when `viewer` is null (unknown "me"): unassigned and mine-assigned always pass. Mirrors the
@@ -294,10 +308,7 @@ export function buildSnapshot(
   for (const repo of warmOrder) {
     const items = byRepo.get(repo.repoPath);
     if (!items || items.length === 0) continue; // silently omit fully-excluded repos
-    items.sort(
-      (a, b) =>
-        KIND_RANK[a.kind] - KIND_RANK[b.kind] || a.createdAt - b.createdAt || a.number - b.number,
-    );
+    items.sort(compareInRepo);
     sections.push({
       kind: "repo",
       repoPath: repo.repoPath,

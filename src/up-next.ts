@@ -124,9 +124,10 @@ export class UpNextService {
   private readonly intervalMs: number;
   private readonly postStartRetryDelays: number[];
   private readonly realpath: (p: string) => string;
-  /** Bumped on every compute publish. A background readiness run re-publishes only while its own
-   *  generation is still the latest, so a slow judge can never overwrite a newer snapshot. */
-  private generation = 0;
+  /** The latest compute's un-reranked snapshot. A background readiness run re-applies the cache to
+   *  THIS, never to the snapshot it started from — so a slow judge can never publish stale items,
+   *  and scores from a run that a newer compute overtook still land. */
+  private raw: UpNextSnapshot | null = null;
 
   constructor(private deps: UpNextDeps) {
     this.now = deps.now ?? (() => Date.now());
@@ -159,13 +160,13 @@ export class UpNextService {
     const ok = resolved.filter((r): r is RepoInput => r !== null && r !== "fetch_failed");
     const failedRepoCount = resolved.filter((r) => r === "fetch_failed").length;
     const raw = buildSnapshot(ok, this.now(), null, failedRepoCount);
-    const gen = ++this.generation;
+    this.raw = raw;
     const readiness = this.activeReadiness();
     if (!readiness) return this.publish(raw);
     // Publish on cached scores NOW, then score the misses in the background — Up Next never
     // awaits the judge.
     const snap = this.publish(this.rerank(raw, readiness));
-    this.scoreInBackground(raw, gen, readiness);
+    this.scoreInBackground(raw, readiness);
     return snap;
   }
 
@@ -204,17 +205,17 @@ export class UpNextService {
     }
   }
 
-  /** Fire-and-forget: score the misses, then re-publish `raw` with the larger cache — only when
-   *  something new was scored, the feature is still on, and no newer compute has published. */
+  /** Fire-and-forget: score the misses, then re-publish the LATEST raw snapshot with the larger
+   *  cache — only when something new was scored and the feature is still on. */
   private scoreInBackground(
     raw: UpNextSnapshot,
-    gen: number,
     readiness: NonNullable<UpNextDeps["readiness"]>,
   ): void {
     void (async () => {
       const scored = await readiness.scorer.scoreMissing(allItems(raw));
-      if (scored <= 0 || gen !== this.generation || !this.activeReadiness()) return;
-      this.publish(this.rerank(raw, readiness));
+      const latest = this.raw;
+      if (scored <= 0 || !latest || !this.activeReadiness()) return;
+      this.publish(this.rerank(latest, readiness));
     })().catch((err) => console.warn("[up-next] readiness background scoring:", err));
   }
 

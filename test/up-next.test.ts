@@ -573,7 +573,7 @@ describe("UpNextService readiness rerank (#2535)", () => {
     expect(nums(s.snapshot()!)).toEqual([2, 3, 1]);
   });
 
-  test("a stale generation does not re-emit over a newer compute", async () => {
+  test("a run overtaken by a newer compute re-applies its scores to the newest snapshot", async () => {
     const emits: number[][] = [];
     const cache = new Map<number, number>();
     const a = fakeScorer(cache, { 1: 0.1 });
@@ -593,9 +593,11 @@ describe("UpNextService readiness rerank (#2535)", () => {
     scorer = b.scorer;
     await s.refresh();
     b.release();
-    a.release(); // gen 1 finishes AFTER gen 2 published
+    a.release(); // run 1 finishes AFTER compute 2 published
     await flush();
-    expect(emits).toHaveLength(2);
+    expect(emits).toHaveLength(3);
+    expect(emits[2]).toEqual([2, 1]); // #1, scored not-ready by run 1, sinks in the newest snapshot
+    expect(nums(s.snapshot()!)).toEqual([2, 1]);
   });
 
   test("toggling off mid-scoring suppresses the re-emit", async () => {

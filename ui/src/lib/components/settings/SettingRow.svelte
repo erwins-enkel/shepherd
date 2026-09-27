@@ -44,8 +44,15 @@
   function rowClick(e: MouseEvent) {
     if (!onrowclick) return;
     // The real control (switch/select/…) handles its own clicks; forwarding
-    // those too would double-toggle.
-    if ((e.target as HTMLElement).closest("button, select, input, textarea, a, label")) return;
+    // those too would double-toggle. An open `explanation` tooltip is a DOM
+    // descendant too (top-layer popover, but events still bubble) and stays open
+    // on touch — a tap on its text must not flip the setting.
+    if (
+      (e.target as HTMLElement).closest(
+        "button, select, input, textarea, a, label, [role='tooltip']",
+      )
+    )
+      return;
     onrowclick();
   }
 </script>

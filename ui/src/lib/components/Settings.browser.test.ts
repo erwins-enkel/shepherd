@@ -1277,4 +1277,19 @@ describe("Up Next readiness toggle", () => {
     expect(text).toContain(m.tooltip_up_next_readiness_cost_body());
     expect(text).toContain(m.tooltip_up_next_readiness_fallback_body());
   });
+
+  // The tooltip is a DOM descendant of the clickable row and stays open on touch; a tap on its
+  // text must not bubble into the row's toggle and silently flip the billed rerank.
+  it("tapping the open info tip does not toggle the setting", async () => {
+    mockGetSettings.mockResolvedValue(settings({ judgeEnabled: true, judgeHasKey: true }));
+    await mountSession();
+
+    await page.getByRole("button", { name: m.tooltip_up_next_readiness_title() }).hover();
+    const panel = page.getByRole("tooltip");
+    await expect.element(panel).toBeVisible();
+    (panel.element() as HTMLElement).click();
+
+    expect(mockPutUpNextReadiness).not.toHaveBeenCalled();
+    await expect.element(readinessSwitch()).toHaveAttribute("aria-checked", "false");
+  });
 });

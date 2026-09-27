@@ -81,6 +81,17 @@ function ghIssue(repoPath: string, n: number): GhIssue | null {
   }
 }
 
+/** The previous fixture file, or [] when there is none. Read directly rather than behind an exists
+ *  check — the file is rewritten below, and a separate check is a TOCTOU window. */
+function readPrior(path: string): ReadinessFixture[] {
+  try {
+    return JSON.parse(readFileSync(path, "utf8")) as ReadinessFixture[];
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
+}
+
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
   return i >= 0 ? process.argv[i + 1] : undefined;
@@ -96,11 +107,7 @@ async function run(): Promise<void> {
   // Keep already-scored p across regenerations: a fixture whose content is unchanged need not be
   // paid for twice.
   const prior = new Map<string, ReadinessFixture>();
-  if (existsSync(out)) {
-    for (const f of JSON.parse(readFileSync(out, "utf8")) as ReadinessFixture[]) {
-      prior.set(`${f.repo}#${f.number}`, f);
-    }
-  }
+  for (const f of readPrior(out)) prior.set(`${f.repo}#${f.number}`, f);
 
   const fixtures: ReadinessFixture[] = [];
   let excluded = 0;

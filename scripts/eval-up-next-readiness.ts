@@ -14,7 +14,7 @@
 // Usage: JEV_API_KEY=… bun run eval:up-next-readiness
 //          [--variant v4|all] [--split dev|holdout|all] [--fixtures path] [--model id]
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { createTypeSafeJudge, judgeCostUsd } from "../src/judge-typesafe";
 import type { Judge } from "../src/judge";
 import {
@@ -141,11 +141,16 @@ async function run(): Promise<void> {
     console.error(`unknown --variant/--split; variants: ${Object.keys(VARIANTS).join(", ")}, all`);
     process.exit(2);
   }
-  if (!existsSync(path)) {
+  // Read directly (no exists-then-read check): the file is rewritten below, and a check separate
+  // from the read is a TOCTOU window.
+  let all: ReadinessFixture[];
+  try {
+    all = JSON.parse(readFileSync(path, "utf8")) as ReadinessFixture[];
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     console.error(`no fixtures at ${path} — run scripts/gen-up-next-readiness-fixtures.ts first`);
     process.exit(2);
   }
-  const all = JSON.parse(readFileSync(path, "utf8")) as ReadinessFixture[];
   const inSplit = split === "all" ? all : all.filter((f) => splitOf(f) === split);
 
   let changed = 0;

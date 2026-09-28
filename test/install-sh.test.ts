@@ -106,8 +106,7 @@ describe("resolve_source", () => {
     expect(r.stderr.toLowerCase()).toContain("not a shepherd checkout");
 
     // the pre-existing file must still be intact (never clobbered)
-    const check = spawnSync("cat", [marker], { encoding: "utf8" });
-    expect(check.stdout).toBe("do not touch me\n");
+    expect(readFileSync(marker, "utf8")).toBe("do not touch me\n");
   });
 });
 

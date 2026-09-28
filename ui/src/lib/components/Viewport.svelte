@@ -45,6 +45,7 @@
     stopPreview as apiStopPreview,
     getCommands,
     getVoiceStatus,
+    scratchpadDownloadUrl,
   } from "$lib/api";
   import { imageFilesFromItems } from "$lib/clipboard";
   import { trimTrailingWhitespace } from "$lib/terminalSelection";
@@ -90,7 +91,8 @@
   import ClipboardPill from "./viewport/ClipboardPill.svelte";
   import { handleOsc52 } from "$lib/osc52";
   import type { BuildQueue } from "$lib/types";
-  import { computeHasFiles } from "$lib/session-files";
+  import AttachmentChip from "./new-task/AttachmentChip.svelte";
+  import { ATTACHMENTS_DIR, computeHasFiles } from "$lib/session-files";
   import { m } from "$lib/paraglide/messages";
   import { modelLabel } from "$lib/model-label";
   import { effortLabel } from "$lib/effort-guidance";
@@ -650,18 +652,13 @@
           : m.tasktip_none(),
   );
   const launchedFiles = $derived(
-    launch?.attachments.filter((a) => !a.dropped && a.launchedName).map((a) => a.launchedName!) ??
-      null,
+    launch?.attachments.filter((a) => !a.dropped && a.launchedName) ?? null,
   );
   const droppedFiles = $derived(
     launch?.attachments.filter((a) => a.dropped).map((a) => a.submittedName) ?? [],
   );
   const filesDisplay = $derived(
-    launchedFiles === null
-      ? m.tasktip_not_recorded()
-      : launchedFiles.length > 0
-        ? launchedFiles.join(", ")
-        : m.tasktip_none(),
+    launchedFiles === null ? m.tasktip_not_recorded() : m.tasktip_none(),
   );
   const droppedFilesDisplay = $derived(droppedFiles.length > 0 ? droppedFiles.join(", ") : "");
 
@@ -1936,7 +1933,9 @@
           desktopKeyboard: !mobile && !touch,
           termTabActive: tab === "term",
           live: !parked && !ended,
-          overlayOpen: !!document.querySelector(".overlay, .drawer"),
+          overlayOpen: !!document.querySelector(
+            ".overlay, .drawer, .attachment-preview:popover-open",
+          ),
           active: document.activeElement,
           body: document.body,
           terminalEl: el ?? null,
@@ -2418,7 +2417,28 @@
       </span>
       <span class="dp-row">
         <span class="dp-k">{m.tasktip_files()}</span>
-        <span class="dp-v">{filesDisplay}</span>
+        <span class="dp-v">
+          {#if launchedFiles?.length}
+            {#each launchedFiles as file, i (file.storedName ?? i)}
+              {#if i > 0},
+              {/if}
+              {#if metaVisible && session.status !== "archived" && file.storedName && /\.(png|jpe?g|gif|webp|avif|svg|bmp|ico)$/i.test(file.storedName)}
+                <AttachmentChip
+                  name={file.launchedName!}
+                  previewSrc={scratchpadDownloadUrl(
+                    session.id,
+                    `${ATTACHMENTS_DIR}/${file.storedName}`,
+                  )}
+                  coarse={touch || mobile}
+                />
+              {:else}
+                {file.launchedName}
+              {/if}
+            {/each}
+          {:else}
+            {filesDisplay}
+          {/if}
+        </span>
       </span>
       {#if droppedFilesDisplay}
         <span class="dp-row">

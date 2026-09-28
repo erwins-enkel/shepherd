@@ -6,17 +6,21 @@
   let {
     name,
     previewFile,
+    previewSrc,
     coarse,
     onremove,
   }: {
     name: string;
     previewFile?: File;
+    previewSrc?: string;
     coarse: boolean;
-    onremove: () => void;
+    onremove?: () => void;
   } = $props();
 
   const previewId = $props.id();
-  let previewUrl = $state<string | null>(null);
+  let objectUrl = $state<string | null>(null);
+  const previewUrl = $derived(previewSrc ?? objectUrl);
+  let failed = $state(false);
   let open = $state(false);
   let triggerEl = $state<HTMLButtonElement | null>(null);
   let popoverEl = $state<HTMLElement | null>(null);
@@ -24,7 +28,7 @@
   onMount(() => {
     if (!previewFile) return;
     const url = URL.createObjectURL(previewFile);
-    previewUrl = url;
+    objectUrl = url;
     return () => URL.revokeObjectURL(url);
   });
 
@@ -35,13 +39,17 @@
     } catch {
       return;
     }
-    return anchorPopover(triggerEl, popoverEl, 6, "top");
+    // Keep the panel flush with its trigger so the pointer can cross into it.
+    return anchorPopover(triggerEl, popoverEl, 0, "top");
   });
 
   $effect(() => {
     if (!open) return;
     function onKeydown(e: KeyboardEvent) {
-      if (e.key === "Escape") open = false;
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      e.stopImmediatePropagation(); // dismiss the image without sending Escape to the terminal
+      open = false;
     }
     function onPointerdown(e: PointerEvent) {
       const target = e.target as Node;
@@ -50,12 +58,12 @@
     function onScrollOrResize() {
       open = false;
     }
-    window.addEventListener("keydown", onKeydown);
+    window.addEventListener("keydown", onKeydown, { capture: true });
     window.addEventListener("pointerdown", onPointerdown);
     window.addEventListener("scroll", onScrollOrResize, { capture: true, passive: true });
     window.addEventListener("resize", onScrollOrResize, { passive: true });
     return () => {
-      window.removeEventListener("keydown", onKeydown);
+      window.removeEventListener("keydown", onKeydown, { capture: true });
       window.removeEventListener("pointerdown", onPointerdown);
       window.removeEventListener("scroll", onScrollOrResize, { capture: true });
       window.removeEventListener("resize", onScrollOrResize);
@@ -63,8 +71,8 @@
   });
 </script>
 
-<span class="chip">
-  {#if previewFile}
+<span class="chip" class:readonly={!onremove}>
+  {#if previewFile || previewSrc}
     <button
       bind:this={triggerEl}
       type="button"
@@ -76,7 +84,8 @@
         if (!coarse && e.pointerType !== "touch") open = true;
       }}
       onpointerleave={(e) => {
-        if (!coarse && e.pointerType !== "touch") open = false;
+        if (!coarse && e.pointerType !== "touch" && !popoverEl?.contains(e.relatedTarget as Node))
+          open = false;
       }}
       onfocus={() => {
         if (!coarse) open = true;
@@ -93,23 +102,36 @@
   {:else}
     <span class="chip-name">{name}</span>
   {/if}
-  <button type="button" class="chip-x" onclick={onremove} aria-label={m.newtask_remove_image_aria()}
-    >✕</button
-  >
-</span>
+  {#if onremove}
+    <button
+      type="button"
+      class="chip-x"
+      onclick={onremove}
+      aria-label={m.newtask_remove_image_aria()}>✕</button
+    >
+  {/if}
 
-{#if previewUrl}
-  <span
-    id={previewId}
-    bind:this={popoverEl}
-    class="attachment-preview"
-    role="tooltip"
-    aria-label={m.newtask_preview_image_aria({ name })}
-    popover="manual"
-  >
-    <img src={previewUrl} alt="" />
-  </span>
-{/if}
+  {#if previewUrl && open}
+    <span
+      id={previewId}
+      bind:this={popoverEl}
+      class="attachment-preview"
+      role="tooltip"
+      aria-label={m.newtask_preview_image_aria({ name })}
+      popover="manual"
+      onpointerleave={(e) => {
+        if (!coarse && e.pointerType !== "touch" && !triggerEl?.contains(e.relatedTarget as Node))
+          open = false;
+      }}
+    >
+      {#if failed}
+        {m.newtask_preview_image_unavailable()}
+      {:else}
+        <img src={previewUrl} alt="" onerror={() => (failed = true)} />
+      {/if}
+    </span>
+  {/if}
+</span>
 
 <style>
   .chip {
@@ -129,6 +151,21 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 22ch;
+  }
+  .chip.readonly {
+    padding: 0;
+    border: 0;
+    background: transparent;
+  }
+  .readonly .chip-name {
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    text-align: start;
+  }
+  .readonly .preview-trigger {
+    text-decoration: underline dotted;
+    text-underline-offset: 3px;
   }
   .preview-trigger {
     padding: 0;
@@ -162,6 +199,10 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     box-shadow: var(--shadow-popover);
+    max-width: min(288px, 85vw);
+    color: var(--color-ink);
+    font: inherit;
+    white-space: normal;
   }
   .attachment-preview img {
     display: block;

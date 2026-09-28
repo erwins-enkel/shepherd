@@ -115,6 +115,11 @@ jobs:
           (cd ui && bun run check:i18n)
           (cd extension && bun run check:i18n)
 
+      # Runs here, not in native.yml, so a ui/messages-only PR doesn't start the
+      # macOS pipeline (#2567). Plain Bun script, no macOS tooling.
+      - name: Mac string catalog freshness (ui/messages ⇒ xcstrings)
+        run: bun run check:strings
+
       - name: Docs manifest freshness (command bar Docs group)
         run: cd ui && bun run check:docs-manifest
 

@@ -439,6 +439,7 @@ function buildLanes(
       },
       { label: "herdr types", cmd: "bun", args: ["run", "check:herdr-types"], cwd: repoRoot },
       { label: "env schema", cmd: "bun", args: ["run", "check:env-schema"], cwd: repoRoot },
+      { label: "mac strings", cmd: "bun", args: ["run", "check:strings"], cwd: repoRoot },
       {
         label: "env schema docs",
         cmd: "node",

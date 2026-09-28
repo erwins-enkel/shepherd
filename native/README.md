@@ -34,14 +34,18 @@ the app is where you see their progress, inspect results and make decisions.
 
 ## Early, useful and growing
 
-The app is an **early preview**, already usable day to day. Session filters, the live terminal,
-activity, diffs, files, pull-request actions, the local-server panel and native notifications
-are available today. The interface supports English and German; the screenshots show a live
-instance in German.
+The app is an **early preview**, already usable day to day. Available today:
 
-The web UI still has broader coverage. Herd lifecycle stages, plan gates, merge automation and
-the full new-task composer are being brought to the Mac app. Use the browser for workflows the
-native app doesn't cover yet.
+- **Sessions:** the herd sidebar with lifecycle stages, repo and state filters and usage meters.
+- **Session detail:** activity, diff, files, git and the live terminal.
+- **Review and merge:** plan gates, pull-request actions, review requests and merge automation.
+- **Starting work:** a new-task composer that starts from an issue, plus held tasks, Up Next and
+  the Done panel.
+- **Around the app:** a command palette, the local-server panel and native notifications.
+
+The interface supports English and German; the screenshots show a live instance in German.
+
+The backlog, epic management and learnings are still web-only. Use the browser for those.
 
 **Current availability:** macOS 15 or newer; [download the tester DMG](docs/app-updates.md#first-installation)
 or build from source with Xcode. The

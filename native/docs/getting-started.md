@@ -104,12 +104,15 @@ open native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app
 2. Read **Activity** to see what the agent has been doing, then inspect **Diff** or **Files**
    for the changes and their context.
 3. Open **Terminal** to follow the live session or send the agent a message.
-4. Check **Pull request** for the PR state, checks and available actions.
-5. Start another task with the new-task sheet: choose the repo, base branch, agent and model,
-   then describe the work.
+4. Open **Pre-execution plan** to answer or approve a plan gate. Check **Pull request** for the
+   PR state, checks, review requests and merge automation.
+5. Start another task with the new-task sheet: start from an issue or describe the work, then
+   choose the repo, base branch, agent and model.
+6. Keep an eye on held tasks, Up Next and the Done panel to see what is waiting, what runs next
+   and what has finished.
 
-The [screenshot tour](screenshots.md) shows these views with real sessions. For workflows not yet
-available in the app, open the web UI of the same Shepherd server. To work on the app itself,
+The [screenshot tour](screenshots.md) shows these views with real sessions. For the backlog, epic
+management and learnings, open the web UI of the same Shepherd server. To work on the app itself,
 continue with the [development guide](development.md).
 
 ## Install a tester release

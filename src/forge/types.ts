@@ -340,6 +340,32 @@ export interface WorkflowRun {
   jobs: WorkflowJob[];
 }
 
+/** One job of a {@link ForgeRun}, with the host's RAW conclusion (`failure`, `skipped`, …). */
+export interface ForgeRunJob {
+  id: number;
+  name: string;
+  conclusion: string | null;
+}
+
+/** A default-branch workflow run with the host's RAW status/conclusion/event strings (not the
+ *  four-light {@link ChecksState}), for `ctx.forge.runs` (#2539). `jobs` is absent on summary
+ *  rows — fetch via {@link GitForge.runJobs}. */
+export interface ForgeRun {
+  id: number;
+  workflowName: string;
+  /** Workflow file path (GitHub `.github/workflows/ci.yml`; Gitea the workflow id, e.g. `ci.yml`). */
+  workflowFile: string;
+  event: string;
+  /** `completed` once finished; anything else (`queued`, `in_progress`, …) is still running. */
+  status: string;
+  conclusion: string | null;
+  attempt: number;
+  headSha: string;
+  createdAt: number; // epoch ms
+  url: string;
+  jobs?: ForgeRunJob[];
+}
+
 export interface OpenPrInput {
   head: string;
   base: string;
@@ -548,6 +574,15 @@ export interface GitForge {
    *  {@link rerunWorkflowRun} — pairs with it for the retry-ci endpoint. Note: resolves runs
    *  on the base repo's head branch, so a fork-origin PR (runs live in the fork) yields null. */
   latestFailedRunForPr?(prNumber: number): Promise<number | null>;
+  /** Default-branch runs in ANY status with id > `sinceId` (one page, unordered). Summary
+   *  rows may omit `jobs`. Optional: `ctx.forge.runs` refuses `unsupported` without it. */
+  listDefaultBranchRuns?(o: { sinceId?: number }): Promise<ForgeRun[]>;
+  /** One run with its jobs, fresh (reflects a rerun's new attempt); null when not found. */
+  getRunDetail?(runId: number): Promise<ForgeRun | null>;
+  /** Raw jobs of one run, for summary rows from {@link listDefaultBranchRuns}. */
+  runJobs?(runId: number): Promise<ForgeRunJob[]>;
+  /** Every failed step's full log lines, grouped by job + step in log order. Untrusted text. */
+  failedRunStepLogs?(runId: number): Promise<{ job: string; step: string; lines: string[] }[]>;
   prStatus(headBranch: string): Promise<PrStatus>;
   /** The operator's own login on this host (`gh api user`), cached. Drives the
    *  "is the configured reviewer/merger someone *other* than me" decision. Null

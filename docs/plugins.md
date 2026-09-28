@@ -173,6 +173,7 @@ permission-scoped / out-of-process) without changing your call sites.
 | `ctx.state`                        | Durable, **per-plugin-scoped** key/value: `get`/`set`/`delete`/`keys`. Values are JSON. Backed by a `plugin_state` table — you never touch the session schema.                      |
 | `ctx.sessions`                     | Read-only session lookup: `get(id)` / `list()` → a curated `PluginSessionSnapshot`. Resolves the bare ids that `session:*` events carry. Plugins cannot write sessions.             |
 | `ctx.issues`                       | Create / close / read forge issues: `create(repo, {title, body, labels?, untrusted?})`, `close(repo, n, comment?)`, `get(repo, n)`. Untrusted text is fenced **by core**. Additive. |
+| `ctx.forge.runs`                   | Default-branch CI runs: `listDefaultBranchRuns(repo, {sinceId?, limit?})`, `getRun(repo, id)`, `failedJobLogs(repo, id, {maxLinesPerStep?})`, `rerunFailed(repo, id)`. Additive.    |
 | `ctx.agents.runReadonly(opts)`     | Run one read-only diagnosis agent over a managed repo and get back its schema-validated JSON result (see below). Capped per plugin. Additive.                                       |
 | `ctx.repos.list()`                 | Read-only list of repos under the repo root: `{ path, name, autoLabel, lightweight }[]`. `path` is the form `ctx.issues` / `ctx.agents` accept. Additive.                           |
 | `ctx.route(method, path, handler)` | Register an HTTP route under `/api/plugins/<id>/<path>`. Sits behind operator auth.                                                                                                 |
@@ -283,6 +284,57 @@ Forge failures (network, auth, rate limit) propagate as ordinary errors.
 
 > **Additive API.** Guard with `typeof ctx.issues?.create === "function"` if your plugin must
 > run on older cores.
+
+## CI runs (`ctx.forge.runs`)
+
+Inspect GitHub Actions (or Gitea Actions) runs on a repo's **default branch**, e.g. to notice a
+scheduled job that started failing. `repo` is a repo path, as on `ctx.repos.list()`.
+
+```ts
+const { runs, cursor } = await ctx.forge.runs.listDefaultBranchRuns(repo, {
+  sinceId: ctx.state.get("cursor") ?? 0,
+});
+for (const run of runs) {
+  // run: { id, workflowName, workflowFile, event, status, conclusion, attempt, headSha,
+  //        createdAt, url, jobs: [{ id, name, conclusion }] }
+  if (run.conclusion !== "failure") continue;
+  const logs = await ctx.forge.runs.failedJobLogs(repo, run.id); // [{ job, step, lines, truncated }]
+  // …fence `logs` as untrusted before it reaches an issue or an agent
+}
+ctx.state.set("cursor", cursor);
+```
+
+- **Cursor.** `listDefaultBranchRuns` returns only **completed** runs with an id above `sinceId`,
+  ascending, at most `limit` (default 20, max 50). Store `cursor` and pass it back as
+  `sinceId`. The cursor never moves past a run that is still in flight: newer completed runs
+  are held back until it finishes, so a slow `test` run that ends after a fast `lint` run from
+  the same push is never skipped. A run still in flight after 24 hours stops holding the
+  cursor and is skipped.
+- **Bounded history.** GitHub is read one page per call (100 runs); Gitea pages back up to 500
+  jobs, and a run whose jobs may continue past that window is left out rather than reported
+  half-seen. Poll often enough that less than that completes between calls, or the oldest runs
+  are missed.
+- **Raw strings.** `event` (`push`, `schedule`, `workflow_dispatch`, …), `status` and
+  `conclusion` (`failure`, `cancelled`, `startup_failure`, …) are the host's own values.
+  `conclusion` is `null` for a job that hasn't finished.
+- **`getRun(repo, id)`** re-reads one run with its jobs, or `null` when unknown. A rerun keeps
+  the run `id` and bumps `attempt`, so use this to watch a rerun finish.
+- **`failedJobLogs`** returns the last `maxLinesPerStep` lines (default 200, max 500) of every
+  failed step. ANSI codes and timestamps are stripped and secret-shaped text (tokens,
+  `*_KEY=…`, bearer headers, URL credentials) is masked on top of the host's own `***`
+  masking. **The lines are still untrusted CI output**: pass them as `untrusted` sections to
+  `ctx.issues.create` or `ctx.agents.runReadonly`, never into a title, body or prompt.
+- **`rerunFailed(repo, id)`** reruns the run's failed jobs (and their dependents).
+- **Gitea:** `listDefaultBranchRuns` and `getRun` work (run id = the run number; `attempt` is
+  always 1). `failedJobLogs` and `rerunFailed` refuse `unsupported`.
+
+Refusals reject with `name` `"PluginForgeError"` and the same `code`s as `ctx.issues`:
+`invalid-repo`, `invalid-input` (bad run id, `sinceId`, `limit` or `maxLinesPerStep`),
+`no-forge`, `lightweight` (local-only repos have no CI) and `unsupported` (the host lacks the
+API). Forge failures propagate as ordinary errors.
+
+> **Additive API.** Guard with `typeof ctx.forge?.runs?.listDefaultBranchRuns === "function"`
+> if your plugin must run on older cores.
 
 ## Read-only diagnosis agents (`ctx.agents.runReadonly`)
 

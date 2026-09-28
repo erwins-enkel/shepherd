@@ -292,6 +292,80 @@ export interface PluginAgents {
   runReadonly(opts: PluginAgentRunOptions): Promise<unknown>;
 }
 
+/** One job of a {@link PluginRun}. `conclusion` is the host's raw string (`failure`, `skipped`,
+ *  …), null while the job hasn't finished. */
+export interface PluginRunJob {
+  id: number;
+  name: string;
+  conclusion: string | null;
+}
+
+/** A default-branch CI run. `event` / `status` / `conclusion` are the host's RAW strings
+ *  (`schedule`, `completed`, `startup_failure`, …). */
+export interface PluginRun {
+  id: number;
+  workflowName: string;
+  /** Workflow file (GitHub `.github/workflows/ci.yml`; Gitea the workflow id, `ci.yml`). */
+  workflowFile: string;
+  event: string;
+  status: string;
+  conclusion: string | null;
+  /** Attempt number — bumps on a rerun (same `id`). Always 1 on Gitea. */
+  attempt: number;
+  headSha: string;
+  createdAt: number; // epoch ms
+  url: string;
+  jobs: PluginRunJob[];
+}
+
+/** Tail of one failed step's log: ANSI + timestamps stripped, secret-shaped text masked. The
+ *  lines are CI output — UNTRUSTED; fence them (`ctx.issues` / `ctx.agents` `untrusted`). */
+export interface PluginFailedStepLog {
+  job: string;
+  step: string;
+  lines: string[];
+  /** True when earlier lines were dropped to fit `maxLinesPerStep`. */
+  truncated: boolean;
+}
+
+/** CI runs on a repo's default branch. `repo` is a repo PATH (as on `ctx.repos.list()`). Every
+ *  method rejects with {@link PluginForgeError} for bad input or a repo that can't serve it;
+ *  forge failures propagate as-is. */
+export interface PluginForgeRuns {
+  /** Completed runs with id > `sinceId`, ascending by id, ≤ `limit` (default 20, max 50).
+   *  Persist `cursor` and pass it back as `sinceId`: it never moves past a run still in flight
+   *  (runs newer than it are withheld until it completes), so a slow low-id run is never
+   *  skipped. A run in flight for > 24h stops holding the cursor and is skipped. */
+  listDefaultBranchRuns(
+    repo: string,
+    o?: { sinceId?: number; limit?: number },
+  ): Promise<{ runs: PluginRun[]; cursor: number }>;
+  /** One run, fresh (use it to watch a rerun: same id, bumped `attempt`). Null when unknown. */
+  getRun(repo: string, runId: number): Promise<PluginRun | null>;
+  /** Tail of every failed step's log (default 200 lines per step, max 500). GitHub only. */
+  failedJobLogs(
+    repo: string,
+    runId: number,
+    o?: { maxLinesPerStep?: number },
+  ): Promise<PluginFailedStepLog[]>;
+  /** Rerun the run's failed jobs (and their dependents). GitHub only. */
+  rerunFailed(repo: string, runId: number): Promise<void>;
+}
+
+/** Why a `ctx.forge` call was refused — same vocabulary as {@link PluginIssuesErrorCode}. */
+export type PluginForgeErrorCode = PluginIssuesErrorCode;
+
+/** Typed `ctx.forge` refusal. Match on `err.name === "PluginForgeError"` and read `err.code`. */
+export class PluginForgeError extends Error {
+  constructor(
+    public readonly code: PluginForgeErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "PluginForgeError";
+  }
+}
+
 /** A repo under Shepherd's repo root, as a plugin sees it (curated read-only view). */
 export interface PluginRepo {
   /** Repo PATH under the repo root — the form `ctx.issues` and `ctx.agents` accept. */
@@ -341,6 +415,9 @@ export interface PluginContext {
   /** Read-only diagnosis agents (issue #2463). Additive; plugins that must run on an older core
    *  guard with `typeof ctx.agents?.runReadonly === "function"`. */
   agents: PluginAgents;
+  /** Forge CI runs on a repo's default branch (#2539). Additive — guard with
+   *  `typeof ctx.forge?.runs?.listDefaultBranchRuns === "function"`. */
+  forge: { runs: PluginForgeRuns };
   /** Read-only repo list. Additive — guard with `typeof ctx.repos?.list === "function"`. */
   repos: PluginRepos;
   /** Register an HTTP route under the fixed `/api/plugins/<id>/<path>` namespace. */

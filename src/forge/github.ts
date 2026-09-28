@@ -36,6 +36,8 @@ import type {
   ChecksState,
   CiStatus,
   ForgeConfig,
+  ForgeRun,
+  ForgeRunJob,
   GitForge,
   Issue,
   IssueComment,
@@ -1248,6 +1250,58 @@ export class GithubForge implements GitForge {
 
   async cancelWorkflowRun(runId: number): Promise<void> {
     await this.run(["run", "cancel", String(runId), "--repo", this.slug]);
+  }
+
+  /** Default-branch runs in any status with id > `sinceId` — one REST page (100, newest-first),
+   *  no status filter so an in-flight run stays visible to the caller's cursor barrier. Summary
+   *  rows: `jobs` omitted (see {@link runJobs}). Default-branch lookup failure → [] (fail-quiet,
+   *  like {@link listWorkflowRuns}). */
+  async listDefaultBranchRuns(o: { sinceId?: number }): Promise<ForgeRun[]> {
+    const branch = await this.defaultBranch().catch(() => null);
+    if (!branch) return [];
+    const out = await this.run([
+      "api",
+      `repos/${this.slug}/actions/runs?branch=${encodeURIComponent(branch)}&per_page=100`,
+    ]);
+    const parsed = JSON.parse(out || "{}") as { workflow_runs?: GhApiRun[] };
+    const sinceId = o.sinceId ?? 0;
+    return (parsed.workflow_runs ?? []).filter((r) => r.id > sinceId).map((r) => mapGhApiRun(r));
+  }
+
+  /** One run with its jobs, fresh. A 404 (unknown / deleted run) → null. */
+  async getRunDetail(runId: number): Promise<ForgeRun | null> {
+    let out: string;
+    try {
+      out = await this.run(["api", `repos/${this.slug}/actions/runs/${runId}`]);
+    } catch (e) {
+      if (/HTTP 404|Not Found/.test(String((e as { stderr?: unknown })?.stderr ?? e))) return null;
+      throw e;
+    }
+    const raw = JSON.parse(out || "{}") as GhApiRun;
+    return mapGhApiRun(raw, await this.runJobs(runId));
+  }
+
+  async runJobs(runId: number): Promise<ForgeRunJob[]> {
+    const out = await this.run([
+      "api",
+      `repos/${this.slug}/actions/runs/${runId}/jobs?per_page=100`,
+    ]);
+    const parsed = JSON.parse(out || "{}") as {
+      jobs?: Array<{ id?: number; name?: string; conclusion?: string | null }>;
+    };
+    return (parsed.jobs ?? []).map((j) => ({
+      id: j.id ?? 0,
+      name: j.name ?? "",
+      conclusion: j.conclusion ?? null,
+    }));
+  }
+
+  /** Failed steps' log lines via `gh run view --log-failed` (lines `job\tstep\t<text>`). */
+  async failedRunStepLogs(
+    runId: number,
+  ): Promise<{ job: string; step: string; lines: string[] }[]> {
+    const out = await this.run(["run", "view", String(runId), "--repo", this.slug, "--log-failed"]);
+    return parseFailedLog(out);
   }
 
   /** Map a raw GhPr node to a PrStatus. Shared by prStatus (single-PR path) and
@@ -2595,4 +2649,53 @@ export class GithubForge implements GitForge {
     }
     return result;
   }
+}
+
+/** A `GET /repos/{o}/{r}/actions/runs[/{id}]` run object (fields we read). */
+interface GhApiRun {
+  id: number;
+  name?: string | null;
+  path?: string | null;
+  event?: string | null;
+  status?: string | null;
+  conclusion?: string | null;
+  run_attempt?: number | null;
+  head_sha?: string | null;
+  created_at?: string | null;
+  html_url?: string | null;
+}
+
+function mapGhApiRun(r: GhApiRun, jobs?: ForgeRunJob[]): ForgeRun {
+  const ts = Date.parse(r.created_at ?? "");
+  return {
+    id: r.id,
+    workflowName: r.name ?? "",
+    workflowFile: r.path ?? "",
+    event: r.event ?? "",
+    status: r.status ?? "",
+    conclusion: r.conclusion ?? null,
+    attempt: r.run_attempt ?? 1,
+    headSha: r.head_sha ?? "",
+    createdAt: Number.isFinite(ts) ? ts : 0,
+    url: r.html_url ?? "",
+    ...(jobs ? { jobs } : {}),
+  };
+}
+
+/** Group `gh run view --log-failed` output (`job\tstep\ttext` per line) into consecutive
+ *  job+step blocks, preserving log order. Lines without two tabs are dropped. */
+function parseFailedLog(out: string): { job: string; step: string; lines: string[] }[] {
+  const groups: { job: string; step: string; lines: string[] }[] = [];
+  for (const line of out.split("\n")) {
+    const a = line.indexOf("\t");
+    const b = a < 0 ? -1 : line.indexOf("\t", a + 1);
+    if (b < 0) continue;
+    const job = line.slice(0, a);
+    const step = line.slice(a + 1, b);
+    const text = line.slice(b + 1).replace(/\r$/, "");
+    const last = groups.at(-1);
+    if (last && last.job === job && last.step === step) last.lines.push(text);
+    else groups.push({ job, step, lines: [text] });
+  }
+  return groups;
 }

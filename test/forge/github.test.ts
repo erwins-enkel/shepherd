@@ -3027,3 +3027,133 @@ test("GithubForge.currentUser: both transports failing → null, not re-probed w
   // One pass over both transports — the second call read the negative cache.
   expect(calls.length).toBe(2);
 });
+
+// ── ctx.forge.runs forge layer (#2539) ──
+
+const API_RUN = {
+  id: 501,
+  name: "Eval",
+  path: ".github/workflows/eval.yml",
+  event: "schedule",
+  status: "completed",
+  conclusion: "failure",
+  run_attempt: 2,
+  head_sha: "abc",
+  created_at: "2026-09-28T12:43:20Z",
+  html_url: "https://github.com/o/r/actions/runs/501",
+};
+
+function runsRunner(over: Record<string, string | Error> = {}) {
+  const calls: string[][] = [];
+  const run = async (args: string[]): Promise<string> => {
+    calls.push(args);
+    if (args[0] === "repo" && args[1] === "view") {
+      return JSON.stringify({ defaultBranchRef: { name: "main" } });
+    }
+    const hit = over[args[0] === "api" ? args[1]! : args.slice(0, 2).join(" ")];
+    if (hit instanceof Error) throw hit;
+    return hit ?? "";
+  };
+  return { run, calls };
+}
+
+test("GithubForge.listDefaultBranchRuns: all statuses on the default branch, raw fields, > sinceId", async () => {
+  const { run, calls } = runsRunner({
+    "repos/o/r/actions/runs?branch=main&per_page=100": JSON.stringify({
+      workflow_runs: [
+        { ...API_RUN, id: 503, status: "in_progress", conclusion: null },
+        API_RUN,
+        { ...API_RUN, id: 400 },
+      ],
+    }),
+  });
+  const runs = await new GithubForge("o/r", {}, run).listDefaultBranchRuns({ sinceId: 400 });
+  expect(runs).toEqual([
+    {
+      id: 503,
+      workflowName: "Eval",
+      workflowFile: ".github/workflows/eval.yml",
+      event: "schedule",
+      status: "in_progress",
+      conclusion: null,
+      attempt: 2,
+      headSha: "abc",
+      createdAt: Date.parse("2026-09-28T12:43:20Z"),
+      url: "https://github.com/o/r/actions/runs/501",
+    },
+    {
+      id: 501,
+      workflowName: "Eval",
+      workflowFile: ".github/workflows/eval.yml",
+      event: "schedule",
+      status: "completed",
+      conclusion: "failure",
+      attempt: 2,
+      headSha: "abc",
+      createdAt: Date.parse("2026-09-28T12:43:20Z"),
+      url: "https://github.com/o/r/actions/runs/501",
+    },
+  ]);
+  // No status filter: in-flight runs must stay visible to the cursor barrier.
+  expect(calls.some((c) => c.join(" ").includes("status="))).toBe(false);
+});
+
+test("GithubForge.listDefaultBranchRuns: default-branch lookup failure → []", async () => {
+  const run = async (args: string[]): Promise<string> => {
+    if (args[0] === "repo") throw new Error("offline");
+    return "";
+  };
+  expect(await new GithubForge("o/r", {}, run).listDefaultBranchRuns({})).toEqual([]);
+});
+
+test("GithubForge.getRunDetail: run + raw jobs; 404 → null", async () => {
+  const { run } = runsRunner({
+    "repos/o/r/actions/runs/501": JSON.stringify(API_RUN),
+    "repos/o/r/actions/runs/501/jobs?per_page=100": JSON.stringify({
+      jobs: [
+        { id: 1, name: "eval", conclusion: "failure" },
+        { id: 2, name: "eval-jev", conclusion: "success" },
+      ],
+    }),
+    "repos/o/r/actions/runs/9": Object.assign(new Error("gh failed"), {
+      stderr: "gh: Not Found (HTTP 404)",
+    }),
+  });
+  const forge = new GithubForge("o/r", {}, run);
+  const detail = await forge.getRunDetail(501);
+  expect(detail?.attempt).toBe(2);
+  expect(detail?.jobs).toEqual([
+    { id: 1, name: "eval", conclusion: "failure" },
+    { id: 2, name: "eval-jev", conclusion: "success" },
+  ]);
+  expect(await forge.getRunDetail(9)).toBeNull();
+});
+
+test("GithubForge.getRunDetail: non-404 errors propagate", async () => {
+  const { run } = runsRunner({ "repos/o/r/actions/runs/7": new Error("HTTP 502") });
+  await expect(new GithubForge("o/r", {}, run).getRunDetail(7)).rejects.toThrow("HTTP 502");
+});
+
+test("GithubForge.failedRunStepLogs: groups --log-failed lines by job + step", async () => {
+  const { run, calls } = runsRunner({
+    "run view": [
+      "eval\tRun eval\t2026-09-28T12:44:00.1Z line 1",
+      "eval\tRun eval\t2026-09-28T12:44:00.2Z line 2\r",
+      "eval\tUpload\t2026-09-28T12:44:01.0Z up",
+      "garbage-without-tabs",
+      "lint\tRun lint\tx",
+      "",
+    ].join("\n"),
+  });
+  const logs = await new GithubForge("o/r", {}, run).failedRunStepLogs(501);
+  expect(logs).toEqual([
+    {
+      job: "eval",
+      step: "Run eval",
+      lines: ["2026-09-28T12:44:00.1Z line 1", "2026-09-28T12:44:00.2Z line 2"],
+    },
+    { job: "eval", step: "Upload", lines: ["2026-09-28T12:44:01.0Z up"] },
+    { job: "lint", step: "Run lint", lines: ["x"] },
+  ]);
+  expect(calls.at(-1)).toEqual(["run", "view", "501", "--repo", "o/r", "--log-failed"]);
+});

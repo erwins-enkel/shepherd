@@ -6,6 +6,7 @@ import { makeUserCache } from "./user-cache";
 import type {
   ChecksState,
   ForgeConfig,
+  ForgeRun,
   GitForge,
   Issue,
   MergeInput,
@@ -346,6 +347,55 @@ export class GiteaForge implements GitForge {
     });
   }
 
+  /** Default-branch runs with id > `sinceId`, rebuilt from `actions/tasks` (each task is one
+   *  job): tasks on the default branch grouped by `run_number` (the run's id). A run is
+   *  `completed` only once every task is terminal; its conclusion is the worst task's. Tasks
+   *  lacking `head_branch` / `run_number` are dropped (fail-closed). */
+  async listDefaultBranchRuns(o: { sinceId?: number }): Promise<ForgeRun[]> {
+    const sinceId = o.sinceId ?? 0;
+    return (await this.defaultBranchTaskRuns(sinceId)).filter((r) => r.id > sinceId);
+  }
+
+  /** One run by run number; null when not found. */
+  async getRunDetail(runId: number): Promise<ForgeRun | null> {
+    return (await this.defaultBranchTaskRuns(runId - 1)).find((r) => r.id === runId) ?? null;
+  }
+
+  private async defaultBranchTaskRuns(sinceId: number): Promise<ForgeRun[]> {
+    const branch = await this.defaultBranch().catch(() => null);
+    if (!branch) return [];
+    const { tasks, cutoff } = await this.fetchTasksSince(sinceId);
+    const byRun = new Map<number, GiteaTask[]>();
+    for (const t of tasks) {
+      if (t.head_branch !== branch || typeof t.run_number !== "number") continue;
+      if (t.run_number <= cutoff) continue; // may be missing tasks past the last page
+      const list = byRun.get(t.run_number) ?? [];
+      list.push(t);
+      byRun.set(t.run_number, list);
+    }
+    return [...byRun].map(([id, tasks]) => giteaTasksToRun(id, tasks));
+  }
+
+  /** Page `actions/tasks` (newest-first, one entry per JOB) back until a page holds only runs
+   *  ≤ `sinceId`, or the list ends. A run's tasks can straddle a page edge, so when paging stops
+   *  on a full page (cap hit, or only old runs left) every run up to the highest run number on
+   *  that last page may be partial: `cutoff` is that number and the caller drops those runs —
+   *  a partial run would otherwise report a false conclusion or a false completion. */
+  private async fetchTasksSince(sinceId: number): Promise<{ tasks: GiteaTask[]; cutoff: number }> {
+    const tasks: GiteaTask[] = [];
+    for (let page = 1; ; page++) {
+      const raw = (await this.req(
+        "GET",
+        `/api/v1/repos/${this.slug}/actions/tasks?page=${page}&limit=${GITEA_TASK_PAGE}`,
+      )) as { workflow_runs?: GiteaTask[] | null } | null;
+      const batch = raw?.workflow_runs ?? [];
+      tasks.push(...batch);
+      if (batch.length < GITEA_TASK_PAGE) return { tasks, cutoff: 0 };
+      const maxRun = Math.max(0, ...batch.map((t) => t.run_number ?? 0));
+      if (maxRun <= sinceId || page === GITEA_TASK_MAX_PAGES) return { tasks, cutoff: maxRun };
+    }
+  }
+
   async prStatus(headBranch: string): Promise<PrStatus> {
     const prs = (await this.req(
       "GET",
@@ -554,4 +604,52 @@ export class GiteaForge implements GitForge {
     })) as { html_url?: string } | null;
     return { url: res?.html_url };
   }
+}
+
+/** One `actions/tasks` entry (= one job of a run) — the fields `ctx.forge.runs` reads. */
+interface GiteaTask {
+  id?: number;
+  name?: string;
+  status?: string;
+  url?: string;
+  head_branch?: string;
+  head_sha?: string;
+  run_number?: number;
+  event?: string;
+  workflow_id?: string;
+  created_at?: string;
+}
+
+const GITEA_TASK_PAGE = 50;
+/** Paging cap per call: > 500 jobs since the cursor loses the oldest runs (dropped, not faked). */
+const GITEA_TASK_MAX_PAGES = 10;
+const GITEA_TERMINAL = new Set(["success", "failure", "cancelled", "canceled", "skipped"]);
+/** Worst-first ranking for a completed run's conclusion. */
+const GITEA_SEVERITY = ["failure", "cancelled", "canceled", "success", "skipped"];
+
+function giteaTasksToRun(id: number, tasks: GiteaTask[]): ForgeRun {
+  const statuses = tasks.map((t) => (t.status ?? "").toLowerCase());
+  const completed = statuses.every((st) => GITEA_TERMINAL.has(st));
+  const conclusion = completed
+    ? (GITEA_SEVERITY.find((sev) => statuses.includes(sev)) ?? null)
+    : null;
+  const times = tasks.map((t) => Date.parse(t.created_at ?? "")).filter(Number.isFinite);
+  const first = tasks[0]!;
+  return {
+    id,
+    workflowName: first.workflow_id ?? "",
+    workflowFile: first.workflow_id ?? "",
+    event: first.event ?? "",
+    status: completed ? "completed" : "in_progress",
+    conclusion: conclusion === "canceled" ? "cancelled" : conclusion,
+    attempt: 1,
+    headSha: first.head_sha ?? "",
+    createdAt: times.length ? Math.min(...times) : 0,
+    url: first.url ?? "",
+    jobs: tasks.map((t, i) => ({
+      id: t.id ?? i,
+      name: t.name ?? "",
+      conclusion: GITEA_TERMINAL.has(statuses[i]!) ? statuses[i]! : null,
+    })),
+  };
 }

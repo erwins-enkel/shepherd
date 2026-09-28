@@ -187,3 +187,26 @@ test("a maximal panel (row caps hit everywhere) still passes the host UI validat
   });
   expect(validatePluginUIView(view)).not.toBeNull();
 });
+
+test("repo picker + mapping rows label by forge slug, dir name as fallback (#2556)", async () => {
+  const { buildView } = await import("../src/plugins/bundled/sentry/panel");
+  const base = { autoLabel: "shepherd:auto", lightweight: false };
+  const view = buildView({
+    settings: { ...DEFAULT_SETTINGS, org: "acme" },
+    hasToken: true,
+    status: { lastPollAt: 0, lastError: null, backoffUntil: 0, strikes: 0, lastResult: {} },
+    mappings: { "/r/a": { project: "p", autoDrain: false, source: "manual" } },
+    suggestions: [],
+    repos: [
+      { ...base, path: "/r/a", name: "a", slug: "acme/a" },
+      { ...base, path: "/r/b", name: "b", slug: "other/b" },
+      { ...base, path: "/r/c", name: "c" },
+    ],
+    filedToday: () => 0,
+    rejected: [],
+  });
+  const json = JSON.stringify(view);
+  expect(json).toContain('"key":"acme/a"');
+  expect(json).toContain('{"value":"/r/b","label":"other/b"}');
+  expect(json).toContain('{"value":"/r/c","label":"c"}');
+});

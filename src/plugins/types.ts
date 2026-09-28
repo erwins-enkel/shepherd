@@ -414,6 +414,8 @@ export interface PluginRepo {
   path: string;
   /** Directory name. */
   name: string;
+  /** Forge `owner/repo` slug; absent for lightweight / no-remote repos. */
+  slug?: string;
   /** The repo's drain opt-in label (per-repo `autoLabel`). */
   autoLabel: string;
   /** Local-only repo (no forge, no issues). */

@@ -736,6 +736,7 @@ const pluginRegistry = new PluginRegistry({
       return {
         path: r.path,
         name: r.name,
+        slug: resolveForge(r.path)?.slug ?? undefined,
         autoLabel: cfg.autoLabel,
         lightweight: cfg.repoMode === "lightweight",
       };

@@ -171,6 +171,29 @@ test("fixed since: a later green run of the same key drops it", async () => {
   expect(readStatus(state).lastResult).toEqual({ fixed: 1 });
 });
 
+test("jobless failure: a later green run fixes it", async () => {
+  enable();
+  held[REPO] = [run(1, [], { conclusion: "failure" }), run(2, [["test", "success"]])];
+  await poller().poll();
+  expect(forwarded).toEqual([]);
+  expect(readStatus(state).lastResult).toEqual({ fixed: 1 });
+});
+
+test("jobless failure: a green run in between resets the threshold streak", async () => {
+  enable({ threshold: 2 });
+  const p = poller();
+  held[REPO] = [run(1, [], { conclusion: "failure" }), run(2, [["test", "success"]])];
+  await p.poll();
+  held[REPO].push(run(3, [], { conclusion: "failure" }));
+  await p.poll();
+  expect(forwarded).toEqual([]);
+  expect(readStatus(state).lastResult).toEqual({ threshold: 1 });
+
+  held[REPO].push(run(4, [], { conclusion: "failure" }));
+  await p.poll();
+  expect(forwarded.map((c) => [c.job, c.runId, c.streak])).toEqual([["(run)", 4, 2]]);
+});
+
 test("threshold with glob override: Eval* needs 2 consecutive failures; green resets", async () => {
   enable({ overrides: [{ glob: "Eval*", threshold: 2 }] });
   const ev = { workflowName: "Eval — stop-classifier", workflowFile: "eval.yml" };

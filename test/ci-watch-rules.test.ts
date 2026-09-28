@@ -55,6 +55,14 @@ test("observe: a failed run with no red job gets the run pseudo-job", () => {
   });
 });
 
+test("observe: a green run observes the run pseudo-job green", () => {
+  expect(
+    Object.fromEntries(
+      observe({ conclusion: "success", jobs: [{ id: 1, name: "test", conclusion: "success" }] }),
+    ),
+  ).toEqual({ test: "success", [RUN_JOB]: "success" });
+});
+
 test("globMatch: anchored, case-insensitive, * and ?; regex chars literal", () => {
   expect(globMatch("Eval*", "Eval — autopilot stop-classifier")).toBe(true);
   expect(globMatch("eval*", "EVAL x")).toBe(true);

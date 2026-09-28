@@ -11,7 +11,7 @@ const EVENTS = new Set(["schedule", "push", "workflow_dispatch"]);
 /** Run conclusions that say nothing about the code. */
 const DROPPED = new Set(["cancelled", "startup_failure"]);
 const RED = new Set(["failure", "timed_out"]);
-/** Pseudo-job for a failed run that lists no failed job. */
+/** Pseudo-job for a failed run that lists no failed job; a green run observes it green. */
 export const RUN_JOB = "(run)";
 
 export type RunSkip = "event" | "cancelled" | "startup_failure";
@@ -41,6 +41,7 @@ export function observe(
   }
   if (run.conclusion && RED.has(run.conclusion) && ![...out.values()].includes("failure"))
     out.set(RUN_JOB, "failure");
+  else if (run.conclusion === "success") out.set(RUN_JOB, "success");
   return out;
 }
 

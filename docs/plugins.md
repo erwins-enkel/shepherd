@@ -36,7 +36,7 @@ and documented. Specific plugin **implementations** stay private under
 - **Bundled plugins** ship inside Shepherd (`src/plugins/bundled/`) and load after the
   plugins dir, so an installed plugin with the same `id` wins. They keep their settings in
   `ctx.state` (their folder is the source tree, so `ctx.config` is `{}` and `ctx.setConfig`
-  rejects) and can't be uninstalled. Today: [Sentry](sentry.md), off until enabled in its panel.
+  rejects) and can't be uninstalled. Today: [Sentry](sentry.md) and [CI Watch](ci-watch.md), each off until enabled in its panel.
 - A **missing or empty** plugins dir is a clean no-op: no hooks and `/api/plugins/<id>/*`
   returns 404 — a fresh clone behaves exactly as a stock Shepherd. The Settings → Plugins
   tab still renders (so you can install the first plugin), just with an empty list.
@@ -174,6 +174,7 @@ permission-scoped / out-of-process) without changing your call sites.
 | `ctx.sessions`                     | Read-only session lookup: `get(id)` / `list()` → a curated `PluginSessionSnapshot`. Resolves the bare ids that `session:*` events carry. Plugins cannot write sessions.             |
 | `ctx.issues`                       | Create / close / read forge issues: `create(repo, {title, body, labels?, untrusted?})`, `close(repo, n, comment?)`, `get(repo, n)`. Untrusted text is fenced **by core**. Additive. |
 | `ctx.forge.runs`                   | Default-branch CI runs: `listDefaultBranchRuns(repo, {sinceId?, limit?})`, `getRun(repo, id)`, `failedJobLogs(repo, id, {maxLinesPerStep?})`, `rerunFailed(repo, id)`. Additive.    |
+| `ctx.judge.choice(opts)`           | Ask the operator's decision model ("JEV") to pick one of N options; returns `{ choice, probabilities }`. Off unless the judge is on; shares its daily ceiling. Additive.            |
 | `ctx.agents.runReadonly(opts)`     | Run one read-only diagnosis agent over a managed repo and get back its schema-validated JSON result (see below). Capped per plugin. Additive.                                       |
 | `ctx.repos.list()`                 | Read-only list of repos under the repo root: `{ path, name, autoLabel, lightweight }[]`. `path` is the form `ctx.issues` / `ctx.agents` accept. Additive.                           |
 | `ctx.route(method, path, handler)` | Register an HTTP route under `/api/plugins/<id>/<path>`. Sits behind operator auth.                                                                                                 |
@@ -395,6 +396,36 @@ bounds the shape of its answer, not the truth of it.
 
 > **Additive API.** Guard with `typeof ctx.agents?.runReadonly === "function"` if your plugin
 > must run on an older core.
+
+## Decision-model judge (`ctx.judge`)
+
+A cheap, fast classifier over short text — use it as a **pre-filter** in front of a costlier
+step, never as the only path to a decision:
+
+```ts
+try {
+  const { choice, probabilities } = await ctx.judge.choice({
+    instructions: "Classify this CI failure.",
+    options: { regression: "a code change broke it", infra: "runner or network trouble" },
+    context: "workflow: CI, job: test", // trusted, plugin-authored
+    untrusted: [{ label: "log tail", content: tail }], // fenced by core
+  });
+  if (probabilities[choice] >= 0.6) {
+    /* … */
+  }
+} catch (err) {
+  // fall back to the non-judge path
+}
+```
+
+Limits: `instructions` ≤ 4 000 chars, 2–8 `options`, ≤ 20 `untrusted` items, ≤ 32 000 chars in
+total. Rejections are a `PluginJudgeError` (`err.name === "PluginJudgeError"`) with `code`
+`invalid-args`, `unavailable` (the operator has the judge off or no key), `ceiling` (the shared
+daily spend ceiling is reached) or `error` (the call failed). Spend is booked against the same
+daily ceiling as Shepherd's own judge callers. Gate on `probabilities`, which is the full
+distribution; no vendor confidence is exposed.
+
+> **Additive API.** Guard with `typeof ctx.judge?.choice === "function"`.
 
 ## The `onSpawn` hook
 

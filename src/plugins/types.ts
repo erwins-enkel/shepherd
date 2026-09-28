@@ -292,6 +292,48 @@ export interface PluginAgents {
   runReadonly(opts: PluginAgentRunOptions): Promise<unknown>;
 }
 
+/** Options for {@link PluginJudge.choice}. */
+export interface PluginJudgeChoiceOptions {
+  /** The question, written by the plugin (trusted). ≤ 4 000 chars. */
+  instructions: string;
+  /** 2–8 options: name → description (trusted). */
+  options: Record<string, string>;
+  /** Trusted context (plugin-authored facts). */
+  context?: string;
+  /** External text the judge reads as DATA; each item is fenced by core. ≤ 20 items. Together
+   *  with `instructions` + `context`, ≤ 32 000 chars. */
+  untrusted?: PluginUntrustedSection[];
+}
+
+/** Answer of {@link PluginJudge.choice}: the winning option and the full distribution. Gate on
+ *  `probabilities[choice]`, never on a vendor confidence (none is exposed). */
+export interface PluginJudgeChoiceAnswer {
+  choice: string;
+  probabilities: Record<string, number>;
+}
+
+/** Why a {@link PluginJudge.choice} call rejected. `unavailable` = the judge is off / unarmed;
+ *  `ceiling` = the shared daily spend ceiling is reached; `error` = the call failed. */
+export type PluginJudgeErrorCode = "invalid-args" | "unavailable" | "ceiling" | "error";
+
+/** Typed `ctx.judge` refusal. Match on `err.name === "PluginJudgeError"` and read `err.code`. */
+export class PluginJudgeError extends Error {
+  constructor(
+    public readonly code: PluginJudgeErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "PluginJudgeError";
+  }
+}
+
+/** The operator's decision model ("JEV"), behind its daily spend ceiling. An optimisation only:
+ *  every caller needs a non-judge fallback — it is off unless the operator switched it on. */
+export interface PluginJudge {
+  /** Pick one of `options`. Rejects with a {@link PluginJudgeError}. */
+  choice(o: PluginJudgeChoiceOptions): Promise<PluginJudgeChoiceAnswer>;
+}
+
 /** One job of a {@link PluginRun}. `conclusion` is the host's raw string (`failure`, `skipped`,
  *  …), null while the job hasn't finished. */
 export interface PluginRunJob {
@@ -418,6 +460,9 @@ export interface PluginContext {
   /** Forge CI runs on a repo's default branch (#2539). Additive — guard with
    *  `typeof ctx.forge?.runs?.listDefaultBranchRuns === "function"`. */
   forge: { runs: PluginForgeRuns };
+  /** The decision-model judge (#2541). Additive — guard with
+   *  `typeof ctx.judge?.choice === "function"`. */
+  judge: PluginJudge;
   /** Read-only repo list. Additive — guard with `typeof ctx.repos?.list === "function"`. */
   repos: PluginRepos;
   /** Register an HTTP route under the fixed `/api/plugins/<id>/<path>` namespace. */

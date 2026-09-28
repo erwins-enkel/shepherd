@@ -429,10 +429,10 @@
       {
         "files": ["ui/src/lib/components/page/AppOverlays.svelte"],
         "functions": ["<template>"],
-        "maxCyclomatic": 41,
+        "maxCyclomatic": 42,
         "maxCognitive": 60,
         "maxCrap": 20000,
-        "reason": "AppOverlays is the flat page-level overlay dispatcher (one `{#if showX}` block per modal/drawer). The epic-diagnosis command-bar entry (#1657) adds one more overlay block, taking cyclomatic 40 -> 41 (one branch over the Tier-1 bar); cognitive stays well under (30). Each block is independent and idiomatic. Keep capped until the overlay list is split into grouped sub-dispatchers (#855)."
+        "reason": "AppOverlays is the flat page-level overlay dispatcher (one `{#if showX}` block per modal/drawer). The epic-diagnosis command-bar entry (#1657) adds one more overlay block, taking cyclomatic 40 -> 41 (one branch over the Tier-1 bar); the New Task draft restore wraps NewTask in a {#key} so 'Discard & new task' can remount it blank, taking it to 42. Cognitive stays well under (33). Each block is independent and idiomatic. Keep capped until the overlay list is split into grouped sub-dispatchers (#855)."
       }
     ],
 

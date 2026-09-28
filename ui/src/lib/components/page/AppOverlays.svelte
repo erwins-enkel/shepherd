@@ -393,6 +393,19 @@
   // Relaunch/edit-held carry the original session's effort into the composer's picker (parity with
   // composeModel → initialModel); undefined lets NewTask preselect from the repo/global default.
   const newTaskInitialEffort = $derived(composeEffort ?? undefined);
+  // Only a plain open (nothing seeded: no repo, issue, prompt, model or attachment, not a
+  // relaunch/edit) brings back a draft the operator dismissed moments ago.
+  const newTaskRestoreDraft = $derived(
+    !relaunchOriginal &&
+      !editHeld &&
+      composeRepoPath == null &&
+      composeIssue == null &&
+      composePrompt == null &&
+      composeModel == null &&
+      composeImages.length === 0,
+  );
+  // Bumped by "Discard & new task" to remount the composer blank.
+  let newTaskGeneration = $state(0);
   const newTaskFableAvailable = $derived(settings?.fableAvailable ?? true);
   // Hoisted out of the template (branch-free markup): the global default-effort seed.
   const newTaskDefaultEffort = $derived(settings?.defaultEffort);
@@ -551,40 +564,44 @@
   <!-- Preselect: explicit backlog/PR context first, else the repo the herd is
        currently filtered to, else NewTask falls back to the most-recently-used repo. -->
   <div hidden={showHerdrUpdate} inert={showHerdrUpdate}>
-    <NewTask
-      suspended={showHerdrUpdate}
-      onherdrrepair={onsettingsherdrupdate}
-      {onsubmit}
-      spawnProgress={store.spawnProgress}
-      relaunch={relaunchOriginal}
-      {editHeld}
-      initialRepoPath={newTaskInitialRepo}
-      initialBaseBranch={newTaskInitialBaseBranch}
-      initialIssue={newTaskInitialIssue}
-      {relaunchIssueNumber}
-      initialImages={composeImages}
-      initialPrompt={newTaskInitialPrompt}
-      initialModel={newTaskInitialModel}
-      initialEffort={newTaskInitialEffort}
-      initialAgentProvider={composeAgentProvider ?? undefined}
-      initialPlanGate={composePlanGate}
-      initialAutopilot={composeAutopilot}
-      initialSandboxProfile={composeSandbox}
-      initialResearch={composeResearch}
-      initialEpicAuthoring={composeEpicAuthoring}
-      initialPlain={composePlain}
-      {usageLimits}
-      defaultAgentProvider={newTaskDefaultAgentProvider}
-      defaultModel={settings?.defaultModel}
-      defaultCodexModel={newTaskDefaultCodexModel}
-      defaultEffort={newTaskDefaultEffort}
-      fableAvailable={newTaskFableAvailable}
-      {holdLikely}
-      onclose={onnewclose}
-      onclone={onnewclone}
-      onfork={onnewfork}
-      onnewproject={onnewnewproject}
-    />
+    {#key newTaskGeneration}
+      <NewTask
+        suspended={showHerdrUpdate}
+        onherdrrepair={onsettingsherdrupdate}
+        {onsubmit}
+        spawnProgress={store.spawnProgress}
+        relaunch={relaunchOriginal}
+        {editHeld}
+        initialRepoPath={newTaskInitialRepo}
+        initialBaseBranch={newTaskInitialBaseBranch}
+        initialIssue={newTaskInitialIssue}
+        {relaunchIssueNumber}
+        initialImages={composeImages}
+        initialPrompt={newTaskInitialPrompt}
+        initialModel={newTaskInitialModel}
+        initialEffort={newTaskInitialEffort}
+        initialAgentProvider={composeAgentProvider ?? undefined}
+        initialPlanGate={composePlanGate}
+        initialAutopilot={composeAutopilot}
+        initialSandboxProfile={composeSandbox}
+        initialResearch={composeResearch}
+        initialEpicAuthoring={composeEpicAuthoring}
+        initialPlain={composePlain}
+        {usageLimits}
+        defaultAgentProvider={newTaskDefaultAgentProvider}
+        defaultModel={settings?.defaultModel}
+        defaultCodexModel={newTaskDefaultCodexModel}
+        defaultEffort={newTaskDefaultEffort}
+        fableAvailable={newTaskFableAvailable}
+        {holdLikely}
+        onclose={onnewclose}
+        onclone={onnewclone}
+        onfork={onnewfork}
+        onnewproject={onnewnewproject}
+        restoreDraft={newTaskRestoreDraft}
+        ondiscarddraft={() => newTaskGeneration++}
+      />
+    {/key}
   </div>
 {/if}
 

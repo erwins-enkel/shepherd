@@ -69,6 +69,7 @@ const { normalizeRunConfig } = await import("./new-task/run-config");
 const mockNormalizeRunConfig = vi.mocked(normalizeRunConfig);
 
 const { default: NewTask } = await import("./NewTask.svelte");
+const { takeDraft } = await import("./new-task/draft-stash");
 const { default: FirstTaskAutomationConfirm } = await import("./FirstTaskAutomationConfirm.svelte");
 
 const mockListIssues = vi.mocked(listIssues);
@@ -5275,5 +5276,86 @@ describe("NewTask plain mode", () => {
     await expect.poll(() => segActive(m.newtask_mode_code())).toBe(true);
     typePrompt("/design once more");
     expect(segActive(m.newtask_mode_code())).toBe(true);
+  });
+});
+
+describe("NewTask dismissed-draft restore", () => {
+  beforeEach(() => {
+    takeDraft(); // module memory outlives each test's mount — start every test with none
+  });
+
+  const promptField = () => document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+  function type(text: string) {
+    promptField().value = text;
+    promptField().dispatchEvent(new Event("input", { bubbles: true }));
+  }
+  const closeButton = () => page.getByRole("button", { name: m.common_close() });
+  const discardButton = () => page.getByRole("button", { name: m.newtask_draft_discard() });
+
+  it("reopens a dismissed draft with its prompt and settings, marked as restored", async () => {
+    const onclose = vi.fn();
+    const first = await render(NewTask, { props: base({ onclose, initialRepoPath: "/repo/a" }) });
+    type("A long, carefully written task");
+    planGateSwitch().click();
+    await expect.poll(() => isOn(planGateSwitch())).toBe(true);
+    await closeButton().click();
+    expect(onclose).toHaveBeenCalledTimes(1);
+    await first.unmount();
+
+    await render(NewTask, { props: base({ restoreDraft: true, initialRepoPath: "/repo/a" }) });
+    expect(promptField().value).toBe("A long, carefully written task");
+    expect(isOn(planGateSwitch())).toBe(true);
+    await expect.element(page.getByText(m.newtask_draft_restored())).toBeVisible();
+    await expect.element(discardButton()).toBeVisible();
+  });
+
+  it("Escape parks the draft too", async () => {
+    const first = await render(NewTask, { props: base({ onclose: vi.fn() }) });
+    type("Escaped draft");
+    promptField().dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await first.unmount();
+
+    await render(NewTask, { props: base({ restoreDraft: true }) });
+    expect(promptField().value).toBe("Escaped draft");
+  });
+
+  it("a seeded open ignores the draft and shows no restore marker", async () => {
+    const first = await render(NewTask, { props: base({ onclose: vi.fn() }) });
+    type("Parked draft");
+    await closeButton().click();
+    await first.unmount();
+
+    await render(NewTask, { props: base({ initialPrompt: "Seeded prompt" }) });
+    expect(promptField().value).toBe("Seeded prompt");
+    expect(page.getByText(m.newtask_draft_restored()).query()).toBeNull();
+    expect(discardButton().query()).toBeNull();
+  });
+
+  it("Discard & new task hands off to the parent and leaves nothing to restore", async () => {
+    const first = await render(NewTask, { props: base({ onclose: vi.fn() }) });
+    type("Throwaway draft");
+    await closeButton().click();
+    await first.unmount();
+
+    const ondiscarddraft = vi.fn();
+    const restored = await render(NewTask, { props: base({ restoreDraft: true, ondiscarddraft }) });
+    await discardButton().click();
+    expect(ondiscarddraft).toHaveBeenCalledTimes(1);
+    await restored.unmount();
+
+    await render(NewTask, { props: base({ restoreDraft: true }) });
+    expect(promptField().value).toBe("");
+    expect(page.getByText(m.newtask_draft_restored()).query()).toBeNull();
+  });
+
+  it("a dismissed relaunch is not parked as a new-task draft", async () => {
+    const first = await render(NewTask, {
+      props: base({ onclose: vi.fn(), relaunch: true, initialPrompt: "Relaunched task" }),
+    });
+    await closeButton().click();
+    await first.unmount();
+
+    await render(NewTask, { props: base({ restoreDraft: true }) });
+    expect(promptField().value).toBe("");
   });
 });

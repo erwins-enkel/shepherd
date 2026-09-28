@@ -11,6 +11,7 @@ import {
   type ClassifyRecord,
   type TriageVerdict,
 } from "../src/plugins/bundled/ci-watch/classify";
+import type { Filing } from "../src/plugins/bundled/ci-watch/file";
 import type { Candidate } from "../src/plugins/bundled/ci-watch/poller";
 import { mapKey, type KeyRecord } from "../src/plugins/bundled/ci-watch/state";
 import {
@@ -49,6 +50,9 @@ let triageCalls: number;
 let triageAnswer: TriageVerdict | Error;
 let hasJudge: boolean;
 let logFetches: number;
+let fileCalls: Array<{ id: string; override: boolean }>;
+/** What the injected `file` returns (null = not now). */
+let fileAnswer: Filing | null;
 
 const HIGH: TriageVerdict = {
   fixable: true,
@@ -142,6 +146,10 @@ function stage() {
         return triageAnswer;
       },
     },
+    file: async (r, o) => {
+      fileCalls.push({ id: r.id, override: o.override });
+      return fileAnswer;
+    },
     now: () => new Date(clock),
     log: { log: () => {}, warn: () => {} },
   });
@@ -167,6 +175,8 @@ beforeEach(() => {
   triageAnswer = HIGH;
   hasJudge = true;
   logFetches = 0;
+  fileCalls = [];
+  fileAnswer = null;
 });
 
 test("probe green → flaky, one rerun, nothing classified", async () => {
@@ -349,11 +359,13 @@ test("triage deferred → pending, retried with backoff, logs fetched once, JEV 
   expect(triageCalls).toBe(2);
 
   triageAnswer = HIGH;
+  fileAnswer = { status: "filed", number: 5, url: "u5" };
   clock += 60_000;
   await s.advance();
   expect(triageCalls).toBe(3);
-  expect(rec(c).outcome).toBe("accepted");
+  expect(rec(c)).toMatchObject({ outcome: "accepted", filing: { status: "filed" } });
   expect(rec(c)).not.toHaveProperty("logs");
+  expect(rec(c)).not.toHaveProperty("retries");
   expect(rec(c)).not.toHaveProperty("retryAt");
   expect(judgeCalls.length).toBe(1);
   expect(logFetches).toBe(1);
@@ -408,4 +420,50 @@ test("logSections keeps the latest text within budget", () => {
   expect(out).toHaveLength(1);
   expect(out[0]!.content.length).toBeLessThanOrEqual(24_000);
   expect(out[0]!.content.endsWith("line 4999")).toBe(true);
+});
+
+test("accepted → filed; a filing that can't happen now is retried by advance()", async () => {
+  const s = stage();
+  const c = cand("test", { workflowName: "Eval x" }); // probe skipped
+  fileAnswer = { status: "filed", number: 5, url: "u5" };
+  expect(await s.process(c)).toBe("issue-filed");
+  expect(rec(c).filing).toEqual({ status: "filed", number: 5, url: "u5" });
+  expect(fileCalls).toEqual([{ id: rec(c).id, override: false }]);
+  await s.advance();
+  expect(fileCalls).toHaveLength(1);
+
+  const d = cand("lint", { workflowName: "Eval x", runId: 8 });
+  fileAnswer = null;
+  expect(await s.process(d)).toBe("accepted");
+  expect(rec(d)).toMatchObject({ retries: 1 });
+  expect(rec(d).filing).toBeUndefined();
+  await s.advance(); // backing off: not yet due
+  expect(fileCalls).toHaveLength(2);
+  clock += 15 * 60_000;
+  await s.advance();
+  expect(fileCalls).toHaveLength(3);
+  expect(rec(d)).toMatchObject({ retries: 2 });
+  clock += 29 * 60_000; // doubled to 30 min
+  await s.advance();
+  expect(fileCalls).toHaveLength(3);
+
+  fileAnswer = { status: "duplicate", number: 5, url: "u5" };
+  clock += 60_000;
+  await s.advance();
+  expect(rec(d).filing).toEqual({ status: "duplicate", number: 5, url: "u5" });
+  expect(rec(d)).not.toHaveProperty("retryAt");
+  await s.advance();
+  expect(fileCalls).toHaveLength(4);
+});
+
+test("file anyway files with the override", async () => {
+  judgeAnswer = answer("flaky", 0.9);
+  const s = stage();
+  const c = cand("eval", { workflowName: "Eval x" });
+  await s.process(c);
+  fileAnswer = { status: "filed", number: 9, url: "u9" };
+  const res = await s.fileAnyway(rec(c).id);
+  expect(res).toMatchObject({ ok: true, record: { outcome: "accepted", overridden: true } });
+  expect(rec(c).filing).toEqual({ status: "filed", number: 9, url: "u9" });
+  expect(fileCalls).toEqual([{ id: rec(c).id, override: true }]);
 });

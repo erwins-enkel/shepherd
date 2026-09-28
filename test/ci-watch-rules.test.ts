@@ -101,14 +101,14 @@ test.each([
   ["fixed since", rec({ lastConclusion: "success", streak: 0 }), 1, 0, "fixed"],
   [
     "filed + open",
-    rec({ filed: { number: 1, url: "u", filedAt: "t", sync: "open" } }),
+    rec({ filed: { number: 1, url: "u", filedAt: "t", runId: 1, attempts: 1, sync: "open" } }),
     1,
     0,
     "filed",
   ],
   [
     "filed + closed re-forwards",
-    rec({ filed: { number: 1, url: "u", filedAt: "t", sync: "closed" } }),
+    rec({ filed: { number: 1, url: "u", filedAt: "t", runId: 1, attempts: 1, sync: "closed" } }),
     1,
     0,
     null,

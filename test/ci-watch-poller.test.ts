@@ -69,6 +69,7 @@ function poller() {
       },
     },
     repos: () => repos,
+    sync: async () => ({}),
     forward: async (c) => {
       forwarded.push(c);
       return "candidate";
@@ -222,7 +223,7 @@ test("other workflows keep the repo default threshold of 1", async () => {
 test("dedup: an open filed issue blocks; a closed one re-forwards", async () => {
   enable();
   const key = `map:${REPO}::.github/workflows/ci.yml::test`;
-  const filed = { number: 9, url: "u", filedAt: "t", sync: "open" };
+  const filed = { number: 9, url: "u", filedAt: "t", runId: 1, attempts: 1, sync: "open" };
   state.set(key, {
     repo: REPO,
     workflowName: "CI",
@@ -305,6 +306,7 @@ test("forward errors are counted and the cursor still advances", async () => {
     forward: async () => {
       throw new Error("nope");
     },
+    sync: async () => ({}),
     now: () => new Date(clock),
     log: { log: () => {}, warn: () => {} },
   });

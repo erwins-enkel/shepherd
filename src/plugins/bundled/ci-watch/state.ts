@@ -63,7 +63,24 @@ export interface KeyRecord {
   /** Run whose failure was last handed to the forward stage. */
   forwardedRunId?: number;
   /** The issue filed for this key (#2542); `open` blocks re-forwarding. */
-  filed?: { number: number; url: string; filedAt: string; sync: "open" | "closed" };
+  filed?: FiledIssue;
+}
+
+/** The latest issue filed for a key (#2542). */
+export interface FiledIssue {
+  number: number;
+  url: string;
+  filedAt: string;
+  /** The failed run it was filed for — a later green run of the key closes it (unclaimed). */
+  runId: number;
+  /** Filings of this key so far, this one included (auto-fix attempts). */
+  attempts: number;
+  /** `closed` once the issue is closed (by anyone) — no longer synced, a new red streak re-files. */
+  sync: "open" | "closed";
+  /** Epoch ms of the last lifecycle sync pass (oldest first). */
+  syncedAt?: number;
+  /** Set when the sync closed it itself: the key went green before any session claimed it. */
+  closedReason?: "green";
 }
 
 /** Observations kept on a key for the judge's history input. */
@@ -157,9 +174,20 @@ interface Daily {
   counts: Record<string, number>;
 }
 
-export function filedToday(state: PluginState, repo: string, day: string): number {
+function readDaily(state: PluginState, day: string): Record<string, number> {
   const d = state.get<Daily>("meta:daily");
-  return d?.day === day ? (d.counts[repo] ?? 0) : 0;
+  return d?.day === day ? d.counts : {};
+}
+
+export function filedToday(state: PluginState, repo: string, day: string): number {
+  return readDaily(state, day)[repo] ?? 0;
+}
+
+/** Count one filing for `repo` today (the bucket resets on a new UTC day). */
+export function bumpDaily(state: PluginState, repo: string, day: string): void {
+  const counts = { ...readDaily(state, day) };
+  counts[repo] = (counts[repo] ?? 0) + 1;
+  state.set("meta:daily", { day, counts } satisfies Daily);
 }
 
 export function readStatus(state: PluginState): PollStatus {

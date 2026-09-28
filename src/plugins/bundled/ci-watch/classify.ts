@@ -1,6 +1,7 @@
 // ci-watch classification (#2541, epic #2544): candidate → flake probe (one rerun per RUN) →
-// JEV pre-filter → read-only sonnet triage → accepted | rejected | flaky. `accepted` is where this
-// stage ends; filing is #2542. Rejections keep a "file anyway" override.
+// JEV pre-filter → read-only sonnet triage → accepted | rejected | flaky. An accepted verdict is
+// filed (#2542, `file.ts`); a filing that can't happen now is retried by `advance()`. Rejections
+// keep a "file anyway" override.
 //
 // Plugin code: imports NOTHING from core at runtime — only `import type` from the plugin contract.
 
@@ -15,6 +16,7 @@ import type {
   PluginState,
   PluginUntrustedSection,
 } from "../../types";
+import type { FileFn, Filing } from "./file";
 import type { Candidate } from "./poller";
 import { collapseMatrix, globMatch, observe, RUN_JOB } from "./rules";
 import { readKey, readSettings, writeKey, type ClassifyOutcome } from "./state";
@@ -85,10 +87,13 @@ export interface ClassifyRecord {
   reason: string;
   overridden: boolean;
   updatedAt: string;
-  /** Deferred triage only: the cached log input, the retry count and when to retry next. */
+  /** Deferred triage (logs, retries, retryAt) or unfiled accepted (retries, retryAt): the cached
+   *  log input, the retry count and when to retry next. */
   logs?: LogInput;
   retries?: number;
   retryAt?: number;
+  /** Accepted only: what filing did (#2542). Absent = not filed yet (retried by `advance()`). */
+  filing?: Filing;
 }
 
 /** One rerun shared by every key of a run, at `probe:<repo>:<runId>`. */
@@ -108,6 +113,8 @@ export interface ClassifyDeps {
   /** Absent = no judge on this core; the stage goes straight to triage. */
   judge?: Pick<PluginJudge, "choice"> | null;
   agents: Pick<PluginAgents, "runReadonly">;
+  /** Files an accepted verdict (#2542). */
+  file: FileFn;
   now: () => Date;
   log: PluginLogger;
   /** Default `"sonnet"`. */
@@ -186,7 +193,7 @@ export function jevGate(a: { choice: string; probabilities: Record<string, numbe
 }
 
 /** The failed steps of this key's job (all steps for the run-level pseudo-job). */
-function jobLogs(logs: PluginFailedStepLog[], job: string): PluginFailedStepLog[] {
+export function jobLogs(logs: PluginFailedStepLog[], job: string): PluginFailedStepLog[] {
   return job === RUN_JOB ? logs : logs.filter((l) => collapseMatrix(l.job) === job);
 }
 
@@ -235,6 +242,21 @@ export function createClassifier(deps: ClassifyDeps): Classifier {
     return save(rest);
   }
 
+  /** Next retry of a deferred record: doubles per retry, capped. */
+  function backoff(r: ClassifyRecord): Pick<ClassifyRecord, "retries" | "retryAt"> {
+    const retries = (r.retries ?? 0) + 1;
+    const wait = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** (retries - 1));
+    return { retries, retryAt: deps.now().getTime() + wait };
+  }
+
+  /** File an accepted record; a `null` filing (cap, forge error) leaves it for `advance()`,
+   *  backing off like a deferred triage. */
+  async function fileAccepted(r: ClassifyRecord): Promise<ClassifyRecord> {
+    const filing = await deps.file(r, { override: r.overridden });
+    if (!filing) return save({ ...r, ...backoff(r) });
+    return settle({ ...r, filing });
+  }
+
   function reject(r: ClassifyRecord, stage: "jev" | "triage", reason: string) {
     return settle({ ...r, outcome: "rejected", stage, reason: truncate(reason, REASON_MAX) });
   }
@@ -251,9 +273,7 @@ export function createClassifier(deps: ClassifyDeps): Classifier {
   }
 
   function defer(r: ClassifyRecord, logs: LogInput): ClassifyRecord {
-    const retries = (r.retries ?? 0) + 1;
-    const wait = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** (retries - 1));
-    return save({ ...r, outcome: "pending", logs, retries, retryAt: deps.now().getTime() + wait });
+    return save({ ...r, outcome: "pending", logs, ...backoff(r) });
   }
 
   function context(r: ClassifyRecord, logs: LogInput): string {
@@ -302,12 +322,9 @@ export function createClassifier(deps: ClassifyDeps): Classifier {
       return reject(r, "triage", `triage failed: ${code}`);
     }
     if (v.fixable && v.confidence === "high") {
-      return settle({
-        ...r,
-        outcome: "accepted",
-        verdict: v,
-        reason: truncate(v.reason, REASON_MAX),
-      });
+      return fileAccepted(
+        settle({ ...r, outcome: "accepted", verdict: v, reason: truncate(v.reason, REASON_MAX) }),
+      );
     }
     return reject({ ...r, verdict: v }, "triage", v.reason);
   }
@@ -383,7 +400,8 @@ export function createClassifier(deps: ClassifyDeps): Classifier {
       }),
       c,
     );
-    return r.outcome === "pending" ? "deferred" : r.outcome;
+    if (r.outcome === "pending") return "deferred";
+    return r.filing?.status === "filed" ? "issue-filed" : r.outcome;
   }
 
   /** Resolve each waiting id against its own job in the fresh run (null run = inconclusive). */
@@ -441,6 +459,11 @@ export function createClassifier(deps: ClassifyDeps): Classifier {
         if (r?.outcome !== "pending" || (r.retryAt ?? 0) > deps.now().getTime()) continue;
         await guarded(r.id, null, () => classify(r));
       }
+      for (const r of records(TRIAGE_PREFIX) as ClassifyRecord[]) {
+        if (r?.outcome !== "accepted" || r.filing) continue;
+        if ((r.retryAt ?? 0) > deps.now().getTime()) continue;
+        await guarded(r.id, null, () => fileAccepted(r));
+      }
     },
 
     rejected: () =>
@@ -453,7 +476,8 @@ export function createClassifier(deps: ClassifyDeps): Classifier {
         const r = read(id);
         if (!r) return { ok: false, code: "unknown" };
         if (r.outcome !== "rejected") return { ok: false, code: "not-rejected" };
-        return { ok: true, record: save({ ...r, outcome: "accepted", overridden: true }) };
+        const accepted = save({ ...r, outcome: "accepted", overridden: true });
+        return { ok: true, record: await fileAccepted(accepted) };
       }),
   };
 }

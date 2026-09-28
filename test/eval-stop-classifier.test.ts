@@ -324,7 +324,7 @@ test("the German gating fixtures cover gate, question, and the unknown abstain b
   }
 });
 
-test("gate-commit-now runs at T≥9 (measured p(gate)≈0.76 — T=5 lost majority ~9% of runs)", () => {
+test("gate-commit-now gates at T≥9 (trial parity with de-gate-commit)", () => {
   const f = FIXTURES.find((f) => f.id === "gate-commit-now");
   expect(f?.gating).toBe(true);
   expect(f?.trials ?? 0).toBeGreaterThanOrEqual(9);

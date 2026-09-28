@@ -113,14 +113,19 @@ export const FIXTURES: Fixture[] = [
     id: "gate-commit-now",
     origin: "synthetic",
     taskPrompt: "Add a rate limiter to the API middleware.",
-    tail: ["The rate limiter is implemented and the tests pass.", "Ready to commit now? (y/n)"],
+    // Mid-work checkpoint, deliberately NO "done/tests pass" cue: the old tail ("implemented and the
+    // tests pass" + "ready to commit?") sat on the gate/finished boundary and split ~0.64 gate even
+    // at T=9 (2026-09-28: gate:4 finished:5). See docs/eval-stop-classifier.md.
+    tail: [
+      "The rate limiter middleware is wired in; I'll write its tests next.",
+      "Want me to commit this checkpoint first? (y/n)",
+    ],
     expectedKind: "gate",
     gating: true,
-    // T=9, twin parity with `de-gate-commit`: measured p(gate)≈0.76 over the last 16 T=5 runs (rest
-    // `finished`), so T=5 lost majority ~9% of runs (2026-09-25: gate:2 finished:3). T=9 ≈ 3%.
+    // T=9, trial parity with `de-gate-commit`.
     trials: 9,
     lang: "en",
-    note: "Proceed-obvious — committing its own work is clearly correct.",
+    note: "Proceed-obvious — committing a mid-work checkpoint is clearly correct.",
   },
   {
     id: "question-jwt-vs-cookie",
@@ -215,7 +220,8 @@ export const FIXTURES: Fixture[] = [
       "Soll ich jetzt committen? (j/n)",
     ],
     expectedKind: "gate",
-    // GATING (#1627): the German proceed-obvious gate — German twin of `gate-commit-now`,
+    // GATING (#1627): the German proceed-obvious gate — German twin of `gate-commit-now`'s
+    // pre-2026-09-28 wording (implemented + green),
     // not the known-gap spec-first exemplar. T=9 for a noise-tolerant German-input signal.
     gating: true,
     trials: 9,

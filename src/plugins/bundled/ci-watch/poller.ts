@@ -22,6 +22,7 @@ import {
   writeCursor,
   writeKey,
   writeStatus,
+  RECENT_MAX,
   type KeyRecord,
   type RepoConfig,
 } from "./state";
@@ -39,6 +40,8 @@ export interface Candidate {
   job: string;
   streak: number;
   runId: number;
+  /** Run attempt at observation — the flake probe waits for it to bump. */
+  attempt: number;
   runUrl: string;
   headSha: string;
   event: string;
@@ -84,7 +87,9 @@ export function createPoller(deps: PollerDeps): Poller {
         streak: conclusion === "failure" ? (prev?.streak ?? 0) + 1 : 0,
         lastRunId: run.id,
         lastConclusion: conclusion,
+        recent: [...(prev?.recent ?? []), conclusion].slice(-RECENT_MAX),
       };
+      if (conclusion === "success") delete rec.classified;
       if (conclusion === "failure") {
         rec.lastFailedRunId = run.id;
         rec.lastFailedUrl = run.url;
@@ -105,6 +110,7 @@ export function createPoller(deps: PollerDeps): Poller {
         job: rec.job,
         streak: rec.streak,
         runId: run.id,
+        attempt: run.attempt,
         runUrl: run.url,
         headSha: run.headSha,
         event: run.event,

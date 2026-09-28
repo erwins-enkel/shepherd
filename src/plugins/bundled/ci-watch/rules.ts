@@ -59,7 +59,7 @@ export function thresholdFor(cfg: RepoConfig, workflowName: string): number {
   return cfg.overrides.find((o) => globMatch(o.glob, workflowName))?.threshold ?? cfg.threshold;
 }
 
-export type KeySkip = "fixed" | "filed" | "threshold" | "cap";
+export type KeySkip = "fixed" | "filed" | "classified" | "threshold" | "cap";
 
 /** Decide one key that went red in this batch; null = forward it. */
 export function evaluateKey(
@@ -68,6 +68,8 @@ export function evaluateKey(
 ): KeySkip | null {
   if (rec.lastConclusion === "success") return "fixed";
   if (rec.filed?.sync === "open") return "filed";
+  // One classification per red streak; a flaky verdict doesn't hold (the next red run re-probes).
+  if (rec.classified && rec.classified.outcome !== "flaky") return "classified";
   if (rec.streak < c.threshold) return "threshold";
   if (c.filedToday >= DAILY_CAP) return "cap";
   return null;

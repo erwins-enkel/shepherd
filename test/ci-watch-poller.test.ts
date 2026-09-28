@@ -325,3 +325,25 @@ test("tick honours pollMinutes", async () => {
   await p.tick();
   expect(calls).toHaveLength(2);
 });
+
+test("keys keep recent conclusions; a green observation clears the streak's classification", async () => {
+  enable();
+  const key = `map:${REPO}::.github/workflows/ci.yml::test`;
+  held[REPO] = [run(1, [["test", "failure"]])];
+  const p = poller();
+  await p.poll();
+  expect(forwarded[0]?.attempt).toBe(1);
+  state.set(key, { ...state.get<object>(key), classified: { runId: 1, outcome: "rejected" } });
+
+  held[REPO].push(run(2, [["test", "failure"]]));
+  await p.poll();
+  expect(forwarded.map((c) => c.runId)).toEqual([1]);
+  expect(readStatus(state).lastResult).toEqual({ classified: 1 });
+
+  held[REPO].push(run(3, [["test", "success"]]), run(4, [["test", "failure"]]));
+  await p.poll();
+  expect(forwarded.map((c) => c.runId)).toEqual([1, 4]);
+  const rec = state.get<{ recent: string[]; classified?: unknown }>(key);
+  expect(rec?.recent).toEqual(["failure", "failure", "success", "failure"]);
+  expect(rec?.classified).toBeUndefined();
+});

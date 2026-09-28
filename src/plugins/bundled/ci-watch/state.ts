@@ -7,9 +7,11 @@ export interface Settings {
   /** Master switch — off by default; every tick is a no-op until it is on. */
   enabled: boolean;
   pollMinutes: number;
+  /** Workflow-name globs that skip the flake probe (slow, sampled evals — a rerun proves nothing). */
+  probeSkipGlobs: string[];
 }
 
-const DEFAULT_SETTINGS: Settings = { enabled: false, pollMinutes: 5 };
+const DEFAULT_SETTINGS: Settings = { enabled: false, pollMinutes: 5, probeSkipGlobs: ["Eval*"] };
 const POLL_MINUTES = { min: 1, max: 1440 };
 const THRESHOLD = { min: 1, max: 20 };
 
@@ -54,11 +56,21 @@ export interface KeyRecord {
   lastConclusion: "failure" | "success";
   lastFailedRunId?: number;
   lastFailedUrl?: string;
+  /** Latest observations, oldest first (at most {@link RECENT_MAX}). */
+  recent?: Array<"failure" | "success">;
+  /** The classification of this red streak (#2541); cleared by a green observation. */
+  classified?: { runId: number; outcome: ClassifyOutcome };
   /** Run whose failure was last handed to the forward stage. */
   forwardedRunId?: number;
   /** The issue filed for this key (#2542); `open` blocks re-forwarding. */
   filed?: { number: number; url: string; filedAt: string; sync: "open" | "closed" };
 }
+
+/** Observations kept on a key for the judge's history input. */
+export const RECENT_MAX = 10;
+
+/** Where a candidate is in classification (#2541). */
+export type ClassifyOutcome = "probing" | "pending" | "flaky" | "rejected" | "accepted";
 
 export interface PollStatus {
   lastPollAt: number;
@@ -87,6 +99,9 @@ export function readSettings(state: PluginState): Settings {
       POLL_MINUTES.max,
       DEFAULT_SETTINGS.pollMinutes,
     ),
+    probeSkipGlobs: Array.isArray(s.probeSkipGlobs)
+      ? s.probeSkipGlobs.filter((g) => typeof g === "string" && g.trim()).map((g) => g.trim())
+      : DEFAULT_SETTINGS.probeSkipGlobs,
   };
 }
 

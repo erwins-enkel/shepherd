@@ -433,7 +433,9 @@ export interface RelaunchOverrides {
  *  really does carry `context-1m-2025-08-07`. The Opus 5.5 pair could NOT be probed
  *  the same way — the CLI on hand 400s on the model before sending any header — so
  *  `claude-opus-5-5[1m]` carries the 1M beta by the same construction, not by
- *  measurement; re-probe it once a CLI at the floor below is installed.
+ *  measurement; re-probe it once a CLI at the floor below is installed. The Sonnet 5.5
+ *  `[1m]` variant is likewise unprobed: the CLI catalog lists `claude-sonnet-5-5[1m]` but,
+ *  unlike Opus 5.x, does not flag Sonnet 5.5 as `supports_1m_suffix`.
  *
  *  A pinned name is only spawnable on a CLI whose catalog carries it: Claude Code
  *  rejects an unknown one with a hard 400 naming the version it needs. That floor
@@ -450,6 +452,8 @@ const CLAUDE_MODELS = [
   "claude-opus-5[1m]",
   "sonnet",
   "sonnet[1m]",
+  "claude-sonnet-5-5",
+  "claude-sonnet-5-5[1m]",
   "haiku",
 ] as const;
 

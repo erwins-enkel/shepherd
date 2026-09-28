@@ -5,10 +5,20 @@ describe("minCliFor", () => {
   it("reports the floor for a model that has one", () => {
     expect(minCliFor("claude-opus-5-5")).toBe("2.1.280");
     expect(minCliFor("claude-opus-5-5[1m]")).toBe("2.1.280");
+    expect(minCliFor("claude-sonnet-5-5")).toBe("2.1.284");
+    expect(minCliFor("claude-sonnet-5-5[1m]")).toBe("2.1.284");
   });
 
   it("returns null for models with no floor — floating aliases, older pins, junk", () => {
-    for (const model of ["opus", "opus[1m]", "claude-opus-5", "sonnet", "fable", "nonsense"])
+    for (const model of [
+      "opus",
+      "opus[1m]",
+      "claude-opus-5",
+      "sonnet",
+      "sonnet[1m]",
+      "fable",
+      "nonsense",
+    ])
       expect(minCliFor(model)).toBeNull();
   });
 
@@ -55,5 +65,16 @@ describe("modelNeedingNewerCli", () => {
     expect(CLAUDE_MODEL_MIN_CLI["claude-opus-5-5[1m]"]).toBe(
       CLAUDE_MODEL_MIN_CLI["claude-opus-5-5"]!,
     );
+    expect(CLAUDE_MODEL_MIN_CLI["claude-sonnet-5-5[1m]"]).toBe(
+      CLAUDE_MODEL_MIN_CLI["claude-sonnet-5-5"]!,
+    );
+  });
+
+  it("flags Sonnet 5.5 on the last CLI without it, not on the first with it", () => {
+    expect(modelNeedingNewerCli(["claude-sonnet-5-5"], "2.1.283")).toEqual({
+      model: "claude-sonnet-5-5",
+      required: "2.1.284",
+    });
+    expect(modelNeedingNewerCli(["claude-sonnet-5-5"], "2.1.284")).toBeNull();
   });
 });

@@ -11,10 +11,13 @@
  * Shepherd cannot fix that for the operator (upgrading someone's CLI is not a thing it does behind
  * a button), but it CAN say so before every spawn dies — see the `claude_model_cli` DIAGNOSE row.
  *
+ * Not every stale model fails that hard: some (Sonnet 5.5) run anyway with a 200k-token window
+ * the CLI assumes for a model its catalog doesn't describe. Either way the fix is a CLI upgrade.
+ *
  * Deliberately a SPARSE table of empirically-confirmed floors, the same shape as
  * `CHATGPT_INCOMPATIBLE_CODEX_MODELS`: an unlisted model has no floor and is never blocked. New
  * entries earn their place by being probed, not by being assumed — every value here was read out
- * of the CLI's own refusal.
+ * of the CLI's own refusal or its compiled model catalog.
  *
  * Leaf module (imports only `compareSemver`) so both the diagnostics service and its tests can
  * read it without pulling the server in.
@@ -27,6 +30,11 @@ import { compareSemver } from "./semver";
 export const CLAUDE_MODEL_MIN_CLI: Readonly<Record<string, string>> = {
   "claude-opus-5-5": "2.1.280",
   "claude-opus-5-5[1m]": "2.1.280",
+  // Read off the catalog rather than a refusal: 2.1.283 does not carry Sonnet 5.5 and 2.1.284
+  // does. Below the floor the CLI does NOT 400 — it warns `unrecognized_model`, runs it anyway
+  // and caps auto-compact at 200k tokens, so the stale-CLI cost is a silently shrunk window.
+  "claude-sonnet-5-5": "2.1.284",
+  "claude-sonnet-5-5[1m]": "2.1.284",
 };
 
 /** The version floor for `model`, or null when it has none (unknown, floating alias, or a model

@@ -157,8 +157,51 @@ test("an unknown model still prices sonnet-like after the Opus 5.5 row was inser
     cacheWrite1h: 0,
   };
   expect(weightedUnits(unknown, "totally-unknown-model")).toBe(3 + 15);
-  expect(weightedUnits(unknown, "claude-sonnet-5")).toBe(3 + 15);
+  expect(weightedUnits(unknown, "claude-sonnet-4-6")).toBe(3 + 15);
   expect(weightedUnits(unknown, "<synthetic>")).toBe(3 + 15);
+});
+
+test("Sonnet 5 and 5.5 price at $2 in / $10 out / $0.20 cache read per Mtok", () => {
+  for (const model of ["claude-sonnet-5", "claude-sonnet-5-5"]) {
+    expect(
+      weightedUnits(
+        { input: 1_000_000, output: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
+        model,
+      ),
+    ).toBe(2);
+    expect(
+      weightedUnits(
+        { input: 0, output: 1_000_000, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 0 },
+        model,
+      ),
+    ).toBe(10);
+    expect(cacheRead(model)).toBe(0.2);
+    expect(cacheWriteUnits({ cacheWrite5m: 1_000_000, cacheWrite1h: 0 }, model)).toBe(2.5);
+    expect(cacheWriteUnits({ cacheWrite5m: 0, cacheWrite1h: 1_000_000 }, model)).toBe(4);
+  }
+});
+
+test("Sonnet 5.x — the dated, -v1 and provider-prefixed wire ids all price the same", () => {
+  const base = allClasses("claude-sonnet-5-5");
+  expect(allClasses("claude-sonnet-5")).toBe(base);
+  for (const id of [
+    "claude-sonnet-5-5-20260926",
+    "claude-sonnet-5-5-v1",
+    "us.anthropic.claude-sonnet-5-5",
+    "anthropic.claude-sonnet-5-5",
+    "claude-sonnet-5-5@20260926",
+    "claude-sonnet-5-20260601",
+  ])
+    expect(allClasses(id)).toBe(base);
+});
+
+test("Sonnet 5.x — the row leaves Sonnet 4.x and the floating alias on $3/$15", () => {
+  const sonnet4 = allClasses("claude-sonnet-4-6");
+  expect(allClasses("claude-sonnet-5-5")).not.toBe(sonnet4);
+  for (const id of ["claude-sonnet-4-5", "claude-sonnet-4-20250514", "sonnet", "sonnet[1m]"])
+    expect(allClasses(id)).toBe(sonnet4);
+  // The lookahead keeps a longer numeric suffix off the 5.x price.
+  expect(allClasses("claude-sonnet-50")).toBe(sonnet4);
 });
 
 // ── coldResumeUnits (#2042) ─────────────────────────────────────────────────

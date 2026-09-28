@@ -2524,6 +2524,8 @@ const CLAUDE_MODELS = [
   "claude-opus-5[1m]",
   "sonnet",
   "sonnet[1m]",
+  "claude-sonnet-5-5",
+  "claude-sonnet-5-5[1m]",
   "haiku",
 ] as const;
 
@@ -2575,6 +2577,7 @@ export const PREMIUM_MODELS: readonly string[] = [
   "claude-opus-5",
   "claude-opus-5[1m]",
   "sonnet[1m]",
+  "claude-sonnet-5-5[1m]",
 ];
 
 export interface Steer {

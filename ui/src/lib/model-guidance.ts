@@ -134,6 +134,20 @@ function claudeGuidance(model: string): {
         tag: "longContext",
         detail: m.model_guidance_claude_sonnet_1m(),
       };
+    // Pinned Sonnet 5.5 keeps the tier/fit of the floating alias — same price band; only the
+    // version-drift guarantee and the CLI floor differ.
+    case "claude-sonnet-5-5":
+      return {
+        costTier: "standard",
+        tag: "balanced",
+        detail: m.model_guidance_claude_sonnet_5_5(),
+      };
+    case "claude-sonnet-5-5[1m]":
+      return {
+        costTier: "high",
+        tag: "longContext",
+        detail: m.model_guidance_claude_sonnet_5_5_1m(),
+      };
     case "haiku":
       return { costTier: "low", tag: "budget", detail: m.model_guidance_claude_haiku() };
     default:

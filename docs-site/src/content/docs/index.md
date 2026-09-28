@@ -2,6 +2,9 @@
 title: Shepherd
 description: Documentation for Shepherd — interactive mission control for Claude Code agents.
 template: splash
+banner:
+  content: |
+    <strong>Shepherd 2.0 is here</strong>: a native Mac app, a terminal CLI, and fix PRs from Sentry and red CI. <a href="/releases/2-0/">What's new →</a>
 hero:
   tagline: Interactive mission control for fleets of Claude Code agents.
   actions:
@@ -20,6 +23,8 @@ agents.
 
 ## Start here
 
+- **[What's new in 2.0](/releases/2-0/)**: the Mac app, the `shepherd` CLI, Sentry auto-fix,
+  CI Watch and the judge.
 - **[Getting started](/getting-started/)** — install Shepherd and sign in.
 - **[Operating Shepherd](/operating/)** — run it as a service, expose it over
   Tailscale, and deploy code changes.

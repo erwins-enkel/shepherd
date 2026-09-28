@@ -19,10 +19,16 @@ const DEMO_URL = "https://demo.shepherd.run";
     logical/mobile-matching sequence and let the desktop screenshot (a
     supplementary demo link) trail in DOM.
   -->
-  <p class="prerelease" role="status">
+  <p class="announce" role="status">
     <span class="pulse" aria-hidden="true"></span>
     <span>
-      <strong>Now in pre-release.</strong> Grab the GitHub repo and the one-line installer below.
+      <strong>Shepherd 2.0 is here</strong>: a native Mac app, a terminal CLI, and production
+      errors and red CI that become fix PRs.{" "}
+      <a
+        href={`${DOCS_URL}/releases/2-0/`}
+        data-track="cta_release"
+        data-track-location="hero">What's new →</a
+      >
     </span>
   </p>
 
@@ -103,7 +109,7 @@ const DEMO_URL = "https://demo.shepherd.run";
     grid-area: install;
   }
 
-  .prerelease {
+  .announce {
     grid-area: banner;
     display: flex;
     align-items: center;
@@ -117,9 +123,15 @@ const DEMO_URL = "https://demo.shepherd.run";
     line-height: 1.45;
   }
 
-  .prerelease strong {
+  .announce strong {
     color: var(--ink);
     font-weight: 600;
+  }
+
+  .announce a {
+    color: var(--ink);
+    font-weight: 600;
+    white-space: nowrap;
   }
 
   .pulse {

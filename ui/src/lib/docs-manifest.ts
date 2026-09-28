@@ -165,4 +165,10 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     keywords:
       "what changes when an epic stacks its children's pull requests on each other — bottom-up merge order, how a lost middle layer is repaired, and the repository settings that quietly break stacking. what changes, and what doesn't repository settings that break stacking a ruleset that requires a status check on *all* branches ci that runs the whole workflow per layer when a middle layer is lost known gaps",
   },
+  {
+    title: "Shepherd 2.0",
+    path: "/releases/2-0/",
+    keywords:
+      "a native mac app, a terminal cli, production errors and red ci that turn into fix prs, and a fast judge behind shepherd's decisions. shepherd for mac the shepherd cli sentry auto-fix ci watch the judge shepherd in your omarchy bar also new upgrading",
+  },
 ];

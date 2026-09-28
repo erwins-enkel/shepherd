@@ -10,6 +10,18 @@ Pull-request CI is out of scope. Autopilot and the critic already handle it.
 
 It ships with Shepherd and is **off until you enable it** under **Settings → Plugins → CI Watch**.
 
+What it uses:
+
+- **A GitHub repo.** Gitea lists runs, but can't rerun jobs or serve failed-step logs, so on
+  Gitea there is no flake probe and triage sees no log.
+- **The judge (optional).** The classification step is the
+  [fast stop classifier's](https://docs.shepherd.run/reference/configuration/#fast-stop-classifier-the-judge) JEV judge:
+  `SHEPHERD_JUDGE=1` plus `JEV_API_KEY`. Its spend counts toward `SHEPHERD_JUDGE_DAILY_USD`.
+  Without it, classification is skipped and every failure goes to triage.
+- **Your subscription.** Triage spawns a read-only Sonnet agent per failure. Plugin agents are
+  capped at 2 in flight and 20 runs a day. A triage that can't start (over the cap, or no agent
+  available) is retried with backoff: after 15 minutes, then doubling up to 6 hours.
+
 ## 1. Enable it
 
 Under **Settings**:
@@ -24,8 +36,8 @@ Click **Save settings**.
 
 ## 2. Watch repositories
 
-A repo is watched only once you add it. Pick it under **Add repository** and click **Add and
-watch**. Local-only (lightweight) repos can't be watched; they have no forge CI.
+A repo is watched only once you add it **and** its **Watch this repo** box is ticked. Pick it
+under **Add repository** and click **Add and watch**. Local-only (lightweight) repos can't be watched; they have no forge CI.
 
 Each watched repo has its own form:
 
@@ -63,10 +75,9 @@ marked flaky and nothing is filed. The next red run probes again. Workflows that
 glob, and runs that can't be rerun, go straight to classification. A probe with no answer after
 6 hours counts as inconclusive, and classification runs.
 
-**Classification**: a fast classifier sorts the failure into regression, flaky, infra,
+**Classification**: the JEV judge sorts the failure into regression, flaky, infra,
 secret/config or eval variance. Only regressions and secret/config problems, with at least 60 %
-probability, go on. When the
-classifier is unavailable, every failure goes on.
+probability, go on. When the judge is off or unavailable, every failure goes on.
 
 **Triage**: one read-only agent per failure reads the failed-step log and the repo. It decides
 whether a change inside the repo would fix it. Only `fixable` with `high` confidence is filed.

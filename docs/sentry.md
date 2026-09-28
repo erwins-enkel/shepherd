@@ -41,7 +41,8 @@ Under **Settings → Plugins → Sentry**:
   from the server environment.
 - **Poll every**: default 5 minutes.
 - **Minimum events**: only issues seen more than this many times (default 10).
-- **Enabled**: tick it and **Save settings**.
+- **Enabled**: tick it and **Save settings**. Turning it on runs **Detect mappings** once (see
+  below).
 
 ## 3. Map repos to Sentry projects
 
@@ -90,7 +91,11 @@ the status itself.
 
 Then comes **triage**: one read-only agent per issue decides whether a fix inside the repo
 is plausible. Only `fixable` with `high` confidence is filed. Everything else appears under
-**Rejected by triage**, where **File anyway** overrides it.
+**Rejected by triage**, where **File anyway** overrides it. The override bypasses the daily
+cap, but still counts toward it.
+
+Triage runs on your subscription as a read-only Sonnet agent. Plugin agents are capped at 2 in
+flight and 20 runs a day; an issue over the cap waits for the next poll.
 
 **Issue**: the title is `Sentry <SHORT-ID>: production error in <project>`. It never
 contains exception text. The body lists:

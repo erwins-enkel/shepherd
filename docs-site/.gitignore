@@ -1,6 +1,8 @@
 # Pages generated at build time by scripts/sync-docs.mjs from in-repo markdown
 # (source of truth is docs/ and the repo-root CLAUDE.md; imported, not authored here).
 src/content/docs/reference/plugins.md
+src/content/docs/reference/sentry.md
+src/content/docs/reference/ci-watch.md
 src/content/docs/reference/external-task-api.md
 src/content/docs/reference/shepherd-cli.md
 src/content/docs/reference/security.md

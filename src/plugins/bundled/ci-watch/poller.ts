@@ -53,6 +53,8 @@ export interface PollerDeps {
   repos: () => PluginRepo[];
   /** Next stage (#2541); returns the outcome counted in the poll status. */
   forward: (c: Candidate) => Promise<string>;
+  /** Lifecycle sync of filed issues (#2542), after the repos; returns counts for the status. */
+  sync: () => Promise<Counts>;
   now: () => Date;
   log: PluginLogger;
 }
@@ -186,6 +188,12 @@ export function createPoller(deps: PollerDeps): Poller {
         else lastError = err.message;
         log.warn(`polling ${r.path} failed: ${err.message}`);
       }
+    }
+    try {
+      Object.assign(counts, await deps.sync());
+    } catch (e) {
+      lastError = (e as Error).message;
+      log.warn(`sync failed: ${lastError}`);
     }
     writeStatus(state, { lastPollAt: deps.now().getTime(), lastError, lastResult: counts });
   }

@@ -118,10 +118,14 @@ describe("DiffFileStack", () => {
     ).toBeGreaterThanOrEqual(2);
 
     // Pierre appends its <diffs-container> host asynchronously after the dynamic
-    // import resolves — poll for it.
-    await vi.waitFor(() => {
-      expect(host(), "Pierre host present after scrollToPath").toBeTruthy();
-    });
+    // import resolves — poll for it. This is the file's first (cold) Pierre import;
+    // on a loaded CI shard it can exceed waitFor's 1s default, so allow more.
+    await vi.waitFor(
+      () => {
+        expect(host(), "Pierre host present after scrollToPath").toBeTruthy();
+      },
+      { timeout: 5000 },
+    );
   });
 
   it("shows a per-file review banner independent of lazy-mount + noteKind, escaping markup (#1699)", async () => {
@@ -191,9 +195,12 @@ describe("DiffFileStack", () => {
 
     // A parse failure would leave no host (the file would show no diff); assert the
     // added-file patch format actually parsed and rendered.
-    await vi.waitFor(() => {
-      expect(host(), "Pierre host present for added-file patch").toBeTruthy();
-    });
+    await vi.waitFor(
+      () => {
+        expect(host(), "Pierre host present for added-file patch").toBeTruthy();
+      },
+      { timeout: 5000 },
+    );
     expect(document.body.textContent).not.toContain(m.diff_note_no_changes());
   });
 });

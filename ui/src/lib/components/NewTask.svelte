@@ -87,6 +87,7 @@
   import VideoBriefNotice from "./new-task/VideoBriefNotice.svelte";
   import { hasVideoAttachment, VideoSkillInventory } from "./new-task/video-skill.svelte";
   import type { UsageLimits } from "$lib/types";
+  import { stashDraft, takeDraft } from "./new-task/draft-stash";
 
   type TaskAttachment = {
     path: string;
@@ -131,6 +132,8 @@
     holdLikely = false,
     fableAvailable = true,
     spawnProgress = null,
+    restoreDraft = false,
+    ondiscarddraft,
   }: {
     onsubmit: (input: {
       repoPath: string;
@@ -192,7 +195,18 @@
     /** Live phase of the spawn this dialog is waiting on, from the `spawn:progress` WS event.
      *  Passed in rather than read off the store so this component stays store-free. */
     spawnProgress?: SpawnProgress | null;
+    /** A plain open (no seed of its own): reopen a draft dismissed within the grace window. */
+    restoreDraft?: boolean;
+    /** "Discard & new task" on a restored draft: the parent remounts a fresh composer. */
+    ondiscarddraft?: () => void;
   } = $props();
+
+  // One-shot: an accidentally dismissed composer comes back as the operator left it.
+  // svelte-ignore state_referenced_locally
+  const draft = restoreDraft ? takeDraft() : null;
+  // The repo the composer opened on — the restored draft's, else the seeded one.
+  // svelte-ignore state_referenced_locally
+  const seedRepoPath = draft ? draft.repoPath : initialRepoPath;
 
   /** Short editable seed so the user only adds deltas; the body rides out-of-band. */
   function issueTemplate(issue: Issue): string {
@@ -201,7 +215,9 @@
 
   // intentional one-time seed; NewTask remounts per open
   // svelte-ignore state_referenced_locally
-  let prompt = $state(initialPrompt ?? (initialIssue ? issueTemplate(initialIssue) : ""));
+  let prompt = $state(
+    draft?.prompt ?? initialPrompt ?? (initialIssue ? issueTemplate(initialIssue) : ""),
+  );
   /** True when the prompt opens with the `/design` command itself — not a word that merely
    *  starts with "design" (`/designer …`). */
   function isDesignPrompt(text: string): boolean {
@@ -209,29 +225,32 @@
   }
   // The attached issue: its body is sent separately, NOT dumped into the prompt.
   // svelte-ignore state_referenced_locally
-  let issueRef = $state<Issue | null>(initialIssue ?? null);
+  let issueRef = $state<Issue | null>(draft ? draft.issueRef : (initialIssue ?? null));
   // The repoPath in effect when issueRef was attached. Guards BOTH the "assigned to X"
   // notice (#1694) AND the activeIssue predicate below: an in-dialog repo switch doesn't
   // clear the attachment, and Issue carries no repoPath, so without this a repo-A issue
   // would satisfy readiness / ride the payload for a repo-B submission.
   // svelte-ignore state_referenced_locally
-  let attachedRepoPath = $state<string | null>(initialIssue ? (initialRepoPath ?? "") : null);
+  let attachedRepoPath = $state<string | null>(
+    draft ? draft.attachedRepoPath : initialIssue ? (initialRepoPath ?? "") : null,
+  );
   // intentional one-time seed; NewTask remounts per open
-  // svelte-ignore state_referenced_locally
-  let repoPath = $state(initialRepoPath ?? "");
+  let repoPath = $state(seedRepoPath ?? "");
   // seeds once from initialBaseBranch; later branch loads / repo switches drive it
   // (see the seededBase one-shot below) — intentionally captures the initial value
   // svelte-ignore state_referenced_locally
-  let baseBranch = $state(initialBaseBranch ?? "main");
+  let baseBranch = $state(draft?.baseBranch ?? initialBaseBranch ?? "main");
   // One-shot: keep the seeded base on the initial repo's first branch load, then
   // let the repo's current branch win on every subsequent load / repo switch.
   // svelte-ignore state_referenced_locally
-  let seededBase = $state(initialBaseBranch != null);
+  let seededBase = $state(draft != null || initialBaseBranch != null);
   // Seeds once from the overlay-resolved default CLI. The overlay may route a fresh
   // task to a ready alternate provider when the configured default would hit a
   // usage hold; explicit relaunch/edit-held seeds still win and preserve the task.
   // svelte-ignore state_referenced_locally
-  let agentProvider = $state<AgentProvider>(initialAgentProvider ?? defaultAgentProvider);
+  let agentProvider = $state<AgentProvider>(
+    draft?.agentProvider ?? initialAgentProvider ?? defaultAgentProvider,
+  );
 
   // Model/effort preselect + reseed + validity correction all live HERE (run-config.ts),
   // never in the conditionally-mounted settings component — a mobile session that never
@@ -244,18 +263,19 @@
   // repo/global default until the user picks one (modelTouched)
   // svelte-ignore state_referenced_locally
   let model = $state(
-    safeInitial ??
+    draft?.model ??
+      safeInitial ??
       preselectModel(
         agentProvider === "codex" ? (defaultCodexModel ?? "gpt-5.6-sol") : defaultModel,
         agentProvider,
         fableAvailable,
       ),
   );
-  let modelTouched = $state(false);
+  let modelTouched = $state(draft?.modelTouched ?? false);
 
   // svelte-ignore state_referenced_locally
-  let effort = $state(preselectEffort(initialEffort ?? defaultEffort));
-  let effortTouched = $state(false);
+  let effort = $state(draft?.effort ?? preselectEffort(initialEffort ?? defaultEffort));
+  let effortTouched = $state(draft?.effortTouched ?? false);
   // Relaunch + edit-held reuse this composer with a distinct title.
   const heading = $derived(
     editHeld
@@ -267,26 +287,28 @@
   // Plan gate: defaults to the selected repo's stored flag until the user toggles
   // it. `planGateTouched` pins a manual choice so switching repos doesn't clobber it.
   // svelte-ignore state_referenced_locally
-  let planGate = $state(initialPlanGate ?? false);
+  let planGate = $state(draft?.planGate ?? initialPlanGate ?? false);
   // svelte-ignore state_referenced_locally
-  let planGateTouched = $state(initialPlanGate != null);
+  let planGateTouched = $state(draft?.planGateTouched ?? initialPlanGate != null);
   // Autopilot override: same seed-from-repo-default pattern.
   // svelte-ignore state_referenced_locally
-  let autopilot = $state(initialAutopilot ?? false);
+  let autopilot = $state(draft?.autopilot ?? initialAutopilot ?? false);
   // svelte-ignore state_referenced_locally
-  let autopilotTouched = $state(initialAutopilot != null);
+  let autopilotTouched = $state(draft?.autopilotTouched ?? initialAutopilot != null);
   // Research task kind: web research → report PR or issue; mutually exclusive w/ plan-gate.
   // svelte-ignore state_referenced_locally
-  let research = $state(initialResearch);
+  let research = $state(draft?.research ?? initialResearch);
   // Epic-authoring task kind (issue #1507): guided shaping → EPIC draft.
   // svelte-ignore state_referenced_locally
-  let epicAuthoring = $state(initialEpicAuthoring);
+  let epicAuthoring = $state(draft?.epicAuthoring ?? initialEpicAuthoring);
   // Plain task kind: the agent without guards — worktree, branch and tab only.
   // svelte-ignore state_referenced_locally
-  let plain = $state(initialPlain);
+  let plain = $state(draft?.plain ?? initialPlain);
   // Per-spawn sandbox override; "default" → omit (inherit the repo's configured profile).
   // svelte-ignore state_referenced_locally
-  let sandboxProfile = $state<"default" | SandboxProfile>(initialSandboxProfile ?? "default");
+  let sandboxProfile = $state<"default" | SandboxProfile>(
+    draft?.sandboxProfile ?? initialSandboxProfile ?? "default",
+  );
   let submitting = $state(false);
   let error = $state<string | null>(null);
   let herdrRepairRequired = $state(false);
@@ -304,6 +326,38 @@
   // Carries the `force` flag across the confirm step so confirming a first-task repo
   // replays the original intent, not a downgraded force=false.
   let pendingForce = $state(false);
+
+  /** Every dismissal (backdrop, Escape, ✕) parks the composer's contents for a quick reopen.
+   *  Relaunch/edit-held are not new tasks — their source reseeds them on the next open. */
+  function dismiss() {
+    confirmStep = false;
+    if (!relaunch && !editHeld) {
+      stashDraft({
+        prompt,
+        repoPath,
+        baseBranch,
+        issueRef,
+        attachedRepoPath,
+        images: [...images],
+        agentProvider,
+        model,
+        modelTouched,
+        effort,
+        effortTouched,
+        planGate,
+        planGateTouched,
+        autopilot,
+        autopilotTouched,
+        research,
+        epicAuthoring,
+        plain,
+        modeTouched,
+        designPreselected,
+        sandboxProfile,
+      });
+    }
+    onclose?.();
+  }
 
   function reason(e: unknown, fallback: string): string {
     const msg = e instanceof Error ? e.message.trim() : "";
@@ -441,7 +495,9 @@
   );
   // intentional one-time seed; NewTask remounts per open
   // svelte-ignore state_referenced_locally
-  let images = $state<TaskAttachment[]>(initialImages ? [...initialImages] : []);
+  let images = $state<TaskAttachment[]>(
+    draft ? [...draft.images] : initialImages ? [...initialImages] : [],
+  );
   let dragging = $state(false);
   let uploadQueue = $state<QueuedUpload[]>([]);
   let activeUpload = $state<QueuedUpload | null>(null);
@@ -703,7 +759,7 @@
         branches = b.branches;
         // Preserve a relaunch-seeded base on the initial repo's first load;
         // once consumed (or on any other repo) prefer the repo's default branch.
-        if (seededBase && rp === initialRepoPath) {
+        if (seededBase && rp === seedRepoPath) {
           seededBase = false;
         } else {
           baseBranch = pickBaseBranch(b);
@@ -805,7 +861,7 @@
   );
   // True once the operator picked a mode by hand — the `/design` pre-selection below then
   // never overrides their choice.
-  let modeTouched = $state(false);
+  let modeTouched = $state(draft?.modeTouched ?? false);
   /** Mode segmented control: exact checkbox-parity semantics — selecting a non-code mode
    *  forces the guards off and PINS them touched (so a later repo switch doesn't re-seed);
    *  returning to Code deliberately does NOT restore them (parity with unchecking). */
@@ -829,7 +885,7 @@
   // and Code comes back — nothing sticks silently) and yields to any explicit mode choice.
   // Only the plain FLAG moves here, never the guard toggles: a pre-selection that pinned
   // them off would leave a prompt edited away from /design with silently disabled guards.
-  let designPreselected = $state(false);
+  let designPreselected = $state(draft?.designPreselected ?? false);
   $effect(() => {
     if (modeTouched) return;
     const wantsPlain = isDesignPrompt(prompt);
@@ -1507,7 +1563,7 @@
     uploading: hasOutstandingUploads,
 
     submit: () => submit(new Event("submit")),
-    close: () => onclose?.(),
+    close: dismiss,
     openSheet: () => (sheetOpen = true),
     focusPrompt: () => promptInput?.focus(),
     insertToken: (token) => {
@@ -1806,24 +1862,14 @@
        every other modal background; a tap on it closes, same as the overlay's own backdrop.
        Sibling rather than a restructured overlay: the mobile sheets are `position: fixed`
        and rely on `.overlay` being their containing block to stay above the keyboard. -->
-  <div
-    class="nt-backdrop scrim"
-    role="presentation"
-    onclick={() => {
-      confirmStep = false;
-      onclose?.();
-    }}
-  ></div>
+  <div class="nt-backdrop scrim" role="presentation" onclick={dismiss}></div>
 {/if}
 <div
   class="overlay"
   bind:this={overlayEl}
   role="presentation"
   onclick={(e) => {
-    if (e.target === e.currentTarget) {
-      confirmStep = false;
-      onclose?.();
-    }
+    if (e.target === e.currentTarget) dismiss();
   }}
 >
   <!-- The modal card is a <form> so the prompt submits natively; role="dialog"
@@ -1837,12 +1883,7 @@
     role="dialog"
     aria-modal="true"
     aria-label={heading}
-    use:dialog={{
-      onclose: () => {
-        confirmStep = false;
-        onclose?.();
-      },
-    }}
+    use:dialog={{ onclose: dismiss }}
     onsubmit={submit}
     onkeydown={onFormKeydown}
     ondragover={(e) => {
@@ -1854,8 +1895,17 @@
     }}
     ondrop={onDrop}
   >
+    {#snippet draftNotice()}
+      <span class="draft-tag">{m.newtask_draft_restored()}</span>
+      <button type="button" class="tool-btn" onclick={ondiscarddraft}
+        >{m.newtask_draft_discard()}</button
+      >
+    {/snippet}
     <div class="chead">
       <span class="chead-title">{heading}</span>
+      {#if draft && !mobile}
+        {@render draftNotice()}
+      {/if}
       {#if mobile && composing}
         <!-- Compose state: the chip compresses to one context line — repo · branch ·
              engine · gate — split into two buttons whose hit areas match what each
@@ -1938,13 +1988,13 @@
         type="button"
         class="x"
         aria-keyshortcuts={shortcutAttr("close")}
-        onclick={() => {
-          confirmStep = false;
-          onclose?.();
-        }}
+        onclick={dismiss}
         aria-label={m.common_close()}>✕</button
       >
     </div>
+    {#if draft && mobile}
+      <div class="draft-bar">{@render draftNotice()}</div>
+    {/if}
 
     <FirstTaskAutomationConfirm
       active={confirmStep}
@@ -2961,6 +3011,24 @@
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
+  }
+  .draft-tag {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border: 1px solid var(--color-amber);
+    border-radius: 2px;
+    color: var(--color-amber);
+  }
+  .draft-bar {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--color-line);
   }
   .x {
     margin-left: auto;

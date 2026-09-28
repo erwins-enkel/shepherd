@@ -4597,5 +4597,9 @@
   "feat_sentry_plugin_title": "Sentry-Fehler werden zu Fix-Issues",
   "feat_sentry_plugin_body": "Das mitgelieferte Sentry-Plugin (Einstellungen → Plugins, standardmäßig aus) fragt Sentry nach neuen, eskalierenden oder wiederaufgetretenen Fehlern in zugeordneten Repos ab, prüft sie schreibgeschützt und legt ein bereinigtes GitHub-Issue an, das einen Reproduktionstest und einen Fix verlangt.",
   "feat_ci_watch_plugin_title": "Fehlschlagende CI wird zu Fix-Issues",
-  "feat_ci_watch_plugin_body": "Das mitgelieferte CI-Watch-Plugin (Einstellungen → Plugins, standardmäßig aus) beobachtet die CI auf dem Default-Branch der hinzugefügten Repos, startet einen fehlschlagenden Job einmal neu, um Flakiness auszuschließen, prüft ihn schreibgeschützt und legt ein GitHub-Issue an, das eine Reproduktion und einen Fix verlangt."
+  "feat_ci_watch_plugin_body": "Das mitgelieferte CI-Watch-Plugin (Einstellungen → Plugins, standardmäßig aus) beobachtet die CI auf dem Default-Branch der hinzugefügten Repos, startet einen fehlschlagenden Job einmal neu, um Flakiness auszuschließen, prüft ihn schreibgeschützt und legt ein GitHub-Issue an, das eine Reproduktion und einen Fix verlangt.",
+  "newtask_draft_restored": "Entwurf wiederhergestellt",
+  "newtask_draft_discard": "Verwerfen & neue Aufgabe",
+  "feat_newtask_draft_restore_title": "Versehentlich geschlossenen Aufgabenentwurf zurückholen",
+  "feat_newtask_draft_restore_body": "„Neue Aufgabe“ aus Versehen geschlossen – per Klick daneben, Escape oder ✕? Innerhalb von zwei Minuten wieder öffnen, und alles Geschriebene und Eingestellte ist zurück, markiert mit „Entwurf wiederhergestellt“. „Verwerfen & neue Aufgabe“ beginnt stattdessen mit einem leeren Dialog."
 }

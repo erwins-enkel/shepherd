@@ -4597,5 +4597,9 @@
   "feat_sentry_plugin_title": "Sentry errors become fix issues",
   "feat_sentry_plugin_body": "The bundled Sentry plugin (Settings → Plugins, off by default) polls Sentry for new, escalating or regressed errors in mapped repos, triages them read-only and files a scrubbed GitHub issue asking for a reproduction test and a fix.",
   "feat_ci_watch_plugin_title": "Failing CI becomes fix issues",
-  "feat_ci_watch_plugin_body": "The bundled CI Watch plugin (Settings → Plugins, off by default) watches default-branch CI of the repos you add, reruns a failing job once to rule out flakes, triages it read-only and files a GitHub issue asking for a reproduction and a fix."
+  "feat_ci_watch_plugin_body": "The bundled CI Watch plugin (Settings → Plugins, off by default) watches default-branch CI of the repos you add, reruns a failing job once to rule out flakes, triages it read-only and files a GitHub issue asking for a reproduction and a fix.",
+  "newtask_draft_restored": "Draft restored",
+  "newtask_draft_discard": "Discard & new task",
+  "feat_newtask_draft_restore_title": "Reopen a dismissed task draft",
+  "feat_newtask_draft_restore_body": "Closed New Task by accident — a click outside, Escape or ✕? Reopen it within two minutes and everything you wrote and set up comes back, marked \"Draft restored\". \"Discard & new task\" starts from a blank composer instead."
 }

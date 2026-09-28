@@ -126,20 +126,20 @@ kind-distribution baseline below — the overall floor only catches a catastroph
 
 ## Fixture set
 
-| id                       | kind     | gating | lang | T   | intent                                                            |
-| ------------------------ | -------- | ------ | ---- | --- | ----------------------------------------------------------------- |
-| `gate-commit-now`        | gate     | ✔      | en   | 9   | "ready to commit?" — proceed-obvious                              |
-| `question-jwt-vs-cookie` | question | ✔      | en   | 5   | real product fork needing a human                                 |
-| `finished-pr-pending`    | finished | ✔      | en   | 5   | code done, PR deliverable, not yet opened                         |
-| `complete-investigation` | complete | ✔      | en   | 5   | research/analysis, no PR to produce                               |
-| `complete-issue-created` | complete | ✔      | en   | 5   | filed a GitHub issue, nothing to PR                               |
-| `ambiguous-unknown`      | unknown  | ✔      | en   | 9   | genuinely ambiguous tail — MUST abstain to `unknown`              |
-| `gate-spec-first`        | gate     | —      | en   | 5   | prompt's own gate exemplar — **known gap** (leans question)       |
-| `de-gate-commit`         | gate     | ✔      | de   | 9   | **#1627** German proceed-obvious gate (twin of `gate-commit-now`) |
-| `de-question-approach`   | question | ✔      | de   | 9   | **#1627** German product fork — promoted from baseline            |
-| `de-ambiguous-unknown`   | unknown  | ✔      | de   | 9   | **#1627** abstain bucket under German input — headline datum      |
-| `de-gate-spec`           | gate     | —      | de   | 5   | German twin of the known-gap spec-first — baseline only           |
-| `de-finished-pr`         | finished | —      | de   | 5   | German tail — baseline before/after datum                         |
+| id                       | kind     | gating | lang | T   | intent                                                                                     |
+| ------------------------ | -------- | ------ | ---- | --- | ------------------------------------------------------------------------------------------ |
+| `gate-commit-now`        | gate     | ✔      | en   | 9   | mid-work "commit this checkpoint?" — proceed-obvious                                       |
+| `question-jwt-vs-cookie` | question | ✔      | en   | 5   | real product fork needing a human                                                          |
+| `finished-pr-pending`    | finished | ✔      | en   | 5   | code done, PR deliverable, not yet opened                                                  |
+| `complete-investigation` | complete | ✔      | en   | 5   | research/analysis, no PR to produce                                                        |
+| `complete-issue-created` | complete | ✔      | en   | 5   | filed a GitHub issue, nothing to PR                                                        |
+| `ambiguous-unknown`      | unknown  | ✔      | en   | 9   | genuinely ambiguous tail — MUST abstain to `unknown`                                       |
+| `gate-spec-first`        | gate     | —      | en   | 5   | prompt's own gate exemplar — **known gap** (leans question)                                |
+| `de-gate-commit`         | gate     | ✔      | de   | 9   | **#1627** German proceed-obvious gate (twin of `gate-commit-now`'s pre-2026-09-28 wording) |
+| `de-question-approach`   | question | ✔      | de   | 9   | **#1627** German product fork — promoted from baseline                                     |
+| `de-ambiguous-unknown`   | unknown  | ✔      | de   | 9   | **#1627** abstain bucket under German input — headline datum                               |
+| `de-gate-spec`           | gate     | —      | de   | 5   | German twin of the known-gap spec-first — baseline only                                    |
+| `de-finished-pr`         | finished | —      | de   | 5   | German tail — baseline before/after datum                                                  |
 
 `gate-spec-first` started gating and was demoted to baseline per the contingency rule after the first
 run (see **Known gaps** below).
@@ -219,6 +219,15 @@ shown at the bottom (demoted — see Known gaps).
   `T=5` runs (this one included) it scored `gate` **61/80 ≈ 0.76** (every miss `finished`), which predicts a lost majority
   in ~9% of runs — model noise, not a mislabel or a regression. It now runs at `T=9` like its German
   twin `de-gate-commit`, cutting that to ~3%. Not demoted: the label is right and the majority holds.
+
+- **`gate-commit-now` — revised (2026-09-28).** `T=9` did not hold: the nightly run lost its majority
+  again (`gate:4 finished:5`), and `gate` fell to **21/33 ≈ 0.64** over 2026-09-24…28 with no
+  classifier change — a lost `T=9` majority in ~25% of runs. The tail was under-specified, not the
+  model: "implemented and the tests pass" is the prompt's own `finished` definition, "ready to
+  commit?" its `gate` exemplar. Per rule (1) it is now a mid-work checkpoint with no done-cue ("wired
+  in; I'll write its tests next" + "commit this checkpoint first?"). Measured after the revision:
+  **27/27** `gate` over three `T=9` runs, JEV leg `DRIFT: none`. `de-gate-commit` (German twin of the
+  OLD wording, 9/9 every run) is unchanged.
 
 > The contingency rule (applied above): (1) revise a fixture only if genuinely under-specified/mislabeled;
 > (2) else demote to non-gating baseline + record here; (3) never silently lower the floor to paper over a

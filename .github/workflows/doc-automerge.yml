@@ -44,14 +44,18 @@ permissions:
   # (...checkSuite.workflowRun)" on any Actions-checked PR (the #1163 scope fix missed it).
   actions: read
 
-# One merge pass at a time; never cancel a pass mid-merge.
-concurrency:
-  group: doc-automerge
-  cancel-in-progress: false
-
 jobs:
   automerge:
     name: merge green doc PRs
+    # workflow_run fires after EVERY CI / PR-hygiene run (~1,100 no-op runs per 2 weeks); only
+    # a doc-agent branch can make a merge eligible. Schedule + dispatch still sweep everything.
+    if: github.event_name != 'workflow_run' || startsWith(github.event.workflow_run.head_branch, 'shepherd/docs-update-')
+    # One merge pass at a time; never cancel a pass mid-merge. JOB-level, not workflow-level: a
+    # run skipped by the `if:` above never acquires it, so a no-op run from an unrelated branch
+    # can't displace a pending doc-branch pass (GitHub keeps one pending run per group).
+    concurrency:
+      group: doc-automerge
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     steps:
       # Give the job git context: `gh repo view` (and gh's repo auto-detection generally) falls back

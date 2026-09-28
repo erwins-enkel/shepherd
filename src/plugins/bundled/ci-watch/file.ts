@@ -32,13 +32,17 @@ const MAX_AUTO_ATTEMPTS = 2;
 export const CI_LABEL = "ci-failure";
 /** Core's fence-label rule for `ctx.issues` untrusted sections (it rejects anything else). */
 const LABEL_MAX = 64;
+/** Core rejects more untrusted sections than this. */
+const MAX_SECTIONS = 20;
 
 /** What filing did with an accepted verdict. `duplicate`: the key already has an open issue
- *  (this verdict is covered by it); `fixed`: the key went green since the run. */
+ *  (this verdict is covered by it); `fixed`: the key went green since the run; `refused`: core
+ *  refused the call for good (`PluginIssuesError`) — retrying can't help. */
 export type Filing =
   | { status: "filed"; number: number; url: string }
   | { status: "duplicate"; number: number; url: string }
-  | { status: "fixed" };
+  | { status: "fixed" }
+  | { status: "refused"; code: string };
 
 export interface FilerDeps {
   state: PluginState;
@@ -145,6 +149,12 @@ function verdictSections(r: ClassifyRecord): PluginUntrustedSection[] {
   return out;
 }
 
+/** The code of a `ctx.issues` refusal (bad input, repo without issues) — permanent. */
+function refusal(e: unknown): string | null {
+  const x = e as { name?: unknown; code?: unknown } | null;
+  return x?.name === "PluginIssuesError" && typeof x.code === "string" ? x.code : null;
+}
+
 export function createFiler(deps: FilerDeps): FileFn {
   const { state, log } = deps;
 
@@ -184,7 +194,8 @@ export function createFiler(deps: FilerDeps): FileFn {
 
     const attempts = prev?.attempts ?? 0;
     const autoLabel = deps.repos().find((x) => x.path === r.repo)?.autoLabel;
-    const excerpt = await logExcerpt(r);
+    const verdict = verdictSections(r);
+    const excerpt = (await logExcerpt(r)).slice(-(MAX_SECTIONS - verdict.length));
     const prior = prev ? { url: prev.url, humanOnly: attempts >= MAX_AUTO_ATTEMPTS } : null;
     let res: { number: number; url: string };
     try {
@@ -192,11 +203,12 @@ export function createFiler(deps: FilerDeps): FileFn {
         title: issueTitle(r),
         body: issueBody(r, excerpt.length > 0, prior),
         labels: issueLabels(readRepoConfig(state, r.repo), autoLabel, attempts),
-        untrusted: [...excerpt, ...verdictSections(r)],
+        untrusted: [...excerpt, ...verdict],
       });
     } catch (e) {
-      log.warn(`filing ${r.id} failed: ${(e as Error).message}`);
-      return null;
+      const code = refusal(e);
+      log.warn(`filing ${r.id} failed: ${(e as Error).message}${code ? " (not retried)" : ""}`);
+      return code ? { status: "refused", code } : null;
     }
     const filed: FiledIssue = {
       number: res.number,

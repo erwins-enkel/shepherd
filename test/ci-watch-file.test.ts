@@ -12,10 +12,11 @@ import {
 } from "../src/plugins/bundled/ci-watch/file";
 import { DAILY_CAP } from "../src/plugins/bundled/ci-watch/rules";
 import { dayKey, filedToday, mapKey, type KeyRecord } from "../src/plugins/bundled/ci-watch/state";
-import type {
-  PluginIssueCreateInput,
-  PluginFailedStepLog,
-  PluginState,
+import {
+  PluginIssuesError,
+  type PluginIssueCreateInput,
+  type PluginFailedStepLog,
+  type PluginState,
 } from "../src/plugins/types";
 
 function memState(): PluginState {
@@ -233,4 +234,27 @@ test("a second filing for a key already being filed waits (null)", async () => {
   expect(a).toMatchObject({ status: "filed" });
   expect(b).toBeNull();
   expect(created).toHaveLength(1);
+});
+
+test("untrusted sections stay within core's 20: the latest logs + the triage sections", async () => {
+  logs = Array.from({ length: 25 }, (_, i) => ({
+    job: `test (leg ${i})`,
+    step: "run",
+    lines: [`FAIL ${i}`],
+    truncated: false,
+  }));
+  expect(await filer()(record(), { override: false })).toMatchObject({ status: "filed" });
+  const u = created[0]!.o.untrusted!;
+  expect(u).toHaveLength(20);
+  expect(u.at(-3)!.content).toBe("FAIL 24");
+  expect(u.slice(-2).map((x) => x.label)).toEqual(["triage hypothesis", "triage files"]);
+});
+
+test("a ctx.issues refusal is permanent (refused), not retried", async () => {
+  createError = new PluginIssuesError("invalid-input", "too many sections");
+  expect(await filer()(record(), { override: false })).toEqual({
+    status: "refused",
+    code: "invalid-input",
+  });
+  expect(keyRec().filed).toBeUndefined();
 });

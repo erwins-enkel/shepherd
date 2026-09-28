@@ -205,8 +205,14 @@ function status(st: PollStatus, t: Strings): PluginUINode[] {
   ];
 }
 
+/** Picker/heading label: forge `owner/repo`, else the directory name. */
+function repoLabel(r: PluginRepo): string {
+  return r.slug ?? r.name;
+}
+
 function repoName(p: PanelInput, path: string): string {
-  return p.available.find((r) => r.path === path)?.name ?? path;
+  const r = p.available.find((x) => x.path === path);
+  return r ? repoLabel(r) : path;
 }
 
 function repoForm(p: PanelInput, path: string, cfg: RepoConfig, t: Strings): PluginUINode {
@@ -258,7 +264,7 @@ function addRow(p: PanelInput, t: Strings): PluginUINode[] {
         label: t.repo,
         options: unconfigured
           .slice(0, MAX_REPO_OPTIONS)
-          .map((r) => ({ value: r.path, label: r.name })),
+          .map((r) => ({ value: r.path, label: repoLabel(r) })),
       },
     },
     button(t.addButton, "repo/add", { submit: true }),

@@ -139,3 +139,23 @@ test("fileAnywayText", () => {
   expect(fileAnywayText({ status: "refused", code: "forbidden" }, t)).toBe("Not filed: forbidden.");
   expect(fileAnywayText(undefined, t)).toBe(t.deferred);
 });
+
+test("repo picker + headings label by forge slug, dir name as fallback (#2556)", () => {
+  const base = { autoLabel: "shepherd:auto", lightweight: false };
+  const view = buildView({
+    settings: DEFAULT_SETTINGS,
+    status: { lastPollAt: 0, lastError: null, lastResult: {} },
+    repos: { "/r/a": DEFAULT_REPO },
+    available: [
+      { ...base, path: "/r/a", name: "a", slug: "acme/a" },
+      { ...base, path: "/r/b", name: "b", slug: "other/b" },
+      { ...base, path: "/r/c", name: "c", lightweight: true },
+    ],
+    filedToday: () => 0,
+    rejected: [],
+  });
+  const json = JSON.stringify(view);
+  expect(json).toContain('"value":"acme/a · ');
+  expect(json).toContain('{"value":"/r/b","label":"other/b"}');
+  expect(json).toContain('{"value":"/r/c","label":"c"}');
+});

@@ -217,8 +217,14 @@ function status(p: PanelInput, t: Strings): PluginUINode[] {
   ];
 }
 
+/** Picker/heading label: forge `owner/repo`, else the directory name. */
+function repoLabel(r: PluginRepo): string {
+  return r.slug ?? r.name;
+}
+
 function repoName(p: PanelInput, path: string): string {
-  return p.repos.find((r) => r.path === path)?.name ?? path;
+  const r = p.repos.find((x) => x.path === path);
+  return r ? repoLabel(r) : path;
 }
 
 function mappingRows(p: PanelInput, t: Strings): PluginUINode[] {
@@ -277,7 +283,9 @@ function addRow(p: PanelInput, t: Strings): PluginUINode[] {
       props: {
         name: "mapRepo",
         label: t.repo,
-        options: unmapped.slice(0, MAX_REPO_OPTIONS).map((r) => ({ value: r.path, label: r.name })),
+        options: unmapped
+          .slice(0, MAX_REPO_OPTIONS)
+          .map((r) => ({ value: r.path, label: repoLabel(r) })),
       },
     },
     { type: "text-input", props: { name: "mapProject", label: t.project } },

@@ -48,6 +48,7 @@ let judgeAnswer: PluginJudgeChoiceAnswer | Error;
 let triageCalls: number;
 let triageAnswer: TriageVerdict | Error;
 let hasJudge: boolean;
+let logFetches: number;
 
 const HIGH: TriageVerdict = {
   fixable: true,
@@ -117,10 +118,13 @@ function stage() {
         getRuns.push(id);
         return fresh;
       },
-      failedJobLogs: async () => [
-        { job: "test (ubuntu, 20)", step: "run tests", lines: ["FAIL x"], truncated: false },
-        { job: "lint", step: "eslint", lines: ["error y"], truncated: false },
-      ],
+      failedJobLogs: async () => (
+        logFetches++,
+        [
+          { job: "test (ubuntu, 20)", step: "run tests", lines: ["FAIL x"], truncated: false },
+          { job: "lint", step: "eslint", lines: ["error y"], truncated: false },
+        ]
+      ),
     },
     judge: hasJudge
       ? {
@@ -162,6 +166,7 @@ beforeEach(() => {
   triageCalls = 0;
   triageAnswer = HIGH;
   hasJudge = true;
+  logFetches = 0;
 });
 
 test("probe green → flaky, one rerun, nothing classified", async () => {
@@ -323,17 +328,35 @@ test("triage failure → rejected with the code", async () => {
   expect(rec(c).reason).toBe("triage failed: timeout");
 });
 
-test("triage deferred → pending; the next advance retries without re-asking JEV", async () => {
+test("triage deferred → pending, retried with backoff, logs fetched once, JEV asked once", async () => {
   triageAnswer = new PluginAgentError("cap-exceeded", "cap");
   const s = stage();
   const c = cand("eval", { workflowName: "Eval x" });
   expect(await s.process(c)).toBe("deferred");
-  expect(rec(c).outcome).toBe("pending");
-  triageAnswer = HIGH;
+  expect(rec(c)).toMatchObject({ outcome: "pending", retries: 1 });
+
+  await s.advance(); // same tick: not yet due
+  clock += 14 * 60_000;
   await s.advance();
-  expect(rec(c).outcome).toBe("accepted");
-  expect(judgeCalls.length).toBe(1);
+  expect(triageCalls).toBe(1);
+
+  clock += 60_000; // 15 min
+  await s.advance();
   expect(triageCalls).toBe(2);
+  expect(rec(c)).toMatchObject({ outcome: "pending", retries: 2 });
+  clock += 29 * 60_000; // backoff doubled to 30 min
+  await s.advance();
+  expect(triageCalls).toBe(2);
+
+  triageAnswer = HIGH;
+  clock += 60_000;
+  await s.advance();
+  expect(triageCalls).toBe(3);
+  expect(rec(c).outcome).toBe("accepted");
+  expect(rec(c)).not.toHaveProperty("logs");
+  expect(rec(c)).not.toHaveProperty("retryAt");
+  expect(judgeCalls.length).toBe(1);
+  expect(logFetches).toBe(1);
 });
 
 test("an already classified run is not re-processed", async () => {

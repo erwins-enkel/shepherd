@@ -40,6 +40,9 @@ const LOG_ITEMS = 20;
 const REASON_MAX = 300;
 /** runReadonly codes that mean "couldn't run now" — retry next advance, don't spend the triage. */
 const DEFER_CODES = new Set(["cap-exceeded", "unavailable"]);
+/** Backoff for a deferred triage: doubles per retry from 15 min, capped at 6 h. */
+const RETRY_BASE_MS = 15 * 60_000;
+const RETRY_MAX_MS = 6 * 60 * 60_000;
 
 export interface TriageVerdict {
   fixable: boolean;
@@ -51,6 +54,13 @@ export interface TriageVerdict {
 
 export type JevResult =
   { choice: string; p: number; probabilities: Record<string, number> } | { error: string };
+
+/** The log input for one key, fetched once per record (kept on a deferred record so its retry
+ *  doesn't download the logs again). */
+export interface LogInput {
+  steps: string[];
+  sections: PluginUntrustedSection[];
+}
 
 /** How the flake probe ended for a candidate. */
 export type ProbeResult = "glob" | "rerun-failed" | "missing" | "timeout" | "red" | "green";
@@ -75,6 +85,10 @@ export interface ClassifyRecord {
   reason: string;
   overridden: boolean;
   updatedAt: string;
+  /** Deferred triage only: the cached log input, the retry count and when to retry next. */
+  logs?: LogInput;
+  retries?: number;
+  retryAt?: number;
 }
 
 /** One rerun shared by every key of a run, at `probe:<repo>:<runId>`. */
@@ -212,37 +226,54 @@ export function createClassifier(deps: ClassifyDeps): Classifier {
     return next;
   }
 
-  function reject(r: ClassifyRecord, stage: "jev" | "triage", reason: string) {
-    return save({ ...r, outcome: "rejected", stage, reason: truncate(reason, REASON_MAX) });
+  /** A settled record: drop the deferred-retry fields. */
+  function settle(r: ClassifyRecord): ClassifyRecord {
+    const rest = { ...r };
+    delete rest.logs;
+    delete rest.retries;
+    delete rest.retryAt;
+    return save(rest);
   }
 
-  async function fetchLogs(r: ClassifyRecord): Promise<PluginFailedStepLog[]> {
+  function reject(r: ClassifyRecord, stage: "jev" | "triage", reason: string) {
+    return settle({ ...r, outcome: "rejected", stage, reason: truncate(reason, REASON_MAX) });
+  }
+
+  async function fetchLogs(r: ClassifyRecord): Promise<LogInput> {
+    if (r.logs) return r.logs;
     try {
-      return jobLogs(await deps.runs.failedJobLogs(r.repo, r.runId), r.job);
+      const logs = jobLogs(await deps.runs.failedJobLogs(r.repo, r.runId), r.job);
+      return { steps: logs.map((l) => l.step), sections: logSections(logs) };
     } catch (e) {
       log.warn(`logs for ${r.id} unavailable: ${(e as Error).message}`);
-      return [];
+      return { steps: [], sections: [] };
     }
   }
 
-  function context(r: ClassifyRecord, logs: PluginFailedStepLog[]): string {
+  function defer(r: ClassifyRecord, logs: LogInput): ClassifyRecord {
+    const retries = (r.retries ?? 0) + 1;
+    const wait = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** (retries - 1));
+    return save({ ...r, outcome: "pending", logs, retries, retryAt: deps.now().getTime() + wait });
+  }
+
+  function context(r: ClassifyRecord, logs: LogInput): string {
     const recent = readKey(state, r.key)?.recent ?? [];
     return [
       `Workflow: ${r.workflowName} (${r.workflowFile})`,
       `Job: ${r.job}`,
-      `Failed steps: ${logs.map((l) => l.step).join(", ") || "(log unavailable)"}`,
+      `Failed steps: ${logs.steps.join(", ") || "(log unavailable)"}`,
       `Recent conclusions for this job, oldest first: ${recent.join(", ") || "(none)"}`,
     ].join("\n");
   }
 
-  async function askJudge(r: ClassifyRecord, logs: PluginFailedStepLog[]): Promise<JevResult> {
+  async function askJudge(r: ClassifyRecord, logs: LogInput): Promise<JevResult> {
     if (!deps.judge) return { error: "unavailable" };
     try {
       const a = await deps.judge.choice({
         instructions: JEV_INSTRUCTIONS,
         options: { ...JEV_CLASSES },
         context: context(r, logs),
-        untrusted: logSections(logs),
+        untrusted: logs.sections,
       });
       return { choice: a.choice, p: jevGate(a).p, probabilities: a.probabilities };
     } catch (e) {
@@ -250,13 +281,13 @@ export function createClassifier(deps: ClassifyDeps): Classifier {
     }
   }
 
-  async function triage(r: ClassifyRecord, logs: PluginFailedStepLog[]): Promise<ClassifyRecord> {
+  async function triage(r: ClassifyRecord, logs: LogInput): Promise<ClassifyRecord> {
     let v: TriageVerdict;
     try {
       v = (await deps.agents.runReadonly({
         repo: r.repo,
         prompt: `${PROMPT}\n\n${context(r, logs)}\nRun: ${r.runUrl}\nCommit: ${r.headSha}`,
-        untrusted: logSections(logs),
+        untrusted: logs.sections,
         schema: TRIAGE_SCHEMA,
         model,
         timeoutMs,
@@ -265,13 +296,13 @@ export function createClassifier(deps: ClassifyDeps): Classifier {
       const code = errCode(e, "PluginAgentError") ?? "error";
       if (DEFER_CODES.has(code)) {
         log.warn(`triage ${r.id} deferred: ${code}`);
-        return save({ ...r, outcome: "pending" });
+        return defer(r, logs);
       }
       log.warn(`triage ${r.id} failed: ${code}`);
       return reject(r, "triage", `triage failed: ${code}`);
     }
     if (v.fixable && v.confidence === "high") {
-      return save({
+      return settle({
         ...r,
         outcome: "accepted",
         verdict: v,
@@ -407,7 +438,8 @@ export function createClassifier(deps: ClassifyDeps): Classifier {
         if (p) await advanceProbe(p);
       }
       for (const r of records(TRIAGE_PREFIX) as ClassifyRecord[]) {
-        if (r?.outcome === "pending") await guarded(r.id, null, () => classify(r));
+        if (r?.outcome !== "pending" || (r.retryAt ?? 0) > deps.now().getTime()) continue;
+        await guarded(r.id, null, () => classify(r));
       }
     },
 

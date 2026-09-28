@@ -23,6 +23,7 @@ const MAX_INSTRUCTIONS = 4_000;
 const MAX_OPTIONS = 8;
 const MAX_UNTRUSTED_ITEMS = 20;
 const MAX_TOTAL_CHARS = 32_000;
+const MAX_LABEL_CHARS = 80;
 
 function invalid(message: string): never {
   throw new PluginJudgeError("invalid-args", message);
@@ -30,6 +31,12 @@ function invalid(message: string): never {
 
 function isStr(v: unknown): v is string {
   return typeof v === "string";
+}
+
+/** One-line, fence-safe label (same rule as `ctx.agents`): the fence marker is
+ *  `⟦UNTRUSTED:<label>:<nonce>⟧`, so a label must not carry marker glyphs or newlines. */
+function safeLabel(label: string): string {
+  return label.replace(/[^A-Za-z0-9 _.-]+/g, "-").slice(0, MAX_LABEL_CHARS) || "input";
 }
 
 function checkUntrusted(u: unknown): PluginUntrustedSection[] {
@@ -43,7 +50,10 @@ function checkUntrusted(u: unknown): PluginUntrustedSection[] {
       invalid("each untrusted item needs a string label and content");
     }
   }
-  return u as PluginUntrustedSection[];
+  return (u as PluginUntrustedSection[]).map((s) => ({
+    label: safeLabel(s.label),
+    content: s.content,
+  }));
 }
 
 /** Validate a plugin's options; returns the checked parts. */

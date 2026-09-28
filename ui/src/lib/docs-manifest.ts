@@ -36,6 +36,12 @@ export const DOCS_PAGES: readonly DocsPage[] = [
       "run shepherd as a systemd service, expose it over tailscale, and deploy code changes. run as a systemd user service if the hud freezes expose it over the network deploy a code change backups & restore preview detection agent clis managed by mise the claude code install row claude code version and model support agent launch inside the sandbox host tuning — tmpfs inodes host tuning — resource guardrails add a limit (one click) add a limit (copy-paste) herdr restarts and the task limit",
   },
   {
+    title: "CI Watch",
+    path: "/reference/ci-watch/",
+    keywords:
+      "turn failing default-branch ci into triaged github issues shepherd can fix — setup, thresholds, flake probe. 1. enable it 2. watch repositories what gets filed rejected by triage lifecycle sync status",
+  },
+  {
     title: "CLI reference",
     path: "/reference/cli/",
     keywords: "operator-facing herdr cli commands, generated from live --help.",

@@ -9,11 +9,20 @@ export interface Settings {
   pollMinutes: number;
   /** Workflow-name globs that skip the flake probe (slow, sampled evals — a rerun proves nothing). */
   probeSkipGlobs: string[];
+  /** Panel language — the server has no operator locale. */
+  locale: Locale;
 }
 
-const DEFAULT_SETTINGS: Settings = { enabled: false, pollMinutes: 5, probeSkipGlobs: ["Eval*"] };
-const POLL_MINUTES = { min: 1, max: 1440 };
-const THRESHOLD = { min: 1, max: 20 };
+export type Locale = "en" | "de";
+
+export const DEFAULT_SETTINGS: Settings = {
+  enabled: false,
+  pollMinutes: 5,
+  probeSkipGlobs: ["Eval*"],
+  locale: "en",
+};
+export const POLL_MINUTES = { min: 1, max: 1440 };
+export const THRESHOLD = { min: 1, max: 20 };
 
 /** Per-workflow threshold override; `glob` matches the workflow NAME (`*`/`?`, case-insensitive). */
 export interface ThresholdOverride {
@@ -98,7 +107,7 @@ export interface PollStatus {
 
 const EMPTY_STATUS: PollStatus = { lastPollAt: 0, lastError: null, lastResult: {} };
 
-function clampInt(v: unknown, lo: number, hi: number, fallback: number): number {
+export function clampInt(v: unknown, lo: number, hi: number, fallback: number): number {
   return typeof v === "number" && Number.isFinite(v)
     ? Math.min(hi, Math.max(lo, Math.round(v)))
     : fallback;
@@ -119,7 +128,12 @@ export function readSettings(state: PluginState): Settings {
     probeSkipGlobs: Array.isArray(s.probeSkipGlobs)
       ? s.probeSkipGlobs.filter((g) => typeof g === "string" && g.trim()).map((g) => g.trim())
       : DEFAULT_SETTINGS.probeSkipGlobs,
+    locale: s.locale === "de" ? "de" : "en",
   };
+}
+
+export function writeSettings(state: PluginState, s: Settings): void {
+  state.set("settings", s);
 }
 
 function normalizeRepo(raw: Partial<RepoConfig> | undefined): RepoConfig {
@@ -136,8 +150,22 @@ function normalizeRepo(raw: Partial<RepoConfig> | undefined): RepoConfig {
   };
 }
 
+const readRepoMap = (state: PluginState) =>
+  state.get<Record<string, Partial<RepoConfig>>>("repos") ?? {};
+
 export function readRepoConfig(state: PluginState, repo: string): RepoConfig {
-  return normalizeRepo(state.get<Record<string, Partial<RepoConfig>>>("repos")?.[repo]);
+  return normalizeRepo(readRepoMap(state)[repo]);
+}
+
+/** Every configured repo (watched or not), by path. */
+export function readRepoConfigs(state: PluginState): Record<string, RepoConfig> {
+  return Object.fromEntries(
+    Object.entries(readRepoMap(state)).map(([repo, raw]) => [repo, normalizeRepo(raw)]),
+  );
+}
+
+export function writeRepoConfig(state: PluginState, repo: string, cfg: RepoConfig): void {
+  state.set("repos", { ...readRepoMap(state), [repo]: cfg });
 }
 
 export function readCursor(state: PluginState, repo: string): Cursor {

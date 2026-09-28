@@ -405,7 +405,9 @@ test("file anyway: rejected → accepted (overridden); unknown 404, non-rejected
   const listed = await (await routes.get("GET triage/rejected")!(new Request("http://x"))).json();
   expect(listed).toHaveLength(1);
 
-  expect((await post(rec(c).id)).status).toBe(200);
+  const ok = await post(rec(c).id);
+  expect(ok.status).toBe(200);
+  expect(await ok.text()).toMatch(/^(Filed #\d+|Already tracked|Not filed|Accepted)/);
   expect(rec(c)).toMatchObject({ outcome: "accepted", overridden: true });
   expect(keyRec(c).classified?.outcome).toBe("accepted");
   expect(s.rejected()).toEqual([]);

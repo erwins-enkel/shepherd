@@ -64,6 +64,14 @@ export const PAGES = [
   },
   {
     srcDir: "docs",
+    src: "ci-watch.md",
+    dest: "reference/ci-watch.md",
+    linkBase: GITHUB_DOCS_BASE,
+    title: "CI Watch",
+    description: "Turn failing default-branch CI into triaged GitHub issues Shepherd can fix — setup, thresholds, flake probe.",
+  },
+  {
+    srcDir: "docs",
     src: "external-task-api.md",
     dest: "reference/external-task-api.md",
     linkBase: GITHUB_DOCS_BASE,

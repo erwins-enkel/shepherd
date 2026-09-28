@@ -12,6 +12,7 @@
     "judge",
     "routes",
     "issues",
-    "sessions"
+    "sessions",
+    "ui"
   ]
 }

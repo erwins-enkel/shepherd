@@ -36,7 +36,7 @@ and documented. Specific plugin **implementations** stay private under
 - **Bundled plugins** ship inside Shepherd (`src/plugins/bundled/`) and load after the
   plugins dir, so an installed plugin with the same `id` wins. They keep their settings in
   `ctx.state` (their folder is the source tree, so `ctx.config` is `{}` and `ctx.setConfig`
-  rejects) and can't be uninstalled. Today: [Sentry](sentry.md), off until enabled in its panel.
+  rejects) and can't be uninstalled. Today: [Sentry](sentry.md) and [CI Watch](ci-watch.md), each off until enabled in its panel.
 - A **missing or empty** plugins dir is a clean no-op: no hooks and `/api/plugins/<id>/*`
   returns 404 — a fresh clone behaves exactly as a stock Shepherd. The Settings → Plugins
   tab still renders (so you can install the first plugin), just with an empty list.

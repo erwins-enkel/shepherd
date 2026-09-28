@@ -9,13 +9,13 @@ The slowest pipeline is now `native`: since #2444 (2026-09-22) added the iOS-sim
 
 Recommended changes, cheapest and highest-impact first:
 
-| #   | Change                                                                                            | Effect (est.)                                                         | Effort |
-| --- | ------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ------ |
-| 1   | `bun test --parallel` for the root suite                                                          | root tests 124 s → ~45 s on CI (measured locally 101 s → 31 s)        | 1 line |
-| 2   | Split `verify` into parallel jobs behind an aggregator job that keeps the **`verify`** name       | PR gate 7.4 → ~2.5–3 min                                              | S      |
-| 3   | Path-aware job skipping via a `changes` job + job-level `if:` (not workflow `paths:`)             | ~18 % of PRs skip most of verify; site/docs-site/cli skip on most PRs | S–M    |
-| 4   | `native`: drop the `needs:` chain; stop triggering on `ui/messages/*.json`                        | native 28.6 → ~12–15 min; ~20 % fewer macOS runs                      | S      |
-| 5   | Noise: gate doc-automerge at job level, CodeQL `paths-ignore` for docs, cache Playwright browsers | ~1,000 fewer no-op runs / 2 wks; ~15 s per UI job                     | XS     |
+| #   | Change                                                                                            | Effect (est.)                                                           | Effort |
+| --- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ------ |
+| 1   | `bun test --parallel` for the root suite (in `ci.yml` and `scripts/pre-push.ts`)                  | root tests 124 s → ~45 s on CI (measured locally 101 s → 31 s)          | XS     |
+| 2   | Split `verify` into parallel jobs behind an aggregator job that keeps the **`verify`** name       | PR gate 7.4 → ~2.5–3 min                                                | S      |
+| 3   | Path-aware job skipping via a `changes` job + job-level `if:` (not workflow `paths:`)             | test-root skips ~19 %, ui ~26 %, docs-site ~29 %, site/cli ~57 % of PRs | S–M    |
+| 4   | `native`: drop the `needs:` chain; stop triggering on `ui/messages/*.json`                        | native 28.6 → ~12–15 min; ~20 % fewer macOS runs                        | S      |
+| 5   | Noise: gate doc-automerge at job level, CodeQL `paths-ignore` for docs, cache Playwright browsers | ~1,000 fewer no-op runs / 2 wks; ~15 s per UI job                       | XS     |
 
 Runner time is free here: the repo is public and the self-hosted runner is retired. What costs us is wall-clock time, and every open PR's autopilot/critic waits for it. So every item above trades extra runner-minutes for less waiting.
 
@@ -120,7 +120,12 @@ Local spike on this branch, with the same env as the CI step:
 
 The `--randomize` failures are **not** caused by parallelism. The contract "coverage gate" tests assert that every operation was exercised by earlier tests in the same file, so they depend on test order within a file. Don't combine the two flags.
 
-On CI, root tests run about 1.28× slower than locally (129 s vs 101 s), and `ubuntu-latest` has 4 vCPUs. That puts **~40–50 s** within reach. The change is `"test": "bun test --parallel ./test"`, and the pre-push hook's root lane gets the same speedup for free.
+On CI, root tests run about 1.28× slower than locally (129 s vs 101 s), and `ubuntu-latest` has 4 vCPUs. That puts **~40–50 s** within reach.
+
+There are two places to edit, and `package.json`'s `test` script is not one of them: neither CI nor the hook calls it.
+
+- **`.github/workflows/ci.yml`**: the `Test (root)` step runs `bun test ./test` directly. Change it to `bun test --parallel ./test`; on the 4-vCPU runner that means 4 workers.
+- **`scripts/pre-push.ts`**: the `root-tests` lane spawns `bun` with `["test", "./test"]`. Pass `--parallel=${maxWorkers}` using the value `computeConcurrency()` already returns. A bare `--parallel` starts one worker per core, which breaks the hook's `laneCap × maxWorkers ≤ cores` budget while the other lanes run alongside it.
 
 Before landing it, loop the suite 10+ times under `--parallel` on a CI runner. The tests share `SHEPHERD_REPO_ROOT` and real git repos, so check for temp-dir or port collisions (`BUN_TEST_WORKER_ID` is available to give each worker its own resources). Also watch #1731 (test storms exhausting the host): locally, `--parallel` with no N means one worker per core, which is 31 on the operator box.
 
@@ -145,13 +150,13 @@ Vitest supports `--shard` together with `--project`; the shards can upload `--re
 Costs and risks:
 
 - **Concurrency.** The org is on the Team plan: 60 concurrent jobs, **5 macOS**. The observed Linux peak (CI + native + CodeQL only) was 23 concurrent jobs. Going from 4 CI jobs to 8 per PR could approach 60 during agent bursts, and the jobs would then queue. Start with 2 browser shards, and watch job queue time (currently 2 s median).
-- **Pre-push sync.** `ci.yml` and `scripts/pre-push.ts` are hand-mirrored (see the comment at the top of `verify`). The split is a CI-only restructuring, but the parallel root test should go into both.
+- **Pre-push sync.** `ci.yml` and `scripts/pre-push.ts` are hand-mirrored (see the comment at the top of `verify`). The split is a CI-only restructuring, but the parallel root test goes into both (see #1).
 
 ### 3. Path-aware skipping without breaking required checks
 
 Workflow-level `paths:` stays off for required checks (#1859): a check that never reports blocks the merge forever. But a job skipped by a **job-level `if:`** reports "skipped", which the ruleset counts as passing (`ci.yml` already relies on this for release-please). The standard pattern:
 
-1. Add a `changes` job, about 10 s. It runs `git diff --name-only origin/$base...HEAD` in a small in-repo script. That avoids a new third-party action on a public repo; `dorny/paths-filter` works too, pinned by SHA.
+1. Add a `changes` job, about 10 s. It runs `git diff --name-only origin/$base...HEAD` in a small in-repo script, so it needs `fetch-depth: 0` (or at least the merge base). That avoids a new third-party action on a public repo; `dorny/paths-filter` works too, pinned by SHA.
 2. The script outputs booleans such as `server`, `ui`, `extension`, `docs_site`, `site`, `cli` and `docs_only`.
 3. Each heavy job gets `needs: changes` and `if: needs.changes.outputs.X == 'true'`.
 4. The aggregator lists which of its jobs are allowed to be skipped.
@@ -166,14 +171,28 @@ Suggested mapping:
 
 | Output      | Paths                                                                                           | Gates                              |
 | ----------- | ----------------------------------------------------------------------------------------------- | ---------------------------------- |
-| `server`    | `src/**`, `test/**`, `deploy/**`, `ci/**`, `examples/**` + global                               | test-root                          |
-| `ui`        | `ui/**` + server (ui imports server types) + global                                             | test-ui, test-ui-browser           |
+| `server`    | `src/**`, `test/**`, `deploy/**`, `ci/**`, `examples/**`, `native/**`, `docs-site/**` + global  | test-root                          |
+| `ui`        | `ui/**`, `src/**` (ui imports server types) + global                                            | test-ui, test-ui-browser           |
 | `extension` | `extension/**` + global                                                                         | extension test/build               |
 | `site`      | `site/**` + global                                                                              | `site` job (required; skip = pass) |
 | `docs_site` | `docs-site/**`, `docs/**`, `src/**` (TypeDoc reads it), anything `sync-docs.mjs` reads + global | `docs-site` job                    |
 | `cli`       | `cli/**`, `contracts/openapi*.yaml`, `scripts/check-cli.sh` + global                            | `cli` job                          |
 
-From the merge history, docs-only (14) plus native-only (14) PRs, about **18 %**, would skip all of test-root, test-ui and the browser shards. `site` would skip on ~99 % of PRs, and `cli` on ~95 %.
+`native/**` and `docs-site/**` belong in the `server` trigger because the root suite reads files there, and nothing else runs those tests. Examples: `test/contract/native-app-core-boundary.test.ts`, `test/contract/native-ui-isolation.test.ts`, `test/native-test-conservation.test.ts`, `test/native-fixture-conservation.test.ts`, `test/docs-site-gitignore.test.ts`, `test/host-capacity-doc-anchor.test.ts`.
+
+Applied to the 155 merges, this mapping gives:
+
+| Lane             | Runs on | Skips on |
+| ---------------- | ------- | -------- |
+| test-root        | 81 %    | **19 %** |
+| test-ui + shards | 74 %    | **26 %** |
+| docs-site        | 71 %    | **29 %** |
+| site             | 43 %    | **57 %** |
+| cli              | 43 %    | **57 %** |
+
+The global triggers decide most of this: they fire on **64 of 155 merges (41 %)**. That comes mostly from `scripts/**` (the eval scripts, `pre-push.ts`, the generators), `package.json`/`bun.lock`, `.github/**` and `contracts/**`. Tightening them is the main lever. For example, `scripts/eval-*` only needs the lanes that import it, not every lane. It's also the main risk, so keep the default broad and narrow it one path at a time.
+
+So #3 gives a real but modest gain. It saves runner slots and keeps queues short more than it cuts wall-clock time, because #2 already brings the critical path down to about 3 min.
 
 ### 4. `native`: parallelise and narrow the trigger
 
@@ -186,7 +205,7 @@ From the merge history, docs-only (14) plus native-only (14) PRs, about **18 %**
 - **Auto-merge doc PRs:** 1,105 runs in 2 weeks, nearly all no-ops. Add a job-level `if:` so the job only runs when `github.event.workflow_run.head_branch` starts with `shepherd/docs-update-`, or when the event isn't `workflow_run` (schedule or dispatch). The daily schedule and the per-PR re-derivation still catch anything missed.
 - **CodeQL:** not a required check, so `paths-ignore: ['docs/**', '**/*.md']` on `pull_request` is safe. Push-to-main and the weekly scan keep full coverage.
 - **Cache `~/.cache/ms-playwright`**, keyed on the Playwright version in `ui/bun.lock`, in the browser lane(s). That saves most of the 20 s install. `--with-deps` still needs the apt step on a cache miss.
-- **`fetch-depth: 0`** is only needed by the fallow audit. Keep it in `static` and use shallow checkouts elsewhere.
+- **Keep `fetch-depth: 0`** in `static` (fallow's base diff), `test-root` (`test/native-fixture-conservation.test.ts` fetches pinned commits `83e8d45`/`c4961c4` from the checkout) and `changes` (it diffs against `origin/$base`). Only `test-ui`, the browser shards, `site`, `docs-site` and `cli` can use shallow checkouts. The saving is small, since checkout takes 6 s at full depth.
 
 ## Considered and not recommended
 
@@ -198,7 +217,7 @@ From the merge history, docs-only (14) plus native-only (14) PRs, about **18 %**
 
 ## Suggested rollout
 
-1. PR A: `--parallel` for root tests (package.json + pre-push), after a 10× loop on a CI runner.
+1. PR A: `--parallel` for root tests (`ci.yml` step + `pre-push.ts` lane with `--parallel=${maxWorkers}`), after a 10× loop on a CI runner.
 2. PR B: `native` `needs:` removal and the trigger narrowing.
 3. PR C: `verify` → aggregator plus parallel lanes, including browser shards.
 4. PR D: `changes` job and job-level gating.

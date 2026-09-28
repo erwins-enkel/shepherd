@@ -112,8 +112,9 @@ describe("resolve_source", () => {
 });
 
 describe("install_deps", () => {
-  /** Stub `bun` on PATH: logs `pwd|args` per call, fails the first `failFirst` calls. */
-  function stubBun(failFirst: number): { binDir: string; log: string } {
+  /** Stub `bun` on PATH: logs `pwd|args` per call, fails the first `failFirst` calls and every
+   *  call whose args equal `alwaysFail`. */
+  function stubBun(failFirst: number, alwaysFail = ""): { binDir: string; log: string } {
     const work = tmp();
     const binDir = join(work, "bin");
     mkdirSync(binDir);
@@ -121,6 +122,7 @@ describe("install_deps", () => {
     writeFileSync(
       join(binDir, "bun"),
       `#!/usr/bin/env bash\necho "$(pwd -P)|$*" >> "${log}"\n` +
+        `[ "$*" = "${alwaysFail}" ] && exit 1\n` +
         `n=$(wc -l < "${log}")\n[ "$n" -le ${failFirst} ] && exit 1\nexit 0\n`,
       { mode: 0o755 },
     );
@@ -131,28 +133,47 @@ describe("install_deps", () => {
     return spawnSync("cat", [log], { encoding: "utf8" }).stdout.trim().split("\n");
   }
 
-  it("transient failure ⇒ retried in $SHEPHERD_DIR, then succeeds", () => {
+  function run(
+    failFirst: number,
+    alwaysFail = "",
+  ): { dir: string; r: ReturnType<typeof runLib>; log: string } {
     const dir = realpathSync(tmp());
-    const { binDir, log } = stubBun(1);
+    const { binDir, log } = stubBun(failFirst, alwaysFail);
     const r = runLib("install_deps", {
       PATH: `${binDir}:${process.env.PATH}`,
       SHEPHERD_DIR: dir,
       SHEPHERD_RETRY_DELAY: "0",
     });
+    return { dir, r, log };
+  }
+
+  it("node-gyp first, then bun install in $SHEPHERD_DIR", () => {
+    const { dir, r, log } = run(0);
     expect(r.status).toBe(0);
-    expect(calls(log)).toEqual([`${dir}|install`, `${dir}|install`]);
+    expect(calls(log)).toEqual([`${dir}|add -g node-gyp`, `${dir}|install`]);
   });
 
-  it("persistent failure ⇒ non-zero exit with a clear message", () => {
-    const dir = tmp();
-    const { binDir, log } = stubBun(99);
-    const r = runLib("install_deps", {
-      PATH: `${binDir}:${process.env.PATH}`,
-      SHEPHERD_DIR: dir,
-      SHEPHERD_RETRY_DELAY: "0",
-    });
+  it("transient failure ⇒ retried, then continues to bun install", () => {
+    const { dir, r, log } = run(1);
+    expect(r.status).toBe(0);
+    expect(calls(log)).toEqual([
+      `${dir}|add -g node-gyp`,
+      `${dir}|add -g node-gyp`,
+      `${dir}|install`,
+    ]);
+  });
+
+  it("persistent node-gyp failure ⇒ non-zero exit, bun install never runs", () => {
+    const { r, log } = run(99);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("node-gyp install failed");
+    expect(calls(log)).toHaveLength(2);
+  });
+
+  it("persistent bun install failure ⇒ non-zero exit with a clear message", () => {
+    const { r, log } = run(0, "install");
     expect(r.status).not.toBe(0);
     expect(r.stderr).toContain("bun install failed");
-    expect(calls(log)).toHaveLength(2);
+    expect(calls(log)).toHaveLength(3);
   });
 });

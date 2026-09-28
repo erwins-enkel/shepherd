@@ -34,7 +34,7 @@
 # Test seams (override OS detection; never set in real use):
 #   SHEPHERD_UNAME_S  Overrides `uname -s`.
 #   SHEPHERD_UNAME_M  Overrides `uname -m`.
-#   SHEPHERD_RETRY_DELAY  Seconds between `bun install` retries (default 3).
+#   SHEPHERD_RETRY_DELAY  Seconds between `bun add`/`bun install` retries (default 3).
 set -euo pipefail
 
 REPO_URL="https://github.com/erwins-enkel/shepherd.git"
@@ -189,9 +189,13 @@ retry() {
 
 # install_deps: install root deps BEFORE the provision.ts hand-off. provision's import graph
 # needs npm packages (jsonrepair); without node_modules Bun would auto-install them at import
-# time with no retry, so a single registry flake killed the install (#2537).
+# time with no retry, so a single registry flake killed the install (#2537). node-gyp goes first
+# (as in provision.ts ensureNodeGyp): node-pty's install falls back to `node-gyp rebuild` on
+# hosts with no prebuilt, and node-gyp is only its devDependency. install_bun put ~/.bun/bin on PATH.
 install_deps() {
   cd "$SHEPHERD_DIR" || die "cannot cd into $SHEPHERD_DIR"
+  note "installing node-gyp (node-pty build dep)"
+  retry 2 bun add -g node-gyp || die "node-gyp install failed"
   note "installing dependencies (bun install)"
   retry 2 bun install || die "bun install failed in $SHEPHERD_DIR"
 }

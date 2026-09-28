@@ -13,7 +13,7 @@ Recommended changes, cheapest and highest-impact first:
 | --- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ------ |
 | 1   | `bun test --parallel` for the root suite (in `ci.yml` and `scripts/pre-push.ts`)                  | root tests 124 s → ~45 s on CI (measured locally 101 s → 31 s)          | XS     |
 | 2   | Split `verify` into parallel jobs behind an aggregator job that keeps the **`verify`** name       | PR gate 7.4 → ~2.5–3 min                                                | S      |
-| 3   | Path-aware job skipping via a `changes` job + job-level `if:` (not workflow `paths:`)             | test-root skips ~19 %, ui ~26 %, docs-site ~29 %, site/cli ~57 % of PRs | S–M    |
+| 3   | Path-aware job skipping via a `changes` job + job-level `if:` (not workflow `paths:`)             | test-root skips ~19 %, ui ~21 %, docs-site ~29 %, site/cli ~57 % of PRs | S–M    |
 | 4   | `native`: drop the `needs:` chain; stop triggering on `ui/messages/*.json`                        | native 28.6 → ~12–15 min; ~20 % fewer macOS runs                        | S      |
 | 5   | Noise: gate doc-automerge at job level, CodeQL `paths-ignore` for docs, cache Playwright browsers | ~1,000 fewer no-op runs / 2 wks; ~15 s per UI job                       | XS     |
 
@@ -169,14 +169,14 @@ Rules should fail **open**:
 
 Suggested mapping:
 
-| Output      | Paths                                                                                           | Gates                              |
-| ----------- | ----------------------------------------------------------------------------------------------- | ---------------------------------- |
-| `server`    | `src/**`, `test/**`, `deploy/**`, `ci/**`, `examples/**`, `native/**`, `docs-site/**` + global  | test-root                          |
-| `ui`        | `ui/**`, `src/**` (ui imports server types) + global                                            | test-ui, test-ui-browser           |
-| `extension` | `extension/**` + global                                                                         | extension test/build               |
-| `site`      | `site/**` + global                                                                              | `site` job (required; skip = pass) |
-| `docs_site` | `docs-site/**`, `docs/**`, `src/**` (TypeDoc reads it), anything `sync-docs.mjs` reads + global | `docs-site` job                    |
-| `cli`       | `cli/**`, `contracts/openapi*.yaml`, `scripts/check-cli.sh` + global                            | `cli` job                          |
+| Output      | Paths                                                                                                         | Gates                              |
+| ----------- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
+| `server`    | `src/**`, `test/**`, `deploy/**`, `ci/**`, `examples/**`, `native/**`, `docs-site/**` + global                | test-root                          |
+| `ui`        | `ui/**`, `src/**` (ui imports server types), `test/**` (ui tests load `test/fixtures/*-parity.json`) + global | test-ui, test-ui-browser           |
+| `extension` | `extension/**` + global                                                                                       | extension test/build               |
+| `site`      | `site/**` + global                                                                                            | `site` job (required; skip = pass) |
+| `docs_site` | `docs-site/**`, `docs/**`, `src/**` (TypeDoc reads it), anything `sync-docs.mjs` reads + global               | `docs-site` job                    |
+| `cli`       | `cli/**`, `contracts/openapi*.yaml`, `scripts/check-cli.sh` + global                                          | `cli` job                          |
 
 `native/**` and `docs-site/**` belong in the `server` trigger because the root suite reads files there, and nothing else runs those tests. Examples: `test/contract/native-app-core-boundary.test.ts`, `test/contract/native-ui-isolation.test.ts`, `test/native-test-conservation.test.ts`, `test/native-fixture-conservation.test.ts`, `test/docs-site-gitignore.test.ts`, `test/host-capacity-doc-anchor.test.ts`.
 
@@ -185,7 +185,7 @@ Applied to the 155 merges, this mapping gives:
 | Lane             | Runs on | Skips on |
 | ---------------- | ------- | -------- |
 | test-root        | 81 %    | **19 %** |
-| test-ui + shards | 74 %    | **26 %** |
+| test-ui + shards | 79 %    | **21 %** |
 | docs-site        | 71 %    | **29 %** |
 | site             | 43 %    | **57 %** |
 | cli              | 43 %    | **57 %** |

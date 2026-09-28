@@ -8,7 +8,7 @@
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -108,5 +108,51 @@ describe("resolve_source", () => {
     // the pre-existing file must still be intact (never clobbered)
     const check = spawnSync("cat", [marker], { encoding: "utf8" });
     expect(check.stdout).toBe("do not touch me\n");
+  });
+});
+
+describe("install_deps", () => {
+  /** Stub `bun` on PATH: logs `pwd|args` per call, fails the first `failFirst` calls. */
+  function stubBun(failFirst: number): { binDir: string; log: string } {
+    const work = tmp();
+    const binDir = join(work, "bin");
+    mkdirSync(binDir);
+    const log = join(work, "calls.log");
+    writeFileSync(
+      join(binDir, "bun"),
+      `#!/usr/bin/env bash\necho "$(pwd -P)|$*" >> "${log}"\n` +
+        `n=$(wc -l < "${log}")\n[ "$n" -le ${failFirst} ] && exit 1\nexit 0\n`,
+      { mode: 0o755 },
+    );
+    return { binDir, log };
+  }
+
+  function calls(log: string): string[] {
+    return spawnSync("cat", [log], { encoding: "utf8" }).stdout.trim().split("\n");
+  }
+
+  it("transient failure ⇒ retried in $SHEPHERD_DIR, then succeeds", () => {
+    const dir = realpathSync(tmp());
+    const { binDir, log } = stubBun(1);
+    const r = runLib("install_deps", {
+      PATH: `${binDir}:${process.env.PATH}`,
+      SHEPHERD_DIR: dir,
+      SHEPHERD_RETRY_DELAY: "0",
+    });
+    expect(r.status).toBe(0);
+    expect(calls(log)).toEqual([`${dir}|install`, `${dir}|install`]);
+  });
+
+  it("persistent failure ⇒ non-zero exit with a clear message", () => {
+    const dir = tmp();
+    const { binDir, log } = stubBun(99);
+    const r = runLib("install_deps", {
+      PATH: `${binDir}:${process.env.PATH}`,
+      SHEPHERD_DIR: dir,
+      SHEPHERD_RETRY_DELAY: "0",
+    });
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("bun install failed");
+    expect(calls(log)).toHaveLength(2);
   });
 });

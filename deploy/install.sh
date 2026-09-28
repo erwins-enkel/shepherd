@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/erwins-enkel/shepherd/main/deploy/install.sh | bash
 #
 # THIN bootstrap: does only what must happen before Bun + a checkout exist — OS
-# detect, distro OS-prereqs, install Bun, land the repo — then hands off to
+# detect, distro OS-prereqs, install Bun, land the repo, install deps — then hands off to
 # `deploy/provision.ts` (run FROM the checkout), which finishes provisioning from
 # the shared remediation table (src/remediations.ts).
 #
@@ -34,6 +34,7 @@
 # Test seams (override OS detection; never set in real use):
 #   SHEPHERD_UNAME_S  Overrides `uname -s`.
 #   SHEPHERD_UNAME_M  Overrides `uname -m`.
+#   SHEPHERD_RETRY_DELAY  Seconds between `bun install` retries (default 3).
 set -euo pipefail
 
 REPO_URL="https://github.com/erwins-enkel/shepherd.git"
@@ -170,6 +171,31 @@ install_bun() {
   command -v bun >/dev/null 2>&1 || die "bun not on PATH after install (expected ~/.bun/bin/bun)"
 }
 
+# retry <attempts> <cmd...>: run <cmd> until it succeeds, up to <attempts> times (mirrors
+# update.sh). Fail-closed: a deterministic failure re-fails every attempt.
+retry() {
+  local attempts="$1"
+  shift
+  local i
+  for ((i = 1; i <= attempts; i++)); do
+    "$@" && return 0
+    [ "$i" -lt "$attempts" ] && {
+      warn "\`$*\` failed (attempt $i/$attempts) — retrying in ${SHEPHERD_RETRY_DELAY:-3}s"
+      sleep "${SHEPHERD_RETRY_DELAY:-3}"
+    }
+  done
+  return 1
+}
+
+# install_deps: install root deps BEFORE the provision.ts hand-off. provision's import graph
+# needs npm packages (jsonrepair); without node_modules Bun would auto-install them at import
+# time with no retry, so a single registry flake killed the install (#2537).
+install_deps() {
+  cd "$SHEPHERD_DIR" || die "cannot cd into $SHEPHERD_DIR"
+  note "installing dependencies (bun install)"
+  retry 2 bun install || die "bun install failed in $SHEPHERD_DIR"
+}
+
 # ── source resolve ────────────────────────────────────────────────────────────
 # Populate $SHEPHERD_DIR with the repo. Precedence:
 #   1. SHEPHERD_SRC set → tarball (extract) or directory (copy).
@@ -258,7 +284,7 @@ main() {
   install_bun
   resolve_source
 
-  cd "$SHEPHERD_DIR" || die "cannot cd into $SHEPHERD_DIR"
+  install_deps
   # Prebuilt `shepherd` CLI at this checkout's version (#2484). SOFT-fail: a version with no
   # published binary must not abort the install. update.sh refreshes it on every deploy.
   bash deploy/install-cli.sh || warn "shepherd CLI not installed (see above) — continuing"

@@ -364,7 +364,7 @@ to exercise its conditional blocks (epic context, prior findings, plan/anchor/st
 truncation, `en`/`de`), normalizes the result, and writes one SHA-256 per eval to the committed
 `scripts/eval-fingerprints.json`. The PR job compares against
 `git show <base>:scripts/eval-fingerprints.json` and runs only the evals whose hash moved.
-`bun run check:eval-fingerprints` is wired into `ci.yml`'s verify job beside the docs-manifest and
+`bun run check:eval-fingerprints` is wired into `ci.yml`'s static job beside the docs-manifest and
 herdr-types freshness gates, so a prompt edit cannot ship with a stale fingerprint and skip its own
 eval. Because `UNTRUSTED_CONTENT_DIRECTIVE` is embedded verbatim in every rendered prompt, an edit
 to it moves every eval's fingerprint on its own.

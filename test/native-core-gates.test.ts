@@ -452,13 +452,13 @@ for mode in ("term", "kill", "exit"):
     // #2567: no job consumes another's output, so none waits on one.
     for (const job of Object.values(jobs)) expect(job.needs).toBeUndefined();
     expect(simulator["continue-on-error"]).not.toBe(true);
-    // ui/messages-only PRs don't start macOS; Linux verify owns the catalog check.
+    // ui/messages-only PRs don't start macOS; the Linux `static` lane owns the catalog check.
     for (const event of ["pull_request", "push"] as const)
       expect(workflow.on[event].paths).not.toContain("ui/messages/*.json");
     const ci = Bun.YAML.parse(readFileSync(".github/workflows/ci.yml", "utf8")) as {
       jobs: Record<string, { steps: { run?: string }[] }>;
     };
-    expect(ci.jobs.verify!.steps.some((step) => step.run === "bun run check:strings")).toBe(true);
+    expect(ci.jobs.static!.steps.some((step) => step.run === "bun run check:strings")).toBe(true);
     expect(jobs["shepherd-mac-ui"]!["continue-on-error"]).toBe(true);
     const optedIn = kit.steps.filter((step) => step.env?.SHEPHERD_KEYCHAIN_TESTS === "1");
     expect(optedIn).toHaveLength(1);

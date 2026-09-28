@@ -33,6 +33,7 @@ import {
 import { browserRepositoryUrl } from "./repository";
 import { makePluginIssues, type PluginIssuesDeps } from "./issues";
 import { makePluginForgeRuns, type PluginForgeDeps } from "./forge-runs";
+import { makePluginJudge, type PluginJudgeDeps } from "./judge";
 import { PluginSecretStore, redactSecrets } from "./secrets";
 import { toPluginSessionSnapshot } from "./session-view";
 import { validatePluginGearItem, validatePluginUIView } from "./ui-validate";
@@ -87,6 +88,8 @@ export interface PluginRegistryDeps {
   issues?: PluginIssuesDeps;
   /** Seams backing `ctx.forge.runs`; absent → every call rejects `no-forge`. */
   forge?: PluginForgeDeps;
+  /** Seams backing `ctx.judge`; absent → every call rejects `unavailable`. */
+  judge?: PluginJudgeDeps;
   /** Backs `ctx.agents.runReadonly` (PluginAgentService.run). Absent → it rejects `unavailable`. */
   runAgent?: (pluginId: string, opts: PluginAgentRunOptions) => Promise<unknown>;
   /** True while herdr maintenance is active — `ctx.schedule` ticks are skipped then.
@@ -530,6 +533,7 @@ export class PluginRegistry {
       sessions,
       issues,
       forge: { runs: makePluginForgeRuns(this.deps.forge) },
+      judge: makePluginJudge(this.deps.judge),
       repos: { list: () => this.deps.repos?.() ?? [] },
       agents: {
         runReadonly: (opts) =>

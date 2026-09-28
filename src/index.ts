@@ -744,6 +744,12 @@ const pluginRegistry = new PluginRegistry({
   events,
   issues: { repoRoot: config.repoRoot, resolveForge },
   forge: { repoRoot: config.repoRoot, resolveForge },
+  // ctx.judge (#2541): thunks — the judge client and its ledger are declared further down.
+  judge: {
+    judge: () => armedJudge(),
+    spend: () => judgeSpend,
+    warn: (message, err) => console.warn(message, err),
+  },
   runAgent: (pluginId, opts): Promise<unknown> => pluginAgents.run(pluginId, opts),
   // ctx.schedule ticks pause while herdr is mid-update, like every core periodic loop.
   maintenanceActive: () => maintenance.active,

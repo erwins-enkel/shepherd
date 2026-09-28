@@ -9,7 +9,7 @@
 #
 # Why a script instead of inlining the check:
 #   - `.github/workflows/ci.yml` and `scripts/pre-push.ts` must stay in sync (see the
-#     job header at ci.yml:24-29). Both call this, so there is ONE implementation to
+#     `verify` lanes header in ci.yml). Both call this, so there is ONE implementation to
 #     keep correct rather than two copies of the same shell.
 #   - It is not library-specific: the `no-restricted-imports` rule in eslint.config.js
 #     names marked/dompurify, while this fires for ANY module that regresses this way.

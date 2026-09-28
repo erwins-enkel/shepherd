@@ -7,7 +7,7 @@
  * push finishes well under a minute instead of the old ~2.3-min fully-sequential
  * hook that blew past the 120s agent command timeout.
  *
- * ┌─ KEEP IN SYNC WITH `.github/workflows/ci.yml` (`verify` job) ────────────────┐
+ * ┌─ KEEP IN SYNC WITH `.github/workflows/ci.yml` (`verify` lanes) ──────────────┐
  * │ This TS orchestrator no longer shares ci.yml's shell body, so the two gate    │
  * │ definitions can drift. When you add/remove/reorder a CI step, mirror it here  │
  * │ (and vice-versa). Two DELIBERATE local-only differences from CI:              │
@@ -576,6 +576,8 @@ function buildLanes(
       {
         label: "bun test ./test",
         cmd: "bun",
+        // Serial on purpose: Bun 1.4's --parallel intermittently hangs or loses subprocess exits
+        // (oven-sh/bun#39987, #43697); see the `test-root` job in ci.yml.
         args: ["test", "./test"],
         cwd: repoRoot,
         // Point server.test.ts's throwaway repo at a unique temp dir (never the real root).
@@ -605,9 +607,9 @@ function buildLanes(
         cwd: ui,
       },
       { label: "vitest", cmd: "bun", args: ["run", "test", "--maxWorkers", W], cwd: ui },
-      // Same script CI's "Build (ui)" step runs (ci.yml:24-29 requires the two to stay
-      // in sync): builds, then fails on Rollup's INEFFECTIVE_DYNAMIC_IMPORT — a static
-      // import that defeats a dynamic one, for any module. Rollup does not warn for
+      // Same script CI's "Build (ui)" step runs (the ci.yml `verify` lanes header requires
+      // the two to stay in sync): builds, then fails on Rollup's INEFFECTIVE_DYNAMIC_IMPORT —
+      // a static import that defeats a dynamic one, for any module. Rollup does not warn for
       // every static importer (a plain ui/src/lib/*.ts helper produces none), so the
       // eslint no-restricted-imports rule covers those files for the named libraries.
       // The two are complementary; see the header in check-ui-build.sh.

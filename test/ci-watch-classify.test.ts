@@ -359,11 +359,13 @@ test("triage deferred → pending, retried with backoff, logs fetched once, JEV 
   expect(triageCalls).toBe(2);
 
   triageAnswer = HIGH;
+  fileAnswer = { status: "filed", number: 5, url: "u5" };
   clock += 60_000;
   await s.advance();
   expect(triageCalls).toBe(3);
-  expect(rec(c).outcome).toBe("accepted");
+  expect(rec(c)).toMatchObject({ outcome: "accepted", filing: { status: "filed" } });
   expect(rec(c)).not.toHaveProperty("logs");
+  expect(rec(c)).not.toHaveProperty("retries");
   expect(rec(c)).not.toHaveProperty("retryAt");
   expect(judgeCalls.length).toBe(1);
   expect(logFetches).toBe(1);
@@ -433,12 +435,25 @@ test("accepted → filed; a filing that can't happen now is retried by advance()
   const d = cand("lint", { workflowName: "Eval x", runId: 8 });
   fileAnswer = null;
   expect(await s.process(d)).toBe("accepted");
+  expect(rec(d)).toMatchObject({ retries: 1 });
   expect(rec(d).filing).toBeUndefined();
-  fileAnswer = { status: "duplicate", number: 5, url: "u5" };
-  await s.advance();
-  expect(rec(d).filing).toEqual({ status: "duplicate", number: 5, url: "u5" });
+  await s.advance(); // backing off: not yet due
+  expect(fileCalls).toHaveLength(2);
+  clock += 15 * 60_000;
   await s.advance();
   expect(fileCalls).toHaveLength(3);
+  expect(rec(d)).toMatchObject({ retries: 2 });
+  clock += 29 * 60_000; // doubled to 30 min
+  await s.advance();
+  expect(fileCalls).toHaveLength(3);
+
+  fileAnswer = { status: "duplicate", number: 5, url: "u5" };
+  clock += 60_000;
+  await s.advance();
+  expect(rec(d).filing).toEqual({ status: "duplicate", number: 5, url: "u5" });
+  expect(rec(d)).not.toHaveProperty("retryAt");
+  await s.advance();
+  expect(fileCalls).toHaveLength(4);
 });
 
 test("file anyway files with the override", async () => {

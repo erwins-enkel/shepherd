@@ -87,7 +87,8 @@ export interface ClassifyRecord {
   reason: string;
   overridden: boolean;
   updatedAt: string;
-  /** Deferred triage only: the cached log input, the retry count and when to retry next. */
+  /** Deferred triage (logs, retries, retryAt) or unfiled accepted (retries, retryAt): the cached
+   *  log input, the retry count and when to retry next. */
   logs?: LogInput;
   retries?: number;
   retryAt?: number;
@@ -241,10 +242,19 @@ export function createClassifier(deps: ClassifyDeps): Classifier {
     return save(rest);
   }
 
-  /** File an accepted record; a `null` filing (cap, forge error) leaves it for `advance()`. */
+  /** Next retry of a deferred record: doubles per retry, capped. */
+  function backoff(r: ClassifyRecord): Pick<ClassifyRecord, "retries" | "retryAt"> {
+    const retries = (r.retries ?? 0) + 1;
+    const wait = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** (retries - 1));
+    return { retries, retryAt: deps.now().getTime() + wait };
+  }
+
+  /** File an accepted record; a `null` filing (cap, forge error) leaves it for `advance()`,
+   *  backing off like a deferred triage. */
   async function fileAccepted(r: ClassifyRecord): Promise<ClassifyRecord> {
     const filing = await deps.file(r, { override: r.overridden });
-    return filing ? save({ ...r, filing }) : r;
+    if (!filing) return save({ ...r, ...backoff(r) });
+    return settle({ ...r, filing });
   }
 
   function reject(r: ClassifyRecord, stage: "jev" | "triage", reason: string) {
@@ -263,9 +273,7 @@ export function createClassifier(deps: ClassifyDeps): Classifier {
   }
 
   function defer(r: ClassifyRecord, logs: LogInput): ClassifyRecord {
-    const retries = (r.retries ?? 0) + 1;
-    const wait = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** (retries - 1));
-    return save({ ...r, outcome: "pending", logs, retries, retryAt: deps.now().getTime() + wait });
+    return save({ ...r, outcome: "pending", logs, ...backoff(r) });
   }
 
   function context(r: ClassifyRecord, logs: LogInput): string {
@@ -453,6 +461,7 @@ export function createClassifier(deps: ClassifyDeps): Classifier {
       }
       for (const r of records(TRIAGE_PREFIX) as ClassifyRecord[]) {
         if (r?.outcome !== "accepted" || r.filing) continue;
+        if ((r.retryAt ?? 0) > deps.now().getTime()) continue;
         await guarded(r.id, null, () => fileAccepted(r));
       }
     },

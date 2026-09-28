@@ -19,7 +19,8 @@ What it uses:
   `SHEPHERD_JUDGE=1` plus `JEV_API_KEY`. Its spend counts toward `SHEPHERD_JUDGE_DAILY_USD`.
   Without it, classification is skipped and every failure goes to triage.
 - **Your subscription.** Triage spawns a read-only Sonnet agent per failure. Plugin agents are
-  capped at 2 in flight and 20 runs a day; a failure over the cap waits for the next poll.
+  capped at 2 in flight and 20 runs a day. A triage that can't start (over the cap, or no agent
+  available) is retried with backoff: after 15 minutes, then doubling up to 6 hours.
 
 ## 1. Enable it
 

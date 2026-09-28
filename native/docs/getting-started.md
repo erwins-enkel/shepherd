@@ -104,8 +104,9 @@ open native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app
 2. Read **Activity** to see what the agent has been doing, then inspect **Diff** or **Files**
    for the changes and their context.
 3. Open **Terminal** to follow the live session or send the agent a message.
-4. Open **Pre-execution plan** to answer or approve a plan gate. Check **Pull request** for the
-   PR state, checks, review requests and merge automation.
+4. Open **Pre-execution plan** to answer or approve a plan gate. Check **PR** for the pull
+   request's state, checks and review requests, and **Merge & automation** for auto-merge and
+   autopilot.
 5. Start another task with the new-task sheet: start from an issue or describe the work, then
    choose the repo, base branch, agent and model.
 6. Keep an eye on held tasks, Up Next and the Done panel to see what is waiting, what runs next

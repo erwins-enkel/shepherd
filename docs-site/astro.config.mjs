@@ -133,6 +133,7 @@ export default defineConfig({
             { label: "Keyboard shortcuts", slug: "reference/keyboard-shortcuts" },
             { label: "Plugins", slug: "reference/plugins" },
             { label: "Sentry", slug: "reference/sentry" },
+            { label: "CI Watch", slug: "reference/ci-watch" },
             { label: "External Task API", slug: "reference/external-task-api" },
             { label: "shepherd CLI", slug: "reference/shepherd-cli" },
             { label: "Security", slug: "reference/security" },

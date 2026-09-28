@@ -4595,5 +4595,7 @@
   "feat_codex_6_sol_luna_body": "Choose GPT-6 Sol or Luna for Codex tasks and saved model settings. Sol supports reasoning up to Ultra; Luna supports up to Max.",
   "usage_kind_plugin": "Plugin agents",
   "feat_sentry_plugin_title": "Sentry errors become fix issues",
-  "feat_sentry_plugin_body": "The bundled Sentry plugin (Settings → Plugins, off by default) polls Sentry for new, escalating or regressed errors in mapped repos, triages them read-only and files a scrubbed GitHub issue asking for a reproduction test and a fix."
+  "feat_sentry_plugin_body": "The bundled Sentry plugin (Settings → Plugins, off by default) polls Sentry for new, escalating or regressed errors in mapped repos, triages them read-only and files a scrubbed GitHub issue asking for a reproduction test and a fix.",
+  "feat_ci_watch_plugin_title": "Failing CI becomes fix issues",
+  "feat_ci_watch_plugin_body": "The bundled CI Watch plugin (Settings → Plugins, off by default) watches default-branch CI of the repos you add, reruns a failing job once to rule out flakes, triages it read-only and files a GitHub issue asking for a reproduction and a fix."
 }

@@ -17,6 +17,7 @@ import type {
   PluginUntrustedSection,
 } from "../../types";
 import type { FileFn, Filing } from "./file";
+import { STRINGS, type Strings } from "./panel";
 import type { Candidate } from "./poller";
 import { collapseMatrix, globMatch, observe, RUN_JOB } from "./rules";
 import { readKey, readSettings, writeKey, type ClassifyOutcome } from "./state";
@@ -484,8 +485,29 @@ export function createClassifier(deps: ClassifyDeps): Classifier {
 
 const FILE_ANYWAY_STATUS = { unknown: 404, "not-rejected": 409, busy: 409 } as const;
 
-/** `GET triage/rejected` + `POST triage/file-anyway` (`{ id }`). The panel is #2543. */
-export function registerClassifyRoutes(ctx: Pick<PluginContext, "route">, stage: Classifier) {
+/** Operator-facing reply for a "file anyway" — the host toasts it verbatim. */
+export function fileAnywayText(filing: Filing | undefined, t: Strings): string {
+  switch (filing?.status) {
+    case "filed":
+      return t.filed.replace("{n}", String(filing.number));
+    case "duplicate":
+      return t.duplicate.replace("{n}", String(filing.number));
+    case "fixed":
+      return t.fixed;
+    case "refused":
+      return t.refused.replace("{code}", filing.code);
+    default:
+      return t.deferred;
+  }
+}
+
+/** `GET triage/rejected` + `POST triage/file-anyway` (`{ id }`). `onChange` runs after a
+ *  successful override so the plugin can re-publish its panel (#2543). */
+export function registerClassifyRoutes(
+  ctx: Pick<PluginContext, "route">,
+  stage: Classifier,
+  opts: { onChange?: () => void; strings?: () => Strings } = {},
+) {
   ctx.route("GET", "triage/rejected", () => Response.json(stage.rejected()));
   ctx.route("POST", "triage/file-anyway", async (req) => {
     let id: unknown;
@@ -497,6 +519,7 @@ export function registerClassifyRoutes(ctx: Pick<PluginContext, "route">, stage:
     if (typeof id !== "string" || !id) return new Response("id required", { status: 400 });
     const res = await stage.fileAnyway(id);
     if (!res.ok) return new Response(res.code, { status: FILE_ANYWAY_STATUS[res.code] });
-    return Response.json(res.record);
+    opts.onChange?.();
+    return new Response(fileAnywayText(res.record.filing, opts.strings?.() ?? STRINGS.en));
   });
 }

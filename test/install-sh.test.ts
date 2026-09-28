@@ -8,7 +8,7 @@
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, realpathSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -130,7 +130,7 @@ describe("install_deps", () => {
   }
 
   function calls(log: string): string[] {
-    return spawnSync("cat", [log], { encoding: "utf8" }).stdout.trim().split("\n");
+    return readFileSync(log, "utf8").trim().split("\n");
   }
 
   function run(

@@ -6128,6 +6128,28 @@ test("planGoSteer(true) appends the draft note to the base text", () => {
   expect(steer).toContain(DRAFT_PR_NOTE);
 });
 
+test("planGoSteer without a queue names no build queue", () => {
+  expect(planGoSteer(false)).not.toContain("build queue");
+  expect(planGoSteer(true)).not.toContain("build queue");
+});
+
+test("planGoSteer with a Claude queue names the queue tools, before the draft note", () => {
+  const steer = planGoSteer(true, { agentProvider: "claude" });
+  expect(steer.startsWith(planGoSteer(false))).toBe(true);
+  expect(steer).toContain("build queue");
+  expect(steer).toContain("`queue_write`");
+  expect(steer).toContain("`queue_step`");
+  expect(steer.endsWith(DRAFT_PR_NOTE)).toBe(true);
+});
+
+test("planGoSteer with a Codex queue points at the queue API, not the tools", () => {
+  const steer = planGoSteer(false, { agentProvider: "codex" });
+  expect(steer).toContain("build queue");
+  expect(steer).toContain("build-queue API");
+  expect(steer).not.toContain("queue_write");
+  expect(steer).not.toContain("queue_step");
+});
+
 test("create with draftMode=true: system prompt contains <draft-mode> block", async () => {
   const store = new SessionStore(":memory:");
   const captured: { argv?: string[] } = {};

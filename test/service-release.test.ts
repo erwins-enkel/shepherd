@@ -36,18 +36,35 @@ function harness(opts: {
   gate: { approved: boolean } | null;
   paneLive?: boolean;
   draftMode?: boolean;
+  /** Supersede the plan approval while the steer is in flight (release must then not commit). */
+  revokeOnSend?: boolean;
+  /** Repo has buildQueueEnabled; `queue` is the session's stored queue state. */
+  buildQueueEnabled?: boolean;
+  queue?: { steps: unknown[]; approved: boolean; approvalKind?: "auto" | "operator" };
 }) {
   const setPhaseCalls: { id: string; phase: string }[] = [];
   const emitted: { event: string; data: unknown }[] = [];
   const sent: { target: string; text: string }[] = [];
   const term = opts.session?.herdrAgentId ?? "t1";
+  const approvals: { id: string; approved: boolean; kind?: string }[] = [];
+  const queue = opts.queue ?? { steps: [], approved: false };
   const store = {
     get: () => opts.session,
     list: () => (opts.session ? [opts.session] : []),
     getPlanGate: () => opts.gate,
     setPlanPhase: (id: string, phase: string) => setPhaseCalls.push({ id, phase }),
     addSignal: () => {},
-    getRepoConfig: () => ({ draftMode: opts.draftMode ?? false }) as any,
+    getRepoConfig: () =>
+      ({
+        draftMode: opts.draftMode ?? false,
+        buildQueueEnabled: opts.buildQueueEnabled ?? false,
+      }) as any,
+    getBuildQueue: (sessionId: string) => ({ sessionId, ...queue }),
+    setBuildQueueApproved: (id: string, approved: boolean, kind?: string) => {
+      approvals.push({ id, approved, kind });
+      queue.approved = approved;
+      queue.approvalKind = kind as "auto" | "operator" | undefined;
+    },
   };
   const svc = new SessionService({
     store: store as any,
@@ -60,11 +77,12 @@ function harness(opts: {
       paneForegroundProcs: async () => ["claude"],
       send: async (target: string, text: string) => {
         sent.push({ target, text });
+        if (opts.revokeOnSend) opts.gate = { approved: false };
       },
     } as any,
     events: { emit: (event, data) => emitted.push({ event, data }) },
   });
-  return { svc, setPhaseCalls, emitted, sent };
+  return { svc, setPhaseCalls, emitted, sent, approvals };
 }
 
 test("releasePlanGate flips phase + steers ONLY when approved and planning", async () => {
@@ -147,4 +165,71 @@ test("releasePlanGate carries NO operator-language block for Codex+en or Claude+
   } finally {
     config.operatorLanguage = prev;
   }
+});
+
+// Go approves the build queue and names it in the steer — a plan-gated agent otherwise never
+// writes or advances it (the spawn directive told it to stop and wait).
+const QUEUE_MARK = "This session has a build queue";
+
+test("releasePlanGate on a queue repo: steer names the queue, Go approves it as operator", async () => {
+  const step = { id: "a", title: "A", detail: "", status: "pending", position: 0 };
+  const h = harness({
+    session: sess(),
+    gate: { approved: true },
+    buildQueueEnabled: true,
+    queue: { steps: [step], approved: false },
+  });
+  expect(await h.svc.releasePlanGate("s1")).toBe(true);
+  expect(h.sent.map((s) => s.text).join("")).toContain(QUEUE_MARK);
+  expect(h.approvals).toEqual([{ id: "s1", approved: true, kind: "operator" }]);
+  expect(h.emitted).toContainEqual({
+    event: "queue:update",
+    data: { sessionId: "s1", steps: [step], approved: true, approvalKind: "operator" },
+  });
+});
+
+test("releasePlanGate automatic release approves the queue as auto; no emit without steps", async () => {
+  const h = harness({ session: sess(), gate: { approved: true }, buildQueueEnabled: true });
+  expect(await h.svc.releasePlanGate("s1", { automatic: true })).toBe(true);
+  expect(h.approvals).toEqual([{ id: "s1", approved: true, kind: "auto" }]);
+  expect(h.emitted.some((e) => e.event === "queue:update")).toBe(false);
+});
+
+test("releasePlanGate leaves a spawn-pre-approved queue untouched", async () => {
+  const h = harness({
+    session: sess(),
+    gate: { approved: true },
+    buildQueueEnabled: true,
+    queue: { steps: [], approved: true, approvalKind: "auto" },
+  });
+  expect(await h.svc.releasePlanGate("s1")).toBe(true);
+  expect(h.sent.map((s) => s.text).join("")).toContain(QUEUE_MARK);
+  expect(h.approvals).toHaveLength(0);
+});
+
+test("releasePlanGate: no queue clause or approval without a queue (repo off, non-code mode)", async () => {
+  for (const h of [
+    harness({ session: sess(), gate: { approved: true }, buildQueueEnabled: false }),
+    harness({
+      session: sess({ research: true }),
+      gate: { approved: true },
+      buildQueueEnabled: true,
+    }),
+    harness({ session: sess({ plain: true }), gate: { approved: true }, buildQueueEnabled: true }),
+  ]) {
+    expect(await h.svc.releasePlanGate("s1")).toBe(true);
+    expect(h.sent.map((s) => s.text).join("")).not.toContain(QUEUE_MARK);
+    expect(h.approvals).toHaveLength(0);
+  }
+});
+
+test("releasePlanGate writes no queue approval when the release does not commit", async () => {
+  const h = harness({
+    session: sess(),
+    gate: { approved: true },
+    buildQueueEnabled: true,
+    revokeOnSend: true,
+  });
+  expect(await h.svc.releasePlanGate("s1")).toBe(false);
+  expect(h.approvals).toHaveLength(0);
 });

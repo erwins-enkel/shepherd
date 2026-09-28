@@ -8,7 +8,7 @@
  */
 import { afterEach, describe, expect, it } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, realpathSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -106,7 +106,73 @@ describe("resolve_source", () => {
     expect(r.stderr.toLowerCase()).toContain("not a shepherd checkout");
 
     // the pre-existing file must still be intact (never clobbered)
-    const check = spawnSync("cat", [marker], { encoding: "utf8" });
-    expect(check.stdout).toBe("do not touch me\n");
+    expect(readFileSync(marker, "utf8")).toBe("do not touch me\n");
+  });
+});
+
+describe("install_deps", () => {
+  /** Stub `bun` on PATH: logs `pwd|args` per call, fails the first `failFirst` calls and every
+   *  call whose args equal `alwaysFail`. */
+  function stubBun(failFirst: number, alwaysFail = ""): { binDir: string; log: string } {
+    const work = tmp();
+    const binDir = join(work, "bin");
+    mkdirSync(binDir);
+    const log = join(work, "calls.log");
+    writeFileSync(
+      join(binDir, "bun"),
+      `#!/usr/bin/env bash\necho "$(pwd -P)|$*" >> "${log}"\n` +
+        `[ "$*" = "${alwaysFail}" ] && exit 1\n` +
+        `n=$(wc -l < "${log}")\n[ "$n" -le ${failFirst} ] && exit 1\nexit 0\n`,
+      { mode: 0o755 },
+    );
+    return { binDir, log };
+  }
+
+  function calls(log: string): string[] {
+    return readFileSync(log, "utf8").trim().split("\n");
+  }
+
+  function run(
+    failFirst: number,
+    alwaysFail = "",
+  ): { dir: string; r: ReturnType<typeof runLib>; log: string } {
+    const dir = realpathSync(tmp());
+    const { binDir, log } = stubBun(failFirst, alwaysFail);
+    const r = runLib("install_deps", {
+      PATH: `${binDir}:${process.env.PATH}`,
+      SHEPHERD_DIR: dir,
+      SHEPHERD_RETRY_DELAY: "0",
+    });
+    return { dir, r, log };
+  }
+
+  it("node-gyp first, then bun install in $SHEPHERD_DIR", () => {
+    const { dir, r, log } = run(0);
+    expect(r.status).toBe(0);
+    expect(calls(log)).toEqual([`${dir}|add -g node-gyp`, `${dir}|install`]);
+  });
+
+  it("transient failure ⇒ retried, then continues to bun install", () => {
+    const { dir, r, log } = run(1);
+    expect(r.status).toBe(0);
+    expect(calls(log)).toEqual([
+      `${dir}|add -g node-gyp`,
+      `${dir}|add -g node-gyp`,
+      `${dir}|install`,
+    ]);
+  });
+
+  it("persistent node-gyp failure ⇒ non-zero exit, bun install never runs", () => {
+    const { r, log } = run(99);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("node-gyp install failed");
+    expect(calls(log)).toHaveLength(2);
+  });
+
+  it("persistent bun install failure ⇒ non-zero exit with a clear message", () => {
+    const { r, log } = run(0, "install");
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("bun install failed");
+    expect(calls(log)).toHaveLength(3);
   });
 });

@@ -1628,9 +1628,28 @@ export function emitSessionAmendments(
   events?.emit("session:amendments", { id, amendments: store.listTaskAmendments(id) });
 }
 
-/** Returns the plan-go steer, appending the draft-mode note when `draftMode` is true. */
-export function planGoSteer(draftMode: boolean): string {
-  return draftMode ? `${PLAN_GO_STEER_BASE} ${DRAFT_PR_NOTE}` : PLAN_GO_STEER_BASE;
+/** Appended to the plan-go steer when the session has a build queue. The spawn-time `<build-queue>`
+ *  directive told a plan-gated agent to stop and wait, and the plan was its deliverable — so without
+ *  this the queue is never written, or written and never advanced. Go also approves the queue
+ *  (releasePlanGateInner), hence "no further go-ahead". Provider-split like buildQueueDirective. */
+const PLAN_GO_QUEUE_LEAD =
+  "This session has a build queue, and approving the plan approved it — begin now, no further " +
+  "go-ahead is coming. If you haven't written it yet, author it now from the plan's steps";
+const PLAN_GO_QUEUE_CLAUDE =
+  `${PLAN_GO_QUEUE_LEAD} with \`queue_write\`; if you have, keep it. Mark each step \`active\` ` +
+  "when you start it and `done` when you finish it with `queue_step`, as you go.";
+const PLAN_GO_QUEUE_CODEX =
+  `${PLAN_GO_QUEUE_LEAD} via the build-queue API from your instructions; if you have, keep it. ` +
+  "Mark each step `active` when you start it and `done` when you finish it via that API, as you go.";
+
+/** Returns the plan-go steer: base text, then the build-queue clause when `queue` is given (the
+ *  session has a queue), then the draft-mode note when `draftMode` is true. */
+export function planGoSteer(draftMode: boolean, queue?: { agentProvider: AgentProvider }): string {
+  const parts = [PLAN_GO_STEER_BASE];
+  if (queue)
+    parts.push(queue.agentProvider === "codex" ? PLAN_GO_QUEUE_CODEX : PLAN_GO_QUEUE_CLAUDE);
+  if (draftMode) parts.push(DRAFT_PR_NOTE);
+  return parts.join(" ");
 }
 
 /** The inverse of {@link PLAN_GO_STEER_BASE}: sent when a re-review of an edited plan requests
@@ -5835,8 +5854,12 @@ export class SessionService {
     const gate = this.deps.store.getPlanGate(id);
     if (!gate?.approved) return false;
     if (!this.hasConversation(s)) return false;
-    const { draftMode } = this.deps.store.getRepoConfig(s.repoPath);
-    const delivered = await this.resumeAndReply(id, planGoSteer(draftMode), opts);
+    const { draftMode, buildQueueEnabled } = this.deps.store.getRepoConfig(s.repoPath);
+    // Same predicate as agent-control's sessionCapabilities: the session holds the queue tools.
+    const hasQueue = buildQueueEnabled && !isNonCodeMode(s);
+    const queue = hasQueue ? { agentProvider: s.agentProvider ?? "claude" } : undefined;
+    const steer = planGoSteer(draftMode, queue);
+    const delivered = await this.resumeAndReply(id, steer, opts);
     if (!delivered) return false;
     // A re-review, archive or agent replacement during delivery must keep its newer state.
     const current = this.deps.store.get(id);
@@ -5852,7 +5875,19 @@ export class SessionService {
     )
       return false;
     this.#enterExecution(id);
+    if (hasQueue) this.#approveQueueOnGo(id, opts.automatic ? "auto" : "operator");
     return true;
+  }
+
+  /** Go approves the session's build queue — the approved plan is the reviewed artifact, and
+   *  nothing else approves an attended plan-gated queue. A queue already approved (spawn
+   *  pre-approval) keeps its kind. Emits only when steps exist: a queue written later carries the
+   *  flag on applyQueueWrite's own emit, and the UI renders no queue without steps. */
+  #approveQueueOnGo(id: string, kind: "auto" | "operator"): void {
+    if (this.deps.store.getBuildQueue(id).approved) return;
+    this.deps.store.setBuildQueueApproved(id, true, kind);
+    const queue = this.deps.store.getBuildQueue(id);
+    if (queue.steps.length > 0) this.deps.events?.emit("queue:update", queue);
   }
 
   /**

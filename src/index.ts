@@ -743,6 +743,7 @@ const pluginRegistry = new PluginRegistry({
   store,
   events,
   issues: { repoRoot: config.repoRoot, resolveForge },
+  forge: { repoRoot: config.repoRoot, resolveForge },
   runAgent: (pluginId, opts): Promise<unknown> => pluginAgents.run(pluginId, opts),
   // ctx.schedule ticks pause while herdr is mid-update, like every core periodic loop.
   maintenanceActive: () => maintenance.active,

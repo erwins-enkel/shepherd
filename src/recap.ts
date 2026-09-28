@@ -22,6 +22,7 @@ const RECAP_OVERSIZED = "recap prompt exceeds the OS argument limit";
 import { fitAssembledPrompt as fitFrom, describeClamps } from "./prompt-fit";
 import { readRoleResultText, CODEX_LAST_MESSAGE_FILE } from "./codex-last-message";
 import { execFile } from "node:child_process";
+import { redactSecretText } from "./redact";
 import { promisify } from "node:util";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
@@ -249,20 +250,7 @@ export function sanitizeRecapFailureDetail(value: unknown): string | undefined {
       : typeof value === "string"
         ? value
         : String(value ?? "");
-  const detail = raw
-    .replace(
-      /\b([A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)[A-Z0-9_]*)(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/g,
-      "$1$2<redacted>",
-    )
-    .replace(
-      /\b(authorization|api[_ -]?key|token|password)(\s*[:=]\s*)(?:bearer\s+)?[^\s,;]+/gi,
-      "$1$2<redacted>",
-    )
-    .replace(/\bbearer\s+[^\s,;]+/gi, "Bearer <redacted>")
-    .replace(/\b(?:sk|gh[pousr]|xox[baprs])[-_][A-Za-z0-9_-]{8,}\b/gi, "<redacted>")
-    .replace(/:\/\/([^\s/:@]+):([^\s/@]+)@/g, "://$1:<redacted>@")
-    .replace(/\s+/g, " ")
-    .trim();
+  const detail = redactSecretText(raw).replace(/\s+/g, " ").trim();
   if (!detail) return undefined;
   return detail.length > 300 ? `${detail.slice(0, 299)}…` : detail;
 }

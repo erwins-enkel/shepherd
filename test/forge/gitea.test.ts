@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import { GiteaForge } from "../../src/forge/gitea";
 import { EmptyDiffError } from "../../src/forge/types";
-import type { ForgeConfig } from "../../src/forge/types";
+import type { ForgeConfig, GitForge } from "../../src/forge/types";
 
 const CFG: ForgeConfig = {
   type: "gitea",
@@ -1200,4 +1200,121 @@ test("GiteaForge.currentUser: a failure is not re-probed within the negative TTL
   // The failure is cached for the TTL window only — never for the forge's lifetime
   // (see test/forge/user-cache.test.ts for the re-probe once the window elapses).
   expect(calls.filter((c) => c.url.endsWith("/api/v1/user")).length).toBe(1);
+});
+
+// ── ctx.forge.runs forge layer (#2539) ──
+
+const tasksPage = (page: number) =>
+  `GET /api/v1/repos/team/proj/actions/tasks?page=${page}&limit=50`;
+
+function giteaRunsFetch(...pages: unknown[][]) {
+  return fakeFetch({
+    "GET /api/v1/repos/team/proj": { json: { default_branch: "main" } },
+    ...Object.fromEntries(
+      pages.map((tasks, i) => [tasksPage(i + 1), { json: { workflow_runs: tasks } }]),
+    ),
+  });
+}
+
+const TASK = {
+  head_branch: "main",
+  head_sha: "sha7",
+  event: "push",
+  workflow_id: "ci.yml",
+  url: "https://git.example.com/team/proj/actions/runs/7",
+  created_at: "2026-01-01T00:00:10Z",
+};
+
+test("GiteaForge.listDefaultBranchRuns: groups tasks by run_number, default branch only", async () => {
+  const { fn } = giteaRunsFetch([
+    { ...TASK, id: 11, name: "lint", run_number: 7, status: "success" },
+    {
+      ...TASK,
+      id: 12,
+      name: "test",
+      run_number: 7,
+      status: "failure",
+      created_at: "2026-01-01T00:00:05Z",
+    },
+    { ...TASK, id: 13, name: "test", run_number: 8, status: "running" },
+    { ...TASK, id: 14, name: "lint", run_number: 9, status: "success", head_branch: "feature" },
+    { ...TASK, id: 15, name: "lint", status: "success" }, // no run_number → dropped
+    { ...TASK, id: 16, name: "lint", run_number: 5, status: "cancelled" },
+  ]);
+  const runs = await new GiteaForge("team/proj", CFG, fn).listDefaultBranchRuns({ sinceId: 5 });
+  expect(runs).toEqual([
+    {
+      id: 7,
+      workflowName: "ci.yml",
+      workflowFile: "ci.yml",
+      event: "push",
+      status: "completed",
+      conclusion: "failure",
+      attempt: 1,
+      headSha: "sha7",
+      createdAt: Date.parse("2026-01-01T00:00:05Z"),
+      url: TASK.url,
+      jobs: [
+        { id: 11, name: "lint", conclusion: "success" },
+        { id: 12, name: "test", conclusion: "failure" },
+      ],
+    },
+    expect.objectContaining({
+      id: 8,
+      status: "in_progress",
+      conclusion: null,
+      jobs: [{ id: 13, name: "test", conclusion: null }],
+    }),
+  ]);
+});
+
+test("GiteaForge.getRunDetail: finds a run by run_number; unknown → null", async () => {
+  const { fn } = giteaRunsFetch([
+    { ...TASK, id: 11, name: "lint", run_number: 7, status: "canceled" },
+    { ...TASK, id: 12, name: "test", run_number: 7, status: "success" },
+  ]);
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  expect((await forge.getRunDetail(7))?.conclusion).toBe("cancelled");
+  expect(await forge.getRunDetail(99)).toBeNull();
+});
+
+test("GiteaForge: no failed-log or rerun support (ctx.forge.runs refuses unsupported)", () => {
+  const forge: GitForge = new GiteaForge("team/proj", CFG, fakeFetch({}).fn);
+  expect(forge.failedRunStepLogs).toBeUndefined();
+  expect(forge.rerunWorkflowRun).toBeUndefined();
+});
+
+/** A full page of 50 successful tasks spread over `runs` (newest run first), task ids descending. */
+function fullPage(firstTaskId: number, runs: number[]) {
+  return Array.from({ length: 50 }, (_, i) => ({
+    ...TASK,
+    id: firstTaskId - i,
+    name: `job${i}`,
+    run_number: runs[Math.floor((i * runs.length) / 50)],
+    status: "success",
+  }));
+}
+
+test("GiteaForge.listDefaultBranchRuns: pages back past the cursor so the edge run is complete", async () => {
+  const { fn, calls } = giteaRunsFetch(fullPage(200, [22, 21, 20]), [
+    { ...TASK, id: 100, name: "test", run_number: 20, status: "failure" },
+  ]);
+  const runs = await new GiteaForge("team/proj", CFG, fn).listDefaultBranchRuns({ sinceId: 19 });
+  expect(runs.map((r) => [r.id, r.conclusion])).toEqual([
+    [22, "success"],
+    [21, "success"],
+    [20, "failure"],
+  ]);
+  expect(calls.filter((c) => c.url.includes("/actions/tasks"))).toHaveLength(2);
+});
+
+test("GiteaForge.listDefaultBranchRuns: page cap drops the possibly-partial oldest runs", async () => {
+  const pages = Array.from({ length: 10 }, (_, p) => fullPage(1000 - p * 50, [100 - p]));
+  const { fn, calls } = giteaRunsFetch(...pages, [
+    { ...TASK, id: 1, run_number: 91, status: "failure" },
+  ]);
+  const runs = await new GiteaForge("team/proj", CFG, fn).listDefaultBranchRuns({ sinceId: 0 });
+  // Run 91 (the cap page's run) may continue on page 11 → dropped; 92..100 are complete.
+  expect(runs.map((r) => r.id)).toEqual([100, 99, 98, 97, 96, 95, 94, 93, 92]);
+  expect(calls.filter((c) => c.url.includes("/actions/tasks"))).toHaveLength(10);
 });

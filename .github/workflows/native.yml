@@ -5,9 +5,14 @@ name: native
 # Paths-filtered so a PR that touches neither the contract nor native/ does
 # not pay for a macOS runner.
 #
-# `ui/messages/*.json` is in the filter for sub-project 4a: the Mac app's string
-# catalog is generated from those files, and its freshness check lives in this
-# same job. Keep the entry even though nothing in ShepherdKit reads it.
+# `ui/messages/*.json` is deliberately NOT in the filter (#2567): the Mac string
+# catalog's freshness check (`bun run check:strings`) is a plain Bun script, so
+# CI's Linux `verify` job runs it on every PR. The in-job copies below still
+# catch `native/**` edits to the key lists.
+#
+# The three jobs run in parallel: each checks out, installs and builds on its
+# own, and none consumes another's output. That costs up to 3 macOS slots per
+# run (Team plan: 5), so overlapping native runs may queue.
 on:
   pull_request:
     branches: [main, "epic/**"]
@@ -15,7 +20,6 @@ on:
       - "native/**"
       - "contracts/**"
       - "scripts/gen-contract-swift.ts"
-      - "ui/messages/*.json"
       - ".github/workflows/native.yml"
   push:
     branches: [main]
@@ -23,7 +27,6 @@ on:
       - "native/**"
       - "contracts/**"
       - "scripts/gen-contract-swift.ts"
-      - "ui/messages/*.json"
       - ".github/workflows/native.yml"
 
 permissions:
@@ -232,7 +235,6 @@ jobs:
 
   shepherd-app-core-simulator:
     name: ShepherdAppCore (iOS Simulator)
-    needs: shepherdkit
     runs-on: macos-latest
     timeout-minutes: 45
     steps:
@@ -314,7 +316,6 @@ jobs:
           if-no-files-found: error
 
   shepherd-mac-ui:
-    needs: shepherd-app-core-simulator
     name: Shepherd for Mac (XCUITest)
     runs-on: macos-latest
     # Non-blocking on purpose. XCUITest needs a real GUI login session; on a
@@ -357,8 +358,8 @@ jobs:
             exit 1
           fi
 
-      # Same key as the `shepherdkit` job, so whichever runs first warms the
-      # other's restore.
+      # Same key as the `shepherdkit` job, so each run's saved state warms the
+      # other's next restore.
       - name: Cache SwiftPM build state
         uses: actions/cache@v6
         with:

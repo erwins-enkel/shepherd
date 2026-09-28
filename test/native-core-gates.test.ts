@@ -427,9 +427,10 @@ for mode in ("term", "kill", "exit"):
         `${mode}: serialized; descendant cleaned; owned group gone`,
       );
   }, 30_000);
-  test("CI chains blocking simulator and advisory UI with scoped Kit opt-in", () => {
+  test("CI runs blocking simulator and advisory UI in parallel with scoped Kit opt-in", () => {
     const source = readFileSync(".github/workflows/native.yml", "utf8");
     const workflow = Bun.YAML.parse(source) as {
+      on: Record<"pull_request" | "push", { paths: string[] }>;
       env?: Record<string, string>;
       jobs: Record<
         string,
@@ -448,9 +449,16 @@ for mode in ("term", "kill", "exit"):
     const kit = jobs.shepherdkit!;
     const simulator = jobs["shepherd-app-core-simulator"]!;
     expect(simulator).toBeDefined();
-    expect(simulator.needs).toBe("shepherdkit");
+    // #2567: no job consumes another's output, so none waits on one.
+    for (const job of Object.values(jobs)) expect(job.needs).toBeUndefined();
     expect(simulator["continue-on-error"]).not.toBe(true);
-    expect(jobs["shepherd-mac-ui"]!.needs).toBe("shepherd-app-core-simulator");
+    // ui/messages-only PRs don't start macOS; Linux verify owns the catalog check.
+    for (const event of ["pull_request", "push"] as const)
+      expect(workflow.on[event].paths).not.toContain("ui/messages/*.json");
+    const ci = Bun.YAML.parse(readFileSync(".github/workflows/ci.yml", "utf8")) as {
+      jobs: Record<string, { steps: { run?: string }[] }>;
+    };
+    expect(ci.jobs.verify!.steps.some((step) => step.run === "bun run check:strings")).toBe(true);
     expect(jobs["shepherd-mac-ui"]!["continue-on-error"]).toBe(true);
     const optedIn = kit.steps.filter((step) => step.env?.SHEPHERD_KEYCHAIN_TESTS === "1");
     expect(optedIn).toHaveLength(1);

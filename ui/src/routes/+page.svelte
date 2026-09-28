@@ -148,6 +148,7 @@
   import TelemetryConsent from "$lib/components/TelemetryConsent.svelte";
   import Toasts from "$lib/components/Toasts.svelte";
   import { registerSW, onSelectSession, onOpenLearnings } from "$lib/push";
+  import { onLaunchLink, sessionIdFromLink } from "$lib/launch-link";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
   import type { FeatureAnnouncement } from "$lib/feature-announcements";
@@ -1764,12 +1765,18 @@
   onMount(() => {
     registerSW();
     const params = new URLSearchParams(location.search);
-    const deepLink = params.get("session");
+    // `?link=web+shepherd://session/<id>` = cold launch of the installed app (issue #2547).
+    const deepLink = params.get("session") ?? sessionIdFromLink(params.get("link"));
     // Learnings-retire push deep-link (issue #852): ?learnings=1 (cold open) or an
     // "open-learnings" message from the SW (open/backgrounded window) opens the drawer.
     if (params.get("learnings") === "1") showLearnings = true;
     const disposeSelect = onSelectSession((id) => void jumpHandlers.selectFromDeepLink(id));
     const disposeLearnings = onOpenLearnings(() => (showLearnings = true));
+    // Warm launch: the open app window receives the link without a reload. Unknown ids are
+    // dropped — before sessions load, the cold-launch deepLink above covers it.
+    onLaunchLink((id) => {
+      if (store.sessions.some((s) => s.id === id)) void jumpHandlers.selectFromDeepLink(id);
+    });
     listSessions()
       .then((list) => {
         store.setAll(list);

@@ -18,6 +18,7 @@ The follow-up verbs (#2486) add `getBacklog`, `listIssues`, `listDrain`, `listDr
 `startUpNext`, `listHeld`, `spawnHeld`, `discardHeld`, `reviewPr`, `reviewPlan`,
 `mergePullRequest`, `listAutomerge` and `setSessionAutomerge`.
 `sessions list --all` (#2590) adds `listArchivedSessions`.
+`shepherd messages` and `sessions show` add `getSessionMessages` (#2585).
 `test/contract/rust-derivation.test.ts` pins both lists. The spec calls the terminal block `x-shepherd-protocol`;
 here it is `x-shepherd-pty`, next to `x-shepherd-events`, so the two socket catalogues read as a
 pair.

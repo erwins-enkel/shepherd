@@ -1,6 +1,7 @@
 <script lang="ts">
   import { firstSafeHttpUrl } from "#lib/url.js";
   import { flushSync, onMount, tick, untrack } from "svelte";
+  import { usesPromptFile } from "../../../../shared/prompt-delivery";
   import { MediaQuery } from "svelte/reactivity";
   import {
     listRepos,
@@ -2643,6 +2644,9 @@
                   data-1p-ignore
                   rows="3"
                   aria-label={m.newtask_prompt_label()}
+                  aria-describedby={usesPromptFile(prompt.trim())
+                    ? "nt-prompt-delivery"
+                    : undefined}
                   aria-keyshortcuts={shortcutAttrAll(
                     "focus-prompt",
                     "issue-token",
@@ -2801,6 +2805,11 @@
                     onremove={() => removeUpload(img.path)}
                   />
                 {/each}
+                {#if !composing && usesPromptFile(prompt.trim())}
+                  <span id="nt-prompt-delivery" class="prompt-delivery"
+                    >{m.newtask_prompt_file_delivery()}</span
+                  >
+                {/if}
                 <span class="char-count">
                   {#if mobile}
                     {#if repoPath}
@@ -2843,6 +2852,11 @@
                     />
                   {/each}
                   <span class="cm-count">{m.newtask_char_count({ count: prompt.length })}</span>
+                  {#if usesPromptFile(prompt.trim())}
+                    <span id="nt-prompt-delivery" class="prompt-delivery"
+                      >{m.newtask_prompt_file_delivery()}</span
+                    >
+                  {/if}
                   <span class="cm-hint">{m.newtask_syntax_hint_touch()}</span>
                 </div>
               {/if}
@@ -3959,6 +3973,12 @@
     font-size: var(--fs-micro);
     color: var(--color-faint);
     font-variant-numeric: tabular-nums;
+  }
+
+  .prompt-delivery {
+    font-size: var(--fs-micro);
+    color: var(--color-muted);
+    overflow-wrap: anywhere;
   }
 
   .field-note {

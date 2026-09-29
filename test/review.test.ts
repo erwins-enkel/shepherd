@@ -1,6 +1,6 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import type { TaskAmendment } from "../src/task-amendments";
-import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync, existsSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ReviewService, reviewPrompt, scopeFindings, noVerdictCause } from "../src/review";
@@ -5426,3 +5426,31 @@ test("N10: posted review body is secret-redacted; stored verdict body is untouch
   expect(rec.body).toContain("<redacted>");
   expect(reviews["s1"]?.body).toBe(leaked);
 });
+
+for (const provider of ["claude", "codex"] as const) {
+  test(`code reviewer ${provider}: long task uses its own complete file`, async () => {
+    const worktreePath = mkdtempSync(join(tmpdir(), "shepherd-review-long-"));
+    const prompt = `${"ä🙂".repeat(50_000)}\nFINAL REQUIREMENT`;
+    try {
+      const h = makeDeps({
+        env: () => ({ provider, model: null, effort: null }),
+        worktree: {
+          createDetached: async () => ({ worktreePath, branch: null, isolated: true }),
+          remove: () => {},
+          gitCommonDir: () => "/fake-git-common",
+        },
+      });
+      await new ReviewService(h.deps as any).forceReview(session({ prompt }), OPEN_GREEN);
+      expect(h.started).toHaveLength(1);
+      const files = readdirSync(worktreePath).filter(
+        (f) => f.startsWith(".shepherd-task-") && f.endsWith(".txt"),
+      );
+      expect(files).toHaveLength(1);
+      expect(readFileSync(join(worktreePath, files[0]!), "utf8")).toBe(prompt);
+      expect(h.started[0]!.argv.join(" ")).toContain(join(worktreePath, files[0]!));
+      expect(h.started[0]!.argv.join(" ")).not.toContain(prompt);
+    } finally {
+      rmSync(worktreePath, { recursive: true, force: true });
+    }
+  });
+}

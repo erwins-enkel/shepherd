@@ -815,7 +815,7 @@ components:
             landed (merged, or squash-merged into its epic's integration branch) the task is held
             (200 HeldTask with reason `after`) and spawns once it lands. Already landed → spawns
             now. Unknown → 404 after_not_found; archived without landing → 409 after_not_landed.
-        prompt: { type: string, minLength: 1, maxLength: 8000 }
+        prompt: { type: string, minLength: 1 }
         agentProvider:
           $ref: "#/components/schemas/AgentProvider"
         model: { type: [string, "null"] }
@@ -2777,7 +2777,7 @@ components:
       properties:
         repoPath: { type: string }
         baseBranch: { type: string }
-        prompt: { type: string, minLength: 1, maxLength: 8000 }
+        prompt: { type: string, minLength: 1 }
         agentProvider:
           $ref: "#/components/schemas/AgentProvider"
         model: { type: [string, "null"] }
@@ -4562,7 +4562,7 @@ components:
             freshening baseBranch to its upstream tip. Fetched from origin when missing; 422 when
             it cannot be used. baseBranch stays the PR target. null or absent = resolve from
             baseBranch.
-        prompt: { "type": "string", "minLength": 1, "maxLength": 8000 }
+        prompt: { "type": "string", "minLength": 1 }
         agentProvider: { "$ref": "#/components/schemas/AgentProvider" }
         model: { "type": ["string", "null"] }
         effort: { "oneOf": [{ "$ref": "#/components/schemas/Effort" }, { "type": "null" }] }

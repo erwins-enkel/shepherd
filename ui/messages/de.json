@@ -7895,5 +7895,8 @@
   "feat_resources_title": "Ressourcen ohne Neustart steuern",
   "feat_resources_body": "Einstellungen → Ressourcen steuert die Prüfslots, das Warteverhalten, schwere Befehle und die Druckbremse dieses Rechners. Ausschalten gibt wartende Prüfläufe frei; laufende bleiben unberührt.",
   "resources_edit": "Bearbeiten",
-  "resources_remove": "Entfernen"
+  "resources_remove": "Entfernen",
+  "newtask_prompt_file_delivery": "Wird vollständig als Datei übergeben.",
+  "feat_long_task_prompts_title": "Lange Aufgaben ohne Aufteilen",
+  "feat_long_task_prompts_body": "Aufgaben mit mehr als 8.000 Zeichen werden Claude Code oder Codex automatisch vollständig als Datei übergeben. Ein Hinweis am Zeichenzähler zeigt die Dateiübergabe an."
 }

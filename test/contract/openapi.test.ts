@@ -237,9 +237,12 @@ describe("sessions", () => {
     });
   }
 
-  async function createSession(prompt: string): Promise<{ id: string }> {
+  async function createSession(prompt: string): Promise<{ id: string; desig: string }> {
     const res = await post({ prompt });
-    const body = (await validateResponse("POST", "/api/sessions", res)) as { id: string };
+    const body = (await validateResponse("POST", "/api/sessions", res)) as {
+      id: string;
+      desig: string;
+    };
     expect(res.status).toBe(201);
     return body;
   }
@@ -404,6 +407,13 @@ describe("sessions", () => {
     await validateResponse("GET", "/api/sessions/{id}", one);
     expect(one.status).toBe(200);
 
+    const byDesig = await fetch(`${s.baseUrl}/api/sessions/${created.desig}`, {
+      headers: bearer(token),
+    });
+    expect(
+      ((await validateResponse("GET", "/api/sessions/{id}", byDesig)) as { id: string }).id,
+    ).toBe(created.id);
+
     const missing = await fetch(`${s.baseUrl}/api/sessions/nope`, { headers: bearer(token) });
     await validateResponse("GET", "/api/sessions/{id}", missing);
     expect(missing.status).toBe(404);
@@ -428,7 +438,7 @@ describe("sessions", () => {
   // No request body: handleSessionDelete's `{reap}` body is optional (it parses with a
   // `.catch(() => null)` and never requires a JSON content-type), and the native client
   // archives without reaping — so the contract declares no requestBody either.
-  test("DELETE /api/sessions/{id} archives; GET /api/sessions/done lists it", async () => {
+  test("DELETE /api/sessions/{id} archives; GET /api/sessions/done and /archived list it", async () => {
     const created = await createSession("archived");
     const del = await fetch(`${s.baseUrl}/api/sessions/${created.id}`, {
       method: "DELETE",
@@ -439,6 +449,11 @@ describe("sessions", () => {
     const done = await fetch(`${s.baseUrl}/api/sessions/done`, { headers: bearer(token) });
     const list = (await validateResponse("GET", "/api/sessions/done", done)) as { id: string }[];
     expect(list.map((x) => x.id)).toContain(created.id);
+    const archived = await fetch(`${s.baseUrl}/api/sessions/archived`, { headers: bearer(token) });
+    const all = (await validateResponse("GET", "/api/sessions/archived", archived)) as {
+      id: string;
+    }[];
+    expect(all.map((x) => x.id)).toContain(created.id);
   });
 });
 

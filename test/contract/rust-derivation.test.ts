@@ -79,6 +79,9 @@ const CLI_V4_OPERATIONS = [
   "listPlanGatesInflight",
 ];
 
+/** `sessions list --all` (#2590). */
+const CLI_V5_OPERATIONS = ["listArchivedSessions"];
+
 function nodes(root: unknown): { path: string; node: Obj }[] {
   const out: { path: string; node: Obj }[] = [];
   const walk = (v: unknown, path: string): void => {
@@ -165,6 +168,7 @@ describe("progenitor (OpenAPI 3.0) derivation", () => {
       ...CLI_V2_OPERATIONS,
       ...CLI_V3_OPERATIONS,
       ...CLI_V4_OPERATIONS,
+      ...CLI_V5_OPERATIONS,
     ]) {
       expect(ids).toContain(id);
       expect(RUST_EXCLUDED_OPERATIONS).not.toHaveProperty(id);

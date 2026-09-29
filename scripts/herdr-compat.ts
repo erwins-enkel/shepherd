@@ -6,10 +6,11 @@
  *
  *   bun run herdr:compat -- --candidate <version> [--baseline <version>] [--static-only]
  *
- * Static half (no server): schema diff + #2032 record-shape gate from `api schema --json`,
+ * Static half (no server): schema diff (a removed method/result variant FAILs only when Shepherd's
+ * code references it — herdr-compat/consumers.ts) + #2032 record-shape gate from `api schema --json`,
  * plus a `--help` surface diff over every subcommand Shepherd drives. Live half: candidate and
  * baseline each run as an ISOLATED headless server (own HOME/XDG/socket — the operator's
- * daemon is never touched) and the L1–L10 probes are measured A/B. Output: a markdown report
+ * daemon is never touched) and the L1–L11 probes are measured A/B. Output: a markdown report
  * at docs/herdr-compat/<candidate>.md (committed by the eventual bump PR) and exit 1 iff any
  * check FAILs (REVIEW items are triage work, not machine verdicts).
  */
@@ -19,6 +20,7 @@ import { join } from "node:path";
 import { HERDR_LAST_SUPPORTED_VERSION } from "../src/herdr-capabilities";
 import { herdrAssetKey } from "../src/herdr-install";
 import { SHEPHERD_HERDR_COMMANDS, diffHelp, type CliFinding } from "./herdr-compat/cli-surface";
+import { referencedIn, shepherdSources } from "./herdr-compat/consumers";
 import { ensureBinary, probeVersion } from "./herdr-compat/download";
 import { startIsolatedServer, type IsolatedServer } from "./herdr-compat/isolated-server";
 import { runProbes, type LiveObservations } from "./herdr-compat/probes";
@@ -250,6 +252,29 @@ function liveChecks({ base, cand }: AB, l9: { ran: boolean; exit: number | null 
           : "\n\nNot measured — re-run, or exercise it by hand before trusting the register-path collision retry."),
   });
 
+  checks.push({
+    id: "L11",
+    title: "self-reported agent kept after its process exits (herdr #4687)",
+    verdict:
+      cand.selfReportedKeptAfterExit === null
+        ? "REVIEW"
+        : cand.selfReportedKeptAfterExit === base.selfReportedKeptAfterExit
+          ? "PASS"
+          : "REVIEW",
+    details:
+      abTable([
+        [
+          "kept after exit",
+          show(base.selfReportedKeptAfterExit),
+          show(cand.selfReportedKeptAfterExit),
+        ],
+      ]) +
+      "\n\nShepherd handles both outcomes since the 0.9.2 bump: a sandboxed session whose record " +
+      "vanishes is reaped to `done` and stays a husk (never stranded), and both drivers register only " +
+      "once the pane has left its shell, so a registration never lands on an idle shell herdr clears. " +
+      "A flip either way is a behaviour change worth a look.",
+  });
+
   const notes = [
     ...base.notes.map((n) => `baseline: ${n}`),
     ...cand.notes.map((n) => `candidate: ${n}`),
@@ -283,7 +308,11 @@ const [baseSchema, candSchema] = await Promise.all([
   readSchema(baselineBin),
   readSchema(candidateBin),
 ]);
-const schemaDiff = diffSchemas(baseSchema, candSchema);
+// Removals are graded against Shepherd's own code: referenced → FAIL, unreferenced → REVIEW.
+const sources = shepherdSources(join(import.meta.dir, ".."));
+const schemaDiff = diffSchemas(baseSchema, candSchema, {
+  isConsumed: (name) => referencedIn(name, sources),
+});
 
 const checks: CheckResult[] = [];
 

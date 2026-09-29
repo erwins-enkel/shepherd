@@ -14,6 +14,10 @@
  *
  * Severity contract (consumed by report.ts): "fail" = the bump must stop until code addresses
  * it; "review" = a human/agent must look but the run proceeds; "info" = recorded for the report.
+ *
+ * A removed request method or result variant is graded against Shepherd's own code when the
+ * caller passes `isConsumed` (see consumers.ts): referenced → "fail", unreferenced → "review",
+ * which still needs a written triage. Without the predicate every removal stays "fail".
  */
 
 export type Severity = "fail" | "review" | "info";
@@ -25,6 +29,12 @@ export interface SchemaFinding {
   kind: string;
   detail: string;
   severity: Severity;
+}
+
+export interface DiffSchemasOptions {
+  /** Does Shepherd's code (outside the vendored src/generated/) reference this method or
+   *  result-variant name? Omitted = assume it does, the conservative default. */
+  isConsumed?: (name: string) => boolean;
 }
 
 export interface SchemaDiffResult {
@@ -120,8 +130,20 @@ function enumDefs(doc: unknown): Map<string, string[]> {
   return out;
 }
 
-export function diffSchemas(base: unknown, candidate: unknown): SchemaDiffResult {
+export function diffSchemas(
+  base: unknown,
+  candidate: unknown,
+  opts: DiffSchemasOptions = {},
+): SchemaDiffResult {
   const findings: SchemaFinding[] = [];
+  /** Severity + detail suffix for a removal, graded against Shepherd's code when we can tell. */
+  const removal = (name: string): { severity: Severity; note: string } =>
+    opts.isConsumed && !opts.isConsumed(name)
+      ? {
+          severity: "review",
+          note: " (not referenced by Shepherd outside src/generated/ — triage in writing)",
+        }
+      : { severity: "fail", note: "" };
   const baseProtocol = protocolOf(base);
   const candidateProtocol = protocolOf(candidate);
 
@@ -139,11 +161,12 @@ export function diffSchemas(base: unknown, candidate: unknown): SchemaDiffResult
   const candMethods = requestVariants(candidate);
   for (const method of baseMethods.keys()) {
     if (!candMethods.has(method)) {
+      const { severity, note } = removal(method);
       findings.push({
         area: "method",
         kind: "method-removed",
-        detail: `request method removed: ${method}`,
-        severity: "fail",
+        detail: `request method removed: ${method}${note}`,
+        severity,
       });
     }
   }
@@ -208,11 +231,12 @@ export function diffSchemas(base: unknown, candidate: unknown): SchemaDiffResult
   for (const [type, baseVariant] of baseResults) {
     const candVariant = candResults.get(type);
     if (!candVariant) {
+      const { severity, note } = removal(type);
       findings.push({
         area: `result:${type}`,
         kind: "result-variant-removed",
-        detail: `result variant removed: ${type}`,
-        severity: "fail",
+        detail: `result variant removed: ${type}${note}`,
+        severity,
       });
       continue;
     }

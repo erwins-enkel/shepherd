@@ -297,6 +297,43 @@ test("liveness: auto-revive fires (default account) only after the 2-sweep debou
   }
 });
 
+test("liveness: an agent record herdr dropped on exit (0.9.2, #4687) reads husk, never stranded — no auto-revive", async () => {
+  // herdr 0.9.2 drops a sandboxed session's self-reported agent once claude exits. Even with the
+  // daemon-restart fingerprint (spawnTerminalId != the last terminal), no matched pane means no
+  // restored husk to revive: the session stays `husk` and auto-revive never dispatches.
+  const store = new SessionStore(":memory:");
+  const s = makeStrandedSession(store);
+  const emits: Array<{ id: string; alive: boolean; liveness: string }> = [];
+  const revived: string[] = [];
+  let clock = 100_000;
+  const prev = config.autoReviveEnabled;
+  config.autoReviveEnabled = true;
+  try {
+    const poller = makePoller({
+      store,
+      agents: [], // the record is gone
+      scan: (worktrees) => new Map(worktrees.map((w) => [w, false])), // claude is dead
+      onChange: (id, alive, liveness) => {
+        emits.push({ id, alive, liveness });
+      },
+      sweepMs: 4000,
+      now: () => clock,
+    });
+    poller.revive = async (id) => {
+      revived.push(id);
+      return "revived";
+    };
+    await poller.tick();
+    clock += 5000;
+    await poller.tick(); // a second sweep would meet the auto-revive debounce if it were stranded
+    expect(emits).toEqual([{ id: s.id, alive: false, liveness: "husk" }]);
+    expect(poller.strandedIds()).toEqual([]);
+    expect(revived).toEqual([]);
+  } finally {
+    config.autoReviveEnabled = prev;
+  }
+});
+
 test("liveness: an account session is NOT auto-revived (reDriveAccount owns it)", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create({ ...baseSessionInput });

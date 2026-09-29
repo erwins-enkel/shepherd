@@ -49,7 +49,7 @@ An analysis-only request produces findings without raising the ceiling.
    ```
 
    Inspect `docs/herdr-compat/<candidate>.md`: static checks S1–S4 and live probes
-   L1–L10 must be accounted for. `--static-only` is useful for preliminary analysis
+   L1–L11 must be accounted for. `--static-only` is useful for preliminary analysis
    but cannot establish support. Exit 0 means no recorded FAIL, not release approval;
    REVIEW and skipped/undetermined probes still need evidence. The script overwrites
    the report on rerun: preserve and reapply human triage after the final full run.

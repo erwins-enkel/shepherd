@@ -5,6 +5,7 @@ import {
   HerdrSpawnUnsupportedError,
   TabLedger,
   agentsHoldingName,
+  awaitPaneLeftShell,
   buildWrappedArgv,
   classifyPaneWrite,
   createSerializer,
@@ -245,7 +246,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
       // `HerdrDriver.startImpl075`.
       const sandboxed = argv.includes("bwrap");
       const agent = sandboxed
-        ? await this.resolveByRegistration(rootPaneId, name)
+        ? await this.resolveByRegistration(rootPaneId, name, opts?.signal)
         : await this.resolveByAutoDetect(rootPaneId, name, opts?.signal);
       // Retain the authoritative spawn handle (#1852) — the tab is ours even if the process inside
       // dies before it next appears in `agent.list`.
@@ -259,8 +260,22 @@ export class SocketHerdrDriver implements IHerdrDriver {
 
   /** Sandboxed resolve: externally register (surfaces the bwrap'd agent + establishes Shepherd's
    *  lifecycle authority) then resolve from the live list. Socket sibling of the CLI driver's —
-   *  including its RAW-name contract: the sanitize happens at the RPC boundary below (#2033). */
-  private async resolveByRegistration(paneId: string, rawName: string): Promise<HerdrAgent> {
+   *  including its RAW-name contract: the sanitize happens at the RPC boundary below (#2033), and
+   *  registering only once the pane has left its shell (`awaitPaneLeftShell`, herdr #4687). */
+  private async resolveByRegistration(
+    paneId: string,
+    rawName: string,
+    signal?: AbortSignal,
+  ): Promise<HerdrAgent> {
+    const left = await awaitPaneLeftShell({
+      procs: () => this.paneForegroundProcs(paneId),
+      sleep: this.sleep,
+      now: this.now,
+      signal,
+    });
+    if (!left) {
+      console.warn(`[herdr] pane ${paneId} (${rawName}) never left its shell; registering anyway`);
+    }
     await this.registerAgentWithCollisionRetry(paneId, rawName);
     const agent = (await this.listAsync()).find((a) => a.paneId === paneId);
     if (!agent || !agent.terminalId) {

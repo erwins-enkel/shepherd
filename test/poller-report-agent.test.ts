@@ -36,6 +36,8 @@ function harness(opts?: {
   /** herdr's list `name` field for the agent. Real herdr leaves this EMPTY for externally-registered
    *  agents (it stores the label in `agent`), so default to "" to mirror production. */
   herdrListName?: string;
+  /** Is the registered agent still in herdr's list? (default: always) */
+  present?: () => boolean;
 }) {
   const store = new SessionStore(":memory:");
   const s = store.create({
@@ -48,18 +50,21 @@ function harness(opts?: {
   const visible = opts?.visible ?? (() => "Computing… (1s)");
   // herdr agent is PINNED to `working` for the whole run — the frozen sandboxed case.
   const herdr = {
-    list: (): HerdrAgent[] => [
-      {
-        agent: "claude",
-        agentStatus: "working",
-        cwd: "/wt",
-        paneId: "p",
-        tabId: "t",
-        name: opts?.herdrListName ?? "",
-        terminalId: "term_a",
-        workspaceId: "w",
-      } as HerdrAgent,
-    ],
+    list: (): HerdrAgent[] =>
+      opts?.present && !opts.present()
+        ? []
+        : [
+            {
+              agent: "claude",
+              agentStatus: "working",
+              cwd: "/wt",
+              paneId: "p",
+              tabId: "t",
+              name: opts?.herdrListName ?? "",
+              terminalId: "term_a",
+              workspaceId: "w",
+            } as HerdrAgent,
+          ],
     listAsync: () => Promise.resolve(herdr.list()),
     read: () => visible(),
     readAsync: () => Promise.resolve(visible()),
@@ -195,4 +200,28 @@ test("gate: no push for a degraded sandbox (requested but ran unconfined)", asyn
   await h.poller.tick();
   await flush();
   expect(h.pushes).toEqual([]);
+});
+
+test("herdr 0.9.2 (#4687): a sandboxed agent dropped after its exit is reaped to done and never pushed again", async () => {
+  // 0.9.2 drops a self-reported agent once its pane's shell is idle again — i.e. as soon as the
+  // sandboxed claude exits. The session then reads like any gone agent: status `done`, and with no
+  // matched pane there is nothing to push state to (a push would re-register a dead agent).
+  setDetectedHerdrVersion("0.7.5");
+  let present = true;
+  const h = harness({ present: () => present });
+  await h.poller.tick();
+  await flush();
+  expect(h.pushes).toHaveLength(1); // the registration baseline, while the agent is listed
+
+  present = false;
+  h.advance(15_000); // long past the quiet window that would otherwise derive (and push) idle
+  await h.poller.tick();
+  await flush();
+  expect(h.store.get(h.id)?.status).toBe("done");
+  expect(h.pushes).toHaveLength(1);
+
+  h.advance(15_000);
+  await h.poller.tick();
+  await flush();
+  expect(h.pushes).toHaveLength(1);
 });

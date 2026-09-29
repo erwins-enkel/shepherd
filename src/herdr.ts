@@ -14,6 +14,7 @@ import { spawnCommandLine } from "./spawn-script";
 import { compileCacheDir, agentTmpDir } from "./tmp-sweep";
 import { claudeSpawnPinned } from "./mise-claude";
 import { SpawnCanceled } from "./spawn-progress";
+import { SHELLS } from "./json-tolerant";
 import type { HerdrState, LivenessState, SessionStatus } from "./types";
 import type { RequestPaneAgentState } from "./generated/herdr-protocol";
 
@@ -784,6 +785,41 @@ export function parseProcs(result: unknown): string[] {
   return procs.map((p) => p.name);
 }
 
+/** How long a sandboxed spawn waits for its pane to leave the shell before registering anyway. */
+const PANE_LEFT_SHELL_DEADLINE_MS = 5_000;
+const PANE_LEFT_SHELL_POLL_MS = 100;
+
+/**
+ * Wait until the pane's foreground runs something other than a shell — i.e. the typed
+ * `sh <script>` has exec'd into the sandboxed agent. herdr 0.9.2 (#4687) drops a self-reported
+ * agent whenever its pane's shell is idle, so a registration that landed before the command forked
+ * would be cleared for good while claude runs. `sh` itself counts as a shell: the wait ends once
+ * the spawn script's `exec` has replaced it, milliseconds after `pane run`.
+ *
+ * Shell-only, empty and failed readings all poll again. Returns false at the wall-clock deadline
+ * (the caller then registers anyway — exactly the pre-0.9.2 behaviour); a cancelled spawn throws
+ * {@link SpawnCanceled}, checked once per round like the trusted auto-detect poll.
+ */
+export async function awaitPaneLeftShell(deps: {
+  procs: () => Promise<string[]>;
+  sleep: (ms: number) => Promise<void>;
+  now: () => number;
+  signal?: AbortSignal;
+}): Promise<boolean> {
+  const deadline = deps.now() + PANE_LEFT_SHELL_DEADLINE_MS;
+  for (;;) {
+    if (deps.signal?.aborted) throw new SpawnCanceled();
+    try {
+      if ((await deps.procs()).some((name) => !SHELLS.has(name))) return true;
+    } catch {
+      /* a transient process-info failure is no evidence either way — look again */
+    }
+    if (deps.signal?.aborted) throw new SpawnCanceled();
+    if (deps.now() >= deadline) return false;
+    await deps.sleep(PANE_LEFT_SHELL_POLL_MS);
+  }
+}
+
 /**
  * Spawn-handle registry (issue #1852): remembers each `start()`'s authoritative
  * `tabId` + tab label, keyed by the started agent's terminalId, so `stop()` can close
@@ -1280,7 +1316,7 @@ export class HerdrDriver implements IHerdrDriver {
       // exactly as it did on ≤0.7.4 — resolving the spawn by waiting for auto-detection instead.
       const sandboxed = argv.includes("bwrap");
       const agent = sandboxed
-        ? await this.resolveByRegistration(paneId, name)
+        ? await this.resolveByRegistration(paneId, name, opts?.signal)
         : await this.resolveByAutoDetect(paneId, name, opts?.signal);
       // Retain the authoritative spawn handle (#1852): the tab is ours even if the process inside
       // dies before it next appears in `agent list`.
@@ -1298,9 +1334,23 @@ export class HerdrDriver implements IHerdrDriver {
    * lifecycle authority (herdr can't detect the bwrap'd agent, so Shepherd owns its state — #1891).
    * Resolve from the live list, joining on the pane_id we ran in; its terminal_id is Shepherd's key.
    * Takes the RAW name and sanitizes at the RPC boundary below, so the collision retry keeps the
-   * raw form its TAB-label lookup needs (#2033).
+   * raw form its TAB-label lookup needs (#2033). Registers only once the pane has left its shell
+   * (`awaitPaneLeftShell`, herdr #4687).
    */
-  private async resolveByRegistration(paneId: string, rawName: string): Promise<HerdrAgent> {
+  private async resolveByRegistration(
+    paneId: string,
+    rawName: string,
+    signal?: AbortSignal,
+  ): Promise<HerdrAgent> {
+    const left = await awaitPaneLeftShell({
+      procs: () => this.paneForegroundProcs(paneId),
+      sleep: this.sleep,
+      now: this.now,
+      signal,
+    });
+    if (!left) {
+      console.warn(`[herdr] pane ${paneId} (${rawName}) never left its shell; registering anyway`);
+    }
     await this.registerAgentWithCollisionRetry(paneId, rawName);
     const agent = (await this.listAsync()).find((a) => a.paneId === paneId);
     if (!agent || !agent.terminalId) {

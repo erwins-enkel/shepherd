@@ -445,11 +445,6 @@ export type RequestPaneCopySearchDirection = "forward" | "backward";
 export type RequestPaneDirection = "left" | "right" | "up" | "down";
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
- * via the `definition` "RequestPaneGraphicsFormat".
- */
-export type RequestPaneGraphicsFormat = "png" | "rgb" | "rgba" | "bgra";
-/**
- * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestPaneRightClickTarget".
  */
 export type RequestPaneRightClickTarget = "herdr" | "pane";
@@ -1074,33 +1069,6 @@ export type SuccessResponseResponseResult =
       pane_id: string;
       total: number;
       type: "pane_copy_search";
-      [k: string]: unknown;
-    }
-  | {
-      revision: number;
-      sequence: number;
-      type: "pane_graphics_frame_ack";
-      [k: string]: unknown;
-    }
-  | {
-      cell_height_px: number;
-      cell_width_px: number;
-      /**
-       * Accepts damage metadata while still consuming a complete canonical file.
-       */
-      file_frame_damage?: boolean;
-      file_frame_direct_max_bytes?: number | null;
-      file_frame_directory?: string | null;
-      file_frame_formats?: string[];
-      file_frame_max_bytes?: number | null;
-      file_frame_transport?: string | null;
-      max_layers_per_pane?: number;
-      /**
-       * True only when this pane is on the currently rendered terminal surface.
-       */
-      pane_visible: boolean;
-      pixel_mouse?: boolean;
-      type: "pane_graphics_info";
       [k: string]: unknown;
     }
   | {
@@ -1794,44 +1762,6 @@ export interface RequestPaneFocusDirectionParams {
 }
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
- * via the `definition` "RequestPaneGraphicsClearParams".
- */
-export interface RequestPaneGraphicsClearParams {
-  layer_id?: string | null;
-  pane_id: string;
-}
-/**
- * This interface was referenced by `HerdrProtocol`'s JSON-Schema
- * via the `definition` "RequestPaneGraphicsPlacementParams".
- */
-export interface RequestPaneGraphicsPlacementParams {
-  grid_cols?: number;
-  grid_rows?: number;
-  viewport_col?: number;
-  viewport_row?: number;
-}
-/**
- * This interface was referenced by `HerdrProtocol`'s JSON-Schema
- * via the `definition` "RequestPaneGraphicsSetParams".
- */
-export interface RequestPaneGraphicsSetParams {
-  data_base64?: string;
-  format: RequestPaneGraphicsFormat;
-  image_height: number;
-  image_width: number;
-  layer_id?: string | null;
-  pane_id: string;
-  placement?: RequestPaneGraphicsPlacementParams1;
-  z_index?: number;
-}
-export interface RequestPaneGraphicsPlacementParams1 {
-  grid_cols?: number;
-  grid_rows?: number;
-  viewport_col?: number;
-  viewport_row?: number;
-}
-/**
- * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestPaneInputSetParams".
  */
 export interface RequestPaneInputSetParams {
@@ -1926,6 +1856,11 @@ export interface RequestPaneReportAgentParams {
   agent_session_path?: string | null;
   message?: string | null;
   pane_id: string;
+  /**
+   * Command that resumes this agent's session after a Herdr restart. The
+   * first element must be a plain command name.
+   */
+  resume_argv?: string[] | null;
   seq?: number | null;
   source: string;
   state: RequestPaneAgentState;
@@ -1939,6 +1874,11 @@ export interface RequestPaneReportAgentSessionParams {
   agent_session_id?: string | null;
   agent_session_path?: string | null;
   pane_id: string;
+  /**
+   * Command that resumes this agent's session after a Herdr restart. The
+   * first element must be a plain command name.
+   */
+  resume_argv?: string[] | null;
   seq?: number | null;
   session_start_source?: string | null;
   source: string;
@@ -2225,6 +2165,16 @@ export interface RequestServerLiveHandoffParams {
 }
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestServerSshAgentRegisterParams".
+ */
+export interface RequestServerSshAgentRegisterParams {
+  /**
+   * Absolute remote-host agent socket. Registration lasts until this API connection closes.
+   */
+  socket_path: string;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestTabCreateParams".
  */
 export interface RequestTabCreateParams {
@@ -2387,6 +2337,10 @@ export interface SuccessResponseAgentInfo {
   agent?: string | null;
   agent_session?: SuccessResponseAgentSessionInfo | null;
   agent_status: SuccessResponseAgentStatus;
+  /**
+   * The current idle transition completed work, independently of who has viewed it.
+   */
+  completion_seq?: number | null;
   cwd?: string | null;
   display_agent?: string | null;
   focused: boolean;
@@ -2514,6 +2468,7 @@ export interface SuccessResponsePaneInfo {
   foreground_cwd?: string | null;
   label?: string | null;
   pane_id: string;
+  restore_error?: string | null;
   revision: number;
   scroll?: SuccessResponsePaneScrollInfo | null;
   state_labels?: {
@@ -3004,6 +2959,10 @@ export interface SuccessResponseServerCapabilities {
   health_check?: boolean;
   live_handoff: boolean;
   /**
+   * Supports connection-scoped `server.ssh_agent.register` on the local JSON API.
+   */
+  ssh_agent_registration?: boolean;
+  /**
    * Whether this server supports explicit client-shell surface interest.
    */
   surface_interest?: boolean;
@@ -3123,6 +3082,7 @@ export interface EventPaneInfo {
   foreground_cwd?: string | null;
   label?: string | null;
   pane_id: string;
+  restore_error?: string | null;
   revision: number;
   scroll?: EventPaneScrollInfo | null;
   state_labels?: {
@@ -3273,6 +3233,7 @@ export interface HerdrParams {
   "server.stop": RequestEmptyParams;
   "server.live_handoff": RequestServerLiveHandoffParams;
   "server.reload_config": RequestEmptyParams;
+  "server.ssh_agent.register": RequestServerSshAgentRegisterParams;
   "server.agent_manifests": RequestEmptyParams;
   "server.reload_agent_manifests": RequestEmptyParams;
   "notification.show": RequestNotificationShowParams;
@@ -3329,6 +3290,7 @@ export interface HerdrParams {
   "pane.focus_direction": RequestPaneFocusDirectionParams;
   "pane.resize": RequestPaneResizeParams;
   "pane.scroll": RequestPaneScrollParams;
+  "pane.clear": RequestPaneTarget;
   "pane.edit_scrollback": RequestPaneTarget;
   "pane.selection.read": RequestPaneSelectionReadParams;
   "pane.copy_motion": RequestPaneCopyMotionParams;
@@ -3345,9 +3307,6 @@ export interface HerdrParams {
   "pane.send_keys": RequestPaneSendKeysParams;
   "pane.send_input": RequestPaneSendInputParams;
   "pane.read": RequestPaneReadParams;
-  "pane.graphics.set": RequestPaneGraphicsSetParams;
-  "pane.graphics.clear": RequestPaneGraphicsClearParams;
-  "pane.graphics.info": RequestPaneTarget;
   "pane.report_agent": RequestPaneReportAgentParams;
   "pane.report_agent_session": RequestPaneReportAgentSessionParams;
   "pane.report_metadata": RequestPaneReportMetadataParams;

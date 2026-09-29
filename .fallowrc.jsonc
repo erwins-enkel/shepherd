@@ -77,7 +77,11 @@
     // Footer overrides Starlight's `Footer` slot to append the § 5 DDG imprint link.
     // Loaded via the `components: { Footer: "./src/components/Footer.astro" }` string
     // path in astro.config.mjs — same string-path-root class as Head above.
-    "docs-site/src/components/Footer.astro"
+    "docs-site/src/components/Footer.astro",
+    // Starlight route middleware adding per-page og:image meta. Loaded via the
+    // `routeMiddleware: "./src/routeData.ts"` string path in astro.config.mjs — same
+    // string-path-root class as the component overrides above.
+    "docs-site/src/routeData.ts"
   ],
 
   // sw.js is the service worker: never imported statically — the browser fetches

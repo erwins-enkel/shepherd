@@ -37,7 +37,18 @@
   --brand-fs-micro: 10px;
   --brand-fs-meta: 11px;
 
-  /* ---- Dark theme (Starlight default) — map --sl-* onto the brand palette ---- */
+  /* Small UI rungs adopt the brand meta sizes; body type stays Starlight default. */
+  --sl-text-xs: var(--brand-fs-micro);
+  --sl-text-sm: var(--brand-fs-meta);
+}
+
+/*
+ * Dark theme (Starlight default) — map --sl-* onto the brand palette.
+ * Scoped with :not([data-theme="light"]) on purpose: this file is unlayered, so a
+ * plain `:root` block would beat Starlight's layered `:root[data-theme='light']`
+ * values and force the dark palette onto light mode too.
+ */
+:root:not([data-theme="light"]) {
   --sl-color-accent-low: color-mix(in srgb, var(--brand-amber) 25%, var(--brand-bg));
   --sl-color-accent: var(--brand-amber);
   --sl-color-accent-high: color-mix(in srgb, var(--brand-amber) 55%, var(--brand-ink-bright));
@@ -55,10 +66,6 @@
   --sl-color-green: var(--brand-green);
   --sl-color-green-high: color-mix(in srgb, var(--brand-green) 60%, var(--brand-ink-bright));
   --sl-color-green-low: color-mix(in srgb, var(--brand-green) 25%, var(--brand-bg));
-
-  /* Small UI rungs adopt the brand meta sizes; body type stays Starlight default. */
-  --sl-text-xs: var(--brand-fs-micro);
-  --sl-text-sm: var(--brand-fs-meta);
 }
 
 :root[data-theme="light"] {

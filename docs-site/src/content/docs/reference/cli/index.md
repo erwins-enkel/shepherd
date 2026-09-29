@@ -1,5 +1,5 @@
 ---
-title: "CLI reference"
+title: "herdr CLI reference"
 description: "Operator-facing herdr CLI commands, generated from live --help."
 ---
 

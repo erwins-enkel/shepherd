@@ -1,8 +1,9 @@
 //! Argument grammar. Every command is non-interactive: nothing here ever prompts.
 
 use std::num::NonZeroU64;
+use std::time::Duration;
 
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 use crate::api::types::{AgentProvider, Effort, EpicRunPatchMode, MergeMethod};
 
@@ -13,7 +14,8 @@ use crate::api::types::{AgentProvider, Effort, EpicRunPatchMode, MergeMethod};
     about = "Command-line client for a Shepherd server",
     after_help = "Output is a table on a terminal and JSON otherwise (or with --json). \
                   Exit codes: 0 ok, 1 failure, 2 usage, 3 unauthenticated, 4 insufficient scope, \
-                  5 not found, 6 refused, 7 unreachable, 8 server error."
+                  5 not found, 6 refused, 7 unreachable, 8 server error; `wait` adds 9 timed out, \
+                  10 needs-input, 11 plan-ready, 12 pr, 13 done, 14 halted."
 )]
 pub struct Cli {
     /// Server URL (overrides SHEPHERD_URL and the profile). Default http://127.0.0.1:7330
@@ -48,6 +50,8 @@ pub enum Command {
     /// Stream server events
     #[command(subcommand)]
     Events(EventsCmd),
+    /// Block until a session needs input, has a plan ready, has a PR, is done, or halted
+    Wait(WaitArgs),
     /// Create a session (spawns an agent)
     New(NewArgs),
     /// Send text to a running session's agent (needs a `full` token)
@@ -409,6 +413,33 @@ pub struct TailArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct WaitArgs {
+    /// Session id or designation (TASK-07)
+    pub session: String,
+    /// States to wait for, comma-separated (default: all of them)
+    #[arg(long, value_enum, value_delimiter = ',', value_name = "STATE")]
+    pub until: Vec<WaitState>,
+    /// Give up after this long, e.g. 90s, 30m, 2h (exits 9). Default: wait indefinitely
+    #[arg(long, value_parser = parse_timeout, value_name = "DURATION")]
+    pub timeout: Option<Duration>,
+}
+
+/// A state `shepherd wait` can block on. The names and their exit codes are a public contract.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, ValueEnum)]
+pub enum WaitState {
+    /// The agent or its plan gate waits on an answer
+    NeedsInput,
+    /// The plan gate approved the plan; `shepherd go` releases it
+    PlanReady,
+    /// The session has a pull request (open or merged)
+    Pr,
+    /// Finished: archived, its PR merged, or autopilot judged the task complete
+    Done,
+    /// Halted: usage limit, operator, or error
+    Halted,
+}
+
+#[derive(Debug, Args)]
 pub struct NewArgs {
     /// Task prompt; `-` reads it from stdin
     pub prompt: String,
@@ -465,4 +496,48 @@ fn parse_override(s: &str) -> Result<Override, String> {
 fn parse_provider(s: &str) -> Result<AgentProvider, String> {
     s.parse()
         .map_err(|_| "expected one of: claude, codex".to_string())
+}
+
+/// `90`, `90s`, `30m`, `2h`, `1d`: a whole number with an optional unit (seconds when omitted).
+fn parse_timeout(s: &str) -> Result<Duration, String> {
+    let invalid = || "expected a whole number with an optional unit: 90s, 30m, 2h, 1d".to_string();
+    let digits = s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len());
+    let (number, unit) = s.split_at(digits);
+    let n: u64 = number.parse().map_err(|_| invalid())?;
+    let scale = match unit {
+        "" | "s" => 1,
+        "m" => 60,
+        "h" => 3600,
+        "d" => 86_400,
+        _ => return Err(invalid()),
+    };
+    n.checked_mul(scale)
+        .map(Duration::from_secs)
+        .ok_or_else(invalid)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn timeouts() {
+        assert_eq!(parse_timeout("90"), Ok(Duration::from_secs(90)));
+        assert_eq!(parse_timeout("90s"), Ok(Duration::from_secs(90)));
+        assert_eq!(parse_timeout("30m"), Ok(Duration::from_secs(1800)));
+        assert_eq!(parse_timeout("2h"), Ok(Duration::from_secs(7200)));
+        assert_eq!(parse_timeout("1d"), Ok(Duration::from_secs(86_400)));
+        assert_eq!(parse_timeout("0"), Ok(Duration::ZERO));
+        for bad in [
+            "",
+            "m",
+            "1.5h",
+            "-1",
+            "10x",
+            "1h30m",
+            "99999999999999999999d",
+        ] {
+            assert!(parse_timeout(bad).is_err(), "{bad}");
+        }
+    }
 }

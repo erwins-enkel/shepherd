@@ -9,6 +9,7 @@ pub mod merge;
 pub mod read;
 pub mod settings;
 pub mod upnext;
+pub mod wait;
 
 use std::path::Path;
 use std::time::Duration;

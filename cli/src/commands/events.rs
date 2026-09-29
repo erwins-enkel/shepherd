@@ -21,11 +21,11 @@ use crate::error::{CliError, Exit, Op, Result, Scope, api_error, body_message, f
 use crate::{Ctx, api::Client};
 
 const TAIL: Op = Op::new("events tail", Scope::Read);
-const MAX_BACKOFF: Duration = Duration::from_secs(30);
+pub const MAX_BACKOFF: Duration = Duration::from_secs(30);
 /// A connection that lived this long was healthy: the next reconnect starts from the minimum
 /// backoff again. A socket that keeps dropping sooner backs off, so a flapping server is not
 /// re-snapshotted every second.
-const STABLE_CONNECTION: Duration = Duration::from_secs(30);
+pub const STABLE_CONNECTION: Duration = Duration::from_secs(30);
 
 pub type Socket =
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;

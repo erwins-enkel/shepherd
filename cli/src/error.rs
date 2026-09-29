@@ -16,6 +16,14 @@ pub enum Exit {
     Refused = 6,
     Unreachable = 7,
     Server = 8,
+    /// `wait` only: `--timeout` passed before any requested state was reached.
+    TimedOut = 9,
+    /// `wait` only, one code per reached state.
+    NeedsInput = 10,
+    PlanReady = 11,
+    Pr = 12,
+    Done = 13,
+    Halted = 14,
 }
 
 impl Exit {
@@ -267,9 +275,15 @@ mod tests {
             Exit::Refused,
             Exit::Unreachable,
             Exit::Server,
+            Exit::TimedOut,
+            Exit::NeedsInput,
+            Exit::PlanReady,
+            Exit::Pr,
+            Exit::Done,
+            Exit::Halted,
         ]
         .map(Exit::code);
-        assert_eq!(codes, [0, 1, 2, 3, 4, 5, 6, 7, 8]);
+        assert_eq!(codes, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
     }
 
     #[test]

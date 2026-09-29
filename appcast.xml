@@ -3,12 +3,12 @@
     <channel>
         <title>Shepherd</title>
         <item>
-            <title>2.0.0-beta.1</title>
-            <pubDate>Mon, 21 Sep 2026 10:41:25 +0000</pubDate>
-            <sparkle:version>1888</sparkle:version>
-            <sparkle:shortVersionString>2.0.0-beta.1</sparkle:shortVersionString>
+            <title>2.0.0</title>
+            <pubDate>Tue, 29 Sep 2026 04:31:32 +0000</pubDate>
+            <sparkle:version>1968</sparkle:version>
+            <sparkle:shortVersionString>2.0.0</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/erwins-enkel/shepherd/releases/download/macos-v2.0.0-beta.1/Shepherd-1888.zip" length="16598800" type="application/octet-stream" sparkle:edSignature="f1QQL+G1olp6uVU9CPYTDBmizgMOX3/LYrjxGeNjn3YkLPQsKMCiSsQvmFWsu7zJQ9yZLD29jtdhmYIcCOEQBg=="/>
+            <enclosure url="https://github.com/erwins-enkel/shepherd/releases/download/macos-v2.0.0/Shepherd-1968.zip" length="17783187" type="application/octet-stream" sparkle:edSignature="0FoHTgUHOLIwCAyy7pQB8iMVazwDgokQ9L07bXNE/fSUixzKfboIGZCQbz83ULtN4+kiBuniJEOy0OTik7vtAw=="/>
         </item>
     </channel>
 </rss>

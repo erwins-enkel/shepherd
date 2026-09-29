@@ -4168,6 +4168,9 @@ async function handleSessionMcp({ req, parts, deps }: Ctx): Promise<Response | n
   if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "mcp")) return null;
   const id = parts[2];
   if (!id || parts[4]) return null;
+  // No SSE stream: the streamable-HTTP spec answers the client's GET probe with 405, which Claude
+  // Code reads as "none offered" — a 404 there logs a spurious CLIENT_HTTP_FAILED_TO_OPEN_STREAM.
+  if (req.method === "GET") return new Response(null, { status: 405, headers: { allow: "POST" } });
   if (req.method !== "POST") return null;
   // A spawn in flight has no row yet, but its agent is already connecting (see spawningMcp).
   const row = deps.store.get(id);
@@ -8821,7 +8824,7 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
  *     public `video-brief` skill uses to name a session after the recording it just watched. */
 const AGENT_LEAF_ROUTES = new Map<string, readonly string[]>([
   ["hooks", ["POST"]],
-  ["mcp", ["POST"]],
+  ["mcp", ["POST", "GET"]],
   ["queue", ["PUT", "GET"]],
   ["epic-draft", ["PUT", "GET"]],
   ["rename", ["POST"]],

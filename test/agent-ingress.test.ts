@@ -23,6 +23,7 @@ test("isAgentIngressRoute: ALLOWS exactly the agent→server routes", () => {
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/hooks`))).toBe(true);
   // The session's MCP endpoint (issue #2003): the same control plane as a TOOL surface.
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/mcp`))).toBe(true);
+  expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/mcp`))).toBe(true);
   expect(isAgentIngressRoute("PUT", parts(`/api/sessions/${ID}/queue`))).toBe(true);
   expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/queue`))).toBe(true);
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/queue/steps/${SID}`))).toBe(true);
@@ -82,8 +83,7 @@ test("isAgentIngressRoute: DENIES everything else (containment property)", () =>
   );
   // hooks with a trailing extra segment.
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/hooks/x`))).toBe(false);
-  // MCP is POST-only, exact-path.
-  expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/mcp`))).toBe(false);
+  // MCP is POST (+ the GET stream probe, answered 405), exact-path.
   expect(isAgentIngressRoute("DELETE", parts(`/api/sessions/${ID}/mcp`))).toBe(false);
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/mcp/x`))).toBe(false);
   // Missing session id.
@@ -446,6 +446,14 @@ test("makeAgentIngressApp: the MCP endpoint answers WHILE the spawn is in flight
   expect(JSON.stringify(seen.call)).toContain("still starting");
   // Once persisted, the endpoint serves from the row — and the in-flight entry is gone.
   expect(deps.service.spawningAgentCapabilities(s.id)).toBeNull();
+});
+
+test("makeAgentIngressApp: GET on the MCP endpoint is 405 — no SSE stream offered, per spec", async () => {
+  const res = await makeAgentIngressApp(makeDeps()).fetch(
+    new Request(`http://x/api/sessions/${ID}/mcp`, { headers: { accept: "text/event-stream" } }),
+  );
+  expect(res.status).toBe(405);
+  expect(res.headers.get("allow")).toBe("POST");
 });
 
 test("a failed spawn leaves no in-flight MCP entry behind", async () => {

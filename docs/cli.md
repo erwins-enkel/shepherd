@@ -95,11 +95,11 @@ withholds the stored token and says so on stderr. Set `SHEPHERD_TOKEN` to authen
 
 A token's scope, set when it is minted, limits what the CLI can do:
 
-| Scope    | Commands                                                                                                                                                                                                                                                          |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `read`   | `sessions list`, `sessions show` (active sessions), `status`, `holds`, `git`, `reviews`, `events tail`, `wait` (active sessions), `login`                                                                                                                         |
-| `submit` | everything `read` can, plus `new`, `held list\|spawn\|discard` and `train launch`                                                                                                                                                                                 |
-| `full`   | everything else, including `steer`, `interrupt`, `archive`, `resume`, `merge`, `merge-pr`, `go`, `halt`, `retry`, `epics`, `drain`, `up-next`, `settings`, `repo-config`, `diagnose`, `sessions list --all`, and `sessions show` or `wait` of an archived session |
+| Scope    | Commands                                                                                                                                                                                                                                                                                                                                       |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `read`   | `sessions list`, `sessions show` (active sessions), `status`, `holds`, `git`, `reviews`, `events tail`, `wait` (active sessions), `login`                                                                                                                                                                                                      |
+| `submit` | everything `read` can, plus `new`, `held list\|spawn\|discard` and `train launch`                                                                                                                                                                                                                                                              |
+| `full`   | everything else, including `steer`, `interrupt`, `archive`, `resume`, `merge`, `merge-pr`, `go`, `halt`, `retry`, `epics`, `drain`, `up-next`, `settings`, `repo-config`, `diagnose`, `messages`, `sessions list --all`, `sessions show` or `wait` of an archived session, and the `awaitingInput`/`pendingQuestion` fields of `sessions show` |
 
 The server's `403` doesn't say which scope was missing. The CLI names it for you, for example:
 ``error: `shepherd steer` needs a 'full' token; this token's scope does not include it.``
@@ -153,6 +153,23 @@ finds an archived session by its designation, with `archivedAt` set.
 | `shepherd holds`                   | Sessions parked by a hold, and why                                               |
 | `shepherd git`                     | Each session's cached pull-request state                                         |
 | `shepherd reviews`                 | Critic reviews running right now, with the provider, model and effort of each    |
+| `shepherd messages <session>`      | The agent's last messages, and the question it waits on (needs a `full` token)   |
+
+`messages` reads the agent's transcript on the server (Claude or Codex), so no SSH is needed.
+`-n <N>` sets how many of the newest messages to show (default 5, at most 100). `--include-user`
+adds the user's and the operator's steering messages, which are otherwise left out.
+
+`sessions show` also reports `awaitingInput` and `pendingQuestion`. A session waits for input
+when it is at rest (`idle`, `done` or `blocked`) and either an `AskUserQuestion` call is still
+unanswered, or its last message ends its turn with a question (a `?` in one of the last three
+paragraphs). `pendingQuestion` is then the question, or the whole last message. The check is
+deterministic and can miss a question asked without a `?`, so read `messages` when in doubt. With
+a token below `full`, both fields are `null` and a warning goes to stderr.
+
+```bash
+shepherd --json sessions show TASK-07 | jq '{awaitingInput, pendingQuestion}'
+shepherd messages TASK-07 -n 3 --include-user
+```
 
 ### Events
 

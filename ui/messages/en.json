@@ -3803,6 +3803,8 @@
   "shape_err_compose": "Couldn't build the brief from those answers. Try again.",
   "readiness_g_issue_templates_title": "Issue templates",
   "readiness_g_issue_templates_removes": "Without them, an issue reaches the agent as a one-liner and the session burns its first turns asking what you meant.",
+  "readiness_g_env_schema_title": "Env schema",
+  "readiness_g_env_schema_removes": "Without it, an agent adds an env var nobody declared or documented, and you find the gap when a deploy breaks.",
   "readiness_template_heading": "Prescribed issue template",
   "readiness_template_present_note": "This repo already ships issue templates, so the install task leaves them alone — this one is here to copy from if you want the intent shape too.",
   "readiness_adopt_template_intro": "Use exactly this issue template, verbatim:",

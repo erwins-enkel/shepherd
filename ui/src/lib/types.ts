@@ -2039,7 +2039,8 @@ export type GuardrailId =
   | "ci"
   | "dependency_automation"
   | "agent_instructions"
-  | "issue_templates";
+  | "issue_templates"
+  | "env_schema";
 export interface GuardrailCheck {
   id: GuardrailId;
   present: boolean;

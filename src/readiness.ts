@@ -33,7 +33,8 @@ export type GuardrailId =
   | "ci"
   | "dependency_automation"
   | "agent_instructions"
-  | "issue_templates";
+  | "issue_templates"
+  | "env_schema";
 
 export type PackageManager = "bun" | "pnpm" | "yarn" | "npm";
 
@@ -84,6 +85,9 @@ interface GuardrailDef<Ctx> {
   id: GuardrailId;
   weight: number;
   detect: (s: Ctx) => string[];
+  /** Conditional guardrail: when this returns false the check is omitted entirely (not scored,
+   *  not prescribed). Absent ⇒ always applies. */
+  applies?: (s: Ctx) => boolean;
 }
 
 /**
@@ -175,6 +179,8 @@ interface RepoScan extends FileScan {
 
 const dep = (s: RepoScan, name: string) => s.deps.has(name);
 const anyDep = (s: RepoScan, prefix: string) => [...s.deps].some((d) => d.startsWith(prefix));
+/** Committed env templates/schemas that mark a repo as having env config (gates `env_schema`). */
+const ENV_SURFACE_FILES = [".env.example", ".env.sample", ".env.template", ".env.schema"];
 
 /**
  * The dogfooded baseline. Order is leverage-ranked (also reflected by `weight`),
@@ -309,6 +315,18 @@ export const GUARDRAILS: GuardrailDef<RepoScan>[] = [
       return ev;
     },
   },
+  {
+    // Only repos with an env surface — a library with no env config is not penalized.
+    id: "env_schema",
+    weight: 3,
+    applies: (s) => ENV_SURFACE_FILES.some((f) => s.has(f)) || dep(s, "varlock"),
+    detect: (s) => {
+      const ev: string[] = [];
+      if (s.has(".env.schema")) ev.push(".env.schema");
+      if (dep(s, "varlock")) ev.push("varlock");
+      return ev;
+    },
+  },
 ];
 
 /**
@@ -405,7 +423,7 @@ artifacts. \`.gitignore\` alone is not reliable here.
 // ══ Rust profile ═══════════════════════════════════════════════════════════════
 
 /** The Rust guardrail subset — rustc is the always-present type-checker and Rust has no lint-staged norm. */
-type RustGuardrailId = Exclude<GuardrailId, "type_checker" | "lint_staged">;
+type RustGuardrailId = Exclude<GuardrailId, "type_checker" | "lint_staged" | "env_schema">;
 
 /**
  * Rust inspection context. rustfmt/clippy are rustup components (not manifest deps), so
@@ -651,10 +669,12 @@ function runProfile<Ctx>(profile: EcosystemProfile<Ctx>, dir: string): Readiness
   if (roots.length === 0) return null;
   const ctx = profile.buildContext(dir, roots);
 
-  const checks: GuardrailCheck[] = profile.guardrails.map((g) => {
-    const evidence = g.detect(ctx);
-    return { id: g.id, present: evidence.length > 0, weight: g.weight, evidence };
-  });
+  const checks: GuardrailCheck[] = profile.guardrails
+    .filter((g) => g.applies?.(ctx) ?? true)
+    .map((g) => {
+      const evidence = g.detect(ctx);
+      return { id: g.id, present: evidence.length > 0, weight: g.weight, evidence };
+    });
 
   // Score derived from the checks array — never a hardcoded denominator.
   const total = checks.reduce((s, c) => s + c.weight, 0);
@@ -776,6 +796,7 @@ const TOOLING_LABEL: Record<GuardrailId, string> = {
   commit_lint: "Conventional-commit lint (commitlint)",
   dead_code_audit: "A dead-code/complexity audit (fallow/knip)",
   issue_templates: "Intent-shaped issue templates",
+  env_schema: "An env schema + drift audit (varlock)",
 };
 
 /** Plain-text "back-and-forth this removes" per guardrail (verbatim artifact). */
@@ -799,6 +820,8 @@ const CHURN_PLAIN: Record<GuardrailId, string> = {
   dead_code_audit: "without it dead exports and unused deps accrete and you spot them by eye.",
   issue_templates:
     "without them an issue reaches the agent as a one-liner and the session burns its first turns asking what you meant.",
+  env_schema:
+    "without it an agent adds an env var nobody declared or documented, and you find the gap when a deploy breaks.",
 };
 
 /** Dev-add + exec verbs per package manager (verbatim — feed the generated artifact). */
@@ -842,6 +865,9 @@ const PRESCRIPTION_NOTE: Partial<Record<GuardrailId, (s: RepoScan) => string[]>>
     ];
   },
   issue_templates: () => ISSUE_TEMPLATE_NOTE,
+  env_schema: () => [
+    "Run `varlock audit` in the pre-push hook and in CI so an undeclared (or stale) env var fails the push.",
+  ],
 };
 
 /**
@@ -861,6 +887,7 @@ export const INSTALL_STEPS: Record<GuardrailId, (v: { add: string; exec: string 
   lint_staged: (v) => [`${v.add} lint-staged`],
   commit_lint: (v) => [`${v.add} @commitlint/cli @commitlint/config-conventional`],
   dead_code_audit: (v) => [`${v.add} fallow`],
+  env_schema: (v) => [`${v.add} varlock`, `${v.exec} varlock init --agent`],
   agent_instructions: () => [],
   ci: () => [],
   dependency_automation: () => [],

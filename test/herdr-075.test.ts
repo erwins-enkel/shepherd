@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import {
   agentsHoldingName,
+  awaitPaneLeftShell,
   classifyPaneWrite,
   HerdrDriver,
   matchAgent,
@@ -31,6 +32,15 @@ const SEND_TEXT = fixture("pane-send-text");
 const SEND_KEYS = fixture("pane-send-keys");
 const TAB_LIST = fixture("tab-list");
 const OK = JSON.stringify({ result: { type: "ok" } });
+/** `pane process-info` once the spawn script has exec'd into the sandbox. */
+const procsReply = (...names: string[]) =>
+  JSON.stringify({
+    result: {
+      type: "pane_process_info",
+      process_info: { foreground_processes: names.map((name) => ({ name })) },
+    },
+  });
+const PROCS_LIVE = procsReply("bwrap");
 
 /** Route a captured fixture by the herdr subcommand the runner is invoked with. */
 function route(args: string[]): string {
@@ -45,6 +55,7 @@ function route(args: string[]): string {
   if (a === "agent" && b === "read") return AGENT_READ;
   if (a === "pane" && b === "send-text") return SEND_TEXT;
   if (a === "pane" && b === "send-keys") return SEND_KEYS;
+  if (a === "pane" && b === "process-info") return PROCS_LIVE;
   return OK; // agent rename / tab rename / tab close
 }
 
@@ -178,6 +189,116 @@ test("start (0.7.5, SANDBOXED): pane run → register (report-agent-session + --
   expect(report[2]).toBe("p_075");
   expect(report[report.indexOf("--agent") + 1]).toBe("review-task-09");
   expect(report[report.indexOf("--state") + 1]).toBe("working");
+});
+
+// ── herdr 0.9.2 (#4687): never register a sandboxed agent onto an idle shell ────────────────────
+// herdr drops a self-reported agent whenever the pane's shell is idle, so a registration that lands
+// before the typed `sh <script>` has forked would be cleared for good while claude runs.
+
+/** A fake clock + sleep pair: every sleep advances the clock, so deadlines resolve instantly. */
+function fakeClock() {
+  let t = 0;
+  const sleeps: number[] = [];
+  return {
+    sleeps,
+    now: () => t,
+    sleep: async (ms: number) => {
+      sleeps.push(ms);
+      t += ms;
+    },
+  };
+}
+
+test("awaitPaneLeftShell: polls past shell-only, empty and failed readings until a non-shell proc", async () => {
+  const readings: (string[] | Error)[] = [["zsh"], [], new Error("boom"), ["sh"], ["bwrap", "sh"]];
+  let calls = 0;
+  const clock = fakeClock();
+  const left = await awaitPaneLeftShell({
+    procs: async () => {
+      const r = readings[calls++]!;
+      if (r instanceof Error) throw r;
+      return r;
+    },
+    sleep: clock.sleep,
+    now: clock.now,
+  });
+  expect(left).toBe(true);
+  expect(calls).toBe(5);
+  expect(clock.sleeps).toEqual([100, 100, 100, 100]);
+});
+
+test("awaitPaneLeftShell: gives up (false) at its 5s wall-clock deadline", async () => {
+  const clock = fakeClock();
+  const left = await awaitPaneLeftShell({
+    procs: async () => ["bash"],
+    sleep: clock.sleep,
+    now: clock.now,
+  });
+  expect(left).toBe(false);
+  expect(clock.now()).toBeGreaterThanOrEqual(5_000);
+  expect(clock.now()).toBeLessThanOrEqual(5_100);
+});
+
+test("awaitPaneLeftShell: a cancelled spawn stops the wait with SpawnCanceled", async () => {
+  const controller = new AbortController();
+  const clock = fakeClock();
+  const wait = awaitPaneLeftShell({
+    procs: async () => {
+      controller.abort();
+      return ["zsh"];
+    },
+    sleep: clock.sleep,
+    now: clock.now,
+    signal: controller.signal,
+  });
+  await expect(wait).rejects.toBeInstanceOf(SpawnCanceled);
+});
+
+test("start (0.7.5, SANDBOXED): registers only after the pane is seen past its shell", async () => {
+  let procCalls = 0;
+  const { d, calls } = mkDriver((args) => {
+    if (args[0] === "pane" && args[1] === "process-info") {
+      procCalls++;
+      return procCalls < 3 ? procsReply("zsh") : PROCS_LIVE;
+    }
+    return route(args);
+  });
+  await d.start("review TASK-09", "/wt/a", ["bwrap", "--", "claude", "go"]);
+
+  const idx = (pred: (c: string[]) => boolean) => calls.findIndex(pred);
+  const run = idx((c) => c[0] === "pane" && c[1] === "run");
+  const lastProbe = calls.findLastIndex((c) => c[1] === "process-info");
+  const register = idx((c) => c[1] === "report-agent-session");
+  expect(calls[lastProbe]).toEqual(["pane", "process-info", "--pane", "p_075"]);
+  expect(procCalls).toBe(3);
+  expect(run).toBeLessThan(lastProbe);
+  expect(lastProbe).toBeLessThan(register);
+});
+
+test("start (0.7.5, SANDBOXED): a pane that never leaves its shell still registers (fail-open)", async () => {
+  const clock = fakeClock();
+  const calls: string[][] = [];
+  const runner = (args: string[]) => {
+    calls.push(args);
+    if (args[0] === "pane" && args[1] === "process-info") return procsReply("zsh");
+    return route(args);
+  };
+  const d = new HerdrDriver(runner, async (args) => runner(args), clock.sleep, clock.now);
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    const agent = await d.start("review TASK-09", "/wt/a", ["bwrap", "--", "claude", "go"]);
+    expect(agent.terminalId).toBe("term_075");
+  } finally {
+    console.warn = warn;
+  }
+  expect(calls.some((c) => c[1] === "report-agent-session")).toBe(true);
+});
+
+test("start (0.7.5, TRUSTED): never probes the pane — it registers nothing", async () => {
+  const { d, calls } = mkDriver(route);
+  await d.start("x", "/wt/a", ["claude", "go"]);
+  expect(calls.some((c) => c[1] === "process-info")).toBe(false);
 });
 
 test("start (0.7.5): pane run preserves a multi-word/newline argv element as ONE shell token", async () => {

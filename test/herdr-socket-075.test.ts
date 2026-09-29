@@ -30,6 +30,8 @@ function mkClient(
     tabs?: () => unknown[];
     onReport?: () => void;
     onSendText?: () => void;
+    /** Foreground process names `pane.process_info` reports (default: the sandbox is running). */
+    procs?: () => string[];
   } = {},
 ) {
   const rec: { method: string; params: unknown }[] = [];
@@ -49,6 +51,13 @@ function mkClient(
         return result("pane-send-text");
       case "pane.send_keys":
         return result("pane-send-keys");
+      case "pane.process_info":
+        return {
+          type: "pane_process_info",
+          process_info: {
+            foreground_processes: (opts.procs ? opts.procs() : ["bwrap"]).map((name) => ({ name })),
+          },
+        };
       case "pane.report_agent_session":
         return result("report-agent-session");
       case "pane.report_agent":
@@ -109,10 +118,14 @@ describe("SocketHerdrDriver — 0.7.5 (protocol 17) external-registration spawn"
       "tab.create",
       "pane.send_text",
       "pane.send_keys",
+      // herdr 0.9.2 (#4687) drops a self-reported agent on an idle shell: register only once the
+      // pane is seen running the sandbox.
+      "pane.process_info",
       "pane.report_agent_session",
       "pane.report_agent",
       "agent.list",
     ]);
+    expect(rec.find((r) => r.method === "pane.process_info")!.params).toEqual({ pane_id: "p_075" });
     // the run reuses the root pane — no leftover shell pane to close
     expect(rec.some((r) => r.method === "pane.close")).toBe(false);
 
@@ -145,6 +158,43 @@ describe("SocketHerdrDriver — 0.7.5 (protocol 17) external-registration spawn"
       agent: sanitizeHerdrAgentName("review-task-09"),
       state: "working",
     });
+  });
+
+  it("start() SANDBOXED: polls the pane past its shell before registering", async () => {
+    let probes = 0;
+    const { rec, client } = mkClient({ procs: () => (++probes < 3 ? ["zsh"] : ["bwrap"]) });
+    const driver = new SocketHerdrDriver(client, noCli, async () => {});
+
+    await driver.start("review-task-09", "/wt/a", ["bwrap", "--", "claude", "go"]);
+
+    const methods = rec.map((r) => r.method);
+    expect(probes).toBe(3);
+    expect(methods.lastIndexOf("pane.process_info")).toBeLessThan(
+      methods.indexOf("pane.report_agent_session"),
+    );
+  });
+
+  it("start() SANDBOXED: a pane that never leaves its shell still registers (fail-open)", async () => {
+    let clock = 0;
+    const { rec, client } = mkClient({ procs: () => ["zsh"] });
+    const driver = new SocketHerdrDriver(
+      client,
+      noCli,
+      async (ms) => {
+        clock += ms;
+      },
+      () => clock,
+    );
+    const warn = console.warn;
+    console.warn = () => {};
+    try {
+      const agent = await driver.start("review-task-09", "/wt/a", ["bwrap", "--", "claude", "go"]);
+      expect(agent.terminalId).toBe("term_075");
+    } finally {
+      console.warn = warn;
+    }
+    expect(clock).toBeGreaterThanOrEqual(5_000);
+    expect(rec.some((r) => r.method === "pane.report_agent_session")).toBe(true);
   });
 
   it("start() TRUSTED: registers NOTHING and resolves by herdr auto-detection", async () => {

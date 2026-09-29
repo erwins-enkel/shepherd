@@ -6,7 +6,7 @@
  * them into verdicts. Observations are facts ("what did this herdr do"), never judgements —
  * when a step can't be measured the field stays null/"undetermined" rather than guessing.
  *
- * The catalog (ids L1–L8 and L10 here; L9 = scripts/verify-herdr-terminal.ts, run by the caller):
+ * The catalog (ids L1–L8, L10 and L11 here; L9 = scripts/verify-herdr-terminal.ts, run by the caller):
  *  L1  tab.list returns a non-null label for every tab            (reaper keying, #2029)
  *  L2  an agentless tab reports agent_status "unknown"            (husk detection, #2029)
  *  L3  pane process-info returns foreground procs for a shell     (fail-closed spare, #2029)
@@ -17,6 +17,8 @@
  *  L8  `status server` stays parseable (status: running + version line) — the surface this
  *      SOP's isolated servers, the downgrade script and operator diagnostics read
  *  L10 a DUPLICATE `--agent` registration: does herdr reject it, and with which code? (#2033)
+ *  L11 a self-reported (externally registered) agent: kept or dropped once its process exits
+ *      back to the pane's idle shell? (herdr #4687 — the fate of a sandboxed session's record)
  */
 
 import type { IsolatedServer } from "./isolated-server";
@@ -49,6 +51,9 @@ export interface LiveObservations {
   /** L10: the `error.code` of that refusal (`agent_name_taken` is what the retries assume);
    *  null when nothing was refused, or the refusal carried no JSON error envelope. */
   duplicateNameErrorCode: string | null;
+  /** L11: is a registered agent still in `agent list` after its process exited to the idle shell?
+   *  null = the probe could not run it. */
+  selfReportedKeptAfterExit: boolean | null;
   /** Anything worth carrying into the report verbatim. */
   notes: string[];
 }
@@ -107,6 +112,7 @@ export async function runProbes(
     statusParseable: null,
     duplicateNameRejected: null,
     duplicateNameErrorCode: null,
+    selfReportedKeptAfterExit: null,
     notes: [],
   };
 
@@ -272,6 +278,75 @@ export async function runProbes(
     // through, so an abort here leaves it null — "not measured", which is what the report shows.
     o.notes.push(
       `duplicate-name probe failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  // L11: does herdr keep a self-reported agent once its process has exited? (herdr #4687)
+  //
+  // Up to 0.9.1 the record outlived the process forever; 0.9.2 drops an agent whose label it does
+  // not recognise as soon as the pane's shell is idle again (checked about once a second). Shepherd's
+  // sandboxed sessions are exactly such agents, so a flip here changes what the poller sees when one
+  // exits. Self-contained: its own tab, its own name, a command that ends by itself.
+  try {
+    const exitName = "shepherd-compat-exit";
+    const tab = obj(
+      obj(
+        await server.runJson([
+          "tab",
+          "create",
+          "--cwd",
+          server.workDir,
+          "--label",
+          exitName,
+          "--no-focus",
+        ]),
+      ).result,
+    );
+    const paneId = String(obj(tab.root_pane).pane_id);
+    await runOk(server, ["pane", "run", paneId, "sleep 2"]);
+    await runOk(server, [
+      "pane",
+      "report-agent-session",
+      paneId,
+      "--source",
+      "shepherd",
+      "--agent",
+      exitName,
+      "--agent-session-id",
+      `shepherd-${paneId}`,
+    ]);
+    await runOk(server, [
+      "pane",
+      "report-agent",
+      paneId,
+      "--source",
+      "shepherd",
+      "--agent",
+      exitName,
+      "--state",
+      "working",
+    ]);
+    await Bun.sleep(500);
+    if ((await agentByName(server, exitName)) === null) {
+      // Never registered (or dropped while `sleep` still ran): not a measurement of exit behaviour.
+      o.notes.push("self-reported exit probe: the registration never surfaced in agent list");
+    } else {
+      // `sleep 2` ends ~1.5s from here; then give herdr's idle-shell re-check ample time.
+      await Bun.sleep(1_500);
+      const deadline = Date.now() + 8_000;
+      let kept = true;
+      while (Date.now() < deadline) {
+        if ((await agentByName(server, exitName)) === null) {
+          kept = false;
+          break;
+        }
+        await Bun.sleep(500);
+      }
+      o.selfReportedKeptAfterExit = kept;
+    }
+  } catch (err) {
+    o.notes.push(
+      `self-reported exit probe failed: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 

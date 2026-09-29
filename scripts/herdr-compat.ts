@@ -10,7 +10,7 @@
  * code references it — herdr-compat/consumers.ts) + #2032 record-shape gate from `api schema --json`,
  * plus a `--help` surface diff over every subcommand Shepherd drives. Live half: candidate and
  * baseline each run as an ISOLATED headless server (own HOME/XDG/socket — the operator's
- * daemon is never touched) and the L1–L10 probes are measured A/B. Output: a markdown report
+ * daemon is never touched) and the L1–L11 probes are measured A/B. Output: a markdown report
  * at docs/herdr-compat/<candidate>.md (committed by the eventual bump PR) and exit 1 iff any
  * check FAILs (REVIEW items are triage work, not machine verdicts).
  */
@@ -250,6 +250,29 @@ function liveChecks({ base, cand }: AB, l9: { ran: boolean; exit: number | null 
         : cand.duplicateNameRejected === false
           ? "\n\nThis herdr ACCEPTS a duplicate registration, so the register-path collision retry is defensive only — harmless, and it guards a herdr that starts refusing. A flip either way is a behaviour change worth a look."
           : "\n\nNot measured — re-run, or exercise it by hand before trusting the register-path collision retry."),
+  });
+
+  checks.push({
+    id: "L11",
+    title: "self-reported agent kept after its process exits (herdr #4687)",
+    verdict:
+      cand.selfReportedKeptAfterExit === null
+        ? "REVIEW"
+        : cand.selfReportedKeptAfterExit === base.selfReportedKeptAfterExit
+          ? "PASS"
+          : "REVIEW",
+    details:
+      abTable([
+        [
+          "kept after exit",
+          show(base.selfReportedKeptAfterExit),
+          show(cand.selfReportedKeptAfterExit),
+        ],
+      ]) +
+      "\n\nShepherd handles both outcomes since the 0.9.2 bump: a sandboxed session whose record " +
+      "vanishes is reaped to `done` and stays a husk (never stranded), and both drivers register only " +
+      "once the pane has left its shell, so a registration never lands on an idle shell herdr clears. " +
+      "A flip either way is a behaviour change worth a look.",
   });
 
   const notes = [

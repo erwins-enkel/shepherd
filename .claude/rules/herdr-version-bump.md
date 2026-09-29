@@ -49,14 +49,17 @@ shipped stable).
 1. **Read the candidate's release notes** (`https://github.com/herdrdev/herdr/releases`),
    watching for: tab/pane/agent/workspace lifecycle, close/teardown semantics, socket API or
    protocol, CLI flags, status/detection, install/update/asset changes, org or licence moves.
-2. **Run the check:** `bun run herdr:compat -- --candidate <version>`. Static half: schema diff,
+2. **Run the check:** `bun run herdr:compat -- --candidate <version>`. Static half: schema diff
+   (a removed method or result variant is FAIL only when Shepherd's code outside `src/generated/`
+   references it as a quoted literal, otherwise REVIEW — `scripts/herdr-compat/consumers.ts`),
    the #2032 record-shape gate (`TabInfo`/`PaneInfo`/`AgentInfo` required/nullable drift = FAIL),
    and a `--help` diff over every subcommand Shepherd invokes. Live half: candidate vs. baseline
-   (= current ceiling) as isolated servers, probes L1–L10 (reaper assumptions from #2029/#2032,
+   (= current ceiling) as isolated servers, probes L1–L11 (reaper assumptions from #2029/#2032,
    tab-id reuse #569, last-tab behaviour #1760, the external-registration spawn replay #1890,
    the #1716 idle probe, the status surface, the terminal contract via
-   `scripts/verify-herdr-terminal.ts`, and whether a duplicate `--agent` registration collides
-   #2033). Report: `docs/herdr-compat/<version>.md`, exit 1 on FAIL.
+   `scripts/verify-herdr-terminal.ts`, whether a duplicate `--agent` registration collides
+   #2033, and whether a self-reported agent outlives its process herdr #4687). Report:
+   `docs/herdr-compat/<version>.md`, exit 1 on FAIL.
 3. **Triage every REVIEW, fix or consciously accept every FAIL.** Behavioural changes get code
    (as #2056's last-tab guard did) and a test pinning the new behaviour.
 4. **Regenerate the vendored protocol** against the candidate:

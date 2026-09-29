@@ -149,7 +149,7 @@ async function main() {
     `pinned to herdr **${EXPECTED_HERDR_VERSION}**.\n\n${GENERATED_NOTE}`;
   writeFileSync(
     join(outDir, "index.md"),
-    page("CLI reference", "Operator-facing herdr CLI commands, generated from live --help.", overviewIntro, overviewHelp),
+    page("herdr CLI reference", "Operator-facing herdr CLI commands, generated from live --help.", overviewIntro, overviewHelp),
   );
 
   // One page per allowlisted operator command. Fail loudly if any is missing/empty —

@@ -42,7 +42,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
       "turn failing default-branch ci into triaged github issues shepherd can fix — setup, thresholds, flake probe. 1. enable it 2. watch repositories what gets filed rejected by triage lifecycle sync status",
   },
   {
-    title: "CLI reference",
+    title: "herdr CLI reference",
     path: "/reference/cli/",
     keywords: "operator-facing herdr cli commands, generated from live --help.",
   },

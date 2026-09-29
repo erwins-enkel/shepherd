@@ -18,6 +18,7 @@
 // further-out target still passes; `bun run next-version` prints the canonical
 // value to reach for. Only ADDED files are checked — editing a historical entry
 // (whose sinceVersion is naturally <= released) must not trip the gate.
+// Separately, EVERY entry is checked for a stranded version (see strandedErrors).
 //
 // Base defaults to origin/main; CI can override via $BASE_REF. Fails CLOSED if
 // the base can't be resolved (mirrors scripts/check-feature-catalog.sh) so an
@@ -26,10 +27,16 @@
 // Plain ESM — no dependencies, no transpile. See .claude/rules/ui-feature-catalog.md.
 
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { compareSemver, nextVersion, readReleasedVersion } from "./next-version.mjs";
+import {
+  compareSemver,
+  nextVersion,
+  readChangelogVersions,
+  readReleasedVersion,
+  strandedVersion,
+} from "./next-version.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ENTRIES_DIR = "ui/src/lib/feature-announcements/entries";
@@ -55,6 +62,47 @@ if (!git(["rev-parse", "--verify", "--quiet", `${BASE}^{commit}`]).ok) {
   process.exit(1);
 }
 
+// Catalog-wide STRANDED check (every entry, not just added ones): each
+// sinceVersion must be released (a CHANGELOG heading) or still upcoming
+// (> released). Anything else aimed at a release that shipped under another
+// number — e.g. 1.48.0 entries when release-please cut 2.0.0 — and the drawer
+// groups them under a version that never existed. On the release-please PR the
+// manifest + CHANGELOG are already bumped, so this fires BEFORE the release lands.
+function strandedErrors(released) {
+  const releasedSet = readChangelogVersions();
+  const out = [];
+  for (const name of readdirSync(join(ROOT, ENTRIES_DIR)).filter((f) => f.endsWith(".ts"))) {
+    const file = `${ENTRIES_DIR}/${name}`;
+    const since = /sinceVersion:\s*["'`]([^"'`]+)["'`]/.exec(
+      readFileSync(join(ROOT, file), "utf8"),
+    )?.[1];
+    if (!since) continue; // reported for added files below; historical entries all carry one
+    let stranded;
+    try {
+      stranded = strandedVersion(since, releasedSet, released);
+    } catch {
+      out.push(`${file}: sinceVersion "${since}" is not a valid semver version`);
+      continue;
+    }
+    if (stranded) {
+      out.push(
+        `${file}: sinceVersion "${since}" was never released and is <= ${released} — its release ` +
+          `shipped under another number. Rename to v${released}-… / "${released}" if it shipped in ` +
+          `${released}, else use \`bun run next-version\` (${nextVersion(released)}).`,
+      );
+    }
+  }
+  return out;
+}
+
+const released = readReleasedVersion();
+const stranded = strandedErrors(released);
+if (stranded.length) {
+  console.error(`✗ announcement versions: ${stranded.length} stranded catalog entr(y/ies):`);
+  for (const e of stranded) console.error(`    • ${e}`);
+  process.exit(1);
+}
+
 // Files added by this branch under the entries dir (three-dot = vs merge-base,
 // --diff-filter=A = additions only, so edits to historical entries are ignored).
 const added = git(["diff", "--name-only", "--diff-filter=A", `${BASE}...HEAD`, "--", ENTRIES_DIR])
@@ -67,7 +115,6 @@ if (added.length === 0) {
   process.exit(0);
 }
 
-const released = readReleasedVersion();
 const errors = [];
 
 for (const file of added) {

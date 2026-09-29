@@ -21,7 +21,7 @@
 // kept in sync, but the manifest is what release-please actually reasons from.
 //
 // Plain ESM — no dependencies, no transpile. Importable (readReleasedVersion /
-// nextVersion / compareSemver) by scripts/check-announcement-versions.mjs.
+// nextVersion / compareSemver / strandedVersion) by scripts/check-announcement-versions.mjs.
 
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -29,6 +29,7 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MANIFEST = join(ROOT, ".release-please-manifest.json");
+const CHANGELOG = join(ROOT, "CHANGELOG.md");
 
 /** Parse "x.y.z" into [major, minor, patch]; throws on a non-semver string. */
 export function parseSemver(v) {
@@ -61,6 +62,24 @@ export function readReleasedVersion() {
 export function nextVersion(released = readReleasedVersion()) {
   const [major, minor] = parseSemver(released);
   return `${major}.${minor + 1}.0`;
+}
+
+/** Every released version, from release-please's `## [x.y.z]` CHANGELOG headings. */
+export function readChangelogVersions(text = readFileSync(CHANGELOG, "utf8")) {
+  const versions = new Set();
+  for (const m of text.matchAll(/^#{2,3} \[(\d+\.\d+\.\d+)\]/gm)) versions.add(m[1]);
+  return versions;
+}
+
+/**
+ * True when `since` targets a release that shipped under ANOTHER number: it was
+ * never released (not in `releasedSet`) yet is no longer upcoming (<= `released`).
+ * Happens when release-please cuts a major instead of the minor `nextVersion()`
+ * assumed. Throws on a non-semver `since`.
+ */
+export function strandedVersion(since, releasedSet, released) {
+  if (releasedSet.has(since)) return false;
+  return compareSemver(since, released) <= 0;
 }
 
 // CLI: print the next version so agents can stamp a fresh announcement fragment.

@@ -14,3 +14,9 @@ export function readReleasedVersion(): string;
 
 /** The next unreleased version — a minor bump off the last release. */
 export function nextVersion(released?: string): string;
+
+/** Every released version, from release-please's `## [x.y.z]` CHANGELOG headings. */
+export function readChangelogVersions(text?: string): Set<string>;
+
+/** True when `since` was never released and is no longer upcoming (<= `released`). */
+export function strandedVersion(since: string, releasedSet: Set<string>, released: string): boolean;

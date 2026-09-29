@@ -127,6 +127,33 @@ describe("diffSchemas", () => {
     expect(fails[0]?.detail).toContain("workspace.move_block");
   });
 
+  it("a removed method Shepherd does not reference is review; a referenced one stays fail", () => {
+    const extra = {
+      properties: {
+        method: { const: "workspace.move_block", type: "string" },
+        params: { $ref: "#/schemas/request/$defs/TabCreateParams" },
+      },
+      required: ["method", "params"],
+      type: "object",
+    };
+    const grown = makeSchema({
+      requestOneOf: [...(makeSchema().schemas.request.oneOf as unknown[]), extra],
+    });
+
+    const unused = diffSchemas(grown, makeSchema(), { isConsumed: () => false }).findings;
+    expect(bySeverity(unused, "fail")).toEqual([]);
+    const reviews = unused.filter((f) => f.kind === "method-removed");
+    expect(reviews).toHaveLength(1);
+    expect(reviews[0]?.severity).toBe("review");
+    expect(reviews[0]?.detail).toContain("workspace.move_block");
+    expect(reviews[0]?.detail).toContain("not referenced");
+
+    const used = diffSchemas(grown, makeSchema(), {
+      isConsumed: (name) => name === "workspace.move_block",
+    }).findings;
+    expect(bySeverity(used, "fail").map((f) => f.kind)).toEqual(["method-removed"]);
+  });
+
   it("a removed param property is fail; an added optional one is info", () => {
     const base = makeSchema();
     const narrowed = makeSchema({
@@ -198,6 +225,32 @@ describe("diffSchemas", () => {
     });
     const variantFails = bySeverity(diffSchemas(base, noVariant).findings, "fail");
     expect(variantFails.some((f) => f.kind === "result-variant-removed")).toBe(true);
+
+    // Consumer-aware: an unreferenced variant downgrades to review, a referenced one stays fail.
+    const unused = diffSchemas(base, noVariant, { isConsumed: () => false }).findings;
+    expect(bySeverity(unused, "fail")).toEqual([]);
+    expect(unused.some((f) => f.kind === "result-variant-removed" && f.severity === "review")).toBe(
+      true,
+    );
+    const used = diffSchemas(base, noVariant, { isConsumed: (n) => n === "tab_list" }).findings;
+    expect(bySeverity(used, "fail").some((f) => f.kind === "result-variant-removed")).toBe(true);
+  });
+
+  it("the consumer predicate never softens a removed param or a narrowed enum", () => {
+    const narrowed = makeSchema({
+      requestDefs: {
+        TabCreateParams: {
+          type: "object",
+          properties: { cwd: { type: ["string", "null"] } },
+        },
+        AgentStatus: { enum: ["idle", "working", "blocked", "done"] },
+      },
+    });
+    const fails = bySeverity(
+      diffSchemas(makeSchema(), narrowed, { isConsumed: () => false }).findings,
+      "fail",
+    );
+    expect(fails.map((f) => f.kind).sort()).toEqual(["enum-narrowed", "param-removed"]);
   });
 
   it("a widened enum is info; a narrowed enum is fail", () => {

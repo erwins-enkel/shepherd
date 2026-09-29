@@ -6,7 +6,8 @@
  *
  *   bun run herdr:compat -- --candidate <version> [--baseline <version>] [--static-only]
  *
- * Static half (no server): schema diff + #2032 record-shape gate from `api schema --json`,
+ * Static half (no server): schema diff (a removed method/result variant FAILs only when Shepherd's
+ * code references it — herdr-compat/consumers.ts) + #2032 record-shape gate from `api schema --json`,
  * plus a `--help` surface diff over every subcommand Shepherd drives. Live half: candidate and
  * baseline each run as an ISOLATED headless server (own HOME/XDG/socket — the operator's
  * daemon is never touched) and the L1–L10 probes are measured A/B. Output: a markdown report
@@ -19,6 +20,7 @@ import { join } from "node:path";
 import { HERDR_LAST_SUPPORTED_VERSION } from "../src/herdr-capabilities";
 import { herdrAssetKey } from "../src/herdr-install";
 import { SHEPHERD_HERDR_COMMANDS, diffHelp, type CliFinding } from "./herdr-compat/cli-surface";
+import { referencedIn, shepherdSources } from "./herdr-compat/consumers";
 import { ensureBinary, probeVersion } from "./herdr-compat/download";
 import { startIsolatedServer, type IsolatedServer } from "./herdr-compat/isolated-server";
 import { runProbes, type LiveObservations } from "./herdr-compat/probes";
@@ -283,7 +285,11 @@ const [baseSchema, candSchema] = await Promise.all([
   readSchema(baselineBin),
   readSchema(candidateBin),
 ]);
-const schemaDiff = diffSchemas(baseSchema, candSchema);
+// Removals are graded against Shepherd's own code: referenced → FAIL, unreferenced → REVIEW.
+const sources = shepherdSources(join(import.meta.dir, ".."));
+const schemaDiff = diffSchemas(baseSchema, candSchema, {
+  isConsumed: (name) => referencedIn(name, sources),
+});
 
 const checks: CheckResult[] = [];
 

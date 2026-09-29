@@ -2227,6 +2227,25 @@ describe("bare agent tmp root: orphan catch-all + node-gyp shims (#2582)", () =>
     for (const p of [inClaude, inNested, inExplicit]) expect(existsSync(p)).toBe(true);
   });
 
+  test("the catch-all is off when the agent tmp dir IS a shared temp dir (TMPDIR / claude root)", async () => {
+    const now = Date.now();
+    const shared = mkTmp();
+    setEnv("SHEPHERD_AGENT_TMPDIR", `${shared}/`); // trailing slash must not defeat the check
+    setEnv("TMPDIR", shared);
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", mkTmp());
+    const socketDir = staleDir(shared, "tmux-1000", now - 30 * DAY);
+    await forced(now);
+    expect(existsSync(socketDir)).toBe(true);
+
+    const claudeRoot = mkTmp();
+    setEnv("SHEPHERD_AGENT_TMPDIR", claudeRoot);
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", claudeRoot);
+    setEnv("TMPDIR", mkTmp());
+    const inClaude = staleDir(claudeRoot, "ssh-XXXX", now - 30 * DAY);
+    await forced(now);
+    expect(existsSync(inClaude)).toBe(true);
+  });
+
   test("bun node-gyp shims are reclaimed past the 24h cache window", async () => {
     const root = agentEnv();
     const now = Date.now();

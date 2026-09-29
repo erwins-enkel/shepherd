@@ -1,7 +1,7 @@
 import { promises as fsp, type Dirent } from "node:fs";
 import { execFile } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   parseWorktrees,
@@ -829,6 +829,20 @@ async function sweepGatedRoots(
   return { removed, acted, gated };
 }
 
+/**
+ * The root the orphan catch-all may act on: the bare `agentTmpDir()`, but ONLY when it is Shepherd's
+ * own dir. An operator can point `SHEPHERD_AGENT_TMPDIR` at a shared temp dir (e.g. `/tmp` to get
+ * tmpfs back), where a 7-day-untouched entry is just as likely another program's live state (tmux /
+ * ssh-agent socket dirs, whose mtime is creation time) — so any overlap with the system or claude
+ * tmp roots turns the catch-all off.
+ */
+function orphanCatchAllRoot(): string | null {
+  const agentTmp = agentTmpDir();
+  if (agentTmp === null) return null;
+  const shared = [tmpdir(), "/tmp", legacyClaudeTmpRoot(), claudeTmpRoot()].map((r) => resolve(r));
+  return shared.includes(resolve(agentTmp)) ? null : agentTmp;
+}
+
 /** Resolve one sweep run's context from its options + env. An explicit `root` (tests) turns the
  *  orphan catch-all off, so it can never reach the real disk agent tmp root. */
 function resolveSweepCtx(opts: SweepOpts | undefined, log: (msg: string) => void): SweepCtx {
@@ -846,7 +860,7 @@ function resolveSweepCtx(opts: SweepOpts | undefined, log: (msg: string) => void
     staleMs: opts?.staleMs ?? envNum(process.env.SHEPHERD_TMP_STALE_HOURS, 24) * 3600_000,
     orphanMs: opts?.orphanMs ?? orphanWindowMs(),
     nestedName: `claude-${uid()}`,
-    agentTmpRoot: opts?.root !== undefined ? null : agentTmpDir(),
+    agentTmpRoot: opts?.root !== undefined ? null : orphanCatchAllRoot(),
     log,
   };
 }

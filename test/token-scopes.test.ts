@@ -48,6 +48,8 @@ const MATRIX: readonly {
   { method: "POST", path: "/api/sessions/s1/reply", allowed: ["full"] },
   { method: "POST", path: "/api/sessions/s1/interrupt", allowed: ["full"] },
   { method: "DELETE", path: "/api/sessions/s1", allowed: ["full"] },
+  // Agent prose from the transcript (#2585): full only, like the transcript export.
+  { method: "GET", path: "/api/sessions/s1/messages", allowed: ["full"] },
   { method: "GET", path: "/api/settings", allowed: ["full"] },
   { method: "POST", path: "/api/settings", allowed: ["full"] },
   { method: "GET", path: "/api/diagnostics", allowed: ["full"] },

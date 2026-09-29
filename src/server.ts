@@ -140,6 +140,7 @@ import {
   startPreviewScript,
 } from "./preview-launch";
 import { sessionActivity } from "./activity";
+import { sessionMessages } from "./agent-messages";
 import { firstRun } from "./first-run";
 import { handleUpload, parseUploadFile, MAX_UPLOAD_BYTES, MAX_REQUEST_BODY_BYTES } from "./uploads";
 import type { UsageLimits, UsageLimitsService } from "./usage-limits";
@@ -2549,6 +2550,29 @@ async function sessionActivityRead(id: string, deps: AppDeps): Promise<Response>
   return json(path ? await sessionActivity(path) : []);
 }
 
+/** Default and ceiling for `?limit` on GET /api/sessions/:id/messages. */
+const MESSAGES_DEFAULT_LIMIT = 5;
+const MESSAGES_MAX_LIMIT = 100;
+
+// An agent's last text messages and whether its turn ended on a question (#2585) — what an
+// orchestrator steering sessions over the CLI needs instead of SSHing in for the transcript.
+// Agent prose, so NOT in any token-scope allowlist: `full` only (src/token-scopes.ts).
+async function sessionMessagesRead(id: string, url: URL, deps: AppDeps): Promise<Response> {
+  const s = deps.store.get(id);
+  if (!s) return json({ error: "not found" }, 404);
+  // Same per-provider path ladder as the Activity read: a Codex session has a rollout, not JSONL.
+  const path =
+    (s.agentProvider ?? "claude") === "codex"
+      ? codexTranscripts(deps).pathFor(s)
+      : resolveTranscript(s).path;
+  const raw = Number.parseInt(url.searchParams.get("limit") ?? "", 10);
+  const limit = Number.isNaN(raw)
+    ? MESSAGES_DEFAULT_LIMIT
+    : Math.min(Math.max(raw, 0), MESSAGES_MAX_LIMIT);
+  const includeUser = ["1", "true"].includes(url.searchParams.get("includeUser") ?? "");
+  return json(await sessionMessages(s, path, { limit, includeUser }));
+}
+
 async function sessionDiffRead(id: string, deps: AppDeps): Promise<Response> {
   const s = deps.store.get(id);
   if (!s) return json({ error: "not found" }, 404);
@@ -2637,7 +2661,7 @@ function doneSessionsWithIssueUrl(deps: AppDeps): Array<Session & { issueUrl?: s
   });
 }
 
-// GET reads on /api/sessions[/:id[/usage|/activity|/diff|/leftovers]].
+// GET reads on /api/sessions[/:id[/usage|/activity|/messages|/diff|/leftovers]].
 /** Literal `GET /api/sessions/<name>` lists. Neither is in the read-scope allowlist (`full`-only). */
 const SESSION_LISTS = new Map<string, (deps: AppDeps) => unknown>([
   // "Done" lens: sessions archived within the last DONE_LENS_WINDOW_MS, newest-first.
@@ -2646,7 +2670,7 @@ const SESSION_LISTS = new Map<string, (deps: AppDeps) => unknown>([
   ["archived", (deps) => deps.store.listArchivedSessions()],
 ]);
 
-async function handleSessionReads({ req, parts, deps }: Ctx): Promise<Response | null> {
+async function handleSessionReads({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "GET") return null;
   if (!parts[2]) return json(await withScratchpadFlags(deps.store.list({ activeOnly: true })));
   // Must precede the bare sessionRead fall-through so "done"/"archived" aren't read as session ids.
@@ -2654,6 +2678,7 @@ async function handleSessionReads({ req, parts, deps }: Ctx): Promise<Response |
   if (list) return json(list(deps));
   if (parts[3] === "usage") return sessionUsageRead(parts[2], deps);
   if (parts[3] === "activity") return sessionActivityRead(parts[2], deps);
+  if (parts[3] === "messages") return sessionMessagesRead(parts[2], url, deps);
   // What this spawn's assembled system prompt cost, block by block (issue #1999). 404 when the
   // session predates the instrument or its spawn recorded nothing.
   if (parts[3] === "prompt-budget") {

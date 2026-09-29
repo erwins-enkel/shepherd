@@ -511,7 +511,7 @@ components:
       properties:
         repoPath: { type: string }
         baseBranch: { type: string }
-        prompt: { type: string, minLength: 1, maxLength: 8000 }
+        prompt: { type: string, minLength: 1 }
         agentProvider:
           $ref: "#/components/schemas/AgentProvider"
         model: { type: [string, "null"] }
@@ -1679,7 +1679,7 @@ components:
       properties:
         repoPath: { type: string }
         baseBranch: { type: string }
-        prompt: { type: string, minLength: 1, maxLength: 8000 }
+        prompt: { type: string, minLength: 1 }
         agentProvider:
           $ref: "#/components/schemas/AgentProvider"
         model: { type: [string, "null"] }
@@ -3050,7 +3050,7 @@ components:
       properties:
         repoPath: { "type": "string" }
         baseBranch: { "type": "string" }
-        prompt: { "type": "string", "minLength": 1, "maxLength": 8000 }
+        prompt: { "type": "string", "minLength": 1 }
         agentProvider: { "$ref": "#/components/schemas/AgentProvider" }
         model: { "type": ["string", "null"] }
         effort: { "oneOf": [{ "$ref": "#/components/schemas/Effort" }, { "type": "null" }] }

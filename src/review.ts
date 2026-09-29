@@ -1,5 +1,6 @@
 import { admitRoleCapacity } from "./codex-capacity";
 import { existsSync, readFileSync } from "node:fs";
+import { prepareReviewerTaskPrompt } from "./task-prompt-file";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { SessionStore } from "./store";
@@ -881,8 +882,11 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     const amendments = this.deps.store.listActiveTaskAmendments(session.id);
     // #1948: the rework round the critic is briefed with.
     const round = this.briefedRound(prior);
+    const taskPrompt = prepareReviewerTaskPrompt(session.prompt, wt.worktreePath, (path) =>
+      this.deps.worktree.remove(path),
+    );
     const composePrompt = this.criticPromptComposer(
-      session,
+      taskPrompt,
       diffBase,
       prior?.findings ?? [],
       authorNotes,
@@ -1205,7 +1209,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
    *  clamp ladder varies. `planApproved` is captured, not varied: provenance is a fact about the
    *  session, and no amount of clamping can turn an unapproved plan into an approved one. */
   private criticPromptComposer(
-    session: Session,
+    taskPrompt: string,
     diffBase: string,
     priorFindings: string[],
     authorNotes: string[],
@@ -1234,7 +1238,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     // #2225: `amendments` is captured for the same reason — operator ground truth, NOT clampable,
     // and already bounded by AMENDMENT_MAX_CHARS × the block's own item cap. See fitCriticPrompt.
     return (v) =>
-      reviewPrompt(diffBase, session.prompt, priorFindings, authorNotes, issueBody, epic, {
+      reviewPrompt(diffBase, taskPrompt, priorFindings, authorNotes, issueBody, epic, {
         plan: v.plan,
         smellLens,
         round,

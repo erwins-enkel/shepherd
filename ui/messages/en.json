@@ -5230,5 +5230,8 @@
   "native_ios_server_connected": "Connected",
   "native_ios_server_disconnected": "Disconnected",
   "native_ios_server_disconnect": "Disconnect",
-  "native_ios_notification_server": "Open session on which server?"
+  "native_ios_notification_server": "Open session on which server?",
+  "newtask_prompt_file_delivery": "Will be passed in full as a file.",
+  "feat_long_task_prompts_title": "Long tasks without splitting",
+  "feat_long_task_prompts_body": "Tasks longer than 8,000 characters are automatically passed in full as a file to Claude Code or Codex. A hint by the character count shows when file delivery is used."
 }

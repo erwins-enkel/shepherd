@@ -64,8 +64,8 @@ const ALLOWED_KEYS = new Set([
  *  carried-over originals + supplied overrides) so a spawn's prompt stays sane. */
 export const MAX_IMAGES = 10;
 
-// The issue body rides out-of-band into the agent prompt — generous cap, separate
-// from the 8000-char human-prompt guard. Title/URL bounded to sane sizes.
+// The issue body rides separately into the agent prompt, with its own generous cap.
+// Title/URL bounded to sane sizes.
 const ISSUE_TITLE_MAX = 500;
 const ISSUE_URL_MAX = 2048;
 const ISSUE_BODY_MAX = 100_000;
@@ -77,12 +77,11 @@ type Field<T> = FieldOk<T> | FieldErr;
 
 const field = <T>(value: T): FieldOk<T> => ({ ok: true, value });
 
-/** prompt — required non-empty string, trimmed, ≤ 8000 chars. */
+/** prompt — required non-empty string, trimmed. Long tasks use file delivery. */
 function validatePrompt(value: unknown): Field<string> {
   if (typeof value !== "string") return err("prompt must be a string");
   const prompt = value.trim();
   if (prompt.length === 0) return err("prompt must not be empty");
-  if (prompt.length > 8000) return err("prompt must be ≤ 8000 chars");
   return field(prompt);
 }
 

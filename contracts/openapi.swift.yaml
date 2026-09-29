@@ -728,7 +728,6 @@ components:
         prompt:
           type: string
           minLength: 1
-          maxLength: 8000
         agentProvider:
           $ref: "#/components/schemas/AgentProvider"
         model:
@@ -2514,7 +2513,6 @@ components:
         prompt:
           type: string
           minLength: 1
-          maxLength: 8000
         agentProvider:
           $ref: "#/components/schemas/AgentProvider"
         model:
@@ -4266,7 +4264,6 @@ components:
         prompt:
           type: string
           minLength: 1
-          maxLength: 8000
         agentProvider:
           $ref: "#/components/schemas/AgentProvider"
         model:

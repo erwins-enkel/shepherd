@@ -114,7 +114,7 @@ where
         }
     };
     match dispatch(cli, io).await {
-        Ok(()) => Exit::Ok.code(),
+        Ok(exit) => exit.code(),
         Err(e) => {
             io.warn(&format!("error: {e}"));
             e.exit.code()
@@ -122,12 +122,14 @@ where
     }
 }
 
-async fn dispatch(cli: Cli, io: &mut Io) -> Result<()> {
+/// Runs the command; a success is `Exit::Ok` except for `wait`, which exits per reached state.
+async fn dispatch(cli: Cli, io: &mut Io) -> Result<Exit> {
     let mode = Mode::pick(cli.json, io.stdout_is_tty);
     if let Command::Login { token } = &cli.command {
         let token = io.text_arg(token)?;
         return commands::login::run(io, mode, cli.url.as_deref(), cli.profile.as_deref(), &token)
-            .await;
+            .await
+            .map(|()| Exit::Ok);
     }
     let path = config::config_path(&io.env);
     let cfg = match &path {
@@ -151,6 +153,7 @@ async fn dispatch(cli: Cli, io: &mut Io) -> Result<()> {
         target,
         client,
     };
+    let mut exit = Exit::Ok;
     let result = match cli.command {
         Command::Sessions(SessionsCmd::List { all }) => {
             commands::read::sessions_list(&mut ctx, all).await
@@ -163,6 +166,9 @@ async fn dispatch(cli: Cli, io: &mut Io) -> Result<()> {
         Command::Git => commands::read::git(&mut ctx).await,
         Command::Reviews => commands::read::reviews(&mut ctx).await,
         Command::Events(EventsCmd::Tail(args)) => commands::events::tail(&mut ctx, args).await,
+        Command::Wait(args) => commands::wait::wait(&mut ctx, args)
+            .await
+            .map(|reached| exit = reached),
         Command::New(args) => commands::control::new(&mut ctx, args).await,
         Command::Steer { session, text } => {
             commands::control::steer(&mut ctx, &session, &text).await
@@ -197,7 +203,7 @@ async fn dispatch(cli: Cli, io: &mut Io) -> Result<()> {
         }
         Command::Login { .. } => unreachable!("handled above"),
     };
-    result.map_err(|e| {
+    result.map(|()| exit).map_err(|e| {
         if e.exit == Exit::Unauthenticated && !has_token {
             CliError::new(
                 Exit::Unauthenticated,

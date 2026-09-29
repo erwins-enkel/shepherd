@@ -1,7 +1,7 @@
 import { promises as fsp, type Dirent } from "node:fs";
 import { execFile } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { promisify } from "node:util";
 import {
   parseWorktrees,
@@ -255,6 +255,9 @@ interface SweepOpts {
   root?: string;
   thresholdPct?: number;
   staleMs?: number;
+  /** Age past which an UNKNOWN entry in the bare `agentTmpDir()` is reclaimed (#2582). Default
+   *  `SHEPHERD_TMP_ORPHAN_DAYS` (7). */
+  orphanMs?: number;
   now?: number;
   fsOps?: FsOps;
   log?: (msg: string) => void;
@@ -265,7 +268,11 @@ interface SweepCtx {
   ops: FsOps;
   now: number;
   staleMs: number;
+  orphanMs: number;
   nestedName: string;
+  /** The bare `agentTmpDir()` the orphan catch-all is confined to; `null` = catch-all off (an
+   *  explicit `root`, or the redirect disabled). */
+  agentTmpRoot: string | null;
   log: (msg: string) => void;
 }
 
@@ -549,7 +556,9 @@ function sweptRoots(): string[] {
  * is exactly the trap `tmpInodeBands` already documents for the percentage knob.
  *
  * So the row watches the two roots whose pressure a sweep CAN act on:
- *  - the bare disk `agentTmpDir()` — where the regenerable tool caches accumulate; and
+ *  - the bare disk `agentTmpDir()` — where the regenerable tool caches accumulate, and whose
+ *    unknown leftovers the orphan catch-all (`reapOrphan`, #2582) reclaims once stale, so every
+ *    entry counted here is one a sweep can remove; and
  *  - `tmpdir()` — the tmpfs, still real for sandboxed spawns and tools that hardcode `/tmp`.
  *
  * Nothing is lost by dropping the nested roots: each sits on the same filesystem as a root that
@@ -651,7 +660,46 @@ export async function readTmpPressureSignal(opts?: {
  * precisely by `removeWorktreeScratch` on archival, when the session is known to be finished.
  */
 const REGENERABLE_CACHE =
-  /^(bunx-|fallow-|agent-browser-|shepherd-test-run-|\.?org\.chromium\.Chromium\.|playwright_|playwright-artifacts-)/;
+  /^(bunx-|fallow-|agent-browser-|shepherd-test-run-|\.?org\.chromium\.Chromium\.|playwright_|playwright-artifacts-|\.[0-9a-f]+-\d+\.node-gyp$)/;
+
+/** Default of `SHEPHERD_TMP_ORPHAN_DAYS` — how long an UNKNOWN entry in the bare `agentTmpDir()`
+ *  must sit untouched (newest descendant) before the orphan catch-all reclaims it (#2582). */
+const DEFAULT_TMP_ORPHAN_DAYS = 7;
+
+/**
+ * Names in the bare `agentTmpDir()` the orphan catch-all never touches, because another owner
+ * manages them: the throwaway spawn-script dir (`src/spawn-script.ts`) and the forked pnpm store
+ * (`reclaimForkedPnpmStore`). `claude-$uid` and `node-compile-cache` are handled before the
+ * catch-all is reached.
+ */
+const ORPHAN_KEEP = new Set(["spawn", ".pnpm-store"]);
+
+/** The orphan window in ms. A non-positive or non-finite knob would mean "reclaim everything
+ *  now", which is never what an operator means here — it falls back to the default. */
+function orphanWindowMs(): number {
+  const days = envNum(process.env.SHEPHERD_TMP_ORPHAN_DAYS, DEFAULT_TMP_ORPHAN_DAYS);
+  return (days > 0 ? days : DEFAULT_TMP_ORPHAN_DAYS) * 24 * 3600_000;
+}
+
+/**
+ * Orphan catch-all (#2582) for an entry of the bare `agentTmpDir()` that matches no known cache.
+ * Without it the `tmp_inodes` row counted thousands of leftovers (stranded test dirs, vitest
+ * `<nanoid>/ssr` dirs, one-off agent files) that no sweep — forced or not — could remove, so its
+ * warning could never clear. Confined to that ONE root: session scratch lives in the nested
+ * `claude-$uid`, which is never reached here. Keep-biased at every step — protected names, anything
+ * holding a `.git` (worktrees belong to `reapAbandonedWorktrees`), and any dir with a descendant
+ * touched inside the window (or a walk that errors / exhausts its budget) are kept.
+ */
+async function reapOrphan(p: string, ent: Dirent, ctx: SweepCtx): Promise<number> {
+  if (ORPHAN_KEEP.has(ent.name)) return 0;
+  if (!ent.isDirectory()) {
+    return removeIfStale(p, await ctx.ops.stat(p), { ...ctx, staleMs: ctx.orphanMs });
+  }
+  if (await looksLikeGitWorktree(p, ctx.ops.stat)) return 0;
+  if (await worktreeIsFresh(p, ctx.now - ctx.orphanMs, ctx.ops.readdir, ctx.ops.stat)) return 0;
+  await ctx.ops.rm(p, { recursive: true, force: true });
+  return 1;
+}
 
 /**
  * Name prefix for fallow's audit-base worktree caches: `fallow-audit-base-cache-<srcHash>-<shaHash>`.
@@ -693,8 +741,9 @@ async function removeIfStale(
  *    itself the sweep root); skipped here.
  *  - a known regenerable cache (see `REGENERABLE_CACHE`) — age-gated by its top-level mtime via
  *    `removeIfStale`.
- *  - anything else (per-session/unknown scratch) — LEFT in place; never wholesale-removed by
- *    this sweep (reclaimed via `removeWorktreeScratch` on archival instead).
+ *  - anything else in the bare `agentTmpDir()` — the orphan catch-all (`reapOrphan`, #2582).
+ *  - anything else elsewhere (per-session/unknown scratch) — LEFT in place; never wholesale-removed
+ *    by this sweep (reclaimed via `removeWorktreeScratch` on archival instead).
  */
 async function sweepEntry(dir: string, ent: Dirent, ctx: SweepCtx): Promise<number> {
   const p = join(dir, ent.name);
@@ -704,9 +753,11 @@ async function sweepEntry(dir: string, ent: Dirent, ctx: SweepCtx): Promise<numb
       return 1;
     }
     if (ent.name === ctx.nestedName) return 0;
-    // Only known regenerable caches are eligible for age-gated removal; everything else
-    // (live/orphaned session scratch, unrecognized dirs) is left untouched by the sweep.
-    if (!REGENERABLE_CACHE.test(ent.name)) return 0;
+    // Only known regenerable caches are eligible for age-gated removal; everything else is left
+    // untouched — except in the bare agent tmp root, where the orphan catch-all applies.
+    if (!REGENERABLE_CACHE.test(ent.name)) {
+      return dir === ctx.agentTmpRoot ? reapOrphan(p, ent, ctx) : 0;
+    }
 
     const st = await ctx.ops.stat(p);
     return removeIfStale(p, st, ctx);
@@ -779,6 +830,42 @@ async function sweepGatedRoots(
 }
 
 /**
+ * The root the orphan catch-all may act on: the bare `agentTmpDir()`, but ONLY when it is Shepherd's
+ * own dir. An operator can point `SHEPHERD_AGENT_TMPDIR` at a shared temp dir (e.g. `/tmp` to get
+ * tmpfs back), where a 7-day-untouched entry is just as likely another program's live state (tmux /
+ * ssh-agent socket dirs, whose mtime is creation time) — so any overlap with the system or claude
+ * tmp roots turns the catch-all off.
+ */
+function orphanCatchAllRoot(): string | null {
+  const agentTmp = agentTmpDir();
+  if (agentTmp === null) return null;
+  const shared = [tmpdir(), "/tmp", legacyClaudeTmpRoot(), claudeTmpRoot()].map((r) => resolve(r));
+  return shared.includes(resolve(agentTmp)) ? null : agentTmp;
+}
+
+/** Resolve one sweep run's context from its options + env. An explicit `root` (tests) turns the
+ *  orphan catch-all off, so it can never reach the real disk agent tmp root. */
+function resolveSweepCtx(opts: SweepOpts | undefined, log: (msg: string) => void): SweepCtx {
+  return {
+    ops: opts?.fsOps ?? {
+      statfs: fsp.statfs,
+      readdir: fsp.readdir,
+      stat: fsp.stat,
+      rm: fsp.rm,
+      unlink: fsp.unlink,
+      rmdir: fsp.rmdir,
+      opendir: fsp.opendir,
+    },
+    now: opts?.now ?? Date.now(),
+    staleMs: opts?.staleMs ?? envNum(process.env.SHEPHERD_TMP_STALE_HOURS, 24) * 3600_000,
+    orphanMs: opts?.orphanMs ?? orphanWindowMs(),
+    nestedName: `claude-${uid()}`,
+    agentTmpRoot: opts?.root !== undefined ? null : orphanCatchAllRoot(),
+    log,
+  };
+}
+
+/**
  * Threshold-gated inode guard. TOTAL by contract: it NEVER throws or rejects — any
  * unexpected error resolves to `{ swept:false, reason:"error", removed:0 }` after logging,
  * so a caller can fire-and-forget it on a timer without a guard.
@@ -794,8 +881,9 @@ async function sweepGatedRoots(
  * to reclaim pile up in the BARE `agentTmpDir()` beside it — so the single reading reported a quiet
  * root and the sweep never ran. When it does sweep, it walks `root` and the nested
  * `root/claude-$uid`, removing `node-compile-cache`
- * wholesale (pure cache) and age-gating known regenerable tool caches (see `REGENERABLE_CACHE`),
- * while LEAVING per-session/unknown scratch in place, the nested scratch dir itself (its
+ * wholesale (pure cache), age-gating known regenerable tool caches (see `REGENERABLE_CACHE`),
+ * reclaiming long-untouched unknown entries of the bare `agentTmpDir()` (`reapOrphan`), while
+ * LEAVING per-session/unknown scratch elsewhere in place, the nested scratch dir itself (its
  * children are swept when it is the sweep root), and every root dir itself. Age-gating is
  * evaluated at stat time: an entry that looks fresh by mtime is kept. This is a best-effort age
  * check, not a TOCTOU-atomic guarantee — a writer touching an entry between our stat and rm is
@@ -807,21 +895,8 @@ export async function sweepClaudeTmp(opts?: SweepOpts): Promise<SweepResult> {
     const root = opts?.root ?? claudeTmpRoot();
     const thresholdPct =
       opts?.thresholdPct ?? envNum(process.env.SHEPHERD_TMP_INODE_PCT, DEFAULT_TMP_INODE_PCT);
-    const staleMs = opts?.staleMs ?? envNum(process.env.SHEPHERD_TMP_STALE_HOURS, 24) * 3600_000;
-    const now = opts?.now ?? Date.now();
-    const ops: FsOps = opts?.fsOps ?? {
-      statfs: fsp.statfs,
-      readdir: fsp.readdir,
-      stat: fsp.stat,
-      rm: fsp.rm,
-      unlink: fsp.unlink,
-      rmdir: fsp.rmdir,
-      opendir: fsp.opendir,
-    };
-
-    const nestedName = `claude-${uid()}`;
-    const ctx: SweepCtx = { ops, now, staleMs, nestedName, log };
-    const sweepRoots = resolveSweepRoots(root, nestedName, opts?.root !== undefined);
+    const ctx = resolveSweepCtx(opts, log);
+    const sweepRoots = resolveSweepRoots(root, ctx.nestedName, opts?.root !== undefined);
 
     // FORCED sweep (#1862): `thresholdPct <= 0` means "sweep unconditionally" — the operator's
     // one-click Doctor fix passes 0 for exactly that. Without this branch an unreadable gate

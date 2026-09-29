@@ -86,7 +86,9 @@ Override env vars: `SHEPHERD_NODE_COMPILE_CACHE` (compile-cache dir), `SHEPHERD_
 (sweep threshold % **and** the Diagnose row's warning band, default `80`),
 `SHEPHERD_TMP_ENTRY_LIMIT` (the same pair for the entry-count signal, used where the filesystem has
 no inode ceiling, default `1000`), `SHEPHERD_TMP_STALE_HOURS` (scratch staleness cutoff, default
-`24`), `SHEPHERD_TMP_SWEEP_DIR` (override the swept tmp root).
+`24`), `SHEPHERD_TMP_ORPHAN_DAYS` (unknown leftovers in the bare agent tmp dir — nothing inside
+touched for this many days, not a git worktree — are swept too, default `7`),
+`SHEPHERD_TMP_SWEEP_DIR` (override the swept tmp root).
 
 ### Live preview
 

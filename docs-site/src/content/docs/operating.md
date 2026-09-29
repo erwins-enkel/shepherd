@@ -254,7 +254,7 @@ tmpfs /tmp tmpfs nr_inodes=4194304 0 0
 
 The relevant override env vars (`SHEPHERD_NODE_COMPILE_CACHE`,
 `SHEPHERD_TMP_INODE_PCT`, `SHEPHERD_TMP_ENTRY_LIMIT`, `SHEPHERD_TMP_STALE_HOURS`,
-`SHEPHERD_TMP_SWEEP_DIR`) are listed in [Configuration](/reference/configuration/).
+`SHEPHERD_TMP_ORPHAN_DAYS`, `SHEPHERD_TMP_SWEEP_DIR`) are listed in [Configuration](/reference/configuration/).
 
 The **Temp filesystem inodes** row in Settings → Diagnose surfaces this live: it warns
 at `SHEPHERD_TMP_INODE_PCT` (the same threshold that gates the sweep) and errors at 95% by

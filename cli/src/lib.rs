@@ -165,6 +165,11 @@ async fn dispatch(cli: Cli, io: &mut Io) -> Result<Exit> {
         Command::Holds => commands::read::holds(&mut ctx).await,
         Command::Git => commands::read::git(&mut ctx).await,
         Command::Reviews => commands::read::reviews(&mut ctx).await,
+        Command::Messages {
+            session,
+            limit,
+            include_user,
+        } => commands::read::messages(&mut ctx, &session, limit, include_user).await,
         Command::Events(EventsCmd::Tail(args)) => commands::events::tail(&mut ctx, args).await,
         Command::Wait(args) => commands::wait::wait(&mut ctx, args)
             .await

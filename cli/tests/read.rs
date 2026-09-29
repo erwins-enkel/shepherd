@@ -3,7 +3,7 @@ mod common;
 use common::Harness;
 use serde_json::json;
 use shepherd_cli::test_support::session_json;
-use wiremock::matchers::{header, method, path};
+use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 async fn server() -> MockServer {
@@ -138,6 +138,14 @@ async fn show_finds_archived_session_by_designation() {
         )
         .mount(&s)
         .await;
+    Mock::given(method("GET"))
+        .and(path("/api/sessions/id-1490/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "messages": [], "awaitingInput": false,
+            "pendingQuestion": null, "unavailable": null
+        })))
+        .mount(&s)
+        .await;
     let h = Harness::new();
     assert_eq!(
         h.run(&["--url", &s.uri(), "sessions", "show", "TASK-1490"])
@@ -147,19 +155,169 @@ async fn show_finds_archived_session_by_designation() {
     let v = h.json();
     assert_eq!(v["id"], "id-1490");
     assert_eq!(v["archivedAt"], 1_000);
+    assert_eq!(v["awaitingInput"], false);
+}
+
+fn messages_body() -> serde_json::Value {
+    json!({
+        "messages": [
+            {"role": "user", "text": "Build it", "ts": 1},
+            {"role": "assistant", "text": "Done.\n\nPush?", "ts": 0}
+        ],
+        "awaitingInput": true,
+        "pendingQuestion": "Done.\n\nPush?",
+        "unavailable": null
+    })
 }
 
 #[tokio::test]
 async fn show_resolves_designation_without_full_scope() {
     let s = server().await;
     with_sessions(&s).await;
+    // A read token can't reach the transcript route: the flags go null, the command still works.
+    Mock::given(method("GET"))
+        .and(path("/api/sessions/id-2/messages"))
+        .respond_with(
+            ResponseTemplate::new(403).set_body_json(json!({"error":"insufficient_scope"})),
+        )
+        .mount(&s)
+        .await;
     let h = Harness::new();
     assert_eq!(
         h.run(&["--url", &s.uri(), "sessions", "show", "task-2"])
             .await,
         0
     );
-    assert_eq!(h.json()["id"], "id-2");
+    let v = h.json();
+    assert_eq!(v["id"], "id-2");
+    assert!(v["awaitingInput"].is_null(), "{v}");
+    assert!(v["pendingQuestion"].is_null(), "{v}");
+    assert!(
+        h.err.text().contains("need a 'full' token"),
+        "{}",
+        h.err.text()
+    );
+}
+
+#[tokio::test]
+async fn show_reports_awaiting_input() {
+    let s = server().await;
+    with_sessions(&s).await;
+    Mock::given(method("GET"))
+        .and(path("/api/sessions/id-1/messages"))
+        .and(query_param("limit", "0"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "messages": [], "awaitingInput": true,
+            "pendingQuestion": "Push?", "unavailable": null
+        })))
+        .mount(&s)
+        .await;
+    let h = Harness::new();
+    assert_eq!(
+        h.run(&["--url", &s.uri(), "sessions", "show", "TASK-01"])
+            .await,
+        0
+    );
+    let v = h.json();
+    assert_eq!(v["awaitingInput"], true);
+    assert_eq!(v["pendingQuestion"], "Push?");
+    assert_eq!(h.err.text(), "");
+
+    let mut tty = Harness::new();
+    tty.tty = true;
+    assert_eq!(
+        tty.run(&["--url", &s.uri(), "sessions", "show", "TASK-01"])
+            .await,
+        0
+    );
+    let out = tty.out.text();
+    assert!(out.contains("awaiting") && out.contains("yes"), "{out}");
+    assert!(out.contains("Push?"), "{out}");
+}
+
+#[tokio::test]
+async fn messages_json_passes_limit_and_include_user() {
+    let s = server().await;
+    with_sessions(&s).await;
+    Mock::given(method("GET"))
+        .and(path("/api/sessions/id-2/messages"))
+        .and(query_param("limit", "2"))
+        .and(query_param("includeUser", "true"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(messages_body()))
+        .mount(&s)
+        .await;
+    let h = Harness::new();
+    assert_eq!(
+        h.run(&[
+            "--url",
+            &s.uri(),
+            "messages",
+            "2",
+            "-n",
+            "2",
+            "--include-user"
+        ])
+        .await,
+        0
+    );
+    let v = h.json();
+    assert_eq!(v["session"], "TASK-02");
+    assert_eq!(v["awaitingInput"], true);
+    assert_eq!(v["pendingQuestion"], "Done.\n\nPush?");
+    assert_eq!(v["messages"][0]["role"], "user");
+    assert_eq!(v["messages"][1]["text"], "Done.\n\nPush?");
+}
+
+#[tokio::test]
+async fn messages_on_tty_prints_question_and_texts() {
+    let s = server().await;
+    with_sessions(&s).await;
+    Mock::given(method("GET"))
+        .and(path("/api/sessions/id-1/messages"))
+        .and(query_param("limit", "5"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(messages_body()))
+        .mount(&s)
+        .await;
+    let mut h = Harness::new();
+    h.tty = true;
+    assert_eq!(h.run(&["--url", &s.uri(), "messages", "TASK-01"]).await, 0);
+    let out = h.out.text();
+    assert!(out.starts_with("awaiting input: Done."), "{out}");
+    assert!(out.contains("── assistant · - ──"), "{out}");
+    assert!(out.contains("── user ·"), "{out}");
+    assert!(out.contains("Build it"), "{out}");
+}
+
+#[tokio::test]
+async fn messages_needs_full_scope() {
+    let s = server().await;
+    with_sessions(&s).await;
+    Mock::given(method("GET"))
+        .and(path("/api/sessions/id-1/messages"))
+        .respond_with(
+            ResponseTemplate::new(403).set_body_json(json!({"error":"insufficient_scope"})),
+        )
+        .mount(&s)
+        .await;
+    let h = Harness::new();
+    assert_eq!(h.run(&["--url", &s.uri(), "messages", "TASK-01"]).await, 4);
+    assert!(
+        h.err
+            .text()
+            .contains("`shepherd messages` needs a 'full' token"),
+        "{}",
+        h.err.text()
+    );
+}
+
+#[tokio::test]
+async fn messages_limit_out_of_range_is_usage() {
+    let h = Harness::new();
+    assert_eq!(
+        h.run(&["--url", "http://127.0.0.1:9", "messages", "x", "-n", "101"])
+            .await,
+        2
+    );
 }
 
 #[tokio::test]

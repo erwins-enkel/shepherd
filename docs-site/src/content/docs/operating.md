@@ -205,7 +205,9 @@ can't be read: Shepherd would rather say nothing than guess at a version it neve
 
 Like the install row above it, this one has no **Fix** button — updating your Claude Code is your
 call. On a mise-managed host that's `mise upgrade claude`; otherwise `claude update`. Currently
-only `claude-opus-5-5` (and its `[1m]` variant) carries a floor, at 2.1.280.
+two models carry a floor, each with its `[1m]` variant: `claude-opus-5-5` at 2.1.280 and
+`claude-sonnet-5-5` at 2.1.284. Sonnet 5.5 is the softer case: an older CLI doesn't reject it but
+runs it as an unrecognized model, with auto-compact capping the context at 200k tokens.
 
 ## Agent launch inside the sandbox
 

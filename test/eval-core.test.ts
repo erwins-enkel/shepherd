@@ -1154,12 +1154,12 @@ test("the spend meter prices a run through the repo's canonical dollars() formul
   addUsage(spend, { usage: { input_tokens: 1_000_000, output_tokens: 100_000 } });
   addUsage(spend, { usage: { input_tokens: 0, output_tokens: 0 } });
   expect(spend.calls).toBe(2);
-  // sonnet list price: $3/Mtok in, $15/Mtok out -> 3 + 1.5.
-  expect(spendUsd(spend, "claude-sonnet-5")).toBeCloseTo(4.5, 5);
+  // Sonnet 5 list price: $2/Mtok in, $10/Mtok out -> 2 + 1.
+  expect(spendUsd(spend, "claude-sonnet-5")).toBeCloseTo(3, 5);
   // A response the API did not price must not crash or invent tokens.
   addUsage(spend, {});
   expect(spend.calls).toBe(3);
-  expect(spendUsd(spend, "claude-sonnet-5")).toBeCloseTo(4.5, 5);
+  expect(spendUsd(spend, "claude-sonnet-5")).toBeCloseTo(3, 5);
 });
 
 test("a run STOPS at the spend ceiling and discards its partial results", async () => {

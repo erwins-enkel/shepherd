@@ -426,6 +426,8 @@
 "model_guidance_claude_opus_5_5_1m" = "Opus 5.5 pinned, with 1M context. Reserve it for large-context runs. Needs Claude Code 2.1.280 or newer.";
 "model_guidance_claude_sonnet" = "Balanced default for everyday coding, reviews, and recaps.";
 "model_guidance_claude_sonnet_1m" = "Sonnet behavior with 1M context. Reserve it for large-context runs.";
+"model_guidance_claude_sonnet_5_5" = "Pins Sonnet 5.5 exactly, so a future Sonnet release can't quietly change this model. Needs Claude Code 2.1.284 or newer.";
+"model_guidance_claude_sonnet_5_5_1m" = "Sonnet 5.5 pinned, with 1M context. Reserve it for large-context runs. Needs Claude Code 2.1.284 or newer.";
 "model_guidance_codex_5" = "Budget general GPT-5 profile for light tasks.";
 "model_guidance_codex_51" = "General GPT-5.1 profile. Use when you do not need the Codex-tuned variant.";
 "model_guidance_codex_51_codex" = "Cheaper Codex-specific fallback when throughput matters more than peak reasoning.";
@@ -449,6 +451,8 @@
 "model_label_opus_5_5" = "Opus 5.5";
 "model_label_opus_5_5_1m" = "Opus 5.5 (1M context)";
 "model_label_sonnet_1m" = "Sonnet (1M context)";
+"model_label_sonnet_5_5" = "Sonnet 5.5";
+"model_label_sonnet_5_5_1m" = "Sonnet 5.5 (1M context)";
 "model_tag_balanced" = "balanced";
 "model_tag_budget" = "budget";
 "model_tag_long_context" = "long context";

@@ -426,6 +426,8 @@
 "model_guidance_claude_opus_5_5_1m" = "Opus 5.5 fixiert, mit 1 Mio. Kontext. Für Läufe mit großem Kontext reservieren. Benötigt Claude Code 2.1.280 oder neuer.";
 "model_guidance_claude_sonnet" = "Ausgewogener Standard für alltägliches Coding, Reviews und Recaps.";
 "model_guidance_claude_sonnet_1m" = "Sonnet-Verhalten mit 1 Mio. Kontext. Für große Kontextläufe reservieren.";
+"model_guidance_claude_sonnet_5_5" = "Fixiert genau Sonnet 5.5, damit ein künftiges Sonnet-Release dieses Modell nicht still ändert. Benötigt Claude Code 2.1.284 oder neuer.";
+"model_guidance_claude_sonnet_5_5_1m" = "Sonnet 5.5 fixiert, mit 1 Mio. Kontext. Für Läufe mit großem Kontext reservieren. Benötigt Claude Code 2.1.284 oder neuer.";
 "model_guidance_codex_5" = "Sparsames allgemeines GPT-5-Profil für leichte Aufgaben.";
 "model_guidance_codex_51" = "Allgemeines GPT-5.1-Profil. Nutze es, wenn du die Codex-Variante nicht brauchst.";
 "model_guidance_codex_51_codex" = "Günstigerer Codex-spezifischer Fallback, wenn Durchsatz wichtiger ist als maximale Schlussfolgerung.";
@@ -449,6 +451,8 @@
 "model_label_opus_5_5" = "Opus 5.5";
 "model_label_opus_5_5_1m" = "Opus 5.5 (1 Mio. Kontext)";
 "model_label_sonnet_1m" = "Sonnet (1 Mio. Kontext)";
+"model_label_sonnet_5_5" = "Sonnet 5.5";
+"model_label_sonnet_5_5_1m" = "Sonnet 5.5 (1 Mio. Kontext)";
 "model_tag_balanced" = "ausgewogen";
 "model_tag_budget" = "sparsam";
 "model_tag_long_context" = "langer Kontext";

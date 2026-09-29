@@ -27,6 +27,8 @@ extension CoreSeamTests {
         .init(provider: .claude, model: "claude-opus-5[1m]", cost: "premium", tag: "longContext", detail: "claude_opus_5_1m"),
         .init(provider: .claude, model: "sonnet", cost: "standard", tag: "balanced", detail: "claude_sonnet"),
         .init(provider: .claude, model: "sonnet[1m]", cost: "high", tag: "longContext", detail: "claude_sonnet_1m"),
+        .init(provider: .claude, model: "claude-sonnet-5-5", cost: "standard", tag: "balanced", detail: "claude_sonnet_5_5"),
+        .init(provider: .claude, model: "claude-sonnet-5-5[1m]", cost: "high", tag: "longContext", detail: "claude_sonnet_5_5_1m"),
         .init(provider: .claude, model: "haiku", cost: "low", tag: "budget", detail: "claude_haiku"),
         .init(provider: .codex, model: "gpt-6-sol", cost: "high", tag: "strong", detail: "codex_6_sol"),
         .init(provider: .codex, model: "gpt-6-luna", cost: "low", tag: "budget", detail: "codex_6_luna"),
@@ -55,9 +57,10 @@ extension CoreSeamTests {
     }
 
     @Test func listsAndUnknownFallbackAreExact() {
-        #expect(Self.rows.count == 28)
+        #expect(Self.rows.count == 30)
         #expect(ComposeRunConfig.claudeModels == ["fable", "claude-fable-5-1", "opus", "opus[1m]",
-            "claude-opus-5-5", "claude-opus-5-5[1m]", "claude-opus-5", "claude-opus-5[1m]", "sonnet", "sonnet[1m]", "haiku"])
+            "claude-opus-5-5", "claude-opus-5-5[1m]", "claude-opus-5", "claude-opus-5[1m]", "sonnet", "sonnet[1m]",
+            "claude-sonnet-5-5", "claude-sonnet-5-5[1m]", "haiku"])
         #expect(ComposeRunConfig.codexModels == ["gpt-5.6-sol", "gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-terra", "gpt-5.6-luna",
             "gpt-5.5", "gpt-5.4", "gpt-5.3-codex", "gpt-5.1-codex", "gpt-5-codex", "gpt-5.1", "gpt-5", "o3"])
         for provider in [AgentProvider.claude, .codex] {
@@ -87,6 +90,8 @@ extension CoreSeamTests {
         #expect(ModelGuidance.configuredModelLabel("claude-opus-5-5") == L.t("model_label_opus_5_5"))
         #expect(ModelGuidance.configuredModelLabel("claude-opus-5-5[1m]") == L.t("model_label_opus_5_5_1m"))
         #expect(ModelGuidance.configuredModelLabel("sonnet[1m]") == L.t("model_label_sonnet_1m"))
+        #expect(ModelGuidance.configuredModelLabel("claude-sonnet-5-5") == L.t("model_label_sonnet_5_5"))
+        #expect(ModelGuidance.configuredModelLabel("claude-sonnet-5-5[1m]") == L.t("model_label_sonnet_5_5_1m"))
     }
 
     @Test func preselectionPortsThePromoCutoffAndFableAvailability() {

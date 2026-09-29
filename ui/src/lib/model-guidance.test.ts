@@ -67,6 +67,30 @@ describe("modelGuidance", () => {
     );
   });
 
+  it("gives pinned Sonnet 5.5 the same tier and fit as the floating Sonnet aliases", () => {
+    expect(modelGuidance("claude", "claude-sonnet-5-5").costTier).toBe(
+      modelGuidance("claude", "sonnet").costTier,
+    );
+    expect(modelGuidance("claude", "claude-sonnet-5-5").tag).toBe(
+      modelGuidance("claude", "sonnet").tag,
+    );
+    expect(modelGuidance("claude", "claude-sonnet-5-5[1m]").costTier).toBe(
+      modelGuidance("claude", "sonnet[1m]").costTier,
+    );
+    expect(modelGuidance("claude", "claude-sonnet-5-5[1m]").tag).toBe(
+      modelGuidance("claude", "sonnet[1m]").tag,
+    );
+    // Its own guidance copy (it names the CLI floor), not the unknown-model fallback.
+    for (const alias of ["claude-sonnet-5-5", "claude-sonnet-5-5[1m]"]) {
+      expect(modelGuidance("claude", alias).detail).not.toBe(
+        modelGuidance("claude", "nope").detail,
+      );
+    }
+    expect(modelGuidance("claude", "claude-sonnet-5-5").detail).not.toBe(
+      modelGuidance("claude", "sonnet").detail,
+    );
+  });
+
   it("gives pinned Fable 5.1 the same tier and fit as the floating alias it pins", () => {
     expect(modelGuidance("claude", "claude-fable-5-1").costTier).toBe(
       modelGuidance("claude", "fable").costTier,
@@ -161,10 +185,14 @@ describe("record vs configured labels", () => {
       "claude-opus-5-5[1m]",
       "claude-opus-5",
       "claude-opus-5[1m]",
+      "claude-sonnet-5-5",
+      "claude-sonnet-5-5[1m]",
       "claude-fable-5-1",
     ]) {
       expect(configuredModelLabel(alias)).toBe(modelLabel(alias));
     }
+    expect(modelLabel("claude-sonnet-5-5")).toBe("Sonnet 5.5");
+    expect(modelLabel("claude-sonnet-5-5[1m]")).toBe("Sonnet 5.5 (1M context)");
     expect(modelLabel("claude-opus-5-5")).toBe("Opus 5.5");
     expect(modelLabel("claude-opus-5-5[1m]")).toBe("Opus 5.5 (1M context)");
     expect(modelLabel("claude-opus-5")).toBe("Opus 5");
@@ -190,6 +218,7 @@ describe("runtime model labels", () => {
     expect(runtimeModelLabel("claude-opus-5-5")).toBe("Opus 5.5");
     expect(runtimeModelLabel("claude-opus-5-5-20260922")).toBe("Opus 5.5");
     expect(runtimeModelLabel("claude-sonnet-4-8-20260901")).toBe("Sonnet 4.8");
+    expect(runtimeModelLabel("claude-sonnet-5-5-20260926")).toBe("Sonnet 5.5");
   });
 
   it("leaves unknown runtime model ids intact", () => {

@@ -63,6 +63,8 @@ public struct ModelGuidance {
             case "claude-opus-5[1m]": return .init(costTier: .premium, tag: .longContext, detailKey: "model_guidance_claude_opus_5_1m")
             case "sonnet": return .init(costTier: .standard, tag: .balanced, detailKey: "model_guidance_claude_sonnet")
             case "sonnet[1m]": return .init(costTier: .high, tag: .longContext, detailKey: "model_guidance_claude_sonnet_1m")
+            case "claude-sonnet-5-5": return .init(costTier: .standard, tag: .balanced, detailKey: "model_guidance_claude_sonnet_5_5")
+            case "claude-sonnet-5-5[1m]": return .init(costTier: .high, tag: .longContext, detailKey: "model_guidance_claude_sonnet_5_5_1m")
             case "haiku": return .init(costTier: .low, tag: .budget, detailKey: "model_guidance_claude_haiku")
             default: break
             }
@@ -100,6 +102,8 @@ public struct ModelGuidance {
         case "claude-opus-5": L.t("model_label_opus_5")
         case "claude-opus-5[1m]": L.t("model_label_opus_5_1m")
         case "sonnet[1m]": L.t("model_label_sonnet_1m")
+        case "claude-sonnet-5-5": L.t("model_label_sonnet_5_5")
+        case "claude-sonnet-5-5[1m]": L.t("model_label_sonnet_5_5_1m")
         default: model
         }
     }

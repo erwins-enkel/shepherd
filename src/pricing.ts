@@ -54,6 +54,17 @@ const TABLE: { match: RegExp; w: ModelWeights }[] = [
     w: { input: 5, output: 25, cacheRead: 0.5, cacheWrite5m: 6.25, cacheWrite1h: 10 },
   },
   {
+    // Sonnet 5 generation (5 and 5.5) — $2/$10 per Mtok, cache read at the usual 10% ($0.20),
+    // writes at 1.25x / 2x. Must precede the generic /sonnet/i row, which keeps Sonnet 4.x
+    // records on $3/$15.
+    //
+    // Unanchored for the same wire-id reason as the Opus 5.5 row (`claude-sonnet-5-5-20260926`,
+    // `us.anthropic.claude-sonnet-5-5`); the lookahead keeps `claude-sonnet-50` out. A future
+    // `claude-sonnet-5-6` lands here too — give it its own row if its price differs.
+    match: /sonnet-5(?![0-9])/i,
+    w: { input: 2, output: 10, cacheRead: 0.2, cacheWrite5m: 2.5, cacheWrite1h: 4 },
+  },
+  {
     match: /sonnet/i,
     w: SONNET_WEIGHTS,
   },

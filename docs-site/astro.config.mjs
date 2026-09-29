@@ -31,6 +31,8 @@ export default defineConfig({
       title: "Shepherd",
       description: "Documentation for Shepherd — interactive mission control for Claude Code agents.",
       customCss: ["./src/styles/custom.css"],
+      // Adds og:image/twitter:image per page (cards built by src/pages/og/[...slug].ts).
+      routeMiddleware: "./src/routeData.ts",
       // Override the header social-icons slot to prepend a same-tab back-link to the
       // marketing site (shepherd.run); the override re-renders the default so the
       // GitHub social icon below still appears. See src/components/SiteBacklink.astro.

@@ -95,11 +95,11 @@ withholds the stored token and says so on stderr. Set `SHEPHERD_TOKEN` to authen
 
 A token's scope, set when it is minted, limits what the CLI can do:
 
-| Scope    | Commands                                                                                                                                                                                                                         |
-| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `read`   | `sessions list`, `sessions show` (active sessions), `status`, `holds`, `git`, `reviews`, `events tail`, `login`                                                                                                                  |
-| `submit` | everything `read` can, plus `new`, `held list\|spawn\|discard` and `train launch`                                                                                                                                                |
-| `full`   | everything else, including `steer`, `interrupt`, `archive`, `resume`, `merge`, `merge-pr`, `go`, `halt`, `retry`, `epics`, `drain`, `up-next`, `settings`, `repo-config`, `diagnose`, and `sessions show` of an archived session |
+| Scope    | Commands                                                                                                                                                                                                                                                |
+| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `read`   | `sessions list`, `sessions show` (active sessions), `status`, `holds`, `git`, `reviews`, `events tail`, `login`                                                                                                                                         |
+| `submit` | everything `read` can, plus `new`, `held list\|spawn\|discard` and `train launch`                                                                                                                                                                       |
+| `full`   | everything else, including `steer`, `interrupt`, `archive`, `resume`, `merge`, `merge-pr`, `go`, `halt`, `retry`, `epics`, `drain`, `up-next`, `settings`, `repo-config`, `diagnose`, `sessions list --all`, and `sessions show` of an archived session |
 
 The server's `403` doesn't say which scope was missing. The CLI names it for you, for example:
 ``error: `shepherd steer` needs a 'full' token; this token's scope does not include it.``
@@ -108,7 +108,7 @@ The server's `403` doesn't say which scope was missing. The CLI names it for you
 
 - **Tables** when stdout is a terminal.
 - **JSON** when stdout is not a terminal, or when you pass `--json`. Each command prints one
-  JSON document.
+  JSON document; list commands such as `sessions list` print one array.
 - **NDJSON** from `events tail`, always.
 - Errors and warnings go to **stderr** only, so stdout stays machine-readable.
 
@@ -134,13 +134,14 @@ These codes are stable. New ones may be added, but existing ones never change me
 ## Commands
 
 A `<session>` argument takes a session id or the designation the UI shows: `TASK-07`, `task-7`,
-or a bare `7`. The CLI resolves designations against the active session list.
+or a bare `7`. The CLI resolves designations against the active session list. `sessions show` also
+finds an archived session by its designation, with `archivedAt` set.
 
 ### Read
 
 | Command                            | What it shows                                                                    |
 | ---------------------------------- | -------------------------------------------------------------------------------- |
-| `shepherd sessions list`           | Active (non-archived) sessions                                                   |
+| `shepherd sessions list [--all]`   | Active sessions. `--all` adds archived ones after them (needs a `full` token)    |
 | `shepherd sessions show <session>` | One session. Archived sessions aren't in the active list and need a `full` token |
 | `shepherd status`                  | Server URL and version, CLI version, session counts by status, held sessions     |
 | `shepherd holds`                   | Sessions parked by a hold, and why                                               |

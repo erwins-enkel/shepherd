@@ -95,11 +95,11 @@ withholds the stored token and says so on stderr. Set `SHEPHERD_TOKEN` to authen
 
 A token's scope, set when it is minted, limits what the CLI can do:
 
-| Scope    | Commands                                                                                                                                                                                                                                                |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `read`   | `sessions list`, `sessions show` (active sessions), `status`, `holds`, `git`, `reviews`, `events tail`, `login`                                                                                                                                         |
-| `submit` | everything `read` can, plus `new`, `held list\|spawn\|discard` and `train launch`                                                                                                                                                                       |
-| `full`   | everything else, including `steer`, `interrupt`, `archive`, `resume`, `merge`, `merge-pr`, `go`, `halt`, `retry`, `epics`, `drain`, `up-next`, `settings`, `repo-config`, `diagnose`, `sessions list --all`, and `sessions show` of an archived session |
+| Scope    | Commands                                                                                                                                                                                                                                                          |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `read`   | `sessions list`, `sessions show` (active sessions), `status`, `holds`, `git`, `reviews`, `events tail`, `wait` (active sessions), `login`                                                                                                                         |
+| `submit` | everything `read` can, plus `new`, `held list\|spawn\|discard` and `train launch`                                                                                                                                                                                 |
+| `full`   | everything else, including `steer`, `interrupt`, `archive`, `resume`, `merge`, `merge-pr`, `go`, `halt`, `retry`, `epics`, `drain`, `up-next`, `settings`, `repo-config`, `diagnose`, `sessions list --all`, and `sessions show` or `wait` of an archived session |
 
 The server's `403` doesn't say which scope was missing. The CLI names it for you, for example:
 ``error: `shepherd steer` needs a 'full' token; this token's scope does not include it.``
@@ -130,6 +130,12 @@ These codes are stable. New ones may be added, but existing ones never change me
 | 6    | Refused by the server (`400`, other `403`, `409`, `415`, `422`) |
 | 7    | Server unreachable (connection, DNS, TLS, timeout)              |
 | 8    | Server error (`5xx`, or a response the CLI cannot decode)       |
+| 9    | `wait` only: `--timeout` passed first                           |
+| 10   | `wait` only: `needs-input`                                      |
+| 11   | `wait` only: `plan-ready`                                       |
+| 12   | `wait` only: `pr`                                               |
+| 13   | `wait` only: `done`                                             |
+| 14   | `wait` only: `halted`                                           |
 
 ## Commands
 
@@ -169,6 +175,71 @@ If the connection drops, the CLI reconnects with backoff (1 s up to 30 s) and pr
 snapshot. `--event` keeps only frames whose name starts with the prefix, and you can repeat it.
 `--session` keeps only frames about one session and narrows the snapshot to that session.
 Ctrl-C exits `0`.
+
+### Wait
+
+```bash
+shepherd wait <session> [--until <state>[,<state>…]] [--timeout <duration>]
+```
+
+`wait` blocks until the session is in one of the requested states. It then prints one line and
+exits with that state's code, so an orchestrator can drive a task like a sub-agent without its own
+polling loop. A state that already holds returns at once. Without `--until` it waits for any of the
+five:
+
+| State         | Exit | Holds when                                                                                                                                         |
+| ------------- | ---- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `needs-input` | 10   | The agent waits on a menu, yes/no or other answer, autopilot handed back with a question, or the plan gate has open questions or requested changes |
+| `plan-ready`  | 11   | The session is in the planning phase and the plan gate approved the plan; `shepherd go` releases it                                                |
+| `pr`          | 12   | The session has a pull request, open or merged                                                                                                     |
+| `done`        | 13   | The session was archived, its pull request merged, or autopilot judged a non-PR task complete                                                      |
+| `halted`      | 14   | The session halted: usage limit, operator or error                                                                                                 |
+
+When several requested states hold at once, the first of `done`, `halted`, `needs-input`,
+`plan-ready`, `pr` is reported. So a merged PR reports `done` unless you asked only for `pr`.
+
+The line is JSON when stdout is not a terminal (or with `--json`). It always carries `state`,
+`session`, `desig` and `status`, plus `pr` (`number`, `url`, `state`) whenever the session has one:
+
+```json
+{"state":"needs-input","session":"0b6f…","desig":"TASK-07","status":"idle","hold":"autopilot-paused","question":"Open the PR now, or wait for the migration review?"}
+{"state":"pr","session":"0b6f…","desig":"TASK-07","status":"idle","pr":{"number":412,"url":"https://github.com/o/r/pull/412","state":"open"}}
+{"state":"done","session":"0b6f…","desig":"TASK-07","status":"archived","reason":"merged","pr":{…}}
+```
+
+`needs-input` adds `hold` (the server's hold code, or `null`) and `question` (the text, when
+there is one). `halted` adds `haltReason`. `done` adds `reason` (`archived`, `merged` or
+`complete`) and, for `complete`, autopilot's `summary`.
+
+`--timeout` takes a whole number with an optional unit: `90`, `90s`, `30m`, `2h`, `1d`. When it
+passes first, `wait` prints `{"state":"timeout", …}` with the last status it saw and exits `9`.
+Without `--timeout` it waits indefinitely.
+
+```bash
+shepherd wait TASK-07 --until needs-input,pr --timeout 2h
+case $? in
+  10) echo "TASK-07 is asking something" ;;
+  12) echo "TASK-07 opened its PR" ;;
+  9)  echo "still working after two hours" ;;
+esac
+```
+
+How it works: `wait` opens `/events` first and then reads the session, its hold and its PR state
+(`GET /api/sessions`, `/api/holds`, `/api/git`). It reads them again whenever a frame reports a
+change to that session, and after every reconnect. So it never polls on a timer, and nothing that
+changes between the read and the subscription is missed.
+
+A `read` token is enough for active sessions. Two cases go further:
+
+- An archived session isn't in the active list, so `wait` finds it only with a `full` token.
+  Waiting on it returns `done` at once.
+- `GET /api/plan-gates` needs a `full` token. With a `read` token, `wait` warns on stderr and
+  learns about approval from `/events`. That misses a plan that was already approved before
+  `wait` started, until its gate changes again.
+
+`needs-input` covers what the server can tell. When an agent without autopilot ends its turn with
+a question in plain chat, the server doesn't know it asked anything. Its status is just `idle` or
+`done`, and `wait` doesn't report `needs-input`.
 
 ### Session control
 

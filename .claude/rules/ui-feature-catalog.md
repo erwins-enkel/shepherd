@@ -25,6 +25,7 @@ Server-only, internal-plumbing, or mislabeled-`feat` changes that ship **no** us
 
 - `scripts/check-feature-catalog.sh` — asserts a `feat(...)` commit touching user-facing UI also modified an entry fragment. Only `feat(...)` subjects arm it, so **label features correctly**; a user-facing feature mislabeled `fix:`/`chore:` slips by entirely.
 - `scripts/check-announcement-versions.mjs` — fails an added fragment whose `sinceVersion` is `<=` the last released version, or whose filename prefix disagrees with the field. Fix by running `bun run next-version` and using that value for both.
+  It also fails any catalog entry whose `sinceVersion` is **stranded**: never released (no `CHANGELOG.md` heading) yet `<=` the last release. That happens when release-please cuts a major instead of the assumed minor; fix by renaming those entries to the version they actually shipped in. A release-PR-only job in `pr-hygiene.yml` runs this before the release merges.
 
 Both assert presence, not content quality — an accurate, well-written entry is on you and review.
 

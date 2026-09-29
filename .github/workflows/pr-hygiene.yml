@@ -59,3 +59,23 @@ jobs:
         run: node scripts/check-model-mirror.mjs
       - name: Fallow version pin (identical at every site)
         run: node scripts/check-fallow-pin.mjs
+
+  release-announcement-versions:
+    name: release announcement versions
+    # The exact inverse of branch-hygiene's `if:` — runs ONLY on release-please's PR,
+    # where branch-hygiene (and its announcement-versions step) is skipped. That PR has
+    # already bumped the manifest + CHANGELOG, so the script's stranded check fails when
+    # pending entries target a version the release didn't take (1.48.0 vs a 2.0.0 cut).
+    # Fix = a PR on main renaming them to the release version; release-please regenerates.
+    if: ${{ startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]') }}
+    runs-on: ubuntu-latest
+    env:
+      BASE_REF: origin/${{ github.base_ref }}
+    steps:
+      - name: Checkout PR head (the real branch tip, not the merge ref)
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Announcement versions (no entry stranded by the release version)
+        run: node scripts/check-announcement-versions.mjs

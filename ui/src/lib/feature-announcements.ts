@@ -14,6 +14,8 @@
 // (feature-gate.ts only surfaces sinceVersion > the user's lastSeen). The
 // `scripts/check-announcement-versions.mjs` gate fails any new entry whose
 // sinceVersion is <= the last release, or whose filename version disagrees.
+// It also fails any entry left on a version the release didn't take (e.g. 1.48.0
+// when release-please cut 2.0.0) — rename those to the version that shipped.
 //
 // FILENAME: `v<sinceVersion>-<id>.ts` — NO sequence number. Uniqueness comes
 // from the id (globally unique, enforced by the dup-id guard in

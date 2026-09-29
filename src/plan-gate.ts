@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { prepareReviewerTaskPrompt } from "./task-prompt-file";
 import {
   readRoleResultText,
   scrubStaleVerdictArtifacts,
@@ -976,6 +977,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
    *  repos it exists for. */
   private composeReviewerPrompt(
     session: Session,
+    taskPrompt: string,
     prior: PlanGate | null,
     issueBody: string | null | undefined,
     anchor: PlanAnchorResolution,
@@ -1012,7 +1014,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     const amendments = this.deps.store.listActiveTaskAmendments(session.id);
     return (plan, planClamped = false) =>
       planReviewPrompt(
-        session.prompt,
+        taskPrompt,
         plan,
         prior?.findings ?? [],
         issueBody,
@@ -1174,7 +1176,10 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     }
 
     // MUST be after createDetached — see composeReviewerPrompt.
-    const composePrompt = this.composeReviewerPrompt(session, prior, issueBody, {
+    const taskPrompt = prepareReviewerTaskPrompt(session.prompt, wt.worktreePath, (path) =>
+      this.deps.worktree.remove(path),
+    );
+    const composePrompt = this.composeReviewerPrompt(session, taskPrompt, prior, issueBody, {
       sha,
       anchored,
       ahead,

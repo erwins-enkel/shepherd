@@ -6677,5 +6677,8 @@
   "automergebanner_no_ci": "dieses Repo hat keine CI, also hat niemand den PR geprüft. Lege einen Workflow an, schalte „Ohne CI mergen“ ein oder merge selbst",
   "integrated_epics_land_no_ci": "Auto-Landing angehalten: keine CI",
   "feat_merge_without_ci_title": "Ohne CI kein stilles Auto-Merge",
-  "feat_merge_without_ci_body": "In einem GitHub-Repo ohne CI-Workflows halten Merge-Train und Epic-Auto-Landing jetzt an, statt ungeprüfte PRs zu mergen. Richte CI ein, merge selbst oder schalte „Ohne CI mergen“ in den Automatisierungs-Einstellungen des Repos ein."
+  "feat_merge_without_ci_body": "In einem GitHub-Repo ohne CI-Workflows halten Merge-Train und Epic-Auto-Landing jetzt an, statt ungeprüfte PRs zu mergen. Richte CI ein, merge selbst oder schalte „Ohne CI mergen“ in den Automatisierungs-Einstellungen des Repos ein.",
+  "newtask_prompt_file_delivery": "Wird vollständig als Datei übergeben.",
+  "feat_long_task_prompts_title": "Lange Aufgaben ohne Aufteilen",
+  "feat_long_task_prompts_body": "Aufgaben mit mehr als 8.000 Zeichen werden Claude Code oder Codex automatisch vollständig als Datei übergeben. Ein Hinweis am Zeichenzähler zeigt die Dateiübergabe an."
 }

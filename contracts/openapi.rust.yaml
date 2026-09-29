@@ -5763,6 +5763,19 @@ paths:
                 $ref: "#/components/schemas/SessionList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/sessions/archived:
+    get:
+      operationId: listArchivedSessions
+      description: Every archived session, newest-first by archive time. No pagination.
+      responses:
+        "200":
+          description: Sessions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /api/sessions/{id}:
     parameters:
       - name: id
@@ -5772,6 +5785,7 @@ paths:
           type: string
     get:
       operationId: getSession
+      description: One session, archived included. The bare GET also takes a designation (`TASK-07`, or the bare number `7`) in place of the id; the sub-routes take the id only.
       responses:
         "200":
           description: Session.

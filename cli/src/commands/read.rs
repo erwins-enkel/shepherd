@@ -11,6 +11,8 @@ use crate::output::{self, Mode, ago, or_dash};
 use crate::{CLI_VERSION, Ctx, resolve};
 
 const LIST: Op = Op::new("sessions list", Scope::Read);
+/// `GET /api/sessions/archived` is not in the read allowlist.
+const LIST_ALL: Op = Op::new("sessions list --all", Scope::Full);
 const SHOW: Op = Op::new("sessions show", Scope::Read);
 /// `GET /api/sessions/{id}` is not in the read allowlist: only a session missing from the active
 /// list (e.g. archived) needs it.
@@ -27,9 +29,15 @@ fn repo_name(path: &str) -> &str {
         .unwrap_or(path)
 }
 
-pub async fn sessions_list(ctx: &mut Ctx<'_>) -> Result<()> {
+pub async fn sessions_list(ctx: &mut Ctx<'_>, all: bool) -> Result<()> {
     let check = VersionCheck::start(&ctx.client);
-    let sessions = list_sessions(&ctx.client, LIST).await?;
+    let mut sessions = list_sessions(&ctx.client, LIST).await?;
+    if all {
+        match ctx.client.list_archived_sessions().send().await {
+            Ok(archived) => sessions.extend(archived.into_inner().0),
+            Err(e) => return Err(api_error(e, LIST_ALL).await),
+        }
+    }
     if ctx.mode == Mode::Json {
         output::json(&mut ctx.io.stdout, &sessions)?;
     } else {
@@ -55,7 +63,7 @@ fn print_session(ctx: &mut Ctx<'_>, s: &Session) -> Result<()> {
         return output::json(&mut ctx.io.stdout, s);
     }
     let mut t = output::table(&["FIELD", "VALUE"]);
-    let rows: [(&str, String); 11] = [
+    let rows: [(&str, String); 12] = [
         ("id", s.id.clone()),
         ("desig", s.desig.clone()),
         ("name", s.name.clone()),
@@ -66,6 +74,7 @@ fn print_session(ctx: &mut Ctx<'_>, s: &Session) -> Result<()> {
         ("base", s.base_branch.clone()),
         ("issue", or_dash(s.issue_number.map(|n| format!("#{n}")))),
         ("updated", ago(s.updated_at)),
+        ("archived", or_dash(s.archived_at.map(ago))),
         ("prompt", s.prompt.clone()),
     ];
     for (k, v) in rows {

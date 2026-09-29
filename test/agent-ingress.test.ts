@@ -58,6 +58,7 @@ test("isAgentIngressRoute: DENIES everything else (containment property)", () =>
   // answers with every recently-archived session across every repo. The id segment must look like
   // a session UUID, which no reserved literal ever will.
   expect(isAgentIngressRoute("GET", parts(`/api/sessions/done`))).toBe(false);
+  expect(isAgentIngressRoute("GET", parts(`/api/sessions/archived`))).toBe(false);
   expect(isAgentIngressRoute("GET", parts(`/api/sessions/not-a-uuid`))).toBe(false);
   expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}x`))).toBe(false);
   // An unknown sub-segment under a real session id is not a route.

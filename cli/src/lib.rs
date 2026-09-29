@@ -152,7 +152,9 @@ async fn dispatch(cli: Cli, io: &mut Io) -> Result<()> {
         client,
     };
     let result = match cli.command {
-        Command::Sessions(SessionsCmd::List) => commands::read::sessions_list(&mut ctx).await,
+        Command::Sessions(SessionsCmd::List { all }) => {
+            commands::read::sessions_list(&mut ctx, all).await
+        }
         Command::Sessions(SessionsCmd::Show { session }) => {
             commands::read::sessions_show(&mut ctx, &session).await
         }

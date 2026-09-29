@@ -112,6 +112,8 @@ test("no prefix matching: a sub-path does not inherit its parent's scope", () =>
   // GET /api/sessions is a read route; nothing UNDER it is.
   for (const path of [
     "/api/sessions/s1",
+    // Every archived session (#2590): an enumeration beyond the active list, so `full`-only.
+    "/api/sessions/archived",
     "/api/sessions/s1/git",
     "/api/sessions/s1/scratchpad",
     "/api/held/h1/extra",

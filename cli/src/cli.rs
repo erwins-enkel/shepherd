@@ -165,7 +165,11 @@ pub enum Command {
 #[derive(Debug, Subcommand)]
 pub enum SessionsCmd {
     /// Active (non-archived) sessions
-    List,
+    List {
+        /// Archived sessions too, after the active ones (needs a `full` token)
+        #[arg(long)]
+        all: bool,
+    },
     /// One session
     Show {
         /// Session id or designation (TASK-07)

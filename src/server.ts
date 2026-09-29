@@ -2594,8 +2594,9 @@ async function sessionDiffAnnotationsRead(id: string, deps: AppDeps): Promise<Re
   }
 }
 
-async function sessionRead(id: string, deps: AppDeps): Promise<Response> {
-  const s = deps.store.get(id);
+async function sessionRead(key: string, deps: AppDeps): Promise<Response> {
+  // By id or designation, archived included: `TASK-1490` is what an operator or the CLI holds (#2590).
+  const s = sessionByTaskKey(key, deps);
   if (!s) return json({ error: "not found" }, 404);
   if (s.status === "archived") return json(s);
   return json({
@@ -2637,12 +2638,20 @@ function doneSessionsWithIssueUrl(deps: AppDeps): Array<Session & { issueUrl?: s
 }
 
 // GET reads on /api/sessions[/:id[/usage|/activity|/diff|/leftovers]].
+/** Literal `GET /api/sessions/<name>` lists. Neither is in the read-scope allowlist (`full`-only). */
+const SESSION_LISTS = new Map<string, (deps: AppDeps) => unknown>([
+  // "Done" lens: sessions archived within the last DONE_LENS_WINDOW_MS, newest-first.
+  ["done", doneSessionsWithIssueUrl],
+  // Every archived session, newest-first (`shepherd sessions list --all`, #2590).
+  ["archived", (deps) => deps.store.listArchivedSessions()],
+]);
+
 async function handleSessionReads({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (req.method !== "GET") return null;
   if (!parts[2]) return json(await withScratchpadFlags(deps.store.list({ activeOnly: true })));
-  // "Done" lens: sessions archived within the last DONE_LENS_WINDOW_MS, newest-first.
-  // Must precede the bare sessionRead fall-through so "done" isn't read as a session id.
-  if (parts[2] === "done" && !parts[3]) return json(doneSessionsWithIssueUrl(deps));
+  // Must precede the bare sessionRead fall-through so "done"/"archived" aren't read as session ids.
+  const list = parts[3] ? undefined : SESSION_LISTS.get(parts[2]);
+  if (list) return json(list(deps));
   if (parts[3] === "usage") return sessionUsageRead(parts[2], deps);
   if (parts[3] === "activity") return sessionActivityRead(parts[2], deps);
   // What this spawn's assembled system prompt cost, block by block (issue #1999). 404 when the

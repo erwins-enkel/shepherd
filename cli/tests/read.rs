@@ -65,6 +65,90 @@ async fn sessions_list_table_on_tty() {
     assert!(h2.json().is_array());
 }
 
+fn archived_json(id: &str, desig: &str) -> serde_json::Value {
+    let mut v = session_json(id, desig);
+    v["status"] = json!("archived");
+    v["archivedAt"] = json!(1_000);
+    v
+}
+
+#[tokio::test]
+async fn sessions_list_all_appends_archived_as_one_json_array() {
+    let s = server().await;
+    with_sessions(&s).await;
+    Mock::given(method("GET"))
+        .and(path("/api/sessions/archived"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(json!([archived_json("id-9", "TASK-09")])),
+        )
+        .mount(&s)
+        .await;
+    let h = Harness::new();
+    assert_eq!(
+        h.run(&["--url", &s.uri(), "sessions", "list", "--all"])
+            .await,
+        0
+    );
+    // One document (#2590): the whole of stdout parses as a single array.
+    let v: serde_json::Value = serde_json::from_str(&h.out.text()).unwrap();
+    let desigs: Vec<_> = v
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["desig"].as_str().unwrap())
+        .collect();
+    assert_eq!(desigs, ["TASK-01", "TASK-02", "TASK-09"]);
+    assert_eq!(v[2]["archivedAt"], 1_000);
+}
+
+#[tokio::test]
+async fn sessions_list_all_names_full_scope() {
+    let s = server().await;
+    with_sessions(&s).await;
+    Mock::given(method("GET"))
+        .and(path("/api/sessions/archived"))
+        .respond_with(
+            ResponseTemplate::new(403).set_body_json(json!({"error":"insufficient_scope"})),
+        )
+        .mount(&s)
+        .await;
+    let h = Harness::new();
+    let code = h
+        .run(&["--url", &s.uri(), "sessions", "list", "--all"])
+        .await;
+    assert_eq!(code, 4);
+    assert!(
+        h.err
+            .text()
+            .contains("`shepherd sessions list --all` needs a 'full' token"),
+        "{}",
+        h.err.text()
+    );
+    assert_eq!(h.out.text(), "");
+}
+
+#[tokio::test]
+async fn show_finds_archived_session_by_designation() {
+    let s = server().await;
+    with_sessions(&s).await;
+    Mock::given(method("GET"))
+        .and(path("/api/sessions/TASK-1490"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(archived_json("id-1490", "TASK-1490")),
+        )
+        .mount(&s)
+        .await;
+    let h = Harness::new();
+    assert_eq!(
+        h.run(&["--url", &s.uri(), "sessions", "show", "TASK-1490"])
+            .await,
+        0
+    );
+    let v = h.json();
+    assert_eq!(v["id"], "id-1490");
+    assert_eq!(v["archivedAt"], 1_000);
+}
+
 #[tokio::test]
 async fn show_resolves_designation_without_full_scope() {
     let s = server().await;

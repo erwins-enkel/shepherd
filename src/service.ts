@@ -2300,6 +2300,19 @@ export class SessionService {
   private readonly planReleaseInFlight = new Map<string, Promise<boolean>>();
 
   /**
+   * MCP capabilities of Claude spawns whose store row does not exist yet. `create` pre-generates
+   * the session id and persists the row only after `herdr.start` returns, but Claude Code
+   * connects to its MCP servers during its own startup — inside that window. Without this the
+   * endpoint 404s the `initialize` and Claude drops the server for the whole session.
+   */
+  private readonly spawningMcp = new Map<string, AgentCapabilities>();
+
+  /** The in-flight spawn's MCP capabilities, or null once its row exists (or it never started). */
+  spawningAgentCapabilities(sessionId: string): AgentCapabilities | null {
+    return this.spawningMcp.get(sessionId) ?? null;
+  }
+
+  /**
    * Bounded-attempt bookkeeping for `reDriveAccount` (herdr-restart account-loss fix, task 4a).
    * Keyed by session id; the `anchor` is the session's `spawnTerminalId` AT the time of the FIRST
    * counted attempt for this husk — stable across unhealed/refused re-drives (persistSpawnIdentity
@@ -3284,11 +3297,14 @@ export class SessionService {
     // The queue capability carries the SAME non-code-mode suppression composeSystemPromptBlocks
     // applies to the `<build-queue>` block — otherwise a research / epic-authoring / landing-repair
     // session would be handed queue tools its prompt never mentions.
-    this.pushAgentMcpFlag(argv, sessionId, baseUrl, {
+    const caps: AgentCapabilities = {
       buildQueue: repoConfig.buildQueueEnabled && !isNonCodeMode(input),
       epicDraft: Boolean(input.epicAuthoring),
       sessionRead: !input.plain,
-    });
+    };
+    this.pushAgentMcpFlag(argv, sessionId, baseUrl, caps);
+    // Serve the endpoint until the row exists; `create` clears this however the spawn ends.
+    if (hasAgentTools(caps)) this.spawningMcp.set(sessionId, caps);
     argv.push(
       "--append-system-prompt",
       this.composeDirectives({
@@ -3928,11 +3944,11 @@ export class SessionService {
     // The worktree is created before the agent can start, so any failure past this
     // point (e.g. herdr `tab create` rejecting) would otherwise leave an orphan
     // worktree with no session row. Roll it back so a failed create leaves nothing.
+    // Pre-generate the session id so we can bake the exact queue endpoint into the spawn prompt
+    // before the store row exists — the store.create() call below receives this id explicitly.
+    const sessionId = randomUUID();
     try {
       const claudeSessionId = randomUUID();
-      // Pre-generate the session id so we can bake the exact queue endpoint into the spawn prompt
-      // before the store row exists — the store.create() call below receives this id explicitly.
-      const sessionId = randomUUID();
 
       const {
         promptArg,
@@ -4085,6 +4101,8 @@ export class SessionService {
         }
       }
       throw e;
+    } finally {
+      this.spawningMcp.delete(sessionId);
     }
   }
 

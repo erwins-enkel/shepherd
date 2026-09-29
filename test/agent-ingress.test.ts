@@ -97,7 +97,11 @@ test("isAgentIngressRoute: DENIES everything else (containment property)", () =>
 });
 
 // ── makeAgentIngressApp: 404-at-gate vs delegate-to-real-app ────────────────────
-function makeDeps(): AppDeps {
+function makeDeps(
+  start: (argv: string[]) => Promise<{ terminalId: string }> = async () => ({
+    terminalId: "term_x",
+  }),
+): AppDeps {
   const store = new SessionStore(":memory:");
   const events = new EventHub();
   const service = new SessionService({
@@ -111,7 +115,7 @@ function makeDeps(): AppDeps {
       remove: () => {},
     } as any,
     herdr: {
-      start: async () => ({ terminalId: "term_x" }),
+      start: (_name: string, _cwd: string, argv: string[]) => start(argv),
       list: () => [],
       stop: async () => {},
       send: () => {},
@@ -382,6 +386,93 @@ test("makeAgentIngressApp: the MCP endpoint delegates and drives the queue throu
   });
   expect(called.status).toBe(200);
   expect(deps.store.getBuildQueue(s.id).steps[0]!.status).toBe("active");
+});
+
+/** The session id a spawn argv's `--mcp-config` points at. */
+function mcpSessionId(argv: string[]): string {
+  const cfg = JSON.parse(argv[argv.indexOf("--mcp-config") + 1]!);
+  return cfg.mcpServers.shepherd.url.split("/").at(-2);
+}
+
+test("makeAgentIngressApp: the MCP endpoint answers WHILE the spawn is in flight, before the row exists", async () => {
+  // Claude Code connects to its MCP servers during its own startup — before herdr.start returns
+  // and create() persists the row. A 404 there makes it drop the server for the whole session.
+  let app: ReturnType<typeof makeAgentIngressApp> | null = null;
+  const seen: { init?: number; tools?: string[]; call?: unknown; rowExisted?: boolean } = {};
+  const deps = makeDeps(async (argv) => {
+    const id = mcpSessionId(argv);
+    const rpc = (method: string, params?: unknown) =>
+      app!.fetch(
+        new Request(`http://x/api/sessions/${id}/mcp`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+        }),
+      );
+    seen.rowExisted = deps.store.get(id) !== null;
+    seen.init = (await rpc("initialize", { protocolVersion: "2025-06-18" })).status;
+    seen.tools = (await (await rpc("tools/list")).json()).result.tools.map(
+      (t: { name: string }) => t.name,
+    );
+    seen.call = (
+      await (await rpc("tools/call", { name: "queue_write", arguments: { steps: [] } })).json()
+    ).result;
+    return { terminalId: "term_x" };
+  });
+  deps.store.setRepoConfig("/repo", {
+    ...deps.store.getRepoConfig("/repo"),
+    buildQueueEnabled: true,
+  });
+  app = makeAgentIngressApp(deps);
+  const s = await deps.service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+  });
+
+  expect(seen.rowExisted).toBe(false);
+  expect(seen.init).toBe(200);
+  expect(seen.tools).toEqual([
+    "queue_write",
+    "queue_step",
+    "sessions_list",
+    "sessions_show",
+    "self_status",
+  ]);
+  // A tool call before the row exists is a readable isError result, not a protocol error.
+  expect(seen.call).toMatchObject({ isError: true });
+  expect(JSON.stringify(seen.call)).toContain("still starting");
+  // Once persisted, the endpoint serves from the row — and the in-flight entry is gone.
+  expect(deps.service.spawningAgentCapabilities(s.id)).toBeNull();
+});
+
+test("a failed spawn leaves no in-flight MCP entry behind", async () => {
+  let id = "";
+  const deps = makeDeps(async (argv) => {
+    id = mcpSessionId(argv);
+    throw new Error("herdr refused");
+  });
+  await expect(
+    deps.service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "go",
+      model: null,
+      images: [],
+    }),
+  ).rejects.toThrow();
+  expect(id).not.toBe("");
+  expect(deps.service.spawningAgentCapabilities(id)).toBeNull();
+  const res = await makeAgentIngressApp(deps).fetch(
+    new Request(`http://x/api/sessions/${id}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }),
+    }),
+  );
+  expect(res.status).toBe(404);
 });
 
 test("makeAgentIngressApp: the ingress transport is EXEMPT from the human auth gate (issue #1079)", async () => {

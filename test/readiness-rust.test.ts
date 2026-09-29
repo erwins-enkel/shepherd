@@ -180,3 +180,12 @@ test("the target repo is never executed — a bare crate still yields a scorecar
   expect(r.checks.every((c) => !c.present)).toBe(true);
   expect(r.score).toBe(0);
 });
+
+test("env_schema is JS/TS-only — never scored on a Rust crate, even with an env template", () => {
+  write("Cargo.toml", '[package]\nname = "x"\nversion = "0.1.0"\n');
+  write(".env.example", "X=");
+  write(".env.schema", "X=");
+  const r = analyzeReadiness(dir);
+  expect(r.ecosystem).toBe("rust");
+  expect(ids(r)).not.toContain("env_schema");
+});

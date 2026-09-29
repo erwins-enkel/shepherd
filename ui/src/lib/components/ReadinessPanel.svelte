@@ -80,6 +80,8 @@
         return m.readiness_g_dead_code_audit_title();
       case "issue_templates":
         return m.readiness_g_issue_templates_title();
+      case "env_schema":
+        return m.readiness_g_env_schema_title();
     }
   }
 
@@ -111,6 +113,8 @@
         return m.readiness_g_dead_code_audit_removes();
       case "issue_templates":
         return m.readiness_g_issue_templates_removes();
+      case "env_schema":
+        return m.readiness_g_env_schema_removes();
     }
   }
 

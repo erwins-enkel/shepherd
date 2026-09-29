@@ -3803,6 +3803,8 @@
   "shape_err_compose": "Aus diesen Antworten ließ sich kein Briefing bauen. Erneut versuchen.",
   "readiness_g_issue_templates_title": "Issue-Vorlagen",
   "readiness_g_issue_templates_removes": "Ohne sie erreicht ein Issue den Agenten als Einzeiler, und die Session verbrennt ihre ersten Züge mit Rückfragen.",
+  "readiness_g_env_schema_title": "Env-Schema",
+  "readiness_g_env_schema_removes": "Ohne es fügt ein Agent eine Umgebungsvariable hinzu, die niemand deklariert oder dokumentiert hat, und du bemerkst die Lücke erst, wenn ein Deploy bricht.",
   "readiness_template_heading": "Empfohlene Issue-Vorlage",
   "readiness_template_present_note": "Dieses Repository hat bereits Issue-Vorlagen, die Installationsaufgabe rührt sie daher nicht an — diese hier ist zum Kopieren da, falls du die Intent-Struktur zusätzlich möchtest.",
   "readiness_adopt_template_intro": "Verwende exakt diese Issue-Vorlage, wortwörtlich:",

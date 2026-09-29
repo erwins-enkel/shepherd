@@ -28,6 +28,9 @@ function pkg(obj: Record<string, unknown>) {
   write("package.json", JSON.stringify(obj));
 }
 
+/** Guardrails scored on every JS/TS repo — conditional ones (`applies`) drop out of a bare repo. */
+const UNCONDITIONAL = GUARDRAILS.filter((g) => !g.applies);
+
 function present(id: GuardrailId, report: { checks: { id: GuardrailId; present: boolean }[] }) {
   return report.checks.find((c) => c.id === id)?.present ?? false;
 }
@@ -94,7 +97,7 @@ test("a bare package.json scores low — every guardrail absent", () => {
   const r = analyzeReadiness(dir);
   expect(r.applicable).toBe(true);
   expect(r.ecosystem).toBe("js-ts");
-  expect(r.checks.length).toBe(GUARDRAILS.length);
+  expect(r.checks.length).toBe(UNCONDITIONAL.length);
   expect(r.checks.every((c) => !c.present)).toBe(true);
   expect(r.score).toBe(0);
   expect(r.hasAgentInstructions).toBe(false);
@@ -190,7 +193,7 @@ test("score is the weighted fraction of present guardrails, derived from the che
   pkg({ name: "one", devDependencies: { husky: "^9" } });
   write(".husky/pre-push", "x");
   const r = analyzeReadiness(dir);
-  const total = GUARDRAILS.reduce((s, g) => s + g.weight, 0);
+  const total = UNCONDITIONAL.reduce((s, g) => s + g.weight, 0);
   const presentWeight = r.checks.filter((c) => c.present).reduce((s, c) => s + c.weight, 0);
   expect(r.score).toBe(Math.round((100 * presentWeight) / total));
   expect(present("pre_push_ci", r)).toBe(true);
@@ -278,7 +281,7 @@ test("a bare bun repo emits exactly the installable-guardrail commands, all bun"
     .map((l) => l.trim())
     .filter((l) => l.startsWith("$ "));
   // Derived from the source of truth — no magic count to drift.
-  const expected = GUARDRAILS.flatMap((g) => INSTALL_STEPS[g.id](PM_VERBS.bun)).map(
+  const expected = UNCONDITIONAL.flatMap((g) => INSTALL_STEPS[g.id](PM_VERBS.bun)).map(
     (c) => `$ ${c}`,
   );
   expect(cmdLines.sort()).toEqual(expected.sort());
@@ -400,4 +403,49 @@ test("a not-applicable repo reports no template rather than a stray artifact", (
   expect(r.applicable).toBe(false);
   expect(r.issueTemplate).toBe("");
   expect(r.hasIssueTemplates).toBe(false);
+});
+
+// ── env_schema: conditional on an env surface ────────────────────────────────
+
+test("env_schema is omitted (not scored) when the repo has no env surface", () => {
+  pkg({ name: "lib" });
+  const r = analyzeReadiness(dir);
+  expect(r.checks.map((c) => c.id)).not.toContain("env_schema");
+  expect(r.claudeMd).not.toContain("varlock");
+});
+
+test("an .env.example makes env_schema apply, absent, and prescribed", () => {
+  pkg({ name: "app" });
+  write("bun.lock", "");
+  write(".env.example", "API_URL=");
+  const r = analyzeReadiness(dir);
+  const check = r.checks.find((c) => c.id === "env_schema");
+  expect(check).toEqual({ id: "env_schema", present: false, weight: 3, evidence: [] });
+  expect(r.claudeMd).toContain("$ bun add -d varlock");
+  expect(r.claudeMd).toContain("$ bunx varlock init --agent");
+  expect(r.claudeMd).toContain("varlock audit");
+});
+
+test("env_schema is present from a committed .env.schema", () => {
+  pkg({ name: "app" });
+  write(".env.example", "API_URL=");
+  write(".env.schema", "# @defaultRequired=false\nAPI_URL=");
+  const r = analyzeReadiness(dir);
+  expect(present("env_schema", r)).toBe(true);
+  expect(r.checks.find((c) => c.id === "env_schema")?.evidence).toEqual([".env.schema"]);
+});
+
+test("a varlock dependency alone makes env_schema apply and present", () => {
+  pkg({ name: "app", devDependencies: { varlock: "^1.20.0" } });
+  const r = analyzeReadiness(dir);
+  expect(present("env_schema", r)).toBe(true);
+  expect(r.checks.find((c) => c.id === "env_schema")?.evidence).toEqual(["varlock"]);
+});
+
+test("an env template in a package subdirectory makes env_schema apply", () => {
+  write("ui/package.json", JSON.stringify({ name: "ui" }));
+  write("ui/.env.sample", "X=");
+  const r = analyzeReadiness(dir);
+  expect(r.checks.map((c) => c.id)).toContain("env_schema");
+  expect(present("env_schema", r)).toBe(false);
 });

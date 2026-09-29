@@ -5105,5 +5105,8 @@
   "native_ios_reply_draft": "Draft saved",
   "native_ios_attachment_camera_usage": "Shepherd uses the camera when you attach a photo to a session.",
   "native_ios_terminal_dialog_keys": "Answer keys",
-  "native_ios_terminal_dialog_type": "Type an answer"
+  "native_ios_terminal_dialog_type": "Type an answer",
+  "newtask_prompt_file_delivery": "Will be passed in full as a file.",
+  "feat_long_task_prompts_title": "Long tasks without splitting",
+  "feat_long_task_prompts_body": "Tasks longer than 8,000 characters are automatically passed in full as a file to Claude Code or Codex. A hint by the character count shows when file delivery is used."
 }

@@ -5416,3 +5416,68 @@ describe("NewTask dismissed-draft restore", () => {
     expect(promptField().value).toBe("");
   });
 });
+
+for (const locale of ["en", "de"] as const) {
+  it(`long task delivery hint is accessible and submission keeps the entire ${locale} prompt`, async () => {
+    overwriteGetLocale(() => locale);
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, {
+      props: base({
+        onsubmit,
+        initialRepoPath: "/repo/long-task",
+        initialAgentProvider: locale === "de" ? "codex" : "claude",
+      }),
+    });
+    const field = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    const type = (value: string) => {
+      field.value = value;
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    const hint =
+      locale === "de"
+        ? "Wird vollständig als Datei übergeben."
+        : "Will be passed in full as a file.";
+    type("x".repeat(8000));
+    await expect.element(page.getByText(hint, { exact: true })).not.toBeInTheDocument();
+    const prompt = "x".repeat(12_349) + "FINAL REQUIREMENT";
+    type(prompt);
+    await expect.element(page.getByText(hint, { exact: true })).toBeVisible();
+    expect(field.getAttribute("aria-describedby")).toBe("nt-prompt-delivery");
+    const run = document.querySelector<HTMLButtonElement>("button.run")!;
+    await expect.poll(() => run.disabled).toBe(false);
+    run.click();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0].prompt).toBe(prompt);
+    type("short");
+    await expect.element(page.getByText(hint, { exact: true })).not.toBeInTheDocument();
+  });
+}
+
+it("long task delivery hint stays visible without overflow during mobile composition", async () => {
+  await page.viewport(390, 844);
+  mockPointer(true);
+  overwriteGetLocale(() => "de");
+  const previous = Object.getOwnPropertyDescriptor(window, "visualViewport");
+  const viewport = Object.assign(new EventTarget(), { height: 440, offsetTop: 0, scale: 1 });
+  Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+  try {
+    render(NewTask, {
+      props: base({ initialRepoPath: "/repo/long-mobile", initialPrompt: "x".repeat(12_349) }),
+    });
+    const hint = page.getByText("Wird vollständig als Datei übergeben.", { exact: true });
+    await expect.element(hint).toBeVisible();
+    const field = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    field.focus();
+    viewport.dispatchEvent(new Event("resize"));
+    await expect
+      .poll(() => document.querySelector(".compose-meta #nt-prompt-delivery"))
+      .toBeTruthy();
+    await expect.element(hint).toBeVisible();
+    expect(document.querySelectorAll("#nt-prompt-delivery")).toHaveLength(1);
+    const bounds = document.querySelector("#nt-prompt-delivery")!.getBoundingClientRect();
+    expect(bounds.left).toBeGreaterThanOrEqual(0);
+    expect(bounds.right).toBeLessThanOrEqual(390);
+  } finally {
+    if (previous) Object.defineProperty(window, "visualViewport", previous);
+  }
+});

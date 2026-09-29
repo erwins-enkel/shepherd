@@ -5105,5 +5105,8 @@
   "native_ios_reply_draft": "Entwurf gespeichert",
   "native_ios_attachment_camera_usage": "Shepherd verwendet die Kamera, wenn du einer Sitzung ein Foto anhängst.",
   "native_ios_terminal_dialog_keys": "Antworttasten",
-  "native_ios_terminal_dialog_type": "Antwort tippen"
+  "native_ios_terminal_dialog_type": "Antwort tippen",
+  "newtask_prompt_file_delivery": "Wird vollständig als Datei übergeben.",
+  "feat_long_task_prompts_title": "Lange Aufgaben ohne Aufteilen",
+  "feat_long_task_prompts_body": "Aufgaben mit mehr als 8.000 Zeichen werden Claude Code oder Codex automatisch vollständig als Datei übergeben. Ein Hinweis am Zeichenzähler zeigt die Dateiübergabe an."
 }

@@ -49,6 +49,35 @@ jobs:
   # (.github/actions/bun-install-retry) so a one-off native-tarball-extraction flake
   # self-heals instead of redding the lane (#1134, extending docs-site's #944).
 
+  # Which lanes this PR can skip (#2568): scripts/ci-changes.mjs diffs the PR against its
+  # base and emits test/site/cli/docs_site booleans. Gated jobs read them via a job-level
+  # `if:`, never workflow `paths:` — a required check that never reports deadlocks the PR
+  # (#1859); an `if:`-skipped job reports "skipped", which the ruleset counts as passing.
+  # Fail-open: gated jobs use `!cancelled()` and run anyway when this job fails, and
+  # `verify` goes red. Pushes to main always run everything. CI-only: pre-push has no mirror.
+  changes:
+    name: changes
+    if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
+    runs-on: ubuntu-latest
+    outputs:
+      test: ${{ steps.classify.outputs.test }}
+      site: ${{ steps.classify.outputs.site }}
+      cli: ${{ steps.classify.outputs.cli }}
+      docs_site: ${{ steps.classify.outputs.docs_site }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # Diffs against origin/<base>...HEAD — needs the base branch and merge base.
+          fetch-depth: 0
+
+      - name: Classify changed paths
+        id: classify
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: node scripts/ci-changes.mjs
+
   # Lint, typechecks, freshness gates and fallow — everything that fails fast.
   static:
     name: static
@@ -176,7 +205,8 @@ jobs:
   # gates depend on test order within a file.
   test-root:
     name: test-root (${{ matrix.shard }}/2)
-    if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
+    needs: changes
+    if: ${{ !cancelled() && !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) && (needs.changes.result != 'success' || needs.changes.outputs.test == 'true') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -229,7 +259,8 @@ jobs:
   # `browser` project runs sharded in test-ui-browser below.
   test-ui:
     name: test-ui
-    if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
+    needs: changes
+    if: ${{ !cancelled() && !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) && (needs.changes.result != 'success' || needs.changes.outputs.test == 'true') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -293,7 +324,8 @@ jobs:
   # runners. Start at 2 shards and watch job queue time against the org's 60-job limit.
   test-ui-browser:
     name: test-ui-browser (${{ matrix.shard }}/2)
-    if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
+    needs: changes
+    if: ${{ !cancelled() && !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) && (needs.changes.result != 'success' || needs.changes.outputs.test == 'true') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -332,11 +364,12 @@ jobs:
 
   # The required check. Keeps the `verify` name so the branch ruleset needs no change when
   # lanes are added or split. `always()` so a failed lane still reports a red `verify`
-  # instead of a skipped (= passing) one; it then fails unless every lane succeeded. The
-  # release-please guard skips it too — the same "skipped" the old single job reported.
+  # instead of a skipped (= passing) one; it then fails unless every lane succeeded, or was
+  # skipped because `changes` said so (test lanes only; `changes` and `static` must succeed).
+  # The release-please guard skips it too — the same "skipped" the old single job reported.
   verify:
     name: verify
-    needs: [static, test-root, test-ui, test-ui-browser]
+    needs: [changes, static, test-root, test-ui, test-ui-browser]
     if: ${{ always() && !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
     runs-on: ubuntu-latest
     steps:
@@ -345,7 +378,10 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
         run: |
           echo "$NEEDS" | jq -r 'to_entries[] | "\(.key): \(.value.result)"'
-          bad=$(echo "$NEEDS" | jq '[.[] | select(.result != "success")] | length')
+          bad=$(echo "$NEEDS" | jq '.changes.outputs.test as $t | [to_entries[]
+            | select(.value.result != "success")
+            | select((.value.result == "skipped" and (.key | startswith("test-")) and $t == "false") | not)
+          ] | length')
           if [ "$bad" -ne 0 ]; then echo "::error::$bad lane(s) not successful"; exit 1; fi
 
   # The Astro Starlight docs site (docs-site/) is a 4th in-monorepo package with
@@ -364,7 +400,8 @@ jobs:
     # Skip release-please's generated PR (version/CHANGELOG bump only), mirroring
     # the PR-gate lanes' branch+bot-identity guard above (branch-name-only was a
     # fork-spoofable check-skip). head_ref is empty on push-to-main, so main runs.
-    if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
+    needs: changes
+    if: ${{ !cancelled() && !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) && (needs.changes.result != 'success' || needs.changes.outputs.docs_site == 'true') }}
     # Pinned to GitHub-hosted like the PR-gate lanes — public repo, no CI_RUNNER toggle.
     runs-on: ubuntu-latest
     steps:
@@ -410,11 +447,10 @@ jobs:
   # checkout + its own install, and it lives in its OWN job for the same reason: an
   # install flake there must not red the whole suite.
   #
-  # Deliberately NOT filtered with `paths:` (#1859). A path-filtered job reports no
-  # status at all on PRs that don't touch those paths, and a required check that never
-  # reports blocks the PR from merging forever. So it runs on every PR instead — the
-  # job is small next to `verify`, and correctness of the required-check contract is
-  # the reason, not cost.
+  # Deliberately NOT filtered with workflow `paths:` (#1859). A path-filtered job reports
+  # no status at all on PRs that don't touch those paths, and a required check that never
+  # reports blocks the PR from merging forever. It is gated by a job-level `if:` on the
+  # `changes` job instead (#2568), which reports "skipped" (= passing).
   #
   # NB the fonts pipeline reaches cdn.jsdelivr.net at BUILD time (the npm font provider
   # fetches the woff2 for the lockfile-pinned @fontsource version), so this job needs
@@ -425,7 +461,8 @@ jobs:
   site:
     name: site
     # Skip release-please's generated PR, mirroring the two jobs above.
-    if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
+    needs: changes
+    if: ${{ !cancelled() && !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) && (needs.changes.result != 'success' || needs.changes.outputs.site == 'true') }}
     # Pinned to GitHub-hosted like the others — public repo, no CI_RUNNER toggle.
     runs-on: ubuntu-latest
     steps:
@@ -466,12 +503,13 @@ jobs:
   # The Rust `shepherd` CLI (cli/), the one Cargo crate in the repo. Its client is generated at
   # build time from contracts/openapi.rust.yaml, so this job is also the gate that a contract change
   # still produces a client the CLI compiles against. Own job (not a `verify` step) for the same
-  # reason as docs-site/site; NOT path-filtered, because a required check that never reports blocks
-  # merging forever (#1859). The commands live in scripts/check-cli.sh, which the pre-push `cli` lane runs too.
+  # reason as docs-site/site; gated by `changes` via job-level `if:`, never workflow `paths:`
+  # (#1859). The commands live in scripts/check-cli.sh, which the pre-push `cli` lane runs too.
   cli:
     name: cli
     # Skip release-please's generated PR, mirroring the jobs above.
-    if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
+    needs: changes
+    if: ${{ !cancelled() && !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) && (needs.changes.result != 'success' || needs.changes.outputs.cli == 'true') }}
     # Pinned to GitHub-hosted like the others — public repo, no CI_RUNNER toggle.
     runs-on: ubuntu-latest
     steps:

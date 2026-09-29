@@ -2147,3 +2147,124 @@ describe("helperTmpRootCandidates (#2304)", () => {
     ]);
   });
 });
+
+describe("bare agent tmp root: orphan catch-all + node-gyp shims (#2582)", () => {
+  const DAY = 24 * 3600_000;
+
+  /** Point every default sweep root at throwaway dirs; returns the bare agent root. */
+  function agentEnv(): string {
+    const agentRoot = mkTmp();
+    setEnv("SHEPHERD_AGENT_TMPDIR", agentRoot);
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", mkTmp());
+    setEnv("TMPDIR", mkTmp());
+    return agentRoot;
+  }
+  function ageTo(p: string, when: number) {
+    const d = new Date(when);
+    utimesSync(p, d, d);
+  }
+  /** A dir with one file, both aged to `when`. */
+  function staleDir(parent: string, name: string, when: number): string {
+    const p = join(parent, name);
+    mkdirSync(p, { recursive: true });
+    writeFileSync(join(p, "f"), "x");
+    ageTo(join(p, "f"), when);
+    ageTo(p, when);
+    return p;
+  }
+  const forced = (now: number) =>
+    sweepClaudeTmp({ thresholdPct: 0, now, fsOps: fsp, log: () => {} });
+
+  test("an unknown entry stale past the orphan window is removed; a younger one is kept", async () => {
+    const root = agentEnv();
+    const now = Date.now();
+    const old = staleDir(root, "shep-plugins-abc123", now - 8 * DAY);
+    const young = staleDir(root, "shep-plugins-def456", now - 6 * DAY);
+    const oldFile = join(root, "x.txt");
+    writeFileSync(oldFile, "x");
+    ageTo(oldFile, now - 8 * DAY);
+    await forced(now);
+    expect(existsSync(old)).toBe(false);
+    expect(existsSync(oldFile)).toBe(false);
+    expect(existsSync(young)).toBe(true);
+  });
+
+  test("a stale top-level dir with a FRESH descendant is kept", async () => {
+    const root = agentEnv();
+    const now = Date.now();
+    const p = staleDir(root, "liBDJ7f5gCZxksKVsnp0S", now - 30 * DAY);
+    mkdirSync(join(p, "ssr"));
+    writeFileSync(join(p, "ssr", "live"), "x"); // fresh mtime
+    ageTo(join(p, "ssr"), now - 30 * DAY);
+    ageTo(p, now - 30 * DAY);
+    await forced(now);
+    expect(existsSync(p)).toBe(true);
+  });
+
+  test("protected names and git worktrees are never caught", async () => {
+    const root = agentEnv();
+    const now = Date.now();
+    const old = now - 30 * DAY;
+    const kept = [nested, "spawn", ".pnpm-store"].map((n) => staleDir(root, n, old));
+    const wt = staleDir(root, "some-worktree", old);
+    writeFileSync(join(wt, ".git"), "gitdir: /nowhere");
+    ageTo(join(wt, ".git"), old);
+    ageTo(wt, old);
+    await forced(now);
+    for (const p of [...kept, wt]) expect(existsSync(p)).toBe(true);
+  });
+
+  test("the catch-all never applies outside the bare agent root", async () => {
+    agentEnv();
+    const claudeRoot = process.env.SHEPHERD_TMP_SWEEP_DIR as string;
+    const now = Date.now();
+    const inClaude = staleDir(claudeRoot, "-home-x-worktree", now - 30 * DAY);
+    const inNested = staleDir(join(claudeRoot, nested), "-home-y", now - 30 * DAY);
+    const explicit = mkTmp();
+    const inExplicit = staleDir(explicit, "unknown-thing", now - 30 * DAY);
+    await forced(now);
+    await sweepClaudeTmp({ root: explicit, thresholdPct: 0, now, fsOps: fsp, log: () => {} });
+    for (const p of [inClaude, inNested, inExplicit]) expect(existsSync(p)).toBe(true);
+  });
+
+  test("bun node-gyp shims are reclaimed past the 24h cache window", async () => {
+    const root = agentEnv();
+    const now = Date.now();
+    const old = staleDir(root, ".102d0c49e7a67d96-1.node-gyp", now - 2 * DAY);
+    const fresh = staleDir(root, ".103620cd1852ba6-1.node-gyp", now - 3600_000);
+    await forced(now);
+    expect(existsSync(old)).toBe(false);
+    expect(existsSync(fresh)).toBe(true);
+  });
+
+  test("SHEPHERD_TMP_ORPHAN_DAYS moves the window; non-positive/garbage falls back to 7", async () => {
+    const now = Date.now();
+    let root = agentEnv();
+    setEnv("SHEPHERD_TMP_ORPHAN_DAYS", "2");
+    const p = staleDir(root, "a-thing", now - 3 * DAY);
+    await forced(now);
+    expect(existsSync(p)).toBe(false);
+
+    for (const v of ["0", "-1", "abc"]) {
+      root = agentEnv();
+      setEnv("SHEPHERD_TMP_ORPHAN_DAYS", v);
+      const q = staleDir(root, "b-thing", now - 3 * DAY);
+      await forced(now);
+      expect(existsSync(q)).toBe(true);
+    }
+  });
+
+  test("warning → forced sweep → below the entry-count warning band", async () => {
+    const root = agentEnv();
+    const now = Date.now();
+    const { warnEntries } = tmpEntryBands();
+    for (let i = 0; i < warnEntries + 5; i++) staleDir(root, `leak-${i}`, now - 30 * DAY);
+    const noCeiling = { statfs: async () => ({ files: 0, ffree: 0 }) } as never;
+    const before = await readTmpPressureSignal({ roots: [root], ops: noCeiling });
+    expect(before).toMatchObject({ kind: "entry-count" });
+    expect((before as { entries: number }).entries).toBeGreaterThanOrEqual(warnEntries);
+    await forced(now);
+    const after = await readTmpPressureSignal({ roots: [root], ops: noCeiling });
+    expect(after).toMatchObject({ kind: "entry-count", entries: 0 });
+  });
+});

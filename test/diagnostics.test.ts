@@ -35,7 +35,14 @@ import { REMEDIATIONS } from "../src/remediations";
 import type { DiagnosticCheck } from "../src/types";
 import { SessionStore } from "../src/store";
 import { listRepos } from "../src/repos";
-import { mkdirSync, mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync } from "node:fs";
+import * as fsp from "node:fs/promises";
+import {
+  readTmpPressureSignal,
+  sweepClaudeTmp,
+  tmpEntryBands,
+  tmpInodeBands,
+} from "../src/tmp-sweep";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -2343,6 +2350,48 @@ describe("tmp_inodes probe + fix dispatch", () => {
     await svc.check(0);
     await svc.fix("tmp_inodes", 1);
     expect(swept).toBe(1);
+  });
+
+  it("warning on stale agent-tmp leftovers → Fix → ok (#2582)", async () => {
+    // Real reader + real forced sweep over throwaway roots: the row must warn only on what the Fix
+    // can remove, so one Fix clears it. statfs is pinned to "no inode ceiling" (btrfs) so the
+    // entry-count signal is exercised regardless of the test host's filesystem.
+    const keys = ["SHEPHERD_AGENT_TMPDIR", "SHEPHERD_TMP_SWEEP_DIR", "TMPDIR"] as const;
+    const saved = keys.map((k) => process.env[k]);
+    const made = keys.map(() => mkdtempSync(join(tmpdir(), "diag-2582-")));
+    keys.forEach((k, i) => (process.env[k] = made[i]));
+    const agentRoot = made[0] as string;
+    try {
+      const old = new Date(Date.now() - 30 * 24 * 3600_000);
+      const { warnEntries } = tmpEntryBands();
+      for (let i = 0; i < warnEntries + 5; i++) {
+        const d = join(agentRoot, `shep-plugins-${i}`);
+        mkdirSync(d);
+        utimesSync(d, old, old);
+      }
+      const noCeiling = { statfs: async () => ({ files: 0, ffree: 0 }) } as never;
+      const svc = new DiagnosticsService({
+        ...healthyDeps(),
+        readTmpInodes: async () => ({
+          signal: await readTmpPressureSignal({ roots: [agentRoot], ops: noCeiling }),
+          ...tmpInodeBands(),
+          ...tmpEntryBands(),
+        }),
+        runTmpSweep: async () => {
+          await sweepClaudeTmp({ thresholdPct: 0, fsOps: fsp, log: () => {} });
+        },
+      });
+      const before = await svc.check(0);
+      expect(before.checks.find((c) => c.id === "tmp_inodes")?.state).toBe("warning");
+      const after = await svc.fix("tmp_inodes", 1);
+      expect(after.checks.find((c) => c.id === "tmp_inodes")?.state).toBe("ok");
+    } finally {
+      keys.forEach((k, i) => {
+        if (saved[i] === undefined) delete process.env[k];
+        else process.env[k] = saved[i];
+      });
+      for (const d of made) rmSync(d, { recursive: true, force: true });
+    }
   });
 });
 

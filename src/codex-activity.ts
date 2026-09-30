@@ -58,8 +58,9 @@ function readCodexTurnRecord(line: string): CodexTurnRecord | null {
     const p = record.payload;
     if (!p || typeof p !== "object" || Array.isArray(p)) return null;
     if (record.type === "event_msg") return codexLifecycleEvent(p, record.timestamp);
-    if (record.type === "turn_context") return { type: "input" };
-    if (record.type === "session_meta") return { type: "ignore" };
+    if (record.type === "turn_context" || record.type === "world_state") return { type: "input" };
+    if (record.type === "session_meta" || record.type === "token_usage_record")
+      return { type: "ignore" };
     if (record.type !== "response_item" || typeof p.type !== "string") return null;
     // Unknown response items may be new tool calls; never preserve an old completion over them.
     const passive = ["message", "reasoning", "function_call_output", "custom_tool_call_output"];
@@ -87,6 +88,8 @@ function codexLifecycleEvent(
     case "turn_aborted":
       return { type: "abort" };
     case "user_message":
+    case "item_completed":
+    case "thread_settings_applied":
       return { type: "input" };
     case "token_count":
     case "agent_message":

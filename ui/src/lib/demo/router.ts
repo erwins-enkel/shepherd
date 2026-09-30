@@ -470,15 +470,18 @@ function handleSessionMutation(
     const epic = demoState.approveEpicNext(repoParam(url), parent);
     return epic ? json(epic) : new Response(null, { status: 404 });
   }
-  // POST|DELETE /api/epic/queue (#2624) — the demo has no drain to queue on; answer the epic so
-  // the caller gets its real shape.
-  if ((method === "POST" || method === "DELETE") && path === "/api/epic/queue") {
-    const parent = Number(url.searchParams.get("parent") ?? "0");
-    const epic = demoState.epic(repoParam(url), parent);
-    return epic ? json(epic) : new Response(null, { status: 404 });
-  }
   const route = sessionIdMutationRoutes.find((r) => r.method === method && r.pattern.test(path));
   return route ? route.handle(path, body) : null;
+}
+
+// ── epic queue (#2624) ───────────────────────────────────────────────────────
+// POST|DELETE /api/epic/queue — the demo has no drain to queue on; answer the epic so the caller
+// gets its real shape.
+function handleEpicQueueMutation(method: string, path: string, url: URL): Response | null {
+  if ((method !== "POST" && method !== "DELETE") || path !== "/api/epic/queue") return null;
+  const parent = Number(url.searchParams.get("parent") ?? "0");
+  const epic = demoState.epic(repoParam(url), parent);
+  return epic ? json(epic) : new Response(null, { status: 404 });
 }
 
 // ── held-session mutations ───────────────────────────────────────────────────
@@ -561,6 +564,7 @@ function handleMutation(method: string, path: string, url: URL, body: unknown): 
     handleSettingsMutation(method, path, body) ??
     handleRepoMutation(method, path, body) ??
     handleSessionMutation(method, path, url, body) ??
+    handleEpicQueueMutation(method, path, url) ??
     handleHeldMutation(method, path) ??
     handleManualStepsMutation(method, path, body)
   );

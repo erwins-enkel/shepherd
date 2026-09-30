@@ -8109,6 +8109,27 @@ function kickDrain(drain: NonNullable<AppDeps["drain"]>, why: string): void {
   void drain.tick().catch((err) => console.warn(`[epic] ${why} tick:`, err));
 }
 
+// #2624: a queued epic's settings live on its queue row — editing them must not supersede the
+// leader. A status change leaves the queue and takes over the run, as for any other epic.
+function saveEpicRunPatch(
+  store: AppDeps["store"],
+  drain: NonNullable<AppDeps["drain"]>,
+  merged: EpicRun,
+  patch: EpicRunPatch,
+  queued: boolean,
+): void {
+  if (queued && patch.status === undefined) {
+    store.updateEpicQueueSettings(merged);
+    return;
+  }
+  if (queued) {
+    store.removeEpicQueueEntry(merged.repoPath, merged.parentIssueNumber);
+    if (merged.status !== "running") kickDrain(drain, "dequeue");
+  }
+  store.setEpicRun(merged);
+  kickDrainOnEpicStart(drain, merged.status);
+}
+
 function isEpicPutRequest(req: Request, parts: string[]): boolean {
   return req.method === "PUT" && parts[0] === "api" && parts[1] === "epic" && !parts[2];
 }
@@ -8143,21 +8164,33 @@ async function handleEpicPut({ req, parts, url, deps }: Ctx): Promise<Response |
     );
   const merged = mergeEpicRunPatch(base, patch);
   if (merged === null) return json({ error: "invalid epic run patch" }, 400);
-  if (queued && patch.status === undefined) {
-    // #2624: a queued epic's settings live on its queue row — editing them must not supersede the
-    // leader. A status change leaves the queue and takes over the run, as for any other epic.
-    deps.store.updateEpicQueueSettings(merged);
-  } else {
-    if (queued) {
-      deps.store.removeEpicQueueEntry(dir, parentNumber);
-      if (merged.status !== "running") kickDrain(deps.drain, "dequeue");
-    }
-    deps.store.setEpicRun(merged);
-    kickDrainOnEpicStart(deps.drain, merged.status);
-  }
+  saveEpicRunPatch(deps.store, deps.drain, merged, patch, queued);
   const epic = await deps.drain.buildEpic(dir, merged);
   if (epic) deps.events?.emit("epic:update", epic);
   return json(epic ?? { ok: true });
+}
+
+/** Queue `parent` at the tail behind the repo's running/paused leader, with default settings;
+ *  a 409 when there is no leader or `parent` is the leader. */
+function enqueueBehindLeader(
+  store: AppDeps["store"],
+  dir: string,
+  parentIssueNumber: number,
+): Response | null {
+  const leader = store.getEpicRun(dir);
+  if (!leader || (leader.status !== "running" && leader.status !== "paused"))
+    return json({ error: "no leading epic" }, 409);
+  if (leader.parentIssueNumber === parentIssueNumber)
+    return json({ error: "epic already leads" }, 409);
+  store.enqueueEpic({
+    repoPath: dir,
+    parentIssueNumber,
+    mode: "auto",
+    agentProvider: null,
+    model: null,
+    effort: null,
+  });
+  return null;
 }
 
 function isEpicQueueRequest(req: Request, parts: string[]): boolean {
@@ -8181,19 +8214,8 @@ async function handleEpicQueue({ req, parts, url, deps }: Ctx): Promise<Response
     return json({ error: "parent must be a positive integer" }, 400);
   if (!deps.drain) return json({ error: "drain unavailable" }, 503);
   if (req.method === "POST") {
-    const leader = deps.store.getEpicRun(dir);
-    if (!leader || (leader.status !== "running" && leader.status !== "paused"))
-      return json({ error: "no leading epic" }, 409);
-    if (leader.parentIssueNumber === parentNumber)
-      return json({ error: "epic already leads" }, 409);
-    deps.store.enqueueEpic({
-      repoPath: dir,
-      parentIssueNumber: parentNumber,
-      mode: "auto",
-      agentProvider: null,
-      model: null,
-      effort: null,
-    });
+    const refused = enqueueBehindLeader(deps.store, dir, parentNumber);
+    if (refused) return refused;
   } else {
     deps.store.removeEpicQueueEntry(dir, parentNumber);
   }

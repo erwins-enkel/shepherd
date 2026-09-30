@@ -2118,7 +2118,9 @@ export async function getReviews(): Promise<Record<string, ReviewVerdict>> {
 }
 
 /** In-flight critic reviews with the environment used by each reviewer job. */
-export async function getReviewingIds(): Promise<Array<{ id: string } & ReviewerEnv>> {
+export async function getReviewingIds(): Promise<
+  Array<{ id: string; held?: boolean } & ReviewerEnv>
+> {
   return getJson("/api/reviews/inflight", "reviewing");
 }
 
@@ -2146,7 +2148,9 @@ export async function getPlanGates(): Promise<Record<string, PlanGate>> {
 
 /** In-flight plan reviews with their reviewer env (bootstrap for the reviewing indicator + the
  *  CLI/model identity shown on the in-flight button). */
-export async function getPlanGatesInflight(): Promise<Array<{ id: string } & ReviewerEnv>> {
+export async function getPlanGatesInflight(): Promise<
+  Array<{ id: string; held?: boolean } & ReviewerEnv>
+> {
   return getJson("/api/plan-gates/inflight", "plan-gates inflight");
 }
 
@@ -2314,6 +2318,20 @@ export async function reviewPr(id: string): Promise<PrReviewTrigger> {
   if (!r.ok) throw await failed(r, "review-pr");
   const body = (await r.json().catch(() => ({}))) as { status?: PrReviewTrigger };
   return body.status ?? "skipped";
+}
+
+/** Hold (`held: true`) or release the in-flight critic / plan review. While held the reviewer keeps
+ *  running but its result is neither settled nor pasted. Throws on non-2xx (409 = nothing in flight). */
+export async function holdReview(id: string, held: boolean): Promise<void> {
+  const r = await fetch(`/api/sessions/${id}/review-hold`, JSON_POST({ held }));
+  if (!r.ok) throw await failed(r, "review-hold");
+}
+
+/** Cancel the in-flight critic / plan review, discarding its work. Throws on non-2xx (409 = nothing
+ *  in flight, or it is already finalizing). */
+export async function cancelReview(id: string): Promise<void> {
+  const r = await fetch(`/api/sessions/${id}/review-cancel`, JSON_POST());
+  if (!r.ok) throw await failed(r, "review-cancel");
 }
 
 export async function getBacklog(): Promise<BacklogPayload> {

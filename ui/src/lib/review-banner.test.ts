@@ -5,6 +5,7 @@ import {
   criticConclusionShows,
   criticInFlightShows,
   reviewBannerState,
+  cancelledBannerState,
   type ReviewBannerInput,
 } from "./review-banner";
 
@@ -72,6 +73,7 @@ describe("reviewBannerState", () => {
     kind: "critic",
     phase: "in-flight",
     escalated: false,
+    held: false,
     autoAddressOn: true,
     verdict: undefined,
     decision: undefined,
@@ -98,6 +100,28 @@ describe("reviewBannerState", () => {
       phase: "in-flight",
       tone: "escalated",
       copyKey: "reviewbanner_escalated",
+    });
+  });
+
+  it("in-flight: held wins over escalated", () => {
+    expect(reviewBannerState({ ...base, escalated: true, held: true })).toEqual({
+      show: true,
+      phase: "in-flight",
+      tone: "held",
+      copyKey: "reviewbanner_held",
+    });
+    expect(
+      reviewBannerState({ ...base, kind: "plangate", autoAddressOn: false, held: true }),
+    ).toMatchObject({ phase: "in-flight", tone: "held" });
+  });
+
+  it("cancelled tier carries the kind for Restart", () => {
+    expect(cancelledBannerState("plangate")).toEqual({
+      show: true,
+      phase: "cancelled",
+      tone: "cancelled",
+      kind: "plangate",
+      copyKey: "reviewbanner_cancelled",
     });
   });
 

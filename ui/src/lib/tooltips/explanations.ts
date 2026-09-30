@@ -71,3 +71,46 @@ export function upNextReadinessExplanation(): TooltipExplanation {
     ],
   };
 }
+
+/** Review banner "Hold" — what holding an in-flight review does and what it costs. */
+export function reviewHoldExplanation(): TooltipExplanation {
+  return {
+    title: m.reviewbanner_tip_hold_title(),
+    summary: m.reviewbanner_tip_hold_summary(),
+    sections: [
+      { label: m.reviewbanner_tip_then(), text: m.reviewbanner_tip_hold_then() },
+      { label: m.reviewbanner_tip_cost(), text: m.reviewbanner_tip_hold_cost() },
+      { label: m.reviewbanner_tip_note(), text: m.reviewbanner_tip_hold_note() },
+    ],
+  };
+}
+
+/** Review banner "Resume" — releasing a held review. */
+export function reviewResumeExplanation(): TooltipExplanation {
+  return {
+    title: m.reviewbanner_tip_resume_title(),
+    summary: m.reviewbanner_tip_resume_summary(),
+    sections: [{ label: m.reviewbanner_tip_then(), text: m.reviewbanner_tip_resume_then() }],
+  };
+}
+
+/** Review banner "Cancel" — discarding the in-flight review. */
+export function reviewCancelExplanation(): TooltipExplanation {
+  return {
+    title: m.reviewbanner_tip_cancel_title(),
+    summary: m.reviewbanner_tip_cancel_summary(),
+    sections: [
+      { label: m.reviewbanner_tip_cost(), text: m.reviewbanner_tip_cancel_cost() },
+      { label: m.reviewbanner_tip_then(), text: m.reviewbanner_tip_cancel_then() },
+    ],
+  };
+}
+
+/** Review banner "Restart" — a fresh review after a cancel. */
+export function reviewRestartExplanation(): TooltipExplanation {
+  return {
+    title: m.reviewbanner_tip_restart_title(),
+    summary: m.reviewbanner_tip_restart_summary(),
+    sections: [{ label: m.reviewbanner_tip_cost(), text: m.reviewbanner_tip_restart_cost() }],
+  };
+}

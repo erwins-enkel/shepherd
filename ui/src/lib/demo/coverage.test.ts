@@ -305,6 +305,8 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/sessions/:p/quota/dismiss",
     "/api/sessions/:p/quota/resume",
     "/api/sessions/:p/review-pr",
+    "/api/sessions/:p/review-hold",
+    "/api/sessions/:p/review-cancel",
     "/api/sessions/:p/recap/regenerate",
     "/api/sessions/:p/git/pr",
     "/api/sessions/:p/git/draft",

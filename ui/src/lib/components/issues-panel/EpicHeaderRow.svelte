@@ -1,8 +1,9 @@
 <script lang="ts">
   import type { Epic, EpicSummary, Issue } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { chipFor, progress } from "../epic-panel";
+  import { chipFor, progress, type EpicRole } from "../epic-panel";
   import { activate } from "../issues-panel";
+  import EpicRoleBadge from "./EpicRoleBadge.svelte";
 
   // Compact epic header of the backlog list (#2617): chevron, number, title (ellipsis), a
   // segmented progress bar and "m/n". Segments are per child (tinted by state) once the epic's
@@ -11,6 +12,7 @@
     issue,
     summary = undefined,
     epic = undefined,
+    role = null,
     expanded,
     selected,
     optionId,
@@ -20,6 +22,8 @@
     issue: Issue;
     summary?: EpicSummary;
     epic?: Epic;
+    /** Role in the repo's run (#2620) — "leads" / "winding down"; null → no badge. */
+    role?: EpicRole | null;
     expanded: boolean;
     selected: boolean;
     optionId: string;
@@ -65,6 +69,7 @@
   >
   <span class="num" id={`epic-issue-row-${issue.number}`}>#{issue.number}</span>
   <span class="title issue-title">{issue.title}</span>
+  {#if role}<EpicRoleBadge {role} />{/if}
   {#if counts.total > 0}
     <span class="bar" aria-hidden="true">
       {#each segments as tone, i (i)}<span class="seg seg-{tone}"></span>{/each}

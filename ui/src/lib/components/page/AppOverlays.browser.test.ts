@@ -187,6 +187,7 @@ function baseProps(): Props {
     onaddnewproject: vi.fn(),
     backlogSelectPath: null,
     onbacklogclose: vi.fn(),
+    onbacklogopensession: vi.fn(),
     pendingTrain: null,
     ontrainclose: vi.fn(),
     ontrainconfirm: vi.fn(),

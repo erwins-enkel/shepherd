@@ -35,6 +35,7 @@
     onaddnewproject,
     selectPath = null,
     taskDefaults = undefined,
+    onopensession = undefined,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
@@ -65,6 +66,8 @@
     drain?: Record<string, DrainStatus>;
     /** Global run defaults for the Issues tab's task box, forwarded to BacklogView. */
     taskDefaults?: TaskRunDefaults;
+    /** Open a slot holder's session from the epic run area (#2620), forwarded to BacklogView. */
+    onopensession?: (sessionId: string) => void;
   } = $props();
 
   // ── Desktop modal resize (issue #1787) ──────────────────────────────────────
@@ -147,6 +150,7 @@
         {target}
         {drain}
         {taskDefaults}
+        {onopensession}
       />
     </div>
     {#if resizable}

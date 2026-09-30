@@ -35,6 +35,7 @@
   import { backlogRefresh } from "$lib/backlog-refresh.svelte";
   import IssueListRows from "./issues-panel/IssueListRows.svelte";
   import IssueDetail from "./issues-panel/IssueDetail.svelte";
+  import EpicsListHeading from "./issues-panel/EpicsListHeading.svelte";
   import IssueFilterPopover from "./IssueFilterPopover.svelte";
   import RepoLink from "./RepoLink.svelte";
   import IssueLoadAttempts from "./IssueLoadAttempts.svelte";
@@ -55,6 +56,8 @@
     expandEpic = null,
     mobile = false,
     taskDefaults = undefined,
+    onopensession = undefined,
+    onopenautomation = undefined,
   }: {
     repoPath: string;
     /** Open the New Task dialog for `issue`, seeded with the run settings the operator changed
@@ -69,8 +72,8 @@
     /** Live epic record from the store, keyed `${repoPath}#${parentIssueNumber}`.
      *  When present, WS-pushed updates refresh open panels without a re-fetch. */
     epics?: Record<string, Epic>;
-    /** This repo's live drain status — forwarded to an expanded epic row's panel so it
-     *  can surface the hold reason. Null when disabled / unknown. */
+    /** This repo's live drain status — its runSummary drives the epic roles, the agent-slot
+     *  line and the detail's run area (#2620). Null when disabled / unknown. */
     drain?: DrainStatus | null;
     /** When set (e.g. from an EPIC badge click), select + expand that epic and scroll it
      *  into view — used to land the user on a specific epic in the backlog. */
@@ -79,6 +82,10 @@
     mobile?: boolean;
     /** Global run defaults the task box pre-fills CLI / model / effort from. */
     taskDefaults?: TaskRunDefaults;
+    /** Open a slot holder's session (the epic run area's "Open session", #2620). */
+    onopensession?: (sessionId: string) => void;
+    /** Show the repo's Automation tab, where the agent-slot cap (maxAuto) lives. */
+    onopenautomation?: () => void;
   } = $props();
 
   // Issue-scoped steers render as one quick-launch button each on every row.
@@ -422,6 +429,19 @@
       });
   }
 
+  /** Issue title for the epic run area's steps: open issues first, then any loaded epic's
+   *  children (a slot holder of another epic may be neither listed nor expanded). */
+  function titleFor(n: number): string | null {
+    const issue = issues.find((i) => i.number === n);
+    if (issue) return issue.title;
+    for (const e of [...Object.values(epics ?? {}), ...fetched.values()]) {
+      if (e.repoPath !== repoPath) continue;
+      const c = e.children.find((ch) => ch.number === n);
+      if (c) return c.title;
+    }
+    return null;
+  }
+
   /** Return the live store value for an epic if available, else the cached fetch result. */
   function epicFor(n: number): Epic | undefined {
     return epics?.[`${repoPath}#${n}`] ?? fetched.get(n);
@@ -663,6 +683,9 @@
             <div class="muted">{m.issuespanel_no_match()}</div>
           {/if}
         {/if}
+        {#if rows.some((r) => r.kind === "epic")}
+          <EpicsListHeading runSummary={drain?.runSummary ?? null} {onopenautomation} />
+        {/if}
         <div
           bind:this={listEl}
           class="issue-options"
@@ -678,6 +701,7 @@
             epicSummaries={epicByNumber}
             {epicFor}
             {issueActions}
+            runSummary={drain?.runSummary ?? null}
             {oninject}
             onselect={selectFromList}
             ontoggle={toggleEpic}
@@ -716,6 +740,9 @@
             bind:run={taskRun}
             onstart={startTask}
             {onquick}
+            {titleFor}
+            {onopensession}
+            {onopenautomation}
           />
         {/key}
       {:else}

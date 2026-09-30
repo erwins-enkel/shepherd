@@ -34,6 +34,8 @@
     drain = undefined,
     mobile = false,
     taskDefaults = undefined,
+    onopensession = undefined,
+    onopenautomation = undefined,
   }: {
     activeTab: Tab;
     selectedPath: string;
@@ -49,6 +51,9 @@
     drain?: Record<string, DrainStatus>;
     mobile?: boolean;
     taskDefaults?: TaskRunDefaults;
+    onopensession?: (sessionId: string) => void;
+    /** Switch to the Automation tab (the agent-slot cap lives there). */
+    onopenautomation?: () => void;
   } = $props();
 </script>
 
@@ -65,6 +70,8 @@
     expandEpic={target && target.repoPath === selectedPath ? target.issueNumber : null}
     {mobile}
     {taskDefaults}
+    {onopensession}
+    {onopenautomation}
   />
 {:else if activeTab === "prs"}
   <PrsPanel

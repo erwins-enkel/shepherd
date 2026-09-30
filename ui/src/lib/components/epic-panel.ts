@@ -173,6 +173,22 @@ export function epicRunState(
   return { ...base, kind: "running", tone: "run" };
 }
 
+/** Localized label of the run state; `inflight` names the in-flight issues a winding-down
+ *  epic still finishes. */
+export function epicRunStateLabel(kind: EpicRunKind, inflight: string): string {
+  const labels: Record<EpicRunKind, () => string> = {
+    winding: () => m.epic_run_state_winding({ inflight }),
+    paused: m.epic_run_state_paused,
+    idle: m.epic_run_state_idle,
+    waiting_slot: m.epic_run_state_waiting_slot,
+    awaiting_approval: m.epic_run_state_awaiting_approval,
+    halted: m.epic_run_state_halted,
+    nothing: m.epic_run_state_nothing,
+    running: m.epic_run_state_running,
+  };
+  return labels[kind]();
+}
+
 export type SlotHolder = DrainRunSummary["slots"]["holders"][number];
 
 /** When the leading epic's next task starts. */

@@ -21,6 +21,7 @@ import {
   spawnSettingsOverlay,
   buildHooksFragment,
   composeSystemPrompt,
+  composeSystemPromptBlocks,
   readInstalledPluginIds,
   installedPluginIds,
   resetPluginIdsCacheForTests,
@@ -2998,6 +2999,8 @@ test("resume respawns claude --resume in the worktree and re-points the agent", 
     "--settings",
     spawnSettingsOverlay(),
     ...mcpArgs(s.id),
+    "--append-system-prompt",
+    steerProvenanceBlock(),
     "--model",
     "opus",
   ]);
@@ -3036,13 +3039,15 @@ test("resume omits --model when the session had none", async () => {
     "--settings",
     spawnSettingsOverlay(),
     ...mcpArgs(s.id),
+    "--append-system-prompt",
+    steerProvenanceBlock(),
   ]);
 });
 
-// #1624: a "de" operator-language re-carries the <operator-language> block on the Claude resume
-// argv via --append-system-prompt (the one narrow #499 exception). "en" stays byte-identical
-// (asserted by the two byte-identity tests above, which run under the default "en" config).
-test("resume re-appends ONLY the operator-language block when operatorLanguage=de", async () => {
+// A Claude resume re-passes no directive set — only the steer-provenance notice (always; asserted
+// under the default "en" by the two exact-argv tests above) and, per #1624, the <operator-language>
+// block for a non-"en" operator. Both ride ONE --append-system-prompt: the flag is last-wins.
+test("resume re-appends steer-provenance + operator-language in one flag when operatorLanguage=de", async () => {
   const prev = config.operatorLanguage;
   config.operatorLanguage = "de";
   try {
@@ -3080,11 +3085,12 @@ test("resume re-appends ONLY the operator-language block when operatorLanguage=d
       spawnSettingsOverlay(),
       ...mcpArgs(s.id),
       "--append-system-prompt",
-      block,
+      `${steerProvenanceBlock()}\n\n${block}`,
     ]);
-    // carries ONLY the operator-language block — none of the fresh-spawn directive blocks
+    expect(calls.argv.filter((a: string) => a === "--append-system-prompt")).toHaveLength(1);
+    // carries ONLY those two blocks — none of the fresh-spawn directive blocks
     expect(block).toContain("<operator-language>");
-    expect(block).not.toContain("<engineering-posture>");
+    expect(sysPrompt(calls.argv)).not.toContain("<engineering-posture>");
   } finally {
     config.operatorLanguage = prev;
   }
@@ -3200,6 +3206,8 @@ test("resume re-emits the persisted --effort for a Claude session", async () => 
     "--settings",
     spawnSettingsOverlay(),
     ...mcpArgs(s.id),
+    "--append-system-prompt",
+    steerProvenanceBlock(),
     "--model",
     "opus",
     "--effort",
@@ -4647,6 +4655,12 @@ function injectDeps(store: SessionStore, captured: { argv?: string[] }, isolated
   };
 }
 
+/** The `<steer-provenance-notice>` block exactly as the composer emits it — the one standing block
+ *  a Claude resume re-passes. Read off the composer so spawn and resume are pinned to one text. */
+function steerProvenanceBlock(): string {
+  return composeSystemPromptBlocks(null).find((b) => b.name === "steer-provenance-notice")!.text;
+}
+
 /** The value passed to --append-system-prompt (the flag's following argv element). */
 function sysPrompt(argv: string[]): string {
   const i = argv.indexOf("--append-system-prompt");
@@ -4917,6 +4931,24 @@ test("composeSystemPrompt always includes the untrusted-content boundary block",
   const withAutopilot = composeSystemPrompt(null, true);
   expect(withAutopilot).toContain("<untrusted-content-boundary>");
   expect(withAutopilot).toContain("EXTERNAL and UNTRUSTED");
+});
+
+test("composeSystemPrompt rides <steer-provenance-notice> right after the untrusted boundary, Claude only", () => {
+  // TASK-2614: steers reach Claude Code as a bracketed paste, which it shows the model as
+  // <pasted_content>; without this block a session can refuse the plan-go steer and every nudge.
+  for (const opts of [{}, { research: true }, { planGate: "interactive" as const }]) {
+    const blocks = composeSystemPromptBlocks(null, true, opts);
+    const names = blocks.map((b) => b.name);
+    expect(names.indexOf("steer-provenance-notice")).toBe(
+      names.indexOf("untrusted-content-boundary") + 1,
+    );
+    const text = blocks.find((b) => b.name === "steer-provenance-notice")!.text;
+    expect(text).toContain("<pasted_content>");
+    expect(text).toContain("⟦UNTRUSTED:…⟧"); // the fence rule is restated, never widened
+  }
+  // Codex has no such wrapper.
+  const codex = composeSystemPromptBlocks(null, true, { agentProvider: "codex" });
+  expect(codex.map((b) => b.name)).not.toContain("steer-provenance-notice");
 });
 
 test("composeSystemPrompt rides the single-PR invariant on code spawns, never on research", () => {
@@ -7766,6 +7798,8 @@ test("resume of a non-auto session stays untrimmed even with trim on", async () 
       "--settings",
       spawnSettingsOverlay(),
       ...mcpArgs(s.id),
+      "--append-system-prompt",
+      steerProvenanceBlock(),
     ]);
   } finally {
     config.trimAutoContext = prev;

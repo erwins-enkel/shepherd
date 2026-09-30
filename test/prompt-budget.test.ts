@@ -134,12 +134,13 @@ test("#1999 reproduces the epic's measured spawn-payload baseline (chars)", () =
   // are the numbers it moved TO, against the 8,389 / 9,347 / 13,171 / 6,320 it started from.
   // Plan-gate interactive was 7,130 / 7,198 before #1947 added the density budget to both
   // plan-gate directives (+321 chars) — a deliberate spend that exists to shrink a far larger
-  // artifact, the plan itself.
+  // artifact, the plan itself. Every shape then gained 657 chars / 667 bytes when the
+  // steer-provenance notice joined the floor (TASK-2614: pasted steers were being refused).
   const baseline: [string, number, string][] = [
-    ["attended Claude, no house rules", 2148, "2174"],
-    ["+ autopilot", 3106, "3136"],
-    ["plan-gate interactive", 7451, "7521"],
-    ["research", 2957, "2987"],
+    ["attended Claude, no house rules", 2805, "2841"],
+    ["+ autopilot", 3763, "3803"],
+    ["plan-gate interactive", 8108, "8188"],
+    ["research", 3614, "3654"],
   ];
   const payloads = [
     composeSystemPrompt(null, false),
@@ -184,8 +185,9 @@ test("#1999 kitchen sink: house rules + build queue + preview + draft + trim", (
   // 13,408 before #2001 reworded the context-trim notice (the trim keeps the repo's own skills now,
   // so the notice has to say which skills are gone rather than "all of them"); 13,600 before #2003
   // replaced the build-queue curl tutorial with the queue_write / queue_step tools (10,577), and
-  // before #2002 moved the situational blocks behind the guard + skills.
-  expect(measured.totalChars).toBe(3813);
+  // before #2002 moved the situational blocks behind the guard + skills (3,813); +657 for the
+  // steer-provenance notice.
+  expect(measured.totalChars).toBe(4470);
   expect(measured.totalChars).toBe(
     composeSystemPrompt(houseRules, false, {
       buildQueue,
@@ -203,6 +205,7 @@ test("#1999 the unconditional floor is every spawn's standing notices", () => {
   expect(names).toEqual([
     "engineering-posture",
     "untrusted-content-boundary",
+    "steer-provenance-notice",
     "research-first-notice",
     "research-directive",
   ]);

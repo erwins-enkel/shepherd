@@ -4631,5 +4631,12 @@
   "terminal_owner_browser": "Active in a browser",
   "terminal_owner_browser_platform": "Active in a browser on {platform}",
   "feat_terminal_active_client_title": "See where a terminal is active",
-  "feat_terminal_active_client_body": "The takeover message now identifies the active app and operating system. It stays up to date when another client takes over, in the browser, PWA and Mac app."
+  "feat_terminal_active_client_body": "The takeover message now identifies the active app and operating system. It stays up to date when another client takes over, in the browser, PWA and Mac app.",
+  "clearmerged_scoped_desc": "Your filter “{repo}” shows {count} merged sessions. Decommissioning them stops each agent, removes its worktree, and deletes the merged branch.",
+  "clearmerged_outside": "{count} more outside your filter",
+  "clearmerged_outside_armed": "{count} more decommissioned too",
+  "clearmerged_outside_leftovers": "Clearing them too ends {count} more background processes.",
+  "clearmerged_confirm_all": "Decommission all {count}",
+  "feat_clearmerged_scope_title": "Decommission all respects the repo filter",
+  "feat_clearmerged_scope_body": "With a repo filter active, Decommission all now clears only the merged sessions you can see. Merged sessions from other repos are listed separately in the dialog, and a second button still decommissions all of them at once."
 }

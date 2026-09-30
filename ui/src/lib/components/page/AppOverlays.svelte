@@ -192,6 +192,7 @@
     clearMergedSessions,
     clearMergedLeftovers,
     clearMergedProbesUnavailable,
+    clearMergedRepoFilter,
     onclearmergedclose,
     onclearmergedconfirm,
     showBacklog,
@@ -339,12 +340,15 @@
     epicDiagnoseInitialRepo?: string | undefined;
     onepicdiagnoseclose: () => void;
     clearMergedSessions: Session[] | null;
-    clearMergedLeftovers: number;
+    /** Leftover subprocess count per merged session id. */
+    clearMergedLeftovers: Record<string, number>;
     /** The host can't detect leftovers at all, so `clearMergedLeftovers` is "unknown", not
      *  "zero" — the dialog cautions instead of implying the batch is clean (#1923). */
     clearMergedProbesUnavailable: boolean;
+    /** The herd's repo filter: the dialog clears only what it shows unless told "all". */
+    clearMergedRepoFilter: ReadonlySet<string>;
     onclearmergedclose: () => void;
-    onclearmergedconfirm: () => void;
+    onclearmergedconfirm: (ids: string[]) => void;
     showBacklog: boolean;
     backlog: BacklogPayload | null;
     epicTarget: { repoPath: string; issueNumber: number } | null;
@@ -712,6 +716,7 @@
     sessions={clearMergedSessions}
     leftovers={clearMergedLeftovers}
     probesUnavailable={clearMergedProbesUnavailable}
+    repoFilter={clearMergedRepoFilter}
     onclose={onclearmergedclose}
     onconfirm={onclearmergedconfirm}
   />

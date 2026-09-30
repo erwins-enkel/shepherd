@@ -984,6 +984,8 @@ export interface DrainRunSummary {
   next: number[];
   /** Open epic children directly blocked by next[0]. */
   after: number[];
+  /** Epics queued behind the leading one, head first (#2624); absent from older servers. */
+  queued?: number[];
 }
 
 // ── epics ──────────────────────────────────────────────────────────────────

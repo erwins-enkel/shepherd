@@ -2851,6 +2851,24 @@ export async function updateEpic(
   return r.json();
 }
 
+/** Queue an epic behind the repo's leading one (#2624); it starts once the leader completes. */
+export async function queueEpic(repoPath: string, parent: number): Promise<Epic> {
+  const r = await fetch(`/api/epic/queue?repo=${encodeURIComponent(repoPath)}&parent=${parent}`, {
+    method: "POST",
+  });
+  if (!r.ok) throw await failed(r, "queue epic");
+  return r.json();
+}
+
+/** Take an epic out of the repo's epic queue. */
+export async function unqueueEpic(repoPath: string, parent: number): Promise<Epic> {
+  const r = await fetch(`/api/epic/queue?repo=${encodeURIComponent(repoPath)}&parent=${parent}`, {
+    method: "DELETE",
+  });
+  if (!r.ok) throw await failed(r, "unqueue epic");
+  return r.json();
+}
+
 export async function approveEpicNext(repoPath: string, parent: number): Promise<Epic> {
   const r = await fetch(
     `/api/epic/approve-next?repo=${encodeURIComponent(repoPath)}&parent=${parent}`,

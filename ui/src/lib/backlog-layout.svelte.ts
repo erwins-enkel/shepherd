@@ -18,7 +18,7 @@ export const OVERLAY_PAD = 48;
 
 // Sidebar bounds. MIN aligns to the existing design min track (minmax(220px,300px));
 // DETAIL_MIN keeps the detail column usable, so the sidebar's live max always
-// leaves it room. The 300px default lives in CSS (var(--repos-sidebar, 300px)).
+// leaves it room. The 232px default lives in CSS (var(--repos-sidebar, 232px)).
 export const SIDEBAR_MIN = 220;
 export const SIDEBAR_MAX = 560;
 export const DETAIL_MIN = 380;

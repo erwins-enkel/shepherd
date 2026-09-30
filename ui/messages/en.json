@@ -849,10 +849,6 @@
   "backlog_tab_prs": "PRs",
   "backlog_tab_issues_count": "Issues · {count}",
   "backlog_tab_prs_count": "PRs · {count}",
-  "backlog_code_prs_title": "Code PRs (excludes bot PRs)",
-  "backlog_code_prs_count": "Code PRs (excludes bot PRs) · {count}",
-  "prkind_dependabot_badge": "+{count}d",
-  "prkind_release_badge": "+{count}r",
   "prkind_dependabot_title": "Dependabot PRs: {count}",
   "prkind_release_title": "Release PRs: {count}",
   "prkind_dependabot_tag": "Dependabot",
@@ -4679,5 +4675,15 @@
   "issuetask_settings_label": "Task run settings",
   "issuetask_no_epic_hint": "No epic: doesn't take an agent slot",
   "feat_issues_reading_title": "Issues: list and reading view",
-  "feat_issues_reading_body": "The Issues tab now groups sub-issues under their epic on the left and shows the selected entry on the right, with its description rendered. Use ↑/↓ to move, → to expand an epic and A to start a task."
+  "feat_issues_reading_body": "The Issues tab now groups sub-issues under their epic on the left and shows the selected entry on the right, with its description rendered. Use ↑/↓ to move, → to expand an epic and A to start a task.",
+  "backlog_row_tip_issues": "Open issues: {count}",
+  "backlog_row_tip_issues_unknown": "Open issues: not loaded yet",
+  "backlog_row_tip_prs_label": "Pull requests",
+  "backlog_row_tip_prs_code": "Code PRs: {count} (bot PRs excluded)",
+  "backlog_row_tip_prs_open": "Open: {count}",
+  "backlog_row_tip_bots_label": "Bot PRs",
+  "backlog_repo_filter_heading": "Repo filters",
+  "backlog_repo_filter_aria": "Repo filters, {count} active",
+  "feat_compact_repo_list_title": "Compact repo list",
+  "feat_compact_repo_list_body": "The repo list in Repos is narrower and denser: one row per repo with its open-issue count, PR and bot-PR counts in the row's tooltip, the Has issues / Has PRs filters behind the filter icon next to the search, and + Add repo at the foot of the list. The sidebar is still resizable."
 }

@@ -3,6 +3,7 @@ import TooltipBody from "./TooltipBody.svelte";
 import { tooltipText, type TooltipContent } from "./content";
 import type { Action } from "svelte/action";
 import { anchorPopover } from "$lib/floating-anchor";
+import type { Placement } from "@floating-ui/dom";
 
 export interface StatusTipParams {
   /** Short label, or structured explanation with title + sections (see CLAUDE.md). */
@@ -17,6 +18,16 @@ export interface StatusTipParams {
    * characters and would otherwise stack into a ~20-line column.
    */
   wide?: boolean;
+  /**
+   * Preferred side of the trigger (default "bottom"; flip() still re-homes it). A list row
+   * wants "right": a tip below it would cover — and swallow the hover of — the next row.
+   */
+  placement?: Placement;
+  /**
+   * Set false where a click means something else (selecting a list row): the click then
+   * neither opens nor pins the tip, so hover/keyboard focus stay the only open paths.
+   */
+  pinOnClick?: boolean;
 }
 
 // Module-scoped counter for unique popover ids. Client-only (actions never run on
@@ -73,6 +84,8 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
   let stopClickPropagation = true;
   let still = false;
   let wide = false;
+  let placement: Placement = "bottom";
+  let pinOnClick = true;
   let open = false;
   let pinned = false;
   let stopAnchor: (() => void) | null = null;
@@ -159,7 +172,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
       return; // not connected this tick
     }
     open = true;
-    stopAnchor = anchorPopover(node, pop, 6);
+    stopAnchor = anchorPopover(node, pop, 6, placement);
     document.addEventListener("pointerdown", onDocPointerDown, true);
     window.addEventListener("keydown", onKeydown, { capture: true });
     window.addEventListener("scroll", onScrollOrResize, { capture: true, passive: true });
@@ -199,6 +212,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
   }
   function onClick(e: MouseEvent) {
     if (stopClickPropagation) e.stopPropagation(); // read-only chips never select the row
+    if (!pinOnClick) return;
     show();
     if (e.detail > 0) pinned = true; // genuine pointer click pins; keyboard (detail 0) does not
   }
@@ -233,6 +247,8 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
     stopClickPropagation = next.stopClickPropagation ?? true;
     still = next.still ?? false;
     wide = next.wide ?? false;
+    placement = next.placement ?? "bottom";
+    pinOnClick = next.pinOnClick ?? true;
     if (pop) {
       pop.className = panelClass();
     }

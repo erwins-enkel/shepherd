@@ -46,19 +46,18 @@ function baseProps(over: Partial<Record<string, unknown>> = {}) {
 }
 
 describe("ProjectBacklogList — hide repos", () => {
-  it("no Hidden chip when nothing is hidden", () => {
+  it("no Hidden toggle when nothing is hidden", () => {
     render(ProjectBacklogList, baseProps());
-    expect(document.body.textContent).not.toContain(m.backlog_filter_hidden({ count: 1 }));
+    expect(document.body.querySelector(".hidden-toggle")).toBeNull();
   });
 
-  it("renders a Hidden·N chip when hiddenCount > 0 and toggles on click", async () => {
+  it("renders a compact Hidden·N toggle when hiddenCount > 0 and toggles on click", async () => {
     const ontogglehidden = vi.fn();
     render(ProjectBacklogList, baseProps({ hiddenCount: 2, ontogglehidden }));
-    const chip = [...document.body.querySelectorAll<HTMLButtonElement>(".filter-chip")].find((b) =>
-      b.textContent?.includes(m.backlog_filter_hidden({ count: 2 })),
-    );
-    expect(chip).toBeTruthy();
-    chip!.click();
+    const toggle = page.getByRole("button", { name: m.backlog_filter_hidden({ count: 2 }) });
+    await expect.element(toggle).toHaveAttribute("aria-pressed", "false");
+    await expect.element(toggle).toHaveTextContent("2");
+    await toggle.click();
     expect(ontogglehidden).toHaveBeenCalledTimes(1);
   });
 
@@ -125,7 +124,53 @@ describe("ProjectBacklogList — hide repos", () => {
   });
 });
 
+describe("ProjectBacklogList — filter row", () => {
+  it("Has issues / Has PRs live behind the filter icon, not as inline chips", async () => {
+    const ontoggleissues = vi.fn();
+    const ontoggleprs = vi.fn();
+    render(ProjectBacklogList, baseProps({ hasPRs: true, ontoggleissues, ontoggleprs }));
+    // Both labels exist only inside the (closed) popover panel.
+    const labels = [...document.body.querySelectorAll<HTMLElement>(".filter-bar *")].filter(
+      (el) => el.children.length === 0 && el.textContent?.trim() === m.backlog_filter_has_issues(),
+    );
+    expect(labels.length).toBe(1);
+    expect(labels[0].closest("[popover]")?.matches(":popover-open")).toBe(false);
+    // active-filter count on the icon
+    const trigger = page.getByRole("button", { name: m.backlog_repo_filter_aria({ count: 1 }) });
+    await expect.element(trigger).toHaveTextContent("1");
+
+    await trigger.click();
+    await page.getByRole("checkbox", { name: m.backlog_filter_has_issues() }).click();
+    expect(ontoggleissues).toHaveBeenCalledOnce();
+    await page.getByRole("checkbox", { name: m.backlog_filter_has_prs() }).click();
+    expect(ontoggleprs).toHaveBeenCalledOnce();
+  });
+
+  it("search, filter icon and Hidden toggle fit one row at the 232px default width", () => {
+    const host = document.createElement("div");
+    host.style.width = "232px";
+    document.body.append(host);
+    render(ProjectBacklogList, { target: host, props: baseProps({ hiddenCount: 12 }) });
+    const bar = host.querySelector<HTMLElement>(".filter-bar")!;
+    expect(bar.scrollWidth).toBeLessThanOrEqual(bar.clientWidth);
+    const search = host.querySelector<HTMLElement>(".filter-search")!.getBoundingClientRect();
+    const hidden = host.querySelector<HTMLElement>(".hidden-toggle")!.getBoundingClientRect();
+    expect(Math.abs(search.top - hidden.top)).toBeLessThanOrEqual(1);
+    host.remove();
+  });
+});
+
 describe("ProjectBacklogList — + Add repo", () => {
+  it("sits in the list footer, after the rows", () => {
+    render(ProjectBacklogList, baseProps());
+    const footer = document.body.querySelector<HTMLElement>(".list-footer")!;
+    expect(footer.querySelector(".add-repo-btn")).not.toBeNull();
+    const lastRow = [...document.body.querySelectorAll<HTMLElement>(".project-row")].at(-1)!;
+    expect(footer.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+      lastRow.getBoundingClientRect().bottom,
+    );
+  });
+
   it("shows the trigger and opens the menu, forwarding each action", async () => {
     const onaddclone = vi.fn();
     const onaddfork = vi.fn();

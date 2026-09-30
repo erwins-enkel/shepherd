@@ -2,6 +2,7 @@
   import type { BacklogProject } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { projectIcons } from "$lib/projectIcons.svelte";
+  import { statusTip, type StatusTipParams } from "$lib/tooltips/statusTip.svelte";
 
   let {
     project,
@@ -56,11 +57,45 @@
       ? m.backlog_tab_issues_count({ count: project.openIssues })
       : m.backlog_tab_issues(),
   );
-  const prsLabel = $derived(
-    project.openPRs != null
-      ? m.backlog_tab_prs_count({ count: project.openPRs })
-      : m.backlog_tab_prs(),
-  );
+
+  // The row shows one number (open issues); the PR count and the bot PRs live in the
+  // row's tooltip. Opens to the right so it never covers — and swallows the hover of —
+  // the next row, and a click only selects (no pinned tip over the detail pane).
+  const tip = $derived.by((): StatusTipParams => {
+    const sections: { label: string; text: string }[] = [];
+    const kinds = project.prKinds;
+    if (kinds) {
+      sections.push({
+        label: m.backlog_row_tip_prs_label(),
+        text: m.backlog_row_tip_prs_code({ count: kinds.regular }),
+      });
+      const bots = [
+        kinds.dependabot > 0 ? m.prkind_dependabot_title({ count: kinds.dependabot }) : null,
+        kinds.release > 0 ? m.prkind_release_title({ count: kinds.release }) : null,
+      ].filter((b) => b !== null);
+      if (bots.length > 0) {
+        sections.push({ label: m.backlog_row_tip_bots_label(), text: bots.join(" · ") });
+      }
+    } else if (project.openPRs != null) {
+      sections.push({
+        label: m.backlog_row_tip_prs_label(),
+        text: m.backlog_row_tip_prs_open({ count: project.openPRs }),
+      });
+    }
+    return {
+      text: {
+        title: project.display,
+        summary:
+          project.openIssues != null
+            ? m.backlog_row_tip_issues({ count: project.openIssues })
+            : m.backlog_row_tip_issues_unknown(),
+        sections,
+      },
+      placement: "right",
+      pinOnClick: false,
+      stopClickPropagation: false,
+    };
+  });
 </script>
 
 <div
@@ -71,7 +106,7 @@
   tabindex="0"
   onclick={onselect}
   onkeydown={onRowKeydown}
-  title={project.display}
+  use:statusTip={tip}
 >
   <div class="row-main">
     <span class="row-glyph" class:emoji={!!repoIcon} aria-hidden="true">{repoIcon ?? "▣"}</span>
@@ -86,44 +121,7 @@
       </span>
     {/if}
   </div>
-  <div class="row-counts">
-    <span class="count-item" title={issuesLabel} aria-label={issuesLabel}>
-      {project.openIssues ?? "—"}
-    </span>
-    <span class="sep">·</span>
-    {#if project.prKinds}
-      <span
-        class="count-item count-prs"
-        class:prom={project.prKinds.regular > 0}
-        title={m.backlog_code_prs_title()}
-        aria-label={m.backlog_code_prs_count({ count: project.prKinds.regular })}
-      >
-        {project.prKinds.regular}
-      </span>
-      {#if project.prKinds.dependabot > 0}
-        <span
-          class="bot-note"
-          title={m.prkind_dependabot_title({ count: project.prKinds.dependabot })}
-        >
-          {m.prkind_dependabot_badge({ count: project.prKinds.dependabot })}
-        </span>
-      {/if}
-      {#if project.prKinds.release > 0}
-        <span class="bot-note" title={m.prkind_release_title({ count: project.prKinds.release })}>
-          {m.prkind_release_badge({ count: project.prKinds.release })}
-        </span>
-      {/if}
-    {:else}
-      <span
-        class="count-item count-prs"
-        class:prom={(project.openPRs ?? 0) > 0}
-        title={prsLabel}
-        aria-label={prsLabel}
-      >
-        {project.openPRs ?? "—"}
-      </span>
-    {/if}
-  </div>
+  <span class="row-count" aria-label={issuesLabel}>{project.openIssues ?? "—"}</span>
   <button
     class="row-hide"
     type="button"
@@ -154,10 +152,10 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 8px;
+    gap: 6px;
     width: 100%;
-    min-height: 44px;
-    padding: 8px 12px;
+    min-height: 30px;
+    padding: 0 4px 0 8px;
     border: 1px solid transparent;
     border-radius: 2px;
     background: transparent;
@@ -204,7 +202,7 @@
     flex-shrink: 0;
     background: none;
     border: none;
-    padding: 4px;
+    padding: 2px;
     color: var(--color-faint);
     font-size: var(--fs-base);
     cursor: pointer;
@@ -246,14 +244,15 @@
     flex: 1;
   }
 
-  /* Fixed box (sized off the type scale, not the glyph's own font-size) so the
-     names stay on one column whether a row shows an emoji or the ▣ fallback. */
+  /* Fixed 18px box (not the glyph's own font-size) so the names stay on one
+     column whether a row shows an emoji or the ▣ fallback. */
   .row-glyph {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
-    width: calc(var(--fs-base) * 1.4);
+    width: 18px;
+    height: 18px;
     color: var(--color-faint);
     font-size: var(--fs-micro);
     line-height: 1;
@@ -268,7 +267,7 @@
     font-size: var(--fs-base);
     font-weight: 500;
     letter-spacing: 0.03em;
-    min-width: 12ch;
+    min-width: 0;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
@@ -286,32 +285,11 @@
     vertical-align: -0.125em;
   }
 
-  .row-counts {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    min-width: 0;
-    overflow: hidden;
+  .row-count {
+    flex-shrink: 0;
     font-size: var(--fs-meta);
     color: var(--color-muted);
     letter-spacing: 0.04em;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .sep {
-    color: var(--color-faint);
-  }
-
-  .count-prs.prom {
-    color: var(--color-ink-bright);
-    font-weight: 500;
-  }
-
-  .bot-note {
-    font-size: var(--fs-micro);
-    color: var(--color-muted);
-    letter-spacing: 0.04em;
-    flex-shrink: 0;
     font-variant-numeric: tabular-nums;
   }
 </style>

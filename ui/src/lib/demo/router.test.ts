@@ -71,7 +71,12 @@ describe("polished GET handlers return the shape api.ts consumes", () => {
   it("GET /api/sessions/clear-merged returns the merged, non-archived ids (deps + envflag)", async () => {
     const { status, body } = await get("/api/sessions/clear-merged");
     expect(status).toBe(200);
-    expect(body).toEqual({ ids: ["deps", "envflag"], leftovers: 0, probesUnavailable: false });
+    expect(body).toEqual({
+      ids: ["deps", "envflag"],
+      leftovers: 0,
+      leftoversById: { deps: 0, envflag: 0 },
+      probesUnavailable: false,
+    });
   });
 
   it("the rich scenario seeds eight sessions across two repos", async () => {
@@ -154,6 +159,7 @@ describe("mutation handlers call the mutator and return the caller's shape", () 
     expect((await get("/api/sessions/clear-merged")).body).toEqual({
       ids: ["envflag"],
       leftovers: 0,
+      leftoversById: { envflag: 0 },
       probesUnavailable: false,
     });
   });

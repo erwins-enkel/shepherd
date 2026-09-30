@@ -2335,6 +2335,8 @@ test("GET /api/sessions/clear-merged lists only merged ids and totals their left
   const body = await res.json();
   expect(new Set(body.ids)).toEqual(new Set([a.id, b.id]));
   expect(body.leftovers).toBe(2); // one detected leftover per merged session
+  // …and per session, so the modal can total whichever subset it is about to clear
+  expect(body.leftoversById).toEqual({ [a.id]: 1, [b.id]: 1 });
   expect(body.probesUnavailable).toBe(false); // a working reaper ⇒ the count means what it says
 });
 

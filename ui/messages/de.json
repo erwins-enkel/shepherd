@@ -4631,5 +4631,12 @@
   "terminal_owner_browser": "Aktiv im Browser",
   "terminal_owner_browser_platform": "Aktiv im Browser auf {platform}",
   "feat_terminal_active_client_title": "Aktiven Terminal-Client erkennen",
-  "feat_terminal_active_client_body": "Die Übernahme-Meldung zeigt jetzt die aktive App und ihr Betriebssystem. Sie aktualisiert sich bei weiteren Übernahmen, im Browser, in der PWA und in der Mac-App."
+  "feat_terminal_active_client_body": "Die Übernahme-Meldung zeigt jetzt die aktive App und ihr Betriebssystem. Sie aktualisiert sich bei weiteren Übernahmen, im Browser, in der PWA und in der Mac-App.",
+  "clearmerged_scoped_desc": "Dein Filter „{repo}“ zeigt {count} gemergte Sessions. Beim Stilllegen wird jeder Agent gestoppt, sein Worktree entfernt und der gemergte Branch gelöscht.",
+  "clearmerged_outside": "{count} weitere außerhalb deines Filters",
+  "clearmerged_outside_armed": "{count} weitere werden mit stillgelegt",
+  "clearmerged_outside_leftovers": "Mit ihnen enden {count} weitere Hintergrundprozesse.",
+  "clearmerged_confirm_all": "Alle {count} stilllegen",
+  "feat_clearmerged_scope_title": "„Alle stilllegen“ beachtet den Repo-Filter",
+  "feat_clearmerged_scope_body": "Bei aktivem Repo-Filter legt „Alle stilllegen“ jetzt nur die gemergten Sessions still, die du gerade siehst. Gemergte Sessions aus anderen Repos zeigt der Dialog getrennt an, und ein zweiter Knopf legt weiterhin alle auf einmal still."
 }

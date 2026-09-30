@@ -344,10 +344,10 @@
   // Epic-diagnosis entry (command bar → arbitrary parent #, #1657). Defaults its repo
   // picker to the in-focus repo when the herd is filtered to exactly one.
   let showEpicDiagnose = $state(false);
-  // "clear all merged" confirm modal: the merged sessions to clear + their total
-  // leftover subprocess count (both fetched server-side when the modal opens).
+  // "clear all merged" confirm modal: the merged sessions to clear + their leftover
+  // subprocess counts per id (both fetched server-side when the modal opens).
   let clearMergedSessions = $state<Session[] | null>(null);
-  let clearMergedLeftovers = $state(0);
+  let clearMergedLeftovers = $state<Record<string, number>>({});
   // …and whether that count can be trusted: false ⇒ "0 leftovers" really means none, true ⇒
   // this host can't detect them at all and the batch may leak every dev server (#1923).
   let clearMergedProbesUnavailable = $state(false);
@@ -2592,16 +2592,15 @@
   // leftover count, so we ask it rather than trust the local snapshot.
   async function onclearmerged() {
     try {
-      const { ids, leftovers, probesUnavailable } = await getMergedClearable();
+      const { ids, leftoversById, probesUnavailable } = await getMergedClearable();
       // store.sessions mirrors every active session, so each merged id resolves to a
-      // row here — `targets` matches the server's `ids` and `leftovers` lines up with
-      // the listed sessions. (Were a merged id somehow absent, we'd list and clear only
-      // the rows we can show; the leftover figure would slightly overstate. Cosmetic.)
+      // row here — `targets` matches the server's `ids`. (Were a merged id somehow
+      // absent, we'd list and clear only the rows we can show.)
       const targets = ids
         .map((id) => store.sessions.find((s) => s.id === id))
         .filter((s): s is Session => s != null);
       if (targets.length === 0) return; // nothing merged (or already cleared) → no modal
-      clearMergedLeftovers = leftovers;
+      clearMergedLeftovers = leftoversById;
       clearMergedProbesUnavailable = probesUnavailable;
       clearMergedSessions = targets;
     } catch {
@@ -2768,12 +2767,11 @@
     }
   }
 
-  // Confirmed: clear the dialog state (before the await, so it can't double-submit),
-  // then run the bulk archive.
-  function confirmClearMerged() {
-    const targets = clearMergedSessions ?? [];
+  // Confirmed with the ids the operator chose (the filtered repos, or every repo): clear
+  // the dialog state (before the await, so it can't double-submit), then run the bulk archive.
+  function confirmClearMerged(ids: string[]) {
     clearMergedSessions = null;
-    void runClearMerged(targets.map((s) => s.id));
+    void runClearMerged(ids);
   }
 
   // Confirmed: capture the launch closure, clear the dialog state BEFORE awaiting
@@ -3514,6 +3512,7 @@
   {clearMergedSessions}
   {clearMergedLeftovers}
   {clearMergedProbesUnavailable}
+  clearMergedRepoFilter={repoFilter}
   onclearmergedclose={() => (clearMergedSessions = null)}
   onclearmergedconfirm={confirmClearMerged}
   {showBacklog}

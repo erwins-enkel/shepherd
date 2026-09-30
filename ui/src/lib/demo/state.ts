@@ -582,14 +582,25 @@ export const demoState = {
   pendingLearnings: (): Learning[] => world.pendingLearnings,
 
   /** Merged, non-archived session ids — for the "Clear merged" confirm modal.
-   *  Matches `getMergedClearable()`'s `{ids, leftovers, probesUnavailable}` in api.ts exactly;
-   *  the demo has no real leftover subprocesses, so the count is always 0 — and no probes to
-   *  be broken, so that 0 is trustworthy. */
-  mergedClearable: (): { ids: string[]; leftovers: number; probesUnavailable: boolean } => ({
-    ids: world.sessions.filter((s) => world.gitStates[s.id]?.state === "merged").map((s) => s.id),
-    leftovers: 0,
-    probesUnavailable: false,
-  }),
+   *  Matches `getMergedClearable()`'s `{ids, leftovers, leftoversById, probesUnavailable}` in
+   *  api.ts exactly; the demo has no real leftover subprocesses, so every count is 0 — and no
+   *  probes to be broken, so that 0 is trustworthy. */
+  mergedClearable: (): {
+    ids: string[];
+    leftovers: number;
+    leftoversById: Record<string, number>;
+    probesUnavailable: boolean;
+  } => {
+    const ids = world.sessions
+      .filter((s) => world.gitStates[s.id]?.state === "merged")
+      .map((s) => s.id);
+    return {
+      ids,
+      leftovers: 0,
+      leftoversById: Object.fromEntries(ids.map((id) => [id, 0])),
+      probesUnavailable: false,
+    };
+  },
 
   /** GET /api/epic — one epic by repo + parent issue number. */
   epic: (repoPath: string, parent: number): Epic | null =>

@@ -2641,6 +2641,11 @@ components:
             type: string
         leftovers:
           type: integer
+        leftoversById:
+          description: Leftover subprocess count per merged session id, so a client can total the subset it clears.
+          type: object
+          additionalProperties:
+            type: integer
         probesUnavailable:
           type: boolean
     ClearMergedRequest:

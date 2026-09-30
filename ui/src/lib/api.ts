@@ -601,6 +601,8 @@ export async function archiveSession(id: string, reap?: string[]): Promise<void>
 export async function getMergedClearable(): Promise<{
   ids: string[];
   leftovers: number;
+  /** Leftover count per merged id, so the modal can total just the subset it clears. */
+  leftoversById: Record<string, number>;
   probesUnavailable: boolean;
 }> {
   const r = await fetch("/api/sessions/clear-merged");

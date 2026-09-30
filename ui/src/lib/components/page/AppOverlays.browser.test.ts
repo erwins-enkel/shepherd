@@ -167,8 +167,9 @@ function baseProps(): Props {
     showEpicDiagnose: false,
     onepicdiagnoseclose: vi.fn(),
     clearMergedSessions: null,
-    clearMergedLeftovers: 0,
+    clearMergedLeftovers: {},
     clearMergedProbesUnavailable: false,
+    clearMergedRepoFilter: new Set<string>(),
     onclearmergedclose: vi.fn(),
     onclearmergedconfirm: vi.fn(),
     showBacklog: false,
@@ -426,7 +427,7 @@ describe("AppOverlays — command bar wiring", () => {
     props.clearMergedSessions = [
       { id: "s1", desig: "TASK-01", name: "task one" },
     ] as unknown as Session[];
-    props.clearMergedLeftovers = 0;
+    props.clearMergedLeftovers = { s1: 0 };
     props.clearMergedProbesUnavailable = true;
     render(AppOverlays, props);
     await expect.element(page.getByText(m.clearmerged_probes_unavailable())).toBeVisible();
@@ -437,7 +438,7 @@ describe("AppOverlays — command bar wiring", () => {
     props.clearMergedSessions = [
       { id: "s1", desig: "TASK-01", name: "task one" },
     ] as unknown as Session[];
-    props.clearMergedLeftovers = 0;
+    props.clearMergedLeftovers = { s1: 0 };
     props.clearMergedProbesUnavailable = false;
     render(AppOverlays, props);
     expect(page.getByText(m.clearmerged_probes_unavailable()).elements()).toHaveLength(0);

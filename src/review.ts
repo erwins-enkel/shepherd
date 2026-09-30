@@ -91,13 +91,6 @@ export { reviewPrompt, defaultComputePatchId, scopeFindings };
  *  (preconditions unmet / dedup / ceiling / race guard), or begin() bailed before spawning. */
 export type ReviewOutcome = "started" | "skipped" | "error";
 
-/** Agent-facing steer that carries critic findings into the task PTY. NOT i18n'd.
- *
- *  `epicBase` (issue #1757): epic children are deliberately never rebased onto their moving
- *  integration branch, so the CHILD's own worktree is missing the sibling work that has merged into
- *  the base — exactly like the critic's was. The critic can now ground a finding in that base code;
- *  without this note the agent receiving the finding would be unable to SEE the code it names (and
- *  would "fix" it against a tree that lacks it). So tell it where the base is. */
 /** #1763: the base the critic reviews against is the PR's REAL target (the poller's `baseRefName`),
  *  matching the UI diff endpoints + recap (resolveDiffBase), so it sees what the PR's "Files
  *  changed" shows; `session.baseBranch` only when the GitState lacks it (old cached payload / forge
@@ -114,6 +107,13 @@ function reviewBases(
   return { reviewBase, epicBase };
 }
 
+/** Agent-facing steer that carries critic findings into the task PTY. NOT i18n'd.
+ *
+ *  `epicBase` (issue #1757): epic children are deliberately never rebased onto their moving
+ *  integration branch, so the CHILD's own worktree is missing the sibling work that has merged into
+ *  the base — exactly like the critic's was. The critic can now ground a finding in that base code;
+ *  without this note the agent receiving the finding would be unable to SEE the code it names (and
+ *  would "fix" it against a tree that lacks it). So tell it where the base is. */
 function steerText(findings: string[], prNumber: number, epicBase: string | null): string {
   const lines = [
     "The PR critic reviewed your latest push. These are the BLOCKING points — address each in this PR:",

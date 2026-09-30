@@ -4633,7 +4633,6 @@
   "feat_task_image_preview_title": "Preview task screenshots",
   "feat_task_image_preview_body": "Hover over an image filename in the task-ID details to see its saved screenshot. You can also focus the filename with the keyboard or tap it on touch devices.",
   "issuedetail_no_description": "No description.",
-  "issuespanel_select_entry": "Select an entry",
   "issuespanel_singles_heading": "Single issues",
   "issuespanel_shortcuts": "↑↓ select · → expand · A start task",
   "issuedetail_back": "Back",

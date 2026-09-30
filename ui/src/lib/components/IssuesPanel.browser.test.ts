@@ -345,7 +345,7 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     };
   }
 
-  it("lists singles on two lines and shows 'select an entry' until one is picked", async () => {
+  it("lists singles on two lines and shows the repo overview until one is picked", async () => {
     seed([
       plain(42, {
         title: "Compact issue row",
@@ -360,7 +360,11 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     expect(row.getAttribute("role")).toBe("option");
     expect(row.querySelector(".issue-title")?.textContent).toBe("Compact issue row");
     expect(row.querySelector(".meta")?.textContent).toContain("#42 · enhancement · ");
-    expect(document.querySelector(".detail-empty")?.textContent).toBe(m.issuespanel_select_entry());
+    const overview = document.querySelector<HTMLElement>(".detail-col .overview")!;
+    expect(overview.querySelector("h2")?.textContent).toBe(m.repooverview_title({ repo: "repo" }));
+    expect(overview.querySelector("[data-repo-run]")?.textContent).toContain(m.repooverview_hint());
+    overview.querySelector<HTMLButtonElement>(".single")!.click();
+    await expect.poll(() => option("s:42")?.getAttribute("aria-selected")).toBe("true");
   });
 
   it("a click selects the entry and the detail renders its Markdown description", async () => {
@@ -592,8 +596,12 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     await expect.poll(() => option("e:20")?.textContent).toContain(m.epic_role_leading());
     expect(option("e:10")?.textContent).toContain(m.epic_role_winding());
     await expect.element(page.getByText(m.issuespanel_epics_one_leads())).toBeInTheDocument();
-    await page.getByRole("button", { name: m.issuespanel_slots_change() }).click();
+    await page.getByRole("button", { name: m.issuespanel_slots_change(), exact: true }).click();
     expect(onopenautomation).toHaveBeenCalled();
+    // Nothing selected yet: the repo overview names the leading epic (#2622).
+    await expect
+      .poll(() => document.querySelector("[data-repo-run] .run-state")?.textContent)
+      .toContain(m.repooverview_leading({ epic: 20, state: m.epic_run_state_waiting_slot() }));
 
     // A (#10) is expanded by default (topmost epic): its running child holds the slot.
     await expect

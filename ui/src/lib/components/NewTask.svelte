@@ -33,7 +33,6 @@
     type ShapeRound as ShapeRoundData,
     type SpawnPhase,
     type SpawnProgress,
-    MODELS_BY_PROVIDER,
   } from "$lib/types";
   import {
     matchSlashTrigger,
@@ -82,6 +81,7 @@
     reseedRunConfig,
     normalizeRunConfig,
     modelForManualProviderChange,
+    modelSettingFor as resolveModelSetting,
   } from "./new-task/run-config";
   import { IssueData } from "./new-task/issue-data.svelte";
   import VideoBriefNotice from "./new-task/VideoBriefNotice.svelte";
@@ -901,14 +901,7 @@
   /** Effective model SETTING for a provider: repo override (when valid for it) → global. */
   function modelSettingFor(provider: AgentProvider): string {
     const override = repoPath ? repoConfig.defaultModelFor(repoPath) : "inherit";
-    const setting =
-      provider === "codex" ? (defaultCodexModel ?? "gpt-5.6-sol") : (defaultModel ?? "auto");
-    return override !== "inherit" &&
-      (override === "auto" ||
-        override === "default" ||
-        MODELS_BY_PROVIDER[provider].includes(override))
-      ? override
-      : setting;
+    return resolveModelSetting(provider, override, defaultModel, defaultCodexModel);
   }
   const effectiveModelSetting = $derived(modelSettingFor(agentProvider));
 

@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
 import "../../app.css";
 import ProjectRow from "./ProjectRow.svelte";
 import type { BacklogProject } from "$lib/types";
@@ -23,65 +22,92 @@ function project(partial: Partial<BacklogProject> = {}): BacklogProject {
   };
 }
 
-describe("ProjectRow PR-kind counts", () => {
-  it("shows regular count as the PR number plus both bot badges", async () => {
-    render(ProjectRow, {
-      project: project({ openPRs: 4, prKinds: { regular: 2, dependabot: 1, release: 1 } }),
-      pinned: false,
-      selected: false,
-      onselect: () => {},
-      onhide: () => {},
-    });
-    // prominent count = regular (2), not openPRs (4)
-    const prs = document.body.querySelector(".count-prs");
-    expect(prs?.textContent?.trim()).toBe("2");
-    await expect
-      .element(page.getByText(m.prkind_dependabot_badge({ count: 1 })))
-      .toBeInTheDocument();
-    await expect.element(page.getByText(m.prkind_release_badge({ count: 1 }))).toBeInTheDocument();
+function renderRow(p: BacklogProject) {
+  render(ProjectRow, {
+    project: p,
+    pinned: false,
+    selected: false,
+    onselect: () => {},
+    onhide: () => {},
+  });
+  return document.body.querySelector<HTMLElement>(".project-row")!;
+}
+
+describe("ProjectRow compact counts", () => {
+  it("shows one number — the open issues — and no PR or bot badges", () => {
+    const row = renderRow(
+      project({ openIssues: 7, openPRs: 4, prKinds: { regular: 2, dependabot: 1, release: 1 } }),
+    );
+    expect(row.querySelector(".row-count")?.textContent?.trim()).toBe("7");
+    expect(row.querySelectorAll(".row-count").length).toBe(1);
+    expect(row.textContent).not.toContain("+1d");
+    expect(row.textContent).not.toContain("+1r");
   });
 
-  it("release-only repo: PR count is 0 and only the release badge renders", async () => {
-    render(ProjectRow, {
-      project: project({ openPRs: 1, prKinds: { regular: 0, dependabot: 0, release: 1 } }),
-      pinned: false,
-      selected: false,
-      onselect: () => {},
-      onhide: () => {},
-    });
-    const prs = document.body.querySelector(".count-prs");
-    expect(prs?.textContent?.trim()).toBe("0");
-    await expect.element(page.getByText(m.prkind_release_badge({ count: 1 }))).toBeInTheDocument();
-    await expect
-      .element(page.getByText(m.prkind_dependabot_badge({ count: 0 })))
-      .not.toBeInTheDocument();
-    expect(document.body.querySelectorAll(".bot-note").length).toBe(1);
+  it("shows — when the issue count is unknown", () => {
+    const row = renderRow(project({ openIssues: null }));
+    expect(row.querySelector(".row-count")?.textContent?.trim()).toBe("—");
+    expect(row.getAttribute("aria-description")).toContain(m.backlog_row_tip_issues_unknown());
   });
 
-  it("all-regular repo: shows the count and no badges", async () => {
-    render(ProjectRow, {
-      project: project({ openPRs: 3, prKinds: { regular: 3, dependabot: 0, release: 0 } }),
-      pinned: false,
-      selected: false,
-      onselect: () => {},
-      onhide: () => {},
-    });
-    const prs = document.body.querySelector(".count-prs");
-    expect(prs?.textContent?.trim()).toBe("3");
-    expect(document.body.querySelector(".bot-note")).toBeNull();
+  it("moves code PRs and both bot kinds into the row tooltip", () => {
+    const row = renderRow(
+      project({ openIssues: 7, openPRs: 4, prKinds: { regular: 2, dependabot: 1, release: 1 } }),
+    );
+    const desc = row.getAttribute("aria-description") ?? "";
+    expect(desc).toContain("repo a");
+    expect(desc).toContain(m.backlog_row_tip_issues({ count: 7 }));
+    expect(desc).toContain(m.backlog_row_tip_prs_code({ count: 2 }));
+    expect(desc).toContain(m.prkind_dependabot_title({ count: 1 }));
+    expect(desc).toContain(m.prkind_release_title({ count: 1 }));
+    // the styled tip replaces the native title
+    expect(row.hasAttribute("title")).toBe(false);
   });
 
-  it("null prKinds (Gitea fallback): renders openPRs and no badges", async () => {
+  it("all-regular repo: no bot section in the tooltip", () => {
+    const row = renderRow(
+      project({ openPRs: 3, prKinds: { regular: 3, dependabot: 0, release: 0 } }),
+    );
+    const desc = row.getAttribute("aria-description") ?? "";
+    expect(desc).toContain(m.backlog_row_tip_prs_code({ count: 3 }));
+    expect(desc).not.toContain(m.backlog_row_tip_bots_label());
+  });
+
+  it("null prKinds (Gitea fallback): the tooltip carries openPRs", () => {
+    const row = renderRow(project({ kind: "gitea", openPRs: 5, prKinds: null }));
+    const desc = row.getAttribute("aria-description") ?? "";
+    expect(desc).toContain(m.backlog_row_tip_prs_open({ count: 5 }));
+    expect(desc).not.toContain(m.backlog_row_tip_bots_label());
+  });
+
+  it("hovering opens the tooltip; clicking selects without pinning it", async () => {
+    const onselect = vi.fn();
     render(ProjectRow, {
-      project: project({ kind: "gitea", openPRs: 5, prKinds: null }),
+      project: project({ openIssues: 1 }),
       pinned: false,
       selected: false,
-      onselect: () => {},
+      onselect,
       onhide: () => {},
     });
-    const prs = document.body.querySelector(".count-prs");
-    expect(prs?.textContent?.trim()).toBe("5");
-    expect(document.body.querySelector(".bot-note")).toBeNull();
+    const row = document.body.querySelector<HTMLElement>(".project-row")!;
+    // A sidebar-width row away from the test cursor (parked at the viewport origin),
+    // which would otherwise re-enter the row and reopen the tip after the leave.
+    row.style.cssText += "position:absolute;left:40px;top:120px;width:200px";
+    row.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+    const panel = document.querySelector<HTMLElement>(".status-tip")!;
+    expect(panel.matches(":popover-open")).toBe(true);
+    row.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    expect(onselect).toHaveBeenCalledTimes(1);
+    row.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "mouse" }));
+    await expect.poll(() => panel.matches(":popover-open")).toBe(false);
+  });
+
+  it("is a compact 30px row with an 18px glyph box on a fine pointer", () => {
+    const row = renderRow(project());
+    expect(row.getBoundingClientRect().height).toBeLessThanOrEqual(31);
+    const glyph = row.querySelector<HTMLElement>(".row-glyph")!.getBoundingClientRect();
+    expect(glyph.width).toBeCloseTo(18, 0);
+    expect(glyph.height).toBeCloseTo(18, 0);
   });
 });
 

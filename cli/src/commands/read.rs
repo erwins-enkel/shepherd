@@ -1,12 +1,13 @@
-//! Read verbs: `sessions list|show`, `status`, `holds`, `git`, `reviews`.
+//! Read verbs: `sessions list|show`, `status`, `holds`, `git`, `reviews`, `messages`.
 
 use std::collections::BTreeMap;
 
 use serde_json::json;
 
 use super::{VersionCheck, label, list_sessions, warn_mismatch};
-use crate::api::types::Session;
-use crate::error::{Op, Result, Scope, api_error};
+use crate::api::Client;
+use crate::api::types::{Session, SessionMessages};
+use crate::error::{CliError, Exit, Op, Result, Scope, api_error};
 use crate::output::{self, Mode, ago, or_dash};
 use crate::{CLI_VERSION, Ctx, resolve};
 
@@ -21,6 +22,10 @@ const STATUS: Op = Op::new("status", Scope::Read);
 const HOLDS: Op = Op::new("holds", Scope::Read);
 const GIT: Op = Op::new("git", Scope::Read);
 const REVIEWS: Op = Op::new("reviews", Scope::Read);
+/// `GET /api/sessions/{id}/messages` is transcript text, so `full` only.
+const MESSAGES: Op = Op::new("messages", Scope::Full);
+/// The same route read by `sessions show` for `awaitingInput`/`pendingQuestion`.
+const SHOW_MESSAGES: Op = Op::new("sessions show", Scope::Full);
 
 fn repo_name(path: &str) -> &str {
     path.trim_end_matches('/')
@@ -58,12 +63,50 @@ pub async fn sessions_list(ctx: &mut Ctx<'_>, all: bool) -> Result<()> {
     Ok(())
 }
 
-fn print_session(ctx: &mut Ctx<'_>, s: &Session) -> Result<()> {
-    if ctx.mode == Mode::Json {
-        return output::json(&mut ctx.io.stdout, s);
+/// Transcript text is untrusted agent output: on a terminal, drop control characters (ANSI escapes
+/// included) so it can't drive the terminal. Newlines and tabs stay. JSON output is escaped anyway.
+fn plain(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
+        .collect()
+}
+
+async fn get_messages(
+    client: &Client,
+    id: &str,
+    limit: i64,
+    include_user: bool,
+    op: Op,
+) -> Result<SessionMessages> {
+    let mut req = client.get_session_messages().id(id).limit(limit);
+    if include_user {
+        req = req.include_user(true);
     }
+    match req.send().await {
+        Ok(m) => Ok(m.into_inner()),
+        Err(e) => Err(api_error(e, op).await),
+    }
+}
+
+/// Whether the agent waits on a question. Both `None` when the token can't read the transcript.
+struct Awaiting {
+    awaiting_input: Option<bool>,
+    pending_question: Option<String>,
+}
+
+fn print_session(ctx: &mut Ctx<'_>, s: &Session, a: Awaiting) -> Result<()> {
+    if ctx.mode == Mode::Json {
+        let mut v = serde_json::to_value(s)
+            .map_err(|e| CliError::new(Exit::Failure, format!("cannot encode JSON: {e}")))?;
+        if let Some(obj) = v.as_object_mut() {
+            obj.insert("awaitingInput".into(), json!(a.awaiting_input));
+            obj.insert("pendingQuestion".into(), json!(a.pending_question));
+        }
+        return output::json(&mut ctx.io.stdout, &v);
+    }
+    let awaiting = a.awaiting_input.map(|b| if b { "yes" } else { "no" });
     let mut t = output::table(&["FIELD", "VALUE"]);
-    let rows: [(&str, String); 12] = [
+    let rows: [(&str, String); 14] = [
         ("id", s.id.clone()),
         ("desig", s.desig.clone()),
         ("name", s.name.clone()),
@@ -75,6 +118,11 @@ fn print_session(ctx: &mut Ctx<'_>, s: &Session) -> Result<()> {
         ("issue", or_dash(s.issue_number.map(|n| format!("#{n}")))),
         ("updated", ago(s.updated_at)),
         ("archived", or_dash(s.archived_at.map(ago))),
+        ("awaiting", or_dash(awaiting)),
+        (
+            "question",
+            or_dash(a.pending_question.as_deref().map(plain)),
+        ),
         ("prompt", s.prompt.clone()),
     ];
     for (k, v) in rows {
@@ -93,7 +141,63 @@ pub async fn sessions_show(ctx: &mut Ctx<'_>, key: &str) -> Result<()> {
             Err(e) => return Err(api_error(e, SHOW_BY_ID).await),
         },
     };
-    print_session(ctx, &session)?;
+    let awaiting = match get_messages(&ctx.client, &session.id, 0, false, SHOW_MESSAGES).await {
+        Ok(m) => Awaiting {
+            awaiting_input: Some(m.awaiting_input),
+            pending_question: m.pending_question,
+        },
+        Err(e) if e.exit == Exit::InsufficientScope => {
+            ctx.io.warn(
+                "warning: awaitingInput and pendingQuestion need a 'full' token; showing them as null",
+            );
+            Awaiting {
+                awaiting_input: None,
+                pending_question: None,
+            }
+        }
+        Err(e) => return Err(e),
+    };
+    print_session(ctx, &session, awaiting)?;
+    check.finish(ctx.io).await;
+    Ok(())
+}
+
+pub async fn messages(ctx: &mut Ctx<'_>, key: &str, limit: i64, include_user: bool) -> Result<()> {
+    let check = VersionCheck::start(&ctx.client);
+    let sessions = list_sessions(&ctx.client, MESSAGES).await?;
+    // A key missing from the active list (e.g. an archived session's id) goes to the server as is.
+    let (id, desig) = match resolve::find(&sessions, key) {
+        Some(s) => (s.id.clone(), s.desig.clone()),
+        None => (key.trim().to_string(), key.trim().to_string()),
+    };
+    let m = get_messages(&ctx.client, &id, limit, include_user, MESSAGES).await?;
+    if ctx.mode == Mode::Json {
+        output::json(
+            &mut ctx.io.stdout,
+            &json!({
+                "session": desig,
+                "awaitingInput": m.awaiting_input,
+                "pendingQuestion": m.pending_question,
+                "unavailable": m.unavailable,
+                "messages": m.messages,
+            }),
+        )?;
+    } else {
+        let out = &mut ctx.io.stdout;
+        if let Some(q) = &m.pending_question {
+            output::line(out, &format!("awaiting input: {}", plain(q)))?;
+        }
+        if let Some(reason) = &m.unavailable {
+            output::line(out, &format!("(no transcript: {reason})"))?;
+        } else if m.messages.is_empty() && limit > 0 {
+            output::line(out, "(no messages)")?;
+        }
+        for msg in &m.messages {
+            let when = if msg.ts > 0 { ago(msg.ts) } else { "-".into() };
+            output::line(out, &format!("── {} · {when} ──", plain(&msg.role)))?;
+            output::line(out, &plain(&msg.text))?;
+        }
+    }
     check.finish(ctx.io).await;
     Ok(())
 }

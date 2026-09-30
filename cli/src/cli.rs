@@ -47,6 +47,17 @@ pub enum Command {
     Git,
     /// Critic reviews running right now
     Reviews,
+    /// An agent's last messages, and whether it waits on a question (needs a `full` token)
+    Messages {
+        /// Session id or designation (TASK-07)
+        session: String,
+        /// How many of the newest messages to show (0-100)
+        #[arg(short = 'n', long, default_value_t = 5, value_parser = clap::value_parser!(i64).range(0..=100))]
+        limit: i64,
+        /// Also show the user's and the operator's steering messages
+        #[arg(long)]
+        include_user: bool,
+    },
     /// Stream server events
     #[command(subcommand)]
     Events(EventsCmd),

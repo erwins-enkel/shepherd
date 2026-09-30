@@ -1463,6 +1463,48 @@ components:
       description: Oldest first, capped server-side (30 by default).
       items:
         $ref: "#/components/schemas/ActivityEntry"
+    AgentMessage:
+      type: object
+      additionalProperties: true
+      description: One text message of the agent transcript (src/agent-messages.ts).
+      required:
+        - role
+        - text
+        - ts
+      properties:
+        role:
+          type: string
+        text:
+          type: string
+          description: Verbatim message text (untrusted agent output).
+        ts:
+          type: integer
+          description: Epoch ms of the record; 0 when unknown.
+    SessionMessages:
+      type: object
+      additionalProperties: true
+      description: An agent's last text messages and whether its turn ended on a question (#2585). `awaitingInput` is true when the session is at rest (idle, done, blocked) and either an AskUserQuestion call is unanswered or the last agent message asks a question.
+      required:
+        - messages
+        - awaitingInput
+        - pendingQuestion
+        - unavailable
+      properties:
+        messages:
+          type: array
+          description: Oldest first; the newest `limit`.
+          items:
+            $ref: "#/components/schemas/AgentMessage"
+        awaitingInput:
+          type: boolean
+        pendingQuestion:
+          type: string
+          nullable: true
+          description: The question the agent waits on; null when it waits on none.
+        unavailable:
+          type: string
+          nullable: true
+          description: Why no transcript could be read; null when it was.
     SessionActivitySignal:
       type: object
       additionalProperties: true
@@ -5915,6 +5957,46 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ActivityList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/messages:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getSessionMessages
+      description: The agent's last text messages from its transcript (Claude JSONL or Codex rollout), and whether it waits on a question. Needs a `full` token.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: How many of the newest messages to return (0-100, default 5). 0 returns only the flags.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 100
+        - name: includeUser
+          in: query
+          required: false
+          description: Also return the user's and the operator's steering messages.
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: Messages and the open-question flags.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionMessages"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":

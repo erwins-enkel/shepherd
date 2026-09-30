@@ -87,6 +87,20 @@ describe("detail: reads", () => {
     expect(missing.status).toBe(404);
   });
 
+  test("GET /messages answers the flags and messages; an unknown id is 404", async () => {
+    const res = await get(`/api/sessions/${ok}/messages?limit=3&includeUser=1`);
+    const body = (await validateResponse("GET", "/api/sessions/{id}/messages", res)) as {
+      messages: unknown[];
+      awaitingInput: boolean;
+    };
+    expect(res.status).toBe(200);
+    expect(body.messages).toEqual([]);
+    expect(body.awaitingInput).toBe(false);
+    const missing = await get(`/api/sessions/nope/messages`);
+    await validateResponse("GET", "/api/sessions/{id}/messages", missing);
+    expect(missing.status).toBe(404);
+  });
+
   test("GET /diff short-circuits for a branchless session, 500s without a worktree, 404s for an unknown id", async () => {
     const res = await get(`/api/sessions/${ok}/diff`);
     const body = (await validateResponse("GET", "/api/sessions/{id}/diff", res)) as {

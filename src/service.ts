@@ -613,11 +613,20 @@ export interface SpawnTrimOverlay {
  *    only: resume() re-passes no `--append-system-prompt` (pre-existing: house rules /
  *    directives don't ride resumes either), so a resumed trimmed session deliberately runs
  *    the same trim without the notice.
- *    ONE narrow, deliberate exception (issue #1624): buildClaudeResumeArgv DOES re-pass a
- *    single `--append-system-prompt` carrying ONLY the `<operator-language>` block (never the
- *    full directive set) so a compacted/resumed session keeps addressing the operator in their
- *    language instead of drifting back to English. Empirically verified honored on resume
- *    (both `-p` and interactive PTY). "en" carries nothing → resume argv stays byte-identical.
+ *    TWO narrow, deliberate exceptions: buildClaudeResumeArgv DOES re-pass a single
+ *    `--append-system-prompt` (never the full directive set) carrying
+ *    - the `<steer-provenance-notice>` block, always: a resumed session is exactly what
+ *      resumeThenSteer steers, and without it a pasted steer can be refused (TASK-2614);
+ *    - the `<operator-language>` block (issue #1624), when not "en", so a compacted/resumed
+ *      session keeps addressing the operator in their language instead of drifting back.
+ *    WHAT A RESUME ACTUALLY SEES IS CLI-VERSION DEPENDENT. When #1624 landed the re-pass was
+ *    verified honored on resume (`-p` and interactive PTY). Measured on Claude Code 2.1.283
+ *    (interactive PTY, codeword test), `--resume` instead restores the session's ORIGINAL
+ *    spawn-time appended prompt — the whole directive set, plan-gate directive included — and
+ *    ignores the newly passed value. So on 2.1.283 the re-pass is inert, a session keeps
+ *    whatever it was spawned with, and "directives don't ride resumes" above does not hold;
+ *    on a CLI that honors the flag the re-pass is what carries these two blocks. Both
+ *    behaviours leave a session spawned with a block still holding it after a resume.
  *
  * It deliberately no longer passes `--disable-slash-commands` (issue #2001). That flag is
  * "Disable all skills": it deleted progressive disclosure — the mechanism — for exactly the
@@ -703,17 +712,17 @@ const BRANCH_RENAME_NOTICE =
   "never treat a changed branch name as an error.";
 
 /**
- * Rides every Claude-family spawn. Every steer reaches the PTY as a bracketed paste
+ * Rides every Claude-family spawn AND resume. Every steer reaches the PTY as a bracketed paste
  * (see sendSteerTo — the wrap is what makes the trailing CR an unambiguous Enter), and Claude Code
  * shows a multi-line or long paste to the model as `<pasted_content>`, with a harness rule that
  * instructions inside are followed only where the user's own message asks. A steer IS the whole
  * turn, so without this block a session can refuse the plan-go steer and every autopilot nudge
  * until the operator types something by hand (TASK-2614). Scoped to a turn that is ONLY a paste,
  * and explicitly leaves the ⟦UNTRUSTED⟧ fence rule untouched. Codex has no such wrapper, so it
- * never carries this. Spawn-only on purpose: measured on Claude Code 2.1.283, `--resume` restores
- * the session's ORIGINAL appended prompt and ignores a new `--append-system-prompt`, so a session
- * spawned with this block keeps it across resumes and re-passing it would be inert. Not
- * user-facing chrome (it's an instruction to the agent), so no i18n.
+ * never carries this. Re-passed on the resume argv too (buildClaudeResumeArgv): whether a resume
+ * honors that flag is CLI-version dependent (see trimDecision), and a resumed session is exactly
+ * what resumeThenSteer steers. Not user-facing chrome (it's an instruction to the agent), so no
+ * i18n.
  */
 const STEER_PROVENANCE_NOTICE = [
   "Shepherd delivers its own steers and your operator's replies into this session by pasting them",
@@ -1692,7 +1701,8 @@ const PLAN_REGATE_STEER =
  * `--append-system-prompt` on resume (buildCodexResumeArgv carries no directive), so the
  * `<operator-language>` block must re-ride each internal `reply()`-routed steer to persist past the
  * opening turn — otherwise a compacted/steered Codex session drifts back to English. Claude gets the
- * block on resume via buildClaudeResumeArgv's append, so its steers carry nothing (→ `""`, keeping
+ * block on resume via buildClaudeResumeArgv's append — or, on a CLI that ignores the flag on resume
+ * (2.1.283, see trimDecision), only from its spawn-time prompt — so its steers carry nothing (→ `""`, keeping
  * Claude steer text byte-identical). `""` for "en" too (operatorLanguageBlock returns null). Applied
  * centrally in replyToLive — the single funnel behind reply()/retryHalted — so every internal steer
  * (autopilot, plan-review/critic, plan-answer, release, preview, retry, build-queue, auto-merge
@@ -1712,6 +1722,12 @@ export function operatorLanguageSteerSuffix(
  *  so a recorded measurement maps straight back to the text it priced. */
 function taggedBlock(name: string, body: string): PromptBlock {
   return { name, text: `<${name}>\n${body}\n</${name}>` };
+}
+
+/** The one builder behind both the spawn composer and the Claude resume argv, so the two cannot
+ *  drift (see STEER_PROVENANCE_NOTICE). */
+function steerProvenanceBlock(): PromptBlock {
+  return taggedBlock("steer-provenance-notice", STEER_PROVENANCE_NOTICE);
 }
 
 /**
@@ -1936,7 +1952,8 @@ export interface ComposeSystemPromptOptions {
  * `houseRules` is the already-wrapped `<shepherd-house-rules>` block, or null when there are
  * none / learnings are disabled; the engineering-posture, research-first, and branch-rename blocks
  * always ride. The `<steer-provenance-notice>` block rides every Claude-family spawn, directly after
- * the untrusted-content boundary (Codex never carries it).
+ * the untrusted-content boundary (Codex never carries it), and is re-passed on the Claude resume
+ * argv (see buildClaudeResumeArgv).
  * The `<single-pr-invariant>` block (issue #839) rides every spawn EXCEPT a research
  * one (`opts.research`) — research already caps at one report-PR / issue, so it's redundant there.
  * `opts.epicIntent` (issue #1391) appends the `<epic-authoring-notice>` block after the
@@ -1986,7 +2003,7 @@ export function composeSystemPromptBlocks(
   // Steer provenance sits directly behind the boundary it qualifies. Claude-family only: the
   // <pasted_content> wrapper is a Claude Code feature (see STEER_PROVENANCE_NOTICE).
   const blocks: PromptBlock[] = [posture, untrustedBoundary];
-  if (claudeFamily) blocks.push(taggedBlock("steer-provenance-notice", STEER_PROVENANCE_NOTICE));
+  if (claudeFamily) blocks.push(steerProvenanceBlock());
   blocks.push(research);
   if (houseRules) blocks.push({ name: "shepherd-house-rules", text: houseRules });
   blocks.push(...situationalBlocks(agentProvider, guard, opts.branchRename === true));
@@ -3423,12 +3440,16 @@ export class SessionService {
       }),
     ];
     this.pushAgentMcpFlag(argv, s.id, baseUrl, sessionCapabilities(this.deps, s.id));
-    // Narrow #499 exception (#1624): re-pass ONLY the operator-language block on resume so a
-    // compacted/resumed session keeps addressing the operator in their language. `null` for "en"
-    // → nothing pushed, so the resume argv stays byte-identical for existing operators. Reads the
-    // live config value, exactly like composeDirectives on the spawn path.
+    // Narrow #499 exceptions: a resume re-passes no directive set, only the steer-provenance
+    // notice (always — a resumed session is what resumeThenSteer pastes its steer into) and the
+    // operator-language block (#1624; `null` for "en"). ONE flag: `--append-system-prompt` is
+    // last-wins. Effective where the CLI honors the flag on resume, inert where it restores the
+    // spawn-time prompt instead (2.1.283) — see trimDecision. Reads the live config value,
+    // exactly like composeDirectives on the spawn path.
+    const resumeBlocks = [steerProvenanceBlock()];
     const olBlock = operatorLanguageBlock(config.operatorLanguage);
-    if (olBlock) argv.push("--append-system-prompt", olBlock);
+    if (olBlock) resumeBlocks.push({ name: "operator-language", text: olBlock });
+    argv.push("--append-system-prompt", joinPromptBlocks(resumeBlocks));
     this.pushModelFlag(argv, s.model);
     this.pushEffortFlag(argv, s.effort, "claude");
     return argv;

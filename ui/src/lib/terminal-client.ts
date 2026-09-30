@@ -5,26 +5,20 @@ import type { TerminalClientInfo } from "./types";
 export function detectTerminalClient(): TerminalClientInfo {
   if (typeof navigator === "undefined" || typeof window === "undefined")
     return { kind: "unknown", platform: "unknown" };
-  const ua = navigator.userAgent || "";
-  const platform = navigator.platform || "";
+  const { userAgent: ua = "", platform = "" } = navigator;
   const signals = `${platform} ${ua}`;
-  const os =
+  let os: TerminalClientInfo["platform"] = "unknown";
+  if (
     /ipad/i.test(signals) ||
     ((/mac/i.test(platform) || /Macintosh/i.test(ua)) && navigator.maxTouchPoints > 1)
-      ? "ipados"
-      : /iphone|ipod/i.test(signals)
-        ? "ios"
-        : /android/i.test(ua)
-          ? "android"
-          : /cros/i.test(ua)
-            ? "chromeos"
-            : /win/i.test(platform) || /windows/i.test(ua)
-              ? "windows"
-              : /mac/i.test(signals)
-                ? "macos"
-                : /linux/i.test(signals)
-                  ? "linux"
-                  : "unknown";
+  )
+    os = "ipados";
+  else if (/iphone|ipod/i.test(signals)) os = "ios";
+  else if (/android/i.test(ua)) os = "android";
+  else if (/cros/i.test(ua)) os = "chromeos";
+  else if (/win/i.test(platform) || /windows/i.test(ua)) os = "windows";
+  else if (/mac/i.test(signals)) os = "macos";
+  else if (/linux/i.test(signals)) os = "linux";
   return { kind: isStandalone() ? "pwa" : "browser", platform: os };
 }
 

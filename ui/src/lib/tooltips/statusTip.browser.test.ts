@@ -87,3 +87,40 @@ describe("statusTip via use:", () => {
     expect(trigger.getAttribute("aria-description")).toContain("Next turn: 2.4 units");
   });
 });
+
+describe("statusTip list-row options", () => {
+  function mountTrigger(params: Parameters<typeof statusTip>[1]) {
+    const node = document.createElement("div");
+    node.textContent = "row";
+    node.style.cssText = "position:absolute;left:40px;top:120px;width:120px;height:30px";
+    document.body.append(node);
+    const action = statusTip(node, params);
+    cleanup = () => {
+      action?.destroy?.();
+      node.remove();
+    };
+    return node;
+  }
+
+  it("pinOnClick:false — a click neither opens nor pins; leaving closes a hovered tip", async () => {
+    const node = mountTrigger({ text: "Details", pinOnClick: false, stopClickPropagation: false });
+    node.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    expect(document.querySelector(".status-tip")).toBeNull();
+
+    node.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+    node.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    const panel = document.querySelector<HTMLElement>(".status-tip")!;
+    expect(panel.matches(":popover-open")).toBe(true);
+    node.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "mouse" }));
+    await expect.poll(() => panel.matches(":popover-open")).toBe(false);
+  });
+
+  it("placement:right — the panel sits to the right of the trigger", async () => {
+    const node = mountTrigger({ text: "Details", placement: "right" });
+    node.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+    const panel = document.querySelector<HTMLElement>(".status-tip")!;
+    await expect
+      .poll(() => panel.getBoundingClientRect().left)
+      .toBeGreaterThanOrEqual(node.getBoundingClientRect().right);
+  });
+});

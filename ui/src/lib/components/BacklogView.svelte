@@ -590,13 +590,12 @@
 
   /* ── desktop split layout ── */
   /* position:relative hosts the abs-positioned .repo-splitter (issue #1787). The
-     first track reads var(--repos-sidebar, 300px) — a concrete 300px default (the
-     minmax(220,300) first track already resolved to ~300px in the modal, the 1fr
-     detail being the hungry track) so the grid boundary and the separator's `left`
-     read from one shared variable and can't drift. */
+     first track reads var(--repos-sidebar, 232px) — a concrete default, kept narrow
+     so the Issues list + reading view get the width (#2619) — so the grid boundary
+     and the separator's `left` read from one shared variable and can't drift. */
   .desktop-split {
     display: grid;
-    grid-template-columns: var(--repos-sidebar, 300px) 1fr;
+    grid-template-columns: var(--repos-sidebar, 232px) 1fr;
     position: relative;
     flex: 1;
     min-height: 0;
@@ -614,7 +613,7 @@
     position: absolute;
     top: 0;
     bottom: 0;
-    left: var(--repos-sidebar, 300px);
+    left: var(--repos-sidebar, 232px);
     width: 12px;
     transform: translateX(-50%);
     cursor: col-resize;
@@ -641,10 +640,12 @@
     outline: none;
   }
 
+  /* No bottom padding: the list's sticky "+ Add repo" foot must sit flush on the
+     pane's bottom edge, and brings its own padding. */
   .master-pane {
     border-right: 1px solid var(--color-line);
     overflow-y: auto;
-    padding: 0 4px 6px;
+    padding: 0 4px;
   }
 
   .master-pane::-webkit-scrollbar {
@@ -694,7 +695,7 @@
   .mobile-master {
     flex: 1;
     overflow-y: auto;
-    padding: 0 4px 6px;
+    padding: 0 4px;
     -webkit-overflow-scrolling: touch;
   }
 

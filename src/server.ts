@@ -208,7 +208,7 @@ import type { SessionActivity } from "./activity-signal";
 import type { DrainStatus, QueuedItem } from "./drain";
 import { ACTIVE_LABEL } from "./drain-core";
 import type { Epic, EpicRun, EpicSource } from "./epic-core";
-import { computeEpicOthersFlags } from "./epic-core";
+import { computeEpicOthersFlags, queuedEpicRun } from "./epic-core";
 import type { EpicDiagnosis } from "./epic-diagnosis";
 import { importEpicLinks, type ImportResult } from "./epic-import";
 import { validateEpicDraft, materializeEpicDraft, forgeSupportsIssueCreation } from "./epic-author";
@@ -7651,6 +7651,15 @@ function defaultEpicRun(repoPath: string, parentIssueNumber: number): EpicRun {
   };
 }
 
+/** The run an epic is assembled from: the repo's stored run when it is for this parent, else the
+ *  parent's queue entry (#2624, its stored settings, idle), else the idle auto default. */
+function runForParent(store: AppDeps["store"], dir: string, parentIssueNumber: number): EpicRun {
+  const stored = store.getEpicRun(dir);
+  if (stored && stored.parentIssueNumber === parentIssueNumber) return stored;
+  const queued = store.getEpicQueueEntry(dir, parentIssueNumber);
+  return queued ? queuedEpicRun(queued) : defaultEpicRun(dir, parentIssueNumber);
+}
+
 function patchHas<K extends keyof EpicRunPatch>(patch: EpicRunPatch, key: K): boolean {
   return Object.prototype.hasOwnProperty.call(patch, key);
 }
@@ -8045,13 +8054,7 @@ async function handleEpicGet({ req, parts, url, deps }: Ctx): Promise<Response |
   if (!Number.isInteger(parentNumber) || parentNumber <= 0)
     return json({ error: "parent must be a positive integer" }, 400);
   if (!deps.drain) return json({ error: "drain unavailable" }, 503);
-  // One epic per repo; ?parent selects/supersedes: use stored run only when it matches the requested parent.
-  const stored = deps.store.getEpicRun(dir);
-  const run =
-    stored && stored.parentIssueNumber === parentNumber
-      ? stored
-      : defaultEpicRun(dir, parentNumber);
-  const epic = await deps.drain.buildEpic(dir, run);
+  const epic = await deps.drain.buildEpic(dir, runForParent(deps.store, dir, parentNumber));
   if (!epic) return json({ error: "not found" }, 404);
   return json(epic);
 }
@@ -8097,7 +8100,13 @@ function kickDrainOnEpicStart(
   status: EpicRun["status"],
 ): void {
   if (status !== "running") return;
-  void drain.tick().catch((err) => console.warn("[epic] start tick:", err));
+  kickDrain(drain, "start");
+}
+
+// Fire-and-forget tick (see kickDrainOnEpicStart): it also re-emits drain:status, so a changed
+// epic queue (#2624) reaches runSummary.queued without waiting for the periodic sweep.
+function kickDrain(drain: NonNullable<AppDeps["drain"]>, why: string): void {
+  void drain.tick().catch((err) => console.warn(`[epic] ${why} tick:`, err));
 }
 
 function isEpicPutRequest(req: Request, parts: string[]): boolean {
@@ -8118,11 +8127,8 @@ async function handleEpicPut({ req, parts, url, deps }: Ctx): Promise<Response |
   const patch = validateEpicRunPatch(body);
   if (patch === null) return json({ error: "invalid epic run patch" }, 400);
   // One epic per repo; ?parent selects/supersedes: use stored run only when it matches the requested parent.
-  const storedForPut = deps.store.getEpicRun(dir);
-  const base =
-    storedForPut && storedForPut.parentIssueNumber === parentNumber
-      ? storedForPut
-      : defaultEpicRun(dir, parentNumber);
+  const queued = deps.store.getEpicQueueEntry(dir, parentNumber) !== null;
+  const base = runForParent(deps.store, dir, parentNumber);
   const incompatibleModel = incompatibleEpicModelForAuth(
     base,
     patch,
@@ -8137,9 +8143,62 @@ async function handleEpicPut({ req, parts, url, deps }: Ctx): Promise<Response |
     );
   const merged = mergeEpicRunPatch(base, patch);
   if (merged === null) return json({ error: "invalid epic run patch" }, 400);
-  deps.store.setEpicRun(merged);
-  kickDrainOnEpicStart(deps.drain, merged.status);
+  if (queued && patch.status === undefined) {
+    // #2624: a queued epic's settings live on its queue row — editing them must not supersede the
+    // leader. A status change leaves the queue and takes over the run, as for any other epic.
+    deps.store.updateEpicQueueSettings(merged);
+  } else {
+    if (queued) {
+      deps.store.removeEpicQueueEntry(dir, parentNumber);
+      if (merged.status !== "running") kickDrain(deps.drain, "dequeue");
+    }
+    deps.store.setEpicRun(merged);
+    kickDrainOnEpicStart(deps.drain, merged.status);
+  }
   const epic = await deps.drain.buildEpic(dir, merged);
+  if (epic) deps.events?.emit("epic:update", epic);
+  return json(epic ?? { ok: true });
+}
+
+function isEpicQueueRequest(req: Request, parts: string[]): boolean {
+  return (
+    (req.method === "POST" || req.method === "DELETE") &&
+    parts[0] === "api" &&
+    parts[1] === "epic" &&
+    parts[2] === "queue" &&
+    !parts[3]
+  );
+}
+
+// POST|DELETE /api/epic/queue?repo=&parent= — queue an epic behind the leading one (#2624), or
+// take it out of the queue. The queue head starts on its own once the leader completes.
+async function handleEpicQueue({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (!isEpicQueueRequest(req, parts)) return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const parentNumber = parseInt(url.searchParams.get("parent") ?? "", 10);
+  if (!Number.isInteger(parentNumber) || parentNumber <= 0)
+    return json({ error: "parent must be a positive integer" }, 400);
+  if (!deps.drain) return json({ error: "drain unavailable" }, 503);
+  if (req.method === "POST") {
+    const leader = deps.store.getEpicRun(dir);
+    if (!leader || (leader.status !== "running" && leader.status !== "paused"))
+      return json({ error: "no leading epic" }, 409);
+    if (leader.parentIssueNumber === parentNumber)
+      return json({ error: "epic already leads" }, 409);
+    deps.store.enqueueEpic({
+      repoPath: dir,
+      parentIssueNumber: parentNumber,
+      mode: "auto",
+      agentProvider: null,
+      model: null,
+      effort: null,
+    });
+  } else {
+    deps.store.removeEpicQueueEntry(dir, parentNumber);
+  }
+  kickDrain(deps.drain, "queue");
+  const epic = await deps.drain.buildEpic(dir, runForParent(deps.store, dir, parentNumber));
   if (epic) deps.events?.emit("epic:update", epic);
   return json(epic ?? { ok: true });
 }
@@ -8696,6 +8755,7 @@ const ROUTE_HANDLERS = [
   handleEpicGet,
   handleEpicDiagnose,
   handleEpicPut,
+  handleEpicQueue,
   handleRepoConfig,
   handleRepoRoles,
   handleRepoCollaborators,

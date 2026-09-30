@@ -10,6 +10,8 @@
     EpicSummary,
     Epic,
     DrainStatus,
+    GitState,
+    Session,
     TaskRunDefaults,
     TaskRunSeed,
   } from "$lib/types";
@@ -31,12 +33,15 @@
     childKey,
     epicKey,
   } from "./issues-panel";
+  import { childAsIssue, openBlockers } from "./epic-child";
+  import { progress } from "./epic-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
   import { viewerCache } from "$lib/viewer-cache.svelte";
   import { backlogRefresh } from "$lib/backlog-refresh.svelte";
   import IssueListRows from "./issues-panel/IssueListRows.svelte";
   import IssueDetail from "./issues-panel/IssueDetail.svelte";
   import EpicsListHeading from "./issues-panel/EpicsListHeading.svelte";
+  import RepoOverview from "./issues-panel/RepoOverview.svelte";
   import IssueFilterPopover from "./IssueFilterPopover.svelte";
   import RepoLink from "./RepoLink.svelte";
   import IssueLoadAttempts from "./IssueLoadAttempts.svelte";
@@ -59,6 +64,7 @@
     taskDefaults = undefined,
     onopensession = undefined,
     onopenautomation = undefined,
+    sessionInfo = undefined,
   }: {
     repoPath: string;
     /** Open the New Task dialog for `issue`, seeded with the run settings the operator changed
@@ -87,6 +93,8 @@
     onopensession?: (sessionId: string) => void;
     /** Show the repo's Automation tab, where the agent-slot cap (maxAuto) lives. */
     onopenautomation?: () => void;
+    /** A session and its PR state from the store, by id — an epic child's session view. */
+    sessionInfo?: (id: string) => { session: Session; git?: GitState } | null;
   } = $props();
 
   // Issue-scoped steers render as one quick-launch button each on every row.
@@ -454,13 +462,15 @@
     resolveSelection(selectedKey, issues, epicParentNums, (n) => epicFor(n)?.children),
   );
   const selectedEpicNum = $derived(selection?.kind === "epic" ? selection.issue.number : null);
+  // The repo overview (desktop, nothing selected, #2622) shows the leading epic's steps.
+  const overviewEpicNum = $derived(
+    selection == null && !mobile ? (drain?.runSummary?.leadingEpic ?? null) : null,
+  );
   const recordNums = $derived(
-    selectedEpicNum != null && !expanded.has(selectedEpicNum)
-      ? [...expanded, selectedEpicNum]
-      : [...expanded],
+    [...new Set([...expanded, selectedEpicNum, overviewEpicNum])].filter((n) => n != null),
   );
   function wantsRecord(num: number): boolean {
-    return expanded.has(num) || selectedEpicNum === num;
+    return expanded.has(num) || selectedEpicNum === num || overviewEpicNum === num;
   }
 
   // Sole owner of the one-shot fetch: any WANTED record (see recordNums) in NEITHER
@@ -526,6 +536,39 @@
       document.getElementById(`issue-opt-${key}`)?.scrollIntoView?.({ block: "nearest" }),
     );
   }
+
+  /** Select an entry from the detail — an epic child's "← Epic #n" or a repo-overview entry
+   *  (#2622) — and bring its row into view. */
+  function selectAndReveal(key: string) {
+    select(key);
+    tick().then(() =>
+      document.getElementById(`issue-opt-${key}`)?.scrollIntoView?.({ block: "nearest" }),
+    );
+  }
+
+  /** "Start as a task anyway" on an epic child: the New Task dialog, carrying the child's open
+   *  blockers so the dialog warns about starting out of order. */
+  function startChild(parent: number, number: number) {
+    const epic = epicFor(parent);
+    const child = epic?.children.find((c) => c.number === number);
+    if (!epic || !child) return;
+    const listed = issues.find((i) => i.number === number);
+    onnewtask(childAsIssue(child, openBlockers(child, epic.children), listed));
+  }
+
+  // Repo overview entries (#2622): every epic and single in the repo, unfiltered. A loaded
+  // record's counts win over the list summary, as on the epic's list row.
+  const overviewEpics = $derived(
+    issues.flatMap((i) => {
+      const summary = epicByNumber.get(i.number);
+      if (!summary) return [];
+      const record = epicFor(i.number);
+      return [record ? { ...summary, ...progress(record.children) } : summary];
+    }),
+  );
+  const overviewSingles = $derived(
+    issues.filter((i) => !epicParentNums.has(i.number) && !nativeSubIssues.has(i.number)),
+  );
 
   function startTask(issue: Issue) {
     onnewtask(issue, $state.snapshot(taskRun));
@@ -742,7 +785,11 @@
             epicSummary={selection.kind === "epic"
               ? epicByNumber.get(selection.issue.number)
               : undefined}
-            epic={selection.kind === "epic" ? epicFor(selection.issue.number) : undefined}
+            epic={selection.kind === "epic"
+              ? epicFor(selection.issue.number)
+              : selection.kind === "child"
+                ? epicFor(selection.parent)
+                : undefined}
             {drain}
             {showAssignees}
             {viewer}
@@ -755,10 +802,25 @@
             {onopensession}
             {onopenautomation}
             onselectchild={selectChild}
+            onselectepic={(parent) => selectAndReveal(epicKey(parent))}
+            onstartchild={startChild}
+            {sessionInfo}
           />
         {/key}
       {:else}
-        <div class="detail-empty">{m.issuespanel_select_entry()}</div>
+        <RepoOverview
+          repoName={repos.nameFor(repoPath) ??
+            repoPath.split("/").filter(Boolean).pop() ??
+            repoPath}
+          epics={overviewEpics}
+          singles={overviewSingles}
+          {drain}
+          leadingRecord={overviewEpicNum == null ? undefined : epicFor(overviewEpicNum)}
+          {titleFor}
+          onselect={selectAndReveal}
+          {onopensession}
+          {onopenautomation}
+        />
       {/if}
     </div>
   {/if}
@@ -914,17 +976,6 @@
   }
   .back-btn:hover {
     background: var(--color-hover);
-  }
-
-  .detail-empty {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    color: var(--color-faint);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
   }
 
   .muted {

@@ -2,8 +2,10 @@
   import type {
     DrainStatus,
     Epic,
+    GitState,
     Issue,
     PullRequest,
+    Session,
     Steer,
     TaskRunDefaults,
     TaskRunSeed,
@@ -36,6 +38,7 @@
     taskDefaults = undefined,
     onopensession = undefined,
     onopenautomation = undefined,
+    sessionInfo = undefined,
   }: {
     activeTab: Tab;
     selectedPath: string;
@@ -54,6 +57,8 @@
     onopensession?: (sessionId: string) => void;
     /** Switch to the Automation tab (the agent-slot cap lives there). */
     onopenautomation?: () => void;
+    /** A session and its PR state from the store, by id — an epic child's session view. */
+    sessionInfo?: (id: string) => { session: Session; git?: GitState } | null;
   } = $props();
 </script>
 
@@ -72,6 +77,7 @@
     {taskDefaults}
     {onopensession}
     {onopenautomation}
+    {sessionInfo}
   />
 {:else if activeTab === "prs"}
   <PrsPanel

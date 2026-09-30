@@ -7,8 +7,10 @@
     DocAgentRun,
     DrainStatus,
     Epic,
+    GitState,
     Issue,
     PullRequest,
+    Session,
     Steer,
     TaskRunDefaults,
     TaskRunSeed,
@@ -53,6 +55,7 @@
     selectPath = null,
     taskDefaults = undefined,
     onopensession = undefined,
+    sessionInfo = undefined,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
@@ -100,6 +103,8 @@
     selectPath?: string | null;
     /** Open a session from the epic run area's slot holders (#2620). Omitted → no link. */
     onopensession?: (sessionId: string) => void;
+    /** A session and its PR state from the store, by id — an epic child's session view. */
+    sessionInfo?: (id: string) => { session: Session; git?: GitState } | null;
     /** Global run defaults for the Issues tab's task box (CLI / model / effort pre-fill). */
     taskDefaults?: TaskRunDefaults;
   } = $props();
@@ -450,6 +455,7 @@
             mobile
             {taskDefaults}
             {onopensession}
+            {sessionInfo}
             onopenautomation={() => (activeTab = "automation")}
           />
         </div>
@@ -521,6 +527,7 @@
               {drain}
               {taskDefaults}
               {onopensession}
+              {sessionInfo}
               onopenautomation={() => (activeTab = "automation")}
             />
           {:else}

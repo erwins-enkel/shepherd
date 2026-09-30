@@ -2822,6 +2822,40 @@ describe("NewTask assigned-to-others notice (#1694)", () => {
   });
 });
 
+describe("NewTask open-blocker notice (#2622)", () => {
+  const attachedIssue = (blockedBy?: number[]): Issue => ({
+    number: 78,
+    title: "Epic child",
+    body: "",
+    url: "https://gh/o/r/issues/78",
+    labels: [],
+    createdAt: 0,
+    assignees: [],
+    blockedBy,
+  });
+  const notice = () => document.querySelector(".issue-blocked-notice");
+
+  it("warns that an attached issue still waits on open blockers", async () => {
+    mockListIssues.mockResolvedValue({ slug: null, webUrl: null, issues: [], viewer: null });
+    render(NewTask, {
+      props: base({ initialRepoPath: "/repo-blocked", initialIssue: attachedIssue([21, 22]) }),
+    });
+
+    await expect.poll(() => notice()).toBeTruthy();
+    expect(notice()!.textContent).toContain(m.newtask_issue_blocked_notice({ deps: "#21, #22" }));
+  });
+
+  it("shows no notice without open blockers", async () => {
+    mockListIssues.mockResolvedValue({ slug: null, webUrl: null, issues: [], viewer: null });
+    render(NewTask, {
+      props: base({ initialRepoPath: "/repo-free", initialIssue: attachedIssue([]) }),
+    });
+
+    await expect.poll(() => document.querySelector(".issue-ref-link")).toBeTruthy();
+    expect(notice()).toBeNull();
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Redesign integration coverage (cross-component wiring + payload + geometry).
 // Component-level behavior lives in the focused suites (InstrumentToggle,

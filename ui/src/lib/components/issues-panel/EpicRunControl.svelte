@@ -3,13 +3,13 @@
   import { m } from "$lib/paraglide/messages";
   import { updateEpic, approveEpicNext } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
   import { epicRunStateExplanation } from "$lib/tooltips/explanations";
-  import { epicRole, epicRunState, epicRunSteps, type EpicRunKind } from "../epic-panel";
+  import { epicRole, epicRunState, epicRunStateLabel, epicRunSteps } from "../epic-panel";
   import type { EpicOthersFlag } from "../issues-panel";
   import EpicRunSteps from "./EpicRunSteps.svelte";
   import EpicRunSettings from "./EpicRunSettings.svelte";
   import IssueDetailMenu from "./IssueDetailMenu.svelte";
+  import RunPanel from "./RunPanel.svelte";
 
   // The epic detail's run area "Abarbeitung" (#2620): live state, every epic action, the
   // Now → Next → After steps and the CLI/model/effort footer. Replaces EpicPanel's hold line and
@@ -48,19 +48,7 @@
     return steps?.now.map((h) => h.desig).join(", ") || "…";
   });
 
-  const stateLabel = $derived.by(() => {
-    const labels: Record<EpicRunKind, () => string> = {
-      winding: () => m.epic_run_state_winding({ inflight: inFlightText }),
-      paused: m.epic_run_state_paused,
-      idle: m.epic_run_state_idle,
-      waiting_slot: m.epic_run_state_waiting_slot,
-      awaiting_approval: m.epic_run_state_awaiting_approval,
-      halted: m.epic_run_state_halted,
-      nothing: m.epic_run_state_nothing,
-      running: m.epic_run_state_running,
-    };
-    return labels[runState.kind]();
-  });
+  const stateLabel = $derived(epicRunStateLabel(runState.kind, inFlightText));
 
   // A winding-down epic explains itself: who leads now, what still finishes, what stays behind.
   const note = $derived.by(() => {
@@ -129,16 +117,15 @@
   ]);
 </script>
 
-<section class="run-control" aria-label={m.epic_run_label()} data-epic-run>
-  <div class="run-head">
-    <span class="caption">{m.epic_run_label()}</span>
-    <span
-      class="run-state tone-{runState.tone}"
-      data-kind={runState.kind}
-      use:statusTip={{ text: epicRunStateExplanation() }}
-      ><span class="pulse" aria-hidden="true"></span>{stateLabel}</span
-    >
-    <span class="spacer"></span>
+<RunPanel
+  label={m.epic_run_label()}
+  stateText={stateLabel}
+  tone={runState.tone}
+  kind={runState.kind}
+  stateTip={epicRunStateExplanation()}
+  data-epic-run
+>
+  {#snippet actions()}
     <button
       class="gbtn"
       type="button"
@@ -182,7 +169,7 @@
         onclick={() => (menuOpen = !menuOpen)}>⋯</button
       >
     {/if}
-  </div>
+  {/snippet}
 
   {#if note}
     <p class="note" class:alert={runState.tone === "halt"}>{note}</p>
@@ -207,7 +194,7 @@
   <div class="run-foot">
     <EpicRunSettings {repoPath} {parent} {epic} />
   </div>
-</section>
+</RunPanel>
 
 {#if menuOpen && menuBtn && menuItems.length}
   <IssueDetailMenu
@@ -219,70 +206,6 @@
 {/if}
 
 <style>
-  /* Its own surface, set apart from the reading detail: inset ground, hairline frame and the
-     popover shadow so content scrolling under the sticky region reads as "under". Sticky only
-     on wider layouts — on a phone a tall pinned block would bury the detail. */
-  .run-control {
-    position: sticky;
-    top: 0;
-    z-index: 2;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 8px 10px;
-    background: var(--color-inset);
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    box-shadow: var(--shadow-popover);
-    font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-  }
-
-  .run-head {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .caption {
-    color: var(--color-faint);
-    font-size: var(--fs-micro);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-  }
-
-  .run-state {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    color: var(--color-muted);
-    font-size: var(--fs-base);
-  }
-  .run-state.tone-run {
-    color: var(--status-running);
-  }
-  .run-state.tone-halt {
-    color: var(--status-blocked);
-  }
-
-  .pulse {
-    flex: none;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: currentColor;
-  }
-  /* Functional status pulse — encodes "work happening / waiting its turn", so it overrides the
-     reduced-motion blanket like the other status indicators (see app.css). */
-  .tone-run .pulse {
-    animation: dot-pulse 1.6s ease-in-out infinite !important;
-  }
-
-  .spacer {
-    flex: 1;
-  }
-
   .note {
     margin: 0;
     color: var(--color-muted);
@@ -331,12 +254,6 @@
   .gbtn:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-
-  @media (max-width: 768px) {
-    .run-control {
-      position: static;
-    }
   }
 
   @media (max-width: 768px), (max-height: 600px) {

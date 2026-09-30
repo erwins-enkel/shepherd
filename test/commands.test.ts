@@ -140,6 +140,15 @@ test("curated builtins are always present and scoped builtin", () => {
   expect(cmds.some((c) => c.name === "security-review" && c.scope === "builtin")).toBe(true);
 });
 
+// /goal is a bundled Claude Code command (in `init.slash_commands`), so only BUILTINS can surface
+// it — and its argument hint rides along like a skill's front-matter `argument-hint`.
+test("/goal is a builtin with its argument hint", () => {
+  const goal = commands(repo, userClaude).find((c) => c.name === "goal");
+  expect(goal?.scope).toBe("builtin");
+  expect(goal?.invocations.claude).toBe("/goal");
+  expect(goal?.argumentHint).toBe("[<condition> | clear]");
+});
+
 // Claude Code dropped /review and /pr-comments; a builtin it no longer resolves opens the spawned
 // session with a dead command, so the list must not carry names that outlive the CLI.
 test("builtins Claude Code no longer ships are gone", () => {

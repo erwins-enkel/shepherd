@@ -12,7 +12,6 @@
   import { onMount } from "svelte";
   import ModelCliPicker from "./new-task/ModelCliPicker.svelte";
   import UpNextSortMenu from "./UpNextSortMenu.svelte";
-  import IssueLabelChips from "./IssueLabelChips.svelte";
   import {
     capacitySuggestedProvider,
     claudeUsageHoldLikely,
@@ -20,10 +19,14 @@
   } from "$lib/provider-capacity";
 
   type SortMode = "recommended" | "newest" | "oldest" | "title-asc" | "title-desc";
+  // One tinted band: the cross-repo priority tier, or one label (bug, enhancement, …, none).
+  // bandKey is the lower-cased label the band stands for, so rows can drop it from their
+  // own label line; tone is the CSS color the band and its heading are tinted with.
   type RenderGroup = {
     id: string;
     title: string;
-    kind: "priority" | "normal" | "repo";
+    bandKey: string | null;
+    tone: string;
     items: UpNextItem[];
     totalCount: number;
     cap: number;
@@ -64,8 +67,12 @@
   // Display caps mirror src/up-next-core PRIORITY_CAP / REPO_CAP; the server returns the full
   // ranked list and we reveal the rest in place via "show all N".
   const PRIORITY_CAP = 10;
-  const REPO_CAP = 5;
-  const NORMAL_CAP = 5;
+  const LABEL_CAP = 5;
+  const BUG_LABEL = "bug";
+  const LABEL_ID_PREFIX = "label:";
+  // Label bands are series, not status: categorical data hues in first-appearance order.
+  // Bug keeps red (a defect is the one label with a status meaning), priority keeps amber.
+  const LABEL_TONES = [3, 1, 2, 4, 5, 6].map((n) => `var(--color-data-${n})`);
   const SORT_STORAGE_KEY = "shepherd.upnext.sort";
   // Manual starts bypass the per-repo maxAuto drain cap, so a large batch could launch a swarm
   // unintentionally — confirm above this many selected (issue #1169 tunable).
@@ -169,15 +176,7 @@
   let starting = $state(false);
   let confirmPending = $state(false);
 
-  const sectionKey = (s: UpNextSection) =>
-    s.kind === "priority" ? "priority" : (s.repoPath ?? "");
-  const capOf = (s: UpNextSection) => (s.kind === "priority" ? PRIORITY_CAP : REPO_CAP);
   const repoBase = (p: string | null) => p?.split("/").filter(Boolean).at(-1) ?? "";
-  function sectionTitle(s: UpNextSection): string {
-    return s.kind === "priority"
-      ? m.upnext_priority_section()
-      : (s.repoLabel ?? repoBase(s.repoPath));
-  }
   function stableCompare(a: UpNextItem, b: UpNextItem): number {
     return (
       a.repoLabel.localeCompare(b.repoLabel) ||
@@ -195,42 +194,63 @@
   function sortItems(items: UpNextItem[]): UpNextItem[] {
     return sortMode === "recommended" ? items : [...items].sort(compareItems);
   }
-  const renderGroups = $derived.by((): RenderGroup[] => {
-    if (sortMode === "recommended") {
-      return sections.map((s) => ({
-        id: sectionKey(s),
-        title: sectionTitle(s),
-        kind: s.kind === "priority" ? "priority" : "repo",
-        items: s.items,
-        totalCount: s.totalCount,
-        cap: capOf(s),
-      }));
-    }
+  // The label a non-priority row is banded under: bug wins, else its first remaining label.
+  function bandLabel(it: UpNextItem): string | null {
+    const labels = displayLabels(it);
+    return labels.find((label) => label.toLowerCase() === BUG_LABEL) ?? labels[0] ?? null;
+  }
 
-    // Epic rows are aged by their parent epic's createdAt in src/up-next-core.ts,
-    // even though the displayed title/number is the next actionable child.
+  // Bands: priority first, then one per label — bug leading, the rest in first-appearance
+  // order of the sorted queue, unlabeled work last. "Recommended" keeps the server rank
+  // (priority tier, then repos in warm order) inside each band; the other modes sort it.
+  // Epic rows are aged by their parent epic's createdAt in src/up-next-core.ts,
+  // even though the displayed title/number is the next actionable child.
+  const renderGroups = $derived.by((): RenderGroup[] => {
     const all = sections.flatMap((s) => s.items);
-    const priority = sortItems(all.filter((it) => it.priority));
-    const normal = sortItems(all.filter((it) => !it.priority));
     const groups: RenderGroup[] = [];
+    const priority = sortItems(all.filter((it) => it.priority));
     if (priority.length > 0) {
       groups.push({
         id: "priority",
         title: m.upnext_priority_section(),
-        kind: "priority",
+        bandKey: null,
+        tone: "var(--color-amber)",
         items: priority,
         totalCount: priority.length,
         cap: PRIORITY_CAP,
       });
     }
-    if (normal.length > 0) {
+
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- local scratch map, rebuilt per derive
+    const bands = new Map<string, { title: string; bandKey: string | null; items: UpNextItem[] }>();
+    for (const it of sortItems(all.filter((it) => !it.priority))) {
+      const label = bandLabel(it);
+      const bandKey = label?.toLowerCase() ?? null;
+      const id = LABEL_ID_PREFIX + (bandKey ?? "");
+      const band = bands.get(id) ?? {
+        title: label ?? m.upnext_unlabeled_section(),
+        bandKey,
+        items: [],
+      };
+      band.items.push(it);
+      bands.set(id, band);
+    }
+    const rank = (id: string) =>
+      id === LABEL_ID_PREFIX + BUG_LABEL ? 0 : id === LABEL_ID_PREFIX ? 2 : 1;
+    let toneIndex = 0;
+    for (const [id, band] of [...bands].sort(([a], [b]) => rank(a) - rank(b))) {
+      const tone =
+        band.bandKey === BUG_LABEL
+          ? "var(--color-red)"
+          : band.bandKey === null
+            ? "var(--color-muted)"
+            : LABEL_TONES[toneIndex++ % LABEL_TONES.length]!;
       groups.push({
-        id: "normal",
-        title: m.upnext_normal_section(),
-        kind: "normal",
-        items: normal,
-        totalCount: normal.length,
-        cap: NORMAL_CAP,
+        id,
+        ...band,
+        tone,
+        totalCount: band.items.length,
+        cap: LABEL_CAP,
       });
     }
     return groups;
@@ -238,7 +258,8 @@
   const visibleRepoCount = $derived(
     new Set(sections.flatMap((s) => s.items.map((it) => it.repoPath))).size,
   );
-  const showRepoContext = $derived(sortMode !== "recommended" && visibleRepoCount > 1);
+  // Bands mix repos, so a row names its repo whenever more than one is on screen.
+  const showRepoContext = $derived(visibleRepoCount > 1);
   function shownItems(g: RenderGroup): UpNextItem[] {
     return expanded.has(g.id) ? g.items : g.items.slice(0, g.cap);
   }
@@ -251,6 +272,10 @@
       if (normalized === PRIORITY_LABEL) return false;
       return !(it.kind === "epic" && normalized === "epic");
     });
+  }
+  // A row's own label line leaves out the label its band already names.
+  function rowLabels(it: UpNextItem, g: RenderGroup): string[] {
+    return displayLabels(it).filter((label) => label.toLowerCase() !== g.bandKey);
   }
 
   // Selected items still present in the current snapshot (a refresh may have dropped some).
@@ -382,13 +407,10 @@
   }
 </script>
 
-{#snippet pill(label: string, cls: string)}
-  <span class="un-pill {cls}">{label}</span>
-{/snippet}
-
-{#snippet row(it: UpNextItem, showRepo: boolean)}
-  <li class="un-row issue-list-row is-interactive">
-    <label class="un-check issue-list-leading">
+{#snippet row(it: UpNextItem, g: RenderGroup, showRepo: boolean)}
+  {@const labels = rowLabels(it, g)}
+  <li class="un-row" class:un-row-selected={selected.has(keyOf(it))}>
+    <label class="un-check">
       <input
         type="checkbox"
         checked={selected.has(keyOf(it))}
@@ -396,38 +418,32 @@
         aria-label={m.upnext_select_aria({ number: it.number, title: it.title })}
       />
     </label>
-    <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
-    <a class="un-link" href={it.url} target="_blank" rel="noopener noreferrer">
-      <span class="un-num issue-list-number">#{it.number}</span>
-      <span class="un-title issue-list-title">{it.title}</span>
-    </a>
-    {#if showRepo}
-      <span class="un-repo issue-list-meta">{it.repoLabel || repoBase(it.repoPath)}</span>
-    {/if}
-    <span class="un-pills">
-      {#if it.priority}{@render pill(m.upnext_pill_priority(), "un-pill-priority")}{/if}
-      {#if it.kind === "epic"}{@render pill(m.upnext_pill_epic(), "un-pill-epic")}{/if}
-    </span>
-    <IssueLabelChips labels={displayLabels(it)} labelColors={it.labelColors} />
-    <span class="un-age issue-list-meta">{formatAgo(clock.current - it.createdAt)}</span>
-    <span class="un-actions issue-list-actions">
-      <button
-        type="button"
-        class="un-start"
-        disabled={starting}
-        onclick={(e) => requestStart([it], e.currentTarget as HTMLElement)}
-        title={m.upnext_start()}>{m.upnext_start()}</button
-      >
+    <div class="un-main">
+      <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
+      <a class="un-link" href={it.url} target="_blank" rel="noopener noreferrer">{it.title}</a>
+      {#if showRepo || it.kind === "epic" || labels.length > 0}
+        <span class="un-sub">
+          {#if it.kind === "epic"}<span class="un-pill">{m.upnext_pill_epic()}</span>{/if}
+          {#if showRepo}<span>{it.repoLabel || repoBase(it.repoPath)}</span>{/if}
+          {#each labels as label (label)}<span>{label}</span>{/each}
+        </span>
+      {/if}
+    </div>
+    <span class="un-meta">
+      <span class="un-num">#{it.number}</span>
+      <span class="un-age">{formatAgo(clock.current - it.createdAt)}</span>
     </span>
   </li>
 {/snippet}
 
 <section class="upnext" aria-label={m.upnext_title()}>
   <header class="un-head">
-    <span class="un-title-h">{m.upnext_title()}</span>
-    {#if updatedAgo}
-      <span class="un-updated">{m.upnext_updated_ago({ ago: updatedAgo })}</span>
-    {/if}
+    <div class="un-head-text">
+      <span class="un-title-h">{m.upnext_title()}</span>
+      {#if updatedAgo}
+        <span class="un-updated">{m.upnext_updated_ago({ ago: updatedAgo })}</span>
+      {/if}
+    </div>
     <button
       type="button"
       class="un-refresh"
@@ -450,30 +466,6 @@
       >
     </div>
   </header>
-
-  {#if selectedCount > 0}
-    <div class="un-batch" role="region" aria-label={m.upnext_batch_aria()}>
-      {#if confirmPending}
-        <span class="un-confirm-text">{m.upnext_confirm({ count: selectedCount })}</span>
-        <button
-          type="button"
-          class="un-batch-go un-confirm"
-          disabled={starting}
-          onclick={startSelected}>{m.upnext_confirm_yes()}</button
-        >
-        <button type="button" class="un-batch-cancel" onclick={() => (confirmPending = false)}
-          >{m.common_cancel()}</button
-        >
-      {:else}
-        <button type="button" class="un-batch-go" disabled={starting} onclick={startSelected}
-          >{m.upnext_start_selected({ count: selectedCount })}</button
-        >
-        <button type="button" class="un-batch-cancel" onclick={() => selected.clear()}
-          >{m.upnext_clear_selection()}</button
-        >
-      {/if}
-    </div>
-  {/if}
 
   <div class="un-body">
     {#if loadFailed}
@@ -500,13 +492,14 @@
       </div>
     {:else}
       {#each renderGroups as g (g.id)}
-        <div class="un-section">
-          <p class="un-section-head" class:un-section-head-priority={g.kind === "priority"}>
-            {g.title}
+        <div class="un-section" style:--band={g.tone}>
+          <p class="un-section-head">
+            <span class="un-section-title">{g.title}</span>
+            <span class="un-section-count">{g.totalCount}</span>
           </p>
           <ul class="un-list">
             {#each shownItems(g) as it (keyOf(it))}
-              {@render row(it, showRepoContext)}
+              {@render row(it, g, showRepoContext)}
             {/each}
           </ul>
           {#if g.totalCount > g.cap}
@@ -520,6 +513,31 @@
       {/each}
     {/if}
   </div>
+
+  {#if selectedCount > 0}
+    <div class="un-batch" role="region" aria-label={m.upnext_batch_aria()}>
+      {#if confirmPending}
+        <span class="un-confirm-text">{m.upnext_confirm({ count: selectedCount })}</span>
+        <button
+          type="button"
+          class="un-batch-go un-confirm"
+          disabled={starting}
+          onclick={startSelected}>{m.upnext_confirm_yes()}</button
+        >
+        <button type="button" class="un-batch-cancel" onclick={() => (confirmPending = false)}
+          >{m.common_cancel()}</button
+        >
+      {:else}
+        <span class="un-batch-count">{m.upnext_selected_count({ count: selectedCount })}</span>
+        <button type="button" class="un-batch-cancel" onclick={() => selected.clear()}
+          >{m.upnext_clear_selection()}</button
+        >
+        <button type="button" class="un-batch-go" disabled={starting} onclick={startSelected}
+          >{m.upnext_start_selected({ count: selectedCount })}</button
+        >
+      {/if}
+    </div>
+  {/if}
 </section>
 
 {#if sortMenuOpen && sortAnchor}
@@ -565,42 +583,45 @@
 
   /* Single-line by design: the header never wraps a control to a second line
      (issue: sort ⇅ dropped below the row at narrow mobile widths in the wider
-     monospace fallback). nowrap + fixed-size icons; the text spans are the
-     shrink valve (min-width:0 + ellipsis), so a too-narrow panel truncates the
-     text rather than wrapping a button. Both spans shrink so a valve exists even
-     in the loading state, where .un-updated is absent. */
+     monospace fallback). nowrap + fixed-size icons; the stacked title/updated
+     text is the shrink valve (min-width:0 + ellipsis per line), so a too-narrow
+     panel truncates text rather than wrapping a button. */
   .un-head {
     display: flex;
     align-items: center;
-    gap: 10px;
-    padding: 12px 16px;
+    gap: 8px;
+    padding: 12px 14px;
     border-bottom: 1px solid var(--color-line);
   }
-  .un-title-h {
+  .un-head-text {
+    flex: 1;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: var(--fs-meta);
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--color-ink-bright);
-    font-weight: 600;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
   }
+  .un-title-h,
   .un-updated {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     font-size: var(--fs-meta);
+  }
+  .un-title-h {
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-ink-bright);
+    font-weight: 700;
+  }
+  .un-updated {
     color: var(--color-muted);
   }
-  /* Sort ⇅ trigger sits at the header's right edge; refresh ⟳ stays beside the
-     time. Both are compact ~30px controls matching the panel's dense chrome
-     (deliberate sub-44px tap targets — waiver noted in the PR). */
+  /* Refresh ⟳ and sort ⇅ sit at the header's right edge. Both are compact ~30px
+     controls matching the panel's dense chrome (deliberate sub-44px tap targets —
+     waiver noted in the PR). */
   .un-sortwrap {
     flex: none;
-    margin-left: auto;
     display: inline-flex;
   }
   .un-refresh,
@@ -639,34 +660,42 @@
     cursor: not-allowed;
   }
 
-  /* Sticky so the single-start affordance stays reachable: on mobile the per-row
-     START is hidden, making this bar the only way to launch one issue, and it must
-     not scroll off when a row is ticked deep in a long list. Pins to the top of
-     the .upnext scroll container (overflow:auto). */
+  /* Starting always goes through this bar: tick rows, then start them. Sticky to
+     the bottom of the .upnext scroll container so it stays reachable however
+     deep in a long list the last row was ticked. */
   .un-batch {
     position: sticky;
-    top: 0;
+    bottom: 0;
     z-index: 2;
+    margin-top: auto;
     display: flex;
     align-items: center;
     gap: 8px;
-    padding: 8px 16px;
-    border-bottom: 1px solid var(--color-line);
+    padding: 8px 10px 8px 14px;
+    border-top: 1px solid var(--color-line-bright);
     background: var(--color-inset);
     flex-wrap: wrap;
   }
+  .un-batch-count {
+    flex: 1;
+    font-size: var(--fs-meta);
+    color: var(--color-ink);
+  }
   .un-confirm-text {
+    flex: 1;
     font-size: var(--fs-meta);
     color: var(--color-amber);
   }
   .un-batch-go {
+    min-height: 32px;
     background: transparent;
     border: 1px solid var(--color-amber);
     border-radius: 2px;
     color: var(--color-amber);
     font: inherit;
     font-size: var(--fs-meta);
-    padding: 4px 11px;
+    font-weight: 700;
+    padding: 4px 12px;
     cursor: pointer;
     transition:
       color 0.12s ease,
@@ -675,6 +704,10 @@
   .un-batch-go:hover:not(:disabled) {
     background: var(--color-amber);
     color: var(--color-bg);
+  }
+  .un-batch-go:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   .un-batch-go:disabled {
     opacity: 0.4;
@@ -695,25 +728,39 @@
   .un-body {
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding: 14px 16px;
   }
+  .un-body > .un-muted,
+  .un-body > .un-empty {
+    padding: 14px;
+  }
+
+  /* One band per group, tinted with its --band tone (set inline per group). */
   .un-section {
     display: flex;
     flex-direction: column;
-    gap: 5px;
   }
   .un-section-head {
     margin: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 7px 14px;
     font-size: var(--fs-micro);
-    font-weight: 600;
+    font-weight: 700;
+    letter-spacing: 0.16em;
     text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--color-muted);
+    color: var(--band);
+    background: color-mix(in srgb, var(--band) 9%, var(--color-panel));
+    border-block: 1px solid color-mix(in srgb, var(--band) 26%, var(--color-panel));
   }
-  /* Priority is the cross-repo headline tier — amber, the "needs you / actionable" hue. */
-  .un-section-head-priority {
-    color: var(--color-amber);
+  .un-section-title {
+    flex: 1;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .un-section-count {
+    flex: none;
+    letter-spacing: 0;
   }
 
   .un-list {
@@ -722,108 +769,86 @@
     padding: 0;
     display: flex;
     flex-direction: column;
-    gap: 2px;
+  }
+  /* The title owns the row's width and wraps instead of truncating; number and age
+     move to a narrow right-aligned column so nothing competes with it. */
+  .un-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--color-line);
+    transition: background 0.12s;
+  }
+  .un-row:hover,
+  .un-row:focus-within {
+    background: var(--color-hover);
+  }
+  .un-row.un-row-selected {
+    background: var(--color-sel);
   }
   .un-check {
+    flex: none;
     display: flex;
     align-items: center;
+    padding-top: 2px;
   }
   .un-check input {
     margin: 0;
     accent-color: var(--color-amber);
     cursor: pointer;
   }
-  .un-link {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
-    min-width: 0;
+  .un-main {
     flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .un-link {
+    font-size: var(--fs-base);
+    line-height: 1.45;
+    color: var(--color-ink-bright);
     text-decoration: none;
-    color: var(--color-ink);
-  }
-  .un-link:hover .un-title {
-    color: var(--color-amber);
-  }
-  .un-num {
-    flex: none;
-  }
-  .un-title {
+    overflow-wrap: anywhere;
     transition: color 0.12s ease;
   }
-  .un-repo {
-    font-size: var(--fs-micro);
-    color: var(--color-faint);
-    flex: none;
+  .un-link:hover {
+    color: var(--color-amber);
   }
-  .un-pills {
+  .un-link:focus-visible {
+    outline: none;
+    box-shadow: 0 1px 0 var(--color-amber);
+  }
+  .un-sub {
     display: flex;
-    gap: 4px;
-    flex: none;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 2px 8px;
+    font-size: var(--fs-micro);
+    color: var(--color-muted);
   }
   .un-pill {
-    font-size: var(--fs-micro);
     text-transform: uppercase;
     letter-spacing: 0.04em;
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     padding: 0 4px;
+    color: var(--color-ink-bright);
+  }
+  .un-meta {
+    flex: none;
+    min-width: 5ch;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    padding-top: 2px;
+    font-size: var(--fs-meta);
     color: var(--color-muted);
   }
-  .un-pill-priority {
-    color: var(--color-amber);
-    border-color: var(--color-amber);
-  }
-  .un-pill-epic {
-    color: var(--color-ink-bright);
-    border-color: var(--color-line-bright);
-  }
   .un-age {
-    font-size: var(--fs-micro);
     color: var(--color-faint);
-    flex: none;
-  }
-  .un-start {
-    flex: none;
-    background: transparent;
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
-    color: var(--color-ink);
-    font: inherit;
-    font-size: var(--fs-micro);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    padding: 2px 8px;
-    cursor: pointer;
-    transition:
-      color 0.12s ease,
-      border-color 0.12s ease;
-  }
-  .un-start:hover:not(:disabled) {
-    color: var(--color-amber);
-    border-color: var(--color-amber);
-  }
-  .un-start:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-  .un-start:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
-
-  .un-actions {
-    flex: none;
-  }
-
-  /* At narrow row widths the title becomes the shrink-valve so the inline START,
-     priority/epic pills and age (all flex:none) never overflow the panel. Only
-     Up Next lowers the shared 6rem .issue-list-title floor here; IssueRow /
-     PromptSources keep it. */
-  @container issue-list-row (max-width: 460px) {
-    .un-title {
-      min-width: 0;
-    }
   }
 
   @media (max-width: 768px), (pointer: coarse) {
@@ -831,18 +856,15 @@
       justify-content: center;
       min-width: var(--mobile-actionbar-hit);
       min-height: var(--mobile-actionbar-hit);
+      padding-top: 0;
     }
-
     .un-link {
+      display: flex;
       align-items: center;
       min-height: var(--mobile-actionbar-hit);
     }
-
-    /* Hide the per-row START on mobile/coarse-pointer; display:none also drops it
-       from the tab order / a11y tree. Single-start path: tick the checkbox → the
-       (sticky) batch bar's "Start selected (1)". */
-    .un-actions {
-      display: none;
+    .un-batch-go {
+      min-height: var(--mobile-actionbar-hit);
     }
   }
 
@@ -850,7 +872,7 @@
     align-self: flex-start;
     background: none;
     border: 0;
-    padding: 2px 0 0;
+    padding: 8px 14px;
     font: inherit;
     font-size: var(--fs-micro);
     color: var(--color-muted);
@@ -870,6 +892,9 @@
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
+  }
+  .un-empty .un-muted {
+    padding: 0;
   }
   .un-backlog-link {
     background: none;

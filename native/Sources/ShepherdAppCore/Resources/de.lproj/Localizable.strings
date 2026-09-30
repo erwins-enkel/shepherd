@@ -1197,7 +1197,7 @@
 "planpanel_native_go_failed" = "Die Ausführung konnte nicht gestartet werden. Versuche es erneut.";
 "planpanel_native_not_releasable" = "Der Plan ist nicht freigegeben oder befindet sich nicht mehr in der Planungsphase.";
 "planpanel_no_verdict" = "Der Plan-Prüfer hat kein Urteil abgegeben.";
-"planpanel_plan_unavailable" = "Noch kein prüfbarer Plan vorhanden. Der Planungs-Agent wartet möglicherweise noch auf deine Antwort. Kehre zum Task zurück, beantworte eine offene Planungsfrage und prüfe erneut, nachdem der Agent .shepherd-plan.md geschrieben hat.";
+"planpanel_plan_unavailable" = "Noch keine Plan-Datei vorhanden. Öffne dieses Fenster erneut, sobald der Agent den Plan geschrieben hat.";
 "planpanel_proposed_caption" = "Vorschlag — noch nicht umgesetzt · der Plantext unten ist maßgeblich";
 "planpanel_quota_dismiss" = "Stall verwerfen";
 "planpanel_quota_dismissing" = "Verwerfe…";
@@ -1215,7 +1215,7 @@
 "planpanel_review_failed_worktree" = "Prüf-Workspace konnte nicht erstellt werden. Speicherplatz und Git prüfen, dann erneut versuchen.";
 "planpanel_review_nothing_to_review" = "Planprüfung konnte gerade nicht gestartet werden.";
 "planpanel_review_now" = "Plan jetzt prüfen";
-"planpanel_review_plan_unavailable" = "Prüfung nicht gestartet, weil .shepherd-plan.md fehlt, leer oder nicht lesbar ist. Kehre zum Task zurück und beantworte eine noch offene Planungsfrage; prüfe erneut, sobald die Datei geschrieben ist.";
+"planpanel_review_plan_unavailable" = "Prüfung nicht gestartet, weil die Plan-Datei fehlt, leer oder nicht lesbar ist. Versuche es erneut, sobald der Agent einen lesbaren Plan geschrieben hat.";
 "planpanel_reviewing" = "Prüfe Plan…";
 "planpanel_reviewing_env" = "Prüfe Plan · %1$@";
 "planpanel_status_changes" = "Prüfung hat Änderungen angefordert. Los wird erst nach Überarbeitung und Freigabe aktiv.";

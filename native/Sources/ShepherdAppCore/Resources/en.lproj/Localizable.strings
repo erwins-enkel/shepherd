@@ -1197,7 +1197,7 @@
 "planpanel_native_go_failed" = "Execution could not be started. Try again.";
 "planpanel_native_not_releasable" = "The plan is not approved or is no longer in the planning phase.";
 "planpanel_no_verdict" = "The plan reviewer did not produce a verdict.";
-"planpanel_plan_unavailable" = "No reviewable plan yet. The planning agent may still be waiting for your answer. Return to the task, answer any open planning question, then review again after the agent writes .shepherd-plan.md.";
+"planpanel_plan_unavailable" = "No plan file yet. Reopen this panel after the agent writes the plan.";
 "planpanel_proposed_caption" = "Proposed — not yet built · the plan text below is authoritative";
 "planpanel_quota_dismiss" = "Dismiss stall";
 "planpanel_quota_dismissing" = "Dismissing…";
@@ -1215,7 +1215,7 @@
 "planpanel_review_failed_worktree" = "Couldn't create the review workspace. Check disk space and git, then retry.";
 "planpanel_review_nothing_to_review" = "Couldn't start a plan review right now.";
 "planpanel_review_now" = "Review plan now";
-"planpanel_review_plan_unavailable" = "Review did not start because .shepherd-plan.md is missing, empty, or unreadable. Return to the task and answer any pending planning question, then review again after the file is written.";
+"planpanel_review_plan_unavailable" = "Review did not start because the plan file is missing, empty, or unreadable. Try again once the agent has written a readable plan.";
 "planpanel_reviewing" = "Reviewing…";
 "planpanel_reviewing_env" = "Reviewing · %1$@";
 "planpanel_status_changes" = "Review requested changes. Go unlocks after the plan is revised and approved.";

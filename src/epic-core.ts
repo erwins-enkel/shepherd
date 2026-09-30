@@ -38,6 +38,31 @@ export interface EpicRun {
   model?: string | null;
   effort?: string | null;
 }
+/** Persisted `epic_queue` row (#2624): an epic waiting behind the repo's leading epic, with the
+ *  settings it starts with once the queue promotes it. `position` orders the queue (ascending). */
+export interface EpicQueueEntry {
+  repoPath: string;
+  parentIssueNumber: number;
+  position: number;
+  mode: EpicMode;
+  agentProvider?: AgentProvider | null;
+  model?: string | null;
+  effort?: string | null;
+  createdAt: number;
+}
+
+/** A queued epic's stored settings as an (idle) run — what its detail and a promotion start from. */
+export function queuedEpicRun(entry: EpicQueueEntry): EpicRun {
+  return {
+    repoPath: entry.repoPath,
+    parentIssueNumber: entry.parentIssueNumber,
+    mode: entry.mode,
+    status: "idle",
+    agentProvider: entry.agentProvider ?? null,
+    model: entry.model ?? null,
+    effort: entry.effort ?? null,
+  };
+}
 export interface Epic {
   repoPath: string;
   parentIssueNumber: number;

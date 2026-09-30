@@ -15,6 +15,7 @@
   import { epicRole, stateLabel } from "../epic-panel";
   import EpicPanel from "../EpicPanel.svelte";
   import EpicRunControl from "./EpicRunControl.svelte";
+  import EpicFlowGraph from "./EpicFlowGraph.svelte";
   import EpicDiagnosisModal from "../EpicDiagnosisModal.svelte";
   import MarkdownBody from "../MarkdownBody.svelte";
   import IssueDetailHead from "./IssueDetailHead.svelte";
@@ -22,8 +23,8 @@
 
   // Reading detail of the backlog Issues tab (#2617) for the selected list entry:
   //  - single issue → head, the "Aufgabe" box, then the rendered description;
-  //  - epic         → head (⋯ menu: Import / Diagnose), the sticky run area (#2620), the
-  //                   EpicPanel's children, then the description;
+  //  - epic         → head (⋯ menu: Import / Diagnose), the sticky run area (#2620), the flow
+  //                   graph (#2621), the EpicPanel's children, then the description;
   //  - epic child   → head + description (child views follow in a later issue).
   let {
     repoPath,
@@ -44,6 +45,7 @@
     titleFor,
     onopensession = undefined,
     onopenautomation = undefined,
+    onselectchild = undefined,
   }: {
     repoPath: string;
     selection: IssueSelection;
@@ -63,9 +65,16 @@
     titleFor: (issue: number) => string | null;
     onopensession?: (sessionId: string) => void;
     onopenautomation?: () => void;
+    /** Select an epic child in the list (a click on the flow graph). */
+    onselectchild?: (parent: number, child: number) => void;
   } = $props();
 
   let showDiag = $state(false);
+
+  /** A flow-graph node click selects that child of the shown epic in the list (#2621). */
+  function selectFlowChild(child: number) {
+    if (selection.kind === "epic") onselectchild?.(selection.issue.number, child);
+  }
 
   const othersFlag = $derived(selection.kind === "epic" ? epicFlagForOthers(epicSummary) : null);
   const role = $derived(
@@ -149,6 +158,7 @@
         {onopenautomation}
       />
     {/if}
+    {#if epic}<EpicFlowGraph {epic} onselect={selectFlowChild} />{/if}
     <div class="epic-host" data-epic-panel>
       {#if epic}
         <EpicPanel

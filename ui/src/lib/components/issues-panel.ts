@@ -300,7 +300,7 @@ export type IssueSelection =
   | { kind: "single"; issue: Issue };
 
 export const epicKey = (n: number) => `e:${n}`;
-const childKey = (parent: number, n: number) => `c:${parent}:${n}`;
+export const childKey = (parent: number, n: number) => `c:${parent}:${n}`;
 const singleKey = (n: number) => `s:${n}`;
 
 /**

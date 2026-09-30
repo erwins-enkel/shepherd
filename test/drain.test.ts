@@ -1795,6 +1795,79 @@ describe("drain epic mode", () => {
     await h.drain.pump(REPO);
     expect(h.epics.length).toBeGreaterThan(epicsBefore);
   });
+
+  // #2618: a child of a SUPERSEDED epic A (the repo's one epic_run row now names B) integrates
+  // under A — its own epic — never under whichever epic currently leads.
+  describe("child of a superseded epic retires under its own epic", () => {
+    const OLD_EPIC = 300;
+    const OLD_CHILD = 301;
+    const OLD_BRANCH = "epic/300-old-epic";
+    const OLD_PR = 310;
+
+    function seedOldEpicChild(
+      h: ReturnType<typeof epicHarness>,
+      epicParent: number | null,
+    ): Session {
+      h.store.getOrInitEpicIntegrationBranch(REPO, OLD_EPIC, OLD_BRANCH);
+      const s = h.store.create({
+        name: "auto",
+        prompt: "p",
+        repoPath: REPO,
+        baseBranch: OLD_BRANCH,
+        branch: `shepherd/auto-${OLD_CHILD}`,
+        worktreePath: "/wt",
+        isolated: true,
+        herdrSession: "default",
+        herdrAgentId: "t",
+        auto: true,
+        issueNumber: OLD_CHILD,
+        epicParent,
+      });
+      h.prCache[s.id] = openGreen(OLD_PR);
+      h.setReview(s.id, "commented", `sha-${OLD_PR}`);
+      return s;
+    }
+
+    function expectIntegratedUnderOldEpic(h: ReturnType<typeof epicHarness>, s: Session): void {
+      expect(h.forgeRec.merges).toEqual([
+        { prNumber: OLD_PR, method: "squash", deleteBranch: true },
+      ]);
+      expect(
+        h.store.listEpicIntegratedDetails(REPO, OLD_EPIC).find((d) => d.childNumber === OLD_CHILD)
+          ?.mergedBase,
+      ).toBe(OLD_BRANCH);
+      expect([...h.store.listEpicIntegrated(REPO, PARENT)]).not.toContain(OLD_CHILD);
+      expect(h.forgeRec.links).toHaveLength(0); // epic path never issue-links
+      expect(h.store.get(s.id)?.status).toBe("archived");
+    }
+
+    test("leading epic running: recorded under the child's own epic, not the leading one", async () => {
+      const h = epicHarness("running", "auto");
+      const s = seedOldEpicChild(h, OLD_EPIC);
+      await h.drain.pump(REPO);
+      expectIntegratedUnderOldEpic(h, s);
+    });
+
+    test("leading epic idle (label drain on): still squash-merged + recorded under its own epic", async () => {
+      const h = epicHarness("running", "auto");
+      h.store.setEpicRun({
+        repoPath: REPO,
+        parentIssueNumber: PARENT,
+        mode: "auto",
+        status: "idle",
+      });
+      const s = seedOldEpicChild(h, OLD_EPIC);
+      await h.drain.pump(REPO);
+      expectIntegratedUnderOldEpic(h, s);
+    });
+
+    test("legacy unstamped row: the epic/<n>-… base branch names its epic", async () => {
+      const h = epicHarness("running", "auto");
+      const s = seedOldEpicChild(h, null);
+      await h.drain.pump(REPO);
+      expectIntegratedUnderOldEpic(h, s);
+    });
+  });
 });
 
 // ── #790: per-issue spawn-failure cooldown ────────────────────────────────────

@@ -22,7 +22,6 @@ import { assembleEpic } from "./epic-model";
 import {
   epicIntegrationBranch as epicBranchName,
   epicParentFromBranch,
-  isEpicChild,
   branchReferencesEpic,
 } from "./epic-branch";
 import {
@@ -3474,17 +3473,21 @@ export class DrainService {
     // Epic child: squash-merge the PR INTO its integration branch (not the default branch) and
     // record it so dependents unblock without a GitHub issue auto-close (the child issue stays
     // open until the final epic→default PR lands). Detected by the session's persisted epic-child
-    // identity (#2067) + an active epic for the repo.
-    const epicRun = this.deps.store.getEpicRun(repoPath);
-    const epicActive = !!epicRun && (epicRun.status === "running" || epicRun.status === "paused");
-    if (epicActive && s?.issueNumber != null && isEpicChild(s)) {
+    // identity (#2067) and keyed on THAT epic, not on the repo's leading epic_run (#2618): a child
+    // of a superseded epic must integrate under its own epic, whether another epic now leads or
+    // none is running. The epic must have a pinned integration branch — the one it merges into.
+    const parent = s ? sessionEpicParent(s) : null;
+    if (
+      s?.issueNumber != null &&
+      parent != null &&
+      this.deps.store.getEpicIntegrationBranch(repoPath, parent) != null
+    ) {
       // #645 (Task 2): enforce the child PR's actual base against the integration branch. On
       // mismatch (or while throttled-blocked from a prior mismatch) this returns true → fail
       // closed: skip merge/record/archive/claim-drop so the child stays un-integrated and the
       // operator re-targets the PR (the remedy is surfaced via assembleEpic warnings).
-      if (await this.epicChildBaseBlocked(forge, repoPath, epicRun!.parentIssueNumber, s, decision))
-        return;
-      await this.retireEpicChild(forge, repoPath, epicRun!.parentIssueNumber, s, decision);
+      if (await this.epicChildBaseBlocked(forge, repoPath, parent, s, decision)) return;
+      await this.retireEpicChild(forge, repoPath, parent, s, decision);
       return;
     }
     // Best-effort issue link: a failure must NOT block teardown.

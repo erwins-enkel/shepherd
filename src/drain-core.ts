@@ -393,6 +393,9 @@ export interface RunSummary {
   next: number[];
   /** Open epic children directly blocked by `next[0]`; [] in label mode. */
   after: number[];
+  /** Epics queued behind the leading one (#2624), head first — the head starts once the leader
+   *  completes. */
+  queued: number[];
 }
 
 export interface RunSummaryInput {
@@ -407,6 +410,8 @@ export interface RunSummaryInput {
     EpicChild,
     "number" | "order" | "blockedBy" | "integrationMerged" | "issueClosed"
   >[];
+  /** The repo's epic queue, head first. */
+  queued: number[];
 }
 
 /** Pure: shape the {@link RunSummary} from the facts `Drain.buildState` already gathered. */
@@ -448,6 +453,7 @@ export function buildRunSummary(input: RunSummaryInput): RunSummary {
     },
     next,
     after,
+    queued: input.queued,
   };
 }
 

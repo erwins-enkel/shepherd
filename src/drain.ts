@@ -26,6 +26,7 @@ import {
 } from "./epic-branch";
 import {
   epicQuiescentForCadenceRebase,
+  queuedEpicRun,
   selectEpicCandidates,
   type Epic,
   type EpicChild,
@@ -271,6 +272,8 @@ export interface DrainDeps {
     | "archive"
     | "getEpicRun"
     | "setEpicRun"
+    | "listEpicQueue"
+    | "shiftEpicQueue"
     | "getOrInitEpicIntegrationBranch"
     | "getEpicIntegrationBranch"
     | "listEpicIntegrated"
@@ -929,6 +932,7 @@ export class DrainService {
           candidates: summaryCandidates,
           mappedIssueNumbers,
           epicChildren,
+          queued: this.deps.store.listEpicQueue(repoPath).map((e) => e.parentIssueNumber),
         }),
       },
       epic: builtEpic,
@@ -1454,11 +1458,23 @@ export class DrainService {
       // the next buildState sees idle and stops emitting epicParent.
       this.emitEpicIfChanged(repoPath, { ...epic, run: completedRun });
       this.deps.telemetry?.event("epic_drained", { childCount: epic.children.length });
+      this.promoteQueuedEpic(repoPath);
       return true;
     } else {
       this.emitEpicIfChanged(repoPath, epic);
       return false;
     }
+  }
+
+  /** #2624: the leading epic just completed — start the queue's head with ITS stored settings
+   *  (never `defaultEpicRun`, which would reset them). An attended approval belonged to the
+   *  finished epic, so it does not carry over. */
+  private promoteQueuedEpic(repoPath: string): void {
+    const next = this.deps.store.shiftEpicQueue(repoPath);
+    if (!next) return;
+    this.approvedNext.delete(repoPath);
+    this.deps.store.setEpicRun({ ...queuedEpicRun(next), status: "running" });
+    console.info(`[drain] ${repoPath}: queued epic #${next.parentIssueNumber} starts`);
   }
 
   /**

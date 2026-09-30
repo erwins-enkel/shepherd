@@ -241,6 +241,7 @@ test("GET /api/drain passes runSummary through unchanged", async () => {
       },
       next: [201],
       after: [202],
+      queued: [300],
     },
   };
   const { app } = harness({ snapshot: async () => [status], queue: async () => [] });

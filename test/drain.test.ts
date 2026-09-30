@@ -1740,6 +1740,100 @@ describe("drain epic mode", () => {
     expect(h.epics.at(-1)!.run.status).toBe("idle");
   });
 
+  // #2624: epics queued behind the leader.
+  function queueHarness(leaderClosed: boolean) {
+    const NEXT = 500;
+    const parentOf = (n: number): Issue => ({
+      number: n,
+      title: `Epic ${n}`,
+      body: "epic body",
+      url: `https://x/${n}`,
+      labels: [],
+      createdAt: 0,
+      assignees: [],
+    });
+    const sub = (n: number, closed: boolean): SubIssueRef => ({
+      number: n,
+      title: `child ${n}`,
+      url: `u${n}`,
+      body: "spec",
+      closed,
+      labels: [],
+    });
+    const h = makeHarness({
+      listIssuesImpl: async () => [],
+      getIssueImpl: async (n) => (n === PARENT || n === NEXT ? parentOf(n) : null),
+      listSubIssuesImpl: async (n) =>
+        n === PARENT ? [sub(CHILD, leaderClosed)] : n === NEXT ? [sub(NEXT + 1, false)] : [],
+      listBlockedByImpl: async () => [],
+    });
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+    });
+    return { h, NEXT };
+  }
+
+  test("queue: the leader completing starts the queue head with its stored settings", async () => {
+    const { h, NEXT } = queueHarness(true);
+    h.store.enqueueEpic({
+      repoPath: REPO,
+      parentIssueNumber: NEXT,
+      mode: "attended",
+      agentProvider: "claude",
+      model: "opus",
+      effort: "high",
+    });
+    h.store.enqueueEpic({ repoPath: REPO, parentIssueNumber: 600, mode: "auto" });
+    await h.drain.pump(REPO);
+    expect(h.store.getEpicRun(REPO)).toEqual({
+      repoPath: REPO,
+      parentIssueNumber: NEXT,
+      mode: "attended",
+      status: "running",
+      agentProvider: "claude",
+      model: "opus",
+      effort: "high",
+    });
+    expect(h.store.listEpicQueue(REPO).map((e) => e.parentIssueNumber)).toEqual([600]);
+    // The leader's completion is still recorded, and the status already names the new leader.
+    expect(h.store.listEpicCompleted(REPO).map((r) => r.parentIssueNumber)).toEqual([PARENT]);
+    const last = h.statuses.at(-1)!;
+    expect(last.runSummary!.leadingEpic).toBe(NEXT);
+    expect(last.runSummary!.queued).toEqual([600]);
+    // Attended: the promoted epic waits for approval, it does not spawn on its own.
+    expect(h.creates).toHaveLength(0);
+  });
+
+  test("queue: an empty queue leaves the completed leader idle", async () => {
+    const { h } = queueHarness(true);
+    await h.drain.pump(REPO);
+    expect(h.store.getEpicRun(REPO)?.status).toBe("idle");
+    expect(h.store.getEpicRun(REPO)?.parentIssueNumber).toBe(PARENT);
+  });
+
+  test("queue: a leader that is still working does not promote; runSummary lists the queue in order", async () => {
+    const { h, NEXT } = queueHarness(false);
+    h.store.enqueueEpic({ repoPath: REPO, parentIssueNumber: 600, mode: "auto" });
+    h.store.enqueueEpic({ repoPath: REPO, parentIssueNumber: NEXT, mode: "auto" });
+    const [status] = await h.drain.snapshot();
+    expect(status!.runSummary!.queued).toEqual([600, NEXT]);
+    await h.drain.pump(REPO);
+    expect(h.store.getEpicRun(REPO)?.parentIssueNumber).toBe(PARENT);
+    expect(h.store.listEpicQueue(REPO)).toHaveLength(2);
+  });
+
+  test("queue: a manually ended leader does not promote", async () => {
+    const { h, NEXT } = queueHarness(true);
+    h.store.setEpicRun({ repoPath: REPO, parentIssueNumber: PARENT, mode: "auto", status: "idle" });
+    h.store.enqueueEpic({ repoPath: REPO, parentIssueNumber: NEXT, mode: "auto" });
+    await h.drain.pump(REPO);
+    expect(h.store.getEpicRun(REPO)).toMatchObject({ parentIssueNumber: PARENT, status: "idle" });
+    expect(h.store.listEpicQueue(REPO).map((e) => e.parentIssueNumber)).toEqual([NEXT]);
+  });
+
   test("auto-complete with autoDrain OFF emits drain:status with epicParent=null (banner clears without reload)", async () => {
     // Bug: when the epic auto-completes and autoDrainEnabled is false, the pump
     // guard prevents any further pump, so the stale epicParent from the pre-transition

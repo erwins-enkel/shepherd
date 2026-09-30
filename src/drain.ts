@@ -22,7 +22,13 @@ import {
   isEpicChild,
   branchReferencesEpic,
 } from "./epic-branch";
-import { selectEpicCandidates, type Epic, type EpicRun, type EpicStackContext } from "./epic-core";
+import {
+  epicQuiescentForCadenceRebase,
+  selectEpicCandidates,
+  type Epic,
+  type EpicRun,
+  type EpicStackContext,
+} from "./epic-core";
 import { decomposeEpicChains } from "./epic-chains";
 import {
   bottomMostUnmergedPr,
@@ -47,6 +53,7 @@ import {
   anyLiveRepairSession,
   buildRollup,
   computeLandingReady,
+  EPIC_LANDING_STRANDED_MS,
   type CompletedEpic,
   type CompletedEpicChild,
   type EpicLandingState,
@@ -155,6 +162,14 @@ const LANDING_REPAIR_CAP = 1;
  *  "Resolve conflicts" dispatch bypasses it. Exhausted ⇒ the row stays conflict-paused. */
 const LANDING_CONFLICT_REWORK_CAP = 1;
 
+/** #1841: a running epic's integration branch is rebased onto the default branch at most this often
+ *  (and only in a quiescent window — see epicQuiescentForCadenceRebase), keeping drift small so the
+ *  landing-time rebase stays a rebase, not a rework. */
+const CADENCE_REBASE_INTERVAL_MS = 60 * 60_000;
+/** #1841: after a mid-epic cadence rebase hits a genuine conflict, wait this long before retrying.
+ *  Nothing is paused or surfaced — the landing-time rebase/rework/escalation path owns a conflict. */
+const CADENCE_REBASE_CONFLICT_BACKOFF_MS = 6 * 60 * 60_000;
+
 /** Outcome of the operator-triggered {@link DrainService.resolveLandingConflict}. */
 export type ResolveLandingConflictResult =
   | { ok: true }
@@ -256,6 +271,7 @@ export interface DrainDeps {
     | "setEpicLandingRebaseState"
     | "setEpicLandingRepairCount"
     | "setEpicLandingConflictReworkCount"
+    | "setEpicLandingConflictEscalatedAt"
     | "setEpicMigrationPaths"
     | "recordEpicStackMember"
     | "listEpicStack"
@@ -408,6 +424,9 @@ export class DrainService {
   // and a permanently stale hold would be a silent stall. Expiry degrades that to one re-check per
   // window. In-memory: a restart simply re-checks.
   private stackConfirmHeld = new Map<string, Map<string, number>>();
+  // #1841: `${repoPath}#${parentIssueNumber}` → earliest next cadence-rebase attempt. In-memory on
+  // purpose: a restart re-attempts once (a no-op `current` when nothing moved), then re-throttles.
+  private cadenceRebaseNextAt = new Map<string, number>();
   private lastEpicSig = new Map<string, string>();
   // #1401: `${repoPath}#${parentIssueNumber}` → last reconcile-sweep timestamp. In-memory on
   // purpose: a restart sweeps immediately (deploy ⇒ a pre-existing stall self-heals within one
@@ -1876,7 +1895,10 @@ export class DrainService {
    * throw/reject escape — a push hiccup must not demote a successfully-opened landing PR.
    */
   private enterLandingConflict(repoPath: string, parent: number, landingPr: number | null): void {
-    this.deps.store.setEpicLandingRebaseState(repoPath, parent, { pauseReason: "conflict" });
+    this.deps.store.setEpicLandingRebaseState(repoPath, parent, {
+      pauseReason: "conflict",
+      now: this.now(),
+    });
     this.emitCompleted(repoPath, parent);
     try {
       void Promise.resolve(
@@ -2051,6 +2073,67 @@ export class DrainService {
   }
 
   /**
+   * #1841 cadence rebase: while an epic RUNS, rebase its integration branch onto the default branch
+   * whenever the epic is quiescent (no child running/in review, no session based on the branch), so
+   * the landing PR's open-time rebase only ever replays a small delta. Children are never rebased —
+   * quiescence means no live branch is built on the head being rewritten.
+   *
+   * Engaged-only (running, non-draft-mode), GitHub-only (the seam force-pushes to origin),
+   * repair-fenced, `landingInFlight`-serialized, and throttled per epic (1h; 6h after a conflict).
+   * A genuine conflict is left un-pushed by the seam and only logged: NO store row, NO notify —
+   * the landing-time rebase → conflict pause → rework/escalation path owns it. Whole body wrapped:
+   * tick() calls its passes unguarded.
+   */
+  private async cadenceRebaseEpicBranchForRepo(repoPath: string): Promise<void> {
+    try {
+      const target = await this.cadenceRebaseTarget(repoPath);
+      if (!target) return;
+      const { key, branch, defaultBranch } = target;
+      this.landingInFlight.add(key);
+      try {
+        const res = await this.rebaseLandingBranch(repoPath, branch, defaultBranch);
+        const conflict = res.kind === "conflict";
+        this.cadenceRebaseNextAt.set(
+          key,
+          this.now() + (conflict ? CADENCE_REBASE_CONFLICT_BACKOFF_MS : CADENCE_REBASE_INTERVAL_MS),
+        );
+        if (res.kind !== "current")
+          console.warn(`[drain] cadence rebase of \`${branch}\` for ${key}: ${res.kind}`);
+      } finally {
+        this.landingInFlight.delete(key);
+      }
+    } catch (err) {
+      console.warn(`[drain] cadenceRebaseEpicBranchForRepo failed for ${repoPath}:`, err);
+    }
+  }
+
+  /** The gates of {@link cadenceRebaseEpicBranchForRepo}, cheapest first (store reads before any
+   *  forge call). Returns the epic to rebase, or null to skip this tick. */
+  private async cadenceRebaseTarget(
+    repoPath: string,
+  ): Promise<{ key: string; branch: string; defaultBranch: string } | null> {
+    const cfg = this.deps.store.getRepoConfig(repoPath);
+    const er = this.deps.store.getEpicRun(repoPath);
+    if (cfg.draftMode || er?.status !== "running") return null;
+    const parent = er.parentIssueNumber;
+    const key = `${repoPath}#${parent}`;
+    if (this.now() < (this.cadenceRebaseNextAt.get(key) ?? 0)) return null;
+    if (this.landingInFlight.has(key)) return null;
+    const forge = this.deps.resolveForge(repoPath);
+    if (!forge || forge.kind !== "github") return null;
+    // Nothing merged into the branch yet ⇒ it IS the default branch; nothing to replay.
+    if (this.deps.store.listEpicIntegratedDetails(repoPath, parent).length === 0) return null;
+    // READ-ONLY getter (never INSERT a title-drifted pin from here). Null ⇒ unpinned ⇒ skip.
+    const branch = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
+    if (!branch || this.hasLiveRepairSession(repoPath, branch)) return null;
+    const epic = await this.buildEpic(repoPath, er);
+    if (!epic) return null;
+    if (!epicQuiescentForCadenceRebase(epic.children, this.deps.store.list(), repoPath, branch))
+      return null;
+    return { key, branch, defaultBranch: await forge.defaultBranch() };
+  }
+
+  /**
    * #1664 pre-warm pass: open the epic's aggregate landing PR EARLY as a draft — while the epic is
    * still draining — so its CI is already green (or diagnosable) by the time the epic completes.
    * Opt-in per repo (`preWarmEpicLandingCi`, default off). GitHub-only + engaged-only (running,
@@ -2216,14 +2299,7 @@ export class DrainService {
     //    conflict-rework session. Its force-with-lease push un-conflicts the PR; the reason-aware
     //    clear above then lifts the pause on a later tick.
     if (freshRow.landingRebasePauseReason === "conflict") {
-      await this.dispatchConflictRework(
-        repoPath,
-        branch,
-        defaultBranch,
-        pr.headSha ?? "",
-        freshRow,
-        false,
-      );
+      await this.handleConflictPausedLanding(repoPath, branch, defaultBranch, pr, freshRow);
       return;
     }
 
@@ -2232,6 +2308,78 @@ export class DrainService {
 
     // h. Attempt rebase.
     await this.doLandingRebase(repoPath, parent, freshRow, branch, defaultBranch);
+  }
+
+  /** #1841: a landing still conflict-paused AND still conflicting — auto-dispatch the capped
+   *  conflict-rework session; when none is dispatched, fall back to the stale re-escalation. */
+  private async handleConflictPausedLanding(
+    repoPath: string,
+    branch: string,
+    defaultBranch: string,
+    pr: PrStatus,
+    row: Parameters<DrainService["dispatchConflictRework"]>[4] &
+      Parameters<DrainService["maybeReescalateLandingConflict"]>[2],
+  ): Promise<void> {
+    const dispatched = await this.dispatchConflictRework(
+      repoPath,
+      branch,
+      defaultBranch,
+      pr.headSha ?? "",
+      row,
+      false,
+    );
+    if (!dispatched) this.maybeReescalateLandingConflict(repoPath, branch, row);
+  }
+
+  /** #1841: time-based re-escalation of a long-lived conflict pause (the stranded escalation skips
+   *  conflict pauses — it needs landingReady). Once the pause has stood past EPIC_LANDING_STRANDED_MS
+   *  with no live repair/rework session on the branch, re-send the landing_conflict push, at most
+   *  once per EPIC_LANDING_STRANDED_MS (persisted, so restarts don't re-push). A legacy row paused
+   *  before the since-stamp existed is stamped now (escalates one window after deploy). Never
+   *  throws — a push hiccup must not break the rebase pass. */
+  private maybeReescalateLandingConflict(
+    repoPath: string,
+    branch: string,
+    row: {
+      parentIssueNumber: number;
+      landingPrNumber: number | null;
+      landingConflictSince: number | null;
+      landingConflictEscalatedAt: number | null;
+    },
+  ): void {
+    const parent = row.parentIssueNumber;
+    const now = this.now();
+    if (row.landingConflictSince === null) {
+      this.deps.store.setEpicLandingRebaseState(repoPath, parent, { pauseReason: "conflict", now });
+      return;
+    }
+    if (this.hasLiveRepairSession(repoPath, branch)) return;
+    const age = now - row.landingConflictSince;
+    if (age <= EPIC_LANDING_STRANDED_MS) return;
+    const last = row.landingConflictEscalatedAt;
+    if (last !== null && now - last <= EPIC_LANDING_STRANDED_MS) return;
+    this.deps.store.setEpicLandingConflictEscalatedAt(repoPath, parent, now);
+    try {
+      void Promise.resolve(
+        this.deps.notify?.({
+          kind: "landing_conflict",
+          sessionId: "",
+          tag: `landing-conflict:${repoPath}#${parent}`,
+          name: "epic",
+          epicNumber: parent,
+          landingPr: row.landingPrNumber ?? undefined,
+          staleHours: Math.floor(age / 3_600_000),
+          cooldownKey: `landing_conflict_stale:${repoPath}#${parent}`,
+        }),
+      ).catch((err) =>
+        console.warn(
+          `[drain] stale landing_conflict notify failed for ${repoPath}#${parent}:`,
+          err,
+        ),
+      );
+    } catch (err) {
+      console.warn(`[drain] stale landing_conflict notify threw for ${repoPath}#${parent}:`, err);
+    }
   }
 
   /**
@@ -3786,6 +3934,10 @@ export class DrainService {
       // now is visible to this tick's spawn decisions. Flag-gated + running-only + throttled →
       // zero forge calls in steady state; self-guarding like its neighbours.
       await this.composeEpicStacksForRepo(repoPath);
+      // #1841: rebase a running epic's integration branch onto the default branch in a quiescent
+      // window (no child in flight). BEFORE the pump so a child spawned this tick is cut from the
+      // rebased head. Throttled + GitHub-only + self-guarding.
+      await this.cadenceRebaseEpicBranchForRepo(repoPath);
       await this.ensureDraftLandingPrForRepo(repoPath);
       // UNGATED landing-PR retry: runs for EVERY repo, BEFORE the pump gate, so a completed
       // epic's PR is opened/retried even in a repo with autoDrain off and no running epic.

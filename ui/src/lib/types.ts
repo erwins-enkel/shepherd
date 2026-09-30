@@ -1065,6 +1065,11 @@ export interface CompletedEpic {
   landingStranded?: boolean;
   // When the auto-rebase pass is paused and operator action is needed (#1071); null when not paused.
   landingRebasePauseReason?: "cap" | "conflict" | "driver" | null;
+  /** When the current conflict pause began (#1841); null/absent outside a conflict pause. */
+  landingConflictSince?: number | null;
+  /** Live: the conflict pause has stood unresolved past the stranded threshold with no live
+   *  rework session (#1841) — drives the "conflict unresolved" chip. */
+  landingConflictStranded?: boolean;
   /** Non-actionable: a capped auto-repair agent session is live and driving this landing PR's CI
    *  back to green — suppresses the operator's CI-failing surface while genuinely live (mirrors
    *  server CompletedEpic.landingRepairing). A stuck/finished session falls back to the plain

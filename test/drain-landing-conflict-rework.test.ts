@@ -14,6 +14,7 @@ import { SessionStore } from "../src/store";
 import type { GitForge, Issue, PrStatus, SubIssueRef } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
+import type { NotifyInput } from "../src/push";
 import type { StandardCreateInput } from "../src/types";
 import { epicIntegrationBranch } from "../src/epic-branch";
 
@@ -80,6 +81,8 @@ interface Harness {
   creates: StandardCreateInput[];
   rebaseSeamCalls: () => number;
   setPr: (pr: PrStatus) => void;
+  clock: { t: number };
+  notifies: NotifyInput[];
 }
 
 function makeHarness(
@@ -124,6 +127,8 @@ function makeHarness(
   let rebaseCalls = 0;
   const creates: StandardCreateInput[] = [];
   const forge = fakeForge(() => pr, opts.forgeKind);
+  const clock = { t: 1_000_000 };
+  const notifies: NotifyInput[] = [];
   const drain = new DrainService({
     store,
     service: {
@@ -144,6 +149,11 @@ function makeHarness(
     emitEpic: () => {},
     emitEpicCompleted: () => {},
     readCodexAuthMode: () => "unknown",
+    notify: async (n: NotifyInput) => {
+      notifies.push(n);
+      return true;
+    },
+    now: () => clock.t,
     rebaseCap: 5,
     rebaseLandingBranch: async () => {
       rebaseCalls += 1;
@@ -159,6 +169,8 @@ function makeHarness(
     setPr: (p) => {
       pr = p;
     },
+    clock,
+    notifies,
   };
 }
 
@@ -411,5 +423,98 @@ describe("conflict rework: manual resolveLandingConflict", () => {
     });
     expect(h.creates).toHaveLength(2);
     expect(row(h).landingConflictReworkCount).toBe(0);
+  });
+});
+
+describe("conflict pause: stale re-escalation (#1841)", () => {
+  const H = 60 * 60_000;
+  const STALE = 6 * H;
+
+  /** Conflict-paused at the harness clock, rework budget already spent (no auto dispatch). */
+  function seedSpent(h: Harness): void {
+    seedConflictPaused(h, null);
+    h.store.setEpicLandingRebaseState(REPO, PARENT, { pauseReason: "conflict", now: h.clock.t });
+    h.store.setEpicLandingConflictReworkCount(REPO, PARENT, 1);
+  }
+
+  test("no re-push while the pause is ≤6h old", async () => {
+    const h = makeHarness();
+    seedSpent(h);
+    h.clock.t += STALE;
+    await tickStuckPass(h);
+    expect(h.notifies).toHaveLength(0);
+    expect(row(h).landingConflictEscalatedAt).toBeNull();
+  });
+
+  test(">6h → ONE stale landing_conflict push with the age; none again within 6h; again after", async () => {
+    const h = makeHarness();
+    seedSpent(h);
+    h.clock.t += STALE + 1;
+    await tickStuckPass(h);
+    expect(h.notifies).toHaveLength(1);
+    expect(h.notifies[0]).toMatchObject({
+      kind: "landing_conflict",
+      epicNumber: PARENT,
+      landingPr: LANDING_PR,
+      staleHours: 6,
+      cooldownKey: `landing_conflict_stale:${REPO}#${PARENT}`,
+    });
+    expect(row(h).landingConflictEscalatedAt).toBe(h.clock.t);
+
+    h.clock.t += STALE;
+    await tickStuckPass(h);
+    expect(h.notifies).toHaveLength(1);
+
+    h.clock.t += 1;
+    await tickStuckPass(h);
+    expect(h.notifies).toHaveLength(2);
+    expect(h.notifies[1]!.staleHours).toBe(12);
+  });
+
+  test("a live repair/rework session suppresses the re-push", async () => {
+    const h = makeHarness();
+    seedSpent(h);
+    addLiveRepairSession(h);
+    h.clock.t += STALE + 1;
+    await tickStuckPass(h);
+    expect(h.notifies).toHaveLength(0);
+  });
+
+  test("a rework dispatched this tick suppresses the re-push", async () => {
+    const h = makeHarness();
+    seedConflictPaused(h, null);
+    h.store.setEpicLandingRebaseState(REPO, PARENT, { pauseReason: "conflict", now: h.clock.t });
+    h.clock.t += STALE + 1;
+    await tickStuckPass(h);
+    expect(h.creates).toHaveLength(1);
+    expect(h.notifies).toHaveLength(0);
+  });
+
+  test("legacy conflict row without a since-stamp is stamped now, escalates one window later", async () => {
+    const h = makeHarness();
+    seedSpent(h);
+    // Simulate a pre-#1841 row: pause set, no stamp.
+    (h.store as unknown as { db: { run: (q: string) => void } }).db.run(
+      "UPDATE epic_completed SET landingConflictSince = NULL",
+    );
+    await tickStuckPass(h);
+    expect(row(h).landingConflictSince).toBe(h.clock.t);
+    expect(h.notifies).toHaveLength(0);
+    h.clock.t += STALE + 1;
+    await tickStuckPass(h);
+    expect(h.notifies).toHaveLength(1);
+  });
+
+  test("resolving the conflict clears both stamps", async () => {
+    const h = makeHarness();
+    seedSpent(h);
+    h.clock.t += STALE + 1;
+    await tickStuckPass(h);
+    expect(row(h).landingConflictEscalatedAt).not.toBeNull();
+    h.setPr({ ...conflictingPr(), mergeable: true, mergeStateStatus: "clean", checks: "success" });
+    await tickStuckPass(h);
+    expect(row(h).landingRebasePauseReason).toBeNull();
+    expect(row(h).landingConflictSince).toBeNull();
+    expect(row(h).landingConflictEscalatedAt).toBeNull();
   });
 });

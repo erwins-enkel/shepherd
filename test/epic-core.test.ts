@@ -2,6 +2,7 @@ import { test, expect, describe } from "bun:test";
 import {
   computeEpicOthersFlags,
   deriveChildState,
+  epicQuiescentForCadenceRebase,
   selectEpicCandidates,
   type EpicChild,
   type EpicStackContext,
@@ -301,5 +302,32 @@ describe("computeEpicOthersFlags", () => {
       viewer: "kai",
     });
     expect(flags.inFlight).toBe(1);
+  });
+});
+
+describe("epicQuiescentForCadenceRebase (#1841)", () => {
+  const BR = "epic/1-x";
+  const sess = (o: Partial<{ repoPath: string; baseBranch: string; status: string }>) =>
+    ({ repoPath: "/r", baseBranch: "main", status: "running", ...o }) as never;
+
+  test("quiescent when every child is merged/ready/blocked and no session sits on the branch", () => {
+    const kids = [{ state: "merged" }, { state: "ready" }, { state: "blocked" }] as const;
+    expect(epicQuiescentForCadenceRebase([...kids], [sess({})], "/r", BR)).toBe(true);
+  });
+
+  test("a running or in-review child blocks", () => {
+    expect(epicQuiescentForCadenceRebase([{ state: "running" }], [], "/r", BR)).toBe(false);
+    expect(epicQuiescentForCadenceRebase([{ state: "in-review" }], [], "/r", BR)).toBe(false);
+  });
+
+  test("a live session based on the integration branch blocks; archived / other repo does not", () => {
+    const kids = [{ state: "merged" as const }];
+    expect(epicQuiescentForCadenceRebase(kids, [sess({ baseBranch: BR })], "/r", BR)).toBe(false);
+    expect(
+      epicQuiescentForCadenceRebase(kids, [sess({ baseBranch: BR, status: "archived" })], "/r", BR),
+    ).toBe(true);
+    expect(
+      epicQuiescentForCadenceRebase(kids, [sess({ baseBranch: BR, repoPath: "/o" })], "/r", BR),
+    ).toBe(true);
   });
 });

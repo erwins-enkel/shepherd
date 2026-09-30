@@ -694,6 +694,28 @@ test("buildPayload landing_conflict omits the PR number when absent", () => {
   );
 });
 
+test("buildPayload landing_conflict stale re-escalation (#1841) names the age EN+DE", () => {
+  const n: NotifyInput = {
+    kind: "landing_conflict",
+    sessionId: "",
+    tag: "landing-conflict:/repo#327",
+    name: "epic",
+    epicNumber: 327,
+    landingPr: 602,
+    staleHours: 7,
+  };
+  expect(buildPayload(n, "en")).toMatchObject({
+    title: "Landing needs rework",
+    body: "Epic #327's landing PR #602 is still conflicted after ~7h — over to you.",
+  });
+  expect(buildPayload(n, "de").body).toBe(
+    "Der Landing-PR #602 von Epic #327 hat seit ~7h einen ungelösten Konflikt — du bist dran.",
+  );
+  expect(buildPayload({ ...n, landingPr: undefined }, "en").body).toBe(
+    "Epic #327's landing PR is still conflicted after ~7h — over to you.",
+  );
+});
+
 test("landing_conflict routes to ci category", async () => {
   const sent: string[] = [];
   const send: SendFn = async (s) => {

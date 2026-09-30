@@ -1,5 +1,5 @@
 import type { Issue, LinkedPr } from "./forge/types";
-import type { AgentProvider } from "./types";
+import type { AgentProvider, Session } from "./types";
 
 export type EpicSource = "native" | "markdown";
 export type EpicMode = "auto" | "attended";
@@ -66,6 +66,23 @@ export function deriveChildState(c: EpicChild, done: Set<number>): EpicChildStat
   // (PR awaiting human merge); session was archived after the retire path.
   if (c.claimed) return "in-review";
   return c.blockedBy.every((b) => done.has(b)) ? "ready" : "blocked";
+}
+
+/** #1841: may the epic's integration branch be rebased onto the default branch mid-run? Only in
+ *  a quiescent window — no child `running`/`in-review` (so no child worktree or PR is built on the
+ *  current head) AND no non-archived session of this repo based on the integration branch (catches
+ *  manual and repair sessions the child derivation cannot see). A rebase then rewrites nothing a
+ *  live branch depends on; the next spawn is cut from the rebased head. */
+export function epicQuiescentForCadenceRebase(
+  children: Pick<EpicChild, "state">[],
+  sessions: Pick<Session, "repoPath" | "baseBranch" | "status">[],
+  repoPath: string,
+  integrationBranch: string,
+): boolean {
+  if (children.some((c) => c.state === "running" || c.state === "in-review")) return false;
+  return !sessions.some(
+    (s) => s.repoPath === repoPath && s.status !== "archived" && s.baseBranch === integrationBranch,
+  );
 }
 
 /** Stack facts a caller may supply to {@link selectEpicCandidates} (#2066, epic #2063) so a

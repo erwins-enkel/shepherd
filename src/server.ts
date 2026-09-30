@@ -8363,11 +8363,13 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
       landingAttempts,
       landingRebaseCount,
       landingRebaseDriverMisses,
+      landingConflictEscalatedAt,
       ...rest
     } = row;
     void landingAttempts;
     void landingRebaseCount;
     void landingRebaseDriverMisses;
+    void landingConflictEscalatedAt;
     return { ...rest, children: JSON.parse(childrenJson) as CompletedEpic["children"] };
   });
 

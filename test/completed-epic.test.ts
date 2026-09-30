@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
   buildRollup,
+  computeLandingConflictStranded,
   computeLandingReady,
   computeLandingStranded,
   enrichLandingEpics,
@@ -315,6 +316,33 @@ describe("computeLandingStranded", () => {
   });
 });
 
+// ── computeLandingConflictStranded (#1841) ───────────────────────────────────
+describe("computeLandingConflictStranded", () => {
+  const since = 1_000_000;
+  const base = {
+    pauseReason: "conflict" as const,
+    conflictSince: since,
+    repairing: false,
+    now: since + EPIC_LANDING_STRANDED_MS + 1,
+  };
+
+  it("conflict pause past the threshold, no repair → stranded", () => {
+    expect(computeLandingConflictStranded(base)).toBe(true);
+  });
+  it("exactly at the threshold → NOT stranded", () => {
+    expect(computeLandingConflictStranded({ ...base, now: since + EPIC_LANDING_STRANDED_MS })).toBe(
+      false,
+    );
+  });
+  it("a live repair session → NOT stranded", () => {
+    expect(computeLandingConflictStranded({ ...base, repairing: true })).toBe(false);
+  });
+  it("no since-stamp or a non-conflict pause → NOT stranded", () => {
+    expect(computeLandingConflictStranded({ ...base, conflictSince: null })).toBe(false);
+    expect(computeLandingConflictStranded({ ...base, pauseReason: "cap" })).toBe(false);
+  });
+});
+
 // ── enrichLandingEpics ────────────────────────────────────────────────────────
 describe("enrichLandingEpics", () => {
   const baseEpic = (over: Partial<CompletedEpic> = {}): CompletedEpic => ({
@@ -365,6 +393,25 @@ describe("enrichLandingEpics", () => {
     });
     expect(rows[0]?.landingReady).toBe(false);
     expect(rows[0]?.landingStranded).toBe(false);
+  });
+
+  it("stale conflict pause → landingConflictStranded (#1841), cleared by a live repair", async () => {
+    const mk = () => [baseEpic({ landingRebasePauseReason: "conflict", landingConflictSince: 0 })];
+    const deps = (live: boolean) => ({
+      getEpicIntegrationBranch: () => "epic/7",
+      resolveForge: () => ({
+        kind: "local" as const,
+        prStatus: async () => prStatus({ mergeable: false }),
+      }),
+      hasLiveRepairSession: () => live,
+      now: EPIC_LANDING_STRANDED_MS + 1,
+    });
+    const rows = mk();
+    await enrichLandingEpics(rows, deps(false));
+    expect(rows[0]?.landingConflictStranded).toBe(true);
+    const repairing = mk();
+    await enrichLandingEpics(repairing, deps(true));
+    expect(repairing[0]?.landingConflictStranded).toBe(false);
   });
 
   it("landingState != 'open' → skipped, no live fields", async () => {

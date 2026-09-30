@@ -113,7 +113,8 @@ export interface NotifyInput {
   /** For kind "learnings_trialed": how many proposals the auto-trial sweep promoted. */
   trialedCount?: number;
   /** For kinds "backup_stale" / "onboarding_stale": whole hours since the newest
-   *  snapshot / completed run (for the body copy). */
+   *  snapshot / completed run (for the body copy). For "landing_conflict": set only on a stale
+   *  re-escalation (#1841) — whole hours the conflict pause has stood unresolved. */
   staleHours?: number;
   /** For kind "landing_conflict": the epic's parent issue number (subject of the body). */
   epicNumber?: number;
@@ -201,6 +202,10 @@ const NOTIFY_TEXT = {
       pr !== null
         ? `Epic #${epic}'s landing PR #${pr} has a conflict with the default branch — over to you.`
         : `Epic #${epic}'s landing PR has a conflict with the default branch — over to you.`,
+    landingConflictStaleBody: (epic: number, pr: number | null, h: number) =>
+      pr !== null
+        ? `Epic #${epic}'s landing PR #${pr} is still conflicted after ~${h}h — over to you.`
+        : `Epic #${epic}'s landing PR is still conflicted after ~${h}h — over to you.`,
     judgeCeilingTitle: "Judge daily limit reached",
     judgeCeilingBody: (spent: string, ceiling: string) =>
       `The stop classifier spent ${spent} of its ${ceiling} daily limit and is back on the agent spawn. Nothing is blocked.`,
@@ -261,6 +266,10 @@ const NOTIFY_TEXT = {
       pr !== null
         ? `Der Landing-PR #${pr} von Epic #${epic} hat einen Konflikt mit dem Standard-Branch — du bist dran.`
         : `Der Landing-PR von Epic #${epic} hat einen Konflikt mit dem Standard-Branch — du bist dran.`,
+    landingConflictStaleBody: (epic: number, pr: number | null, h: number) =>
+      pr !== null
+        ? `Der Landing-PR #${pr} von Epic #${epic} hat seit ~${h}h einen ungelösten Konflikt — du bist dran.`
+        : `Der Landing-PR von Epic #${epic} hat seit ~${h}h einen ungelösten Konflikt — du bist dran.`,
     judgeCeilingTitle: "Judge-Tageslimit erreicht",
     judgeCeilingBody: (spent: string, ceiling: string) =>
       `Der Stop-Klassifikator hat ${spent} von ${ceiling} Tagesbudget verbraucht und läuft wieder über den Agent-Spawn. Es ist nichts blockiert.`,
@@ -327,7 +336,14 @@ function mergeAttentionParts(t: NotifyText, input: NotifyInput): { title: string
 function landingConflictParts(t: NotifyText, input: NotifyInput): { title: string; body: string } {
   return {
     title: t.landingConflictTitle,
-    body: t.landingConflictBody(input.epicNumber ?? 0, input.landingPr ?? null),
+    body:
+      input.staleHours !== undefined
+        ? t.landingConflictStaleBody(
+            input.epicNumber ?? 0,
+            input.landingPr ?? null,
+            input.staleHours,
+          )
+        : t.landingConflictBody(input.epicNumber ?? 0, input.landingPr ?? null),
   };
 }
 

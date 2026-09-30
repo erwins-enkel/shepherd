@@ -2574,12 +2574,14 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     landingRepairCount: number;
     landingRepairHead: string | null;
     landingConflictReworkCount: number;
+    landingConflictSince: number | null;
+    landingConflictEscalatedAt: number | null;
   }[] {
     const sql = `SELECT repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson,
                 landingPrNumber, landingPrUrl, landingState, landingAttempts,
                 landingRebaseCount, landingRebaseDriverMisses, landingRebasePauseReason,
                 migrationPathsJson, migrationsAckedAt, landingRepairCount, landingRepairHead,
-                landingConflictReworkCount
+                landingConflictReworkCount, landingConflictSince, landingConflictEscalatedAt
          FROM epic_completed WHERE dismissedAt IS NULL`;
     type Raw = {
       repoPath: string;
@@ -2599,6 +2601,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       landingRepairCount: number;
       landingRepairHead: string | null;
       landingConflictReworkCount: number;
+      landingConflictSince: number | null;
+      landingConflictEscalatedAt: number | null;
     };
     const rows =
       repoPath !== undefined
@@ -2642,6 +2646,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       count?: number;
       driverMisses?: number;
       pauseReason?: "cap" | "conflict" | "driver" | null;
+      /** Clock for the conflict-since stamp (#1841); defaults to Date.now(). */
+      now?: number;
     },
   ): void {
     const sets: string[] = [];
@@ -2657,6 +2663,14 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     if ("pauseReason" in fields) {
       sets.push("landingRebasePauseReason = ?");
       vals.push(fields.pauseReason ?? null);
+      // #1841: stamp when the conflict pause began (kept across repeat conflict writes) and reset
+      // both conflict timestamps on any other reason/clear — drives the stale-conflict escalation.
+      if (fields.pauseReason === "conflict") {
+        sets.push("landingConflictSince = COALESCE(landingConflictSince, ?)");
+        vals.push(fields.now ?? Date.now());
+      } else {
+        sets.push("landingConflictSince = NULL", "landingConflictEscalatedAt = NULL");
+      }
     }
     if (sets.length === 0) return;
     vals.push(repoPath, parentIssueNumber);
@@ -2694,6 +2708,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       `UPDATE epic_completed SET landingConflictReworkCount = ?
        WHERE repoPath = ? AND parentIssueNumber = ?`,
       [count, repoPath, parentIssueNumber],
+    );
+  }
+
+  /** Record when a stale conflict pause was last re-escalated to the operator (#1841). Direct
+   *  UPDATE, mirroring {@link setEpicLandingPr}'s style; cleared with the pause itself. */
+  setEpicLandingConflictEscalatedAt(repoPath: string, parentIssueNumber: number, ts: number): void {
+    this.db.run(
+      `UPDATE epic_completed SET landingConflictEscalatedAt = ?
+       WHERE repoPath = ? AND parentIssueNumber = ?`,
+      [ts, repoPath, parentIssueNumber],
     );
   }
 
@@ -5456,6 +5480,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // #1841: lifetime conflict-rework dispatch count — its own budget, independent of the CI
     // repair counter above.
     add("landingConflictReworkCount", `landingConflictReworkCount INTEGER NOT NULL DEFAULT 0`);
+    // #1841: when the current conflict pause began + when it was last re-escalated (both null
+    // outside a conflict pause) — the stale-conflict chip/push clock.
+    add("landingConflictSince", `landingConflictSince INTEGER`);
+    add("landingConflictEscalatedAt", `landingConflictEscalatedAt INTEGER`);
   }
 
   /** Retained first-push CI columns (#2159) for a DB created before they existed. Both are

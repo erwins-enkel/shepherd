@@ -100,3 +100,35 @@ describe("IntegratedEpicLanding — Resolve conflicts (#1841)", () => {
     expect(desc).toContain("force-pushes");
   });
 });
+
+describe("IntegratedEpicLanding — stale conflict chip (#1841)", () => {
+  const chipText = () =>
+    [...document.querySelectorAll<HTMLElement>(".chip-stranded")].map((c) => c.textContent ?? "");
+
+  it("shows 'conflict unresolved' when the conflict pause is stranded", async () => {
+    render(
+      IntegratedEpicLanding,
+      props(
+        epic({
+          landingConflictStranded: true,
+          landingConflictSince: Date.now() - 7 * 60 * 60_000,
+        }),
+      ),
+    );
+    await vi.waitFor(() => {
+      if (!chipText().some((t) => t.includes("conflict unresolved for")))
+        throw new Error("no chip");
+    });
+  });
+
+  it("no chip when the conflict pause is not stranded", async () => {
+    render(
+      IntegratedEpicLanding,
+      props(epic({ landingConflictStranded: false, landingConflictSince: Date.now() })),
+    );
+    await vi.waitFor(() => {
+      if (!resolveBtn()) throw new Error("not rendered");
+    });
+    expect(chipText().some((t) => t.includes("conflict unresolved"))).toBe(false);
+  });
+});

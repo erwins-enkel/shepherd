@@ -34,6 +34,7 @@
     epicKey,
   } from "./issues-panel";
   import { childAsIssue, openBlockers } from "./epic-child";
+  import { progress } from "./epic-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
   import { viewerCache } from "$lib/viewer-cache.svelte";
   import { backlogRefresh } from "$lib/backlog-refresh.svelte";
@@ -555,11 +556,14 @@
     onnewtask(childAsIssue(child, openBlockers(child, epic.children), listed));
   }
 
-  // Repo overview entries (#2622): every epic and single in the repo, unfiltered.
+  // Repo overview entries (#2622): every epic and single in the repo, unfiltered. A loaded
+  // record's counts win over the list summary, as on the epic's list row.
   const overviewEpics = $derived(
     issues.flatMap((i) => {
       const summary = epicByNumber.get(i.number);
-      return summary ? [summary] : [];
+      if (!summary) return [];
+      const record = epicFor(i.number);
+      return [record ? { ...summary, ...progress(record.children) } : summary];
     }),
   );
   const overviewSingles = $derived(

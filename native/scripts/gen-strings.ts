@@ -642,6 +642,7 @@ export const KEYS_MERGE: readonly string[] = [
   "drain_paused_usage",
   "buildqueue_start",
   "buildqueue_start_steer",
+  "buildqueue_start_plan_steer",
   "clearmerged_confirm",
   "clearmerged_leftovers",
   "clearmerged_probes_unavailable",

@@ -187,7 +187,11 @@
         const updated = await approveBuildQueue(id);
         if (action === pending && sessionId === id) onbootstrap(updated);
       } else {
-        await replySession(id, m.buildqueue_start_steer());
+        // Phase-aware (#2608): only a session still in the plan gate is told to stop at the plan.
+        await replySession(
+          id,
+          planning ? m.buildqueue_start_plan_steer() : m.buildqueue_start_steer(),
+        );
       }
       pending.feedback = "sent";
     } catch {

@@ -3000,7 +3000,7 @@ test("resume respawns claude --resume in the worktree and re-points the agent", 
     spawnSettingsOverlay(),
     ...mcpArgs(s.id),
     "--append-system-prompt",
-    steerProvenanceBlock(),
+    resumeDirectives(),
     "--model",
     "opus",
   ]);
@@ -3040,14 +3040,14 @@ test("resume omits --model when the session had none", async () => {
     spawnSettingsOverlay(),
     ...mcpArgs(s.id),
     "--append-system-prompt",
-    steerProvenanceBlock(),
+    resumeDirectives(),
   ]);
 });
 
-// A Claude resume re-passes no directive set — only the steer-provenance notice (always; asserted
-// under the default "en" by the two exact-argv tests above) and, per #1624, the <operator-language>
-// block for a non-"en" operator. Both ride ONE --append-system-prompt: the flag is last-wins.
-test("resume re-appends steer-provenance + operator-language in one flag when operatorLanguage=de", async () => {
+// A Claude resume re-passes the FULL directive set (#2608) in ONE --append-system-prompt (the flag
+// is last-wins), read from the live config — so a non-"en" operator's <operator-language> block
+// (#1624) rides it like every other block.
+test("resume re-passes the full directive set, operator-language included, in one flag", async () => {
   const prev = config.operatorLanguage;
   config.operatorLanguage = "de";
   try {
@@ -3085,15 +3085,73 @@ test("resume re-appends steer-provenance + operator-language in one flag when op
       spawnSettingsOverlay(),
       ...mcpArgs(s.id),
       "--append-system-prompt",
-      `${steerProvenanceBlock()}\n\n${block}`,
+      resumeDirectives(),
     ]);
     expect(calls.argv.filter((a: string) => a === "--append-system-prompt")).toHaveLength(1);
-    // carries ONLY those two blocks — none of the fresh-spawn directive blocks
-    expect(block).toContain("<operator-language>");
-    expect(sysPrompt(calls.argv)).not.toContain("<engineering-posture>");
+    expect(calls.argv).not.toContain("--system-prompt-snapshot");
+    const sp = sysPrompt(calls.argv);
+    for (const tag of [
+      "engineering-posture",
+      "untrusted-content-boundary",
+      "steer-provenance-notice",
+    ])
+      expect(sp).toContain(`<${tag}>`);
+    expect(sp).toContain(block);
   } finally {
     config.operatorLanguage = prev;
   }
+});
+
+/** Resume `s` through a minimal service and return the argv herdr was started with. */
+async function resumeArgv(store: SessionStore, id: string): Promise<string[]> {
+  let argv: string[] = [];
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      remove: () => {},
+      branchExists: () => false,
+    } as any,
+    herdr: {
+      start: async (_n: string, _c: string, a: string[]) => {
+        argv = a;
+        return { terminalId: "term_new", agentStatus: "working" } as any;
+      },
+      list: () => [],
+      stop: async () => {},
+      send: () => {},
+    } as any,
+  });
+  await svc.resume(id);
+  return argv;
+}
+
+// #2608: a compaction re-renders the prompt from the RESUME argv, so the resume must carry the
+// directive set for the session's CURRENT phase — the plan-gate directive only while planning.
+test("resume carries the plan-gate directive only while the session is still planning", async () => {
+  const store = new SessionStore(":memory:");
+  const planning = resumable(store, { planPhase: "planning" });
+  const released = resumable(store, { planPhase: "executing" });
+  const planningPrompt = sysPrompt(await resumeArgv(store, planning.id));
+  const releasedPrompt = sysPrompt(await resumeArgv(store, released.id));
+  expect(planningPrompt).toContain("<plan-gate-directive>");
+  expect(releasedPrompt).not.toContain("<plan-gate-directive>");
+  for (const sp of [planningPrompt, releasedPrompt]) {
+    expect(sp).toContain("<untrusted-content-boundary>");
+    expect(sp).toContain("<steer-provenance-notice>");
+  }
+});
+
+test("resume re-renders the house rules injected at spawn without consuming the join rows", async () => {
+  const store = new SessionStore(":memory:");
+  const rule = store.addLearning({ repoPath: "/r", rule: "Use bun", rationale: "", evidence: [] });
+  const s = resumable(store);
+  store.recordInjectedLearnings(s.id, [rule.id]);
+  const block = houseRulesBlock(await resumeArgv(store, s.id));
+  expect(block).toContain("- Use bun");
+  expect(store.sessionInjectedLearningIds(s.id)).toEqual([rule.id]); // still there for attribution
 });
 
 test("resume uses the exact pinned conversation for codex sessions", async () => {
@@ -3207,7 +3265,7 @@ test("resume re-emits the persisted --effort for a Claude session", async () => 
     spawnSettingsOverlay(),
     ...mcpArgs(s.id),
     "--append-system-prompt",
-    steerProvenanceBlock(),
+    resumeDirectives(),
     "--model",
     "opus",
     "--effort",
@@ -4655,10 +4713,19 @@ function injectDeps(store: SessionStore, captured: { argv?: string[] }, isolated
   };
 }
 
-/** The `<steer-provenance-notice>` block exactly as the composer emits it — the one standing block
- *  a Claude resume re-passes. Read off the composer so spawn and resume are pinned to one text. */
-function steerProvenanceBlock(): string {
-  return composeSystemPromptBlocks(null).find((b) => b.name === "steer-provenance-notice")!.text;
+/** What a Claude resume of a plain `resumable()` session re-passes: the full directive set for an
+ *  isolated session with no plan gate, autopilot, build queue or house rules. Read off the composer
+ *  so spawn and resume are pinned to one text. */
+function resumeDirectives(): string {
+  return composeSystemPrompt(null, false, {
+    previewHint: true,
+    draftMode: false,
+    trimmed: false,
+    epicIntent: false,
+    branchRename: false,
+    agentProvider: "claude",
+    operatorLanguage: config.operatorLanguage,
+  });
 }
 
 /** The value passed to --append-system-prompt (the flag's following argv element). */
@@ -7799,7 +7866,7 @@ test("resume of a non-auto session stays untrimmed even with trim on", async () 
       spawnSettingsOverlay(),
       ...mcpArgs(s.id),
       "--append-system-prompt",
-      steerProvenanceBlock(),
+      resumeDirectives(),
     ]);
   } finally {
     config.trimAutoContext = prev;

@@ -11,6 +11,7 @@ import {
   EMPTY_COMPLETION_MESSAGE,
   rebaseSteer,
   REBASE_CAP_MESSAGE,
+  NUDGE_STALL_MESSAGE,
 } from "../src/autopilot";
 import { DRAFT_PR_NOTE } from "../src/service";
 
@@ -121,6 +122,8 @@ function harness(opts: {
   pollPrNow?: (setPr: (open: boolean) => void) => Promise<void>;
   /** Cap on the pollPrNow wait (default: the service's own). */
   prRecheckTimeoutMs?: number;
+  /** Tool-use evidence since the last nudge (the toolUseSince dep); omit to leave the dep unset. */
+  toolUseSince?: () => boolean | null;
 }) {
   let cur = opts.session;
   let prOpen = opts.openPr ?? false;
@@ -227,6 +230,7 @@ function harness(opts: {
     onComplete: (id, summary) => events.push({ complete: id, summary }),
     onState: (id) => events.push({ state: id }),
     stepCap: 10,
+    toolUseSince: opts.toolUseSince,
     rebaseCap: opts.rebaseCap ?? 5,
     now: () => opts.now ?? 0,
   });
@@ -2260,4 +2264,94 @@ test("fast path: an ineligible session never reaches the capacity gate", async (
     expect(calls).toBe(0);
     expect(h.events.some((e) => "steer" in e)).toBe(false);
   }
+});
+
+// ── fruitless-nudge backoff (#2608) ──────────────────────────────────────────
+
+const steers = (h: ReturnType<typeof harness>) => h.events.filter((e) => "steer" in e);
+
+test("two nudges in a row without tool use → hand back instead of a third", async () => {
+  const h = harness({
+    session: sess(),
+    verdict: { kind: "gate", summary: "asking to start" },
+    toolUseSince: () => false,
+  });
+  await h.svc.onBlock("s1", block());
+  await h.svc.onBlock("s1", block());
+  expect(steers(h)).toHaveLength(2);
+  expect(h.state().autopilotPaused).toBe(false);
+  await h.svc.onBlock("s1", block());
+  expect(steers(h)).toHaveLength(2);
+  expect(h.state().autopilotPaused).toBe(true);
+  expect(h.state().autopilotQuestion).toBe(NUDGE_STALL_MESSAGE);
+  expect(h.events).toContainEqual({ pause: "s1", q: NUDGE_STALL_MESSAGE });
+});
+
+test("tool use between nudges resets the fruitless streak", async () => {
+  let used = false;
+  const h = harness({
+    session: sess(),
+    verdict: { kind: "gate", summary: "asking to start" },
+    toolUseSince: () => used,
+  });
+  await h.svc.onBlock("s1", block());
+  await h.svc.onBlock("s1", block()); // fruitless 1
+  used = true;
+  await h.svc.onBlock("s1", block()); // worked → 0
+  used = false;
+  await h.svc.onBlock("s1", block()); // fruitless 1 again, still under the cap
+  expect(steers(h)).toHaveLength(4);
+  expect(h.state().autopilotPaused).toBe(false);
+});
+
+test("no hook evidence (null / dep unset) never trips the nudge backoff", async () => {
+  for (const toolUseSince of [() => null, undefined]) {
+    const h = harness({
+      session: sess(),
+      verdict: { kind: "gate", summary: "asking to start" },
+      toolUseSince,
+    });
+    for (let i = 0; i < 5; i++) await h.svc.onBlock("s1", block());
+    expect(steers(h)).toHaveLength(5);
+    expect(h.state().autopilotPaused).toBe(false);
+  }
+});
+
+test("the open-a-PR steer shares the fruitless streak with the proceed steer", async () => {
+  const h = harness({
+    session: sess(),
+    verdict: { kind: "finished", summary: "done, no PR" },
+    toolUseSince: () => false,
+  });
+  for (let i = 0; i < 3; i++) await h.svc.onBlock("s1", block(["I'm done."]));
+  expect(steers(h)).toEqual([{ steer: OPEN_PR_STEER_MAIN }, { steer: OPEN_PR_STEER_MAIN }]);
+  expect(h.state().autopilotQuestion).toBe(NUDGE_STALL_MESSAGE);
+});
+
+test("operator re-engage after a stall hand-back re-arms the nudge backoff", async () => {
+  const h = harness({
+    session: sess(),
+    verdict: { kind: "gate", summary: "asking to start" },
+    toolUseSince: () => false,
+  });
+  for (let i = 0; i < 3; i++) await h.svc.onBlock("s1", block());
+  expect(h.state().autopilotPaused).toBe(true);
+  h.svc.onStatus("s1", "running"); // operator replied
+  expect(h.state().autopilotPaused).toBe(false);
+  await h.svc.onBlock("s1", block());
+  await h.svc.onBlock("s1", block());
+  expect(steers(h)).toHaveLength(4);
+  expect(h.state().autopilotPaused).toBe(false);
+});
+
+test("a nudge that doesn't land is not counted toward the stall", async () => {
+  const h = harness({
+    session: sess(),
+    verdict: { kind: "gate", summary: "asking to start" },
+    toolUseSince: () => false,
+    steerOk: false,
+  });
+  for (let i = 0; i < 4; i++) await h.svc.onBlock("s1", block());
+  expect(h.state().autopilotPaused).toBe(false);
+  expect(h.state().autopilotStepCount).toBe(0);
 });

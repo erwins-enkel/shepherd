@@ -5960,6 +5960,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     }
   }
 
+  /** The learningIds recorded for a session, in injection order — a READ, unlike
+   *  takeSessionInjectedLearnings. Lets a resume re-render the house rules the session was
+   *  spawned with without consuming the rows its attribution still needs. */
+  sessionInjectedLearningIds(sessionId: string): string[] {
+    const rows = this.db
+      .query(`SELECT learningId FROM session_injected_learnings WHERE sessionId = ? ORDER BY rowid`)
+      .all(sessionId) as { learningId: string }[];
+    return rows.map((r) => r.learningId);
+  }
+
   /** Return and delete the learningIds recorded for a session. A second call returns []. */
   takeSessionInjectedLearnings(sessionId: string): string[] {
     const rows = this.db

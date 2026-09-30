@@ -45,6 +45,8 @@ struct MergeRulesTests {
         #expect(MergeRules.canStart(q, status: "blocked", planning: false, reviewBlocked: false, ended: false))
         #expect(!MergeRules.canStart(q, status: "running", planning: false, reviewBlocked: false, ended: false))
         #expect(!MergeRules.canStart(q, status: "idle", planning: true, reviewBlocked: true, ended: false))
+        #expect("\(MergeRules.startSteerKey(planning: true))" == "buildqueue_start_plan_steer")
+        #expect("\(MergeRules.startSteerKey(planning: false))" == "buildqueue_start_steer")
         #expect(!MergeRules.drifted(q, planning: true, openPR: false))
         #expect(MergeRules.drifted(q, planning: true, openPR: true))
         let awaiting = try queue(["pending"], approved: false)

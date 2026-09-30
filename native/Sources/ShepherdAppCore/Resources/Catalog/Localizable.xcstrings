@@ -858,19 +858,36 @@
         }
       }
     },
+    "buildqueue_start_plan_steer": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Build-Queue ist nur für die Planung freigegeben. Erstelle den Plan oder setze ihn fort und halte anschließend zur Prüfung an. Beginne keine Umsetzung, bevor der Plan freigegeben und die Ausführung ausdrücklich erlaubt wurde. Liegt der Plan bereits zur Prüfung vor, warte auf diese Freigabe."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The build queue is approved for planning only. Create or continue the plan, then stop for review. Do not implement until the plan is approved and execution is explicitly authorized. If the plan is already awaiting review, wait for that approval."
+          }
+        }
+      }
+    },
     "buildqueue_start_steer": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Die Build-Queue ist bereits freigegeben. Fahre mit dem nächsten zulässigen Schritt fort und halte den Queue-Fortschritt aktuell. Bei aktivem Plan-Gate darfst du nur den Plan erstellen oder fortsetzen und musst anschließend zur Prüfung anhalten. Beginne keine Umsetzung, bevor der Plan freigegeben und die Ausführung ausdrücklich erlaubt wurde. Liegt der Plan bereits zur Prüfung vor, warte auf diese Freigabe."
+            "value": "Die Build-Queue ist bereits freigegeben. Fahre jetzt mit dem nächsten Schritt fort und halte den Queue-Fortschritt aktuell."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The build queue is already approved. Continue with the next permitted step and keep queue progress updated. If the plan gate is active, only create or continue the plan, then stop for review. Do not implement until the plan is approved and execution is explicitly authorized. If the plan is already awaiting review, wait for that approval."
+            "value": "The build queue is already approved. Continue with the next step now and keep queue progress updated."
           }
         }
       }

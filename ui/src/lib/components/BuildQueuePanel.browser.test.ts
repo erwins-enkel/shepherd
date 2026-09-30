@@ -94,6 +94,33 @@ describe("BuildQueuePanel — approved queue start", () => {
   );
 });
 
+describe("BuildQueuePanel — start steer is phase-aware (#2608)", () => {
+  it.each([
+    ["planning", m.buildqueue_start_plan_steer()],
+    ["executing", m.buildqueue_start_steer()],
+    [null, m.buildqueue_start_steer()],
+  ] as const)("planPhase %s sends the matching steer", async (planPhase, steer) => {
+    vi.mocked(replySession).mockClear();
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: {
+        sessionId: "s1",
+        approved: true,
+        approvalKind: "auto",
+        steps: [{ id: "a", title: "Build it", status: "pending", position: 0 }],
+      },
+      onbootstrap: noop,
+      sessionStatus: "idle",
+      planPhase,
+    });
+    await page.getByRole("button", { name: m.buildqueue_start(), exact: true }).click();
+    expect(replySession).toHaveBeenCalledExactlyOnceWith("s1", steer);
+    // A released session must never be told to hold at the plan.
+    if (planPhase !== "planning") expect(steer).not.toMatch(/plan/i);
+  });
+});
+
 describe("BuildQueuePanel — action lifecycle", () => {
   const waiting: BuildQueue = {
     sessionId: "s1",

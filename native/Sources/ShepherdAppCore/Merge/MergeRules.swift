@@ -50,6 +50,11 @@ public enum MergeRules {
         && resolved(q) < q.steps.count && !(planning && reviewBlocked) && !ended
         && ["idle", "blocked", "done"].contains(status)
     }
+    /// Catalog key of the steer the Start button sends. Only a session still in the plan gate is
+    /// told to stop at the plan; a released one must not be held back (#2608).
+    public static func startSteerKey(planning: Bool) -> StaticString {
+        planning ? "buildqueue_start_plan_steer" : "buildqueue_start_steer"
+    }
     public static func owed(_ records: [PostMergeSteps], repos: Set<String>) -> [PostMergeSteps] {
         records.filter { $0.clearedAt == nil && (repos.isEmpty || repos.contains($0.repoPath)) }
     }

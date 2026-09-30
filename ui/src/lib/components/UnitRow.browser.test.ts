@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
@@ -7,6 +7,7 @@ import { projectIcons } from "$lib/projectIcons.svelte";
 import type { GitState, HoldReason, PlanGate, Session } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import type { ReviewVerdict } from "$lib/types";
+import { overwriteGetLocale } from "$lib/paraglide/runtime";
 
 // Mock api so the reviews store's load() never fires real network calls, and so the
 // hold-row CTA's three fail-closed calls (releasePlanGate/reviewPlan/resumeQuota) are
@@ -145,6 +146,118 @@ function loadPreviewMode(repoPath: string, mode: "ask" | "inline" | "tab" = "ask
   repoConfig.loaded = { ...repoConfig.loaded, [repoPath]: true };
   repoConfig.settled = { ...repoConfig.settled, [repoPath]: true };
 }
+
+describe("UnitRow desktop badge layout", () => {
+  let host: HTMLDivElement;
+  let viewport: { width: number; height: number };
+
+  beforeEach(async () => {
+    viewport = { width: window.innerWidth, height: window.innerHeight };
+    await page.viewport(1280, 900);
+    host = document.createElement("div");
+    host.className = "units";
+    host.style.container = "herd / inline-size";
+    document.body.appendChild(host);
+  });
+
+  afterEach(async () => {
+    host.remove();
+    overwriteGetLocale(() => "en");
+    await page.viewport(viewport.width, viewport.height);
+  });
+
+  async function mountRow(width: number, loaded = false, preview = false) {
+    host.style.width = `${width}px`;
+    const id = "badge-layout";
+    if (loaded) reviews.map = { [id]: { ...baseVerdict, sessionId: id } };
+    const onselect = vi.fn();
+    loadPreviewMode("/repo/a", "inline");
+    render(UnitRow, {
+      target: host,
+      props: {
+        session: session({
+          id,
+          agentProvider: "codex",
+          issueNumber: 72,
+          issueUrl: "https://example.test/issues/72",
+          planPhase: "planning",
+        }),
+        selected: false,
+        nowMs: 3 * 86_400_000,
+        onselect,
+        git: loaded ? openGreenGit() : undefined,
+        previewPort: preview ? 5174 : null,
+      },
+    });
+    await document.fonts.ready;
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const badges = [...host.querySelectorAll<HTMLElement>(".u-badges > *")].filter(
+      (el) => el.getBoundingClientRect().width > 0,
+    );
+    expect(badges).toHaveLength(loaded ? 5 : 3);
+    return { badges, onselect };
+  }
+
+  const centerY = (el: HTMLElement) => {
+    const rect = el.getBoundingClientRect();
+    return rect.top + rect.height / 2;
+  };
+
+  for (const locale of ["en", "de"] as const) {
+    it(`keeps three short badges on one desktop row [${locale}]`, async () => {
+      overwriteGetLocale(() => locale);
+      const { badges } = await mountRow(360);
+      for (const badge of badges.slice(1)) {
+        expect(Math.abs(centerY(badge) - centerY(badges[0]))).toBeLessThanOrEqual(1);
+      }
+    });
+
+    it.each([244, 300])(`wraps a loaded desktop row at %ipx [${locale}]`, async (width) => {
+      overwriteGetLocale(() => locale);
+      const { badges } = await mountRow(width, true, true);
+      expect(Math.abs(centerY(badges[1]) - centerY(badges[0]))).toBeLessThanOrEqual(1);
+      expect(centerY(badges.at(-1)!)).toBeGreaterThan(centerY(badges[0]) + 1);
+      const unit = host.querySelector<HTMLElement>(".unit")!;
+      const bounds = unit.getBoundingClientRect();
+      expect(unit.scrollWidth).toBeLessThanOrEqual(unit.clientWidth + 1);
+      for (const badge of [...badges, host.querySelector<HTMLElement>(".preview-badge")!]) {
+        const rect = badge.getBoundingClientRect();
+        expect(rect.left).toBeGreaterThanOrEqual(bounds.left);
+        expect(rect.right).toBeLessThanOrEqual(bounds.right);
+        await expect.element(badge).toBeVisible();
+      }
+      const clock = host.querySelector<HTMLElement>(".elapsed")!.getBoundingClientRect();
+      expect(clock.bottom).toBeLessThanOrEqual(badges[0].getBoundingClientRect().top);
+      const meta = host.querySelector<HTMLElement>(".meta")!.getBoundingClientRect();
+      expect(meta.top).toBeGreaterThanOrEqual(badges.at(-1)!.getBoundingClientRect().bottom);
+    });
+  }
+
+  it.each([
+    { width: 361, flow: false },
+    { width: 320, flow: true },
+  ])("preserves the vertical rail outside compact desktop (%j)", async ({ width, flow }) => {
+    host.classList.toggle("flow", flow);
+    const { badges } = await mountRow(width);
+    for (let i = 1; i < badges.length; i++) {
+      expect(badges[i].getBoundingClientRect().top).toBeGreaterThanOrEqual(
+        badges[i - 1].getBoundingClientRect().bottom,
+      );
+    }
+  });
+
+  it("keeps the compact issue link reachable above the row overlay", async () => {
+    const { onselect } = await mountRow(360);
+    const link = host.querySelector<HTMLAnchorElement>("a.issue-badge")!;
+    // Observe the real pointer click, but keep the test from opening an external tab.
+    const clicked = vi.fn((event: MouseEvent) => event.preventDefault());
+    link.addEventListener("click", clicked);
+    await page.getByRole("link", { name: m.issuebadge_open_label({ number: 72 }) }).click();
+    expect(clicked).toHaveBeenCalledOnce();
+    expect(link.href).toBe("https://example.test/issues/72");
+    expect(onselect).not.toHaveBeenCalled();
+  });
+});
 
 describe("UnitRow runtime environment", () => {
   it.each([

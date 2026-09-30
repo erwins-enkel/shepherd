@@ -2079,12 +2079,18 @@ export class DrainService {
    * quiescence means no live branch is built on the head being rewritten.
    *
    * Engaged-only (running, non-draft-mode), GitHub-only (the seam force-pushes to origin),
-   * repair-fenced, `landingInFlight`-serialized, and throttled per epic (1h; 6h after a conflict).
+   * repair-fenced, holds the repo's `pumping` slot (no spawn mid-rewrite), `landingInFlight`-
+   * serialized, and throttled per epic (1h; 6h after a conflict).
    * A genuine conflict is left un-pushed by the seam and only logged: NO store row, NO notify —
    * the landing-time rebase → conflict pause → rework/escalation path owns it. Whole body wrapped:
    * tick() calls its passes unguarded.
    */
   private async cadenceRebaseEpicBranchForRepo(repoPath: string): Promise<void> {
+    // Hold the repo's pump slot for the whole pass (quiescence check → force-push): an
+    // event-driven pump (status/review/git) outside tick() must not spawn a child from the
+    // pre-rebase head mid-rewrite. A pump already running ⇒ not quiescent-safe; skip this tick.
+    if (this.pumping.has(repoPath)) return;
+    this.pumping.add(repoPath);
     try {
       const target = await this.cadenceRebaseTarget(repoPath);
       if (!target) return;
@@ -2104,6 +2110,8 @@ export class DrainService {
       }
     } catch (err) {
       console.warn(`[drain] cadenceRebaseEpicBranchForRepo failed for ${repoPath}:`, err);
+    } finally {
+      this.pumping.delete(repoPath);
     }
   }
 

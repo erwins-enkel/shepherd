@@ -264,6 +264,39 @@ describe("cadenceRebaseEpicBranchForRepo (#1841)", () => {
     expect(h.notifies).toHaveLength(0);
   });
 
+  test("a pump already running for the repo → skip (no rebase)", async () => {
+    const h = makeHarness();
+    (h.drain as unknown as { pumping: Set<string> }).pumping.add(REPO);
+    await callPass(h);
+    expect(h.calls).toHaveLength(0);
+  });
+
+  test("holds the pump slot across the rebase: an event-driven pump mid-rewrite spawns nothing", async () => {
+    const h = makeHarness();
+    const d = h.drain as unknown as {
+      pumping: Set<string>;
+      pumpStep: () => Promise<boolean>;
+      rebaseLandingBranch: (...a: unknown[]) => Promise<LandingRebaseResult>;
+    };
+    let steps = 0;
+    d.pumpStep = async () => {
+      steps += 1;
+      return false;
+    };
+    let heldDuringRebase = false;
+    d.rebaseLandingBranch = async () => {
+      heldDuringRebase = d.pumping.has(REPO);
+      await h.drain.pump(REPO); // e.g. a status/review event lands mid-rebase
+      return { kind: "rebased", headSha: "abc" };
+    };
+    await callPass(h);
+    expect(heldDuringRebase).toBe(true);
+    expect(steps).toBe(0);
+    expect(d.pumping.has(REPO)).toBe(false); // released afterwards
+    await h.drain.pump(REPO);
+    expect(steps).toBe(1);
+  });
+
   test("tick() runs the cadence rebase before the pump", async () => {
     const h = makeHarness();
     const order: string[] = [];

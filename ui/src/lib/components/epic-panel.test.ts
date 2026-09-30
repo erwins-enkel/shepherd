@@ -4,11 +4,13 @@ import {
   epicHoldLine,
   epicRole,
   epicRunState,
+  epicRunStateLabel,
   epicRunSteps,
   progress,
   slotHeldBy,
   stateLabel,
 } from "./epic-panel";
+import { m } from "$lib/paraglide/messages";
 import type { DrainRunSummary, DrainStatus, EpicChild, EpicRunStatus } from "$lib/types";
 
 function drain(over: Partial<DrainStatus>): DrainStatus {
@@ -235,6 +237,14 @@ describe("epicRunState", () => {
 
   it("ignores a hold reason that belongs to another epic", () => {
     expect(epicRunState(epicB(), B, capDrain({ epicParent: 77 })).kind).toBe("running");
+  });
+});
+
+describe("epicRunStateLabel", () => {
+  it("labels each kind, naming the in-flight issues when winding down", () => {
+    expect(epicRunStateLabel("running", "")).toBe(m.epic_run_state_running());
+    expect(epicRunStateLabel("idle", "")).toBe(m.epic_run_state_idle());
+    expect(epicRunStateLabel("winding", "#7")).toBe(m.epic_run_state_winding({ inflight: "#7" }));
   });
 });
 

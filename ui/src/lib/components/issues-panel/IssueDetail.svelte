@@ -3,7 +3,9 @@
     DrainStatus,
     Epic,
     EpicSummary,
+    GitState,
     Issue,
+    Session,
     Steer,
     TaskRunDefaults,
     TaskRunSeed,
@@ -15,6 +17,7 @@
   import { epicRole, stateLabel } from "../epic-panel";
   import EpicPanel from "../EpicPanel.svelte";
   import EpicRunControl from "./EpicRunControl.svelte";
+  import EpicChildRun from "./EpicChildRun.svelte";
   import EpicFlowGraph from "./EpicFlowGraph.svelte";
   import EpicDiagnosisModal from "../EpicDiagnosisModal.svelte";
   import MarkdownBody from "../MarkdownBody.svelte";
@@ -25,7 +28,8 @@
   //  - single issue → head, the "Aufgabe" box, then the rendered description;
   //  - epic         → head (⋯ menu: Import / Diagnose), the sticky run area (#2620), the flow
   //                   graph (#2621), the EpicPanel's children, then the description;
-  //  - epic child   → head + description (child views follow in a later issue).
+  //  - epic child   → head (← Epic #n), its run area (#2622: standing / session / merged),
+  //                   then the description.
   let {
     repoPath,
     selection,
@@ -46,12 +50,16 @@
     onopensession = undefined,
     onopenautomation = undefined,
     onselectchild = undefined,
+    onselectepic = undefined,
+    onstartchild = undefined,
+    sessionInfo = undefined,
   }: {
     repoPath: string;
     selection: IssueSelection;
     /** Summary of the selected epic (epic selections only). */
     epicSummary?: EpicSummary;
-    /** Live/fetched record of the selected epic; undefined while it loads. */
+    /** Live/fetched record of the selected epic — or of a selected child's epic; undefined
+     *  while it loads. */
     epic?: Epic;
     drain?: DrainStatus | null;
     showAssignees?: boolean;
@@ -67,6 +75,12 @@
     onopenautomation?: () => void;
     /** Select an epic child in the list (a click on the flow graph). */
     onselectchild?: (parent: number, child: number) => void;
+    /** Select an epic in the list (a child's "← Epic #n"). */
+    onselectepic?: (parent: number) => void;
+    /** Open the New Task dialog for an epic child outside the epic's order. */
+    onstartchild?: (parent: number, child: number) => void;
+    /** A session and its PR state from the store, by id; null when unknown. */
+    sessionInfo?: (id: string) => { session: Session; git?: GitState } | null;
   } = $props();
 
   let showDiag = $state(false);
@@ -75,6 +89,12 @@
   function selectFlowChild(child: number) {
     if (selection.kind === "epic") onselectchild?.(selection.issue.number, child);
   }
+
+  const live = $derived(
+    selection.kind === "child" && selection.child.sessionId
+      ? (sessionInfo?.(selection.child.sessionId) ?? null)
+      : null,
+  );
 
   const othersFlag = $derived(selection.kind === "epic" ? epicFlagForOthers(epicSummary) : null);
   const role = $derived(
@@ -98,6 +118,9 @@
         title: c.title,
         url: c.url,
         labels: [stateLabel(c.state)],
+        back: onselectepic
+          ? { parent: selection.parent, onclick: () => onselectepic(selection.parent) }
+          : null,
       };
     }
     const i = selection.issue;
@@ -172,6 +195,20 @@
         <div class="muted">{m.common_loading()}</div>
       {/if}
     </div>
+  {:else if selection.kind === "child" && epic}
+    {@const parent = selection.parent}
+    {@const child = selection.child}
+    <EpicChildRun
+      {child}
+      {epic}
+      {drain}
+      {live}
+      {titleFor}
+      onstartanyway={onstartchild ? () => onstartchild(parent, child.number) : undefined}
+      onselectepic={onselectepic ? () => onselectepic(parent) : undefined}
+      onselectchild={onselectchild ? (n) => onselectchild(parent, n) : undefined}
+      {onopensession}
+    />
   {/if}
 
   <MarkdownBody source={selection.kind === "child" ? selection.child.body : selection.issue.body} />

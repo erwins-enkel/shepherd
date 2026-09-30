@@ -24,8 +24,16 @@ export type BannerState =
   | {
       show: true;
       phase: "in-flight";
-      tone: "calm" | "escalated";
-      copyKey: "reviewbanner_calm" | "reviewbanner_escalated";
+      tone: "calm" | "escalated" | "held";
+      copyKey: "reviewbanner_calm" | "reviewbanner_escalated" | "reviewbanner_held";
+    }
+  | {
+      // The operator cancelled the review; sticky until Restart, dismiss, or a new review starts.
+      show: true;
+      phase: "cancelled";
+      tone: "cancelled";
+      kind: ReviewKind;
+      copyKey: "reviewbanner_cancelled";
     }
   | {
       show: true;
@@ -128,6 +136,8 @@ export interface ReviewBannerInput {
   phase: "in-flight" | "conclusion";
   /** Sticky "operator typed during this review" flag (in-flight only). */
   escalated: boolean;
+  /** The operator is holding the in-flight review (wins over `escalated`). */
+  held: boolean;
   /** Critic in-flight gating: auto-address on for the repo. */
   autoAddressOn: boolean;
   /** Critic in-flight gating: latest verdict (for round/cap), if any. */
@@ -230,7 +240,20 @@ export function reviewBannerState(input: ReviewBannerInput): BannerState {
   if (input.kind === "critic" && !criticInFlightShows(input.autoAddressOn, input.verdict)) {
     return { show: false };
   }
+  if (input.held)
+    return { show: true, phase: "in-flight", tone: "held", copyKey: "reviewbanner_held" };
   return input.escalated
     ? { show: true, phase: "in-flight", tone: "escalated", copyKey: "reviewbanner_escalated" }
     : { show: true, phase: "in-flight", tone: "calm", copyKey: "reviewbanner_calm" };
+}
+
+/** The sticky tier shown after the operator cancelled a `kind` review. */
+export function cancelledBannerState(kind: ReviewKind): BannerState {
+  return {
+    show: true,
+    phase: "cancelled",
+    tone: "cancelled",
+    kind,
+    copyKey: "reviewbanner_cancelled",
+  };
 }

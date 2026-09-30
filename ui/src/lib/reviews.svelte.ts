@@ -41,6 +41,45 @@ function pushActivity(cur: string[] | undefined, summary: string): string[] {
   return [...feed, summary].slice(-MAX_ACTIVITY_LINES);
 }
 
+type InflightRow = { id: string; held?: boolean } & ReviewerEnv;
+
+/** The in-flight flags, held flags and reviewer envs an `…/inflight` bootstrap snapshot implies. */
+function inflightState(inflight: InflightRow[]) {
+  return {
+    reviewing: Object.fromEntries(inflight.map(({ id }) => [id, true])) as Record<string, boolean>,
+    held: Object.fromEntries(inflight.filter((r) => r.held).map(({ id }) => [id, true])) as Record<
+      string,
+      boolean
+    >,
+    reviewerEnv: Object.fromEntries(
+      inflight.map(({ id, provider, model, effort }) => [id, { provider, model, effort }]),
+    ) as Record<string, ReviewerEnv>,
+  };
+}
+
+/** Per-session "the operator is holding this review" flags (review banner "Anhalten"). Driven by
+ *  `session:review-held` + the inflight bootstrap, cleared on the run-end event (store.svelte.ts). */
+class HeldFlags {
+  map = $state<Record<string, boolean>>({});
+
+  set(id: string, on: boolean) {
+    // Reject a non-session-id key at the boundary (same guard as setActivity): `id` arrives over
+    // the socket, and the delete below is a computed-key write.
+    if (!SAFE_ID.test(id)) return;
+    if (!!this.map[id] === on) return;
+    if (on) this.map = setKey(this.map, id, true);
+    else {
+      const copy = { ...this.map };
+      delete copy[id];
+      this.map = copy;
+    }
+  }
+
+  has(id: string): boolean {
+    return !!this.map[id];
+  }
+}
+
 /** Client cache of critic verdicts keyed by session id. Loaded once on app start;
  *  live updates arrive via the `session:review` WS event (see store.svelte.ts). */
 class ReviewsStore {
@@ -55,6 +94,7 @@ class ReviewsStore {
   // ends of a reviewing transition (start + end) and wiped on bootstrap — see the staleness
   // invariant: no line from a prior run or from before a reconnect may leak into a later preview.
   activity = $state<Record<string, string[]>>({});
+  held = new HeldFlags();
 
   async load() {
     try {
@@ -65,16 +105,22 @@ class ReviewsStore {
     try {
       // Bootstrap both the in-flight indicator and reviewer identity after a reload.
       const inflight = await getReviewingIds();
-      this.reviewing = Object.fromEntries(inflight.map(({ id }) => [id, true]));
-      this.reviewerEnv = Object.fromEntries(
-        inflight.map(({ id, provider, model, effort }) => [id, { provider, model, effort }]),
-      );
+      ({
+        reviewing: this.reviewing,
+        held: this.held.map,
+        reviewerEnv: this.reviewerEnv,
+      } = inflightState(inflight));
       // Snapshot carries no historical activity → any pre-existing feed is stale after a resync.
       // Wipe it; the live feed rebuilds from `session:critic-activity` within ~1 tick.
       this.activity = {};
     } catch {
       /* best-effort; `session:reviewing` events still populate it */
     }
+  }
+
+  /** Held and still in flight (a stale flag from an ended run never reads as held). */
+  isHeld(id: string): boolean {
+    return this.held.has(id) && this.isReviewing(id);
   }
 
   apply(d: { id: string; review: ReviewVerdict | null }) {
@@ -179,16 +225,18 @@ export class PlanGateStore {
   // staleness invariant as ReviewsStore: reset on both ends of a reviewing transition and wiped
   // on bootstrap so no line from a prior run or from before a reconnect leaks into a later preview.
   activity = $state<Record<string, string[]>>({});
+  held = new HeldFlags();
 
   /** Bootstrap from a GET /api/plan-gates snapshot + GET /api/plan-gates/inflight,
    *  so a reload mid-review still shows verdicts, the in-flight indicator, AND which
    *  CLI/model is doing each review. */
-  bootstrap(map: Record<string, PlanGate>, inflight: Array<{ id: string } & ReviewerEnv>) {
+  bootstrap(map: Record<string, PlanGate>, inflight: InflightRow[]) {
     this.map = map;
-    this.reviewing = Object.fromEntries(inflight.map(({ id }) => [id, true]));
-    this.reviewerEnv = Object.fromEntries(
-      inflight.map(({ id, provider, model, effort }) => [id, { provider, model, effort }]),
-    );
+    ({
+      reviewing: this.reviewing,
+      held: this.held.map,
+      reviewerEnv: this.reviewerEnv,
+    } = inflightState(inflight));
     // Snapshot carries no historical activity → wipe any stale feed; it rebuilds from
     // `session:plangate-activity` within ~1 tick. Covers load() (which calls through here).
     this.activity = {};
@@ -197,7 +245,7 @@ export class PlanGateStore {
   /** Re-fetch the snapshot + in-flight ids from the server (best-effort). */
   async load() {
     let map: Record<string, PlanGate> = {};
-    let inflight: Array<{ id: string } & ReviewerEnv> = [];
+    let inflight: InflightRow[] = [];
     try {
       map = await getPlanGates();
     } catch {
@@ -209,6 +257,10 @@ export class PlanGateStore {
       /* best-effort; `session:plangate-reviewing` events still populate it */
     }
     this.bootstrap(map, inflight);
+  }
+
+  isHeld(id: string): boolean {
+    return this.held.has(id) && this.isReviewing(id); // see ReviewsStore.isHeld
   }
 
   apply(id: string, gate: PlanGate) {

@@ -681,9 +681,13 @@ export class HerdStore {
         return true;
       case "session:reviewing":
         reviews.setReviewing(ev.data.id, ev.data.reviewing, ev.data.env);
+        if (!ev.data.reviewing) reviews.held.set(ev.data.id, false);
         return true;
       case "session:critic-activity":
         reviews.setActivity(ev.data.id, ev.data.summary);
+        return true;
+      case "session:review-held":
+        (ev.data.kind === "plangate" ? planGates : reviews).held.set(ev.data.id, ev.data.held);
         return true;
       case "session:plangate":
         // Emitted two ways: a fresh verdict carries `gate`; a phase flip carries `planPhase`.
@@ -692,6 +696,7 @@ export class HerdStore {
         return true;
       case "session:plangate-reviewing":
         planGates.applyReviewing(ev.data.id, ev.data.reviewing, ev.data.env);
+        if (!ev.data.reviewing) planGates.held.set(ev.data.id, false);
         return true;
       case "session:plangate-activity":
         planGates.setActivity(ev.data.id, ev.data.summary);

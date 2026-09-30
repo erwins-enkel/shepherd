@@ -1,9 +1,15 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../../app.css";
 import { m } from "$lib/paraglide/messages";
 import { reviews, planGates, repoConfig } from "$lib/reviews.svelte";
 import type { PlanGate, ReviewVerdict } from "$lib/types";
+import { cancelReview, holdReview, reviewPlan } from "$lib/api";
+
+vi.mock("$lib/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("$lib/api")>();
+  return { ...actual, holdReview: vi.fn(), cancelReview: vi.fn(), reviewPlan: vi.fn() };
+});
 
 const { default: ReviewInFlightBanner } = await import("./ReviewInFlightBanner.svelte");
 
@@ -70,7 +76,10 @@ beforeEach(() => {
   planGates.reviewing = {};
   planGates.reviewerEnv = {};
   planGates.activity = {};
+  planGates.held.map = {};
+  reviews.held.map = {};
   repoConfig.autoAddress = {};
+  vi.clearAllMocks();
   repoConfig.autopilot = {};
 });
 
@@ -245,5 +254,81 @@ describe("ReviewInFlightBanner — sticky escalation on operator input", () => {
 
     await rerender(props({ keystrokes: 1 }) as never);
     await expect.poll(() => banner()?.getAttribute("data-tone")).toBe("escalated");
+  });
+});
+
+const button = (label: string) =>
+  [...document.querySelectorAll<HTMLButtonElement>(".rb-btn")].find((b) =>
+    b.textContent?.includes(label),
+  );
+
+describe("ReviewInFlightBanner — hold / cancel / restart", () => {
+  it("offers Hold + Cancel in the calm and the escalated tier", async () => {
+    planGates.applyReviewing(ID, true);
+    const { rerender } = await render(ReviewInFlightBanner, props() as never);
+    await expect.poll(() => button(m.reviewbanner_hold())).toBeTruthy();
+    expect(button(m.reviewbanner_cancel())).toBeTruthy();
+    await rerender(props({ keystrokes: 1 }) as never);
+    await expect.poll(() => banner()?.getAttribute("data-tone")).toBe("escalated");
+    expect(button(m.reviewbanner_hold())).toBeTruthy();
+  });
+
+  it("Hold → held tier with Resume; Resume releases it", async () => {
+    vi.mocked(holdReview).mockResolvedValue();
+    planGates.applyReviewing(ID, true);
+    await render(ReviewInFlightBanner, props() as never);
+    await expect.poll(() => button(m.reviewbanner_hold())).toBeTruthy();
+    button(m.reviewbanner_hold())!.click();
+    await expect.poll(() => banner()?.getAttribute("data-tone")).toBe("held");
+    expect(holdReview).toHaveBeenCalledWith(ID, true);
+    expect(banner()?.textContent).toContain(m.reviewbanner_held());
+
+    button(m.reviewbanner_resume())!.click();
+    await expect.poll(() => banner()?.getAttribute("data-tone")).toBe("calm");
+    expect(holdReview).toHaveBeenLastCalledWith(ID, false);
+  });
+
+  it("Cancel → cancelled tier (no conclusion flash); Restart re-runs the review", async () => {
+    vi.mocked(cancelReview).mockImplementation(async () => {
+      planGates.applyReviewing(ID, false); // the socket's run-end edge, before the HTTP reply
+    });
+    vi.mocked(reviewPlan).mockResolvedValue("started");
+    planGates.map = { [ID]: approvedGate() }; // would otherwise conclude as "awaiting-go"
+    planGates.applyReviewing(ID, true);
+    await render(ReviewInFlightBanner, props() as never);
+    await expect.poll(() => button(m.reviewbanner_cancel())).toBeTruthy();
+    button(m.reviewbanner_cancel())!.click();
+    await expect.poll(() => banner()?.getAttribute("data-phase")).toBe("cancelled");
+    expect(banner()?.textContent).toContain(m.reviewbanner_cancelled());
+
+    button(m.reviewbanner_restart())!.click();
+    await expect.poll(() => reviewPlan).toHaveBeenCalledWith(ID);
+    await expect.poll(() => banner()).toBeNull();
+  });
+
+  it("a failed cancel shows the error and keeps the review running", async () => {
+    vi.mocked(cancelReview).mockRejectedValue(new Error("review is finalizing"));
+    planGates.applyReviewing(ID, true);
+    await render(ReviewInFlightBanner, props() as never);
+    await expect.poll(() => button(m.reviewbanner_cancel())).toBeTruthy();
+    button(m.reviewbanner_cancel())!.click();
+    await expect
+      .poll(() => document.querySelector(".rb-error")?.textContent)
+      .toContain("review is finalizing");
+    expect(banner()?.getAttribute("data-phase")).toBe("in-flight");
+  });
+
+  it("dismiss clears the cancelled tier", async () => {
+    vi.mocked(cancelReview).mockResolvedValue();
+    planGates.applyReviewing(ID, true);
+    await render(ReviewInFlightBanner, props() as never);
+    await expect.poll(() => button(m.reviewbanner_cancel())).toBeTruthy();
+    button(m.reviewbanner_cancel())!.click();
+    planGates.applyReviewing(ID, false);
+    await expect.poll(() => banner()?.getAttribute("data-phase")).toBe("cancelled");
+    document
+      .querySelector<HTMLButtonElement>(`[aria-label="${m.reviewbanner_dismiss()}"]`)!
+      .click();
+    await expect.poll(() => banner()).toBeNull();
   });
 });

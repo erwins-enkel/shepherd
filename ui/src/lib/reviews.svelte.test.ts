@@ -85,10 +85,12 @@ beforeEach(() => {
   reviews.reviewing = {};
   reviews.reviewerEnv = {};
   reviews.activity = {};
+  reviews.held.map = {};
   planGates.map = {};
   planGates.reviewing = {};
   planGates.reviewerEnv = {};
   planGates.activity = {};
+  planGates.held.map = {};
   repoConfig.enabled = {};
   repoConfig.autoAddress = {};
   repoConfig.learnings = {};
@@ -908,4 +910,40 @@ test("setActivity survives a hostile inherited-property id (constructor/toString
   // a real id still accumulates normally after the hostile traffic
   reviews.setActivity("sess-ok", "line one");
   expect(reviews.activityFeed("sess-ok")).toEqual(["line one"]);
+});
+
+test("held flag toggles and never outlives the run (critic + plan)", () => {
+  for (const store of [reviews, planGates] as const) {
+    const on = (id: string, v: boolean) =>
+      store === reviews ? reviews.setReviewing(id, v) : planGates.applyReviewing(id, v);
+    on("s1", true);
+    store.held.set("s1", true);
+    expect(store.isHeld("s1")).toBe(true);
+    store.held.set("s1", false);
+    expect(store.isHeld("s1")).toBe(false);
+    store.held.set("s1", true);
+    on("s1", false);
+    expect(store.isHeld("s1")).toBe(false); // an ended run never reads as held
+  }
+});
+
+test("inflight bootstrap restores the held flag", async () => {
+  vi.mocked(getReviews).mockResolvedValue({});
+  vi.mocked(getReviewingIds).mockResolvedValue([
+    { id: "s1", provider: "claude", model: null, effort: null, held: true },
+    { id: "s2", provider: "claude", model: null, effort: null },
+  ]);
+  await reviews.load();
+  expect(reviews.isHeld("s1")).toBe(true);
+  expect(reviews.isHeld("s2")).toBe(false);
+
+  planGates.bootstrap({}, [{ id: "s3", provider: null, model: null, effort: null, held: true }]);
+  expect(planGates.isHeld("s3")).toBe(true);
+});
+
+test("held flags ignore a non-session-id key", () => {
+  reviews.held.set("__proto__", true);
+  reviews.held.set("constructor", false);
+  expect(reviews.held.map).toEqual({});
+  expect(Object.prototype).not.toHaveProperty("true");
 });

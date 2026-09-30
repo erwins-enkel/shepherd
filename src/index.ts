@@ -1742,6 +1742,7 @@ const reviewService = new ReviewService({
   onSpawnNotice: (id) =>
     events.emit("session:spawn-notices", { id, notices: store.listSpawnNotices(id) }),
   onReviewing: (id, reviewing, env) => events.emit("session:reviewing", { id, reviewing, env }),
+  onHeld: (id, held) => events.emit("session:review-held", { id, kind: "critic", held }),
   onActivity: (id, summary) => events.emit("session:critic-activity", { id, summary }),
   // auto-address: steer critic findings straight into the task agent's PTY (same path
   // as a human "send review to agent"). Gated per-repo by autoAddressEnabled; the
@@ -1850,6 +1851,7 @@ const planGate = new PlanGateService({
     events.emit("session:spawn-notices", { id, notices: store.listSpawnNotices(id) }),
   onReviewing: (id, reviewing, env) =>
     events.emit("session:plangate-reviewing", { id, reviewing, env }),
+  onHeld: (id, held) => events.emit("session:review-held", { id, kind: "plangate", held }),
   onActivity: (id, summary) => events.emit("session:plangate-activity", { id, summary }),
   cap: () => config.planReviewCyclesCap,
 });
@@ -3777,6 +3779,16 @@ const appDeps: AppDeps = {
     consider: (s, opts) => planGate.consider(s, opts),
     resume: (s) => planGate.resume(s),
     dismiss: (s) => planGate.dismiss(s),
+  },
+  // Critic and plan review are never in flight together, so each action goes to whichever holds it.
+  reviewControl: {
+    hold: (id, held) =>
+      reviewService.setHeld(id, held) ? "critic" : planGate.setHeld(id, held) ? "plangate" : null,
+    cancel: async (id) => {
+      const status = await reviewService.cancel(id);
+      if (status !== "none") return { kind: "critic", status };
+      return { kind: "plangate", status: await planGate.cancel(id) };
+    },
   },
   reviewTrigger: {
     force: (s, g) => reviewService.forceReview(s, g),

@@ -6,10 +6,19 @@
   import {
     activeReworkBannerState,
     reviewBannerState,
+    cancelledBannerState,
     criticConclusionShows,
     type BannerState,
     type ReviewKind,
   } from "$lib/review-banner";
+  import { cancelReview, holdReview, planReviewStarted, reviewPlan, reviewPr } from "$lib/api";
+  import { statusTip } from "$lib/tooltips/statusTip.svelte";
+  import {
+    reviewCancelExplanation,
+    reviewHoldExplanation,
+    reviewRestartExplanation,
+    reviewResumeExplanation,
+  } from "$lib/tooltips/explanations";
   import { planStallStatus } from "$lib/plan-status";
   import { addressStallStatus } from "$lib/review-status";
   import { clock } from "$lib/now.svelte";
@@ -18,8 +27,8 @@
   // Non-blocking signal that an in-flight PR-critic / plan-gate review may steer
   // this session when it concludes (issue #1022). Shown only when a paste could
   // actually land per current toggles; escalates if the operator types mid-review;
-  // flips to a brief auto-dismissing conclusion tier. The future stage-and-apply
-  // guard is out of scope — this is the signal only.
+  // flips to a brief auto-dismissing conclusion tier. The operator can hold the review (its
+  // result waits for Resume) or cancel it (then Restart), from any in-flight tier.
   let {
     session,
     dStatus,
@@ -76,6 +85,15 @@
         ? planGates.reviewerEnvFor(session.id)
         : null,
   );
+  // Operator hold of the live review (server-driven via `session:review-held`).
+  const held = $derived(
+    liveKind === "critic"
+      ? reviews.isHeld(session.id)
+      : liveKind === "plangate"
+        ? planGates.isHeld(session.id)
+        : false,
+  );
+
   const reviewerIdentity = $derived(
     reviewerEnv?.provider
       ? environmentLabel(reviewerEnv.provider, reviewerEnv.model, reviewerEnv.effort)
@@ -93,6 +111,13 @@
   // they neither leak as effect deps nor force re-runs.
   let escalated = $state(false);
   let conclusion = $state<BannerState | null>(null);
+  // Sticky "cancelled" tier: the kind the operator cancelled, until Restart / dismiss / a new run.
+  let cancelled = $state<ReviewKind | null>(null);
+  let pending = $state(false);
+  let actionError = $state<string | null>(null);
+  // Set before the cancel request so the run-end edge it causes (which may arrive over the socket
+  // before OR after the HTTP reply) becomes the cancelled tier, not a "nothing pasted" flash.
+  let cancelRequested = false;
 
   let prevInFlight = false;
   let snapshotRound = 0;
@@ -131,6 +156,7 @@
       kind,
       phase: "conclusion",
       escalated: false,
+      held: false,
       autoAddressOn: repoConfig.autoAddress[session.repoPath] ?? false,
       verdict: isPlan ? undefined : reviews.map[session.id],
       decision: verdict.decision,
@@ -141,25 +167,37 @@
     conclusionTimer = setTimeout(() => (conclusion = null), 4000);
   }
 
+  // A run starts: snapshot the prior round + keystrokes and clear every per-run tier.
+  function onRunStart() {
+    entryKind = criticReviewing ? "critic" : "plangate";
+    snapshotRound =
+      entryKind === "critic"
+        ? (reviews.map[session.id]?.addressRound ?? 0)
+        : (planGates.map[session.id]?.round ?? 0);
+    snapshotKeystrokes = keystrokes;
+    escalated = false;
+    clearTimeout(conclusionTimer);
+    conclusion = null;
+    cancelled = null;
+    actionError = null;
+    cancelRequested = false;
+  }
+
+  // A run ends: the operator's own cancel becomes the cancelled tier, anything else concludes.
+  function onRunEnd() {
+    if (!cancelRequested) return resolveConclusion(entryKind);
+    cancelRequested = false;
+    cancelled = entryKind;
+  }
+
   // Transition tracker: treats the FIRST observation of in-flight as an entry
   // (prevInFlight starts false), so a mount mid-review (page reload / terminal
   // opened while a review runs) snapshots the prior round correctly instead of
   // later reporting a false "nothing pasted". Also drives sticky escalation.
   $effect(() => {
     const nowInFlight = criticReviewing || planReviewing;
-    if (nowInFlight && !prevInFlight) {
-      entryKind = criticReviewing ? "critic" : "plangate";
-      snapshotRound =
-        entryKind === "critic"
-          ? (reviews.map[session.id]?.addressRound ?? 0)
-          : (planGates.map[session.id]?.round ?? 0);
-      snapshotKeystrokes = keystrokes;
-      escalated = false;
-      clearTimeout(conclusionTimer);
-      conclusion = null;
-    } else if (!nowInFlight && prevInFlight) {
-      resolveConclusion(entryKind);
-    }
+    if (nowInFlight && !prevInFlight) onRunStart();
+    else if (!nowInFlight && prevInFlight) onRunEnd();
     prevInFlight = nowInFlight;
     // sticky escalation: any keystroke after the entry snapshot, while in-flight
     if (nowInFlight && keystrokes > snapshotKeystrokes) escalated = true;
@@ -173,6 +211,7 @@
       kind: liveKind,
       phase: "in-flight",
       escalated,
+      held,
       autoAddressOn: repoConfig.autoAddress[session.repoPath] ?? false,
       verdict: reviews.map[session.id],
       decision: undefined,
@@ -202,8 +241,78 @@
   );
 
   const view = $derived<BannerState>(
-    conclusion ?? (liveReviewView.show ? liveReviewView : activeReworkView),
+    conclusion ??
+      (liveReviewView.show
+        ? liveReviewView
+        : cancelled
+          ? cancelledBannerState(cancelled)
+          : activeReworkView),
   );
+
+  async function act(action: () => Promise<void>) {
+    if (pending) return;
+    pending = true;
+    actionError = null;
+    try {
+      await action();
+    } catch (e) {
+      actionError = m.reviewbanner_action_failed({
+        error: e instanceof Error ? e.message : String(e),
+      });
+    } finally {
+      pending = false;
+    }
+  }
+
+  function toggleHold() {
+    const kind = liveKind;
+    const next = !held;
+    void act(async () => {
+      await holdReview(session.id, next);
+      // Reflect at once; the `session:review-held` echo is idempotent.
+      if (kind) (kind === "plangate" ? planGates : reviews).held.set(session.id, next);
+    });
+  }
+
+  function cancel() {
+    const kind = liveKind;
+    if (!kind) return;
+    cancelRequested = true;
+    void act(async () => {
+      try {
+        await cancelReview(session.id);
+        cancelled = kind;
+      } catch (e) {
+        cancelRequested = false;
+        // The run ended on its own (e.g. it was already finalizing): show its real conclusion.
+        if (cancelled) {
+          cancelled = null;
+          resolveConclusion(kind);
+        }
+        throw e;
+      }
+    });
+  }
+
+  function restart() {
+    const kind = cancelled;
+    if (!kind) return;
+    void act(async () => {
+      if (kind === "critic") {
+        const status = await reviewPr(session.id);
+        if (status !== "started") throw new Error(status);
+      } else {
+        const status = await reviewPlan(session.id);
+        if (!planReviewStarted(status)) throw new Error(status);
+      }
+      cancelled = null;
+    });
+  }
+
+  function dismissCancelled() {
+    cancelled = null;
+    actionError = null;
+  }
 
   function bannerText(s: BannerState): string {
     if (!s.show) return "";
@@ -222,6 +331,10 @@
         return m.reviewbanner_calm();
       case "reviewbanner_escalated":
         return m.reviewbanner_escalated();
+      case "reviewbanner_held":
+        return m.reviewbanner_held();
+      case "reviewbanner_cancelled":
+        return m.reviewbanner_cancelled();
       case "reviewbanner_pasted":
         return m.reviewbanner_pasted();
       case "reviewbanner_nothing":
@@ -235,16 +348,27 @@
     }
   }
 
-  // ✓ for a clean/delivered conclusion; ⚠ for the in-flight warning and errors.
+  // ✓ for a clean/delivered conclusion; ✕ once cancelled; ⚠ for the in-flight warning and errors.
   const icon = $derived(
-    view.show && view.phase === "conclusion" && view.tone !== "errored" ? "✓" : "⚠",
+    view.show && view.phase === "conclusion" && view.tone !== "errored"
+      ? "✓"
+      : view.show && view.phase === "cancelled"
+        ? "✕"
+        : "⚠",
+  );
+  const isHeldView = $derived(view.show && view.phase === "in-flight" && view.tone === "held");
+  // Reviewer identity line; while held it also says the reviewer is still working.
+  const envLine = $derived(
+    isHeldView
+      ? [reviewerIdentity, m.reviewbanner_held_running()].filter(Boolean).join(" · ")
+      : reviewerIdentity,
   );
 
   // While a review is running or the task agent is actively addressing REWORK,
   // lead with a rotating gear ("work is happening") instead of the static ⚠. The
   // brief conclusion tiers keep the static icon above — nothing is running there.
   const spinning = $derived(
-    view.show && (view.phase === "in-flight" || view.phase === "addressing"),
+    view.show && !isHeldView && (view.phase === "in-flight" || view.phase === "addressing"),
   );
 
   // Publish the banner's occupied height so the floating jump-to-latest button can
@@ -261,7 +385,9 @@
     if (active !== shown) active = shown; // logical occupancy signal for a sibling status banner (pre-paint)
     // Terminal-dim signal: only the in-flight tier (review runs off-screen, PTY idle). Narrowed
     // off `view` directly so TS sees the discriminant; NOT during addressing/conclusion.
-    const preview = view.show && view.phase === "in-flight" && tab === "term";
+    // Not while held: the operator holds a review precisely so they can work in the terminal.
+    const preview =
+      view.show && view.phase === "in-flight" && view.tone !== "held" && tab === "term";
     if (inflight !== preview) inflight = preview;
     if (!shown) {
       height = 0; // hidden branch: reset (the only place height is zeroed)
@@ -270,6 +396,26 @@
     if (bannerEl) height = bannerEl.offsetHeight; // shown: seed pre-paint; never writes 0
   });
 </script>
+
+{#snippet pauseIcon(cls?: string)}
+  <svg class={cls} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <rect x="6" y="5" width="4" height="14" rx="1" />
+    <rect x="14" y="5" width="4" height="14" rx="1" />
+  </svg>
+{/snippet}
+
+{#snippet crossIcon()}
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2.2"
+    stroke-linecap="round"
+    aria-hidden="true"
+  >
+    <path d="M6 6l12 12M18 6L6 18" />
+  </svg>
+{/snippet}
 
 {#if view.show && tab === "term"}
   <div
@@ -302,15 +448,92 @@
             d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
           />
         </svg>
+      {:else if isHeldView}
+        {@render pauseIcon("rb-pause")}
       {:else}
         <span class="rb-icon" aria-hidden="true">{icon}</span>
       {/if}
       <span class="rb-copy">
         <span class="rb-text">{bannerText(view)}</span>
-        {#if view.phase === "in-flight" && reviewerIdentity}
-          <span class="rb-env">{reviewerIdentity}</span>
+        {#if view.phase === "in-flight" && envLine}
+          <span class="rb-env">{envLine}</span>
+        {:else if view.phase === "cancelled"}
+          <span class="rb-env">{m.reviewbanner_cancelled_hint()}</span>
+        {/if}
+        {#if actionError}
+          <span class="rb-error" role="alert">{actionError}</span>
         {/if}
       </span>
+      {#if view.phase === "in-flight"}
+        <span class="rb-actions">
+          <button
+            type="button"
+            class="rb-btn"
+            class:primary={view.tone !== "calm"}
+            disabled={pending}
+            onclick={toggleHold}
+            use:coachTarget={"review-hold"}
+            use:statusTip={{
+              text: isHeldView ? reviewResumeExplanation() : reviewHoldExplanation(),
+              stopClickPropagation: false,
+            }}
+          >
+            {#if isHeldView}
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path
+                  d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5z"
+                />
+              </svg>
+              {m.reviewbanner_resume()}
+            {:else}
+              {@render pauseIcon()}
+              {m.reviewbanner_hold()}
+            {/if}
+          </button>
+          <button
+            type="button"
+            class="rb-btn danger"
+            disabled={pending}
+            onclick={cancel}
+            use:statusTip={{ text: reviewCancelExplanation(), stopClickPropagation: false }}
+          >
+            {@render crossIcon()}
+            {m.reviewbanner_cancel()}
+          </button>
+        </span>
+      {:else if view.phase === "cancelled"}
+        <span class="rb-actions">
+          <button
+            type="button"
+            class="rb-btn"
+            disabled={pending}
+            onclick={restart}
+            use:statusTip={{ text: reviewRestartExplanation(), stopClickPropagation: false }}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+              <path d="M3 3v5h5" />
+            </svg>
+            {m.reviewbanner_restart()}
+          </button>
+          <button
+            type="button"
+            class="rb-btn icon"
+            aria-label={m.reviewbanner_dismiss()}
+            onclick={dismissCancelled}
+          >
+            {@render crossIcon()}
+          </button>
+        </span>
+      {/if}
     </div>
     {#if view.show && view.phase === "in-flight"}
       <!-- Live "tail -f" of the off-screen reviewer's actions. Reserves MAX_ACTIVITY_LINES rows
@@ -374,7 +597,8 @@
      message reads taller + larger, while the short-lived conclusion tiers keep
      the compact base size above. */
   .review-banner[data-phase="in-flight"],
-  .review-banner[data-phase="addressing"] {
+  .review-banner[data-phase="addressing"],
+  .review-banner[data-phase="cancelled"] {
     padding: 9px 12px;
     font-size: var(--fs-base);
   }
@@ -391,7 +615,76 @@
   .rb-copy {
     display: flex;
     flex-direction: column;
+    flex: 1 1 auto;
     min-width: 0;
+  }
+  .rb-error {
+    color: var(--color-red);
+    font-size: var(--fs-meta);
+    line-height: 1.3;
+  }
+  /* Hold / cancel / restart — the .gbtn recipe (see /design-system), tinted to the tone accent. */
+  .rb-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+    margin-left: auto;
+  }
+  .rb-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--color-line));
+    border-radius: 2px;
+    color: var(--color-ink-bright);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.04em;
+    padding: 4px 9px;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .rb-btn svg {
+    width: 12px;
+    height: 12px;
+    flex-shrink: 0;
+  }
+  .rb-btn:hover:not(:disabled) {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .rb-btn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--accent);
+  }
+  .rb-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .rb-btn.primary {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+  .rb-btn.danger {
+    color: var(--color-red);
+    border-color: color-mix(in srgb, var(--color-red) 45%, var(--color-line));
+  }
+  .rb-btn.danger:hover:not(:disabled) {
+    border-color: var(--color-red);
+    color: var(--color-red);
+  }
+  .rb-btn.icon {
+    padding: 4px;
+    border-color: transparent;
+    color: var(--color-muted);
+  }
+  .rb-pause {
+    flex-shrink: 0;
+    width: 16px;
+    height: 16px;
+    color: var(--accent);
   }
   .rb-env {
     color: var(--color-muted);
@@ -480,6 +773,13 @@
   }
   .review-banner[data-tone="escalated"] {
     --accent: var(--color-warn);
+  }
+  /* Held = "your turn, the review waits": a cool blue, distinct from the amber/orange warnings. */
+  .review-banner[data-tone="held"] {
+    --accent: var(--color-blue);
+  }
+  .review-banner[data-tone="cancelled"] {
+    --accent: var(--status-done);
   }
   .review-banner[data-tone="pasted"],
   .review-banner[data-tone="released"] {

@@ -498,6 +498,15 @@ export interface AppDeps {
     /** Reset the plan-gate round WITHOUT re-delivering findings (dismiss the quota block). */
     dismiss?(session: Session): void;
   };
+  /** Operator hold / cancel of whichever review (critic or plan gate) is in flight for a session
+   *  (the POST /review-hold and /review-cancel routes). Wired in index.ts; absent in tests that
+   *  don't exercise it. `hold` returns the kind it acted on, or null when nothing is in flight. */
+  reviewControl?: {
+    hold(sessionId: string, held: boolean): "critic" | "plangate" | null;
+    cancel(
+      sessionId: string,
+    ): Promise<{ kind: "critic" | "plangate"; status: "cancelled" | "skipped" | "none" }>;
+  };
   /** Operator-initiated critic review (the POST /review-pr route). Wired to
    *  ReviewService.forceReview in index.ts; absent in tests that don't exercise it. */
   reviewTrigger?: {
@@ -3363,6 +3372,29 @@ async function handleSessionReviewPlan({ req, parts, deps }: Ctx): Promise<Respo
   return json({ ok: true, status }, 202);
 }
 
+// POST /api/sessions/:id/review-hold {held} — hold (or release) the in-flight review: while held
+// the reviewer keeps running but its result is neither settled nor pasted. 400 bad body; 409 when
+// no review is in flight (an unknown id answers the same).
+async function handleSessionReviewHold({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "review-hold")) return null;
+  const body = (await req.json().catch(() => null)) as { held?: unknown } | null;
+  if (typeof body?.held !== "boolean") return json({ error: "body must be {held: boolean}" }, 400);
+  const kind = deps.reviewControl?.hold(parts[2], body.held) ?? null;
+  if (!kind) return json({ error: "no review in flight" }, 409);
+  return json({ ok: true, held: body.held, kind });
+}
+
+// POST /api/sessions/:id/review-cancel — kill the in-flight review and discard its work: no
+// verdict, no paste, and no automatic re-run until the head / plan changes. 409 when nothing is in
+// flight, or when the review is already finalizing (its result is landing — nothing to cancel).
+async function handleSessionReviewCancel({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "review-cancel")) return null;
+  const r = await deps.reviewControl?.cancel(parts[2]);
+  if (!r || r.status === "none") return json({ error: "no review in flight" }, 409);
+  if (r.status === "skipped") return json({ error: "review is finalizing" }, 409);
+  return json({ ok: true, status: r.status, kind: r.kind });
+}
+
 // POST /api/sessions/:id/review-pr — operator-initiated (re)start of the critic review.
 // 404 unknown id; 404 when the repo has no forge; 502 on a forge error; 202 with
 // {status} = "started" | "skipped" | "error" so the UI can explain the outcome (fail-closed:
@@ -4240,6 +4272,8 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionAnswerPlanQuestions,
     handleSessionReviewPlan,
     handleSessionReviewPr,
+    handleSessionReviewHold,
+    handleSessionReviewCancel,
     handleSessionRecapRegenerate,
     handlePreviewStart,
     handlePreviewStop,

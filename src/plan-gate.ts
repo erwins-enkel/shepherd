@@ -54,6 +54,7 @@ import { resumeThenSteer } from "./resume-then-steer";
 // The ROUND block + effective-round arithmetic are shared verbatim with the PR critic (#1948) so the
 // two review loops can never drift on them — the same reason `scopeAndOutputTail` is shared there.
 import { roundBlock, effectiveRound } from "./critic-core";
+import { ReviewerRuns } from "./reviewer-runs";
 
 /** Outcome of an on-demand `consider()`: a reviewer actually spawned (`"started"`, or
  *  `"started-at-cap"` — see below); the request was a no-op (`"skipped"` — not planning, a review
@@ -587,6 +588,8 @@ export interface PlanGateServiceDeps extends MembraneSeams {
    *  `reviewer*` fields — exists (notably the FIRST review, where no gate is present). Absent on
    *  the end (`false`) signal. */
   onReviewing?: (id: string, reviewing: boolean, env?: ReviewerEnv) => void;
+  /** Fired when the operator holds (true) or releases (false) an in-flight plan review. */
+  onHeld?: (id: string, held: boolean) => void;
   /**
    * Fired each tick a plan reviewer is still running, with its latest *meaningful* tool-use
    * summary (e.g. "$ git diff", "read plan"). Surfaced live in the UI review-in-flight banner
@@ -664,6 +667,7 @@ interface PlanInFlight {
   forced: boolean;
   startedAt: number;
   finalizing?: boolean;
+  heldSince?: number | null; // operator hold (ReviewerRuns.setHeld)
 }
 
 function reviewerProviderFromSpawn(
@@ -677,13 +681,14 @@ function reviewerProviderFromSpawn(
   return null;
 }
 
-export class PlanGateService {
-  private inflight = new Map<string, PlanInFlight>();
-  // Session ids whose reviewer is mid-spawn but not yet in `inflight`. begin() awaits the
-  // plan hash before claiming `inflight`, so this claims the slot across that await — without
-  // it, a second consider() would pass the inflight guard and double-spawn, orphaning the
-  // first run's worktree + terminal.
-  private starting = new Set<string>();
+export class PlanGateService extends ReviewerRuns<PlanInFlight> {
+  // `inflight` / `starting` live on ReviewerRuns. `starting` matters here because begin() awaits
+  // the plan hash before claiming `inflight`: without it a second consider() would pass the
+  // inflight guard and double-spawn, orphaning the first run's worktree + terminal.
+  // Plan hash of the run the operator cancelled, per session: a non-force consider() on the SAME
+  // plan stays skipped (skipForPlanHash) so the cancelled review doesn't auto-restart; a changed plan
+  // or a force re-runs it.
+  private cancelledHashes = new Map<string, string>();
   private now: () => number;
   private timeoutMs: number;
   // Resolve the cap on every read so a live config thunk (UI setting) takes effect on the
@@ -712,6 +717,7 @@ export class PlanGateService {
   ) => Promise<SessionUsage | null>;
 
   constructor(private deps: PlanGateServiceDeps) {
+    super();
     this.now = deps.now ?? Date.now;
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     // capture into a const so the constant-thunk closure keeps the narrowed type.
@@ -818,6 +824,7 @@ export class PlanGateService {
     if (prior?.approved && !reReview) return true;
     if (session.planPhase !== "planning" && !reReview) return true;
     if (!force && prior?.planHash === planHash && prior.decision !== "error") return true;
+    if (!force && this.cancelledHashes.get(session.id) === planHash) return true; // operator cancelled it
     return !force && this.deps.store.getSpawnNotice(session.id, "plan")?.inputKey === planHash;
   }
 
@@ -1456,6 +1463,7 @@ export class PlanGateService {
         if (summary) this.deps.onActivity?.(f.sessionId, summary);
         continue;
       }
+      if (f.heldSince != null) continue; // held: leave the run unsettled until the operator releases it
       if (exited)
         console.warn(`[plan-gate] codex reviewer exited without a verdict for ${f.sessionId}`);
       f.finalizing = true; // stay claimed in `inflight` so consider() won't re-spawn mid-finalize
@@ -1467,6 +1475,24 @@ export class PlanGateService {
       } finally {
         this.dropInflight(f.sessionId, f);
       }
+    }
+  }
+
+  /** Book the reviewer's token total on its reviewer_spawns row. Never throws. */
+  protected async captureRunUsage(f: PlanInFlight): Promise<void> {
+    try {
+      const usage = await this.readUsage(
+        f.worktreePath,
+        f.reviewerSessionId,
+        f.reviewerProvider,
+        f.reviewerModel,
+      );
+      // Complete the row even when usage is null (an unresolved Codex rollout) so `completedAt`
+      // reflects that the review finished — not a silent gap. null books NULL token columns
+      // (unknown, backfillable), NOT 0; a resolved-but-empty transcript books proven 0.
+      this.deps.store.completeReviewerSpawn(f.reviewerSessionId, usage, this.now());
+    } catch (err) {
+      console.warn(`[plan-gate] usage capture failed for ${f.sessionId}:`, err);
     }
   }
 
@@ -1527,20 +1553,7 @@ export class PlanGateService {
       // with zeroed totals rather than stranding finalize or leaving `completedAt` null. Safe to
       // read before the `finally`'s worktree removal: the transcript
       // lives under ~/.claude/projects (keyed by worktree path), not inside the worktree itself.
-      try {
-        const usage = await this.readUsage(
-          f.worktreePath,
-          f.reviewerSessionId,
-          f.reviewerProvider,
-          f.reviewerModel,
-        );
-        // Complete the row even when usage is null (an unresolved Codex rollout) so `completedAt`
-        // reflects that the review finished — not a silent gap. null books NULL token columns
-        // (unknown, backfillable), NOT 0; a resolved-but-empty transcript books proven 0.
-        this.deps.store.completeReviewerSpawn(f.reviewerSessionId, usage, this.now());
-      } catch (err) {
-        console.warn(`[plan-gate] usage capture failed for ${f.sessionId}:`, err);
-      }
+      await this.captureRunUsage(f);
     } finally {
       // NOTE: the resolver entry is released by dropInflight() in tick()'s finally — the single
       // place every in-flight drop goes through, so no completion path can leak it.
@@ -1913,22 +1926,14 @@ export class PlanGateService {
     return [...this.inflight.keys()];
   }
 
-  /** In-flight plan reviews with their reviewer env — the client bootstrap snapshot so a reload
-   *  mid-review restores which CLI/model is doing the review, not just that one is running. Distinct
-   *  from `reviewingIds()`, which stays a bare `string[]` for the herd/upnext consumer. */
-  reviewingInflight(): Array<{ id: string } & ReviewerEnv> {
-    return [...this.inflight.values()].map((f) => ({
-      id: f.sessionId,
-      provider: f.reviewerProvider,
-      model: f.reviewerModel,
-      effort: f.reviewerEffort,
-    }));
+  protected runDeps() {
+    return this.deps;
   }
-
-  /** Worktree paths of plan reviews currently owned in-memory — the GC sweep must spare
-   *  these (a re-adopted #631 orphan's tick() still needs its worktree). */
-  inflightWorktrees(): string[] {
-    return [...this.inflight.values()].map((f) => f.worktreePath);
+  protected nowMs() {
+    return this.now();
+  }
+  protected markCancelled(f: PlanInFlight) {
+    this.cancelledHashes.set(f.sessionId, f.planHash);
   }
 
   /**
@@ -1987,12 +1992,13 @@ export class PlanGateService {
    *  resolver's cache + backoff are keyed per spawn and never reused, so a run dropped without a
    *  reset (archive/reap, finalize) is retained for the server's lifetime. Every `inflight.delete`
    *  goes through here so a future early-abort path can't forget it. */
-  private dropInflight(sessionId: string, f: PlanInFlight): void {
+  protected dropInflight(sessionId: string, f: PlanInFlight): void {
     this.inflight.delete(sessionId);
     this.codexResolver.reset(f.reviewerSessionId);
   }
 
   forget(sessionId: string): void {
+    this.cancelledHashes.delete(sessionId);
     this.reapReviewer(sessionId);
     this.deps.store.dropPlanGate(sessionId);
   }

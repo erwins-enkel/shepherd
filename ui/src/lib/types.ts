@@ -2366,6 +2366,10 @@ export type WsEvent =
     }
   | { event: "session:critic-activity"; data: { id: string; summary: string } }
   | {
+      event: "session:review-held";
+      data: { id: string; kind: "critic" | "plangate"; held: boolean };
+    }
+  | {
       event: "session:plangate";
       // Emitted two ways: a fresh verdict carries `gate`; a phase flip carries `planPhase`.
       data: { id: string; gate?: PlanGate; planPhase?: "planning" | "executing" };

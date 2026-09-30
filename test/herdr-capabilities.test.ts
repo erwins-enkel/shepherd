@@ -22,9 +22,9 @@ test("parseHerdrVersion: null when no version present", () => {
   expect(parseHerdrVersion("garbage")).toBeNull();
 });
 
-// ── isHerdrVersionSupported (the 0.9.2 ceiling) ──────────────────────────────
+// ── isHerdrVersionSupported (the 0.9.3 ceiling) ──────────────────────────────
 
-test("isHerdrVersionSupported: <=0.9.2 supported, 0.9.3+ not", () => {
+test("isHerdrVersionSupported: <=0.9.3 supported, 0.9.4+ not", () => {
   expect(isHerdrVersionSupported("0.8.2")).toBe(true);
   expect(isHerdrVersionSupported("0.8.0")).toBe(true);
   expect(isHerdrVersionSupported("0.7.5")).toBe(true);
@@ -33,7 +33,8 @@ test("isHerdrVersionSupported: <=0.9.2 supported, 0.9.3+ not", () => {
   expect(isHerdrVersionSupported("0.9.0")).toBe(true);
   expect(isHerdrVersionSupported("0.9.1")).toBe(true);
   expect(isHerdrVersionSupported("0.9.2")).toBe(true);
-  expect(isHerdrVersionSupported("0.9.3")).toBe(false);
+  expect(isHerdrVersionSupported("0.9.3")).toBe(true);
+  expect(isHerdrVersionSupported("0.9.4")).toBe(false);
   expect(isHerdrVersionSupported("0.10.0")).toBe(false);
   expect(isHerdrVersionSupported("1.0.0")).toBe(false);
 });
@@ -42,8 +43,8 @@ test("isHerdrVersionSupported: null/unparseable → true (never false-alarm)", (
   expect(isHerdrVersionSupported(null)).toBe(true);
 });
 
-test("HERDR_LAST_SUPPORTED_VERSION is 0.9.2 and is itself supported", () => {
-  expect(HERDR_LAST_SUPPORTED_VERSION).toBe("0.9.2");
+test("HERDR_LAST_SUPPORTED_VERSION is 0.9.3 and is itself supported", () => {
+  expect(HERDR_LAST_SUPPORTED_VERSION).toBe("0.9.3");
   expect(isHerdrVersionSupported(HERDR_LAST_SUPPORTED_VERSION)).toBe(true);
 });
 
@@ -73,11 +74,11 @@ test("setDetectedHerdrVersion drives detectedHerdrVersion + herdrSpawnSupported"
   expect(detectedHerdrVersion()).toBe("0.8.2");
   expect(herdrSpawnSupported()).toBe(true);
 
-  setDetectedHerdrVersion("0.9.2");
+  setDetectedHerdrVersion("0.9.3");
   expect(herdrSpawnSupported()).toBe(true);
 
   // Beyond the spawnable ceiling → still refused.
-  setDetectedHerdrVersion("0.9.3");
+  setDetectedHerdrVersion("0.9.4");
   expect(herdrSpawnSupported()).toBe(false);
   setDetectedHerdrVersion("0.10.0");
   expect(herdrSpawnSupported()).toBe(false);
@@ -85,16 +86,16 @@ test("setDetectedHerdrVersion drives detectedHerdrVersion + herdrSpawnSupported"
 
 // ── external-registration spawn path (0.7.5+) ────────────────────────────────
 
-test("HERDR_LAST_SPAWNABLE_VERSION is 0.9.2 and matches the support ceiling", () => {
-  expect(HERDR_LAST_SPAWNABLE_VERSION).toBe("0.9.2");
+test("HERDR_LAST_SPAWNABLE_VERSION is 0.9.3 and matches the support ceiling", () => {
+  expect(HERDR_LAST_SPAWNABLE_VERSION).toBe("0.9.3");
   // Converged with the support ceiling (#1893): the ceiling is both spawnable AND supported.
   expect(HERDR_LAST_SPAWNABLE_VERSION).toBe(HERDR_LAST_SUPPORTED_VERSION);
   expect(isHerdrVersionSupported("0.8.2")).toBe(true);
 });
 
-test("the sandbox-status floor stays at 0.7.4 — herdr #1716 is unfixed on 0.9.2", async () => {
-  // Measured on live 0.7.5, 0.8.0, 0.8.2, 0.9.0, 0.9.1 and 0.9.2 daemons: a reported `idle` for an externally-registered
-  // agent lands on `done` on all six. Moving this with the ceiling would silently retire the
+test("the sandbox-status floor stays at 0.7.4 — herdr #1716 is unfixed on 0.9.3", async () => {
+  // Measured on live 0.7.5, 0.8.0, 0.8.2, 0.9.0, 0.9.1, 0.9.2 and 0.9.3 daemons: a reported `idle` for an externally-registered
+  // agent lands on `done` on all seven. Moving this with the ceiling would silently retire the
   // two-path sandbox downgrade advisory (#2039).
   const { HERDR_LAST_FULL_SANDBOX_STATUS_VERSION } = await import("../src/herdr-capabilities");
   expect(HERDR_LAST_FULL_SANDBOX_STATUS_VERSION).toBe("0.7.4");

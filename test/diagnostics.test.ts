@@ -342,10 +342,10 @@ describe("DiagnosticsService probes", () => {
       expect(c.hintKey).toBe("diagnostics_hint_herdr_ok");
     });
 
-    it("error/unsupported on a herdr past the ceiling (0.9.3) — outranks liveness", async () => {
+    it("error/unsupported on a herdr past the ceiling (0.9.4) — outranks liveness", async () => {
       const svc = new DiagnosticsService({
         ...healthyDeps(),
-        runVersion: versionRunner({ ...HEALTHY_VERSIONS, herdr: "herdr 0.9.3" }),
+        runVersion: versionRunner({ ...HEALTHY_VERSIONS, herdr: "herdr 0.9.4" }),
         runHerdrLiveness: async () => {}, // even a healthy daemon can't rescue an unsupported version
       });
       const c = byId((await svc.check(0)).checks, "herdr");

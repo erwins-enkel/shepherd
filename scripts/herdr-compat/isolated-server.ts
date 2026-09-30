@@ -106,6 +106,9 @@ export async function startIsolatedServer(bin: string, label: string): Promise<I
     XDG_STATE_HOME: join(home, ".local", "state"),
     XDG_RUNTIME_DIR: join(link, "run"),
     HERDR_SOCKET_PATH: join(link, "h.sock"),
+    // Panes spawn $SHELL. The operator's (zsh) in this empty HOME runs its newuser wizard,
+    // which eats the probes' typed `pane run` commands and leaves an idle shell (L7 undetermined).
+    SHELL: "/bin/sh",
   };
   delete env.HERDR_ENV;
   delete env.HERDR_SESSION;

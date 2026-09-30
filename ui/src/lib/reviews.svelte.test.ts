@@ -940,3 +940,10 @@ test("inflight bootstrap restores the held flag", async () => {
   planGates.bootstrap({}, [{ id: "s3", provider: null, model: null, effort: null, held: true }]);
   expect(planGates.isHeld("s3")).toBe(true);
 });
+
+test("held flags ignore a non-session-id key", () => {
+  reviews.held.set("__proto__", true);
+  reviews.held.set("constructor", false);
+  expect(reviews.held.map).toEqual({});
+  expect(Object.prototype).not.toHaveProperty("true");
+});

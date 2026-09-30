@@ -63,6 +63,9 @@ class HeldFlags {
   map = $state<Record<string, boolean>>({});
 
   set(id: string, on: boolean) {
+    // Reject a non-session-id key at the boundary (same guard as setActivity): `id` arrives over
+    // the socket, and the delete below is a computed-key write.
+    if (!SAFE_ID.test(id)) return;
     if (!!this.map[id] === on) return;
     if (on) this.map = setKey(this.map, id, true);
     else {

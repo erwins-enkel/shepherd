@@ -208,22 +208,33 @@ const CODEX_TURN_EVENTS: ReadonlySet<unknown> = new Set([
   "turn_aborted",
 ]);
 
+/** Classify one rollout record as a text message, a turn-lifecycle event, or neither. */
+function classifyCodexRecord(
+  o: unknown,
+): { message: AgentMessage } | { turnEvent: unknown } | null {
+  const rec = o as CodexRecord | null;
+  const p = rec?.payload;
+  if (!rec || !p) return null;
+  if (rec.type === "response_item" && p.type === "message" && p.role === "assistant") {
+    const text = codexAssistantText(p.content);
+    return text ? { message: { role: "assistant", text, ts: tsOf(rec) } } : null;
+  }
+  if (rec.type !== "event_msg") return null;
+  if (p.type === "user_message") {
+    const text = typeof p.message === "string" ? p.message.trim() : "";
+    return text ? { message: { role: "user", text, ts: tsOf(rec) } } : null;
+  }
+  return CODEX_TURN_EVENTS.has(p.type) ? { turnEvent: p.type } : null;
+}
+
 export function parseCodexMessages(text: string): ParsedMessages {
   const messages: AgentMessage[] = [];
   let lastTurnEvent: unknown = null;
   for (const o of eachJsonlObject(text)) {
-    const rec = o as CodexRecord;
-    const p = rec?.payload;
-    if (!p) continue;
-    if (rec.type === "response_item" && p.type === "message" && p.role === "assistant") {
-      const t = codexAssistantText(p.content);
-      if (t) messages.push({ role: "assistant", text: t, ts: tsOf(rec) });
-    } else if (rec.type === "event_msg" && p.type === "user_message") {
-      const t = typeof p.message === "string" ? p.message.trim() : "";
-      if (t) messages.push({ role: "user", text: t, ts: tsOf(rec) });
-    } else if (rec.type === "event_msg" && CODEX_TURN_EVENTS.has(p.type)) {
-      lastTurnEvent = p.type;
-    }
+    const r = classifyCodexRecord(o);
+    if (!r) continue;
+    if ("message" in r) messages.push(r.message);
+    else lastTurnEvent = r.turnEvent;
   }
   const last = messages.at(-1);
   const question =

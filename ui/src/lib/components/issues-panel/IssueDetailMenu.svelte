@@ -1,22 +1,18 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-
-  // The reading detail's ⋯ menu for an epic (#2617): Import structure + Diagnose, moved out of
-  // EpicPanel's head. Small anchored, non-blocking popover — no scrim; dismisses on
-  // outside-click, Esc or scroll. Same recipe (clamp, roving focus, focus restore) as
-  // AddRepoMenu; the opener owns the open state and the actions.
+  // The reading detail's ⋯ menus for an epic: Import structure + Diagnose in the head (#2617),
+  // End epic + Approve next in the run area (#2620). Small anchored, non-blocking popover — no
+  // scrim; dismisses on outside-click, Esc or scroll. Same recipe (clamp, roving focus, focus
+  // restore) as AddRepoMenu; the opener owns the open state and the actions.
   let {
     anchor,
-    canImport,
-    onimport,
-    ondiagnose,
+    label,
+    items,
     onclose,
   }: {
     anchor: HTMLElement;
-    /** Markdown-sourced epics only — a native epic has no structure to import. */
-    canImport: boolean;
-    onimport: () => void;
-    ondiagnose: () => void;
+    /** Accessible name of the menu. */
+    label: string;
+    items: { label: string; title?: string; onselect: () => void }[];
     onclose: () => void;
   } = $props();
 
@@ -40,10 +36,10 @@
     const left = Math.min(a.right - r.width, window.innerWidth - r.width - margin);
     const top = Math.min(a.bottom + 4, window.innerHeight - r.height - margin);
     pos = { left: Math.max(margin, left), top: Math.max(margin, top) };
-    items()[0]?.focus();
+    menuButtons()[0]?.focus();
   });
 
-  function items(): HTMLButtonElement[] {
+  function menuButtons(): HTMLButtonElement[] {
     return el ? Array.from(el.querySelectorAll<HTMLButtonElement>(".dm-item")) : [];
   }
   function onNav(e: KeyboardEvent) {
@@ -54,7 +50,7 @@
       onclose();
       return;
     }
-    const list = items();
+    const list = menuButtons();
     if (list.length === 0) return;
     const i = list.indexOf(document.activeElement as HTMLButtonElement);
     const fwd = (i + 1) % list.length;
@@ -99,25 +95,22 @@
   class="detail-menu"
   role="menu"
   tabindex="-1"
-  aria-label={m.issuedetail_more_actions()}
+  aria-label={label}
   style="left:{shown.left}px;top:{shown.top}px"
   onkeydown={onNav}
 >
-  {#if canImport}
-    <button class="dm-item" type="button" role="menuitem" tabindex="-1" onclick={onimport}>
-      {m.epic_import()}
+  {#each items as item (item.label)}
+    <button
+      class="dm-item"
+      type="button"
+      role="menuitem"
+      tabindex="-1"
+      title={item.title}
+      onclick={item.onselect}
+    >
+      {item.label}
     </button>
-  {/if}
-  <button
-    class="dm-item"
-    type="button"
-    role="menuitem"
-    tabindex="-1"
-    title={m.epic_diag_open_title()}
-    onclick={ondiagnose}
-  >
-    {m.epic_diag_open()}
-  </button>
+  {/each}
 </div>
 
 <style>

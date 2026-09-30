@@ -93,9 +93,15 @@
 {#if menu && menuOpen && menuBtn}
   <IssueDetailMenu
     anchor={menuBtn}
-    canImport={menu.canImport}
-    onimport={() => run(menu.onimport)}
-    ondiagnose={() => run(menu.ondiagnose)}
+    label={m.issuedetail_more_actions()}
+    items={[
+      ...(menu.canImport ? [{ label: m.epic_import(), onselect: () => run(menu.onimport) }] : []),
+      {
+        label: m.epic_diag_open(),
+        title: m.epic_diag_open_title(),
+        onselect: () => run(menu.ondiagnose),
+      },
+    ]}
     onclose={() => (menuOpen = false)}
   />
 {/if}

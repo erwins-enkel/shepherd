@@ -182,6 +182,8 @@ export type EpicRunSteps =
   | {
       kind: "leading";
       slots: { used: number; max: number };
+      /** The leading epic (this one) — a holder of any other epic is winding down. */
+      leader: number;
       now: SlotHolder[];
       /** `runSummary.next[0]`; null when nothing is startable. */
       next: number | null;
@@ -240,6 +242,7 @@ export function epicRunSteps(
   return {
     kind: "leading",
     slots,
+    leader: parent,
     now: summary.slots.holders,
     next: head,
     nextNote,

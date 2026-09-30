@@ -4651,7 +4651,7 @@
   "epic_run_more": "More epic actions",
   "epic_run_rejoin": "Lead again …",
   "epic_run_rejoin_title": "Let this epic lead again. It replaces the epic that leads now.",
-  "epic_run_winding_note": "#{leader} leads now. This epic starts no new tasks. {inflight} runs to completion.",
+  "epic_run_winding_note": "This epic starts no new tasks. {inflight} runs to completion.",
   "epic_run_left_behind": "{count} unstarted task(s) stay behind.",
   "epic_run_step_now": "Now · slot {used}/{max}",
   "epic_run_step_next": "Next",
@@ -4702,5 +4702,7 @@
   "tooltip_epic_run_state_you": "Your part",
   "tooltip_epic_run_state_you_body": "Pause, resume or end the epic here; in attended mode, approve each next task.",
   "feat_epic_run_control_title": "Epics: see how the run is going",
-  "feat_epic_run_control_body": "An epic's detail in Repos → Issues now starts with a run area: its live state, the task holding the agent slot now, what starts next and what follows — plus every epic action. The list marks which epic leads and which one is winding down."
+  "feat_epic_run_control_body": "An epic's detail in Repos → Issues now starts with a run area: its live state, the task holding the agent slot now, what starts next and what follows — plus every epic action. The list marks which epic leads and which one is winding down.",
+  "epic_run_winding_leader": "#{leader} leads now.",
+  "epic_run_handover_issue": "Slot goes to #{issue}"
 }

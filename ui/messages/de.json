@@ -4651,7 +4651,7 @@
   "epic_run_more": "Weitere Epic-Aktionen",
   "epic_run_rejoin": "Wieder führen lassen …",
   "epic_run_rejoin_title": "Dieses Epic wieder führen lassen. Es löst das Epic ab, das gerade führt.",
-  "epic_run_winding_note": "#{leader} führt jetzt. Dieses Epic startet keine neuen Aufgaben mehr. {inflight} läuft zu Ende.",
+  "epic_run_winding_note": "Dieses Epic startet keine neuen Aufgaben mehr. {inflight} läuft zu Ende.",
   "epic_run_left_behind": "{count} unbegonnene Aufgabe(n) bleiben liegen.",
   "epic_run_step_now": "Jetzt · Platz {used}/{max}",
   "epic_run_step_next": "Als Nächstes",
@@ -4702,5 +4702,7 @@
   "tooltip_epic_run_state_you": "Dein Teil",
   "tooltip_epic_run_state_you_body": "Hier pausierst, startest oder beendest du das Epic; im begleiteten Modus gibst du jede nächste Aufgabe frei.",
   "feat_epic_run_control_title": "Epics: sehen, wie die Abarbeitung läuft",
-  "feat_epic_run_control_body": "Das Epic-Detail unter Repos → Issues beginnt jetzt mit dem Bereich „Abarbeitung“: Live-Zustand, die Aufgabe, die gerade den Agenten-Platz hält, was als Nächstes startet und was danach folgt — plus alle Epic-Aktionen. Die Liste zeigt, welches Epic führt und welches ausläuft."
+  "feat_epic_run_control_body": "Das Epic-Detail unter Repos → Issues beginnt jetzt mit dem Bereich „Abarbeitung“: Live-Zustand, die Aufgabe, die gerade den Agenten-Platz hält, was als Nächstes startet und was danach folgt — plus alle Epic-Aktionen. Die Liste zeigt, welches Epic führt und welches ausläuft.",
+  "epic_run_winding_leader": "#{leader} führt jetzt.",
+  "epic_run_handover_issue": "Platz geht an #{issue}"
 }

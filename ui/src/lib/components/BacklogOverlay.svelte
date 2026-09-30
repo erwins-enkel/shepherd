@@ -3,8 +3,10 @@
     BacklogPayload,
     DrainStatus,
     Epic,
+    GitState,
     Issue,
     PullRequest,
+    Session,
     Steer,
     TaskRunDefaults,
     TaskRunSeed,
@@ -36,6 +38,7 @@
     selectPath = null,
     taskDefaults = undefined,
     onopensession = undefined,
+    sessionInfo = undefined,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
@@ -68,6 +71,8 @@
     taskDefaults?: TaskRunDefaults;
     /** Open a slot holder's session from the epic run area (#2620), forwarded to BacklogView. */
     onopensession?: (sessionId: string) => void;
+    /** A session and its PR state from the store, by id — an epic child's session view. */
+    sessionInfo?: (id: string) => { session: Session; git?: GitState } | null;
   } = $props();
 
   // ── Desktop modal resize (issue #1787) ──────────────────────────────────────
@@ -151,6 +156,7 @@
         {drain}
         {taskDefaults}
         {onopensession}
+        {sessionInfo}
       />
     </div>
     {#if resizable}

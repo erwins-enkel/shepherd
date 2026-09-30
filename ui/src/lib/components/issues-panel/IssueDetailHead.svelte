@@ -28,6 +28,7 @@
     othersFlag = null,
     menu = null,
     role = null,
+    back = null,
   }: {
     /** Epic tag text ("Epic" / "Epic #12"); null on a single issue. */
     tag?: string | null;
@@ -45,6 +46,8 @@
     menu?: { canImport: boolean; onimport: () => void; ondiagnose: () => void } | null;
     /** The epic's role in its repo's run (#2620); null → no badge. */
     role?: EpicRole | null;
+    /** An epic child's jump back to its epic (#2622); replaces the tag. */
+    back?: { parent: number; onclick: () => void } | null;
   } = $props();
 
   let menuBtn = $state<HTMLButtonElement>();
@@ -64,7 +67,14 @@
 
 <header class="detail-head">
   <div class="meta">
-    {#if tag}<span class="epic-tag">{tag}</span>{/if}
+    {#if back}
+      <button
+        class="epic-tag back"
+        type="button"
+        aria-label={m.issuedetail_back_to_epic_aria({ parent: back.parent })}
+        onclick={back.onclick}>{m.issuedetail_back_to_epic({ parent: back.parent })}</button
+      >
+    {:else if tag}<span class="epic-tag">{tag}</span>{/if}
     {#if role}<EpicRoleBadge {role} />{/if}
     <span class="num">#{number}</span>
     <IssueLabelChips {labels} {labelColors} />
@@ -139,6 +149,16 @@
     text-transform: uppercase;
   }
 
+  .back {
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .back:hover,
+  .back:focus-visible {
+    background: color-mix(in oklab, var(--status-running) 24%, transparent);
+    outline: none;
+  }
+
   .num {
     color: var(--color-muted);
   }
@@ -211,6 +231,9 @@
   }
 
   @media (max-width: 768px), (pointer: coarse) {
+    .back {
+      min-height: 32px;
+    }
     .more-btn {
       min-width: 44px;
       min-height: 44px;

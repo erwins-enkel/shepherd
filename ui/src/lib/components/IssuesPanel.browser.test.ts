@@ -491,7 +491,7 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
       .poll(() => document.querySelector(".issue-detail .md-body strong")?.textContent)
       .toBe("body");
     expect(document.querySelector(".issue-detail .epic-tag")?.textContent).toBe(
-      m.issuedetail_epic_of({ parent: 1 }),
+      m.issuedetail_back_to_epic({ parent: 1 }),
     );
     expect(document.querySelector(".task-box")).toBeNull();
   });
@@ -641,8 +641,46 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     await expect.poll(() => option("c:20:22")?.getAttribute("aria-selected")).toBe("true");
     await expect
       .poll(() => document.querySelector(".issue-detail .epic-tag")?.textContent)
-      .toBe(m.issuedetail_epic_of({ parent: 20 }));
+      .toBe(m.issuedetail_back_to_epic({ parent: 20 }));
     expect(document.querySelector(".issue-detail")?.textContent).toContain("Second of B");
+  });
+
+  it("a not-started child shows its standing in the epic, jumps back and starts anyway (#2622)", async () => {
+    const onnewtask = vi.fn();
+    seed([plain(20, { title: "Epic B" })], [summary(20)]);
+    mockEpic.mockImplementation((repoPath: string, parentIssueNumber: number) =>
+      Promise.resolve({
+        repoPath,
+        parentIssueNumber,
+        parentTitle: `Epic ${parentIssueNumber}`,
+        source: "native",
+        children: [childOf(21, "First of B"), { ...childOf(22, "Second of B"), blockedBy: [21] }],
+        warnings: [],
+        run: { repoPath, parentIssueNumber, mode: "auto", status: "idle" },
+      }),
+    );
+    render(IssuesPanel, { repoPath: "/repo", onnewtask });
+
+    await selectRow("c:20:22");
+    const region = () => document.querySelector<HTMLElement>(".issue-detail [data-child-run]");
+    await expect
+      .poll(() => region()?.textContent)
+      .toContain(m.childrun_waiting_on({ deps: "#21" }));
+    expect(region()!.textContent).toContain(m.childrun_step_needs());
+    await expect
+      .poll(() => document.querySelector(".issue-detail .md-body strong")?.textContent)
+      .toBe("body");
+
+    await page.getByRole("button", { name: m.childrun_start_anyway() }).click();
+    expect(onnewtask).toHaveBeenCalledWith(
+      expect.objectContaining({ number: 22, title: "Second of B", blockedBy: [21] }),
+    );
+
+    await page
+      .getByRole("button", { name: m.issuedetail_back_to_epic_aria({ parent: 20 }) })
+      .click();
+    await expect.poll(() => option("e:20")?.getAttribute("aria-selected")).toBe("true");
+    await expect.poll(() => document.querySelector("[data-epic-run]")).not.toBeNull();
   });
 
   it("mobile: the detail opens as a second level and Back returns to the list", async () => {

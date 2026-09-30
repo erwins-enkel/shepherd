@@ -435,6 +435,12 @@
     effort: newTaskDefaultEffort,
     fableAvailable: newTaskFableAvailable,
   });
+  // An epic child's session in the Repos dialog (#2622): the live session + its PR state.
+  // Read inside the dialog's deriveds, so it tracks the store's reactive fields.
+  function backlogSessionInfo(id: string): { session: Session; git?: GitState } | null {
+    const session = store.byId(id);
+    return session ? { session, git: store.git[id] } : null;
+  }
 </script>
 
 {#if showLearnings}
@@ -746,6 +752,7 @@
     selectPath={backlogInitialRepo}
     onclose={onbacklogclose}
     onopensession={onbacklogopensession}
+    sessionInfo={backlogSessionInfo}
     epics={store.epics}
     {inTrainPrs}
     target={epicTarget}

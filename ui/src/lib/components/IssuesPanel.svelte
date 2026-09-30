@@ -10,6 +10,8 @@
     EpicSummary,
     Epic,
     DrainStatus,
+    GitState,
+    Session,
     TaskRunDefaults,
     TaskRunSeed,
   } from "$lib/types";
@@ -31,6 +33,7 @@
     childKey,
     epicKey,
   } from "./issues-panel";
+  import { childAsIssue, openBlockers } from "./epic-child";
   import { issuesFilter } from "$lib/issues-filter.svelte";
   import { viewerCache } from "$lib/viewer-cache.svelte";
   import { backlogRefresh } from "$lib/backlog-refresh.svelte";
@@ -59,6 +62,7 @@
     taskDefaults = undefined,
     onopensession = undefined,
     onopenautomation = undefined,
+    sessionInfo = undefined,
   }: {
     repoPath: string;
     /** Open the New Task dialog for `issue`, seeded with the run settings the operator changed
@@ -87,6 +91,8 @@
     onopensession?: (sessionId: string) => void;
     /** Show the repo's Automation tab, where the agent-slot cap (maxAuto) lives. */
     onopenautomation?: () => void;
+    /** A session and its PR state from the store, by id — an epic child's session view. */
+    sessionInfo?: (id: string) => { session: Session; git?: GitState } | null;
   } = $props();
 
   // Issue-scoped steers render as one quick-launch button each on every row.
@@ -527,6 +533,25 @@
     );
   }
 
+  /** An epic child's "← Epic #n" (#2622): select the epic and bring its row into view. */
+  function selectEpic(parent: number) {
+    const key = epicKey(parent);
+    select(key);
+    tick().then(() =>
+      document.getElementById(`issue-opt-${key}`)?.scrollIntoView?.({ block: "nearest" }),
+    );
+  }
+
+  /** "Start as a task anyway" on an epic child: the New Task dialog, carrying the child's open
+   *  blockers so the dialog warns about starting out of order. */
+  function startChild(parent: number, number: number) {
+    const epic = epicFor(parent);
+    const child = epic?.children.find((c) => c.number === number);
+    if (!epic || !child) return;
+    const listed = issues.find((i) => i.number === number);
+    onnewtask(childAsIssue(child, openBlockers(child, epic.children), listed));
+  }
+
   function startTask(issue: Issue) {
     onnewtask(issue, $state.snapshot(taskRun));
   }
@@ -742,7 +767,11 @@
             epicSummary={selection.kind === "epic"
               ? epicByNumber.get(selection.issue.number)
               : undefined}
-            epic={selection.kind === "epic" ? epicFor(selection.issue.number) : undefined}
+            epic={selection.kind === "epic"
+              ? epicFor(selection.issue.number)
+              : selection.kind === "child"
+                ? epicFor(selection.parent)
+                : undefined}
             {drain}
             {showAssignees}
             {viewer}
@@ -755,6 +784,9 @@
             {onopensession}
             {onopenautomation}
             onselectchild={selectChild}
+            onselectepic={selectEpic}
+            onstartchild={startChild}
+            {sessionInfo}
           />
         {/key}
       {:else}

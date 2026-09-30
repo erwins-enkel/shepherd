@@ -29,6 +29,7 @@ import {
   epicQuiescentForCadenceRebase,
   selectEpicCandidates,
   type Epic,
+  type EpicChild,
   type EpicRun,
   type EpicStackContext,
 } from "./epic-core";
@@ -849,7 +850,10 @@ export class DrainService {
     // Read-only runSummary.next source: the epic's candidates even while the run is PAUSED (the
     // decision `candidates` above stay running-only, so `queued`/computeNext are unchanged).
     let summaryCandidates: Issue[] = [];
+    let leadingEpic: number | null = null;
+    let epicChildren: EpicChild[] = [];
     if (epicActive) {
+      leadingEpic = epicRun!.parentIssueNumber;
       // Epic is running/paused: source candidates from its dependency-gated children
       // instead of the label-based listIssues path.
       builtEpic = await this.buildEpic(repoPath, epicRun!);
@@ -876,7 +880,8 @@ export class DrainService {
         const stack = this.epicStackContext(repoPath, cfg, builtEpic);
         epicStackBases = stack.baseByChild;
         stackHeldSessions = this.stackHeldSessions(repoPath, cfg, builtEpic);
-        summaryCandidates = selectEpicCandidates(builtEpic.children, stack.ctx);
+        epicChildren = builtEpic.children;
+        summaryCandidates = selectEpicCandidates(epicChildren, stack.ctx);
         if (epicRun!.status === "running") candidates = summaryCandidates;
         epicAttended = epicRun!.mode === "attended";
       }
@@ -919,12 +924,12 @@ export class DrainService {
         stackHeldSessions,
         epicBaseUnavailable: this.freshEpicBaseFailure(repoPath),
         runSummary: buildRunSummary({
-          leadingEpic: epicActive ? epicRun!.parentIssueNumber : null,
+          leadingEpic,
           autoSessions,
           maxAuto: cfg.maxAuto,
           candidates: summaryCandidates,
           mappedIssueNumbers,
-          epicChildren: builtEpic?.children ?? [],
+          epicChildren,
         }),
       },
       epic: builtEpic,

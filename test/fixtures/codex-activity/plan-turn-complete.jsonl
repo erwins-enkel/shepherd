@@ -1,0 +1,8 @@
+{"timestamp":"2026-09-20T21:29:30.600Z","type":"session_meta","payload":{"id":"codex-plan-task","cwd":"/worktree/task","source":"cli"}}
+{"timestamp":"2026-09-20T21:29:30.600Z","type":"event_msg","payload":{"type":"task_started","turn_id":"plan-turn"}}
+{"timestamp":"2026-09-20T21:30:39.739Z","type":"response_item","payload":{"type":"function_call","name":"request_user_input_async","arguments":"{\"questions\":[{\"title\":\"Wait for capacity?\"}]}","call_id":"question-call"}}
+{"timestamp":"2026-09-20T21:30:39.800Z","type":"response_item","payload":{"type":"function_call_output","call_id":"question-call","output":"{\"accepted\":true}"}}
+{"timestamp":"2026-09-20T21:31:00.000Z","type":"event_msg","payload":{"type":"user_message","message":"Wait and continue."}}
+{"timestamp":"2026-09-20T21:35:56.906Z","type":"response_item","payload":{"type":"custom_tool_call","name":"exec","call_id":"plan-write","input":"await tools.apply_patch(plan)"}}
+{"timestamp":"2026-09-20T21:35:56.907Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"plan-write","output":"{}"}}
+{"timestamp":"2026-09-20T21:36:35.294Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"plan-turn","started_at":1789939770,"completed_at":1789940195,"last_agent_message":"The plan is ready for review."}}

@@ -3322,6 +3322,87 @@ components:
         epicParent:
           type: integer
           nullable: true
+        runSummary:
+          $ref: "#/components/schemas/DrainRunSummary"
+    DrainRunSummary:
+      type: object
+      description: "Read-only picture of how one repo's drain is running: the leading epic, superseded epics still winding down, who holds the agent slots, and what starts next."
+      additionalProperties: true
+      required:
+        - leadingEpic
+        - windingDown
+        - slots
+        - next
+        - after
+      properties:
+        leadingEpic:
+          description: The epic run's parent issue while it is running or paused; null in label mode.
+          type: integer
+          nullable: true
+        windingDown:
+          type: array
+          items:
+            $ref: "#/components/schemas/DrainWindingDownEpic"
+        slots:
+          $ref: "#/components/schemas/DrainRunSlots"
+        next:
+          description: Next startable issue numbers in drain order — also while the epic is paused.
+          type: array
+          items:
+            type: integer
+        after:
+          description: Open epic children directly blocked by next[0].
+          type: array
+          items:
+            type: integer
+    DrainWindingDownEpic:
+      type: object
+      additionalProperties: true
+      required:
+        - epic
+        - inFlight
+      properties:
+        epic:
+          type: integer
+        inFlight:
+          type: array
+          items:
+            type: integer
+    DrainRunSlots:
+      type: object
+      additionalProperties: true
+      required:
+        - used
+        - max
+        - holders
+      properties:
+        used:
+          type: integer
+        max:
+          type: integer
+        holders:
+          type: array
+          items:
+            $ref: "#/components/schemas/DrainSlotHolder"
+    DrainSlotHolder:
+      type: object
+      additionalProperties: true
+      required:
+        - sessionId
+        - desig
+        - issueNumber
+        - epicParent
+      properties:
+        sessionId:
+          type: string
+        desig:
+          type: string
+        issueNumber:
+          type: integer
+          nullable: true
+        epicParent:
+          type: integer
+          nullable: true
     DrainQueuedItem:
       type: object
       additionalProperties: true

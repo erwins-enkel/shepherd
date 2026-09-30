@@ -1,6 +1,15 @@
 import { describe, it, expect } from "vitest";
-import { chipFor, epicHoldLine, progress, stateLabel } from "./epic-panel";
-import type { DrainStatus } from "$lib/types";
+import {
+  chipFor,
+  epicHoldLine,
+  epicRole,
+  epicRunState,
+  epicRunSteps,
+  progress,
+  slotHeldBy,
+  stateLabel,
+} from "./epic-panel";
+import type { DrainRunSummary, DrainStatus, EpicChild, EpicRunStatus } from "$lib/types";
 
 function drain(over: Partial<DrainStatus>): DrainStatus {
   return {
@@ -106,5 +115,169 @@ describe("epicHoldLine", () => {
     expect(
       epicHoldLine(drain({ reason: "disabled", enabled: false }), true, [...READY]),
     ).toBeTruthy();
+  });
+});
+
+// ── run-control region (#2620) ──────────────────────────────────────────────────────────────
+// The issue's acceptance scenario: maxAuto = 1, epic B (#20) leads and waits for a slot, epic A's
+// (#10) child #11 still holds the only slot — A is winding down.
+const B = 20;
+const A = 10;
+
+function summary(over: Partial<DrainRunSummary> = {}): DrainRunSummary {
+  return {
+    leadingEpic: B,
+    windingDown: [{ epic: A, inFlight: [11] }],
+    slots: {
+      used: 1,
+      max: 1,
+      holders: [{ sessionId: "s-11", desig: "TASK-11", issueNumber: 11, epicParent: A }],
+    },
+    next: [21],
+    after: [22, 23, 25],
+    ...over,
+  };
+}
+
+function child(number: number, state: EpicChild["state"], blockedBy: number[] = []): EpicChild {
+  return {
+    number,
+    title: `c${number}`,
+    url: "",
+    order: number,
+    body: "",
+    blockedBy,
+    state,
+  } as EpicChild;
+}
+
+function epicB(status: EpicRunStatus = "running") {
+  return {
+    run: { repoPath: "/r", parentIssueNumber: B, mode: "auto" as const, status },
+    children: [
+      child(21, "ready"),
+      child(22, "blocked", [21]),
+      child(23, "blocked", [21, 24]),
+      child(24, "merged"),
+      child(25, "blocked", [21, 22]),
+    ],
+  };
+}
+
+function epicA() {
+  return {
+    run: { repoPath: "/r", parentIssueNumber: A, mode: "auto" as const, status: "idle" as const },
+    children: [
+      child(11, "running"),
+      child(12, "ready"),
+      child(13, "blocked", [12]),
+      child(14, "merged"),
+    ],
+  };
+}
+
+const capDrain = (over: Partial<DrainStatus> = {}) =>
+  drain({ reason: "cap", inFlight: 1, max: 1, epicParent: B, runSummary: summary(), ...over });
+
+describe("epicRole / slotHeldBy", () => {
+  it("names the leading and the winding-down epic, null otherwise", () => {
+    expect(epicRole(summary(), B)).toBe("leading");
+    expect(epicRole(summary(), A)).toBe("winding");
+    expect(epicRole(summary(), 99)).toBeNull();
+    expect(epicRole(undefined, B)).toBeNull();
+  });
+
+  it("reports the 1-based slot an issue holds", () => {
+    expect(slotHeldBy(summary(), 11)).toEqual({ index: 1, max: 1 });
+    expect(slotHeldBy(summary(), 21)).toBeNull();
+    expect(slotHeldBy(null, 11)).toBeNull();
+  });
+});
+
+describe("epicRunState", () => {
+  it("scenario: the leading epic waits for an agent slot", () => {
+    expect(epicRunState(epicB(), B, capDrain())).toMatchObject({
+      kind: "waiting_slot",
+      tone: "run",
+    });
+  });
+
+  it("scenario: the superseded epic winds down and names its in-flight child", () => {
+    expect(epicRunState(epicA(), A, capDrain())).toMatchObject({
+      kind: "winding",
+      inFlight: [11],
+    });
+  });
+
+  it("paused / idle read quiet", () => {
+    expect(epicRunState(epicB("paused"), B, capDrain()).kind).toBe("paused");
+    expect(epicRunState(epicB("idle"), 99, capDrain()).kind).toBe("idle");
+    expect(epicRunState(epicB("idle"), 99, capDrain()).tone).toBe("quiet");
+  });
+
+  it("awaiting approval is its own state", () => {
+    const d = capDrain({ reason: "awaiting_approval", detail: "21" });
+    expect(epicRunState(epicB(), B, d).kind).toBe("awaiting_approval");
+  });
+
+  it("a trouble reason halts and carries the former hold line as the note", () => {
+    const s = epicRunState(epicB(), B, capDrain({ reason: "blocked", detail: "TASK-07" }));
+    expect(s).toMatchObject({ kind: "halted", tone: "halt" });
+    expect(s.note).toContain("TASK-07");
+  });
+
+  it("empty with nothing in flight reads 'nothing startable'; with something in flight 'running'", () => {
+    expect(epicRunState(epicB(), B, capDrain({ reason: "empty" })).kind).toBe("nothing");
+    const busy = { ...epicB(), children: [child(21, "running")] };
+    expect(epicRunState(busy, B, capDrain({ reason: "empty" })).kind).toBe("running");
+    expect(epicRunState(epicB(), B, capDrain({ reason: null })).kind).toBe("running");
+  });
+
+  it("ignores a hold reason that belongs to another epic", () => {
+    expect(epicRunState(epicB(), B, capDrain({ epicParent: 77 })).kind).toBe("running");
+  });
+});
+
+describe("epicRunSteps", () => {
+  it("scenario: Now = A's child, Next = B's first ready child after the slot frees, After = its successors", () => {
+    const steps = epicRunSteps(epicB(), B, capDrain());
+    expect(steps).toMatchObject({
+      kind: "leading",
+      slots: { used: 1, max: 1 },
+      next: 21,
+      nextNote: "after_slot",
+      after: [22, 23, 25],
+    });
+    if (steps?.kind !== "leading") throw new Error("expected leading");
+    expect(steps.now.map((h) => h.issueNumber)).toEqual([11]);
+    expect(steps.freedBy?.issueNumber).toBe(11);
+    // #22 (only #21) and #23 (#21 + merged #24) start in parallel; #25 still waits on #22.
+    expect(steps.parallel).toBe(2);
+  });
+
+  it("next note follows pause, approval and free slots", () => {
+    const note = (status: EpicRunStatus, over: Partial<DrainStatus>) => {
+      const s = epicRunSteps(epicB(status), B, capDrain(over));
+      return s?.kind === "leading" ? s.nextNote : null;
+    };
+    expect(note("paused", {})).toBe("resume");
+    expect(note("running", { reason: "awaiting_approval", detail: "21" })).toBe("approval");
+    const free = summary({ slots: { used: 0, max: 2, holders: [] } });
+    expect(note("running", { reason: null, runSummary: free })).toBe("soon");
+  });
+
+  it("winding: own holders, the unstarted children left behind, and the slot's next owner", () => {
+    expect(epicRunSteps(epicA(), A, capDrain())).toMatchObject({
+      kind: "winding",
+      now: [{ issueNumber: 11 }],
+      leftBehind: 2,
+      handover: { issue: 21, epic: B },
+      leader: B,
+    });
+  });
+
+  it("null for an epic outside the run or without a runSummary", () => {
+    expect(epicRunSteps(epicB("idle"), 99, capDrain())).toBeNull();
+    expect(epicRunSteps(epicB(), B, drain({ reason: "cap" }))).toBeNull();
   });
 });

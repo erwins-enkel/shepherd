@@ -447,6 +447,72 @@ test("completed Codex plan records approved-plan drift without starting a review
   }
 });
 
+for (const update of [
+  { status: "archived" },
+  { planPhase: "executing" },
+  { providerSessionId: "new-unresolved-provider", codexLaunchId: "new-launch" },
+]) {
+  test(`completed Codex plan reloads later candidates after a slow start: ${JSON.stringify(update)}`, async () => {
+    const h = completedCodexPlanHarness();
+    const waiting = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    try {
+      const second = h.store.create({
+        name: "second",
+        prompt: "plan",
+        repoPath: process.cwd(),
+        baseBranch: "main",
+        branch: "shepherd/second",
+        worktreePath: h.root,
+        isolated: true,
+        herdrSession: "default",
+        herdrAgentId: "second-terminal",
+        agentProvider: "codex",
+        providerSessionId: "second-provider",
+        codexLaunchId: "second-launch",
+        planPhase: "planning",
+      });
+      const secondRollout = join(h.root, "second.jsonl");
+      writeFileSync(
+        secondRollout,
+        readFileSync(h.rollout, "utf8").replaceAll("codex-plan-task", "second-provider"),
+      );
+      h.setMetas([
+        { path: h.rollout, cwd: h.root, rolloutId: "codex-plan-task", source: "cli", mtimeMs: 1 },
+        {
+          path: secondRollout,
+          cwd: h.root,
+          rolloutId: "second-provider",
+          source: "cli",
+          mtimeMs: 1,
+        },
+      ]);
+      let calls = 0;
+      const svc = new PlanGateService({
+        ...h.deps,
+        capacity: async () => {
+          if (++calls === 1) {
+            waiting.resolve();
+            await resume.promise;
+          }
+          return true;
+        },
+      });
+      const sweep = svc.sweepCompletedCodexPlans();
+      await waiting.promise;
+      h.store.update(second.id, update as any);
+      if ("status" in update) svc.forget(second.id);
+      resume.resolve();
+      await sweep;
+      expect(h.started).toHaveLength(1);
+      expect(svc.reviewingIds()).toEqual([h.session.id]);
+    } finally {
+      resume.resolve();
+      h.cleanup();
+    }
+  });
+}
+
 test("consider spawns reviewer when a plan exists and is unreviewed", async () => {
   const h = harness();
   const status = await h.svc.consider(planningSession() as any);

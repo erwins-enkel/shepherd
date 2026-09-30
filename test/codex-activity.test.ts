@@ -45,6 +45,9 @@ describe("CodexCompletedTurn", () => {
     ["event_msg", { type: "turn_aborted", turn_id: "plan-turn" }],
     ["event_msg", { type: "user_message", message: "one more change" }],
     ["turn_context", { model: "gpt-6-astra" }],
+    ["world_state", { full: true, state: {} }],
+    ["event_msg", { type: "item_completed", item: { type: "UserMessage", content: [] } }],
+    ["event_msg", { type: "thread_settings_applied", thread_settings: {} }],
     ["response_item", { type: "message", role: "user", content: [] }],
     ["response_item", { type: "function_call", name: "request_user_input", call_id: "q" }],
     ["response_item", { type: "custom_tool_call", name: "exec", call_id: "c" }],
@@ -59,6 +62,9 @@ describe("CodexCompletedTurn", () => {
     expect(
       parseCodexCompletedTurn(complete + record("event_msg", { type: "token_count", info: {} })),
     ).toEqual({ turnId: "plan-turn", completedAt: 1789940195294 });
+    expect(parseCodexCompletedTurn(complete + record("token_usage_record", { usage: {} }))).toEqual(
+      { turnId: "plan-turn", completedAt: 1789940195294 },
+    );
   });
 
   test("a completion for another observed turn is not evidence for the active turn", () => {

@@ -779,7 +779,22 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
       for (const id of this.completedCodexTurns.keys()) {
         if (!active.has(id)) this.forgetCompletedCodexTurn(id);
       }
-      for (const session of sessions) await this.considerCompletedCodexPlan(session);
+      for (const session of sessions) {
+        // Earlier reviewer starts can await capacity/network: re-read lifecycle and launch identity.
+        const current = this.deps.store.get(session.id);
+        if (
+          !current ||
+          current.status === "archived" ||
+          current.agentProvider !== "codex" ||
+          current.planPhase !== "planning" ||
+          !current.codexLaunchId ||
+          !current.providerSessionId
+        ) {
+          this.forgetCompletedCodexTurn(session.id);
+          continue;
+        }
+        await this.considerCompletedCodexPlan(current);
+      }
     } finally {
       this.sweepingCodexPlans = false;
     }

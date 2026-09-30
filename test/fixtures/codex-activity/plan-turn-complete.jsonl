@@ -1,8 +1,12 @@
 {"timestamp":"2026-09-20T21:29:30.600Z","type":"session_meta","payload":{"id":"codex-plan-task","cwd":"/worktree/task","source":"cli"}}
 {"timestamp":"2026-09-20T21:29:30.600Z","type":"event_msg","payload":{"type":"task_started","turn_id":"plan-turn"}}
+{"timestamp":"2026-09-20T21:29:30.601Z","type":"world_state","payload":{"full":true,"state":{}}}
+{"timestamp":"2026-09-20T21:29:30.602Z","type":"event_msg","payload":{"type":"thread_settings_applied","thread_id":"codex-plan-task","thread_settings":{}}}
+{"timestamp":"2026-09-20T21:29:30.603Z","type":"event_msg","payload":{"type":"item_completed","turn_id":"plan-turn","item":{"type":"UserMessage","id":"user-item","content":[]}}}
 {"timestamp":"2026-09-20T21:30:39.739Z","type":"response_item","payload":{"type":"function_call","name":"request_user_input_async","arguments":"{\"questions\":[{\"title\":\"Wait for capacity?\"}]}","call_id":"question-call"}}
 {"timestamp":"2026-09-20T21:30:39.800Z","type":"response_item","payload":{"type":"function_call_output","call_id":"question-call","output":"{\"accepted\":true}"}}
 {"timestamp":"2026-09-20T21:31:00.000Z","type":"event_msg","payload":{"type":"user_message","message":"Wait and continue."}}
 {"timestamp":"2026-09-20T21:35:56.906Z","type":"response_item","payload":{"type":"custom_tool_call","name":"exec","call_id":"plan-write","input":"await tools.apply_patch(plan)"}}
 {"timestamp":"2026-09-20T21:35:56.907Z","type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"plan-write","output":"{}"}}
+{"timestamp":"2026-09-20T21:36:00.000Z","type":"token_usage_record","payload":{"thread_id":"codex-plan-task","turn_id":"plan-turn","usage":{"input_tokens":100,"output_tokens":10}}}
 {"timestamp":"2026-09-20T21:36:35.294Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"plan-turn","started_at":1789939770,"completed_at":1789940195,"last_agent_message":"The plan is ready for review."}}

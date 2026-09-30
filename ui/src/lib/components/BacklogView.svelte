@@ -10,6 +10,8 @@
     Issue,
     PullRequest,
     Steer,
+    TaskRunDefaults,
+    TaskRunSeed,
   } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { toasts } from "$lib/toasts.svelte";
@@ -49,10 +51,11 @@
     onaddfork,
     onaddnewproject,
     selectPath = null,
+    taskDefaults = undefined,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
-    onissue: (repoPath: string, issue: Issue) => void;
+    onissue: (repoPath: string, issue: Issue, run?: TaskRunSeed) => void;
     /** Quick-launch an issue with the configured standard command, skipping the
      *  New Task dialog. Omitted → no quick button is shown on the issues. */
     onquick?: (repoPath: string, issue: Issue, action: Steer) => void;
@@ -94,6 +97,8 @@
      *  to the Issues tab once per distinct value. Filters are cleared first so a
      *  brand-new (zero issues/PRs) repo isn't excluded from the visible list. */
     selectPath?: string | null;
+    /** Global run defaults for the Issues tab's task box (CLI / model / effort pre-fill). */
+    taskDefaults?: TaskRunDefaults;
   } = $props();
 
   // ── Desktop repository-sidebar resize (issue #1787) ─────────────────────────
@@ -439,6 +444,8 @@
             {inTrainPrs}
             {target}
             {drain}
+            mobile
+            {taskDefaults}
           />
         </div>
       </div>
@@ -507,6 +514,7 @@
               {inTrainPrs}
               {target}
               {drain}
+              {taskDefaults}
             />
           {:else}
             <div class="detail-empty">

@@ -23,8 +23,11 @@ import {
   epicFlagForOthers,
   hideOthersExceptFlaggedEpics,
   assignedOthers,
+  buildIssueRows,
+  stepSelection,
+  resolveSelection,
 } from "./issues-panel";
-import type { Issue, EpicSummary } from "$lib/types";
+import type { Issue, EpicSummary, EpicChild } from "$lib/types";
 
 function issue(
   number: number,
@@ -540,5 +543,134 @@ describe("hideOthersExceptFlaggedEpics", () => {
     const rows = [issue(99, "Plain", "", [], ["scoop"])];
     expect(hideOthersExceptFlaggedEpics(rows, "kai", false, epicByNumber)).toHaveLength(1);
     expect(hideOthersExceptFlaggedEpics(rows, null, true, epicByNumber)).toHaveLength(1);
+  });
+});
+
+function child(number: number, order: number, state: EpicChild["state"] = "ready"): EpicChild {
+  return {
+    number,
+    title: `child ${number}`,
+    url: `https://x/${number}`,
+    order,
+    body: "",
+    blockedBy: [],
+    state,
+    sessionId: null,
+    prNumber: null,
+    issueClosed: false,
+    claimed: false,
+  };
+}
+
+describe("buildIssueRows (#2617)", () => {
+  const epic = issue(1, "Epic");
+  const sub = issue(2, "Sub");
+  const single = issue(3, "Single");
+  const children = new Map<number, EpicChild[]>([[1, [child(2, 1), child(9, 0, "merged")]]]);
+  const childrenOf = (n: number) => children.get(n);
+
+  it("lists sub-issues only inside their expanded epic, in epic order, then singles", () => {
+    const rows = buildIssueRows(
+      [epic, sub, single],
+      new Set([1]),
+      new Set([2]),
+      new Set([1]),
+      childrenOf,
+    );
+    expect(rows.map((r) => r.key)).toEqual(["e:1", "c:1:9", "c:1:2", "s:3"]);
+  });
+
+  it("hides children while collapsed and never re-lists a sub-issue as a single", () => {
+    const rows = buildIssueRows(
+      [epic, sub, single],
+      new Set([1]),
+      new Set([2]),
+      new Set(),
+      childrenOf,
+    );
+    expect(rows.map((r) => r.key)).toEqual(["e:1", "s:3"]);
+    expect(rows[0]).toMatchObject({ kind: "epic", expanded: false });
+  });
+
+  it("emits one loading row for an expanded epic whose record isn't loaded", () => {
+    const rows = buildIssueRows([epic], new Set([1]), new Set(), new Set([1]), () => undefined);
+    expect(rows.map((r) => r.kind)).toEqual(["epic", "loading"]);
+  });
+
+  it("keeps a nested epic as its own group", () => {
+    const nested = issue(2, "Nested epic");
+    const rows = buildIssueRows(
+      [epic, nested],
+      new Set([1, 2]),
+      new Set([2]),
+      new Set([1]),
+      childrenOf,
+    );
+    expect(rows.map((r) => r.key)).toEqual(["e:1", "c:1:9", "c:1:2", "e:2"]);
+  });
+});
+
+describe("stepSelection (#2617)", () => {
+  const rows = buildIssueRows(
+    [issue(1, "E"), issue(3, "S"), issue(4, "T")],
+    new Set([1]),
+    new Set(),
+    new Set([1]),
+    () => undefined,
+  );
+
+  it("skips the loading row and clamps at both ends", () => {
+    expect(stepSelection(rows, "e:1", 1)).toBe("s:3");
+    expect(stepSelection(rows, "s:3", -1)).toBe("e:1");
+    expect(stepSelection(rows, "e:1", -1)).toBe("e:1");
+    expect(stepSelection(rows, "s:4", 1)).toBe("s:4");
+  });
+
+  it("starts at the first row going down and the last going up", () => {
+    expect(stepSelection(rows, null, 1)).toBe("e:1");
+    expect(stepSelection(rows, null, -1)).toBe("s:4");
+    expect(stepSelection([], null, 1)).toBeNull();
+  });
+});
+
+describe("resolveSelection (#2617)", () => {
+  const issues = [issue(1, "Epic"), issue(3, "Single"), issue(5, "Nested")];
+  const childrenOf = (n: number) => (n === 1 ? [child(2, 0), child(5, 1)] : undefined);
+
+  it("resolves epic, single and child keys against live data", () => {
+    expect(resolveSelection("e:1", issues, new Set([1]), childrenOf)).toMatchObject({
+      kind: "epic",
+      issue: { number: 1 },
+    });
+    expect(resolveSelection("s:3", issues, new Set([1]), childrenOf)).toMatchObject({
+      kind: "single",
+    });
+    expect(resolveSelection("c:1:2", issues, new Set([1]), childrenOf)).toMatchObject({
+      kind: "child",
+      parent: 1,
+      child: { number: 2 },
+    });
+  });
+
+  it("classifies e:/s: keys by the current epic set (summaries may land after a pick)", () => {
+    expect(resolveSelection("s:1", issues, new Set([1]), childrenOf)).toMatchObject({
+      kind: "epic",
+    });
+    expect(resolveSelection("e:3", issues, new Set([1]), childrenOf)).toMatchObject({
+      kind: "single",
+    });
+  });
+
+  it("resolves a child that is itself an epic parent to that epic", () => {
+    expect(resolveSelection("c:1:5", issues, new Set([1, 5]), childrenOf)).toMatchObject({
+      kind: "epic",
+      issue: { number: 5 },
+    });
+  });
+
+  it("returns null for vanished targets", () => {
+    expect(resolveSelection(null, issues, new Set(), childrenOf)).toBeNull();
+    expect(resolveSelection("s:99", issues, new Set(), childrenOf)).toBeNull();
+    expect(resolveSelection("c:7:2", issues, new Set(), childrenOf)).toBeNull();
   });
 });

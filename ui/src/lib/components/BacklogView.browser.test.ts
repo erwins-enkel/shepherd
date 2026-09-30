@@ -133,7 +133,8 @@ describe("mobile backlog issue scrolling", () => {
       await first.click();
       const pageScroll = window.scrollY;
       if (mode === "flow") expect(pageScroll).toBeGreaterThan(0);
-      await expect.poll(() => document.querySelectorAll(".issue-row").length).toBe(50);
+      // Issue #1 is the (auto-expanded) epic; the other 49 are single issues.
+      await expect.poll(() => document.querySelectorAll(".single-row").length).toBe(49);
       await expect.element(page.getByText("Epic child 7", { exact: true })).toBeInTheDocument();
 
       const detail = document.querySelector<HTMLElement>(".mobile-detail-overlay")!;
@@ -141,9 +142,9 @@ describe("mobile backlog issue scrolling", () => {
       const filter = document.querySelector<HTMLElement>(".issues-list .filter-bar")!;
       const search = page.getByRole("searchbox", { name: m.issuespanel_filter_placeholder() });
       await search.fill("Issue 50 ");
-      await expect.poll(() => document.querySelectorAll(".issue-row").length).toBe(1);
+      await expect.poll(() => document.querySelectorAll(".single-row").length).toBe(1);
       await search.fill("");
-      await expect.poll(() => document.querySelectorAll(".issue-row").length).toBe(50);
+      await expect.poll(() => document.querySelectorAll(".single-row").length).toBe(49);
       const header = document.querySelector<HTMLElement>(".issues-header")!;
       expect(header.scrollWidth).toBeLessThanOrEqual(header.clientWidth + 1);
       for (const control of filter.querySelectorAll<HTMLElement>(".issue-filter, .filter-chip")) {
@@ -157,17 +158,24 @@ describe("mobile backlog issue scrolling", () => {
       const filterTop = filter.getBoundingClientRect().top;
       list.scrollTop = list.scrollHeight;
       await expect.poll(() => list.scrollTop).toBeGreaterThan(0);
-      const last = document.querySelector<HTMLElement>("#epic-issue-row-50")!;
+      const last = document.getElementById("issue-opt-s:50")!;
       expect(last.getBoundingClientRect().bottom).toBeLessThanOrEqual(
         list.getBoundingClientRect().bottom + 1,
       );
       expect(filter.getBoundingClientRect().top).toBeCloseTo(filterTop, 0);
-      const action = last.querySelector<HTMLElement>(".task-btn")!;
-      await page.elementLocator(action).click();
+      // List → issue detail (second level) → start the task from its task box.
+      await page.elementLocator(last).click();
+      const issueDetail = document.querySelector<HTMLElement>(".detail-col.overlay")!;
+      expect(issueDetail.getBoundingClientRect().bottom).toBeLessThanOrEqual(height + 1);
+      await page.elementLocator(issueDetail.querySelector<HTMLElement>(".task-btn")!).click();
       expect(input.onissue).toHaveBeenCalledWith(
         "/repo-0",
         expect.objectContaining({ number: 50 }),
+        {},
       );
+      // Back returns to the list, then the repo overlay closes as before.
+      await page.elementLocator(issueDetail.querySelector<HTMLElement>(".back-btn")!).click();
+      await expect.poll(() => document.querySelector(".detail-col.overlay")).toBeNull();
       await page.elementLocator(detail.querySelector<HTMLElement>(".overlay-close")!).click();
       await expect.poll(() => document.querySelector(".mobile-detail-overlay")).toBeNull();
       expect(window.scrollY).toBe(pageScroll);

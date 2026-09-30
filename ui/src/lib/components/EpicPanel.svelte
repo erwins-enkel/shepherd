@@ -18,6 +18,7 @@
     epic,
     drain = null,
     othersFlag = null,
+    headActions = true,
   }: {
     repoPath: string;
     parent: number;
@@ -26,6 +27,9 @@
     /** "Someone else is already working / owns this epic" (#1616), from the row's summary;
      *  null when it's the operator's own epic. Surfaces a soft notice next to Start. */
     othersFlag?: EpicOthersFlag | null;
+    /** Render Import + Diagnose in the head. False when the host (the backlog reading
+     *  detail, #2617) offers them in its own ⋯ menu instead. */
+    headActions?: boolean;
   } = $props();
 
   const p = $derived(progress(epic.children));
@@ -105,7 +109,7 @@
 
   <div class="epic-head">
     <span class="badge">{m.epic_progress({ merged: p.merged, total: p.total })}</span>
-    {#if epic.source === "markdown"}
+    {#if headActions && epic.source === "markdown"}
       <button
         class="gbtn"
         type="button"
@@ -120,15 +124,17 @@
         {m.epic_import()}
       </button>
     {/if}
-    <button
-      class="gbtn"
-      type="button"
-      use:coachTarget={"epic-diagnose"}
-      title={m.epic_diag_open_title()}
-      onclick={() => (showDiag = true)}
-    >
-      {m.epic_diag_open()}
-    </button>
+    {#if headActions}
+      <button
+        class="gbtn"
+        type="button"
+        use:coachTarget={"epic-diagnose"}
+        title={m.epic_diag_open_title()}
+        onclick={() => (showDiag = true)}
+      >
+        {m.epic_diag_open()}
+      </button>
+    {/if}
   </div>
 
   <ul class="epic-children">

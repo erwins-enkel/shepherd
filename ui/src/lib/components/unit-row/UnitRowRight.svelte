@@ -511,7 +511,8 @@
 
   @container herd (max-width: 360px) {
     /* badge rail → left-aligned, wrapping horizontal strip on its own row */
-    :global(.units:not(.flow)) .u-right {
+    :global(.units:not(.flow)) .u-right,
+    :global(.units:not(.flow)) .u-badges {
       flex-direction: row;
       flex-wrap: wrap;
       align-items: center;

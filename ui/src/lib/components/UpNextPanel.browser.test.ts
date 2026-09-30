@@ -163,7 +163,11 @@ function launchContext(opts?: {
   };
 }
 
-const startButtons = () => Array.from(document.querySelectorAll<HTMLButtonElement>(".un-start"));
+// Starting is batch-only: tick the first row, then press the bar's "Start selected (1)".
+const startFirst = async () => {
+  document.querySelector<HTMLInputElement>(".un-check input")!.click();
+  await page.getByRole("button", { name: m.upnext_start_selected({ count: 1 }) }).click();
+};
 const providerSelect = () => document.querySelector<HTMLSelectElement>("#mcp-provider")!;
 const pickerConfirm = () => document.querySelector<HTMLButtonElement>(".mcp-actions .primary")!;
 const rowNumbers = () =>
@@ -224,44 +228,82 @@ describe("UpNextPanel repo filter", () => {
   });
 });
 
-describe("UpNextPanel compact issue rows", () => {
-  it("renders bounded forge labels with colored and neutral fallbacks beside Start", async () => {
-    upNext.snapshot = {
-      generatedAt: 1,
-      repoCount: 1,
-      fallback: null,
-      failedRepoCount: 0,
-      sections: [
-        {
-          kind: "repo",
-          repoPath: "~/projects/homeassistant",
-          repoSlug: null,
-          repoLabel: "homeassistant",
-          totalCount: 1,
-          items: [
-            item("~/projects/homeassistant", 42, false, {
-              labels: ["enhancement", "operator UX", "feedback"],
-              labelColors: { enhancement: "#a2eeef", feedback: "#d4c5f9" },
-            }),
-          ],
-        },
-      ],
-    };
+describe("UpNextPanel label bands", () => {
+  const bandSnapshot = (): UpNextSnapshot => ({
+    generatedAt: 1,
+    repoCount: 1,
+    fallback: null,
+    failedRepoCount: 0,
+    sections: [
+      {
+        kind: "priority",
+        repoPath: null,
+        repoSlug: null,
+        repoLabel: null,
+        totalCount: 1,
+        items: [item("~/projects/homeassistant", 1, true, { labels: ["enhancement"] })],
+      },
+      {
+        kind: "repo",
+        repoPath: "~/projects/homeassistant",
+        repoSlug: null,
+        repoLabel: "homeassistant",
+        totalCount: 4,
+        items: [
+          item("~/projects/homeassistant", 2, false, { labels: ["test", "enhancement"] }),
+          item("~/projects/homeassistant", 3),
+          item("~/projects/homeassistant", 4, false, { labels: ["enhancement", "bug"] }),
+          item("~/projects/homeassistant", 5, false, { labels: ["enhancement"] }),
+        ],
+      },
+    ],
+  });
+  const bandTitles = () =>
+    Array.from(document.querySelectorAll(".un-section-title")).map((el) => el.textContent);
 
+  it("bands priority first, then bug, then labels by first appearance, unlabeled last", async () => {
+    upNext.snapshot = bandSnapshot();
     render(UpNextPanel, {});
-
-    await expect.poll(() => document.querySelector(".un-row")).toBeTruthy();
-    const row = document.querySelector<HTMLElement>(".un-row")!;
-    expect(row.classList).toContain("issue-list-row");
-    const chips = row.querySelectorAll<HTMLElement>(".issue-label-chip:not(.issue-label-more)");
-    expect(chips).toHaveLength(2);
-    expect(chips[0]!.classList).toContain("hued");
-    expect(chips[1]!.classList).not.toContain("hued");
-    expect(row.querySelector(".issue-label-more")?.textContent).toContain("+1");
-    expect(row.querySelector(".issue-list-actions .un-start")).not.toBeNull();
+    await pickSort(m.upnext_sort_recommended());
+    await expect
+      .poll(bandTitles)
+      .toEqual([
+        m.upnext_priority_section(),
+        "bug",
+        "test",
+        "enhancement",
+        m.upnext_unlabeled_section(),
+      ]);
+    expect(rowNumbers()).toEqual(["#1", "#4", "#2", "#5", "#3"]);
   });
 
-  it("hides the per-row Start on mobile while checkbox and link stay touch-sized", async () => {
+  it("drops the band's own label from a row and lists the rest beneath the title", async () => {
+    upNext.snapshot = bandSnapshot();
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#4")).toBeInTheDocument();
+    const rowOf = (n: number) =>
+      Array.from(document.querySelectorAll<HTMLElement>(".un-row")).find(
+        (row) => row.querySelector(".un-num")?.textContent === `#${n}`,
+      )!;
+    expect(rowOf(4).querySelector(".un-sub")?.textContent?.trim()).toBe("enhancement");
+    expect(rowOf(5).querySelector(".un-sub")).toBeNull();
+    // The priority band names no label, so the row keeps all of its own.
+    expect(rowOf(1).querySelector(".un-sub")?.textContent?.trim()).toBe("enhancement");
+  });
+
+  it("has no per-row Start: a ticked row starts from the batch bar", async () => {
+    render(UpNextPanel, {
+      launchContext: launchContext({ diagnostics: diagnostics({ claude: "ok", codex: "error" }) }),
+    });
+    await expect.element(page.getByText("#1")).toBeInTheDocument();
+    expect(document.querySelector(".un-start")).toBeNull();
+    expect(document.querySelector(".un-batch")).toBeNull();
+    await startFirst();
+    await expect.poll(() => vi.mocked(startUpNext).mock.calls.length).toBe(1);
+    expect(vi.mocked(startUpNext).mock.calls[0]?.[0]).toHaveLength(1);
+  });
+
+  it("keeps checkbox and title link touch-sized on mobile", async () => {
     await page.viewport(390, 800);
     render(UpNextPanel, {});
 
@@ -270,8 +312,6 @@ describe("UpNextPanel compact issue rows", () => {
     const hitSize = parseFloat(
       getComputedStyle(document.documentElement).getPropertyValue("--mobile-actionbar-hit"),
     );
-
-    // Checkbox + link remain the 44px touch targets…
     for (const selector of [".un-check", ".un-link"]) {
       expectMinPx(
         row.querySelector<HTMLElement>(selector)!.getBoundingClientRect().height,
@@ -279,19 +319,12 @@ describe("UpNextPanel compact issue rows", () => {
         `${selector} tap-target`,
       );
     }
-    // …but the per-row Start is hidden entirely (out of the layout + a11y tree).
-    // Starting one issue goes through the checkbox → sticky batch bar instead.
-    const actions = row.querySelector<HTMLElement>(".un-actions")!;
-    expect(getComputedStyle(actions).display).toBe("none");
-    expect(row.querySelector<HTMLElement>(".un-start")!.getBoundingClientRect().height).toBe(0);
     expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
   });
 
-  it("keeps a worst-case row single-line with Start inline and no overflow at 360px", async () => {
-    // Widest row content: priority + epic pills and multiple label chips. On a
-    // narrow desktop sidebar the mobile @media branch does not fire (wide viewport,
-    // fine pointer), so this exercises the strict-nowrap + title-valve path.
+  it("wraps a long title in a narrow sidebar instead of truncating it", async () => {
     await page.viewport(1024, 900);
+    const title = "herdr terminal transport rewrite with a deliberately long title";
     upNext.snapshot = {
       generatedAt: 1,
       repoCount: 1,
@@ -305,11 +338,10 @@ describe("UpNextPanel compact issue rows", () => {
           repoLabel: "homeassistant",
           totalCount: 1,
           items: [
-            item("~/projects/homeassistant", 1642, true, {
+            item("~/projects/homeassistant", 1642, false, {
               kind: "epic",
-              title: "herdr terminal transport rewrite with a deliberately long title",
+              title,
               labels: ["enhancement", "operator UX", "feedback"],
-              labelColors: { enhancement: "#a2eeef", feedback: "#d4c5f9" },
             }),
           ],
         },
@@ -320,23 +352,19 @@ describe("UpNextPanel compact issue rows", () => {
     await expect.poll(() => document.querySelector(".un-row")).toBeTruthy();
     const panel = document.querySelector<HTMLElement>(".upnext")!;
     const row = document.querySelector<HTMLElement>(".un-row")!;
+    const link = row.querySelector<HTMLElement>(".un-link")!;
 
-    // Both pills render and Start stays inline (not hidden) on desktop.
-    expect(row.querySelector(".un-pill-priority")).not.toBeNull();
-    expect(row.querySelector(".un-pill-epic")).not.toBeNull();
-    expect(getComputedStyle(row.querySelector<HTMLElement>(".un-actions")!).display).not.toBe(
-      "none",
-    );
-
+    expect(row.querySelector(".un-pill")).not.toBeNull();
     const measure = (w: number): number => {
       panel.style.width = `${w}px`;
-      return row.offsetHeight; // forces reflow; integer px avoids subpixel noise
+      return link.offsetHeight;
     };
-    const wide = measure(600);
-    // At the narrowest supported desktop width the row stays a single line (Start
-    // never wraps → same height as wide) and its content does not overflow.
-    expect(measure(360)).toBe(wide);
+    const wide = measure(900);
+    // Narrow: the title grows to more lines rather than clipping, and nothing overflows.
+    expect(measure(300)).toBeGreaterThan(wide);
+    expect(link.scrollWidth).toBeLessThanOrEqual(link.clientWidth);
     expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
+    expect(link.textContent).toBe(title);
   });
 });
 
@@ -433,7 +461,7 @@ describe("UpNextPanel sorting", () => {
       ],
     };
     render(UpNextPanel, {});
-    await expect.element(page.getByText(m.upnext_normal_section())).toBeInTheDocument();
+    await expect.element(page.getByText(m.upnext_unlabeled_section())).toBeInTheDocument();
     expect(rowNumbers()).toEqual(["#6", "#5", "#4", "#3", "#2"]);
     await expect.element(page.getByText("#1")).not.toBeInTheDocument();
     await expect.element(page.getByText(m.upnext_show_all({ count: 6 }))).toBeInTheDocument();
@@ -498,7 +526,7 @@ describe("UpNextPanel provider picker", () => {
       launchContext: launchContext({ diagnostics: diagnostics({ claude: "ok", codex: "error" }) }),
     });
     await expect.element(page.getByText("#1")).toBeInTheDocument();
-    startButtons()[0]!.click();
+    await startFirst();
     await expect.poll(() => vi.mocked(startUpNext).mock.calls.length).toBe(1);
     expect(vi.mocked(startUpNext).mock.calls[0]?.[1]).toEqual({
       agentProvider: "claude",
@@ -515,7 +543,7 @@ describe("UpNextPanel provider picker", () => {
       }),
     });
     await expect.element(page.getByText("#1")).toBeInTheDocument();
-    startButtons()[0]!.click();
+    await startFirst();
     await expect.element(page.getByText(m.upnext_picker_title())).toBeInTheDocument();
     await expect.poll(() => providerSelect().value).toBe("codex");
     await expect
@@ -526,7 +554,7 @@ describe("UpNextPanel provider picker", () => {
   it("confirms a selected provider/model/effort choice", async () => {
     render(UpNextPanel, { launchContext: launchContext() });
     await expect.element(page.getByText("#1")).toBeInTheDocument();
-    startButtons()[0]!.click();
+    await startFirst();
     await expect.element(page.getByText(m.upnext_picker_title())).toBeInTheDocument();
     providerSelect().value = "codex";
     providerSelect().dispatchEvent(new Event("change", { bubbles: true }));
@@ -579,8 +607,9 @@ describe("UpNextPanel provider picker", () => {
   it("does not open a second picker while one is already open", async () => {
     render(UpNextPanel, { launchContext: launchContext() });
     await expect.element(page.getByText("#1")).toBeInTheDocument();
-    startButtons()[0]!.click();
-    startButtons()[1]!.click();
+    await startFirst();
+    // The bar stays under the open picker; a second press must not stack another one.
+    document.querySelector<HTMLButtonElement>(".un-batch-go")!.click();
     await expect.element(page.getByText(m.upnext_picker_title())).toBeInTheDocument();
     expect(document.querySelectorAll(".mcp").length).toBe(1);
     expect(vi.mocked(startUpNext)).not.toHaveBeenCalled();
@@ -595,7 +624,7 @@ describe("UpNextPanel provider picker", () => {
       }),
     });
     await expect.element(page.getByText("#1")).toBeInTheDocument();
-    startButtons()[0]!.click();
+    await startFirst();
     await expect.poll(() => vi.mocked(startUpNext).mock.calls.length).toBe(1);
     expect(vi.mocked(startUpNext).mock.calls[0]?.[1]).toEqual({
       agentProvider: "claude",
@@ -612,7 +641,7 @@ describe("UpNextPanel provider picker", () => {
       }),
     });
     await expect.element(page.getByText("#1")).toBeInTheDocument();
-    startButtons()[0]!.click();
+    await startFirst();
     await expect.poll(() => vi.mocked(startUpNext).mock.calls.length).toBe(1);
     expect(vi.mocked(startUpNext).mock.calls[0]?.[1]).toEqual({
       agentProvider: "claude",

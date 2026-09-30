@@ -3549,6 +3549,11 @@
     showBacklog = false;
     backlogSelectPath = null;
   }}
+  onbacklogopensession={(id) => {
+    showBacklog = false;
+    backlogSelectPath = null;
+    jumpToSession(id);
+  }}
   {pendingTrain}
   ontrainclose={() => (pendingTrain = null)}
   ontrainconfirm={confirmTrain}

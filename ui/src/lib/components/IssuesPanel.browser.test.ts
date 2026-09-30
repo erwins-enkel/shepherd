@@ -496,7 +496,7 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     expect(document.querySelector(".task-box")).toBeNull();
   });
 
-  it("an epic shows the unchanged EpicPanel controls and moves Import + Diagnose into ⋯", async () => {
+  it("an epic shows its controls in the run area and moves Import + Diagnose into ⋯", async () => {
     seed([plain(5, { title: "Markdown epic", body: "- [ ] #6" })], [summary(5, "markdown")]);
     mockEpic.mockResolvedValue({
       repoPath: "/repo",
@@ -512,10 +512,15 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
 
     const detail = () => document.querySelector<HTMLElement>(".issue-detail")!;
     await expect.poll(() => document.querySelector(".issue-detail .epic")).not.toBeNull();
-    const text = detail().textContent ?? "";
+    // The run area (#2620) sits between the head and the children and holds every control.
+    const region = detail().querySelector<HTMLElement>("[data-epic-run]")!;
+    const text = region.textContent ?? "";
     for (const label of [m.epic_start(), m.epic_mode_auto(), m.epic_provider_label()]) {
       expect(text).toContain(label);
     }
+    expect(region.compareDocumentPosition(detail().querySelector(".epic")!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
     expect(document.querySelector(".task-box")).toBeNull();
     // Import + Diagnose live in the ⋯ menu, not in EpicPanel's head.
     const epicHead = detail().querySelector(".epic-head")!;
@@ -527,6 +532,81 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
       el.textContent?.trim(),
     );
     expect(items).toEqual([m.epic_import(), m.epic_diag_open()]);
+  });
+
+  // The issue's acceptance scenario (#2620): maxAuto = 1, epic B (#20) leads and waits for the
+  // slot, epic A's (#10) child #11 holds it.
+  it("roles: 'leads' on B, 'winding down' on A, the slot line, and the holding child", async () => {
+    seed(
+      [plain(10, { title: "Epic A" }), plain(20, { title: "Epic B" })],
+      [summary(10), summary(20)],
+    );
+    mockEpic.mockImplementation((repoPath: string, parentIssueNumber: number) =>
+      Promise.resolve({
+        repoPath,
+        parentIssueNumber,
+        parentTitle: `Epic ${parentIssueNumber}`,
+        source: "native",
+        children:
+          parentIssueNumber === 10
+            ? [{ ...childOf(11, "Child of A"), state: "running" as const }]
+            : [childOf(21, "First of B")],
+        warnings: [],
+        run: {
+          repoPath,
+          parentIssueNumber,
+          mode: "auto",
+          status: parentIssueNumber === 20 ? "running" : "idle",
+        },
+      }),
+    );
+    const onopenautomation = vi.fn();
+    render(IssuesPanel, {
+      repoPath: "/repo",
+      onnewtask: noop,
+      onopenautomation,
+      drain: {
+        repoPath: "/repo",
+        enabled: true,
+        paused: false,
+        reason: "cap",
+        detail: null,
+        queued: 1,
+        inFlight: 1,
+        max: 1,
+        epicParent: 20,
+        runSummary: {
+          leadingEpic: 20,
+          windingDown: [{ epic: 10, inFlight: [11] }],
+          slots: {
+            used: 1,
+            max: 1,
+            holders: [{ sessionId: "s11", desig: "TASK-11", issueNumber: 11, epicParent: 10 }],
+          },
+          next: [21],
+          after: [],
+        },
+      },
+    });
+
+    await expect.poll(() => option("e:20")?.textContent).toContain(m.epic_role_leading());
+    expect(option("e:10")?.textContent).toContain(m.epic_role_winding());
+    await expect.element(page.getByText(m.issuespanel_epics_one_leads())).toBeInTheDocument();
+    await page.getByRole("button", { name: m.issuespanel_slots_change() }).click();
+    expect(onopenautomation).toHaveBeenCalled();
+
+    // A (#10) is expanded by default (topmost epic): its running child holds the slot.
+    await expect
+      .poll(() => option("c:10:11")?.textContent)
+      .toContain(m.epic_slot_held({ index: 1, max: 1 }));
+
+    await selectRow("e:20");
+    await expect
+      .poll(() => document.querySelector("[data-epic-run]")?.textContent)
+      .toContain(m.epic_run_state_waiting_slot());
+    const region = document.querySelector("[data-epic-run]")!.textContent ?? "";
+    expect(region).toContain("Child of A");
+    expect(region).toContain("#21 First of B");
   });
 
   it("mobile: the detail opens as a second level and Back returns to the list", async () => {

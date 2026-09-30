@@ -211,6 +211,7 @@
     onaddnewproject,
     backlogSelectPath,
     onbacklogclose,
+    onbacklogopensession,
     pendingTrain,
     ontrainclose,
     ontrainconfirm,
@@ -362,6 +363,8 @@
     onaddnewproject: () => void;
     backlogSelectPath: string | null;
     onbacklogclose: () => void;
+    /** Open a session from the Repos dialog's epic run area (#2620): close it, jump there. */
+    onbacklogopensession: (sessionId: string) => void;
     pendingTrain: PendingTrain;
     ontrainclose: () => void;
     ontrainconfirm: () => void;
@@ -742,6 +745,7 @@
     {onaddnewproject}
     selectPath={backlogInitialRepo}
     onclose={onbacklogclose}
+    onopensession={onbacklogopensession}
     epics={store.epics}
     {inTrainPrs}
     target={epicTarget}

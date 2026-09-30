@@ -52,6 +52,7 @@
     onaddnewproject,
     selectPath = null,
     taskDefaults = undefined,
+    onopensession = undefined,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
@@ -97,6 +98,8 @@
      *  to the Issues tab once per distinct value. Filters are cleared first so a
      *  brand-new (zero issues/PRs) repo isn't excluded from the visible list. */
     selectPath?: string | null;
+    /** Open a session from the epic run area's slot holders (#2620). Omitted → no link. */
+    onopensession?: (sessionId: string) => void;
     /** Global run defaults for the Issues tab's task box (CLI / model / effort pre-fill). */
     taskDefaults?: TaskRunDefaults;
   } = $props();
@@ -446,6 +449,8 @@
             {drain}
             mobile
             {taskDefaults}
+            {onopensession}
+            onopenautomation={() => (activeTab = "automation")}
           />
         </div>
       </div>
@@ -515,6 +520,8 @@
               {target}
               {drain}
               {taskDefaults}
+              {onopensession}
+              onopenautomation={() => (activeTab = "automation")}
             />
           {:else}
             <div class="detail-empty">

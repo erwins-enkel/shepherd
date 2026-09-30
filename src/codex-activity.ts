@@ -25,7 +25,7 @@ export interface CodexCompletedTurn {
 type CodexTurnRecord =
   | { type: "start"; turnId: string }
   | ({ type: "complete" } & CodexCompletedTurn)
-  | { type: "input" | "abort" | "ignore" };
+  | { type: "input" | "abort" | "ignore" | "unknown" };
 
 /** Native CLI lifecycle evidence only; assistant prose and queued questions are not turn ends. */
 export function parseCodexCompletedTurn(text: string): CodexCompletedTurn | null {
@@ -42,6 +42,9 @@ export function parseCodexCompletedTurn(text: string): CodexCompletedTurn | null
     } else if (record.type === "start") {
       started = record.turnId;
       aborted = false;
+      completed = null;
+    } else if (record.type === "unknown") {
+      // A later native completion can supersede unknown history; never retain an old one.
       completed = null;
     } else if (record.type !== "ignore") {
       aborted = record.type === "abort";
@@ -61,7 +64,8 @@ function readCodexTurnRecord(line: string): CodexTurnRecord | null {
     if (record.type === "turn_context" || record.type === "world_state") return { type: "input" };
     if (record.type === "session_meta" || record.type === "token_usage_record")
       return { type: "ignore" };
-    if (record.type !== "response_item" || typeof p.type !== "string") return null;
+    if (record.type !== "response_item") return { type: "unknown" };
+    if (typeof p.type !== "string") return null;
     // Unknown response items may be new tool calls; never preserve an old completion over them.
     const passive = ["message", "reasoning", "function_call_output", "custom_tool_call_output"];
     return { type: p.role !== "user" && passive.includes(p.type) ? "ignore" : "input" };
@@ -96,7 +100,7 @@ function codexLifecycleEvent(
     case "agent_reasoning":
       return { type: "ignore" };
     default:
-      return null;
+      return typeof p.type === "string" ? { type: "unknown" } : null;
   }
 }
 

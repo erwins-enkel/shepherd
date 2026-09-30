@@ -4621,5 +4621,14 @@
   "feat_newtask_draft_restore_body": "„Neue Aufgabe“ aus Versehen geschlossen – per Klick daneben, Escape oder ✕? Innerhalb von zwei Minuten wieder öffnen, und alles Geschriebene und Eingestellte ist zurück, markiert mit „Entwurf wiederhergestellt“. „Verwerfen & neue Aufgabe“ beginnt stattdessen mit einem leeren Dialog.",
   "newtask_preview_image_unavailable": "Bildvorschau nicht verfügbar",
   "feat_task_image_preview_title": "Screenshots einer Aufgabe ansehen",
-  "feat_task_image_preview_body": "Fahre in den Task-ID-Details über einen Bilddateinamen, um den gespeicherten Screenshot zu sehen. Du kannst den Dateinamen auch per Tastatur fokussieren oder auf Touch-Geräten antippen."
+  "feat_task_image_preview_body": "Fahre in den Task-ID-Details über einen Bilddateinamen, um den gespeicherten Screenshot zu sehen. Du kannst den Dateinamen auch per Tastatur fokussieren oder auf Touch-Geräten antippen.",
+  "terminal_owner_unavailable": "Aktueller Zugriff unbekannt",
+  "terminal_owner_none": "Derzeit auf keinem anderen Gerät geöffnet",
+  "terminal_owner_mac": "Aktiv in der Mac-App",
+  "terminal_owner_pwa": "Aktiv in der PWA",
+  "terminal_owner_pwa_platform": "Aktiv in der PWA auf {platform}",
+  "terminal_owner_browser": "Aktiv im Browser",
+  "terminal_owner_browser_platform": "Aktiv im Browser auf {platform}",
+  "feat_terminal_active_client_title": "Aktiven Terminal-Client erkennen",
+  "feat_terminal_active_client_body": "Die Übernahme-Meldung zeigt jetzt die aktive App und ihr Betriebssystem. Sie aktualisiert sich bei weiteren Übernahmen, im Browser, in der PWA und in der Mac-App."
 }

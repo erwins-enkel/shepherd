@@ -5,6 +5,8 @@ import SwiftUI
 /// The terminal tab's body: the emulator, a state overlay, and the prompt bar.
 struct TerminalPane: View {
     @Bindable var model: TerminalSessionModel
+    let store: SessionStore
+    let sessionID: String
     @FocusState private var promptFocused: Bool
     /// Debounces the `.connecting` card; see its own doc comment.
     @State private var connectingOverlay = ConnectingOverlayDebouncer()
@@ -50,7 +52,7 @@ struct TerminalPane: View {
             }
         case .superseded:
             statusCard(
-                title: L.t("native_terminal_superseded_title"),
+                title: TerminalOwnerCopy.title(owners: store.terminalOwners, sessionID: sessionID),
                 body: L.t("native_terminal_superseded_body"),
                 action: (L.t("native_terminal_superseded_action"), { model.takeOver() }),
                 systemImage: "display.2"

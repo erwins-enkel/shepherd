@@ -10,7 +10,7 @@
 export type PwaRowState = "installed" | "ios" | "android" | "optional";
 
 /** True when running as an installed/standalone PWA (incl. iOS Safari's legacy flag). */
-function isStandalone(): boolean {
+export function isStandalone(): boolean {
   if (typeof window === "undefined") return false;
   return (
     window.matchMedia?.("(display-mode: standalone)").matches ||

@@ -11,6 +11,9 @@ import OpenAPIRuntime
 /// `EventName` is an open enum, so a name this client has never heard of
 /// arrives as a plain string rather than failing to decode.
 public enum ServerEvent: Decodable, Equatable, Sendable {
+  case terminalOwners(Components.Schemas.TerminalOwnersEvent)
+  /// Local transport signal, ordered with snapshots so an old disconnect cannot erase a new owner.
+  case terminalOwnersUnavailable
   case sessionNew(Session)
   case sessionStatus(Components.Schemas.SessionStatusEvent)
   case sessionRenamed(Components.Schemas.SessionRenamedEvent)
@@ -55,6 +58,9 @@ public enum ServerEvent: Decodable, Equatable, Sendable {
     }
 
     switch name.known {
+    case .terminal_colon_owners:
+      self = payload(Components.Schemas.TerminalOwnersEvent.self).map(ServerEvent.terminalOwners)
+        ?? .terminalOwnersUnavailable
     case .session_colon_new:
       self =
         payload(Session.self).map(ServerEvent.sessionNew)
@@ -88,8 +94,8 @@ public enum ServerEvent: Decodable, Equatable, Sendable {
 
 /// The one frame the client sends. The contract documents it in prose under
 /// `x-shepherd-events` rather than as a schema, so it is written out here.
-/// The server never replies to it; it uses it to suppress push notifications
-/// while the app is focused.
+/// The server uses it to suppress push notifications while the app is focused.
+/// An active report also returns a fresh terminal:owners snapshot.
 public struct PresenceFrame: Encodable, Sendable {
   public let type: String = "presence"
   public let active: Bool

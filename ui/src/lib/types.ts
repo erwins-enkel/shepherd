@@ -2283,7 +2283,13 @@ export interface SpawnProgress {
   sessionId?: string;
 }
 
+export interface TerminalClientInfo {
+  kind: "mac-app" | "pwa" | "browser" | "unknown";
+  platform: "macos" | "ios" | "ipados" | "android" | "windows" | "linux" | "chromeos" | "unknown";
+}
+
 export type WsEvent =
+  | { event: "terminal:owners"; data: { owners: Record<string, TerminalClientInfo> } }
   | { event: "session:new"; data: Session }
   | { event: "spawn:progress"; data: SpawnProgress }
   | {

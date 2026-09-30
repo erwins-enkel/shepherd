@@ -1571,3 +1571,37 @@ test("archiving a session drops its amendments from the live cache", () => {
   s.apply({ event: "session:archived", data: { id: "s1" } });
   expect(amendments.forSession("s1")).toEqual([]);
 });
+
+test("terminal owner snapshots replace stale owners and lose freshness on disconnect and foreground return", () => {
+  vi.useFakeTimers();
+  const state = { visibilityState: "visible" as "visible" | "hidden" };
+  const dom = stubDom(state);
+  const s = new HerdStore();
+  const { made, dispose } = connectFake(s);
+  made[0].accept();
+  const snapshot = (
+    owners: Record<string, { kind: "pwa" | "mac-app"; platform: "ios" | "macos" }>,
+  ) =>
+    made
+      .at(-1)!
+      .onmessage?.({ data: JSON.stringify({ event: "terminal:owners", data: { owners } }) });
+  expect(s.terminalOwners).toBeNull();
+  snapshot({ a: { kind: "mac-app", platform: "macos" }, b: { kind: "pwa", platform: "ios" } });
+  snapshot({ a: { kind: "pwa", platform: "ios" } });
+  expect(s.terminalOwners).toEqual({ a: { kind: "pwa", platform: "ios" } });
+  state.visibilityState = "hidden";
+  dom.fire("d:", "visibilitychange");
+  state.visibilityState = "visible";
+  dom.fire("d:", "visibilitychange");
+  expect(s.terminalOwners).toBeNull();
+  snapshot({});
+  expect(s.terminalOwners).toEqual({});
+  made[0].close();
+  expect(s.terminalOwners).toBeNull();
+  vi.advanceTimersByTime(1000);
+  made[1].accept();
+  snapshot({ a: { kind: "mac-app", platform: "macos" } });
+  expect(s.terminalOwners?.a.kind).toBe("mac-app");
+  dispose();
+  expect(s.terminalOwners).toBeNull();
+});

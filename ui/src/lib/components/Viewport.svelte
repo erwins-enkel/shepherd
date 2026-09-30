@@ -5,6 +5,7 @@
   import { WebLinksAddon } from "@xterm/addon-web-links";
   import { WebglAddon } from "@xterm/addon-webgl";
   import type {
+    TerminalClientInfo,
     DrainStatus,
     GitState,
     Leftover,
@@ -117,6 +118,7 @@
     onnavigate,
     limits = null,
     connected = true,
+    terminalOwners = null,
     git = null,
     activity = undefined,
     previewPort = null,
@@ -135,6 +137,7 @@
     subagents = {},
   }: {
     session: Session;
+    terminalOwners?: Record<string, TerminalClientInfo> | null;
     onarchive?: (id: string, reap?: string[]) => void;
     onback?: () => void;
     onretry?: () => void;
@@ -3037,6 +3040,7 @@
       />
     {/if}
     <ViewportTermBanners
+      owner={terminalOwners === null ? undefined : (terminalOwners[session.id] ?? null)}
       {tab}
       {scrolledUp}
       {parked}

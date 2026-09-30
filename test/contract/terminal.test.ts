@@ -3,6 +3,8 @@ import { RESIZE_PREFIX } from "../../src/operator-activity";
 import { PTY_GONE_CODE, PTY_SUPERSEDED_CODE } from "../../src/server";
 import {
   bearer,
+  collectEvents,
+  validateEvent,
   coverage,
   loadContract,
   login,
@@ -13,7 +15,7 @@ import {
   withAuth,
   type ContractServer,
 } from "./harness";
-import { operationsForStream } from "./stream-blocks";
+import { operationsForStream, eventsForStream } from "./stream-blocks";
 
 let s: ContractServer;
 let token: string;
@@ -98,7 +100,7 @@ describe("x-shepherd-pty documents what the native client relies on", () => {
   test("the constants still match the server", () => {
     const pty = loadContract()["x-shepherd-pty"];
     expect(pty.path).toBe("/pty/{id}");
-    expect(pty.query).toEqual(["cols", "rows"]);
+    expect(pty.query).toEqual(["cols", "rows", "clientKind", "clientPlatform"]);
     expect(pty.resizePrefix).toBe(RESIZE_PREFIX);
     expect(pty.closeCodes.superseded).toBe(PTY_SUPERSEDED_CODE);
     expect(pty.closeCodes.gone).toBe(PTY_GONE_CODE);
@@ -116,10 +118,23 @@ describe("x-shepherd-pty documents what the native client relies on", () => {
   });
 });
 
+test("events connect receives a contract-shaped owner snapshot", async () => {
+  const frames = await collectEvents(s, token, async () => {});
+  const owners = frames.find((frame) => frame.event === "terminal:owners");
+  expect(owners).toBeDefined();
+  validateEvent(owners!.event, owners!.data);
+  expect(owners!.data).toEqual({ owners: {} });
+});
+
 // This stream's own coverage gate, the counterpart to the block-aware gate in
 // `openapi.test.ts`: that one deliberately skips every path inside a `# ── stream: … ──`
 // block, so nothing else polices what this block declares. Stays the LAST describe here.
 describe("terminal stream coverage gate", () => {
+  test("every event declared in the terminal block was exercised", () => {
+    expect(eventsForStream("terminal").filter((event) => !coverage().events.has(event))).toEqual(
+      [],
+    );
+  });
   test("every operation declared in the terminal block was exercised", () => {
     const { operations } = coverage();
     expect(operationsForStream("terminal").filter((o) => !operations.has(o))).toEqual([]);

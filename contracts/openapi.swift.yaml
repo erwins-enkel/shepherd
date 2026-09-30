@@ -1128,6 +1128,7 @@ components:
         - session:ready
         - automerge:status
         - usage:limits
+        - terminal:owners
     EventEnvelope:
       type: object
       additionalProperties: true
@@ -1550,6 +1551,45 @@ components:
           type: string
         host:
           type: string
+    TerminalClientInfo:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - platform
+      properties:
+        kind:
+          anyOf:
+            - type: string
+              enum:
+                - mac-app
+                - pwa
+                - browser
+                - unknown
+            - type: string
+        platform:
+          anyOf:
+            - type: string
+              enum:
+                - macos
+                - ios
+                - ipados
+                - android
+                - windows
+                - linux
+                - chromeos
+                - unknown
+            - type: string
+    TerminalOwnersEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - owners
+      properties:
+        owners:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/TerminalClientInfo"
     ReplyRequest:
       type: object
       additionalProperties: false
@@ -9458,6 +9498,10 @@ x-shepherd-events:
     description: The egress firewall dropped a host for an autonomous session (reported once per host).
     schema:
       $ref: "#/components/schemas/SessionEgressDropEvent"
+  terminal:owners:
+    description: Full current PTY owners by session id. Sent on events connect, ownership changes and active presence reports. An absent id has no owner; unknown metadata still denotes a connected owner. Clients discard freshness when disconnected.
+    schema:
+      $ref: "#/components/schemas/TerminalOwnersEvent"
   session:git:
     description: PR/forge state for one session changed (poller push, or a PR action).
     schema:
@@ -9571,6 +9615,8 @@ x-shepherd-pty:
   query:
     - cols
     - rows
+    - clientKind
+    - clientPlatform
   resizePrefix: "\0resize:"
   closeCodes:
     superseded: 4000

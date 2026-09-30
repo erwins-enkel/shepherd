@@ -8920,10 +8920,31 @@ export function serveAgentIngress(deps: AppDeps, port = 0) {
   return Bun.serve({ port, hostname: "127.0.0.1", fetch: (req) => app.fetch(req) });
 }
 
+const terminalClientKinds = ["mac-app", "pwa", "browser", "unknown"] as const;
+const terminalClientPlatforms = [
+  "macos",
+  "ios",
+  "ipados",
+  "android",
+  "windows",
+  "linux",
+  "chromeos",
+  "unknown",
+] as const;
+
+function parseTerminalClient(params: URLSearchParams) {
+  return {
+    kind: terminalClientKinds.find((value) => value === params.get("clientKind")) ?? "unknown",
+    platform:
+      terminalClientPlatforms.find((value) => value === params.get("clientPlatform")) ?? "unknown",
+  };
+}
+
 type WsData =
   | { kind: "events"; unsub?: () => void }
   | {
       kind: "pty";
+      client: ReturnType<typeof parseTerminalClient>;
       id: string;
       terminalId: string;
       cols: number;
@@ -9075,6 +9096,15 @@ export function serve(deps: AppDeps, port: number) {
   const app = makeApp(deps);
   // current owning socket per terminal — a single owner avoids the takeover war
   const ptyOwners = new Map<string, ServerWebSocket<WsData>>();
+  const terminalOwners = () => ({
+    owners: Object.fromEntries(
+      [...ptyOwners.values()].flatMap(({ data }) =>
+        data.kind === "pty" ? [[data.id, data.client]] : [],
+      ),
+    ),
+  });
+  const sendTerminalOwners = (ws: ServerWebSocket<WsData>) =>
+    ws.send(JSON.stringify({ event: "terminal:owners", data: terminalOwners() }));
   // last time the operator typed into each session's live PTY (issue #1022 seam).
   // In-memory + throttled; pruned in the pty close() handler. Consumed by nothing
   // yet — a future stage-and-apply guard reads it via getLastOperatorKeystrokeAt.
@@ -9131,7 +9161,14 @@ export function serve(deps: AppDeps, port: number) {
           url.searchParams.get("rows"),
         );
         return server.upgrade(req, {
-          data: { kind: "pty", id: s.id, terminalId: s.herdrAgentId, cols, rows },
+          data: {
+            kind: "pty",
+            id: s.id,
+            terminalId: s.herdrAgentId,
+            cols,
+            rows,
+            client: parseTerminalClient(url.searchParams),
+          },
         })
           ? undefined
           : new Response("upgrade failed", { status: 500 });
@@ -9149,6 +9186,7 @@ export function serve(deps: AppDeps, port: number) {
             ws.send(JSON.stringify({ event, data })),
           );
           ws.data.unsub = unsub;
+          sendTerminalOwners(ws);
           // A live /events socket = a dashboard is open (regardless of focus), so
           // background pollers should run warm. `close` drops it again.
           deps.presence?.connect(ws);
@@ -9177,6 +9215,7 @@ export function serve(deps: AppDeps, port: number) {
           // with a "superseded" close so it parks instead of fighting back.
           const prev = ptyOwners.get(tid);
           ptyOwners.set(tid, ws);
+          deps.events.emit("terminal:owners", terminalOwners());
           if (prev && prev !== ws) prev.close(PTY_SUPERSEDED_CODE, "superseded");
           const sock = { send: (d: string | Uint8Array) => ws.send(d), close: () => ws.close() };
           const kind = pickTerminalBridgeKind({
@@ -9247,7 +9286,10 @@ export function serve(deps: AppDeps, port: number) {
           // can suppress OS banners while a window is actively in use.
           try {
             const m = JSON.parse(typeof msg === "string" ? msg : msg.toString());
-            if (m?.type === "presence") deps.presence?.set(ws, !!m.active);
+            if (m?.type === "presence") {
+              deps.presence?.set(ws, !!m.active);
+              if (m.active === true) sendTerminalOwners(ws);
+            }
           } catch {
             /* ignore malformed frames */
           }
@@ -9269,7 +9311,10 @@ export function serve(deps: AppDeps, port: number) {
         } else {
           // only drop ownership if we're still the owner (a newer client may have
           // already claimed this terminal before our close fired)
-          if (ptyOwners.get(ws.data.terminalId) === ws) ptyOwners.delete(ws.data.terminalId);
+          if (ptyOwners.get(ws.data.terminalId) === ws) {
+            ptyOwners.delete(ws.data.terminalId);
+            deps.events.emit("terminal:owners", terminalOwners());
+          }
           operatorKeystrokes.delete(ws.data.id); // don't let the seam map grow unbounded
           pruneSocketTerminalFailures(socketTerminalFailures, Date.now());
           ws.data.bridge?.close();

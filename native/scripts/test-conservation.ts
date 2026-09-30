@@ -805,6 +805,7 @@ if (import.meta.main) {
     added: string[];
     upstreamAdded?: string[];
     harnessAdded?: string[];
+    featureAdded?: string[];
   };
   if (mode[0] === "--check" && !Array.isArray(map.upstreamAdded))
     throw new Error("pinned upstream provenance mapping is required");
@@ -863,9 +864,10 @@ if (import.meta.main) {
     ...map.added,
     ...(map.upstreamAdded ?? []),
     ...(map.harnessAdded ?? []),
+    ...(map.featureAdded ?? []),
   ]);
   console.log(
-    `sourceSHA=${baseline.sourceSHA}; conserved original identities=${baseline.tests.length}; raw declarations=${current.length}; additional split declarations=${map.mappings.reduce((n, row) => n + row.destinations.length - 1, 0)}; explicit Stage 1 additions=${map.added.length}; upstream additions=${map.upstreamAdded?.length ?? 0}; isolated harness additions=${map.harnessAdded?.length ?? 0}`,
+    `sourceSHA=${baseline.sourceSHA}; conserved original identities=${baseline.tests.length}; raw declarations=${current.length}; additional split declarations=${map.mappings.reduce((n, row) => n + row.destinations.length - 1, 0)}; explicit Stage 1 additions=${map.added.length}; upstream additions=${map.upstreamAdded?.length ?? 0}; isolated harness additions=${map.harnessAdded?.length ?? 0}; feature additions=${map.featureAdded?.length ?? 0}`,
   );
   for (const [target, dir] of roots)
     console.log(

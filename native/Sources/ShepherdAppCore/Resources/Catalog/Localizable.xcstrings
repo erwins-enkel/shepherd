@@ -20856,6 +20856,127 @@
         }
       }
     },
+    "terminal_owner_browser": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiv im Browser"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active in a browser"
+          }
+        }
+      }
+    },
+    "terminal_owner_browser_platform": {
+      "comment": "%1$@ = platform",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiv im Browser auf %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active in a browser on %1$@"
+          }
+        }
+      }
+    },
+    "terminal_owner_mac": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiv in der Mac-App"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active in the Mac app"
+          }
+        }
+      }
+    },
+    "terminal_owner_none": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Derzeit auf keinem anderen Gerät geöffnet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not currently open on another device"
+          }
+        }
+      }
+    },
+    "terminal_owner_pwa": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiv in der PWA"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active in the PWA"
+          }
+        }
+      }
+    },
+    "terminal_owner_pwa_platform": {
+      "comment": "%1$@ = platform",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktiv in der PWA auf %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active in the PWA on %1$@"
+          }
+        }
+      }
+    },
+    "terminal_owner_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktueller Zugriff unbekannt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Current access unknown"
+          }
+        }
+      }
+    },
     "toast_auto_revived": {
       "comment": "%1$@ = revived, %2$@ = failed",
       "extractionState": "manual",

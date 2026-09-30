@@ -58,6 +58,9 @@ public final class SessionStore {
   /// move — a consumer never has to poll.
   public private(set) var connection: ConnectionState = .idle
 
+  /// nil means no current snapshot; an empty map means no connected terminal owners.
+  public private(set) var terminalOwners: [String: Components.Schemas.TerminalClientInfo]?
+
   /// The HTTP client this store drives, so an app that built the store with
   /// `init(profile:credentials:)` can still reach the one thing only the
   /// client exposes: `client.needsLogin`, the 401 signal for requests the
@@ -282,6 +285,7 @@ public final class SessionStore {
   /// `SessionStore` (and `EventStream`) instead. To go quiet temporarily, use
   /// `setActive(false)` and keep the socket.
   public func stop() {
+    terminalOwners = nil
     running = false
     stopped = true
     consumer?.cancel()
@@ -318,6 +322,8 @@ public final class SessionStore {
   /// without `stop()` having been called. Leaves `connection` alone: the
   /// caller has already published the state that explains the teardown.
   private func teardownEventLoop() async {
+    stopped = true
+    terminalOwners = nil
     consumer?.cancel()
     consumer = nil
     lifecycleWatcher?.cancel()
@@ -533,6 +539,14 @@ public final class SessionStore {
   private static let maxBufferedEvents = 256
 
   public func apply(_ event: ServerEvent) {
+    // Independent of HTTP bootstrap: those lists never contain PTY ownership.
+    switch event {
+    case .terminalOwners, .terminalOwnersUnavailable:
+      guard !stopped else { return }
+      applyNow(event)
+      return
+    default: break
+    }
     // A snapshot load is in flight: hold the frame and replay it once the
     // snapshot lands. Applying it now would let the older lists the server is
     // about to return overwrite it.
@@ -560,6 +574,10 @@ public final class SessionStore {
 
   private func applyNow(_ event: ServerEvent) {
     switch event {
+    case .terminalOwners(let snapshot):
+      terminalOwners = snapshot.owners.additionalProperties
+    case .terminalOwnersUnavailable:
+      terminalOwners = nil
     case .sessionNew(let session):
       addSession(session)
     case .sessionStatus(let payload):

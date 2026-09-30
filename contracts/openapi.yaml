@@ -784,6 +784,7 @@ components:
         - "session:ready"
         - "automerge:status"
         - "usage:limits"
+        - "terminal:owners"
       x-shepherd-open-enum: true
     EventEnvelope:
       type: object
@@ -1047,6 +1048,28 @@ components:
         id: { type: string }
         host: { type: string }
     # ── stream: terminal ──
+    TerminalClientInfo:
+      type: object
+      additionalProperties: false
+      required: [kind, platform]
+      properties:
+        kind:
+          type: string
+          enum: [mac-app, pwa, browser, unknown]
+          x-shepherd-open-enum: true
+        platform:
+          type: string
+          enum: [macos, ios, ipados, android, windows, linux, chromeos, unknown]
+          x-shepherd-open-enum: true
+    TerminalOwnersEvent:
+      type: object
+      additionalProperties: false
+      required: [owners]
+      properties:
+        owners:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/TerminalClientInfo"
     ReplyRequest:
       type: object
       additionalProperties: false
@@ -7225,6 +7248,9 @@ x-shepherd-events:
     description: The egress firewall dropped a host for an autonomous session (reported once per host).
     schema: { $ref: "#/components/schemas/SessionEgressDropEvent" }
   # ── stream: terminal ──
+  terminal:owners:
+    description: Full current PTY owners by session id. Sent on events connect, ownership changes and active presence reports. An absent id has no owner; unknown metadata still denotes a connected owner. Clients discard freshness when disconnected.
+    schema: { $ref: "#/components/schemas/TerminalOwnersEvent" }
   # ── /stream: terminal ──
   # ── stream: detail ──
   # Never added to the EventName enum: a new member adds a case to the generated EventNameKnown,
@@ -7340,8 +7366,9 @@ x-shepherd-events:
   # ── /stream: settings ──
 x-shepherd-pty:
   description: WebSocket /pty/{id}?cols=&rows=. Same auth gate and origin check as HTTP; the bearer goes on the upgrade request. An unknown session id is answered 404 before the upgrade. cols/rows set the attach size so the first paint matches the client's viewport. On attach the server replays the pane's scrollback, so a client must clear its own buffer on every (re)attach rather than appending. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded and the loser must NOT reconnect (both would bump each other forever). closeCodes.gone means the session no longer has a live agent and no reattach can succeed. Any other close is transient; clients retry with backoff.
+  # Optional clientKind/clientPlatform use TerminalClientInfo values; missing/invalid values normalize independently to unknown. Display only, never authorization.
   path: /pty/{id}
-  query: [cols, rows]
+  query: [cols, rows, clientKind, clientPlatform]
   resizePrefix: "\u0000resize:"
   closeCodes:
     superseded: 4000

@@ -1,10 +1,13 @@
 <script lang="ts">
+  import { terminalOwnerTitle } from "$lib/terminal-client";
+  import type { TerminalClientInfo } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
 
   let {
     tab,
     scrolledUp,
     parked,
+    owner = undefined,
     ended,
     endReason,
     resuming,
@@ -21,6 +24,7 @@
     tab: string;
     scrolledUp: boolean;
     parked: boolean;
+    owner?: TerminalClientInfo | null;
     ended: boolean;
     endReason: "gone" | "unreachable";
     resuming: boolean;
@@ -103,7 +107,7 @@
 {#if parked && tab === "term"}
   <button class="parked" type="button" onclick={takeover}>
     <span class="parked-icon" aria-hidden="true">▶</span>
-    <span class="parked-title">{m.viewport_parked_title()}</span>
+    <span class="parked-title">{terminalOwnerTitle(owner)}</span>
     <span class="parked-sub">{m.viewport_parked_sub()}</span>
   </button>
 {/if}

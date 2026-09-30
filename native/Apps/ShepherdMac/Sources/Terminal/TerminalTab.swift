@@ -21,7 +21,7 @@ struct TerminalTab: DetailTab {
         }
         // Keyed by id so SwiftUI rebuilds the pane — and therefore re-runs
         // `attach` — when the operator selects a different session.
-        return AnyView(TerminalPane(model: controller.model(for: session.id)).id(session.id))
+        return AnyView(TerminalPane(model: controller.model(for: session.id), store: store, sessionID: session.id).id(session.id))
     }
 }
 

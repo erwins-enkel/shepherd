@@ -4621,5 +4621,14 @@
   "feat_newtask_draft_restore_body": "Closed New Task by accident — a click outside, Escape or ✕? Reopen it within two minutes and everything you wrote and set up comes back, marked \"Draft restored\". \"Discard & new task\" starts from a blank composer instead.",
   "newtask_preview_image_unavailable": "Image preview unavailable",
   "feat_task_image_preview_title": "Preview task screenshots",
-  "feat_task_image_preview_body": "Hover over an image filename in the task-ID details to see its saved screenshot. You can also focus the filename with the keyboard or tap it on touch devices."
+  "feat_task_image_preview_body": "Hover over an image filename in the task-ID details to see its saved screenshot. You can also focus the filename with the keyboard or tap it on touch devices.",
+  "terminal_owner_unavailable": "Current access unknown",
+  "terminal_owner_none": "Not currently open on another device",
+  "terminal_owner_mac": "Active in the Mac app",
+  "terminal_owner_pwa": "Active in the PWA",
+  "terminal_owner_pwa_platform": "Active in the PWA on {platform}",
+  "terminal_owner_browser": "Active in a browser",
+  "terminal_owner_browser_platform": "Active in a browser on {platform}",
+  "feat_terminal_active_client_title": "See where a terminal is active",
+  "feat_terminal_active_client_body": "The takeover message now identifies the active app and operating system. It stays up to date when another client takes over, in the browser, PWA and Mac app."
 }

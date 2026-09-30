@@ -1,5 +1,6 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { connectPty } from "./pty";
+afterEach(() => vi.unstubAllGlobals());
 
 // Minimal fake matching the bits connectPty touches. Tracks every instance so a
 // test can assert how many sockets were opened (i.e. how many reconnects).
@@ -70,7 +71,7 @@ function make(onReconnect = () => {}, onParked = () => {}, onEnded = () => {}) {
 describe("connectPty", () => {
   it("attaches with the fitted size on the query string", () => {
     const { last } = make();
-    expect(last().url).toBe("/pty/abc?cols=100&rows=30");
+    expect(last().url).toMatch(/^\/pty\/abc\?cols=100&rows=30&clientKind=\w+&clientPlatform=\w+$/);
   });
 
   it("reconnects after the socket drops, using the latest fitted size", () => {
@@ -85,7 +86,7 @@ describe("connectPty", () => {
     vi.advanceTimersByTime(1000);
 
     expect(FakeWs.instances).toHaveLength(2);
-    expect(last().url).toBe("/pty/abc?cols=120&rows=40");
+    expect(last().url).toMatch(/^\/pty\/abc\?cols=120&rows=40&clientKind=\w+&clientPlatform=\w+$/);
 
     last().open(); // onReconnect fires only on a reconnect, never the first open
     expect(onReconnect).toHaveBeenCalledTimes(1);
@@ -137,7 +138,7 @@ describe("connectPty", () => {
     last().supersede();
     conn.takeover();
     expect(FakeWs.instances).toHaveLength(2); // new attach → becomes owner again
-    expect(last().url).toBe("/pty/abc?cols=100&rows=30");
+    expect(last().url).toMatch(/^\/pty\/abc\?cols=100&rows=30&clientKind=\w+&clientPlatform=\w+$/);
   });
 
   it("ends on a gone close and does NOT reconnect", () => {
@@ -213,4 +214,16 @@ describe("connectPty", () => {
     expect(FakeWs.instances).toHaveLength(1);
     vi.useRealTimers();
   });
+});
+
+it("reports PWA metadata again when taking over", () => {
+  vi.stubGlobal("navigator", { platform: "iPhone", userAgent: "iPhone", standalone: true });
+  vi.stubGlobal("window", { matchMedia: () => ({ matches: false }) });
+  const { conn, last } = make();
+  expect(last().url).toContain("clientKind=pwa&clientPlatform=ios");
+  last().open();
+  last().supersede();
+  conn.takeover();
+  expect(last().url).toContain("clientKind=pwa&clientPlatform=ios");
+  conn.close();
 });

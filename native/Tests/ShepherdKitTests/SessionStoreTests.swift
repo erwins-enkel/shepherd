@@ -6,6 +6,29 @@ import Testing
 @MainActor
 @Suite("SessionStore", .timeLimit(.minutes(1)))
 struct SessionStoreTests {
+  @Test("owner snapshots replace the complete map and invalidate independently of terminal state")
+  func terminalOwners() throws {
+    let http = FakeShepherdServer()
+    defer { http.tearDown() }
+    let store = try makeStore(http)
+    func snapshot(_ owners: String) throws -> ServerEvent {
+      try JSONDecoder().decode(ServerEvent.self,
+        from: Data("{\"event\":\"terminal:owners\",\"data\":{\"owners\":\(owners)}}".utf8))
+    }
+    #expect(store.terminalOwners == nil)
+    store.apply(try snapshot(#"{"a":{"kind":"mac-app","platform":"macos"},"b":{"kind":"browser","platform":"windows"}}"#))
+    store.apply(try snapshot(#"{"a":{"kind":"pwa","platform":"ios"}}"#))
+    #expect(store.terminalOwners?["a"]?.kind.rawValue == "pwa")
+    #expect(store.terminalOwners?["b"] == nil)
+    store.apply(.terminalOwnersUnavailable)
+    #expect(store.terminalOwners == nil)
+    store.apply(try snapshot("{}"))
+    #expect(store.terminalOwners?.isEmpty == true)
+    store.stop()
+    store.apply(try snapshot(#"{"a":{"kind":"mac-app","platform":"macos"}}"#))
+    #expect(store.terminalOwners == nil)
+  }
+
   /// A store with no event socket: `start()` bootstraps and returns, which is
   /// what makes the connection-state transitions testable without a listener.
   ///
@@ -176,6 +199,28 @@ struct SessionStoreTests {
     let store = try makeStore(server)
 
     await store.start()
+
+    #expect(store.connection == .needsLogin)
+    #expect(store.lastError == .unauthenticated)
+  }
+
+  @Test("failed bootstrap clears ownership and rejects late buffered snapshots")
+  func failedBootstrapInvalidatesTerminalOwners() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubBootstrap(server)
+    server.stub("GET", "/api/sessions", status: 401, json: try Fixtures.errorJSON("unauthorized"))
+    let store = try makeStore(server)
+
+    let owner = try JSONDecoder().decode(ServerEvent.self, from: Data(
+      #"{"event":"terminal:owners","data":{"owners":{"a":{"kind":"pwa","platform":"ios"}}}}"#.utf8))
+    store.apply(owner)
+    #expect(store.terminalOwners?["a"]?.kind.rawValue == "pwa")
+    await store.start()
+    #expect(store.terminalOwners == nil)
+    // A cancelled consumer can still hand over an already-buffered frame.
+    store.apply(owner)
+    #expect(store.terminalOwners == nil)
 
     #expect(store.connection == .needsLogin)
     #expect(store.lastError == .unauthenticated)
@@ -980,5 +1025,27 @@ struct SessionStoreTests {
 
     #expect(store.sessions.map(\.id) == ["a"])
     #expect(store.session(id: "a")?.readyToMerge == true)
+  }
+}
+
+extension SessionStoreTests {
+  @Test("ownership updates immediately during HTTP refresh and is not replayed after invalidation")
+  func terminalOwnersDuringRefresh() async throws {
+    let http = FakeShepherdServer()
+    defer { http.tearDown() }
+    try stubBootstrap(http)
+    http.on("GET", "/api/sessions") { _ in
+      FakeResponse(body: Data("[]".utf8), delay: 0.2)
+    }
+    let store = try makeStore(http)
+    let refresh = Task { try await store.refresh() }
+    #expect(await eventually { http.requests().contains { $0.path == "/api/sessions" } })
+    let snapshot = try JSONDecoder().decode(ServerEvent.self, from: Data(
+      #"{"event":"terminal:owners","data":{"owners":{"a":{"kind":"pwa","platform":"ios"}}}}"#.utf8))
+    store.apply(snapshot)
+    #expect(store.terminalOwners?["a"]?.kind.rawValue == "pwa")
+    store.apply(.terminalOwnersUnavailable)
+    try await refresh.value
+    #expect(store.terminalOwners == nil)
   }
 }

@@ -9,6 +9,16 @@ struct ServerEventTests {
     try JSONDecoder().decode(ServerEvent.self, from: Data(json.utf8))
   }
 
+  @Test("terminal owners decode complete snapshots and preserve future metadata")
+  func terminalOwners() throws {
+    let event = try decode(#"{"event":"terminal:owners","data":{"owners":{"a":{"kind":"mac-app","platform":"macos"},"b":{"kind":"future","platform":"future"}}}}"#)
+    guard case .terminalOwners(let snapshot) = event else {
+      Issue.record("expected terminalOwners"); return
+    }
+    #expect(snapshot.owners.additionalProperties["a"]?.kind.rawValue == "mac-app")
+    #expect(snapshot.owners.additionalProperties["b"]?.kind.rawValue == "future")
+  }
+
   @Test("session:new carries the whole generated Session")
   func sessionNew() throws {
     let payload = String(decoding: try Fixtures.sessionJSON(id: "a", name: "alpha"), as: UTF8.self)

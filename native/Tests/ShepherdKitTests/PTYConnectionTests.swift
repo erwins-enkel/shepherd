@@ -83,6 +83,14 @@ struct PTYConnectionTests {
       cols: cols, rows: rows, reconnectDelay: reconnectDelay)
   }
 
+  @Test("optional client metadata preserves the PTY path and attach dimensions")
+  func clientMetadata() {
+    let url = PTYConnection.ptyURL(
+      for: URL(string: "https://example.test/prefix")!, sessionID: "a b/c", cols: 120, rows: 40,
+      clientInfo: .init(kind: .init(unknown: "mac-app"), platform: .init(unknown: "macos")))
+    #expect(url.absoluteString == "wss://example.test/prefix/pty/a%20b%2Fc?cols=120&rows=40&clientKind=mac-app&clientPlatform=macos")
+  }
+
   @Test("the pty URL carries the ws scheme, the id and the attach size")
   func urlShape() {
     let url = PTYConnection.ptyURL(

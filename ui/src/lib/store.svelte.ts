@@ -1,5 +1,6 @@
 import { SvelteMap } from "svelte/reactivity";
 import type {
+  TerminalClientInfo,
   Session,
   SessionStatus,
   LivenessState,
@@ -62,6 +63,7 @@ export class HerdStore {
   sessions = $state<Session[]>([]);
   blocks = $state<Record<string, BlockState>>({});
   connected = $state(false);
+  terminalOwners = $state<Record<string, TerminalClientInfo> | null>(null);
   /** Counts every socket that reached `onopen` (1 = the initial page-load connect).
    *  The resync trigger anchors here rather than on a `connected` false→true edge:
    *  a mobile freeze kills the socket WITHOUT ever firing `onclose`, so `connected`
@@ -441,6 +443,9 @@ export class HerdStore {
 
   apply(ev: WsEvent) {
     switch (ev.event) {
+      case "terminal:owners":
+        this.terminalOwners = ev.data.owners;
+        break;
       case "session:new":
         this.addSession(ev.data);
         break;
@@ -985,6 +990,8 @@ export class HerdStore {
       document.hasFocus();
     const reportPresence = () => {
       if (ws?.readyState === WebSocket.OPEN) {
+        // A fresh snapshot answers an active presence report, including after a frozen tab.
+        if (active()) this.terminalOwners = null;
         ws.send(JSON.stringify({ type: "presence", active: active() }));
       }
     };
@@ -997,6 +1004,7 @@ export class HerdStore {
       this.attended = active();
     };
     const open = () => {
+      this.terminalOwners = null;
       // Drop the previous socket's handlers before replacing it so a superseded
       // socket's late onclose can't schedule a second, parallel reconnect.
       if (ws) {
@@ -1025,6 +1033,7 @@ export class HerdStore {
         }
       };
       ws.onclose = () => {
+        this.terminalOwners = null;
         this.connected = false;
         if (!stopped && !reconnectTimer)
           reconnectTimer = setTimeout(() => {
@@ -1073,6 +1082,7 @@ export class HerdStore {
     syncAttended(); // correct initial value before the first open()
     open();
     return () => {
+      this.terminalOwners = null;
       stopped = true;
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);

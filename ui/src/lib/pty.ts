@@ -1,3 +1,4 @@
+import { detectTerminalClient } from "./terminal-client";
 import { wsUrl } from "./store.svelte";
 
 // Shared decoder — stateless single-shot calls are safe with one instance.
@@ -94,7 +95,10 @@ export function connectPty(
       clearTimeout(retry);
       retry = null;
     }
-    ws = makeWs(`/pty/${id}?cols=${lastCols}&rows=${lastRows}`);
+    const client = detectTerminalClient();
+    ws = makeWs(
+      `/pty/${id}?cols=${lastCols}&rows=${lastRows}&clientKind=${client.kind}&clientPlatform=${client.platform}`,
+    );
     ws.binaryType = "arraybuffer";
     ws.onmessage = (e) => {
       if (_profileEnabled && _pendingSendTime !== 0) {

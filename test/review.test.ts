@@ -2079,6 +2079,69 @@ test("baseSha-null fallback: prompt diffs the local base branch", async () => {
   expect(started[0]!.argv.at(-1)!).toContain("git diff main...HEAD");
 });
 
+// ── #1763: the critic reviews against the PR's real base ────────────────────────────────────────
+
+test("#1763 PR base: fingerprint + fallback diff key off git.baseRefName, not session.baseBranch", async () => {
+  const bases: string[] = [];
+  const { deps: d, started } = makeDeps({
+    computePatchId: async (_wt: string, base: string) => {
+      bases.push(base);
+      return { patchId: "pid-z", baseSha: null, files: [] };
+    },
+  });
+  await new ReviewService(d as any).consider(session(), {
+    ...OPEN_GREEN,
+    baseRefName: "release/x",
+  });
+  expect(bases).toEqual(["release/x"]);
+  expect(started[0]!.argv.at(-1)!).toContain("git diff release/x...HEAD");
+});
+
+test("#1763 no baseRefName on the GitState: falls back to session.baseBranch", async () => {
+  const bases: string[] = [];
+  const { deps: d } = makeDeps({
+    computePatchId: async (_wt: string, base: string) => {
+      bases.push(base);
+      return { patchId: "pid-z", baseSha: "sha", files: [] };
+    },
+  });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  expect(bases).toEqual(["main"]);
+});
+
+test("#1763 epic child whose PR targets another base: plain review vs the PR base, no epic block", async () => {
+  const bases: string[] = [];
+  let collected = 0;
+  const { deps: d, started } = makeDeps({
+    computePatchId: async (_wt: string, base: string) => {
+      bases.push(base);
+      return { patchId: "p", baseSha: "deadbeefcafe1234", files: ["x.ts"] };
+    },
+    collectBaseDelta: async () => {
+      collected++;
+      return null;
+    },
+  });
+  await new ReviewService(d as any).consider(session({ baseBranch: "epic/1757-critic" }), {
+    ...OPEN_GREEN,
+    baseRefName: "main",
+  });
+  expect(bases).toEqual(["main"]);
+  expect(started[0]!.argv.at(-1)!).not.toContain("EPIC CONTEXT");
+  expect(collected).toBe(0);
+});
+
+test("#1763 epic child whose PR targets its epic base: epic block kept", async () => {
+  const { deps: d, started } = makeDeps({
+    computePatchId: async () => ({ patchId: "p", baseSha: "deadbeefcafe1234", files: ["x.ts"] }),
+  });
+  await new ReviewService(d as any).consider(session({ baseBranch: "epic/1757-critic" }), {
+    ...OPEN_GREEN,
+    baseRefName: "epic/1757-critic",
+  });
+  expect(started[0]!.argv.at(-1)!).toContain("EPIC CONTEXT");
+});
+
 // ── diff-scope prompt rule + precedence (Fix B1) ─────────────────────────────────
 
 test("reviewPrompt carries the diff-scope rule, path-prefix requirement, and re-raise carve-out", () => {

@@ -91,6 +91,22 @@ export { reviewPrompt, defaultComputePatchId, scopeFindings };
  *  (preconditions unmet / dedup / ceiling / race guard), or begin() bailed before spawning. */
 export type ReviewOutcome = "started" | "skipped" | "error";
 
+/** #1763: the base the critic reviews against is the PR's REAL target (the poller's `baseRefName`),
+ *  matching the UI diff endpoints + recap (resolveDiffBase), so it sees what the PR's "Files
+ *  changed" shows; `session.baseBranch` only when the GitState lacks it (old cached payload / forge
+ *  without it). The epic block's base is set only when the PR actually targets the session's epic
+ *  base: a child whose PR targets another branch (ignored epicBaseDirective) gets a plain review vs
+ *  that branch — block and diff stay consistent; the drain's base-mismatch gate parks it. */
+function reviewBases(
+  session: Session,
+  git: GitState,
+): { reviewBase: string; epicBase: string | null } {
+  const reviewBase = git.baseRefName || session.baseBranch;
+  const epicBase =
+    isEpicChild(session) && reviewBase === session.baseBranch ? session.baseBranch : null;
+  return { reviewBase, epicBase };
+}
+
 /** Agent-facing steer that carries critic findings into the task PTY. NOT i18n'd.
  *
  *  `epicBase` (issue #1757): epic children are deliberately never rebased onto their moving
@@ -718,19 +734,21 @@ export class ReviewService {
       return;
     }
 
+    const { reviewBase, epicBase } = reviewBases(session, git);
     const { patchId, baseSha, files, skipped } = await this.rebaseSkip(
       session,
       git,
       prior,
       wt.worktreePath,
+      reviewBase,
       force,
     );
     if (skipped) return;
     // The base the critic diffs against == the base the fingerprint (and file set) used —
     // a concrete SHA captured from the fresh fetch, so already-merged main commits never fold
-    // into the review. `?? session.baseBranch` is the ONLY genuine fallback: a total git
-    // failure left baseSha null, so we degrade to the local base ref (today's behavior).
-    const diffBase = baseSha ?? session.baseBranch;
+    // into the review. `?? reviewBase` is the ONLY genuine fallback: a total git failure left
+    // baseSha null, so we degrade to the local base ref.
+    const diffBase = baseSha ?? reviewBase;
 
     // Notes are fetched lazily (only a re-review under auto-address needs them) so a first
     // review / critic-only repo stays fully synchronous up to the spawn — the await below is
@@ -759,7 +777,6 @@ export class ReviewService {
     // — i.e. still BEFORE the `starting` re-check below, so that re-check remains the LAST
     // await-gated step before the spawn and covers this suspension too (same reasoning as the
     // issue-body fetch above).
-    const epicBase = isEpicChild(session) ? session.baseBranch : null;
     const epic = await this.resolveEpicContext(epicBase, wt.worktreePath, baseSha);
 
     // #2154 slice 1: the repo's own `REVIEW.md`, read from the BASE COMMIT — never from
@@ -1001,6 +1018,7 @@ export class ReviewService {
     git: GitState,
     prior: ReviewVerdict | null,
     worktreePath: string,
+    base: string,
     force: boolean,
   ): Promise<{ patchId: string; baseSha: string | null; files: string[]; skipped: boolean }> {
     // Threads the fresh base SHA + changed-file set through alongside the fingerprint (all from
@@ -1010,7 +1028,7 @@ export class ReviewService {
     // manual re-review of an unchanged head actually RUN. `shouldSkipForPatchId` matches via its
     // `prior.patchId === patchId` OR-branch for any non-error prior, so clearing reviewedPatchIds
     // alone would not prevent the skip; bypassing the decision under force is what works.
-    const res = await this.computePatchId(worktreePath, session.baseBranch);
+    const res = await this.computePatchId(worktreePath, base);
     const { baseSha, files } = res;
     const patchId = res.patchId ?? "";
     if (!force && shouldSkipForPatchId(prior, patchId)) {
@@ -1147,7 +1165,7 @@ export class ReviewService {
   ): (v: ComposeVars) => string {
     // Shared with the plan reviewer: same read-only injection-contained sandbox (the PR diff is
     // UNTRUSTED). The prompt is the only critic-specific part. `diffBase` is the resolved base
-    // commit (SHA) threaded from rebaseSkip, NOT session.baseBranch — so the review diffs the
+    // commit (SHA) threaded from rebaseSkip, NOT a branch name — so the review diffs the
     // identical fresh base the fingerprint used (no stale-local-main fold-in). `issueBody` is the
     // originating issue's body, fetched in begin() and injected as UNTRUSTED context. `epic` is
     // non-null only for an epic child (#1757) — it adds the EPIC CONTEXT block; a non-epic review's

@@ -12,8 +12,9 @@
   import { importEpic } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
   import { assignedOthers, epicFlagForOthers, type IssueSelection } from "../issues-panel";
-  import { stateLabel } from "../epic-panel";
+  import { epicRole, stateLabel } from "../epic-panel";
   import EpicPanel from "../EpicPanel.svelte";
+  import EpicRunControl from "./EpicRunControl.svelte";
   import EpicDiagnosisModal from "../EpicDiagnosisModal.svelte";
   import MarkdownBody from "../MarkdownBody.svelte";
   import IssueDetailHead from "./IssueDetailHead.svelte";
@@ -21,8 +22,8 @@
 
   // Reading detail of the backlog Issues tab (#2617) for the selected list entry:
   //  - single issue → head, the "Aufgabe" box, then the rendered description;
-  //  - epic         → head (⋯ menu: Import / Diagnose), the unchanged EpicPanel controls,
-  //                   then the description (new epic controls follow in #2620);
+  //  - epic         → head (⋯ menu: Import / Diagnose), the sticky run area (#2620), the
+  //                   EpicPanel's children, then the description;
   //  - epic child   → head + description (child views follow in a later issue).
   let {
     repoPath,
@@ -40,6 +41,9 @@
     run = $bindable({}),
     onstart,
     onquick = undefined,
+    titleFor,
+    onopensession = undefined,
+    onopenautomation = undefined,
   }: {
     repoPath: string;
     selection: IssueSelection;
@@ -55,11 +59,18 @@
     run?: TaskRunSeed;
     onstart: (issue: Issue) => void;
     onquick?: (issue: Issue, action: Steer) => void;
+    /** Issue title by number (loaded epic children, open issues) for the run area's steps. */
+    titleFor: (issue: number) => string | null;
+    onopensession?: (sessionId: string) => void;
+    onopenautomation?: () => void;
   } = $props();
 
   let showDiag = $state(false);
 
   const othersFlag = $derived(selection.kind === "epic" ? epicFlagForOthers(epicSummary) : null);
+  const role = $derived(
+    selection.kind === "epic" ? epicRole(drain?.runSummary, selection.issue.number) : null,
+  );
   // Plain-issue assignee pill (#1694) — same rule as the former list row: only while the
   // "mine & unassigned" filter isn't hiding others' issues, and never on an epic.
   const assign = $derived.by(() => {
@@ -111,7 +122,7 @@
 </script>
 
 <article class="issue-detail" aria-label={head.title}>
-  <IssueDetailHead {...head} {assign} {othersFlag} {menu} />
+  <IssueDetailHead {...head} {assign} {othersFlag} {menu} {role} />
 
   {#if selection.kind === "single"}
     <IssueTaskBox
@@ -124,14 +135,27 @@
       onquick={onquick ? (a) => onquick(selection.issue, a) : undefined}
     />
   {:else if selection.kind === "epic"}
+    <!-- A direct child of the article, so it stays pinned across the child list AND the
+         description (a sticky box only sticks within its parent). -->
+    {#if epic}
+      <EpicRunControl
+        {repoPath}
+        parent={selection.issue.number}
+        {epic}
+        {drain}
+        {othersFlag}
+        {titleFor}
+        {onopensession}
+        {onopenautomation}
+      />
+    {/if}
     <div class="epic-host" data-epic-panel>
       {#if epic}
         <EpicPanel
           {repoPath}
           parent={selection.issue.number}
           {epic}
-          {drain}
-          {othersFlag}
+          runSummary={drain?.runSummary ?? null}
           headActions={false}
         />
       {:else}

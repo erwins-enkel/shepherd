@@ -4,6 +4,8 @@
   import { clock } from "$lib/now.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import type { EpicOthersFlag } from "../issues-panel";
+  import type { EpicRole } from "../epic-panel";
+  import EpicRoleBadge from "./EpicRoleBadge.svelte";
   import IssueLabelChips from "../IssueLabelChips.svelte";
   import AssignedPill from "./AssignedPill.svelte";
   import EpicOthersPill from "./EpicOthersPill.svelte";
@@ -25,6 +27,7 @@
     assign = null,
     othersFlag = null,
     menu = null,
+    role = null,
   }: {
     /** Epic tag text ("Epic" / "Epic #12"); null on a single issue. */
     tag?: string | null;
@@ -40,6 +43,8 @@
     othersFlag?: EpicOthersFlag | null;
     /** Epic-only ⋯ menu actions; null → no menu. */
     menu?: { canImport: boolean; onimport: () => void; ondiagnose: () => void } | null;
+    /** The epic's role in its repo's run (#2620); null → no badge. */
+    role?: EpicRole | null;
   } = $props();
 
   let menuBtn = $state<HTMLButtonElement>();
@@ -60,6 +65,7 @@
 <header class="detail-head">
   <div class="meta">
     {#if tag}<span class="epic-tag">{tag}</span>{/if}
+    {#if role}<EpicRoleBadge {role} />{/if}
     <span class="num">#{number}</span>
     <IssueLabelChips {labels} {labelColors} />
     {#if author}<span class="faint">{m.issuerow_author_by({ login: author })}</span>{/if}

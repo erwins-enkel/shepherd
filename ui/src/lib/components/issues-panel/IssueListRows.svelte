@@ -1,9 +1,9 @@
 <script lang="ts">
-  import type { Epic, EpicSummary, Issue, Steer } from "$lib/types";
+  import type { DrainRunSummary, Epic, EpicSummary, Issue, Steer } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { relativeAge } from "$lib/format";
   import { clock } from "$lib/now.svelte";
-  import { chipFor, stateLabel } from "../epic-panel";
+  import { chipFor, epicRole, slotHeldBy, stateLabel } from "../epic-panel";
   import { activate, type IssueListRow } from "../issues-panel";
   import IssueMenuLayer from "../IssueMenuLayer.svelte";
   import { issueMenuTrigger } from "../issue-menu-trigger";
@@ -19,6 +19,7 @@
     epicSummaries,
     epicFor,
     issueActions,
+    runSummary = null,
     oninject = undefined,
     onselect,
     ontoggle,
@@ -28,6 +29,8 @@
     epicSummaries: Map<number, EpicSummary>;
     epicFor: (n: number) => Epic | undefined;
     issueActions: Steer[];
+    /** The repo's run picture (#2620): epic roles and the child holding a slot. */
+    runSummary?: DrainRunSummary | null;
     oninject?: (issue: Issue, steer: Steer) => void;
     onselect: (key: string) => void;
     ontoggle: (n: number) => void;
@@ -73,6 +76,7 @@
       issue={row.issue}
       summary={epicSummaries.get(row.issue.number)}
       epic={epicFor(row.issue.number)}
+      role={epicRole(runSummary, row.issue.number)}
       expanded={row.expanded}
       selected={row.key === selectedKey}
       optionId={`issue-opt-${row.key}`}
@@ -83,6 +87,7 @@
     <div class="child-row loading" role="presentation">{m.common_loading()}</div>
   {:else if row.kind === "child"}
     {@const tone = chipFor(row.child.state).tone}
+    {@const slot = slotHeldBy(runSummary, row.child.number)}
     <div
       class="child-row"
       class:selected={row.key === selectedKey}
@@ -101,6 +106,9 @@
       ></span>
       <span class="num">#{row.child.number}</span>
       <span class="title">{row.child.title}</span>
+      {#if slot}
+        <span class="slot">{m.epic_slot_held({ index: slot.index, max: slot.max })}</span>
+      {/if}
     </div>
   {:else}
     {@const issue = row.issue}
@@ -204,6 +212,19 @@
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* "holds slot i/m" (#2620): neutral — the dot beside the number carries the state color. */
+  .slot {
+    flex: none;
+    padding: 0 5px;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
     white-space: nowrap;
   }
 

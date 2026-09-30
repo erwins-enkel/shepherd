@@ -259,10 +259,10 @@
     color: var(--color-muted);
     font-size: var(--fs-base);
   }
-  .run-runState.tone-run {
+  .run-state.tone-run {
     color: var(--status-running);
   }
-  .run-runState.tone-halt {
+  .run-state.tone-halt {
     color: var(--status-blocked);
   }
 

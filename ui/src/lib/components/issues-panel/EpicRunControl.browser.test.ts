@@ -159,6 +159,43 @@ describe("EpicRunControl — acceptance scenario (#2620)", () => {
   });
 });
 
+describe("EpicRunControl state tone", () => {
+  // Resolve a token to the browser's computed color string, so a selector typo that leaves the
+  // indicator muted fails here instead of shipping silently.
+  function tokenColor(token: string): string {
+    const probe = document.createElement("span");
+    probe.style.color = `var(${token})`;
+    document.body.appendChild(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color;
+  }
+  const stateEl = () => document.querySelector<HTMLElement>(".run-state")!;
+
+  it("a running / waiting state is amber, a halted one blocked-red", async () => {
+    const { unmount } = await render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: B,
+      epic: epic(B),
+      drain: drain(),
+      titleFor,
+    });
+    await expect.element(page.getByText(m.epic_run_state_waiting_slot())).toBeInTheDocument();
+    expect(getComputedStyle(stateEl()).color).toBe(tokenColor("--status-running"));
+    unmount();
+
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: B,
+      epic: epic(B),
+      drain: drain({ reason: "blocked", detail: "TASK-07" }),
+      titleFor,
+    });
+    await expect.element(page.getByText(m.epic_run_state_halted())).toBeInTheDocument();
+    expect(getComputedStyle(stateEl()).color).toBe(tokenColor("--status-blocked"));
+  });
+});
+
 describe("EpicRunControl actions", () => {
   it("pause and mode keep today's payloads", async () => {
     render(EpicRunControl, {

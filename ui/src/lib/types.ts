@@ -941,6 +941,30 @@ export interface DrainStatus {
   inFlight: number;
   max: number;
   epicParent: number | null;
+  /** Read-only run picture; optional on the wire (src/drain-core.ts → RunSummary). */
+  runSummary?: DrainRunSummary;
+}
+
+/** Mirrors src/drain-core.ts → RunSummary. */
+export interface DrainRunSummary {
+  /** The running/paused epic's parent; null in label mode. */
+  leadingEpic: number | null;
+  /** Superseded epics that still have a child in flight. */
+  windingDown: { epic: number; inFlight: number[] }[];
+  slots: {
+    used: number;
+    max: number;
+    holders: {
+      sessionId: string;
+      desig: string;
+      issueNumber: number | null;
+      epicParent: number | null;
+    }[];
+  };
+  /** Next startable issue #s in drain order — also while the epic is paused. */
+  next: number[];
+  /** Open epic children directly blocked by next[0]. */
+  after: number[];
 }
 
 // ── epics ──────────────────────────────────────────────────────────────────

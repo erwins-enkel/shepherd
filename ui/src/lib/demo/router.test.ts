@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { handleApi } from "./router";
 import { demoState } from "./state";
 import { bus } from "./bus";
+import type { DrainStatus } from "../types";
 
 const REPO = "/demo/acme/storefront";
 const u = (path: string) => new URL(path, "http://localhost");
@@ -1148,6 +1149,19 @@ describe("lens fixtures agree with the herd they describe (#2295)", () => {
       // DrainStatus.queued IS the count of these rows — RepoChipTelemetry renders the
       // count on the button and this list inside it.
       expect(queue.length).toBe(d.queued);
+    }
+  });
+
+  it("each run summary agrees with its repo's queue and slot counts", async () => {
+    const drain = (await get("/api/drain")).body as DrainStatus[];
+    for (const d of drain) {
+      const rs = d.runSummary!;
+      const queue = (await get(`/api/drain/queue?repo=${encodeURIComponent(d.repoPath)}`)).body;
+      expect(rs.next).toEqual(queue.map((i: { number: number }) => i.number));
+      expect(rs.slots.used).toBe(d.inFlight);
+      expect(rs.slots.holders).toHaveLength(d.inFlight);
+      expect(rs.slots.max).toBe(d.max);
+      expect(rs.leadingEpic).toBe(d.epicParent);
     }
   });
 

@@ -4636,5 +4636,7 @@
   "issuetask_settings_label": "Einstellungen für die Aufgabe",
   "issuetask_no_epic_hint": "Kein Epic: belegt keinen Agenten-Platz",
   "feat_issues_reading_title": "Issues: Liste und Leseansicht",
-  "feat_issues_reading_body": "Der Issues-Tab gruppiert Teil-Issues links unter ihrem Epic und zeigt rechts den gewählten Eintrag mit gerenderter Beschreibung. ↑/↓ wählt, → klappt ein Epic auf, A startet eine Aufgabe."
+  "feat_issues_reading_body": "Der Issues-Tab gruppiert Teil-Issues links unter ihrem Epic und zeigt rechts den gewählten Eintrag mit gerenderter Beschreibung. ↑/↓ wählt, → klappt ein Epic auf, A startet eine Aufgabe.",
+  "feat_compact_repo_list_title": "Kompakte Repo-Liste",
+  "feat_compact_repo_list_body": "Die Repo-Liste in Repos ist schmaler und dichter: eine Zeile pro Repo mit der Zahl offener Issues, PR- und Bot-PR-Zahlen im Tooltip der Zeile, die Filter „Hat Issues“ und „Hat PRs“ hinter dem Filter-Icon neben der Suche und „+ Repo hinzufügen“ am Fuß der Liste. Die Seitenleiste bleibt ziehbar."
 }

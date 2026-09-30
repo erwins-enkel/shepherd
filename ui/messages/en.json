@@ -4636,5 +4636,7 @@
   "issuetask_settings_label": "Task run settings",
   "issuetask_no_epic_hint": "No epic: doesn't take an agent slot",
   "feat_issues_reading_title": "Issues: list and reading view",
-  "feat_issues_reading_body": "The Issues tab now groups sub-issues under their epic on the left and shows the selected entry on the right, with its description rendered. Use ↑/↓ to move, → to expand an epic and A to start a task."
+  "feat_issues_reading_body": "The Issues tab now groups sub-issues under their epic on the left and shows the selected entry on the right, with its description rendered. Use ↑/↓ to move, → to expand an epic and A to start a task.",
+  "feat_compact_repo_list_title": "Compact repo list",
+  "feat_compact_repo_list_body": "The repo list in Repos is narrower and denser: one row per repo with its open-issue count, PR and bot-PR counts in the row's tooltip, the Has issues / Has PRs filters behind the filter icon next to the search, and + Add repo at the foot of the list. The sidebar is still resizable."
 }

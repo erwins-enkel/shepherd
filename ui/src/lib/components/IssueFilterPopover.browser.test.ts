@@ -90,6 +90,19 @@ describe("IssueFilterPopover", () => {
     expect(badgeText()).toBe("3");
   });
 
+  it("omits the sub-issue toggle (and its badge count) when showSubIssuesToggle=false", async () => {
+    // hideSubIssues=true is persisted, but a host that lists sub-issues only inside their
+    // epic hides the toggle — so it must not inflate the badge either: 1 (mine) + 1 (blocked).
+    render(IssueFilterPopover, { showMine: true, showSubIssuesToggle: false });
+
+    await expect.poll(() => triggerBtn()).toBeTruthy();
+    expect(badgeText()).toBe("2");
+    triggerBtn()!.click();
+    await expect.poll(() => isOpen()).toBe(true);
+    expect(checkboxes().length).toBe(3);
+    expect(rowLabels()).not.toContain(m.issues_filter_subissues_label());
+  });
+
   it("badge reads 2 (not 3) when showMine=false even with hideOthers=true persisted; mine row absent", async () => {
     // hideOthers is true (default) but showMine=false → mine doesn't count.
     // activeCount = 0 (mine excluded) + 0 (active) + 1 (subs) + 1 (blocked) = 2

@@ -249,3 +249,21 @@ describe("EpicPanel Codex reasoning", () => {
     });
   });
 });
+
+describe("EpicPanel headActions (#2617)", () => {
+  it("hides Import + Diagnose when the host offers them itself, keeping every control", async () => {
+    const md: Epic = { ...epic({ status: "idle" }), source: "markdown" };
+    const { unmount } = await render(EpicPanel, { repoPath: "/repo", parent: 327, epic: md });
+    await expect.element(page.getByRole("button", { name: m.epic_import() })).toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: m.epic_diag_open() }))
+      .toBeInTheDocument();
+    unmount();
+
+    await render(EpicPanel, { repoPath: "/repo", parent: 327, epic: md, headActions: false });
+    await expect.element(page.getByRole("button", { name: m.epic_start() })).toBeInTheDocument();
+    expect(page.getByRole("button", { name: m.epic_import() }).query()).toBeNull();
+    expect(page.getByRole("button", { name: m.epic_diag_open() }).query()).toBeNull();
+    expect(page.getByLabelText(m.epic_provider_label()).query()).not.toBeNull();
+  });
+});

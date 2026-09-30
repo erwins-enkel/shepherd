@@ -1,0 +1,244 @@
+<script lang="ts">
+  import type { Epic, EpicSummary, Issue, Steer } from "$lib/types";
+  import { m } from "$lib/paraglide/messages";
+  import { relativeAge } from "$lib/format";
+  import { clock } from "$lib/now.svelte";
+  import { chipFor, stateLabel } from "../epic-panel";
+  import { activate, type IssueListRow } from "../issues-panel";
+  import IssueMenuLayer from "../IssueMenuLayer.svelte";
+  import { issueMenuTrigger } from "../issue-menu-trigger";
+  import EpicHeaderRow from "./EpicHeaderRow.svelte";
+
+  // The backlog list's rows (#2617), rendered from IssuesPanel's flat row model: epic headers,
+  // an expanded epic's child rows, then the "Einzelne Issues" section. Rows are listbox
+  // options — the list container (IssuesPanel) owns focus + ↑/↓ via aria-activedescendant, so
+  // no row is a tab stop. Single rows keep the right-click / long-press issue menu.
+  let {
+    rows,
+    selectedKey,
+    epicSummaries,
+    epicFor,
+    issueActions,
+    oninject = undefined,
+    onselect,
+    ontoggle,
+  }: {
+    rows: IssueListRow[];
+    selectedKey: string | null;
+    epicSummaries: Map<number, EpicSummary>;
+    epicFor: (n: number) => Epic | undefined;
+    issueActions: Steer[];
+    oninject?: (issue: Issue, steer: Steer) => void;
+    onselect: (key: string) => void;
+    ontoggle: (n: number) => void;
+  } = $props();
+
+  // "#12 · label · 3d" — number, first label (when any), age.
+  function metaLine(issue: Issue): string {
+    const label = issue.labels?.[0];
+    const age = relativeAge(issue.createdAt, clock.current);
+    return [`#${issue.number}`, ...(label ? [label] : []), age].join(" · ");
+  }
+
+  const firstSingle = $derived(rows.find((r) => r.kind === "single")?.key ?? null);
+
+  type MenuState = { issue: Issue; x: number; y: number; opener: HTMLElement; canSteer: boolean };
+  type DetailsState = { issue: Issue; x: number; y: number; opener: HTMLElement };
+  let menu = $state<MenuState | null>(null);
+  let details = $state<DetailsState | null>(null);
+
+  function openMenu(issue: Issue, x: number, y: number, node: HTMLElement) {
+    menu = { issue, x, y, opener: node, canSteer: oninject != null };
+  }
+  function showDetails() {
+    const d = menu;
+    menu = null;
+    if (d) details = { issue: d.issue, x: d.x, y: d.y, opener: d.opener };
+  }
+  function openIssue() {
+    const d = menu;
+    menu = null;
+    if (d) window.open(d.issue.url, "_blank", "noopener");
+  }
+  function pickSteer(steer: Steer) {
+    const d = menu;
+    menu = null;
+    if (d) oninject?.(d.issue, steer);
+  }
+</script>
+
+{#each rows as row (row.key)}
+  {#if row.kind === "epic"}
+    <EpicHeaderRow
+      issue={row.issue}
+      summary={epicSummaries.get(row.issue.number)}
+      epic={epicFor(row.issue.number)}
+      expanded={row.expanded}
+      selected={row.key === selectedKey}
+      optionId={`issue-opt-${row.key}`}
+      onselect={() => onselect(row.key)}
+      ontoggle={() => ontoggle(row.issue.number)}
+    />
+  {:else if row.kind === "loading"}
+    <div class="child-row loading" role="presentation">{m.common_loading()}</div>
+  {:else if row.kind === "child"}
+    {@const tone = chipFor(row.child.state).tone}
+    <div
+      class="child-row"
+      class:selected={row.key === selectedKey}
+      id={`issue-opt-${row.key}`}
+      role="option"
+      aria-selected={row.key === selectedKey}
+      tabindex="-1"
+      onclick={() => onselect(row.key)}
+      onkeydown={(e) => activate(e, () => onselect(row.key))}
+    >
+      <span
+        class="dot dot-{tone}"
+        role="img"
+        aria-label={stateLabel(row.child.state)}
+        title={stateLabel(row.child.state)}
+      ></span>
+      <span class="num">#{row.child.number}</span>
+      <span class="title">{row.child.title}</span>
+    </div>
+  {:else}
+    {@const issue = row.issue}
+    {#if row.key === firstSingle}
+      <div class="section-heading" role="presentation">{m.issuespanel_singles_heading()}</div>
+    {/if}
+    <div
+      class="issue-row single-row"
+      class:selected={row.key === selectedKey}
+      id={`issue-opt-${row.key}`}
+      role="option"
+      aria-selected={row.key === selectedKey}
+      tabindex="-1"
+      onclick={() => onselect(row.key)}
+      onkeydown={(e) => activate(e, () => onselect(row.key))}
+      use:issueMenuTrigger={{ onopen: (x, y, node) => openMenu(issue, x, y, node) }}
+    >
+      <span class="title issue-title">{issue.title}</span>
+      <span class="meta">{metaLine(issue)}</span>
+    </div>
+  {/if}
+{/each}
+
+<IssueMenuLayer
+  {menu}
+  {details}
+  steers={issueActions}
+  onopenissue={openIssue}
+  onshowdetails={showDetails}
+  onsteer={pickSteer}
+  onclosemenu={() => (menu = null)}
+  onclosedetails={() => (details = null)}
+/>
+
+<style>
+  .child-row,
+  .single-row {
+    min-width: 0;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    color: var(--color-ink);
+    cursor: pointer;
+  }
+  .child-row:hover,
+  .single-row:hover {
+    background: var(--color-panel);
+  }
+  .child-row.selected,
+  .single-row.selected {
+    border-color: var(--color-line-bright);
+    background: var(--color-sel);
+    color: var(--color-ink-bright);
+  }
+
+  /* Children hang under their epic header on a leading rail (as in EpicPanel). */
+  .child-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-left: 12px;
+    padding: 3px 8px;
+    border-left: 1px solid color-mix(in srgb, var(--status-running) 30%, var(--color-line));
+    font-size: var(--fs-meta);
+  }
+  .child-row.loading {
+    color: var(--color-faint);
+    cursor: default;
+  }
+
+  .dot {
+    flex: none;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--color-muted);
+  }
+  .dot-done {
+    background: var(--status-done);
+  }
+  .dot-review {
+    background: var(--color-blue);
+  }
+  .dot-running {
+    background: var(--status-running);
+  }
+  .dot-ready {
+    background: var(--color-green);
+  }
+  .dot-muted {
+    background: var(--color-faint);
+  }
+
+  .num {
+    flex: none;
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+  }
+
+  .title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .section-heading {
+    margin-top: 10px;
+    padding: 4px 2px;
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .single-row {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    padding: 4px 8px;
+    font-size: var(--fs-base);
+  }
+  .single-row .title {
+    flex: none;
+  }
+  .meta {
+    overflow: hidden;
+    color: var(--color-faint);
+    font-size: var(--fs-micro);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  @media (max-width: 768px), (pointer: coarse) {
+    .child-row,
+    .single-row {
+      min-height: var(--mobile-actionbar-hit);
+      justify-content: center;
+    }
+  }
+</style>

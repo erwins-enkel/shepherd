@@ -6,6 +6,7 @@
     releasePlanGate,
     resumeQuota,
     reviewPlan,
+    getPlanDraft,
     isPlanReviewError,
     planReviewStarted,
     type PlanReviewError,
@@ -41,6 +42,41 @@
     ),
   );
   const reviewing = $derived(planGates.isReviewing(session.id));
+  let draft = $state<string | null>(null);
+  let draftStatus = $state<"loading" | "missing" | "loaded" | "error">("loading");
+  let draftRevision = $state(0);
+  $effect(() => {
+    const id = session.id;
+    // Opening, session switches, review signals and manual attempts each refresh the artifact.
+    void reviewing;
+    void draftRevision;
+    draft = null;
+    if (session.planPhase !== "planning" || session.status === "archived" || gate) return;
+    draftStatus = "loading";
+    let alive = true;
+    getPlanDraft(id)
+      .then((text) => {
+        if (!alive) return;
+        draft = text;
+        draftStatus = text === null ? "missing" : "loaded";
+      })
+      .catch(() => {
+        if (alive) draftStatus = "error";
+      });
+    return () => {
+      alive = false;
+    };
+  });
+  const planText = $derived(gate?.plan ?? draft ?? "");
+  const emptyPlanLabel = $derived(
+    gate || session.planPhase !== "planning"
+      ? m.planpanel_empty()
+      : draftStatus === "error"
+        ? m.planpanel_draft_load_failed()
+        : draftStatus === "missing"
+          ? m.planpanel_plan_unavailable()
+          : m.planpanel_draft_loading(),
+  );
   const chip = $derived(planGateChip(session, gate, reviewing));
   const releasable = $derived(canRelease(session, gate));
   const planning = $derived(session.planPhase === "planning");
@@ -149,11 +185,11 @@
   let planHtml = $state("");
   let bodyHtml = $state("");
   $effect(() => {
-    const plan = gate?.plan ?? "";
+    const plan = planText;
     const body = gate?.body ?? "";
+    planHtml = "";
+    bodyHtml = "";
     if (!plan && !body) {
-      planHtml = "";
-      bodyHtml = "";
       return;
     }
     let alive = true;
@@ -270,6 +306,7 @@
       outcome = "error-spawn";
     } finally {
       busy = false;
+      draftRevision++;
     }
   }
 
@@ -451,6 +488,9 @@
 
     <div class="body">
       <section class="plan">
+        {#if !gate && draft}
+          <p class="note" role="status">{m.planpanel_draft_unreviewed()}</p>
+        {/if}
         {#if edited}
           <p class="note edited-note" role="status">{m.planpanel_edited_note()}</p>
         {/if}
@@ -465,11 +505,7 @@
           <div class="md">{@html planHtml}</div>
         {:else}
           <p class="empty">
-            {#if canReviewNow && !gate}
-              {m.planpanel_plan_unavailable()}
-            {:else}
-              {m.planpanel_empty()}
-            {/if}
+            {emptyPlanLabel}
           </p>
         {/if}
       </section>

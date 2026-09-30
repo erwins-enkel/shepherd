@@ -1,9 +1,54 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createSession, fetchCodexReleaseNotes, getBuildQueues, getCommands } from "./api";
+import {
+  createSession,
+  fetchCodexReleaseNotes,
+  getBuildQueues,
+  getCommands,
+  getPlanDraft,
+} from "./api";
 
 vi.mock("$lib/auth.svelte", () => ({
   auth: { unauthenticated: false, checked: false },
 }));
+
+describe("getPlanDraft", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("downloads only the session's plan file as text", async () => {
+    const fetchMock = vi.fn(async () => new Response("# Plan\n\nSteps"));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(getPlanDraft("s1")).resolves.toBe("# Plan\n\nSteps");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/sessions/s1/worktree/download?path=.shepherd-plan.md",
+    );
+  });
+
+  it.each([new Response("missing", { status: 404 }), new Response(" \n")])(
+    "returns null for a missing or blank plan",
+    async (response) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => response),
+      );
+      await expect(getPlanDraft("s1")).resolves.toBeNull();
+    },
+  );
+
+  it("preserves HTTP errors and network failures", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ error: "denied" }, { status: 403 })),
+    );
+    await expect(getPlanDraft("s1")).rejects.toThrow("denied");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("offline");
+      }),
+    );
+    await expect(getPlanDraft("s1")).rejects.toThrow("offline");
+  });
+});
 
 it("preserves the herdr recovery code from a failed task creation", async () => {
   const originalFetch = globalThis.fetch;

@@ -20,6 +20,14 @@ export function isEpicIntegrationBranch(branch: string): boolean {
   return /^epic\/\d+(-[a-z0-9-]+)?$/.test(branch);
 }
 
+/** The epic parent issue number an integration branch (`epic/<#>` or `epic/<#>-<slug>`) names, or
+ *  null for any other branch. Like {@link isEpicIntegrationBranch} a test on a NAME: use it only as
+ *  the legacy fallback for a session whose persisted `epicParent` stamp is null. */
+export function epicParentFromBranch(branch: string): number | null {
+  const m = /^epic\/(\d+)(-[a-z0-9-]+)?$/.exec(branch);
+  return m ? Number(m[1]) : null;
+}
+
 /** The facts {@link isEpicChild} answers from. Structural, not `Session`, so the standalone PR
  *  critic — which holds a PR and no session — can supply the same two fields. */
 export interface EpicChildFacts {

@@ -1581,6 +1581,94 @@ describe("drain epic mode", () => {
     expect(last2.epicParent).toBeNull();
   });
 
+  /** Seed a non-archived auto session in REPO (optionally an epic child). */
+  function seedAuto(
+    h: Harness,
+    issueNumber: number,
+    over: { epicParent?: number | null; baseBranch?: string } = {},
+  ): Session {
+    return h.store.create({
+      name: "auto",
+      prompt: "p",
+      repoPath: REPO,
+      baseBranch: over.baseBranch ?? "main",
+      branch: `shepherd/auto-${issueNumber}`,
+      worktreePath: "/wt",
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "t",
+      auto: true,
+      issueNumber,
+      epicParent: over.epicParent ?? null,
+    });
+  }
+
+  test("runSummary: B supersedes A while A's child still runs → A winds down and holds the slot", async () => {
+    const A = 111;
+    const KID = 112;
+    const h = epicHarness("running", "auto");
+    const s = seedAuto(h, KID, { epicParent: A });
+    const [status] = await h.drain.snapshot();
+    const rs = status!.runSummary!;
+    expect(rs.leadingEpic).toBe(PARENT);
+    expect(rs.windingDown).toEqual([{ epic: A, inFlight: [KID] }]);
+    expect(rs.slots.holders[0]).toEqual({
+      sessionId: s.id,
+      desig: s.desig,
+      issueNumber: KID,
+      epicParent: A,
+    });
+    expect(rs.slots.used).toBe(status!.inFlight);
+    expect(rs.next).toEqual([CHILD]);
+  });
+
+  test("runSummary: a paused epic still names its next child, without changing queued or spawning", async () => {
+    const h = epicHarness("paused", "auto");
+    const [status] = await h.drain.snapshot();
+    expect(status!.runSummary!.leadingEpic).toBe(PARENT);
+    expect(status!.runSummary!.next).toEqual([CHILD]);
+    expect(status!.queued).toBe(0);
+    await h.drain.pump(REPO);
+    expect(h.creates).toHaveLength(0);
+  });
+
+  test("runSummary: a repo without an epic has leadingEpic null and slots mirror inFlight/max", async () => {
+    const h = makeHarness({ issues: [issue(1)], maxAuto: 3 });
+    seedAuto(h, 9);
+    const [status] = await h.drain.snapshot();
+    const rs = status!.runSummary!;
+    expect(rs.leadingEpic).toBeNull();
+    expect(rs.windingDown).toEqual([]);
+    expect(rs.slots.used).toBe(status!.inFlight);
+    expect(rs.slots.max).toBe(status!.max);
+    expect(rs.next).toEqual([1]);
+    expect(rs.after).toEqual([]);
+  });
+
+  test("runSummary: a legacy unstamped epic child reads its epic from the epic/<#> base branch", async () => {
+    const h = epicHarness("running", "auto");
+    seedAuto(h, 78, { baseBranch: "epic/77-legacy" });
+    const [status] = await h.drain.snapshot();
+    expect(status!.runSummary!.slots.holders[0]!.epicParent).toBe(77);
+    expect(status!.runSummary!.windingDown).toEqual([{ epic: 77, inFlight: [78] }]);
+  });
+
+  test("snapshot lists a drain-off, epic-less repo only while an epic child still runs there", async () => {
+    const h = makeHarness({ autoDrainEnabled: false });
+    expect(await h.drain.snapshot()).toEqual([]);
+    seedAuto(h, 5, { epicParent: 4 });
+    const snap = await h.drain.snapshot();
+    expect(snap).toHaveLength(1);
+    expect(snap[0]!.enabled).toBe(false);
+    expect(snap[0]!.runSummary!.leadingEpic).toBeNull();
+    expect(snap[0]!.runSummary!.windingDown).toEqual([{ epic: 4, inFlight: [5] }]);
+    expect(h.forgeRec.listIssuesCalls).toBe(0);
+    // a non-epic auto session alone does not surface the repo
+    const h2 = makeHarness({ autoDrainEnabled: false });
+    seedAuto(h2, 6);
+    expect(await h2.drain.snapshot()).toEqual([]);
+  });
+
   test("emitEpic fires once per change, not once per pump iteration", async () => {
     const h = epicHarness("running", "auto");
     await h.drain.pump(REPO);

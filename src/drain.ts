@@ -10,15 +10,18 @@ import { isFullAuto } from "./full-auto";
 import { issueSpawnPrompt } from "./issue-spawn-prompt";
 import {
   ACTIVE_LABEL,
+  buildRunSummary,
   computeNext,
   selectCandidates,
   type AutoSessionView,
   type DrainDecision,
   type DrainRepoState,
+  type RunSummary,
 } from "./drain-core";
 import { assembleEpic } from "./epic-model";
 import {
   epicIntegrationBranch as epicBranchName,
+  epicParentFromBranch,
   isEpicChild,
   branchReferencesEpic,
 } from "./epic-branch";
@@ -26,6 +29,7 @@ import {
   epicQuiescentForCadenceRebase,
   selectEpicCandidates,
   type Epic,
+  type EpicChild,
   type EpicRun,
   type EpicStackContext,
 } from "./epic-core";
@@ -238,6 +242,15 @@ export interface DrainStatus {
   max: number;
   /** Parent issue number when an epic is running; null in label-mode. */
   epicParent: number | null;
+  /** Read-only run picture (leading / winding-down epics, slot holders, next). Optional on the
+   *  wire; the drain always sets it. */
+  runSummary?: RunSummary;
+}
+
+/** The epic a session is a child of: its persisted stamp, else (legacy unstamped row) the parent
+ *  its `epic/<#>-…` base branch names. Null for a non-epic session. */
+function sessionEpicParent(s: Pick<Session, "epicParent" | "baseBranch">): number | null {
+  return s.epicParent ?? epicParentFromBranch(s.baseBranch);
 }
 
 /** One queued backlog issue behind {@link DrainStatus.queued} — the rows the
@@ -787,7 +800,7 @@ export class DrainService {
   }
 
   private async buildState(repoPath: string): Promise<{
-    state: DrainRepoState & { epicParent: number | null };
+    state: DrainRepoState & { epicParent: number | null; runSummary: RunSummary };
     epic: Epic | null;
   }> {
     const cfg = this.deps.store.getRepoConfig(repoPath);
@@ -812,6 +825,7 @@ export class DrainService {
           humanApproved: snapshot[s.id]?.latestReview?.state === "approved",
           isDraft: snapshot[s.id]?.isDraft ?? false,
           fullAuto: isFullAuto(s, cfg),
+          epicParent: sessionEpicParent(s),
         };
       });
     const mappedIssueNumbers = new Set(
@@ -833,7 +847,13 @@ export class DrainService {
     let stackHeldSessions: ReadonlySet<string> = EMPTY_SESSION_SET;
     let spawnAgentProvider = config.defaultAgentProvider;
     let builtEpic: Epic | null = null;
+    // Read-only runSummary.next source: the epic's candidates even while the run is PAUSED (the
+    // decision `candidates` above stay running-only, so `queued`/computeNext are unchanged).
+    let summaryCandidates: Issue[] = [];
+    let leadingEpic: number | null = null;
+    let epicChildren: EpicChild[] = [];
     if (epicActive) {
+      leadingEpic = epicRun!.parentIssueNumber;
       // Epic is running/paused: source candidates from its dependency-gated children
       // instead of the label-based listIssues path.
       builtEpic = await this.buildEpic(repoPath, epicRun!);
@@ -860,14 +880,16 @@ export class DrainService {
         const stack = this.epicStackContext(repoPath, cfg, builtEpic);
         epicStackBases = stack.baseByChild;
         stackHeldSessions = this.stackHeldSessions(repoPath, cfg, builtEpic);
-        if (epicRun!.status === "running")
-          candidates = selectEpicCandidates(builtEpic.children, stack.ctx);
+        epicChildren = builtEpic.children;
+        summaryCandidates = selectEpicCandidates(epicChildren, stack.ctx);
+        if (epicRun!.status === "running") candidates = summaryCandidates;
         epicAttended = epicRun!.mode === "attended";
       }
     } else if (cfg.autoDrainEnabled) {
       // Label mode: only hit the forge when drain is enabled — don't hammer listIssues for
       // repos that aren't draining.
       candidates = selectCandidates(await this.listIssues(repoPath), cfg.autoLabel);
+      summaryCandidates = candidates;
     }
     // enabled reflects whether spawning is active: epic running → use epic's running
     // status; otherwise fall back to the label-drain toggle. An idle/paused epic or no
@@ -901,6 +923,14 @@ export class DrainService {
         epicStackBases,
         stackHeldSessions,
         epicBaseUnavailable: this.freshEpicBaseFailure(repoPath),
+        runSummary: buildRunSummary({
+          leadingEpic,
+          autoSessions,
+          maxAuto: cfg.maxAuto,
+          candidates: summaryCandidates,
+          mappedIssueNumbers,
+          epicChildren,
+        }),
       },
       epic: builtEpic,
     };
@@ -1328,7 +1358,7 @@ export class DrainService {
 
   private toStatus(
     repoPath: string,
-    state: DrainRepoState & { epicParent: number | null },
+    state: DrainRepoState & { epicParent: number | null; runSummary: RunSummary },
     decision: DrainDecision,
   ): DrainStatus {
     const hold = decision.kind === "hold" ? decision.reason : null;
@@ -1356,6 +1386,7 @@ export class DrainService {
       inFlight: state.autoSessions.length,
       max: state.maxAuto,
       epicParent: state.epicParent,
+      runSummary: state.runSummary,
     };
   }
 
@@ -3968,18 +3999,37 @@ export class DrainService {
     }
   }
 
-  /** Client bootstrap: a status per drain-enabled or epic-running repo, WITHOUT applying side
-   *  effects (no spawn/retire). Disabled repos with no active epic are skipped. */
+  /** Client bootstrap: a status per drain-enabled, epic-active or winding-down repo, WITHOUT
+   *  applying side effects (no spawn/retire). A repo with the drain off and no active epic is
+   *  skipped unless an epic child is still in flight there (a superseded epic winding down). */
   async snapshot(): Promise<DrainStatus[]> {
     const out: DrainStatus[] = [];
     for (const repoPath of this.deps.repos()) {
       const cfg = this.deps.store.getRepoConfig(repoPath);
       const er = this.deps.store.getEpicRun(repoPath);
-      if (!cfg.autoDrainEnabled && !(er?.status === "running" || er?.status === "paused")) continue;
+      if (
+        !cfg.autoDrainEnabled &&
+        !(er?.status === "running" || er?.status === "paused") &&
+        !this.hasEpicChildInFlight(repoPath)
+      )
+        continue;
       const { state } = await this.buildState(repoPath);
       out.push(this.toStatus(repoPath, state, computeNext(state)));
     }
     return out;
+  }
+
+  /** A non-archived auto session in `repoPath` is still working for some epic. */
+  private hasEpicChildInFlight(repoPath: string): boolean {
+    return this.deps.store
+      .list()
+      .some(
+        (s) =>
+          s.repoPath === repoPath &&
+          s.auto &&
+          s.status !== "archived" &&
+          sessionEpicParent(s) != null,
+      );
   }
 
   /** The actual backlog issues behind {@link DrainStatus.queued}: the not-yet-

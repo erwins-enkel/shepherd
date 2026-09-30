@@ -3,6 +3,7 @@ import type { AgentProvider, SessionStatus, ReviewDecision } from "./types";
 import { signedOff, type SignoffAuthority, type SignoffView } from "./signoff";
 import { checksCleared } from "./checks-gate";
 import { verdictStale } from "./verdict-freshness";
+import type { EpicChild } from "./epic-core";
 
 /** Issues carrying this label jump to the head of the drain queue. Fixed (the
  *  per-repo `autoLabel` is configurable, but the priority marker is a constant
@@ -89,6 +90,10 @@ export interface AutoSessionView {
    *  false the drain retires it normally — even in an auto-merge repo — so it can't sit
    *  un-retired-and-un-merged holding a maxAuto slot (which would deadlock the drain). */
   fullAuto: boolean;
+  /** The epic parent issue number this session is a child of — the persisted stamp, or for a
+   *  legacy unstamped row the number its `epic/<#>-…` base branch names; null for a non-epic
+   *  session. Read only by {@link buildRunSummary}; no drain decision looks at it. */
+  epicParent: number | null;
 }
 
 /** Everything `computeNext` needs about ONE repo, assembled by the side-effect harness. */
@@ -364,6 +369,85 @@ export function computeNext(state: DrainRepoState): DrainDecision {
     epicParent: state.epicParent ?? undefined,
     epicProviderSettings: state.epicProviderSettings ?? undefined,
     stackedBase: state.epicStackBases?.get(next.number),
+  };
+}
+
+/** Read-only picture of how one repo's drain is running, shipped on `DrainStatus.runSummary`. */
+export interface RunSummary {
+  /** The epic_run parent while that run is running/paused; null in label mode or when idle. */
+  leadingEpic: number | null;
+  /** Epics other than the leading one that still have an auto session in flight (superseded by a
+   *  newer epic in the same repo), epics ascending, their in-flight issue #s ascending. */
+  windingDown: { epic: number; inFlight: number[] }[];
+  slots: {
+    used: number;
+    max: number;
+    holders: {
+      sessionId: string;
+      desig: string;
+      issueNumber: number | null;
+      epicParent: number | null;
+    }[];
+  };
+  /** Not-yet-mapped candidates in the order `computeNext` would pick them. */
+  next: number[];
+  /** Open epic children directly blocked by `next[0]`; [] in label mode. */
+  after: number[];
+}
+
+export interface RunSummaryInput {
+  leadingEpic: number | null;
+  autoSessions: AutoSessionView[];
+  maxAuto: number;
+  /** Ordered candidates — for an epic, computed even while the run is paused. */
+  candidates: Issue[];
+  mappedIssueNumbers: Set<number>;
+  /** The leading epic's children; [] in label mode. */
+  epicChildren: Pick<
+    EpicChild,
+    "number" | "order" | "blockedBy" | "integrationMerged" | "issueClosed"
+  >[];
+}
+
+/** Pure: shape the {@link RunSummary} from the facts `Drain.buildState` already gathered. */
+export function buildRunSummary(input: RunSummaryInput): RunSummary {
+  const { leadingEpic, autoSessions, epicChildren } = input;
+  const byEpic = new Map<number, number[]>();
+  for (const s of autoSessions) {
+    if (s.epicParent == null || s.epicParent === leadingEpic) continue;
+    const inFlight = byEpic.get(s.epicParent) ?? [];
+    if (s.issueNumber != null) inFlight.push(s.issueNumber);
+    byEpic.set(s.epicParent, inFlight);
+  }
+  const windingDown = [...byEpic]
+    .sort(([a], [b]) => a - b)
+    .map(([epic, inFlight]) => ({ epic, inFlight: inFlight.sort((a, b) => a - b) }));
+  const next = input.candidates
+    .filter((c) => !input.mappedIssueNumbers.has(c.number))
+    .map((c) => c.number);
+  const head = next[0];
+  const after =
+    head === undefined
+      ? []
+      : epicChildren
+          .filter((c) => !c.integrationMerged && !c.issueClosed && c.blockedBy.includes(head))
+          .sort((a, b) => a.order - b.order || a.number - b.number)
+          .map((c) => c.number);
+  return {
+    leadingEpic,
+    windingDown,
+    slots: {
+      used: autoSessions.length,
+      max: input.maxAuto,
+      holders: autoSessions.map((s) => ({
+        sessionId: s.id,
+        desig: s.desig,
+        issueNumber: s.issueNumber,
+        epicParent: s.epicParent,
+      })),
+    },
+    next,
+    after,
   };
 }
 

@@ -40,11 +40,14 @@
 
   // Dismiss on Esc + outside pointerdown. Attach one tick after open so the
   // opening click doesn't immediately close. Do NOT dismiss on scroll/resize
-  // because the checkboxes are interactive.
+  // because the checkboxes are interactive. Escape is taken in the capture phase and
+  // marked handled: the popover lives inside the Repos dialog, whose a11yDialog
+  // Escape handler (on the dialog node) would otherwise close the whole dialog first.
   $effect(() => {
     if (!open) return;
     function onKeydown(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        e.preventDefault();
         open = false;
       }
     }
@@ -59,12 +62,12 @@
       }
     }
     const tid = setTimeout(() => {
-      window.addEventListener("keydown", onKeydown);
+      window.addEventListener("keydown", onKeydown, true);
       window.addEventListener("pointerdown", onPointerdown);
     }, 0);
     return () => {
       clearTimeout(tid);
-      window.removeEventListener("keydown", onKeydown);
+      window.removeEventListener("keydown", onKeydown, true);
       window.removeEventListener("pointerdown", onPointerdown);
     };
   });

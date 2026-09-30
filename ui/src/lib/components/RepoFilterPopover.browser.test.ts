@@ -34,7 +34,11 @@ describe("RepoFilterPopover", () => {
 
     // The Escape listener attaches one tick after opening.
     await new Promise((r) => setTimeout(r, 0));
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    // Dispatched from inside the panel, as a real keystroke would be: marked handled so
+    // the host dialog's Escape (a11yDialog skips defaultPrevented) doesn't also close it.
+    const esc = new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true });
+    box(m.backlog_filter_has_issues()).dispatchEvent(esc);
+    expect(esc.defaultPrevented).toBe(true);
     await expect.poll(() => trigger().getAttribute("aria-expanded")).toBe("false");
     await expect.poll(() => document.activeElement).toBe(trigger());
   });

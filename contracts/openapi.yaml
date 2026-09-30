@@ -2688,6 +2688,11 @@ components:
           type: array
           items:
             type: integer
+        queued:
+          description: "Epics queued behind the leading one, head first; the head starts once the leader completes. Always sent by the current server; optional so an older server stays valid."
+          type: array
+          items:
+            type: integer
     DrainWindingDownEpic:
       type: object
       additionalProperties: true
@@ -6644,7 +6649,9 @@ paths:
       operationId: patchEpicRun
       description: >-
         Patch the repo's epic run for this parent (superseding a run for another parent), persist
-        it, and answer the re-assembled epic. status running kicks the drain at once.
+        it, and answer the re-assembled epic. status running kicks the drain at once. For a queued
+        epic, a patch without status edits its queued settings instead; one with status takes it
+        out of the queue first.
       parameters:
         - name: repo
           in: query
@@ -6667,6 +6674,73 @@ paths:
               schema: { $ref: "#/components/schemas/EpicUpdateResult" }
         "400":
           description: 'error is "invalid repo", "parent must be a positive integer", "invalid epic run patch", or a model the Codex ChatGPT login cannot run.'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "503":
+          description: 'error is "drain unavailable".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+  /api/epic/queue:
+    post:
+      operationId: queueEpic
+      description: >-
+        Queue this epic behind the repo's leading (running or paused) epic, at the tail, with
+        default settings. Queueing an already queued epic keeps its place. The queue head starts on
+        its own, with its stored settings, once the leader completes.
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema: { type: string }
+        - name: parent
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: The re-assembled epic, or {ok:true} when it can no longer be assembled.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EpicUpdateResult" }
+        "400":
+          description: 'error is "invalid repo" or "parent must be a positive integer".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409":
+          description: 'error is "no leading epic" or "epic already leads".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: 'error is "drain unavailable".'
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+    delete:
+      operationId: unqueueEpic
+      description: Take this epic out of the repo's epic queue (a no-op when it is not queued).
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema: { type: string }
+        - name: parent
+          in: query
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        "200":
+          description: The re-assembled epic, or {ok:true} when it can no longer be assembled.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EpicUpdateResult" }
+        "400":
+          description: 'error is "invalid repo" or "parent must be a positive integer".'
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }

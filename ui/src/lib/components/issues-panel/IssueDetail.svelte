@@ -14,7 +14,7 @@
   import { importEpic } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
   import { assignedOthers, epicFlagForOthers, type IssueSelection } from "../issues-panel";
-  import { epicRole, stateLabel } from "../epic-panel";
+  import { epicRole, queuePosition, stateLabel } from "../epic-panel";
   import EpicPanel from "../EpicPanel.svelte";
   import EpicRunControl from "./EpicRunControl.svelte";
   import EpicChildRun from "./EpicChildRun.svelte";
@@ -100,6 +100,9 @@
   const role = $derived(
     selection.kind === "epic" ? epicRole(drain?.runSummary, selection.issue.number) : null,
   );
+  const position = $derived(
+    selection.kind === "epic" ? queuePosition(drain?.runSummary, selection.issue.number) : null,
+  );
   // Plain-issue assignee pill (#1694) — same rule as the former list row: only while the
   // "mine & unassigned" filter isn't hiding others' issues, and never on an epic.
   const assign = $derived.by(() => {
@@ -154,7 +157,7 @@
 </script>
 
 <article class="issue-detail" aria-label={head.title}>
-  <IssueDetailHead {...head} {assign} {othersFlag} {menu} {role} />
+  <IssueDetailHead {...head} {assign} {othersFlag} {menu} {role} {position} />
 
   {#if selection.kind === "single"}
     <IssueTaskBox

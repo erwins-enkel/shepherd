@@ -4817,5 +4817,18 @@
   "epic_supersede_slots": "Agenten-Plätze ändern",
   "epic_supersede_confirm": "Ablösen",
   "feat_epic_supersede_confirm_title": "Epics: Rückfrage, bevor ein Epic ein anderes ablöst",
-  "feat_epic_supersede_confirm_body": "Pro Repo führt immer nur ein Epic. Wer ein Epic startet, während ein anderes führt, wird jetzt vorher gefragt: Der Dialog zeigt den Fortschritt des führenden Epics, welche Aufgabe noch einen Agenten-Platz hält und welche unbegonnenen Aufgaben liegen blieben — abgelöst wird erst nach deiner Bestätigung."
+  "feat_epic_supersede_confirm_body": "Pro Repo führt immer nur ein Epic. Wer ein Epic startet, während ein anderes führt, wird jetzt vorher gefragt: Der Dialog zeigt den Fortschritt des führenden Epics, welche Aufgabe noch einen Agenten-Platz hält und welche unbegonnenen Aufgaben liegen blieben — abgelöst wird erst nach deiner Bestätigung.",
+  "epic_role_queued": "eingereiht ({position}.)",
+  "epic_run_state_queued": "Eingereiht · {position}. in der Reihe",
+  "epic_run_queued_note": "Startet von selbst, sobald #{after} vollständig ist.",
+  "epic_queue_option": "Nach #{after} einreihen (empfohlen)",
+  "epic_queue_option_body": "#{epic} startet von selbst, sobald #{after} vollständig ist. Nichts bleibt liegen.",
+  "epic_queue_confirm": "Einreihen",
+  "epic_supersede_choice": "Was soll passieren",
+  "epic_unqueue": "Aus Warteschlange nehmen",
+  "epic_unqueue_title": "Nimmt das Epic aus der Warteschlange — es startet dann nicht mehr von selbst",
+  "epic_queue_failed": "Epic konnte nicht eingereiht werden",
+  "epic_unqueue_failed": "Epic konnte nicht aus der Warteschlange genommen werden",
+  "feat_epic_queue_title": "Epics: ein Epic hinter dem führenden einreihen",
+  "feat_epic_queue_body": "Wer ein Epic startet, während ein anderes führt, kann es jetzt stattdessen einreihen: Es startet von selbst und mit seinen eigenen Einstellungen, sobald das führende Epic vollständig ist — nichts bleibt liegen. Eingereihte Epics zeigen ihren Platz in der Reihe; im Abarbeitungsbereich des Epics nimmst du sie wieder aus der Warteschlange."
 }

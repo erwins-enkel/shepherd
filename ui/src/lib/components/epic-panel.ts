@@ -90,9 +90,10 @@ export function epicHoldLine(
 // ── run-control region (#2620) ─────────────────────────────────────────────────────────────
 // Pure derivations for the epic detail's "Abarbeitung" region, from the repo's live DrainStatus
 // (its read-only `runSummary`, #2616) and the epic record. Only one epic leads a repo at a time;
-// a superseded epic whose child is still in flight is "winding down".
+// a superseded epic whose child is still in flight is "winding down"; epics queued behind the
+// leader (#2624) are "queued" and start on their own, in order, once the leader completes.
 
-export type EpicRole = "leading" | "winding";
+export type EpicRole = "leading" | "winding" | "queued";
 
 /** This epic's role in its repo's run, or null (idle / not in the run / no runSummary). */
 export function epicRole(
@@ -101,7 +102,26 @@ export function epicRole(
 ): EpicRole | null {
   if (!summary) return null;
   if (summary.leadingEpic === parent) return "leading";
-  return summary.windingDown.some((w) => w.epic === parent) ? "winding" : null;
+  if (summary.windingDown.some((w) => w.epic === parent)) return "winding";
+  return queuePosition(summary, parent) != null ? "queued" : null;
+}
+
+/** 1-based place of `parent` in the repo's epic queue, or null when it is not queued. */
+export function queuePosition(
+  summary: DrainRunSummary | null | undefined,
+  parent: number,
+): number | null {
+  const i = summary?.queued?.indexOf(parent) ?? -1;
+  return i < 0 ? null : i + 1;
+}
+
+/** The epic `parent` waits for: its predecessor in the queue, else the leader. For an epic not
+ *  queued yet, where it would wait — behind the queue's tail, else the leader. */
+export function queuedBehind(summary: DrainRunSummary, parent: number): number | null {
+  const queued = summary.queued ?? [];
+  const i = queued.indexOf(parent);
+  const ahead = i < 0 ? queued : queued.slice(0, i);
+  return ahead.at(-1) ?? summary.leadingEpic;
 }
 
 /** 1-based agent slot `issueNumber` holds (`index/max`), or null when no slot holds it. */
@@ -116,6 +136,7 @@ export function slotHeldBy(
 
 export type EpicRunKind =
   | "winding"
+  | "queued"
   | "paused"
   | "idle"
   | "waiting_slot"
@@ -135,6 +156,8 @@ export interface EpicRunState {
   inFlight: number[];
   /** Why a halted run holds (the former hold line); null for every other kind. */
   note: string | null;
+  /** 1-based place in the repo's epic queue; null when not queued. */
+  position: number | null;
 }
 
 const HALT_REASONS = new Set([
@@ -157,8 +180,11 @@ export function epicRunState(
 ): EpicRunState {
   const summary = drain?.runSummary;
   const winding = summary?.windingDown.find((w) => w.epic === parent);
-  const base = { inFlight: winding?.inFlight ?? [], note: null };
+  const position = queuePosition(summary, parent);
+  const base = { inFlight: winding?.inFlight ?? [], note: null, position };
   if (winding) return { ...base, kind: "winding", tone: "run" };
+  if (position != null && epic.run.status === "idle")
+    return { ...base, kind: "queued", tone: "quiet" };
   if (epic.run.status === "paused") return { ...base, kind: "paused", tone: "quiet" };
   if (epic.run.status !== "running") return { ...base, kind: "idle", tone: "quiet" };
   const own = drain?.epicParent === parent ? drain : null;
@@ -174,10 +200,15 @@ export function epicRunState(
 }
 
 /** Localized label of the run state; `inflight` names the in-flight issues a winding-down
- *  epic still finishes. */
-export function epicRunStateLabel(kind: EpicRunKind, inflight: string): string {
+ *  epic still finishes, `position` a queued epic's place in the queue. */
+export function epicRunStateLabel(
+  kind: EpicRunKind,
+  inflight: string,
+  position: number | null = null,
+): string {
   const labels: Record<EpicRunKind, () => string> = {
     winding: () => m.epic_run_state_winding({ inflight }),
+    queued: () => m.epic_run_state_queued({ position: position ?? 1 }),
     paused: m.epic_run_state_paused,
     idle: m.epic_run_state_idle,
     waiting_slot: m.epic_run_state_waiting_slot,
@@ -231,7 +262,7 @@ export function epicRunSteps(
 ): EpicRunSteps | null {
   const summary = drain?.runSummary;
   const role = epicRole(summary, parent);
-  if (!summary || !role) return null;
+  if (!summary || !role || role === "queued") return null;
   const slots = { used: summary.slots.used, max: summary.slots.max };
   const head = summary.next[0] ?? null;
   if (role === "winding") {

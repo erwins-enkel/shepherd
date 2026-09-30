@@ -8,12 +8,16 @@
   import { supersedeImpact } from "../epic-panel";
 
   // Asks before starting epic `parent` supersedes `leader`, the epic that leads the repo now
-  // (#2623): the server keeps one epic per repo, so the leader stops starting new tasks.
+  // (#2623): the server keeps one epic per repo, so the leader stops starting new tasks. Unless
+  // `parent` is already queued, it offers — preselected — to queue it behind `behind` instead
+  // (#2624), so it starts on its own once that epic is complete.
   let {
     repoPath,
     parent,
     leader,
     summary,
+    queueable = false,
+    behind = leader,
     onconfirm,
     onclose,
     onopenautomation = undefined,
@@ -24,7 +28,11 @@
     /** The epic that leads now (`summary.leadingEpic`). */
     leader: number;
     summary: DrainRunSummary;
-    onconfirm: () => void;
+    /** Offer "queue after #behind" (not when `parent` is queued already). */
+    queueable?: boolean;
+    /** The epic a queued `parent` would wait for: the queue's tail, else the leader. */
+    behind?: number;
+    onconfirm: (choice: "queue" | "supersede") => void;
     onclose: () => void;
     onopenautomation?: () => void;
   } = $props();
@@ -42,6 +50,9 @@
   const loaded = $derived(typeof record === "object" ? record : null);
   const impact = $derived(supersedeImpact(leader, loaded, summary));
   const list = (nums: number[]) => nums.map((n) => `#${n}`).join(", ");
+  // Captured once: the dialog opens per Start click, `queueable` does not change while it is open.
+  // svelte-ignore state_referenced_locally
+  let choice = $state<"queue" | "supersede">(queueable ? "queue" : "supersede");
 
   function openAutomation() {
     onclose();
@@ -98,22 +109,51 @@
       {/if}
     </section>
 
-    <div class="option">
-      <div class="option-title">{m.epic_supersede_now()}</div>
-      <p class="consequence">{m.epic_supersede_stops({ leader })}</p>
-      {#if impact.holders.length}
-        <p class="consequence">
-          {m.epic_supersede_finishes({ inflight: list(impact.holders.map((h) => h.issue)) })}
-        </p>
+    <div
+      class="options"
+      role={queueable ? "radiogroup" : undefined}
+      aria-label={queueable ? m.epic_supersede_choice() : undefined}
+    >
+      {#if queueable}
+        <label class="option selectable" class:chosen={choice === "queue"} data-choice="queue">
+          <span class="option-title">
+            <input type="radio" name="epic-start-choice" value="queue" bind:group={choice} />
+            {m.epic_queue_option({ after: behind })}
+          </span>
+          <span class="consequence"
+            >{m.epic_queue_option_body({ epic: parent, after: behind })}</span
+          >
+        </label>
       {/if}
-      {#if impact.leftBehind?.length}
-        <p class="consequence">
-          {m.epic_supersede_left_behind({
-            count: impact.leftBehind.length,
-            list: list(impact.leftBehind),
-          })}
-        </p>
-      {/if}
+
+      <svelte:element
+        this={queueable ? "label" : "div"}
+        class="option"
+        class:chosen={choice === "supersede"}
+        class:selectable={queueable}
+        data-choice="supersede"
+      >
+        <span class="option-title">
+          {#if queueable}
+            <input type="radio" name="epic-start-choice" value="supersede" bind:group={choice} />
+          {/if}
+          {m.epic_supersede_now()}
+        </span>
+        <span class="consequence">{m.epic_supersede_stops({ leader })}</span>
+        {#if impact.holders.length}
+          <span class="consequence">
+            {m.epic_supersede_finishes({ inflight: list(impact.holders.map((h) => h.issue)) })}
+          </span>
+        {/if}
+        {#if impact.leftBehind?.length}
+          <span class="consequence">
+            {m.epic_supersede_left_behind({
+              count: impact.leftBehind.length,
+              list: list(impact.leftBehind),
+            })}
+          </span>
+        {/if}
+      </svelte:element>
     </div>
 
     <div class="actions">
@@ -123,8 +163,8 @@
         </button>
       {/if}
       <button type="button" class="gbtn" onclick={onclose}>{m.common_cancel()}</button>
-      <button type="button" class="gbtn primary" onclick={onconfirm}>
-        {m.epic_supersede_confirm()}
+      <button type="button" class="gbtn primary" onclick={() => onconfirm(choice)}>
+        {choice === "queue" ? m.epic_queue_confirm() : m.epic_supersede_confirm()}
       </button>
     </div>
   </div>
@@ -214,20 +254,45 @@
     color: var(--color-muted);
   }
 
+  .options {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
   .option {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    border: 1px solid var(--color-amber);
+    border: 1px solid var(--color-line);
     border-radius: 2px;
     padding: 8px 10px;
   }
+  .option.selectable {
+    cursor: pointer;
+  }
+  .option.chosen {
+    border-color: var(--color-amber);
+  }
   .option-title {
-    color: var(--color-amber);
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    color: var(--color-ink-bright);
     font-size: var(--fs-meta);
     letter-spacing: 0.08em;
   }
+  .option.chosen .option-title {
+    color: var(--color-amber);
+  }
+  .option-title input {
+    margin: 0;
+    accent-color: var(--color-amber);
+  }
+  .option:focus-within {
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
   .consequence {
+    display: block;
     margin: 0;
     color: var(--color-ink);
     font-size: var(--fs-meta);

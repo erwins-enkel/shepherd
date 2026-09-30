@@ -7,6 +7,8 @@ import {
   epicRunStateLabel,
   epicRunSteps,
   progress,
+  queuedBehind,
+  queuePosition,
   slotHeldBy,
   stateLabel,
   supersedeImpact,
@@ -194,6 +196,42 @@ describe("epicRole / slotHeldBy", () => {
     expect(slotHeldBy(summary(), 11)).toEqual({ index: 1, max: 1 });
     expect(slotHeldBy(summary(), 21)).toBeNull();
     expect(slotHeldBy(null, 11)).toBeNull();
+  });
+});
+
+// #2624: epics queued behind the leader.
+describe("queue roles", () => {
+  const q = () => summary({ queued: [30, 40] });
+
+  it("names a queued epic 'queued', after leading and winding", () => {
+    expect(epicRole(q(), 30)).toBe("queued");
+    expect(epicRole(q(), 40)).toBe("queued");
+    expect(epicRole(q(), B)).toBe("leading");
+    expect(epicRole(summary({ queued: [A] }), A)).toBe("winding");
+    expect(epicRole(summary(), 30)).toBeNull();
+  });
+
+  it("reports the 1-based queue position, null when not queued or from an older server", () => {
+    expect(queuePosition(q(), 30)).toBe(1);
+    expect(queuePosition(q(), 40)).toBe(2);
+    expect(queuePosition(q(), 99)).toBeNull();
+    expect(queuePosition(summary(), 30)).toBeNull();
+    expect(queuePosition(null, 30)).toBeNull();
+  });
+
+  it("waits behind its predecessor, the head behind the leader; a newcomer behind the tail", () => {
+    expect(queuedBehind(q(), 30)).toBe(B);
+    expect(queuedBehind(q(), 40)).toBe(30);
+    expect(queuedBehind(q(), 99)).toBe(40);
+    expect(queuedBehind(summary(), 99)).toBe(B);
+  });
+
+  it("a queued, idle epic reads 'queued' with its position and no steps", () => {
+    const epic = { ...epicB("idle"), run: { ...epicB("idle").run, parentIssueNumber: 40 } };
+    const d = capDrain({ runSummary: q() });
+    expect(epicRunState(epic, 40, d)).toMatchObject({ kind: "queued", tone: "quiet", position: 2 });
+    expect(epicRunSteps(epic, 40, d)).toBeNull();
+    expect(epicRunStateLabel("queued", "", 2)).toBe(m.epic_run_state_queued({ position: 2 }));
   });
 });
 

@@ -28,6 +28,7 @@
     othersFlag = null,
     menu = null,
     role = null,
+    position = null,
     back = null,
   }: {
     /** Epic tag text ("Epic" / "Epic #12"); null on a single issue. */
@@ -46,6 +47,8 @@
     menu?: { canImport: boolean; onimport: () => void; ondiagnose: () => void } | null;
     /** The epic's role in its repo's run (#2620); null → no badge. */
     role?: EpicRole | null;
+    /** 1-based place in the repo's epic queue (#2624), shown on a "queued" badge. */
+    position?: number | null;
     /** An epic child's jump back to its epic (#2622); replaces the tag. */
     back?: { parent: number; onclick: () => void } | null;
   } = $props();
@@ -75,7 +78,7 @@
         onclick={back.onclick}>{m.issuedetail_back_to_epic({ parent: back.parent })}</button
       >
     {:else if tag}<span class="epic-tag">{tag}</span>{/if}
-    {#if role}<EpicRoleBadge {role} />{/if}
+    {#if role}<EpicRoleBadge {role} {position} />{/if}
     <span class="num">#{number}</span>
     <IssueLabelChips {labels} {labelColors} />
     {#if author}<span class="faint">{m.issuerow_author_by({ login: author })}</span>{/if}

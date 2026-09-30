@@ -212,6 +212,8 @@ describe("epic", () => {
       ["GET", "/api/epic", undefined],
       ["PUT", "/api/epic", { status: "running" }],
       ["POST", "/api/epic/approve-next", undefined],
+      ["POST", "/api/epic/queue", undefined],
+      ["DELETE", "/api/epic/queue", undefined],
     ] as const) {
       expect(await call(method, template, `${template}${q()}`, 503, body)).toEqual({
         error: "drain unavailable",
@@ -276,6 +278,44 @@ describe("epic", () => {
       ).toEqual({ ok: true });
     } finally {
       s.deps.drain = previousDrain;
+      s.deps.store.setEpicRun({
+        repoPath: s.validRepo,
+        parentIssueNumber: 412,
+        mode: "auto",
+        status: "idle",
+      });
+    }
+  });
+
+  test("queue answers 409 without a leader, else the assembled epic; unqueue always answers", async () => {
+    const previousDrain = s.deps.drain;
+    s.deps.drain = {
+      buildEpic: async (_dir: string, run: EpicRun) => fx.epic(run),
+      tick: async () => {},
+    } as unknown as NonNullable<typeof s.deps.drain>;
+    const qq = (parent: number) =>
+      `/api/epic/queue?repo=${encodeURIComponent(s.validRepo)}&parent=${parent}`;
+    try {
+      expect(await call("POST", "/api/epic/queue", qq(413), 409)).toEqual({
+        error: "no leading epic",
+      });
+      s.deps.store.setEpicRun({
+        repoPath: s.validRepo,
+        parentIssueNumber: 412,
+        mode: "auto",
+        status: "running",
+      });
+      expect(await call("POST", "/api/epic/queue", qq(412), 409)).toEqual({
+        error: "epic already leads",
+      });
+      const queued = (await call("POST", "/api/epic/queue", qq(413), 200)) as Epic;
+      expect(queued.run).toMatchObject({ parentIssueNumber: 413, status: "idle" });
+      const dequeued = (await call("DELETE", "/api/epic/queue", qq(413), 200)) as Epic;
+      expect(dequeued.run.parentIssueNumber).toBe(413);
+      expect(s.deps.store.listEpicQueue(s.validRepo)).toEqual([]);
+    } finally {
+      s.deps.drain = previousDrain;
+      s.deps.store.removeEpicQueueEntry(s.validRepo, 413);
       s.deps.store.setEpicRun({
         repoPath: s.validRepo,
         parentIssueNumber: 412,

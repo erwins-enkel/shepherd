@@ -886,6 +886,7 @@ describe("buildRunSummary", () => {
     candidates: [] as Issue[],
     mappedIssueNumbers: new Set<number>(),
     epicChildren: [],
+    queued: [] as number[],
   };
 
   test("supersession: B leads, A's still-running child winds down and holds the slot", () => {

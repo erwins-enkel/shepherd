@@ -4817,5 +4817,18 @@
   "epic_supersede_slots": "Change agent slots",
   "epic_supersede_confirm": "Supersede",
   "feat_epic_supersede_confirm_title": "Epics: ask before one epic supersedes another",
-  "feat_epic_supersede_confirm_body": "Only one epic leads a repo at a time. Starting an epic while another leads now asks first: it shows the leading epic's progress, which task still holds an agent slot and which unstarted tasks would stay behind — and only supersedes it once you confirm."
+  "feat_epic_supersede_confirm_body": "Only one epic leads a repo at a time. Starting an epic while another leads now asks first: it shows the leading epic's progress, which task still holds an agent slot and which unstarted tasks would stay behind — and only supersedes it once you confirm.",
+  "epic_role_queued": "queued ({position})",
+  "epic_run_state_queued": "Queued · position {position}",
+  "epic_run_queued_note": "Starts on its own once #{after} is complete.",
+  "epic_queue_option": "Queue after #{after} (recommended)",
+  "epic_queue_option_body": "#{epic} starts on its own once #{after} is complete. Nothing is left behind.",
+  "epic_queue_confirm": "Queue",
+  "epic_supersede_choice": "What should happen",
+  "epic_unqueue": "Remove from queue",
+  "epic_unqueue_title": "Take this epic out of the queue — it then no longer starts on its own",
+  "epic_queue_failed": "Couldn't queue the epic",
+  "epic_unqueue_failed": "Couldn't remove the epic from the queue",
+  "feat_epic_queue_title": "Epics: queue an epic behind the leading one",
+  "feat_epic_queue_body": "Starting an epic while another leads now offers to queue it instead: it starts on its own, with its own settings, once the leading epic is complete — nothing is left behind. Queued epics show their place in line, and you can take them out of the queue in the epic's run area."
 }

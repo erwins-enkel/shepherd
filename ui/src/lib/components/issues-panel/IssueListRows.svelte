@@ -3,7 +3,7 @@
   import { m } from "$lib/paraglide/messages";
   import { relativeAge } from "$lib/format";
   import { clock } from "$lib/now.svelte";
-  import { chipFor, epicRole, slotHeldBy, stateLabel } from "../epic-panel";
+  import { chipFor, epicRole, queuePosition, slotHeldBy, stateLabel } from "../epic-panel";
   import { activate, type IssueListRow } from "../issues-panel";
   import IssueMenuLayer from "../IssueMenuLayer.svelte";
   import { issueMenuTrigger } from "../issue-menu-trigger";
@@ -77,6 +77,7 @@
       summary={epicSummaries.get(row.issue.number)}
       epic={epicFor(row.issue.number)}
       role={epicRole(runSummary, row.issue.number)}
+      position={queuePosition(runSummary, row.issue.number)}
       expanded={row.expanded}
       selected={row.key === selectedKey}
       optionId={`issue-opt-${row.key}`}

@@ -617,6 +617,55 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     expect(region).toContain("#21 First of B");
   });
 
+  it("roles: an epic in the queue (#2624) reads 'queued' with its place", async () => {
+    seed(
+      [
+        plain(20, { title: "Epic B" }),
+        plain(30, { title: "Epic C" }),
+        plain(40, { title: "Epic D" }),
+      ],
+      [summary(20), summary(30), summary(40)],
+    );
+    mockEpic.mockImplementation((repoPath: string, parentIssueNumber: number) =>
+      Promise.resolve({
+        repoPath,
+        parentIssueNumber,
+        parentTitle: `Epic ${parentIssueNumber}`,
+        source: "native",
+        children: [childOf(parentIssueNumber + 1)],
+        warnings: [],
+        run: { repoPath, parentIssueNumber, mode: "auto", status: "idle" },
+      }),
+    );
+    render(IssuesPanel, {
+      repoPath: "/repo",
+      onnewtask: noop,
+      drain: {
+        repoPath: "/repo",
+        enabled: true,
+        paused: false,
+        reason: null,
+        detail: null,
+        queued: 0,
+        inFlight: 0,
+        max: 1,
+        epicParent: 20,
+        runSummary: {
+          leadingEpic: 20,
+          windingDown: [],
+          slots: { used: 0, max: 1, holders: [] },
+          next: [],
+          after: [],
+          queued: [40, 30],
+        },
+      },
+    });
+
+    await expect.poll(() => option("e:20")?.textContent).toContain(m.epic_role_leading());
+    expect(option("e:40")?.textContent).toContain(m.epic_role_queued({ position: 1 }));
+    expect(option("e:30")?.textContent).toContain(m.epic_role_queued({ position: 2 }));
+  });
+
   it("a click on the flow graph (#2621) opens the epic in the list and selects the child", async () => {
     seed(
       [plain(10, { title: "Epic A" }), plain(20, { title: "Epic B" })],

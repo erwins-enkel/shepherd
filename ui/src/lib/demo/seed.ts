@@ -1324,6 +1324,25 @@ function buildDrain(): DrainStatus[] {
       inFlight: 2,
       max: 3,
       epicParent: EPIC_PARENT,
+      runSummary: {
+        leadingEpic: EPIC_PARENT,
+        windingDown: [],
+        slots: {
+          used: 2,
+          max: 3,
+          holders: [
+            { sessionId: "coupon", desig: "TASK-41", issueNumber: 101, epicParent: EPIC_PARENT },
+            {
+              sessionId: "checkout-child",
+              desig: "TASK-42",
+              issueNumber: 102,
+              epicParent: EPIC_PARENT,
+            },
+          ],
+        },
+        next: [121, 122],
+        after: [],
+      },
     },
     {
       repoPath: API,
@@ -1335,6 +1354,20 @@ function buildDrain(): DrainStatus[] {
       inFlight: 2,
       max: 2,
       epicParent: null,
+      runSummary: {
+        leadingEpic: null,
+        windingDown: [],
+        slots: {
+          used: 2,
+          max: 2,
+          holders: [
+            { sessionId: "authstore", desig: "TASK-44", issueNumber: 220, epicParent: null },
+            { sessionId: "neon", desig: "TASK-45", issueNumber: 221, epicParent: null },
+          ],
+        },
+        next: [222],
+        after: [],
+      },
     },
   ];
 }

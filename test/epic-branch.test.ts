@@ -1,5 +1,10 @@
 import { test, expect } from "bun:test";
-import { epicIntegrationBranch, branchReferencesEpic, isEpicChild } from "../src/epic-branch";
+import {
+  epicIntegrationBranch,
+  branchReferencesEpic,
+  isEpicChild,
+  epicParentFromBranch,
+} from "../src/epic-branch";
 
 test("builds epic/<#>-<slug> from parent number + title", () => {
   expect(epicIntegrationBranch(327, "EFI / Value-Map cluster — sequencing")).toBe(
@@ -68,4 +73,14 @@ test("isEpicChild: a stamped child is a child whatever its base is named", () =>
 test("isEpicChild: an epic-lookalike base is unchanged from the old name test", () => {
   expect(isEpicChild({ epicParent: null, baseBranch: "epic/no-number" })).toBe(false);
   expect(isEpicChild({ epicParent: null, baseBranch: "feature/epic/12-foo" })).toBe(false);
+});
+
+test("epicParentFromBranch reads the parent # from an integration branch name, else null", () => {
+  expect(epicParentFromBranch("epic/12-foo-bar")).toBe(12);
+  expect(epicParentFromBranch("epic/12")).toBe(12);
+  expect(epicParentFromBranch(epicIntegrationBranch(327, "EFI cluster"))).toBe(327);
+  expect(epicParentFromBranch("main")).toBeNull();
+  expect(epicParentFromBranch("epic/x")).toBeNull();
+  expect(epicParentFromBranch("feat/epic/1")).toBeNull();
+  expect(epicParentFromBranch("shepherd/feat-epic-12")).toBeNull();
 });

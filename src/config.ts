@@ -730,7 +730,8 @@ export const config = {
   // Adopt herdr's native Unix-socket JSON-RPC API (issue #1529) instead of shelling out to
   // the `herdr` CLI for every call. Default-off feature flag: the socket protocol is still
   // preview-unstable (see HERDR_SOCKET_SUPPORTED_PROTOCOLS above), so this stays reversible
-  // until the socket driver has soaked.
+  // until the socket driver has soaked. #1834 decided soak-first: stays default-off while the
+  // live instance runs it on; the default flip + its exit criteria live in #2602.
   herdrSocket: process.env.SHEPHERD_HERDR_SOCKET === "1",
   // Sub-flag gating ONLY the interactive terminal onto herdr's socket `terminal session control`
   // stream. Default-OFF interim gate: that stream is a screen-diff/redraw protocol, so xterm builds

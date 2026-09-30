@@ -108,11 +108,11 @@ describe("native core gates", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout.toString()).toContain("identities=2");
   });
-  test("requires separately mapped upstream additions at runtime", () => {
+  test.each(["upstreamAdded", "featureAdded"])("requires mapped %s at runtime", (kind) => {
     const mapping = file("upstream-map.json", {
       mappings: [{ oldID: sourceID("first"), destinations: [sourceID("first")] }],
       added: [],
-      upstreamAdded: [sourceID("second")],
+      [kind]: [sourceID("second")],
     });
     const check = (nodes: unknown[], count: number) =>
       python(

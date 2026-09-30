@@ -167,8 +167,8 @@ export function parseClaudeMessages(text: string): ParsedMessages {
     pendingAsks: new Map(),
   };
   for (const o of eachJsonlObject(text)) {
-    const rec = o as ClaudeRecord;
-    if (rec?.isSidechain === true) continue;
+    const rec = o as ClaudeRecord | null;
+    if (!rec || rec.isSidechain === true) continue;
     if (rec.type === "assistant" && rec.isApiErrorMessage !== true) {
       const blocks = rec.message?.content;
       if (Array.isArray(blocks)) scanAssistant(scan, rec, blocks as ClaudeBlock[]);

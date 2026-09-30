@@ -130,9 +130,9 @@ describe("parseClaudeMessages", () => {
     expect(r.messages[0]!.text).toBe("Part one.\n\nPart two?");
     expect(r.question).toBe("Part one.\n\nPart two?");
   });
-  test("user text blocks are messages; malformed lines are skipped", () => {
+  test("user text blocks are messages; malformed and non-object lines are skipped", () => {
     const text =
-      "{not json\n" +
+      "{not json\nnull\n42\n" +
       jsonl({
         type: "user",
         timestamp: TS,

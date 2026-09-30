@@ -179,6 +179,24 @@ describe("BacklogOverlay (Repos) modal resize", () => {
 
 // ── internal repository-sidebar resize + persistence ────────────────────────
 describe("BacklogOverlay (Repos) sidebar resize", () => {
+  it("defaults the repo list to 232px when no width is stored", async () => {
+    await render(BacklogOverlay, props());
+    const master = document.querySelector<HTMLElement>(".master-pane")!;
+    expect(master.getBoundingClientRect().width).toBeCloseTo(232, 0);
+  });
+
+  it("keeps + Add repo pinned to the bottom of an overflowing list", async () => {
+    await render(BacklogOverlay, props());
+    const master = document.querySelector<HTMLElement>(".master-pane")!;
+    const footer = master.querySelector<HTMLElement>(".list-footer")!;
+    expect(master.scrollHeight).toBeGreaterThan(master.clientHeight);
+    // border-right only — the pane's bottom edge is its content edge
+    expect(footer.getBoundingClientRect().bottom).toBeCloseTo(
+      master.getBoundingClientRect().bottom,
+      0,
+    );
+  });
+
   it("widens the repo list on a divider drag and persists the width", async () => {
     await render(BacklogOverlay, props());
     const master = document.querySelector<HTMLElement>(".master-pane")!;
@@ -230,12 +248,15 @@ function tabs(scope: ".tab-bar" | ".overlay-tabs") {
   return { issues: btns[0], prs: btns[1], actions: btns[2] };
 }
 
-/** The filter chip carrying `label` (chips are label-matched, not index-matched). */
-function chip(label: string): HTMLButtonElement {
-  const found = [...document.querySelectorAll<HTMLButtonElement>(".filter-chip")].find((b) =>
-    b.textContent?.includes(label),
-  );
-  expect(found, `no filter chip labelled ${label}`).toBeTruthy();
+/** The repo-filter checkbox carrying `label`, behind the filter icon (opened first). */
+function chip(label: string): HTMLInputElement {
+  const trigger = document.querySelector<HTMLButtonElement>(".repo-filter-trigger");
+  expect(trigger, "no repo filter trigger").toBeTruthy();
+  if (trigger!.getAttribute("aria-expanded") !== "true") trigger!.click();
+  const found = [...document.querySelectorAll<HTMLLabelElement>(".filter-popover .filter-row")]
+    .find((r) => r.textContent?.includes(label))
+    ?.querySelector<HTMLInputElement>("input[type=checkbox]");
+  expect(found, `no repo filter labelled ${label}`).toBeTruthy();
   return found!;
 }
 

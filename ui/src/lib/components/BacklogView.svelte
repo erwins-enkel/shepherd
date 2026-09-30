@@ -7,9 +7,13 @@
     DocAgentRun,
     DrainStatus,
     Epic,
+    GitState,
     Issue,
     PullRequest,
+    Session,
     Steer,
+    TaskRunDefaults,
+    TaskRunSeed,
   } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { toasts } from "$lib/toasts.svelte";
@@ -49,10 +53,13 @@
     onaddfork,
     onaddnewproject,
     selectPath = null,
+    taskDefaults = undefined,
+    onopensession = undefined,
+    sessionInfo = undefined,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
-    onissue: (repoPath: string, issue: Issue) => void;
+    onissue: (repoPath: string, issue: Issue, run?: TaskRunSeed) => void;
     /** Quick-launch an issue with the configured standard command, skipping the
      *  New Task dialog. Omitted → no quick button is shown on the issues. */
     onquick?: (repoPath: string, issue: Issue, action: Steer) => void;
@@ -94,6 +101,12 @@
      *  to the Issues tab once per distinct value. Filters are cleared first so a
      *  brand-new (zero issues/PRs) repo isn't excluded from the visible list. */
     selectPath?: string | null;
+    /** Open a session from the epic run area's slot holders (#2620). Omitted → no link. */
+    onopensession?: (sessionId: string) => void;
+    /** A session and its PR state from the store, by id — an epic child's session view. */
+    sessionInfo?: (id: string) => { session: Session; git?: GitState } | null;
+    /** Global run defaults for the Issues tab's task box (CLI / model / effort pre-fill). */
+    taskDefaults?: TaskRunDefaults;
   } = $props();
 
   // ── Desktop repository-sidebar resize (issue #1787) ─────────────────────────
@@ -439,6 +452,11 @@
             {inTrainPrs}
             {target}
             {drain}
+            mobile
+            {taskDefaults}
+            {onopensession}
+            {sessionInfo}
+            onopenautomation={() => (activeTab = "automation")}
           />
         </div>
       </div>
@@ -507,6 +525,10 @@
               {inTrainPrs}
               {target}
               {drain}
+              {taskDefaults}
+              {onopensession}
+              {sessionInfo}
+              onopenautomation={() => (activeTab = "automation")}
             />
           {:else}
             <div class="detail-empty">
@@ -582,13 +604,12 @@
 
   /* ── desktop split layout ── */
   /* position:relative hosts the abs-positioned .repo-splitter (issue #1787). The
-     first track reads var(--repos-sidebar, 300px) — a concrete 300px default (the
-     minmax(220,300) first track already resolved to ~300px in the modal, the 1fr
-     detail being the hungry track) so the grid boundary and the separator's `left`
-     read from one shared variable and can't drift. */
+     first track reads var(--repos-sidebar, 232px) — a concrete default, kept narrow
+     so the Issues list + reading view get the width (#2619) — so the grid boundary
+     and the separator's `left` read from one shared variable and can't drift. */
   .desktop-split {
     display: grid;
-    grid-template-columns: var(--repos-sidebar, 300px) 1fr;
+    grid-template-columns: var(--repos-sidebar, 232px) 1fr;
     position: relative;
     flex: 1;
     min-height: 0;
@@ -606,7 +627,7 @@
     position: absolute;
     top: 0;
     bottom: 0;
-    left: var(--repos-sidebar, 300px);
+    left: var(--repos-sidebar, 232px);
     width: 12px;
     transform: translateX(-50%);
     cursor: col-resize;
@@ -633,10 +654,12 @@
     outline: none;
   }
 
+  /* No bottom padding: the list's sticky "+ Add repo" foot must sit flush on the
+     pane's bottom edge, and brings its own padding. */
   .master-pane {
     border-right: 1px solid var(--color-line);
     overflow-y: auto;
-    padding: 0 4px 6px;
+    padding: 0 4px;
   }
 
   .master-pane::-webkit-scrollbar {
@@ -686,7 +709,7 @@
   .mobile-master {
     flex: 1;
     overflow-y: auto;
-    padding: 0 4px 6px;
+    padding: 0 4px;
     -webkit-overflow-scrolling: touch;
   }
 

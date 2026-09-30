@@ -1,5 +1,11 @@
 import { test, expect, describe } from "bun:test";
-import { computeNext, selectCandidates, PRIORITY_LABEL, ACTIVE_LABEL } from "../src/drain-core";
+import {
+  computeNext,
+  selectCandidates,
+  buildRunSummary,
+  PRIORITY_LABEL,
+  ACTIVE_LABEL,
+} from "../src/drain-core";
 import type { DrainRepoState, AutoSessionView } from "../src/drain-core";
 import type { Issue, GitState } from "../src/forge/types";
 
@@ -40,6 +46,7 @@ function autoSession(over: Partial<AutoSessionView> = {}): AutoSessionView {
     humanApproved: false,
     findings: [],
     fullAuto: false,
+    epicParent: null,
     ...over,
   };
 }
@@ -860,5 +867,109 @@ describe("computeNext: epic_base_unavailable is scoped to the epic that failed (
       kind: "hold",
       reason: { code: "epic_base_unavailable", detail: "epic/2-beta" },
     });
+  });
+});
+
+describe("buildRunSummary", () => {
+  const child = (number: number, blockedBy: number[] = [], over = {}) => ({
+    number,
+    order: number,
+    blockedBy,
+    integrationMerged: false,
+    issueClosed: false,
+    ...over,
+  });
+  const base = {
+    leadingEpic: null,
+    autoSessions: [] as AutoSessionView[],
+    maxAuto: 2,
+    candidates: [] as Issue[],
+    mappedIssueNumbers: new Set<number>(),
+    epicChildren: [],
+    queued: [] as number[],
+  };
+
+  test("supersession: B leads, A's still-running child winds down and holds the slot", () => {
+    const A = 100;
+    const B = 200;
+    const r = buildRunSummary({
+      ...base,
+      leadingEpic: B,
+      autoSessions: [autoSession({ id: "a1", desig: "TASK-01", issueNumber: 101, epicParent: A })],
+      maxAuto: 1,
+    });
+    expect(r.leadingEpic).toBe(B);
+    expect(r.windingDown).toEqual([{ epic: A, inFlight: [101] }]);
+    expect(r.slots).toEqual({
+      used: 1,
+      max: 1,
+      holders: [{ sessionId: "a1", desig: "TASK-01", issueNumber: 101, epicParent: A }],
+    });
+  });
+
+  test("leading-epic and non-epic sessions never wind down; groups sort by epic then issue", () => {
+    const r = buildRunSummary({
+      ...base,
+      leadingEpic: 5,
+      autoSessions: [
+        autoSession({ id: "x", issueNumber: 9, epicParent: 30 }),
+        autoSession({ id: "y", issueNumber: 6, epicParent: 5 }),
+        autoSession({ id: "z", issueNumber: 7, epicParent: null }),
+        autoSession({ id: "w", issueNumber: 4, epicParent: 30 }),
+        autoSession({ id: "v", issueNumber: 2, epicParent: 20 }),
+      ],
+    });
+    expect(r.windingDown).toEqual([
+      { epic: 20, inFlight: [2] },
+      { epic: 30, inFlight: [4, 9] },
+    ]);
+  });
+
+  test("no epic: leadingEpic null, slots mirror inFlight/max, nothing winds down", () => {
+    const r = buildRunSummary({
+      ...base,
+      autoSessions: [autoSession({ id: "a" }), autoSession({ id: "b", issueNumber: 2 })],
+      maxAuto: 3,
+      candidates: [issue(4), issue(3)],
+    });
+    expect(r.leadingEpic).toBeNull();
+    expect(r.windingDown).toEqual([]);
+    expect(r.slots.used).toBe(2);
+    expect(r.slots.max).toBe(3);
+    expect(r.next).toEqual([4, 3]);
+    expect(r.after).toEqual([]);
+  });
+
+  test("next drops mapped candidates and keeps drain order", () => {
+    const r = buildRunSummary({
+      ...base,
+      candidates: [issue(1), issue(2), issue(3)],
+      mappedIssueNumbers: new Set([1]),
+    });
+    expect(r.next).toEqual([2, 3]);
+  });
+
+  test("after lists open children directly blocked by next[0], in epic order", () => {
+    const r = buildRunSummary({
+      ...base,
+      leadingEpic: 50,
+      candidates: [issue(1)],
+      epicChildren: [
+        child(1),
+        child(4, [1], { order: 0 }),
+        child(3, [1, 2]),
+        child(2, [1], { integrationMerged: true }),
+        child(5, [3]),
+        child(6, [1], { issueClosed: true }),
+      ],
+    });
+    expect(r.next).toEqual([1]);
+    expect(r.after).toEqual([4, 3]);
+  });
+
+  test("after is empty when nothing is next", () => {
+    const r = buildRunSummary({ ...base, epicChildren: [child(2, [1])] });
+    expect(r.next).toEqual([]);
+    expect(r.after).toEqual([]);
   });
 });

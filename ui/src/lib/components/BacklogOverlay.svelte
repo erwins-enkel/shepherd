@@ -1,5 +1,16 @@
 <script lang="ts">
-  import type { BacklogPayload, DrainStatus, Epic, Issue, PullRequest, Steer } from "$lib/types";
+  import type {
+    BacklogPayload,
+    DrainStatus,
+    Epic,
+    GitState,
+    Issue,
+    PullRequest,
+    Session,
+    Steer,
+    TaskRunDefaults,
+    TaskRunSeed,
+  } from "$lib/types";
   import { MediaQuery } from "svelte/reactivity";
   import { m } from "$lib/paraglide/messages";
   import { dialog } from "$lib/a11yDialog";
@@ -25,10 +36,13 @@
     onaddfork,
     onaddnewproject,
     selectPath = null,
+    taskDefaults = undefined,
+    onopensession = undefined,
+    sessionInfo = undefined,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
-    onissue: (repoPath: string, issue: Issue) => void;
+    onissue: (repoPath: string, issue: Issue, run?: TaskRunSeed) => void;
     onquick?: (repoPath: string, issue: Issue, action: Steer) => void;
     oninject?: (repoPath: string, issue: Issue, steer: Steer) => void;
     onpr: (repoPath: string, pr: PullRequest) => void;
@@ -53,6 +67,12 @@
      *  Automation tab. This overlay is reachable while tasks run, so without it the
      *  Automation tab's epic banner + drain-cap would be stale here. */
     drain?: Record<string, DrainStatus>;
+    /** Global run defaults for the Issues tab's task box, forwarded to BacklogView. */
+    taskDefaults?: TaskRunDefaults;
+    /** Open a slot holder's session from the epic run area (#2620), forwarded to BacklogView. */
+    onopensession?: (sessionId: string) => void;
+    /** A session and its PR state from the store, by id — an epic child's session view. */
+    sessionInfo?: (id: string) => { session: Session; git?: GitState } | null;
   } = $props();
 
   // ── Desktop modal resize (issue #1787) ──────────────────────────────────────
@@ -134,6 +154,9 @@
         {inTrainPrs}
         {target}
         {drain}
+        {taskDefaults}
+        {onopensession}
+        {sessionInfo}
       />
     </div>
     {#if resizable}

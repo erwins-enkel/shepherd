@@ -33,7 +33,6 @@
     type ShapeRound as ShapeRoundData,
     type SpawnPhase,
     type SpawnProgress,
-    MODELS_BY_PROVIDER,
   } from "$lib/types";
   import {
     matchSlashTrigger,
@@ -82,6 +81,7 @@
     reseedRunConfig,
     normalizeRunConfig,
     modelForManualProviderChange,
+    modelSettingFor as resolveModelSetting,
   } from "./new-task/run-config";
   import { IssueData } from "./new-task/issue-data.svelte";
   import VideoBriefNotice from "./new-task/VideoBriefNotice.svelte";
@@ -476,6 +476,9 @@
   const attachedOthers = $derived(
     activeIssue ? assignedOthers(activeIssue, viewerCache.get(repoPath)) : [],
   );
+  // Open blockers of the attached issue (e.g. an epic child started out of order, #2622) —
+  // a soft "it starts anyway" notice, like the assignee one.
+  const attachedBlockers = $derived(activeIssue?.blockedBy ?? []);
   let branches = $state<string[]>([]);
   // The base selected by pickBaseBranch need not be a LOCAL branch — surface it as an
   // option so the dropdown's shown value matches the base actually submitted.
@@ -901,14 +904,7 @@
   /** Effective model SETTING for a provider: repo override (when valid for it) → global. */
   function modelSettingFor(provider: AgentProvider): string {
     const override = repoPath ? repoConfig.defaultModelFor(repoPath) : "inherit";
-    const setting =
-      provider === "codex" ? (defaultCodexModel ?? "gpt-5.6-sol") : (defaultModel ?? "auto");
-    return override !== "inherit" &&
-      (override === "auto" ||
-        override === "default" ||
-        MODELS_BY_PROVIDER[provider].includes(override))
-      ? override
-      : setting;
+    return resolveModelSetting(provider, override, defaultModel, defaultCodexModel);
   }
   const effectiveModelSetting = $derived(modelSettingFor(agentProvider));
 
@@ -2366,6 +2362,13 @@
                 })}
               </p>
             {/if}
+            {#if attachedBlockers.length > 0}
+              <p class="issue-blocked-notice">
+                <span class="glyph" aria-hidden="true">⚠</span>{m.newtask_issue_blocked_notice({
+                  deps: attachedBlockers.map((n) => `#${n}`).join(", "),
+                })}
+              </p>
+            {/if}
           {/if}
 
           {#if mobile}
@@ -3664,7 +3667,8 @@
     background: var(--color-inset);
     font-size: var(--fs-meta);
   }
-  .issue-assigned-notice {
+  .issue-assigned-notice,
+  .issue-blocked-notice {
     margin: -6px 0 0;
     display: flex;
     align-items: baseline;
@@ -3672,7 +3676,8 @@
     font-size: var(--fs-micro);
     color: color-mix(in oklab, var(--color-warn) 80%, var(--color-muted));
   }
-  .issue-assigned-notice .glyph {
+  .issue-assigned-notice .glyph,
+  .issue-blocked-notice .glyph {
     flex-shrink: 0;
   }
   .issue-ref-label {
@@ -3936,6 +3941,7 @@
     .card.composing .field-note,
     .card.composing .issue-ref,
     .card.composing .issue-assigned-notice,
+    .card.composing .issue-blocked-notice,
     .card.composing .seg-row,
     .card.composing .engine-summary,
     .card.composing .toolbar,

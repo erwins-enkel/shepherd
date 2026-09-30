@@ -40,6 +40,8 @@
     Settings as Settings_,
     StarPromptStatus,
     Steer,
+    TaskRunDefaults,
+    TaskRunSeed,
     UsageLimits,
   } from "$lib/types";
   import type { FeatureAnnouncement } from "$lib/feature-announcements";
@@ -210,6 +212,7 @@
     onaddnewproject,
     backlogSelectPath,
     onbacklogclose,
+    onbacklogopensession,
     pendingTrain,
     ontrainclose,
     ontrainconfirm,
@@ -353,7 +356,7 @@
     backlog: BacklogPayload | null;
     epicTarget: { repoPath: string; issueNumber: number } | null;
     inTrainPrs: Set<string>;
-    onissue: (repoPath: string, issue: Issue) => void;
+    onissue: (repoPath: string, issue: Issue, run?: TaskRunSeed) => void;
     onquick: (repoPath: string, issue: Issue, action: Steer) => void;
     oninject: (repoPath: string, issue: Issue, steer: Steer) => void;
     onpr: (repoPath: string, pr: PullRequest) => void;
@@ -364,6 +367,8 @@
     onaddnewproject: () => void;
     backlogSelectPath: string | null;
     onbacklogclose: () => void;
+    /** Open a session from the Repos dialog's epic run area (#2620): close it, jump there. */
+    onbacklogopensession: (sessionId: string) => void;
     pendingTrain: PendingTrain;
     ontrainclose: () => void;
     ontrainconfirm: () => void;
@@ -426,6 +431,20 @@
       newTaskHeldProviders,
     ),
   );
+  // The Repos dialog's task box pre-fills from the same defaults the composer seeds with.
+  const backlogTaskDefaults = $derived<TaskRunDefaults>({
+    agentProvider: newTaskDefaultAgentProvider,
+    model: settings?.defaultModel,
+    codexModel: newTaskDefaultCodexModel,
+    effort: newTaskDefaultEffort,
+    fableAvailable: newTaskFableAvailable,
+  });
+  // An epic child's session in the Repos dialog (#2622): the live session + its PR state.
+  // Read inside the dialog's deriveds, so it tracks the store's reactive fields.
+  function backlogSessionInfo(id: string): { session: Session; git?: GitState } | null {
+    const session = store.byId(id);
+    return session ? { session, git: store.git[id] } : null;
+  }
 </script>
 
 {#if showLearnings}
@@ -737,10 +756,13 @@
     {onaddnewproject}
     selectPath={backlogInitialRepo}
     onclose={onbacklogclose}
+    onopensession={onbacklogopensession}
+    sessionInfo={backlogSessionInfo}
     epics={store.epics}
     {inTrainPrs}
     target={epicTarget}
     drain={store.drain}
+    taskDefaults={backlogTaskDefaults}
   />
 {/if}
 

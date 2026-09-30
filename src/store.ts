@@ -74,7 +74,7 @@ import { normalizeRepoDefaultModelSetting } from "./default-model";
 import { normalizeRepoDefaultEffortSetting } from "./default-effort";
 import { sanitizeScopeGlobs } from "./house-rules";
 import type { AccessTokenRow } from "./access-tokens";
-import type { EpicRun } from "./epic-core";
+import type { EpicQueueEntry, EpicRun } from "./epic-core";
 import type { EpicLandingState } from "./completed-epic";
 import { normalizeRule } from "./learning-rule";
 import { trimRuleToLimit } from "./learning-shape";
@@ -1729,6 +1729,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       repoPath TEXT PRIMARY KEY, parentIssueNumber INTEGER NOT NULL,
       mode TEXT NOT NULL DEFAULT 'auto', status TEXT NOT NULL DEFAULT 'idle', updatedAt INTEGER NOT NULL)`);
     this.addMissingColumns("epic_run", { agentProvider: "TEXT", model: "TEXT", effort: "TEXT" });
+    // #2624: epics queued behind the repo's leading epic, promoted in `position` order when the
+    // leader completes — each with its own settings, so a promotion never resets them to defaults.
+    this.db.run(`CREATE TABLE IF NOT EXISTS epic_queue (
+      repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL, position INTEGER NOT NULL,
+      mode TEXT NOT NULL DEFAULT 'auto', agentProvider TEXT, model TEXT, effort TEXT,
+      createdAt INTEGER NOT NULL,
+      PRIMARY KEY (repoPath, parentIssueNumber))`);
     // #645: the pinned integration-branch name, keyed PER EPIC (repoPath, parentIssueNumber)
     // — NOT on epic_run, which is one-row-per-repo and superseded when a new epic starts on that
     // repo, so a pin stored there would be inherited by the next epic and would outlive its own
@@ -2218,6 +2225,86 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         Date.now(),
       ],
     );
+  }
+
+  // ── epic queue (#2624): epics waiting behind the leading one ─────────────
+  /** Append an epic to its repo's queue. Already queued → no-op (it keeps its position). */
+  enqueueEpic(e: Omit<EpicQueueEntry, "position" | "createdAt">): void {
+    this.db.run(
+      `INSERT INTO epic_queue (repoPath, parentIssueNumber, position, mode, agentProvider, model, effort, createdAt)
+      VALUES (?, ?, (SELECT COALESCE(MAX(position), 0) + 1 FROM epic_queue WHERE repoPath = ?), ?, ?, ?, ?, ?)
+      ON CONFLICT(repoPath, parentIssueNumber) DO NOTHING`,
+      [
+        e.repoPath,
+        e.parentIssueNumber,
+        e.repoPath,
+        e.mode,
+        e.agentProvider ?? null,
+        e.agentProvider ? (e.model ?? null) : null,
+        e.agentProvider ? (e.effort ?? null) : null,
+        Date.now(),
+      ],
+    );
+  }
+
+  /** The repo's queue, head first. */
+  listEpicQueue(repoPath: string): EpicQueueEntry[] {
+    return this.db
+      .query(
+        `SELECT repoPath, parentIssueNumber, position, mode, agentProvider, model, effort, createdAt
+        FROM epic_queue WHERE repoPath = ? ORDER BY position`,
+      )
+      .all(repoPath) as EpicQueueEntry[];
+  }
+
+  getEpicQueueEntry(repoPath: string, parentIssueNumber: number): EpicQueueEntry | null {
+    return (
+      (this.db
+        .query(
+          `SELECT repoPath, parentIssueNumber, position, mode, agentProvider, model, effort, createdAt
+          FROM epic_queue WHERE repoPath = ? AND parentIssueNumber = ?`,
+        )
+        .get(repoPath, parentIssueNumber) as EpicQueueEntry | null) ?? null
+    );
+  }
+
+  /** Replace a queued epic's settings in place (position unchanged). */
+  updateEpicQueueSettings(
+    e: Pick<
+      EpicQueueEntry,
+      "repoPath" | "parentIssueNumber" | "mode" | "agentProvider" | "model" | "effort"
+    >,
+  ): void {
+    this.db.run(
+      `UPDATE epic_queue SET mode = ?, agentProvider = ?, model = ?, effort = ?
+      WHERE repoPath = ? AND parentIssueNumber = ?`,
+      [
+        e.mode,
+        e.agentProvider ?? null,
+        e.agentProvider ? (e.model ?? null) : null,
+        e.agentProvider ? (e.effort ?? null) : null,
+        e.repoPath,
+        e.parentIssueNumber,
+      ],
+    );
+  }
+
+  /** Drop an epic from its repo's queue; true when it was queued. */
+  removeEpicQueueEntry(repoPath: string, parentIssueNumber: number): boolean {
+    const { changes } = this.db.run(
+      `DELETE FROM epic_queue WHERE repoPath = ? AND parentIssueNumber = ?`,
+      [repoPath, parentIssueNumber],
+    );
+    return changes > 0;
+  }
+
+  /** Take the queue's head off and return it; null when the queue is empty. */
+  shiftEpicQueue(repoPath: string): EpicQueueEntry | null {
+    return this.db.transaction(() => {
+      const head = this.listEpicQueue(repoPath)[0] ?? null;
+      if (head) this.removeEpicQueueEntry(repoPath, head.parentIssueNumber);
+      return head;
+    })();
   }
 
   /** Single source of truth for an epic's pinned integration-branch name (#645), keyed

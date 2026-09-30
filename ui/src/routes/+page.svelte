@@ -80,6 +80,8 @@
     Session,
     Settings as Settings_,
     Steer,
+    TaskRunDefaults,
+    TaskRunSeed,
   } from "$lib/types";
   import { sortBlocked } from "$lib/triage";
   import { displayStatus } from "$lib/display-status";
@@ -775,6 +777,14 @@
   const composeHoldLikely = $derived(
     relaunchOriginalId === null && editHeldId === null ? holdLikely : false,
   );
+  // Start-page backlog (no sessions yet): the Issues task box pre-fills from these.
+  const backlogTaskDefaults = $derived<TaskRunDefaults>({
+    agentProvider: settings?.defaultAgentProvider ?? "claude",
+    model: settings?.defaultModel,
+    codexModel: settings?.defaultCodexModel,
+    effort: settings?.defaultEffort,
+    fableAvailable: settings?.fableAvailable ?? true,
+  });
   const upNextLaunch = $derived({
     store,
     defaultAgentProvider: settings?.defaultAgentProvider ?? "claude",
@@ -1027,9 +1037,14 @@
     if (store.backlog) backlog = store.backlog;
   });
 
-  function onissue(repoPath: string, issue: Issue) {
+  // `run` carries only the CLI / model / effort the operator changed in the Repos dialog's
+  // task box (#2617); unset fields keep the composer's own defaults.
+  function onissue(repoPath: string, issue: Issue, run?: TaskRunSeed) {
     composeRepoPath = repoPath;
     composeIssue = issue;
+    if (run?.agentProvider) composeAgentProvider = run.agentProvider;
+    if (run?.model) composeModel = run.model;
+    if (run?.effort) composeEffort = run.effort;
     showNew = true;
     // composing from the backlog overlay → close it so the herd is behind the modal
     showBacklog = false;
@@ -3033,6 +3048,7 @@
               docAgentEnabled={settings?.docAgentEnabled ?? false}
               docAgentAct={settings?.docAgentAct ?? false}
               docAgentDone={store.docAgentDone}
+              taskDefaults={backlogTaskDefaults}
             />
           {/if}
         </div>
@@ -3230,6 +3246,7 @@
             docAgentEnabled={settings?.docAgentEnabled ?? false}
             docAgentAct={settings?.docAgentAct ?? false}
             docAgentDone={store.docAgentDone}
+            taskDefaults={backlogTaskDefaults}
           />
         {:else if selected}
           <Viewport
@@ -3532,6 +3549,11 @@
   onbacklogclose={() => {
     showBacklog = false;
     backlogSelectPath = null;
+  }}
+  onbacklogopensession={(id) => {
+    showBacklog = false;
+    backlogSelectPath = null;
+    jumpToSession(id);
   }}
   {pendingTrain}
   ontrainclose={() => (pendingTrain = null)}

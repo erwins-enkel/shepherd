@@ -1,4 +1,4 @@
-import type { AgentProvider, ProviderTokenConstraint } from "$lib/types";
+import { MODELS_BY_PROVIDER, type AgentProvider, type ProviderTokenConstraint } from "$lib/types";
 import { promoDefaultModel } from "$lib/fable-promo";
 import { isFableModel, modelAvailableForProvider } from "$lib/provider-models";
 import { effortAvailableForProvider } from "$lib/effort-guidance";
@@ -18,6 +18,25 @@ export function preselectModel(
         ? promoDefaultModel()
         : "default";
   return isFableModel(pick) && !fableAvailable ? "default" : pick;
+}
+
+/** Effective model SETTING for a provider: the repo override (when valid for that provider) wins,
+ *  else the global default for the provider. Shared by NewTask and the backlog task box so the
+ *  box shows what the composer will preselect. */
+export function modelSettingFor(
+  provider: AgentProvider,
+  repoOverride: string,
+  defaultModel: string | undefined,
+  defaultCodexModel: string | undefined,
+): string {
+  const setting =
+    provider === "codex" ? (defaultCodexModel ?? "gpt-5.6-sol") : (defaultModel ?? "auto");
+  return repoOverride !== "inherit" &&
+    (repoOverride === "auto" ||
+      repoOverride === "default" ||
+      MODELS_BY_PROVIDER[provider].includes(repoOverride))
+    ? repoOverride
+    : setting;
 }
 
 /** Effort SETTING ("default" | "inherit" | <tier>) → picker value. */

@@ -114,3 +114,40 @@ export function reviewRestartExplanation(): TooltipExplanation {
     sections: [{ label: m.reviewbanner_tip_cost(), text: m.reviewbanner_tip_restart_cost() }],
   };
 }
+
+/** Glossary + Repos-dialog slot line (#2620): what an agent slot is, who holds one, how to add more. */
+export function agentSlotExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_agent_slot_title(),
+    summary: m.gloss_agent_slot_def(),
+    sections: [
+      { label: m.tooltip_agent_slot_holders(), text: m.tooltip_agent_slot_holders_body() },
+      { label: m.tooltip_agent_slot_full(), text: m.tooltip_agent_slot_full_body() },
+      { label: m.tooltip_agent_slot_change(), text: m.tooltip_agent_slot_change_body() },
+    ],
+  };
+}
+
+/** "One epic leads at a time" (#2620): a new start supersedes, the old epic winds down. */
+export function epicLeadExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_epic_lead_title(),
+    summary: m.tooltip_epic_lead_summary(),
+    sections: [
+      { label: m.tooltip_epic_lead_previous(), text: m.tooltip_epic_lead_previous_body() },
+      { label: m.tooltip_epic_lead_slots(), text: m.tooltip_epic_lead_slots_body() },
+    ],
+  };
+}
+
+/** The epic run region's live-state indicator (#2620). */
+export function epicRunStateExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_epic_run_state_title(),
+    summary: m.tooltip_epic_run_state_summary(),
+    sections: [
+      { label: m.tooltip_epic_run_state_next(), text: m.tooltip_epic_run_state_next_body() },
+      { label: m.tooltip_epic_run_state_you(), text: m.tooltip_epic_run_state_you_body() },
+    ],
+  };
+}

@@ -329,6 +329,25 @@ export interface Issue {
   blockedBy?: number[];
 }
 
+/** Run settings the backlog task box (#2617) hands to the New Task dialog. Only fields the
+ *  operator changed in the box are set — an absent field leaves the composer's own default
+ *  (incl. its capacity routing and repo-override reseed) in charge. */
+export interface TaskRunSeed {
+  agentProvider?: AgentProvider;
+  model?: string;
+  effort?: string;
+}
+
+/** Global run defaults the backlog task box pre-fills from (the same settings the New Task
+ *  dialog seeds with). */
+export interface TaskRunDefaults {
+  agentProvider: AgentProvider;
+  model?: string;
+  codexModel?: string;
+  effort?: string;
+  fableAvailable?: boolean;
+}
+
 /** One `gh` transport that ran and failed while listing issues, as reported by
  *  /api/issues. Mirrors the server `GhFetchAttempt` (`src/forge/gh-attempt.ts`).
  *  GitHub lists issues over two independent budgets (`gh issue list` on GraphQL,
@@ -941,6 +960,32 @@ export interface DrainStatus {
   inFlight: number;
   max: number;
   epicParent: number | null;
+  /** Read-only run picture; optional on the wire (src/drain-core.ts → RunSummary). */
+  runSummary?: DrainRunSummary;
+}
+
+/** Mirrors src/drain-core.ts → RunSummary. */
+export interface DrainRunSummary {
+  /** The running/paused epic's parent; null in label mode. */
+  leadingEpic: number | null;
+  /** Superseded epics that still have a child in flight. */
+  windingDown: { epic: number; inFlight: number[] }[];
+  slots: {
+    used: number;
+    max: number;
+    holders: {
+      sessionId: string;
+      desig: string;
+      issueNumber: number | null;
+      epicParent: number | null;
+    }[];
+  };
+  /** Next startable issue #s in drain order — also while the epic is paused. */
+  next: number[];
+  /** Open epic children directly blocked by next[0]. */
+  after: number[];
+  /** Epics queued behind the leading one, head first (#2624); absent from older servers. */
+  queued?: number[];
 }
 
 // ── epics ──────────────────────────────────────────────────────────────────

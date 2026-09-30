@@ -17,7 +17,19 @@ export const drain: DrainStatus = {
   queued: 1,
   inFlight: 1,
   max: 2,
-  epicParent: null,
+  epicParent: 200,
+  runSummary: {
+    leadingEpic: 200,
+    windingDown: [{ epic: 100, inFlight: [101] }],
+    slots: {
+      used: 1,
+      max: 2,
+      holders: [{ sessionId: "a", desig: "TASK-1", issueNumber: 101, epicParent: 100 }],
+    },
+    next: [201],
+    after: [202],
+    queued: [300],
+  },
 };
 export const queued: QueuedItem[] = [{ number: 7, title: "Ship", url: "https://example.test/i/7" }];
 export const steps: PostMergeStep[] = [

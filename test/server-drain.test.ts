@@ -220,6 +220,36 @@ test("GET /api/drain returns array from drain.snapshot()", async () => {
   expect(await res.json()).toEqual([status]);
 });
 
+test("GET /api/drain passes runSummary through unchanged", async () => {
+  const status: DrainStatus = {
+    repoPath: repoDir,
+    enabled: true,
+    paused: false,
+    reason: "cap",
+    detail: "1",
+    queued: 1,
+    inFlight: 1,
+    max: 1,
+    epicParent: 200,
+    runSummary: {
+      leadingEpic: 200,
+      windingDown: [{ epic: 100, inFlight: [101] }],
+      slots: {
+        used: 1,
+        max: 1,
+        holders: [{ sessionId: "s1", desig: "TASK-01", issueNumber: 101, epicParent: 100 }],
+      },
+      next: [201],
+      after: [202],
+      queued: [300],
+    },
+  };
+  const { app } = harness({ snapshot: async () => [status], queue: async () => [] });
+  const res = await app.fetch(new Request("http://x/api/drain"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual([status]);
+});
+
 test("GET /api/drain returns [] when deps.drain is absent", async () => {
   const { app } = harness(undefined);
   const res = await app.fetch(new Request("http://x/api/drain"));

@@ -1807,3 +1807,152 @@ describe("POST /api/epics/completed/ack-migrations", () => {
     expect(res.status).toBe(400);
   });
 });
+
+// ── #2624: epic queue ─────────────────────────────────────────────────────────
+
+describe("POST|DELETE /api/epic/queue", () => {
+  const queueReq = (method: "POST" | "DELETE", parent: number) =>
+    new Request(`http://x/api/epic/queue?repo=${encRepo(repoDir)}&parent=${parent}`, { method });
+  const lead = (store: SessionStore, status: "running" | "paused" | "idle" = "running") =>
+    store.setEpicRun({ repoPath: repoDir, parentIssueNumber: 100, mode: "auto", status });
+  const queuedParents = (store: SessionStore) =>
+    store.listEpicQueue(repoDir).map((e) => e.parentIssueNumber);
+
+  test("409 when no epic leads the repo", async () => {
+    const { app, store } = harness();
+    let res = await app.fetch(queueReq("POST", 200));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "no leading epic" });
+    lead(store, "idle");
+    res = await app.fetch(queueReq("POST", 200));
+    expect(res.status).toBe(409);
+    expect(queuedParents(store)).toEqual([]);
+  });
+
+  test("409 when the epic itself leads", async () => {
+    const { app, store } = harness();
+    lead(store);
+    const res = await app.fetch(queueReq("POST", 100));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "epic already leads" });
+  });
+
+  test("400 on a bad repo or parent", async () => {
+    const { app } = harness();
+    expect(
+      (
+        await app.fetch(
+          new Request(`http://x/api/epic/queue?repo=/nope&parent=2`, { method: "POST" }),
+        )
+      ).status,
+    ).toBe(400);
+    expect((await app.fetch(queueReq("DELETE", 0))).status).toBe(400);
+  });
+
+  test("POST queues behind the leader (also a paused one) with default settings, idempotently", async () => {
+    let ticks = 0;
+    const { app, store, emitted } = harness({
+      drainOverrides: {
+        tick: async () => {
+          ticks++;
+        },
+      },
+    });
+    lead(store, "paused");
+    const res = await app.fetch(queueReq("POST", 200));
+    expect(res.status).toBe(200);
+    const epic = (await res.json()) as Epic;
+    expect(epic.run).toMatchObject({ parentIssueNumber: 200, status: "idle", mode: "auto" });
+    await app.fetch(queueReq("POST", 300));
+    await app.fetch(queueReq("POST", 200));
+    expect(queuedParents(store)).toEqual([200, 300]);
+    expect(store.getEpicRun(repoDir)).toMatchObject({ parentIssueNumber: 100, status: "paused" });
+    expect(ticks).toBe(3);
+    expect(emitted).toHaveLength(3);
+  });
+
+  test("DELETE takes an epic out of the queue, idempotently", async () => {
+    const { app, store } = harness();
+    lead(store);
+    await app.fetch(queueReq("POST", 200));
+    await app.fetch(queueReq("POST", 300));
+    expect((await app.fetch(queueReq("DELETE", 200))).status).toBe(200);
+    expect((await app.fetch(queueReq("DELETE", 200))).status).toBe(200);
+    expect(queuedParents(store)).toEqual([300]);
+  });
+
+  test("GET assembles a queued epic from its stored settings", async () => {
+    const { app, store } = harness();
+    lead(store);
+    store.enqueueEpic({
+      repoPath: repoDir,
+      parentIssueNumber: 200,
+      mode: "attended",
+      agentProvider: "claude",
+      model: "opus",
+      effort: "high",
+    });
+    const res = await app.fetch(
+      new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=200`),
+    );
+    const epic = (await res.json()) as Epic;
+    expect(epic.run).toMatchObject({
+      parentIssueNumber: 200,
+      status: "idle",
+      mode: "attended",
+      agentProvider: "claude",
+      model: "opus",
+      effort: "high",
+    });
+  });
+
+  test("PUT without status edits the queued epic's settings and leaves the leader alone", async () => {
+    const { app, store } = harness();
+    lead(store);
+    await app.fetch(queueReq("POST", 200));
+    const res = await app.fetch(
+      new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=200`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mode: "attended", agentProvider: "claude", effort: "high" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as Epic).run).toMatchObject({ mode: "attended", effort: "high" });
+    expect(store.getEpicRun(repoDir)).toMatchObject({ parentIssueNumber: 100, status: "running" });
+    expect(store.getEpicQueueEntry(repoDir, 200)).toMatchObject({
+      mode: "attended",
+      agentProvider: "claude",
+      effort: "high",
+    });
+  });
+
+  test("PUT status running on a queued epic leaves the queue and supersedes with its settings", async () => {
+    const { app, store } = harness();
+    lead(store);
+    store.enqueueEpic({
+      repoPath: repoDir,
+      parentIssueNumber: 200,
+      mode: "attended",
+      agentProvider: "claude",
+      model: "opus",
+      effort: null,
+    });
+    const res = await app.fetch(
+      new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=200`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "running" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(store.getEpicRun(repoDir)).toMatchObject({
+      parentIssueNumber: 200,
+      status: "running",
+      mode: "attended",
+      agentProvider: "claude",
+      model: "opus",
+    });
+    expect(queuedParents(store)).toEqual([]);
+  });
+});

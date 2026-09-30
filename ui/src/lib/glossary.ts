@@ -1,4 +1,8 @@
-import { planGateExplanation, autopilotExplanation } from "$lib/tooltips/explanations";
+import {
+  planGateExplanation,
+  autopilotExplanation,
+  agentSlotExplanation,
+} from "$lib/tooltips/explanations";
 import type { TooltipExplanation } from "$lib/tooltips/content";
 
 // Glossary registry driving inline term tooltips throughout the UI.
@@ -25,6 +29,13 @@ const glossary: readonly GlossaryTerm[] = [
     kind: "internal",
     termKey: "gloss_epic_term",
     bodyKey: "gloss_epic_def",
+  },
+  {
+    id: "agent-slot",
+    kind: "internal",
+    termKey: "gloss_agent_slot_term",
+    bodyKey: "gloss_agent_slot_def",
+    explanation: agentSlotExplanation,
   },
   {
     id: "reasoning-effort",

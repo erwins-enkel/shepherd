@@ -1,3 +1,4 @@
+import { epicParentFromBranch } from "./epic-branch";
 import type { GitForge } from "./forge/types";
 import type { Session, SessionArchiveReason } from "./types";
 import type { SessionStore } from "./store";
@@ -38,7 +39,14 @@ export interface MergedPrFacts {
  *   4. a base-CAPABLE forge whose base stays unresolvable fails closed (no record; the
  *      reconcile sweep retries later).
  *
- * Records only when the resolved base equals the PINNED integration branch (exact match —
+ * The epic is the SESSION'S own (#2618), never the repo's leading `epic_run`: a child of a
+ * superseded epic records under that epic, whether another epic now leads or none is running.
+ * Resolved from the persisted `epicParent` stamp, else the parent its `epic/<#>-…` base branch
+ * names (legacy unstamped row), else the parent the merged base names (a `main`-based session
+ * whose PR was re-targeted onto an epic branch — the #1401 escape hatch). A session with no epic
+ * of its own in a repo without an active epic returns before the base probe.
+ *
+ * Records only when the resolved base equals THAT epic's PINNED integration branch (exact match —
  * divergent `epic/*` bases stay fail-closed; #645 warnings surface those). Best-effort: never
  * throws (the merge already happened; recording must not break teardown), and the store upsert
  * is idempotent so double-recording with the retire path is harmless.
@@ -50,15 +58,23 @@ export async function recordEpicIntegrationIfChild(
 ): Promise<void> {
   try {
     if (s.issueNumber == null) return;
-    const run = deps.store.getEpicRun(s.repoPath);
-    // Mirrors the retire path's epicActive gate — an idle/absent epic never records.
-    if (!run || (run.status !== "running" && run.status !== "paused")) return;
-    const pinned = deps.store.getEpicIntegrationBranch(s.repoPath, run.parentIssueNumber);
-    if (pinned === null) return; // never pinned → this repo's epic never spawned a child
-    if ((await resolveMergedBase(s, pr, deps.forge)) !== pinned) return;
+    const ownEpic = s.epicParent ?? epicParentFromBranch(s.baseBranch);
+    if (ownEpic == null) {
+      // Only a PR re-targeted onto an epic branch can still belong to an epic; with none active
+      // the repo has nothing draining, so skip the base probe (a forge call per plain merge).
+      const run = deps.store.getEpicRun(s.repoPath);
+      if (!run || (run.status !== "running" && run.status !== "paused")) return;
+    }
+    const base = await resolveMergedBase(s, pr, deps.forge);
+    if (base === null) return;
+    const parent = ownEpic ?? epicParentFromBranch(base);
+    if (parent == null) return;
+    const pinned = deps.store.getEpicIntegrationBranch(s.repoPath, parent);
+    if (pinned === null) return; // never pinned → that epic never spawned a child
+    if (base !== pinned) return;
     deps.store.recordEpicIntegrated(
       s.repoPath,
-      run.parentIssueNumber,
+      parent,
       s.issueNumber,
       pr.number != null ? { number: pr.number, url: pr.url ?? "" } : undefined,
       pinned,

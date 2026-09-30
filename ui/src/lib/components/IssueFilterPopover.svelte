@@ -26,6 +26,7 @@
     ontogglelabel = undefined,
     keycap = undefined,
     shortcut = undefined,
+    showSubIssuesToggle = true,
   }: {
     showMine: boolean;
     coachTargets?: boolean;
@@ -40,6 +41,9 @@
     keycap?: Snippet;
     /** aria-keyshortcuts for the trigger, when a host binds one. */
     shortcut?: string;
+    /** Offer "hide sub-issues". False where the host already lists sub-issues only inside
+     *  their epic (the backlog Issues tab, #2617), so the toggle would do nothing there. */
+    showSubIssuesToggle?: boolean;
   } = $props();
 
   // Show the Author section at >=2 authors OR whenever a selection is set — the OR-guard
@@ -67,7 +71,7 @@
   const activeCount = $derived(
     (showMine && issuesFilter.hideOthers ? 1 : 0) +
       (issuesFilter.hideActive ? 1 : 0) +
-      (issuesFilter.hideSubIssues ? 1 : 0) +
+      (showSubIssuesToggle && issuesFilter.hideSubIssues ? 1 : 0) +
       (issuesFilter.hideBlocked ? 1 : 0) +
       (selectedAuthor != null ? 1 : 0) +
       selectedLabels.length,
@@ -195,17 +199,19 @@
       <span class="row-desc">{m.issues_filter_active_title()}</span>
     </span>
   </label>
-  <label class="filter-row">
-    <input
-      type="checkbox"
-      checked={issuesFilter.hideSubIssues}
-      onchange={() => issuesFilter.toggleSubIssues()}
-    />
-    <span class="row-text">
-      <span class="row-label">{m.issues_filter_subissues_label()}</span>
-      <span class="row-desc">{m.issues_filter_subissues_title()}</span>
-    </span>
-  </label>
+  {#if showSubIssuesToggle}
+    <label class="filter-row">
+      <input
+        type="checkbox"
+        checked={issuesFilter.hideSubIssues}
+        onchange={() => issuesFilter.toggleSubIssues()}
+      />
+      <span class="row-text">
+        <span class="row-label">{m.issues_filter_subissues_label()}</span>
+        <span class="row-desc">{m.issues_filter_subissues_title()}</span>
+      </span>
+    </label>
+  {/if}
   <label class="filter-row">
     <input
       type="checkbox"

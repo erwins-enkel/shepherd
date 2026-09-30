@@ -1,7 +1,7 @@
 /**
  * Pure logic extracted from IssuesPanel.svelte — unit-testable without a DOM.
  */
-import type { Issue, EpicSummary } from "$lib/types";
+import type { Issue, EpicSummary, EpicChild } from "$lib/types";
 
 /** Which "someone else is working / owns this epic" signal (#1616) fired, highest-priority first. */
 export type EpicOthersTier = "inflight" | "assigned" | "authored";
@@ -283,4 +283,121 @@ export function sortEpicsFirst(
     (epicParents.has(issue.number) ? epics : rest).push(issue);
   }
   return [...epics, ...rest];
+}
+
+/** One row of the backlog issue list (#2617): an epic header, one of an expanded epic's
+ *  children (or its loading placeholder while the record is fetched), or a single issue. */
+export type IssueListRow =
+  | { kind: "epic"; key: string; issue: Issue; expanded: boolean }
+  | { kind: "child"; key: string; parent: number; child: EpicChild }
+  | { kind: "loading"; key: string; parent: number }
+  | { kind: "single"; key: string; issue: Issue };
+
+/** A resolved list selection — what the reading detail renders. */
+export type IssueSelection =
+  | { kind: "epic"; issue: Issue }
+  | { kind: "child"; parent: number; child: EpicChild }
+  | { kind: "single"; issue: Issue };
+
+export const epicKey = (n: number) => `e:${n}`;
+export const childKey = (parent: number, n: number) => `c:${parent}:${n}`;
+export const singleKey = (n: number) => `s:${n}`;
+
+/**
+ * Flatten the (already filtered, epics-first) issue list into list rows: each epic parent is
+ * followed by its children (in epic order) while expanded, then every remaining issue that is
+ * NOT a sub-issue follows as a single. Sub-issues live only inside their epic — `subIssues` is
+ * the server's set (native sub-issues + open markdown epic members), so no child is listed twice.
+ * An expanded epic whose record isn't loaded yet gets one non-selectable loading row.
+ */
+export function buildIssueRows(
+  visible: readonly Issue[],
+  epicParents: ReadonlySet<number>,
+  subIssues: ReadonlySet<number>,
+  expanded: ReadonlySet<number>,
+  childrenOf: (parent: number) => readonly EpicChild[] | undefined,
+): IssueListRow[] {
+  const rows: IssueListRow[] = [];
+  const singles: IssueListRow[] = [];
+  for (const issue of visible) {
+    if (!epicParents.has(issue.number)) {
+      if (!subIssues.has(issue.number))
+        singles.push({ kind: "single", key: singleKey(issue.number), issue });
+      continue;
+    }
+    const open = expanded.has(issue.number);
+    rows.push({ kind: "epic", key: epicKey(issue.number), issue, expanded: open });
+    if (!open) continue;
+    const children = childrenOf(issue.number);
+    if (!children) {
+      rows.push({ kind: "loading", key: `l:${issue.number}`, parent: issue.number });
+      continue;
+    }
+    for (const child of [...children].sort((a, b) => a.order - b.order)) {
+      rows.push({
+        kind: "child",
+        key: childKey(issue.number, child.number),
+        parent: issue.number,
+        child,
+      });
+    }
+  }
+  return [...rows, ...singles];
+}
+
+/** Enter / Space on a focused list option (a click can focus a tabindex=-1 row) selects it —
+ *  the keyboard twin of the row's click; ↑/↓ bubble on to the listbox. */
+export function activate(e: KeyboardEvent, select: () => void): void {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  e.preventDefault();
+  select();
+}
+
+/**
+ * Move the list selection by `delta` rows (↑ = -1, ↓ = +1), skipping loading rows and clamping at
+ * both ends. With no (or a vanished) current selection, ↓ lands on the first row and ↑ on the
+ * last. Returns null only when there is nothing selectable.
+ */
+export function stepSelection(
+  rows: readonly IssueListRow[],
+  current: string | null,
+  delta: number,
+): string | null {
+  const keys = rows.filter((r) => r.kind !== "loading").map((r) => r.key);
+  if (keys.length === 0) return null;
+  const at = current == null ? -1 : keys.indexOf(current);
+  if (at === -1) return delta < 0 ? keys[keys.length - 1] : keys[0];
+  return keys[Math.min(keys.length - 1, Math.max(0, at + delta))];
+}
+
+/**
+ * Resolve a selection key against the live data (not the rendered rows), so a selection
+ * survives its epic collapsing. A child that is itself an epic parent resolves to that epic.
+ * Returns null when the key no longer points at anything (issue closed, record gone).
+ */
+export function resolveSelection(
+  key: string | null,
+  issues: readonly Issue[],
+  epicParents: ReadonlySet<number>,
+  childrenOf: (parent: number) => readonly EpicChild[] | undefined,
+): IssueSelection | null {
+  if (key == null) return null;
+  const [kind, a, b] = key.split(":");
+  const byNumber = (n: number) => issues.find((i) => i.number === n);
+  if (kind === "e" || kind === "s") {
+    const issue = byNumber(Number(a));
+    if (!issue) return null;
+    // Classify by the CURRENT epic set, not the key's prefix: an entry picked while the epic
+    // summaries were still loading was keyed as a single, and must not keep offering a manual
+    // task once it turns out to be an epic parent.
+    return epicParents.has(issue.number) ? { kind: "epic", issue } : { kind: "single", issue };
+  }
+  if (kind === "c") {
+    const parent = Number(a);
+    const child = childrenOf(parent)?.find((c) => c.number === Number(b));
+    if (!child) return null;
+    const asEpic = epicParents.has(child.number) ? byNumber(child.number) : undefined;
+    return asEpic ? { kind: "epic", issue: asEpic } : { kind: "child", parent, child };
+  }
+  return null;
 }

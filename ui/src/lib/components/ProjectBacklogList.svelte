@@ -3,6 +3,7 @@
   import { m } from "$lib/paraglide/messages";
   import ProjectRow from "./ProjectRow.svelte";
   import AddRepoButton from "./AddRepoButton.svelte";
+  import RepoFilterPopover from "./RepoFilterPopover.svelte";
   import { partitionRecents } from "./backlog-view";
 
   let {
@@ -92,40 +93,27 @@
       >
     {/if}
   </div>
-  <div class="filter-chips">
+  <RepoFilterPopover {hasIssues} {hasPRs} {ontoggleissues} {ontoggleprs} />
+  {#if hiddenCount > 0}
+    <!-- Compact Show-hidden toggle: stays visible (not in the filter popover) so
+         parked repos remain discoverable; not counted in the filter badge. -->
     <button
-      class="filter-chip"
-      class:active={hasIssues}
+      class="filter-chip hidden-toggle"
+      class:active={showHidden}
       type="button"
-      aria-pressed={hasIssues}
-      onclick={ontoggleissues}
+      aria-pressed={showHidden}
+      aria-label={m.backlog_filter_hidden({ count: hiddenCount })}
+      title={m.backlog_filter_hidden({ count: hiddenCount })}
+      onclick={ontogglehidden}
     >
-      {m.backlog_filter_has_issues()}
+      <svg viewBox="0 0 24 24" width="1em" height="1em" fill="currentColor" aria-hidden="true">
+        <path
+          d="M12 7c2.76 0 5 2.24 5 5 0 .65-.13 1.26-.36 1.83l2.92 2.92c1.51-1.26 2.7-2.89 3.44-4.75-1.73-4.39-6-7.5-11-7.5-1.4 0-2.74.25-3.98.7l2.16 2.16C9.74 7.13 10.35 7 12 7zM2.71 3.16a.996.996 0 0 0 0 1.41l1.97 1.97A11.86 11.86 0 0 0 1 12.5C2.73 16.89 7 20 12 20c1.52 0 2.97-.3 4.31-.82l2.72 2.72a.996.996 0 1 0 1.41-1.41L4.13 3.16a.996.996 0 0 0-1.42 0zM12 17c-2.76 0-5-2.24-5-5 0-.77.18-1.5.49-2.14l1.57 1.57c-.03.18-.06.37-.06.57a3 3 0 0 0 3 3c.2 0 .38-.03.57-.07l1.57 1.57c-.65.32-1.37.5-2.14.5z"
+        />
+      </svg>
+      <span class="hidden-count" aria-hidden="true">{hiddenCount}</span>
     </button>
-    <button
-      class="filter-chip"
-      class:active={hasPRs}
-      type="button"
-      aria-pressed={hasPRs}
-      onclick={ontoggleprs}
-    >
-      {m.backlog_filter_has_prs()}
-    </button>
-    {#if hiddenCount > 0}
-      <button
-        class="filter-chip"
-        class:active={showHidden}
-        type="button"
-        aria-pressed={showHidden}
-        onclick={ontogglehidden}
-      >
-        {m.backlog_filter_hidden({ count: hiddenCount })}
-      </button>
-    {/if}
-    <div class="add-repo-slot">
-      <AddRepoButton onclone={onaddclone} onfork={onaddfork} onnewproject={onaddnewproject} />
-    </div>
-  </div>
+  {/if}
 </div>
 
 <!-- The parent only renders this list when there are forge repos, so an empty
@@ -192,14 +180,22 @@
   </div>
 {/if}
 
+<!-- "+ Add repo" as a fixed foot: sits after the last row, and sticks to the
+     pane's bottom edge once the list overflows. -->
+<div class="list-footer">
+  <AddRepoButton onclone={onaddclone} onfork={onaddfork} onnewproject={onaddnewproject} />
+</div>
+
 <style>
+  /* z-index 2: each row carries statusTip's position:relative + z-index:1, which
+     would otherwise paint scrolled rows over this sticky header. */
   .filter-bar {
     position: sticky;
     top: 0;
-    z-index: 1;
+    z-index: 2;
     display: flex;
-    flex-direction: column;
-    gap: 4px;
+    align-items: center;
+    gap: 2px;
     padding: 4px 4px 6px;
     margin-bottom: 2px;
     background: var(--color-inset);
@@ -210,6 +206,8 @@
     position: relative;
     display: flex;
     align-items: center;
+    flex: 1;
+    min-width: 0;
   }
 
   .filter-search {
@@ -267,33 +265,30 @@
     color: var(--color-ink);
   }
 
-  .filter-chips {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-  }
-
-  /* Push "+ Add repo" to the trailing edge of the chip row so it reads as a
-     panel-level action distinct from the (leading) filter chips. */
-  .add-repo-slot {
-    margin-left: auto;
-  }
-
+  /* Compact Show-hidden toggle (eye-off + count) — the .filter-chip look. */
   .filter-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    flex-shrink: 0;
     background: transparent;
     border: 1px solid transparent;
     border-radius: 2px;
     color: var(--color-muted);
     font-family: var(--font-mono);
     font-size: var(--fs-meta);
-    letter-spacing: 0.1em;
-    padding: 0 10px;
+    padding: 0 6px;
     min-height: 36px;
     cursor: pointer;
     touch-action: manipulation;
     transition:
       color 0.12s,
       border-color 0.12s;
+  }
+
+  .filter-chip svg {
+    font-size: var(--fs-base);
   }
 
   .filter-chip:hover {
@@ -304,6 +299,35 @@
     color: var(--color-ink-bright);
     border-color: var(--color-line-bright);
     background: var(--color-inset);
+  }
+
+  .filter-chip:focus-visible {
+    outline: 2px solid var(--color-line-bright);
+    outline-offset: 2px;
+  }
+
+  .hidden-count {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (pointer: coarse) {
+    .filter-chip {
+      min-width: 44px;
+      min-height: 44px;
+    }
+  }
+
+  /* Sticky foot: after the last row, pinned to the pane's bottom once the list
+     overflows. Above the rows' statusTip z-index:1, like the filter bar. */
+  .list-footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    display: flex;
+    padding: 6px 4px;
+    margin-top: 2px;
+    background: var(--color-inset);
+    border-top: 1px solid var(--color-line);
   }
 
   .project-list {

@@ -1,11 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import type { Issue, EpicSummary, Epic, Steer } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import { listIssues, getEpics, getEpic } from "$lib/api";
-import { expectMinPx } from "$lib/test-support/geometry";
 import { steers } from "$lib/steers.svelte";
 import { issuesFilter } from "$lib/issues-filter.svelte";
 import { backlogRefresh } from "$lib/backlog-refresh.svelte";
@@ -55,6 +54,18 @@ afterEach(async () => {
 });
 
 const noop = () => {};
+
+// List option by row key (issues-panel.ts: e:<n> epic, s:<n> single, c:<parent>:<n> child).
+const option = (key: string) => document.getElementById(`issue-opt-${key}`);
+// Select a list entry (a click on its option row) and wait for the reading detail.
+async function selectRow(key: string) {
+  await expect.poll(() => option(key)).not.toBeNull();
+  option(key)!.click();
+  await expect.poll(() => option(key)?.getAttribute("aria-selected")).toBe("true");
+}
+// An epic header's "merged/total" count.
+const userKey = (key: string) => userEvent.keyboard(key.length === 1 ? key : `{${key}}`);
+const epicCount = (n: number) => option(`e:${n}`)?.querySelector(".count")?.textContent?.trim();
 
 describe("IssuesPanel repo slug link", () => {
   it("renders an <a> linking to webUrl when provided", async () => {
@@ -291,101 +302,456 @@ describe("IssuesPanel empty vs fetch-failed", () => {
   });
 });
 
-describe("IssuesPanel compact issue rows", () => {
-  it("uses the shared row hierarchy and keeps Task beside bounded forge labels", async () => {
-    mockListIssues.mockResolvedValue({
-      slug: "owner/repo",
-      webUrl: null,
-      viewer: null,
-      issues: [
-        {
-          number: 42,
-          title: "Compact issue row",
-          body: "",
-          url: "https://example.com/issues/42",
-          labels: ["enhancement", "feedback", "operator UX"],
-          labelColors: {
-            enhancement: "#a2eeef",
-            feedback: "#d4c5f9",
-            "operator UX": "#7057ff",
-          },
-          createdAt: 0,
-          assignees: [],
-          author: "octocat",
-        },
-      ],
-    });
-    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+describe("IssuesPanel list + reading detail (#2617)", () => {
+  function plain(number: number, over: Partial<Issue> = {}): Issue {
+    return {
+      number,
+      title: `Issue ${number}`,
+      body: "",
+      url: `https://example.com/issues/${number}`,
+      labels: [],
+      createdAt: 0,
+      assignees: [],
+      ...over,
+    };
+  }
+  function seed(issues: Issue[], epics: EpicSummary[] = [], subIssues: number[] = []) {
+    mockListIssues.mockResolvedValue({ slug: "owner/repo", webUrl: null, viewer: null, issues });
+    mockGetEpics.mockResolvedValue({ epics, subIssues });
+  }
+  function summary(parentIssueNumber: number, source: EpicSummary["source"] = "native") {
+    return {
+      parentIssueNumber,
+      parentTitle: `Epic ${parentIssueNumber}`,
+      merged: 0,
+      total: 1,
+      status: "idle",
+      source,
+    } satisfies EpicSummary;
+  }
+  function childOf(number: number, title = `Child ${number}`): Epic["children"][number] {
+    return {
+      number,
+      title,
+      url: `https://example.com/issues/${number}`,
+      order: 0,
+      body: "Child **body**",
+      blockedBy: [],
+      state: "ready",
+      sessionId: null,
+      prNumber: null,
+      issueClosed: false,
+      claimed: false,
+    };
+  }
 
+  it("lists singles on two lines and shows the repo overview until one is picked", async () => {
+    seed([
+      plain(42, {
+        title: "Compact issue row",
+        labels: ["enhancement", "feedback", "operator UX"],
+        author: "octocat",
+      }),
+    ]);
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
-    await expect.poll(() => document.querySelector(".issue-main")).toBeTruthy();
-    const row = document.querySelector<HTMLElement>(".issue-main")!;
-    expect(row.classList).toContain("issue-list-row");
-    expect(row.querySelector(".issue-list-number")?.textContent).toBe("#42");
-    expect(row.querySelector(".issue-list-title")?.textContent).toBe("Compact issue row");
-    expect(row.querySelector(".issue-list-author")?.textContent).toContain("octocat");
-    expect(row.querySelectorAll(".issue-label-chip:not(.issue-label-more)")).toHaveLength(2);
-    expect(row.querySelector(".issue-label-more")?.textContent).toContain("+1");
-    expect(row.querySelector(".issue-list-actions .task-btn")).not.toBeNull();
+    await expect.poll(() => option("s:42")).not.toBeNull();
+    const row = option("s:42")!;
+    expect(row.getAttribute("role")).toBe("option");
+    expect(row.querySelector(".issue-title")?.textContent).toBe("Compact issue row");
+    expect(row.querySelector(".meta")?.textContent).toContain("#42 · enhancement · ");
+    const overview = document.querySelector<HTMLElement>(".detail-col .overview")!;
+    expect(overview.querySelector("h2")?.textContent).toBe(m.repooverview_title({ repo: "repo" }));
+    expect(overview.querySelector("[data-repo-run]")?.textContent).toContain(m.repooverview_hint());
+    overview.querySelector<HTMLButtonElement>(".single")!.click();
+    await expect.poll(() => option("s:42")?.getAttribute("aria-selected")).toBe("true");
   });
 
-  it("keeps every narrow-row action scroll-reachable and issue links touch-sized", async () => {
-    await page.viewport(400, 800);
-    mockListIssues.mockResolvedValue({
-      slug: "owner/repo",
-      webUrl: null,
-      viewer: null,
-      issues: [
-        {
-          number: 42,
-          title: "Issue with several quick actions",
-          body: "",
-          url: "https://example.com/issues/42",
-          labels: [],
-          createdAt: 0,
-          assignees: [],
-        },
-      ],
+  it("a click selects the entry and the detail renders its Markdown description", async () => {
+    seed([
+      plain(42, {
+        title: "Readable issue",
+        body: "## Warum\n\nDas ist **wichtig**.",
+        labels: ["enhancement", "feedback", "operator UX"],
+        author: "octocat",
+      }),
+    ]);
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+    await selectRow("s:42");
+
+    const detail = () => document.querySelector<HTMLElement>(".issue-detail");
+    await expect.poll(() => detail()?.querySelector(".md-body h2")?.textContent).toBe("Warum");
+    expect(detail()!.querySelector(".md-body strong")?.textContent).toBe("wichtig");
+    expect(detail()!.textContent).not.toContain("##");
+    expect(detail()!.textContent).not.toContain("**");
+    expect(detail()!.querySelector("h2.title")?.textContent).toBe("Readable issue");
+    expect(detail()!.querySelector(".meta")?.textContent).toContain("octocat");
+    expect(detail()!.querySelectorAll(".issue-label-chip:not(.issue-label-more)")).toHaveLength(2);
+    expect(detail()!.querySelector(".gh-link")?.getAttribute("href")).toBe(
+      "https://example.com/issues/42",
+    );
+    expect(detail()!.textContent).toContain(m.issuetask_state_not_started());
+    expect(detail()!.textContent).toContain(m.issuetask_no_epic_hint());
+  });
+
+  it("↑/↓ move the selection, → expands an epic and A starts a task", async () => {
+    const onnewtask = vi.fn();
+    seed([plain(1, { title: "Epic parent" }), plain(2), plain(3)], [summary(1)]);
+    mockEpic.mockResolvedValue({
+      repoPath: "/repo",
+      parentIssueNumber: 1,
+      parentTitle: "Epic 1",
+      source: "native",
+      children: [childOf(9)],
+      warnings: [],
+      run: { repoPath: "/repo", parentIssueNumber: 1, mode: "auto", status: "idle" },
     });
-    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask });
+    // The first epic auto-expands; collapse it so → has something to do.
+    await expect.poll(() => option("c:1:9")).not.toBeNull();
+    document.querySelector<HTMLButtonElement>(".epic-toggle")!.click();
+    await expect.poll(() => option("c:1:9")).toBeNull();
 
+    document.querySelector<HTMLElement>(".issue-options")!.focus();
+    await userKey("ArrowDown");
+    expect(option("e:1")?.getAttribute("aria-selected")).toBe("true");
+    await userKey("ArrowRight");
+    await expect.poll(() => option("c:1:9")).not.toBeNull();
+    await userKey("ArrowDown");
+    expect(option("c:1:9")?.getAttribute("aria-selected")).toBe("true");
+    await userKey("ArrowDown");
+    await userKey("ArrowDown");
+    expect(option("s:3")?.getAttribute("aria-selected")).toBe("true");
+    await userKey("ArrowUp");
+    expect(option("s:2")?.getAttribute("aria-selected")).toBe("true");
+    await userKey("a");
+    expect(onnewtask).toHaveBeenCalledWith(expect.objectContaining({ number: 2 }), {});
+    expect(document.querySelector(".shortcuts")?.textContent).toBe(m.issuespanel_shortcuts());
+  });
+
+  it("the task box starts a task with the changed run settings and keeps quick steers", async () => {
+    const onnewtask = vi.fn();
+    const onquick = vi.fn();
     const previousSteers = steers.list;
-    steers.list = Array.from({ length: 8 }, (_, index) => ({
-      id: `quick-${index}`,
-      label: `Long action ${index + 1}`,
-      text: `Run action ${index + 1}`,
-      inSteerBar: false,
-      onIssues: true,
-    }));
-
+    steers.list = [{ id: "qa", label: "QA", text: "Run QA", inSteerBar: false, onIssues: true }];
     try {
-      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, onquick: noop });
-      await expect.poll(() => document.querySelectorAll(".quick-btn").length).toBe(8);
+      seed([plain(42)]);
+      render(IssuesPanel, { repoPath: "/repo", onnewtask, onquick });
+      await selectRow("s:42");
 
-      const actions = document.querySelector<HTMLElement>(".issue-actions")!;
-      const buttons = actions.querySelectorAll<HTMLElement>("button");
-      const actionsRect = actions.getBoundingClientRect();
-      expect(actions.scrollWidth).toBeGreaterThan(actions.clientWidth);
-      expect(buttons[0]!.getBoundingClientRect().left).toBeGreaterThanOrEqual(actionsRect.left);
+      const box = () => document.querySelector<HTMLElement>(".task-box")!;
+      await expect.poll(() => document.querySelector(".task-box")).not.toBeNull();
+      box().querySelector<HTMLButtonElement>(".task-btn")!.click();
+      expect(onnewtask).toHaveBeenLastCalledWith(expect.objectContaining({ number: 42 }), {});
 
-      actions.scrollLeft = actions.scrollWidth;
-      await expect.poll(() => actions.scrollLeft).toBeGreaterThan(0);
-      expect(buttons[buttons.length - 1]!.getBoundingClientRect().right).toBeLessThanOrEqual(
-        actionsRect.right + 1,
+      const [, modelSelect] = box().querySelectorAll<HTMLSelectElement>("select");
+      modelSelect.value = "sonnet";
+      modelSelect.dispatchEvent(new Event("change", { bubbles: true }));
+      await expect.poll(() => modelSelect.value).toBe("sonnet");
+      box().querySelector<HTMLButtonElement>(".task-btn")!.click();
+      expect(onnewtask).toHaveBeenLastCalledWith(
+        expect.objectContaining({ number: 42 }),
+        expect.objectContaining({ agentProvider: "claude", model: "sonnet" }),
       );
 
-      const hitSize = parseFloat(
-        getComputedStyle(document.documentElement).getPropertyValue("--mobile-actionbar-hit"),
+      box().querySelector<HTMLButtonElement>(".quick-btn")!.click();
+      expect(onquick).toHaveBeenCalledWith(
+        expect.objectContaining({ number: 42 }),
+        expect.objectContaining({ id: "qa" }),
       );
-      for (const selector of [".issue-num", ".issue-title"]) {
-        const rect = document.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
-        expectMinPx(rect.height, hitSize, `${selector} hit-target height`);
-        expectMinPx(rect.width, hitSize, `${selector} hit-target width`);
-      }
     } finally {
       steers.list = previousSteers;
     }
+  });
+
+  it("lists a sub-issue only under its epic, never among the singles", async () => {
+    seed(
+      [plain(1, { title: "Epic parent" }), plain(9, { title: "Sub issue" }), plain(3)],
+      [summary(1)],
+      [9],
+    );
+    mockEpic.mockResolvedValue({
+      repoPath: "/repo",
+      parentIssueNumber: 1,
+      parentTitle: "Epic 1",
+      source: "native",
+      children: [childOf(9, "Sub issue")],
+      warnings: [],
+      run: { repoPath: "/repo", parentIssueNumber: 1, mode: "auto", status: "idle" },
+    });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => option("c:1:9")).not.toBeNull();
+    expect(option("s:9")).toBeNull();
+    expect(document.querySelectorAll(".single-row")).toHaveLength(1);
+    expect(document.body.textContent?.match(/Sub issue/g)).toHaveLength(1);
+    expect(document.querySelector(".section-heading")?.textContent).toBe(
+      m.issuespanel_singles_heading(),
+    );
+
+    // A child entry reads its own description (rendered).
+    await selectRow("c:1:9");
+    await expect
+      .poll(() => document.querySelector(".issue-detail .md-body strong")?.textContent)
+      .toBe("body");
+    expect(document.querySelector(".issue-detail .epic-tag")?.textContent).toBe(
+      m.issuedetail_back_to_epic({ parent: 1 }),
+    );
+    expect(document.querySelector(".task-box")).toBeNull();
+  });
+
+  it("an epic shows its controls in the run area and moves Import + Diagnose into ⋯", async () => {
+    seed([plain(5, { title: "Markdown epic", body: "- [ ] #6" })], [summary(5, "markdown")]);
+    mockEpic.mockResolvedValue({
+      repoPath: "/repo",
+      parentIssueNumber: 5,
+      parentTitle: "Markdown epic",
+      source: "markdown",
+      children: [childOf(6)],
+      warnings: [],
+      run: { repoPath: "/repo", parentIssueNumber: 5, mode: "auto", status: "idle" },
+    });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+    await selectRow("e:5");
+
+    const detail = () => document.querySelector<HTMLElement>(".issue-detail")!;
+    await expect.poll(() => document.querySelector(".issue-detail .epic")).not.toBeNull();
+    // The run area (#2620) sits between the head and the children and holds every control.
+    const region = detail().querySelector<HTMLElement>("[data-epic-run]")!;
+    const text = region.textContent ?? "";
+    for (const label of [m.epic_start(), m.epic_mode_auto(), m.epic_provider_label()]) {
+      expect(text).toContain(label);
+    }
+    expect(region.compareDocumentPosition(detail().querySelector(".epic")!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(document.querySelector(".task-box")).toBeNull();
+    // Import + Diagnose live in the ⋯ menu, not in EpicPanel's head.
+    const epicHead = detail().querySelector(".epic-head")!;
+    expect(epicHead.textContent).not.toContain(m.epic_import());
+    expect(epicHead.textContent).not.toContain(m.epic_diag_open());
+    detail().querySelector<HTMLButtonElement>(".more-btn")!.click();
+    await expect.poll(() => document.querySelector(".detail-menu")).not.toBeNull();
+    const items = [...document.querySelectorAll(".detail-menu [role=menuitem]")].map((el) =>
+      el.textContent?.trim(),
+    );
+    expect(items).toEqual([m.epic_import(), m.epic_diag_open()]);
+  });
+
+  // The issue's acceptance scenario (#2620): maxAuto = 1, epic B (#20) leads and waits for the
+  // slot, epic A's (#10) child #11 holds it.
+  it("roles: 'leads' on B, 'winding down' on A, the slot line, and the holding child", async () => {
+    seed(
+      [plain(10, { title: "Epic A" }), plain(20, { title: "Epic B" })],
+      [summary(10), summary(20)],
+    );
+    mockEpic.mockImplementation((repoPath: string, parentIssueNumber: number) =>
+      Promise.resolve({
+        repoPath,
+        parentIssueNumber,
+        parentTitle: `Epic ${parentIssueNumber}`,
+        source: "native",
+        children:
+          parentIssueNumber === 10
+            ? [{ ...childOf(11, "Child of A"), state: "running" as const }]
+            : [childOf(21, "First of B")],
+        warnings: [],
+        run: {
+          repoPath,
+          parentIssueNumber,
+          mode: "auto",
+          status: parentIssueNumber === 20 ? "running" : "idle",
+        },
+      }),
+    );
+    const onopenautomation = vi.fn();
+    render(IssuesPanel, {
+      repoPath: "/repo",
+      onnewtask: noop,
+      onopenautomation,
+      drain: {
+        repoPath: "/repo",
+        enabled: true,
+        paused: false,
+        reason: "cap",
+        detail: null,
+        queued: 1,
+        inFlight: 1,
+        max: 1,
+        epicParent: 20,
+        runSummary: {
+          leadingEpic: 20,
+          windingDown: [{ epic: 10, inFlight: [11] }],
+          slots: {
+            used: 1,
+            max: 1,
+            holders: [{ sessionId: "s11", desig: "TASK-11", issueNumber: 11, epicParent: 10 }],
+          },
+          next: [21],
+          after: [],
+        },
+      },
+    });
+
+    await expect.poll(() => option("e:20")?.textContent).toContain(m.epic_role_leading());
+    expect(option("e:10")?.textContent).toContain(m.epic_role_winding());
+    await expect.element(page.getByText(m.issuespanel_epics_one_leads())).toBeInTheDocument();
+    await page.getByRole("button", { name: m.issuespanel_slots_change(), exact: true }).click();
+    expect(onopenautomation).toHaveBeenCalled();
+    // Nothing selected yet: the repo overview names the leading epic (#2622).
+    await expect
+      .poll(() => document.querySelector("[data-repo-run] .run-state")?.textContent)
+      .toContain(m.repooverview_leading({ epic: 20, state: m.epic_run_state_waiting_slot() }));
+
+    // A (#10) is expanded by default (topmost epic): its running child holds the slot.
+    await expect
+      .poll(() => option("c:10:11")?.textContent)
+      .toContain(m.epic_slot_held({ index: 1, max: 1 }));
+
+    await selectRow("e:20");
+    await expect
+      .poll(() => document.querySelector("[data-epic-run]")?.textContent)
+      .toContain(m.epic_run_state_waiting_slot());
+    const region = document.querySelector("[data-epic-run]")!.textContent ?? "";
+    expect(region).toContain("Child of A");
+    expect(region).toContain("#21 First of B");
+  });
+
+  it("roles: an epic in the queue (#2624) reads 'queued' with its place", async () => {
+    seed(
+      [
+        plain(20, { title: "Epic B" }),
+        plain(30, { title: "Epic C" }),
+        plain(40, { title: "Epic D" }),
+      ],
+      [summary(20), summary(30), summary(40)],
+    );
+    mockEpic.mockImplementation((repoPath: string, parentIssueNumber: number) =>
+      Promise.resolve({
+        repoPath,
+        parentIssueNumber,
+        parentTitle: `Epic ${parentIssueNumber}`,
+        source: "native",
+        children: [childOf(parentIssueNumber + 1)],
+        warnings: [],
+        run: { repoPath, parentIssueNumber, mode: "auto", status: "idle" },
+      }),
+    );
+    render(IssuesPanel, {
+      repoPath: "/repo",
+      onnewtask: noop,
+      drain: {
+        repoPath: "/repo",
+        enabled: true,
+        paused: false,
+        reason: null,
+        detail: null,
+        queued: 0,
+        inFlight: 0,
+        max: 1,
+        epicParent: 20,
+        runSummary: {
+          leadingEpic: 20,
+          windingDown: [],
+          slots: { used: 0, max: 1, holders: [] },
+          next: [],
+          after: [],
+          queued: [40, 30],
+        },
+      },
+    });
+
+    await expect.poll(() => option("e:20")?.textContent).toContain(m.epic_role_leading());
+    expect(option("e:40")?.textContent).toContain(m.epic_role_queued({ position: 1 }));
+    expect(option("e:30")?.textContent).toContain(m.epic_role_queued({ position: 2 }));
+  });
+
+  it("a click on the flow graph (#2621) opens the epic in the list and selects the child", async () => {
+    seed(
+      [plain(10, { title: "Epic A" }), plain(20, { title: "Epic B" })],
+      [summary(10), summary(20)],
+    );
+    mockEpic.mockImplementation((repoPath: string, parentIssueNumber: number) =>
+      Promise.resolve({
+        repoPath,
+        parentIssueNumber,
+        parentTitle: `Epic ${parentIssueNumber}`,
+        source: "native",
+        children:
+          parentIssueNumber === 10
+            ? [childOf(11)]
+            : [childOf(21, "First of B"), { ...childOf(22, "Second of B"), blockedBy: [21] }],
+        warnings: [],
+        run: { repoPath, parentIssueNumber, mode: "auto", status: "idle" },
+      }),
+    );
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    // A (#10) is the default-expanded epic; B's children aren't listed until B opens.
+    await expect.poll(() => option("c:10:11")).not.toBeNull();
+    await selectRow("e:20");
+    expect(option("c:20:22")).toBeNull();
+
+    const flow = page.getByRole("region", { name: m.epicflow_title() });
+    await flow.getByRole("button", { name: /#22/ }).click();
+
+    await expect.poll(() => option("c:20:22")?.getAttribute("aria-selected")).toBe("true");
+    await expect
+      .poll(() => document.querySelector(".issue-detail .epic-tag")?.textContent)
+      .toBe(m.issuedetail_back_to_epic({ parent: 20 }));
+    expect(document.querySelector(".issue-detail")?.textContent).toContain("Second of B");
+  });
+
+  it("a not-started child shows its standing in the epic, jumps back and starts anyway (#2622)", async () => {
+    const onnewtask = vi.fn();
+    seed([plain(20, { title: "Epic B" })], [summary(20)]);
+    mockEpic.mockImplementation((repoPath: string, parentIssueNumber: number) =>
+      Promise.resolve({
+        repoPath,
+        parentIssueNumber,
+        parentTitle: `Epic ${parentIssueNumber}`,
+        source: "native",
+        children: [childOf(21, "First of B"), { ...childOf(22, "Second of B"), blockedBy: [21] }],
+        warnings: [],
+        run: { repoPath, parentIssueNumber, mode: "auto", status: "idle" },
+      }),
+    );
+    render(IssuesPanel, { repoPath: "/repo", onnewtask });
+
+    await selectRow("c:20:22");
+    const region = () => document.querySelector<HTMLElement>(".issue-detail [data-child-run]");
+    await expect
+      .poll(() => region()?.textContent)
+      .toContain(m.childrun_waiting_on({ deps: "#21" }));
+    expect(region()!.textContent).toContain(m.childrun_step_needs());
+    await expect
+      .poll(() => document.querySelector(".issue-detail .md-body strong")?.textContent)
+      .toBe("body");
+
+    await page.getByRole("button", { name: m.childrun_start_anyway() }).click();
+    expect(onnewtask).toHaveBeenCalledWith(
+      expect.objectContaining({ number: 22, title: "Second of B", blockedBy: [21] }),
+    );
+
+    await page
+      .getByRole("button", { name: m.issuedetail_back_to_epic_aria({ parent: 20 }) })
+      .click();
+    await expect.poll(() => option("e:20")?.getAttribute("aria-selected")).toBe("true");
+    await expect.poll(() => document.querySelector("[data-epic-run]")).not.toBeNull();
+  });
+
+  it("mobile: the detail opens as a second level and Back returns to the list", async () => {
+    seed([plain(42, { body: "**hi**" })]);
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, mobile: true });
+
+    await expect.poll(() => option("s:42")).not.toBeNull();
+    expect(document.querySelector(".detail-col")).toBeNull();
+    await selectRow("s:42");
+    await expect.poll(() => document.querySelector(".detail-col.overlay")).not.toBeNull();
+    await expect.element(page.getByText("hi", { exact: true })).toBeInTheDocument();
+    document.querySelector<HTMLButtonElement>(".back-btn")!.click();
+    await expect.poll(() => document.querySelector(".detail-col")).toBeNull();
+    expect(option("s:42")?.getAttribute("aria-selected")).toBe("false");
   });
 });
 
@@ -456,92 +822,48 @@ describe("IssuesPanel epic badge", () => {
     };
   }
 
-  it("native source renders SUB-ISSUES merged/total badge", async () => {
+  it("renders the epic header's merged/total with one progress segment per child", async () => {
     seed([issue(10, "Parent issue")], [epic(10, 1, 3, "native")]);
     mockEpic.mockResolvedValue(liveEpic(10, ["merged", "running", "running"], "native"));
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
-    // badge text is the accessible content — assert it directly
-    const expectedText = m.subissues_badge({ merged: 1, total: 3 });
-    await expect.element(page.getByText(expectedText)).toBeInTheDocument();
-    // confirm it's the .epic-badge button
-    const badge = document.querySelector(".epic-badge");
-    expect(badge).not.toBeNull();
-    expect(badge!.textContent?.trim()).toBe(expectedText);
+    await expect.poll(() => epicCount(10)).toBe("1/3");
+    const segs = option("e:10")!.querySelectorAll(".seg");
+    expect([...segs].map((el) => el.className.match(/seg-(\w+)/)?.[1])).toEqual([
+      "done",
+      "running",
+      "running",
+    ]);
   });
 
-  it("markdown source renders EPIC merged/total badge", async () => {
-    seed([issue(20, "Epic parent")], [epic(20, 2, 4, "markdown")]);
-    mockEpic.mockResolvedValue(
-      liveEpic(20, ["merged", "merged", "running", "running"], "markdown"),
+  it("falls back to the summary count for an epic whose record isn't loaded", async () => {
+    seed(
+      [issue(20, "First epic"), issue(21, "Second epic")],
+      [epic(20, 0, 1, "markdown"), epic(21, 2, 4, "markdown")],
     );
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
-    const expectedText = m.epic_badge({ merged: 2, total: 4 });
-    await expect.element(page.getByText(expectedText)).toBeInTheDocument();
-    const badge = document.querySelector(".epic-badge");
-    expect(badge).not.toBeNull();
-    expect(badge!.textContent?.trim()).toBe(expectedText);
+    // Only the first epic auto-expands (and fetches); the second shows its summary.
+    await expect.poll(() => epicCount(21)).toBe("2/4");
+    expect(option("e:21")!.querySelectorAll(".seg-done")).toHaveLength(2);
   });
 
   it("prefers the live epic's authoritative count over a stale markdown summary", async () => {
     // The list summary is markdown-first and goes stale after an epic is restructured
-    // (e.g. badge "0/6"); the live/native record is authoritative ("3/6"). When a live
-    // record exists, the collapsed badge must show ITS count, not the stale summary's.
+    // (e.g. "0/6"); the live/native record is authoritative ("3/6").
     seed([issue(60, "Epic parent")], [epic(60, 0, 6, "markdown")]); // stale summary → 0/6
-    const live: Epic = {
+    render(IssuesPanel, {
       repoPath: "/repo",
-      parentIssueNumber: 60,
-      parentTitle: "Epic 60",
-      source: "native",
-      children: (["merged", "merged", "merged", "running", "running", "running"] as const).map(
-        (state, i) => ({
-          number: 200 + i,
-          title: `Child ${200 + i}`,
-          url: `https://example.com/i/${200 + i}`,
-          order: i,
-          body: "",
-          blockedBy: [],
-          state,
-          sessionId: null,
-          prNumber: null,
-          issueClosed: state === "merged",
-          claimed: false,
-        }),
-      ),
-      warnings: [],
-      run: { repoPath: "/repo", parentIssueNumber: 60, mode: "auto", status: "idle" },
-    };
-    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, epics: { "/repo#60": live } });
+      onnewtask: noop,
+      epics: {
+        "/repo#60": liveEpic(60, ["merged", "merged", "merged", "running", "running", "running"]),
+      },
+    });
 
-    // The badge shows the live 3/6, never the stale summary 0/6.
-    await expect.element(page.getByText(m.epic_badge({ merged: 3, total: 6 }))).toBeInTheDocument();
-    expect(document.body.textContent).not.toContain(m.epic_badge({ merged: 0, total: 6 }));
+    await expect.poll(() => epicCount(60)).toBe("3/6");
   });
 
-  it("disables the +Task button on an epic-parent row, enables it on a normal one", async () => {
-    seed([issue(30, "Epic parent"), issue(31, "Plain issue")], [epic(30, 1, 2, "markdown")]);
-    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
-
-    // Wait until both rows have rendered their +Task buttons.
-    await expect.poll(() => document.querySelectorAll(".task-btn").length).toBe(2);
-
-    const rows = document.querySelectorAll(".issue-row");
-    const taskBtn = (row: Element) => row.querySelector(".task-btn") as HTMLButtonElement;
-
-    // Row order mirrors the seeded issue order: 30 (epic parent) then 31 (plain).
-    const epicTask = taskBtn(rows[0]);
-    const plainTask = taskBtn(rows[1]);
-
-    expect(epicTask.disabled).toBe(true);
-    expect(epicTask.getAttribute("aria-label")).toBe(m.issuespanel_task_button_epic_disabled());
-    expect(epicTask.getAttribute("title")).toBe(m.issuespanel_task_button_epic_disabled());
-
-    expect(plainTask.disabled).toBe(false);
-    expect(plainTask.getAttribute("aria-label")).toBe(m.issuespanel_task_button());
-  });
-
-  it("disables quick-launch steers on an epic-parent row, enables them on a normal one", async () => {
+  it("offers the task box only for a single issue, never for an epic", async () => {
     const steer: Steer = {
       id: "qa",
       label: "QA",
@@ -552,29 +874,21 @@ describe("IssuesPanel epic badge", () => {
     const prev = steers.list;
     steers.list = [steer];
     try {
-      seed([issue(40, "Epic parent"), issue(41, "Plain issue")], [epic(40, 1, 2, "markdown")]);
-      // onquick must be set for .quick-btn to render at all.
+      seed([issue(30, "Epic parent"), issue(31, "Plain issue")], [epic(30, 1, 2, "markdown")]);
       render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, onquick: noop });
 
-      // One quick-btn per onIssues steer per row → 2 rows × 1 steer = 2 buttons.
-      await expect.poll(() => document.querySelectorAll(".quick-btn").length).toBe(2);
+      await selectRow("e:30");
+      await expect.poll(() => document.querySelector(".issue-detail")).not.toBeNull();
+      expect(document.querySelector(".task-box")).toBeNull();
+      expect(document.querySelector(".quick-btn")).toBeNull();
 
-      const rows = document.querySelectorAll(".issue-row");
-      const quickBtn = (row: Element) => row.querySelector(".quick-btn") as HTMLButtonElement;
-
-      // Row order mirrors the seeded issue order: 40 (epic parent) then 41 (plain).
-      const epicQuick = quickBtn(rows[0]);
-      const plainQuick = quickBtn(rows[1]);
-
-      expect(epicQuick.disabled).toBe(true);
-      expect(epicQuick.getAttribute("aria-label")).toBe(m.issuespanel_task_button_epic_disabled());
-      expect(epicQuick.getAttribute("title")).toBe(m.issuespanel_task_button_epic_disabled());
-
-      expect(plainQuick.disabled).toBe(false);
-      expect(plainQuick.getAttribute("aria-label")).toBe(
+      await selectRow("s:31");
+      await expect.poll(() => document.querySelector(".task-box")).not.toBeNull();
+      const quick = document.querySelector<HTMLButtonElement>(".quick-btn")!;
+      expect(quick.getAttribute("aria-label")).toBe(
         m.issuespanel_action_aria({ label: steer.label }),
       );
-      expect(plainQuick.getAttribute("title")).toBe(steer.text);
+      expect(quick.getAttribute("title")).toBe(steer.text);
     } finally {
       steers.list = prev;
     }
@@ -619,6 +933,7 @@ describe("IssuesPanel blocked badge", () => {
   it("renders a blocked-on badge when the issue has open blockers", async () => {
     seed([issue(70, "Blocked issue", [1642])]);
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+    await selectRow("s:70");
 
     const expectedText = m.issuerow_blocked_on({ deps: "#1642" });
     await expect.element(page.getByText(expectedText)).toBeInTheDocument();
@@ -630,16 +945,18 @@ describe("IssuesPanel blocked badge", () => {
   it("renders no blocked chip when the issue has no blockers", async () => {
     seed([issue(71, "Unblocked issue")]);
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+    await selectRow("s:71");
 
-    await expect.poll(() => document.querySelector(".issue-title")).toBeTruthy();
+    await expect.poll(() => document.querySelector(".issue-detail")).toBeTruthy();
     expect(document.querySelector(".blocked-chip")).toBeNull();
   });
 
   it("does not render the standalone blocked chip on an epic-parent row", async () => {
     seed([issue(72, "Epic parent", [1642])], [epic(72, 1, 3, "markdown")]);
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+    await selectRow("e:72");
 
-    await expect.poll(() => document.querySelector(".epic-badge")).toBeTruthy();
+    await expect.poll(() => document.querySelector(".issue-detail")).toBeTruthy();
     expect(document.querySelector(".blocked-chip")).toBeNull();
   });
 
@@ -662,6 +979,7 @@ describe("IssuesPanel blocked badge", () => {
       ],
     );
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+    await selectRow("e:80");
 
     await expect.poll(() => document.querySelector(".others-pill")).toBeTruthy();
     expect(document.querySelector(".others-pill")!.textContent).toContain(
@@ -688,6 +1006,7 @@ describe("IssuesPanel blocked badge", () => {
       ],
     );
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+    await selectRow("e:82");
 
     await expect.poll(() => document.querySelector(".others-pill")).toBeTruthy();
     expect(document.querySelector(".others-pill")!.textContent).toContain(
@@ -698,8 +1017,9 @@ describe("IssuesPanel blocked badge", () => {
   it("renders no pill when the epic isn't flagged for others", async () => {
     seed([issue(81, "My own epic")], [epic(81, 0, 3, "markdown")]);
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+    await selectRow("e:81");
 
-    await expect.poll(() => document.querySelector(".epic-badge")).toBeTruthy();
+    await expect.poll(() => document.querySelector(".issue-detail")).toBeTruthy();
     expect(document.querySelector(".others-pill")).toBeNull();
   });
 });
@@ -753,9 +1073,9 @@ describe("IssuesPanel expandEpic", () => {
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, expandEpic: 327 });
 
     // Wait for the epic badge to render, then for it to become expanded.
-    await expect.poll(() => document.querySelector(".epic-badge")).toBeTruthy();
+    await expect.poll(() => document.querySelector(".epic-toggle")).toBeTruthy();
     await expect
-      .poll(() => document.querySelector(".epic-badge")?.getAttribute("aria-expanded"))
+      .poll(() => document.querySelector(".epic-toggle")?.getAttribute("aria-expanded"))
       .toBe("true");
 
     // The one-shot getEpic fetch fired for the target.
@@ -766,7 +1086,7 @@ describe("IssuesPanel expandEpic", () => {
   // only reads as one bounded unit while `epic-open` is on it. This asserts the hook
   // exists and tracks the toggle — it does NOT prove the visual result, which rests
   // on the design tokens and review.
-  it("marks the wrapper epic-open only while the epic is expanded", async () => {
+  it("marks the epic row expanded only while the epic is expanded", async () => {
     mockIssues.mockResolvedValue({
       slug: "acme/repo",
       webUrl: null,
@@ -778,17 +1098,17 @@ describe("IssuesPanel expandEpic", () => {
 
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, expandEpic: 327 });
 
-    const row = () => document.querySelector("#epic-issue-row-327");
+    const row = () => option("e:327");
     await expect.poll(() => row()).toBeTruthy();
 
-    // Expanded (auto-expand targeted it): the wrapper is the group container.
-    await expect.poll(() => row()?.classList.contains("epic-open")).toBe(true);
+    // Expanded (auto-expand targeted it) — and the jump selected the epic, too.
+    await expect.poll(() => row()?.classList.contains("expanded")).toBe(true);
+    expect(row()?.getAttribute("aria-selected")).toBe("true");
 
-    // Collapsed: the container treatment is gone, so the row renders as before.
-    (document.querySelector(".epic-badge") as HTMLButtonElement).click();
-    await expect.poll(() => row()?.classList.contains("epic-open")).toBe(false);
-    // ...while it stays an epic row — only the OPEN state gained the container.
-    expect(row()?.classList.contains("is-epic")).toBe(true);
+    // Collapsed via the chevron: the row stays an (unexpanded) epic row.
+    (document.querySelector(".epic-toggle") as HTMLButtonElement).click();
+    await expect.poll(() => row()?.classList.contains("expanded")).toBe(false);
+    expect(row()?.classList.contains("epic-row")).toBe(true);
   });
 
   it("lets the user collapse the targeted epic — it does NOT spring back open", async () => {
@@ -804,21 +1124,21 @@ describe("IssuesPanel expandEpic", () => {
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, expandEpic: 327 });
 
     // Wait for the targeted auto-expand to land.
-    await expect.poll(() => document.querySelector(".epic-badge")).toBeTruthy();
+    await expect.poll(() => document.querySelector(".epic-toggle")).toBeTruthy();
     await expect
-      .poll(() => document.querySelector(".epic-badge")?.getAttribute("aria-expanded"))
+      .poll(() => document.querySelector(".epic-toggle")?.getAttribute("aria-expanded"))
       .toBe("true");
 
     // User clicks the badge to collapse it.
-    (document.querySelector(".epic-badge") as HTMLButtonElement).click();
+    (document.querySelector(".epic-toggle") as HTMLButtonElement).click();
 
     // It collapses and STAYS collapsed — the effect must not re-expand it.
     await expect
-      .poll(() => document.querySelector(".epic-badge")?.getAttribute("aria-expanded"))
+      .poll(() => document.querySelector(".epic-toggle")?.getAttribute("aria-expanded"))
       .toBe("false");
     // Give the effect a chance to (incorrectly) re-fire; assert it stayed collapsed.
     await new Promise((r) => setTimeout(r, 50));
-    expect(document.querySelector(".epic-badge")?.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector(".epic-toggle")?.getAttribute("aria-expanded")).toBe("false");
   });
 
   it("auto-expands only the topmost epic when expandEpic is null", async () => {
@@ -833,8 +1153,8 @@ describe("IssuesPanel expandEpic", () => {
 
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, expandEpic: null });
 
-    await expect.poll(() => document.querySelectorAll(".epic-badge").length).toBe(2);
-    const badges = [...document.querySelectorAll(".epic-badge")];
+    await expect.poll(() => document.querySelectorAll(".epic-toggle").length).toBe(2);
+    const badges = [...document.querySelectorAll(".epic-toggle")];
     await expect.poll(() => badges[0]?.getAttribute("aria-expanded")).toBe("true");
     expect(badges[1]?.getAttribute("aria-expanded")).toBe("false");
     expect(mockEpic).toHaveBeenCalledWith("/repo", 400);
@@ -850,7 +1170,7 @@ describe("IssuesPanel expandEpic", () => {
 
     resolveEpics({ epics: [summary(2), summary(1)], subIssues: [] });
     await new Promise((r) => setTimeout(r, 20));
-    expect(document.querySelector(".epic-badge")).toBeNull();
+    expect(document.querySelector(".epic-toggle")).toBeNull();
     expect(mockEpic).not.toHaveBeenCalled();
 
     resolveIssues({
@@ -860,8 +1180,8 @@ describe("IssuesPanel expandEpic", () => {
       viewer: null,
     });
 
-    await expect.poll(() => document.querySelectorAll(".epic-badge").length).toBe(2);
-    const badges = [...document.querySelectorAll(".epic-badge")];
+    await expect.poll(() => document.querySelectorAll(".epic-toggle").length).toBe(2);
+    const badges = [...document.querySelectorAll(".epic-toggle")];
     await expect.poll(() => badges[0]?.getAttribute("aria-expanded")).toBe("true");
     expect(badges[1]?.getAttribute("aria-expanded")).toBe("false");
     expect(mockEpic).toHaveBeenCalledWith("/repo", 2);
@@ -879,15 +1199,15 @@ describe("IssuesPanel expandEpic", () => {
 
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, expandEpic: 2 });
 
-    await expect.poll(() => document.querySelectorAll(".epic-badge").length).toBe(2);
-    const badges = [...document.querySelectorAll(".epic-badge")];
+    await expect.poll(() => document.querySelectorAll(".epic-toggle").length).toBe(2);
+    const badges = [...document.querySelectorAll(".epic-toggle")];
     await expect.poll(() => badges[1]?.getAttribute("aria-expanded")).toBe("true");
     expect(badges[0]?.getAttribute("aria-expanded")).toBe("false");
     expect(mockEpic).toHaveBeenCalledTimes(1);
     expect(mockEpic).toHaveBeenCalledWith("/repo", 2);
   });
 
-  it("clicking an epic card toggles the same expansion state as the badge", async () => {
+  it("clicking an epic row selects it; only the chevron toggles expansion", async () => {
     mockIssues.mockResolvedValue({
       slug: "acme/repo",
       webUrl: null,
@@ -900,53 +1220,35 @@ describe("IssuesPanel expandEpic", () => {
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
     await expect
-      .poll(() => document.querySelector(".epic-badge")?.getAttribute("aria-expanded"))
+      .poll(() => document.querySelector(".epic-toggle")?.getAttribute("aria-expanded"))
       .toBe("true");
-    const row = document.querySelector<HTMLElement>(".issue-row")!;
-    row.click();
+    await selectRow("e:327");
+    expect(document.querySelector(".epic-toggle")?.getAttribute("aria-expanded")).toBe("true");
+    (document.querySelector(".epic-toggle") as HTMLButtonElement).click();
     await expect
-      .poll(() => document.querySelector(".epic-badge")?.getAttribute("aria-expanded"))
+      .poll(() => document.querySelector(".epic-toggle")?.getAttribute("aria-expanded"))
       .toBe("false");
-    row.click();
-    await expect
-      .poll(() => document.querySelector(".epic-badge")?.getAttribute("aria-expanded"))
-      .toBe("true");
+    // The selection (and its detail) survives the collapse.
+    expect(option("e:327")?.getAttribute("aria-selected")).toBe("true");
+    await expect.poll(() => document.querySelector(".issue-detail .epic")).not.toBeNull();
   });
 
-  it("clicking inside the expanded EpicPanel subtree does not toggle the row", async () => {
+  it("selecting a collapsed epic fetches its record for the detail", async () => {
     mockIssues.mockResolvedValue({
       slug: "acme/repo",
       webUrl: null,
-      issues: [issue(327)],
+      issues: [issue(1), issue(2)],
       viewer: null,
     });
-    mockEpics.mockResolvedValue({ epics: [summary(327)], subIssues: [] });
-    mockEpic.mockResolvedValue({
-      ...epic(327),
-      children: [
-        {
-          number: 500,
-          title: "Child row",
-          url: "https://example.com/i/500",
-          order: 0,
-          body: "",
-          blockedBy: [],
-          state: "running",
-          sessionId: null,
-          prNumber: null,
-          issueClosed: false,
-          claimed: false,
-        },
-      ],
-    });
+    mockEpics.mockResolvedValue({ epics: [summary(1), summary(2)], subIssues: [] });
 
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
-
-    await expect.element(page.getByText("Child row")).toBeInTheDocument();
-    expect(document.querySelector(".epic-badge")?.getAttribute("aria-expanded")).toBe("true");
-    document.querySelector<HTMLElement>("[data-epic-panel]")!.click();
-    await new Promise((r) => setTimeout(r, 20));
-    expect(document.querySelector(".epic-badge")?.getAttribute("aria-expanded")).toBe("true");
+    await expect.poll(() => mockEpic.mock.calls.length).toBe(1); // default-expanded #1
+    await selectRow("e:2");
+    await expect.poll(() => mockEpic.mock.calls.length).toBe(2);
+    expect(mockEpic).toHaveBeenLastCalledWith("/repo", 2);
+    expect(option("e:2")?.classList.contains("expanded")).toBe(false);
+    await expect.poll(() => document.querySelector(".issue-detail .epic")).not.toBeNull();
   });
 
   it("waits for getEpics to settle before scrolling, then lands on the sorted-first row", async () => {
@@ -996,7 +1298,7 @@ describe("IssuesPanel expandEpic", () => {
       await expect.poll(() => scrollCalls.length).toBe(1);
       // It scrolled the TARGET row, which is now the first row in the DOM (visibleIssues[0]).
       expect(scrollCalls[0].id).toBe("epic-issue-row-327");
-      expect(scrollCalls[0].firstRowId).toBe("epic-issue-row-327");
+      expect(scrollCalls[0].firstRowId).toBe("issue-opt-e:327");
     } finally {
       Element.prototype.scrollIntoView = origScroll;
       issuesFilter.set(prev.others);
@@ -1185,10 +1487,13 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
     checkboxByLabel(m.issues_filter_mine_label())!.click();
 
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(3);
-    // Only the someone-else issue is pilled; the viewer's own row (octocat) shows none.
+    // The someone-else issue's detail is pilled; the viewer's own (octocat) shows none.
+    await selectRow("s:3");
     await expect.poll(() => framedPills().length).toBe(1);
     expect(neutralPills().length).toBe(0);
     expect(pillText(framedPills())[0]).toContain("someone-else");
+    await selectRow("s:2");
+    await expect.poll(() => assignedPills().length).toBe(0);
   });
 
   it("lists assignees in neutral mode (no 'assigned to' framing) when the viewer is unknown", async () => {
@@ -1198,9 +1503,13 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
     // Fail open on the FILTER (all 3 show), but the pill can't claim "others" without a
     // known viewer — it falls back to a neutral listing, preserving assignee visibility.
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(3);
-    await expect.poll(() => neutralPills().length).toBe(2);
-    expect(framedPills().length).toBe(0);
-    const texts = pillText(neutralPills());
+    const texts: string[] = [];
+    for (const key of ["s:2", "s:3"]) {
+      await selectRow(key);
+      await expect.poll(() => neutralPills().length).toBe(1);
+      expect(framedPills().length).toBe(0);
+      texts.push(...pillText(neutralPills()));
+    }
     expect(texts.some((t) => t.includes("octocat"))).toBe(true);
     expect(texts.some((t) => t.includes("someone-else"))).toBe(true);
     // No "assigned to" framing in neutral mode.
@@ -1208,7 +1517,7 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
     expect(texts.every((t) => !t.includes(framedCopy))).toBe(true);
   });
 
-  it("suppresses the assigned pill on a flagged epic-parent row (keeps EpicOthersPill + epic-disabled quick-launch)", async () => {
+  it("suppresses the assigned pill on a flagged epic (keeps EpicOthersPill, no task box)", async () => {
     const previousSteers = steers.list;
     steers.list = [{ id: "s1", label: "Go", text: "do it", inSteerBar: false, onIssues: true }];
     try {
@@ -1238,14 +1547,11 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
       render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, onquick: noop });
 
       // Filter ON (default) — the flagged epic stays visible via the #1616 exemption.
+      await selectRow("e:50");
       await expect.poll(() => document.querySelector(".others-pill")).toBeTruthy();
-      // No plain-issue pill on the epic parent (guarded by !isEpicParent) — no double-pill.
+      // No plain-issue pill on the epic — no double-pill — and no task box / quick launch.
       expect(document.querySelector(".assigned-pill")).toBeNull();
-      // Quick-launch stays epic-disabled; its tooltip is NOT clobbered by the assigned notice.
-      const quick = document.querySelector<HTMLButtonElement>(".quick-btn");
-      expect(quick).not.toBeNull();
-      expect(quick!.disabled).toBe(true);
-      expect(quick!.title).toBe(m.issuespanel_task_button_epic_disabled());
+      expect(document.querySelector(".quick-btn")).toBeNull();
     } finally {
       steers.list = previousSteers;
     }
@@ -1283,13 +1589,13 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
   });
 });
 
-describe("IssuesPanel hide-sub-issues filter (default ON)", () => {
-  // Reset filter state before/after each test so order can't leak state.
-  // hideSubIssues defaults ON; hideOthers defaults ON; hideActive defaults OFF.
+describe("IssuesPanel sub-issues live only in their epic (#2617)", () => {
+  // The Issues tab ignores the shared "hide sub-issues" preference (PromptSources keeps it):
+  // run with it OFF to prove the exclusion is unconditional here.
   beforeEach(() => {
     issuesFilter.set(true);
     issuesFilter.setActive(false);
-    issuesFilter.setSubIssues(true);
+    issuesFilter.setSubIssues(false);
   });
   afterEach(() => {
     issuesFilter.set(true);
@@ -1320,7 +1626,7 @@ describe("IssuesPanel hide-sub-issues filter (default ON)", () => {
     };
   }
 
-  it("hides a plain sub-issue and keeps a mid-level epic visible (default ON, no toggle)", async () => {
+  it("never lists a plain sub-issue as a single and keeps a mid-level epic as a group", async () => {
     // Issue 10: plain sub-issue (in subIssues, NOT an epic parent) → must be hidden
     // Issue 20: mid-level epic (in subIssues AND an epic parent) → must stay visible
     // Issue 30: ordinary issue (neither sub-issue nor epic parent) → must stay visible
@@ -1342,7 +1648,7 @@ describe("IssuesPanel hide-sub-issues filter (default ON)", () => {
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
     // Wait for epics to load (badge for issue 20 should appear)
-    await expect.poll(() => document.querySelector(".epic-badge")).toBeTruthy();
+    await expect.poll(() => document.querySelector(".epic-toggle")).toBeTruthy();
 
     const issueTitles = () =>
       [...document.querySelectorAll(".issue-title")].map((el) => el.textContent?.trim());
@@ -1351,6 +1657,16 @@ describe("IssuesPanel hide-sub-issues filter (default ON)", () => {
     await expect.poll(() => issueTitles()).not.toContain("Plain sub-issue");
     expect(issueTitles()).toContain("Mid-level epic");
     expect(issueTitles()).toContain("Ordinary issue");
+    expect(option("e:20")).not.toBeNull();
+
+    // …and the Filters popover no longer offers the (here meaningless) toggle.
+    document.querySelector<HTMLButtonElement>(".filter-bar button")!.click();
+    await expect
+      .poll(() => document.querySelector("[popover] input[type=checkbox]"))
+      .not.toBeNull();
+    expect(document.querySelector("[popover]")?.textContent).not.toContain(
+      m.issues_filter_subissues_label(),
+    );
   });
 });
 
@@ -1455,10 +1771,10 @@ describe("IssuesPanel soft refresh (backlogRefresh)", () => {
 
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, expandEpic: 50 });
 
-    // Collapsed-row badge from the summary + expanded panel from the fetched Epic.
-    await expect.element(page.getByText(m.epic_badge({ merged: 1, total: 3 }))).toBeInTheDocument();
+    // Header count + the selected epic's panel, both from the fetched Epic.
+    await expect.poll(() => epicCount(50)).toBe("1/3");
     await expect
-      .poll(() => document.querySelector(".epic-badge")?.getAttribute("aria-expanded"))
+      .poll(() => document.querySelector(".epic-toggle")?.getAttribute("aria-expanded"))
       .toBe("true");
     await expect
       .element(page.getByText(m.epic_progress({ merged: 1, total: 3 })))
@@ -1475,8 +1791,8 @@ describe("IssuesPanel soft refresh (backlogRefresh)", () => {
     mockEpic.mockResolvedValue(makeEpic(50, ["merged", "merged", "running"]));
     backlogRefresh.bump();
 
-    // Badge + expanded panel both show the new counts…
-    await expect.element(page.getByText(m.epic_badge({ merged: 2, total: 3 }))).toBeInTheDocument();
+    // Header + panel both show the new counts…
+    await expect.poll(() => epicCount(50)).toBe("2/3");
     await expect
       .element(page.getByText(m.epic_progress({ merged: 2, total: 3 })))
       .toBeInTheDocument();
@@ -1484,7 +1800,7 @@ describe("IssuesPanel soft refresh (backlogRefresh)", () => {
     expect(mockEpic).toHaveBeenCalledTimes(2);
     expect(mockEpic).toHaveBeenLastCalledWith("/repo", 50);
     // …and operator state survived: expansion + filter text intact (no hard reset).
-    expect(document.querySelector(".epic-badge")?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector(".epic-toggle")?.getAttribute("aria-expanded")).toBe("true");
     expect(document.querySelector<HTMLInputElement>(".issue-filter")?.value).toBe("Epic");
   });
 
@@ -1585,7 +1901,7 @@ describe("IssuesPanel soft refresh (backlogRefresh)", () => {
 
     // Panel renders from the live store — no one-shot fetch needed or fired.
     await expect
-      .poll(() => document.querySelector(".epic-badge")?.getAttribute("aria-expanded"))
+      .poll(() => document.querySelector(".epic-toggle")?.getAttribute("aria-expanded"))
       .toBe("true");
     await expect
       .element(page.getByText(m.epic_progress({ merged: 2, total: 3 })))
@@ -1600,7 +1916,7 @@ describe("IssuesPanel soft refresh (backlogRefresh)", () => {
       .element(page.getByText(m.epic_progress({ merged: 3, total: 3 })))
       .toBeInTheDocument();
     expect(mockEpic).toHaveBeenCalledWith("/repo", 60);
-    expect(document.querySelector(".epic-badge")?.getAttribute("aria-expanded")).toBe("true");
+    expect(document.querySelector(".epic-toggle")?.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("a snapshot settling after the live store gained the record is not cached (prune refetches fresh)", async () => {
@@ -1701,9 +2017,9 @@ describe("IssuesPanel soft refresh (backlogRefresh)", () => {
       .mockResolvedValueOnce(makeEpic(70, ["merged"]));
 
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
-    await expect.poll(() => document.querySelector(".epic-badge")).toBeTruthy();
+    await expect.poll(() => document.querySelector(".epic-toggle")).toBeTruthy();
 
-    const badge = () => document.querySelector(".epic-badge") as HTMLButtonElement;
+    const badge = () => document.querySelector(".epic-toggle") as HTMLButtonElement;
     await expect.poll(() => mockEpic.mock.calls.length).toBe(1); // default expand → fetch #1
     badge().click(); // collapse while the fetch is still in flight
 
@@ -1714,9 +2030,7 @@ describe("IssuesPanel soft refresh (backlogRefresh)", () => {
     // …so re-expanding refetches instead of serving the discarded stale record.
     badge().click();
     await expect.poll(() => mockEpic.mock.calls.length).toBe(2);
-    await expect
-      .element(page.getByText(m.epic_progress({ merged: 1, total: 1 })))
-      .toBeInTheDocument();
+    await expect.poll(() => epicCount(70)).toBe("1/1");
   });
 });
 

@@ -1,103 +1,36 @@
 <script lang="ts">
-  import { AGENT_PROVIDERS, type AgentProvider, type DrainStatus, type Epic } from "$lib/types";
+  import type { DrainRunSummary, Epic } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { updateEpic, approveEpicNext, importEpic } from "$lib/api";
-  import { chipFor, epicHoldLine, progress, stateLabel } from "./epic-panel";
-  import type { EpicOthersFlag } from "./issues-panel";
+  import { importEpic } from "$lib/api";
+  import { chipFor, progress, slotHeldBy, stateLabel } from "./epic-panel";
   import { toasts } from "$lib/toasts.svelte";
   import EpicHandsOffIntro from "./EpicHandsOffIntro.svelte";
   import EpicDiagnosisModal from "./EpicDiagnosisModal.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import { providerModels, modelAvailableForProvider } from "$lib/provider-models";
-  import { providerEfforts, effortLabel, effortAvailableForProvider } from "$lib/effort-guidance";
-  import { modelOptionLabel } from "$lib/model-guidance";
 
+  // An epic's children and structural warnings. Its run controls (state, Start/Pause, mode,
+  // CLI/model/effort) live in the detail's run area, EpicRunControl (#2620).
   let {
     repoPath,
     parent,
     epic,
-    drain = null,
-    othersFlag = null,
+    runSummary = null,
+    headActions = true,
   }: {
     repoPath: string;
     parent: number;
     epic: Epic;
-    drain?: DrainStatus | null;
-    /** "Someone else is already working / owns this epic" (#1616), from the row's summary;
-     *  null when it's the operator's own epic. Surfaces a soft notice next to Start. */
-    othersFlag?: EpicOthersFlag | null;
+    /** The repo's run picture — marks the child holding an agent slot. */
+    runSummary?: DrainRunSummary | null;
+    /** Render Import + Diagnose in the head. False when the host (the backlog reading
+     *  detail, #2617) offers them in its own ⋯ menu instead. */
+    headActions?: boolean;
   } = $props();
 
   const p = $derived(progress(epic.children));
-  const running = $derived(epic.run.status === "running");
   const readyCount = $derived(epic.children.filter((c) => c.state === "ready").length);
-  // Only surface the drain's hold reason when it belongs to THIS epic's run.
-  const holdLine = $derived(
-    epicHoldLine(drain?.epicParent === parent ? drain : null, running, epic.children),
-  );
-  const epicProvider = $derived(epic.run.agentProvider ?? null);
-  const epicModel = $derived(epic.run.model ?? "default");
-  const epicEffort = $derived(epic.run.effort ?? "default");
-
-  // Soft "someone else owns this" notice next to Start — worded to match the flag tier so a
-  // pure assignment (no in-flight PR) isn't overstated as work already in progress.
-  const othersNotice = $derived.by(() => {
-    if (!othersFlag) return "";
-    const who = othersFlag.who.join(", ");
-    switch (othersFlag.tier) {
-      case "inflight":
-        return m.issuerow_epic_others_notice({ who });
-      case "assigned":
-        return m.issuerow_epic_assigned_notice({ who });
-      default:
-        return m.issuerow_epic_owner_notice({ who });
-    }
-  });
 
   let showDiag = $state(false);
-
-  function updateFailed() {
-    toasts.info(m.epic_update_failed(), {
-      alert: true,
-      key: "epic-update-fail",
-    });
-  }
-
-  function providerName(provider: AgentProvider): string {
-    return provider === "claude" ? m.agent_provider_claude() : m.agent_provider_codex_alpha();
-  }
-
-  function onProviderChange(e: Event) {
-    const value = (e.currentTarget as HTMLSelectElement).value;
-    if (value === "inherit") {
-      updateEpic(repoPath, parent, { agentProvider: null }).catch(updateFailed);
-      return;
-    }
-    const agentProvider = value as AgentProvider;
-    const model = modelAvailableForProvider(agentProvider, epicModel, true) ? epic.run.model : null;
-    const effort = effortAvailableForProvider(agentProvider, epicEffort, model)
-      ? epic.run.effort
-      : null;
-    updateEpic(repoPath, parent, { agentProvider, model, effort }).catch(updateFailed);
-  }
-
-  function onModelChange(e: Event) {
-    if (!epicProvider) return;
-    const value = (e.currentTarget as HTMLSelectElement).value;
-    const model = value === "default" ? null : value;
-    const effort = effortAvailableForProvider(epicProvider, epicEffort, model)
-      ? epic.run.effort
-      : null;
-    updateEpic(repoPath, parent, { model, effort }).catch(updateFailed);
-  }
-
-  function onEffortChange(e: Event) {
-    if (!epicProvider) return;
-    const value = (e.currentTarget as HTMLSelectElement).value;
-    updateEpic(repoPath, parent, { effort: value === "default" ? null : value }).catch(
-      updateFailed,
-    );
-  }
 </script>
 
 <div class="epic" role="region" aria-label={epic.parentTitle}>
@@ -105,7 +38,7 @@
 
   <div class="epic-head">
     <span class="badge">{m.epic_progress({ merged: p.merged, total: p.total })}</span>
-    {#if epic.source === "markdown"}
+    {#if headActions && epic.source === "markdown"}
       <button
         class="gbtn"
         type="button"
@@ -120,25 +53,31 @@
         {m.epic_import()}
       </button>
     {/if}
-    <button
-      class="gbtn"
-      type="button"
-      use:coachTarget={"epic-diagnose"}
-      title={m.epic_diag_open_title()}
-      onclick={() => (showDiag = true)}
-    >
-      {m.epic_diag_open()}
-    </button>
+    {#if headActions}
+      <button
+        class="gbtn"
+        type="button"
+        use:coachTarget={"epic-diagnose"}
+        title={m.epic_diag_open_title()}
+        onclick={() => (showDiag = true)}
+      >
+        {m.epic_diag_open()}
+      </button>
+    {/if}
   </div>
 
   <ul class="epic-children">
     {#each epic.children as c (c.number)}
       {@const chip = chipFor(c.state)}
+      {@const slot = slotHeldBy(runSummary, c.number)}
       <li class="epic-child">
         <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
         <a class="num" href={c.url} target="_blank" rel="noopener noreferrer">#{c.number}</a>
         <span class="title">{c.title}</span>
         <span class="chip chip-{chip.tone}">{stateLabel(c.state)}</span>
+        {#if slot}
+          <span class="slot">{m.epic_slot_held({ index: slot.index, max: slot.max })}</span>
+        {/if}
         {#if c.state === "blocked" && c.blockedBy.length > 0}
           <span class="deps"
             >{m.epic_blocked_on({ deps: c.blockedBy.map((n) => `#${n}`).join(", ") })}</span
@@ -155,134 +94,6 @@
   {#if epic.noDependencyEdges}
     <p class="warn">{m.epic_warn_no_deps({ count: readyCount })}</p>
   {/if}
-
-  {#if holdLine}
-    <p class="hold" class:alert={drain?.paused}>{holdLine}</p>
-  {/if}
-
-  {#if othersFlag}
-    <p class="others-notice">
-      <span class="others-glyph" aria-hidden="true">⚠</span>{othersNotice}
-    </p>
-  {/if}
-
-  <div class="epic-controls">
-    {#if running}
-      <button
-        class="gbtn"
-        type="button"
-        title={m.epic_pause_title()}
-        onclick={() =>
-          updateEpic(repoPath, parent, { status: "paused" }).catch(() =>
-            toasts.info(m.epic_update_failed(), {
-              alert: true,
-              key: "epic-update-fail",
-            }),
-          )}
-      >
-        {m.epic_pause()}
-      </button>
-    {:else}
-      <button
-        class="gbtn"
-        type="button"
-        title={m.epic_start_title()}
-        onclick={() =>
-          updateEpic(repoPath, parent, { status: "running" }).catch(() =>
-            toasts.info(m.epic_update_failed(), {
-              alert: true,
-              key: "epic-update-fail",
-            }),
-          )}
-      >
-        {m.epic_start()}
-      </button>
-    {/if}
-
-    <button
-      class="gbtn"
-      type="button"
-      title={epic.run.mode === "auto" ? m.epic_mode_auto_title() : m.epic_mode_attended_title()}
-      aria-label={epic.run.mode === "auto" ? m.epic_mode_auto_aria() : m.epic_mode_attended_aria()}
-      onclick={() =>
-        updateEpic(repoPath, parent, {
-          mode: epic.run.mode === "auto" ? "attended" : "auto",
-        }).catch(() =>
-          toasts.info(m.epic_update_failed(), {
-            alert: true,
-            key: "epic-update-fail",
-          }),
-        )}
-    >
-      {epic.run.mode === "auto" ? m.epic_mode_auto() : m.epic_mode_attended()}
-    </button>
-
-    {#if epic.run.status === "running" || epic.run.status === "paused"}
-      <button
-        class="gbtn"
-        type="button"
-        onclick={() =>
-          updateEpic(repoPath, parent, { status: "idle" }).catch(() =>
-            toasts.info(m.epic_stop_failed(), {
-              alert: true,
-              key: "epic-stop-fail",
-            }),
-          )}
-      >
-        {m.epic_stop()}
-      </button>
-    {/if}
-
-    {#if epic.run.mode === "attended" && running}
-      <button
-        class="gbtn primary"
-        type="button"
-        onclick={() =>
-          approveEpicNext(repoPath, parent).catch(() =>
-            toasts.info(m.epic_approve_failed(), {
-              alert: true,
-              key: "epic-approve-fail",
-            }),
-          )}
-      >
-        {m.epic_approve_next()}
-      </button>
-    {/if}
-
-    <div class="run-settings" aria-label={m.epic_provider_settings_label()}>
-      <label class="mini-field">
-        <span class="micro">{m.epic_provider_label()}</span>
-        <select value={epicProvider ?? "inherit"} onchange={onProviderChange}>
-          <option value="inherit">{m.epic_provider_inherit()}</option>
-          {#each AGENT_PROVIDERS as provider (provider)}
-            <option value={provider}>{providerName(provider)}</option>
-          {/each}
-        </select>
-      </label>
-
-      {#if epicProvider}
-        <label class="mini-field">
-          <span class="micro">{m.epic_model_label()}</span>
-          <select value={epicModel} onchange={onModelChange}>
-            <option value="default">{m.newtask_model_default()}</option>
-            {#each providerModels(epicProvider) as model (model)}
-              <option value={model}>{modelOptionLabel(epicProvider, model)}</option>
-            {/each}
-          </select>
-        </label>
-
-        <label class="mini-field">
-          <span class="micro">{m.epic_effort_label()}</span>
-          <select value={epicEffort} onchange={onEffortChange}>
-            <option value="default">{m.effort_default()}</option>
-            {#each providerEfforts(epicProvider, epicModel) as effort (effort)}
-              <option value={effort}>{effortLabel(effort)}</option>
-            {/each}
-          </select>
-        </label>
-      {/if}
-    </div>
-  </div>
 </div>
 
 {#if showDiag}
@@ -313,7 +124,7 @@
   /* ── child list ─────────────────────────────────────────────────────────── */
   /* A leading rail marks these rows as the epic's CHILDREN, separating them from
      their siblings on the same panel surface (.epic-head's progress/import/diagnose
-     above, .epic-controls below). Mirrors the same cue on the herd's epic groups
+     above, the warnings below). Mirrors the same cue on the herd's epic groups
      (HerdEpicGroups.svelte). The rail sits on the scroll container, so it stays put
      while a long child list scrolls under it — intended. */
   .epic-children {
@@ -402,6 +213,20 @@
     background: color-mix(in oklab, var(--color-muted) 10%, transparent);
   }
 
+  /* "holds slot i/m" (#2620): neutral, like the run area's role badges — the state chip
+     beside it already carries the status color. */
+  .slot {
+    flex-shrink: 0;
+    padding: 0 5px;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
   /* ── blocker deps + warnings ─────────────────────────────────────────── */
   .deps {
     color: var(--color-faint);
@@ -414,86 +239,6 @@
     margin: 0;
     color: var(--color-amber);
     font-size: var(--fs-micro);
-  }
-
-  /* Drain hold reason — muted by default; amber when the drain is genuinely paused
-     (trouble / usage / credits). Token-only per the design system. */
-  .hold {
-    margin: 0;
-    color: var(--color-muted);
-    font-size: var(--fs-micro);
-  }
-
-  .hold.alert {
-    color: var(--color-amber);
-  }
-
-  /* Soft, non-blocking "someone else is already working / owns this epic" notice (#1616),
-     right above Start so it's visible at the launch point. Never intercepts — you can still
-     start. Amber running/in-progress token, dimmed toward muted. */
-  .others-notice {
-    margin: 0;
-    display: flex;
-    align-items: baseline;
-    gap: 4px;
-    font-size: var(--fs-micro);
-    color: color-mix(in oklab, var(--status-running) 80%, var(--color-muted));
-  }
-
-  .others-glyph {
-    color: var(--status-running);
-  }
-
-  /* ── controls ────────────────────────────────────────────────────────── */
-  .epic-controls {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
-    padding-top: 2px;
-  }
-
-  .run-settings {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-
-  /* Caption reads as an inline prefix on the control's own line — baseline, not
-     centre, so it sits on the select's text rather than mid-box. */
-  .mini-field {
-    display: flex;
-    flex-direction: row;
-    align-items: baseline;
-    gap: 4px;
-  }
-
-  .micro {
-    flex: none;
-    white-space: nowrap;
-    color: var(--color-faint);
-    font-size: var(--fs-micro);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-
-  select {
-    min-height: 24px;
-    min-width: 96px;
-    max-width: 180px;
-    background: var(--color-inset);
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    color: var(--color-ink);
-    font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-    padding: 2px 6px;
-  }
-
-  select:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 
   /* ── progress badge ──────────────────────────────────────────────────────
@@ -539,24 +284,15 @@
     opacity: 0.4;
     cursor: not-allowed;
   }
-  .gbtn.primary {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-  }
 
   /* Condition mirrors the global mobile control branch in app.css — phone
      landscape is short-wide, so a width-only query would leave these controls
      desktop-sized while app.css had already bumped their font to 16px. */
   @media (max-width: 768px), (max-height: 600px) {
-    /* 44px is the tap-target floor — buttons and the inline selects beside them
-       move together, else the taller control breaks the shared control line. */
+    /* 44px is the tap-target floor. */
     .gbtn {
       min-height: 44px;
       padding: 2px 14px;
-    }
-
-    select {
-      min-height: 44px;
     }
   }
 </style>

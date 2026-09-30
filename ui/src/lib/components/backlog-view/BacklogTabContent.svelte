@@ -1,5 +1,15 @@
 <script lang="ts">
-  import type { DrainStatus, Epic, Issue, PullRequest, Steer } from "$lib/types";
+  import type {
+    DrainStatus,
+    Epic,
+    GitState,
+    Issue,
+    PullRequest,
+    Session,
+    Steer,
+    TaskRunDefaults,
+    TaskRunSeed,
+  } from "$lib/types";
   import IssuesPanel from "../IssuesPanel.svelte";
   import PrsPanel from "../PrsPanel.svelte";
   import ActionsPanel from "../ActionsPanel.svelte";
@@ -24,10 +34,15 @@
     inTrainPrs = new Set(),
     target = null,
     drain = undefined,
+    mobile = false,
+    taskDefaults = undefined,
+    onopensession = undefined,
+    onopenautomation = undefined,
+    sessionInfo = undefined,
   }: {
     activeTab: Tab;
     selectedPath: string;
-    onissue: (repoPath: string, issue: Issue) => void;
+    onissue: (repoPath: string, issue: Issue, run?: TaskRunSeed) => void;
     onquick?: (repoPath: string, issue: Issue, action: Steer) => void;
     oninject?: (repoPath: string, issue: Issue, steer: Steer) => void;
     onpr: (repoPath: string, pr: PullRequest) => void;
@@ -37,22 +52,32 @@
     inTrainPrs?: Set<string>;
     target?: { repoPath: string; issueNumber: number } | null;
     drain?: Record<string, DrainStatus>;
+    mobile?: boolean;
+    taskDefaults?: TaskRunDefaults;
+    onopensession?: (sessionId: string) => void;
+    /** Switch to the Automation tab (the agent-slot cap lives there). */
+    onopenautomation?: () => void;
+    /** A session and its PR state from the store, by id — an epic child's session view. */
+    sessionInfo?: (id: string) => { session: Session; git?: GitState } | null;
   } = $props();
 </script>
 
 {#if activeTab === "issues"}
   <IssuesPanel
     repoPath={selectedPath}
-    onnewtask={(issue) => {
-      onissue(selectedPath, issue);
+    onnewtask={(issue, run) => {
+      onissue(selectedPath, issue, run);
     }}
     onquick={onquick ? (issue, action) => onquick(selectedPath, issue, action) : undefined}
     oninject={oninject ? (issue, steer) => oninject(selectedPath, issue, steer) : undefined}
-    bodyPreview
-    age
     {epics}
     drain={drain?.[selectedPath] ?? null}
     expandEpic={target && target.repoPath === selectedPath ? target.issueNumber : null}
+    {mobile}
+    {taskDefaults}
+    {onopensession}
+    {onopenautomation}
+    {sessionInfo}
   />
 {:else if activeTab === "prs"}
   <PrsPanel

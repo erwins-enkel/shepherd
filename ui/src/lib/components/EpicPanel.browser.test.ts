@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import EpicPanel from "./EpicPanel.svelte";
-import type { DrainStatus, Epic, EpicChild } from "$lib/types";
+import type { Epic, EpicChild } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 
 function child(over: Partial<EpicChild>): EpicChild {
@@ -23,24 +23,7 @@ function child(over: Partial<EpicChild>): EpicChild {
   };
 }
 
-function drain(over: Partial<DrainStatus>): DrainStatus {
-  return {
-    repoPath: "/repo",
-    enabled: true,
-    paused: false,
-    reason: null,
-    detail: null,
-    queued: 0,
-    inFlight: 0,
-    max: 3,
-    epicParent: 327,
-    ...over,
-  };
-}
-
 const api = vi.hoisted(() => ({
-  updateEpic: vi.fn(async () => ({})),
-  approveEpicNext: vi.fn(async () => ({})),
   importEpic: vi.fn(async () => ({})),
 }));
 
@@ -70,51 +53,14 @@ function epic(over: Partial<Epic["run"]> = {}): Epic {
   };
 }
 
-function changeSelect(label: string, value: string) {
-  const select = page.getByLabelText(label).element() as HTMLSelectElement;
-  select.value = value;
-  select.dispatchEvent(new Event("change", { bubbles: true }));
-}
-
 beforeEach(() => {
-  api.updateEpic.mockClear();
-  api.approveEpicNext.mockClear();
   api.importEpic.mockClear();
 });
 
-describe("EpicPanel provider settings", () => {
-  it("renders inherited CLI state and persists provider selection", async () => {
-    render(EpicPanel, { repoPath: "/repo", parent: 327, epic: epic() });
-
-    expect(
-      (page.getByLabelText(m.epic_provider_label()).element() as HTMLSelectElement).value,
-    ).toBe("inherit");
-    changeSelect(m.epic_provider_label(), "codex");
-
-    expect(api.updateEpic).toHaveBeenCalledWith("/repo", 327, {
-      agentProvider: "codex",
-      model: null,
-      effort: null,
-    });
-  });
-
-  it("persists model changes for an explicit provider", async () => {
-    render(EpicPanel, {
-      repoPath: "/repo",
-      parent: 327,
-      epic: epic({ agentProvider: "codex", model: null, effort: null }),
-    });
-
-    changeSelect(m.epic_model_label(), "gpt-5.5");
-
-    expect(api.updateEpic).toHaveBeenCalledWith("/repo", 327, { model: "gpt-5.5", effort: null });
-  });
-});
-
-// The zero-deps warning (driven by epic.noDependencyEdges) and the hold line (driven by the
-// drain reason) are independent — asserted in SEPARATE scenarios, never inferred from each other.
+// The zero-deps warning (driven by epic.noDependencyEdges) stays on the panel; the drain's hold
+// reason and every run control moved to the detail's run area (EpicRunControl, #2620).
 describe("EpicPanel legibility lines (#1447)", () => {
-  it("renders the zero-deps warning when the flag is set (no drain → no hold line)", async () => {
+  it("renders the zero-deps warning when the flag is set", async () => {
     const e: Epic = {
       ...epic(),
       children: [child({ number: 1 }), child({ number: 2 })],
@@ -123,52 +69,46 @@ describe("EpicPanel legibility lines (#1447)", () => {
     render(EpicPanel, { repoPath: "/repo", parent: 327, epic: e });
 
     await expect.element(page.getByText(m.epic_warn_no_deps({ count: 2 }))).toBeInTheDocument();
-    expect(page.getByText(m.epic_hold_cap({ inFlight: 3, max: 3 })).query()).toBeNull();
+  });
+});
+
+describe("EpicPanel after the run area (#2620)", () => {
+  it("renders no run controls and no hold line", async () => {
+    render(EpicPanel, { repoPath: "/repo", parent: 327, epic: epic() });
+
+    await expect
+      .element(page.getByText(m.epic_progress({ merged: 0, total: 0 })))
+      .toBeInTheDocument();
+    expect(page.getByRole("button", { name: m.epic_pause() }).query()).toBeNull();
+    expect(page.getByRole("button", { name: m.epic_start() }).query()).toBeNull();
+    expect(page.getByLabelText(m.epic_provider_label()).query()).toBeNull();
   });
 
-  it("renders the drain hold reason for a held epic (cap), matched by epicParent", async () => {
+  it("marks the child holding an agent slot", async () => {
     const e: Epic = {
       ...epic(),
-      children: [child({ number: 1, state: "running" }), child({ number: 2, state: "blocked" })],
+      children: [child({ number: 5, state: "running" }), child({ number: 6 })],
     };
     render(EpicPanel, {
       repoPath: "/repo",
       parent: 327,
       epic: e,
-      drain: drain({ reason: "cap", inFlight: 3, max: 3 }),
+      runSummary: {
+        leadingEpic: 327,
+        windingDown: [],
+        slots: {
+          used: 1,
+          max: 2,
+          holders: [{ sessionId: "s5", desig: "TASK-05", issueNumber: 5, epicParent: 327 }],
+        },
+        next: [6],
+        after: [],
+      },
     });
 
     await expect
-      .element(page.getByText(m.epic_hold_cap({ inFlight: 3, max: 3 })))
+      .element(page.getByText(m.epic_slot_held({ index: 1, max: 2 })))
       .toBeInTheDocument();
-    expect(page.getByText(m.epic_warn_no_deps({ count: 2 })).query()).toBeNull();
-  });
-
-  it("empty is progress-aware: an in-flight child reads as 'waiting', not 'nothing eligible'", async () => {
-    const e: Epic = {
-      ...epic(),
-      children: [child({ number: 1, state: "in-review" }), child({ number: 2, state: "blocked" })],
-    };
-    render(EpicPanel, {
-      repoPath: "/repo",
-      parent: 327,
-      epic: e,
-      drain: drain({ reason: "empty" }),
-    });
-
-    await expect.element(page.getByText(m.epic_hold_waiting_inflight())).toBeInTheDocument();
-    expect(page.getByText(m.epic_hold_empty()).query()).toBeNull();
-  });
-
-  it("does not surface a hold line for a drain belonging to a different epic", async () => {
-    render(EpicPanel, {
-      repoPath: "/repo",
-      parent: 327,
-      epic: epic(),
-      drain: drain({ reason: "cap", inFlight: 3, max: 3, epicParent: 999 }),
-    });
-
-    expect(page.getByText(m.epic_hold_cap({ inFlight: 3, max: 3 })).query()).toBeNull();
   });
 });
 
@@ -221,31 +161,21 @@ describe("EpicPanel duplicate-child guard", () => {
   });
 });
 
-describe("EpicPanel Codex reasoning", () => {
-  it("saves Astra ultra", async () => {
-    render(EpicPanel, {
-      repoPath: "/repo",
-      parent: 327,
-      epic: epic({ agentProvider: "codex", model: "gpt-6-astra" }),
-    });
-    const select = page.getByLabelText(m.epic_effort_label()).element() as HTMLSelectElement;
-    expect(Array.from(select.options).map((o) => o.value)).toContain("ultra");
-    changeSelect(m.epic_effort_label(), "ultra");
-    expect(api.updateEpic).toHaveBeenCalledWith("/repo", 327, { effort: "ultra" });
-  });
-  it.each([
-    ["ultra", null],
-    ["max", "max"],
-  ])("switching to Luna handles %s in one patch", (effort, expected) => {
-    render(EpicPanel, {
-      repoPath: "/repo",
-      parent: 327,
-      epic: epic({ agentProvider: "codex", model: "gpt-6-astra", effort }),
-    });
-    changeSelect(m.epic_model_label(), "gpt-5.6-luna");
-    expect(api.updateEpic).toHaveBeenCalledWith("/repo", 327, {
-      model: "gpt-5.6-luna",
-      effort: expected,
-    });
+describe("EpicPanel headActions (#2617)", () => {
+  it("hides Import + Diagnose when the host offers them itself", async () => {
+    const md: Epic = { ...epic({ status: "idle" }), source: "markdown" };
+    const { unmount } = await render(EpicPanel, { repoPath: "/repo", parent: 327, epic: md });
+    await expect.element(page.getByRole("button", { name: m.epic_import() })).toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: m.epic_diag_open() }))
+      .toBeInTheDocument();
+    unmount();
+
+    await render(EpicPanel, { repoPath: "/repo", parent: 327, epic: md, headActions: false });
+    await expect
+      .element(page.getByText(m.epic_progress({ merged: 0, total: 0 })))
+      .toBeInTheDocument();
+    expect(page.getByRole("button", { name: m.epic_import() }).query()).toBeNull();
+    expect(page.getByRole("button", { name: m.epic_diag_open() }).query()).toBeNull();
   });
 });

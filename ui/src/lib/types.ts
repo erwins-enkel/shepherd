@@ -329,6 +329,25 @@ export interface Issue {
   blockedBy?: number[];
 }
 
+/** Run settings the backlog task box (#2617) hands to the New Task dialog. Only fields the
+ *  operator changed in the box are set — an absent field leaves the composer's own default
+ *  (incl. its capacity routing and repo-override reseed) in charge. */
+export interface TaskRunSeed {
+  agentProvider?: AgentProvider;
+  model?: string;
+  effort?: string;
+}
+
+/** Global run defaults the backlog task box pre-fills from (the same settings the New Task
+ *  dialog seeds with). */
+export interface TaskRunDefaults {
+  agentProvider: AgentProvider;
+  model?: string;
+  codexModel?: string;
+  effort?: string;
+  fableAvailable?: boolean;
+}
+
 /** One `gh` transport that ran and failed while listing issues, as reported by
  *  /api/issues. Mirrors the server `GhFetchAttempt` (`src/forge/gh-attempt.ts`).
  *  GitHub lists issues over two independent budgets (`gh issue list` on GraphQL,

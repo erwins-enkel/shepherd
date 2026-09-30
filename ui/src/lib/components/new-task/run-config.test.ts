@@ -5,6 +5,7 @@ import {
   reseedRunConfig,
   normalizeRunConfig,
   modelForManualProviderChange,
+  modelSettingFor,
   type ReseedInput,
   type NormalizeInput,
 } from "./run-config";
@@ -176,5 +177,16 @@ describe("Codex model-aware effort correction", () => {
         }),
       ),
     ).toEqual({ provider: "codex", model: "gpt-6-astra", effort: "ultra" });
+  });
+});
+
+describe("modelSettingFor", () => {
+  it("prefers a valid repo override, else the provider's global default", () => {
+    expect(modelSettingFor("claude", "inherit", "opus", undefined)).toBe("opus");
+    expect(modelSettingFor("claude", "sonnet", "opus", undefined)).toBe("sonnet");
+    expect(modelSettingFor("claude", "default", "opus", undefined)).toBe("default");
+    expect(modelSettingFor("claude", "not-a-model", "opus", undefined)).toBe("opus");
+    expect(modelSettingFor("claude", "inherit", undefined, undefined)).toBe("auto");
+    expect(modelSettingFor("codex", "inherit", "opus", "gpt-x")).toBe("gpt-x");
   });
 });

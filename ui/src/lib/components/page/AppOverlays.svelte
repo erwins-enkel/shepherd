@@ -40,6 +40,8 @@
     Settings as Settings_,
     StarPromptStatus,
     Steer,
+    TaskRunDefaults,
+    TaskRunSeed,
     UsageLimits,
   } from "$lib/types";
   import type { FeatureAnnouncement } from "$lib/feature-announcements";
@@ -353,7 +355,7 @@
     backlog: BacklogPayload | null;
     epicTarget: { repoPath: string; issueNumber: number } | null;
     inTrainPrs: Set<string>;
-    onissue: (repoPath: string, issue: Issue) => void;
+    onissue: (repoPath: string, issue: Issue, run?: TaskRunSeed) => void;
     onquick: (repoPath: string, issue: Issue, action: Steer) => void;
     oninject: (repoPath: string, issue: Issue, steer: Steer) => void;
     onpr: (repoPath: string, pr: PullRequest) => void;
@@ -426,6 +428,14 @@
       newTaskHeldProviders,
     ),
   );
+  // The Repos dialog's task box pre-fills from the same defaults the composer seeds with.
+  const backlogTaskDefaults = $derived<TaskRunDefaults>({
+    agentProvider: newTaskDefaultAgentProvider,
+    model: settings?.defaultModel,
+    codexModel: newTaskDefaultCodexModel,
+    effort: newTaskDefaultEffort,
+    fableAvailable: newTaskFableAvailable,
+  });
 </script>
 
 {#if showLearnings}
@@ -741,6 +751,7 @@
     {inTrainPrs}
     target={epicTarget}
     drain={store.drain}
+    taskDefaults={backlogTaskDefaults}
   />
 {/if}
 

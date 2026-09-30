@@ -1,10 +1,17 @@
 <script lang="ts">
   import type { DrainRunSummary, DrainStatus, Epic, EpicRunStatus } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { updateEpic, approveEpicNext } from "$lib/api";
+  import { updateEpic, approveEpicNext, queueEpic, unqueueEpic } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
   import { epicRunStateExplanation } from "$lib/tooltips/explanations";
-  import { epicRole, epicRunState, epicRunStateLabel, epicRunSteps } from "../epic-panel";
+  import {
+    epicRole,
+    epicRunState,
+    epicRunStateLabel,
+    epicRunSteps,
+    queuedBehind,
+    queuePosition,
+  } from "../epic-panel";
   import type { EpicOthersFlag } from "../issues-panel";
   import EpicRunSteps from "./EpicRunSteps.svelte";
   import EpicRunSettings from "./EpicRunSettings.svelte";
@@ -43,16 +50,23 @@
   const steps = $derived(epicRunSteps(epic, parent, drain));
   const canEnd = $derived(epic.run.status === "running" || epic.run.status === "paused");
   const canApprove = $derived(epic.run.mode === "attended" && running);
+  // #2624: this epic's place in the repo's epic queue (null = not queued).
+  const position = $derived(queuePosition(drain?.runSummary, parent));
 
   const inFlightText = $derived.by(() => {
     if (runState.inFlight.length) return runState.inFlight.map((n) => `#${n}`).join(", ");
     return steps?.now.map((h) => h.desig).join(", ") || "…";
   });
 
-  const stateLabel = $derived(epicRunStateLabel(runState.kind, inFlightText));
+  const stateLabel = $derived(epicRunStateLabel(runState.kind, inFlightText, runState.position));
 
   // A winding-down epic explains itself: who leads now, what still finishes, what stays behind.
+  // A queued one names the epic it waits for.
   const note = $derived.by(() => {
+    if (runState.kind === "queued") {
+      const after = drain?.runSummary ? queuedBehind(drain.runSummary, parent) : null;
+      return after == null ? null : m.epic_run_queued_note({ after });
+    }
     if (runState.kind !== "winding") return runState.note;
     const parts = [];
     if (steps?.kind === "winding" && steps.leader != null) {
@@ -101,9 +115,20 @@
     else setStatus("running");
   }
 
-  function confirmStart() {
+  // Queue behind the leader (#2624, the dialog's recommended choice) or supersede it now.
+  function confirmStart(choice: "queue" | "supersede") {
     confirming = null;
-    setStatus("running");
+    if (choice === "supersede") setStatus("running");
+    else
+      queueEpic(repoPath, parent).catch(() =>
+        toasts.info(m.epic_queue_failed(), { alert: true, key: "epic-queue-fail" }),
+      );
+  }
+
+  function unqueue() {
+    unqueueEpic(repoPath, parent).catch(() =>
+      toasts.info(m.epic_unqueue_failed(), { alert: true, key: "epic-unqueue-fail" }),
+    );
   }
 
   function toggleMode() {
@@ -153,6 +178,11 @@
     >
       {epic.run.mode === "auto" ? m.epic_mode_auto() : m.epic_mode_attended()}
     </button>
+    {#if position != null && !running}
+      <button class="gbtn" type="button" title={m.epic_unqueue_title()} onclick={unqueue}
+        >{m.epic_unqueue()}</button
+      >
+    {/if}
     {#if running}
       <button
         class="gbtn"
@@ -223,6 +253,8 @@
     {parent}
     leader={confirming.leader}
     summary={confirming.summary}
+    queueable={queuePosition(confirming.summary, parent) == null}
+    behind={queuedBehind(confirming.summary, parent) ?? confirming.leader}
     onconfirm={confirmStart}
     onclose={() => (confirming = null)}
     {onopenautomation}

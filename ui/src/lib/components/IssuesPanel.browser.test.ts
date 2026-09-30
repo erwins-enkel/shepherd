@@ -540,10 +540,14 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
 
   // The issue's acceptance scenario (#2620): maxAuto = 1, epic B (#20) leads and waits for the
   // slot, epic A's (#10) child #11 holds it.
-  it("roles: 'leads' on B, 'winding down' on A, the slot line, and the holding child", async () => {
+  it("roles: 'leads' on B, 'winding down' on A, 'queued' on C, the slot line, and the holding child", async () => {
     seed(
-      [plain(10, { title: "Epic A" }), plain(20, { title: "Epic B" })],
-      [summary(10), summary(20)],
+      [
+        plain(10, { title: "Epic A" }),
+        plain(20, { title: "Epic B" }),
+        plain(30, { title: "Epic C" }),
+      ],
+      [summary(10), summary(20), summary(30)],
     );
     mockEpic.mockImplementation((repoPath: string, parentIssueNumber: number) =>
       Promise.resolve({
@@ -589,12 +593,14 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
           },
           next: [21],
           after: [],
+          queued: [30],
         },
       },
     });
 
     await expect.poll(() => option("e:20")?.textContent).toContain(m.epic_role_leading());
     expect(option("e:10")?.textContent).toContain(m.epic_role_winding());
+    expect(option("e:30")?.textContent).toContain(m.epic_role_queued({ position: 1 }));
     await expect.element(page.getByText(m.issuespanel_epics_one_leads())).toBeInTheDocument();
     await page.getByRole("button", { name: m.issuespanel_slots_change(), exact: true }).click();
     expect(onopenautomation).toHaveBeenCalled();

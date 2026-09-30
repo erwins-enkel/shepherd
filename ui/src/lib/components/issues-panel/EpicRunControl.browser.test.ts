@@ -8,6 +8,8 @@ import { m } from "$lib/paraglide/messages";
 
 const api = vi.hoisted(() => ({
   updateEpic: vi.fn(async () => ({})),
+  queueEpic: vi.fn(async () => ({})),
+  unqueueEpic: vi.fn(async () => ({})),
   approveEpicNext: vi.fn(async () => ({})),
   getEpic: vi.fn(async () => {
     throw new Error("not needed");
@@ -111,6 +113,8 @@ function changeSelect(label: string, value: string) {
 
 beforeEach(() => {
   api.updateEpic.mockClear();
+  api.queueEpic.mockClear();
+  api.unqueueEpic.mockClear();
   api.approveEpicNext.mockClear();
   api.getEpic.mockClear();
 });
@@ -163,6 +167,7 @@ describe("EpicRunControl — acceptance scenario (#2620)", () => {
       .element(page.getByRole("dialog", { name: m.epic_supersede_title({ epic: A }) }))
       .toBeInTheDocument();
     expect(api.updateEpic).not.toHaveBeenCalled();
+    await page.getByRole("radio", { name: m.epic_supersede_now() }).click();
     await page.getByRole("button", { name: m.epic_supersede_confirm() }).click();
     expect(api.updateEpic).toHaveBeenCalledWith("/repo", A, { status: "running" });
     expect(page.getByRole("dialog").query()).toBeNull();
@@ -236,6 +241,7 @@ describe("EpicRunControl actions", () => {
     expect(page.getByText(m.epic_run_step_next()).query()).toBeNull();
     expect(page.getByRole("button", { name: m.epic_run_more() }).query()).toBeNull();
     await page.getByRole("button", { name: m.epic_start() }).click();
+    await page.getByRole("radio", { name: m.epic_supersede_now() }).click();
     await page.getByRole("button", { name: m.epic_supersede_confirm() }).click();
     expect(api.updateEpic).toHaveBeenCalledWith("/repo", 99, { status: "running" });
   });
@@ -457,5 +463,65 @@ describe("EpicRunControl supersede confirmation (#2623)", () => {
     await page.getByRole("button", { name: m.epic_start() }).click();
     expect(api.updateEpic).toHaveBeenCalledWith("/repo", 99, { status: "running" });
     expect(page.getByRole("dialog").query()).toBeNull();
+  });
+});
+
+describe("EpicRunControl epic queue (#2624)", () => {
+  it("Start while another epic leads queues it by default — nothing is superseded", async () => {
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: 99,
+      epic: epic(99, { status: "idle" }),
+      drain: drain({ runSummary: summary({ queued: [50] }) }),
+      titleFor,
+    });
+
+    await page.getByRole("button", { name: m.epic_start() }).click();
+    // Behind the queue's tail (#50), not the leader.
+    await expect
+      .element(page.getByRole("radio", { name: m.epic_queue_option({ after: 50 }) }))
+      .toBeChecked();
+    await page.getByRole("button", { name: m.epic_queue_confirm() }).click();
+    expect(api.queueEpic).toHaveBeenCalledWith("/repo", 99);
+    expect(api.updateEpic).not.toHaveBeenCalled();
+    expect(page.getByRole("dialog").query()).toBeNull();
+  });
+
+  it("choosing 'supersede now' keeps today's start", async () => {
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: 99,
+      epic: epic(99, { status: "idle" }),
+      drain: drain(),
+      titleFor,
+    });
+
+    await page.getByRole("button", { name: m.epic_start() }).click();
+    await page.getByRole("radio", { name: m.epic_supersede_now() }).click();
+    await page.getByRole("button", { name: m.epic_supersede_confirm() }).click();
+    expect(api.updateEpic).toHaveBeenCalledWith("/repo", 99, { status: "running" });
+    expect(api.queueEpic).not.toHaveBeenCalled();
+  });
+
+  it("a queued epic shows its place, what it waits for, and 'Remove from queue'", async () => {
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: 99,
+      epic: epic(99, { status: "idle" }),
+      drain: drain({ runSummary: summary({ queued: [50, 99] }) }),
+      titleFor,
+    });
+
+    await expect
+      .element(page.getByText(m.epic_run_state_queued({ position: 2 })))
+      .toBeInTheDocument();
+    await expect.element(page.getByText(m.epic_run_queued_note({ after: 50 }))).toBeInTheDocument();
+    await page.getByRole("button", { name: m.epic_unqueue() }).click();
+    expect(api.unqueueEpic).toHaveBeenCalledWith("/repo", 99);
+
+    // Start on a queued epic only offers superseding — it is queued already.
+    await page.getByRole("button", { name: m.epic_start() }).click();
+    await expect.element(page.getByRole("dialog")).toBeInTheDocument();
+    expect(page.getByRole("radio").query()).toBeNull();
   });
 });

@@ -13,6 +13,7 @@
     summary = undefined,
     epic = undefined,
     role = null,
+    position = null,
     expanded,
     selected,
     optionId,
@@ -24,6 +25,8 @@
     epic?: Epic;
     /** Role in the repo's run (#2620) — "leads" / "winding down"; null → no badge. */
     role?: EpicRole | null;
+    /** 1-based place in the repo's epic queue (#2624), shown on a "queued" badge. */
+    position?: number | null;
     expanded: boolean;
     selected: boolean;
     optionId: string;
@@ -69,7 +72,7 @@
   >
   <span class="num" id={`epic-issue-row-${issue.number}`}>#{issue.number}</span>
   <span class="title issue-title">{issue.title}</span>
-  {#if role}<EpicRoleBadge {role} />{/if}
+  {#if role}<EpicRoleBadge {role} {position} />{/if}
   {#if counts.total > 0}
     <span class="bar" aria-hidden="true">
       {#each segments as tone, i (i)}<span class="seg seg-{tone}"></span>{/each}

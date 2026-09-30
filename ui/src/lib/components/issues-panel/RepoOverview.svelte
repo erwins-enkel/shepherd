@@ -6,6 +6,7 @@
     epicRunState,
     epicRunStateLabel,
     epicRunSteps,
+    queuePosition,
     type EpicRunTone,
   } from "../epic-panel";
   import { epicKey, singleKey } from "../issues-panel";
@@ -71,11 +72,15 @@
   // Leading and winding-down epics first, the rest in list order.
   const cards = $derived(
     epics
-      .map((e) => ({ epic: e, role: epicRole(summary, e.parentIssueNumber) }))
-      .sort((a, b) => rank(a.role) - rank(b.role)),
+      .map((e) => ({
+        epic: e,
+        role: epicRole(summary, e.parentIssueNumber),
+        position: queuePosition(summary, e.parentIssueNumber),
+      }))
+      .sort((a, b) => rank(a.role) - rank(b.role) || (a.position ?? 0) - (b.position ?? 0)),
   );
   function rank(role: ReturnType<typeof epicRole>): number {
-    return role === "leading" ? 0 : role === "winding" ? 1 : 2;
+    return role === "leading" ? 0 : role === "winding" ? 1 : role === "queued" ? 2 : 3;
   }
 
   const shownSingles = $derived(singles.slice(0, SINGLES_SHOWN));
@@ -116,7 +121,7 @@
     <section class="group" aria-label={m.repooverview_epics()}>
       <h3 class="group-head">{m.repooverview_epics()}</h3>
       <ul class="cards">
-        {#each cards as { epic, role } (epic.parentIssueNumber)}
+        {#each cards as { epic, role, position } (epic.parentIssueNumber)}
           <li>
             <button
               class="card"
@@ -125,7 +130,7 @@
             >
               <span class="line">
                 <span class="num">#{epic.parentIssueNumber}</span>
-                {#if role}<EpicRoleBadge {role} />{/if}
+                {#if role}<EpicRoleBadge {role} {position} />{/if}
                 <span class="faint"
                   >{m.repooverview_progress({ merged: epic.merged, total: epic.total })}</span
                 >

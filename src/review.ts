@@ -53,6 +53,7 @@ import {
   type EpicBaseDelta,
   type EpicContext,
 } from "./critic-core";
+import { ReviewerRuns } from "./reviewer-runs";
 import type { TaskAmendment } from "./task-amendments";
 import { scrubStaleVerdictArtifacts } from "./codex-last-message";
 // Generic secret-redactor for a bounded diagnostic string, despite the recap-flavoured name — the
@@ -257,6 +258,7 @@ interface InFlight {
    *  Two consecutive identical reads mean the critic has stopped writing (see resolveWait). */
   lastUnparseableRaw?: string;
   finalizing?: boolean;
+  heldSince?: number | null; // operator hold (ReviewerRuns.setHeld)
 }
 
 /** The prior verdict's streak-accountability state, carried into a fresh run's InFlight (no
@@ -351,6 +353,8 @@ export interface ReviewServiceDeps extends MembraneSeams {
   /** Fired when a critic run starts (true) and when it ends (false) for a session. The start
    *  transition carries the exact environment captured for that spawn; end omits it. */
   onReviewing?: (id: string, reviewing: boolean, env?: ReviewerEnv) => void;
+  /** Fired when the operator holds (true) or releases (false) an in-flight critic run. */
+  onHeld?: (id: string, held: boolean) => void;
   /**
    * Fired each tick a critic is still running, with its latest *meaningful* tool-use
    * summary (e.g. "$ git diff", "read review.ts") — surfaced live in the UI badge
@@ -441,13 +445,15 @@ export function isTerminalPr(git: GitState): boolean {
   return git.state === "merged" || git.state === "closed";
 }
 
-export class ReviewService {
-  private inflight = new Map<string, InFlight>();
-  // Session ids whose critic is mid-spawn but not yet in `inflight`. begin() awaits a
-  // gh fetch on the re-review path, so this claims the slot across that await — without
-  // it, a second session:git event would pass the inflight guard and double-spawn,
-  // orphaning the first run's worktree + terminal.
-  private starting = new Set<string>();
+export class ReviewService extends ReviewerRuns<InFlight> {
+  // `inflight` / `starting` live on ReviewerRuns. `starting` matters here because begin() awaits a
+  // gh fetch on the re-review path: it claims the slot across that await — without it, a second
+  // session:git event would pass the inflight guard and double-spawn, orphaning the first run's
+  // worktree + terminal.
+  // Head SHA of the run the operator cancelled, per session: a non-force consider() at the SAME head
+  // stays skipped (headAlreadySettled) so the cancelled review doesn't auto-restart; a new head or a
+  // force re-runs it.
+  private cancelledHeads = new Map<string, string>();
   private now: () => number;
   private timeoutMs: number;
   // Resolve the cap on every read so a live config thunk (UI setting) takes effect on the
@@ -483,6 +489,7 @@ export class ReviewService {
   private worktreeExists: (p: string) => boolean;
 
   constructor(private deps: ReviewServiceDeps) {
+    super();
     this.now = deps.now ?? Date.now;
     this.timeoutMs = deps.timeoutMs ?? 10 * 60 * 1000;
     // capture into a const so the constant-thunk closure keeps the narrowed type.
@@ -608,7 +615,7 @@ export class ReviewService {
     return true;
   }
 
-  private captureRunUsage(f: InFlight): Promise<void> {
+  protected captureRunUsage(f: InFlight): Promise<void> {
     return captureUsage(
       (wt, id) => this.readUsage(wt, id, f.reviewerProvider, f.reviewerModel),
       this.deps.store.completeReviewerSpawn.bind(this.deps.store),
@@ -1344,6 +1351,10 @@ export class ReviewService {
       // which case resolveWait() re-decides and we finalize now rather than burning the deadline.
       if (action === "wait") action = await this.resolveWait(f, read, timedOut);
       if (action === "wait") continue;
+      if (f.heldSince != null) {
+        f.finalizing = false; // held: leave the run unsettled until the operator releases it
+        continue;
+      }
       const raw: RawVerdict | null =
         action === "finalize-value" && read.status === "parsed" ? read.value : null;
       // Awaited before finalize() because finalize's `finally` reaps the terminal, after which the
@@ -1960,6 +1971,7 @@ export class ReviewService {
     headSha: string,
   ): boolean {
     if (prior?.headSha === headSha && !prior.spawnAborted) return true;
+    if (this.cancelledHeads.get(sessionId) === headSha) return true; // operator cancelled this head
     return this.deps.store.getSpawnNotice(sessionId, "review")?.inputKey === headSha;
   }
 
@@ -2294,20 +2306,14 @@ export class ReviewService {
     return [...this.inflight.keys()];
   }
 
-  /** In-flight critic reviews with the exact environment captured for each spawn. */
-  reviewingInflight(): Array<{ id: string } & ReviewerEnv> {
-    return [...this.inflight.values()].map((f) => ({
-      id: f.sessionId,
-      provider: f.reviewerProvider,
-      model: f.reviewerModel,
-      effort: f.reviewerEffort,
-    }));
+  protected runDeps() {
+    return this.deps;
   }
-
-  /** Worktree paths of critic runs currently owned in-memory — the GC sweep must spare
-   *  these (a re-adopted #631 orphan's tick() still needs its worktree). */
-  inflightWorktrees(): string[] {
-    return [...this.inflight.values()].map((f) => f.worktreePath);
+  protected nowMs() {
+    return this.now();
+  }
+  protected markCancelled(f: InFlight) {
+    this.cancelledHeads.set(f.sessionId, f.headSha);
   }
 
   forget(sessionId: string): void {
@@ -2323,13 +2329,14 @@ export class ReviewService {
       this.deps.onReviewing?.(sessionId, false);
     }
     this.deps.store.dropReview(sessionId);
+    this.cancelledHeads.delete(sessionId);
   }
 
   /** Drop an in-flight critic AND release its resolver entry. The two must stay coupled: the
    *  resolver's cache + backoff are keyed per spawn and never reused, so a run dropped without a
    *  reset (force-re-review, archive, finalize) is retained for the server's lifetime. Every
    *  `inflight.delete` goes through here so a future early-abort path can't forget it. */
-  private dropInflight(sessionId: string, f: InFlight): void {
+  protected dropInflight(sessionId: string, f: InFlight): void {
     this.inflight.delete(sessionId);
     this.codexResolver.reset(f.criticSessionId);
   }

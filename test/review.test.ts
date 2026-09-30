@@ -599,7 +599,7 @@ test("onReviewing start + inflight snapshot carry the critic's exact reviewer en
   await svc.consider(session(), OPEN_GREEN);
 
   expect(events).toContainEqual(["s1", true, env]);
-  expect(svc.reviewingInflight()).toEqual([{ id: "s1", ...env }]);
+  expect(svc.reviewingInflight()).toEqual([{ id: "s1", ...env, held: false }]);
   await svc.tick();
   expect(svc.reviewingInflight()).toEqual([]);
   expect(events.at(-1)).toEqual(["s1", false, undefined]);
@@ -4968,4 +4968,126 @@ test("Codex capacity: an interrupted critic is reaped without an error round", a
   await svc.tick();
   expect(Object.keys(h.reviews)).toHaveLength(0);
   expect(h.completedSpawns).toHaveLength(1);
+});
+
+// ── operator hold / cancel (review banner "Anhalten" / "Abbrechen") ─────────────
+
+test("a held critic run with a ready verdict is not settled or pasted until released", async () => {
+  const held: boolean[] = [];
+  const {
+    deps: d,
+    reviews,
+    steers,
+  } = makeDeps({ onHeld: (_id: string, h: boolean) => held.push(h) }, { autoAddressEnabled: true });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  expect(svc.setHeld("s1", true)).toBe(true);
+  await svc.tick();
+  await svc.tick();
+  expect(reviews["s1"]).toBeUndefined(); // nothing persisted
+  expect(steers).toHaveLength(0); // nothing pasted
+  expect(svc.reviewingInflight()[0]!.held).toBe(true);
+
+  expect(svc.setHeld("s1", false)).toBe(true);
+  await svc.tick();
+  expect(reviews["s1"]?.decision).toBe("changes_requested");
+  expect(steers).toHaveLength(1); // pasted exactly once
+  expect(reviews["s1"]?.addressRound).toBe(1);
+  expect(held).toEqual([true, false]);
+});
+
+test("held time does not count toward the critic timeout", async () => {
+  let t = 1000;
+  const { deps: d, reviews } = makeDeps(
+    { now: () => t, timeoutMs: 10_000, readVerdict: () => null },
+    { criticProcs: ["claude"] }, // alive, no verdict yet
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  svc.setHeld("s1", true);
+  t += 60_000; // far past the deadline while held
+  await svc.tick();
+  svc.setHeld("s1", false);
+  await svc.tick();
+  expect(reviews["s1"]).toBeUndefined(); // still waiting — no timeout error verdict
+  expect(svc.reviewingIds()).toEqual(["s1"]);
+});
+
+test("setHeld is false with no run in flight", () => {
+  const { deps: d } = makeDeps({});
+  expect(new ReviewService(d as any).setHeld("s1", true)).toBe(false);
+});
+
+test("cancel reaps the critic without a verdict, paste or round bump", async () => {
+  const events: { id: string; reviewing: boolean }[] = [];
+  const {
+    deps: d,
+    reviews,
+    steers,
+    stopped,
+    removed,
+    completedSpawns,
+  } = makeDeps(
+    { onReviewing: (id: string, reviewing: boolean) => events.push({ id, reviewing }) },
+    { autoAddressEnabled: true },
+  );
+  reviews["s1"] = priorReview({ headSha: "old", addressRound: 1 });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+
+  expect(await svc.cancel("s1")).toBe("cancelled");
+  await svc.tick();
+
+  expect(svc.reviewingIds()).toEqual([]);
+  expect(events.at(-1)).toEqual({ id: "s1", reviewing: false });
+  expect(stopped).toContain("rt");
+  expect(removed).toContain("/review-wt");
+  expect(completedSpawns).toHaveLength(1);
+  expect(steers).toHaveLength(0);
+  expect(reviews["s1"]?.headSha).toBe("old"); // prior verdict untouched
+  expect(reviews["s1"]?.addressRound).toBe(1);
+});
+
+test("cancel returns none with nothing in flight", async () => {
+  const { deps: d } = makeDeps({});
+  expect(await new ReviewService(d as any).cancel("s1")).toBe("none");
+});
+
+test("cancel leaves a run tick() is finalizing to its owner", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const { deps: d, reviews } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  // Park finalize inside its PR-state recheck so the claim stays held.
+  (d as any).resolveForge = () =>
+    ({
+      prStatus: async () => {
+        await gate;
+        return OPEN_GREEN;
+      },
+      postReview: async () => {},
+    }) as any;
+  const ticking = svc.tick();
+  await Promise.resolve();
+  const cancelling = svc.cancel("s1");
+  release();
+  await ticking;
+  expect(await cancelling).not.toBe("cancelled");
+  expect(reviews["s1"]).toBeDefined(); // the finalize completed normally
+});
+
+test("after cancel, auto consider at the same head is skipped; a new head or force re-runs", async () => {
+  const { deps: d, started, atHead } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.cancel("s1");
+
+  expect(await svc.consider(session(), OPEN_GREEN)).toBe("skipped");
+  expect(started).toHaveLength(1);
+
+  expect(await svc.consider(session(), atHead("def"))).toBe("started");
+  await svc.cancel("s1");
+  expect(await svc.forceReview(session(), atHead("def"))).toBe("started");
+  expect(started).toHaveLength(3);
 });

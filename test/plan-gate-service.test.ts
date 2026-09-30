@@ -363,7 +363,7 @@ test("begin carries the reviewer env on the reviewing:true signal + reviewingInf
   ]);
   // The inflight bootstrap snapshot exposes the same env for a mid-review reload.
   expect(h.svc.reviewingInflight()).toEqual([
-    { id: "s1", provider: "codex", model: "gpt-5.5", effort: "high" },
+    { id: "s1", provider: "codex", model: "gpt-5.5", effort: "high", held: false },
   ]);
   expect(h.started[0]!.argv.slice(h.started[0]!.argv.indexOf("--output-schema"), -1)).toEqual([
     "--output-schema",
@@ -3599,4 +3599,92 @@ test("Codex capacity: an interrupted plan helper is reaped without an error verd
   expect(h.store.gate).toBeUndefined();
   expect(h.completedSpawns).toHaveLength(1);
   expect(h.removed).toHaveLength(1);
+});
+
+// ── operator hold / cancel (review banner "Anhalten" / "Abbrechen") ─────────────
+
+const RC_VERDICT = () => ({
+  decision: "request-changes",
+  summary: "no",
+  body: "B",
+  findings: ["fix A"],
+});
+
+test("a held plan review with a ready verdict is not settled or steered until released", async () => {
+  const steers: string[] = [];
+  const held: boolean[] = [];
+  const h = harness({
+    readVerdict: RC_VERDICT,
+    reply: (_id: string, t: string) => {
+      steers.push(t);
+      return true;
+    },
+    onHeld: (_id: string, v: boolean) => held.push(v),
+  });
+  await h.svc.consider(planningSession() as any);
+  expect(h.svc.setHeld("s1", true)).toBe(true);
+  await h.svc.tick();
+  expect(h.store.gate).toBeUndefined();
+  expect(steers).toHaveLength(0);
+  expect(h.svc.reviewingInflight()[0]!.held).toBe(true);
+
+  h.svc.setHeld("s1", false);
+  await h.svc.tick();
+  expect(steers).toHaveLength(1);
+  expect(h.store.gate.round).toBe(1);
+  expect(held).toEqual([true, false]);
+});
+
+test("held time does not count toward the plan review timeout", async () => {
+  let t = 1000;
+  const h = harness({ now: () => t, timeoutMs: 10_000 });
+  await h.svc.consider(planningSession() as any);
+  h.svc.setHeld("s1", true);
+  t += 60_000;
+  await h.svc.tick();
+  h.svc.setHeld("s1", false);
+  await h.svc.tick();
+  expect(h.store.gate).toBeUndefined(); // no timeout error gate
+  expect(h.svc.reviewingIds()).toEqual(["s1"]);
+});
+
+test("cancel reaps the plan reviewer without a gate, steer or round", async () => {
+  const steers: string[] = [];
+  const events: boolean[] = [];
+  const h = harness({
+    readVerdict: RC_VERDICT,
+    reply: (_id: string, t: string) => {
+      steers.push(t);
+      return true;
+    },
+    onReviewing: (_id: string, r: boolean) => events.push(r),
+  });
+  await h.svc.consider(planningSession() as any);
+  expect(await h.svc.cancel("s1")).toBe("cancelled");
+  await h.svc.tick();
+  expect(h.svc.reviewingIds()).toEqual([]);
+  expect(events.at(-1)).toBe(false);
+  expect(h.removed).toContain("/wt-detached");
+  expect(h.completedSpawns).toHaveLength(1);
+  expect(steers).toHaveLength(0);
+  expect(h.store.gate).toBeUndefined();
+});
+
+test("plan cancel returns none with nothing in flight", async () => {
+  expect(await harness().svc.cancel("s1")).toBe("none");
+});
+
+test("after cancel, auto consider on the same plan is skipped; a changed plan or force re-runs", async () => {
+  let plan = "PLAN TEXT";
+  const h = harness({ readPlan: () => plan });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.cancel("s1");
+  expect(await h.svc.consider(planningSession() as any)).toBe("skipped");
+  expect(h.started).toHaveLength(1);
+
+  plan = "PLAN TEXT v2";
+  expect(await h.svc.consider(planningSession() as any)).toBe("started");
+  await h.svc.cancel("s1");
+  expect(await h.svc.consider(planningSession() as any, { force: true })).toBe("started");
+  expect(h.started).toHaveLength(3);
 });

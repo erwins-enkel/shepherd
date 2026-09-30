@@ -2705,6 +2705,9 @@ components:
           type:
             - string
             - "null"
+        held:
+          type: boolean
+          description: The operator is holding this run — its result is neither settled nor pasted until released.
     ReviewerInflightList:
       type: array
       items:
@@ -2719,6 +2722,65 @@ components:
         - started
         - skipped
         - error
+    ReviewKind:
+      type: string
+      description: Which review a hold/cancel acted on — the PR critic or the plan gate.
+      enum:
+        - critic
+        - plangate
+    ReviewHoldRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - held
+      properties:
+        held:
+          type: boolean
+    ReviewHoldResult:
+      type: object
+      additionalProperties: true
+      required:
+        - ok
+        - held
+        - kind
+      properties:
+        ok:
+          type: boolean
+        held:
+          type: boolean
+        kind:
+          $ref: "#/components/schemas/ReviewKind"
+    ReviewCancelResult:
+      type: object
+      additionalProperties: true
+      required:
+        - ok
+        - status
+        - kind
+      properties:
+        ok:
+          type: boolean
+        status:
+          type: string
+          enum:
+            - cancelled
+        kind:
+          $ref: "#/components/schemas/ReviewKind"
+    SessionReviewHeldEvent:
+      type: object
+      additionalProperties: true
+      description: The operator held or released an in-flight review.
+      required:
+        - id
+        - kind
+        - held
+      properties:
+        id:
+          type: string
+        kind:
+          $ref: "#/components/schemas/ReviewKind"
+        held:
+          type: boolean
     PrReviewResult:
       type: object
       additionalProperties: true
@@ -3412,6 +3474,9 @@ components:
           type:
             - string
             - "null"
+        held:
+          type: boolean
+          description: The operator is holding this review — its result is neither settled nor steered until released.
     PlanGateInflightList:
       type: array
       items:
@@ -7517,6 +7582,68 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/review-hold:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: holdReview
+      description: Hold (or release) whichever review — critic or plan gate — is in flight. While held the reviewer keeps running, but its result is neither settled nor pasted; held time does not count toward the review timeout. Lands as session:review-held.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewHoldRequest"
+      responses:
+        "200":
+          description: Held or released.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewHoldResult"
+        "400":
+          description: 'error is "body must be {held: boolean}".'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: error is "no review in flight". Also the answer for an unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/review-cancel:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: cancelReview
+      description: Kill whichever review is in flight and discard its work — no verdict, no paste, no round. It is not re-run automatically until the PR head or the plan changes; a forced review (review-pr / review-plan) restarts it. Lands as session:reviewing / session:plangate-reviewing with reviewing false.
+      responses:
+        "200":
+          description: Cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReviewCancelResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: 'Two bodies: "no review in flight" (also for an unknown id), and "review is finalizing" when its result is already landing.'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/plan-gates:
     get:
       operationId: listPlanGates
@@ -9539,6 +9666,10 @@ x-shepherd-events:
     description: A critic run started or ended. `env` rides the start edge only.
     schema:
       $ref: "#/components/schemas/SessionReviewingEvent"
+  session:review-held:
+    description: The operator held or released the in-flight critic or plan review.
+    schema:
+      $ref: "#/components/schemas/SessionReviewHeldEvent"
   session:critic-activity:
     description: One line of critic progress. Cleared on both edges of session:reviewing.
     schema:

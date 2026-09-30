@@ -231,6 +231,68 @@ describe("review-pr forge failure", () => {
   });
 });
 
+describe("review hold / cancel", () => {
+  async function postBody(path: string, body: unknown, auth = true): Promise<Response> {
+    return fetch(`${s.baseUrl}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...(auth ? bearer(token) : {}) },
+      body: JSON.stringify(body),
+    });
+  }
+  const HOLD = "/api/sessions/{id}/review-hold";
+  const CANCEL = "/api/sessions/{id}/review-cancel";
+
+  test("hold: 200, 400, 409, 401", async () => {
+    // The harness wires no review control, so nothing is ever in flight → the 409 body.
+    const none = await postBody("/api/sessions/sess_fixture/review-hold", { held: true });
+    expect(none.status).toBe(409);
+    await validateResponse("POST", HOLD, none);
+
+    const bad = await postBody("/api/sessions/sess_fixture/review-hold", { held: "yes" });
+    expect(bad.status).toBe(400);
+    await validateResponse("POST", HOLD, bad);
+
+    const saved = s.deps.reviewControl;
+    s.deps.reviewControl = { hold: () => "critic", cancel: async () => ({}) } as never;
+    try {
+      const ok = await postBody("/api/sessions/sess_fixture/review-hold", { held: true });
+      expect(ok.status).toBe(200);
+      const body = (await validateResponse("POST", HOLD, ok)) as { kind: string };
+      expect(body.kind).toBe("critic");
+    } finally {
+      s.deps.reviewControl = saved;
+    }
+
+    const anon = await postBody("/api/sessions/sess_fixture/review-hold", { held: true }, false);
+    expect(anon.status).toBe(401);
+    await validateResponse("POST", HOLD, anon);
+  });
+
+  test("cancel: 200, 409, 401", async () => {
+    const none = await post("/api/sessions/sess_fixture/review-cancel");
+    expect(none.status).toBe(409);
+    await validateResponse("POST", CANCEL, none);
+
+    const saved = s.deps.reviewControl;
+    s.deps.reviewControl = {
+      hold: () => null,
+      cancel: async () => ({ kind: "plangate", status: "cancelled" }),
+    };
+    try {
+      const ok = await post("/api/sessions/sess_fixture/review-cancel");
+      expect(ok.status).toBe(200);
+      const body = (await validateResponse("POST", CANCEL, ok)) as { status: string };
+      expect(body.status).toBe("cancelled");
+    } finally {
+      s.deps.reviewControl = saved;
+    }
+
+    const anon = await post("/api/sessions/sess_fixture/review-cancel", false);
+    expect(anon.status).toBe(401);
+    await validateResponse("POST", CANCEL, anon);
+  });
+});
+
 describe("events", () => {
   test("the four herd frames validate against their declared schemas", async () => {
     // `collectEvents(server, token, drive)` — it opens the socket, runs `drive`, then settles.
@@ -242,6 +304,7 @@ describe("events", () => {
         reviewing: true,
         env: { provider: "claude", model: "claude-opus-5", effort: "high" },
       });
+      s.deps.events.emit("session:review-held", { id: "sess_fixture", kind: "critic", held: true });
       s.deps.events.emit("session:critic-activity", {
         id: "sess_fixture",
         summary: "reading src/limiter.ts",

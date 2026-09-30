@@ -290,6 +290,7 @@ describe("demoState mutators emit the correct WsEvent frames", () => {
     expect(demoState.mergedClearable()).toEqual({
       ids: ["deps", "envflag"],
       leftovers: 0,
+      leftoversById: { deps: 0, envflag: 0 },
       probesUnavailable: false,
     });
   });
@@ -304,6 +305,7 @@ describe("demoState mutators emit the correct WsEvent frames", () => {
     expect(demoState.mergedClearable()).toEqual({
       ids: ["envflag"],
       leftovers: 0,
+      leftoversById: { envflag: 0 },
       probesUnavailable: false,
     });
   });

@@ -2869,9 +2869,11 @@ function mergedSessionIds(deps: AppDeps): string[] {
 }
 
 // /api/sessions/clear-merged — bulk-close every merged-branch session.
-//   GET  → { ids, leftovers, probesUnavailable } summary feeding the confirm modal. The flag
-//     says the leftover count is "unknown" rather than "zero" (#1923) — without it a broken
-//     host reads as a clean one and the batch clear leaks every dev server.
+//   GET  → { ids, leftovers, leftoversById, probesUnavailable } summary feeding the confirm
+//     modal. `leftoversById` lets the modal total just the subset it is about to clear (the
+//     herd's repo filter vs every repo). The flag says the leftover count is "unknown" rather
+//     than "zero" (#1923) — without it a broken host reads as a clean one and the batch clear
+//     leaks every dev server.
 //   POST {ids} → archive the merged subset, terminating each one's leftover
 //     subprocesses. The client ids are intersected with the server's merged set
 //     (re-validation) so a stale snapshot can never archive a still-live session;
@@ -2885,8 +2887,16 @@ async function handleSessionsClearMerged({ req, parts, deps }: Ctx): Promise<Res
   const merged = new Set(mergedSessionIds(deps));
   if (req.method === "GET") {
     const ids = [...merged];
-    const leftovers = ids.reduce((n, id) => n + deps.service.leftovers(id).length, 0);
-    return json({ ids, leftovers, probesUnavailable: deps.service.leftoverProbesUnavailable() });
+    const leftoversById = Object.fromEntries(
+      ids.map((id) => [id, deps.service.leftovers(id).length]),
+    );
+    const leftovers = ids.reduce((n, id) => n + leftoversById[id]!, 0);
+    return json({
+      ids,
+      leftovers,
+      leftoversById,
+      probesUnavailable: deps.service.leftoverProbesUnavailable(),
+    });
   }
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
   const body = (await req.json().catch(() => null)) as { ids?: unknown } | null;

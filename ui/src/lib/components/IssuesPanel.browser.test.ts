@@ -609,6 +609,42 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     expect(region).toContain("#21 First of B");
   });
 
+  it("a click on the flow graph (#2621) opens the epic in the list and selects the child", async () => {
+    seed(
+      [plain(10, { title: "Epic A" }), plain(20, { title: "Epic B" })],
+      [summary(10), summary(20)],
+    );
+    mockEpic.mockImplementation((repoPath: string, parentIssueNumber: number) =>
+      Promise.resolve({
+        repoPath,
+        parentIssueNumber,
+        parentTitle: `Epic ${parentIssueNumber}`,
+        source: "native",
+        children:
+          parentIssueNumber === 10
+            ? [childOf(11)]
+            : [childOf(21, "First of B"), { ...childOf(22, "Second of B"), blockedBy: [21] }],
+        warnings: [],
+        run: { repoPath, parentIssueNumber, mode: "auto", status: "idle" },
+      }),
+    );
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    // A (#10) is the default-expanded epic; B's children aren't listed until B opens.
+    await expect.poll(() => option("c:10:11")).not.toBeNull();
+    await selectRow("e:20");
+    expect(option("c:20:22")).toBeNull();
+
+    const flow = page.getByRole("region", { name: m.epicflow_title() });
+    await flow.getByRole("button", { name: /#22/ }).click();
+
+    await expect.poll(() => option("c:20:22")?.getAttribute("aria-selected")).toBe("true");
+    await expect
+      .poll(() => document.querySelector(".issue-detail .epic-tag")?.textContent)
+      .toBe(m.issuedetail_epic_of({ parent: 20 }));
+    expect(document.querySelector(".issue-detail")?.textContent).toContain("Second of B");
+  });
+
   it("mobile: the detail opens as a second level and Back returns to the list", async () => {
     seed([plain(42, { body: "**hi**" })]);
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, mobile: true });

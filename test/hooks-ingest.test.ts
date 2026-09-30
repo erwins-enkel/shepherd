@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import {
   validateHookEvent,
   HookIngest,
+  toolUseSince,
   type HookEvent,
   type SubagentEntry,
 } from "../src/hooks-ingest";
@@ -322,4 +323,35 @@ test("HookIngest roster: empty agentId is a no-op", () => {
   const h = new HookIngest();
   h.record("s1", sub({ agentId: undefined }));
   expect(h.subagentSnapshot("s1")).toEqual([]);
+});
+
+// ── toolUseSince (pure; autopilot's fruitless-nudge signal, #2608) ────────────
+
+const hookEv = (event: string, receivedAt: number, over: Partial<HookEvent> = {}): HookEvent => ({
+  event,
+  sessionId: "cs",
+  receivedAt,
+  match: true,
+  ...over,
+});
+
+test("toolUseSince: no matched events → null (no evidence hooks reach the session)", () => {
+  expect(toolUseSince([], 100)).toBeNull();
+  expect(toolUseSince([hookEv("PostToolUse", 200, { match: false })], 100)).toBeNull();
+});
+
+// The ring outlives a Claude → Codex switch (same session id, Codex sends no hooks): stale events
+// must not read as "hooks alive, no tool ran" and stall a working session.
+test("toolUseSince: matched events that all precede `since` → null", () => {
+  expect(toolUseSince([hookEv("PostToolUse", 50), hookEv("Stop", 60)], 100)).toBeNull();
+  expect(toolUseSince([hookEv("Stop", 100)], 100)).toBeNull();
+});
+
+test("toolUseSince: only a Stop after `since` → false (hooks alive, no tool ran)", () => {
+  expect(toolUseSince([hookEv("PostToolUse", 50), hookEv("Stop", 200)], 100)).toBe(false);
+});
+
+test("toolUseSince: a tool / failed tool / sub-agent start after `since` → true", () => {
+  for (const name of ["PostToolUse", "PostToolUseFailure", "SubagentStart"])
+    expect(toolUseSince([hookEv("Stop", 50), hookEv(name, 200)], 100)).toBe(true);
 });

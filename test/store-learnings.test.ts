@@ -654,6 +654,16 @@ test("attributeInjected({good:false}) bumps injectedCount+lastUsedAt only; helpf
   expect(after.lastUsedAt).not.toBeNull();
 });
 
+test("sessionInjectedLearningIds reads the recorded ids in order without consuming them", () => {
+  const s = new SessionStore(":memory:");
+  const l1 = s.addLearning({ repoPath: "/r", rule: "one", rationale: "", evidence: [] });
+  const l2 = s.addLearning({ repoPath: "/r", rule: "two", rationale: "", evidence: [] });
+  s.recordInjectedLearnings("sess1", [l2.id, l1.id]);
+  expect(s.sessionInjectedLearningIds("sess1")).toEqual([l2.id, l1.id]);
+  expect(s.sessionInjectedLearningIds("sess1")).toEqual([l2.id, l1.id]); // a read, not a take
+  expect(s.sessionInjectedLearningIds("other")).toEqual([]);
+});
+
 test("takeSessionInjectedLearnings returns recorded ids then empties on second call", () => {
   const s = new SessionStore(":memory:");
   const l1 = s.addLearning({ repoPath: "/r", rule: "r1", rationale: "", evidence: [] });

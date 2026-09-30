@@ -185,6 +185,23 @@ export function validateHookEvent(body: unknown): RawHookEvent | null {
   return { event: eventName || "unknown", sessionId, unknown: true };
 }
 
+/** Events that prove the agent actually did something in a turn (a tool ran, or it fanned out). */
+const TOOL_USE_EVENTS = new Set(["PostToolUse", "PostToolUseFailure", "SubagentStart"]);
+
+/**
+ * Did the agent use a tool after `since` (server ms)? Autopilot's fruitless-nudge signal (#2608).
+ * `true` / `false` only when a matched event arrived AFTER `since` — that is the evidence hooks
+ * reach this session NOW (a text-only Claude turn still ends in a `Stop`). No such event is
+ * `null`: no evidence either way, so the caller must not count the turn as fruitless. Older
+ * events prove nothing — the ring outlives a provider switch (replaceAgent keeps the session id,
+ * and Codex sends no hooks), as it does hook ingest being turned off.
+ */
+export function toolUseSince(events: HookEvent[], since: number): boolean | null {
+  const recent = events.filter((e) => e.match !== false && e.receivedAt > since);
+  if (recent.length === 0) return null;
+  return recent.some((e) => TOOL_USE_EVENTS.has(e.event));
+}
+
 /**
  * Bounded in-memory ring buffer + structured logging for ingested hook events. The
  * single owner of the Phase-0 observable surface. `record` never throws — a malformed

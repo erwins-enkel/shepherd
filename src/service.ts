@@ -609,24 +609,20 @@ export interface SpawnTrimOverlay {
  *  - `disableBundledSkills` + a `skillOverrides: {<user skill>: "off"}` map: Claude Code's
  *    built-in skills and the operator's personal ones, neither of which an unattended coding
  *    run has any use for. The WORKTREE's own `.claude/skills` stay listed and loadable;
- *  - the context-trim system-prompt notice (composeSystemPrompt `trimmed`) — fresh spawns
- *    only: resume() re-passes no `--append-system-prompt` (pre-existing: house rules /
- *    directives don't ride resumes either), so a resumed trimmed session deliberately runs
- *    the same trim without the notice.
- *    TWO narrow, deliberate exceptions: buildClaudeResumeArgv DOES re-pass a single
- *    `--append-system-prompt` (never the full directive set) carrying
- *    - the `<steer-provenance-notice>` block, always: a resumed session is exactly what
- *      resumeThenSteer steers, and without it a pasted steer can be refused (TASK-2614);
- *    - the `<operator-language>` block (issue #1624), when not "en", so a compacted/resumed
- *      session keeps addressing the operator in their language instead of drifting back.
- *    WHAT A RESUME ACTUALLY SEES IS CLI-VERSION DEPENDENT. When #1624 landed the re-pass was
- *    verified honored on resume (`-p` and interactive PTY). Measured on Claude Code 2.1.283
- *    (interactive PTY, codeword test), `--resume` instead restores the session's ORIGINAL
- *    spawn-time appended prompt — the whole directive set, plan-gate directive included — and
- *    ignores the newly passed value. So on 2.1.283 the re-pass is inert, a session keeps
- *    whatever it was spawned with, and "directives don't ride resumes" above does not hold;
- *    on a CLI that honors the flag the re-pass is what carries these two blocks. Both
- *    behaviours leave a session spawned with a block still holding it after a resume.
+ *  - the context-trim system-prompt notice (composeSystemPrompt `trimmed`), on the spawn and
+ *    on every resume: buildClaudeResumeArgv re-passes the FULL directive set, recomposed for the
+ *    session's current phase, in a single `--append-system-prompt` (issue #2608).
+ *    WHAT A RESUMED SESSION SEES, measured on Claude Code 2.1.283 (interactive PTY, codeword
+ *    test). The CLI records the system prompt at a conversation's first request
+ *    (`--system-prompt-snapshot on`, the default) and replays that record on every later request
+ *    and resume, ignoring a newly passed value. So right after a resume the session still holds
+ *    its SPAWN-time set, plan-gate directive included. A compaction discards the record and
+ *    re-renders from the RUNNING process's argv — from then on the resume's value is the whole
+ *    appended prompt, replacing the spawn-time one. That is why the resume must carry everything:
+ *    passing only a block or two (as it did before #2608) left a resumed-then-compacted session
+ *    without the untrusted-content boundary, house rules and autopilot directive.
+ *    `--system-prompt-snapshot off` would apply the resume's value at once; it is deliberately
+ *    not passed, since a changed prompt rewrites the conversation's whole prompt cache.
  *
  * It deliberately no longer passes `--disable-slash-commands` (issue #2001). That flag is
  * "Disable all skills": it deleted progressive disclosure — the mechanism — for exactly the
@@ -719,10 +715,10 @@ const BRANCH_RENAME_NOTICE =
  * turn, so without this block a session can refuse the plan-go steer and every autopilot nudge
  * until the operator types something by hand (TASK-2614). Scoped to a turn that is ONLY a paste,
  * and explicitly leaves the ⟦UNTRUSTED⟧ fence rule untouched. Codex has no such wrapper, so it
- * never carries this. Re-passed on the resume argv too (buildClaudeResumeArgv): whether a resume
- * honors that flag is CLI-version dependent (see trimDecision), and a resumed session is exactly
- * what resumeThenSteer steers. Not user-facing chrome (it's an instruction to the agent), so no
- * i18n.
+ * never carries this. Re-passed on the resume argv with the rest of the directive set
+ * (buildClaudeResumeArgv), so it survives a compaction of a resumed session (see trimDecision) —
+ * a resumed session is exactly what resumeThenSteer steers. Not user-facing chrome (it's an
+ * instruction to the agent), so no i18n.
  */
 const STEER_PROVENANCE_NOTICE = [
   "Shepherd delivers its own steers and your operator's replies into this session by pasting them",
@@ -1700,10 +1696,10 @@ const PLAN_REGATE_STEER =
  * The operator-language directive re-carried as a suffix on an internal steer (#1624). Codex has no
  * `--append-system-prompt` on resume (buildCodexResumeArgv carries no directive), so the
  * `<operator-language>` block must re-ride each internal `reply()`-routed steer to persist past the
- * opening turn — otherwise a compacted/steered Codex session drifts back to English. Claude gets the
- * block on resume via buildClaudeResumeArgv's append — or, on a CLI that ignores the flag on resume
- * (2.1.283, see trimDecision), only from its spawn-time prompt — so its steers carry nothing (→ `""`, keeping
- * Claude steer text byte-identical). `""` for "en" too (operatorLanguageBlock returns null). Applied
+ * opening turn — otherwise a compacted/steered Codex session drifts back to English. Claude holds
+ * the block in its system prompt — recorded at spawn, and re-passed by buildClaudeResumeArgv so a
+ * compaction after a resume keeps it (see trimDecision) — so its steers carry nothing (→ `""`,
+ * keeping Claude steer text byte-identical). `""` for "en" too (operatorLanguageBlock returns null). Applied
  * centrally in replyToLive — the single funnel behind reply()/retryHalted — so every internal steer
  * (autopilot, plan-review/critic, plan-answer, release, preview, retry, build-queue, auto-merge
  * rebase) picks it up with one injection; operator free-text (operatorReply/broadcast) bypasses
@@ -1952,8 +1948,8 @@ export interface ComposeSystemPromptOptions {
  * `houseRules` is the already-wrapped `<shepherd-house-rules>` block, or null when there are
  * none / learnings are disabled; the engineering-posture, research-first, and branch-rename blocks
  * always ride. The `<steer-provenance-notice>` block rides every Claude-family spawn, directly after
- * the untrusted-content boundary (Codex never carries it), and is re-passed on the Claude resume
- * argv (see buildClaudeResumeArgv).
+ * the untrusted-content boundary (Codex never carries it). The whole set is re-passed on the Claude
+ * resume argv (see buildClaudeResumeArgv).
  * The `<single-pr-invariant>` block (issue #839) rides every spawn EXCEPT a research
  * one (`opts.research`) — research already caps at one report-PR / issue, so it's redundant there.
  * `opts.epicIntent` (issue #1391) appends the `<epic-authoring-notice>` block after the
@@ -3224,15 +3220,60 @@ export class SessionService {
      *  every failure. */
     judgedOutIds: ReadonlySet<string> | null;
   }): string {
-    const { input, sessionId, planGateOn, isolated, baseUrl, autopilotActive, trimmed } = args;
+    const { input, sessionId } = args;
+    const blocks = this.directiveBlocks(input, {
+      sessionId,
+      baseUrl: args.baseUrl,
+      houseRules: this.recordInjectedHouseRules(sessionId, input, args.judgedOutIds),
+      planGateOn: args.planGateOn === true,
+      isolated: args.isolated,
+      autopilotActive: args.autopilotActive,
+      trimmed: args.trimmed,
+      agentProvider: args.agentProvider,
+      // #2002: warn about the background rename only where one can actually land — the same
+      // conditions scheduleRefine checks before starting the namer, plus a branch to rename.
+      branchRename:
+        args.isolated &&
+        config.llmNaming &&
+        !!this.deps.refineName &&
+        !isHeuristicNameStrong(input.prompt),
+    });
+    this.recordPromptBudget(args.sessionId, args.agentProvider, blocks);
+    return joinPromptBlocks(blocks);
+  }
+
+  /**
+   * The directive blocks for one session, with NO side effects — the single assembly behind the
+   * spawn ({@link composeDirectives}) and the Claude resume argv (buildClaudeResumeArgv), so the two
+   * cannot drift. `input` is whatever describes the task: the create input at spawn, the stored
+   * session row on a resume.
+   */
+  private directiveBlocks(
+    input: Pick<
+      StandardCreateInput,
+      "repoPath" | "prompt" | "auto" | "research" | "epicAuthoring" | "landingRepair" | "plain"
+    >,
+    ctx: {
+      sessionId: string;
+      baseUrl: string;
+      /** The already-wrapped `<shepherd-house-rules>` block, or null. */
+      houseRules: string | null;
+      planGateOn: boolean;
+      isolated: boolean;
+      autopilotActive: boolean;
+      trimmed: boolean;
+      agentProvider: AgentProvider;
+      branchRename: boolean;
+    },
+  ): PromptBlock[] {
+    const { sessionId, baseUrl, planGateOn, autopilotActive } = ctx;
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
-    const houseRules = this.recordInjectedHouseRules(sessionId, input, args.judgedOutIds);
     const planGate = planGateOn ? (input.auto ? "auto" : "interactive") : undefined;
     const buildQueue = repoConfig.buildQueueEnabled
       ? buildQueueDirective({
           sessionId,
           baseUrl,
-          agentProvider: args.agentProvider,
+          agentProvider: ctx.agentProvider,
           // Never hand a plan-gated session an AUTO-executing build queue (TASK-413): during the
           // plan gate the deliverable is the approved plan, so the queue must stop-and-wait, not
           // drive straight into execution. This matters most for Codex, whose directives ride
@@ -3248,40 +3289,44 @@ export class SessionService {
       ? epicAuthoringDirective({
           sessionId,
           baseUrl,
-          agentProvider: args.agentProvider,
+          agentProvider: ctx.agentProvider,
         })
       : null;
-    const blocks = composeSystemPromptBlocks(houseRules, autopilotActive, {
+    return composeSystemPromptBlocks(ctx.houseRules, autopilotActive, {
       research: input.research,
       epicAuthoring,
       landingRepair: input.landingRepair,
       plain: input.plain,
       planGate,
       buildQueue,
-      previewHint: isolated,
+      previewHint: ctx.isolated,
       draftMode: repoConfig.draftMode,
-      trimmed,
+      trimmed: ctx.trimmed,
       // Epic-authoring notice (#1391): attended spawns only. Auto-drain prompts are issue title +
       // (for epic children) epicBaseDirective — which ALWAYS contains "epic" — so without the
       // !input.auto gate the notice's no-PR clause would ride every unattended epic child whose
       // job is to open a PR against the integration branch. An auto spawn is never a direct
       // operator epic ask, so nothing is lost.
       epicIntent: !input.auto && detectEpicIntent(input.prompt),
-      agentProvider: args.agentProvider,
-      // #2002: warn about the background rename only where one can actually land — the same
-      // conditions scheduleRefine checks before starting the namer, plus a branch to rename.
-      branchRename:
-        isolated &&
-        config.llmNaming &&
-        !!this.deps.refineName &&
-        !isHeuristicNameStrong(input.prompt),
+      agentProvider: ctx.agentProvider,
+      branchRename: ctx.branchRename,
       // The ONE place the live config value enters — never defaulted at any module-level
       // constant (see PLAN_GATE_DIRECTIVE_INTERACTIVE/_AUTO, computed at import time with the
       // literal "en" default).
       operatorLanguage: config.operatorLanguage,
     });
-    this.recordPromptBudget(args.sessionId, args.agentProvider, blocks);
-    return joinPromptBlocks(blocks);
+  }
+
+  /** The house rules a session was SPAWNED with, re-rendered for a resume. Read-only: no
+   *  injection is recorded and the join rows its attribution needs stay in place. A rule retired
+   *  since still renders (it is what the session was told); rows already consumed → null. */
+  private resumeHouseRules(s: Session): string | null {
+    if (!this.deps.store.getRepoConfig(s.repoPath).learningsEnabled) return null;
+    const injected = this.deps.store
+      .sessionInjectedLearningIds(s.id)
+      .map((id) => this.deps.store.getLearning(id))
+      .filter((l) => l !== null);
+    return renderHouseRulesBlock(injected);
   }
 
   /** Persist the per-block accounting for one spawn's assembled prompt (issue #1999). Never lets a
@@ -3456,16 +3501,35 @@ export class SessionService {
       }),
     ];
     this.pushAgentMcpFlag(argv, s.id, baseUrl, sessionCapabilities(this.deps, s.id));
-    // Narrow #499 exceptions: a resume re-passes no directive set, only the steer-provenance
-    // notice (always — a resumed session is what resumeThenSteer pastes its steer into) and the
-    // operator-language block (#1624; `null` for "en"). ONE flag: `--append-system-prompt` is
-    // last-wins. Effective where the CLI honors the flag on resume, inert where it restores the
-    // spawn-time prompt instead (2.1.283) — see trimDecision. Reads the live config value,
-    // exactly like composeDirectives on the spawn path.
-    const resumeBlocks = [steerProvenanceBlock()];
-    const olBlock = operatorLanguageBlock(config.operatorLanguage);
-    if (olBlock) resumeBlocks.push({ name: "operator-language", text: olBlock });
-    argv.push("--append-system-prompt", joinPromptBlocks(resumeBlocks));
+    // A resume re-passes the FULL directive set, recomposed for the session as it stands NOW
+    // (#2608). Claude Code replays the prompt it recorded at the conversation's first request, so
+    // this value is dormant right after the resume — but a compaction re-renders the prompt from
+    // THIS process's argv, and whatever is passed here then replaces the spawn-time set wholesale
+    // (see trimDecision). Phase-aware: the plan-gate directive rides only while the session is
+    // still planning, so a released session sheds it at its next compaction. ONE flag
+    // (`--append-system-prompt` is last-wins); no spawn side effects (house rules are re-read,
+    // not re-recorded; no prompt-budget row); `branchRename` off — the background rename is a
+    // startup event.
+    const planning = s.planPhase === "planning";
+    argv.push(
+      "--append-system-prompt",
+      joinPromptBlocks(
+        this.directiveBlocks(s, {
+          sessionId: s.id,
+          baseUrl,
+          houseRules: this.resumeHouseRules(s),
+          planGateOn: planning,
+          isolated: s.isolated,
+          autopilotActive: effectiveAutopilot(
+            s,
+            this.deps.store.getRepoConfig(s.repoPath).autopilotEnabled,
+          ),
+          trimmed: trim.trimmed,
+          agentProvider: "claude",
+          branchRename: false,
+        }),
+      ),
+    );
     this.pushModelFlag(argv, s.model);
     this.pushEffortFlag(argv, s.effort, "claude");
     return argv;

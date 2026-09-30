@@ -48,7 +48,8 @@
 "broadcast_textarea_aria" = "Steer message";
 "broadcast_title" = "Broadcast steer";
 "buildqueue_start" = "Start now";
-"buildqueue_start_steer" = "The build queue is already approved. Continue with the next permitted step and keep queue progress updated. If the plan gate is active, only create or continue the plan, then stop for review. Do not implement until the plan is approved and execution is explicitly authorized. If the plan is already awaiting review, wait for that approval.";
+"buildqueue_start_plan_steer" = "The build queue is approved for planning only. Create or continue the plan, then stop for review. Do not implement until the plan is approved and execution is explicitly authorized. If the plan is already awaiting review, wait for that approval.";
+"buildqueue_start_steer" = "The build queue is already approved. Continue with the next step now and keep queue progress updated.";
 "cardmenu_amend" = "Amend task…";
 "cardmenu_decommission" = "Decommission";
 "cardmenu_relaunch" = "Relaunch";

@@ -138,7 +138,7 @@ maintain loop's own triples live with their features, further down this page.
 | `SHEPHERD_AUTOPILOT_CLI` | `claude` | **Autopilot** — the transient stop-classifier that decides an unattended session's next move |
 | `SHEPHERD_AUTOPILOT_MODEL` | `haiku` | Pinned cheap for the same reason as the namer: it runs on a fixed cadence for the life of every autonomous session |
 | `SHEPHERD_AUTOPILOT_EFFORT` | `low` | As above |
-| `SHEPHERD_AUTOPILOT_STEP_CAP` | `10` | Runaway guard: auto-steers autopilot may spend on one session before it stops and waits for the operator. It bounds cost on a session that is looping rather than progressing |
+| `SHEPHERD_AUTOPILOT_STEP_CAP` | `10` | Runaway guard: auto-steers autopilot may spend on one session before it stops and waits for the operator. It bounds cost on a session that is looping rather than progressing. Separately, and not configurable, autopilot hands a Claude session back after two nudges in a row that the agent answered without using a tool |
 | `SHEPHERD_DISTILLER_CLI` | `inherit` | **Distiller** — turns captured session learnings into proposed house rules |
 | `SHEPHERD_DISTILLER_MODEL` | `default` | Model the distiller runs on |
 | `SHEPHERD_DISTILLER_EFFORT` | `default` | Effort tier for the distiller |

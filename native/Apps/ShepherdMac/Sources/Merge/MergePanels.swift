@@ -53,7 +53,7 @@ struct MergeQueueView: View {
                 if MergeRules.canStart(queue, status: session.status.rawValue, planning: planning,
                     reviewBlocked: MergeInputs.planReviewBlocked(app, session.id), ended: ended) {
                     Button(L.t("buildqueue_start")) {
-                        model.perform { try await store.client.replySession(id: session.id, text: L.t("buildqueue_start_steer")) }
+                        model.perform { try await store.client.replySession(id: session.id, text: L.t(MergeRules.startSteerKey(planning: planning))) }
                     }
                 }
             }.disabled(model.busy || model.queueState(id: session.id).queue == nil || queue.steps.contains { $0.status.known == nil })

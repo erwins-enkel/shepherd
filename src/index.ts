@@ -180,7 +180,7 @@ import { buildDeliveryMetrics } from "./delivery-metrics";
 import { ensureRepoRootTrusted } from "./claude-trust";
 import { GitignoreAdopter } from "./gitignore-adopt";
 import { attachSignalCapture } from "./signals";
-import { HookIngest } from "./hooks-ingest";
+import { HookIngest, toolUseSince } from "./hooks-ingest";
 import { maintenance } from "./maintenance";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -2531,6 +2531,7 @@ const autopilot = new AutopilotService({
       });
   },
   stepCap: config.autopilotStepCap,
+  toolUseSince: (id, since) => toolUseSince(hookIngest.snapshot(id), since),
   rebaseCap: config.autoMergeRebaseCap,
 });
 

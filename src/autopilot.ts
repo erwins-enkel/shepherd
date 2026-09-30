@@ -223,6 +223,12 @@ export interface AutopilotDeps {
   /** Fired after any autopilot-field mutation (pause / clear) so the wiring can emit a live event. */
   onState?: (id: string) => void;
   stepCap?: number;
+  /** Did the agent use a tool after `since` (ms)? true / false when a push hook arrived from the
+   *  session since then, null when none did — no evidence either way (Codex, hook ingest off).
+   *  Feeds the fruitless-nudge backoff; omitted → the backoff never trips. */
+  toolUseSince?: (id: string, since: number) => boolean | null;
+  /** Consecutive fruitless nudges before handing back (defaults to DEFAULT_NUDGE_STALL_CAP). */
+  nudgeStallCap?: number;
   /** Max consecutive rebase steers (on a single behind-streak) before handing back — defaults to
    *  DEFAULT_REBASE_CAP. Wired from config.autoMergeRebaseCap so it tracks the merge train's cap. */
   rebaseCap?: number;
@@ -232,6 +238,8 @@ export interface AutopilotDeps {
 }
 
 const DEFAULT_STEP_CAP = 10;
+/** Nudge, retry once (a swallowed paste), then hand back — see AutopilotService.nudge. */
+const DEFAULT_NUDGE_STALL_CAP = 2;
 /** Fallback when no rebaseCap dep is supplied (mirrors config.autoMergeRebaseCap's default). */
 const DEFAULT_REBASE_CAP = 5;
 /** Cap on the fresh-PR re-check before an open-a-PR steer. `gh` calls carry no timeout of their
@@ -244,6 +252,10 @@ const CAP_MESSAGE = "Autopilot reached its step limit without opening a PR — o
  *  on the CI path a PR is already open, so "without opening a PR" would be wrong. */
 export const CI_CAP_MESSAGE =
   "Autopilot couldn't get CI green after repeated attempts — over to you.";
+/** Hand-back when consecutive nudges each ended without the agent using a single tool — it is
+ *  answering the steer instead of acting on it (TASK-2614), so more nudges only burn turns. */
+export const NUDGE_STALL_MESSAGE =
+  "Autopilot's nudges aren't moving the agent — it keeps replying without doing any work. Over to you.";
 /** Generic hand-back text when a question/unknown verdict carries no summary of its own. */
 const SURFACE_MESSAGE = "Autopilot paused for your input.";
 /** Non-alarming hand-back text when a `complete` verdict carries no summary of its own. */
@@ -270,13 +282,19 @@ export class AutopilotService {
   // every steer path until the operator completes it: set from onBlock(authUrl) / a pendingAuthUrl
   // re-check, cleared on a null block, on `running` (operator resumed), and on archive (forget).
   private authPending = new Set<string>();
+  // Fruitless-nudge backoff (#2608): when the last classify-driven nudge landed, and how many in
+  // a row ended without any tool use. In-memory only — a restart just re-arms it, and the
+  // persisted step cap still bounds the loop.
+  private nudges = new Map<string, { at: number; fruitless: number }>();
   private stepCap: number;
+  private nudgeStallCap: number;
   private rebaseCap: number;
   private prRecheckTimeoutMs: number;
   private now: () => number;
 
   constructor(private deps: AutopilotDeps) {
     this.stepCap = deps.stepCap ?? DEFAULT_STEP_CAP;
+    this.nudgeStallCap = deps.nudgeStallCap ?? DEFAULT_NUDGE_STALL_CAP;
     this.rebaseCap = deps.rebaseCap ?? DEFAULT_REBASE_CAP;
     this.prRecheckTimeoutMs = deps.prRecheckTimeoutMs ?? PR_RECHECK_TIMEOUT_MS;
     this.now = deps.now ?? Date.now;
@@ -386,6 +404,28 @@ export class AutopilotService {
     if (await this.sendSteer(s, text)) this.bump(s);
   }
 
+  /** A classify-driven pre-PR nudge (proceed / open-a-PR) with a backoff: the judge classifies a
+   *  stop in under a second, so an agent that answers every nudge without acting (TASK-2614: it
+   *  read the pasted steer as untrusted) is re-nudged seconds apart until the step cap. When
+   *  `nudgeStallCap` nudges in a row each produced no tool use, hand back instead. No evidence
+   *  (`null`) neither counts nor clears, so a session the hooks don't reach keeps the step cap as
+   *  its only bound. */
+  private async nudge(s: Session, text: string): Promise<void> {
+    const prev = this.nudges.get(s.id);
+    const used = prev ? (this.deps.toolUseSince?.(s.id, prev.at) ?? null) : null;
+    let fruitless = prev?.fruitless ?? 0;
+    if (used === true) fruitless = 0;
+    else if (used === false) fruitless++;
+    if (fruitless >= this.nudgeStallCap) {
+      this.nudges.delete(s.id);
+      this.pause(s, NUDGE_STALL_MESSAGE);
+      return;
+    }
+    if (!(await this.sendSteer(s, text))) return;
+    this.bump(s);
+    this.nudges.set(s.id, { at: this.now(), fruitless });
+  }
+
   private async handleFinished(s: Session, summary: string): Promise<void> {
     if (s.landingRepair) {
       // Repair sessions push directly to the epic integration branch and never open a PR.
@@ -407,7 +447,7 @@ export class AutopilotService {
     }
     const cur = await this.recheckNoPr(s);
     if (!cur) return;
-    await this.driveSteer(
+    await this.nudge(
       cur,
       openPrSteer(this.deps.store.getRepoConfig(cur.repoPath).draftMode, cur.baseBranch),
     );
@@ -444,7 +484,7 @@ export class AutopilotService {
     if (this.deps.capacity && !(await this.deps.capacity(s))) return;
     switch (v.kind) {
       case "gate":
-        await this.driveSteer(s, s.research ? RESEARCH_PROCEED_STEER : PROCEED_STEER);
+        await this.nudge(s, s.research ? RESEARCH_PROCEED_STEER : PROCEED_STEER);
         return;
       case "finished":
         await this.handleFinished(s, v.summary);
@@ -589,6 +629,7 @@ export class AutopilotService {
     this.authPending.delete(id);
     const s = this.deps.store.get(id);
     if (!s || (!s.autopilotPaused && !s.autopilotComplete)) return;
+    this.nudges.delete(id);
     this.deps.store.setAutopilotState(id, {
       paused: false,
       complete: false,
@@ -610,6 +651,7 @@ export class AutopilotService {
    *  harmless and keeps the teardown in one place. */
   forget(id: string): void {
     this.authPending.delete(id);
+    this.nudges.delete(id);
     this.openSeen.delete(id);
     this.ciNudged.delete(id);
     this.conflictNudged.delete(id);
@@ -621,6 +663,7 @@ export class AutopilotService {
   onPrOpen(id: string): void {
     const s = this.deps.store.get(id);
     if (!s) return;
+    this.nudges.delete(id);
     this.deps.store.setAutopilotState(id, {
       paused: false,
       complete: false,

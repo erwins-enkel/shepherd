@@ -45,6 +45,7 @@ public actor PTYConnection {
   static let maxFastFails = 8
 
   private let baseURL: URL
+  private let clientInfo: Components.Schemas.TerminalClientInfo?
   private let sessionID: String
   private let tokenProvider: @Sendable () -> String?
   private let urlSession: URLSession
@@ -101,8 +102,10 @@ public actor PTYConnection {
     urlSession: URLSession = .shared,
     cols: Int = 100,
     rows: Int = 30,
-    reconnectDelay: Duration = .seconds(1)
+    reconnectDelay: Duration = .seconds(1),
+    clientInfo: Components.Schemas.TerminalClientInfo? = nil
   ) {
+    self.clientInfo = clientInfo
     self.baseURL = baseURL
     self.sessionID = sessionID
     self.tokenProvider = tokenProvider
@@ -115,11 +118,13 @@ public actor PTYConnection {
   /// Derive the URL and the token from a live client.
   public init(
     client: ShepherdClient, sessionID: String, cols: Int = 100, rows: Int = 30,
-    urlSession: URLSession = .shared
+    urlSession: URLSession = .shared,
+    clientInfo: Components.Schemas.TerminalClientInfo? = nil
   ) {
     self.init(
       baseURL: client.profile.baseURL, sessionID: sessionID,
-      tokenProvider: { client.currentToken() }, urlSession: urlSession, cols: cols, rows: rows)
+      tokenProvider: { client.currentToken() }, urlSession: urlSession, cols: cols, rows: rows,
+      clientInfo: clientInfo)
   }
 
   /// RFC 3986 unreserved characters: what a path segment may carry literally.
@@ -142,11 +147,14 @@ public actor PTYConnection {
   /// segment may not carry literally (see `unreservedPathCharacters`).
   /// Never force-unwraps: a baseURL `URLComponents` will not round-trip falls
   /// back to string surgery rather than trapping.
-  public static func ptyURL(for baseURL: URL, sessionID: String, cols: Int, rows: Int) -> URL {
+  public static func ptyURL(
+    for baseURL: URL, sessionID: String, cols: Int, rows: Int,
+    clientInfo: Components.Schemas.TerminalClientInfo? = nil
+  ) -> URL {
     let encoded =
       sessionID.addingPercentEncoding(withAllowedCharacters: unreservedPathCharacters) ?? sessionID
     guard var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false) else {
-      return fallbackURL(baseURL: baseURL, encodedID: encoded, cols: cols, rows: rows)
+      return fallbackURL(baseURL: baseURL, encodedID: encoded, cols: cols, rows: rows, clientInfo: clientInfo)
     }
     components.scheme = components.scheme == "https" ? "wss" : "ws"
     components.fragment = nil
@@ -159,15 +167,29 @@ public actor PTYConnection {
       URLQueryItem(name: "cols", value: String(cols)),
       URLQueryItem(name: "rows", value: String(rows)),
     ]
+    if let clientInfo {
+      components.queryItems?.append(contentsOf: [
+        URLQueryItem(name: "clientKind", value: clientInfo.kind.rawValue),
+        URLQueryItem(name: "clientPlatform", value: clientInfo.platform.rawValue),
+      ])
+    }
     guard let url = components.url else {
-      return fallbackURL(baseURL: baseURL, encodedID: encoded, cols: cols, rows: rows)
+      return fallbackURL(baseURL: baseURL, encodedID: encoded, cols: cols, rows: rows, clientInfo: clientInfo)
     }
     return url
   }
 
-  private static func fallbackURL(baseURL: URL, encodedID: String, cols: Int, rows: Int) -> URL {
+  private static func fallbackURL(
+    baseURL: URL, encodedID: String, cols: Int, rows: Int,
+    clientInfo: Components.Schemas.TerminalClientInfo?
+  ) -> URL {
     let appended = baseURL.appendingPathComponent("pty").appendingPathComponent(encodedID)
     var absolute = appended.absoluteString + "?cols=\(cols)&rows=\(rows)"
+    if let clientInfo {
+      let kind = clientInfo.kind.rawValue.addingPercentEncoding(withAllowedCharacters: unreservedPathCharacters) ?? "unknown"
+      let platform = clientInfo.platform.rawValue.addingPercentEncoding(withAllowedCharacters: unreservedPathCharacters) ?? "unknown"
+      absolute += "&clientKind=\(kind)&clientPlatform=\(platform)"
+    }
     if absolute.hasPrefix("https://") {
       absolute = "wss://" + absolute.dropFirst("https://".count)
     } else if absolute.hasPrefix("http://") {
@@ -386,7 +408,7 @@ public actor PTYConnection {
 
   private func connect() {
     var request = URLRequest(
-      url: Self.ptyURL(for: baseURL, sessionID: sessionID, cols: cols, rows: rows))
+      url: Self.ptyURL(for: baseURL, sessionID: sessionID, cols: cols, rows: rows, clientInfo: clientInfo))
     // Read the token afresh: a rotated token has to reach the next upgrade.
     if let token = tokenProvider() {
       request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

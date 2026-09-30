@@ -146,7 +146,7 @@ struct NotificationTrigger {
                     pct: Self.displayPercent(window.pct), resetAt: window.resetAt)
             ]
 
-        case .sessionNew, .sessionRenamed, .sessionArchived, .unknown:
+        case .sessionNew, .sessionRenamed, .sessionArchived, .unknown, .terminalOwners, .terminalOwnersUnavailable:
             // Nothing the web pushes for.
             //
             // `session:recap` arrives here as `.unknown`, and S4 has since merged and declared

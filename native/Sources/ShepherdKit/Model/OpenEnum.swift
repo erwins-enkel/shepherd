@@ -66,3 +66,6 @@ extension Components.Schemas.ClaudeUsageProviderSnapshot.KindPayload: OpenEnum {
 extension Components.Schemas.CodexUsageProviderSnapshot.ProviderPayload: OpenEnum {}
 extension Components.Schemas.CodexUsageProviderSnapshot.KindPayload: OpenEnum {}
 extension Components.Schemas.CodexUsageProviderSnapshot.RateLimitSourcePayload: OpenEnum {}
+
+extension Components.Schemas.TerminalClientInfo.KindPayload: OpenEnum {}
+extension Components.Schemas.TerminalClientInfo.PlatformPayload: OpenEnum {}

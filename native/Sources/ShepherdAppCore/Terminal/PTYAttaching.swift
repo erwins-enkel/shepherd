@@ -100,8 +100,14 @@ final class LivePTYAttachment: PTYAttaching {
     private let commands: PTYCommandQueue
 
     init(client: ShepherdClient, sessionID: String, cols: Int, rows: Int) {
+        #if os(macOS)
+        let clientInfo: Components.Schemas.TerminalClientInfo? = .init(
+            kind: .init(unknown: "mac-app"), platform: .init(unknown: "macos"))
+        #else
+        let clientInfo: Components.Schemas.TerminalClientInfo? = nil
+        #endif
         let connection = PTYConnection(
-            client: client, sessionID: sessionID, cols: cols, rows: rows)
+            client: client, sessionID: sessionID, cols: cols, rows: rows, clientInfo: clientInfo)
         self.connection = connection
         // `output` is `.unbounded`, unlike the kit's own tap: terminal bytes
         // must never drop once they have left the kit's tap — a lost chunk

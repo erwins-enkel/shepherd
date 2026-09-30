@@ -161,6 +161,13 @@ export const KEYS_TERMINAL: readonly string[] = [
   "native_terminal_tab_title",
   "native_terminal_unreachable_body",
   "native_terminal_unreachable_title",
+  "terminal_owner_browser",
+  "terminal_owner_browser_platform",
+  "terminal_owner_mac",
+  "terminal_owner_none",
+  "terminal_owner_pwa",
+  "terminal_owner_pwa_platform",
+  "terminal_owner_unavailable",
 ];
 
 /**

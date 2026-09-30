@@ -3062,6 +3062,7 @@
       {:else if selected}
         <div class="col">
           <Viewport
+            terminalOwners={store.terminalOwners}
             session={selected}
             mobile={mobile.current}
             connected={store.connected}
@@ -3234,6 +3235,7 @@
           />
         {:else if selected}
           <Viewport
+            terminalOwners={store.terminalOwners}
             bind:this={viewportRef}
             session={selected}
             touch={touch.current}

@@ -12364,5 +12364,14 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/IsolatedCleanupTests.swift\",\"MacSeamTests.IsolatedCleanupTests\",\"passwordFixtureMintsBeforeBodyAndCleansUpThrowingBody() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/IsolatedCleanupTests.swift\",\"MacSeamTests.IsolatedCleanupTests\",\"requiresServer401DespiteLocalCredentialRemoval() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/IsolatedCleanupTests.swift\",\"MacSeamTests.IsolatedCleanupTests\",\"suppliedTokenNeverAuthenticatesOrRevokesEvenOnFailure() async throws\"]"
+  ],
+  "featureAdded": [
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TerminalOwnerCopyTests.swift\",\"TerminalOwnerCopyTests\",\"ownerTitles()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/EventStreamTests.swift\",\"EventStreamTests\",\"ownerInvalidationOrder() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/PTYConnectionTests.swift\",\"PTYConnectionTests\",\"clientMetadata()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ServerEventTests.swift\",\"ServerEventTests\",\"terminalOwners() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"failedBootstrapInvalidatesTerminalOwners() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"terminalOwners() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"terminalOwnersDuringRefresh() async throws\"]"
   ]
 }

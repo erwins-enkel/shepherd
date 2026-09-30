@@ -19,6 +19,7 @@ public actor EventStream {
   private var pump: Task<Void, Never>?
   private var stopped = true
   private var active = false
+  private var hasTerminalOwners = false
 
   /// Bumped by every `connect()`. `scheduleReconnect` captures it before its
   /// backoff sleep and compares after: `task == nil` alone cannot tell *this*
@@ -188,7 +189,10 @@ public actor EventStream {
     stopped = true
     pump?.cancel()
     pump = nil
-    if task != nil { lifecycleContinuation.yield(.disconnected) }
+    if task != nil {
+      invalidateTerminalOwners()
+      lifecycleContinuation.yield(.disconnected)
+    }
     task?.cancel(with: .goingAway, reason: nil)
     task = nil
   }
@@ -226,13 +230,17 @@ public actor EventStream {
     // finally throws) can land *after* `connect()` below has already yielded
     // `.connected` for the replacement socket — see `scheduleReconnect`'s
     // `task === socket` guard, which suppresses that stale yield entirely.
-    if task != nil { lifecycleContinuation.yield(.disconnected) }
+    if task != nil {
+      invalidateTerminalOwners()
+      lifecycleContinuation.yield(.disconnected)
+    }
     task?.cancel(with: .goingAway, reason: nil)
     currentReconnectDelay = reconnectDelay
     connect()
   }
 
   private func connect() {
+    invalidateTerminalOwners()
     var request = URLRequest(url: baseURL)
     // Read the token afresh on every connect: a login that happened after
     // construction, or a rotated token, has to reach the next upgrade.
@@ -257,6 +265,7 @@ public actor EventStream {
     while !Task.isCancelled {
       do {
         let message = try await socket.receive()
+        guard !stopped, task === socket, !Task.isCancelled else { return }
         frameReceivedSinceConnect = true
         switch message {
         case .string(let text): yield(Data(text.utf8))
@@ -306,6 +315,7 @@ public actor EventStream {
     let capturedGeneration = connectionGeneration
     // Say so before the backoff sleep, so a consumer can repaint
     // "reconnecting" immediately rather than after the delay.
+    invalidateTerminalOwners()
     lifecycleContinuation.yield(.disconnected)
     // Then clear it: `task` stays nil for the whole backoff sleep below, so
     // a `stop()` or `reconnectNow()` call that lands mid-backoff sees
@@ -358,7 +368,10 @@ public actor EventStream {
 
   private func yield(_ data: Data) {
     do {
-      continuation.yield(try JSONDecoder().decode(ServerEvent.self, from: data))
+      let event = try JSONDecoder().decode(ServerEvent.self, from: data)
+      if case .terminalOwners = event { hasTerminalOwners = true }
+      if case .terminalOwnersUnavailable = event { hasTerminalOwners = false }
+      continuation.yield(event)
     } catch {
       // A frame the client cannot parse is dropped, exactly like the web
       // store's `catch { /* ignore malformed frames */ }`. Never log the
@@ -367,9 +380,16 @@ public actor EventStream {
     }
   }
 
+  private func invalidateTerminalOwners() {
+    guard hasTerminalOwners else { return }
+    hasTerminalOwners = false
+    continuation.yield(.terminalOwnersUnavailable)
+  }
+
   private func sendPresence() {
     guard let socket = task, let json = try? JSONEncoder().encode(PresenceFrame(active: active))
     else { return }
+    if active { invalidateTerminalOwners() }
     socket.send(.string(String(decoding: json, as: UTF8.self))) { _ in }
   }
 

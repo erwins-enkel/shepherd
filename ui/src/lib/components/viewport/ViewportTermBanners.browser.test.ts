@@ -105,3 +105,59 @@ function alphaOf(color: string): number {
   const m = /\/\s*([\d.]+)\)\s*$/.exec(color) ?? /rgba\([^)]*,\s*([\d.]+)\)\s*$/.exec(color);
   return m ? parseFloat(m[1]) : 1;
 }
+
+describe("current terminal owner", () => {
+  it("updates a parked terminal after another takeover without taking it back", async () => {
+    const takeover = vi.fn();
+    const view = await render(ViewportTermBanners, {
+      ...baseProps,
+      parked: true,
+      takeover,
+      owner: { kind: "mac-app", platform: "macos" },
+    });
+    await expect
+      .element(page.getByRole("button", { name: /Active in the Mac app/ }))
+      .toBeInTheDocument();
+    await view.rerender({ owner: { kind: "pwa", platform: "ios" } });
+    await expect
+      .element(page.getByRole("button", { name: /Active in the PWA on iOS/ }))
+      .toBeInTheDocument();
+    expect(takeover).not.toHaveBeenCalled();
+    await page.getByRole("button", { name: /Active in the PWA on iOS/ }).click();
+    expect(takeover).toHaveBeenCalledTimes(1);
+    await view.rerender({ owner: null });
+    await expect
+      .element(page.getByRole("button", { name: /Not currently open/ }))
+      .toBeInTheDocument();
+    await view.rerender({ owner: undefined });
+    await expect
+      .element(page.getByRole("button", { name: /Current access unknown/ }))
+      .toBeInTheDocument();
+  });
+});
+
+describe("terminal owner on a narrow screen", () => {
+  it("keeps the German title and takeover action readable at phone width", async () => {
+    const { getLocale, setLocale } = await import("$lib/paraglide/runtime");
+    const previous = getLocale();
+    try {
+      setLocale("de", { reload: false });
+      await page.viewport(320, 480);
+      await render(ViewportTermBanners, {
+        ...baseProps,
+        parked: true,
+        owner: { kind: "browser", platform: "chromeos" },
+      });
+      await expect
+        .element(page.getByRole("button", { name: /Aktiv im Browser auf ChromeOS/ }))
+        .toBeInTheDocument();
+      const title = document.querySelector<HTMLElement>(".parked-title")!;
+      expect(title.getBoundingClientRect().right).toBeLessThanOrEqual(320);
+      expect(title.getBoundingClientRect().left).toBeGreaterThanOrEqual(0);
+      expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(320);
+    } finally {
+      setLocale(previous, { reload: false });
+      await page.viewport(1280, 900);
+    }
+  });
+});

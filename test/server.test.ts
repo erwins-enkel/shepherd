@@ -12,6 +12,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
+import { PtyBridge } from "../src/pty-bridge";
 import { stagingDir } from "../src/uploads";
 import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
@@ -3281,5 +3282,70 @@ test("Codex reset routes validate requests and persist automation without spendi
     expect(spent).toBe(1);
   } finally {
     config.codexResetAutoEnabled = prev;
+  }
+});
+
+test("terminal owners follow successive takeovers, close and events reconnect", async () => {
+  const deps = makeDeps();
+  const session = deps.store.create({
+    name: "owners",
+    prompt: "go",
+    repoPath: "/wt",
+    baseBranch: "main",
+    branch: null,
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_owner",
+  });
+  // Only the external terminal process is replaced; ownership and sockets are real.
+  const openBridge = spyOn(PtyBridge.prototype, "open").mockImplementation(() => {});
+  const server = serve({ ...deps, herdr: herdrWith("term_owner") }, 0);
+  const sockets: WebSocket[] = [];
+  const frames: { event: string; data: { owners: Record<string, unknown> } }[] = [];
+  const connect = (path: string) => {
+    const ws = new WebSocket(`ws://localhost:${server.port}${path}`);
+    sockets.push(ws);
+    ws.onmessage = (e) => frames.push(JSON.parse(String(e.data)));
+    return ws;
+  };
+  const until = async (check: () => boolean) => {
+    for (let i = 0; i < 100 && !check(); i++) await Bun.sleep(10);
+    expect(check()).toBe(true);
+  };
+  const latest = () => frames.filter((f) => f.event === "terminal:owners").at(-1)?.data.owners;
+  try {
+    const events = connect("/events");
+    await until(() => latest() !== undefined);
+    expect(latest()).toEqual({});
+    const a = connect(`/pty/${session.id}?clientKind=browser&clientPlatform=windows`);
+    await until(() => latest()?.[session.id] !== undefined);
+    expect(latest()).toEqual({ [session.id]: { kind: "browser", platform: "windows" } });
+    const b = connect(`/pty/${session.id}?clientKind=mac-app&clientPlatform=macos`);
+    await until(() => a.readyState === WebSocket.CLOSED);
+    expect(latest()).toEqual({ [session.id]: { kind: "mac-app", platform: "macos" } });
+    const c = connect(`/pty/${session.id}?clientKind=pwa&clientPlatform=ios`);
+    await until(() => b.readyState === WebSocket.CLOSED);
+    expect(latest()).toEqual({ [session.id]: { kind: "pwa", platform: "ios" } });
+    // A fresh event subscriber receives the current owner without taking the PTY.
+    frames.length = 0;
+    connect("/events");
+    await until(() => latest() !== undefined);
+    expect(latest()).toEqual({ [session.id]: { kind: "pwa", platform: "ios" } });
+    frames.length = 0;
+    events.send(JSON.stringify({ type: "presence", active: true }));
+    await until(() => latest() !== undefined);
+    expect(latest()).toEqual({ [session.id]: { kind: "pwa", platform: "ios" } });
+    c.close();
+    await until(() => Object.keys(latest() ?? { pending: true }).length === 0);
+    // Older or unrecognized clients still take ownership, with safe fallback metadata.
+    const legacy = connect(`/pty/${session.id}?clientKind=<script>&clientPlatform=futureOS`);
+    await until(() => latest()?.[session.id] !== undefined);
+    expect(latest()).toEqual({ [session.id]: { kind: "unknown", platform: "unknown" } });
+    legacy.close();
+  } finally {
+    for (const ws of sockets) ws.close();
+    server.stop(true);
+    openBridge.mockRestore();
   }
 });

@@ -390,3 +390,39 @@ struct EventStreamTests {
     #expect(EventStream.eventsURL(for: pair.0).absoluteString == pair.1)
   }
 }
+
+extension EventStreamTests {
+  @Test("owner invalidation precedes the snapshot from a replacement connection")
+  func ownerInvalidationOrder() async throws {
+    try await withStream { server, stream in
+      let events = stream.events()
+      let first = FirstElementBox<ServerEvent>()
+      let result = FirstElementBox<[ServerEvent]>()
+      let seen = Task {
+        var frames: [ServerEvent] = []
+        for await event in events {
+          first.set(event)
+          frames.append(event)
+          if frames.count == 3 { result.set(frames); break }
+        }
+      }
+      defer { seen.cancel() }
+      await stream.start()
+      try await awaitConnected(server)
+      server.send(#"{"event":"terminal:owners","data":{"owners":{"a":{"kind":"mac-app","platform":"macos"}}}}"#)
+      #expect(try await eventually { first.get() != nil })
+      await stream.reconnectNow()
+      try await awaitConnected(server, count: 2)
+      server.send(#"{"event":"terminal:owners","data":{"owners":{"a":{"kind":"pwa","platform":"ios"}}}}"#)
+      #expect(try await eventually { result.get() != nil })
+      let frames = try #require(result.get())
+      #expect(frames.count == 3)
+      guard frames.count == 3 else { return }
+      #expect(frames[1] == .terminalOwnersUnavailable)
+      guard case .terminalOwners(let latest) = frames[2] else {
+        Issue.record("expected the replacement snapshot last"); return
+      }
+      #expect(latest.owners.additionalProperties["a"]?.kind.rawValue == "pwa")
+    }
+  }
+}

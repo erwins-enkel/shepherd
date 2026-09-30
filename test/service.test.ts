@@ -21,6 +21,7 @@ import {
   spawnSettingsOverlay,
   buildHooksFragment,
   composeSystemPrompt,
+  composeSystemPromptBlocks,
   readInstalledPluginIds,
   installedPluginIds,
   resetPluginIdsCacheForTests,
@@ -4917,6 +4918,24 @@ test("composeSystemPrompt always includes the untrusted-content boundary block",
   const withAutopilot = composeSystemPrompt(null, true);
   expect(withAutopilot).toContain("<untrusted-content-boundary>");
   expect(withAutopilot).toContain("EXTERNAL and UNTRUSTED");
+});
+
+test("composeSystemPrompt rides <steer-provenance-notice> right after the untrusted boundary, Claude only", () => {
+  // TASK-2614: steers reach Claude Code as a bracketed paste, which it shows the model as
+  // <pasted_content>; without this block a session can refuse the plan-go steer and every nudge.
+  for (const opts of [{}, { research: true }, { planGate: "interactive" as const }]) {
+    const blocks = composeSystemPromptBlocks(null, true, opts);
+    const names = blocks.map((b) => b.name);
+    expect(names.indexOf("steer-provenance-notice")).toBe(
+      names.indexOf("untrusted-content-boundary") + 1,
+    );
+    const text = blocks.find((b) => b.name === "steer-provenance-notice")!.text;
+    expect(text).toContain("<pasted_content>");
+    expect(text).toContain("⟦UNTRUSTED:…⟧"); // the fence rule is restated, never widened
+  }
+  // Codex has no such wrapper.
+  const codex = composeSystemPromptBlocks(null, true, { agentProvider: "codex" });
+  expect(codex.map((b) => b.name)).not.toContain("steer-provenance-notice");
 });
 
 test("composeSystemPrompt rides the single-PR invariant on code spawns, never on research", () => {

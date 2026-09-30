@@ -110,6 +110,18 @@ execution controls below, Shepherd bounds the injection surface at ingestion
   (`composeSystemPromptBlocks`), and each aux prompt builder emits it itself. That
   invariant is pinned by `test/untrusted.test.ts`: a builder that fences without the
   directive fails there.
+- **Pasted steers are operator messages; fences still are not.** Shepherd types
+  every steer into the agent's terminal as a bracketed paste, and Claude Code shows
+  a multi-line or long paste to the model as `<pasted_content>` — text it is told not to
+  take instructions from unless the user's own message asks. A steer is the whole
+  turn, so a session could refuse the plan-go steer and every autopilot nudge until
+  the operator typed by hand. The standing `<steer-provenance-notice>` block
+  (Claude spawns; Codex has no such wrapper) tells the agent that a
+  turn consisting **only** of a paste is its operator's message. It widens nothing
+  else: `⟦UNTRUSTED:…⟧` content stays data wherever it appears, and a paste that
+  accompanies typed text is still material that text refers to. The accepted cost:
+  foreign text an operator pastes as a whole turn, with no words of their own, is
+  acted on.
 - **Trusted-by-provenance exception: the repo review policy.** The PR critic's
   prompt carries one block _unfenced_, as genuine instruction: the repo's
   `REVIEW.md` (else `.shepherd/review.md`), read with `git show` from the PR's

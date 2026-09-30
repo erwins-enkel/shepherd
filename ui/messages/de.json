@@ -4805,5 +4805,17 @@
   "repooverview_more": "+{count} weitere",
   "repooverview_progress": "{merged}/{total} zusammengeführt",
   "feat_epic_child_views_title": "Repos: jeder Eintrag sagt, was als Nächstes passiert",
-  "feat_epic_child_views_body": "Unter Repos → Issues zeigt eine Aufgabe eines Epics jetzt ihren Stand im Epic — was sie zuerst braucht und was sie freigibt — oder, sobald sie läuft, ihre Sitzung mit Phase, Agent und PR. Ist nichts gewählt, gibt das Detail einen Überblick über das Repo: welches Epic führt, die Agenten-Plätze, der Fortschritt jedes Epics und die einzelnen Issues."
+  "feat_epic_child_views_body": "Unter Repos → Issues zeigt eine Aufgabe eines Epics jetzt ihren Stand im Epic — was sie zuerst braucht und was sie freigibt — oder, sobald sie läuft, ihre Sitzung mit Phase, Agent und PR. Ist nichts gewählt, gibt das Detail einen Überblick über das Repo: welches Epic führt, die Agenten-Plätze, der Fortschritt jedes Epics und die einzelnen Issues.",
+  "epic_supersede_title": "Epic #{epic} starten?",
+  "epic_supersede_intro": "In {repo} führt schon Epic #{leader}. Pro Repo führt immer nur ein Epic.",
+  "epic_supersede_label": "Stand von Epic #{leader}",
+  "epic_supersede_unstarted": "{count} unbegonnene Aufgabe(n)",
+  "epic_supersede_now": "Jetzt ablösen",
+  "epic_supersede_stops": "#{leader} startet nichts Neues mehr.",
+  "epic_supersede_finishes": "{inflight} läuft zu Ende und hält so lange den Platz.",
+  "epic_supersede_left_behind": "Liegen bleiben: {count} Aufgabe(n) ({list}).",
+  "epic_supersede_slots": "Agenten-Plätze ändern",
+  "epic_supersede_confirm": "Ablösen",
+  "feat_epic_supersede_confirm_title": "Epics: Rückfrage, bevor ein Epic ein anderes ablöst",
+  "feat_epic_supersede_confirm_body": "Pro Repo führt immer nur ein Epic. Wer ein Epic startet, während ein anderes führt, wird jetzt vorher gefragt: Der Dialog zeigt den Fortschritt des führenden Epics, welche Aufgabe noch einen Agenten-Platz hält und welche unbegonnenen Aufgaben liegen blieben — abgelöst wird erst nach deiner Bestätigung."
 }

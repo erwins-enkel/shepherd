@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { DrainStatus, Epic, EpicRunStatus } from "$lib/types";
+  import type { DrainRunSummary, DrainStatus, Epic, EpicRunStatus } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { updateEpic, approveEpicNext } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
@@ -8,6 +8,7 @@
   import type { EpicOthersFlag } from "../issues-panel";
   import EpicRunSteps from "./EpicRunSteps.svelte";
   import EpicRunSettings from "./EpicRunSettings.svelte";
+  import EpicSupersedeDialog from "./EpicSupersedeDialog.svelte";
   import IssueDetailMenu from "./IssueDetailMenu.svelte";
   import RunPanel from "./RunPanel.svelte";
 
@@ -88,6 +89,23 @@
     updateEpic(repoPath, parent, { status }).catch(updateFailed);
   }
 
+  // Starting (or re-leading) while another epic leads supersedes it (the server keeps one epic
+  // per repo) — ask first (#2623). The only UI path that sends `status: "running"`. The run
+  // picture is captured on click, so the dialog neither vanishes nor reopens with the next tick.
+  let confirming = $state<{ leader: number; summary: DrainRunSummary } | null>(null);
+
+  function start() {
+    const summary = drain?.runSummary;
+    const leader = summary?.leadingEpic ?? null;
+    if (summary && leader != null && leader !== parent) confirming = { leader, summary };
+    else setStatus("running");
+  }
+
+  function confirmStart() {
+    confirming = null;
+    setStatus("running");
+  }
+
   function toggleMode() {
     updateEpic(repoPath, parent, {
       mode: epic.run.mode === "auto" ? "attended" : "auto",
@@ -143,18 +161,12 @@
         onclick={() => setStatus("paused")}>{m.epic_pause()}</button
       >
     {:else if role === "winding"}
-      <button
-        class="gbtn"
-        type="button"
-        title={m.epic_run_rejoin_title()}
-        onclick={() => setStatus("running")}>{m.epic_run_rejoin()}</button
+      <button class="gbtn" type="button" title={m.epic_run_rejoin_title()} onclick={start}
+        >{m.epic_run_rejoin()}</button
       >
     {:else}
-      <button
-        class="gbtn"
-        type="button"
-        title={m.epic_start_title()}
-        onclick={() => setStatus("running")}>{m.epic_start()}</button
+      <button class="gbtn" type="button" title={m.epic_start_title()} onclick={start}
+        >{m.epic_start()}</button
       >
     {/if}
     {#if menuItems.length}
@@ -202,6 +214,18 @@
     label={m.epic_run_more()}
     items={menuItems}
     onclose={() => (menuOpen = false)}
+  />
+{/if}
+
+{#if confirming}
+  <EpicSupersedeDialog
+    {repoPath}
+    {parent}
+    leader={confirming.leader}
+    summary={confirming.summary}
+    onconfirm={confirmStart}
+    onclose={() => (confirming = null)}
+    {onopenautomation}
   />
 {/if}
 

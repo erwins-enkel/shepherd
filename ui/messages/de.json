@@ -4751,5 +4751,18 @@
   "feat_epic_run_control_title": "Epics: sehen, wie die Abarbeitung läuft",
   "feat_epic_run_control_body": "Das Epic-Detail unter Repos → Issues beginnt jetzt mit dem Bereich „Abarbeitung“: Live-Zustand, die Aufgabe, die gerade den Agenten-Platz hält, was als Nächstes startet und was danach folgt — plus alle Epic-Aktionen. Die Liste zeigt, welches Epic führt und welches ausläuft.",
   "epic_run_winding_leader": "#{leader} führt jetzt.",
-  "epic_run_handover_issue": "Platz geht an #{issue}"
+  "epic_run_handover_issue": "Platz geht an #{issue}",
+  "epicflow_title": "Ablauf",
+  "epicflow_merged": "{merged} von {total} zusammengeführt",
+  "epicflow_legend": "Legende",
+  "epicflow_legend_ready": "bereit",
+  "epicflow_legend_active": "läuft",
+  "epicflow_legend_waiting": "wartet",
+  "epicflow_legend_merged": "zusammengeführt",
+  "epicflow_stage_first": "1 · zuerst",
+  "epicflow_stage_parallel": "{stage} · parallel möglich",
+  "epicflow_slots_hint": "Mehr [[agent-slot|Agenten-Plätze]] helfen hier erst ab Stufe {stage}.",
+  "epicflow_no_deps": "Keine Abhängigkeiten hinterlegt — die Aufgaben haben keine feste Reihenfolge.",
+  "feat_epic_flow_graph_title": "Epics: die Reihenfolge der Aufgaben sehen",
+  "feat_epic_flow_graph_body": "Das Epic-Detail unter Repos → Issues zeigt seine Aufgaben jetzt als Ablauf-Diagramm: je Stufe der Abhängigkeiten eine Spalte. So sieht man, wo das Epic eine Kette ist, wo Aufgaben gleichzeitig laufen können — und ab welcher Stufe mehr Agenten-Plätze wirklich helfen. Ein Klick auf eine Aufgabe öffnet sie."
 }

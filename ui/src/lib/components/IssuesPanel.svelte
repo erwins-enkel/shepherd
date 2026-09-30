@@ -28,6 +28,7 @@
     buildIssueRows,
     stepSelection,
     resolveSelection,
+    childKey,
     epicKey,
   } from "./issues-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
@@ -516,6 +517,16 @@
     if (!mobile) listEl?.focus({ preventScroll: true });
   }
 
+  /** A flow-graph click (#2621): open the child's epic in the list and select the child. */
+  function selectChild(parent: number, child: number) {
+    const key = childKey(parent, child);
+    expandEpicRow(parent);
+    select(key);
+    tick().then(() =>
+      document.getElementById(`issue-opt-${key}`)?.scrollIntoView?.({ block: "nearest" }),
+    );
+  }
+
   function startTask(issue: Issue) {
     onnewtask(issue, $state.snapshot(taskRun));
   }
@@ -743,6 +754,7 @@
             {titleFor}
             {onopensession}
             {onopenautomation}
+            onselectchild={selectChild}
           />
         {/key}
       {:else}

@@ -114,12 +114,66 @@ test("no-op: session without an issueNumber", async () => {
   expect((store.recordEpicIntegrated as any).mock.calls.length).toBe(0);
 });
 
-test("no-op: no epic run / idle epic run", async () => {
+test("record: an epic child records under its own epic even with no / an idle epic run (#2618)", async () => {
   for (const run of [null, { repoPath: "/r", parentIssueNumber: 7, mode: "a", status: "idle" }]) {
     const store = recStore({ getEpicRun: mock(() => run) });
     await recordEpicIntegrationIfChild(child(), { number: 44, baseRefName: PINNED }, { store });
-    expect((store.recordEpicIntegrated as any).mock.calls.length).toBe(0);
+    expect((store.recordEpicIntegrated as any).mock.calls).toEqual([
+      ["/r", 7, 12, { number: 44, url: "" }, PINNED],
+    ]);
   }
+});
+
+// #2618: the epic is the SESSION'S, not the leading run's.
+const OTHER_PINNED = "epic/9-older";
+const pinByParent = mock((_repo: string, parent: number) =>
+  parent === 9 ? OTHER_PINNED : parent === 7 ? PINNED : null,
+);
+
+test("record: a stamped child of a superseded epic records under its own epic, not the run's", async () => {
+  const store = recStore({ getEpicIntegrationBranch: pinByParent });
+  await recordEpicIntegrationIfChild(
+    child({ epicParent: 9, baseBranch: OTHER_PINNED }),
+    { number: 44, url: "u", baseRefName: OTHER_PINNED },
+    { store },
+  );
+  expect((store.recordEpicIntegrated as any).mock.calls).toEqual([
+    ["/r", 9, 12, { number: 44, url: "u" }, OTHER_PINNED],
+  ]);
+});
+
+test("no-op: a stamped child whose PR merged into ANOTHER epic's branch (fail closed)", async () => {
+  const store = recStore({ getEpicIntegrationBranch: pinByParent });
+  await recordEpicIntegrationIfChild(
+    child({ epicParent: 9, baseBranch: OTHER_PINNED }),
+    { number: 44, baseRefName: PINNED },
+    { store },
+  );
+  expect((store.recordEpicIntegrated as any).mock.calls.length).toBe(0);
+});
+
+test("no-op: a plain session with no active epic never probes the forge", async () => {
+  const store = recStore({ getEpicRun: mock(() => null) });
+  const forge = { prReviewMeta: mock(async () => ({ baseRefName: PINNED })) } as any;
+  await recordEpicIntegrationIfChild(
+    child({ baseBranch: "main" }),
+    { number: 44 },
+    { store, forge },
+  );
+  expect(forge.prReviewMeta.mock.calls.length).toBe(0);
+  expect((store.recordEpicIntegrated as any).mock.calls.length).toBe(0);
+});
+
+test("record: a main-based session retargeted onto the epic branch resolves the epic from the merged base", async () => {
+  const store = recStore({ getEpicIntegrationBranch: pinByParent });
+  await recordEpicIntegrationIfChild(
+    child({ baseBranch: "main" }),
+    { number: 44, url: "u", baseRefName: PINNED },
+    { store },
+  );
+  expect((store.recordEpicIntegrated as any).mock.calls).toEqual([
+    ["/r", 7, 12, { number: 44, url: "u" }, PINNED],
+  ]);
 });
 
 test("record: paused epic still records (mirrors the retire path's epicActive)", async () => {

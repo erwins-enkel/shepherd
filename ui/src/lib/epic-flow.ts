@@ -8,7 +8,7 @@ export const FLOW_COL_WIDTH = 196;
 /** Free space between two columns — where the edges run. */
 export const FLOW_GAP_X = 36;
 export const FLOW_NODE_HEIGHT = 66;
-export const FLOW_GAP_Y = 10;
+const FLOW_GAP_Y = 10;
 
 export interface FlowNode {
   child: EpicChild;
@@ -59,6 +59,78 @@ export interface FlowOptions {
   gapY?: number;
 }
 
+type Link = { from: number; to: number };
+
+/** Each child's blockers inside the epic (deduplicated, self-references dropped), plus how many
+ *  `blockedBy` references point outside it. */
+function inEpicBlockers(sorted: readonly EpicChild[]): {
+  preds: Map<number, number[]>;
+  outsideEdges: number;
+} {
+  const inEpic = new Set(sorted.map((c) => c.number));
+  const preds = new Map<number, number[]>();
+  let outsideEdges = 0;
+  for (const c of sorted) {
+    const own = c.blockedBy.filter((b) => b !== c.number);
+    outsideEdges += own.filter((b) => !inEpic.has(b)).length;
+    preds.set(c.number, [...new Set(own.filter((b) => inEpic.has(b)))]);
+  }
+  return { preds, outsideEdges };
+}
+
+/** Longest-path stage per child via a memoized DFS in `order`. An edge whose blocker is still
+ *  on the DFS stack closes a cycle: it is skipped for staging and not returned in `kept`. */
+function stagesByLongestPath(
+  sorted: readonly EpicChild[],
+  preds: ReadonlyMap<number, number[]>,
+): { stageOf: Map<number, number>; kept: Link[] } {
+  const stageOf = new Map<number, number>();
+  const onStack = new Set<number>();
+  const kept: Link[] = [];
+  function visit(n: number): number {
+    const known = stageOf.get(n);
+    if (known !== undefined) return known;
+    onStack.add(n);
+    let stage = 1;
+    for (const p of preds.get(n) ?? []) {
+      if (onStack.has(p)) continue;
+      stage = Math.max(stage, visit(p) + 1);
+      kept.push({ from: p, to: n });
+    }
+    onStack.delete(n);
+    stageOf.set(n, stage);
+    return stage;
+  }
+  for (const c of sorted) visit(c.number);
+  return { stageOf, kept };
+}
+
+/** Rows within each stage: by the mean row of the node's blockers (always in an earlier stage,
+ *  so already placed), then by epic order. */
+function orderStages(
+  sorted: readonly EpicChild[],
+  stageOf: ReadonlyMap<number, number>,
+  kept: readonly Link[],
+): EpicChild[][] {
+  const rowOf = new Map<number, number>();
+  const meanBlockerRow = (n: number) => {
+    const rows = kept.filter((e) => e.to === n).map((e) => rowOf.get(e.from) ?? 0);
+    return rows.length ? rows.reduce((s, r) => s + r, 0) / rows.length : 0;
+  };
+  const stageCount = Math.max(0, ...stageOf.values());
+  const stages: EpicChild[][] = [];
+  for (let index = 1; index <= stageCount; index++) {
+    const members = sorted
+      .map((c, rank) => ({ c, rank, key: meanBlockerRow(c.number) }))
+      .filter(({ c }) => stageOf.get(c.number) === index)
+      .sort((a, b) => a.key - b.key || a.rank - b.rank)
+      .map(({ c }) => c);
+    members.forEach((c, row) => rowOf.set(c.number, row));
+    stages.push(members);
+  }
+  return stages;
+}
+
 /**
  * Split an epic's children into stages by the longest path over `blockedBy`: a child with no
  * blocker inside the epic sits in stage 1, every other one right after its latest blocker.
@@ -78,81 +150,25 @@ export function layoutEpicFlow(
   const nodeWidth = colWidth - gapX;
 
   const sorted = [...children].sort((a, b) => a.order - b.order || a.number - b.number);
-  const inEpic = new Set(sorted.map((c) => c.number));
-  let outsideEdges = 0;
-  const preds = new Map<number, number[]>();
-  for (const c of sorted) {
-    const ps: number[] = [];
-    for (const b of c.blockedBy) {
-      if (b === c.number) continue;
-      if (!inEpic.has(b)) {
-        outsideEdges++;
-        continue;
-      }
-      if (!ps.includes(b)) ps.push(b);
-    }
-    preds.set(c.number, ps);
-  }
+  const { preds, outsideEdges } = inEpicBlockers(sorted);
+  const { stageOf, kept } = stagesByLongestPath(sorted, preds);
 
-  const stageOf = new Map<number, number>();
-  const onStack = new Set<number>();
-  const kept: { from: number; to: number }[] = [];
-  function visit(n: number): number {
-    const known = stageOf.get(n);
-    if (known !== undefined) return known;
-    onStack.add(n);
-    let stage = 1;
-    for (const p of preds.get(n) ?? []) {
-      if (onStack.has(p)) continue; // closes a cycle
-      stage = Math.max(stage, visit(p) + 1);
-      kept.push({ from: p, to: n });
-    }
-    onStack.delete(n);
-    stageOf.set(n, stage);
-    return stage;
-  }
-  for (const c of sorted) visit(c.number);
-
-  const stageCount = Math.max(0, ...stageOf.values());
-  const rank = new Map(sorted.map((c, i) => [c.number, i]));
   const byNumber = new Map<number, FlowNode>();
-  const stages: FlowStage[] = [];
-  // Blockers always sit in an earlier stage, so their rows are known when this runs.
-  const meanBlockerRow = (n: number) => {
-    const rows = kept.filter((e) => e.to === n).map((e) => byNumber.get(e.from)!.row);
-    return rows.length ? rows.reduce((s, r) => s + r, 0) / rows.length : 0;
-  };
-  for (let index = 1; index <= stageCount; index++) {
-    const members = sorted
-      .filter((c) => stageOf.get(c.number) === index)
-      .map((c) => ({ c, key: meanBlockerRow(c.number) }))
-      .sort((a, b) => a.key - b.key || rank.get(a.c.number)! - rank.get(b.c.number)!);
-    const nodes = members.map(({ c }, row) => {
-      const node: FlowNode = {
-        child: c,
-        stage: index,
-        row,
-        x: (index - 1) * colWidth,
-        y: row * (nodeHeight + gapY),
-      };
-      byNumber.set(c.number, node);
+  const stages: FlowStage[] = orderStages(sorted, stageOf, kept).map((members, i) => {
+    const nodes = members.map((child, row) => {
+      const node = { child, stage: i + 1, row, x: i * colWidth, y: row * (nodeHeight + gapY) };
+      byNumber.set(child.number, node);
       return node;
     });
-    stages.push({ index, nodes, parallel: nodes.length >= 2 });
-  }
+    return { index: i + 1, nodes, parallel: nodes.length >= 2 };
+  });
 
   const edges = kept
     .map(({ from, to }) => {
       const a = byNumber.get(from)!;
       const b = byNumber.get(to)!;
-      return {
-        from,
-        to,
-        x1: a.x + nodeWidth,
-        y1: a.y + nodeHeight / 2,
-        x2: b.x,
-        y2: b.y + nodeHeight / 2,
-      };
+      const mid = nodeHeight / 2;
+      return { from, to, x1: a.x + nodeWidth, y1: a.y + mid, x2: b.x, y2: b.y + mid };
     })
     .sort((a, b) => a.x1 - b.x1 || a.y1 - b.y1 || a.y2 - b.y2);
 
@@ -163,7 +179,7 @@ export function layoutEpicFlow(
     edges,
     nodeWidth,
     nodeHeight,
-    width: stageCount ? stageCount * colWidth - gapX : 0,
+    width: stages.length ? stages.length * colWidth - gapX : 0,
     height: maxRows ? maxRows * (nodeHeight + gapY) - gapY : 0,
     outsideEdges,
   };

@@ -260,7 +260,7 @@ function collect(
  * account-gated (`verify`, `debug`, `batch`, `deep-research`, … appear only for some accounts), so
  * only broadly-available ones belong here — a gated name would be the `/review` failure again.
  */
-const BUILTINS: ReadonlyArray<{ name: string; description: string }> = [
+const BUILTINS: ReadonlyArray<{ name: string; description: string; argumentHint?: string }> = [
   { name: "init", description: "Initialize a new CLAUDE.md with codebase documentation" },
   {
     name: "security-review",
@@ -296,6 +296,11 @@ const BUILTINS: ReadonlyArray<{ name: string; description: string }> = [
   },
   { name: "workflow-authoring", description: "Reference for writing a Workflow tool script" },
   { name: "loop", description: "Run a prompt or slash command on a recurring interval" },
+  {
+    name: "goal",
+    description: "Set a goal — keep working until the condition is met",
+    argumentHint: "[<condition> | clear]",
+  },
   {
     name: "schedule",
     description: "Create, update, list, or run scheduled cloud agents (routines)",
@@ -585,6 +590,7 @@ export function listCommands(
         sourceNamespace: "claude:builtin",
         providers: ["claude"],
         invocations: { claude: `/${b.name}` },
+        argumentHint: b.argumentHint,
       });
     collectPlugins(userClaudeDir, repoDir, out);
     collect(userClaudeDir, "user", out);

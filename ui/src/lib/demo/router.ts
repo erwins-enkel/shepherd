@@ -470,6 +470,13 @@ function handleSessionMutation(
     const epic = demoState.approveEpicNext(repoParam(url), parent);
     return epic ? json(epic) : new Response(null, { status: 404 });
   }
+  // POST|DELETE /api/epic/queue (#2624) — the demo has no drain to queue on; answer the epic so
+  // the caller gets its real shape.
+  if ((method === "POST" || method === "DELETE") && path === "/api/epic/queue") {
+    const parent = Number(url.searchParams.get("parent") ?? "0");
+    const epic = demoState.epic(repoParam(url), parent);
+    return epic ? json(epic) : new Response(null, { status: 404 });
+  }
   const route = sessionIdMutationRoutes.find((r) => r.method === method && r.pattern.test(path));
   return route ? route.handle(path, body) : null;
 }

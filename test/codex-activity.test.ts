@@ -40,6 +40,36 @@ describe("CodexCompletedTurn", () => {
     ).toBeNull();
   });
 
+  test("unrecognized records before a native completion do not prevent detection", () => {
+    for (const unknown of [
+      record("event_msg", { type: "future_event", turn_id: "plan-turn" }),
+      record("future_record", { turn_id: "plan-turn" }),
+    ]) {
+      expect(parseCodexCompletedTurn(unknown + complete)).toEqual({
+        turnId: "plan-turn",
+        completedAt: 1789940195294,
+      });
+      expect(parseCodexCompletedTurn(complete + unknown)).toBeNull();
+      expect(
+        parseCodexCompletedTurn(
+          complete +
+            unknown +
+            record("event_msg", { type: "task_started", turn_id: "next-turn" }) +
+            record("event_msg", { type: "task_complete", turn_id: "next-turn" }),
+        ),
+      ).toEqual({ turnId: "next-turn", completedAt: 1789940220000 });
+    }
+  });
+
+  test("unrecognized records preserve the observed turn identity and abort state", () => {
+    for (const prefix of [
+      record("event_msg", { type: "task_started", turn_id: "other-turn" }),
+      record("event_msg", { type: "turn_aborted", turn_id: "plan-turn" }),
+    ]) {
+      expect(parseCodexCompletedTurn(prefix + record("future_record", {}) + complete)).toBeNull();
+    }
+  });
+
   for (const [type, payload] of [
     ["event_msg", { type: "task_started", turn_id: "next-turn" }],
     ["event_msg", { type: "turn_aborted", turn_id: "plan-turn" }],
@@ -52,6 +82,8 @@ describe("CodexCompletedTurn", () => {
     ["response_item", { type: "function_call", name: "request_user_input", call_id: "q" }],
     ["response_item", { type: "custom_tool_call", name: "exec", call_id: "c" }],
     ["event_msg", { type: "task_finished", turn_id: "next-turn" }],
+    ["compacted", { message: "summary", replacement_history: [] }],
+    ["future_record", { turn_id: "next-turn" }],
   ] as const) {
     test(`new ${type}/${"type" in payload ? payload.type : "context"} invalidates the previous completion`, () => {
       expect(parseCodexCompletedTurn(planTurn + record(type, payload))).toBeNull();
@@ -91,6 +123,8 @@ describe("CodexCompletedTurn", () => {
       planTurn + record("response_item", {}),
       planTurn + record("response_item", "broken"),
       planTurn + "not json\n",
+      "not json\n" + complete,
+      record("event_msg", {}) + complete,
       record("event_msg", { type: "task_complete", turn_id: "" }),
       complete.replace("2026-09-20T21:36:35.294Z", "invalid"),
     ]) {

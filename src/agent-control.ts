@@ -523,12 +523,20 @@ function toolCallOutcome(
   sessionId: string,
   id: unknown,
   params: Record<string, unknown>,
+  spawning: AgentCapabilities | null,
 ): McpOutcome {
   const name = typeof params.name === "string" ? params.name : "";
   const args = asRecord(params.arguments);
-  const entitled = agentTools(deps, sessionId).some((t) => t.name === name);
-  const handler = entitled ? TOOL_HANDLERS[name] : undefined;
+  const tools = spawning ? toolsFor(spawning) : agentTools(deps, sessionId);
+  const handler = tools.some((t) => t.name === name) ? TOOL_HANDLERS[name] : undefined;
   if (!handler) return rpcError(id, -32602, `unknown tool: ${name}`);
+  // Every applier reads or writes the session row, which a still-spawning session lacks.
+  if (spawning) {
+    return result(
+      id,
+      toolResult({ error: "session is still starting — retry in a few seconds" }, true),
+    );
+  }
   const applied = handler(deps, sessionId, args);
   return result(
     id,
@@ -542,11 +550,15 @@ function toolCallOutcome(
  *
  * JSON-RPC batching is deliberately unsupported: MCP removed it in 2025-06-18, and Claude Code
  * never sends one.
+ *
+ * `spawning` is set for a session whose spawn is still in flight (no store row yet): the catalog
+ * comes from it, and a tool call is refused as "still starting".
  */
 export function handleMcpRequest(
   deps: AgentControlDeps,
   sessionId: string,
   body: unknown,
+  spawning: AgentCapabilities | null = null,
 ): McpOutcome {
   if (body === null || typeof body !== "object" || Array.isArray(body)) {
     return rpcError(null, -32600, "invalid request");
@@ -564,9 +576,11 @@ export function handleMcpRequest(
     case "ping":
       return result(req.id, {});
     case "tools/list":
-      return result(req.id, { tools: agentTools(deps, sessionId) });
+      return result(req.id, {
+        tools: spawning ? toolsFor(spawning) : agentTools(deps, sessionId),
+      });
     case "tools/call":
-      return toolCallOutcome(deps, sessionId, req.id, params);
+      return toolCallOutcome(deps, sessionId, req.id, params, spawning);
     default:
       return rpcError(req.id, -32601, `method not found: ${method}`);
   }

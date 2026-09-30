@@ -9,6 +9,9 @@ import { m } from "$lib/paraglide/messages";
 const api = vi.hoisted(() => ({
   updateEpic: vi.fn(async () => ({})),
   approveEpicNext: vi.fn(async () => ({})),
+  getEpic: vi.fn(async () => {
+    throw new Error("not needed");
+  }),
 }));
 
 vi.mock("$lib/api", async (importOriginal) => {
@@ -109,6 +112,7 @@ function changeSelect(label: string, value: string) {
 beforeEach(() => {
   api.updateEpic.mockClear();
   api.approveEpicNext.mockClear();
+  api.getEpic.mockClear();
 });
 
 describe("EpicRunControl — acceptance scenario (#2620)", () => {
@@ -153,8 +157,15 @@ describe("EpicRunControl — acceptance scenario (#2620)", () => {
       .element(page.getByText(m.epic_run_handover({ issue: 21, epic: B })))
       .toBeInTheDocument();
 
+    // B leads, so leading again supersedes B — asked first (#2623).
     await page.getByRole("button", { name: m.epic_run_rejoin() }).click();
+    await expect
+      .element(page.getByRole("dialog", { name: m.epic_supersede_title({ epic: A }) }))
+      .toBeInTheDocument();
+    expect(api.updateEpic).not.toHaveBeenCalled();
+    await page.getByRole("button", { name: m.epic_supersede_confirm() }).click();
     expect(api.updateEpic).toHaveBeenCalledWith("/repo", A, { status: "running" });
+    expect(page.getByRole("dialog").query()).toBeNull();
     expect(page.getByRole("button", { name: m.epic_start() }).query()).toBeNull();
   });
 });
@@ -225,6 +236,7 @@ describe("EpicRunControl actions", () => {
     expect(page.getByText(m.epic_run_step_next()).query()).toBeNull();
     expect(page.getByRole("button", { name: m.epic_run_more() }).query()).toBeNull();
     await page.getByRole("button", { name: m.epic_start() }).click();
+    await page.getByRole("button", { name: m.epic_supersede_confirm() }).click();
     expect(api.updateEpic).toHaveBeenCalledWith("/repo", 99, { status: "running" });
   });
 
@@ -375,5 +387,75 @@ describe("EpicRunControl run settings footer", () => {
       model: "gpt-5.6-luna",
       effort: expected,
     });
+  });
+});
+
+describe("EpicRunControl supersede confirmation (#2623)", () => {
+  it("Start while another epic leads asks first; Cancel sends nothing", async () => {
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: 99,
+      epic: epic(99, { status: "idle" }),
+      drain: drain(),
+      titleFor,
+    });
+
+    await page.getByRole("button", { name: m.epic_start() }).click();
+    await expect
+      .element(page.getByRole("dialog", { name: m.epic_supersede_title({ epic: 99 }) }))
+      .toBeInTheDocument();
+    expect(api.getEpic).toHaveBeenCalledWith("/repo", B);
+    await page.getByRole("button", { name: m.common_cancel() }).click();
+    expect(page.getByRole("dialog").query()).toBeNull();
+    expect(api.updateEpic).not.toHaveBeenCalled();
+  });
+
+  it("'Change agent slots' in the dialog reaches the host", async () => {
+    const onopenautomation = vi.fn();
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: 99,
+      epic: epic(99, { status: "idle" }),
+      drain: drain(),
+      titleFor,
+      onopenautomation,
+    });
+
+    await page.getByRole("button", { name: m.epic_start() }).click();
+    await page.getByRole("button", { name: m.epic_supersede_slots() }).click();
+    expect(onopenautomation).toHaveBeenCalled();
+    expect(page.getByRole("dialog").query()).toBeNull();
+    expect(api.updateEpic).not.toHaveBeenCalled();
+  });
+
+  it("the paused leader resumes directly", async () => {
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: B,
+      epic: epic(B, { status: "paused" }),
+      drain: drain({ reason: "paused" }),
+      titleFor,
+    });
+
+    await page.getByRole("button", { name: m.epic_start() }).click();
+    expect(api.updateEpic).toHaveBeenCalledWith("/repo", B, { status: "running" });
+    expect(page.getByRole("dialog").query()).toBeNull();
+  });
+
+  it("with no epic leading, Start starts directly", async () => {
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: 99,
+      epic: epic(99, { status: "idle" }),
+      drain: drain({
+        epicParent: null,
+        runSummary: summary({ leadingEpic: null, windingDown: [], next: [], after: [] }),
+      }),
+      titleFor,
+    });
+
+    await page.getByRole("button", { name: m.epic_start() }).click();
+    expect(api.updateEpic).toHaveBeenCalledWith("/repo", 99, { status: "running" });
+    expect(page.getByRole("dialog").query()).toBeNull();
   });
 });

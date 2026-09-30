@@ -4758,5 +4758,17 @@
   "repooverview_progress": "{merged}/{total} merged",
   "feat_epic_child_views_title": "Repos: every entry says what happens next",
   "feat_epic_child_views_body": "In Repos → Issues, an epic's task now shows its standing in the epic — what it needs first and what it unlocks — or, once it runs, its live session with phase, agent and PR. With nothing selected, the detail gives an overview of the repo: which epic leads, the agent slots, every epic's progress and the single issues.",
-  "epic_run_handover_issue": "Slot goes to #{issue}"
+  "epic_run_handover_issue": "Slot goes to #{issue}",
+  "epic_supersede_title": "Start epic #{epic}?",
+  "epic_supersede_intro": "Epic #{leader} already leads in {repo}. Only one epic leads per repo at a time.",
+  "epic_supersede_label": "State of epic #{leader}",
+  "epic_supersede_unstarted": "{count} unstarted task(s)",
+  "epic_supersede_now": "Supersede now",
+  "epic_supersede_stops": "#{leader} starts nothing new.",
+  "epic_supersede_finishes": "{inflight} runs to completion and holds its slot until then.",
+  "epic_supersede_left_behind": "Staying behind: {count} task(s) ({list}).",
+  "epic_supersede_slots": "Change agent slots",
+  "epic_supersede_confirm": "Supersede",
+  "feat_epic_supersede_confirm_title": "Epics: ask before one epic supersedes another",
+  "feat_epic_supersede_confirm_body": "Only one epic leads a repo at a time. Starting an epic while another leads now asks first: it shows the leading epic's progress, which task still holds an agent slot and which unstarted tasks would stay behind — and only supersedes it once you confirm."
 }

@@ -267,3 +267,38 @@ export function epicRunSteps(
     parallel,
   };
 }
+
+// ── supersede confirmation (#2623) ──────────────────────────────────────────────────────────
+// What starting another epic does to the one that leads now: it winds down — its in-flight
+// children finish (holding their slots), its unstarted ones stay behind.
+
+export interface SupersedeImpact {
+  /** The leader's merged/total; null until its record is loaded. */
+  progress: { merged: number; total: number } | null;
+  /** The leader's slot holders, with the 1-based slot each holds. */
+  holders: { issue: number; index: number; max: number }[];
+  /** The leader's unstarted children (ready/blocked); null until its record is loaded. */
+  leftBehind: number[] | null;
+}
+
+export function supersedeImpact(
+  leader: number,
+  leaderEpic: Pick<Epic, "children"> | null,
+  summary: DrainRunSummary,
+): SupersedeImpact {
+  const holders: SupersedeImpact["holders"] = [];
+  summary.slots.holders.forEach((h, i) => {
+    if (h.epicParent === leader && h.issueNumber != null) {
+      holders.push({ issue: h.issueNumber, index: i + 1, max: summary.slots.max });
+    }
+  });
+  return {
+    progress: leaderEpic ? progress(leaderEpic.children) : null,
+    holders,
+    leftBehind: leaderEpic
+      ? leaderEpic.children
+          .filter((c) => c.state === "ready" || c.state === "blocked")
+          .map((c) => c.number)
+      : null,
+  };
+}

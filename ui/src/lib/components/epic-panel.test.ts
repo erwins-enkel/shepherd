@@ -9,6 +9,7 @@ import {
   progress,
   slotHeldBy,
   stateLabel,
+  supersedeImpact,
 } from "./epic-panel";
 import { m } from "$lib/paraglide/messages";
 import type { DrainRunSummary, DrainStatus, EpicChild, EpicRunStatus } from "$lib/types";
@@ -289,5 +290,39 @@ describe("epicRunSteps", () => {
   it("null for an epic outside the run or without a runSummary", () => {
     expect(epicRunSteps(epicB("idle"), 99, capDrain())).toBeNull();
     expect(epicRunSteps(epicB(), B, drain({ reason: "cap" }))).toBeNull();
+  });
+});
+
+describe("supersedeImpact", () => {
+  it("scenario: starting B while A leads — A's holders, progress and unstarted children", () => {
+    const s = summary({
+      leadingEpic: A,
+      windingDown: [],
+      slots: {
+        used: 2,
+        max: 3,
+        holders: [
+          { sessionId: "s-99", desig: "TASK-99", issueNumber: 99, epicParent: null },
+          { sessionId: "s-11", desig: "TASK-11", issueNumber: 11, epicParent: A },
+        ],
+      },
+    });
+    expect(supersedeImpact(A, epicA(), s)).toEqual({
+      progress: { merged: 1, total: 4 },
+      holders: [{ issue: 11, index: 2, max: 3 }],
+      leftBehind: [12, 13],
+    });
+  });
+
+  it("without the leader's record: holders only", () => {
+    expect(supersedeImpact(A, null, summary())).toEqual({
+      progress: null,
+      holders: [{ issue: 11, index: 1, max: 1 }],
+      leftBehind: null,
+    });
+  });
+
+  it("no holders of the leader → empty list", () => {
+    expect(supersedeImpact(B, epicB(), summary()).holders).toEqual([]);
   });
 });

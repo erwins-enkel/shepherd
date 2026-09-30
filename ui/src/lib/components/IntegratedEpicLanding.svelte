@@ -118,6 +118,14 @@
             })}</span
           >
         {/if}
+        {#if epic.landingConflictStranded && epic.landingConflictSince != null}
+          <!-- #1841: a conflict pause left unresolved past the stranded threshold, no rework live. -->
+          <span class="chip-stranded"
+            >{m.integrated_epics_land_conflict_stranded({
+              ago: formatAgo(nowMs - epic.landingConflictSince),
+            })}</span
+          >
+        {/if}
         {#if epic.landingRepairing}
           <!-- Non-actionable: an auto-repair session is live — driving CI back to green, or
                reworking a conflict (#1841). Shown regardless of the conflict state. -->

@@ -527,6 +527,41 @@ test("setEpicLandingConflictReworkCount writes its own counter, CI-repair budget
   expect(row.landingRepairCount).toBe(0);
 });
 
+test("conflict pause stamps landingConflictSince once; any other reason clears both stamps (#1841)", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "E",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+  const row = () => s.listEpicCompleted()[0]!;
+  expect(row().landingConflictSince).toBeNull();
+  expect(row().landingConflictEscalatedAt).toBeNull();
+
+  s.setEpicLandingRebaseState("/r", 10, { pauseReason: "conflict", now: 100 });
+  expect(row().landingConflictSince).toBe(100);
+  // A repeat conflict write keeps the original start.
+  s.setEpicLandingRebaseState("/r", 10, { pauseReason: "conflict", now: 500 });
+  expect(row().landingConflictSince).toBe(100);
+  s.setEpicLandingConflictEscalatedAt("/r", 10, 700);
+  expect(row().landingConflictEscalatedAt).toBe(700);
+  // Counter-only writes leave the stamps alone.
+  s.setEpicLandingRebaseState("/r", 10, { count: 2 });
+  expect(row().landingConflictSince).toBe(100);
+
+  s.setEpicLandingRebaseState("/r", 10, { pauseReason: null });
+  expect(row().landingConflictSince).toBeNull();
+  expect(row().landingConflictEscalatedAt).toBeNull();
+
+  s.setEpicLandingRebaseState("/r", 10, { pauseReason: "conflict", now: 900 });
+  s.setEpicLandingConflictEscalatedAt("/r", 10, 950);
+  s.setEpicLandingRebaseState("/r", 10, { pauseReason: "cap" });
+  expect(row().landingConflictSince).toBeNull();
+  expect(row().landingConflictEscalatedAt).toBeNull();
+});
+
 test("listEpicRuns returns all persisted epic_run rows", () => {
   const s = new SessionStore(":memory:");
   expect(s.listEpicRuns()).toEqual([]);

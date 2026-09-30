@@ -45,6 +45,12 @@ export interface CompletedEpic {
   // #1841: lifetime count of conflict-rework sessions dispatched for this landing (auto cap 1;
   // the manual "Resolve conflicts" dispatch bypasses the cap). Independent of landingRepairCount.
   landingConflictReworkCount: number;
+  /** #1841: when the current conflict pause began (null outside a conflict pause). Optional so
+   *  pre-existing fixtures/backfills stay valid. */
+  landingConflictSince?: number | null;
+  /** Live, non-persisted (#1841): a conflict pause has stood past EPIC_LANDING_STRANDED_MS with no
+   *  live repair/rework session on the branch — the stale-conflict escalation chip. */
+  landingConflictStranded?: boolean;
   /** Live, non-persisted landing-PR gate signals (present only when the landing PR could be fetched). */
   landingChecks?: ChecksState;
   landingMergeable?: boolean | null;
@@ -103,6 +109,23 @@ export function computeLandingStranded(opts: {
     opts.landingState === "open" &&
     opts.landingReady &&
     opts.now - opts.completedAt > EPIC_LANDING_STRANDED_MS
+  );
+}
+
+/** #1841: true when a conflict pause has stood unresolved past EPIC_LANDING_STRANDED_MS and no live
+ *  repair/rework session is working it — the conflict counterpart of {@link computeLandingStranded}
+ *  (which needs landingReady, so it can never fire for a conflicting PR). */
+export function computeLandingConflictStranded(opts: {
+  pauseReason: CompletedEpic["landingRebasePauseReason"];
+  conflictSince: number | null | undefined;
+  repairing: boolean;
+  now: number;
+}): boolean {
+  return (
+    opts.pauseReason === "conflict" &&
+    opts.conflictSince != null &&
+    !opts.repairing &&
+    opts.now - opts.conflictSince > EPIC_LANDING_STRANDED_MS
   );
 }
 
@@ -190,9 +213,19 @@ export async function enrichLandingEpics(
         const red =
           pr.checks === "failure" && pr.mergeStateStatus !== "behind" && pr.mergeable !== false;
         const conflicting = pr.mergeable === false;
-        const repairing = (red || conflicting) && deps.hasLiveRepairSession(row.repoPath, branch);
+        // One live-session probe serves both the repairing surface and the #1841 stale-conflict chip.
+        const conflictPaused = row.landingRebasePauseReason === "conflict";
+        const live =
+          (red || conflicting || conflictPaused) && deps.hasLiveRepairSession(row.repoPath, branch);
+        const repairing = (red || conflicting) && live;
         row.landingRepairing = repairing;
         row.landingCiFailing = red && !repairing;
+        row.landingConflictStranded = computeLandingConflictStranded({
+          pauseReason: row.landingRebasePauseReason,
+          conflictSince: row.landingConflictSince,
+          repairing: live,
+          now: deps.now,
+        });
       } catch {
         // leave live fields undefined — callers always serve/return the base DB rows
       }

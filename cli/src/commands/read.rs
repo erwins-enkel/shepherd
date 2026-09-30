@@ -63,6 +63,14 @@ pub async fn sessions_list(ctx: &mut Ctx<'_>, all: bool) -> Result<()> {
     Ok(())
 }
 
+/// Transcript text is untrusted agent output: on a terminal, drop control characters (ANSI escapes
+/// included) so it can't drive the terminal. Newlines and tabs stay. JSON output is escaped anyway.
+fn plain(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_control() || matches!(c, '\n' | '\t'))
+        .collect()
+}
+
 async fn get_messages(
     client: &Client,
     id: &str,
@@ -111,7 +119,10 @@ fn print_session(ctx: &mut Ctx<'_>, s: &Session, a: Awaiting) -> Result<()> {
         ("updated", ago(s.updated_at)),
         ("archived", or_dash(s.archived_at.map(ago))),
         ("awaiting", or_dash(awaiting)),
-        ("question", or_dash(a.pending_question.as_ref())),
+        (
+            "question",
+            or_dash(a.pending_question.as_deref().map(plain)),
+        ),
         ("prompt", s.prompt.clone()),
     ];
     for (k, v) in rows {
@@ -174,7 +185,7 @@ pub async fn messages(ctx: &mut Ctx<'_>, key: &str, limit: i64, include_user: bo
     } else {
         let out = &mut ctx.io.stdout;
         if let Some(q) = &m.pending_question {
-            output::line(out, &format!("awaiting input: {q}"))?;
+            output::line(out, &format!("awaiting input: {}", plain(q)))?;
         }
         if let Some(reason) = &m.unavailable {
             output::line(out, &format!("(no transcript: {reason})"))?;
@@ -183,8 +194,8 @@ pub async fn messages(ctx: &mut Ctx<'_>, key: &str, limit: i64, include_user: bo
         }
         for msg in &m.messages {
             let when = if msg.ts > 0 { ago(msg.ts) } else { "-".into() };
-            output::line(out, &format!("── {} · {when} ──", msg.role))?;
-            output::line(out, &msg.text)?;
+            output::line(out, &format!("── {} · {when} ──", plain(&msg.role)))?;
+            output::line(out, &plain(&msg.text))?;
         }
     }
     check.finish(ctx.io).await;

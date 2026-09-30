@@ -289,6 +289,30 @@ async fn messages_on_tty_prints_question_and_texts() {
 }
 
 #[tokio::test]
+async fn messages_on_tty_strip_control_characters() {
+    let s = server().await;
+    with_sessions(&s).await;
+    Mock::given(method("GET"))
+        .and(path("/api/sessions/id-1/messages"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "messages": [{"role": "assistant", "text": "a\u{1b}[2Jb\nc?", "ts": 0}],
+            "awaitingInput": true, "pendingQuestion": "a\u{1b}[2Jb\nc?", "unavailable": null
+        })))
+        .mount(&s)
+        .await;
+    let mut h = Harness::new();
+    h.tty = true;
+    assert_eq!(h.run(&["--url", &s.uri(), "messages", "TASK-01"]).await, 0);
+    let out = h.out.text();
+    assert!(!out.contains('\u{1b}'), "{out:?}");
+    assert!(out.contains("a[2Jb\nc?"), "{out:?}");
+    // JSON keeps the text verbatim.
+    let j = Harness::new();
+    assert_eq!(j.run(&["--url", &s.uri(), "messages", "TASK-01"]).await, 0);
+    assert_eq!(j.json()["messages"][0]["text"], "a\u{1b}[2Jb\nc?");
+}
+
+#[tokio::test]
 async fn messages_needs_full_scope() {
     let s = server().await;
     with_sessions(&s).await;

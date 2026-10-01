@@ -4847,5 +4847,9 @@
   "epic_queue_failed": "Epic konnte nicht eingereiht werden",
   "epic_unqueue_failed": "Epic konnte nicht aus der Warteschlange genommen werden",
   "feat_epic_queue_title": "Epics: ein Epic hinter dem führenden einreihen",
-  "feat_epic_queue_body": "Wer ein Epic startet, während ein anderes führt, kann es jetzt stattdessen einreihen: Es startet von selbst und mit seinen eigenen Einstellungen, sobald das führende Epic vollständig ist — nichts bleibt liegen. Eingereihte Epics zeigen ihren Platz in der Reihe; im Abarbeitungsbereich des Epics nimmst du sie wieder aus der Warteschlange."
+  "feat_epic_queue_body": "Wer ein Epic startet, während ein anderes führt, kann es jetzt stattdessen einreihen: Es startet von selbst und mit seinen eigenen Einstellungen, sobald das führende Epic vollständig ist — nichts bleibt liegen. Eingereihte Epics zeigen ihren Platz in der Reihe; im Abarbeitungsbereich des Epics nimmst du sie wieder aus der Warteschlange.",
+  "native_ios_welcome_subtitle": "Verbinde dich mit einem Shepherd-Server, um deine Sitzungen zu verfolgen.",
+  "native_ios_connecting": "Verbinde…",
+  "native_ios_first_run": "Schließe die Servereinrichtung in der Web-App ab und versuche es erneut.",
+  "native_ios_remove_body": "Die gespeicherte Anmeldung wird von diesem Gerät entfernt. Der serverseitige Widerruf ist nicht bestätigt."
 }

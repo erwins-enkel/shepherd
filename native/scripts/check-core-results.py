@@ -74,10 +74,11 @@ def xcresult_rows(tree):
         raise ValueError("unknown xcresult tests schema")
     rows = []
     arguments = {}
-    containers = {"Test Plan", "Unit test bundle", "Test Suite"}
+    containers = {"Test Plan", "Unit test bundle", "UI test bundle", "Test Suite"}
     allowed_children = {
         None: {"Test Plan", "Test Case"},  # Also support a flat case inventory.
-        "Test Plan": {"Unit test bundle"},
+        "Test Plan": {"Unit test bundle", "UI test bundle"},
+        "UI test bundle": {"Test Suite", "Test Case"},
         "Unit test bundle": {"Test Suite", "Test Case"},
         "Test Suite": {"Test Suite", "Test Case"},
         "Test Case": {"Arguments"},

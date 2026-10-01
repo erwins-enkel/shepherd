@@ -4847,5 +4847,9 @@
   "epic_queue_failed": "Couldn't queue the epic",
   "epic_unqueue_failed": "Couldn't remove the epic from the queue",
   "feat_epic_queue_title": "Epics: queue an epic behind the leading one",
-  "feat_epic_queue_body": "Starting an epic while another leads now offers to queue it instead: it starts on its own, with its own settings, once the leading epic is complete — nothing is left behind. Queued epics show their place in line, and you can take them out of the queue in the epic's run area."
+  "feat_epic_queue_body": "Starting an epic while another leads now offers to queue it instead: it starts on its own, with its own settings, once the leading epic is complete — nothing is left behind. Queued epics show their place in line, and you can take them out of the queue in the epic's run area.",
+  "native_ios_welcome_subtitle": "Connect to a Shepherd server to follow your sessions.",
+  "native_ios_connecting": "Connecting…",
+  "native_ios_first_run": "Complete server setup in the web app, then retry.",
+  "native_ios_remove_body": "This removes the saved sign-in from this device. Server-side revocation is not confirmed."
 }

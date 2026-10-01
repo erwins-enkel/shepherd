@@ -14,16 +14,22 @@ import { makeUserCache } from "./user-cache";
 import { labelColorsFrom } from "./labels";
 import {
   attachAttempts,
+  attemptsOf,
   classifyGhError,
   type GhFetchAttempt,
   type GhTransport,
 } from "./gh-attempt";
 import {
+  type BucketRateLimit,
   graphRateLimit,
   isGraphqlBucketCall,
   isRateLimitError,
+  isRestBucketCall,
+  isRestReadCall,
   parseRetryAfter,
+  restRateLimit,
 } from "./rate-limit";
+import { Semaphore } from "../semaphore";
 import {
   CRITIC_REVIEW_MARKER,
   EmptyDiffError,
@@ -165,6 +171,11 @@ const REST_PAGE_CAP = 10;
 const MAX_CHECK_RUN_PAGES = 2;
 const REST_CHECK_CACHE_TTL_MS = 60_000;
 const REST_CHECK_LOOKUP_BUDGET = 40;
+/** How long {@link GithubForge.listIssues} answers from its cache (#2656). */
+const ISSUES_CACHE_TTL_MS = 30_000;
+/** First and longest per-repo backoff window after a failed issue listing (#2656). */
+const ISSUES_FAILURE_BACKOFF_MS = 30_000;
+const ISSUES_FAILURE_BACKOFF_MAX_MS = 15 * 60_000;
 const GRAPHQL_PR_REVIEW_STATES: Record<string, PrReviewMeta["state"]> = {
   OPEN: "open",
   MERGED: "merged",
@@ -304,28 +315,93 @@ function collectBlockedByOpenPage(
   };
 }
 
+/** Shallow per-issue copies, so callers of the shared listIssues cache can annotate their
+ *  own view without mutating the cached entries. */
+function copyIssues(issues: Issue[]): Issue[] {
+  return issues.map((i) => ({ ...i }));
+}
+
 /** Runs `gh` with the given args and returns stdout. Injected in tests. */
 export type GhRunner = (args: string[]) => Promise<string>;
 
 const execFileAsync = promisify(execFile);
 
-const defaultRunner: GhRunner = (args) =>
-  timedAsync(`gh ${args[0]}`, async () => {
-    try {
-      const { stdout } = await execFileAsync("gh", args, { maxBuffer: 16 * 1024 * 1024 });
-      return stdout.toString();
-    } catch (err) {
-      // Detect GraphQL rate-limit errors and record them in the shared backoff
-      // state so pollers can pause before the next request. The error is always
-      // re-thrown so existing caller behaviour is unchanged.
-      if (isGraphqlBucketCall(args) && isRateLimitError(err)) {
-        graphRateLimit.noteLimitError(
-          parseRetryAfter(String((err as Record<string, unknown>)?.stderr ?? "")),
-        );
-      }
-      throw err;
-    }
-  });
+/** Cap on concurrent `gh` subprocesses across every GitHub forge call (#2656). Sampled live,
+ *  an uncapped server ran up to 26 at once; queued calls wait FIFO for a slot. */
+const GH_MAX_CONCURRENCY = 6;
+
+const execGh: GhRunner = async (args) => {
+  const { stdout } = await execFileAsync("gh", args, { maxBuffer: 16 * 1024 * 1024 });
+  return stdout.toString();
+};
+
+/**
+ * Build the `gh` runner every GitHub forge call goes through (#2656):
+ *  - at most `maxConcurrent` subprocesses at once (FIFO queue);
+ *  - rate-limit errors are recorded on the bucket the call drew on (GraphQL or REST), and a
+ *    REST success clears the REST backoff;
+ *  - while the REST backoff is engaged, REST READS fail fast with a rate-limit error instead
+ *    of spawning `gh` into another 403. Writes and GraphQL calls always run.
+ * Errors are always re-thrown, so callers' fallbacks and error handling are unchanged.
+ * Everything is injectable for tests; production uses {@link sharedGhRunner}.
+ */
+export function makeGhRunner(
+  opts: {
+    exec?: GhRunner;
+    maxConcurrent?: number;
+    graph?: BucketRateLimit;
+    rest?: BucketRateLimit;
+  } = {},
+): GhRunner {
+  const exec = opts.exec ?? execGh;
+  const graph = opts.graph ?? graphRateLimit;
+  const rest = opts.rest ?? restRateLimit;
+  const gate = new Semaphore(opts.maxConcurrent ?? GH_MAX_CONCURRENCY);
+  return (args) =>
+    timedAsync(`gh ${args[0]}`, () =>
+      gate.run(async () => {
+        // Checked once a slot is ours, so a call queued before the backoff engaged
+        // doesn't spawn into it either.
+        if (rest.blocked() && isRestReadCall(args)) throw restBackoffError(args, rest);
+        try {
+          const out = await exec(args);
+          if (isRestBucketCall(args)) rest.noteSuccess();
+          return out;
+        } catch (err) {
+          if (isRateLimitError(err)) {
+            const retryAfter = parseRetryAfter(
+              String((err as Record<string, unknown>)?.stderr ?? ""),
+            );
+            if (isGraphqlBucketCall(args)) graph.noteLimitError(retryAfter);
+            else if (isRestBucketCall(args)) rest.noteLimitError(retryAfter);
+          }
+          throw err;
+        }
+      }),
+    );
+}
+
+/** The error a skipped REST read throws. Carries "rate limit" in `stderr` like a real `gh`
+ *  403, so `isRateLimitError` fallbacks and the `/api/issues` attempt trail treat it the same. */
+function restBackoffError(args: string[], rest: BucketRateLimit): Error {
+  const until = new Date(rest.snapshot().pausedUntil ?? 0).toISOString();
+  const stderr = `REST API rate limit backoff active until ${until}; skipped gh ${args.join(" ")}`;
+  return Object.assign(new Error(stderr), { stderr });
+}
+
+/** Record `transports` as skipped because BOTH buckets are in backoff, each as a `rate_limit`
+ *  attempt whose detail says so, and return the error that describes the skip. */
+function recordSkippedTransports(transports: GhTransport[], attempts: GhFetchAttempt[]): Error {
+  const until = (rl: BucketRateLimit) => new Date(rl.snapshot().pausedUntil ?? 0).toISOString();
+  const stderr = `GitHub rate limit backoff active on both buckets (GraphQL until ${until(graphRateLimit)}, REST until ${until(restRateLimit)}); skipped`;
+  const err = Object.assign(new Error(stderr), { stderr });
+  for (const t of transports) attempts.push(classifyGhError(t, err));
+  return err;
+}
+
+/** The process-wide runner: one concurrency cap and one pair of bucket trackers for every
+ *  GitHub call, whether from a forge or the backlog counts service. */
+export const sharedGhRunner: GhRunner = makeGhRunner();
 
 export interface GhReview {
   author?: { login?: string } | null;
@@ -554,10 +630,17 @@ export class GithubForge implements GitForge {
    *  most once per forge instance (on transition into the capped regime). */
   private openPrCapLogged = false;
   private readonly restCheckCache = new Map<string, { at: number; state: ChecksState }>();
+  /** listIssues cache + in-flight share. `issuesGen` bumps on this forge's own issue
+   *  writes so a fetch that started before the write never repopulates the cache. */
+  private issuesCache: { at: number; issues: Issue[] } | null = null;
+  private issuesInflight: Promise<Issue[]> | null = null;
+  private issuesGen = 0;
+  /** Per-repo backoff after a failed listing: the last error is replayed until `until`. */
+  private issuesFailure: { err: unknown; until: number; strikes: number } | null = null;
   constructor(
     readonly slug: string,
     private readonly cfg: ForgeConfig,
-    private readonly run: GhRunner = defaultRunner,
+    private readonly run: GhRunner = sharedGhRunner,
     /** Fork (origin) slug when the repo is a fork (`slug` = upstream). Drives the
      *  fork-aware PR head qualifier and the `canPush` probe target. */
     private readonly forkSlug?: string,
@@ -832,6 +915,70 @@ export class GithubForge implements GitForge {
   }
 
   /**
+   * Open issues, served from a {@link ISSUES_CACHE_TTL_MS} cache shared by every caller of
+   * this forge (#2656): the issues panel, the epics routes, the completed-epics band, the
+   * drain and Up Next each list the same repo independently, several of them uncached.
+   * Concurrent calls share one in-flight fetch; a failure is not cached. Each caller gets
+   * shallow copies, so one consumer annotating an issue (e.g. `blockedBy`) can't leak into
+   * another's view. This forge's own issue writes clear the cache ({@link invalidateIssues}).
+   */
+  async listIssues(): Promise<Issue[]> {
+    const hit = this.issuesCache;
+    if (hit && Date.now() - hit.at < ISSUES_CACHE_TTL_MS) return copyIssues(hit.issues);
+    const fail = this.issuesFailure;
+    if (fail && Date.now() < fail.until) throw fail.err;
+    if (!this.issuesInflight) {
+      const gen = this.issuesGen;
+      const p = this.fetchIssues()
+        .then(
+          (issues) => {
+            if (gen === this.issuesGen) {
+              this.issuesCache = { at: Date.now(), issues };
+              this.issuesFailure = null;
+            }
+            return issues;
+          },
+          (err: unknown) => {
+            if (gen === this.issuesGen) this.noteIssuesFailure(err);
+            throw err;
+          },
+        )
+        .finally(() => {
+          if (this.issuesInflight === p) this.issuesInflight = null;
+        });
+      this.issuesInflight = p;
+    }
+    return copyIssues(await this.issuesInflight);
+  }
+
+  private invalidateIssues(): void {
+    this.issuesGen++;
+    this.issuesCache = null;
+    this.issuesInflight = null;
+    this.issuesFailure = null;
+  }
+
+  /** Open (or extend) the per-repo backoff after a failed listing (#2656): a repo that keeps
+   *  failing — unresolvable, 404, auth — was re-listed on every cycle of every caller. The
+   *  window doubles per consecutive failure, and each window logs one line; pure rate-limit
+   *  failures stay quiet here, since the bucket trackers already log those edges. */
+  private noteIssuesFailure(err: unknown): void {
+    const strikes = (this.issuesFailure?.strikes ?? 0) + 1;
+    const ms = Math.min(
+      ISSUES_FAILURE_BACKOFF_MS * 2 ** (strikes - 1),
+      ISSUES_FAILURE_BACKOFF_MAX_MS,
+    );
+    const until = Date.now() + ms;
+    this.issuesFailure = { err, until, strikes };
+    const attempts = attemptsOf(err) ?? [];
+    if (attempts.every((a) => a.reason === "rate_limit") && attempts.length > 0) return;
+    const why = attempts.map((a) => `${a.transport}: ${a.reason}`).join(", ") || String(err);
+    console.warn(
+      `[github] ${this.slug} issue listing failed (${why}); next attempt after ${new Date(until).toISOString()}`,
+    );
+  }
+
+  /**
    * Open issues over whichever transport answers.
    *
    * `gh issue list` (GraphQL bucket) and `gh api` (REST bucket) draw on two
@@ -850,20 +997,30 @@ export class GithubForge implements GitForge {
    *  - The REST→CLI direction knowingly issues a GraphQL call inside an active
    *    backoff window. REST has just proved unusable, the backoff is only a
    *    heuristic, and a real GraphQL rate-limit error re-extends the window by
-   *    itself (the default runner calls `graphRateLimit.noteLimitError`).
+   *    itself (the shared runner records it on `graphRateLimit`).
+   *
+   * One narrowing (#2656): while BOTH buckets are in backoff, no transport runs —
+   * either would only spawn `gh` into another limit error. That covers a REST 403
+   * inside a GraphQL backoff too: the CLI fallback is skipped instead of doubling
+   * every failing cycle.
    *
    * Both failing rethrows the PREFERRED transport's error — it describes the path
    * we expected to work, so it is the more useful diagnosis. Every transport that
    * actually ran and failed is recorded on that error ({@link attachAttempts}) so
    * `/api/issues` can name the paths instead of leaving the operator to guess at a
    * rate limit. The trail is built as we go, so it always describes what was really
-   * attempted — never a second transport that never ran.
+   * attempted; a transport skipped for the double backoff is recorded as a
+   * `rate_limit` whose detail says so.
    */
-  async listIssues(): Promise<Issue[]> {
+  private async fetchIssues(): Promise<Issue[]> {
     const order: GhTransport[] = graphRateLimit.blocked() ? ["rest", "cli"] : ["cli", "rest"];
     const attempts: GhFetchAttempt[] = [];
     let preferredErr: unknown;
     for (const [i, transport] of order.entries()) {
+      if (graphRateLimit.blocked() && restRateLimit.blocked()) {
+        preferredErr ??= recordSkippedTransports(order.slice(i), attempts);
+        break;
+      }
       try {
         return await (transport === "rest" ? this.listIssuesRest() : this.listIssuesCli());
       } catch (err) {
@@ -1927,9 +2084,22 @@ export class GithubForge implements GitForge {
 
   async createIssue(o: { title: string; body: string }): Promise<{ number: number; url: string }> {
     // `gh issue create` echoes the new issue's URL on stdout (…/issues/<n>).
-    const url = (
-      await this.run(["issue", "create", "--repo", this.slug, "--title", o.title, "--body", o.body])
-    ).trim();
+    let out: string;
+    try {
+      out = await this.run([
+        "issue",
+        "create",
+        "--repo",
+        this.slug,
+        "--title",
+        o.title,
+        "--body",
+        o.body,
+      ]);
+    } finally {
+      this.invalidateIssues();
+    }
+    const url = out.trim();
     const n = Number(url.match(/\/(\d+)\s*$/)?.[1]);
     if (!Number.isInteger(n)) throw new Error(`could not parse issue number from URL: ${url}`);
     return { number: n, url };
@@ -2191,7 +2361,11 @@ export class GithubForge implements GitForge {
   }
 
   async closeIssue(issueNumber: number): Promise<void> {
-    await this.run(["issue", "close", String(issueNumber), "--repo", this.slug]);
+    try {
+      await this.run(["issue", "close", String(issueNumber), "--repo", this.slug]);
+    } finally {
+      this.invalidateIssues();
+    }
   }
 
   async commentIssue(issueNumber: number, body: string): Promise<void> {
@@ -2238,27 +2412,35 @@ export class GithubForge implements GitForge {
     // operator creates the opt-in label, but the claim label is ours — create it
     // first (ignoring "already exists") so the claim doesn't fail on a fresh repo.
     await this.ensureLabel(label);
-    await this.run([
-      "issue",
-      "edit",
-      String(issueNumber),
-      "--repo",
-      this.slug,
-      "--add-label",
-      label,
-    ]);
+    try {
+      await this.run([
+        "issue",
+        "edit",
+        String(issueNumber),
+        "--repo",
+        this.slug,
+        "--add-label",
+        label,
+      ]);
+    } finally {
+      this.invalidateIssues();
+    }
   }
 
   async removeIssueLabel(issueNumber: number, label: string): Promise<void> {
-    await this.run([
-      "issue",
-      "edit",
-      String(issueNumber),
-      "--repo",
-      this.slug,
-      "--remove-label",
-      label,
-    ]);
+    try {
+      await this.run([
+        "issue",
+        "edit",
+        String(issueNumber),
+        "--repo",
+        this.slug,
+        "--remove-label",
+        label,
+      ]);
+    } finally {
+      this.invalidateIssues();
+    }
   }
 
   async addPrLabel(prNumber: number, label: string): Promise<void> {

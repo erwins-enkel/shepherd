@@ -1,4 +1,4 @@
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, spyOn } from "bun:test";
 import { DrainService } from "../src/drain";
 import { SessionStore } from "../src/store";
 import type { GitForge, GitState, Issue, PrStatus, SubIssueRef } from "../src/forge/types";
@@ -186,6 +186,32 @@ describe("epic-branch host divergence scan (#645 signal c)", () => {
     // No cache to fall back to → empty → no (c) warning, while the epic itself still builds.
     expect(e!.warnings.some((w) => w.includes("divergent epic branch"))).toBe(false);
     expect(e!.parentIssueNumber).toBe(PARENT);
+  });
+
+  test("scan failure is cached for the TTL — no re-scan on every build (#2656)", async () => {
+    // A rate-limited host used to be re-scanned on every buildEpic (every pump), each one a
+    // `gh api` call straight into a 403. The failure now stamps the throttle too.
+    const branchesRef = { branches: [PINNED], calls: 0, throws: true };
+    const clock = { t: 1_000 };
+    const { store, drain } = makeHarness(branchesRef, clock);
+    const run = store.getEpicRun(REPO)!;
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await drain.buildEpic(REPO, run);
+      clock.t += 60_000; // past the 10s structure cache, inside the 5-min scan throttle
+      await drain.buildEpic(REPO, run);
+      expect(branchesRef.calls).toBe(1);
+
+      clock.t += 6 * 60_000; // past the throttle → one retry
+      await drain.buildEpic(REPO, run);
+      expect(branchesRef.calls).toBe(2);
+      // Only the first failure of the streak is logged.
+      expect(warn.mock.calls.filter((c) => String(c[0]).includes("epic-branch scan"))).toHaveLength(
+        1,
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   test("scan failure past the TTL → reuses the stale cached divergent list", async () => {

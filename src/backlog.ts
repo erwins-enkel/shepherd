@@ -17,7 +17,11 @@ interface CacheEntry {
   value: RepoCounts;
 }
 
-const TTL_MS = 120_000;
+/** Read TTL. Must outlive BacklogPoller's cold cadence (15 min, #2656): a cold repo is
+ *  re-warmed that rarely, and a shorter TTL would make every backlog broadcast and GET
+ *  re-fetch it on the request path anyway — undoing the tiering. Hot repos are rewritten
+ *  every warm tick, so they never get near it. */
+const TTL_MS = 20 * 60_000;
 
 /**
  * Cap on simultaneous count fetches. The async runner made the per-repo `gh`

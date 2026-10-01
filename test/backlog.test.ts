@@ -113,7 +113,7 @@ test("CountsService: Gitea repo returns openIssues and openPRs from REST API", a
   expect(result.openPRs).toBe(1);
 });
 
-// 3. 120s TTL: two calls within the window invoke runner ONCE
+// 3. TTL: two calls within the window invoke runner ONCE
 test("CountsService: TTL caches result — second call within window skips runner", async () => {
   const repoDir = gitInit(join(tmpBase, "gh-ttl"), "https://github.com/o/r");
   const forges: ForgeMap = {};
@@ -201,8 +201,25 @@ test("CountsService: failure yields null not 0", async () => {
   expect(result.openPRs).not.toBe(0);
 });
 
+// 6b. The read TTL outlives the poller's cold cadence (#2656): a repo the poller warms only
+// every 15 min is served from cache by the payload instead of being re-fetched per broadcast.
+test("CountsService: an entry warmed 15 min ago is still served from cache", async () => {
+  const repoDir = gitInit(join(tmpBase, "gh-ttl-cold"), "https://github.com/o/ttl-cold");
+  const graphqlResponse = JSON.stringify({
+    data: { repository: { issues: { totalCount: 5 }, pullRequests: { totalCount: 1 } } },
+  });
+  const { run, calls } = fakeRunner(graphqlResponse);
+  const svc = new CountsService({}, run);
+
+  await svc.counts(repoDir);
+  (svc as any).cache.get(repoDir).at = Date.now() - 15 * 60_000;
+  await svc.counts(repoDir);
+
+  expect(calls.filter((c) => c.includes("graphql")).length).toBe(1);
+});
+
 // 7. TTL expiry: second call after TTL elapses re-invokes the runner
-test("CountsService: TTL expiry — call after 120s window re-fetches from runner", async () => {
+test("CountsService: TTL expiry — call after the 20 min window re-fetches from runner", async () => {
   const repoDir = gitInit(join(tmpBase, "gh-ttl-expire"), "https://github.com/o/ttl-expire");
   const forges: ForgeMap = {};
 
@@ -215,9 +232,9 @@ test("CountsService: TTL expiry — call after 120s window re-fetches from runne
   // First fetch — populates cache
   await svc.counts(repoDir);
 
-  // Backdate the cache entry's `at` field to simulate TTL expiry (> 120 000 ms ago)
+  // Backdate the cache entry's `at` field to simulate TTL expiry (> 20 min ago)
   const entry = (svc as any).cache.get(repoDir);
-  entry.at = Date.now() - 121_000;
+  entry.at = Date.now() - 20 * 60_000 - 1_000;
 
   // Second fetch — cache is stale, runner should be called again
   await svc.counts(repoDir);

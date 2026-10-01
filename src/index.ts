@@ -137,7 +137,7 @@ import { recommendPrompt, RECOMMEND_LABEL } from "./prompt-recommend";
 import { shapeTask, SHAPE_LABEL } from "./task-shape";
 import { CountsService } from "./backlog";
 import { OpenPrSnapshotService } from "./open-pr-snapshot";
-import { BacklogPoller } from "./backlog-poller";
+import { BacklogPoller, reposUsedSince } from "./backlog-poller";
 import { UpNextService, buildUpNextRepos } from "./up-next";
 import { ReadinessScorer } from "./up-next-readiness";
 import {
@@ -232,13 +232,9 @@ import { PROVIDER_FAILOVER_FROM_KEY, releaseProviderFailover } from "./provider-
 import { snapshotSessionUsage } from "./usage-snapshot";
 import { hasCommittedChanges } from "./diff";
 import { HoldReasonService } from "./hold-service";
-import {
-  graphRateLimit,
-  isGraphqlBucketCall,
-  isRateLimitError,
-  parseRetryAfter,
-} from "./forge/rate-limit";
+import { graphRateLimit } from "./forge/rate-limit";
 import { fetchGithubRateLimit } from "./forge/github-rate-limit";
+import { sharedGhRunner } from "./forge/github";
 
 const execFileAsync = promisify(execFile);
 
@@ -3604,23 +3600,9 @@ setTimeout(() => void diagnosticsTick(), 4_000);
 // github.com works through the operator's existing `gh` CLI auth, so an absent file is fine.
 // async `gh` runner: lets CountsService fan out per-repo GraphQL counts in
 // parallel (a blocking execFileSync would serialize them on the event loop,
-// making the backlog load scale linearly with repo count).
-const ghRunnerAsync = async (args: string[]): Promise<string> => {
-  try {
-    const { stdout } = await execFileAsync("gh", args, { maxBuffer: 16 * 1024 * 1024 });
-    return stdout.toString();
-  } catch (err) {
-    // Detect GraphQL rate-limit errors and record them in the shared backoff
-    // state so pollers can pause before the next request. The error is always
-    // re-thrown so existing caller behaviour is unchanged.
-    if (isGraphqlBucketCall(args) && isRateLimitError(err)) {
-      graphRateLimit.noteLimitError(
-        parseRetryAfter(String((err as Record<string, unknown>)?.stderr ?? "")),
-      );
-    }
-    throw err;
-  }
-};
+// making the backlog load scale linearly with repo count). The forges' shared
+// runner, so the counts share its concurrency cap and rate-limit tracking (#2656).
+const ghRunnerAsync = sharedGhRunner;
 const backlog = new CountsService(config.forges, ghRunnerAsync, fetch, undefined, (dir) =>
   store.getRepoConfig(dir),
 );
@@ -3661,6 +3643,11 @@ const backlogPoller = new BacklogPoller(
   // Warm the backlog only while a dashboard is open — REST fallbacks keep counts
   // useful even while the GraphQL bucket is exhausted.
   () => presence.hasClients(),
+  // Repos with a session in the last week every tick; the rest every 15 min (#2656).
+  {
+    hotRepos: () => reposUsedSince(store.lastUsedByRepo(), Date.now() - 7 * 86_400_000),
+    coldIntervalMs: 15 * 60_000,
+  },
 );
 deferredStarts.push(() => {
   setTimeout(() => void backlogPoller.tick(), 3_000);

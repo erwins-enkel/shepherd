@@ -420,12 +420,15 @@ export class DrainService {
   // (manual archive, never retired) is absent here, so onArchived drops the label
   // and re-queues the issue. Consumed (deleted) in onArchived.
   private retainClaimOnArchive = new Set<string>();
-  private issuesCache = new Map<string, { issues: Issue[]; ts: number }>();
+  private issuesCache = new Map<string, { issues: Issue[]; ts: number; failed?: boolean }>();
   private epicStructureCache = new Map<string, { reads: EpicStructure; ts: number }>();
   // #645 (c): throttle the host epic/* branch scan — keyed `${repoPath}#${parentIssueNumber}`,
   // refreshed at most every EPIC_BRANCH_SCAN_TTL_MS. In-memory only (ephemeral advisory warning;
   // recomputing on restart is fine — no persisted column).
-  private epicBranchScanCache = new Map<string, { at: number; divergent: string[] }>();
+  private epicBranchScanCache = new Map<
+    string,
+    { at: number; divergent: string[]; failed?: boolean }
+  >();
   // #2069: `${repoPath}#${parentIssueNumber}` → last stack-composition pass, plus its in-flight
   // guard (the pass is a read-modify-write across awaits, and tick() has no re-entrancy lock).
   // In-memory on purpose: a restart composes on the next tick and the pass is idempotent.
@@ -726,8 +729,13 @@ export class DrainService {
       this.epicBranchScanCache.set(key, { at: this.now(), divergent });
       return divergent;
     } catch (err) {
-      console.warn(`[drain] epic-branch scan for #${parentNumber} failed:`, err);
-      return cached?.divergent ?? [];
+      // Stamp the failure too: an uncached failure re-scanned on every build — each one a
+      // `gh api` call straight into a rate limit (#2656). Warn on the first failure only.
+      if (!cached?.failed)
+        console.warn(`[drain] epic-branch scan for #${parentNumber} failed:`, err);
+      const divergent = cached?.divergent ?? [];
+      this.epicBranchScanCache.set(key, { at: this.now(), divergent, failed: true });
+      return divergent;
     }
   }
 
@@ -1343,8 +1351,9 @@ export class DrainService {
   }
 
   /** Short-TTL cache around the forge's listIssues (the pump may re-read state
-   *  many times in one drain). A forge throw warns and yields [] — never crashes
-   *  the pump. */
+   *  many times in one drain). A forge throw yields [] — never crashes the pump —
+   *  and is cached for the same TTL, so a rate-limited forge is not re-listed on
+   *  every read (#2656). Only the first failure of a streak is warned. */
   private async listIssues(repoPath: string): Promise<Issue[]> {
     const cached = this.issuesCache.get(repoPath);
     if (cached && this.now() - cached.ts < this.issuesTtlMs) return cached.issues;
@@ -1354,7 +1363,8 @@ export class DrainService {
       this.issuesCache.set(repoPath, { issues, ts: this.now() });
       return issues;
     } catch (err) {
-      console.warn(`[drain] listIssues failed for ${repoPath}:`, err);
+      if (!cached?.failed) console.warn(`[drain] listIssues failed for ${repoPath}:`, err);
+      this.issuesCache.set(repoPath, { issues: [], ts: this.now(), failed: true });
       return [];
     }
   }

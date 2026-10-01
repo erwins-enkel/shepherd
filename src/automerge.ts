@@ -501,6 +501,12 @@ export class AutoMergeService {
     const live = this.fullAutoRepos();
     for (const repoPath of this.deps.repos()) {
       if (live.has(repoPath)) await this.pump(repoPath);
+      else if (this.waiting.get(repoPath)?.length) {
+        // Full-auto was switched off (session override or repo toggle) — neither path pumps, so
+        // clear the last-known wait list once, or the UI would keep claiming the train owns the PR.
+        this.waiting.set(repoPath, []);
+        this.deps.emitStatus(this.status(repoPath, false, null, null, null));
+      }
     }
   }
 

@@ -37,9 +37,9 @@ final class IOSPlanSteer {
         defer { submitting = false; busyChanged(false) }
         do {
             try await writer(text)
+            sent = true // Delivery survives tab changes; presentation feedback does not.
             guard mine == generation, current(), !Task.isCancelled else { return }
             outcome = "plangate_repair_sent"
-            sent = true
         } catch {
             guard mine == generation, current(), !Task.isCancelled else { return }
             outcome = "plangate_repair_send_failed"

@@ -27,8 +27,9 @@ Single choices, optional multiple choices and multiline text answers use the
 shared form validation, index-based payloads and confirmation. Requests show
 progress, preserve drafts on error and prevent repeated submission. Answers
 recorded without delivery show the shared warning and remain locked. Persisted
-answered forms are read-only. Block identity, contents and session activation
-fence stale confirmations and completions.
+answered forms are read-only. The reviewed plan hash, block identity, contents and session activation
+fence stale confirmations and completions. Identical questions in a new revision
+receive a fresh form and require new consent.
 
 The web's stalled-plan **Prepare steer** editor is also available. Its editable
 findings can include an operator note and are sent with the existing reply route.
@@ -36,10 +37,20 @@ This requests a plan revision; it does not set an approval or rejection verdict.
 The current contract has no operator approve/reject-with-note endpoint. iOS uses
 Go to release an already approved plan and never bypasses that server rule.
 
-Writes require the current selection and activation, a live connection, a mounted
-foreground view, enabled input and no isolated read-only request audit. Question,
-steer and plan requests lock competing controls. Inactive views cancel pending
-consent; selection and profile changes fence request completions. No new contract
+Writes require the current selection and activation, a live connection, a current
+nonarchived session in the live store, a mounted foreground view, enabled input
+and no isolated read-only request audit. Question,
+steer and plan requests lock competing controls. `IOSPlanController`, registered
+as an activation-scoped `AppExtension`, retains per-session forms, steer drafts
+and outstanding request locks across tab and detail navigation. Inactive views
+cancel pending consent and invalidate presentation feedback without releasing
+request locks. Successful answer/steer delivery remains recorded even when its
+presentation has left, preventing a second delivery. Profile teardown drops the
+activation owner and fences old completions.
+
+Initial detail entry uses the current list selection gesture. Historical
+`openPlanTick` values form a baseline; only newer requests can switch a mounted
+detail to Plan. Reopening an executing session therefore starts on Terminal. No new contract
 or Mac behavior is introduced.
 
 ## Phone presentation and visual evidence
@@ -72,3 +83,8 @@ Run iOS build/tests only through the operator's `ios-shared-build.sh`, selecting
 the `ShepherdIOSTests` unit target for fixtures. The source-inventory validator
 must confirm every unit identity executed successfully. Device VoiceOver,
 keyboard scrolling and live-server decisions still need manual acceptance.
+
+`IOSPlanTests` includes regression cases for identical-question plan revisions,
+buffered consent and late completion, answer/steer/review/quota locks across tab
+remounts, live-store archive exclusion for every plan write, and Terminal-first
+reentry after execution with historical plan-open ticks.

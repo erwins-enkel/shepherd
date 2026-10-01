@@ -181,6 +181,232 @@ final class IOSPlanTests: XCTestCase {
         XCTAssertNil(new.footerMessage)
     }
 
+    func testIdenticalQuestionsResetSubmittedStateForNewPlanHash() async throws {
+        let fake = IOSPlanRecorder()
+        let p = await presentation(gate(forms: true), fake: fake)
+        let old = p.form(at: 0, block: block())
+        fill(old)
+        old.requestConfirmation()
+        await old.confirmSubmission()
+        XCTAssertFalse(old.canSubmit)
+        var revision = gate(forms: true)
+        revision.planHash = "second-review"
+        p.actions.model.receive(.unknown(name: "session:plangate", payload: try JSONEncoder().encode(
+            SessionPlanGateEvent(id: session().id, gate: revision))))
+        p.update()
+        let fresh = p.form(at: 0, block: block())
+        XCTAssertFalse(fresh === old)
+        XCTAssertNil(fresh.footerMessage)
+        fill(fresh)
+        XCTAssertTrue(fresh.canSubmit)
+        fresh.requestConfirmation()
+        await fresh.confirmSubmission()
+        XCTAssertEqual(fake.answers.count, 2)
+    }
+
+    func testNewHashFencesBufferedConsentBeforeViewReconciliation() async throws {
+        let fake = IOSPlanRecorder()
+        let p = await presentation(gate(forms: true), fake: fake)
+        let old = p.form(at: 0, block: block())
+        fill(old)
+        old.requestConfirmation()
+        var revision = gate(forms: true)
+        revision.planHash = "second-review"
+        p.actions.model.receive(.unknown(name: "session:plangate", payload: try JSONEncoder().encode(
+            SessionPlanGateEvent(id: session().id, gate: revision))))
+        await old.confirmSubmission() // No update/reviewing transition before the buffered tap.
+        XCTAssertTrue(fake.answers.isEmpty)
+        p.update()
+        XCTAssertNil(old.answerContext)
+        XCTAssertFalse(old.confirming)
+        XCTAssertFalse(p.form(at: 0, block: block()) === old)
+    }
+
+    func testNewHashFencesLateAnswerCompletionWithIdenticalQuestions() async throws {
+        let fake = IOSPlanRecorder()
+        fake.hold = true
+        let p = await presentation(gate(forms: true), fake: fake)
+        let old = p.form(at: 0, block: block())
+        fill(old); old.requestConfirmation()
+        let send = Task { await old.confirmSubmission() }
+        await settle { fake.pending != nil }
+        var revision = gate(forms: true)
+        revision.planHash = "second-review"
+        p.actions.model.receive(.unknown(name: "session:plangate", payload: try JSONEncoder().encode(
+            SessionPlanGateEvent(id: session().id, gate: revision))))
+        p.update()
+        let fresh = p.form(at: 0, block: block())
+        fill(fresh)
+        XCTAssertFalse(fresh.canSubmit, "The outstanding request still owns the session lock")
+        fake.resume(); await send.value
+        XCTAssertNil(old.footerMessage)
+        XCTAssertNil(fresh.footerMessage)
+        XCTAssertTrue(fresh.canSubmit)
+    }
+
+    func testTabRemountRetainsAnswerDraftAndRequestLockAndFencesCompletion() async {
+        let fake = IOSPlanRecorder()
+        fake.hold = true
+        let m = await model(gate(forms: true))
+        let controller = IOSPlanController(makePresentation: { session, model in
+            IOSPlanPresentation(session: session, model: model, writer: fake.planWriter,
+                answerWriter: fake.answerWriter, current: { fake.current })
+        })
+        defer { controller.teardown() }
+        let p = controller.presentation(for: session(), model: m)
+        p.update(visible: true, active: true)
+        let form = p.form(at: 0, block: block())
+        fill(form); form.requestConfirmation()
+        let send = Task { await form.confirmSubmission() }
+        await settle { fake.pending != nil }
+        p.disappear()
+        let returned = controller.presentation(for: session(), model: m)
+        returned.update(visible: true, active: true)
+        XCTAssertTrue(p === returned)
+        XCTAssertTrue(form === returned.form(at: 0, block: block()))
+        XCTAssertEqual(form.freeform["note"], "  Keep the full plan visible.\n")
+        XCTAssertFalse(form.canSubmit)
+        form.requestConfirmation(); await form.confirmSubmission()
+        await returned.actions.review()
+        XCTAssertEqual(fake.answers.count, 1)
+        XCTAssertEqual(fake.reviews, 0)
+        fake.resume(); await send.value
+        XCTAssertNil(form.footerMessage, "A departed presentation cannot paint completion on a new mount")
+        XCTAssertFalse(form.canSubmit, "Successful recording must never be delivered twice")
+        XCTAssertTrue(returned.allowsActions)
+    }
+
+    func testTabRemountRetainsSteerDraftAndRequestLock() async throws {
+        let fake = IOSPlanRecorder()
+        fake.hold = true
+        var stalled = gate(approved: false)
+        stalled.round = stalled.cap
+        let m = await model(stalled)
+        let controller = IOSPlanController(makePresentation: { session, model in
+            IOSPlanPresentation(session: session, model: model, writer: fake.planWriter,
+                answerWriter: fake.answerWriter, current: { fake.current }, sendSteer: { try await fake.sendSteer($0) })
+        })
+        defer { controller.teardown() }
+        let p = controller.presentation(for: session(), model: m)
+        p.update(visible: true, active: true); p.prepareSteer()
+        let steer = try XCTUnwrap(p.steer)
+        steer.draft += "\nOperator note retained."
+        let draft = steer.draft
+        p.disappear(); p.update(visible: true, active: true); p.prepareSteer()
+        XCTAssertTrue(p.steer === steer)
+        XCTAssertEqual(steer.draft, draft)
+        let send = Task { await steer.send() }
+        await settle { fake.pending != nil }
+        p.disappear()
+        let returned = controller.presentation(for: session(), model: m)
+        returned.update(visible: true, active: true)
+        returned.prepareSteer(); await steer.send()
+        await returned.actions.quota(resume: true)
+        XCTAssertTrue(returned.steer === steer)
+        XCTAssertTrue(steer.submitting)
+        XCTAssertFalse(returned.allowsActions)
+        XCTAssertEqual(fake.steers, [draft])
+        XCTAssertTrue(fake.quotas.isEmpty)
+        fake.resume(); await send.value
+        XCTAssertNil(steer.outcome)
+        XCTAssertTrue(steer.sent)
+        XCTAssertFalse(steer.canSend)
+    }
+
+    func testTabRemountKeepsReviewAndQuotaLocksUntilRequestsFinish() async {
+        let fake = IOSPlanRecorder()
+        fake.hold = true
+        let p = await presentation(gate(approved: false), fake: fake)
+        let review = Task { await p.actions.review() }
+        await settle { fake.pending != nil }
+        p.disappear(); p.update(visible: true, active: true)
+        XCTAssertTrue(p.actions.inFlight)
+        await p.actions.review()
+        XCTAssertEqual(fake.reviews, 1)
+        fake.resume(); await review.value
+        XCTAssertFalse(p.actions.inFlight)
+        XCTAssertNil(p.actions.outcome)
+
+        var stalled = gate(approved: false)
+        stalled.round = stalled.cap
+        let q = await presentation(stalled, fake: fake)
+        let quota = Task { await q.actions.quota(resume: true) }
+        await settle { fake.pending != nil }
+        q.disappear(); q.update(visible: true, active: true)
+        XCTAssertEqual(q.actions.quotaBusy, true)
+        await q.actions.quota(resume: false)
+        XCTAssertEqual(fake.quotas, [true])
+        fake.resume(); await quota.value
+        XCTAssertNil(q.actions.quotaBusy)
+        XCTAssertNil(q.actions.quotaOutcome)
+    }
+
+    func testArchivedOrMissingLiveSessionBlocksEveryPlanWrite() async throws {
+        let fake = IOSPlanRecorder()
+        let store = try SessionStore(profile: ServerProfile(name: "plan fixture",
+            baseURL: URL(string: "http://127.0.0.1:1")!, mode: .local), credentials: InMemoryCredentialStore())
+        store.apply(.sessionNew(session()))
+        var stalled = gate(forms: true, approved: false)
+        stalled.round = stalled.cap
+        let p = IOSPlanPresentation(session: session(), model: await model(stalled), writer: fake.planWriter,
+            answerWriter: fake.answerWriter, current: { IOSPlanController.isWritable(store.session(id: self.session().id)) },
+            sendSteer: { try await fake.sendSteer($0) })
+        p.update(visible: true, active: true); p.prepareSteer()
+        let form = p.form(at: 0, block: block())
+        fill(form); form.requestConfirmation()
+        for archived in [true, false] {
+            var live = session()
+            if archived { live.status = .init(known: .archived) } else { live.archivedAt = 42 }
+            store.apply(.sessionArchived(.init(id: live.id)))
+            store.apply(.sessionNew(live))
+            XCTAssertFalse(p.access.allowed)
+            await p.actions.review(); await p.actions.quota(resume: true)
+            await p.steer?.send(); await form.confirmSubmission()
+        }
+        store.apply(.sessionArchived(.init(id: session().id))) // Selected Done detail remains mounted.
+        p.update()
+        XCTAssertFalse(p.allowsActions)
+        XCTAssertNil(form.answerContext)
+        await p.actions.review(); await p.actions.quota(resume: false)
+        await p.steer?.send()
+        XCTAssertEqual(fake.reviews, 0)
+        XCTAssertTrue(fake.quotas.isEmpty)
+        XCTAssertTrue(fake.answers.isEmpty)
+        XCTAssertTrue(fake.steers.isEmpty)
+        let ready = IOSPlanPresentation(session: session(), model: await model(gate()), writer: fake.planWriter,
+            answerWriter: fake.answerWriter, current: { IOSPlanController.isWritable(store.session(id: self.session().id)) })
+        store.apply(.sessionNew(session()))
+        ready.update(visible: true, active: true)
+        ready.actions.requestConfirmation()
+        XCTAssertTrue(ready.actions.confirming)
+        store.apply(.sessionArchived(.init(id: session().id)))
+        await ready.actions.release()
+        XCTAssertFalse(ready.actions.confirming)
+        XCTAssertEqual(fake.releases, 0)
+    }
+
+    func testExecutingReentryIgnoresHistoricalPlanTickAndConsumesOnlyNewRequests() async {
+        let m = await model(gate())
+        let controller = IOSPlanController(makePresentation: { _, _ in fatalError("Navigation needs no requests") })
+        controller.select(session(), model: m)
+        m.openPlan(session().id)
+        var first = IOSPlanNavigation()
+        XCTAssertTrue(first.enter(opensPlan: controller.entryOpensPlan, tick: m.openPlanTick[session().id] ?? 0))
+        var executing = session()
+        executing.planPhase = .init(known: .executing)
+        controller.select(executing, model: m)
+        var reopened = IOSPlanNavigation()
+        let oldTick = m.openPlanTick[executing.id] ?? 0
+        XCTAssertGreaterThan(oldTick, 0)
+        XCTAssertFalse(reopened.enter(opensPlan: controller.entryOpensPlan, tick: oldTick))
+        XCTAssertFalse(reopened.consume(tick: oldTick))
+        m.openPlan(executing.id)
+        let newTick = m.openPlanTick[executing.id] ?? 0
+        XCTAssertTrue(reopened.consume(tick: newTick))
+        XCTAssertFalse(reopened.consume(tick: newTick))
+        XCTAssertFalse(reopened.enter(opensPlan: true, tick: newTick), "Ordinary reappearance preserves the user's tab")
+    }
+
     func testQuestionIdentitiesAreBlockScopedAndAlreadyAnsweredFormsAreReadOnly() async {
         var g = gate(forms: true)
         g.blocks = [.init(value13: block("first")), .init(value13: block("second"))]

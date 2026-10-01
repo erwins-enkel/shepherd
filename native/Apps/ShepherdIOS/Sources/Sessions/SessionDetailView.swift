@@ -22,6 +22,8 @@ struct SessionDetailView: View {
             surface: IOSTerminalHostView(model: terminal, fontSize: fontSize),
             planSurface: planSurface,
             planEntryLabel: planEntryLabel,
+            planInitialEntry: app.extension(IOSPlanController.self)?.entrySessionID == session.id
+                && app.extension(IOSPlanController.self)?.entryOpensPlan == true,
             planOpenTick: app.extension(PlanModel.self)?.openPlanTick[session.id] ?? 0)
             .safeAreaInset(edge: .bottom, spacing: 0) { IOSSessionActionBar(session: session) }
     }
@@ -63,7 +65,9 @@ struct IOSSessionDetailContent<Surface: View>: View {
     var selectableText = true
     var planSurface: AnyView? = nil
     var planEntryLabel: String? = nil
+    var planInitialEntry = false
     var planOpenTick = 0
+    @State private var planNavigation = IOSPlanNavigation()
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
@@ -113,8 +117,11 @@ struct IOSSessionDetailContent<Surface: View>: View {
         .navigationTitle(session.name)
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("session-detail")
-        .onChange(of: planOpenTick, initial: true) { _, tick in
-            if tick > 0, planSurface != nil { tab = .plan }
+        .onAppear {
+            if planNavigation.enter(opensPlan: planInitialEntry, tick: planOpenTick), planSurface != nil { tab = .plan }
+        }
+        .onChange(of: planOpenTick) { _, tick in
+            if planNavigation.consume(tick: tick), planSurface != nil { tab = .plan }
         }
     }
 

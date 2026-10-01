@@ -122,6 +122,7 @@ struct RootView: View {
     private func selectSession(_ id: String) {
         app.extension(DetailModel.self)?.retainSession(id)
         app.selectedSessionID = id
+        app.extension(IOSPlanController.self)?.select(app.store?.session(id: id), model: app.extension(PlanModel.self))
         if let session = app.store?.session(id: id), let plan = app.extension(PlanModel.self),
            IOSPlanPresentation.opensPlan(session: session, model: plan) {
             plan.openPlan(id)

@@ -8,35 +8,22 @@ struct IOSPlanView: View {
     let store: SessionStore
     let app: AppModel
     var body: some View {
-        IOSPlanInstance(session: session, model: model, store: store, app: app)
-            .id("\(session.id)-\(app.activationGeneration)")
+        if let controller = app.extension(IOSPlanController.self) {
+            IOSPlanInstance(session: session, presentation: controller.presentation(for: session, model: model))
+                .id("\(session.id)-\(app.activationGeneration)")
+        }
     }
 }
 
 private struct IOSPlanInstance: View {
     let session: Session
-    let app: AppModel
     @Environment(\.scenePhase) private var scenePhase
-    @State private var presentation: IOSPlanPresentation
-
-    init(session: Session, model: PlanModel, store: SessionStore, app: AppModel) {
-        self.session = session
-        self.app = app
-        let activation = app.activationGeneration
-        _presentation = State(initialValue: IOSPlanPresentation(session: session, model: model,
-            writer: .live(store.client), answerWriter: .live(session: session, store: store, app: app),
-            current: { [weak app, weak store] in
-                guard let app, let store else { return false }
-                return app.activationGeneration == activation && app.allowsTerminalInput
-                    && app.liveRequestAudit == nil && store.connection == .live
-                    && CurrentSessionSelection.isCurrent(session: session, store: store, app: app)
-            }, sendSteer: { text in try await store.client.replySession(id: session.id, text: text) }))
-    }
+    let presentation: IOSPlanPresentation
 
     var body: some View {
         ScrollView { IOSPlanBody(presentation: presentation) }
             .accessibilityIdentifier("detail-tab-plan")
-            .onAppear { presentation.update(visible: true, active: scenePhase == .active) }
+            .onAppear { presentation.update(session: session, visible: true, active: scenePhase == .active) }
             .onChange(of: scenePhase) { _, phase in presentation.update(active: phase == .active) }
             .onChange(of: session) { _, value in presentation.update(session: value) }
             .onChange(of: presentation.actions.gate) { _, _ in presentation.update() }

@@ -7,6 +7,7 @@
   import type {
     TerminalClientInfo,
     DrainStatus,
+    AutoMergeStatus,
     GitState,
     Leftover,
     LivenessState,
@@ -86,6 +87,8 @@
   import ViewportTermBanners from "./viewport/ViewportTermBanners.svelte";
   import ReviewInFlightBanner from "./viewport/ReviewInFlightBanner.svelte";
   import CiRunningBanner from "./viewport/CiRunningBanner.svelte";
+  import AutoMergeBanner from "./viewport/AutoMergeBanner.svelte";
+  import { ciBannerState } from "$lib/ci-banner";
   import ViewportTermControls from "./viewport/ViewportTermControls.svelte";
   import ViewportTabBar from "./viewport/ViewportTabBar.svelte";
   import ViewportHeaderActions from "./viewport/ViewportHeaderActions.svelte";
@@ -134,6 +137,7 @@
     authUrl = null,
     consumeAutoFocusTerm = () => true,
     drain = null,
+    autoMerge = null,
     subagents = {},
   }: {
     session: Session;
@@ -205,6 +209,9 @@
     /** Live drain status for this session's repo; passed through to GitRail →
      *  AutomationPanel so the epic-mode precedence indicator can render. */
     drain?: DrainStatus | null;
+    /** Live merge-train status for this session's repo; drives the auto-merge strip, the
+     *  terminal dim and the recap relabel while the train carries this session's PR. */
+    autoMerge?: AutoMergeStatus | null;
     /** Live per-session sub-agent roster map (the whole store.subagents record);
      *  the Activity tab's fan-out section reads this session's entry from it. */
     subagents?: Record<string, SubagentEntry[]>;
@@ -340,6 +347,12 @@
   // the operator reads "Shepherd is working — hands off". False during addressing (agent works in
   // THIS PTY) and conclusion, so the terminal never dims while its own output is live.
   let reviewInFlight = $state(false);
+  // Auto-merge strip (TASK-1368): its occupied height (it takes the bottom slot only when neither
+  // the review nor the CI banner does) and its `owned` signal — Shepherd carries this PR through
+  // the merge train, so dim the terminal + steer chips and relabel the recap. Input stays live.
+  let autoMergeH = $state(0);
+  let autoMergeOwned = $state(false);
+  const ciStripShown = $derived(ciBannerState({ git, reviewActive }).show);
   // Text stashed from an OSC 52 clipboard write that the browser refused (async writes need
   // a user gesture); the ClipboardPill offers a one-click retry that runs inside a real click.
   let pendingCopy = $state<string | null>(null);
@@ -2402,6 +2415,7 @@
 
 <div
   class="viewport"
+  class:auto-owned={autoMergeOwned}
   class:swiping
   class:phone={mobile}
   bind:this={viewportEl}
@@ -3005,12 +3019,13 @@
     role="tabpanel"
     id={vpBodyId}
     aria-labelledby={tabId(tab)}
-    style:--review-banner-h={`${reviewBannerH || ciBannerH}px`}
+    style:--review-banner-h={`${reviewBannerH || ciBannerH || autoMergeH}px`}
   >
     <div
       class="term-mount"
       class:dragging
       class:reviewing={reviewInFlight}
+      class:auto-owned={autoMergeOwned && !reviewInFlight}
       role="region"
       aria-label={m.viewport_terminal_tab()}
       bind:this={el}
@@ -3075,6 +3090,18 @@
     <!-- Non-blocking "CI is running" banner: same bottom strip, shown only when no
          review banner claims it (reviewActive) so the two never overlap. -->
     <CiRunningBanner {git} {tab} {reviewActive} bind:height={ciBannerH} />
+    <!-- Full-auto merge strip: same bottom slot, last in line — shown only when neither banner
+         above claims it. Its `owned` signal dims the terminal regardless of who holds the slot. -->
+    <AutoMergeBanner
+      sessionId={session.id}
+      repoPath={session.repoPath}
+      {git}
+      status={autoMerge}
+      {tab}
+      stripTaken={reviewActive || ciStripShown}
+      bind:height={autoMergeH}
+      bind:owned={autoMergeOwned}
+    />
     {#if tab === "todo"}
       <div class="panel-wrap">
         <TodoPanel repoPath={session.repoPath} />
@@ -3222,7 +3249,7 @@
   {/if}
 
   {#if tab !== "activity"}
-    <SessionRecap {session} />
+    <SessionRecap {session} {autoMergeOwned} />
   {/if}
 
   <!-- footer: keyboard-affordance hints — true desktop only (mouse + hardware
@@ -3973,6 +4000,20 @@
   .term-mount.reviewing {
     opacity: 0.5;
     transition: opacity 0.18s ease;
+  }
+  /* Full-auto merge carries this PR (TASK-1368): same dim as an in-flight review, plus the steer
+     chips — but hovering or focusing brings either back to full strength, since typing is still
+     allowed (it is only a "Shepherd has this" cue, not a lock). */
+  .term-mount.auto-owned,
+  .viewport.auto-owned :global(.steer-row) {
+    opacity: 0.5;
+    transition: opacity 0.18s ease;
+  }
+  .term-mount.auto-owned:hover,
+  .term-mount.auto-owned:focus-within,
+  .viewport.auto-owned :global(.steer-row:hover),
+  .viewport.auto-owned :global(.steer-row:focus-within) {
+    opacity: 1;
   }
 
   /* let xterm fill the mount */

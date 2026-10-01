@@ -2318,3 +2318,56 @@ describe("Viewport task info reveal", () => {
     await expect.poll(() => isOpen(container)).toBe(false);
   });
 });
+
+describe("Viewport full auto-merge strip (TASK-1368)", () => {
+  const status = (id: string, code: "critic_pending" | "critic_error") => ({
+    repoPath: "/repo/shepherd",
+    enabled: true,
+    state: null,
+    detail: null,
+    sessionId: null,
+    waiting: [{ sessionId: id, code }],
+  });
+  function clearReviewState() {
+    reviews.map = {};
+    reviews.reviewing = {};
+    reviews.reviewerEnv = {};
+    reviews.activity = {};
+  }
+  beforeEach(clearReviewState);
+  afterEach(clearReviewState);
+
+  it("a running critic on a train-held PR dims terminal + steer chips and reserves the strip", async () => {
+    const id = "vr-am-owned";
+    reviews.reviewing = { [id]: true };
+    render(Viewport, {
+      session: session({ id, repoPath: "/repo/shepherd" }),
+      autoMerge: status(id, "critic_pending"),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() => expect(document.querySelector(".am-banner")).not.toBeNull());
+    const mount = document.querySelector<HTMLElement>(".term-mount")!;
+    expect(mount.classList.contains("auto-owned")).toBe(true);
+    expect(document.querySelector(".viewport")!.classList.contains("auto-owned")).toBe(true);
+    const body = document.querySelector<HTMLElement>(".vp-body")!;
+    await vi.waitFor(() =>
+      expect(parseFloat(body.style.getPropertyValue("--review-banner-h"))).toBeGreaterThan(0),
+    );
+    // A dim cue, not a lock: the terminal's input path is untouched.
+    expect(mount.getAttribute("aria-disabled")).toBeNull();
+    expect(mount.hasAttribute("inert")).toBe(false);
+  });
+
+  it("an operator-owned hold shows the strip without dimming", async () => {
+    const id = "vr-am-operator";
+    render(Viewport, {
+      session: session({ id, repoPath: "/repo/shepherd" }),
+      autoMerge: status(id, "critic_error"),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() => expect(document.querySelector(".am-banner")).not.toBeNull());
+    expect(document.querySelector(".term-mount")!.classList.contains("auto-owned")).toBe(false);
+  });
+});

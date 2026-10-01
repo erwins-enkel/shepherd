@@ -3129,6 +3129,7 @@
             {retryReady}
             onedit={openSteersEditor}
             drain={store.drain[selected.repoPath] ?? null}
+            autoMerge={store.autoMerge[selected.repoPath] ?? null}
             subagents={store.subagents}
           />
         </div>
@@ -3305,6 +3306,7 @@
             {retryReady}
             onedit={openSteersEditor}
             drain={store.drain[selected.repoPath] ?? null}
+            autoMerge={store.autoMerge[selected.repoPath] ?? null}
             subagents={store.subagents}
           />
         {:else}

@@ -178,18 +178,25 @@ function readyGateFailure(
 ): MergeWaitCode | "not_open" | null {
   if (s.mergeBlocked) return "merge_backoff"; // backed off after repeated merge failures → skip, try siblings
   if (s.state !== "open" || !s.number) return "not_open";
-  if (
-    !checksCleared(s.checks, s.noCi) ||
-    s.mergeable !== true ||
-    s.mergeStateStatus === "blocked"
-  ) {
-    if (isDefiniteConflict(s)) return "conflict";
-    if (!checksCleared(s.checks, s.noCi))
-      return s.checks === "failure" ? "checks_failed" : "checks_pending";
-    return "not_mergeable";
-  }
+  const forge = forgeGateFailure(s);
+  if (forge) return forge;
   if (s.behind !== false) return "behind"; // true=stale, null=unknown → not now
   if (draftMode && !signedOff(authority, signoffView(s))) return "signoff"; // backstop: never merge an unsigned draft
+  return verdictGateFailure(s, criticEnabled);
+}
+
+/** The forge half of the gate: green CI, host-mergeable, not branch-protection blocked. */
+function forgeGateFailure(s: MergeSessionView): MergeWaitCode | null {
+  const cleared = checksCleared(s.checks, s.noCi);
+  if (cleared && s.mergeable === true && s.mergeStateStatus !== "blocked") return null;
+  if (isDefiniteConflict(s)) return "conflict";
+  if (!cleared) return s.checks === "failure" ? "checks_failed" : "checks_pending";
+  return "not_mergeable";
+}
+
+/** The verdict half of the gate. A stale `changes_requested`/`error` (older head) still blocks,
+ *  but reads as `critic_pending`: the re-review of the new head is what clears it. */
+function verdictGateFailure(s: MergeSessionView, criticEnabled: boolean): MergeWaitCode | null {
   const staleVerdict = criticEnabled && s.reviewHeadSha !== s.headSha;
   if (s.reviewDecision === "changes_requested")
     return staleVerdict ? "critic_pending" : "changes_requested";

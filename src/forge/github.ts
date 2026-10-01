@@ -14,6 +14,7 @@ import { makeUserCache } from "./user-cache";
 import { labelColorsFrom } from "./labels";
 import {
   attachAttempts,
+  attemptsOf,
   classifyGhError,
   type GhFetchAttempt,
   type GhTransport,
@@ -172,6 +173,9 @@ const REST_CHECK_CACHE_TTL_MS = 60_000;
 const REST_CHECK_LOOKUP_BUDGET = 40;
 /** How long {@link GithubForge.listIssues} answers from its cache (#2656). */
 const ISSUES_CACHE_TTL_MS = 30_000;
+/** First and longest per-repo backoff window after a failed issue listing (#2656). */
+const ISSUES_FAILURE_BACKOFF_MS = 30_000;
+const ISSUES_FAILURE_BACKOFF_MAX_MS = 15 * 60_000;
 const GRAPHQL_PR_REVIEW_STATES: Record<string, PrReviewMeta["state"]> = {
   OPEN: "open",
   MERGED: "merged",
@@ -383,6 +387,16 @@ function restBackoffError(args: string[], rest: BucketRateLimit): Error {
   const until = new Date(rest.snapshot().pausedUntil ?? 0).toISOString();
   const stderr = `REST API rate limit backoff active until ${until}; skipped gh ${args.join(" ")}`;
   return Object.assign(new Error(stderr), { stderr });
+}
+
+/** Record `transports` as skipped because BOTH buckets are in backoff, each as a `rate_limit`
+ *  attempt whose detail says so, and return the error that describes the skip. */
+function recordSkippedTransports(transports: GhTransport[], attempts: GhFetchAttempt[]): Error {
+  const until = (rl: BucketRateLimit) => new Date(rl.snapshot().pausedUntil ?? 0).toISOString();
+  const stderr = `GitHub rate limit backoff active on both buckets (GraphQL until ${until(graphRateLimit)}, REST until ${until(restRateLimit)}); skipped`;
+  const err = Object.assign(new Error(stderr), { stderr });
+  for (const t of transports) attempts.push(classifyGhError(t, err));
+  return err;
 }
 
 /** The process-wide runner: one concurrency cap and one pair of bucket trackers for every
@@ -621,6 +635,8 @@ export class GithubForge implements GitForge {
   private issuesCache: { at: number; issues: Issue[] } | null = null;
   private issuesInflight: Promise<Issue[]> | null = null;
   private issuesGen = 0;
+  /** Per-repo backoff after a failed listing: the last error is replayed until `until`. */
+  private issuesFailure: { err: unknown; until: number; strikes: number } | null = null;
   constructor(
     readonly slug: string,
     private readonly cfg: ForgeConfig,
@@ -909,13 +925,24 @@ export class GithubForge implements GitForge {
   async listIssues(): Promise<Issue[]> {
     const hit = this.issuesCache;
     if (hit && Date.now() - hit.at < ISSUES_CACHE_TTL_MS) return copyIssues(hit.issues);
+    const fail = this.issuesFailure;
+    if (fail && Date.now() < fail.until) throw fail.err;
     if (!this.issuesInflight) {
       const gen = this.issuesGen;
       const p = this.fetchIssues()
-        .then((issues) => {
-          if (gen === this.issuesGen) this.issuesCache = { at: Date.now(), issues };
-          return issues;
-        })
+        .then(
+          (issues) => {
+            if (gen === this.issuesGen) {
+              this.issuesCache = { at: Date.now(), issues };
+              this.issuesFailure = null;
+            }
+            return issues;
+          },
+          (err: unknown) => {
+            if (gen === this.issuesGen) this.noteIssuesFailure(err);
+            throw err;
+          },
+        )
         .finally(() => {
           if (this.issuesInflight === p) this.issuesInflight = null;
         });
@@ -928,6 +955,27 @@ export class GithubForge implements GitForge {
     this.issuesGen++;
     this.issuesCache = null;
     this.issuesInflight = null;
+    this.issuesFailure = null;
+  }
+
+  /** Open (or extend) the per-repo backoff after a failed listing (#2656): a repo that keeps
+   *  failing — unresolvable, 404, auth — was re-listed on every cycle of every caller. The
+   *  window doubles per consecutive failure, and each window logs one line; pure rate-limit
+   *  failures stay quiet here, since the bucket trackers already log those edges. */
+  private noteIssuesFailure(err: unknown): void {
+    const strikes = (this.issuesFailure?.strikes ?? 0) + 1;
+    const ms = Math.min(
+      ISSUES_FAILURE_BACKOFF_MS * 2 ** (strikes - 1),
+      ISSUES_FAILURE_BACKOFF_MAX_MS,
+    );
+    const until = Date.now() + ms;
+    this.issuesFailure = { err, until, strikes };
+    const attempts = attemptsOf(err) ?? [];
+    if (attempts.every((a) => a.reason === "rate_limit") && attempts.length > 0) return;
+    const why = attempts.map((a) => `${a.transport}: ${a.reason}`).join(", ") || String(err);
+    console.warn(
+      `[github] ${this.slug} issue listing failed (${why}); next attempt after ${new Date(until).toISOString()}`,
+    );
   }
 
   /**
@@ -949,20 +997,30 @@ export class GithubForge implements GitForge {
    *  - The REST→CLI direction knowingly issues a GraphQL call inside an active
    *    backoff window. REST has just proved unusable, the backoff is only a
    *    heuristic, and a real GraphQL rate-limit error re-extends the window by
-   *    itself (the default runner calls `graphRateLimit.noteLimitError`).
+   *    itself (the shared runner records it on `graphRateLimit`).
+   *
+   * One narrowing (#2656): while BOTH buckets are in backoff, no transport runs —
+   * either would only spawn `gh` into another limit error. That covers a REST 403
+   * inside a GraphQL backoff too: the CLI fallback is skipped instead of doubling
+   * every failing cycle.
    *
    * Both failing rethrows the PREFERRED transport's error — it describes the path
    * we expected to work, so it is the more useful diagnosis. Every transport that
    * actually ran and failed is recorded on that error ({@link attachAttempts}) so
    * `/api/issues` can name the paths instead of leaving the operator to guess at a
    * rate limit. The trail is built as we go, so it always describes what was really
-   * attempted — never a second transport that never ran.
+   * attempted; a transport skipped for the double backoff is recorded as a
+   * `rate_limit` whose detail says so.
    */
   private async fetchIssues(): Promise<Issue[]> {
     const order: GhTransport[] = graphRateLimit.blocked() ? ["rest", "cli"] : ["cli", "rest"];
     const attempts: GhFetchAttempt[] = [];
     let preferredErr: unknown;
     for (const [i, transport] of order.entries()) {
+      if (graphRateLimit.blocked() && restRateLimit.blocked()) {
+        preferredErr ??= recordSkippedTransports(order.slice(i), attempts);
+        break;
+      }
       try {
         return await (transport === "rest" ? this.listIssuesRest() : this.listIssuesCli());
       } catch (err) {

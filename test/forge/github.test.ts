@@ -1,6 +1,6 @@
-import { test, expect, setSystemTime } from "bun:test";
+import { test, expect, setSystemTime, spyOn } from "bun:test";
 import { GithubForge, reviewerStatesFromReviews } from "../../src/forge/github";
-import { graphRateLimit } from "../../src/forge/rate-limit";
+import { graphRateLimit, restRateLimit } from "../../src/forge/rate-limit";
 import { attemptsOf } from "../../src/forge/gh-attempt";
 import { CRITIC_REVIEW_MARKER, EmptyDiffError } from "../../src/forge/types";
 import type { PullRequest, PrReviewerState, PrStatus } from "../../src/forge/types";
@@ -380,17 +380,94 @@ test("GithubForge.listIssues: the forge's own issue writes invalidate the cache"
   }
 });
 
-test("GithubForge.listIssues: a failure is not cached — the next call retries", async () => {
+// A repo that keeps failing (unresolvable, 404, auth) was re-listed on every cycle of every
+// caller — 2,942 "Could not resolve to a Repository" lines in one log. It now backs off per
+// repo: 30s, doubling to 15 min, replaying the last error, logged once per window.
+test("GithubForge.listIssues: a persistently failing repo backs off exponentially, logging once per window", async () => {
+  const UNRESOLVABLE = "GraphQL: Could not resolve to a Repository with the name 'o/r'.";
+  let spawns = 0;
   let fail = true;
   const run = async (args: string[]): Promise<string> => {
-    if (fail) throw new Error(args[0] === "issue" ? "cli boom" : "rest boom");
+    spawns++;
+    if (fail) throw new Error(args[0] === "issue" ? UNRESOLVABLE : "gh: Not Found (HTTP 404)");
     return args[0] === "issue" ? ISSUES_JSON : "[]";
   };
   unblockGraphql();
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
   const forge = new GithubForge("o/r", {}, run);
-  await expect(forge.listIssues()).rejects.toThrow("cli boom");
-  fail = false;
-  expect((await forge.listIssues()).map((i) => i.number)).toEqual([1, 2]);
+  try {
+    setSystemTime(new Date("2026-10-01T12:00:00Z"));
+    const first = await forge.listIssues().catch((e: unknown) => e);
+    expect(spawns).toBe(2); // both transports tried
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    // Inside the 30s window: the same error (with its trail) is replayed, no gh at all.
+    setSystemTime(new Date("2026-10-01T12:00:20Z"));
+    const replay = await forge.listIssues().catch((e: unknown) => e);
+    expect(replay).toBe(first);
+    expect(attemptsOf(replay)).toHaveLength(2);
+    expect(spawns).toBe(2);
+
+    // Window over → one retry, which fails again → the next window is 60s, one more log line.
+    setSystemTime(new Date("2026-10-01T12:00:31Z"));
+    await forge.listIssues().catch(() => {});
+    expect(spawns).toBe(4);
+    expect(warn).toHaveBeenCalledTimes(2);
+    setSystemTime(new Date("2026-10-01T12:01:30Z"));
+    await forge.listIssues().catch(() => {});
+    expect(spawns).toBe(4);
+
+    // Recovery clears the backoff.
+    fail = false;
+    setSystemTime(new Date("2026-10-01T12:01:32Z"));
+    expect((await forge.listIssues()).map((i) => i.number)).toEqual([1, 2]);
+  } finally {
+    setSystemTime();
+    warn.mockRestore();
+  }
+});
+
+test("GithubForge.listIssues: with both buckets in backoff, nothing is spawned and the trail says why", async () => {
+  let spawns = 0;
+  const run = async (): Promise<string> => {
+    spawns++;
+    return ISSUES_JSON;
+  };
+  blockGraphql();
+  restRateLimit.noteLimitError(60);
+  try {
+    const err = await new GithubForge("o/r", {}, run).listIssues().catch((e: unknown) => e);
+    expect(spawns).toBe(0);
+    expect(attemptsOf(err)?.map((a) => [a.transport, a.reason])).toEqual([
+      ["rest", "rate_limit"],
+      ["cli", "rate_limit"],
+    ]);
+  } finally {
+    restRateLimit.noteSuccess();
+    unblockGraphql();
+  }
+});
+
+test("GithubForge.listIssues: in a GraphQL backoff, a REST rate limit does not fall through to the CLI", async () => {
+  // Before #2656 the REST 403 fell through to a GraphQL call inside the GraphQL backoff,
+  // so every cycle spent two doomed gh calls per repo.
+  const calls: string[][] = [];
+  const run = async (args: string[]): Promise<string> => {
+    calls.push(args);
+    if (args[0] === "api") {
+      restRateLimit.noteLimitError(); // what the shared runner records on a REST 403
+      throw new Error("gh: API rate limit exceeded for user ID 1. (HTTP 403)");
+    }
+    return ISSUES_JSON;
+  };
+  blockGraphql();
+  try {
+    await expect(new GithubForge("o/r", {}, run).listIssues()).rejects.toThrow("rate limit");
+    expect(calls.map((c) => c[0])).toEqual(["api"]);
+  } finally {
+    restRateLimit.noteSuccess();
+    unblockGraphql();
+  }
 });
 
 // `gh issue list` (GraphQL bucket) and `gh api` (REST bucket) draw on two independent

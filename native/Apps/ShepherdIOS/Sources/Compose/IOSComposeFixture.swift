@@ -10,6 +10,21 @@ import ShepherdKit
     static var enabled: Bool {
         ProcessInfo.processInfo.arguments.contains("-ShepherdComposeFixture")
     }
+    static var sessionListEnabled: Bool {
+        enabled && ProcessInfo.processInfo.arguments.contains("-ShepherdSessionListFixture")
+    }
+    static func startSessionList(app: AppModel, credentials: any CredentialStore) async throws {
+        // Exercise the real profile/store activation and RootView sheet routing.
+        // Registration intercepts only the reserved fixture host, including clients
+        // that AppModel constructs with URLSession.shared.
+        URLProtocol.registerClass(IOSComposeFixtureTransport.self)
+        let profile = try app.addRemoteProfile(name: "Fixture", address: "https://compose.fixture.invalid")
+        try credentials.save(.init(token: "fixture-token", tokenId: "fixture"), for: profile.credentialKey)
+        if !ProcessInfo.processInfo.arguments.contains("-ShepherdReadOnlyFixture") {
+            app.liveRequestAudit = nil
+        }
+        await app.activate(profile)
+    }
     static func make(app: AppModel) throws -> (SessionStore, ComposeModel, FakeDictationEngine, DictationController) {
         let sessionConfig = URLSessionConfiguration.ephemeral
         sessionConfig.protocolClasses = [IOSComposeFixtureTransport.self]

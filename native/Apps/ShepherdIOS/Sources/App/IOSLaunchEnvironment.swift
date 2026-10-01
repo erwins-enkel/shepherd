@@ -70,6 +70,13 @@ final class IOSLaunchEnvironment {
     func start(_ app: AppModel) async {
         guard !started else { return }
         started = true
+        #if DEBUG
+        if configuration.isIsolated, configuration.baseURL == nil, IOSComposeFixture.sessionListEnabled {
+            do { try await IOSComposeFixture.startSessionList(app: app, credentials: credentials) }
+            catch { app.isolatedLaunchError = L.t("native_error_offline") }
+            return
+        }
+        #endif
         guard configuration.isIsolated, let baseURL = configuration.baseURL else {
             await app.restoreActiveProfile()
             return

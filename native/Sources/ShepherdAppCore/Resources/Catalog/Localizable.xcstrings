@@ -18,6 +18,40 @@
         }
       }
     },
+    "actionbar_new_task": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ Neue Aufgabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "+ New Task"
+          }
+        }
+      }
+    },
+    "actionbar_new_task_short": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neu"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New"
+          }
+        }
+      }
+    },
     "activity_active": {
       "comment": "%1$@ = ago",
       "extractionState": "manual",

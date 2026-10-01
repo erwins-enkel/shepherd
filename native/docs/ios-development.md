@@ -28,6 +28,13 @@ sidebar data path and are not inferred. Shared usage warnings are shown when kno
 
 The app also creates tasks through the native composer.
 
+The amber **+ New** action follows Repos in the iPhone bottom bar and follows the
+lenses in the iPad top strip. It opens the composer sheet through `IOSComposer.open`.
+Its visible and VoiceOver labels reuse the web's localized new-task strings. The
+action is hidden during isolated live read-only runs and disabled without a store.
+The session-list composer UI tests activate a reserved fixture profile, intercept
+its HTTP requests, and tap the same production action; no debug-only button is used.
+
 ## Local simulator workflow
 
 For the fast incremental dev loop, from the repository root:
@@ -170,10 +177,13 @@ archive, tested hardware, uploaded build or approved external beta.
 ## Task composer and dictation
 
 `RootView` presents `IOSComposeSheet` for `app.sheet = .newSession`. The session-list
-stream opens it through `IOSComposer.open(app)`; no list or bottom-bar files belong to
-the composer stream. Normal launches permit task creation; isolated launches retain
-the read-only audit. The debug-only `-ShepherdComposeFixture 1` launch flag is honored
-only with `-ShepherdIsolated 1`, and uses a client-local fake transport and microphone.
+action opens it through `IOSComposer.open(app)`. Normal launches permit task creation;
+isolated live launches retain the read-only audit. The debug-only
+`-ShepherdComposeFixture 1` launch flag is honored only with `-ShepherdIsolated 1`,
+and uses a client-local fake transport and microphone. Adding
+`-ShepherdSessionListFixture 1` instead starts the real session list with a reserved
+fixture profile and HTTP interception. `-ShepherdReadOnlyFixture 1` retains the audit
+to verify that the production new-task action is absent.
 
 The composer reuses `ComposeModel`, repository/branch selection, issue filters,
 commands, attachments, readiness and `ComposeSubmission`. It offers Code, Research,

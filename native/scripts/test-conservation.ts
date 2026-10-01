@@ -310,6 +310,8 @@ function scan(
 const roots = [
   ["ShepherdTests", "native/Apps/ShepherdMac/Tests"],
   ["ShepherdUITests", "native/Apps/ShepherdMac/UITests"],
+  ["ShepherdIOSTests", "native/Apps/ShepherdIOS/Tests"],
+  ["ShepherdIOSUITests", "native/Apps/ShepherdIOS/UITests"],
   ["ShepherdKitTests", "native/Tests/ShepherdKitTests"],
   ["ShepherdAppCoreTests", "native/Tests/ShepherdAppCoreTests"],
 ] as const;

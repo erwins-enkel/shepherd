@@ -258,6 +258,8 @@ export const KEYS_DETAIL: readonly string[] = [
 /** Keys the Herd sidebar and header strip use. Owned by stream S3 — keep alphabetical. */
 export const KEYS_IOS_SIDEBAR: readonly string[] = [
   "actionbar_backlog",
+  "actionbar_new_task",
+  "actionbar_new_task_short",
   "herd_help_active",
   "herd_help_ci_failed",
   "herd_help_ci_running",

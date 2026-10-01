@@ -1,4 +1,6 @@
 "actionbar_backlog" = "Repos";
+"actionbar_new_task" = "+ New Task";
+"actionbar_new_task_short" = "New";
 "activity_active" = "active %1$@ ago";
 "activity_ci_failure" = "failed";
 "activity_ci_pending" = "running";

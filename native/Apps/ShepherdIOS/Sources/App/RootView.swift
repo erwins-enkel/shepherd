@@ -92,7 +92,7 @@ struct RootView: View {
 
     private var composeFixtureEnabled: Bool {
         #if DEBUG
-        launch.configuration.isIsolated && IOSComposeFixture.enabled
+        launch.configuration.isIsolated && IOSComposeFixture.enabled && !IOSComposeFixture.sessionListEnabled
         #else
         false
         #endif

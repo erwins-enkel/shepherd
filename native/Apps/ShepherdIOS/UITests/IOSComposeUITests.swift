@@ -9,6 +9,32 @@ final class IOSComposeUITests: XCTestCase {
         app.launchEnvironment = ["SHEPHERD_ISOLATED":"1"]
     }
     override func tearDown() { app.terminate() }
+    func testSessionListNewTaskOpensComposer() {
+        app.launchArguments += ["-ShepherdSessionListFixture", "1"]
+        app.launch()
+        let newTask = app.buttons["new-task"]
+        XCTAssertTrue(newTask.waitForExistence(timeout: 10))
+        XCTAssertEqual(newTask.label, "+ Neue Aufgabe")
+        XCTAssertGreaterThanOrEqual(newTask.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(newTask.frame.height, 44)
+        let repos = app.buttons["show-repos"]
+        if repos.exists {
+            XCTAssertGreaterThan(newTask.frame.minX, repos.frame.minX)
+        } else {
+            XCTAssertTrue(app.descendants(matching: .any)["herd-lenses-top"].exists)
+        }
+        XCTAssertTrue(newTask.isHittable)
+        newTask.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["compose.sheet"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.textViews["compose.prompt"].exists)
+    }
+    func testReadOnlySessionListHidesNewTask() {
+        app.launchArguments += ["-ShepherdSessionListFixture", "1", "-ShepherdReadOnlyFixture", "1"]
+        app.launch()
+        XCTAssertTrue(app.descendants(matching: .any)["session-list"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["new-task"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["compose.sheet"].exists)
+    }
     func testHoldLockFinalizeAndStartUsesFixtureServer() {
         app.launch()
         let mic = app.descendants(matching: .any)["compose.voice.mic.idle"]

@@ -7,8 +7,7 @@ login, activation generations and the single event connection remain owned by
 opens on Terminal, with Activity and Info (including the complete prompt) on
 separate tabs. The iOS SwiftTerm renderer is pinned to 1.20.0, like the Mac app.
 Terminal font size is a per-device setting; the surrounding chrome, metadata and
-activity use Dynamic Type. Composition, merge and session mutation remain outside
-this stage.
+activity use Dynamic Type. Merge and session mutation remain outside this stage.
 
 The session list defaults to **All**, with the web/Mac lifecycle groups and
 collapsible headings. Shared native relevance ordering puts working and blocked
@@ -52,7 +51,9 @@ without changing test isolation or CI defaults:
 SHEPHERD_IOS_SIMULATOR_SIGNING=1 native/scripts/uitest-lock.sh native/scripts/test-ios-app.sh unit
 ```
 
-Install the repository's Swift 6.2+ Xcode toolchain and XcodeGen 2.46+. From the
+Install the repository's Swift 6.2+ Xcode toolchain and XcodeGen 2.46+. SwiftTerm
+1.20.0 also compiles Metal shaders; Xcode installations with optional toolchain
+components need `xcodebuild -downloadComponent MetalToolchain` once. From the
 repository root, wrap each entire script once. Scripts never acquire another lock.
 
 ```bash
@@ -94,6 +95,19 @@ Output follows the tail until the operator scrolls into history (including with
 VoiceOver); Latest output returns to the tail. Tapping output never opens a
 keyboard or forwards touch gestures to the agent.
 
+Reply opens a multiline sheet explicitly and sends through the shared model's
+existing `POST /api/sessions/{id}/reply` route. The bottom key bar matches the web
+palette: Esc and Enter stay pinned, with arrows, Tab, Space and Ctrl-A/E/U/C/D in
+the scrolling middle. Controls require a live, visible, foreground attachment.
+Failures preserve the draft; a reply completing after scene suspension cannot
+dismiss a fresh sheet. Drafts belong to the shared per-session model.
+
+Normal launches permit terminal input and replies. Isolated launches still disable
+input, including emulator protocol replies, and install the read-only request
+audit. No new server API or Mac terminal behaviour is introduced. File attachment,
+dictation, saved steer chips, diff/files/preview tabs and phone session swipes remain
+outside this stream.
+
 ## Mobile web references and visual fixtures
 
 `ui/src/routes/+page.svelte` changes `mobileScreen` from list to detail when a
@@ -109,7 +123,8 @@ for the currently supported native surfaces.
 with text fixture output via `ImageRenderer`. UIKit terminal rendering cannot be
 captured by ImageRenderer; a separate renderer test feeds real SwiftTerm output
 and verifies history retention. The fixture PNGs cover Terminal, Info and enlarged
-Info text. These fixtures are visual layout evidence, not a live-server check.
+Info text. Info fixtures use the same field layout without UIKit-backed scrolling
+or text selection. These fixtures are visual layout evidence, not a live-server check.
 
 ## Live acceptance
 

@@ -9,8 +9,15 @@ final class IOSWatchingTerminalView: SwiftTerm.TerminalView {
     var onUserScroll: (@MainActor (Double, Bool) -> Void)?
     override var canBecomeFirstResponder: Bool { false }
     override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
+        guard canScroll else { return false }
         let scrolled = super.accessibilityScroll(direction)
-        if scrolled { onUserScroll?(scrollPosition, canScroll) }
+        if scrolled {
+            // SwiftTerm's contentOffset sync freezes history only for finger tracking.
+            // VoiceOver has no tracking gesture: explicitly update its display row too.
+            let maximumOffset = max(1, contentSize.height - bounds.height)
+            scroll(toPosition: Double(contentOffset.y / maximumOffset))
+            onUserScroll?(scrollPosition, canScroll)
+        }
         return scrolled
     }
     override var contentOffset: CGPoint {

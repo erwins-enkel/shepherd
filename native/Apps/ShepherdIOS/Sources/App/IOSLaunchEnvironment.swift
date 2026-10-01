@@ -58,8 +58,8 @@ final class IOSLaunchEnvironment {
         app.register(DetailModel.self)
         app.register(TerminalController.self)
         app.allowsQueueRecomputation = false
-        app.allowsTerminalInput = false
-        app.liveRequestAudit = ReadOnlyRequestAudit()
+        app.allowsTerminalInput = !configuration.isIsolated
+        app.liveRequestAudit = configuration.isIsolated ? ReadOnlyRequestAudit() : nil
         app.login = { profile, password, credentials in
             try await ProfileSetup.login(profile: profile, password: password, credentials: credentials,
                 tokenName: ProfileSetup.tokenName(prefix: "Shepherd for iOS ("))

@@ -92,7 +92,7 @@ struct RootView: View {
            let detail = app.extension(DetailModel.self),
            let terminals = app.extension(TerminalController.self) {
             SessionDetailView(session: session, model: detail,
-                terminal: terminals.model(for: id), defaults: launch.defaults)
+                terminal: terminals.model(for: id), defaults: launch.defaults, allowsInput: app.allowsTerminalInput)
                 .id(DetailTaskKey(session: id, model: detail))
                 .toolbar(.visible, for: .navigationBar)
         } else {

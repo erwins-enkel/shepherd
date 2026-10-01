@@ -21,6 +21,13 @@ final class IOSCompositionTests: XCTestCase {
     func testStorageFailureFailsClosed() {
         XCTAssertThrowsError(try IOSLaunchEnvironment(configuration: .init(isIsolated: true), makeDefaults: { _ in nil }))
     }
+    func testNormalLaunchAllowsRepliesWithoutReadOnlyAudit() throws {
+        let launch = try IOSLaunchEnvironment(configuration: .init())
+        let app = launch.makeModel()
+        XCTAssertTrue(app.allowsTerminalInput)
+        XCTAssertNil(app.liveRequestAudit)
+        XCTAssertFalse(app.allowsQueueRecomputation)
+    }
     func testActivationRegistersOnlyReadingModels() async throws {
         let launch = try IOSLaunchEnvironment(configuration: .init(isIsolated: true))
         let app = launch.makeModel()

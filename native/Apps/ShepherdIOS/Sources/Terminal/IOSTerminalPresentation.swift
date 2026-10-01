@@ -8,16 +8,44 @@ import ShepherdAppCore
 @Observable
 final class IOSTerminalPresentation {
     let session: TerminalSessionModel
+    let allowsInput: Bool
     private(set) var followsTail = true
     private(set) var isAttached = false
+    private(set) var replying = false
     @ObservationIgnored var scrollToTail: (@MainActor () -> Void)?
     private var visible = false
     private var active = false
     private var rendererReady = false
     private var cols = 80
     private var rows = 24
+    private var generation = 0
 
-    init(session: TerminalSessionModel) { self.session = session }
+    init(session: TerminalSessionModel, allowsInput: Bool = true) {
+        self.session = session
+        self.allowsInput = allowsInput
+    }
+
+    var canSendInput: Bool { allowsInput && isAttached && session.phase == .live }
+    var canSubmitReply: Bool {
+        canSendInput && !replying && !session.promptBusy &&
+            !session.promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    func sendKey(_ key: IOSTerminalKey) {
+        guard canSendInput else { return }
+        session.send(Data(key.sequence.utf8))
+    }
+
+    /// Keep the sheet open on failure or if its attachment changed during the request.
+    /// The extra busy gate survives detach, while the core's generation gate resets.
+    func submitReply() async -> Bool {
+        guard canSubmitReply else { return false }
+        let mine = generation
+        replying = true
+        defer { replying = false }
+        await session.submitPrompt()
+        return mine == generation && session.promptError == nil
+    }
 
     func visibilityChanged(visible: Bool, active: Bool) {
         self.visible = visible
@@ -62,6 +90,7 @@ final class IOSTerminalPresentation {
     private func reconcile() {
         let shouldAttach = visible && active && rendererReady
         guard shouldAttach != isAttached else { return }
+        generation += 1
         isAttached = shouldAttach
         if shouldAttach {
             // Foreground entry creates a new attachment and replays scrollback too.

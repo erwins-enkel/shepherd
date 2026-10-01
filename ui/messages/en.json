@@ -4867,5 +4867,6 @@
   "native_ios_terminal_font_points": "{size} pt",
   "native_ios_terminal_hint": "Live session output. Scroll to read earlier output.",
   "native_ios_terminal_latest": "Latest output",
-  "native_ios_terminal_superseded_body": "Another device attached to this terminal. Taking over returns it to this iPhone or iPad and detaches the other device."
+  "native_ios_terminal_superseded_body": "Another device attached to this terminal. Taking over returns it to this iPhone or iPad and detaches the other device.",
+  "native_ios_terminal_reply": "Reply"
 }

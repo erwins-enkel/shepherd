@@ -154,6 +154,20 @@ export const KEYS_CORE: readonly string[] = [
 /** Terminal stream (S1). Keep alphabetical. */
 // Stream T — iOS terminal/detail chrome. Additive; Mac keys stay unchanged.
 export const KEYS_IOS_TERMINAL: readonly string[] = [
+  "controlbar_toolbar_aria",
+  "controlkey_arrow_down",
+  "controlkey_arrow_left",
+  "controlkey_arrow_right",
+  "controlkey_arrow_up",
+  "controlkey_ctrl_a",
+  "controlkey_ctrl_c",
+  "controlkey_ctrl_d",
+  "controlkey_ctrl_e",
+  "controlkey_ctrl_u",
+  "controlkey_enter",
+  "controlkey_escape",
+  "controlkey_space",
+  "controlkey_tab",
   "native_ios_detail_branch",
   "native_ios_detail_info",
   "native_ios_detail_path",
@@ -162,6 +176,7 @@ export const KEYS_IOS_TERMINAL: readonly string[] = [
   "native_ios_terminal_font_size",
   "native_ios_terminal_hint",
   "native_ios_terminal_latest",
+  "native_ios_terminal_reply",
   "native_ios_terminal_superseded_body",
 ];
 

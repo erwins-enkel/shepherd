@@ -8,9 +8,11 @@ struct IOSTerminalPane<Surface: View>: View {
     let allowsInput: Bool
     let surface: Surface
     @Binding var fontSize: Double
+    var rendersStaticFixture = false
     @Environment(\.scenePhase) private var scenePhase
     @State private var connecting = ConnectingOverlayDebouncer()
     @State private var fontSettings = false
+    @State private var replyOpen = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -48,6 +50,11 @@ struct IOSTerminalPane<Surface: View>: View {
                 surface
                 overlay
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            if allowsInput {
+                Rectangle().fill(IOSTerminalStyle.line).frame(height: 1)
+                IOSTerminalInputBar(model: model, openReply: { replyOpen = true },
+                    rendersStaticFixture: rendersStaticFixture)
+            }
         }
         .accessibilityIdentifier("detail-tab-terminal")
         .onAppear { model.visibilityChanged(visible: true, active: scenePhase == .active) }
@@ -60,6 +67,11 @@ struct IOSTerminalPane<Surface: View>: View {
         .onDisappear {
             model.visibilityChanged(visible: false, active: false)
             connecting.phaseChanged(toConnecting: false)
+        }
+        .sheet(isPresented: $replyOpen) {
+            IOSTerminalReplySheet(model: model)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
         }
     }
 

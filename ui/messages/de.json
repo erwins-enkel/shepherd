@@ -4867,5 +4867,6 @@
   "native_ios_terminal_font_points": "{size} pt",
   "native_ios_terminal_hint": "Live-Ausgabe der Sitzung. Scrolle, um frühere Ausgaben zu lesen.",
   "native_ios_terminal_latest": "Neueste Ausgabe",
-  "native_ios_terminal_superseded_body": "Ein anderes Gerät ist mit diesem Terminal verbunden. Übernehmen gibt es an dieses iPhone oder iPad zurück und trennt das andere Gerät."
+  "native_ios_terminal_superseded_body": "Ein anderes Gerät ist mit diesem Terminal verbunden. Übernehmen gibt es an dieses iPhone oder iPad zurück und trennt das andere Gerät.",
+  "native_ios_terminal_reply": "Antworten"
 }

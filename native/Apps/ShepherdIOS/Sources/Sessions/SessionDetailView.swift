@@ -9,10 +9,11 @@ struct SessionDetailView: View {
     @AppStorage private var fontSize: Double
     @Environment(AppModel.self) private var app
 
-    init(session: Session, model: DetailModel, terminal: TerminalSessionModel, defaults: UserDefaults) {
+    init(session: Session, model: DetailModel, terminal: TerminalSessionModel, defaults: UserDefaults,
+         allowsInput: Bool) {
         self.session = session
         self.model = model
-        _terminal = State(initialValue: IOSTerminalPresentation(session: terminal))
+        _terminal = State(initialValue: IOSTerminalPresentation(session: terminal, allowsInput: allowsInput))
         _fontSize = AppStorage(wrappedValue: 12, "ios.terminal.fontSize", store: defaults)
     }
 
@@ -42,6 +43,9 @@ struct IOSSessionDetailContent<Surface: View>: View {
     @Binding var fontSize: Double
     let surface: Surface
     @State var tab: IOSSessionDetailTab = .terminal
+    // ImageRenderer cannot draw UIKit-backed selectable Text. Fixtures disable selection.
+    var selectableText = true
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(spacing: 0) {
@@ -53,27 +57,18 @@ struct IOSSessionDetailContent<Surface: View>: View {
             }
             .font(.system(.caption, design: .monospaced))
             .padding(.horizontal, 12).padding(.vertical, 8)
-            HStack(spacing: 0) {
-                ForEach(IOSSessionDetailTab.allCases, id: \.self) { item in
-                    Button { tab = item } label: {
-                        Text(verbatim: item.title.uppercased())
-                            .font(.system(.caption, design: .monospaced).weight(.semibold))
-                            .frame(maxWidth: .infinity, minHeight: 44)
-                            .foregroundStyle(tab == item ? IOSTerminalStyle.amber : IOSTerminalStyle.muted)
-                            .overlay(alignment: .bottom) {
-                                Rectangle().fill(tab == item ? IOSTerminalStyle.amber : IOSTerminalStyle.line)
-                                    .frame(height: 1)
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(item.title)
-                    .accessibilityAddTraits(tab == item ? .isSelected : [])
-                    .accessibilityIdentifier("detail-select-\(item)")
-                }
-            }.background(IOSTerminalStyle.panel)
+            if dynamicTypeSize.isAccessibilitySize, selectableText {
+                ScrollView(.horizontal) { tabs.fixedSize(horizontal: true, vertical: false) }.scrollIndicators(.hidden)
+            } else if dynamicTypeSize.isAccessibilitySize {
+                GeometryReader { geometry in
+                    tabs.fixedSize(horizontal: true, vertical: false)
+                        .frame(width: geometry.size.width, alignment: .leading).clipped()
+                }.frame(height: 60)
+            } else { tabs }
             switch tab {
             case .terminal:
-                IOSTerminalPane(model: terminal, allowsInput: allowsInput, surface: surface, fontSize: $fontSize)
+                IOSTerminalPane(model: terminal, allowsInput: allowsInput, surface: surface, fontSize: $fontSize,
+                    rendersStaticFixture: !selectableText)
             case .activity:
                 List { ActivityView(session: session, model: model).listRowBackground(IOSTerminalStyle.panel) }
                     .listStyle(.plain).scrollContentBackground(.hidden)
@@ -91,23 +86,59 @@ struct IOSSessionDetailContent<Surface: View>: View {
         .accessibilityIdentifier("session-detail")
     }
 
-    private var info: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                infoField(L.t("native_detail_status_label"), SessionStatusStyle.label(session.status))
-                infoField(L.t("native_ios_detail_task"), session.desig)
-                infoField(L.t("native_ios_detail_path"), session.repoPath)
-                if let branch = session.branch { infoField(L.t("native_ios_detail_branch"), branch) }
-                infoField(L.t("newtask_prompt_label"), session.prompt)
-            }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
-        }.accessibilityIdentifier("detail-tab-info")
+    private var tabs: some View {
+        HStack(spacing: 0) {
+            ForEach(IOSSessionDetailTab.allCases, id: \.self) { item in
+                Button { tab = item } label: {
+                    Text(verbatim: item.title.uppercased())
+                        .font(.system(.caption, design: .monospaced).weight(.semibold))
+                        .fixedSize(horizontal: true, vertical: false)
+                        .padding(.horizontal, 12)
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .foregroundStyle(tab == item ? IOSTerminalStyle.amber : IOSTerminalStyle.muted)
+                        .overlay(alignment: .bottom) {
+                            Rectangle().fill(tab == item ? IOSTerminalStyle.amber : IOSTerminalStyle.line)
+                                .frame(height: 1)
+                        }
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(item.title)
+                .accessibilityAddTraits(tab == item ? .isSelected : [])
+                .accessibilityIdentifier("detail-select-\(item)")
+            }
+        }.background(IOSTerminalStyle.panel)
+    }
+
+    @ViewBuilder private var info: some View {
+        if selectableText {
+            ScrollView { infoFields }
+                .accessibilityIdentifier("detail-tab-info")
+        } else {
+            // ScrollView is UIKit-backed too; render the same first viewport statically.
+            GeometryReader { geometry in
+                infoFields.fixedSize(horizontal: false, vertical: true)
+                    .frame(width: geometry.size.width, alignment: .topLeading)
+            }.clipped()
+        }
+    }
+
+    private var infoFields: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            infoField(L.t("native_detail_status_label"), SessionStatusStyle.label(session.status))
+            infoField(L.t("native_ios_detail_task"), session.desig)
+            infoField(L.t("native_ios_detail_path"), session.repoPath)
+            if let branch = session.branch { infoField(L.t("native_ios_detail_branch"), branch) }
+            infoField(L.t("newtask_prompt_label"), session.prompt)
+        }.padding(16).frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func infoField(_ label: String, _ value: String) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(verbatim: label.uppercased()).font(.system(.caption, design: .monospaced))
                 .foregroundStyle(IOSTerminalStyle.muted)
-            Text(verbatim: value).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+            if selectableText {
+                Text(verbatim: value).font(.system(.body, design: .monospaced)).textSelection(.enabled)
+            } else { Text(verbatim: value).font(.system(.body, design: .monospaced)) }
         }
     }
 

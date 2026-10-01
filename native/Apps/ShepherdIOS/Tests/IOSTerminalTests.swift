@@ -140,17 +140,152 @@ final class IOSTerminalTests: XCTestCase {
         XCTAssertEqual(view.getTerminal().buffer.yDisp, oldRow)
         presentation.jumpToTail()
         XCTAssertEqual(view.scrollPosition, 1)
+        XCTAssertTrue(view.accessibilityScroll(.up))
+        XCTAssertFalse(presentation.followsTail)
+        let voiceOverRow = view.getTerminal().buffer.yDisp
+        received = false
+        pty.emit("output during VoiceOver history reading\r\n")
+        await settle { received }
+        XCTAssertEqual(view.getTerminal().buffer.yDisp, voiceOverRow)
+        presentation.jumpToTail()
         presentation.rendererUnmounted()
     }
 
-    func testRenderFixtureImages() throws {
+    func testRendererClearsForegroundReplayAndOnlySendsEmulatorResponses() async {
+        var attachments: [IOSFixturePTY] = []
+        let core = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in
+            let pty = IOSFixturePTY(); attachments.append(pty); return pty
+        })
+        let presentation = IOSTerminalPresentation(session: core)
+        let coordinator = IOSTerminalHostView.Coordinator(model: presentation)
+        let view = IOSWatchingTerminalView(frame: CGRect(x: 0, y: 0, width: 390, height: 400),
+            font: .monospacedSystemFont(ofSize: 12, weight: .regular))
+        view.terminalDelegate = coordinator
+        coordinator.bind(view)
+        presentation.visibilityChanged(visible: true, active: true)
+        let replay = (0..<100).map { "line \($0)\r\n" }.joined()
+        attachments[0].emit(replay)
+        await settle { view.canScroll }
+        let originalTail = view.getTerminal().buffer.yDisp
+        coordinator.send(source: view, data: [3])
+        XCTAssertTrue(attachments[0].sent.isEmpty, "Touch/selection output cannot interrupt the agent")
+        presentation.visibilityChanged(visible: true, active: false)
+        presentation.visibilityChanged(visible: true, active: true)
+        XCTAssertEqual(attachments[0].stops, 1)
+        XCTAssertFalse(view.canScroll, "Clear the previous frame before replay")
+        attachments[1].emit(replay)
+        await settle { view.canScroll }
+        XCTAssertEqual(view.getTerminal().buffer.yDisp, originalTail, "Replay must not duplicate scrollback")
+        attachments[1].emit("\u{1b}[c")
+        await settle { !attachments[1].sent.isEmpty }
+        presentation.rendererUnmounted()
+    }
+
+    func testReplyDelegatesToCoreAndFailureKeepsDraft() async {
+        let recorder = IOSReplyRecorder()
+        let pty = IOSFixturePTY()
+        let core = TerminalSessionModel(sessionID: "fixture", reply: { text in
+            try await recorder.send(text)
+        }, makeAttachment: { _, _ in pty })
+        let presentation = IOSTerminalPresentation(session: core)
+        presentation.rendererMounted(cols: 50, rows: 20)
+        presentation.visibilityChanged(visible: true, active: true)
+        core.promptText = "   "
+        XCTAssertFalse(presentation.canSubmitReply)
+        core.promptText = "  Read the failing test\nthen fix it  "
+        let connectingResult = await presentation.submitReply()
+        XCTAssertFalse(connectingResult)
+        XCTAssertTrue(recorder.texts.isEmpty)
+        pty.emit(.attached)
+        await settle { core.phase == .live }
+        let result = await presentation.submitReply()
+        XCTAssertTrue(result)
+        XCTAssertEqual(recorder.texts, ["Read the failing test\nthen fix it"])
+        XCTAssertEqual(core.promptText, "")
+        recorder.fail = true
+        core.promptText = "Preserve this draft"
+        let failed = await presentation.submitReply()
+        XCTAssertFalse(failed)
+        XCTAssertEqual(core.promptText, "Preserve this draft")
+        XCTAssertNotNil(core.promptError)
+        XCTAssertFalse(presentation.replying)
+        presentation.rendererUnmounted()
+    }
+
+    func testReplyCompletionCannotDismissSheetAfterBackgroundAndCannotOverlap() async {
+        let gate = IOSReplyRecorder()
+        gate.hold = true
+        let pty = IOSFixturePTY()
+        let session = TerminalSessionModel(sessionID: "fixture", reply: { text in
+            try await gate.send(text)
+        }, makeAttachment: { _, _ in pty })
+        let presentation = IOSTerminalPresentation(session: session)
+        presentation.rendererMounted(cols: 50, rows: 20)
+        presentation.visibilityChanged(visible: true, active: true)
+        pty.emit(.attached)
+        await settle { session.phase == .live }
+        session.promptText = "first message"
+        let reply = Task { await presentation.submitReply() }
+        await settle { gate.pending != nil }
+        session.promptText = "next draft"
+        XCTAssertFalse(presentation.canSubmitReply)
+        presentation.visibilityChanged(visible: true, active: false)
+        gate.pending?.resume()
+        gate.pending = nil
+        let completed = await reply.value
+        XCTAssertFalse(completed)
+        XCTAssertEqual(session.promptText, "next draft")
+        XCTAssertEqual(gate.texts, ["first message"])
+        presentation.rendererUnmounted()
+    }
+
+    func testKeyPaletteMatchesWebAndIsGatedByVisibilityAndIsolation() async {
+        let expected: [IOSTerminalKey: [UInt8]] = [
+            .escape: [27], .left: [27, 91, 68], .right: [27, 91, 67],
+            .up: [27, 91, 65], .down: [27, 91, 66], .tab: [9], .space: [32],
+            .ctrlA: [1], .ctrlE: [5], .ctrlU: [21], .ctrlC: [3], .ctrlD: [4], .enter: [13]
+        ]
+        let pty = IOSFixturePTY()
+        let core = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
+        let presentation = IOSTerminalPresentation(session: core)
+        presentation.rendererMounted(cols: 50, rows: 20)
+        presentation.visibilityChanged(visible: true, active: true)
+        presentation.sendKey(.ctrlC)
+        XCTAssertTrue(pty.sent.isEmpty)
+        pty.emit(.attached)
+        await settle { core.phase == .live }
+        for key in IOSTerminalKey.allCases {
+            presentation.sendKey(key)
+            XCTAssertEqual(Array(pty.sent.last ?? Data()), expected[key])
+            XCTAssertFalse(key.accessibilityLabel.hasPrefix("controlkey_"))
+        }
+        let count = pty.sent.count
+        let isolated = IOSTerminalPresentation(session: core, allowsInput: false)
+        isolated.rendererMounted(cols: 50, rows: 20)
+        isolated.visibilityChanged(visible: true, active: true)
+        isolated.sendKey(.ctrlC)
+        XCTAssertEqual(pty.sent.count, count)
+        presentation.visibilityChanged(visible: false, active: true)
+        presentation.sendKey(.enter)
+        XCTAssertEqual(pty.sent.count, count)
+        isolated.rendererUnmounted()
+        presentation.rendererUnmounted()
+    }
+
+    func testRenderFixtureImages() async throws {
         // SwiftUI ImageRenderer cannot draw a UIViewRepresentable. Inject text output
         // into the same production detail chrome; live UIKit feed is tested above.
         let directory = URL(fileURLWithPath: "/private/tmp/claude-501/-Users-kai-osthoff-githubrepos-shepherd/36c6a6cb-46a0-4781-99da-a39e745b0a43/scratchpad/ios-terminal")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let session = PreviewData.session(name: "iOS live terminal", prompt: "Mirror the mobile web session view. Keep the terminal live and the controls within reach.")
-        let core = TerminalSessionModel(sessionID: session.id, reply: { _ in }, makeAttachment: { _, _ in IOSFixturePTY() })
+        let pty = IOSFixturePTY()
+        let core = TerminalSessionModel(sessionID: session.id, reply: { _ in }, makeAttachment: { _, _ in pty })
         let presentation = IOSTerminalPresentation(session: core)
+        presentation.rendererMounted(cols: 54, rows: 32)
+        presentation.visibilityChanged(visible: true, active: true)
+        pty.emit(.attached)
+        await settle { core.phase == .live }
+        defer { presentation.rendererUnmounted() }
         let detail = DetailModel(loaders: .stubbed())
         let output = VStack(alignment: .leading, spacing: 6) {
             Text(verbatim: "$ shepherd session attach TASK-01").foregroundStyle(IOSTerminalStyle.muted)
@@ -161,7 +296,7 @@ final class IOSTerminalTests: XCTestCase {
         .background(IOSTerminalStyle.background)
         for tab in [IOSSessionDetailTab.terminal, .info] {
             let view = IOSSessionDetailContent(session: session, model: detail, terminal: presentation,
-                allowsInput: false, fontSize: .constant(12), surface: output, tab: tab)
+                allowsInput: true, fontSize: .constant(12), surface: output, tab: tab, selectableText: false)
                 .frame(width: 390, height: 760)
             let renderer = ImageRenderer(content: view)
             renderer.scale = 2
@@ -169,7 +304,7 @@ final class IOSTerminalTests: XCTestCase {
             try XCTUnwrap(image.pngData()).write(to: directory.appendingPathComponent("detail-\(tab).png"))
         }
         let large = IOSSessionDetailContent(session: session, model: detail, terminal: presentation,
-            allowsInput: false, fontSize: .constant(12), surface: output, tab: .info)
+            allowsInput: true, fontSize: .constant(12), surface: output, tab: .info, selectableText: false)
             .environment(\.dynamicTypeSize, .accessibility3).frame(width: 390, height: 760)
         let renderer = ImageRenderer(content: large)
         renderer.scale = 2
@@ -180,5 +315,18 @@ final class IOSTerminalTests: XCTestCase {
         let deadline = ContinuousClock.now + .seconds(2)
         while !condition(), ContinuousClock.now < deadline { await Task.yield() }
         XCTAssertTrue(condition())
+    }
+}
+
+@MainActor
+private final class IOSReplyRecorder {
+    var texts: [String] = []
+    var fail = false
+    var hold = false
+    var pending: CheckedContinuation<Void, Never>?
+    func send(_ text: String) async throws {
+        texts.append(text)
+        if hold { await withCheckedContinuation { pending = $0 } }
+        if fail { throw ShepherdError.notFound }
     }
 }

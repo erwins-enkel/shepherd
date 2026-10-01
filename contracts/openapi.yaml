@@ -3077,7 +3077,14 @@ components:
     UpNextSnapshot:
       type: "object"
       additionalProperties: true
-      required: &upNextSnapshotRequired ["generatedAt", "sections", "repoCount", "fallback", "failedRepoCount"]
+      required:
+        &upNextSnapshotRequired [
+          "generatedAt",
+          "sections",
+          "repoCount",
+          "fallback",
+          "failedRepoCount",
+        ]
       properties: &upNextSnapshotProperties
         generatedAt: { "type": "integer" }
         sections: { "type": "array", "items": { "$ref": "#/components/schemas/UpNextSection" } }
@@ -6336,7 +6343,11 @@ paths:
       responses:
         "200":
           description: "Cached snapshot, or JSON null when nothing is cached."
-          content: { "application/json": { "schema": { "$ref": "#/components/schemas/UpNextCachedSnapshot" } } }
+          content:
+            {
+              "application/json":
+                { "schema": { "$ref": "#/components/schemas/UpNextCachedSnapshot" } },
+            }
         "401":
           $ref: "#/components/responses/Unauthorized"
   /api/up-next/refresh:

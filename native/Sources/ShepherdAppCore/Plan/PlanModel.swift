@@ -66,7 +66,7 @@ public final class PlanModel: AppExtension {
         self.reads = reads
     }
 
-    func questionsUnanswered(_ id: String) -> Bool {
+    public func questionsUnanswered(_ id: String) -> Bool {
         PlanGateChip.questionsUnanswered(gates[id])
     }
 
@@ -94,7 +94,7 @@ public final class PlanModel: AppExtension {
     }
 
     /// All-or-nothing reconciliation, like SidebarModel: a failed read preserves the last state.
-    func refresh() async {
+    public func refresh() async {
         guard isActive, !Task.isCancelled else { return }
         let activationSnapshot = app?.activationGeneration
         generation &+= 1

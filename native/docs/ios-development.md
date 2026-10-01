@@ -1,10 +1,27 @@
 # Shepherd for iOS
 
 The iOS 18 application uses `ShepherdAppCore` and `ShepherdKit`. It registers only
-`SidebarModel` and `DetailModel`. Profiles, login, activation generations and the
+the shared Sidebar, Detail, Herd, Plan, Queues, Merge and recap models. Profiles,
+login, activation generations and the
 single event connection remain owned by `AppModel`. The app presents session
 metadata and activity; terminal, composition, merge and session mutation are outside
 this stage.
+
+The session list defaults to **All**, with the web/Mac lifecycle groups and
+collapsible headings. Shared native relevance ordering puts working and blocked
+rows ahead of parked rows within a group, then uses latest server activity; it
+never sorts by task designation. Ready uses `HerdPartition`'s operator-turn filter.
+Next displays `UpNextPresentation`'s issue queue, Done displays the archived queue,
+and Open displays outstanding post-merge records with the same repo-scoped count
+as Mac. These panels remain read-only. Next consumes server snapshots and cannot
+request a new computation from iOS; when none has arrived, its waiting message
+explains how to compute one in web/Mac.
+
+Cards map shared badges, recap/activity summaries and `HerdStepper` into flat dark
+terminal panels with uncapped Dynamic Type, wrapping badges and VoiceOver summaries.
+The list keeps Shepherd's default dark appearance. Titles preserve supplied emoji;
+project configuration emoji and cold-resume estimates have no automatic shared
+sidebar data path and are not inferred. Shared usage warnings are shown when known.
 
 ## Local simulator workflow
 

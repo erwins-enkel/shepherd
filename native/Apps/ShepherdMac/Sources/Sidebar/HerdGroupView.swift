@@ -17,19 +17,7 @@ struct HerdGroupView: View {
     let onToggle: () -> Void
 
     static func heading(_ group: HerdGroup, git: [String: GitState]) -> String? {
-        let names = group.sessions.map { git[$0.id]?.handoffWho }.map { name in
-            name?.isEmpty == false ? name : nil
-        }
-        let unique = Set(names)
-        let who = unique.count == 1 ? names.first.flatMap { $0 } : nil
-        let count = String(group.sessions.count)
-        if who == nil, names.allSatisfy({ $0 == nil }) {
-            if group.stage == .waitingOnReviewer { return L.t("herd_waiting_reviewer_group_maintainers", count) }
-            if group.stage == .waitingOnMerger { return L.t("herd_waiting_merger_group_maintainers", count) }
-        }
-        guard let key = group.stage.headingKey(who: who) else { return nil }
-        if let who { return L.t(key, who, count) }
-        return L.t(key, count)
+        SidebarCopy.heading(group, git: git)
     }
 
     var body: some View {

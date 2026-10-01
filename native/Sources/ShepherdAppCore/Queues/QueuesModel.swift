@@ -35,6 +35,10 @@ public final class QueuesModel: AppExtension {
     public private(set) var upNextLoadFailed = false
     private(set) var done: [Session] = []
     private(set) var recaps: [String: Recap] = [:]
+
+    /// Read-only consumers share the queue's reconciled snapshots, not extra requests.
+    public var finishedSessions: [Session] { DonePresentation.sorted(done) }
+    public func recap(for id: String) -> Recap? { recaps[id] }
     public private(set) var stranded: Set<String> = []
 
     /// Independent notice slots: an auto-revive outcome must never replace the actionable

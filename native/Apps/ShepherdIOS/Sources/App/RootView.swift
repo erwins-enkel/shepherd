@@ -83,7 +83,8 @@ struct RootView: View {
     }
 
     @ViewBuilder private var selectedDetail: some View {
-        if let id = app.selectedSessionID, let session = app.store?.session(id: id),
+        if let id = app.selectedSessionID,
+           let session = app.store?.session(id: id) ?? app.extension(QueuesModel.self)?.finishedSessions.first(where: { $0.id == id }),
            let detail = app.extension(DetailModel.self) {
             SessionDetailView(session: session, model: detail)
         } else {

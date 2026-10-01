@@ -115,7 +115,7 @@ public final class MergeModel: AppExtension {
         guard !refreshing else { return }
         refreshTask = Task { [weak self] in await self?.refresh() }
     }
-    func refresh() async {
+    public func refresh() async {
         guard !stopped else { return }
         if refreshing { pending = true; return }
         refreshing = true

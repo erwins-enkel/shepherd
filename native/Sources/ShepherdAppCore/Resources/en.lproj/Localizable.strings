@@ -536,7 +536,14 @@
 "native_interrupt_failed" = "Could not interrupt the session: %1$@";
 "native_ios_connecting" = "Connecting…";
 "native_ios_first_run" = "Complete server setup in the web app, then retry.";
+"native_ios_group_collapsed" = "Collapsed";
+"native_ios_group_expanded" = "Expanded";
+"native_ios_next_waiting" = "Waiting for server recommendations. Refresh Up Next in the web or Mac app to compute them.";
+"native_ios_open_items_count" = "%1$@ open records";
+"native_ios_open_session_hint" = "Opens session details.";
 "native_ios_remove_body" = "This removes the saved sign-in from this device. Server-side revocation is not confirmed.";
+"native_ios_session_age" = "Age: %1$@";
+"native_ios_usage_warning" = "%1$@: %2$@%% used";
 "native_ios_welcome_subtitle" = "Connect to a Shepherd server to follow your sessions.";
 "native_local_connect" = "Sign in";
 "native_local_error_bun_missing" = "Bun was not found. Choose Install and start to provision it, then check the log if installation fails.";

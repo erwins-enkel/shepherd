@@ -157,10 +157,10 @@ public final class SidebarModel: AppExtension {
     /// `gitStage`/`inReview` parameters are themselves `@MainActor` closures, so `gitStage` and
     /// `inReview` pass straight through with no isolation bridging.
     public var sessions: [Session] {
-        HerdPartition.shown(
+        HerdPartition.relevant(HerdPartition.shown(
             HerdPartition.filter(liveSessions, repos: activeRepos),
             lens: lens, workingBlocked: workingBlocked, now: now(), gitStage: gitStage,
-            inReview: inReview)
+            inReview: inReview), workingBlocked: workingBlocked)
     }
 
     /// Built from the unfiltered list, so a repo whose sessions the lens hides keeps its chip.
@@ -240,7 +240,7 @@ public final class SidebarModel: AppExtension {
 
     /// Re-read all four snapshots. A failure keeps the previous snapshot: a blank sidebar is a worse
     /// answer than a slightly stale one, and `SessionStore` already owns the offline banner.
-    func refresh() async {
+    public func refresh() async {
         // Captured before the first `await` below, per `AppExtension`'s "async work is the
         // extension's own problem" contract: a profile switch or a teardown bumps
         // `app.activationGeneration`, and a completion that lands after must not write into a model

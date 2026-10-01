@@ -54,7 +54,7 @@ final class IOSLaunchEnvironment {
     func makeModel() -> AppModel {
         let app = AppModel(defaults: defaults, credentials: credentials,
             notifications: IOSNotificationEnvironment.make(defaults: defaults))
-        app.register(SidebarModel.self)
+        CoreStreamInstallers.installReadOnlySidebar(into: app)
         app.register(DetailModel.self)
         app.allowsQueueRecomputation = false
         app.allowsTerminalInput = false

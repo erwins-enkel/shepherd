@@ -4851,5 +4851,12 @@
   "native_ios_welcome_subtitle": "Verbinde dich mit einem Shepherd-Server, um deine Sitzungen zu verfolgen.",
   "native_ios_connecting": "Verbinde…",
   "native_ios_first_run": "Schließe die Servereinrichtung in der Web-App ab und versuche es erneut.",
-  "native_ios_remove_body": "Die gespeicherte Anmeldung wird von diesem Gerät entfernt. Der serverseitige Widerruf ist nicht bestätigt."
+  "native_ios_remove_body": "Die gespeicherte Anmeldung wird von diesem Gerät entfernt. Der serverseitige Widerruf ist nicht bestätigt.",
+  "native_ios_open_session_hint": "Öffnet die Session-Details.",
+  "native_ios_session_age": "Alter: {age}",
+  "native_ios_open_items_count": "{count} offene Einträge",
+  "native_ios_usage_warning": "{window}: {pct}% verbraucht",
+  "native_ios_group_collapsed": "Eingeklappt",
+  "native_ios_group_expanded": "Ausgeklappt",
+  "native_ios_next_waiting": "Warte auf Empfehlungen vom Server. Aktualisiere Nächstes in der Web- oder Mac-App, um sie zu berechnen."
 }

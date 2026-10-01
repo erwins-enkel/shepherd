@@ -9226,6 +9226,92 @@
         }
       }
     },
+    "native_ios_group_collapsed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eingeklappt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapsed"
+          }
+        }
+      }
+    },
+    "native_ios_group_expanded": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgeklappt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expanded"
+          }
+        }
+      }
+    },
+    "native_ios_next_waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warte auf Empfehlungen vom Server. Aktualisiere Nächstes in der Web- oder Mac-App, um sie zu berechnen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for server recommendations. Refresh Up Next in the web or Mac app to compute them."
+          }
+        }
+      }
+    },
+    "native_ios_open_items_count": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ offene Einträge"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ open records"
+          }
+        }
+      }
+    },
+    "native_ios_open_session_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnet die Session-Details."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens session details."
+          }
+        }
+      }
+    },
     "native_ios_remove_body": {
       "extractionState": "manual",
       "localizations": {
@@ -9239,6 +9325,42 @@
           "stringUnit": {
             "state": "translated",
             "value": "This removes the saved sign-in from this device. Server-side revocation is not confirmed."
+          }
+        }
+      }
+    },
+    "native_ios_session_age": {
+      "comment": "%1$@ = age",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alter: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Age: %1$@"
+          }
+        }
+      }
+    },
+    "native_ios_usage_warning": {
+      "comment": "%1$@ = window, %2$@ = pct",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@%% verbraucht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@: %2$@%% used"
           }
         }
       }

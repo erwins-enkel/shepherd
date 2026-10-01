@@ -109,7 +109,7 @@ public final class HerdSignals: AppExtension {
 
     /// Each map installs independently. Events received during its read overlay that snapshot,
     /// including removals, so busy sessions cannot prevent quiet sessions from bootstrapping.
-    func refresh() async {
+    public func refresh() async {
         guard isCurrent else { return }
         // Reserve every read before yielding: a frame between refresh() and a child task's
         // first turn must already count as an overlay for that captured set of reads.

@@ -195,9 +195,17 @@ stale; CI runs that via `bun run check:strings`.
 
 ## Signing
 
-Ad-hoc (`CODE_SIGN_IDENTITY: "-"`), App Sandbox off, Hardened Runtime on.
-Developer ID and notarisation are a later sub-project — switching is a
-`project.yml` edit, not a refactor.
+Local builds and ordinary CI tests default to ad-hoc (`CODE_SIGN_IDENTITY: "-"`),
+App Sandbox off, Hardened Runtime on. Tester releases use Developer ID signing,
+Apple notarization and stapling in `native-release.yml`; see [release setup](app-updates.md).
+The workflow supplies `SHEPHERD_CODESIGN_IDENTITY`, `DEVELOPMENT_TEAM` and timestamp/keychain
+flags, then signs nested code with `sign-release.sh`. The explicit override bypasses local
+identity discovery and unlocks. Developer ID signing runs only in GitHub Actions with a
+throwaway keychain; do not run it locally or import this identity into the login keychain.
+
+Keep `com.apple.security.cs.disable-library-validation` for local self-signed builds.
+Removing it specifically from distribution builds is a follow-up; this pipeline preserves
+existing application entitlements.
 
 ### Local code signing (stable Keychain access)
 

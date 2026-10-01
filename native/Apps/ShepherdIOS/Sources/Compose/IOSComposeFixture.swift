@@ -76,7 +76,11 @@ final class IOSComposeFixtureTransport: URLProtocol, @unchecked Sendable {
         case "/api/branches": json = #"{"branches":["main"],"current":"main","default":"main"}"#
         case "/api/branch-status": json = #"{"behind":0,"ahead":0,"diverged":false,"hasUpstream":true,"localExists":true}"#
         case "/api/issues": json = #"{"slug":"owner/shepherd","webUrl":"https://example.invalid","issues":[{"number":412,"title":"Add tests","body":"Test the settings","url":"https://example.invalid/412","labels":[],"createdAt":1700000000000,"assignees":[],"author":"operator"}],"viewer":"operator"}"#
-        case "/api/commands": json = #"{"commands":[{"name":"review","description":"Review changes","scope":"global"}]}"#
+        case "/api/commands":
+            let provider = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "provider" }?.value
+            json = provider == "codex"
+                ? #"{"commands":[{"name":"codex-review","description":"Review with Codex","scope":"global","providers":["codex"],"invocations":{"codex":"$codex-review"}}]}"#
+                : #"{"commands":[{"name":"review","description":"Review changes","scope":"global"}]}"#
         case "/api/epics": json = #"{"epics":[],"subIssues":[]}"#
         case "/api/uploads":
             if Self.uploadAttempts.next() == 1 {

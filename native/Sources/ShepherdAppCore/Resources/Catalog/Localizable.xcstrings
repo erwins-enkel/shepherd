@@ -8730,6 +8730,23 @@
         }
       }
     },
+    "native_compose_dictation_deferred": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diktieren ist im nativen Aufgabenfenster noch nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dictation is not available in the native composer yet."
+          }
+        }
+      }
+    },
     "native_compose_engine_claude": {
       "extractionState": "manual",
       "localizations": {
@@ -9189,6 +9206,23 @@
         }
       }
     },
+    "native_compose_voice_incomplete": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einige Audioclips konnten nicht transkribiert werden. Der verfügbare Text wurde übernommen; prüfe ihn oder nimm die fehlenden Teile erneut auf."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Some audio clips could not be transcribed. The available text was kept; review it or record the missing parts again."
+          }
+        }
+      }
+    },
     "native_compose_voice_interrupted": {
       "extractionState": "manual",
       "localizations": {
@@ -9348,13 +9382,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Loslassen übernimmt den Text · nichts wird gesendet"
+            "value": "Es wird keine Aufgabe automatisch gestartet"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Release keeps the text · nothing is sent"
+            "value": "No task is started automatically"
           }
         }
       }

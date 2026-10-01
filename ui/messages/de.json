@@ -4875,7 +4875,7 @@
   "native_compose_voice_lock": "Sperren",
   "native_compose_voice_discard": "Loslassen zum Verwerfen",
   "native_compose_voice_slide_back": "Zurückwischen setzt die Aufnahme fort",
-  "native_compose_voice_no_send": "Loslassen übernimmt den Text · nichts wird gesendet",
+  "native_compose_voice_no_send": "Es wird keine Aufgabe automatisch gestartet",
   "native_compose_voice_unchanged": "Prompt bleibt unverändert",
   "native_compose_voice_locked": "Freihändig · Stopp übernimmt den Text",
   "native_compose_voice_stop": "Stopp",
@@ -4912,5 +4912,7 @@
   "native_compose_prompt_missing": "Prompt fehlt noch",
   "native_compose_ready_to_start": "Bereit zum Starten",
   "native_compose_engine_claude": "Claude",
-  "native_compose_mode_plain": "Plain"
+  "native_compose_mode_plain": "Plain",
+  "native_compose_dictation_deferred": "Diktieren ist im nativen Aufgabenfenster noch nicht verfügbar.",
+  "native_compose_voice_incomplete": "Einige Audioclips konnten nicht transkribiert werden. Der verfügbare Text wurde übernommen; prüfe ihn oder nimm die fehlenden Teile erneut auf."
 }

@@ -58,6 +58,21 @@ final class IOSComposeTests: XCTestCase {
         XCTAssertEqual(SpeechEngineChoice.choose(analyzer: true, recognizer: true, onDevice: true, speechGranted: false, appleServerConsent: false, whisper: false), .denied)
         XCTAssertEqual(SpeechEngineChoice.choose(analyzer: false, recognizer: false, onDevice: false, speechGranted: false, appleServerConsent: false, whisper: false), .unsupported)
     }
+    func testTokenCommandSheetUsesTokenProviderInsteadOfSelectedProvider() async throws {
+        let (_, _, model) = try fixture()
+        defer { model.teardown() }
+        model.provider = .claude; model.prompt = "$rev"
+        let codexSheet = ComposeSourceSheet(model: model, commands: true, dismiss: {})
+        XCTAssertEqual(codexSheet.commandProvider, .codex)
+        await model.loadCommands(provider: codexSheet.commandProvider)
+        XCTAssertEqual(model.commands(for: .codex).map(\.name), ["codex-review"])
+        XCTAssertTrue(model.commands.isEmpty)
+        model.provider = .codex; model.prompt = "/rev"
+        let claudeSheet = ComposeSourceSheet(model: model, commands: true, dismiss: {})
+        XCTAssertEqual(claudeSheet.commandProvider, .claude)
+        await model.loadCommands(provider: claudeSheet.commandProvider)
+        XCTAssertEqual(model.commands(for: .claude).map(\.name), ["review"])
+    }
     func testTapCopiesBorrowedAudioBeforeActorHandoff() throws {
         let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1))
         let source = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 2))

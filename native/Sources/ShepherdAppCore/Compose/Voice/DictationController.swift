@@ -13,6 +13,7 @@ import Observation
         case "native_compose_voice_denied": L.t("native_compose_voice_denied")
         case "native_compose_voice_unsupported": L.t("native_compose_voice_unsupported")
         case "native_compose_voice_error": L.t("native_compose_voice_error")
+        case "native_compose_voice_incomplete": L.t("native_compose_voice_incomplete")
         case "native_compose_voice_interrupted": L.t("native_compose_voice_interrupted")
         case "native_compose_voice_limit": L.t("native_compose_voice_limit")
         default: nil
@@ -132,27 +133,36 @@ import Observation
         if elapsed < 0.4 { cancel(); return }
         state = .finalizing; timer?.cancel(); level = 0
         let mine = generation, fallback = preview, language = locale
-        // Separate tasks + a generation fence: timeout never waits for a non-cooperative network
-        // operation, and late results cannot write into another dictation or a dismissed sheet.
+        // Bound capture/Apple shutdown only. The finalizer bounds each server request, so
+        // an overall deadline cannot discard successful earlier clips.
         timeoutTask = Task { [weak self] in
             guard let self else { return }
             do { try await Task.sleep(for: .seconds(finalizationTimeout)) } catch { return }
             guard mine == generation, state == .finalizing else { return }
             finishTask?.cancel(); await engine.cancel()
-            complete(preview.isEmpty ? fallback : preview, mine: mine)
+            guard mine == generation, state == .finalizing else { return }
+            noticeKey = "native_compose_voice_incomplete"
+            complete(preview.isEmpty ? fallback : preview, mine: mine, incomplete: true)
         }
         finishTask = Task { [weak self] in
             guard let self else { return }
-            let recording = (try? await engine.finish()) ?? .init(clips: [], appleText: fallback)
+            let recording: DictationRecording
+            do { recording = try await engine.finish() }
+            catch {
+                guard mine == generation, !Task.isCancelled else { return }
+                noticeKey = "native_compose_voice_error"
+                complete(fallback, mine: mine, incomplete: true); return
+            }
             guard mine == generation, !Task.isCancelled else { return }
-            // Apple final text becomes the timeout fallback as soon as recognition settles.
+            timeoutTask?.cancel()
             preview = recording.appleText.isEmpty ? fallback : recording.appleText
-            let text = await finalizer?.finalize(recording, locale: language) ?? preview
+            let result = await finalizer?.finalize(recording, locale: language) ?? .init(text: preview)
             guard mine == generation, !Task.isCancelled else { return }
-            complete(text, mine: mine)
+            if !result.missingClips.isEmpty { noticeKey = "native_compose_voice_incomplete" }
+            complete(result.text, mine: mine, incomplete: !result.missingClips.isEmpty)
         }
     }
-    private func complete(_ text: String, mine: Int) {
+    private func complete(_ text: String, mine: Int, incomplete: Bool = false) {
         guard generation == mine else { return }
         timeoutTask?.cancel(); task?.cancel(); generation += 1
         let clean = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -166,8 +176,8 @@ import Observation
                 guard let self, stamp == generation else { return }
                 canUndo = false
             }
-        } else { noticeKey = "native_compose_voice_error" }
-        state = .idle; preview = ""; startedAt = nil; preparing = false
+        } else { noticeKey = noticeKey ?? "native_compose_voice_error" }
+        state = incomplete || clean.isEmpty ? .error : .idle; preview = ""; startedAt = nil; preparing = false
     }
     public func cancel() {
         generation += 1; task?.cancel(); timer?.cancel(); finishTask?.cancel(); timeoutTask?.cancel()

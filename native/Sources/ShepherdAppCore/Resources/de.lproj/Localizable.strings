@@ -507,6 +507,7 @@
 "native_banner_offline" = "%1$@ nicht erreichbar. Neuer Versuch läuft.";
 "native_banner_unhealthy" = "%1$@ antwortet, meldet aber ein Problem. Neuer Versuch.";
 "native_compose_attach" = "Anhang hinzufügen";
+"native_compose_dictation_deferred" = "Diktieren ist im nativen Aufgabenfenster noch nicht verfügbar.";
 "native_compose_engine_claude" = "Claude";
 "native_compose_files" = "Dateien";
 "native_compose_issue_choose" = "# Issue wählen";
@@ -534,6 +535,7 @@
 "native_compose_voice_finalize" = "Transkribiere…";
 "native_compose_voice_hint" = "Halten zum Sprechen, nach oben wischen zum Sperren";
 "native_compose_voice_hold" = "Halten zum Sprechen · loslassen zum Übernehmen";
+"native_compose_voice_incomplete" = "Einige Audioclips konnten nicht transkribiert werden. Der verfügbare Text wurde übernommen; prüfe ihn oder nimm die fehlenden Teile erneut auf.";
 "native_compose_voice_interrupted" = "Aufnahme unterbrochen";
 "native_compose_voice_kept" = "Diktat übernommen · bearbeitbar";
 "native_compose_voice_label" = "Diktieren";
@@ -543,7 +545,7 @@
 "native_compose_voice_lock" = "Sperren";
 "native_compose_voice_locked" = "Freihändig · Stopp übernimmt den Text";
 "native_compose_voice_microphone_usage" = "Shepherd verwendet das Mikrofon, während du eine Aufgabe diktierst. Audio wird an deinen Shepherd-Server gesendet, wenn dessen Sprach-Plugin verfügbar ist.";
-"native_compose_voice_no_send" = "Loslassen übernimmt den Text · nichts wird gesendet";
+"native_compose_voice_no_send" = "Es wird keine Aufgabe automatisch gestartet";
 "native_compose_voice_placeholder" = "Beschreibe die Aufgabe – oder halte das Mikrofon gedrückt und sprich.";
 "native_compose_voice_preparing" = "Offline-Sprachmodell wird geladen…";
 "native_compose_voice_ready" = "Bereit";

@@ -8,10 +8,10 @@ import ShepherdKit
 @Observable @MainActor final class IOSDictationEngine: DictationEngine {
     var needsAppleServerConsent = false
     var preparing = false
-    private let client: ShepherdClient
+    private let services: IOSDictationServices
     private let defaults: UserDefaults
     private let context: [String]
-    private let capture = AudioCapture()
+    private var capture: any DictationAudioCapture { services.capture }
     private var continuation: AsyncStream<DictationEvent>.Continuation?
     private var consent: AsyncStream<Bool>.Continuation?
     private var captureTask: Task<Void, Never>?
@@ -29,7 +29,9 @@ import ShepherdKit
     private var canUseApple = false
     private var whisperAvailable = false
     private var lastLevel = Date.distantPast
-    init(client: ShepherdClient, defaults: UserDefaults, context: [String]) { self.client = client; self.defaults = defaults; self.context = context }
+    init(client: ShepherdClient, defaults: UserDefaults, context: [String], services: IOSDictationServices? = nil) {
+        self.services = services ?? .live(client: client); self.defaults = defaults; self.context = context
+    }
 
     func resolveAppleServerConsent(_ allowed: Bool) {
         if allowed { defaults.set(true, forKey: "shepherd:apple-server-speech-consent") }
@@ -39,42 +41,39 @@ import ShepherdKit
         generation += 1; let mine = generation
         self.locale = locale; segment = 0; checkpointIndex = -1; preparing = false; texts = [""]; samples = []; audioClips = []; pendingSpeech = []
         let pair = AsyncStream<DictationEvent>.makeStream(); continuation = pair.continuation
-        let mic = await AVAudioApplication.requestRecordPermission()
+        let mic = await services.microphone()
         guard mine == generation else { throw CancellationError() }
         guard mic else { throw DictationError.denied }
         // Optional plugin availability allows dictation even when Apple speech permission is denied.
-        let client = client
-        let whisper = await DictationDeadline.value(seconds: 2) { (try? await client.getVoiceStatus()?.available) == true } == true
+        let status = services.whisper
+        let whisper = await DictationDeadline.value(seconds: 2) { await status() } == true
         guard mine == generation else { throw CancellationError() }
-        let recognizer = SFSpeechRecognizer(locale: Locale(identifier: locale))
-        var analyzerSupported = false
-        if #available(iOS 26, *), SpeechTranscriber.isAvailable {
-            analyzerSupported = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: locale)) != nil
-        }
-        let appleSupported = analyzerSupported || recognizer?.isAvailable == true
-        let authorized: Bool
-        if appleSupported {
-            authorized = await withCheckedContinuation { continuation in
-                SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0 == .authorized) }
-            }
-        } else { authorized = false }
+        let capabilities = await services.capabilities(locale)
         guard mine == generation else { throw CancellationError() }
-        let choice = SpeechEngineChoice.choose(analyzer: analyzerSupported,
-            recognizer: recognizer?.isAvailable == true, onDevice: recognizer?.supportsOnDeviceRecognition == true,
+        let appleSupported = capabilities.analyzer || capabilities.recognizer
+        let authorized = appleSupported ? await services.authorization() : false
+        guard mine == generation else { throw CancellationError() }
+        let choice = SpeechEngineChoice.choose(analyzer: capabilities.analyzer,
+            recognizer: capabilities.recognizer, onDevice: capabilities.onDevice,
             speechGranted: authorized, appleServerConsent: defaults.bool(forKey: "shepherd:apple-server-speech-consent"), whisper: whisper)
         whisperAvailable = whisper
         canUseApple = [.analyzer, .onDevice, .appleServer, .needsConsent].contains(choice)
         useAppleServer = choice == .appleServer || choice == .needsConsent
         if useAppleServer, !defaults.bool(forKey: "shepherd:apple-server-speech-consent") {
-            canUseApple = await requestAppleServerConsent()
+            let allowed = await requestAppleServerConsent()
+            guard mine == generation else { throw CancellationError() }
+            canUseApple = allowed
         }
         guard mine == generation else { throw CancellationError() }
         if !canUseApple && !whisper { throw !appleSupported || authorized ? DictationError.unsupported : DictationError.denied }
         if canUseApple {
             do { try await startSpeech(index: 0, mine: mine) }
-            catch { if !whisper { throw error }; canUseApple = false }
+            catch {
+                guard mine == generation else { throw CancellationError() }
+                if !whisper { throw error }; canUseApple = false
+            }
         }
-        guard mine == generation else { speech?.cancel(); throw CancellationError() }
+        guard mine == generation else { throw CancellationError() }
         let events = try capture.start()
         captureTask = Task { [weak self] in
             for await event in events {
@@ -102,28 +101,52 @@ import ShepherdKit
             if final { checkpoint(index: index) }
             // Entire completed clips are emitted once at rollover, never repeated cumulative results.
         }
+        let failed: () -> Void = { [weak self] in self?.previewFailed(index: index, mine: mine) }
+        let language = locale
+        if let factory = services.speech {
+            let engine = try await factory(language, update, failed)
+            try await prepareSpeech(engine, mine: mine); return
+        }
         if #available(iOS 26, *), SpeechTranscriber.isAvailable,
-           let supported = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: locale)) {
-            let engine = SpeechAnalyzerEngine(locale: supported, preparing: { [weak self] in self?.preparing = true; self?.continuation?.yield(.preparing) }, update: update)
+           let supported = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: language)) {
+            guard mine == generation else { throw CancellationError() }
+            let engine = SpeechAnalyzerEngine(locale: supported, preparing: { [weak self] in
+                guard let self, mine == generation else { return }
+                preparing = true; continuation?.yield(.preparing)
+            }, failed: failed, update: update)
             do {
-                try await engine.start()
-                guard mine == generation else { engine.cancel(); throw CancellationError() }
-                speech = engine; return
-            } catch { engine.cancel(); if mine != generation { throw CancellationError() } }
+                try await prepareSpeech(engine, mine: mine); return
+            } catch { if mine != generation { throw CancellationError() } }
         }
         guard mine == generation else { throw CancellationError() }
         guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: locale)), recognizer.isAvailable else { throw DictationError.unsupported }
         // Analyzer assets may be unavailable offline. Its SFSpeech fallback must obtain
         // consent independently when that recognizer cannot run on-device.
         if !recognizer.supportsOnDeviceRecognition && !useAppleServer {
-            useAppleServer = await requestAppleServerConsent()
+            let allowed = await requestAppleServerConsent()
             guard mine == generation else { throw CancellationError() }
+            useAppleServer = allowed
             guard useAppleServer else { throw DictationError.unsupported }
         }
-        let engine = SFSpeechEngine(recognizer: recognizer, onDevice: !useAppleServer, contextualStrings: context, failed: { [weak self] in self?.continuation?.yield(.failed(.recognition)) }, update: update)
-        try await engine.start()
-        guard mine == generation else { engine.cancel(); throw CancellationError() }
-        speech = engine
+        let engine = SFSpeechEngine(recognizer: recognizer, onDevice: !useAppleServer, contextualStrings: context, failed: failed, update: update)
+        try await prepareSpeech(engine, mine: mine)
+    }
+    private func prepareSpeech(_ engine: any AppleLiveSpeech, mine: Int) async throws {
+        do {
+            guard mine == generation else { throw CancellationError() }
+            try await engine.start()
+            guard mine == generation else { throw CancellationError() }
+            guard canUseApple else { engine.cancel(); return }
+            speech = engine
+        } catch {
+            // A suspended startup owns only this candidate, never the current shared engine.
+            engine.cancel(); throw error
+        }
+    }
+    private func previewFailed(index: Int, mine: Int) {
+        guard mine == generation, index == segment else { return }
+        canUseApple = false; speech?.cancel(); speech = nil
+        if !whisperAvailable { continuation?.yield(.failed(.recognition)) }
     }
     private func consume(_ buffer: AVAudioPCMBuffer, mine: Int) async {
         guard let channels = buffer.floatChannelData else { continuation?.yield(.failed(.audio)); return }
@@ -161,7 +184,7 @@ import ShepherdKit
         if Date().timeIntervalSince(lastLevel) >= 1 / 30 {
             continuation?.yield(.level(min(1, sqrt(energy / Float(max(1, buffer.frameLength))) * 5))); lastLevel = Date()
         }
-        do { try speech?.append(buffer) } catch { continuation?.yield(.failed(.audio)) }
+        do { try speech?.append(buffer) } catch { previewFailed(index: segment, mine: mine) }
     }
     private func checkpoint(index: Int) {
         guard index >= checkpointIndex, index < texts.count else { return }
@@ -178,16 +201,18 @@ import ShepherdKit
         let mine = generation
         capture.stop()
         // Drain copied audio already queued by the tap before ending Apple's input.
-        await captureTask?.value; captureTask = nil
+        await captureTask?.value
         guard mine == generation else { throw CancellationError() }
+        captureTask = nil
         closeAudioClip()
         if let speech {
             let text = await speech.finish()
             guard mine == generation else { throw CancellationError() }
             texts[segment] = text
         }; speech = nil
-        for task in pendingSpeech { _ = await task.value }; pendingSpeech = []
+        for task in pendingSpeech { _ = await task.value }
         guard mine == generation else { throw CancellationError() }
+        pendingSpeech = []
         var clips: [DictationClip] = []
         for (index, encoding) in audioClips.enumerated() {
             let wav = await encoding.value

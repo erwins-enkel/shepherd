@@ -33,6 +33,17 @@ final class IOSComposeUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["compose.voice.mic.idle"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.descendants(matching: .any)["compose.submit"].isEnabled)
         XCTAssertEqual(app.descendants(matching: .any)["compose.voice.mic.idle"].label, "Diktieren")
+        mic.tap()
+        let stop = app.descendants(matching: .any)["compose.voice.stop"]
+        XCTAssertTrue(stop.waitForExistence(timeout: 5))
+        // This activates the toggle with taps, without the hold/drag path above.
+        XCTAssertTrue(app.descendants(matching: .any)["compose.voice.preview"].waitForExistence(timeout: 5))
+        let elapsed = app.staticTexts["compose.voice.elapsed"]
+        let advanced = expectation(for: NSPredicate(format: "exists == true AND label != '00:00'"), evaluatedWith: elapsed)
+        wait(for: [advanced], timeout: 5)
+        stop.tap()
+        XCTAssertTrue(mic.waitForExistence(timeout: 5))
+        XCTAssertTrue((app.textViews["compose.prompt"].value as? String)?.contains("Dark-Mode") == true)
     }
     func testIssueOnlyPromptCanStartAndEngineControlsExist() {
         app.launch()
@@ -43,6 +54,16 @@ final class IOSComposeUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["compose.submit"].isEnabled)
         app.buttons["compose.engine.open"].tap()
         XCTAssertTrue(app.otherElements["compose.planGate"].waitForExistence(timeout: 5) || app.switches["compose.planGate"].exists)
+    }
+    func testDollarTokenShowsCodexCommandsWhileClaudeIsSelected() {
+        app.launch()
+        let prompt = app.textViews["compose.prompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 10)); prompt.tap(); prompt.typeText("$")
+        let command = app.buttons["compose.command.codex-review"]
+        XCTAssertTrue(command.waitForExistence(timeout: 10))
+        XCTAssertFalse(app.buttons["compose.command.review"].exists)
+        command.tap()
+        XCTAssertEqual(prompt.value as? String, "$codex-review ")
     }
     func testFailedAttachmentBlocksStartUntilRetrySucceeds() {
         app.launchArguments += ["-ShepherdComposeAttachmentFixture", "1"]

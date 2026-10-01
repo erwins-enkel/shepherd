@@ -73,7 +73,7 @@ import Testing
     }
     @Test func timeoutAndTeardownFenceLateServerResults() async throws {
         let host = Host(), engine = FakeDictationEngine(); engine.recording = .init(clips: [.init(wav: Data([1]), appleText: "Apple final")], appleText: "Apple final")
-        let finalizer = WhisperFinalizer(status: { true }, transcribe: { _, _ in try? await Task.sleep(for: .milliseconds(50)); return "Late server" })
+        let finalizer = WhisperFinalizer(status: { true }, requestTimeout: 0.01, transcribe: { _, _ in try? await Task.sleep(for: .milliseconds(50)); return "Late server" })
         let c = DictationController(engine: engine, finalizer: finalizer, finalizationTimeout: 0.01, now: { host.date }, getText: { host.text }, setText: { host.text = $0 })
         await c.begin(); host.date.addTimeInterval(1); c.finalize()
         try await Task.sleep(for: .milliseconds(90)); #expect(host.text == "Existing. Apple final")
@@ -85,9 +85,9 @@ import Testing
         let f = WhisperFinalizer(status: { true }, transcribe: { bytes, lang in
             #expect(lang == "de"); if bytes == Data([2]) { throw DictationError.network }; return "Eins"
         })
-        #expect(await f.finalize(recording, locale: "de-DE") == "Eins Two")
+        #expect(await f.finalize(recording, locale: "de-DE") == .init(text: "Eins Two"))
         let absent = WhisperFinalizer(status: { false }, transcribe: { _, _ in Issue.record("must not upload"); return "" })
-        #expect(await absent.finalize(recording, locale: "en-US") == "One Two")
+        #expect(await absent.finalize(recording, locale: "en-US") == .init(text: "One Two"))
     }
     @Test func discoveryDeadlineDoesNotDelayOfflineAppleFallback() async {
         let result = await DictationDeadline.value(seconds: 0.01) {
@@ -95,6 +95,64 @@ import Testing
             return true
         }
         #expect(result == nil)
+    }
+    @Test func whisperTimeoutPreservesCompletedClipsInOrderAndReportsMissingText() async throws {
+        let host = Host(), engine = FakeDictationEngine()
+        engine.recording = .init(clips: (1...3).map { .init(wav: Data([UInt8($0)]), appleText: "") }, appleText: "")
+        let finalizer = WhisperFinalizer(status: { true }, requestTimeout: 0.01, transcribe: { bytes, _ in
+            if bytes == Data([2]) {
+                // A transport may ignore cancellation; late text must never replace the result.
+                try? await Task.sleep(for: .milliseconds(100)); return "Late second"
+            }
+            return bytes == Data([1]) ? "First" : "Third"
+        })
+        let result = await finalizer.finalize(engine.recording, locale: "en-US")
+        #expect(result == .init(text: "First Third", missingClips: [1]))
+        let c = make(host, engine, finalizer: finalizer)
+        await c.begin(); host.date.addTimeInterval(1); c.finalize()
+        try await Task.sleep(for: .milliseconds(150))
+        #expect(host.text == "Existing. First Third")
+        #expect(c.noticeKey == "native_compose_voice_incomplete")
+        #expect(c.noticeCopy != nil); #expect(c.state == .error); #expect(c.canUndo)
+        c.undo(); #expect(host.text == "Existing.")
+    }
+    @Test func eachWhisperRequestGetsItsOwnDeadlineBeyondCaptureShutdownTimeout() async throws {
+        let host = Host(), engine = FakeDictationEngine()
+        engine.recording = .init(clips: (1...3).map { .init(wav: Data([UInt8($0)]), appleText: "") }, appleText: "")
+        let finalizer = WhisperFinalizer(status: { true }, requestTimeout: 1, transcribe: { bytes, _ in
+            try await Task.sleep(for: .milliseconds(30)); return "Clip\(bytes[0])"
+        })
+        let c = DictationController(engine: engine, finalizer: finalizer, finalizationTimeout: 0.01,
+            now: { host.date }, getText: { host.text }, setText: { host.text = $0 })
+        await c.begin(); host.date.addTimeInterval(1); c.finalize()
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(host.text == "Existing. Clip1 Clip2 Clip3")
+        #expect(c.noticeKey == nil); #expect(c.state == .idle)
+    }
+    @Test func whisperFailureEmptyTextAndAbsentPluginReportClipsWithoutFallback() async {
+        let recording = DictationRecording(clips: [
+            .init(wav: Data([1]), appleText: "Apple one"),
+            .init(wav: Data([2]), appleText: ""),
+            .init(wav: Data([3]), appleText: " ")], appleText: "Apple one")
+        let failed = WhisperFinalizer(status: { true }, transcribe: { bytes, _ in
+            if bytes == Data([3]) { return " \n" }; throw DictationError.network
+        })
+        #expect(await failed.finalize(recording, locale: "en-US") == .init(text: "Apple one", missingClips: [1, 2]))
+        let absent = WhisperFinalizer(status: { false }, transcribe: { _, _ in Issue.record("must not upload"); return "" })
+        #expect(await absent.finalize(recording, locale: "en-US") == .init(text: "Apple one", missingClips: [1, 2]))
+        let host = Host(), engine = FakeDictationEngine()
+        engine.recording = .init(clips: [.init(wav: Data([2]), appleText: "")], appleText: "")
+        let c = make(host, engine, finalizer: failed)
+        await c.begin(); host.date.addTimeInterval(1); c.finalize(); await settle()
+        #expect(host.text == "Existing."); #expect(c.state == .error)
+        #expect(c.noticeKey == "native_compose_voice_incomplete"); #expect(!c.canUndo)
+    }
+    @Test func accessibleToggleStartsLockedAndFinalizesWithoutHold() async {
+        let host = Host(), engine = FakeDictationEngine(); engine.recording = .init(clips: [], appleText: "Tapped")
+        let c = make(host, engine); c.toggle(); await settle()
+        #expect(c.state == .locked)
+        host.date.addTimeInterval(1); c.toggle(); await settle()
+        #expect(c.state == .idle); #expect(host.text == "Existing. Tapped")
     }
     @Test func wavMatchesWebHeaderAndResampling() {
         let wav = DictationWAV.encode([0, 1, -1, 0], inputRate: 32_000)

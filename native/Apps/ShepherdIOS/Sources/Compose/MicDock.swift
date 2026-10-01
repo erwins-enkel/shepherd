@@ -86,7 +86,7 @@ struct HoldToTalkButton: View {
         }.onEnded { _ in
             holding = false; armTask?.cancel(); armTask = nil
             if touchedLocked { voice.finalize() }
-            else if !voice.active { hint = true } else { voice.release() }
+            else if !voice.active { voice.toggle() } else { voice.release() }
         }
     }
     private func feedback(_ old: DictationController.State, _ state: DictationController.State) {
@@ -161,6 +161,7 @@ struct MicDock<Attachment: View, Submit: View>: View {
             HStack(spacing: 12) {
                 WaveformView(level: voice.level, cancelled: voice.state == .cancelling)
                 Text(verbatim: String(format: "%02d:%02d", Int(voice.elapsed) / 60, Int(voice.elapsed) % 60)).monospacedDigit()
+                    .accessibilityIdentifier("compose.voice.elapsed")
                 if voice.state == .locked { Image(systemName: "lock.fill") }
                 Spacer(minLength: 0)
             }.font(.system(.caption, design: .monospaced)).foregroundStyle(ComposePalette.bright)

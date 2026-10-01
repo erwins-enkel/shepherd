@@ -507,6 +507,7 @@
 "native_banner_offline" = "Cannot reach %1$@. Retrying.";
 "native_banner_unhealthy" = "%1$@ answered but reports a problem. Retrying.";
 "native_compose_attach" = "Add attachment";
+"native_compose_dictation_deferred" = "Dictation is not available in the native composer yet.";
 "native_compose_engine_claude" = "Claude";
 "native_compose_files" = "Files";
 "native_compose_issue_choose" = "# Choose issue";
@@ -534,6 +535,7 @@
 "native_compose_voice_finalize" = "Transcribing…";
 "native_compose_voice_hint" = "Hold to speak, slide up to lock";
 "native_compose_voice_hold" = "Hold to speak · release to keep";
+"native_compose_voice_incomplete" = "Some audio clips could not be transcribed. The available text was kept; review it or record the missing parts again.";
 "native_compose_voice_interrupted" = "Recording interrupted";
 "native_compose_voice_kept" = "Dictation kept · editable";
 "native_compose_voice_label" = "Dictate";
@@ -543,7 +545,7 @@
 "native_compose_voice_lock" = "Lock";
 "native_compose_voice_locked" = "Hands-free · stop keeps the text";
 "native_compose_voice_microphone_usage" = "Shepherd uses the microphone while you dictate a task. Audio is sent to your Shepherd server when its voice plugin is available.";
-"native_compose_voice_no_send" = "Release keeps the text · nothing is sent";
+"native_compose_voice_no_send" = "No task is started automatically";
 "native_compose_voice_placeholder" = "Describe the task — or hold the microphone and speak.";
 "native_compose_voice_preparing" = "Downloading the offline speech model…";
 "native_compose_voice_ready" = "Ready";

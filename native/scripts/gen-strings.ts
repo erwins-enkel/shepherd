@@ -881,6 +881,7 @@ export const KEYS_COMPOSE: readonly string[] = [
   "native_compose_ready_to_start",
   "native_compose_engine_claude",
   "native_compose_mode_plain",
+  "native_compose_dictation_deferred",
 
   "native_compose_voice_placeholder",
   "native_compose_voice_hold",
@@ -906,6 +907,7 @@ export const KEYS_COMPOSE: readonly string[] = [
   "native_compose_voice_type",
   "native_compose_voice_unsupported",
   "native_compose_voice_error",
+  "native_compose_voice_incomplete",
   "native_compose_voice_interrupted",
   "native_compose_voice_limit",
   "native_compose_voice_preparing",

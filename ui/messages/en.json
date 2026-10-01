@@ -4875,7 +4875,7 @@
   "native_compose_voice_lock": "Lock",
   "native_compose_voice_discard": "Release to discard",
   "native_compose_voice_slide_back": "Slide back to continue recording",
-  "native_compose_voice_no_send": "Release keeps the text · nothing is sent",
+  "native_compose_voice_no_send": "No task is started automatically",
   "native_compose_voice_unchanged": "Prompt stays unchanged",
   "native_compose_voice_locked": "Hands-free · stop keeps the text",
   "native_compose_voice_stop": "Stop",
@@ -4912,5 +4912,7 @@
   "native_compose_prompt_missing": "Prompt still missing",
   "native_compose_ready_to_start": "Ready to start",
   "native_compose_engine_claude": "Claude",
-  "native_compose_mode_plain": "Plain"
+  "native_compose_mode_plain": "Plain",
+  "native_compose_dictation_deferred": "Dictation is not available in the native composer yet.",
+  "native_compose_voice_incomplete": "Some audio clips could not be transcribed. The available text was kept; review it or record the missing parts again."
 }

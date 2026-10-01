@@ -33,7 +33,7 @@ import ShepherdAppCore
         request.shouldReportPartialResults = true; request.addsPunctuation = true
         request.requiresOnDeviceRecognition = onDevice; request.contextualStrings = contextualStrings
         self.request = request
-        task = recognizer.recognitionTask(with: request) { [weak self] result, error in
+        task = recognizer.recognitionTask(with: request) { @Sendable [weak self] result, error in
             // Extract immutable Sendable values before crossing the actor boundary.
             let value = result?.bestTranscription.formattedString, final = result?.isFinal ?? false, failed = error != nil
             Task { @MainActor [weak self] in
@@ -74,9 +74,10 @@ import ShepherdAppCore
     private var stable = "", volatile = ""
     private let update: (String, Bool) -> Void
     private let preparing: () -> Void
-    init(locale: Locale, preparing: @escaping () -> Void, update: @escaping (String, Bool) -> Void) {
+    private let failed: () -> Void
+    init(locale: Locale, preparing: @escaping () -> Void, failed: @escaping () -> Void, update: @escaping (String, Bool) -> Void) {
         transcriber = SpeechTranscriber(locale: locale, preset: .progressiveTranscription)
-        self.preparing = preparing; self.update = update
+        self.preparing = preparing; self.failed = failed; self.update = update
     }
     func start() async throws {
         if let request = try await AssetInventory.assetInstallationRequest(supporting: [transcriber]) {
@@ -97,7 +98,7 @@ import ShepherdAppCore
                     else { volatile = text }
                     update(DictationController.append(stable, volatile), result.isFinal)
                 }
-            } catch { /* Latest text remains the offline fallback. */ }
+            } catch { if !Task.isCancelled { failed() } }
         }
         try await analyzer.prepareToAnalyze(in: format)
         try await analyzer.start(inputSequence: pair.stream)

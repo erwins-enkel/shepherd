@@ -18,7 +18,11 @@ final class CapturedAudio: @unchecked Sendable {
         buffer = copy
     }
 }
-@MainActor final class AudioCapture {
+@MainActor protocol DictationAudioCapture {
+    func start() throws -> AsyncStream<AudioCapture.Event>
+    func stop()
+}
+@MainActor final class AudioCapture: DictationAudioCapture {
     enum Event: Sendable { case audio(CapturedAudio), interrupted }
     private let engine = AVAudioEngine()
     private var continuation: AsyncStream<Event>.Continuation?
@@ -32,23 +36,32 @@ final class CapturedAudio: @unchecked Sendable {
         continuation = pair.continuation
         let input = engine.inputNode, format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0, format.channelCount > 0 else { stop(); throw DictationError.audio }
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
-            guard let copy = CapturedAudio(buffer) else { pair.continuation.yield(.interrupted); return }
-            // Dropped frames mean a broken clip, so stop instead of silently losing words.
-            if case .dropped = pair.continuation.yield(.audio(copy)) { pair.continuation.yield(.interrupted) }
-        }
+        input.installTap(onBus: 0, bufferSize: 1024, format: format, block: Self.tapCallback(pair.continuation))
         tapped = true
         observers = [AVAudioSession.interruptionNotification, AVAudioSession.routeChangeNotification,
                      Notification.Name.AVAudioEngineConfigurationChange].map { name in
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { note in
-                if name == AVAudioSession.interruptionNotification,
-                   note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt != AVAudioSession.InterruptionType.began.rawValue { return }
-                // Any route/format change ends this recording safely; never auto-resume.
-                pair.continuation.yield(.interrupted)
-            }
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil,
+                using: Self.interruptionCallback(name: name, continuation: pair.continuation))
         }
         do { engine.prepare(); try engine.start() } catch { stop(); throw DictationError.audio }
         return pair.stream
+    }
+    /// Built outside actor isolation; AVAudioEngine invokes this on its realtime thread.
+    nonisolated static func tapCallback(_ continuation: AsyncStream<Event>.Continuation)
+        -> @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void {
+        { @Sendable buffer, _ in
+            guard let copy = CapturedAudio(buffer) else { continuation.yield(.interrupted); return }
+            // Dropped frames mean a broken clip, so stop instead of silently losing words.
+            if case .dropped = continuation.yield(.audio(copy)) { continuation.yield(.interrupted) }
+        }
+    }
+    nonisolated private static func interruptionCallback(name: Notification.Name,
+        continuation: AsyncStream<Event>.Continuation) -> @Sendable (Notification) -> Void {
+        { @Sendable note in
+            if name == AVAudioSession.interruptionNotification,
+               note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt != AVAudioSession.InterruptionType.began.rawValue { return }
+            continuation.yield(.interrupted)
+        }
     }
     func stop() {
         engine.stop()

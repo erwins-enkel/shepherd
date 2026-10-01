@@ -23,7 +23,13 @@ public struct DictationRecording: Sendable {
     func cancel() async
 }
 @MainActor public protocol DictationFinalizer: Sendable {
-    func finalize(_ recording: DictationRecording, locale: String) async -> String
+    func finalize(_ recording: DictationRecording, locale: String) async -> DictationFinalization
+}
+public struct DictationFinalization: Sendable, Equatable {
+    public let text: String
+    /// Zero-based clip indices for which neither Whisper nor Apple supplied text.
+    public let missingClips: [Int]
+    public init(text: String, missingClips: [Int] = []) { self.text = text; self.missingClips = missingClips }
 }
 public enum HoldGesture {
     public enum Intent: Equatable, Sendable { case record, cancel, lock }

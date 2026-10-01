@@ -85,6 +85,7 @@ public final class ComposeModel {
     public private(set) var issuesFailed = false
     private var commandErrors: [AgentProvider: String] = [:]
     public var commandsError: String? { commandErrors[provider] }
+    public func commandsError(for provider: AgentProvider) -> String? { commandErrors[provider] }
     private(set) var attached: Issue?
     private var attachedRepoPath: String?
 

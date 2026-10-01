@@ -31,6 +31,36 @@ import {
 } from "../native/scripts/gen-strings";
 
 describe("gen-strings core resources", () => {
+  test("composer catalogs retain Mac dictation copy and accurately describe recording", () => {
+    for (const [locale, deferred, recording] of [
+      [
+        "en",
+        "Dictation is not available in the native composer yet.",
+        "No task is started automatically",
+      ],
+      [
+        "de",
+        "Diktieren ist im nativen Aufgabenfenster noch nicht verfügbar.",
+        "Es wird keine Aufgabe automatisch gestartet",
+      ],
+    ]) {
+      const messages = JSON.parse(
+        readFileSync(join(import.meta.dir, `../ui/messages/${locale}.json`), "utf8"),
+      );
+      expect(messages.native_compose_dictation_deferred).toBe(deferred);
+      expect(messages.native_compose_voice_no_send).toBe(recording);
+      expect(messages.native_compose_voice_incomplete).toBeTruthy();
+      expect(KEYS_COMPOSE).toContain("native_compose_dictation_deferred");
+      expect(KEYS_COMPOSE).toContain("native_compose_voice_incomplete");
+      const outputs = buildOutputs(join(tmpdir(), "composer-copy"));
+      expect(
+        outputs[join(tmpdir(), `composer-copy/${locale}.lproj/Localizable.strings`)],
+      ).toContain(recording);
+      expect(
+        outputs[join(tmpdir(), `composer-copy/${locale}.lproj/Localizable.strings`)],
+      ).toContain(deferred);
+    }
+  });
   test("strings source escapes syntax and controls", () => {
     expect(stringsLiteral('a"b\\c\n\r\t\u0001')).toBe('"a\\"b\\\\c\\n\\r\\t\\U0001"');
   });

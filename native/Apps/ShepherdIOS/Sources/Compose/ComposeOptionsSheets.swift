@@ -83,6 +83,7 @@ struct ComposeSourceSheet: View {
     let commands: Bool
     let dismiss: () -> Void
     @State private var query = ""
+    var commandProvider: AgentProvider { model.commandProvider(at: model.prompt.endIndex) }
     var body: some View {
         List {
             if !commands {
@@ -102,8 +103,8 @@ struct ComposeSourceSheet: View {
             }
             if model.loading { ProgressView().accessibilityLabel(L.t("common_loading")) }
             else if commands {
-                if let error = model.commandsError { Text(verbatim: error) }
-                let options = ComposeModel.commandMatches(model.commands, query: query)
+                if let error = model.commandsError(for: commandProvider) { Text(verbatim: error) }
+                let options = ComposeModel.commandMatches(model.commands(for: commandProvider), query: query)
                 if options.isEmpty { Text(verbatim: L.t("promptsources_no_commands")) }
                 ForEach(Array(options.enumerated()), id: \.offset) { _, command in
                     Button {
@@ -137,6 +138,6 @@ struct ComposeSourceSheet: View {
             }
         }.searchable(text: $query, prompt: L.t(commands ? "promptsources_commands_filter" : "promptsources_filter_placeholder"))
             .navigationTitle(L.t("promptsources_title"))
-            .task { await model.loadSources(); if commands { await model.loadCommands() } }
+            .task { await model.loadSources(); if commands { await model.loadCommands(provider: commandProvider) } }
     }
 }

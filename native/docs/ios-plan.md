@@ -7,7 +7,9 @@ existing generated-client plan routes from `ShepherdKit`.
 
 The iOS sidebar already installs `PlanModel` before Herd reads the review signal.
 `IOSPlanStream` adds the unanswered-question signal and reuses that registration.
-There is one store event connection, and the existing sidebar recovery refreshes
+Session actions, ready-PR merge and composer registrations remain installed alongside
+Plan. The detail actions bar remains visible on the Plan tab, and list cards retain
+the session action swipes. There is one store event connection, and the existing sidebar recovery refreshes
 plan snapshots after foreground entry and reconnect.
 
 A planning session with unanswered questions, a ready gate, a blocked/paused

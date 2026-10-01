@@ -6,7 +6,7 @@
  * never throw, even if a warm call rejects — backlog freshness is best-effort.
  */
 import { test, expect } from "bun:test";
-import { BacklogPoller } from "../src/backlog-poller";
+import { BacklogPoller, reposUsedSince } from "../src/backlog-poller";
 
 test("warms only forge-backed repos", async () => {
   const warmed: string[] = [];
@@ -220,4 +220,90 @@ test("repoMode flip propagates: local→github → repo starts being warmed", as
   forgeKind = "github"; // flip
   await poller.tick(); // kind=github → warmed
   expect(warmed).toEqual(["/flip"]);
+});
+
+// ── hot/cold tiering (#2656) ──────────────────────────────────────────────────
+
+const COUNTS = { openIssues: 0, openPRs: 0, ciStatus: null, prKinds: null };
+
+test("tiering: hot repos warm every tick, cold repos once per cold interval", async () => {
+  let clock = 1_000_000;
+  const warmed: string[] = [];
+  const poller = new BacklogPoller(
+    () => [{ path: "/hot" }, { path: "/cold" }],
+    () => ({ kind: "github" }),
+    async (p) => {
+      warmed.push(p);
+      return COUNTS;
+    },
+    90_000,
+    undefined,
+    undefined,
+    { hotRepos: () => new Set(["/hot"]), coldIntervalMs: 900_000, now: () => clock },
+  );
+
+  await poller.tick(); // first tick: nothing warmed yet → both
+  expect(warmed.sort()).toEqual(["/cold", "/hot"]);
+
+  warmed.length = 0;
+  clock += 90_000;
+  await poller.tick(); // cold repo is not due yet
+  expect(warmed).toEqual(["/hot"]);
+
+  warmed.length = 0;
+  clock += 900_000;
+  await poller.tick(); // cold interval elapsed → both again
+  expect(warmed.sort()).toEqual(["/cold", "/hot"]);
+});
+
+test("tiering: a failed cold warm waits out its interval instead of retrying every tick", async () => {
+  let clock = 0;
+  let calls = 0;
+  const poller = new BacklogPoller(
+    () => [{ path: "/cold" }],
+    () => ({ kind: "github" }),
+    async () => {
+      calls++;
+      throw new Error("API rate limit exceeded");
+    },
+    90_000,
+    undefined,
+    undefined,
+    { hotRepos: () => new Set(), coldIntervalMs: 900_000, now: () => clock },
+  );
+
+  await poller.tick();
+  clock += 90_000;
+  await poller.tick();
+  expect(calls).toBe(1);
+});
+
+test("tiering: a repo turning hot is warmed on the next tick", async () => {
+  let clock = 0;
+  const hot = new Set<string>();
+  const warmed: string[] = [];
+  const poller = new BacklogPoller(
+    () => [{ path: "/a" }],
+    () => ({ kind: "github" }),
+    async (p) => {
+      warmed.push(p);
+      return COUNTS;
+    },
+    90_000,
+    undefined,
+    undefined,
+    { hotRepos: () => hot, coldIntervalMs: 900_000, now: () => clock },
+  );
+
+  await poller.tick();
+  clock += 90_000;
+  hot.add("/a"); // operator starts a session in /a
+  await poller.tick();
+  expect(warmed).toEqual(["/a", "/a"]);
+});
+
+test("reposUsedSince keeps only repos with a session at or after the cutoff", () => {
+  expect(reposUsedSince({ "/new": 500, "/edge": 400, "/old": 399 }, 400)).toEqual(
+    new Set(["/new", "/edge"]),
+  );
 });

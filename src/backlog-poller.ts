@@ -6,13 +6,19 @@ import type { RepoCounts } from "./backlog";
  * visibly the cold first paint of an empty overview. Mirrors PrPoller's
  * boot-warmup + interval cadence.
  *
- * The default cadence is intentionally below CountsService's 120s read-TTL so a
- * forced refresh rewrites each entry before it can expire — the request path
- * then always finds a fresh value. Best-effort: a failing warm is swallowed so
+ * Both cadences are intentionally below CountsService's read-TTL so a forced
+ * refresh rewrites each entry before it can expire — the request path then
+ * always finds a cached value. Best-effort: a failing warm is swallowed so
  * one bad repo never sinks the tick or its siblings.
+ *
+ * With {@link BacklogTiering} only the repos the operator works in are warmed every
+ * tick; the rest (often dozens of reference clones) once per `coldIntervalMs`. Warming
+ * every tracked repo every tick was the single largest GitHub API consumer (#2656).
  */
 export class BacklogPoller {
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** repoPath → when its last warm started (success or not), for the cold cadence. */
+  private readonly lastWarmed = new Map<string, number>();
 
   constructor(
     private listRepos: () => Array<{ path: string }>,
@@ -35,13 +41,32 @@ export class BacklogPoller {
      * `shouldWarm` to avoid colliding with the `warm` warm-fn param above.)
      */
     private shouldWarm: () => boolean = () => true,
+    /** Hot/cold cadence split. Omitted → every forge-backed repo is warmed every tick. */
+    private tiering?: BacklogTiering,
   ) {}
 
   async tick(): Promise<void> {
     if (!this.shouldWarm()) return; // cold / rate-limited — skip warming and the broadcast
     const forgeRepos = this.listRepos().filter((r) => this.isForgeBacked(r.path));
-    await Promise.all(forgeRepos.map((r) => this.warm(r.path).catch(() => null)));
+    const due = this.dueRepos(forgeRepos.map((r) => r.path));
+    await Promise.all(due.map((path) => this.warm(path).catch(() => null)));
     if (this.onWarmed) await Promise.resolve(this.onWarmed()).catch(() => null);
+  }
+
+  /** Hot repos always; a cold repo only once its last warm is `coldIntervalMs` old. The
+   *  stamp is taken before the warm, so a failing cold repo waits out its interval
+   *  instead of re-hitting the forge on every tick. */
+  private dueRepos(paths: string[]): string[] {
+    if (!this.tiering) return paths;
+    const { hotRepos, coldIntervalMs, now = Date.now } = this.tiering;
+    const hot = hotRepos();
+    const t = now();
+    const due = paths.filter((path) => {
+      const last = this.lastWarmed.get(path);
+      return hot.has(path) || last === undefined || t - last >= coldIntervalMs;
+    });
+    for (const path of due) this.lastWarmed.set(path, t);
+    return due;
   }
 
   private isForgeBacked(path: string): boolean {
@@ -64,4 +89,23 @@ export class BacklogPoller {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
   }
+}
+
+/** Hot/cold cadence split for {@link BacklogPoller}. */
+export interface BacklogTiering {
+  /** Repo paths warmed every tick — read once per tick. */
+  hotRepos: () => ReadonlySet<string>;
+  /** Cadence for every other forge-backed repo. */
+  coldIntervalMs: number;
+  /** Injectable clock for tests. */
+  now?: () => number;
+}
+
+/** Repos with a session created at or after `since` — the poller's "hot" set. */
+export function reposUsedSince(lastUsedByRepo: Record<string, number>, since: number): Set<string> {
+  return new Set(
+    Object.entries(lastUsedByRepo)
+      .filter(([, t]) => t >= since)
+      .map(([path]) => path),
+  );
 }

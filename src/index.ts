@@ -137,7 +137,7 @@ import { recommendPrompt, RECOMMEND_LABEL } from "./prompt-recommend";
 import { shapeTask, SHAPE_LABEL } from "./task-shape";
 import { CountsService } from "./backlog";
 import { OpenPrSnapshotService } from "./open-pr-snapshot";
-import { BacklogPoller } from "./backlog-poller";
+import { BacklogPoller, reposUsedSince } from "./backlog-poller";
 import { UpNextService, buildUpNextRepos } from "./up-next";
 import { ReadinessScorer } from "./up-next-readiness";
 import {
@@ -3661,6 +3661,11 @@ const backlogPoller = new BacklogPoller(
   // Warm the backlog only while a dashboard is open — REST fallbacks keep counts
   // useful even while the GraphQL bucket is exhausted.
   () => presence.hasClients(),
+  // Repos with a session in the last week every tick; the rest every 15 min (#2656).
+  {
+    hotRepos: () => reposUsedSince(store.lastUsedByRepo(), Date.now() - 7 * 86_400_000),
+    coldIntervalMs: 15 * 60_000,
+  },
 );
 deferredStarts.push(() => {
   setTimeout(() => void backlogPoller.tick(), 3_000);

@@ -405,6 +405,7 @@ export const KEYS_IOS_ACTIONS: readonly string[] = [
   "native_ios_actions_ready",
   "native_ios_actions_remaining",
   "native_ios_actions_revision",
+  "native_ios_actions_server_default",
   "prbadge_merge",
   "prbadge_merged_toast",
 ];

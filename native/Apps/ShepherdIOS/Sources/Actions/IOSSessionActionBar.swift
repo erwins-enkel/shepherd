@@ -95,6 +95,7 @@ struct IOSSessionActionBarContent: View {
             .buttonStyle(IOSActionButtonStyle())
             .disabled(state.busy || !state.allowsWrites)
             .accessibilityIdentifier("action-merge")
+            .disabled(state.mergeModel.busy)
         }
     }
 

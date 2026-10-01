@@ -10706,6 +10706,23 @@
         }
       }
     },
+    "native_ios_actions_server_default": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server-Standard"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server default"
+          }
+        }
+      }
+    },
     "native_ios_connecting": {
       "extractionState": "manual",
       "localizations": {

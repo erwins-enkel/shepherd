@@ -42,6 +42,9 @@ requiring a Mac `StreamHost`. This new shared-core installer compiles only on iO
 `IOSSessionActions` is an activation-scoped extension holding the command state
 shared by each session's list and detail controls. It uses the existing event
 connection and core recap stream; it adds no socket or contract operation.
+Its cache reconciles against live sessions and the selected Done session. Removed
+states are invalidated after any in-flight command completes, preserving an
+archiving relaunch until it can select its replacement.
 
 Every write checks the current activation, store and read-only policy. The same
 checks run behind the controls, so a disabled UI is not the only protection.
@@ -63,14 +66,19 @@ uses the shared 2,000 UTF-16-unit limit and distinguishes recording from deliver
 Merge is offered for a ready, open PR outside review using `MergeRules.ready` and
 `MergeInputs`. It fetches fresh git state before showing repository, PR, target,
 head revision and any server-stamped handoff/reviewer responsibility. The sheet
-supports squash/merge/rebase and branch deletion. Like Mac it defaults to squash;
-GitState currently does not expose the web's merge-method field. Cancel receives
+defaults to **Server default**, omitting `method` so the host's `forge.mergeMethod`
+applies, as on web. Squash/merge/rebase are explicit overrides; branch deletion
+remains selectable. GitState currently does not expose the web's configured
+merge-method field. Cancel receives
 initial VoiceOver focus. Confirmation stays disabled for 350 ms, and the command
 checks elapsed time again. Unknown responsibility values fail closed.
 
 `MergeConfirmationRules.payload` echoes the fresh stamp to the server. A failure
 spends the candidate and closes the sheet; retry fetches new state and needs a new
-confirmation. MergeModel owns progress and server refusal copy. Commands show
+confirmation. MergeModel serializes merge operations globally; each originating
+session owns its progress and server refusal copy. Other sessions' lifecycle
+commands remain available, and background snapshot errors stay in MergeModel.
+Commands show
 progress, core success/warning notes and localized failures in both list and
 detail. Isolated/read-only launches suppress swipe commands and disable detail
 writes without sending rejected audit requests.

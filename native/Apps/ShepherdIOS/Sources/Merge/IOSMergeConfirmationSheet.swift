@@ -47,8 +47,9 @@ struct IOSMergeConfirmationContent: View {
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 Picker(L.t("native_merge_method"), selection: $state.method) {
+                    Text(L.t("native_ios_actions_server_default")).tag(Optional<MergeMethod>.none)
                     ForEach([MergeMethod.squash, .merge, .rebase], id: \.self) { method in
-                        Text(verbatim: method.rawValue).tag(method)
+                        Text(verbatim: method.rawValue).tag(Optional(method))
                     }
                 }.pickerStyle(.menu).frame(minHeight: 44).accessibilityIdentifier("merge-method")
                 Toggle(L.t("native_merge_delete_branch"), isOn: $state.deleteBranch).frame(minHeight: 44)
@@ -68,7 +69,7 @@ struct IOSMergeConfirmationContent: View {
 struct IOSMergeConfirmationFacts: View {
     let session: Session
     let git: GitState?
-    let method: MergeMethod
+    let method: MergeMethod?
     static func confirmTitle(_ git: GitState?) -> String {
         let takeover = git?.mergeGate?.handoff != nil || git?.mergeGate?.reviewBlockBy != nil
         return L.t(takeover ? "mergeconfirm_confirm_takeover" : "mergeconfirm_confirm")
@@ -79,7 +80,7 @@ struct IOSMergeConfirmationFacts: View {
             fact(L.t("mergeconfirm_field_repo"), session.repoPath)
             fact(L.t("mergeconfirm_field_pr"), "#\(git?.number ?? 0) \(git?.title ?? session.name)")
             fact(L.t("mergeconfirm_field_target"), git?.baseRefName ?? L.t("mergeconfirm_value_unknown"))
-            fact(L.t("mergeconfirm_field_method"), method.rawValue)
+            fact(L.t("mergeconfirm_field_method"), method?.rawValue ?? L.t("native_ios_actions_server_default"))
             fact(L.t("native_ios_actions_revision"), git?.headSha ?? L.t("mergeconfirm_value_unknown"))
             if let gate = git?.mergeGate {
                 if let who = gate.handoffWho {

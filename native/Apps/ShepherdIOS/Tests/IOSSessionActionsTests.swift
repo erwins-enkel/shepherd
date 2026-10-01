@@ -254,6 +254,146 @@ final class IOSSessionActionsTests: XCTestCase {
         XCTAssertFalse(fixture.state.canConfirmMerge(now: fixture.state.presentedAt!))
     }
 
+    func testMergeUsesServerDefaultUnlessExplicitlyOverriddenAndResetsOnReopen() async {
+        let methods: [MergeMethod?] = [nil, .squash, .merge, .rebase]
+        for method in methods {
+            let fixture = IOSActionFixture()
+            defer { fixture.merge.teardown() }
+            fixture.session.readyToMerge = true
+            fixture.state.prepareMerge(); await settle { fixture.state.candidate != nil }
+            XCTAssertNil(fixture.state.method)
+            fixture.state.method = method
+            fixture.state.confirmMerge(now: .distantFuture)
+            await settle { fixture.calls.contains("merge") && !fixture.state.busy }
+            XCTAssertEqual(fixture.mergeMethod, method)
+            XCTAssertEqual(fixture.deleteBranch, true)
+            fixture.state.prepareMerge(); await settle { fixture.state.candidate != nil }
+            XCTAssertNil(fixture.state.method, "A fresh confirmation must restore the server default")
+        }
+    }
+
+    func testMergeSerializationAndRefusalsOnlyAffectTheOriginatingSession() async {
+        let first = IOSActionFixture()
+        let second = IOSActionFixture(merge: first.merge)
+        second.session.id = "other"
+        defer { first.merge.teardown() }
+        first.session.readyToMerge = true; second.session.readyToMerge = true
+        first.state.prepareMerge(); await settle { first.state.candidate != nil }
+        first.hold = true
+        first.state.confirmMerge(now: .distantFuture)
+        await settle { first.pending != nil }
+        XCTAssertTrue(first.state.busy)
+        XCTAssertFalse(second.state.busy)
+        second.state.prepareMerge()
+        XCTAssertNil(second.state.sheet)
+        await second.state.execute(.stop)
+        second.session.status = .init(known: .done)
+        await second.state.execute(.resume)
+        XCTAssertEqual(second.calls, ["stop", "resume"])
+        XCTAssertNotNil(second.state.outcome.note)
+        // The originating session also rejects concurrent lifecycle writes.
+        await first.state.execute(.stop)
+        XCTAssertEqual(first.calls, ["git", "merge"])
+        first.error = .conflict(code: "merge_confirm_stale", message: "Revision changed")
+        first.release()
+        await settle { !first.state.busy }
+        XCTAssertNotNil(first.state.error)
+        XCTAssertNil(second.state.error)
+        XCTAssertFalse(second.state.busy)
+        first.error = nil
+        await first.state.execute(.stop)
+        XCTAssertNil(first.state.error, "Successful lifecycle commands clear this session's old refusal")
+        XCTAssertNotNil(first.state.outcome.note)
+    }
+
+    func testMergePreparationErrorsAreLocalAndBackgroundSnapshotErrorsDoNotLeak() async {
+        let merge = MergeModel(reads: .init(snapshot: { throw ShepherdError.notFound }))
+        let first = IOSActionFixture(merge: merge)
+        let second = IOSActionFixture(merge: merge)
+        defer { merge.teardown() }
+        await merge.refresh()
+        XCTAssertNotNil(merge.error)
+        XCTAssertNil(first.state.error); XCTAssertNil(second.state.error)
+        first.session.readyToMerge = true
+        first.error = .notFound
+        first.state.prepareMerge()
+        await settle { first.calls == ["git"] && !first.state.busy }
+        XCTAssertNotNil(first.state.error)
+        XCTAssertNil(first.state.sheet)
+        XCTAssertNil(second.state.error)
+        await second.state.execute(.stop)
+        XCTAssertNil(second.state.error)
+        XCTAssertNotNil(second.state.outcome.note)
+    }
+
+    func testLateMergeFailureAfterNavigationIsDroppedAndUnlocksOrigin() async {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.session.readyToMerge = true; fixture.hold = true
+        fixture.state.prepareMerge(); await settle { fixture.pending != nil }
+        fixture.selected = false; fixture.replacementAllowed = false
+        fixture.state.detailDidDisappear()
+        fixture.error = .notFound; fixture.release()
+        await settle { !fixture.state.busy }
+        XCTAssertNil(fixture.state.error)
+        XCTAssertNil(fixture.state.sheet)
+    }
+
+    func testCachePrunesRemovedStatesRetainsSelectedArchiveAndWaitsForCommandCompletion() async throws {
+        resetStreamSeams()
+        defer { resetStreamSeams() }
+        let launch = try IOSLaunchEnvironment(configuration: .init(isIsolated: true))
+        let app = launch.makeModel()
+        let profile = try app.addRemoteProfile(name: "Fixture", address: "http://127.0.0.1:1")
+        await app.activate(profile)
+        defer { app.deactivate() }
+        let store = try XCTUnwrap(app.store)
+        let controller = try XCTUnwrap(app.extension(IOSSessionActions.self))
+        let session = PreviewData.session()
+        store.apply(.sessionNew(session))
+        var state: IOSSessionActionState? = controller.state(for: session)
+        state?.amendment = "saved draft"
+        weak var removed = state
+        app.selectedSessionID = session.id
+        store.apply(.sessionArchived(.init(id: session.id)))
+        // A later list change exercises reconciliation while the archive is selected.
+        let live = PreviewData.session(id: "live")
+        store.apply(.sessionNew(live))
+        _ = controller.state(for: live)
+        await settle { controller.cachedSessionIDs.contains(live.id) }
+        XCTAssertTrue(state === controller.state(for: session))
+        XCTAssertEqual(state?.amendment, "saved draft")
+        app.selectedSessionID = nil
+        state = nil
+        await settle { removed == nil && !controller.cachedSessionIDs.contains(session.id) }
+
+        let inFlight = controller.state(for: live)
+        var pending: CheckedContinuation<Void, Never>?
+        var completed = false
+        let relaunch = Task {
+            await inFlight.command.run({
+                // Relaunch archives its source before the request returns its replacement.
+                store.apply(.sessionArchived(.init(id: live.id)))
+                await withCheckedContinuation { pending = $0 }
+                completed = true
+            }, failureCopy: { $0 }, isCurrent: { true })
+        }
+        await settle { pending != nil }
+        // Another removed row must be pruned without dropping the unfinished relaunch.
+        let other = PreviewData.session(id: "other")
+        store.apply(.sessionNew(other))
+        _ = controller.state(for: other)
+        store.apply(.sessionArchived(.init(id: other.id)))
+        await settle { !controller.cachedSessionIDs.contains(other.id) }
+        XCTAssertTrue(controller.cachedSessionIDs.contains(live.id))
+        XCTAssertTrue(inFlight.command.busy)
+        pending?.resume(); pending = nil
+        _ = await relaunch.value
+        await settle { controller.cachedSessionIDs.isEmpty }
+        XCTAssertTrue(completed)
+        XCTAssertNil(inFlight.sheet)
+    }
+
     func testMergeRejectsUnknownRolesLostReadyAndChangedSelection() async throws {
         let fixture = IOSActionFixture()
         defer { fixture.merge.teardown() }
@@ -271,6 +411,8 @@ final class IOSSessionActionsTests: XCTestCase {
     }
 
     func testActivationInstallsActionsAndMergeInputsWithoutMacHost() async throws {
+        resetStreamSeams()
+        defer { resetStreamSeams() }
         let launch = try IOSLaunchEnvironment(configuration: .init(isIsolated: true))
         let app = launch.makeModel()
         let profile = try app.addRemoteProfile(name: "Fixture", address: "http://127.0.0.1:1")
@@ -290,6 +432,15 @@ final class IOSSessionActionsTests: XCTestCase {
         XCTAssertEqual(app.liveRequestAudit?.counts.rejected, 0)
         app.deactivate()
         XCTAssertFalse(state.allowsWrites)
+        // Prove cleanup restores conservative defaults instead of keeping the
+        // process-wide closures installed by makeModel().
+        MergeInputs.reviewing = { _, _ in true }
+        MergeInputs.git = { _ in [session.id: try! IOSActionFixture.decodeGit()] }
+        resetStreamSeams()
+        XCTAssertFalse(MergeInputs.reviewing(app, session.id))
+        XCTAssertTrue(MergeInputs.git(app).isEmpty)
+        XCTAssertTrue(MergeInputs.planReviewBlocked(app, session.id))
+        XCTAssertTrue(MergeInputs.terminalEnded(app, session.id))
     }
 
     func testRenderFixtureImages() async throws {
@@ -363,7 +514,10 @@ private final class IOSActionFixture {
     var mergePayload: Components.Schemas.MergeConfirmation?
     var mergeMethod: MergeMethod?
     var deleteBranch: Bool?
-    let merge = MergeModel(reads: .init(snapshot: { MergeSnapshot() }))
+    let merge: MergeModel
+    init(merge: MergeModel? = nil) {
+        self.merge = merge ?? MergeModel(reads: .init(snapshot: { MergeSnapshot() }))
+    }
     lazy var rules = ActionsModel(reads: .init(recaps: { [:] }), now: { 1 })
     lazy var state = IOSSessionActionState(operations: operations, merge: merge,
         session: { self.session }, actions: { self.rules.actions(for: $0) }, git: { self.git },

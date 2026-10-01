@@ -11,11 +11,32 @@ final class IOSSessionActions: AppExtension {
     private weak var app: AppModel?
     private var store: SessionStore?
     private let generation: Int
+    private var pruneWatcher: Task<Void, Never>?
+    private var pruneSignal: AsyncStream<Void>.Continuation?
+    var cachedSessionIDs: Set<String> { Set(states.keys) }
 
     init(store: SessionStore, app: AppModel) {
         self.store = store
         self.app = app
         generation = app.activationGeneration
+        let (changes, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        pruneSignal = signal
+        pruneWatcher = Task { [weak self, weak store, weak app] in
+            var iterator = changes.makeAsyncIterator()
+            while !Task.isCancelled {
+                guard let self, let store, let app else { return }
+                let retained = withObservationTracking {
+                    var ids = Set(store.sessions.map(\.id))
+                    if let selected = app.selectedSessionID { ids.insert(selected) }
+                    // An archiving relaunch can remove its source before returning
+                    // the replacement. Wake again when that command completes.
+                    for (id, state) in self.states where state.busy { ids.insert(id) }
+                    return ids
+                } onChange: { signal.yield(()) }
+                self.reconcile(keeping: retained)
+                guard await iterator.next() != nil else { return }
+            }
+        }
     }
 
     func state(for session: Session) -> IOSSessionActionState {
@@ -48,10 +69,19 @@ final class IOSSessionActions: AppExtension {
                 app?.selectedSessionID = result.id
             })
         states[id] = state
+        pruneSignal?.yield(())
         return state
     }
 
+    private func reconcile(keeping ids: Set<String>) {
+        for id in states.keys.filter({ !ids.contains($0) }) {
+            states.removeValue(forKey: id)?.invalidate()
+        }
+    }
+
     func teardown() {
+        pruneSignal?.finish(); pruneSignal = nil
+        pruneWatcher?.cancel(); pruneWatcher = nil
         states.values.forEach { $0.invalidate() }
         states.removeAll()
         store = nil
@@ -71,7 +101,7 @@ struct IOSActionOperations {
     var relaunch: (String, RelaunchRequest) async throws -> RelaunchResult
     var recap: (String) async throws -> RecapRegenerateResult
     var git: (String) async throws -> GitState?
-    var merge: (String, MergeMethod, Bool, Components.Schemas.MergeConfirmation) async throws -> GitState
+    var merge: (String, MergeMethod?, Bool, Components.Schemas.MergeConfirmation) async throws -> GitState
 
     static func live(_ store: SessionStore) -> Self {
         let client = store.client
@@ -101,12 +131,14 @@ final class IOSSessionActionState {
     var repo = ""
     var branch = ""
     var prompt = ""
-    var method: MergeMethod = .squash
+    var method: MergeMethod?
     var deleteBranch = true
     private(set) var candidate: GitState?
     private(set) var presentedAt: Date?
     private var presentationRevision = 0
     private var invalidated = false
+    private var mergeBusy = false
+    private var mergeError: String?
     private let operations: IOSActionOperations
     private let readSession: () -> Session?
     private let readActions: (Session) -> [SessionAction]
@@ -129,7 +161,7 @@ final class IOSSessionActionState {
     }
 
     var allowsWrites: Bool { !invalidated && canWrite() }
-    var busy: Bool { command.busy || mergeModel.busy }
+    var busy: Bool { command.busy || mergeBusy }
     var actions: [SessionAction] {
         guard let session = readSession() else { return [] }
         // The core's settled-session gate is shared; iOS also has the full Herd
@@ -142,7 +174,7 @@ final class IOSSessionActionState {
     static func swipeActions(from actions: [SessionAction]) -> [SessionAction] {
         [.stop, .resume, .toggleReady].filter { actions.contains($0) }
     }
-    var error: String? { command.message ?? mergeModel.error }
+    var error: String? { command.message ?? mergeError }
 
     static func label(_ action: SessionAction, session: Session) -> String {
         if action == .toggleReady {
@@ -153,7 +185,7 @@ final class IOSSessionActionState {
 
     func present(_ action: SessionAction) {
         guard allowsWrites, !busy, isSelected(), let session = readSession(), actions.contains(action) else { return }
-        command.clear(); outcome.note = nil
+        command.clear(); mergeError = nil; outcome.note = nil
         presentationRevision &+= 1
         switch action {
         case .rename: name = session.name; sheet = .rename
@@ -182,13 +214,14 @@ final class IOSSessionActionState {
     func invalidate() {
         invalidated = true; presentationRevision &+= 1
         sheet = nil; candidate = nil; presentedAt = nil; outcome.note = nil; command.clear()
+        mergeBusy = false; mergeError = nil
     }
 
     /// Inline writes stay on their own session even if the operator opens another
     /// card. Sheet completions additionally require the same selection/presentation.
     func execute(_ action: SessionAction) async {
         guard allowsWrites, !busy, let session = readSession(), actions.contains(action) else { return }
-        outcome.note = nil
+        mergeError = nil; outcome.note = nil
         let current = { self.allowsWrites && self.readSession()?.id == session.id }
         switch action {
         case .stop:
@@ -238,6 +271,7 @@ final class IOSSessionActionState {
 
     func submit() async {
         guard canSubmit, isSelected(), let session = readSession(), let sheet else { return }
+        mergeError = nil
         let revision = presentationRevision
         let current = {
             self.allowsWrites && revision == self.presentationRevision && self.isSelected()
@@ -292,12 +326,12 @@ final class IOSSessionActionState {
 
     /// Always fetch a fresh stamped PR before presenting the confirmation.
     func prepareMerge() {
-        guard allowsWrites, !busy, isSelected(), let session = readSession(), session.readyToMerge, !isReviewing(),
+        guard allowsWrites, !busy, !mergeModel.busy, isSelected(), let session = readSession(), session.readyToMerge, !isReviewing(),
               session.status.known != .archived else { return }
-        command.clear(); outcome.note = nil; candidate = nil; presentedAt = nil
+        command.clear(); mergeError = nil; outcome.note = nil; candidate = nil; presentedAt = nil
         presentationRevision &+= 1
         let revision = presentationRevision
-        mergeModel.perform(commit: { [weak self] (git: GitState?) in
+        performMerge(revision: revision, commit: { [weak self] (git: GitState?) in
             guard let self, self.allowsWrites, self.isSelected(), self.presentationRevision == revision else { return }
             guard self.readSession()?.readyToMerge == true, !self.isReviewing(),
                   let git, git.state.known == .open, git.number != nil else {
@@ -305,7 +339,7 @@ final class IOSSessionActionState {
                 return
             }
             self.candidate = git
-            self.method = .squash
+            self.method = nil
             self.deleteBranch = true
             self.presentedAt = Date()
             self.sheet = .merge
@@ -316,7 +350,7 @@ final class IOSSessionActionState {
     }
 
     func canConfirmMerge(now: Date = Date()) -> Bool {
-        guard allowsWrites, !busy, isSelected(), sheet == .merge, readSession()?.readyToMerge == true,
+        guard allowsWrites, !busy, !mergeModel.busy, isSelected(), sheet == .merge, readSession()?.readyToMerge == true,
               !isReviewing(), readSession()?.status.known != .archived,
               let candidate, candidate.state.known == .open, candidate.number != nil,
               let presentedAt, now.timeIntervalSince(presentedAt) >= 0.350 else { return false }
@@ -328,7 +362,7 @@ final class IOSSessionActionState {
         let payload = MergeConfirmationRules.payload(candidate)
         let method = method, deleteBranch = deleteBranch, revision = presentationRevision
         presentedAt = nil // A confirmation is spent even when the server refuses it.
-        mergeModel.perform(commit: { [weak self] _ in
+        performMerge(revision: revision, commit: { [weak self] _ in
             guard let self, self.allowsWrites, self.isSelected(), self.presentationRevision == revision else { return }
             self.sheet = nil; self.candidate = nil
             self.outcome.note = .success(L.t("prbadge_merged_toast", String(candidate.number ?? 0)))
@@ -339,6 +373,33 @@ final class IOSSessionActionState {
             guard self.allowsWrites, self.isSelected(), self.presentationRevision == revision,
                   self.readSession()?.readyToMerge == true, !self.isReviewing() else { throw ShepherdError.cancelled }
             return try await self.operations.merge(session.id, method, deleteBranch, payload)
+        }
+    }
+
+    /// MergeModel still serializes all merge work. Only this session owns its
+    /// progress/refusal; background snapshot failures belong to the overview.
+    private func performMerge<Value: Sendable>(
+        revision: Int,
+        commit: @escaping @MainActor (Value) -> Void,
+        failure: @escaping @MainActor () -> Void = {},
+        _ operation: @escaping @MainActor () async throws -> Value
+    ) {
+        guard !mergeModel.busy else { return }
+        mergeBusy = true
+        mergeModel.perform(commit: { [weak self] value in
+            self?.mergeBusy = false
+            commit(value)
+        }, failure: { [weak self] in
+            self?.mergeBusy = false
+            failure()
+        }) {
+            do { return try await operation() }
+            catch {
+                if self.allowsWrites, self.isSelected(), self.presentationRevision == revision {
+                    self.mergeError = ShepherdErrorCopy.message(error)
+                }
+                throw error
+            }
         }
     }
 }

@@ -12391,6 +12391,16 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SidebarViewTests.swift\",\"MacSeamTests.SidebarViewTests\",\"macSidebarPreservesServerOrderWithinLifecycleGroups()\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientVoiceTests.swift\",\"ShepherdClientVoiceTests\",\"absentPluginDoesNotProbeStatus() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientVoiceTests.swift\",\"ShepherdClientVoiceTests\",\"discoveryAndMultipartFinal() async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientVoiceTests.swift\",\"ShepherdClientVoiceTests\",\"errors(_ status: Int) async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientVoiceTests.swift\",\"ShepherdClientVoiceTests\",\"errors(_ status: Int) async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"finalTextAppendsAndUndoDoesNotEraseLaterTyping() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"cancelGeometryCanReturnAndLockDoesNotUnlockOnRelease() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"shortClipAndArmingReleaseDiscard() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"lockedStableTextIsReplacedByWhisperAndCancelRestores() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"interruptionAndDurationCapFinalizeWithoutSending() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"permissionErrorsAndUnsupportedRemainTypeable() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"timeoutAndTeardownFenceLateServerResults() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"fallbackIsPerClipAndAbsentPluginSkipsUpload() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"wavMatchesWebHeaderAndResampling()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"separatorUndoExpiryAndLocalePersistence() async\"]"
   ]
 }

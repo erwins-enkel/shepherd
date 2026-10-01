@@ -1,10 +1,10 @@
 /**
- * GraphQL rate-limit tracking for Shepherd's GitHub integration.
+ * Rate-limit tracking for Shepherd's GitHub integration.
  *
  * GitHub GraphQL has its own 5,000-points-per-hour bucket, separate from the
  * REST bucket used by `gh run` and `gh api <rest-path>`. This module tracks
- * the last-seen budget from `rateLimit` query selections and exposes a shared
- * backoff signal that pollers consult before issuing new requests.
+ * each bucket ({@link graphRateLimit}, {@link restRateLimit}) and exposes a
+ * shared backoff signal that pollers consult before issuing new requests.
  *
  * Design goals:
  *  - Injectable `now` clock so tests are deterministic (no `Date.now()` calls
@@ -34,25 +34,31 @@ export interface RateLimitSnapshot {
   blocked: boolean;
 }
 
-// ── GraphRateLimit ────────────────────────────────────────────────────────────
+// ── BucketRateLimit ───────────────────────────────────────────────────────────
 
 /**
- * Singleton-friendly tracker for the GitHub GraphQL rate-limit bucket.
+ * Singleton-friendly tracker for one GitHub rate-limit bucket.
  *
  * Construct with an injectable `now` function for deterministic testing:
  *
- *   const rl = new GraphRateLimit({ now: () => fakeTime });
+ *   const rl = new BucketRateLimit({ now: () => fakeTime });
  *
- * The module-level `graphRateLimit` export is the singleton used in production.
+ * The module-level {@link graphRateLimit} and {@link restRateLimit} exports are
+ * the singletons used in production.
  */
-export class GraphRateLimit {
+export class BucketRateLimit {
   private readonly _now: () => number;
   private readonly _floor: number;
   private readonly _defaultCooldownMs: number;
+  private readonly _maxCooldownMs: number;
+  private readonly _label: string;
 
   private _remaining: number | null = null;
   private _resetAt: number | null = null;
   private _pausedUntil: number | null = null;
+  /** Consecutive windows that lapsed straight into another limit error, with no
+   *  success in between — drives the escalating cooldown. */
+  private _strikes = 0;
 
   /**
    * True after we have emitted the "engaged" log, false after we emit the
@@ -60,10 +66,23 @@ export class GraphRateLimit {
    */
   private _notifiedBlocked = false;
 
-  constructor(opts?: { now?: () => number; floor?: number; defaultCooldownMs?: number }) {
+  /**
+   * @param opts.label         Bucket name for the edge logs ("GraphQL" by default).
+   * @param opts.maxCooldownMs Ceiling for the escalating cooldown. Defaults to
+   *   `defaultCooldownMs`, i.e. no escalation.
+   */
+  constructor(opts?: {
+    now?: () => number;
+    floor?: number;
+    defaultCooldownMs?: number;
+    maxCooldownMs?: number;
+    label?: string;
+  }) {
     this._now = opts?.now ?? (() => Date.now());
     this._floor = opts?.floor ?? 100;
     this._defaultCooldownMs = opts?.defaultCooldownMs ?? 60_000;
+    this._maxCooldownMs = opts?.maxCooldownMs ?? this._defaultCooldownMs;
+    this._label = opts?.label ?? "GraphQL";
   }
 
   /**
@@ -85,29 +104,47 @@ export class GraphRateLimit {
       this._engage(resetAt);
     } else {
       // Healthy reading: positive evidence we can proceed.
-      this._clear();
+      this.noteSuccess();
     }
   }
 
   /**
-   * Record a detected GraphQL rate-limit error from `gh`.
+   * Record positive evidence that the bucket answers (a call on it succeeded):
+   * clears the backoff and resets the escalation.
+   */
+  noteSuccess(): void {
+    this._strikes = 0;
+    this._clear();
+  }
+
+  /**
+   * Record a detected rate-limit error from `gh`.
    *
-   * Sets `pausedUntil = max(existing, now() + retryAfterMs)` where
-   * `retryAfterMs` defaults to `defaultCooldownMs`. A longer existing cooldown
-   * is never shortened.
+   * Sets `pausedUntil = max(existing, now() + cooldown)`. A longer existing
+   * cooldown is never shortened. Without a `Retry-After`, the cooldown starts at
+   * `defaultCooldownMs` and doubles (up to `maxCooldownMs`) each time a window
+   * lapses straight into another limit error. Errors from calls that were already
+   * in flight when the window opened do not escalate it.
    *
    * @param retryAfterSec Optional `Retry-After` header value in seconds.
    */
   noteLimitError(retryAfterSec?: number): void {
-    const cooldownMs =
-      retryAfterSec !== undefined ? retryAfterSec * 1_000 : this._defaultCooldownMs;
+    if (retryAfterSec !== undefined) {
+      this._engage(this._now() + retryAfterSec * 1_000);
+      return;
+    }
+    if (!this.blocked()) this._strikes++;
+    const cooldownMs = Math.min(
+      this._defaultCooldownMs * 2 ** Math.max(0, this._strikes - 1),
+      this._maxCooldownMs,
+    );
     this._engage(this._now() + cooldownMs);
   }
 
   /**
-   * Returns true when there is an active backoff window (the GraphQL bucket is
-   * believed to be exhausted or rate-limited and `now()` is still inside the
-   * cooldown period).
+   * Returns true when there is an active backoff window (the bucket is believed
+   * to be exhausted or rate-limited and `now()` is still inside the cooldown
+   * period).
    */
   blocked(): boolean {
     return this._pausedUntil != null && this._now() < this._pausedUntil;
@@ -140,7 +177,9 @@ export class GraphRateLimit {
     // re-engagement after natural expiry). `wasBlocked` is the authoritative
     // edge trigger — no secondary `_notifiedBlocked` guard needed here.
     if (!wasBlocked) {
-      console.warn(`[rate-limit] GraphQL backoff engaged until ${new Date(next).toISOString()}`);
+      console.warn(
+        `[rate-limit] ${this._label} backoff engaged until ${new Date(next).toISOString()}`,
+      );
       this._notifiedBlocked = true;
     }
   }
@@ -156,7 +195,7 @@ export class GraphRateLimit {
     const wasBlocked = this.blocked();
     this._pausedUntil = null;
     if (wasBlocked && this._notifiedBlocked) {
-      console.warn(`[rate-limit] GraphQL backoff cleared`);
+      console.warn(`[rate-limit] ${this._label} backoff cleared`);
       this._notifiedBlocked = false;
     }
   }
@@ -169,7 +208,19 @@ export class GraphRateLimit {
  * GraphQL paths that can observe rate-limit signals funnel through this
  * instance so the backoff state is shared across pollers.
  */
-export const graphRateLimit: GraphRateLimit = new GraphRateLimit();
+export const graphRateLimit: BucketRateLimit = new BucketRateLimit();
+
+/**
+ * The REST (`core`) bucket's tracker (#2656). REST calls carry no budget reading
+ * Shepherd can parse, `gh` prints no reset time, and `gh api rate_limit` is no
+ * health check (it is limit-exempt and was seen reporting 5000/5000 while every
+ * real REST call 403'd) — so the window escalates from 60s to 15 min while
+ * probes keep failing, and the first success clears it.
+ */
+export const restRateLimit: BucketRateLimit = new BucketRateLimit({
+  label: "REST",
+  maxCooldownMs: 15 * 60_000,
+});
 
 // ── Pure helpers ──────────────────────────────────────────────────────────────
 
@@ -192,6 +243,66 @@ export function isGraphqlBucketCall(args: string[]): boolean {
   }
   // These high-level subcommands are powered by GraphQL internally.
   return sub === "pr" || sub === "issue" || sub === "repo" || sub === "search";
+}
+
+/** `gh api` flags that consume the following argument. */
+const API_VALUE_FLAGS = new Set([
+  "-X",
+  "--method",
+  "-f",
+  "--raw-field",
+  "-F",
+  "--field",
+  "-H",
+  "--header",
+  "-q",
+  "--jq",
+  "-t",
+  "--template",
+  "--input",
+  "--hostname",
+  "--cache",
+  "-p",
+  "--preview",
+]);
+
+/** The endpoint of a `gh api …` invocation — its first positional argument. */
+function apiEndpoint(args: string[]): string | undefined {
+  for (let i = 1; i < args.length; i++) {
+    const a = args[i]!;
+    if (API_VALUE_FLAGS.has(a)) i++;
+    else if (!a.startsWith("-")) return a;
+  }
+  return undefined;
+}
+
+/**
+ * Returns true iff the given `gh` arguments draw on the REST (`core`) bucket:
+ * `gh api <rest-path>` and the REST-backed `gh run` / `gh workflow`. False for
+ * GraphQL, for the limit-exempt `rate_limit` endpoint, and for everything else.
+ */
+export function isRestBucketCall(args: string[]): boolean {
+  const sub = args[0];
+  if (sub === "run" || sub === "workflow") return true;
+  if (sub !== "api") return false;
+  const endpoint = apiEndpoint(args);
+  return endpoint !== undefined && endpoint !== "graphql" && endpoint !== "rate_limit";
+}
+
+/**
+ * Returns true iff the call is a REST-bucket READ: a `gh api` GET (explicit, or
+ * implied — `gh api` defaults to POST once fields or `--input` are passed) or
+ * `gh run list` / `gh run view`. Only these may be skipped during a REST backoff;
+ * writes always go through.
+ */
+export function isRestReadCall(args: string[]): boolean {
+  if (!isRestBucketCall(args)) return false;
+  if (args[0] === "run") return args[1] === "list" || args[1] === "view";
+  if (args[0] !== "api") return false;
+  for (let i = 1; i < args.length; i++) {
+    if (args[i] === "-X" || args[i] === "--method") return args[i + 1]?.toUpperCase() === "GET";
+  }
+  return !args.some((a) => ["-f", "--raw-field", "-F", "--field", "--input"].includes(a));
 }
 
 /**

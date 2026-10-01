@@ -1,5 +1,5 @@
 /**
- * Tests for src/forge/rate-limit.ts — GraphQL bucket rate-limit tracking.
+ * Tests for src/forge/rate-limit.ts — per-bucket (GraphQL / REST) rate-limit tracking.
  *
  * Each test injects a deterministic clock (`now` option) so there is no
  * wall-clock dependency. The module singleton (`graphRateLimit`) is NOT
@@ -7,17 +7,19 @@
  */
 import { describe, it, expect, spyOn, beforeEach, afterEach } from "bun:test";
 import {
-  GraphRateLimit,
+  BucketRateLimit,
   isGraphqlBucketCall,
+  isRestBucketCall,
+  isRestReadCall,
   isRateLimitError,
   parseRetryAfter,
 } from "../src/forge/rate-limit";
 
-// ── GraphRateLimit: initial state ─────────────────────────────────────────────
+// ── BucketRateLimit: initial state ─────────────────────────────────────────────
 
-describe("GraphRateLimit — initial state", () => {
+describe("BucketRateLimit — initial state", () => {
   it("starts with all nulls and not blocked", () => {
-    const rl = new GraphRateLimit();
+    const rl = new BucketRateLimit();
     const snap = rl.snapshot();
     expect(snap.remaining).toBeNull();
     expect(snap.resetAt).toBeNull();
@@ -27,11 +29,11 @@ describe("GraphRateLimit — initial state", () => {
   });
 });
 
-// ── GraphRateLimit: note() — healthy reading ──────────────────────────────────
+// ── BucketRateLimit: note() — healthy reading ──────────────────────────────────
 
-describe("GraphRateLimit — note() healthy reading (remaining >= floor)", () => {
+describe("BucketRateLimit — note() healthy reading (remaining >= floor)", () => {
   it("stores remaining and resetAt", () => {
-    const rl = new GraphRateLimit({ now: () => 1_000_000 });
+    const rl = new BucketRateLimit({ now: () => 1_000_000 });
     rl.note({ remaining: 200, resetAt: 2_000_000 });
     const snap = rl.snapshot();
     expect(snap.remaining).toBe(200);
@@ -40,7 +42,7 @@ describe("GraphRateLimit — note() healthy reading (remaining >= floor)", () =>
 
   it("clears an existing block when remaining >= floor", () => {
     const t = 1_000_000;
-    const rl = new GraphRateLimit({ now: () => t, defaultCooldownMs: 60_000 });
+    const rl = new BucketRateLimit({ now: () => t, defaultCooldownMs: 60_000 });
     // Engage a block via error
     rl.noteLimitError();
     expect(rl.blocked()).toBe(true);
@@ -51,36 +53,36 @@ describe("GraphRateLimit — note() healthy reading (remaining >= floor)", () =>
   });
 
   it("does not block when remaining equals floor exactly", () => {
-    const rl = new GraphRateLimit({ now: () => 0, floor: 100 });
+    const rl = new BucketRateLimit({ now: () => 0, floor: 100 });
     rl.note({ remaining: 100, resetAt: 9_999_999 });
     expect(rl.blocked()).toBe(false);
   });
 });
 
-// ── GraphRateLimit: note() — low reading (remaining < floor) ─────────────────
+// ── BucketRateLimit: note() — low reading (remaining < floor) ─────────────────
 
-describe("GraphRateLimit — note() low reading (remaining < floor)", () => {
+describe("BucketRateLimit — note() low reading (remaining < floor)", () => {
   it("sets pausedUntil = resetAt when below floor", () => {
-    const rl = new GraphRateLimit({ now: () => 1_000_000 });
+    const rl = new BucketRateLimit({ now: () => 1_000_000 });
     rl.note({ remaining: 50, resetAt: 2_000_000 });
     expect(rl.snapshot().pausedUntil).toBe(2_000_000);
   });
 
   it("marks blocked when now() < pausedUntil", () => {
-    const rl = new GraphRateLimit({ now: () => 1_000_000 });
+    const rl = new BucketRateLimit({ now: () => 1_000_000 });
     rl.note({ remaining: 50, resetAt: 2_000_000 });
     expect(rl.blocked()).toBe(true);
   });
 
   it("is NOT blocked when now() >= pausedUntil (time has passed)", () => {
     const t = 2_000_001;
-    const rl = new GraphRateLimit({ now: () => t });
+    const rl = new BucketRateLimit({ now: () => t });
     rl.note({ remaining: 50, resetAt: 2_000_000 });
     expect(rl.blocked()).toBe(false);
   });
 
   it("takes max of existing pausedUntil and new resetAt (does not shorten)", () => {
-    const rl = new GraphRateLimit({ now: () => 0 });
+    const rl = new BucketRateLimit({ now: () => 0 });
     // First error puts pausedUntil further in the future
     rl.noteLimitError(120); // 120 s = 120_000 ms → pausedUntil = 120_000
     expect(rl.snapshot().pausedUntil).toBe(120_000);
@@ -90,54 +92,54 @@ describe("GraphRateLimit — note() low reading (remaining < floor)", () => {
   });
 
   it("updates pausedUntil when new resetAt is later (extends cooldown)", () => {
-    const rl = new GraphRateLimit({ now: () => 0 });
+    const rl = new BucketRateLimit({ now: () => 0 });
     rl.note({ remaining: 50, resetAt: 60_000 });
     rl.note({ remaining: 50, resetAt: 90_000 });
     expect(rl.snapshot().pausedUntil).toBe(90_000);
   });
 });
 
-// ── GraphRateLimit: noteLimitError() ─────────────────────────────────────────
+// ── BucketRateLimit: noteLimitError() ─────────────────────────────────────────
 
-describe("GraphRateLimit — noteLimitError()", () => {
+describe("BucketRateLimit — noteLimitError()", () => {
   it("sets pausedUntil to now + defaultCooldownMs when no retryAfter given", () => {
-    const rl = new GraphRateLimit({ now: () => 1_000_000, defaultCooldownMs: 60_000 });
+    const rl = new BucketRateLimit({ now: () => 1_000_000, defaultCooldownMs: 60_000 });
     rl.noteLimitError();
     expect(rl.snapshot().pausedUntil).toBe(1_060_000);
   });
 
   it("uses retryAfterSec when supplied", () => {
-    const rl = new GraphRateLimit({ now: () => 0, defaultCooldownMs: 60_000 });
+    const rl = new BucketRateLimit({ now: () => 0, defaultCooldownMs: 60_000 });
     rl.noteLimitError(90); // 90 seconds
     expect(rl.snapshot().pausedUntil).toBe(90_000);
   });
 
   it("takes max — does not shorten an existing later pausedUntil", () => {
-    const rl = new GraphRateLimit({ now: () => 0, defaultCooldownMs: 60_000 });
+    const rl = new BucketRateLimit({ now: () => 0, defaultCooldownMs: 60_000 });
     rl.noteLimitError(120); // pausedUntil = 120_000
     rl.noteLimitError(30); // would set 30_000, must not shorten
     expect(rl.snapshot().pausedUntil).toBe(120_000);
   });
 
   it("extends pausedUntil when new value is later", () => {
-    const rl = new GraphRateLimit({ now: () => 0, defaultCooldownMs: 60_000 });
+    const rl = new BucketRateLimit({ now: () => 0, defaultCooldownMs: 60_000 });
     rl.noteLimitError(30); // pausedUntil = 30_000
     rl.noteLimitError(120); // must extend to 120_000
     expect(rl.snapshot().pausedUntil).toBe(120_000);
   });
 
   it("marks blocked after noteLimitError", () => {
-    const rl = new GraphRateLimit({ now: () => 0, defaultCooldownMs: 60_000 });
+    const rl = new BucketRateLimit({ now: () => 0, defaultCooldownMs: 60_000 });
     rl.noteLimitError();
     expect(rl.blocked()).toBe(true);
   });
 });
 
-// ── GraphRateLimit: snapshot() ────────────────────────────────────────────────
+// ── BucketRateLimit: snapshot() ────────────────────────────────────────────────
 
-describe("GraphRateLimit — snapshot()", () => {
+describe("BucketRateLimit — snapshot()", () => {
   it("reflects blocked=true when inside cooldown window", () => {
-    const rl = new GraphRateLimit({ now: () => 0, defaultCooldownMs: 60_000 });
+    const rl = new BucketRateLimit({ now: () => 0, defaultCooldownMs: 60_000 });
     rl.noteLimitError();
     const snap = rl.snapshot();
     expect(snap.blocked).toBe(true);
@@ -146,7 +148,7 @@ describe("GraphRateLimit — snapshot()", () => {
 
   it("reflects blocked=false after the window elapses", () => {
     let t = 0;
-    const rl = new GraphRateLimit({ now: () => t, defaultCooldownMs: 60_000 });
+    const rl = new BucketRateLimit({ now: () => t, defaultCooldownMs: 60_000 });
     rl.noteLimitError();
     t = 60_001;
     const snap = rl.snapshot();
@@ -154,9 +156,9 @@ describe("GraphRateLimit — snapshot()", () => {
   });
 });
 
-// ── GraphRateLimit: logging (edge-triggered, no spam) ────────────────────────
+// ── BucketRateLimit: logging (edge-triggered, no spam) ────────────────────────
 
-describe("GraphRateLimit — logging", () => {
+describe("BucketRateLimit — logging", () => {
   let warnSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
@@ -168,7 +170,7 @@ describe("GraphRateLimit — logging", () => {
   });
 
   it("logs once when transitioning from unblocked to blocked", () => {
-    const rl = new GraphRateLimit({ now: () => 0, defaultCooldownMs: 60_000 });
+    const rl = new BucketRateLimit({ now: () => 0, defaultCooldownMs: 60_000 });
     rl.noteLimitError();
     expect(warnSpy).toHaveBeenCalledTimes(1);
     const msg = String(warnSpy.mock.calls[0]?.[0] ?? "");
@@ -176,7 +178,7 @@ describe("GraphRateLimit — logging", () => {
   });
 
   it("does NOT log again on a subsequent blocked call (no per-call spam)", () => {
-    const rl = new GraphRateLimit({ now: () => 0, defaultCooldownMs: 60_000 });
+    const rl = new BucketRateLimit({ now: () => 0, defaultCooldownMs: 60_000 });
     rl.noteLimitError(); // transition → should log once
     warnSpy.mockClear();
     // Additional writes that don't change the blocked edge
@@ -188,7 +190,7 @@ describe("GraphRateLimit — logging", () => {
 
   it("logs once when the block clears (blocked→unblocked edge)", () => {
     let t = 0;
-    const rl = new GraphRateLimit({ now: () => t, defaultCooldownMs: 60_000 });
+    const rl = new BucketRateLimit({ now: () => t, defaultCooldownMs: 60_000 });
     rl.noteLimitError(); // blocked
     warnSpy.mockClear();
     t = 30_000; // still WITHIN the cooldown window → blocked() is true
@@ -201,7 +203,7 @@ describe("GraphRateLimit — logging", () => {
 
   it("logs 'engaged' on re-engagement after natural expiry", () => {
     let t = 0;
-    const rl = new GraphRateLimit({ now: () => t, defaultCooldownMs: 60_000 });
+    const rl = new BucketRateLimit({ now: () => t, defaultCooldownMs: 60_000 });
     rl.noteLimitError(); // first engagement at t=0
     warnSpy.mockClear();
     t = 70_000; // advance past expiry — blocked() is now false
@@ -215,12 +217,142 @@ describe("GraphRateLimit — logging", () => {
 
   it("does NOT log 'cleared' when healthy note() arrives after natural expiry", () => {
     let t = 0;
-    const rl = new GraphRateLimit({ now: () => t, defaultCooldownMs: 60_000 });
+    const rl = new BucketRateLimit({ now: () => t, defaultCooldownMs: 60_000 });
     rl.noteLimitError(); // engaged
     warnSpy.mockClear();
     t = 70_000; // advance past expiry — natural cooldown elapsed
     rl.note({ remaining: 200, resetAt: 999_999 }); // healthy, but block already elapsed
     expect(warnSpy).not.toHaveBeenCalled();
+  });
+});
+
+// ── BucketRateLimit: REST bucket — label + escalating cooldown (#2656) ───────
+
+describe("BucketRateLimit — REST bucket (label + escalation)", () => {
+  let warnSpy: ReturnType<typeof spyOn>;
+  beforeEach(() => {
+    warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  const rest = (now: () => number) =>
+    new BucketRateLimit({
+      now,
+      label: "REST",
+      defaultCooldownMs: 60_000,
+      maxCooldownMs: 900_000,
+    });
+
+  it("names its bucket in the edge logs", () => {
+    const rl = rest(() => 0);
+    rl.noteLimitError();
+    expect(String(warnSpy.mock.calls[0]?.[0])).toContain("[rate-limit] REST backoff engaged until");
+  });
+
+  it("doubles the cooldown each time the window lapses into another limit error, up to the cap", () => {
+    // gh surfaces no reset time and `gh api rate_limit` lies (reports a full bucket while
+    // every real call 403s), so the only signal is "the probe after the window failed again".
+    let t = 0;
+    const rl = rest(() => t);
+    const windows: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      rl.noteLimitError();
+      const until = rl.snapshot().pausedUntil!;
+      windows.push(until - t);
+      t = until; // window lapses; the next call is the probe
+    }
+    expect(windows).toEqual([60_000, 120_000, 240_000, 480_000, 900_000, 900_000]);
+  });
+
+  it("concurrent failures inside one window do not escalate", () => {
+    const rl = rest(() => 0);
+    rl.noteLimitError();
+    rl.noteLimitError();
+    rl.noteLimitError();
+    expect(rl.snapshot().pausedUntil).toBe(60_000);
+  });
+
+  it("a success clears the backoff and resets the escalation", () => {
+    let t = 0;
+    const rl = rest(() => t);
+    rl.noteLimitError();
+    t = 60_000;
+    rl.noteLimitError(); // second strike → 120s
+    t = 70_000;
+    rl.noteSuccess();
+    expect(rl.blocked()).toBe(false);
+    rl.noteLimitError();
+    expect(rl.snapshot().pausedUntil).toBe(70_000 + 60_000);
+  });
+
+  it("an explicit Retry-After wins over the escalation", () => {
+    const rl = rest(() => 0);
+    rl.noteLimitError(30);
+    expect(rl.snapshot().pausedUntil).toBe(30_000);
+  });
+
+  it("without maxCooldownMs there is no escalation (the GraphQL default is unchanged)", () => {
+    let t = 0;
+    const rl = new BucketRateLimit({ now: () => t, defaultCooldownMs: 60_000 });
+    rl.noteLimitError();
+    t = 60_000;
+    rl.noteLimitError();
+    expect(rl.snapshot().pausedUntil).toBe(120_000);
+  });
+});
+
+// ── isRestBucketCall() / isRestReadCall() (#2656) ─────────────────────────────
+
+describe("isRestBucketCall()", () => {
+  it("is true for gh api <rest-path>, with or without leading flags", () => {
+    expect(isRestBucketCall(["api", "repos/o/r/git/matching-refs/heads/epic/"])).toBe(true);
+    expect(
+      isRestBucketCall(["api", "--method", "GET", "repos/o/r/issues", "-f", "state=open"]),
+    ).toBe(true);
+    expect(isRestBucketCall(["api", "--paginate", "--slurp", "repos/o/r/pulls/1/reviews"])).toBe(
+      true,
+    );
+  });
+
+  it("is true for gh run / gh workflow", () => {
+    expect(isRestBucketCall(["run", "list", "--repo", "o/r"])).toBe(true);
+    expect(isRestBucketCall(["workflow", "run", "deploy.yml"])).toBe(true);
+  });
+
+  it("is false for GraphQL, the limit-exempt rate_limit endpoint, and GraphQL subcommands", () => {
+    expect(isRestBucketCall(["api", "graphql", "-f", "query=..."])).toBe(false);
+    expect(isRestBucketCall(["api", "rate_limit"])).toBe(false);
+    expect(isRestBucketCall(["issue", "list", "--repo", "o/r"])).toBe(false);
+    expect(isRestBucketCall(["pr", "list"])).toBe(false);
+    expect(isRestBucketCall([])).toBe(false);
+  });
+});
+
+describe("isRestReadCall()", () => {
+  it("is true for a GET — explicit, or implied by gh api with no fields", () => {
+    expect(isRestReadCall(["api", "--method", "GET", "repos/o/r/issues", "-f", "page=1"])).toBe(
+      true,
+    );
+    expect(isRestReadCall(["api", "repos/o/r/git/ref/heads/main"])).toBe(true);
+    expect(isRestReadCall(["api", "-X", "GET", "repos/o/r/pulls"])).toBe(true);
+  });
+
+  it("is false for writes — explicit method, or gh api's POST default once fields are passed", () => {
+    expect(isRestReadCall(["api", "--method", "POST", "repos/o/r/git/refs", "-f", "ref=x"])).toBe(
+      false,
+    );
+    expect(isRestReadCall(["api", "repos/o/r/issues/1/labels", "-f", "labels[]=x"])).toBe(false);
+    expect(isRestReadCall(["api", "-X", "PUT", "repos/o/r/pulls/1/merge"])).toBe(false);
+  });
+
+  it("covers gh run list/view as reads and nothing else", () => {
+    expect(isRestReadCall(["run", "list", "--repo", "o/r"])).toBe(true);
+    expect(isRestReadCall(["run", "view", "1", "--log-failed"])).toBe(true);
+    expect(isRestReadCall(["run", "rerun", "1"])).toBe(false);
+    expect(isRestReadCall(["api", "graphql", "-f", "query=..."])).toBe(false);
+    expect(isRestReadCall(["issue", "list"])).toBe(false);
   });
 });
 

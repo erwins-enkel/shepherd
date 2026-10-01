@@ -4,6 +4,7 @@ import { page } from "vitest/browser";
 import "../../app.css";
 import SessionRecap from "./SessionRecap.svelte";
 import { recaps } from "$lib/recaps.svelte";
+import { m } from "$lib/paraglide/messages";
 import type { Session, Recap } from "$lib/types";
 
 function session(partial: Partial<Session> & { id: string }): Session {
@@ -155,5 +156,26 @@ describe("SessionRecap inline mode", () => {
 
     // now body is visible
     await expect.element(page.getByText("Default callout content.")).toBeInTheDocument();
+  });
+});
+
+describe("SessionRecap under full auto-merge (TASK-1368)", () => {
+  it("relabels a needs-attention verdict while the merge train carries the PR", async () => {
+    recaps.map = { sr9: recap({ sessionId: "sr9", verdict: "needs_attention" }) };
+    render(SessionRecap, { session: session({ id: "sr9" }), autoMergeOwned: true });
+    await expect.element(page.getByText(m.recap_verdict_auto_merge())).toBeInTheDocument();
+    await expect.element(page.getByText("Session recap headline")).toBeInTheDocument();
+  });
+
+  it("keeps the agent's verdict when the train does not own the PR", async () => {
+    recaps.map = { sr10: recap({ sessionId: "sr10", verdict: "needs_attention" }) };
+    render(SessionRecap, { session: session({ id: "sr10" }) });
+    await expect.element(page.getByText(m.recap_verdict_needs_attention())).toBeInTheDocument();
+  });
+
+  it("never relabels a ready verdict", async () => {
+    recaps.map = { sr11: recap({ sessionId: "sr11", verdict: "ready" }) };
+    render(SessionRecap, { session: session({ id: "sr11" }), autoMergeOwned: true });
+    await expect.element(page.getByText(m.recap_verdict_ready())).toBeInTheDocument();
   });
 });

@@ -655,6 +655,10 @@ export type ReviewerEnv = {
   provider: AgentProvider | null;
   model: string | null;
   effort: string | null;
+  /** Epoch ms the run started; absent on the run-end signal / older servers. */
+  startedAt?: number;
+  /** The run's hard deadline in ms from `startedAt` (PR critic only). */
+  timeoutMs?: number;
 };
 
 // ── visual recap blocks ──────────────────────────────────────────────────────
@@ -942,6 +946,31 @@ export interface AutoMergeStatus {
   detail: string | null;
   /** The affected session's id, so a deep-link selects it; null when none. */
   sessionId: string | null;
+  /** Every full-auto PR the train is not landing right now, with why (mirrors server
+   *  AutoMergeStatus.waiting). Presence means the train owns that PR. */
+  waiting?: AutoMergeWait[];
+}
+
+/** Why the merge train holds a full-auto PR (mirrors server automerge-core MergeWaitCode). */
+export type MergeWaitCode =
+  | "merge_backoff"
+  | "conflict"
+  | "checks_pending"
+  | "checks_failed"
+  | "not_mergeable"
+  | "behind"
+  | "rebase_cap"
+  | "signoff"
+  | "changes_requested"
+  | "critic_error"
+  | "critic_pending"
+  | "stacked"
+  | "manual_steps";
+
+/** One held full-auto PR on {@link AutoMergeStatus.waiting}. */
+export interface AutoMergeWait {
+  sessionId: string;
+  code: MergeWaitCode;
 }
 
 /** Live draft-reconcile result pushed per session (mirrors server DraftReconcileStatus).

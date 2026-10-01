@@ -673,14 +673,14 @@
   "planpanel_title": "Pre-execution plan",
   "planpanel_back_aria": "Back to session",
   "planpanel_empty": "No plan written yet.",
-  "planpanel_plan_unavailable": "No reviewable plan yet. The planning agent may still be waiting for your answer. Return to the task, answer any open planning question, then review again after the agent writes .shepherd-plan.md.",
+  "planpanel_plan_unavailable": "No plan file yet. Reopen this panel after the agent writes the plan.",
   "planpanel_verdict": "Reviewer verdict",
   "planpanel_findings": "Requested changes",
   "planpanel_go": "Go: start execution",
   "planpanel_review_now": "Review plan now",
   "planpanel_reviewing": "Reviewing…",
   "planpanel_review_already_approved": "Plan already approved; ready to start.",
-  "planpanel_review_plan_unavailable": "Review did not start because .shepherd-plan.md is missing, empty, or unreadable. Return to the task and answer any pending planning question, then review again after the file is written.",
+  "planpanel_review_plan_unavailable": "Review did not start because the plan file is missing, empty, or unreadable. Try again once the agent has written a readable plan.",
   "planpanel_review_nothing_to_review": "Couldn't start a plan review right now.",
   "planpanel_review_failed": "Couldn't start the review. Please try again.",
   "planpanel_review_failed_spawn": "Reviewer launch failed. Try again; if the problem continues, check Shepherd's logs.",
@@ -4868,5 +4868,10 @@
   "native_ios_terminal_hint": "Live session output. Scroll to read earlier output.",
   "native_ios_terminal_latest": "Latest output",
   "native_ios_terminal_superseded_body": "Another device attached to this terminal. Taking over returns it to this iPhone or iPad and detaches the other device.",
-  "native_ios_terminal_reply": "Reply"
+  "native_ios_terminal_reply": "Reply",
+  "planpanel_draft_unreviewed": "Live draft · not reviewed yet",
+  "planpanel_draft_loading": "Loading plan…",
+  "planpanel_draft_load_failed": "Could not load the plan. Reopen this panel to try again.",
+  "feat_plan_draft_visibility_title": "Read plans before review",
+  "feat_plan_draft_visibility_body": "PLAN shows the live draft for Claude Code and Codex before a review is available. Codex plan reviews also start after a confirmed turn end when the task still appears blocked."
 }

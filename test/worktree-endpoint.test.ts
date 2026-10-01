@@ -111,3 +111,15 @@ test("download of a .git path is 404 (hidden segment)", async () => {
   );
   expect(res.status).toBe(404);
 });
+
+test("worktree plan download reads the hidden draft from the session worktree", async () => {
+  const { app, store } = harness();
+  const s = makeSession(store);
+  writeFileSync(join(repoDir, ".shepherd-plan.md"), "# Unreviewed plan\n");
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${s.id}/worktree/download?path=.shepherd-plan.md`),
+  );
+  expect(res.status).toBe(200);
+  expect(await res.text()).toBe("# Unreviewed plan\n");
+  expect(store.getPlanGate(s.id)).toBeNull();
+});

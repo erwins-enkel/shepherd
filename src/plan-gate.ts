@@ -34,9 +34,11 @@ import { apiKeyFailClosed } from "./spawn-auth";
 import { type SessionUsage } from "./usage";
 import {
   createCodexRolloutResolver,
+  readCodexCompletedTurn,
   reviewerActivitySummary,
   reviewerUsage,
   type CodexRolloutResolver,
+  type CodexCompletedTurn,
 } from "./codex-activity";
 import { effectiveAutopilot, hasTaskConversation } from "./effective-autopilot";
 import { resolveAuxPatch, assembleAuxSpawn, type MembraneSeams } from "./spawn-membrane";
@@ -540,6 +542,7 @@ export interface PlanGateServiceDeps extends MembraneSeams {
     | "getRepoConfig"
     | "addSignal"
     | "get"
+    | "list"
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
     | "setReviewerSpawnOutcome"
@@ -637,6 +640,9 @@ export interface PlanGateServiceDeps extends MembraneSeams {
   /** Injectable per-service Codex rollout resolver (backoff + positive cache, keyed by reviewer
    *  session id). Default: a fresh {@link createCodexRolloutResolver}. */
   codexResolver?: CodexRolloutResolver;
+  /** Task rollouts must resolve by pinned CLI identity, separately from reviewer rollouts. */
+  codexTaskResolver?: CodexRolloutResolver;
+  readCodexCompletedTurn?: (path: string) => CodexCompletedTurn | null;
   /** Injectable reader of a finished reviewer's token totals from its transcript (default:
    *  readSessionUsage for claude, or parse the resolved Codex rollout for codex). null = transcript
    *  unresolved/unreadable → the row's token totals stay NULL (unknown), NOT zero. */
@@ -709,6 +715,10 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
     provider: AgentProvider | null,
   ) => string | null;
   private codexResolver: CodexRolloutResolver;
+  private codexTaskResolver: CodexRolloutResolver;
+  private readCompletedTurn: (path: string) => CodexCompletedTurn | null;
+  private completedCodexTurns = new Map<string, { trackingId: string; turnId: string | null }>();
+  private sweepingCodexPlans = false;
   private readUsage: (
     worktreePath: string,
     reviewerSessionId: string,
@@ -734,6 +744,8 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
       createCodexRolloutResolver((id, rid) =>
         deps.store.setReviewerSpawnProviderSessionId(id, rid),
       );
+    this.codexTaskResolver = deps.codexTaskResolver ?? createCodexRolloutResolver();
+    this.readCompletedTurn = deps.readCodexCompletedTurn ?? readCodexCompletedTurn;
     this.readActivity =
       deps.readActivity ??
       ((wt, id, provider) => reviewerActivitySummary(wt, id, provider, this.codexResolver));
@@ -747,6 +759,82 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
    *  re-review always runs even when the plan text is byte-identical. */
   static async hashPlan(plan: string): Promise<string> {
     return createHash("sha256").update(plan).digest("hex");
+  }
+
+  /** Recover native Codex turn ends even when a stale questions display keeps herdr blocked. */
+  async sweepCompletedCodexPlans(): Promise<void> {
+    if (this.sweepingCodexPlans) return;
+    this.sweepingCodexPlans = true;
+    try {
+      const sessions = this.deps.store
+        .list({ activeOnly: true })
+        .filter(
+          (s) =>
+            s.agentProvider === "codex" &&
+            s.planPhase === "planning" &&
+            s.codexLaunchId &&
+            s.providerSessionId,
+        );
+      const active = new Set(sessions.map((s) => s.id));
+      for (const id of this.completedCodexTurns.keys()) {
+        if (!active.has(id)) this.forgetCompletedCodexTurn(id);
+      }
+      for (const session of sessions) {
+        // Earlier reviewer starts can await capacity/network: re-read lifecycle and launch identity.
+        const current = this.deps.store.get(session.id);
+        if (
+          !current ||
+          current.status === "archived" ||
+          current.agentProvider !== "codex" ||
+          current.planPhase !== "planning" ||
+          !current.codexLaunchId ||
+          !current.providerSessionId
+        ) {
+          this.forgetCompletedCodexTurn(session.id);
+          continue;
+        }
+        await this.considerCompletedCodexPlan(current);
+      }
+    } finally {
+      this.sweepingCodexPlans = false;
+    }
+  }
+
+  private async considerCompletedCodexPlan(session: Session): Promise<void> {
+    const trackingId = JSON.stringify([
+      session.id,
+      session.codexLaunchId,
+      session.providerSessionId,
+    ]);
+    let state = this.completedCodexTurns.get(session.id);
+    if (state?.trackingId !== trackingId) {
+      this.forgetCompletedCodexTurn(session.id);
+      state = { trackingId, turnId: null };
+      this.completedCodexTurns.set(session.id, state);
+    }
+    if (this.inflight.has(session.id) || this.starting.has(session.id)) return;
+    const rollout = this.codexTaskResolver.resolve({
+      trackingId,
+      worktreePath: session.worktreePath,
+      source: "cli",
+      providerSessionId: session.providerSessionId,
+    });
+    if (!rollout) return;
+    const completed = this.readCompletedTurn(rollout.path);
+    if (!completed || state.turnId === completed.turnId) return;
+    state.turnId = completed.turnId; // Reserve before awaiting any parallel trigger.
+    if (this.deps.store.getPlanGate(session.id)?.approved) {
+      await this.noteLivePlan(session);
+      return;
+    }
+    const result = await this.consider(session);
+    if (result === "plan-unavailable") state.turnId = null;
+  }
+
+  private forgetCompletedCodexTurn(sessionId: string): void {
+    const state = this.completedCodexTurns.get(sessionId);
+    if (state) this.codexTaskResolver.reset(state.trackingId);
+    this.completedCodexTurns.delete(sessionId);
   }
 
   /** Decide whether `session`'s current plan warrants a fresh adversarial review, and start one.
@@ -1999,6 +2087,7 @@ export class PlanGateService extends ReviewerRuns<PlanInFlight> {
 
   forget(sessionId: string): void {
     this.cancelledHashes.delete(sessionId);
+    this.forgetCompletedCodexTurn(sessionId);
     this.reapReviewer(sessionId);
     this.deps.store.dropPlanGate(sessionId);
   }

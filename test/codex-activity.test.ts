@@ -3,6 +3,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  parseCodexCompletedTurn,
+  readCodexCompletedTurn,
   parseCodexUsage,
   parseCodexActivity,
   readCodexTranscriptSignals,
@@ -12,6 +14,140 @@ import {
 
 const FIXTURE_PATH = join(import.meta.dir, "fixtures/codex-activity/rollout-role-exec.jsonl");
 const FIXTURE = readFileSync(FIXTURE_PATH, "utf8");
+
+describe("CodexCompletedTurn", () => {
+  const planTurn = readFileSync(
+    join(import.meta.dir, "fixtures/codex-activity/plan-turn-complete.jsonl"),
+    "utf8",
+  );
+  const complete =
+    '{"timestamp":"2026-09-20T21:36:35.294Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"plan-turn"}}\n';
+  const record = (type: string, payload: unknown) =>
+    JSON.stringify({ timestamp: "2026-09-20T21:37:00.000Z", type, payload }) + "\n";
+
+  test("recognizes the native turn end despite async questions remaining in the TUI", () => {
+    expect(parseCodexCompletedTurn(planTurn)).toEqual({
+      turnId: "plan-turn",
+      completedAt: 1789940195294,
+    });
+  });
+
+  test("an assistant claiming the plan is ready does not prove completion", () => {
+    expect(
+      parseCodexCompletedTurn(
+        record("event_msg", { type: "agent_message", message: "Plan ready for review" }),
+      ),
+    ).toBeNull();
+  });
+
+  test("unrecognized records before a native completion do not prevent detection", () => {
+    for (const unknown of [
+      record("event_msg", { type: "future_event", turn_id: "plan-turn" }),
+      record("future_record", { turn_id: "plan-turn" }),
+    ]) {
+      expect(parseCodexCompletedTurn(unknown + complete)).toEqual({
+        turnId: "plan-turn",
+        completedAt: 1789940195294,
+      });
+      expect(parseCodexCompletedTurn(complete + unknown)).toBeNull();
+      expect(
+        parseCodexCompletedTurn(
+          complete +
+            unknown +
+            record("event_msg", { type: "task_started", turn_id: "next-turn" }) +
+            record("event_msg", { type: "task_complete", turn_id: "next-turn" }),
+        ),
+      ).toEqual({ turnId: "next-turn", completedAt: 1789940220000 });
+    }
+  });
+
+  test("unrecognized records preserve the observed turn identity and abort state", () => {
+    for (const prefix of [
+      record("event_msg", { type: "task_started", turn_id: "other-turn" }),
+      record("event_msg", { type: "turn_aborted", turn_id: "plan-turn" }),
+    ]) {
+      expect(parseCodexCompletedTurn(prefix + record("future_record", {}) + complete)).toBeNull();
+    }
+  });
+
+  for (const [type, payload] of [
+    ["event_msg", { type: "task_started", turn_id: "next-turn" }],
+    ["event_msg", { type: "turn_aborted", turn_id: "plan-turn" }],
+    ["event_msg", { type: "user_message", message: "one more change" }],
+    ["turn_context", { model: "gpt-6-astra" }],
+    ["world_state", { full: true, state: {} }],
+    ["event_msg", { type: "item_completed", item: { type: "UserMessage", content: [] } }],
+    ["event_msg", { type: "thread_settings_applied", thread_settings: {} }],
+    ["response_item", { type: "message", role: "user", content: [] }],
+    ["response_item", { type: "function_call", name: "request_user_input", call_id: "q" }],
+    ["response_item", { type: "custom_tool_call", name: "exec", call_id: "c" }],
+    ["event_msg", { type: "task_finished", turn_id: "next-turn" }],
+    ["compacted", { message: "summary", replacement_history: [] }],
+    ["future_record", { turn_id: "next-turn" }],
+  ] as const) {
+    test(`new ${type}/${"type" in payload ? payload.type : "context"} invalidates the previous completion`, () => {
+      expect(parseCodexCompletedTurn(planTurn + record(type, payload))).toBeNull();
+    });
+  }
+
+  test("a completed record survives usage updates and a start outside the bounded tail", () => {
+    expect(
+      parseCodexCompletedTurn(complete + record("event_msg", { type: "token_count", info: {} })),
+    ).toEqual({ turnId: "plan-turn", completedAt: 1789940195294 });
+    expect(parseCodexCompletedTurn(complete + record("token_usage_record", { usage: {} }))).toEqual(
+      { turnId: "plan-turn", completedAt: 1789940195294 },
+    );
+  });
+
+  test("a completion for another observed turn is not evidence for the active turn", () => {
+    expect(
+      parseCodexCompletedTurn(
+        record("event_msg", { type: "task_started", turn_id: "other-turn" }) + complete,
+      ),
+    ).toBeNull();
+  });
+
+  test("an aborted turn cannot be completed without a new start", () => {
+    expect(
+      parseCodexCompletedTurn(
+        record("event_msg", { type: "turn_aborted", turn_id: "plan-turn" }) + complete,
+      ),
+    ).toBeNull();
+  });
+
+  test("malformed, incomplete and invalid completion records fail closed", () => {
+    for (const text of [
+      "",
+      planTurn + "{partial",
+      planTurn + "null\n",
+      planTurn + record("response_item", {}),
+      planTurn + record("response_item", "broken"),
+      planTurn + "not json\n",
+      "not json\n" + complete,
+      record("event_msg", {}) + complete,
+      record("event_msg", { type: "task_complete", turn_id: "" }),
+      complete.replace("2026-09-20T21:36:35.294Z", "invalid"),
+    ]) {
+      expect(parseCodexCompletedTurn(text)).toBeNull();
+    }
+  });
+
+  test("reader bounds disk work and tolerates a missing or unreadable rollout", () => {
+    const root = mkdtempSync(join(tmpdir(), "codex-completed-turn-"));
+    const path = join(root, "rollout.jsonl");
+    try {
+      writeFileSync(path, "x".repeat(600_000) + "\n" + complete);
+      expect(readCodexCompletedTurn(path)).toEqual({
+        turnId: "plan-turn",
+        completedAt: 1789940195294,
+      });
+      expect(readCodexCompletedTurn(join(root, "missing"))).toBeNull();
+      expect(readCodexCompletedTurn(root)).toBeNull();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
 
 describe("parseCodexUsage", () => {
   // The invariant that catches BOTH token traps in one assertion:

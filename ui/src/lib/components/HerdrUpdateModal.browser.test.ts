@@ -236,19 +236,21 @@ describe("HerdrUpdateModal", () => {
       revision: 1,
       runtime: { state: "restart_required", installedVersion: "0.9.0", serverVersion: "0.8.2" },
     };
+    const completed = Promise.withResolvers<HerdrUpdateStatus>();
     vi.mocked(getHerdrUpdate)
       .mockResolvedValueOnce(snapshot)
       .mockResolvedValueOnce({ ...snapshot, revision: 2, phase: "verifying" })
-      .mockResolvedValue({
-        ...snapshot,
-        revision: 3,
-        runtime: { state: "ready", installedVersion: "0.9.0", serverVersion: "0.9.0" },
-        result: { ok: true, from: "0.8.2", to: "0.9.0" },
-      });
+      .mockReturnValue(completed.promise);
     vi.mocked(restartHerdrServer).mockResolvedValue(undefined);
     const view = await render(HerdrUpdateModal, { props: { update: snapshot } });
     await page.getByRole("button", { name: m.herdrupdate_restart_confirm(), exact: true }).click();
     await expect.element(page.getByText(m.herdrupdate_repair_verifying())).toBeVisible();
+    completed.resolve({
+      ...snapshot,
+      revision: 3,
+      runtime: { state: "ready", installedVersion: "0.9.0", serverVersion: "0.9.0" },
+      result: { ok: true, from: "0.8.2", to: "0.9.0" },
+    });
     await expect.element(page.getByText(m.herdrupdate_repair_ready())).toBeVisible();
     expect(restartHerdrServer).toHaveBeenCalledOnce();
     const count = vi.mocked(getHerdrUpdate).mock.calls.length;
@@ -267,19 +269,22 @@ describe("HerdrUpdateModal", () => {
       revision: 1,
       runtime: { state: "restart_required", installedVersion: "0.9.0", serverVersion: "0.8.2" },
     };
+    const completed = Promise.withResolvers<HerdrUpdateStatus>();
     vi.mocked(getHerdrUpdate)
       .mockResolvedValueOnce(snapshot)
       .mockRejectedValueOnce(new Error("connection interrupted"))
-      .mockResolvedValue({
-        ...snapshot,
-        revision: 3,
-        runtime: { state: "ready", installedVersion: "0.9.0", serverVersion: "0.9.0" },
-        result: { ok: true, from: "0.8.2", to: "0.9.0" },
-      });
+      .mockReturnValue(completed.promise);
     vi.mocked(restartHerdrServer).mockResolvedValue(undefined);
     await render(HerdrUpdateModal, { props: { update: snapshot } });
     await page.getByRole("button", { name: m.herdrupdate_restart_confirm(), exact: true }).click();
     await expect.element(page.getByText(m.herdrupdate_repair_restarting())).toBeVisible();
+    await expect.element(page.getByText(m.herdrupdate_repair_unknown())).toBeVisible();
+    completed.resolve({
+      ...snapshot,
+      revision: 3,
+      runtime: { state: "ready", installedVersion: "0.9.0", serverVersion: "0.9.0" },
+      result: { ok: true, from: "0.8.2", to: "0.9.0" },
+    });
     await expect.element(page.getByText(m.herdrupdate_repair_ready())).toBeVisible();
     expect(restartHerdrServer).toHaveBeenCalledOnce();
   });

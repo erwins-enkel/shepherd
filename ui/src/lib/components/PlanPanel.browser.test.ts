@@ -5,7 +5,7 @@ import "../../app.css";
 import PlanPanel from "./PlanPanel.svelte";
 import type { PlanGate, Session } from "$lib/types";
 import { planGates, spawnNotices } from "$lib/reviews.svelte";
-import { reviewPlan, retrySpawnNotice } from "$lib/api";
+import { reviewPlan, retrySpawnNotice, getPlanDraft } from "$lib/api";
 import { m } from "$lib/paraglide/messages";
 import { DOCS_URL } from "$lib/build-info";
 
@@ -17,6 +17,7 @@ vi.mock("$lib/api", async (importOriginal) => {
     ...actual,
     releasePlanGate: vi.fn(async () => {}),
     reviewPlan: vi.fn(async () => "skipped"),
+    getPlanDraft: vi.fn(async () => null),
     retrySpawnNotice: vi.fn(async () => ({ cleared: true })),
   };
 });
@@ -99,7 +100,114 @@ afterEach(() => {
   spawnNotices.map = {};
   vi.mocked(reviewPlan).mockReset();
   vi.mocked(reviewPlan).mockResolvedValue("skipped");
+  vi.mocked(getPlanDraft).mockReset();
+  vi.mocked(getPlanDraft).mockResolvedValue(null);
   vi.unstubAllGlobals();
+});
+
+describe("PlanPanel unreviewed draft", () => {
+  it.each(["codex", "claude"] as const)(
+    "shows a blocked %s plan without a gate and keeps Go disabled",
+    async (agentProvider) => {
+      vi.mocked(getPlanDraft).mockResolvedValue("# Written plan\n\nConcrete steps");
+      const id = `draft-${agentProvider}`;
+      render(PlanPanel, {
+        props: { session: session({ id, agentProvider, status: "blocked" }), onclose: vi.fn() },
+      });
+      await expect.element(page.getByRole("heading", { name: "Written plan" })).toBeVisible();
+      await expect.element(page.getByText("Live draft · not reviewed yet")).toBeVisible();
+      await expect.element(page.getByRole("button", { name: m.planpanel_go() })).toBeDisabled();
+      expect(planGates.map[id]).toBeUndefined();
+    },
+  );
+
+  it("distinguishes loading, missing file and download failure", async () => {
+    const response = Promise.withResolvers<string | null>();
+    vi.mocked(getPlanDraft).mockReturnValueOnce(response.promise);
+    const { rerender } = await render(PlanPanel, {
+      props: { session: session({ id: "loading-draft" }), onclose: vi.fn() },
+    });
+    await expect.element(page.getByText("Loading plan…")).toBeVisible();
+    await expect.element(page.getByText(m.planpanel_plan_unavailable())).not.toBeInTheDocument();
+    response.resolve(null);
+    await expect.element(page.getByText(m.planpanel_plan_unavailable())).toBeVisible();
+    vi.mocked(getPlanDraft).mockRejectedValueOnce(new Error("offline"));
+    await rerender({ session: session({ id: "failed-draft" }), onclose: vi.fn() });
+    await expect
+      .element(page.getByText("Could not load the plan. Reopen this panel to try again."))
+      .toBeVisible();
+    await expect.element(page.getByText(m.planpanel_plan_unavailable())).not.toBeInTheDocument();
+  });
+
+  it("refreshes when review starts and after a manual attempt", async () => {
+    vi.mocked(getPlanDraft)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce("# Review started plan")
+      .mockResolvedValueOnce("# Current draft");
+    const id = "refresh-draft";
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+    await expect.element(page.getByText(m.planpanel_plan_unavailable())).toBeVisible();
+    planGates.reviewing = { [id]: true };
+    await expect.element(page.getByRole("heading", { name: "Review started plan" })).toBeVisible();
+    // The signal ending also refreshes. The subsequent manual attempt must refresh again.
+    planGates.reviewing = {};
+    await expect.element(page.getByRole("heading", { name: "Current draft" })).toBeVisible();
+    vi.mocked(getPlanDraft).mockResolvedValueOnce("# Manually refreshed");
+    await page.getByRole("button", { name: m.planpanel_review_now() }).click();
+    await expect.element(page.getByRole("heading", { name: "Manually refreshed" })).toBeVisible();
+  });
+
+  it("prioritizes the reviewed snapshot over a late draft reply", async () => {
+    const response = Promise.withResolvers<string | null>();
+    vi.mocked(getPlanDraft).mockReturnValueOnce(response.promise);
+    const id = "gate-arrives";
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+    await expect.poll(() => vi.mocked(getPlanDraft).mock.calls).toEqual([[id]]);
+    planGates.map = { [id]: gate(id, { plan: "# Reviewed snapshot" }) };
+    response.resolve("# Stale live draft");
+    await expect.element(page.getByRole("heading", { name: "Reviewed snapshot" })).toBeVisible();
+    await expect
+      .element(page.getByRole("heading", { name: "Stale live draft" }))
+      .not.toBeInTheDocument();
+    await expect.element(page.getByText("Live draft · not reviewed yet")).not.toBeInTheDocument();
+  });
+
+  it("rejects late replies from a previous session and sanitizes the live draft", async () => {
+    const response = Promise.withResolvers<string | null>();
+    vi.mocked(getPlanDraft)
+      .mockReturnValueOnce(response.promise)
+      .mockResolvedValueOnce(
+        '# Safe draft\n<script>window.planInjected = true</script><img src="x" onerror="window.planInjected = true">',
+      );
+    const { rerender } = await render(PlanPanel, {
+      props: { session: session({ id: "old-draft" }), onclose: vi.fn() },
+    });
+    await rerender({ session: session({ id: "new-draft" }), onclose: vi.fn() });
+    await expect.element(page.getByRole("heading", { name: "Safe draft" })).toBeVisible();
+    response.resolve("# Previous session");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await expect
+      .element(page.getByRole("heading", { name: "Previous session" }))
+      .not.toBeInTheDocument();
+    expect(document.querySelector(".plan script, .plan [onerror]")).toBeNull();
+    expect((window as unknown as { planInjected?: boolean }).planInjected).toBeUndefined();
+  });
+
+  it("discards a pending draft after the panel closes", async () => {
+    const response = Promise.withResolvers<string | null>();
+    vi.mocked(getPlanDraft).mockReturnValueOnce(response.promise);
+    const panel = await render(PlanPanel, {
+      props: { session: session({ id: "closed-draft" }), onclose: vi.fn() },
+    });
+    await expect.poll(() => vi.mocked(getPlanDraft).mock.calls).toEqual([["closed-draft"]]);
+    await panel.unmount();
+    response.resolve("# Closed plan");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.querySelector(".overlay")).toBeNull();
+    await expect
+      .element(page.getByRole("heading", { name: "Closed plan" }))
+      .not.toBeInTheDocument();
+  });
 });
 
 describe("PlanPanel portal", () => {
@@ -559,7 +667,7 @@ describe("PlanPanel release state", () => {
     });
 
     await expect.element(page.getByText(m.planpanel_plan_unavailable())).toBeVisible();
-    expect(document.body.textContent).toContain("may still be waiting for your answer");
+    expect(document.body.textContent).not.toContain("may still be waiting for your answer");
   });
 
   it("shows persistent plan-unavailable feedback after review trigger returns that status", async () => {
@@ -572,7 +680,7 @@ describe("PlanPanel release state", () => {
 
     await page.getByRole("button", { name: m.planpanel_review_now() }).click();
     await expect.element(page.getByText(m.planpanel_review_plan_unavailable())).toBeVisible();
-    expect(document.body.textContent).toContain("Return to the task");
+    expect(document.body.textContent).not.toContain("pending planning question");
 
     await new Promise((resolve) => setTimeout(resolve, 6500));
     await expect.element(page.getByText(m.planpanel_review_plan_unavailable())).toBeVisible();

@@ -941,6 +941,15 @@ export function worktreeDownloadUrl(id: string, path: string): string {
   return `/api/sessions/${id}/worktree/download?path=${encodeURIComponent(path)}`;
 }
 
+/** The live, unreviewed artifact; a gate's stored snapshot remains authoritative for approval. */
+export async function getPlanDraft(id: string): Promise<string | null> {
+  const r = await fetch(worktreeDownloadUrl(id, ".shepherd-plan.md"));
+  if (r.status === 404) return null;
+  if (!r.ok) throw await failed(r, "plan draft");
+  const text = await r.text();
+  return text.trim() ? text : null;
+}
+
 /** Upload one arbitrary file into a session's scratchpad dir (#1258). Returns the root-relative path.
  *  Throws an ApiError so callers can branch on status (e.g. 413 = too large, max 250 MB). */
 export async function uploadScratchpadFile(

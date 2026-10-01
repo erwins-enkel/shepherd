@@ -673,14 +673,14 @@
   "planpanel_title": "Plan vor der Ausführung",
   "planpanel_back_aria": "Zurück zur Session",
   "planpanel_empty": "Noch kein Plan geschrieben.",
-  "planpanel_plan_unavailable": "Noch kein prüfbarer Plan vorhanden. Der Planungs-Agent wartet möglicherweise noch auf deine Antwort. Kehre zum Task zurück, beantworte eine offene Planungsfrage und prüfe erneut, nachdem der Agent .shepherd-plan.md geschrieben hat.",
+  "planpanel_plan_unavailable": "Noch keine Plan-Datei vorhanden. Öffne dieses Fenster erneut, sobald der Agent den Plan geschrieben hat.",
   "planpanel_verdict": "Prüfer-Urteil",
   "planpanel_findings": "Angeforderte Änderungen",
   "planpanel_go": "Los: Ausführung starten",
   "planpanel_review_now": "Plan jetzt prüfen",
   "planpanel_reviewing": "Prüfe Plan…",
   "planpanel_review_already_approved": "Plan bereits freigegeben; bereit zum Start.",
-  "planpanel_review_plan_unavailable": "Prüfung nicht gestartet, weil .shepherd-plan.md fehlt, leer oder nicht lesbar ist. Kehre zum Task zurück und beantworte eine noch offene Planungsfrage; prüfe erneut, sobald die Datei geschrieben ist.",
+  "planpanel_review_plan_unavailable": "Prüfung nicht gestartet, weil die Plan-Datei fehlt, leer oder nicht lesbar ist. Versuche es erneut, sobald der Agent einen lesbaren Plan geschrieben hat.",
   "planpanel_review_nothing_to_review": "Planprüfung konnte gerade nicht gestartet werden.",
   "planpanel_review_failed": "Prüfung konnte nicht gestartet werden. Bitte erneut versuchen.",
   "planpanel_review_failed_spawn": "Start des Prüfers fehlgeschlagen. Bitte erneut versuchen; falls das Problem bleibt, prüfe die Shepherd-Logs.",
@@ -4868,5 +4868,10 @@
   "native_ios_terminal_hint": "Live-Ausgabe der Sitzung. Scrolle, um frühere Ausgaben zu lesen.",
   "native_ios_terminal_latest": "Neueste Ausgabe",
   "native_ios_terminal_superseded_body": "Ein anderes Gerät ist mit diesem Terminal verbunden. Übernehmen gibt es an dieses iPhone oder iPad zurück und trennt das andere Gerät.",
-  "native_ios_terminal_reply": "Antworten"
+  "native_ios_terminal_reply": "Antworten",
+  "planpanel_draft_unreviewed": "Live-Entwurf · noch nicht geprüft",
+  "planpanel_draft_loading": "Plan wird geladen…",
+  "planpanel_draft_load_failed": "Der Plan konnte nicht geladen werden. Öffne dieses Fenster erneut, um es noch einmal zu versuchen.",
+  "feat_plan_draft_visibility_title": "Pläne vor der Prüfung lesen",
+  "feat_plan_draft_visibility_body": "PLAN zeigt den Live-Entwurf von Claude Code und Codex, bevor ein Prüfergebnis vorliegt. Codex-Planprüfungen starten auch nach einem belegten Rundenende, wenn der Task weiterhin als blockiert erscheint."
 }

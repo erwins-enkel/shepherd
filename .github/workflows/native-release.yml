@@ -34,11 +34,13 @@ jobs:
       RELEASE_TAG: ${{ inputs.tag }}
       UPDATE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-      SIGNING_DIR: ${{ runner.temp }}/shepherd-release-signing
-      SIGNING_KEYCHAIN: ${{ runner.temp }}/shepherd-release-signing/release.keychain-db
-      ASC_API_KEY_PATH: ${{ runner.temp }}/shepherd-release-signing/AuthKey.p8
       RELEASE_APP: release-source/native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app
     steps:
+      - name: Set temporary signing paths
+        run: |
+          echo "SIGNING_DIR=$RUNNER_TEMP/shepherd-release-signing" >> "$GITHUB_ENV"
+          echo "SIGNING_KEYCHAIN=$RUNNER_TEMP/shepherd-release-signing/release.keychain-db" >> "$GITHUB_ENV"
+          echo "ASC_API_KEY_PATH=$RUNNER_TEMP/shepherd-release-signing/AuthKey.p8" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0

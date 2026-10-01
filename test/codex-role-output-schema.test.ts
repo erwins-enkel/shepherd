@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import Ajv, { type AnySchema, type ValidateFunction } from "ajv";
-import { CODEX_ROLE_OUTPUT_SCHEMAS } from "../src/codex-role-output-schema";
+import { CODEX_ROLE_OUTPUT_SCHEMAS, CODEX_ROLE_SCHEMA_DIR } from "../src/codex-role-output-schema";
 import { parseRecapVerdict } from "../src/recap-core";
 import { buildVerdictCore } from "../src/critic-core";
 
@@ -68,6 +68,12 @@ describe("Codex role output schemas", () => {
     for (const path of Object.values(CODEX_ROLE_OUTPUT_SCHEMAS)) {
       expect(isAbsolute(path)).toBe(true);
       expect(existsSync(path)).toBe(true);
+    }
+  });
+
+  test("every schema lives directly in the dir the bwrap membrane binds (#2595)", () => {
+    for (const path of Object.values(CODEX_ROLE_OUTPUT_SCHEMAS)) {
+      expect(dirname(path)).toBe(CODEX_ROLE_SCHEMA_DIR);
     }
   });
 

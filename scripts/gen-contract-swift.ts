@@ -19,6 +19,10 @@
  *      type instead of an anonymous inline payload. An *inline* flagged property schema keeps the
  *      inline `anyOf: [{type: string, enum: […]}, {type: string}]`.
  *
+ *   e. Nullable object component refs in response content are inlined, preserving their nullable
+ *      type array: the generator does not propagate component nullability into response bodies.
+ *      Other refs (including event snapshots) stay unchanged.
+ *
  * The walk is schema-aware, not a context-free key sweep: it only applies these rules where a
  * JSON Schema actually lives (`components.schemas` values, `properties`/`items`/
  * `additionalProperties`/`allOf`/`anyOf`/`oneOf`/`not` inside a schema, and any `schema` value in
@@ -336,8 +340,14 @@ function transformSchemaMap(map: Obj, pointer: string): Obj {
 
 /** Walks everything that is NOT a schema, switching into the schema rules at `components.schemas`
  *  and at any `schema` value (request/response content, parameters, headers, x-shepherd-events). */
-function walkDocument(node: unknown, pointer: string, inComponents: boolean): unknown {
-  if (Array.isArray(node)) return node.map((v, i) => walkDocument(v, `${pointer}/${i}`, false));
+function walkDocument(
+  node: unknown,
+  pointer: string,
+  inComponents: boolean,
+  schemas: Obj,
+): unknown {
+  if (Array.isArray(node))
+    return node.map((v, i) => walkDocument(v, `${pointer}/${i}`, false, schemas));
   if (!isObj(node)) return node;
   const out: Obj = {};
   for (const [key, value] of Object.entries(node)) {
@@ -347,10 +357,25 @@ function walkDocument(node: unknown, pointer: string, inComponents: boolean): un
       continue;
     }
     if (key === "schema" && isObj(value)) {
-      out[key] = transformSchema(value, here, false);
+      const ref = value.$ref;
+      const target =
+        typeof ref === "string" && ref.startsWith("#/components/schemas/")
+          ? schemas[ref.slice("#/components/schemas/".length)]
+          : undefined;
+      const nullableObject =
+        isObj(target) &&
+        Array.isArray(target.type) &&
+        target.type.length === 2 &&
+        target.type.includes("object") &&
+        target.type.includes("null");
+      const responseBody =
+        /^#\/paths\/[^/]+\/[^/]+\/responses\/[^/]+\/content\/[^/]+\/schema$/.test(here);
+      // Expand only a bare ref. Sibling constraints must never disappear during derivation.
+      const inline = responseBody && nullableObject && Object.keys(value).length === 1;
+      out[key] = transformSchema(inline ? target : value, here, false);
       continue;
     }
-    out[key] = walkDocument(value, here, pointer === "#" && key === "components");
+    out[key] = walkDocument(value, here, pointer === "#" && key === "components", schemas);
   }
   return out;
 }
@@ -358,7 +383,9 @@ function walkDocument(node: unknown, pointer: string, inComponents: boolean): un
 /** The whole derivation: truth YAML text in, generator-input YAML text out. */
 export async function deriveSwiftSpec(truthYaml: string): Promise<string> {
   const truth = YAML.parse(truthYaml) as unknown;
-  const derived = walkDocument(truth, "#", false);
+  const components = isObj(truth) && isObj(truth.components) ? truth.components : {};
+  const schemas = isObj(components.schemas) ? components.schemas : {};
+  const derived = walkDocument(truth, "#", false, schemas);
   const body = YAML.stringify(derived, { lineWidth: 0 });
   const cfg = await prettier.resolveConfig(DERIVED_PATH);
   return prettier.format(`${GENERATED_HEADER}\n${body}`, { ...cfg, parser: "yaml" });

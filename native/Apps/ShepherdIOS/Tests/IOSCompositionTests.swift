@@ -33,6 +33,7 @@ final class IOSCompositionTests: XCTestCase {
         XCTAssertNotNil(app.extension(PlanModel.self))
         XCTAssertNotNil(app.extension(QueuesModel.self))
         XCTAssertNotNil(app.extension(MergeModel.self))
+        XCTAssertNotNil(app.extension(ReadOnlySidebarRecovery.self))
         XCTAssertNotNil(app.extension(ActionsModel.self)) // recap reads; no action UI
         XCTAssertNil(app.extension(NotificationsModel.self))
     }

@@ -10,6 +10,7 @@ struct QueuesReads: Sendable {
     var recaps: @Sendable () async throws -> [String: Recap]
     var stranded: @Sendable () async throws -> [String]
     var refreshUpNext: @Sendable () async throws -> Void
+    var peekUpNext: @Sendable () async throws -> UpNextSnapshot? = { nil }
     // Optional for previews/tests without a session snapshot source.
     var haltSnapshots: @Sendable () async throws -> [Session]? = { nil }
 
@@ -20,6 +21,7 @@ struct QueuesReads: Sendable {
             recaps: { try await client.recaps() },
             stranded: { try await client.strandedSessions() },
             refreshUpNext: { try await client.refreshUpNext() },
+            peekUpNext: { try await client.peekUpNext() },
             haltSnapshots: { try await client.sessions() })
     }
 }
@@ -140,7 +142,11 @@ public final class QueuesModel: AppExtension {
         async let strandedResult = Self.load(sources.stranded)
         async let haltResult = Self.load(sources.haltSnapshots)
         async let upNextResult = Self.load {
-            if recomputeUpNext && mayRecompute { try await sources.refreshUpNext() }
+            if recomputeUpNext && mayRecompute {
+                try await sources.refreshUpNext()
+                return nil as UpNextSnapshot?
+            }
+            return try await sources.peekUpNext()
         }
         let results = await (heldResult, doneResult, recapsResult, strandedResult, upNextResult, haltResult)
         guard isCurrent(mine), activation == app?.activationGeneration,
@@ -168,9 +174,11 @@ public final class QueuesModel: AppExtension {
                     haltedAt: session.haltedAt))
             })
         }
-        if recomputeUpNext, upNextVersion == upNextRevision {
+        if upNextVersion == upNextRevision {
             switch results.4 {
-            case .success: upNextLoadFailed = false
+            case .success(let cached):
+                if !recomputeUpNext || !mayRecompute { upNext = cached }
+                upNextLoadFailed = false
             case .failure: upNextLoadFailed = true
             }
         }

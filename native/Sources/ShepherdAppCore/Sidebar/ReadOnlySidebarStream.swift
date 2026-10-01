@@ -17,5 +17,6 @@ extension CoreStreamInstallers {
         HerdStream.install(app)
         app.register(QueuesModel.self)
         app.register(MergeModel.self)
+        app.register(ReadOnlySidebarRecovery.self)
     }
 }

@@ -80,6 +80,22 @@ public struct UpNextStartResult: Sendable, Equatable {
 }
 
 extension ShepherdClient {
+  /// Cache-only read: always send peek=1, including bootstrap and pull-to-refresh.
+  public func peekUpNext() async throws -> UpNextSnapshot? {
+    do {
+      switch try await generated.peekUpNext(.init(query: .init(peek: ._1))) {
+      case .ok(let ok):
+        guard let cached = try ok.body.json else { return nil }
+        return UpNextSnapshot(generatedAt: cached.generatedAt, sections: cached.sections,
+          repoCount: cached.repoCount, fallback: cached.fallback,
+          failedRepoCount: cached.failedRepoCount, additionalProperties: cached.additionalProperties)
+      case .unauthorized: throw ShepherdError.unauthenticated
+      case .undocumented(let statusCode, _):
+        throw ShepherdError.fromUndocumented(statusCode: statusCode, route: "peekUpNext")
+      }
+    } catch { throw ShepherdError.from(error, route: "peekUpNext") }
+  }
+
   /// `GET /api/held`. Preserve the server's capacity-last, FIFO ordering.
   public func heldTasks() async throws -> [HeldQueueEntry] {
     do {

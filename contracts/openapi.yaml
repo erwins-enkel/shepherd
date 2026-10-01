@@ -3077,8 +3077,8 @@ components:
     UpNextSnapshot:
       type: "object"
       additionalProperties: true
-      required: ["generatedAt", "sections", "repoCount", "fallback", "failedRepoCount"]
-      properties:
+      required: &upNextSnapshotRequired ["generatedAt", "sections", "repoCount", "fallback", "failedRepoCount"]
+      properties: &upNextSnapshotProperties
         generatedAt: { "type": "integer" }
         sections: { "type": "array", "items": { "$ref": "#/components/schemas/UpNextSection" } }
         repoCount: { "type": "integer" }
@@ -3088,7 +3088,13 @@ components:
             "type": "integer",
             "description": 'Repos whose listing failed. Non-zero with an empty sections is the panel''s "could not load" state.',
           }
-      description: "The Up Next queue. Delivered ONLY through the upnext:snapshot event — GET /api/up-next answers the JSON literal null when nothing is cached, which cannot be expressed in a response position, so it is deliberately undeclared and the client bootstraps with POST /api/up-next/refresh."
+      description: "The Up Next queue, delivered through upnext:snapshot and the cached snapshot read."
+    UpNextCachedSnapshot:
+      type: ["object", "null"]
+      additionalProperties: true
+      required: *upNextSnapshotRequired
+      properties: *upNextSnapshotProperties
+      description: "Cached snapshot or JSON null before the first computation; event snapshots remain non-nullable."
     UpNextStartItem:
       type: "object"
       additionalProperties: false
@@ -6318,6 +6324,21 @@ paths:
           content: { "application/json": { "schema": { "$ref": "#/components/schemas/Ok" } } }
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/up-next:
+    get:
+      operationId: "peekUpNext"
+      description: "Read the cached snapshot with peek=1 without computing recommendations. Without peek, the server also schedules a recomputation."
+      parameters:
+        - in: query
+          name: peek
+          required: true
+          schema: { type: "string", enum: ["1"] }
+      responses:
+        "200":
+          description: "Cached snapshot, or JSON null when nothing is cached."
+          content: { "application/json": { "schema": { "$ref": "#/components/schemas/UpNextCachedSnapshot" } } }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /api/up-next/refresh:
     post:
       operationId: "refreshUpNext"
@@ -7605,7 +7626,7 @@ x-shepherd-events:
   # ── /stream: merge ──
   # ── stream: queues ──
   upnext:snapshot:
-    description: "A freshly computed Up Next queue. The ONLY delivery path for the snapshot — see UpNextSnapshot."
+    description: "A freshly computed Up Next queue. Also available through the cache-only peek read — see UpNextSnapshot."
     schema: { "$ref": "#/components/schemas/UpNextSnapshotEvent" }
   halt:done:
     description: "A herd halt finished. Broadcast to every client, so a client that did not issue it still learns."

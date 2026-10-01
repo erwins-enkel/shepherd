@@ -334,11 +334,6 @@ struct SessionListView: View {
             refreshError = ShepherdErrorCopy.message(error)
         }
         guard generation == app.activationGeneration, !Task.isCancelled else { return }
-        async let sidebar: Void = model.refresh()
-        async let signals: Void? = herd?.refresh()
-        async let queue: Void? = queues?.refresh(recomputeUpNext: false)
-        async let merge: Void? = app.extension(MergeModel.self)?.refresh()
-        async let plan: Void? = app.extension(PlanModel.self)?.refresh()
-        _ = await (sidebar, signals, queue, merge, plan)
+        await app.extension(ReadOnlySidebarRecovery.self)?.refresh()
     }
 }

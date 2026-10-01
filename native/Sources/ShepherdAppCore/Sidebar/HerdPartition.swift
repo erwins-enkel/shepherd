@@ -135,27 +135,6 @@ public struct HerdTallies: Equatable, Sendable {
 /// Every list decision the sidebar makes, with no SwiftUI and no I/O, so all of it is unit-tested
 /// against the web UI's own rules instead of eyeballed in a running app.
 public enum HerdPartition {
-    /// Rank live work before parked sessions, then by most recent server activity.
-    /// Lifecycle grouping remains authoritative; this only orders rows within a stage.
-    /// Stable ties retain server order instead of using task designations as a sort key.
-    public static func relevant(_ sessions: [Session], workingBlocked: [String: Bool]) -> [Session] {
-        func rank(_ session: Session) -> Int {
-            switch displayStatus(session, workingBlocked: workingBlocked).known {
-            case .running: 0
-            case .blocked: 1
-            case .done: 2
-            default: 3
-            }
-        }
-        return sessions.enumerated().sorted { a, b in
-            let left = rank(a.element), right = rank(b.element)
-            if left != right { return left < right }
-            if a.element.updatedAt != b.element.updatedAt { return a.element.updatedAt > b.element.updatedAt }
-            if a.element.createdAt != b.element.createdAt { return a.element.createdAt > b.element.createdAt }
-            return a.offset < b.offset
-        }.map(\.element)
-    }
-
     /// The web's merge window (`MERGE_MARK_BACKSTOP_MS`,
     /// `ui/src/lib/components/merge-train.ts:11`).
     static let mergingWindowMs = 24 * 60 * 60 * 1_000

@@ -12,6 +12,26 @@ extension MacSeamTests {
 /// `AppModel`, and is tested here without a single view in sight.
 @MainActor
 struct SidebarViewTests {
+    @Test func macSidebarPreservesServerOrderWithinLifecycleGroups() {
+        let reads = SidebarReads(workingBlocked: { [:] }, holds: { [:] }, blocks: { [:] },
+            usage: { UsageLimitsResponse(limits: UsageLimits(perModelWeek: [], stale: false, subscriptionOnly: false), projections: []) })
+        let sidebar = SidebarModel(reads: reads, now: { 1_800_000_000_000 })
+        var old = session("old")
+        old.status = .init(known: .done)
+        old.updatedAt = 1
+        var newer = session("new")
+        newer.status = .init(known: .blocked)
+        newer.updatedAt = 99
+        var working = session("working")
+        working.status = .init(known: .running)
+        sidebar.install(sessions: [old, newer, working])
+        #expect(sidebar.groups.flatMap(\.sessions).map(\.id) == ["old", "new", "working"])
+        old.status = .init(known: .running)
+        newer.updatedAt = 1000
+        sidebar.install(sessions: [old, newer, working])
+        #expect(sidebar.groups.flatMap(\.sessions).map(\.id) == ["old", "new", "working"])
+    }
+
     @Test func panelLensesEnableOnlyWhenTheirSidebarFactoryExists() {
         resetStreamSeams()
         defer { resetStreamSeams() }

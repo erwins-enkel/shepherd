@@ -20,13 +20,13 @@ struct RootView: View {
                 ConnectionStatusView()
                 if sizeClass == .regular {
                     NavigationSplitView {
-                        SessionListView(model: sidebar) { app.selectedSessionID = $0 }
+                        SessionListView(model: sidebar, select: selectSession)
                     } detail: {
                         NavigationStack { selectedDetail }
                     }.accessibilityIdentifier("navigation-regular")
                 } else {
                     NavigationStack(path: $path) {
-                        SessionListView(model: sidebar) { app.selectedSessionID = $0; path = [$0] }
+                        SessionListView(model: sidebar, select: selectSession)
                             .navigationDestination(for: String.self) { _ in selectedDetail }
                     }.accessibilityIdentifier("navigation-compact")
                 }
@@ -60,7 +60,12 @@ struct RootView: View {
         }
         .task {
             if lifecycle == nil {
-                lifecycle = IOSAppLifecycle(app: app) { await recovery?.reloadVisibleActivityIfNeeded() }
+                lifecycle = IOSAppLifecycle(app: app) {
+                    let generation = app.activationGeneration
+                    await app.extension(ReadOnlySidebarRecovery.self)?.refresh()
+                    guard generation == app.activationGeneration else { return }
+                    await recovery?.reloadVisibleActivityIfNeeded()
+                }
             }
             bindStore()
             await lifecycle?.update(mappedPhase)
@@ -72,6 +77,7 @@ struct RootView: View {
         }
         .onChange(of: app.selectedSessionID) { _, selected in
             recovery?.cancelVisibleWork()
+            app.extension(DetailModel.self)?.retainSession(selected)
             path = selected.map { [$0] } ?? []
         }
         .onChange(of: path) { _, path in
@@ -99,9 +105,15 @@ struct RootView: View {
         @unknown default: .inactive
         }
     }
+    private func selectSession(_ id: String) {
+        app.extension(DetailModel.self)?.retainSession(id)
+        app.selectedSessionID = id
+        path = [id]
+    }
     private func bindStore() {
         recovery?.storeDidChange(to: nil)
         if let detail = app.extension(DetailModel.self) {
+            detail.retainSession(app.selectedSessionID)
             recovery = IOSVisibleActivityRecovery(app: app, detail: detail, selectedID: { app.selectedSessionID })
             recovery?.storeDidChange(to: app.store)
         } else { recovery = nil }

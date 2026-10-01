@@ -157,10 +157,10 @@ public final class SidebarModel: AppExtension {
     /// `gitStage`/`inReview` parameters are themselves `@MainActor` closures, so `gitStage` and
     /// `inReview` pass straight through with no isolation bridging.
     public var sessions: [Session] {
-        HerdPartition.relevant(HerdPartition.shown(
+        HerdPartition.shown(
             HerdPartition.filter(liveSessions, repos: activeRepos),
             lens: lens, workingBlocked: workingBlocked, now: now(), gitStage: gitStage,
-            inReview: inReview), workingBlocked: workingBlocked)
+            inReview: inReview)
     }
 
     /// Built from the unfiltered list, so a repo whose sessions the lens hides keeps its chip.

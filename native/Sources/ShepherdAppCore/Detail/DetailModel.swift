@@ -172,6 +172,17 @@ public final class DetailModel: AppExtension {
     /// once more after the current read finishes, rather than once per extra frame.
     @ObservationIgnored private var pushPending: Set<String> = []
 
+    @ObservationIgnored private var retainedSessionID: String?
+    @ObservationIgnored private var liveSessionIDs: Set<String> = []
+
+    /// Retain one visible session outside the live list (for example an archived Done row).
+    /// Hosts release it on deselection. Mac's default pruning remains unchanged.
+    public func retainSession(_ id: String?) {
+        guard alive else { return }
+        retainedSessionID = id
+        prune(activeIDs: liveSessionIDs)
+    }
+
     public init(store: SessionStore, app: AppModel) {
         self.loaders = .live(store.client)
         subscribe(store)
@@ -204,6 +215,7 @@ public final class DetailModel: AppExtension {
         sessionsSignal = nil
         sessionsWatcher?.cancel()
         sessionsWatcher = nil
+        retainedSessionID = nil
         prune(activeIDs: [])
     }
 
@@ -554,6 +566,8 @@ public final class DetailModel: AppExtension {
     /// Internal, not private, so a test can drive it directly without standing up a live
     /// `SessionStore` and waiting on `withObservationTracking`.
     func prune(activeIDs: Set<String>) {
+        liveSessionIDs = activeIDs
+        let activeIDs = activeIDs.union(retainedSessionID.map { [$0] } ?? [])
         activity = activity.filter { activeIDs.contains($0.key) }
         diff = diff.filter { activeIDs.contains($0.key) }
         files = files.filter { activeIDs.contains($0.key) }

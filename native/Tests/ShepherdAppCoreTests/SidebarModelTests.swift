@@ -66,6 +66,21 @@ struct SidebarModelTests {
         SidebarModel(reads: reads, now: { 1_800_000_000_000 })
     }
 
+    @Test func lifecycleGroupsPreserveServerOrderDespiteStatusAndTimestampChanges() {
+        let m = model()
+        var first = PreviewData.session(id: "old", status: .init(known: .done))
+        first.updatedAt = 1
+        var newer = PreviewData.session(id: "new", status: .init(known: .blocked))
+        newer.updatedAt = 99
+        let working = PreviewData.session(id: "working", status: .init(known: .running))
+        m.install(sessions: [first, newer, working])
+        #expect(m.groups.flatMap(\.sessions).map(\.id) == ["old", "new", "working"])
+        first.status = .init(known: .running)
+        newer.updatedAt = 1000
+        m.install(sessions: [first, newer, working])
+        #expect(m.groups.flatMap(\.sessions).map(\.id) == ["old", "new", "working"])
+    }
+
     @Test func repoToggleReplacesUnlessAdditiveAndClearsOnRepeat() {
         let m = model()
         m.toggleRepo("/repos/a", additive: false)

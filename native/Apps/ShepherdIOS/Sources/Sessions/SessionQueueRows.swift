@@ -69,7 +69,7 @@ struct IOSOwedRows: View {
             VStack(alignment: .leading, spacing: 8) {
                 if app.store?.session(id: record.sessionId) != nil {
                     Button { select(record.sessionId) } label: {
-                        Text(verbatim: "\(record.desig) · \(record.prTitle)").sessionFont(weight: .semibold)
+                        IOSOwedNavigationLabel(title: "\(record.desig) · \(record.prTitle)")
                     }.buttonStyle(.plain)
                 } else { Text(verbatim: "\(record.desig) · \(record.prTitle)").sessionFont(weight: .semibold) }
                 Text(verbatim: DonePresentation.repoBasename(record.repoPath)).sessionFont(label: true)
@@ -87,5 +87,15 @@ struct IOSOwedRows: View {
             .padding(.vertical, 8).listRowBackground(SessionListStyle.panel)
             .accessibilityIdentifier("queues-owed-row-\(record.sessionId)")
         }
+    }
+}
+
+/// The label owns the touch target, so card padding and List row height cannot shrink it.
+struct IOSOwedNavigationLabel: View {
+    let title: String
+    var body: some View {
+        Text(verbatim: title).sessionFont(weight: .semibold)
+            .frame(minWidth: 44, maxWidth: .infinity, minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
     }
 }

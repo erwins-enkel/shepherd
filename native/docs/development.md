@@ -696,6 +696,11 @@ component (`SessionStatusKnown`, `HerdrStateKnown`, `SessionArchiveReasonKnown`,
 `{enum}`/`{string}` pair for the four inline properties. `bun run
 check:contract-swift` is the freshness gate.
 
+Nullable object response references are expanded inline in the Swift derivation, preserving
+`type: [object, null]`. The generator does not carry component nullability through response
+references; the truth contract keeps its named schema and the drift test validates both null
+and populated cached snapshots. Event snapshots retain their non-nullable schema.
+
 ShepherdKit generates from the **derived** file. `Model/OpenEnum.swift` hides
 either wrapper: use `status.known` for the case you understand and
 `status.rawValue` for what actually arrived.

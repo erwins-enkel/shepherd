@@ -12375,6 +12375,18 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"failedBootstrapInvalidatesTerminalOwners() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"terminalOwners() throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"terminalOwnersDuringRefresh() async throws\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AppModelEventCompositionTests.swift\",\"AppModelEventCompositionTests\",\"activationReceivesEventsAndProfileSwitchStopsOldSocket() async throws\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AppModelEventCompositionTests.swift\",\"AppModelEventCompositionTests\",\"activationReceivesEventsAndProfileSwitchStopsOldSocket() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DetailModelTests.swift\",\"CoreSeamTests.DetailModelTests\",\"retainedArchivedDetailIsDroppedOnTeardown() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DetailModelTests.swift\",\"CoreSeamTests.DetailModelTests\",\"selectedArchivedDetailSurvivesLivePruningDuringAndAfterLoad() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"peekDoesNotOverwriteSnapshotPushedDuringRead() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"readOnlyBootstrapAndRefreshPeekExistingRecommendations() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ReadOnlySidebarRecoveryTests.swift\",\"CoreSeamTests.ReadOnlySidebarRecoveryTests\",\"concurrentRecoveryCallsCoalesceAndTeardownRejectsFurtherReads() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ReadOnlySidebarRecoveryTests.swift\",\"CoreSeamTests.ReadOnlySidebarRecoveryTests\",\"recoveryRepairsAllInstalledSnapshotsWithoutQueueComputation() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ReadOnlySidebarRecoveryTests.swift\",\"CoreSeamTests.ReadOnlySidebarRecoveryTests\",\"supersededActivationRejectsRecoveryBeforeReadsStart() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ReadOnlySidebarRecoveryTests.swift\",\"CoreSeamTests.ReadOnlySidebarRecoveryTests\",\"teardownDuringRecoveryDropsSuspendedQueueSnapshot() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/SidebarModelTests.swift\",\"CoreSeamTests.SidebarModelTests\",\"lifecycleGroupsPreserveServerOrderDespiteStatusAndTimestampChanges()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"peekUpNextMapsUnauthorized() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"peekUpNextReadsCachedSnapshotOrNullWithoutRecomputation(cached: Bool) async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SidebarViewTests.swift\",\"MacSeamTests.SidebarViewTests\",\"macSidebarPreservesServerOrderWithinLifecycleGroups()\"]"
   ]
 }

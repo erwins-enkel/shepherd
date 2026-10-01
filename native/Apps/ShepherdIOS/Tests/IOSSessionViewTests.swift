@@ -1,11 +1,25 @@
 import XCTest
 import SwiftUI
+import UIKit
 @testable import ShepherdAppCore
 import ShepherdKit
 @testable import ShepherdIOS
 
 @MainActor
 final class IOSSessionViewTests: XCTestCase {
+    func testOwedNavigationLabelHas44PointMinimumAtDefaultAndLargeType() {
+        for category in [UIContentSizeCategory.large, .accessibilityExtraExtraExtraLarge] {
+            let parent = UIViewController()
+            let host = UIHostingController(rootView: IOSOwedNavigationLabel(title: "TASK · Title"))
+            parent.addChild(host)
+            parent.setOverrideTraitCollection(UITraitCollection(preferredContentSizeCategory: category), forChild: host)
+            host.loadViewIfNeeded()
+            let size = host.sizeThatFits(in: CGSize(width: 320, height: 1000))
+            XCTAssertGreaterThanOrEqual(size.height, 44)
+            XCTAssertGreaterThanOrEqual(size.width, 44)
+        }
+    }
+
     func testPhoneMovesLiveLensesAndReposToBottomAndPanelLensesToMenu() {
         for sizeClass: UserInterfaceSizeClass? in [.compact, nil] {
             let layout = IOSSessionListLayout(sizeClass: sizeClass)

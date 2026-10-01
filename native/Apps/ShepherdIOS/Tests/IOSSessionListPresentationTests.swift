@@ -50,7 +50,7 @@ final class IOSSessionListPresentationTests: XCTestCase {
         XCTAssertTrue(IOSSessionListPresentation.groups(model).isEmpty)
     }
 
-    func testRecentActivityAndLiveWorkOutrankOldParkedTasks() {
+    func testStatusAndTimestampsPreserveServerOrderWithinLifecycleGroup() {
         var old = session("01")
         old.updatedAt = now - 100_000
         var newer = session("90")
@@ -60,7 +60,7 @@ final class IOSSessionListPresentationTests: XCTestCase {
         var blocked = session("80", status: .blocked)
         blocked.updatedAt = old.updatedAt
         let model = sidebar([old, newer, blocked, working])
-        XCTAssertEqual(IOSSessionListPresentation.groups(model).flatMap(\.sessions).map(\.id), ["50", "80", "90", "01"])
+        XCTAssertEqual(IOSSessionListPresentation.groups(model).flatMap(\.sessions).map(\.id), ["01", "90", "80", "50"])
     }
 
     func testWorkingBlockedUpgradeAndRepoFiltering() async {

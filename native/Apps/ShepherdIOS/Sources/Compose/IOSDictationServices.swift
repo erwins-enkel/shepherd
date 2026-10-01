@@ -37,13 +37,13 @@ enum SpeechAuthorization {
     var microphone: @Sendable () async -> Bool
     var authorization: @Sendable () async -> Bool
     var capabilities: @Sendable (String) async -> AppleSpeechCapabilities
-    var whisper: @Sendable () async -> Bool
+    var whisper: @Sendable () async throws -> Bool
     var capture: any DictationAudioCapture
     var speech: (@MainActor (String, @escaping (String, Bool) -> Void, @escaping () -> Void) async throws -> any AppleLiveSpeech)?
     static func live(client: ShepherdClient) -> Self {
         .init(microphone: { await AVAudioApplication.requestRecordPermission() },
               authorization: { await SpeechAuthorization.request() },
               capabilities: { await AppleSpeechCapabilities.detect(locale: $0) },
-              whisper: { (try? await client.getVoiceStatus()?.available) == true }, capture: AudioCapture())
+              whisper: { try await client.getVoiceStatus()?.available == true }, capture: AudioCapture())
     }
 }

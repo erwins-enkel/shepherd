@@ -4,6 +4,41 @@ import Testing
 
 @MainActor struct DictationControllerTests {
     private final class Host { var text = "Existing."; var date = Date(timeIntervalSince1970: 100) }
+    private final class DeferredFailureEngine: DictationEngine {
+        let fake = FakeDictationEngine()
+        var error: DictationError = .unsupported
+        func start(locale: String) async throws -> AsyncStream<DictationEvent> { try await fake.start(locale: locale) }
+        func finish() async throws -> DictationRecording { throw error }
+        func cancel() async { await fake.cancel() }
+    }
+    @Test func deferredPermissionFailuresPreservePromptAndAllowNextRecording() async {
+        for error in [DictationError.unsupported, .denied] {
+            let host = Host(), engine = DeferredFailureEngine()
+            engine.error = error
+            let controller = DictationController(engine: engine, now: { host.date },
+                getText: { host.text }, setText: { host.text = $0 })
+            await controller.begin(); host.date.addTimeInterval(1)
+            #expect(controller.state == .recording)
+            controller.finalize(); await settle()
+            #expect(controller.state == (error == .unsupported ? .unsupported : .denied))
+            #expect(controller.noticeKey == (error == .unsupported ? "native_compose_voice_unsupported" : "native_compose_voice_denied"))
+            #expect(host.text == "Existing."); #expect(!controller.active); #expect(engine.fake.cancelled)
+            host.text += " Typed"; await controller.begin()
+            #expect(controller.state == .recording); #expect(host.text == "Existing. Typed")
+            controller.teardown()
+        }
+    }
+    @Test func livePreviewAvailabilityTracksAppleAndResetsAcrossPresses() async {
+        let host = Host(), engine = FakeDictationEngine()
+        let c = make(host, engine)
+        await c.begin(); #expect(!c.livePreviewAvailable)
+        engine.emit(.livePreview(true)); engine.emit(.preview("Apple")); await settle()
+        #expect(c.livePreviewAvailable); #expect(c.preview == "Apple")
+        engine.emit(.livePreview(false)); engine.emit(.level(0.7)); await settle()
+        #expect(!c.livePreviewAvailable); #expect(c.level == 0.7); #expect(c.state == .recording)
+        c.cancel(); await c.begin(); #expect(!c.livePreviewAvailable); #expect(c.preview.isEmpty)
+        c.teardown()
+    }
     private func make(_ host: Host, _ engine: FakeDictationEngine, finalizer: (any DictationFinalizer)? = nil) -> DictationController {
         DictationController(engine: engine, finalizer: finalizer, now: { host.date }, getText: { host.text }, setText: { host.text = $0 })
     }

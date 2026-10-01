@@ -6,9 +6,10 @@ import ShepherdKit
     private let status: @Sendable () async throws -> Bool
     private let transcribe: @Sendable (Data, String) async throws -> String
     private let requestTimeout: TimeInterval
-    public init(client: ShepherdClient, requestTimeout: TimeInterval = 25) {
+    public init(client: ShepherdClient, requestTimeout: TimeInterval = 25,
+                status: (@Sendable () async throws -> Bool)? = nil) {
         self.requestTimeout = requestTimeout
-        status = { try await client.getVoiceStatus()?.available == true }
+        self.status = status ?? { try await client.getVoiceStatus()?.available == true }
         transcribe = { try await client.transcribeAudio($0, language: $1) }
     }
     public init(status: @escaping @Sendable () async throws -> Bool,

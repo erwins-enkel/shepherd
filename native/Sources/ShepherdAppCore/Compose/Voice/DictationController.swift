@@ -19,6 +19,7 @@ import Observation
         default: nil
         }
     }
+    public private(set) var livePreviewAvailable = false
     public private(set) var preparing = false
     public private(set) var canUndo = false
     public var locale: String { didSet { defaults?.set(locale, forKey: "shepherd:dictation-language") } }
@@ -63,7 +64,7 @@ import Observation
         undoTask?.cancel()
         generation += 1; let mine = generation
         original = getText(); lastApplied = original; stable = ""; preview = ""; elapsed = 0; level = 0
-        canUndo = false; noticeKey = nil; preparing = false; state = .arming
+        canUndo = false; noticeKey = nil; preparing = false; livePreviewAvailable = false; state = .arming
         do {
             let events = try await engine.start(locale: locale)
             guard generation == mine else { return }
@@ -114,6 +115,7 @@ import Observation
         case .interrupted: noticeKey = "native_compose_voice_interrupted"; finalize()
         case .failed: noticeKey = "native_compose_voice_error"; finalize()
         case .preparing: preparing = true
+        case .livePreview(let available): livePreviewAvailable = available
         }
     }
     private func persistStable() {
@@ -150,8 +152,19 @@ import Observation
             do { recording = try await engine.finish() }
             catch {
                 guard mine == generation, !Task.isCancelled else { return }
-                noticeKey = "native_compose_voice_error"
-                complete(fallback, mine: mine, incomplete: true); return
+                timeoutTask?.cancel(); task?.cancel()
+                await engine.cancel()
+                guard mine == generation, !Task.isCancelled else { return }
+                let error = error as? DictationError
+                if error == .unsupported || error == .denied {
+                    state = error == .unsupported ? .unsupported : .denied
+                    noticeKey = error == .unsupported ? "native_compose_voice_unsupported" : "native_compose_voice_denied"
+                    preview = ""; startedAt = nil; preparing = false
+                } else {
+                    noticeKey = "native_compose_voice_error"
+                    complete(fallback, mine: mine, incomplete: true)
+                }
+                return
             }
             guard mine == generation, !Task.isCancelled else { return }
             timeoutTask?.cancel()

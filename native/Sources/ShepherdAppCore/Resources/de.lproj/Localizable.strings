@@ -546,6 +546,7 @@
 "native_compose_voice_locked" = "Freihändig · Stopp übernimmt den Text";
 "native_compose_voice_microphone_usage" = "Shepherd verwendet das Mikrofon, während du eine Aufgabe diktierst. Audio wird an deinen Shepherd-Server gesendet, wenn dessen Sprach-Plugin verfügbar ist.";
 "native_compose_voice_no_send" = "Es wird keine Aufgabe automatisch gestartet";
+"native_compose_voice_on_release" = "Transkription beim Loslassen";
 "native_compose_voice_placeholder" = "Beschreibe die Aufgabe – oder halte das Mikrofon gedrückt und sprich.";
 "native_compose_voice_preparing" = "Offline-Sprachmodell wird geladen…";
 "native_compose_voice_ready" = "Bereit";

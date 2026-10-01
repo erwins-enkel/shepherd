@@ -4,7 +4,7 @@ public enum DictationError: Error, Equatable, Sendable {
     case denied, unsupported, recognition, audio, network
 }
 public enum DictationEvent: Sendable {
-    case level(Float), volatile(String), final(String), preview(String), checkpoint(String), interrupted, failed(DictationError), preparing
+    case level(Float), volatile(String), final(String), preview(String), checkpoint(String), interrupted, failed(DictationError), preparing, livePreview(Bool)
 }
 /// WAV is always 16 kHz mono 16-bit PCM, with clips no longer than 60 s.
 public struct DictationClip: Sendable, Equatable {

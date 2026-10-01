@@ -4914,5 +4914,6 @@
   "native_compose_engine_claude": "Claude",
   "native_compose_mode_plain": "Plain",
   "native_compose_dictation_deferred": "Diktieren ist im nativen Aufgabenfenster noch nicht verfügbar.",
-  "native_compose_voice_incomplete": "Einige Audioclips konnten nicht transkribiert werden. Der verfügbare Text wurde übernommen; prüfe ihn oder nimm die fehlenden Teile erneut auf."
+  "native_compose_voice_incomplete": "Einige Audioclips konnten nicht transkribiert werden. Der verfügbare Text wurde übernommen; prüfe ihn oder nimm die fehlenden Teile erneut auf.",
+  "native_compose_voice_on_release": "Transkription beim Loslassen"
 }

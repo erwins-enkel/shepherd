@@ -12407,6 +12407,8 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"accessibleToggleStartsLockedAndFinalizesWithoutHold() async\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"eachWhisperRequestGetsItsOwnDeadlineBeyondCaptureShutdownTimeout() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"whisperFailureEmptyTextAndAbsentPluginReportClipsWithoutFallback() async\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"whisperTimeoutPreservesCompletedClipsInOrderAndReportsMissingText() async throws\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"whisperTimeoutPreservesCompletedClipsInOrderAndReportsMissingText() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"deferredPermissionFailuresPreservePromptAndAllowNextRecording() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"livePreviewAvailabilityTracksAppleAndResetsAcrossPresses() async\"]"
   ]
 }

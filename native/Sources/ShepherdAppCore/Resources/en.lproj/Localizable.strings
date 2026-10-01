@@ -546,6 +546,7 @@
 "native_compose_voice_locked" = "Hands-free · stop keeps the text";
 "native_compose_voice_microphone_usage" = "Shepherd uses the microphone while you dictate a task. Audio is sent to your Shepherd server when its voice plugin is available.";
 "native_compose_voice_no_send" = "No task is started automatically";
+"native_compose_voice_on_release" = "Transcription on release";
 "native_compose_voice_placeholder" = "Describe the task — or hold the microphone and speak.";
 "native_compose_voice_preparing" = "Downloading the offline speech model…";
 "native_compose_voice_ready" = "Ready";

@@ -897,6 +897,7 @@ export const KEYS_COMPOSE: readonly string[] = [
   "native_compose_voice_done",
   "native_compose_voice_finalize",
   "native_compose_voice_live",
+  "native_compose_voice_on_release",
   "native_compose_voice_undo",
   "native_compose_voice_kept",
   "native_compose_voice_label",

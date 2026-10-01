@@ -9393,6 +9393,23 @@
         }
       }
     },
+    "native_compose_voice_on_release": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transkription beim Loslassen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Transcription on release"
+          }
+        }
+      }
+    },
     "native_compose_voice_placeholder": {
       "extractionState": "manual",
       "localizations": {

@@ -48,7 +48,7 @@ struct IOSComposeContent: View {
         else {
             let engine = IOSDictationEngine(client: store.client, defaults: app.composerDefaults, context: [model.repoPath, model.repoBranches.baseBranch])
             _audioEngine = State(initialValue: engine)
-            _voice = State(initialValue: DictationController(engine: engine, finalizer: WhisperFinalizer(client: store.client), defaults: app.composerDefaults, getText: { model.prompt }, setText: { model.prompt = $0 }))
+            _voice = State(initialValue: DictationController(engine: engine, finalizer: WhisperFinalizer(client: store.client, status: { await engine.resolvedWhisperAvailability() }), defaults: app.composerDefaults, getText: { model.prompt }, setText: { model.prompt = $0 }))
         }
     }
     private var repos: [Repo] { store.repos.filter { !$0.hidden } }
@@ -117,8 +117,8 @@ struct IOSComposeContent: View {
             }
             .onChange(of: store.settings) { _, settings in model.runDefaults = ComposeRunConfig.defaults(from: settings) }
             .onChange(of: store.repos) { _, _ in seedRepo() }
-            .onAppear { seedRepo() }
-            .onDisappear { voice.teardown(); submission.teardown(); model.teardown() }
+            .onAppear { seedRepo(); audioEngine?.probeWhisper() }
+            .onDisappear { audioEngine?.stopWhisperProbe(); voice.teardown(); submission.teardown(); model.teardown() }
             .alert(L.t("native_compose_voice_label"), isPresented: Binding(get: { audioEngine?.needsAppleServerConsent == true }, set: { if !$0 { audioEngine?.resolveAppleServerConsent(false) } })) {
                 Button(L.t("native_compose_voice_allow")) { audioEngine?.resolveAppleServerConsent(true) }
                 Button(L.t("common_cancel"), role: .cancel) { audioEngine?.resolveAppleServerConsent(false) }

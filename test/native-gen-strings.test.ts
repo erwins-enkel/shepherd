@@ -32,16 +32,18 @@ import {
 
 describe("gen-strings core resources", () => {
   test("composer catalogs retain Mac dictation copy and accurately describe recording", () => {
-    for (const [locale, deferred, recording] of [
+    for (const [locale, deferred, recording, onRelease] of [
       [
         "en",
         "Dictation is not available in the native composer yet.",
         "No task is started automatically",
+        "Transcription on release",
       ],
       [
         "de",
         "Diktieren ist im nativen Aufgabenfenster noch nicht verfügbar.",
         "Es wird keine Aufgabe automatisch gestartet",
+        "Transkription beim Loslassen",
       ],
     ]) {
       const messages = JSON.parse(
@@ -50,6 +52,8 @@ describe("gen-strings core resources", () => {
       expect(messages.native_compose_dictation_deferred).toBe(deferred);
       expect(messages.native_compose_voice_no_send).toBe(recording);
       expect(messages.native_compose_voice_incomplete).toBeTruthy();
+      expect(messages.native_compose_voice_on_release).toBe(onRelease);
+      expect(KEYS_COMPOSE).toContain("native_compose_voice_on_release");
       expect(KEYS_COMPOSE).toContain("native_compose_dictation_deferred");
       expect(KEYS_COMPOSE).toContain("native_compose_voice_incomplete");
       const outputs = buildOutputs(join(tmpdir(), "composer-copy"));

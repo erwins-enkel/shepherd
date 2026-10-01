@@ -4914,5 +4914,6 @@
   "native_compose_engine_claude": "Claude",
   "native_compose_mode_plain": "Plain",
   "native_compose_dictation_deferred": "Dictation is not available in the native composer yet.",
-  "native_compose_voice_incomplete": "Some audio clips could not be transcribed. The available text was kept; review it or record the missing parts again."
+  "native_compose_voice_incomplete": "Some audio clips could not be transcribed. The available text was kept; review it or record the missing parts again.",
+  "native_compose_voice_on_release": "Transcription on release"
 }

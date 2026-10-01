@@ -14,6 +14,10 @@ on:
         description: Existing release tag on main to package for Mac testers
         required: true
         type: string
+      dry_run:
+        description: Sign, notarize and verify artifacts without publishing
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -29,7 +33,14 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RELEASE_TAG: ${{ inputs.tag }}
       UPDATE_PUBLIC_KEY: ${{ vars.SPARKLE_PUBLIC_KEY }}
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      RELEASE_APP: release-source/native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app
     steps:
+      - name: Set temporary signing paths
+        run: |
+          echo "SIGNING_DIR=$RUNNER_TEMP/shepherd-release-signing" >> "$GITHUB_ENV"
+          echo "SIGNING_KEYCHAIN=$RUNNER_TEMP/shepherd-release-signing/release.keychain-db" >> "$GITHUB_ENV"
+          echo "ASC_API_KEY_PATH=$RUNNER_TEMP/shepherd-release-signing/AuthKey.p8" >> "$GITHUB_ENV"
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -41,10 +52,21 @@ jobs:
           path: release-source
       - name: Validate release configuration
         working-directory: release-source
+        env:
+          MACOS_DEVELOPER_ID_P12: ${{ secrets.MACOS_DEVELOPER_ID_P12 }}
+          MACOS_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
         run: |
           set -euo pipefail
           [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][a-zA-Z0-9.-]+)?$ ]]
           test -n "$UPDATE_PUBLIC_KEY" || { echo '::error::Set SPARKLE_PUBLIC_KEY repository variable'; exit 1; }
+          for name in MACOS_DEVELOPER_ID_P12 MACOS_DEVELOPER_ID_P12_PASSWORD ASC_API_KEY_P8 ASC_KEY_ID ASC_ISSUER_ID SPARKLE_PRIVATE_KEY; do
+            test -n "${!name}" || { echo "::error::Set $name repository secret"; exit 1; }
+          done
+          test -n "$APPLE_TEAM_ID" || { echo '::error::Set APPLE_TEAM_ID repository variable'; exit 1; }
           git merge-base --is-ancestor HEAD origin/main
           gh release view "$RELEASE_TAG" --json isDraft --jq '.isDraft' | grep -qx false
           # Main's first-parent count increases for each merged change; independent
@@ -55,6 +77,7 @@ jobs:
           echo "SOURCE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
       - name: Reuse an already published Mac package on retry
         id: existing
+        if: inputs.dry_run != true
         run: |
           set -euo pipefail
           gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/releases?per_page=100" > "$RUNNER_TEMP/releases.json"
@@ -76,18 +99,72 @@ jobs:
       - name: Install XcodeGen
         if: steps.existing.outputs.published != 'true'
         run: brew install xcodegen
+      - name: Prepare temporary release signing keychain
+        if: steps.existing.outputs.published != 'true'
+        env:
+          MACOS_DEVELOPER_ID_P12: ${{ secrets.MACOS_DEVELOPER_ID_P12 }}
+          MACOS_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir "$SIGNING_DIR"
+          python3 - <<'PYTHON'
+          import base64, json, os, pathlib, secrets, shlex, subprocess
+          directory = pathlib.Path(os.environ['SIGNING_DIR'])
+          keychain = os.environ['SIGNING_KEYCHAIN']
+          password = secrets.token_urlsafe(48)
+          def security(*args):
+              # Suppress import/partition-list output; never render secret argv.
+              result = subprocess.run(['security', *args], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+              if result.returncode:
+                  raise SystemExit('::error::Temporary signing keychain setup failed')
+          previous = shlex.split(subprocess.check_output(['security', 'list-keychains', '-d', 'user'], text=True))
+          (directory / 'search-list.json').write_text(json.dumps(previous))
+          for name, filename in [('MACOS_DEVELOPER_ID_P12', 'identity.p12'), ('ASC_API_KEY_P8', 'AuthKey.p8')]:
+              try:
+                  (directory / filename).write_bytes(base64.b64decode(''.join(os.environ[name].split()), validate=True))
+              except ValueError:
+                  raise SystemExit('::error::Invalid base64 signing credential') from None
+          security('create-keychain', '-p', password, keychain)
+          security('set-keychain-settings', '-lut', '21600', keychain)
+          security('unlock-keychain', '-p', password, keychain)
+          security('list-keychains', '-d', 'user', '-s', *previous, keychain)
+          security('import', str(directory / 'identity.p12'), '-k', keychain,
+                   '-P', os.environ['MACOS_DEVELOPER_ID_P12_PASSWORD'], '-T', '/usr/bin/codesign')
+          security('set-key-partition-list', '-S', 'apple-tool:,apple:,codesign:', '-s', '-k', password, keychain)
+          # Resolve the exact Application identity from the imported certificate;
+          # the repository team variable must match, without hard-coding it twice.
+          identities = subprocess.check_output(['security', 'find-identity', '-v', '-p', 'codesigning', keychain], text=True)
+          names = [line.split('"')[1] for line in identities.splitlines() if '"Developer ID Application: ' in line]
+          if len(names) != 1 or not names[0].endswith('(' + os.environ['APPLE_TEAM_ID'] + ')'):
+              raise SystemExit('::error::Expected exactly one Developer ID Application identity for APPLE_TEAM_ID')
+          with open(os.environ['GITHUB_ENV'], 'a') as output:
+              output.write('SHEPHERD_CODESIGN_IDENTITY=' + names[0] + '\n')
+          PYTHON
       - name: Build universal tester release
         if: steps.existing.outputs.published != 'true'
         working-directory: release-source
-        env:
-          SHEPHERD_CODESIGN_IDENTITY: "-"
         run: |
+          set -euo pipefail
           # Use the tooling checkout's lock: the release tag may predate it.
           "$GITHUB_WORKSPACE/native/scripts/uitest-lock.sh" native/scripts/build-app.sh Release \
             "MARKETING_VERSION=$APP_VERSION" "CURRENT_PROJECT_VERSION=$BUILD_NUMBER" \
             "SHEPHERD_UPDATE_PUBLIC_KEY=$UPDATE_PUBLIC_KEY" \
             "SHEPHERD_UPDATE_FEED_URL=https://raw.githubusercontent.com/$GITHUB_REPOSITORY/macos-update-feed/appcast.xml" \
-            "ARCHS=arm64 x86_64" ONLY_ACTIVE_ARCH=NO
+            "DEVELOPMENT_TEAM=$APPLE_TEAM_ID" \
+            "OTHER_CODE_SIGN_FLAGS=--timestamp --keychain $SIGNING_KEYCHAIN" \
+            "ARCHS=arm64 x86_64" ONLY_ACTIVE_ARCH=NO 2>&1 | tail -n 40
+      - name: Sign nested code and app for distribution
+        if: steps.existing.outputs.published != 'true'
+        run: native/scripts/sign-release.sh "$RELEASE_APP" "$SHEPHERD_CODESIGN_IDENTITY" "$SIGNING_KEYCHAIN"
+      - name: Notarize and staple app before creating the update ZIP
+        if: steps.existing.outputs.published != 'true'
+        timeout-minutes: 30
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: native/scripts/notarize.sh "$RELEASE_APP"
       - name: Package and sign update
         if: steps.existing.outputs.published != 'true'
         env:
@@ -98,13 +175,36 @@ jobs:
           native/scripts/package-update.sh \
             release-source/native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app \
             "$RUNNER_TEMP/mac-update" "$TOOLS" \
-            "https://github.com/$GITHUB_REPOSITORY/releases/download/$MAC_TAG/"
+            "https://github.com/$GITHUB_REPOSITORY/releases/download/$MAC_TAG/" 2>&1 | tail -n 40
       - name: Package manual installer
         if: steps.existing.outputs.published != 'true'
         run: |
           native/scripts/package-dmg.sh \
             release-source/native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app \
             "$RUNNER_TEMP/mac-update/Shepherd-$BUILD_NUMBER.dmg"
+      - name: Sign, notarize and staple disk image
+        if: steps.existing.outputs.published != 'true'
+        timeout-minutes: 30
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          DMG="$RUNNER_TEMP/mac-update/Shepherd-$BUILD_NUMBER.dmg"
+          codesign --sign "$SHEPHERD_CODESIGN_IDENTITY" --keychain "$SIGNING_KEYCHAIN" --timestamp "$DMG"
+          native/scripts/notarize.sh "$DMG"
+      - name: Verify distribution signatures and Gatekeeper acceptance
+        if: steps.existing.outputs.published != 'true'
+        run: |
+          set -euo pipefail
+          DMG="$RUNNER_TEMP/mac-update/Shepherd-$BUILD_NUMBER.dmg"
+          codesign --verify --deep --strict "$RELEASE_APP"
+          codesign --verify --strict "$DMG"
+          for target in "$RELEASE_APP" "$DMG"; do
+            codesign -dv "$target" 2>&1 | grep -Fx "TeamIdentifier=$APPLE_TEAM_ID"
+          done
+          spctl -a -vvv -t exec "$RELEASE_APP" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          spctl -a -vvv -t open --context context:primary-signature "$DMG" 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Retain signed package for publication recovery
         if: steps.existing.outputs.published != 'true'
         uses: actions/upload-artifact@v7
@@ -113,7 +213,7 @@ jobs:
           path: ${{ runner.temp }}/mac-update/
           retention-days: 14
       - name: Publish the complete Mac release before advancing the feed
-        if: steps.existing.outputs.published != 'true'
+        if: inputs.dry_run != true && steps.existing.outputs.published != 'true'
         run: |
           set -euo pipefail
           # Immutable releases must receive every asset while still a draft.
@@ -121,7 +221,7 @@ jobs:
           if ! python3 -c 'import json,os,sys; sys.exit(not any(r["tag_name"] == os.environ["MAC_TAG"] for page in json.load(open(sys.argv[1])) for r in page))' "$RUNNER_TEMP/releases.json"; then
             gh release create "$MAC_TAG" --draft --prerelease --latest=false --target "$SOURCE_SHA" \
               --title "Shepherd for Mac $APP_VERSION" \
-              --notes "Native Mac tester release. Requires macOS 15+. Download Shepherd-$BUILD_NUMBER.dmg, open it and drag Shepherd.app into Applications. Direct launch also offers installation for all users or your account. Future updates arrive automatically. Ad-hoc signed; not Apple-notarized. Source release: $RELEASE_TAG."
+              --notes "Native Mac tester release. Requires macOS 15+. Download Shepherd-$BUILD_NUMBER.dmg, open it and drag Shepherd.app into Applications. Direct launch also offers installation for all users or your account. Future updates arrive automatically. Signed with Developer ID and notarized by Apple. Source release: $RELEASE_TAG."
           fi
           gh release view "$MAC_TAG" --json isDraft --jq '.isDraft' | grep -qx true
           gh release upload "$MAC_TAG" "$RUNNER_TEMP/mac-update/Shepherd-$BUILD_NUMBER.zip" \
@@ -129,4 +229,23 @@ jobs:
             "$RUNNER_TEMP/mac-update/appcast.xml" --clobber
           gh release edit "$MAC_TAG" --draft=false --latest=false
       - name: Advance the public appcast branch
+        if: inputs.dry_run != true
         run: python3 native/scripts/publish-appcast.py "$GITHUB_REPOSITORY" "$RUNNER_TEMP/mac-update/appcast.xml"
+      - name: Remove temporary signing credentials and keychain
+        if: always()
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, pathlib, shutil, subprocess
+          directory = pathlib.Path(os.environ['SIGNING_DIR'])
+          try:
+              previous = directory / 'search-list.json'
+              if previous.exists():
+                  subprocess.run(['security', 'list-keychains', '-d', 'user', '-s', *json.loads(previous.read_text())], check=True)
+          finally:
+              try:
+                  keychain = os.environ['SIGNING_KEYCHAIN']
+                  if pathlib.Path(keychain).exists():
+                      subprocess.run(['security', 'delete-keychain', keychain], check=True)
+              finally:
+                  shutil.rmtree(directory, ignore_errors=True)
+          PYTHON

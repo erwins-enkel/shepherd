@@ -18,14 +18,12 @@ For only your account, copy it to ~/Applications instead.
 If you open the app here, it will offer to install itself after your approval.
 You can eject this disk image once the installed app is running.
 Existing installations are never silently replaced by the app.
-This beta is ad-hoc signed, not Apple-notarized; Gatekeeper may still block it.
 
 Ziehe Shepherd.app auf Applications (Programme). Öffne Shepherd danach aus Programme.
 Nur für dein Konto: Kopiere die App stattdessen nach ~/Applications.
 Beim direkten Start hier bietet die App nach deiner Zustimmung die Installation an.
 Sobald die installierte App läuft, kannst du dieses Image auswerfen.
 Die App ersetzt vorhandene Installationen niemals stillschweigend.
-Diese Beta ist ad-hoc signiert und nicht von Apple notarisiert; Gatekeeper kann sie blockieren.
 TEXT
 # The volume title keeps the instruction visible even without opening the readme.
 hdiutil create -volname 'Shepherd → Applications (Programme)' -srcfolder "$STAGE" \

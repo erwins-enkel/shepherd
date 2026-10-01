@@ -153,15 +153,24 @@
     color: var(--color-ink);
     cursor: pointer;
   }
+  /* Hover is a bare surface; only the selection carries the bright left edge (#2638), so the
+     row under the pointer never reads as the selected one. */
   .child-row:hover,
   .single-row:hover {
     background: var(--color-panel);
   }
   .child-row.selected,
   .single-row.selected {
-    border-color: var(--color-line-bright);
     background: var(--color-sel);
+    box-shadow: inset 2px 0 0 var(--color-ink-bright);
     color: var(--color-ink-bright);
+  }
+  /* The listbox owns keyboard focus (aria-activedescendant): ring its active row. */
+  :global(.issue-options:focus-visible) .child-row.selected,
+  :global(.issue-options:focus-visible) .single-row.selected {
+    box-shadow:
+      inset 2px 0 0 var(--color-ink-bright),
+      inset 0 0 0 1px var(--color-amber);
   }
 
   /* Children hang under their epic header on a leading rail (as in EpicPanel). */
@@ -208,12 +217,16 @@
     font-size: var(--fs-micro);
   }
 
+  /* Two lines before the ellipsis (#2638): the list column is narrow, one line cut most titles. */
   .title {
     flex: 1;
     min-width: 0;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
 
   /* "holds slot i/m" (#2620): neutral — the dot beside the number carries the state color. */

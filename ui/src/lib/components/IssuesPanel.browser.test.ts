@@ -394,6 +394,34 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     expect(detail()!.textContent).toContain(m.issuetask_no_epic_hint());
   });
 
+  it("a hovered row never looks selected: only the selection gets the left edge (#2638)", async () => {
+    await page.viewport(1440, 900);
+    seed([plain(1), plain(2)]);
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+    await selectRow("s:1");
+    await userEvent.hover(option("s:2")!);
+
+    const selected = getComputedStyle(option("s:1")!);
+    const hovered = getComputedStyle(option("s:2")!);
+    await expect
+      .poll(() => getComputedStyle(option("s:2")!).backgroundColor)
+      .not.toBe("rgba(0, 0, 0, 0)");
+    expect(option("s:2")!.classList.contains("selected")).toBe(false);
+    expect(option("s:2")!.getAttribute("aria-selected")).toBe("false");
+    expect(hovered.boxShadow).toBe("none");
+    expect(selected.boxShadow).toContain("inset");
+    expect(hovered.backgroundColor).not.toBe(selected.backgroundColor);
+  });
+
+  it("titles wrap to two lines before the ellipsis (#2638)", async () => {
+    seed([plain(1, { title: "A long title ".repeat(20) })]);
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+    await expect.poll(() => option("s:1")).not.toBeNull();
+    const title = getComputedStyle(option("s:1")!.querySelector(".issue-title")!);
+    expect(title.webkitLineClamp).toBe("2");
+    expect(title.whiteSpace).not.toBe("nowrap");
+  });
+
   it("↑/↓ move the selection, → expands an epic and A starts a task", async () => {
     const onnewtask = vi.fn();
     seed([plain(1, { title: "Epic parent" }), plain(2), plain(3)], [summary(1)]);

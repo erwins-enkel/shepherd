@@ -128,7 +128,7 @@ import Testing
         let finalizer = WhisperFinalizer(status: { true }, requestTimeout: 0.01, transcribe: { _, _ in try? await Task.sleep(for: .milliseconds(50)); return "Late server" })
         let c = DictationController(engine: engine, finalizer: finalizer, finalizationTimeout: 0.01, now: { host.date }, getText: { host.text }, setText: { host.text = $0 })
         await c.begin(); host.date.addTimeInterval(1); c.finalize()
-        try await Task.sleep(for: .milliseconds(90)); #expect(host.text == "Existing. Apple final")
+        #expect(await eventually { host.text == "Existing. Apple final" && c.state != .finalizing })
         await c.begin(); host.date.addTimeInterval(1); c.finalize(); c.teardown()
         try await Task.sleep(for: .milliseconds(90)); #expect(host.text == "Existing. Apple final")
     }
@@ -162,7 +162,7 @@ import Testing
         #expect(result == .init(text: "First Third", missingClips: [1]))
         let c = make(host, engine, finalizer: finalizer)
         await c.begin(); host.date.addTimeInterval(1); c.finalize()
-        try await Task.sleep(for: .milliseconds(150))
+        #expect(await eventually { c.state == .error })
         #expect(host.text == "Existing. First Third")
         #expect(c.noticeKey == "native_compose_voice_incomplete")
         #expect(c.noticeCopy != nil); #expect(c.state == .error); #expect(c.canUndo)
@@ -177,7 +177,7 @@ import Testing
         let c = DictationController(engine: engine, finalizer: finalizer, finalizationTimeout: 0.01,
             now: { host.date }, getText: { host.text }, setText: { host.text = $0 })
         await c.begin(); host.date.addTimeInterval(1); c.finalize()
-        try await Task.sleep(for: .milliseconds(200))
+        #expect(await eventually { c.state == .idle })
         #expect(host.text == "Existing. Clip1 Clip2 Clip3")
         #expect(c.noticeKey == nil); #expect(c.state == .idle)
     }
@@ -224,4 +224,14 @@ import Testing
         let p = DictationController(engine: engine, defaults: defaults, getText: { "" }, setText: { _ in })
         p.locale = "en-US"; #expect(defaults.string(forKey: "shepherd:dictation-language") == "en-US")
     }
+}
+
+/// Polls a main-actor condition instead of sleeping a fixed time: CI runners are slower than laptops.
+@MainActor private func eventually(timeout: Duration = .seconds(10), _ condition: () -> Bool) async -> Bool {
+    let clock = ContinuousClock(), deadline = clock.now + timeout
+    while clock.now < deadline {
+        if condition() { return true }
+        try? await Task.sleep(for: .milliseconds(10))
+    }
+    return condition()
 }

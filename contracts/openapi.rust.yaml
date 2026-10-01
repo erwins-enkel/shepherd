@@ -8903,41 +8903,6 @@ paths:
           description: Missing or invalid credential.
         "404":
           description: Plugin or route absent; Apple recognition remains usable.
-  /api/plugins/voice-whisper/transcribe:
-    post:
-      operationId: transcribeAudio
-      description: Plugin-provided transcription of a clip of at most 60 seconds. The web uses audio/wav, 16 kHz mono 16-bit PCM. Final requests omit mode.
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required:
-                - file
-              properties:
-                file:
-                  type: string
-                  format: binary
-                lang:
-                  type: string
-                mode:
-                  type: string
-                  enum:
-                    - partial
-      responses:
-        "200":
-          description: Plugin-provided transcript.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/VoiceTranscript"
-        "401":
-          description: Missing or invalid credential.
-        "404":
-          description: Plugin or route absent.
-        "429":
-          description: Plugin busy; its error body is not part of the client contract.
   /api/repo-config:
     get:
       operationId: getRepoConfig

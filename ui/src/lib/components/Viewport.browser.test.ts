@@ -2359,6 +2359,22 @@ describe("Viewport full auto-merge strip (TASK-1368)", () => {
     expect(mount.hasAttribute("inert")).toBe(false);
   });
 
+  it("never dims while the session's own agent is working or blocked in this PTY", async () => {
+    for (const st of ["running", "blocked"] as const) {
+      const id = `vr-am-${st}`;
+      reviews.reviewing = { [id]: true };
+      render(Viewport, {
+        session: session({ id, repoPath: "/repo/shepherd", status: st }),
+        autoMerge: status(id, "critic_pending"),
+        previewPort: null,
+        openPreviewTick: 0,
+      });
+      await vi.waitFor(() => expect(document.querySelector(".am-banner")).not.toBeNull());
+      expect(document.querySelector(".term-mount")!.classList.contains("auto-owned")).toBe(false);
+      document.body.innerHTML = "";
+    }
+  });
+
   it("an operator-owned hold shows the strip without dimming", async () => {
     const id = "vr-am-operator";
     render(Viewport, {

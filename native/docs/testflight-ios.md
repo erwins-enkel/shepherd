@@ -1,44 +1,105 @@
 # iOS TestFlight candidate
 
-The archive scripts create and validate local artifacts. They never upload, change
-keychains, install signing identities or request provisioning updates.
+`.github/workflows/native-ios-testflight.yml` is dispatched manually. It archives
+`run.shepherd.ios` for **Shepherd for Agents** (App Store Connect Apple ID
+`6818120191`) and defaults to a **dry run**: a signed App Store IPA artifact retained
+for 14 days, with no upload. Signing runs only on the macOS GitHub Actions runner;
+never run it against an operator's login keychain.
 
-Copy `native/Apps/ShepherdIOS/ExportOptions.example.plist` outside the repository and
-replace the team/profile placeholders. Supply the authorized team, distribution
-identity, provisioning profile, path to this file and an explicit export-compliance
-answer using `SHEPHERD_IOS_TEAM_ID`, `SHEPHERD_IOS_SIGNING_IDENTITY`,
-`SHEPHERD_IOS_PROFILE`, `SHEPHERD_IOS_EXPORT_OPTIONS` and
-`SHEPHERD_IOS_EXPORT_COMPLIANCE` (`YES` or `NO`, meaning whether the app uses
-non-exempt encryption). Determine that answer for the shipping app; the scripts do
-not infer it from simulator success. Missing inputs fail before Xcode runs.
+## Signing configuration
+
+Set repository variable `APPLE_TEAM_ID` (`3WSC8JG6J4`) and these Actions secrets:
+
+- `ASC_API_KEY_P8`: base64 of the App Store Connect team API key's `.p8` file.
+- `ASC_KEY_ID`: that key's identifier.
+- `ASC_ISSUER_ID`: its issuer identifier.
+
+Use an Admin team API key with access to Certificates, Identifiers & Profiles and
+cloud-managed distribution signing. No distribution certificate, P12 password or
+manually created provisioning profile is required by this pipeline. Missing inputs
+fail closed. The key is decoded into `$RUNNER_TEMP` with mode `0600` and removed by
+an `if: always()` step. It is never included in artifacts.
+
+`archive-ios-app.sh` uses `CODE_SIGN_STYLE=Automatic`, the team ID,
+`-allowProvisioningUpdates`, `-authenticationKeyPath`, `-authenticationKeyID` and
+`-authenticationKeyIssuerID` for archive and export. Xcode manages provisioning;
+distribution export uses Apple's cloud-managed signing when no local distribution
+identity exists. The archive may use an Apple Development identity before export
+re-signs it for distribution. The job summary records the actual identities and
+profile names/UUIDs; a successful simulator run proves neither.
+
+Export options use `method=app-store-connect`, `signingStyle=automatic`, the team
+ID, `manageAppVersionAndBuildNumber=false`, and `destination=export` for a dry run
+or `destination=upload` for a real dispatch. `testFlightInternalTestingOnly=false`
+keeps the build eligible for later external testing. These options were verified
+against Xcode 27.0's `xcodebuild -help`; see also Apple's
+[cloud-managed certificate documentation](https://developer.apple.com/help/account/certificates/cloud-managed-certificates/).
+
+The build number is `git rev-list --first-parent --count origin/main`, using the
+same counting rule as `native-release.yml`, even for a feature-branch dry run.
+The marketing version is the highest version-sorted `v*` tag, or `0.1.0` when no
+such tag exists. Non-numeric release versions fail before archive. Repeated runs
+on the same main revision keep the same build number: after uploading it, advance
+main before another upload of that marketing version.
+
+## Dispatch and review
+
+After the workflow exists on the default branch:
 
 ```bash
-"$LOCK" native/scripts/archive-ios-app.sh Release
-"$LOCK" native/scripts/validate-ios-archive.sh
+gh workflow run native-ios-testflight.yml \
+  --ref codex/2431-ios-stage-2 \
+  -f ref=codex/2431-ios-stage-2 -f dry_run=true
+
+gh run list --workflow native-ios-testflight.yml --limit 5
+gh run view RUN_ID
 ```
 
-Default artifacts are under `native/Apps/ShepherdIOS/.build/`: `ShepherdIOS.xcarchive`
-and `export/`. Existing outputs are refused. Override paths with
-`SHEPHERD_IOS_ARCHIVE_PATH` and `SHEPHERD_IOS_EXPORT_PATH`. Validation checks the
-archive signature, provisioning presence, `run.shepherd.ios`, version/build, iPhone
-and iPad families, export-compliance input, IPA identity and local export method.
-It rejects an internal-only distribution setting. This is local validation, not an
-App Store Connect acceptance result.
+A new workflow that exists only on a branch may not be dispatchable. For initial
+PR verification only, a temporary `pull_request` trigger limited to this workflow
+file can run the same job with dry-run forced true. Remove that trigger after
+verification; the shipping workflow must be `workflow_dispatch` only.
 
-With explicit upload authority, use Xcode Organizer's App Store Connect distribution
-flow. Complete App Store Connect privacy, export-compliance and test information,
-including contact details and review access. First add an internal group and record
-the beta smoke on ordinary iPhone, iPad and the intended Duo surfaces; then prepare
-external testers or a public link for explicit publication approval. An internal-only
-build cannot become an external beta.
-([Apple distribution guidance](https://developer.apple.com/documentation/xcode/distributing-your-app-for-beta-testing-and-releases))
+Download the `shepherd-ios-BUILD_NUMBER` artifact and inspect the run summary.
+`validate-ios-archive.sh` verifies the signature, provisioning team and app ID,
+expiry, iPhone/iPad families, display name, app icon, encryption declaration and
+archive/IPA metadata agreement. Exported profiles must be App Store distribution
+profiles, with no device list or debugging entitlement. A dry run does not prove
+App Store Connect upload acceptance or beta availability.
 
-Apple permits up to 100 internal App Store Connect users and 10,000 external testers;
-builds expire after 90 days. External testing may require TestFlight App Review.
-Record the uploaded build number, expiry, review status and beta results without
-Apple account credentials or signing material.
-([Apple TestFlight overview](https://developer.apple.com/help/app-store-connect/test-a-beta-version/testflight-overview/))
+Only after review and merge, the release operator can explicitly upload:
 
-Until signing, simulator/live acceptance, actual archive/export validation and the
-authorized TestFlight smoke have run, report those gates as unmet. Keep archives,
-IPAs, live result bundles and filled export-options files outside version control.
+```bash
+gh workflow run native-ios-testflight.yml --ref main -f ref=main -f dry_run=false
+```
+
+This task must not execute that upload command. After an authorized upload, wait
+for processing under App Store Connect → Shepherd for Agents → TestFlight.
+Complete beta information, contact details, privacy and review access. Create an
+**internal testing group**, add the processed build and authorized App Store
+Connect users, then record beta smoke results on iPhone and iPad. Hardware/Duo and
+live-server acceptance remain separate gates. External groups/public links and
+TestFlight App Review are subsequent publication steps.
+
+Builds expire **90 days** after upload. Record the build number, expiry, processing
+and review status and smoke results. See Apple's
+[internal tester instructions](https://developer.apple.com/help/app-store-connect/test-a-beta-version/add-internal-testers/)
+and [TestFlight overview](https://developer.apple.com/help/app-store-connect/test-a-beta-version/testflight-overview/).
+
+## Encryption and icon provenance
+
+The iOS app and shared `ShepherdAppCore`/`ShepherdKit` sources contain no CryptoKit,
+CommonCrypto, custom cipher or encryption implementation; networking uses the OS
+URLSession HTTP(S)/TLS stack. OS Keychain storage does not implement custom
+cryptography. `ITSAppUsesNonExemptEncryption=false` is set both in the source plist
+and XcodeGen properties. Reassess this declaration if encryption dependencies or
+features change. `CFBundleDisplayName` is `Shepherd`.
+
+Neither this branch nor the rebased main has a Mac AppIcon asset. The iOS icon uses
+the existing brand source `ui/static/icons/v2/icon-maskable.svg`, rasterized with
+Sharp at 1024×1024 with the alpha channel removed. This retains the repository's
+sheep artwork and full-bleed background; iOS supplies the corner mask. The asset
+is `Sources/Assets.xcassets/AppIcon.appiconset/AppIcon.png`.
+
+Keep archives, IPAs, filled export options, signing material and live diagnostics
+out of version control. Never upload live-smoke token handoffs or xcresults.

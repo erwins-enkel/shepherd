@@ -1,0 +1,109 @@
+name: native-ios-testflight
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Source branch, tag or commit to archive
+        type: string
+        default: main
+        required: true
+      dry_run:
+        description: Export a signed IPA artifact without uploading to App Store Connect
+        type: boolean
+        default: true
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-ios-testflight
+  cancel-in-progress: false
+
+jobs:
+  testflight:
+    name: iOS TestFlight archive and export
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      SHEPHERD_IOS_DRY_RUN: ${{ inputs.dry_run }}
+      SHEPHERD_IOS_AUTH_KEY_PATH: ${{ runner.temp }}/ios-auth-key.p8
+      SHEPHERD_IOS_EXPORT_OPTIONS: ${{ runner.temp }}/ios-export-options.plist
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare API key and export options
+        env:
+          ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          for name in APPLE_TEAM_ID ASC_API_KEY_P8 ASC_KEY_ID ASC_ISSUER_ID; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Required secret/variable $name is missing"
+              exit 1
+            fi
+          done
+          python3 - <<'PY'
+          import base64, os, plistlib, sys
+          try:
+              key = base64.b64decode(os.environ['ASC_API_KEY_P8'].strip(), validate=True)
+              if not key.startswith(b'-----BEGIN PRIVATE KEY-----'):
+                  raise ValueError('invalid key format')
+          except ValueError:
+              sys.exit('::error::ASC_API_KEY_P8 must contain a base64-encoded .p8 private key')
+          fd = os.open(os.environ['SHEPHERD_IOS_AUTH_KEY_PATH'], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+          with os.fdopen(fd, 'wb') as f:
+              f.write(key)
+          dry_run = os.environ['SHEPHERD_IOS_DRY_RUN']
+          if dry_run not in ('true', 'false'):
+              sys.exit('::error::Invalid dry_run input')
+          with open(os.environ['SHEPHERD_IOS_EXPORT_OPTIONS'], 'wb') as f:
+              plistlib.dump(dict(method='app-store-connect', destination='export' if dry_run == 'true' else 'upload',
+                  teamID=os.environ['APPLE_TEAM_ID'], signingStyle='automatic',
+                  manageAppVersionAndBuildNumber=False, testFlightInternalTestingOnly=False, uploadSymbols=True), f)
+          PY
+      - name: Select version and build number
+        run: |
+          set -euo pipefail
+          # Same first-parent count as native-release.yml, rooted at main even
+          # when dispatching a feature branch. Retries deliberately keep the number.
+          echo "SHEPHERD_IOS_BUILD_NUMBER=$(git rev-list --first-parent --count origin/main)" >> "$GITHUB_ENV"
+          version=$(git tag --list 'v*' --sort=-version:refname | head -n 1)
+          version=${version#v}
+          version=${version:-0.1.0}
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo '::error::Newest v* tag is not an App Store marketing version'
+            exit 1
+          fi
+          echo "SHEPHERD_IOS_VERSION=$version" >> "$GITHUB_ENV"
+          echo "Source: $(git rev-parse HEAD); main: $(git rev-parse origin/main); version: $version" >> "$GITHUB_STEP_SUMMARY"
+      - name: Install XcodeGen and report Xcode
+        run: |
+          brew install xcodegen
+          xcodebuild -version
+      - name: Archive and export with automatic signing
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          native/scripts/uitest-lock.sh native/scripts/archive-ios-app.sh Release 2>&1 | tee "$RUNNER_TEMP/ios-signing.log"
+          grep -E 'Authority=|TeamIdentifier=|profile:|Validated|upload completed' "$RUNNER_TEMP/ios-signing.log" >> "$GITHUB_STEP_SUMMARY"
+      - name: Remove API key
+        if: always()
+        run: rm -f "$SHEPHERD_IOS_AUTH_KEY_PATH"
+      - name: Preserve dry-run IPA
+        if: success() && env.SHEPHERD_IOS_DRY_RUN == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: shepherd-ios-${{ env.SHEPHERD_IOS_BUILD_NUMBER }}
+          path: ${{ runner.temp }}/ios-export/*.ipa
+          if-no-files-found: error
+          retention-days: 14

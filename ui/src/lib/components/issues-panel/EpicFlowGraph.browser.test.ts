@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import EpicFlowGraph from "./EpicFlowGraph.svelte";
-import type { Epic, EpicChild } from "$lib/types";
+import type { Epic, EpicChild, Session } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 
 function child(number: number, blockedBy: number[], state: EpicChild["state"]): EpicChild {
@@ -119,6 +119,27 @@ describe("EpicFlowGraph", () => {
 
     await expect.element(group(m.epicflow_stage_first())).toBeInTheDocument();
     expect(page.getByText(/only help here/).all()).toHaveLength(0);
+  });
+
+  it("pulses only the in-flight node whose agent is working right now", async () => {
+    const chain = [
+      { ...child(1, [], "merged"), sessionId: "s1" },
+      { ...child(2, [1], "running"), sessionId: "s2" },
+      { ...child(3, [1], "in-review"), sessionId: "s3" },
+      child(4, [1], "running"),
+    ];
+    const status: Record<string, Session["status"]> = { s1: "running", s2: "running", s3: "done" };
+    render(EpicFlowGraph, {
+      epic: epic(chain),
+      sessionInfo: (id: string) => ({ session: { status: status[id] } as Session }),
+    });
+
+    await expect.element(page.getByRole("button", { name: /^#2/ })).toHaveClass("working");
+    for (const n of [1, 3, 4]) {
+      await expect
+        .element(page.getByRole("button", { name: new RegExp(`^#${n}`) }))
+        .not.toHaveClass("working");
+    }
   });
 
   it("scrolls horizontally past four stages", async () => {

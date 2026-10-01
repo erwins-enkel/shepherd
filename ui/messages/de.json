@@ -4986,5 +4986,7 @@
   "native_ios_latency_terminal": "Terminalstart",
   "native_ios_latency_terminal_slow": "Terminalstart langsam",
   "native_ios_latency_terminal_slow_explanation": "Der Terminalstart ist langsam, während Anfragen zügig sind; Terminalprozess und Replay-Größe auf dem Server prüfen.",
-  "native_ios_latency_title": "Verbindungsgeschwindigkeit"
+  "native_ios_latency_title": "Verbindungsgeschwindigkeit",
+  "feat_epicflow_pulse_title": "Ablauf: sehen, an welchem Schritt gearbeitet wird",
+  "feat_epicflow_pulse_body": "Im Ablauf eines Epics glüht der Schritt, an dem gerade ein Agent arbeitet, leicht an seiner linken Kante, und sein Punkt pulsiert. Sobald der Agent anhält und auf dich wartet, wird er wieder ruhig."
 }

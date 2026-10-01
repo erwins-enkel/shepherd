@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import {
   computeMerge,
+  mergeWaitReason,
   REBASE_DEDUP_TTL_MS,
   type MergeRepoState,
   type MergeSessionView,
@@ -637,4 +638,103 @@ test("behind with a current-head REAL error verdict → hold", () => {
     }),
   );
   expect(d.kind).toBe("hold");
+});
+
+// ── mergeWaitReason (#TASK-1368): the per-PR "why isn't the train landing this?" ──────────────
+
+const critic = { criticEnabled: true } as const;
+const wait = (o: Partial<MergeSessionView>, st: Partial<MergeRepoState> = critic) =>
+  mergeWaitReason(sess(o), state([], st));
+
+test("mergeWaitReason: ready PR (critic clean for head) → null", () => {
+  expect(wait({ reviewDecision: "commented", reviewHeadSha: "h1" })).toBeNull();
+  expect(wait({}, { criticEnabled: false })).toBeNull();
+});
+
+test("mergeWaitReason: no open PR → null (nothing to wait for)", () => {
+  expect(wait({ state: "merged" })).toBeNull();
+  expect(wait({ number: null })).toBeNull();
+});
+
+test("mergeWaitReason: critic on, no verdict / verdict for an older head → critic_pending", () => {
+  expect(wait({ reviewDecision: null })).toBe("critic_pending");
+  expect(wait({ reviewDecision: "commented", reviewHeadSha: "h0" })).toBe("critic_pending");
+});
+
+test("mergeWaitReason: stale error / changes_requested still reads as critic_pending", () => {
+  expect(wait({ reviewDecision: "error", reviewHeadSha: "h0" })).toBe("critic_pending");
+  expect(wait({ reviewDecision: "changes_requested", reviewHeadSha: "h0" })).toBe("critic_pending");
+});
+
+test("mergeWaitReason: current-head error / changes_requested", () => {
+  expect(wait({ reviewDecision: "error", reviewHeadSha: "h1" })).toBe("critic_error");
+  expect(wait({ reviewDecision: "changes_requested", reviewHeadSha: "h1" })).toBe(
+    "changes_requested",
+  );
+  // critic off: a leftover verdict still blocks, and is reported as such
+  expect(wait({ reviewDecision: "error" }, { criticEnabled: false })).toBe("critic_error");
+});
+
+test("mergeWaitReason: CI pending vs failed", () => {
+  expect(wait({ checks: "pending" })).toBe("checks_pending");
+  expect(wait({ checks: "none" })).toBe("checks_pending");
+  expect(wait({ checks: "failure" })).toBe("checks_failed");
+});
+
+test("mergeWaitReason: definite conflict outranks red CI", () => {
+  expect(wait({ checks: "none", mergeable: false, mergeStateStatus: "dirty" })).toBe("conflict");
+});
+
+test("mergeWaitReason: forge not mergeable / branch protection blocked", () => {
+  expect(wait({ mergeable: null })).toBe("not_mergeable");
+  expect(wait({ mergeStateStatus: "blocked" })).toBe("not_mergeable");
+});
+
+test("mergeWaitReason: behind base", () => {
+  expect(wait({ behind: true })).toBe("behind");
+  expect(wait({ behind: null })).toBe("behind");
+});
+
+test("mergeWaitReason: rebase budget exhausted → rebase_cap, ahead of behind", () => {
+  expect(wait({ behind: true, rebaseCount: 5 }, { criticEnabled: false, rebaseCap: 5 })).toBe(
+    "rebase_cap",
+  );
+});
+
+test("mergeWaitReason: merge backoff outranks everything", () => {
+  expect(wait({ mergeBlocked: true, checks: "failure" })).toBe("merge_backoff");
+});
+
+test("mergeWaitReason: draft mode without sign-off → signoff", () => {
+  expect(wait({}, { criticEnabled: false, draftMode: true })).toBe("signoff");
+});
+
+test("mergeWaitReason: otherwise-ready holds — stacked before manual steps", () => {
+  const ready = { reviewDecision: "commented", reviewHeadSha: "h1" } as const;
+  const step = { id: "ms1", text: "set env", postMerge: false };
+  expect(wait({ ...ready, stacked: true, manualSteps: [step] })).toBe("stacked");
+  expect(wait({ ...ready, manualSteps: [step] })).toBe("manual_steps");
+  expect(wait({ ...ready, manualSteps: [step], manualStepsAckedAt: 1 })).toBeNull();
+  // a red PR that merely declares steps reports the red gate, not the steps
+  expect(wait({ checks: "pending", manualSteps: [step] })).toBe("checks_pending");
+});
+
+test("mergeWaitReason agrees with computeMerge: null for a ready PR ⇔ it merges", () => {
+  const cases: Partial<MergeSessionView>[] = [
+    {},
+    { reviewDecision: "commented", reviewHeadSha: "h1" },
+    { reviewDecision: "commented", reviewHeadSha: "h0" },
+    { checks: "pending" },
+    { behind: true },
+    { mergeStateStatus: "blocked" },
+    { mergeBlocked: true },
+    { reviewDecision: "error", reviewHeadSha: "h1" },
+  ];
+  for (const c of cases) {
+    for (const criticEnabled of [true, false]) {
+      const st = state([sess(c)], { criticEnabled });
+      const merges = computeMerge(st).kind === "merge";
+      expect(mergeWaitReason(sess(c), st) === null).toBe(merges);
+    }
+  }
 });

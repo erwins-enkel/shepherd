@@ -7,6 +7,7 @@ export const auto: AutoMergeStatus = {
   state: "manual_steps",
   detail: "TASK-1",
   sessionId: "a",
+  waiting: [{ sessionId: "a", code: "critic_pending" }],
 };
 export const drain: DrainStatus = {
   repoPath: "/fixture",

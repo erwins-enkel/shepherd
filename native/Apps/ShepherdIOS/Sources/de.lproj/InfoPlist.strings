@@ -1,0 +1,2 @@
+"NSMicrophoneUsageDescription" = "Shepherd verwendet das Mikrofon, während du eine Aufgabe diktierst. Audio wird an deinen Shepherd-Server gesendet, wenn dessen Sprach-Plugin verfügbar ist.";
+"NSSpeechRecognitionUsageDescription" = "Spracherkennung liefert Live-Text und Ersatztranskription. Audio wird nach Möglichkeit auf diesem Gerät verarbeitet; die Verarbeitung durch Apple erfordert deine Zustimmung.";

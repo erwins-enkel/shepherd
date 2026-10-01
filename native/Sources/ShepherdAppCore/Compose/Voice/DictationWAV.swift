@@ -13,6 +13,7 @@ public enum DictationWAV {
         word(UInt32(16)); word(UInt16(1)); word(UInt16(1)); word(UInt32(16_000))
         word(UInt32(32_000)); word(UInt16(2)); word(UInt16(16)); ascii("data"); word(UInt32(count * 2))
         for index in 0..<count {
+            if index % 1024 == 0 && Task.isCancelled { return Data() }
             let position = Double(index) * ratio, left = Int(position), right = min(left + 1, samples.count - 1)
             let fraction = Float(position - Double(left))
             let value = max(-1, min(1, samples[left] * (1 - fraction) + samples[right] * fraction))

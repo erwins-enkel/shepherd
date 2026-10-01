@@ -17,7 +17,7 @@ import ShepherdKit
     private var captureTask: Task<Void, Never>?
     private var speech: (any AppleLiveSpeech)?
     private var pendingSpeech: [Task<String, Never>] = []
-    private var audioClips: [Data] = []
+    private var audioClips: [Task<Data, Never>] = []
     private var samples: [Float] = []
     private var inputRate: Double = 16_000
     private var texts: [String] = []
@@ -170,7 +170,9 @@ import ShepherdKit
     }
     private func closeAudioClip() {
         guard !samples.isEmpty else { return }
-        audioClips.append(DictationWAV.encode(samples, inputRate: inputRate)); samples = []
+        let captured = samples, rate = inputRate
+        samples = []
+        audioClips.append(Task.detached(priority: .userInitiated) { DictationWAV.encode(captured, inputRate: rate) })
     }
     func finish() async throws -> DictationRecording {
         let mine = generation
@@ -186,7 +188,12 @@ import ShepherdKit
         }; speech = nil
         for task in pendingSpeech { _ = await task.value }; pendingSpeech = []
         guard mine == generation else { throw CancellationError() }
-        let clips = audioClips.enumerated().map { DictationClip(wav: $0.element, appleText: texts.indices.contains($0.offset) ? texts[$0.offset] : "") }
+        var clips: [DictationClip] = []
+        for (index, encoding) in audioClips.enumerated() {
+            let wav = await encoding.value
+            guard mine == generation else { throw CancellationError() }
+            clips.append(.init(wav: wav, appleText: texts.indices.contains(index) ? texts[index] : ""))
+        }
         let recording = DictationRecording(clips: clips, appleText: texts.filter { !$0.isEmpty }.joined(separator: " "))
         continuation?.finish(); continuation = nil; audioClips = []; samples = []
         return recording
@@ -194,6 +201,6 @@ import ShepherdKit
     func cancel() async {
         generation += 1; preparing = false; resolveAppleServerConsent(false); capture.stop(); captureTask?.cancel(); captureTask = nil
         speech?.cancel(); speech = nil; pendingSpeech.forEach { $0.cancel() }; pendingSpeech = []
-        audioClips = []; samples = []; texts = []; continuation?.finish(); continuation = nil
+        audioClips.forEach { $0.cancel() }; audioClips = []; samples = []; texts = []; continuation?.finish(); continuation = nil
     }
 }

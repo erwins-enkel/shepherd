@@ -40,6 +40,8 @@ jobs:
       - uses: ./.github/actions/bun-install-retry
       - name: Install XcodeGen
         run: brew install xcodegen
+      - name: Install Metal toolchain for SwiftTerm
+        run: native/scripts/uitest-lock.sh xcodebuild -downloadComponent MetalToolchain
       - name: Report toolchain and check generated resources
         run: |
           set -euo pipefail

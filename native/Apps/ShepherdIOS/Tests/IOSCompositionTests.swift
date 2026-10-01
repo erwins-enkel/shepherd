@@ -21,6 +21,13 @@ final class IOSCompositionTests: XCTestCase {
     func testStorageFailureFailsClosed() {
         XCTAssertThrowsError(try IOSLaunchEnvironment(configuration: .init(isIsolated: true), makeDefaults: { _ in nil }))
     }
+    func testNormalLaunchAllowsRepliesWithoutReadOnlyAudit() throws {
+        let launch = try IOSLaunchEnvironment(configuration: .init())
+        let app = launch.makeModel()
+        XCTAssertTrue(app.allowsTerminalInput)
+        XCTAssertNil(app.liveRequestAudit)
+        XCTAssertFalse(app.allowsQueueRecomputation)
+    }
     func testActivationRegistersOnlyReadingModels() async throws {
         let launch = try IOSLaunchEnvironment(configuration: .init(isIsolated: true))
         let app = launch.makeModel()
@@ -34,7 +41,8 @@ final class IOSCompositionTests: XCTestCase {
         XCTAssertNotNil(app.extension(QueuesModel.self))
         XCTAssertNotNil(app.extension(MergeModel.self))
         XCTAssertNotNil(app.extension(ReadOnlySidebarRecovery.self))
-        XCTAssertNotNil(app.extension(ActionsModel.self)) // recap reads; no action UI
+        XCTAssertNotNil(app.extension(ActionsModel.self)) // recap reads
+        XCTAssertNotNil(app.extension(IOSTerminalController.self))
         XCTAssertNil(app.extension(NotificationsModel.self))
     }
 

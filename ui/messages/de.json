@@ -4858,5 +4858,15 @@
   "native_ios_usage_warning": "{window}: {pct}% verbraucht",
   "native_ios_group_collapsed": "Eingeklappt",
   "native_ios_group_expanded": "Ausgeklappt",
-  "native_ios_next_waiting": "Warte auf Empfehlungen vom Server. Aktualisiere Nächstes in der Web- oder Mac-App, um sie zu berechnen."
+  "native_ios_next_waiting": "Warte auf Empfehlungen vom Server. Aktualisiere Nächstes in der Web- oder Mac-App, um sie zu berechnen.",
+  "native_ios_detail_info": "Info",
+  "native_ios_detail_task": "Task-ID",
+  "native_ios_detail_path": "Repository-Pfad",
+  "native_ios_detail_branch": "Branch",
+  "native_ios_terminal_font_size": "Terminal-Schriftgröße",
+  "native_ios_terminal_font_points": "{size} pt",
+  "native_ios_terminal_hint": "Live-Ausgabe der Sitzung. Scrolle, um frühere Ausgaben zu lesen.",
+  "native_ios_terminal_latest": "Neueste Ausgabe",
+  "native_ios_terminal_superseded_body": "Ein anderes Gerät ist mit diesem Terminal verbunden. Übernehmen gibt es an dieses iPhone oder iPad zurück und trennt das andere Gerät.",
+  "native_ios_terminal_reply": "Antworten"
 }

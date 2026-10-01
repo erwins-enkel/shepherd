@@ -29,6 +29,13 @@ final class ShepherdIOSLiveCleanupUITests: XCTestCase {
         XCTAssertTrue(row.waitForExistence(timeout: 30), "A live session is required for detail coverage")
         row.tap()
         XCTAssertTrue(app.descendants(matching: .any)["session-detail"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.descendants(matching: .any)["detail-tab-terminal"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.buttons["terminal-font-settings"].exists)
+        for identifier in ["terminal-open-reply", "terminal-reply-text", "terminal-reply-send",
+                           "terminal-take-over", "terminal-retry"] + IOSTerminalKeyIdentifiers.all {
+            XCTAssertFalse(app.descendants(matching: .any)[identifier].exists)
+        }
+        app.buttons["detail-select-activity"].tap()
         XCTAssertTrue(app.descendants(matching: .any)["detail-activity-list"].waitForExistence(timeout: 15))
         let audit = app.staticTexts["live-request-audit"]
         XCTAssertTrue(audit.waitForExistence(timeout: 5))
@@ -75,6 +82,11 @@ final class ShepherdIOSLiveCleanupUITests: XCTestCase {
         let token: String
         let baseURL: String
     }
+}
+
+private enum IOSTerminalKeyIdentifiers {
+    static let all = ["escape", "tab", "space", "left", "down", "up", "right", "ctrlA", "ctrlE",
+                      "ctrlU", "ctrlC", "ctrlD", "enter"].map { "terminal-key-" + $0 }
 }
 
 private final class RejectRedirects: NSObject, URLSessionTaskDelegate, Sendable {

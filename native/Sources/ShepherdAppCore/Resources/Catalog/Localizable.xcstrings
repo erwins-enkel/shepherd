@@ -1374,6 +1374,244 @@
         }
       }
     },
+    "controlbar_toolbar_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal-Steuertasten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal control keys"
+          }
+        }
+      }
+    },
+    "controlkey_arrow_down": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pfeil runter"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrow down"
+          }
+        }
+      }
+    },
+    "controlkey_arrow_left": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pfeil links"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrow left"
+          }
+        }
+      }
+    },
+    "controlkey_arrow_right": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pfeil rechts"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrow right"
+          }
+        }
+      }
+    },
+    "controlkey_arrow_up": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pfeil hoch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrow up"
+          }
+        }
+      }
+    },
+    "controlkey_ctrl_a": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strg A, Zeilenanfang"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ctrl A, start of line"
+          }
+        }
+      }
+    },
+    "controlkey_ctrl_c": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strg C, unterbrechen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ctrl C, interrupt"
+          }
+        }
+      }
+    },
+    "controlkey_ctrl_d": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strg D, Dateiende"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ctrl D, end of file"
+          }
+        }
+      }
+    },
+    "controlkey_ctrl_e": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strg E, Zeilenende"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ctrl E, end of line"
+          }
+        }
+      }
+    },
+    "controlkey_ctrl_u": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strg U, Zeile bis Anfang löschen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ctrl U, clear line to start"
+          }
+        }
+      }
+    },
+    "controlkey_enter": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter, absenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter, submit"
+          }
+        }
+      }
+    },
+    "controlkey_escape": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escape"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Escape"
+          }
+        }
+      }
+    },
+    "controlkey_space": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leertaste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Space"
+          }
+        }
+      }
+    },
+    "controlkey_tab": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab"
+          }
+        }
+      }
+    },
     "criticbadge_changes": {
       "extractionState": "manual",
       "localizations": {
@@ -9430,6 +9668,74 @@
         }
       }
     },
+    "native_ios_detail_branch": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Branch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Branch"
+          }
+        }
+      }
+    },
+    "native_ios_detail_info": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Info"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Info"
+          }
+        }
+      }
+    },
+    "native_ios_detail_path": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository-Pfad"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository path"
+          }
+        }
+      }
+    },
+    "native_ios_detail_task": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task-ID"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task ID"
+          }
+        }
+      }
+    },
     "native_ios_first_run": {
       "extractionState": "manual",
       "localizations": {
@@ -9564,6 +9870,109 @@
           "stringUnit": {
             "state": "translated",
             "value": "Age: %1$@"
+          }
+        }
+      }
+    },
+    "native_ios_terminal_font_points": {
+      "comment": "%1$@ = size",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ pt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ pt"
+          }
+        }
+      }
+    },
+    "native_ios_terminal_font_size": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal-Schriftgröße"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal font size"
+          }
+        }
+      }
+    },
+    "native_ios_terminal_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-Ausgabe der Sitzung. Scrolle, um frühere Ausgaben zu lesen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live session output. Scroll to read earlier output."
+          }
+        }
+      }
+    },
+    "native_ios_terminal_latest": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neueste Ausgabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Latest output"
+          }
+        }
+      }
+    },
+    "native_ios_terminal_reply": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antworten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reply"
+          }
+        }
+      }
+    },
+    "native_ios_terminal_superseded_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein anderes Gerät ist mit diesem Terminal verbunden. Übernehmen gibt es an dieses iPhone oder iPad zurück und trennt das andere Gerät."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Another device attached to this terminal. Taking over returns it to this iPhone or iPad and detaches the other device."
           }
         }
       }

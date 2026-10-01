@@ -8,6 +8,9 @@ options:
 packages:
   ShepherdKit:
     path: ../..
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm
+    exactVersion: 1.20.0
 settings:
   base:
     SWIFT_VERSION: "6.0"
@@ -34,6 +37,8 @@ targets:
     dependencies:
       - package: ShepherdKit
         product: ShepherdAppCore
+      - package: SwiftTerm
+        product: SwiftTerm
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: run.shepherd.ios

@@ -2,10 +2,13 @@
 
 The iOS 18 application uses `ShepherdAppCore` and `ShepherdKit`. It registers only
 the shared Sidebar, Detail, Herd, Plan, Queues, Merge and recap models. Profiles,
-login, activation generations and the
-single event connection remain owned by `AppModel`. The app presents session
-metadata and activity; terminal, composition, merge and session mutation are outside
-this stage.
+login, activation generations and the single event connection remain owned by
+`AppModel`. `IOSTerminalController` owns presentations around the shared PTY state
+machine and retains selected Done sessions until navigation leaves them. Session detail
+opens on Terminal, with Activity and Info (including the complete prompt) on
+separate tabs. The iOS SwiftTerm renderer is pinned to 1.20.0, like the Mac app.
+Terminal font size is a per-device setting; the surrounding chrome, metadata and
+activity use Dynamic Type. Merge and session mutation remain outside this stage.
 
 The session list defaults to **All**, with the web/Mac lifecycle groups and
 collapsible headings. Shared native relevance ordering puts working and blocked
@@ -49,7 +52,9 @@ without changing test isolation or CI defaults:
 SHEPHERD_IOS_SIMULATOR_SIGNING=1 native/scripts/uitest-lock.sh native/scripts/test-ios-app.sh unit
 ```
 
-Install the repository's Swift 6.2+ Xcode toolchain and XcodeGen 2.46+. From the
+Install the repository's Swift 6.2+ Xcode toolchain and XcodeGen 2.46+. SwiftTerm
+1.20.0 also compiles Metal shaders; Xcode installations with optional toolchain
+components need `xcodebuild -downloadComponent MetalToolchain` once. From the
 repository root, wrap each entire script once. Scripts never acquire another lock.
 
 ```bash
@@ -81,7 +86,46 @@ it does not stop and restart the store. Foreground entry refreshes session state
 visible activity. Current-store transitions to `.live` trigger another visible
 activity refresh so a failed earlier attempt cannot leave the screen stale. No
 background execution or timer is promised. Profile changes replace the activation
-and invalidate old selections and detail tasks.
+and invalidate old selections and detail tasks. The visible terminal attaches only
+with an active scene and mounted renderer, and detaches on inactivity, background,
+tab changes and navigation away. Foreground entry clears the emulator before the
+new scrollback replay. The shared core handles reconnects and parked ownership/
+ended states; its connecting overlay uses the same 400 ms debounce as Mac.
+
+Output follows the tail until the operator scrolls into history (including with
+VoiceOver); Latest output returns to the tail. Tapping output never opens a
+keyboard or forwards touch gestures to the agent.
+
+Reply opens a multiline sheet explicitly and sends through the shared model's
+existing `POST /api/sessions/{id}/reply` route. The bottom key bar matches the web
+palette: Esc and Enter stay pinned, with arrows, Tab, Space and Ctrl-A/E/U/C/D in
+the scrolling middle. Controls require a live, visible, foreground attachment.
+Failures preserve the draft; a reply completing after scene suspension cannot
+dismiss a fresh sheet. Drafts belong to the shared per-session model.
+
+Normal launches permit terminal input and replies. Isolated launches still disable
+input, including emulator protocol replies, and install the read-only request
+audit. No new server API or Mac terminal behaviour is introduced. File attachment,
+dictation, saved steer chips, diff/files/preview tabs and phone session swipes remain
+outside this stream.
+
+## Mobile web references and visual fixtures
+
+`ui/src/routes/+page.svelte` changes `mobileScreen` from list to detail when a
+session opens. `ui/src/lib/components/Viewport.svelte` defaults and resets its tab
+to `term`, keeps activity separate, and places `SteerBar` and
+`viewport/ViewportTermControls.svelte` below the output. `ActionBar.svelte` is the
+list's New Task/Backlog bar, not the session's reply bar. The
+`docs/design/mobile-herd/README.md` design concerns that list screen; detail uses
+the live Viewport flow. iOS mirrors the terminal-first structure with three tabs
+for the currently supported native surfaces.
+
+`IOSTerminalTests.testRenderFixtureImages` renders the production detail chrome
+with text fixture output via `ImageRenderer`. UIKit terminal rendering cannot be
+captured by ImageRenderer; a separate renderer test feeds real SwiftTerm output
+and verifies history retention. The fixture PNGs cover Terminal, Info and enlarged
+Info text. Info fixtures use the same field layout without UIKit-backed scrolling
+or text selection. These fixtures are visual layout evidence, not a live-server check.
 
 ## Live acceptance
 

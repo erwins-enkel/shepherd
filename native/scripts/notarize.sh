@@ -30,8 +30,10 @@ with tempfile.TemporaryDirectory(prefix='notarize-', dir=os.environ['RUNNER_TEMP
     if target.suffix == '.app':
         upload = pathlib.Path(tmp) / 'submission.zip'
         run(['ditto', '-c', '-k', '--sequesterRsrc', '--keepParent', str(target), str(upload)])
+    # Return before the workflow's 30-minute step timeout so a slow Apple
+    # submission still reports its ID/status and attempts to fetch diagnostics.
     result = subprocess.run(['xcrun', 'notarytool', 'submit', str(upload), *credentials,
-                             '--wait', '--output-format', 'json'], capture_output=True, text=True)
+                             '--wait', '--timeout', '25m', '--output-format', 'json'], capture_output=True, text=True)
     try:
         report = json.loads(result.stdout)
     except ValueError:

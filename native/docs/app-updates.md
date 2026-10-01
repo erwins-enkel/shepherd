@@ -121,7 +121,10 @@ The app source still comes from the published tag; signing and packaging tools c
 the dispatched ref. `dry_run` skips existing-release reuse, builds/signs/notarizes/staples,
 checks Gatekeeper, and uploads the ZIP, DMG and appcast as a 14-day workflow artifact.
 It never creates, uploads to or edits a release, or pushes the appcast branch. Notarization
-submission IDs/status and Gatekeeper results appear in the job summary. Manual dispatch
+submission IDs/status and Gatekeeper results appear in the job summary. Each submission waits
+up to 25 minutes, shorter than the CI step timeout, so a pending Apple response can still be
+reported with its submission ID. A timeout fails closed and attempts to retrieve Apple's log;
+Apple may continue processing afterward, and no package is published. Manual dispatch
 defaults to publication; `workflow_call` retains publication behavior.
 
 Run `native/scripts/test-release-signing.sh` for isolated validation and mocked notarization

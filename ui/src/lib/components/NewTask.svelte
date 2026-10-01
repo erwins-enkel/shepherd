@@ -1803,7 +1803,7 @@
       configLoaded &&
       !repoConfig.isAutomationConfirmed(repo)
     ) {
-      // Brand-new repo (no row) → seed the raised default posture (plan-gate ON).
+      // Brand-new repo (no row) → seed the raised default posture (see seedNewRepoDefaults).
       if (!repoConfig.automationRowExists(repo)) {
         await repoConfig.seedNewRepoDefaults(repo);
         if (!uploadsSettledSince(expectedUploadRevision)) return;

@@ -793,11 +793,43 @@ test("ensure: response WITHOUT the new fields does NOT clobber already-set confi
   expect(repoConfig.automationRowExists("/repo")).toBe(true);
 });
 
-test("seedNewRepoDefaults calls putRepoConfig with planGateEnabled:true and sets planGate true", async () => {
-  vi.mocked(putRepoConfig).mockResolvedValue(rc({ planGateEnabled: true }));
+test("seedNewRepoDefaults seeds plan gate, auto-address, autopilot and build queue ON", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue(
+    rc({
+      planGateEnabled: true,
+      autoAddressEnabled: true,
+      autopilotEnabled: true,
+      buildQueueEnabled: true,
+    }),
+  );
   await repoConfig.seedNewRepoDefaults("/repo");
-  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { planGateEnabled: true });
-  expect(repoConfig.isPlanGateEnabled("/repo")).toBe(true);
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", {
+    planGateEnabled: true,
+    autoAddressEnabled: true,
+    autopilotEnabled: true,
+    buildQueueEnabled: true,
+  });
+  const f = repoConfig.flags("/repo");
+  expect([f.critic, f.planGate, f.autoAddress, f.autopilot, f.buildQueue, f.learnings]).toEqual([
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+  ]);
+});
+
+test("seedNewRepoDefaults reverts all seeded flags on error", async () => {
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  await repoConfig.seedNewRepoDefaults("/seed-fail");
+  const f = repoConfig.flags("/seed-fail");
+  expect([f.planGate, f.autoAddress, f.autopilot, f.buildQueue]).toEqual([
+    false,
+    false,
+    false,
+    false,
+  ]);
 });
 
 test("confirmAutomation calls putRepoConfig with automationConfirmed:true and sets confirmed true", async () => {

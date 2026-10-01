@@ -2162,10 +2162,15 @@ describe("NewTask first-task confirm step", () => {
     await expect.poll(() => document.querySelector(".ftac")).toBeTruthy();
     // onsubmit must NOT have been called
     expect(onsubmit).not.toHaveBeenCalled();
-    // putRepoConfig was called for seedNewRepoDefaults (planGateEnabled: true)
+    // putRepoConfig was called for seedNewRepoDefaults (new-repo automation posture)
     await expect.poll(() => mockPutRepoConfig.mock.calls.length).toBeGreaterThanOrEqual(1);
     const seedCall = mockPutRepoConfig.mock.calls.find((c) => c[1]?.planGateEnabled === true);
-    expect(seedCall).toBeTruthy();
+    expect(seedCall?.[1]).toEqual({
+      planGateEnabled: true,
+      autoAddressEnabled: true,
+      autopilotEnabled: true,
+      buildQueueEnabled: true,
+    });
   });
 
   it("invalidates the first Run click when an upload starts while defaults are being seeded", async () => {

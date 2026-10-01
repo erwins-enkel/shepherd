@@ -4921,5 +4921,7 @@
   "native_ios_actions_read_only": "Session actions are disabled in read-only mode.",
   "native_ios_actions_remaining": "{count} characters remaining",
   "native_ios_actions_revision": "Revision",
-  "native_ios_actions_server_default": "Server default"
+  "native_ios_actions_server_default": "Server default",
+  "native_ios_plan_open_hint": "Opens the plan and its questions.",
+  "native_ios_plan_readonly": "Plan actions are unavailable while this view is read-only, offline or inactive."
 }

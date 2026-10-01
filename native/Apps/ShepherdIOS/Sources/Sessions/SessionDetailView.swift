@@ -19,18 +19,36 @@ struct SessionDetailView: View {
     var body: some View {
         IOSSessionDetailContent(session: session, model: model, terminal: terminal,
             allowsInput: app.allowsTerminalInput, fontSize: $fontSize,
-            surface: IOSTerminalHostView(model: terminal, fontSize: fontSize))
+            surface: IOSTerminalHostView(model: terminal, fontSize: fontSize),
+            planSurface: planSurface,
+            planEntryLabel: planEntryLabel,
+            planInitialEntry: app.extension(IOSPlanController.self)?.entrySessionID == session.id
+                && app.extension(IOSPlanController.self)?.entryOpensPlan == true,
+            planOpenTick: app.extension(PlanModel.self)?.openPlanTick[session.id] ?? 0)
             .safeAreaInset(edge: .bottom, spacing: 0) { IOSSessionActionBar(session: session) }
+    }
+
+    private var planSurface: AnyView? {
+        guard let plan = app.extension(PlanModel.self), let store = app.store,
+              session.planPhase != nil || plan.gates[session.id] != nil else { return nil }
+        return AnyView(IOSPlanView(session: session, model: plan, store: store, app: app))
+    }
+    private var planEntryLabel: String? {
+        guard let plan = app.extension(PlanModel.self) else { return nil }
+        if session.planPhase?.known == .planning, plan.questionsUnanswered(session.id) { return L.t("hold_cta_answer") }
+        return PlanGateChip.chip(session: session, gate: plan.gates[session.id],
+            reviewing: plan.reviewing.contains(session.id)).iosLabel
     }
 }
 
 enum IOSSessionDetailTab: CaseIterable {
-    case terminal, activity, info
+    case terminal, activity, info, plan
     var title: String {
         switch self {
         case .terminal: L.t("native_terminal_tab_title")
         case .activity: L.t("native_detail_tab_activity")
         case .info: L.t("native_ios_detail_info")
+        case .plan: L.t("plangate_view")
         }
     }
 }
@@ -45,6 +63,11 @@ struct IOSSessionDetailContent<Surface: View>: View {
     @State var tab: IOSSessionDetailTab = .terminal
     // ImageRenderer cannot draw UIKit-backed selectable Text. Fixtures disable selection.
     var selectableText = true
+    var planSurface: AnyView? = nil
+    var planEntryLabel: String? = nil
+    var planInitialEntry = false
+    var planOpenTick = 0
+    @State private var planNavigation = IOSPlanNavigation()
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
@@ -52,6 +75,14 @@ struct IOSSessionDetailContent<Surface: View>: View {
             HStack(spacing: 8) {
                 Text(verbatim: session.desig).foregroundStyle(IOSTerminalStyle.muted)
                 Spacer(minLength: 4)
+                if let planEntryLabel, planSurface != nil {
+                    Button { tab = .plan } label: {
+                        Text(verbatim: planEntryLabel).foregroundStyle(IOSTerminalStyle.amber)
+                            .frame(minHeight: 44)
+                    }.buttonStyle(.plain)
+                        .accessibilityLabel(L.t("plangate_menu_open_plan") + ": " + planEntryLabel)
+                        .accessibilityIdentifier("detail-open-plan")
+                }
                 Label(SessionStatusStyle.label(session.status), systemImage: statusSymbol)
                     .foregroundStyle(statusColor)
             }
@@ -75,6 +106,8 @@ struct IOSSessionDetailContent<Surface: View>: View {
                     .font(.system(.body, design: .monospaced))
             case .info:
                 info
+            case .plan:
+                planSurface
             }
         }
         .foregroundStyle(IOSTerminalStyle.ink)
@@ -84,11 +117,17 @@ struct IOSSessionDetailContent<Surface: View>: View {
         .navigationTitle(session.name)
         .navigationBarTitleDisplayMode(.inline)
         .accessibilityIdentifier("session-detail")
+        .onAppear {
+            if planNavigation.enter(opensPlan: planInitialEntry, tick: planOpenTick), planSurface != nil { tab = .plan }
+        }
+        .onChange(of: planOpenTick) { _, tick in
+            if planNavigation.consume(tick: tick), planSurface != nil { tab = .plan }
+        }
     }
 
     private var tabs: some View {
         HStack(spacing: 0) {
-            ForEach(IOSSessionDetailTab.allCases, id: \.self) { item in
+            ForEach(IOSSessionDetailTab.allCases.filter { $0 != .plan || planSurface != nil }, id: \.self) { item in
                 Button { tab = item } label: {
                     Text(verbatim: item.title.uppercased())
                         .font(.system(.caption, design: .monospaced).weight(.semibold))

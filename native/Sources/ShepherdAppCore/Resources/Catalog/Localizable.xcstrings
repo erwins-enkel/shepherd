@@ -10911,6 +10911,40 @@
         }
       }
     },
+    "native_ios_plan_open_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öffnet den Plan und seine Fragen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opens the plan and its questions."
+          }
+        }
+      }
+    },
+    "native_ios_plan_readonly": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planaktionen sind bei schreibgeschützter Ansicht, offline oder im Hintergrund nicht verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan actions are unavailable while this view is read-only, offline or inactive."
+          }
+        }
+      }
+    },
     "native_ios_remove_body": {
       "extractionState": "manual",
       "localizations": {

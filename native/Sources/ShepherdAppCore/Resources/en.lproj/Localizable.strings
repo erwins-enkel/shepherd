@@ -635,6 +635,8 @@
 "native_ios_next_waiting" = "Waiting for server recommendations. Refresh Up Next in the web or Mac app to compute them.";
 "native_ios_open_items_count" = "%1$@ open records";
 "native_ios_open_session_hint" = "Opens session details.";
+"native_ios_plan_open_hint" = "Opens the plan and its questions.";
+"native_ios_plan_readonly" = "Plan actions are unavailable while this view is read-only, offline or inactive.";
 "native_ios_remove_body" = "This removes the saved sign-in from this device. Server-side revocation is not confirmed.";
 "native_ios_session_age" = "Age: %1$@";
 "native_ios_terminal_font_points" = "%1$@ pt";

@@ -40,6 +40,23 @@ public final class PlanTabActions {
     private let isCurrent: @MainActor () -> Bool
     private let sleep: @MainActor (Duration) async throws -> Void
     private var generation = 0
+    #if os(iOS)
+    private var presentationGeneration = 0
+
+    /// Hide presentation feedback without releasing an outstanding HTTP request's lock.
+    public func invalidatePresentationForIOS() {
+        presentationGeneration &+= 1
+        bridgeTask?.cancel()
+        outcomeTask?.cancel()
+        bridgeTask = nil
+        outcomeTask = nil
+        outcome = nil
+        awaitingReview = false
+        quotaOutcome = nil
+        releaseNote = nil
+        cancelConfirmation()
+    }
+    #endif
     private var bridgeTask: Task<Void, Never>?
     private var outcomeTask: Task<Void, Never>?
 
@@ -92,12 +109,18 @@ public final class PlanTabActions {
     public func review() async {
         guard isCurrent(), canReview, reviewBlock == nil, !inFlight, quotaBusy == nil else { return }
         let mine = generation
+        #if os(iOS)
+        let presentation = presentationGeneration
+        #endif
         busy = true
         setOutcome(nil)
         planUnavailable = false
         defer { if mine == generation { busy = false } }
         do {
             let result = try await writer.review(session.id)
+            #if os(iOS)
+            guard presentation == presentationGeneration else { return }
+            #endif
             guard valid(mine) else { return }
             switch result.status.known {
             case .started, .startedAtCap:
@@ -111,6 +134,9 @@ public final class PlanTabActions {
             }
             reconcile()
         } catch {
+            #if os(iOS)
+            guard presentation == presentationGeneration else { return }
+            #endif
             guard valid(mine) else { return }
             setOutcome("planpanel_review_failed_spawn")
             reconcile()
@@ -131,15 +157,24 @@ public final class PlanTabActions {
         guard isCurrent(), let consent, consent == gate, canRelease,
               !inFlight, quotaBusy == nil else { return }
         let mine = generation
+        #if os(iOS)
+        let presentation = presentationGeneration
+        #endif
         busy = true
         releaseNote = nil
         defer { if mine == generation { busy = false } }
         do {
             let released = try await writer.release(session.id)
+            #if os(iOS)
+            guard presentation == presentationGeneration else { return }
+            #endif
             guard valid(mine) else { return }
             if released { model.markReleased(session.id) }
             else { releaseNote = "planpanel_native_not_releasable" }
         } catch {
+            #if os(iOS)
+            guard presentation == presentationGeneration else { return }
+            #endif
             guard valid(mine) else { return }
             releaseNote = "planpanel_native_go_failed"
         }
@@ -148,11 +183,17 @@ public final class PlanTabActions {
     public func quota(resume: Bool) async {
         guard isCurrent(), stalled, !inFlight, quotaBusy == nil else { return }
         let mine = generation
+        #if os(iOS)
+        let presentation = presentationGeneration
+        #endif
         quotaBusy = resume
         quotaOutcome = nil
         defer { if mine == generation { quotaBusy = nil } }
         do {
             let result = try await writer.quota(session.id, resume)
+            #if os(iOS)
+            guard presentation == presentationGeneration else { return }
+            #endif
             guard valid(mine) else { return }
             switch result.status.known {
             case .resumed where resume, .dismissed where !resume:
@@ -163,6 +204,9 @@ public final class PlanTabActions {
             }
             reconcile()
         } catch {
+            #if os(iOS)
+            guard presentation == presentationGeneration else { return }
+            #endif
             guard valid(mine) else { return }
             quotaOutcome = "planpanel_quota_failed"
             reconcile()

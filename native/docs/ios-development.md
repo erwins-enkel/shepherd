@@ -8,7 +8,9 @@ machine and retains selected Done sessions until navigation leaves them. Session
 opens on Terminal, with Activity and Info (including the complete prompt) on
 separate tabs. The iOS SwiftTerm renderer is pinned to 1.20.0, like the Mac app.
 Terminal font size is a per-device setting; the surrounding chrome, metadata and
-activity use Dynamic Type. Session actions and ready-PR merge use the shared models; see
+activity use Dynamic Type. Sessions with a plan phase or gate also expose a Plan tab;
+attention entries open it directly. See [plan decisions](ios-plan.md) for request ownership
+and question/gate controls. Session actions and ready-PR merge use the shared models; see
 [session actions](ios-session-actions.md) for placement, confirmation and parity limits.
 
 The session list defaults to **All**, with the web/Mac lifecycle groups and
@@ -127,8 +129,10 @@ to `term`, keeps activity separate, and places `SteerBar` and
 `viewport/ViewportTermControls.svelte` below the output. `ActionBar.svelte` is the
 list's New Task/Backlog bar, not the session's reply bar. The
 `docs/design/mobile-herd/README.md` design concerns that list screen; detail uses
-the live Viewport flow. iOS mirrors the terminal-first structure with three tabs
-for the currently supported native surfaces.
+the live Viewport flow. iOS mirrors the terminal-first structure with Terminal,
+Activity and Info tabs, plus Plan when a plan phase or gate exists. The session
+actions bar remains below the detail content on every tab; list swipes remain
+available alongside Plan/Answer badge entries.
 
 `IOSTerminalTests.testRenderFixtureImages` renders the production detail chrome
 with text fixture output via `ImageRenderer`. UIKit terminal rendering cannot be

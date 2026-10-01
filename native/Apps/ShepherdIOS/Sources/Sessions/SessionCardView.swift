@@ -45,7 +45,8 @@ struct SessionCardView: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: accessibilityLabel))
-        .accessibilityHint(L.t("native_ios_open_session_hint"))
+        .accessibilityHint(L.t(card.opensPlan
+            ? "native_ios_plan_open_hint" : "native_ios_open_session_hint"))
         .accessibilityIdentifier("session-row-\(card.id)")
     }
 

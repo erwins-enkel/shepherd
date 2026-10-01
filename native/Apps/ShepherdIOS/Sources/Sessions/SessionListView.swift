@@ -330,6 +330,8 @@ struct SessionListView: View {
             git: herd?.git[session.id], verdict: herd?.verdicts[session.id], reviewing: herd?.isReviewing(session.id) ?? false,
             block: model.block(for: session.id), recap: recap(for: session.id), activity: herd?.activity[session.id],
             questionsUnanswered: app.extension(PlanModel.self)?.questionsUnanswered(session.id) ?? false,
+            planGate: app.extension(PlanModel.self)?.gates[session.id],
+            planReviewing: app.extension(PlanModel.self)?.reviewing.contains(session.id) ?? false,
             showCli: showCli, repoAutopilotDefault: herd?.repoAutopilotDefault(session.repoPath), now: now)
         return SessionCardView(card: presentation, selected: app.selectedSessionID == session.id) { select(session.id) }
             .modifier(IOSSessionSwipeActions(session: session))

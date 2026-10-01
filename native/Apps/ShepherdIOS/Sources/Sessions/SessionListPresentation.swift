@@ -14,6 +14,7 @@ enum IOSSessionListPresentation {
         let progress: HerdStepper
         let metadata: String
         let heartbeat: [HerdHeartbeat.Cell]
+        let opensPlan: Bool
         var id: String { session.id }
     }
 
@@ -31,14 +32,19 @@ enum IOSSessionListPresentation {
         _ session: Session, displayed: Session, git: GitState? = nil,
         verdict: ReviewVerdict? = nil, reviewing: Bool = false,
         block: BlockReason? = nil, recap: Recap? = nil, activity: SessionActivitySignal? = nil,
-        questionsUnanswered: Bool = false, showCli: Bool = false,
+        questionsUnanswered: Bool = false,
+        planGate: PlanGate? = nil, planReviewing: Bool = false,
+        showCli: Bool = false,
         repoAutopilotDefault: Bool? = nil, now: Int
     ) -> Card {
         var badges = SessionBadges.items(for: session, block: block, git: git,
             verdict: verdict, reviewing: reviewing, showCli: showCli, now: now,
             repoAutopilotDefault: repoAutopilotDefault)
-        // Read-only cue: tapping the card always opens the existing detail view.
-        if questionsUnanswered || session.autopilotPaused || block?.shape.known == .yesNo {
+        let planChip = PlanGateChip.chip(session: session, gate: planGate, reviewing: planReviewing, allowView: false)
+        if let label = planChip.iosLabel {
+            badges.append(.init(id: "plan", text: label, tint: planChip.iosBadgeTint))
+        }
+        if (questionsUnanswered && session.planPhase?.known == .planning) || session.autopilotPaused || block?.shape.known == .yesNo {
             badges.append(.init(id: "answer", text: L.t("hold_cta_answer"), tint: .blue))
         }
         let summary = recap?.state.known == .ready ? recap?.headline : activity?.summary
@@ -58,7 +64,8 @@ enum IOSSessionListPresentation {
             summary: summary?.isEmpty == false ? summary : nil, badges: badges,
             progress: HerdStepper(info: HerdClassifier.deriveStage(session: session, git: git,
                 verdict: verdict, reviewing: reviewing)), metadata: metadata.joined(separator: " · "),
-            heartbeat: displayed.status.known == .running ? HerdHeartbeat.cells(activity, now: now) : [])
+            heartbeat: displayed.status.known == .running ? HerdHeartbeat.cells(activity, now: now) : [],
+            opensPlan: IOSPlanPresentation.opensPlan(session: session, gate: planGate, questionsUnanswered: questionsUnanswered))
     }
 
     /// Concrete runtime model IDs follow the web's runtimeModelLabel notation.

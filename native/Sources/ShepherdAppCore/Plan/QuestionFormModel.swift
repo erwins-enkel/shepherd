@@ -40,6 +40,16 @@ public final class QuestionFormModel {
     public private(set) var errored = false
     public var confirming = false
     private let writer: QuestionFormWriter?
+    #if os(iOS)
+    private var presentationGeneration = 0
+    private var recordedOutsidePresentation = false
+
+    /// Keep drafts and request locks, but reject feedback for a departed presentation.
+    public func invalidatePresentationForIOS() {
+        presentationGeneration &+= 1
+        cancelConfirmation()
+    }
+    #endif
     private var pending: (sessionID: String, answers: [RawAnswer])?
 
     public init(block: VisualBlockQuestionForm, answerContext: QuestionAnswerContext?, writer: QuestionFormWriter?) {
@@ -57,7 +67,11 @@ public final class QuestionFormModel {
     }
 
     public var interactive: Bool { answerContext != nil }
+    #if os(iOS)
+    var locked: Bool { submitting || submitted || recordedOutsidePresentation || answerContext?.locked == true }
+    #else
     var locked: Bool { submitting || submitted || answerContext?.locked == true }
+    #endif
     public var inputsDisabled: Bool { !interactive || locked }
     public var canSubmit: Bool {
         guard interactive, !locked, writer != nil else { return false }
@@ -111,15 +125,28 @@ public final class QuestionFormModel {
         cancelConfirmation()
         guard let consent, canSubmit, let writer, writer.isCurrent(),
               consent.sessionID == answerContext?.sessionID, consent.answers == buildAnswers() else { return }
+        #if os(iOS)
+        let presentation = presentationGeneration
+        #endif
         submitting = true
         errored = false
         defer { submitting = false }
         do {
             let result = try await writer.send(consent.sessionID, consent.answers)
+            #if os(iOS)
+            guard presentation == presentationGeneration, writer.isCurrent() else {
+                // The server recorded these answers even if the view left. Never redeliver.
+                recordedOutsidePresentation = true
+                return
+            }
+            #endif
             guard writer.isCurrent() else { return }
             delivered = result.delivered
             submitted = true
         } catch {
+            #if os(iOS)
+            guard presentation == presentationGeneration else { return }
+            #endif
             guard writer.isCurrent() else { return }
             errored = true
         }

@@ -96,8 +96,10 @@ final class IOSSessionListPresentationTests: XCTestCase {
         XCTAssertTrue(plain.badges.isEmpty)
         XCTAssertNil(plain.summary)
         XCTAssertEqual(plain.metadata, raw.desig)
-        let questions = IOSSessionListPresentation.card(raw, displayed: raw, questionsUnanswered: true, now: now)
-        XCTAssertEqual(questions.badges.map(\.id), ["answer"])
+        var planning = raw
+        planning.planPhase = .init(known: .planning)
+        let questions = IOSSessionListPresentation.card(planning, displayed: planning, questionsUnanswered: true, now: now)
+        XCTAssertEqual(questions.badges.map(\.id), ["plan", "answer"])
         XCTAssertEqual(questions.progress.segments.count, 5)
     }
 

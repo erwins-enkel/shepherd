@@ -1,4 +1,4 @@
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, spyOn } from "bun:test";
 import { DrainService, type DrainStatus } from "../src/drain";
 import { ACTIVE_LABEL } from "../src/drain-core";
 import { SessionStore } from "../src/store";
@@ -2065,4 +2065,27 @@ test("Codex capacity: drain waits before claiming an issue and resumes once", as
   free = true;
   await h.drain.tick();
   expect(h.creates).toHaveLength(1);
+});
+
+test("a failed listIssues is cached for the TTL and warned once, not re-fetched per read (#2656)", async () => {
+  // A rate-limited forge used to be re-listed on every read of every pump (the TTL cache held
+  // successes only) — ~1 `gh` call every 3s per repo measured live, each with a stack trace.
+  const h = makeHarness({
+    issues: [issue(1)],
+    listIssuesImpl: async () => {
+      throw new Error("API rate limit exceeded");
+    },
+  });
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    await h.drain.pump(REPO);
+    await h.drain.pump(REPO);
+    expect(h.forgeRec.listIssuesCalls).toBe(1);
+    expect(h.creates).toHaveLength(0); // a failed list still spawns nothing
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes("listIssues failed"))).toHaveLength(
+      1,
+    );
+  } finally {
+    warn.mockRestore();
+  }
 });

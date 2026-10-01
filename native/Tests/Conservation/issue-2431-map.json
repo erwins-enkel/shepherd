@@ -12401,6 +12401,8 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"timeoutAndTeardownFenceLateServerResults() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"fallbackIsPerClipAndAbsentPluginSkipsUpload() async\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"wavMatchesWebHeaderAndResampling()\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"separatorUndoExpiryAndLocalePersistence() async\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"separatorUndoExpiryAndLocalePersistence() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"lockedCheckpointsDoNotDuplicateCumulativePreview() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"discoveryDeadlineDoesNotDelayOfflineAppleFallback() async\"]"
   ]
 }

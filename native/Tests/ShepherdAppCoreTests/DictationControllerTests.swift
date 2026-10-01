@@ -19,6 +19,17 @@ import Testing
         await controller.begin(); host.date.addTimeInterval(1); controller.finalize(); await settle()
         host.text += " Typed"; controller.undo(); #expect(host.text.hasSuffix("Typed"))
     }
+    @Test func lockedCheckpointsDoNotDuplicateCumulativePreview() async {
+        let host = Host(), engine = FakeDictationEngine()
+        engine.recording = .init(clips: [], appleText: "First. Second.")
+        let c = make(host, engine); await c.begin(locked: true)
+        engine.emit(.checkpoint("First.")); engine.emit(.preview("First. Second.")); await settle()
+        #expect(host.text == "Existing. First."); #expect(c.preview == "First. Second.")
+        engine.emit(.checkpoint("First. Second.")); await settle()
+        #expect(host.text == "Existing. First. Second.")
+        host.date.addTimeInterval(1); c.finalize(); await settle()
+        #expect(host.text == "Existing. First. Second.")
+    }
     @Test func cancelGeometryCanReturnAndLockDoesNotUnlockOnRelease() async {
         let host = Host(), engine = FakeDictationEngine(), controller = make(Host(), FakeDictationEngine())
         #expect(HoldGesture.classify(x: -80, y: -20) == .cancel)
@@ -78,6 +89,13 @@ import Testing
         let absent = WhisperFinalizer(status: { false }, transcribe: { _, _ in Issue.record("must not upload"); return "" })
         #expect(await absent.finalize(recording, locale: "en-US") == "One Two")
     }
+    @Test func discoveryDeadlineDoesNotDelayOfflineAppleFallback() async {
+        let result = await DictationDeadline.value(seconds: 0.01) {
+            try? await Task.sleep(for: .milliseconds(100))
+            return true
+        }
+        #expect(result == nil)
+    }
     @Test func wavMatchesWebHeaderAndResampling() {
         let wav = DictationWAV.encode([0, 1, -1, 0], inputRate: 32_000)
         #expect(wav.count == 48)
@@ -90,7 +108,8 @@ import Testing
         let host = Host(), engine = FakeDictationEngine(); engine.recording = .init(clips: [], appleText: "New")
         let c = make(host, engine); await c.begin(); host.date.addTimeInterval(1); c.finalize(); await settle()
         host.date.addTimeInterval(6); c.tick(); c.undo(); #expect(host.text == "Existing. New")
-        let name = "dictation-test-\(UUID())", defaults = UserDefaults(suiteName: "dictation-test-\(UUID())")!
+        let name = "dictation-test-\(UUID())"
+        let defaults = UserDefaults(suiteName: name)!
         defer { defaults.removePersistentDomain(forName: name) }
         let p = DictationController(engine: engine, defaults: defaults, getText: { "" }, setText: { _ in })
         p.locale = "en-US"; #expect(defaults.string(forKey: "shepherd:dictation-language") == "en-US")

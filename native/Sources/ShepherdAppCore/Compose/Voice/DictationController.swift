@@ -8,6 +8,16 @@ import Observation
     public private(set) var level: Float = 0
     public private(set) var elapsed: TimeInterval = 0
     public private(set) var noticeKey: String?
+    public var noticeCopy: String? {
+        switch noticeKey {
+        case "native_compose_voice_denied": L.t("native_compose_voice_denied")
+        case "native_compose_voice_unsupported": L.t("native_compose_voice_unsupported")
+        case "native_compose_voice_error": L.t("native_compose_voice_error")
+        case "native_compose_voice_interrupted": L.t("native_compose_voice_interrupted")
+        case "native_compose_voice_limit": L.t("native_compose_voice_limit")
+        default: nil
+        }
+    }
     public private(set) var preparing = false
     public private(set) var canUndo = false
     public var locale: String { didSet { defaults?.set(locale, forKey: "shepherd:dictation-language") } }
@@ -22,6 +32,8 @@ import Observation
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var timer: Task<Void, Never>?
     @ObservationIgnored private var finishTask: Task<Void, Never>?
+    @ObservationIgnored private var cancellationTask: Task<Void, Never>?
+    @ObservationIgnored private var undoTask: Task<Void, Never>?
     @ObservationIgnored private var timeoutTask: Task<Void, Never>?
     private var generation = 0
     private var startedAt: Date?
@@ -45,6 +57,9 @@ import Observation
     }
     public func begin(locked: Bool = false) async {
         guard !active else { return }
+        await cancellationTask?.value; cancellationTask = nil
+        guard !active else { return }
+        undoTask?.cancel()
         generation += 1; let mine = generation
         original = getText(); lastApplied = original; stable = ""; preview = ""; elapsed = 0; level = 0
         canUndo = false; noticeKey = nil; preparing = false; state = .arming
@@ -92,6 +107,8 @@ import Observation
         switch event {
         case .level(let value): level = max(0, min(1, value))
         case .volatile(let text): preview = Self.append(stable, text)
+        case .preview(let text): preview = text
+        case .checkpoint(let text): stable = text; persistStable()
         case .final(let text): stable = Self.append(stable, text); preview = stable; persistStable()
         case .interrupted: noticeKey = "native_compose_voice_interrupted"; finalize()
         case .failed: noticeKey = "native_compose_voice_error"; finalize()
@@ -143,20 +160,26 @@ import Observation
             if getText() == lastApplied { lastApplied = Self.append(original, clean) }
             else { original = getText(); lastApplied = Self.append(original, clean) }
             setText(lastApplied); canUndo = true; undoDeadline = now().addingTimeInterval(5)
-        }
+            let stamp = generation
+            undoTask = Task { [weak self] in
+                do { try await Task.sleep(for: .seconds(5)) } catch { return }
+                guard let self, stamp == generation else { return }
+                canUndo = false
+            }
+        } else { noticeKey = "native_compose_voice_error" }
         state = .idle; preview = ""; startedAt = nil; preparing = false
     }
     public func cancel() {
         generation += 1; task?.cancel(); timer?.cancel(); finishTask?.cancel(); timeoutTask?.cancel()
         if active, getText() == lastApplied, lastApplied != original { setText(original) }
-        Task { await engine.cancel() }
+        cancellationTask = Task { await engine.cancel() }
         state = .idle; preview = ""; stable = ""; level = 0; startedAt = nil; preparing = false
     }
     public func undo() {
         guard canUndo, let undoDeadline, now() < undoDeadline, getText() == lastApplied else { canUndo = false; return }
         setText(original); canUndo = false
     }
-    public func teardown() { cancel(); canUndo = false }
+    public func teardown() { cancel(); undoTask?.cancel(); canUndo = false }
     public static func append(_ existing: String, _ text: String) -> String {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return existing }

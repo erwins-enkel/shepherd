@@ -14,7 +14,7 @@ inspect_signature() {
   [[ -f "$app/embedded.mobileprovision" ]] || { echo '::error::UNMET: provisioning profile missing' >&2; exit 1; }
   codesign --verify --deep --strict "$app"
   local signature
-  signature=$(codesign -dv "$app" 2>&1)
+  signature=$(codesign -dv --verbose=4 "$app" 2>&1)
   echo "$signature" | grep -E 'Authority=|TeamIdentifier=|Identifier='
   [[ "$signature" == *'Authority=Apple Distribution:'* ]] || { echo '::error::UNMET: expected Apple Distribution signature' >&2; exit 1; }
   security cms -D -i "$app/embedded.mobileprovision" > "$TEMP_DIR/profile.plist"

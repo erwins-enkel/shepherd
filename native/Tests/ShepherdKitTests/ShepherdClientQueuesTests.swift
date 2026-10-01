@@ -32,6 +32,29 @@ struct ShepherdClientQueuesTests {
                            credentials: InMemoryCredentialStore(), urlSession: server.urlSession())
     }
 
+    @Test(arguments: [false, true])
+    func peekUpNextReadsCachedSnapshotOrNullWithoutRecomputation(cached: Bool) async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        let json = cached
+            ? #"{"generatedAt":42,"sections":[],"repoCount":1,"fallback":null,"failedRepoCount":0}"#
+            : "null"
+        server.stub("GET", "/api/up-next", status: 200, json: Data(json.utf8))
+        let snapshot = try await client(server).peekUpNext()
+        #expect(snapshot?.generatedAt == (cached ? 42 : nil))
+        let requests = server.requests()
+        #expect(requests.count == 1)
+        #expect(requests.first?.method == "GET")
+        #expect(requests.first?.query == "peek=1")
+    }
+
+    @Test func peekUpNextMapsUnauthorized() async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.stub("GET", "/api/up-next", status: 401, json: Data(#"{"error":"login"}"#.utf8))
+        await #expect(throws: ShepherdError.unauthenticated) { _ = try await client(server).peekUpNext() }
+    }
+
     @Test func sessionUsageIsAReadAndPreservesMeasuredZero() async throws {
         let server = FakeShepherdServer()
         defer { server.tearDown() }

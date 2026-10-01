@@ -1,12 +1,53 @@
 # Shepherd for iOS
 
 The iOS 18 application uses `ShepherdAppCore` and `ShepherdKit`. It registers only
-`SidebarModel` and `DetailModel`. Profiles, login, activation generations and the
+the shared Sidebar, Detail, Herd, Plan, Queues, Merge and recap models. Profiles,
+login, activation generations and the
 single event connection remain owned by `AppModel`. The app presents session
 metadata and activity; terminal, composition, merge and session mutation are outside
 this stage.
 
+The session list defaults to **All**, with the web/Mac lifecycle groups and
+collapsible headings. Shared native relevance ordering puts working and blocked
+rows ahead of parked rows within a group, then uses latest server activity; it
+never sorts by task designation. Ready uses `HerdPartition`'s operator-turn filter.
+Next displays `UpNextPresentation`'s issue queue, Done displays the archived queue,
+and Open displays outstanding post-merge records with the same repo-scoped count
+as Mac. These panels remain read-only. Next consumes server snapshots and cannot
+request a new computation from iOS; when none has arrived, its waiting message
+explains how to compute one in web/Mac.
+
+Cards map shared badges, recap/activity summaries and `HerdStepper` into flat dark
+terminal panels with uncapped Dynamic Type, wrapping badges and VoiceOver summaries.
+The list keeps Shepherd's default dark appearance. Titles preserve supplied emoji;
+project configuration emoji and cold-resume estimates have no automatic shared
+sidebar data path and are not inferred. Shared usage warnings are shown when known.
+
 ## Local simulator workflow
+
+For the fast incremental dev loop, from the repository root:
+
+```bash
+native/scripts/uitest-lock.sh native/scripts/ios-dev.sh
+# Optional destination (defaults shown):
+native/scripts/uitest-lock.sh native/scripts/ios-dev.sh --device "iPhone 17 Pro" --os 26.5
+```
+
+This generates the Xcode project only when `project.yml` changes (or the project is
+missing), reuses `Apps/ShepherdIOS/.build`, builds Debug, boots the selected simulator
+if needed, then terminates, installs in place and launches. It never uninstalls the
+app or erases the simulator, preserving saved servers and tokens. Simulator builds
+explicitly use ad-hoc signing (`CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Manual
+CODE_SIGN_IDENTITY=-`): the project's unsigned CI default prevents Keychain token
+storage in the simulator. Tests remain isolated and keep their existing CI defaults.
+Xcode 27's simulator window is **DeviceHub.app**.
+
+If Xcode 27 refuses to launch an unsigned unit-test host, use the same signature
+without changing test isolation or CI defaults:
+
+```bash
+SHEPHERD_IOS_SIMULATOR_SIGNING=1 native/scripts/uitest-lock.sh native/scripts/test-ios-app.sh unit
+```
 
 Install the repository's Swift 6.2+ Xcode toolchain and XcodeGen 2.46+. From the
 repository root, wrap each entire script once. Scripts never acquire another lock.

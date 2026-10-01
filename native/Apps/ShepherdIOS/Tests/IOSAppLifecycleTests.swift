@@ -1,8 +1,23 @@
 import XCTest
+@testable import ShepherdAppCore
 @testable import ShepherdIOS
 
 @MainActor
 final class IOSAppLifecycleTests: XCTestCase {
+    func testForegroundReconcilesSidebarEvenWhenConnectionRemainsLive() async {
+        var reads = 0
+        let sidebar = ReadOnlySidebarRecovery { reads += 1 }
+        let lifecycle = IOSAppLifecycle(setActive: { _ in }, onForegroundRecovery: { await sidebar.refresh() })
+        await lifecycle.update(.active)
+        await lifecycle.connectionDidChange(.live)
+        let beforeSuspension = reads
+        await lifecycle.update(.background)
+        await lifecycle.update(.active)
+        XCTAssertEqual(reads, beforeSuspension + 1)
+        await lifecycle.connectionDidChange(.live)
+        XCTAssertEqual(reads, beforeSuspension + 1)
+    }
+
     func testOrderedPresenceAndCoalescedPhases() async {
         var values: [Bool] = []
         var recoveries = 0

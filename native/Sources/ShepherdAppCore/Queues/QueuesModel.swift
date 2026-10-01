@@ -10,6 +10,7 @@ struct QueuesReads: Sendable {
     var recaps: @Sendable () async throws -> [String: Recap]
     var stranded: @Sendable () async throws -> [String]
     var refreshUpNext: @Sendable () async throws -> Void
+    var peekUpNext: @Sendable () async throws -> UpNextSnapshot? = { nil }
     // Optional for previews/tests without a session snapshot source.
     var haltSnapshots: @Sendable () async throws -> [Session]? = { nil }
 
@@ -20,6 +21,7 @@ struct QueuesReads: Sendable {
             recaps: { try await client.recaps() },
             stranded: { try await client.strandedSessions() },
             refreshUpNext: { try await client.refreshUpNext() },
+            peekUpNext: { try await client.peekUpNext() },
             haltSnapshots: { try await client.sessions() })
     }
 }
@@ -35,6 +37,10 @@ public final class QueuesModel: AppExtension {
     public private(set) var upNextLoadFailed = false
     private(set) var done: [Session] = []
     private(set) var recaps: [String: Recap] = [:]
+
+    /// Read-only consumers share the queue's reconciled snapshots, not extra requests.
+    public var finishedSessions: [Session] { DonePresentation.sorted(done) }
+    public func recap(for id: String) -> Recap? { recaps[id] }
     public private(set) var stranded: Set<String> = []
 
     /// Independent notice slots: an auto-revive outcome must never replace the actionable
@@ -118,7 +124,9 @@ public final class QueuesModel: AppExtension {
 
     /// Failures preserve the affected snapshot without discarding successful independent
     /// reads. Reconnect retries all snapshots; Up Next failure has its own visible state.
-    public func refresh(recomputeUpNext: Bool = true) async {
+    /// `readOnly` (the iOS recovery path) never recomputes Up Next and reads the server's cached
+    /// snapshot instead, whatever the installing app allows.
+    public func refresh(recomputeUpNext: Bool = true, readOnly: Bool = false) async {
         let mine = generation
         guard isCurrent(mine) else { return }
         let activation = app?.activationGeneration
@@ -129,14 +137,16 @@ public final class QueuesModel: AppExtension {
         let haltVersion = retrySelectionGeneration
         let upNextVersion = upNextRevision
         let sources = reads
-        let mayRecompute = app?.allowsQueueRecomputation ?? true
+        let mayRecompute = !readOnly && (app?.allowsQueueRecomputation ?? true)
         async let heldResult = Self.load(sources.held)
         async let doneResult = Self.load(sources.done)
         async let recapsResult = Self.load(sources.recaps)
         async let strandedResult = Self.load(sources.stranded)
         async let haltResult = Self.load(sources.haltSnapshots)
         async let upNextResult = Self.load {
-            if recomputeUpNext && mayRecompute { try await sources.refreshUpNext() }
+            if !mayRecompute { return try await sources.peekUpNext() }
+            if recomputeUpNext { try await sources.refreshUpNext() }
+            return nil as UpNextSnapshot?
         }
         let results = await (heldResult, doneResult, recapsResult, strandedResult, upNextResult, haltResult)
         guard isCurrent(mine), activation == app?.activationGeneration,
@@ -164,9 +174,11 @@ public final class QueuesModel: AppExtension {
                     haltedAt: session.haltedAt))
             })
         }
-        if recomputeUpNext, upNextVersion == upNextRevision {
+        if recomputeUpNext || !mayRecompute, upNextVersion == upNextRevision {
             switch results.4 {
-            case .success: upNextLoadFailed = false
+            case .success(let cached):
+                if !mayRecompute { upNext = cached }
+                upNextLoadFailed = false
             case .failure: upNextLoadFailed = true
             }
         }

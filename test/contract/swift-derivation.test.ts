@@ -50,6 +50,19 @@ function schemaNames(doc: Record<string, unknown>): string[] {
 }
 
 describe("swift-openapi-generator derivation", () => {
+  test("nullable cached response ref is inlined without weakening event snapshots", () => {
+    const responsePath = "#/paths//api/up-next/get/responses/200/content/application/json/schema";
+    const cached = nodes(derived).find(({ path }) => path === responsePath)?.node;
+    expect(cached?.type).toEqual(["object", "null"]);
+    const schemas = (derived.components as { schemas: Obj }).schemas;
+    expect(cached?.properties).toEqual((schemas.UpNextSnapshot as Obj).properties);
+    expect(cached?.required).toEqual((schemas.UpNextSnapshot as Obj).required);
+    expect((schemas.UpNextSnapshot as Obj).type).toBe("object");
+    expect(nodes(truth).find(({ path }) => path === responsePath)?.node).toEqual({
+      $ref: "#/components/schemas/UpNextCachedSnapshot",
+    });
+  });
+
   test("no union branch is the bare null schema (apple/swift-openapi-generator#817)", () => {
     const offenders: string[] = [];
     for (const { path, node } of derivedNodes) {

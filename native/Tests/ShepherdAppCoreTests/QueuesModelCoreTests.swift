@@ -91,6 +91,85 @@ struct QueuesModelTests {
         #expect(await calls.calls == 1)
     }
 
+    @Test func readOnlyBootstrapAndRefreshPeekExistingRecommendations() async throws {
+        let peeks = QueueReadGate()
+        let computes = QueueReadGate()
+        await peeks.open()
+        await computes.open()
+        let cached = UpNextSnapshot(generatedAt: 42, sections: [], repoCount: 1, fallback: nil, failedRepoCount: 0)
+        var reads = empty
+        reads.peekUpNext = { await peeks.enter(); return cached }
+        reads.refreshUpNext = { await computes.enter() }
+        let fixture = try QueueFixture(reads)
+        fixture.app.allowsQueueRecomputation = false
+        defer { fixture.close() }
+        #expect(await queueSettle { !fixture.model.isRefreshing })
+        #expect(fixture.model.upNext == cached)
+        let initial = await peeks.calls
+        await fixture.model.refresh(recomputeUpNext: false)
+        #expect(await peeks.calls == initial + 1)
+        #expect(await computes.calls == 0)
+    }
+
+    @Test(arguments: [false, true], [false, true])
+    func macEventRefreshPreservesUpNextWithoutPeeking(loadFailed: Bool, peekFails: Bool) async throws {
+        let peeks = QueueReadGate()
+        let computes = QueueReadGate()
+        await peeks.open()
+        await computes.open()
+        var reads = empty
+        reads.peekUpNext = {
+            await peeks.enter()
+            if peekFails { throw ShepherdError.unauthenticated }
+            return UpNextSnapshot(generatedAt: 1, sections: [], repoCount: 0, fallback: nil, failedRepoCount: 0)
+        }
+        reads.refreshUpNext = { await computes.enter() }
+        let fixture = try QueueFixture(reads)
+        fixture.app.allowsQueueRecomputation = true
+        defer { fixture.close() }
+        #expect(await queueSettle { !fixture.model.isRefreshing })
+        fixture.store.apply(try snapshot(99))
+        #expect(await queueSettle { fixture.model.upNext?.generatedAt == 99 })
+        if loadFailed {
+            fixture.model.reads.refreshUpNext = {
+                await computes.enter()
+                throw ShepherdError.unauthenticated
+            }
+            await fixture.model.refresh()
+        }
+        let previous = fixture.model.upNext
+        let initialComputes = await computes.calls
+        #expect(fixture.model.upNextLoadFailed == loadFailed)
+        let heldRead = QueueReadGate()
+        fixture.model.reads.held = { await heldRead.enter(); return [] }
+        fixture.store.apply(try frame("held:changed", "{\"count\":1}"))
+        #expect(await queueSettle { await heldRead.calls == 1 })
+        await heldRead.open()
+        #expect(await queueSettle { !fixture.model.isRefreshing })
+        #expect(await peeks.calls == 0)
+        #expect(await computes.calls == initialComputes)
+        #expect(fixture.model.upNext == previous)
+        #expect(fixture.model.upNextLoadFailed == loadFailed)
+    }
+
+    @Test func peekDoesNotOverwriteSnapshotPushedDuringRead() async throws {
+        let gate = QueueReadGate()
+        var reads = empty
+        reads.peekUpNext = {
+            await gate.enter()
+            return UpNextSnapshot(generatedAt: 1, sections: [], repoCount: 0, fallback: nil, failedRepoCount: 0)
+        }
+        let fixture = try QueueFixture(reads)
+        fixture.app.allowsQueueRecomputation = false
+        defer { fixture.close() }
+        #expect(await queueSettle { await gate.calls == 1 })
+        fixture.store.apply(try snapshot(99))
+        #expect(await queueSettle { fixture.model.upNext?.generatedAt == 99 })
+        await gate.open()
+        #expect(await queueSettle { !fixture.model.isRefreshing })
+        #expect(fixture.model.upNext?.generatedAt == 99)
+    }
+
     private func held(_ id: String) throws -> HeldQueueEntry {
         try JSONDecoder().decode(HeldQueueEntry.self, from: Data("""
             {"id":"\(id)","repoPath":"/repo",

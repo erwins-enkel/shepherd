@@ -228,6 +228,31 @@ export const KEYS_DETAIL: readonly string[] = [
 ];
 
 /** Keys the Herd sidebar and header strip use. Owned by stream S3 — keep alphabetical. */
+export const KEYS_IOS_SIDEBAR: readonly string[] = [
+  "actionbar_backlog",
+  "herd_help_active",
+  "herd_help_ci_failed",
+  "herd_help_ci_running",
+  "herd_help_draft_signoff",
+  "herd_help_merged",
+  "herd_help_merging",
+  "herd_help_ready",
+  "herd_help_reviewing",
+  "herd_help_rework",
+  "herd_help_waiting_merger",
+  "herd_help_waiting_reviewer",
+  "herd_help_your_turn",
+  "native_ios_group_collapsed",
+  "native_ios_group_expanded",
+  "native_ios_next_waiting",
+  "native_ios_open_items_count",
+  "native_ios_open_session_hint",
+  "native_ios_session_age",
+  "native_ios_usage_warning",
+  "newtask_info_aria",
+  "topbar_settings_aria",
+];
+
 export const KEYS_SIDEBAR: readonly string[] = [
   "herd_all_title",
   "herd_awaiting_merge_group",
@@ -1435,6 +1460,7 @@ export const KEYS: readonly string[] = [
   ...KEYS_TERMINAL,
   ...KEYS_DETAIL,
   ...KEYS_SIDEBAR,
+  ...KEYS_IOS_SIDEBAR,
   ...KEYS_ACTIONS,
   ...KEYS_LOCALSERVER,
   ...KEYS_NOTIFICATIONS,

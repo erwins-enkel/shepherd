@@ -206,8 +206,31 @@ describe("backlog", () => {
 });
 
 describe("Up Next", () => {
-  test("refresh is accepted or unavailable; GET is deliberately absent", async () => {
-    expect(loadContract().paths["/api/up-next"]).toBeUndefined();
+  test("peek returns null or the cached snapshot without recomputation", async () => {
+    expect(await check("GET", "/api/up-next", 200, "/api/up-next?peek=1")).toBeNull();
+    let refreshes = 0;
+    let cached: typeof fx.snapshot | null = null;
+    s.deps.upNext = {
+      snapshot: () => cached,
+      refresh: async () => {
+        refreshes += 1;
+        return fx.snapshot;
+      },
+      recomputeUntilCleared: async () => {},
+      hiddenRepoPathsRaw: () => new Set(),
+    };
+    try {
+      expect(await check("GET", "/api/up-next", 200, "/api/up-next?peek=1")).toBeNull();
+      cached = fx.snapshot;
+      expect(await check("GET", "/api/up-next", 200, "/api/up-next?peek=1")).toEqual(fx.snapshot);
+      // Pull-to-refresh is still a cache-only read.
+      expect(await check("GET", "/api/up-next", 200, "/api/up-next?peek=1")).toEqual(fx.snapshot);
+      expect(refreshes).toBe(0);
+    } finally {
+      delete s.deps.upNext;
+    }
+  });
+  test("refresh is accepted or unavailable", async () => {
     await check("POST", "/api/up-next/refresh", 503);
     s.deps.upNext = {
       snapshot: () => fx.snapshot,
@@ -420,7 +443,7 @@ describe("restore and usage", () => {
 
 test("all queue operations require authentication", async () => {
   const ops = OPERATIONS.filter((op) => op.endsWith(" 401"));
-  expect(ops).toHaveLength(14);
+  expect(ops).toHaveLength(15);
   for (const op of ops) {
     const [method, template] = op.split(" ") as [string, string, string];
     const res = await request(method, template.replace("{id}", "missing"), undefined, false);

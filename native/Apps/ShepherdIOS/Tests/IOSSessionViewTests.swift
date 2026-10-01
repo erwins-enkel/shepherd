@@ -1,10 +1,54 @@
 import XCTest
-import ShepherdAppCore
+import SwiftUI
+import UIKit
+@testable import ShepherdAppCore
 import ShepherdKit
 @testable import ShepherdIOS
 
 @MainActor
 final class IOSSessionViewTests: XCTestCase {
+    func testOwedNavigationLabelHas44PointMinimumAtDefaultAndLargeType() {
+        for category in [UIContentSizeCategory.large, .accessibilityExtraExtraExtraLarge] {
+            let parent = UIViewController()
+            let host = UIHostingController(rootView: IOSOwedNavigationLabel(title: "TASK · Title"))
+            parent.addChild(host)
+            parent.setOverrideTraitCollection(UITraitCollection(preferredContentSizeCategory: category), forChild: host)
+            host.loadViewIfNeeded()
+            let size = host.sizeThatFits(in: CGSize(width: 320, height: 1000))
+            XCTAssertGreaterThanOrEqual(size.height, 44)
+            XCTAssertGreaterThanOrEqual(size.width, 44)
+        }
+    }
+
+    func testPhoneMovesLiveLensesAndReposToBottomAndPanelLensesToMenu() {
+        for sizeClass: UserInterfaceSizeClass? in [.compact, nil] {
+            let layout = IOSSessionListLayout(sizeClass: sizeClass)
+            XCTAssertTrue(layout.bottomBar)
+            XCTAssertFalse(layout.repoRail)
+            XCTAssertEqual(layout.stripLenses, [.next, .all, .ready])
+            XCTAssertEqual(layout.menuLenses, [.done, .owed])
+            XCTAssertEqual(Set(layout.stripLenses + layout.menuLenses), Set(HerdLens.allCases))
+        }
+    }
+
+    func testTouchWideRetainsAllTopLensesAndResizeKeepsPanelSelectionAndRepoFilter() {
+        let wide = IOSSessionListLayout(sizeClass: .regular)
+        XCTAssertFalse(wide.bottomBar)
+        XCTAssertTrue(wide.repoRail)
+        XCTAssertEqual(wide.stripLenses, HerdLens.allCases)
+        XCTAssertTrue(wide.menuLenses.isEmpty)
+        let sidebar = SidebarModel(reads: .stub, now: { 1_800_000_000_000 })
+        sidebar.lens = .owed
+        sidebar.install(sessions: [PreviewData.session()])
+        let repo = sidebar.chips.first!.path
+        sidebar.toggleRepo(repo, additive: false)
+        let phone = IOSSessionListLayout(sizeClass: .compact)
+        XCTAssertTrue(phone.menuLenses.contains(sidebar.lens))
+        XCTAssertTrue(wide.stripLenses.contains(sidebar.lens))
+        XCTAssertEqual(sidebar.lens, .owed)
+        XCTAssertEqual(sidebar.activeRepos, [repo])
+    }
+
     func testActivityStatesAndServerOrdering() {
         XCTAssertEqual(ActivityView.phase(for: .loading), .loading)
         XCTAssertEqual(ActivityView.phase(for: .failed("offline")), .failed("offline"))

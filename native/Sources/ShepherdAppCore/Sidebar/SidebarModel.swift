@@ -240,7 +240,7 @@ public final class SidebarModel: AppExtension {
 
     /// Re-read all four snapshots. A failure keeps the previous snapshot: a blank sidebar is a worse
     /// answer than a slightly stale one, and `SessionStore` already owns the offline banner.
-    func refresh() async {
+    public func refresh() async {
         // Captured before the first `await` below, per `AppExtension`'s "async work is the
         // extension's own problem" contract: a profile switch or a teardown bumps
         // `app.activationGeneration`, and a completion that lands after must not write into a model

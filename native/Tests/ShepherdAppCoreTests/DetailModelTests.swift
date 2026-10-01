@@ -83,6 +83,32 @@ struct DetailModelTests {
         ActivityEntry(ts: n, tool: "Edit", summary: summary, status: .init(known: .ok))
     }
 
+    @Test func selectedArchivedDetailSurvivesLivePruningDuringAndAfterLoad() async {
+        let gate = LoadGate()
+        var loaders = DetailModel.Loaders.stubbed()
+        loaders.activity = { _ in await gate.wait(); return [self.entry(1, "archived activity")] }
+        let model = DetailModel(loaders: loaders)
+        model.retainSession("archived")
+        let load = Task { await model.load(.activity, session: "archived") }
+        #expect(await settleDetail(until: { gate.isWaiting }))
+        model.prune(activeIDs: ["new-live-session"])
+        #expect(model.activity["archived"]?.isLoading == true)
+        gate.open()
+        await load.value
+        model.prune(activeIDs: ["another-live-session"])
+        #expect(model.activity["archived"]?.value?.first?.summary == "archived activity")
+        model.retainSession(nil)
+        #expect(model.activity["archived"] == nil)
+    }
+
+    @Test func retainedArchivedDetailIsDroppedOnTeardown() async {
+        let model = DetailModel(loaders: .stubbed())
+        model.retainSession("archived")
+        await model.load(.activity, session: "archived")
+        model.teardown()
+        #expect(model.activity.isEmpty)
+    }
+
     @Test func startsWithNothingCachedForAnySession() {
         #expect(DetailModel(loaders: .stubbed()).activity["s1"] == nil)
     }

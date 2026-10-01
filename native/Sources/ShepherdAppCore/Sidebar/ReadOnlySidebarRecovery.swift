@@ -42,7 +42,7 @@ public final class ReadOnlySidebarRecovery: AppExtension {
         async let s: Void? = sidebar?.refresh()
         async let h: Void? = herd?.refresh()
         async let p: Void? = plan?.refresh()
-        async let q: Void? = queues?.refresh(recomputeUpNext: false)
+        async let q: Void? = queues?.refresh(recomputeUpNext: false, readOnly: true)
         async let m: Void? = merge?.refresh()
         async let a: Void? = actions?.refresh()
         _ = await (s, h, p, q, m, a)

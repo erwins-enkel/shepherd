@@ -124,7 +124,9 @@ public final class QueuesModel: AppExtension {
 
     /// Failures preserve the affected snapshot without discarding successful independent
     /// reads. Reconnect retries all snapshots; Up Next failure has its own visible state.
-    public func refresh(recomputeUpNext: Bool = true) async {
+    /// `readOnly` (the iOS recovery path) never recomputes Up Next and reads the server's cached
+    /// snapshot instead, whatever the installing app allows.
+    public func refresh(recomputeUpNext: Bool = true, readOnly: Bool = false) async {
         let mine = generation
         guard isCurrent(mine) else { return }
         let activation = app?.activationGeneration
@@ -135,7 +137,7 @@ public final class QueuesModel: AppExtension {
         let haltVersion = retrySelectionGeneration
         let upNextVersion = upNextRevision
         let sources = reads
-        let mayRecompute = app?.allowsQueueRecomputation ?? true
+        let mayRecompute = !readOnly && (app?.allowsQueueRecomputation ?? true)
         async let heldResult = Self.load(sources.held)
         async let doneResult = Self.load(sources.done)
         async let recapsResult = Self.load(sources.recaps)

@@ -2,45 +2,26 @@ import { describe, it, expect } from "vitest";
 import {
   activeReworkBannerState,
   conclusionOutcome,
-  criticConclusionShows,
-  criticInFlightShows,
+  criticSteerCanLand,
   reviewBannerState,
   cancelledBannerState,
   type ReviewBannerInput,
 } from "./review-banner";
 
-describe("criticInFlightShows", () => {
-  it("hides when auto-address is off", () => {
-    expect(criticInFlightShows(false, undefined)).toBe(false);
-    expect(criticInFlightShows(false, { addressRound: 0, addressCap: 3 })).toBe(false);
+describe("criticSteerCanLand", () => {
+  it("cannot land when auto-address is off", () => {
+    expect(criticSteerCanLand(false, undefined)).toBe(false);
+    expect(criticSteerCanLand(false, { addressRound: 0, addressCap: 3 })).toBe(false);
   });
-  it("shows with no prior verdict (round 0 < cap)", () => {
-    expect(criticInFlightShows(true, undefined)).toBe(true);
+  it("can land with no prior verdict (round 0 < cap)", () => {
+    expect(criticSteerCanLand(true, undefined)).toBe(true);
   });
-  it("shows while under the verdict cap", () => {
-    expect(criticInFlightShows(true, { addressRound: 1, addressCap: 3 })).toBe(true);
+  it("can land while under the verdict cap", () => {
+    expect(criticSteerCanLand(true, { addressRound: 1, addressCap: 3 })).toBe(true);
   });
-  it("hides once the streak reaches the cap (stalled)", () => {
-    expect(criticInFlightShows(true, { addressRound: 3, addressCap: 3 })).toBe(false);
-    expect(criticInFlightShows(true, { addressRound: 4, addressCap: 3 })).toBe(false);
-  });
-});
-
-describe("criticConclusionShows", () => {
-  it("auto-address off + nothing delivered → no conclusion banner", () => {
-    expect(criticConclusionShows(false, { addressRound: 0, addressCap: 3 }, false)).toBe(false);
-    expect(criticConclusionShows(false, undefined, false)).toBe(false);
-  });
-  it("stalled at cap + nothing delivered → no conclusion banner", () => {
-    expect(criticConclusionShows(true, { addressRound: 3, addressCap: 3 }, false)).toBe(false);
-  });
-  it("a delivered steer always confirms, even on the final round at cap", () => {
-    expect(criticConclusionShows(true, { addressRound: 3, addressCap: 3 }, true)).toBe(true);
-    expect(criticConclusionShows(false, { addressRound: 3, addressCap: 3 }, true)).toBe(true);
-  });
-  it("auto-address on + under cap → conclusion shows (e.g. clean review)", () => {
-    expect(criticConclusionShows(true, { addressRound: 0, addressCap: 3 }, false)).toBe(true);
-    expect(criticConclusionShows(true, undefined, false)).toBe(true);
+  it("cannot land once the streak reaches the cap (stalled)", () => {
+    expect(criticSteerCanLand(true, { addressRound: 3, addressCap: 3 })).toBe(false);
+    expect(criticSteerCanLand(true, { addressRound: 4, addressCap: 3 })).toBe(false);
   });
 });
 
@@ -125,13 +106,30 @@ describe("reviewBannerState", () => {
     });
   });
 
-  it("critic in-flight: hidden when auto-address off", () => {
-    expect(reviewBannerState({ ...base, autoAddressOn: false })).toEqual({ show: false });
+  const watch = {
+    show: true,
+    phase: "in-flight",
+    tone: "watch",
+    copyKey: "reviewbanner_watch",
+  };
+
+  it("critic in-flight: progress-only watch tier when auto-address off", () => {
+    expect(reviewBannerState({ ...base, autoAddressOn: false })).toEqual(watch);
   });
 
-  it("critic in-flight: hidden once stalled at cap", () => {
-    expect(reviewBannerState({ ...base, verdict: { addressRound: 3, addressCap: 3 } })).toEqual({
-      show: false,
+  it("critic in-flight: watch tier once stalled at cap", () => {
+    expect(reviewBannerState({ ...base, verdict: { addressRound: 3, addressCap: 3 } })).toEqual(
+      watch,
+    );
+  });
+
+  it("critic in-flight: typing never escalates a review that cannot paste", () => {
+    expect(reviewBannerState({ ...base, autoAddressOn: false, escalated: true })).toEqual(watch);
+  });
+
+  it("critic in-flight: a held review stays held even if auto-address went off", () => {
+    expect(reviewBannerState({ ...base, autoAddressOn: false, held: true })).toMatchObject({
+      tone: "held",
     });
   });
 

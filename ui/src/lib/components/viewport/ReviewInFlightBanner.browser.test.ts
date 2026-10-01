@@ -198,16 +198,44 @@ describe("ReviewInFlightBanner preview — in-flight tier", () => {
   });
 });
 
-describe("ReviewInFlightBanner preview — negative cases (no preview / no dim)", () => {
-  it("critic in-flight with auto-address OFF: banner hidden entirely, so no preview", async () => {
+// Auto-address off: the critic's result is never pasted into this session, but the operator
+// still needs to see that it runs — otherwise the idle terminal reads as "stuck".
+describe("ReviewInFlightBanner — critic that cannot paste (watch tier)", () => {
+  beforeEach(() => {
     repoConfig.autoAddress = { [REPO]: false };
-    reviews.setReviewing(ID, true);
-    render(ReviewInFlightBanner, props() as never);
-    // criticInFlightShows is false → the whole banner suppresses; nothing to dim behind.
-    await expect.poll(() => banner()).toBeNull();
-    expect(document.querySelector(".rb-preview")).toBeNull();
   });
 
+  it("shows the progress copy and the reviewer's live feed", async () => {
+    reviews.setReviewing(ID, true);
+    for (const l of ["$ git diff", "read poller.ts"]) reviews.setActivity(ID, l);
+    render(ReviewInFlightBanner, props() as never);
+    await expect.poll(() => banner()?.getAttribute("data-tone")).toBe("watch");
+    expect(banner()?.textContent).toContain(m.reviewbanner_watch());
+    await expect.poll(feedLines).toEqual(["$ git diff", "read poller.ts"]);
+    expect(banner()?.querySelector(".rb-cog")).not.toBeNull();
+  });
+
+  it("offers Cancel but no Hold, and typing does not escalate", async () => {
+    reviews.setReviewing(ID, true);
+    const { rerender } = await render(ReviewInFlightBanner, props() as never);
+    await expect.poll(() => button(m.reviewbanner_cancel())).toBeTruthy();
+    expect(button(m.reviewbanner_hold())).toBeUndefined();
+    await rerender(props({ keystrokes: 1 }) as never);
+    await expect.poll(() => banner()?.getAttribute("data-tone")).toBe("watch");
+  });
+
+  it("concludes with a brief 'nothing pasted' tier", async () => {
+    reviews.setReviewing(ID, true);
+    render(ReviewInFlightBanner, props() as never);
+    await expect.poll(() => banner()?.getAttribute("data-tone")).toBe("watch");
+    reviews.map = { [ID]: { ...changesRequested(), addressRound: 0 } };
+    reviews.setReviewing(ID, false);
+    await expect.poll(() => banner()?.getAttribute("data-tone")).toBe("nothing");
+    expect(banner()?.textContent).toContain(m.reviewbanner_nothing());
+  });
+});
+
+describe("ReviewInFlightBanner preview — negative cases (no preview / no dim)", () => {
   it("addressing phase (agent reworks in the PTY): banner shows, but no preview", async () => {
     reviews.map = { [ID]: changesRequested() }; // not reviewing; running; executing → addressing
     render(

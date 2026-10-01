@@ -1682,8 +1682,8 @@ describe("Viewport Activity tab A/B switch", () => {
 // The ReviewInFlightBanner binds out an `inflight` signal that is true ONLY on its in-flight
 // tier (a review runs in a separate worktree/PTY; this session's PTY is idle). Viewport uses it
 // to dim .term-mount (visual-only "hands off"). It must NOT dim during addressing (agent works
-// in THIS PTY), conclusion (review done), or when the critic banner is suppressed (auto-address
-// off). Verified for both Plan-Gate and Critic.
+// in THIS PTY) or conclusion (review done). A critic review that cannot paste here (auto-address
+// off) still runs off-screen, so it dims too. Verified for both Plan-Gate and Critic.
 describe("Viewport terminal dim on in-flight review", () => {
   function clearReviewState() {
     reviews.map = {};
@@ -1740,7 +1740,7 @@ describe("Viewport terminal dim on in-flight review", () => {
     expect(termDimmed(container)).toBe(false);
   });
 
-  it("critic in-flight with auto-address OFF: banner suppressed, so NO dim", async () => {
+  it("critic in-flight with auto-address OFF: watch banner shows and dims the terminal", async () => {
     const id = "dim-critic-off";
     repoConfig.autoAddress = { "/repo/a": false };
     reviews.setReviewing(id, true);
@@ -1749,8 +1749,8 @@ describe("Viewport terminal dim on in-flight review", () => {
       previewPort: null,
       openPreviewTick: 0,
     });
-    await expect.poll(() => container.querySelector(".review-banner")).toBeNull();
-    expect(termDimmed(container)).toBe(false);
+    await expect.element(page.getByText(m.reviewbanner_watch())).toBeInTheDocument();
+    await expect.poll(() => termDimmed(container)).toBe(true);
   });
 
   it("conclusion phase: does NOT dim once the verdict lands", async () => {

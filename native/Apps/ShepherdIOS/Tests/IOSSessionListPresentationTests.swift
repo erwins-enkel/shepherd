@@ -133,6 +133,44 @@ final class IOSSessionListPresentationTests: XCTestCase {
         XCTAssertEqual(IOSSessionListPresentation.outstanding([one, cleared, other], repos: ["/repos/a"]).map(\.sessionId), ["a"])
     }
 
+    func testModelMetadataPrefersObservedIdentityAndDoesNotResolveFloatingAlias() {
+        var raw = session("a", status: .running)
+        raw.model = "sonnet"
+        raw.runtimeModel = "claude-opus-5-5"
+        raw.effort = "high"
+        var card = IOSSessionListPresentation.card(raw, displayed: raw, now: now)
+        XCTAssertEqual(card.metadata, "\(raw.desig) · Opus 5.5 · \(L.t("effort_label_high"))")
+        XCTAssertEqual(card.heartbeat.count, 24)
+        var live = SessionActivitySignal(lastActivityTs: now, summary: nil, recentTs: [], recentErrTs: [])
+        live.runtimeModel = "claude-sonnet-5-5"
+        live.runtimeEffort = "low"
+        let latest = IOSSessionListPresentation.card(raw, displayed: raw, activity: live, now: now)
+        XCTAssertEqual(latest.metadata, "\(raw.desig) · Sonnet 5.5 · \(L.t("effort_label_low"))")
+        raw.runtimeModel = nil
+        raw.effort = nil
+        card = IOSSessionListPresentation.card(raw, displayed: raw, now: now)
+        XCTAssertEqual(card.metadata, "\(raw.desig) · sonnet")
+    }
+
+    func testActivityStripUsesSharedBinsOnlyForDisplayedLiveWork() {
+        let raw = session("a", status: .blocked)
+        var displayed = raw
+        displayed.status = .init(known: .running)
+        let activity = SessionActivitySignal(lastActivityTs: now, summary: "Read", recentTs: [now], recentErrTs: [now])
+        let working = IOSSessionListPresentation.card(raw, displayed: displayed, activity: activity, now: now)
+        XCTAssertTrue(working.heartbeat.last!.error)
+        XCTAssertTrue(working.heartbeat.last!.newest)
+        XCTAssertEqual(working.heartbeat.last!.level, 1)
+        XCTAssertTrue(IOSSessionListPresentation.card(raw, displayed: raw, activity: activity, now: now).heartbeat.isEmpty)
+    }
+
+    func testGroupExplanationUsesWebCopyAndDoesNotInventMissingHelp() {
+        XCTAssertEqual(IOSSessionListPresentation.groupHelp(.reviewerRunning), L.t("herd_help_reviewing"))
+        XCTAssertEqual(IOSSessionListPresentation.groupHelp(.awaitingMerge), L.t("herd_help_your_turn"))
+        XCTAssertNil(IOSSessionListPresentation.groupHelp(.needsRework))
+        XCTAssertNil(IOSSessionListPresentation.groupHelp(.branchProtectionBlocked))
+    }
+
     func testElapsedThresholdsAndFutureClock() {
         XCTAssertEqual(IOSSessionListPresentation.elapsed(now + 1_000, now: now), "00:00")
         XCTAssertEqual(IOSSessionListPresentation.elapsed(now - 59_000, now: now), "00:59")
@@ -141,7 +179,7 @@ final class IOSSessionListPresentationTests: XCTestCase {
     }
 
     func testIOSCopyResolvesInBothLocales() {
-        let keys = ["native_ios_open_session_hint", "native_ios_group_expanded", "native_ios_next_waiting"]
+        let keys = ["native_ios_open_session_hint", "native_ios_group_expanded", "native_ios_next_waiting", "actionbar_backlog", "topbar_settings_aria", "herd_help_reviewing", "newtask_info_aria"]
         for locale in ["en", "de"] {
             let path = CoreResources.bundle.path(forResource: locale, ofType: "lproj")!
             let bundle = Bundle(path: path)!

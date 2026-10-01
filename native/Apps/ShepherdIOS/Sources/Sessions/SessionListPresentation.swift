@@ -13,6 +13,7 @@ enum IOSSessionListPresentation {
         let badges: [SessionBadge]
         let progress: HerdStepper
         let metadata: String
+        let heartbeat: [HerdHeartbeat.Cell]
         var id: String { session.id }
     }
 
@@ -42,18 +43,57 @@ enum IOSSessionListPresentation {
         }
         let summary = recap?.state.known == .ready ? recap?.headline : activity?.summary
         var metadata = [session.desig]
+        if let model = activity?.runtimeModel ?? session.runtimeModel ?? session.model, !model.isEmpty {
+            metadata.append(modelLabel(model))
+        }
         // Open Session fields are preserved by the generated schema; never infer priority.
         if let priority = session.additionalProperties.value["priority"] as? String, !priority.isEmpty {
             metadata.append(priority)
         } else if session.additionalProperties.value["priority"] as? Bool == true {
             metadata.append(L.t("upnext_pill_priority"))
         }
-        let effort = session.runtimeEffort ?? session.effort
+        let effort = activity?.runtimeEffort ?? session.runtimeEffort ?? session.effort
         if let effort, !effort.isEmpty { metadata.append(effortLabel(effort)) }
         return Card(session: session, displayed: displayed, age: elapsed(session.createdAt, now: now),
             summary: summary?.isEmpty == false ? summary : nil, badges: badges,
             progress: HerdStepper(info: HerdClassifier.deriveStage(session: session, git: git,
-                verdict: verdict, reviewing: reviewing)), metadata: metadata.joined(separator: " · "))
+                verdict: verdict, reviewing: reviewing)), metadata: metadata.joined(separator: " · "),
+            heartbeat: displayed.status.known == .running ? HerdHeartbeat.cells(activity, now: now) : [])
+    }
+
+    /// Concrete runtime model IDs follow the web's runtimeModelLabel notation.
+    /// Floating aliases stay verbatim: their historical version is unknown.
+    private static func modelLabel(_ model: String) -> String {
+        let pattern = #"^claude-(fable|opus|sonnet|haiku)-(\d+)(?:-(\d+))?(?:-\d{8})?$"#
+        if let regex = try? NSRegularExpression(pattern: pattern),
+           let match = regex.firstMatch(in: model, range: NSRange(model.startIndex..., in: model)),
+           let family = Range(match.range(at: 1), in: model),
+           let major = Range(match.range(at: 2), in: model) {
+            let minor = Range(match.range(at: 3), in: model).map { "." + model[$0] } ?? ""
+            return "\(model[family].capitalized) \(model[major])\(minor)"
+        }
+        return model
+    }
+
+    static func groupHelp(_ stage: HerdStage) -> String? {
+        let key: StaticString
+        switch stage {
+        case .active: key = "herd_help_active"
+        case .ciRunning: key = "herd_help_ci_running"
+        case .ciFailed: key = "herd_help_ci_failed"
+        case .reviewerRunning: key = "herd_help_reviewing"
+        case .reworkRunning: key = "herd_help_rework"
+        case .waitingOnReviewer: key = "herd_help_waiting_reviewer"
+        case .waitingOnMerger: key = "herd_help_waiting_merger"
+        case .draftAwaitingSignoff: key = "herd_help_draft_signoff"
+        case .awaitingMerge: key = "herd_help_your_turn"
+        case .ready: key = "herd_help_ready"
+        case .merging: key = "herd_help_merging"
+        case .merged: key = "herd_help_merged"
+        // The web's groupHelp map also has no explainer for these stages.
+        case .needsRework, .branchProtectionBlocked: return nil
+        }
+        return L.t(key)
     }
 
     /// Same units and thresholds as web format.ts. Unit letters are telemetry notation.

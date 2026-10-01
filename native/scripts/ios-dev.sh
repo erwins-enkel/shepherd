@@ -16,8 +16,18 @@ done
 command -v xcodegen >/dev/null || { echo 'xcodegen is required' >&2; exit 1; }
 cd "$APP_DIR"
 mkdir -p .build
-# A content stamp handles branch switches even when mtimes are preserved.
-SPEC_HASH="$(shasum -a 256 project.yml | awk '{print $1}')"
+# Regenerate for source additions/removals as well as spec changes. XcodeGen's
+# file references are explicit; hashing only project.yml misses new Swift files.
+SPEC_HASH="$(python3 -c '
+import hashlib, pathlib
+root = pathlib.Path(".")
+stamp = hashlib.sha256((root / "project.yml").read_bytes())
+for directory in ("Sources", "Tests", "UITests"):
+    for path in sorted((root / directory).rglob("*")):
+        if path.is_file():
+            stamp.update(str(path).encode() + b"\0")
+print(stamp.hexdigest())
+')"
 STAMP=.build/ios-dev-project.sha256
 if [[ ! -f ShepherdIOS.xcodeproj/project.pbxproj || ! -f "$STAMP" || "$(cat "$STAMP")" != "$SPEC_HASH" ]]; then
   xcodegen generate

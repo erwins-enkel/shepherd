@@ -21,14 +21,12 @@ struct RootView: View {
                 if sizeClass == .regular {
                     NavigationSplitView {
                         SessionListView(model: sidebar) { app.selectedSessionID = $0 }
-                            .toolbar { serverToolbar }
                     } detail: {
                         NavigationStack { selectedDetail }
                     }.accessibilityIdentifier("navigation-regular")
                 } else {
                     NavigationStack(path: $path) {
                         SessionListView(model: sidebar) { app.selectedSessionID = $0; path = [$0] }
-                            .toolbar { serverToolbar }
                             .navigationDestination(for: String.self) { _ in selectedDetail }
                     }.accessibilityIdentifier("navigation-compact")
                 }
@@ -87,18 +85,9 @@ struct RootView: View {
            let session = app.store?.session(id: id) ?? app.extension(QueuesModel.self)?.finishedSessions.first(where: { $0.id == id }),
            let detail = app.extension(DetailModel.self) {
             SessionDetailView(session: session, model: detail)
+                .toolbar(.visible, for: .navigationBar)
         } else {
             ContentUnavailableView(L.t("native_detail_no_selection"), systemImage: "list.bullet")
-        }
-    }
-    @ToolbarContentBuilder private var serverToolbar: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            Button(L.t("native_toolbar_servers")) { app.deactivate() }
-                .accessibilityIdentifier("show-servers")
-        }
-        ToolbarItem(placement: .topBarTrailing) {
-            Button(L.t("native_toolbar_sign_out")) { Task { await app.signOutActiveReporting() } }
-                .accessibilityIdentifier("sign-out")
         }
     }
     private var mappedPhase: IOSScenePhase { Self.map(scenePhase) }

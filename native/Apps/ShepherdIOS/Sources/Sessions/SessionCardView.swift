@@ -10,34 +10,33 @@ struct SessionCardView: View {
 
     var body: some View {
         Button(action: select) {
-            HStack(alignment: .top, spacing: 10) {
-                status.frame(width: 12).padding(.top, 4)
-                VStack(alignment: .leading, spacing: 5) {
-                    if typeSize.isAccessibilitySize {
-                        VStack(alignment: .leading, spacing: 3) {
-                            title
+            VStack(alignment: .leading, spacing: 6) {
+                if typeSize.isAccessibilitySize {
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(alignment: .top, spacing: 10) { status; title }
+                        promptAndSummary
+                        SessionBadgeFlow(badges: card.badges)
+                        HStack { Spacer(); age }
+                    }
+                } else {
+                    HStack(alignment: .top, spacing: 10) {
+                        status.frame(width: 12).padding(.top, 4)
+                        VStack(alignment: .leading, spacing: 5) { title; promptAndSummary }
+                        VStack(alignment: .trailing, spacing: 5) {
+                            SessionBadgeFlow(badges: card.badges, stacked: true)
                             age
                         }
-                    } else { titleLine }
-                    if !card.session.prompt.isEmpty {
-                        Text(verbatim: card.session.prompt)
-                            .sessionFont().foregroundStyle(SessionListStyle.ink)
-                            .lineLimit(typeSize.isAccessibilitySize ? nil : 2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    if let summary = card.summary {
-                        Text(verbatim: summary).sessionFont(label: true)
-                            .foregroundStyle(SessionListStyle.muted)
-                            .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
-                    }
-                    SessionBadgeFlow(badges: card.badges)
-                    ViewThatFits(in: .horizontal) {
-                        HStack(alignment: .center) { metadata; Spacer(minLength: 6); progress }
-                        VStack(alignment: .leading, spacing: 5) { metadata; progress }
+                        .fixedSize(horizontal: true, vertical: true)
                     }
                 }
+                if !card.heartbeat.isEmpty { heartbeat.padding(.leading, 22) }
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center) { metadata; Spacer(minLength: 6); progress }
+                    VStack(alignment: .leading, spacing: 5) { metadata; progress }
+                }
+                .padding(.leading, typeSize.isAccessibilitySize ? 0 : 22)
             }
-            .padding(12)
+            .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(selected ? SessionListStyle.selected : SessionListStyle.panel)
             .overlay { Rectangle().stroke(selected ? SessionListStyle.brightLine : SessionListStyle.line, lineWidth: 1) }
@@ -50,6 +49,33 @@ struct SessionCardView: View {
         .accessibilityIdentifier("session-row-\(card.id)")
     }
 
+    @ViewBuilder private var promptAndSummary: some View {
+        if !card.session.prompt.isEmpty {
+            Text(verbatim: card.session.prompt)
+                .sessionFont().foregroundStyle(SessionListStyle.ink)
+                .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        if let summary = card.summary {
+            Text(verbatim: summary).sessionFont(label: true)
+                .foregroundStyle(SessionListStyle.muted)
+                .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+        }
+    }
+
+    private var heartbeat: some View {
+        HStack(spacing: 2) {
+            ForEach(card.heartbeat) { cell in
+                Rectangle()
+                    .fill(cell.level == 0 ? SessionListStyle.line : cell.error ? SessionListStyle.red : SessionListStyle.amber.opacity(cell.newest ? 1 : Double(cell.level) / 5 + 0.2))
+                    .frame(maxWidth: .infinity).frame(height: 10)
+                    .overlay { if cell.error { Rectangle().stroke(SessionListStyle.bright, lineWidth: 1) } }
+            }
+        }
+        .accessibilityHidden(true)
+        .accessibilityIdentifier("herd-heartbeat")
+    }
+
     private var title: some View {
         Text(verbatim: card.session.name).sessionFont(weight: .semibold)
             .foregroundStyle(SessionListStyle.bright)
@@ -59,9 +85,6 @@ struct SessionCardView: View {
     private var age: some View {
         Text(verbatim: card.age).sessionFont(label: true).monospacedDigit()
             .foregroundStyle(SessionListStyle.ink).fixedSize()
-    }
-    private var titleLine: some View {
-        HStack(alignment: .top, spacing: 8) { title; age.layoutPriority(1) }
     }
     private var metadata: some View {
         Text(verbatim: card.metadata).sessionFont(label: true)
@@ -104,32 +127,41 @@ struct SessionCardView: View {
             : card.displayed.readyToMerge ? L.t("status_ready_to_merge") : SessionStatusStyle.label(card.displayed.status),
          L.t("native_ios_session_age", card.age), card.session.prompt, card.summary ?? "",
          card.badges.map { ([$0.text] + $0.markers.map(\.text)).joined(separator: ", ") }.joined(separator: ", "),
-         card.metadata, card.progress.accessibilityLabel]
+         card.metadata, card.progress.accessibilityLabel,
+         card.heartbeat.isEmpty ? "" : L.t("heartbeat_pop_intro") + ": " +
+            (card.heartbeat.contains { $0.error } ? L.t("heartbeat_legend_error_label")
+                : card.heartbeat.contains { $0.level > 0 } ? L.t("heartbeat_legend_active_label") : L.t("heartbeat_legend_idle_label"))]
             .filter { !$0.isEmpty }.joined(separator: ". ")
     }
 }
 
 struct SessionBadgeFlow: View {
     let badges: [SessionBadge]
+    var stacked = false
     var body: some View {
-        SessionWrappingLayout(spacing: 4) {
-            ForEach(badges) { badge in
-                HStack(spacing: 4) {
-                    Text(verbatim: badge.text.uppercased())
-                    ForEach(badge.markers) { marker in
-                        if let symbol = marker.symbol {
-                            Image(systemName: symbol).foregroundStyle(SessionListStyle.badgeTint(marker.tint))
-                        } else {
-                            Text(verbatim: marker.text).foregroundStyle(SessionListStyle.badgeTint(marker.tint))
-                        }
+        if stacked {
+            VStack(alignment: .trailing, spacing: 4) { badgeItems }
+        } else {
+            SessionWrappingLayout(spacing: 4) { badgeItems }
+        }
+    }
+    private var badgeItems: some View {
+        ForEach(badges) { badge in
+            HStack(spacing: 4) {
+                Text(verbatim: badge.text.uppercased())
+                ForEach(badge.markers) { marker in
+                    if let symbol = marker.symbol {
+                        Image(systemName: symbol).foregroundStyle(SessionListStyle.badgeTint(marker.tint))
+                    } else {
+                        Text(verbatim: marker.text).foregroundStyle(SessionListStyle.badgeTint(marker.tint))
                     }
                 }
-                .sessionFont(label: true, weight: .medium)
-                .foregroundStyle(SessionListStyle.badgeTint(badge.tint))
-                .padding(.horizontal, 5).padding(.vertical, 2)
-                .overlay { RoundedRectangle(cornerRadius: 2).stroke(SessionListStyle.badgeTint(badge.tint), lineWidth: 0.5) }
-                .accessibilityLabel(Text(verbatim: badge.text))
             }
+            .sessionFont(label: true, weight: .medium)
+            .foregroundStyle(SessionListStyle.badgeTint(badge.tint))
+            .padding(.horizontal, 5).padding(.vertical, 2)
+            .overlay { RoundedRectangle(cornerRadius: 2).stroke(SessionListStyle.badgeTint(badge.tint), lineWidth: 0.5) }
+            .accessibilityLabel(Text(verbatim: badge.text))
         }
     }
 }

@@ -176,6 +176,13 @@ describe("gen-strings manifest", () => {
     KEYS_SETTINGS,
   ];
 
+  test("iOS ended-session overlay reuses the web resume and reconnect copy", () => {
+    expect(KEYS_IOS_TERMINAL).toContain("viewport_resume_title");
+    expect(KEYS_IOS_TERMINAL).toContain("viewport_resume_sub");
+    expect(KEYS_IOS_TERMINAL).toContain("viewport_reconnect_title");
+    expect(KEYS_IOS_TERMINAL).toContain("viewport_reconnect_sub");
+  });
+
   test("KEYS is exactly the per-stream manifests concatenated, in a fixed order", () => {
     expect([...KEYS]).toEqual([...KEYS_CORE, ...streamManifests.flat()]);
   });

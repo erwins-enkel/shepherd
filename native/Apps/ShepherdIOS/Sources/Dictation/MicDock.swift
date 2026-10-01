@@ -31,6 +31,9 @@ struct TranscriptPreview: View {
 }
 struct HoldToTalkButton: View {
     @Bindable var voice: DictationController
+    // Compact terminal control keeps the composer's gesture and feedback unchanged.
+    var compact = false
+    var rendersStaticFixture = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var holding = false
     @State private var translation = CGSize.zero
@@ -62,6 +65,21 @@ struct HoldToTalkButton: View {
             .accessibilityIdentifier(voice.state == .locked ? "compose.voice.stop" : "compose.voice.mic.\(voice.state.rawValue)")
     }
     private var microphone: some View {
+        Group {
+            if compact {
+                ZStack {
+                    if (voice.state == .arming || voice.state == .finalizing) && rendersStaticFixture { Image(systemName: "hourglass") }
+                    else if voice.state == .arming || voice.state == .finalizing { ProgressView() }
+                    else { Image(systemName: symbol).font(.system(.title3, design: .monospaced)) }
+                }
+                .frame(width: 48, height: 48)
+                .foregroundStyle(voice.capturing ? ComposePalette.red : ComposePalette.amber)
+                .background(ComposePalette.panel2)
+                .overlay(RoundedRectangle(cornerRadius: 2).stroke(voice.capturing ? ComposePalette.red : ComposePalette.line))
+            } else { composerMicrophone }
+        }
+    }
+    private var composerMicrophone: some View {
         ZStack {
             if !voice.canUndo && voice.state != .cancelling { Circle().fill(fill.opacity(0.15)).padding(-6) }
             if voice.state == .recording && !reduceMotion { Circle().stroke(fill.opacity(0.12), lineWidth: 8).padding(-14) }

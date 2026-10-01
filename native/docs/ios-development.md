@@ -108,17 +108,28 @@ Output follows the tail until the operator scrolls into history (including with
 VoiceOver); Latest output returns to the tail. Tapping output never opens a
 keyboard or forwards touch gestures to the agent.
 
-Reply opens a multiline sheet explicitly and sends through the shared model's
-existing `POST /api/sessions/{id}/reply` route. The bottom key bar matches the web
-palette: Esc and Enter stay pinned, with arrows, Tab, Space and Ctrl-A/E/U/C/D in
-the scrolling middle. Controls require a live, visible, foreground attachment.
-Failures preserve the draft; a reply completing after scene suspension cannot
-dismiss a fresh sheet. Drafts belong to the shared per-session model.
+Reply uses an always-visible multiline draft above the terminal key palette and sends
+through `IOSTerminalPresentation.submitReply` on the existing
+`POST /api/sessions/{id}/reply` route. Esc and Enter stay pinned, with arrows, Tab,
+Space and Ctrl-A/E/U/C/D in the scrolling middle. Input requires a live, visible,
+foreground attachment. Sending disables editing and dictation; failures retain the
+per-session draft. Dictation never sends. The reply microphone reuses the composer's
+`HoldToTalkButton`, `IOSDictationSession`, Apple preview and Whisper finalizer. Hold,
+slide-left cancel, slide-up lock, haptics and VoiceOver tap-toggle behave the same.
+Recording dismisses the keyboard; locked recording shows a Stop control and hint.
+Scene suspension finalizes captured text; activation teardown rejects late results.
+
+A clean ended terminal offers the web's localized Resume action when the shared
+`ActionsModel` rules permit it. `IOSSessionActionState.execute(.resume)` supplies the
+same command gate, progress and error copy as session actions. Successful resume
+reattaches the terminal, deferring attachment while it is offscreen. A transition to
+running after an external resume also reattaches it. An unreachable connection offers
+Reconnect; a nonresumable clean exit offers no retry that would open a missing PTY.
 
 Normal launches permit terminal input and replies. Isolated launches still disable
 input, including emulator protocol replies, and install the read-only request
 audit. No new server API or Mac terminal behaviour is introduced. File attachment,
-dictation, saved steer chips, diff/files/preview tabs remain outside the terminal stream; session action swipes are described in
+saved steer chips, diff/files/preview tabs remain outside the terminal stream; session action swipes are described in
 [session actions](ios-session-actions.md).
 
 ## Mobile web references and visual fixtures
@@ -209,7 +220,8 @@ below the optional plugin's 60-second bound; recordings stop at five minutes. No
 files or background recording are used. Interruptions and route/format changes end
 the recording and retain recognized text; recording never resumes automatically.
 
-`GET /api/plugins` discovers `voice-whisper`. When available, its status and multipart
+`GET /api/plugins` discovers `voice-whisper`. Composer and terminal share one
+activation-scoped `IOSWhisperStatus` cache; failed discovery remains retryable. When available, its status and multipart
 transcription routes provide final text; final uploads omit `mode`. During the
 “Transcribing…” state the server text replaces Apple's preview. A failed clip uses its
 Apple text, and a 25-second overall finalization deadline retains the latest Apple
@@ -229,7 +241,7 @@ Permission descriptions are generated from the EN/DE catalogs into app-local
 On the shared development machine, compile and test this worktree only through
 `~/.claude/projects/-Users-kai-osthoff-githubrepos-shepherd/tools/ios-shared-build.sh
 <worktree> build|test`. Pass both isolation environment spellings for hosted tests.
-`IOSComposeTests` renders fixture states with `ImageRenderer`; SwiftUI rendering
+`IOSComposeTests` and `IOSTerminalReplyTests` render fixture states with `ImageRenderer`; SwiftUI rendering
 substitutions reuse the production layout for UIKit-backed controls. Real-device
 acceptance (iOS 18/26, DE/EN, AirPods, incoming call, offline and three-minute recording)
 is tracked in the draft PR checklist.

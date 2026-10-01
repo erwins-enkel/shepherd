@@ -14,6 +14,12 @@ final class IOSTerminalPresentation {
     private(set) var isAttached = false
     private(set) var replying = false
     private(set) var replyError: String?
+    private(set) var voice: DictationController?
+    private(set) var audioEngine: IOSDictationEngine?
+    @ObservationIgnored private let readActions: () -> IOSSessionActionState?
+    @ObservationIgnored private let makeDictation: (() -> IOSDictationSession?)?
+    private var reattachPending = false
+    private var lastServerStatus: SessionStatus?
     @ObservationIgnored private let reply: @Sendable (String) async throws -> Void
     @ObservationIgnored var scrollToTail: (@MainActor () -> Void)?
     private var visible = false
@@ -24,16 +30,69 @@ final class IOSTerminalPresentation {
     private var generation = 0
 
     init(session: TerminalSessionModel, allowsInput: Bool = true,
+         actions: @escaping () -> IOSSessionActionState? = { nil },
+         dictation: (() -> IOSDictationSession?)? = nil,
          reply: @escaping @Sendable (String) async throws -> Void) {
         self.session = session
         self.allowsInput = allowsInput
         self.reply = reply
+        readActions = actions
+        makeDictation = dictation
     }
 
     var canSendInput: Bool { allowsInput && isAttached && session.phase == .live }
     var canSubmitReply: Bool {
-        canSendInput && !replying && !session.promptBusy &&
+        canSendInput && !replying && !session.promptBusy && voice?.active != true &&
             !session.promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var actionState: IOSSessionActionState? { readActions() }
+    var showsReplyBar: Bool { allowsInput }
+    var canRecordReply: Bool { canSendInput && !replying && !session.promptBusy }
+    var canResume: Bool {
+        allowsInput && session.phase == .ended(.gone)
+            && actionState?.allowsWrites == true && actionState?.actions.contains(.resume) == true
+    }
+
+    func resume() async {
+        guard canResume, let state = actionState, !state.busy else { return }
+        await state.execute(.resume)
+        guard state.allowsWrites, state.error == nil, state.outcome.note?.tone == .success else { return }
+        requestReattach()
+    }
+
+    /// Also recover an ended terminal when the session-actions rail resumes it.
+    func serverSessionChanged(_ value: SessionStatus) {
+        defer { lastServerStatus = value }
+        if let previous = lastServerStatus, previous.known != .running, value.known == .running,
+           session.phase == .ended(.gone) { requestReattach() }
+    }
+
+    private func requestReattach() {
+        guard session.phase == .ended(.gone) else { return }
+        reattachPending = true
+        if isAttached { reattachPending = false; session.takeOver() }
+    }
+
+    func prepareDictation() {
+        guard allowsInput, voice == nil, let dictation = makeDictation?() else { return }
+        audioEngine = dictation.engine
+        voice = dictation.voice
+        audioEngine?.probeWhisper()
+    }
+
+    // Fixture injection uses the same production controller and text destination.
+    func installVoice(_ voice: DictationController) { self.voice = voice }
+
+    func suspendDictation() {
+        if voice?.capturing == true { voice?.finalize() }
+        else if voice?.state == .arming { voice?.cancel() }
+    }
+
+    func teardown() {
+        rendererUnmounted()
+        voice?.teardown()
+        audioEngine?.stopWhisperProbe()
     }
 
     func sendKey(_ key: IOSTerminalKey) {
@@ -41,7 +100,7 @@ final class IOSTerminalPresentation {
         session.send(Data(key.sequence.utf8))
     }
 
-    /// Keep the sheet open on failure or if its attachment changed during the request.
+    /// Report success only to the attachment that submitted the draft.
     /// Reply state belongs to this session, independently of the PTY attachment.
     /// Keep the submitted draft until success so suspension cannot discard it.
     func submitReply() async -> Bool {
@@ -65,6 +124,7 @@ final class IOSTerminalPresentation {
     func visibilityChanged(visible: Bool, active: Bool) {
         self.visible = visible
         self.active = active
+        if !visible || !active { suspendDictation() }
         reconcile()
     }
 
@@ -76,6 +136,7 @@ final class IOSTerminalPresentation {
     }
 
     func rendererUnmounted() {
+        suspendDictation()
         rendererReady = false
         reconcile()
         session.onOutput = nil
@@ -108,6 +169,10 @@ final class IOSTerminalPresentation {
         generation += 1
         isAttached = shouldAttach
         if shouldAttach {
+            if reattachPending {
+                reattachPending = false
+                session.takeOver()
+            }
             // Foreground entry creates a new attachment and replays scrollback too.
             // The core clears on a socket reattach; clear here for a fresh instance.
             switch session.phase {

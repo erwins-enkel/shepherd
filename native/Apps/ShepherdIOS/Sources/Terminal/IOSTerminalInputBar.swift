@@ -3,17 +3,10 @@ import SwiftUI
 
 struct IOSTerminalInputBar: View {
     let model: IOSTerminalPresentation
-    let openReply: () -> Void
     var rendersStaticFixture = false
 
     var body: some View {
         VStack(spacing: 0) {
-            Button(action: openReply) {
-                Label(L.t("native_ios_terminal_reply"), systemImage: "square.and.pencil")
-                    .frame(maxWidth: .infinity, minHeight: 44)
-            }
-            .disabled(!model.canSendInput)
-            .accessibilityIdentifier("terminal-open-reply")
             HStack(spacing: 6) {
                 keyButton(.escape)
                 if rendersStaticFixture {

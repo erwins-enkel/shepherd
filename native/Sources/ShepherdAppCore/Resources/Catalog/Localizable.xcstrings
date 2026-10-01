@@ -24697,6 +24697,40 @@
         }
       }
     },
+    "viewport_reconnect_sub": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr ist offline. Tippen, sobald es zurück ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "herdr is down. Tap once it's back."
+          }
+        }
+      }
+    },
+    "viewport_reconnect_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neu verbinden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reconnect"
+          }
+        }
+      }
+    },
     "viewport_rename_aria": {
       "extractionState": "manual",
       "localizations": {
@@ -24778,6 +24812,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "New name"
+          }
+        }
+      }
+    },
+    "viewport_resume_sub": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tippen zum Fortsetzen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to bring it back"
+          }
+        }
+      }
+    },
+    "viewport_resume_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session zurückholen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resume session"
           }
         }
       }

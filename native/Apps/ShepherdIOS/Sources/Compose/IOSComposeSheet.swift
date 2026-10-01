@@ -46,9 +46,12 @@ struct IOSComposeContent: View {
         _model = State(initialValue: model)
         if let voice { _voice = State(initialValue: voice) }
         else {
-            let engine = IOSDictationEngine(client: store.client, defaults: app.composerDefaults, context: [model.repoPath, model.repoBranches.baseBranch])
-            _audioEngine = State(initialValue: engine)
-            _voice = State(initialValue: DictationController(engine: engine, finalizer: WhisperFinalizer(client: store.client, status: { try await engine.resolvedWhisperAvailability() }), defaults: app.composerDefaults, getText: { model.prompt }, setText: { model.prompt = $0 }))
+            let dictation = IOSDictationSession(client: store.client, defaults: app.composerDefaults,
+                context: [model.repoPath, model.repoBranches.baseBranch],
+                whisperStatus: app.extension(IOSTerminalController.self)?.whisperStatus,
+                getText: { model.prompt }, setText: { model.prompt = $0 })
+            _audioEngine = State(initialValue: dictation.engine)
+            _voice = State(initialValue: dictation.voice)
         }
     }
     private var repos: [Repo] { store.repos.filter { !$0.hidden } }

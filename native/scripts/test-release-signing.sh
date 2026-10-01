@@ -17,8 +17,16 @@ set -eu
 printf '%s\n' "$(basename "$0") $*" >> "$CALLS"
 case "$(basename "$0") $1 ${2:-}" in
   'xcrun notarytool submit')
-    if [[ "${NOTARY_STATUS:-Accepted}" == malformed ]]; then echo invalid; exit 1; fi
+    basename "$3" > "$CALLS.name"
+    if [[ "${NOTARY_STATUS:-Accepted}" == malformed* ]]; then echo invalid; exit 1; fi
     printf '{"id":"test-submission","status":"%s"}\n' "${NOTARY_STATUS:-Accepted}"
+    ;;
+  'xcrun notarytool history')
+    status='In Progress'
+    [[ "${NOTARY_STATUS:-}" != malformed-accepted ]] || status=Accepted
+    name="$(cat "$CALLS.name")"
+    [[ "${NOTARY_STATUS:-}" != malformed-unrelated ]] || name=unrelated.zip
+    printf '{"history":[{"id":"test-submission","name":"%s","status":"%s"}]}\n' "$name" "$status"
     ;;
   'xcrun notarytool log') echo '{"issues":["mock rejection diagnostic"]}' ;;
   'xcrun stapler staple') exit "${STAPLE_EXIT:-0}" ;;
@@ -52,9 +60,9 @@ reject 'Expected an existing app bundle or DMG' "$SCRIPTS/notarize.sh" missing.z
 reject 'Set ASC_API_KEY_PATH' "$SCRIPTS/notarize.sh" "$FIXTURE/Shepherd.dmg"
 export ASC_API_KEY_PATH="$FIXTURE/key.p8"
 reject 'Set ASC_KEY_ID' "$SCRIPTS/notarize.sh" "$FIXTURE/Shepherd.dmg"
-export ASC_KEY_ID=test
+export ASC_KEY_ID=mock-key-id
 reject 'Set ASC_ISSUER_ID' "$SCRIPTS/notarize.sh" "$FIXTURE/Shepherd.dmg"
-export ASC_ISSUER_ID=test
+export ASC_ISSUER_ID=mock-issuer-id
 reject 'Expected an API key file' "$SCRIPTS/notarize.sh" "$FIXTURE/Shepherd.dmg"
 printf 'test key' > "$ASC_API_KEY_PATH"
 chmod 644 "$ASC_API_KEY_PATH"
@@ -68,17 +76,21 @@ for target in "$FIXTURE/Shepherd.app" "$FIXTURE/Shepherd.dmg"; do
   grep -q 'stapler validate' "$CALLS"
   if [[ "$target" == *.app ]]; then grep -q 'ditto -c -k' "$CALLS"; fi
 done
-for status in Invalid 'In Progress' malformed; do
+for status in Invalid 'In Progress' malformed malformed-unrelated; do
   : > "$CALLS"
   if NOTARY_STATUS="$status" "$SCRIPTS/notarize.sh" "$FIXTURE/Shepherd.dmg" > "$FIXTURE/output" 2>&1; then
     echo 'FAIL: non-Accepted notarization passed' >&2; exit 1
   fi
   ! grep -q stapler "$CALLS"
-  if [[ "$status" != malformed ]]; then
+  if [[ "$status" != malformed-unrelated ]]; then
     grep -q 'notarytool log test-submission' "$CALLS"
     grep -q 'mock rejection diagnostic' "$FIXTURE/output"
   fi
 done
+: > "$CALLS"
+NOTARY_STATUS=malformed-accepted "$SCRIPTS/notarize.sh" "$FIXTURE/Shepherd.dmg" > "$FIXTURE/output" 2>&1
+grep -q 'Recovered submission receipt' "$FIXTURE/output"
+grep -q 'stapler validate' "$CALLS"
 : > "$CALLS"
 if STAPLE_EXIT=1 "$SCRIPTS/notarize.sh" "$FIXTURE/Shepherd.dmg" > "$FIXTURE/output" 2>&1; then
   echo 'FAIL: stapling failure passed' >&2; exit 1

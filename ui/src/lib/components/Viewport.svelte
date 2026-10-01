@@ -137,7 +137,7 @@
     authUrl = null,
     consumeAutoFocusTerm = () => true,
     drain = null,
-    autoMerge = null,
+    autoMergeTrain = {},
     subagents = {},
   }: {
     session: Session;
@@ -209,9 +209,9 @@
     /** Live drain status for this session's repo; passed through to GitRail →
      *  AutomationPanel so the epic-mode precedence indicator can render. */
     drain?: DrainStatus | null;
-    /** Live merge-train status for this session's repo; drives the auto-merge strip, the
-     *  terminal dim and the recap relabel while the train carries this session's PR. */
-    autoMerge?: AutoMergeStatus | null;
+    /** Live merge-train status per repo (the whole store.autoMerge record); this session's repo
+     *  entry drives the auto-merge strip, the terminal dim and the recap relabel. */
+    autoMergeTrain?: Record<string, AutoMergeStatus>;
     /** Live per-session sub-agent roster map (the whole store.subagents record);
      *  the Activity tab's fan-out section reads this session's entry from it. */
     subagents?: Record<string, SubagentEntry[]>;
@@ -3102,7 +3102,7 @@
       sessionId={session.id}
       repoPath={session.repoPath}
       {git}
-      status={autoMerge}
+      status={autoMergeTrain[session.repoPath]}
       {tab}
       stripTaken={reviewActive || ciStripShown}
       bind:height={autoMergeH}

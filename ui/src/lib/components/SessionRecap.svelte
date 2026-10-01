@@ -83,6 +83,10 @@
   }
 </script>
 
+{#snippet verdictChip(v: RecapVerdict)}
+  <span class="recap-verdict-chip" style:color={verdictColor(v)}>{verdictLabel(v)}</span>
+{/snippet}
+
 {#snippet inner(isInline: boolean)}
   {#if recap.state === "generating"}
     <p class="recap-generating">{m.recap_generating()}</p>
@@ -99,20 +103,12 @@
   {:else if recap.state === "ready"}
     {#if isInline}
       <div class="recap-header recap-header-static">
-        {#if recap.verdict}
-          <span class="recap-verdict-chip" style:color={verdictColor(recap.verdict)}
-            >{verdictLabel(recap.verdict)}</span
-          >
-        {/if}
+        {#if recap.verdict}{@render verdictChip(recap.verdict)}{/if}
         <span class="recap-headline">{recap.headline}</span>
       </div>
     {:else}
       <button class="recap-header" onclick={() => (expanded = !expanded)} aria-expanded={expanded}>
-        {#if recap.verdict}
-          <span class="recap-verdict-chip" style:color={verdictColor(recap.verdict)}
-            >{verdictLabel(recap.verdict)}</span
-          >
-        {/if}
+        {#if recap.verdict}{@render verdictChip(recap.verdict)}{/if}
         <span class="recap-headline">{recap.headline}</span>
         <span class="recap-expand-icon" aria-hidden="true"
           >{expanded ? m.recap_collapse() : m.recap_expand()}</span

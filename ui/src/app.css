@@ -649,6 +649,39 @@ a.issue-list-title:hover {
   display: block;
 }
 
+/* ── Terminal bottom-strip recipe ──────────────────────────────────────────
+   The non-blocking status strip pinned to the terminal body above the steer bar
+   (CiRunningBanner, AutoMergeBanner). The host sets `--accent` on the same element;
+   the strip tints its text, wash and top rule from it. The terminal reserves the
+   strip's height (.term-mount shrinks by --review-banner-h), so it sits BELOW the
+   live prompt, never over it. No scrim/blur: it does not seize interaction. */
+.term-strip {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  font-size: var(--fs-base);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--color-head));
+  border-top: 1px solid color-mix(in srgb, var(--accent) 55%, var(--color-line));
+  animation: term-strip-in 0.14s ease;
+}
+@keyframes term-strip-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* Spin animation for busy/loading SVG glyphs. */
 @keyframes icon-btn-spin {
   to {

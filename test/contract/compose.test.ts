@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { isAbsolute } from "node:path";
-import { readFileSync } from "node:fs";
+import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { PluginRegistry } from "../../src/plugins/loader";
 import Ajv2020 from "ajv/dist/2020";
 import { clearBranchStatusCacheForTests } from "../../src/server";
 import { SpawnPhaseTracker, registerSpawn, releaseSpawn } from "../../src/spawn-progress";
@@ -815,6 +817,91 @@ describe("compose session actions", () => {
       }
     });
   }
+});
+
+describe("optional voice plugin contract", () => {
+  test("core discovery and plugin dispatch validate the web shapes", async () => {
+    expect(await validateResponse("GET", "/api/plugins", await get("/api/plugins"))).toEqual({
+      plugins: [],
+    });
+    for (const [method, path] of [
+      ["GET", "/api/plugins"],
+      ["GET", "/api/plugins/voice-whisper/status"],
+      ["POST", "/api/plugins/voice-whisper/transcribe"],
+    ]) {
+      const denied = await fetch(`${s.baseUrl}${path}`, { method });
+      expect(denied.status).toBe(401);
+      await validateResponse(method!, path!, denied);
+    }
+    for (const [method, path] of [
+      ["GET", "/api/plugins/voice-whisper/status"],
+      ["POST", "/api/plugins/voice-whisper/transcribe"],
+    ]) {
+      const absent = await fetch(`${s.baseUrl}${path}`, { method, headers: bearer(token) });
+      expect(absent.status).toBe(404);
+      await validateResponse(method!, path!, absent);
+    }
+    // A fixture plugin, not a claim about the unvendored implementation. The real loader,
+    // auth gate, multipart dispatch and ajv all run; only plugin-owned responses are fixtures.
+    const root = join(s.tmpRoot, "voice-plugins");
+    const dir = join(root, "voice-whisper");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "plugin.json"),
+      JSON.stringify({ id: "voice-whisper", name: "Voice", version: "1.0.0", apiVersion: 1 }),
+    );
+    writeFileSync(
+      join(dir, "index.js"),
+      `export function register(ctx) {
+      ctx.route("GET", "status", () => Response.json({available:true, engine:"whisper.cpp", model:null, ffmpeg:true, language:"auto", preferLocal:true, hint:""}));
+      ctx.route("POST", "transcribe", async req => {
+        const f = await req.formData();
+        if (f.get("mode") === "partial") return Response.json({error:"busy"}, {status:429});
+        if (!(f.get("file") instanceof File) || f.get("lang") !== "de") throw Error("invalid multipart");
+        return Response.json({text:"Füge Tests hinzu."});
+      });
+    }`,
+    );
+    const registry = new PluginRegistry({
+      pluginsDir: root,
+      store: s.deps.store,
+      events: s.deps.events,
+    });
+    await registry.loadAll();
+    s.deps.pluginRegistry = registry;
+    try {
+      const listing = (await validateResponse(
+        "GET",
+        "/api/plugins",
+        await get("/api/plugins"),
+      )) as { plugins: { id: string }[] };
+      expect(listing.plugins[0]?.id).toBe("voice-whisper");
+      await validateResponse(
+        "GET",
+        "/api/plugins/voice-whisper/status",
+        await get("/api/plugins/voice-whisper/status"),
+      );
+      for (const partial of [false, true]) {
+        const body = new FormData();
+        body.append(
+          "file",
+          new File([new Uint8Array([82, 73, 70, 70])], "clip.wav", { type: "audio/wav" }),
+        );
+        body.append("lang", "de");
+        if (partial) body.append("mode", "partial");
+        const response = await fetch(`${s.baseUrl}/api/plugins/voice-whisper/transcribe`, {
+          method: "POST",
+          headers: bearer(token),
+          body,
+        });
+        expect(response.status).toBe(partial ? 429 : 200);
+        await validateResponse("POST", "/api/plugins/voice-whisper/transcribe", response);
+      }
+    } finally {
+      registry.teardown();
+      s.deps.pluginRegistry = undefined;
+    }
+  });
 });
 
 describe("compose coverage gate", () => {

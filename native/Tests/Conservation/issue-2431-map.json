@@ -12388,6 +12388,9 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/SidebarModelTests.swift\",\"CoreSeamTests.SidebarModelTests\",\"lifecycleGroupsPreserveServerOrderDespiteStatusAndTimestampChanges()\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"peekUpNextMapsUnauthorized() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientQueuesTests.swift\",\"ShepherdClientQueuesTests\",\"peekUpNextReadsCachedSnapshotOrNullWithoutRecomputation(cached: Bool) async throws\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SidebarViewTests.swift\",\"MacSeamTests.SidebarViewTests\",\"macSidebarPreservesServerOrderWithinLifecycleGroups()\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SidebarViewTests.swift\",\"MacSeamTests.SidebarViewTests\",\"macSidebarPreservesServerOrderWithinLifecycleGroups()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientVoiceTests.swift\",\"ShepherdClientVoiceTests\",\"absentPluginDoesNotProbeStatus() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientVoiceTests.swift\",\"ShepherdClientVoiceTests\",\"discoveryAndMultipartFinal() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientVoiceTests.swift\",\"ShepherdClientVoiceTests\",\"errors(_ status: Int) async throws\"]"
   ]
 }

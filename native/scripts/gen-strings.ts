@@ -390,6 +390,26 @@ export const KEYS_ACTIONS: readonly string[] = [
   "viewport_rename_placeholder",
 ];
 
+// Stream A — iOS session actions and merge confirmation.
+export const KEYS_IOS_ACTIONS: readonly string[] = [
+  "cardmenu_label",
+  "mergeconfirm_confirm_takeover",
+  "mergeconfirm_eyebrow",
+  "mergeconfirm_field_method",
+  "mergeconfirm_field_pr",
+  "mergeconfirm_field_repo",
+  "mergeconfirm_field_target",
+  "mergeconfirm_value_unknown",
+  "native_ios_actions_not_ready",
+  "native_ios_actions_read_only",
+  "native_ios_actions_ready",
+  "native_ios_actions_remaining",
+  "native_ios_actions_revision",
+  "native_ios_actions_server_default",
+  "prbadge_merge",
+  "prbadge_merged_toast",
+];
+
 /** S5 — local server detection, install, start/stop/restart and the log tail. */
 export const KEYS_LOCALSERVER: readonly string[] = [
   "native_local_connect",
@@ -1542,6 +1562,7 @@ export const KEYS: readonly string[] = [
   ...KEYS_SIDEBAR,
   ...KEYS_IOS_SIDEBAR,
   ...KEYS_ACTIONS,
+  ...KEYS_IOS_ACTIONS,
   ...KEYS_LOCALSERVER,
   ...KEYS_NOTIFICATIONS,
   ...KEYS_HERD,

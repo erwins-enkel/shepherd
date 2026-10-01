@@ -55,6 +55,7 @@
 "buildqueue_start_steer" = "The build queue is already approved. Continue with the next step now and keep queue progress updated.";
 "cardmenu_amend" = "Amend task…";
 "cardmenu_decommission" = "Decommission";
+"cardmenu_label" = "Session actions";
 "cardmenu_relaunch" = "Relaunch";
 "cardmenu_rename" = "Rename";
 "cardmenu_replace_with" = "Continue with…";
@@ -434,9 +435,16 @@
 "login_submit" = "Sign in";
 "login_subtitle" = "This instance is protected. Enter the operator password to continue.";
 "mergeconfirm_confirm" = "Merge PR";
+"mergeconfirm_confirm_takeover" = "Merge it myself anyway";
+"mergeconfirm_eyebrow" = "Merge pull request";
+"mergeconfirm_field_method" = "Merge method";
+"mergeconfirm_field_pr" = "Pull request";
+"mergeconfirm_field_repo" = "Repository";
+"mergeconfirm_field_target" = "Target branch";
 "mergeconfirm_handoff_merger" = "@%1$@ is responsible for the merge. Confirming takes the merge over.";
 "mergeconfirm_handoff_reviewer" = "@%1$@ is due to review this pull request. Confirming merges it without their approval.";
 "mergeconfirm_review_block" = "@%1$@ has requested changes that are still open.";
+"mergeconfirm_value_unknown" = "unknown";
 "model_configured_fable_latest" = "Fable (latest)";
 "model_configured_opus_1m_latest" = "Opus (latest, 1M context)";
 "model_configured_opus_latest" = "Opus (latest)";
@@ -610,6 +618,12 @@
 "native_install_open_existing" = "Open installed Shepherd";
 "native_install_title" = "Move Shepherd to Applications?";
 "native_interrupt_failed" = "Could not interrupt the session: %1$@";
+"native_ios_actions_not_ready" = "Mark not ready";
+"native_ios_actions_read_only" = "Session actions are disabled in read-only mode.";
+"native_ios_actions_ready" = "Mark ready";
+"native_ios_actions_remaining" = "%1$@ characters remaining";
+"native_ios_actions_revision" = "Revision";
+"native_ios_actions_server_default" = "Server default";
 "native_ios_connecting" = "Connecting…";
 "native_ios_detail_branch" = "Branch";
 "native_ios_detail_info" = "Info";
@@ -1157,7 +1171,9 @@
 "prbadge_draft" = "DRAFT";
 "prbadge_mark_draft" = "Set back to Draft";
 "prbadge_mark_ready" = "Set Ready for Review";
+"prbadge_merge" = "Merge PR";
 "prbadge_merged" = "✓ MERGED";
+"prbadge_merged_toast" = "PR #%1$@ merged";
 "prbadge_open" = "PR #%1$@";
 "prbadge_review_approved" = "Reviewer approved";
 "prbadge_review_changes" = "Reviewer requested changes";

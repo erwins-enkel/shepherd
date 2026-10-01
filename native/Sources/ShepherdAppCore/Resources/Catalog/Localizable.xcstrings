@@ -977,6 +977,23 @@
         }
       }
     },
+    "cardmenu_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungs-Aktionen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session actions"
+          }
+        }
+      }
+    },
     "cardmenu_relaunch": {
       "extractionState": "manual",
       "localizations": {
@@ -7478,6 +7495,108 @@
         }
       }
     },
+    "mergeconfirm_confirm_takeover": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trotzdem selbst mergen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge it myself anyway"
+          }
+        }
+      }
+    },
+    "mergeconfirm_eyebrow": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull Request mergen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge pull request"
+          }
+        }
+      }
+    },
+    "mergeconfirm_field_method": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge-Methode"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge method"
+          }
+        }
+      }
+    },
+    "mergeconfirm_field_pr": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull Request"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull request"
+          }
+        }
+      }
+    },
+    "mergeconfirm_field_repo": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository"
+          }
+        }
+      }
+    },
+    "mergeconfirm_field_target": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zielbranch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Target branch"
+          }
+        }
+      }
+    },
     "mergeconfirm_handoff_merger": {
       "comment": "%1$@ = who",
       "extractionState": "manual",
@@ -7528,6 +7647,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "@%1$@ has requested changes that are still open."
+          }
+        }
+      }
+    },
+    "mergeconfirm_value_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unbekannt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "unknown"
           }
         }
       }
@@ -10480,6 +10616,109 @@
           "stringUnit": {
             "state": "translated",
             "value": "Could not interrupt the session: %1$@"
+          }
+        }
+      }
+    },
+    "native_ios_actions_not_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als nicht bereit markieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark not ready"
+          }
+        }
+      }
+    },
+    "native_ios_actions_read_only": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungsaktionen sind im schreibgeschützten Modus deaktiviert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session actions are disabled in read-only mode."
+          }
+        }
+      }
+    },
+    "native_ios_actions_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Als bereit markieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mark ready"
+          }
+        }
+      }
+    },
+    "native_ios_actions_remaining": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch %1$@ Zeichen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ characters remaining"
+          }
+        }
+      }
+    },
+    "native_ios_actions_revision": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revision"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Revision"
+          }
+        }
+      }
+    },
+    "native_ios_actions_server_default": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server-Standard"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server default"
           }
         }
       }
@@ -19842,6 +20081,23 @@
         }
       }
     },
+    "prbadge_merge": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR mergen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge PR"
+          }
+        }
+      }
+    },
     "prbadge_merged": {
       "extractionState": "manual",
       "localizations": {
@@ -19855,6 +20111,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "✓ MERGED"
+          }
+        }
+      }
+    },
+    "prbadge_merged_toast": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR #%1$@ gemergt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR #%1$@ merged"
           }
         }
       }

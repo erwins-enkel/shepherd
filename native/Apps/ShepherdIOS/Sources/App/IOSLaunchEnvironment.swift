@@ -57,6 +57,8 @@ final class IOSLaunchEnvironment {
         CoreStreamInstallers.installReadOnlySidebar(into: app)
         app.register(DetailModel.self)
         app.register(IOSTerminalController.self)
+        CoreStreamInstallers.installIOSSessionActions(into: app)
+        app.register(IOSSessionActions.self)
         app.allowsQueueRecomputation = false
         app.allowsTerminalInput = !configuration.isIsolated
         app.liveRequestAudit = configuration.isIsolated ? ReadOnlyRequestAudit() : nil

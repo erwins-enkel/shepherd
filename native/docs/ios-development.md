@@ -8,7 +8,8 @@ machine and retains selected Done sessions until navigation leaves them. Session
 opens on Terminal, with Activity and Info (including the complete prompt) on
 separate tabs. The iOS SwiftTerm renderer is pinned to 1.20.0, like the Mac app.
 Terminal font size is a per-device setting; the surrounding chrome, metadata and
-activity use Dynamic Type. Merge and session mutation remain outside this stage.
+activity use Dynamic Type. Session actions and ready-PR merge use the shared models; see
+[session actions](ios-session-actions.md) for placement, confirmation and parity limits.
 
 The session list defaults to **All**, with the web/Mac lifecycle groups and
 collapsible headings. Shared native relevance ordering puts working and blocked
@@ -115,8 +116,8 @@ dismiss a fresh sheet. Drafts belong to the shared per-session model.
 Normal launches permit terminal input and replies. Isolated launches still disable
 input, including emulator protocol replies, and install the read-only request
 audit. No new server API or Mac terminal behaviour is introduced. File attachment,
-dictation, saved steer chips, diff/files/preview tabs and phone session swipes remain
-outside this stream.
+dictation, saved steer chips, diff/files/preview tabs remain outside the terminal stream; session action swipes are described in
+[session actions](ios-session-actions.md).
 
 ## Mobile web references and visual fixtures
 

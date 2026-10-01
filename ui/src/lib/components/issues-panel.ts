@@ -388,7 +388,7 @@ export type IssueSelection =
 
 export const epicKey = (n: number) => `e:${n}`;
 export const childKey = (parent: number, n: number) => `c:${parent}:${n}`;
-export const singleKey = (n: number) => `s:${n}`;
+const singleKey = (n: number) => `s:${n}`;
 
 /**
  * Flatten the (already filtered, epics-first) issue list into list rows: each epic parent is

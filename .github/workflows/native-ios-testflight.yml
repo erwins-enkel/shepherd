@@ -1,6 +1,14 @@
 name: native-ios-testflight
 
 on:
+  # Every merge to main that touches the iOS app or what it is built from ships a
+  # TestFlight build to the internal group (build number = main's first-parent count).
+  push:
+    branches: [main]
+    paths:
+      - native/**
+      - contracts/**
+      - .github/workflows/native-ios-testflight.yml
   workflow_dispatch:
     inputs:
       ref:
@@ -19,6 +27,8 @@ permissions:
 
 concurrency:
   group: native-ios-testflight
+  # Queued main pushes wait; App Store Connect rejects a reused build number, so
+  # each run must finish (or fail) before the next one archives.
   cancel-in-progress: false
 
 jobs:
@@ -28,11 +38,11 @@ jobs:
     timeout-minutes: 45
     env:
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-      SHEPHERD_IOS_DRY_RUN: ${{ inputs.dry_run }}
+      SHEPHERD_IOS_DRY_RUN: ${{ github.event_name == 'push' && 'false' || inputs.dry_run }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ github.event_name == 'push' && github.sha || inputs.ref }}
           fetch-depth: 0
           persist-credentials: false
       - name: Prepare manual App Store signing
@@ -147,7 +157,13 @@ jobs:
           set -euo pipefail
           # Same first-parent count as native-release.yml, rooted at main even
           # when dispatching a feature branch. Retries deliberately keep the number.
-          echo "SHEPHERD_IOS_BUILD_NUMBER=$(git rev-list --first-parent --count origin/main)" >> "$GITHUB_ENV"
+          build=$(git rev-list --first-parent --count origin/main)
+          # A preview of anything other than main's tip gets `<count>.<run number>`, so it can
+          # never take the plain number the next main push uploads with.
+          if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]]; then
+            build="$build.$GITHUB_RUN_NUMBER"
+          fi
+          echo "SHEPHERD_IOS_BUILD_NUMBER=$build" >> "$GITHUB_ENV"
           version=$(git tag --list 'v*' --sort=-version:refname | sed -n '1p')
           version=${version#v}
           # App Store marketing versions omit SemVer prerelease/build suffixes.

@@ -1,6 +1,8 @@
 # iOS TestFlight candidate
 
-`.github/workflows/native-ios-testflight.yml` is dispatched manually. It archives
+`.github/workflows/native-ios-testflight.yml` runs on every push to `main` that touches `native/**`,
+`contracts/**` or the workflow itself (a real upload, `dry_run` forced off), and can also be
+dispatched manually. It archives
 `run.shepherd.ios` for **Shepherd for Agents** (App Store Connect Apple ID
 `6818120191`) and defaults to a **dry run**: a signed App Store IPA artifact retained
 for 14 days, with no upload. Signing runs only on the macOS GitHub Actions runner;
@@ -142,3 +144,10 @@ is `Sources/Assets.xcassets/AppIcon.appiconset/AppIcon.png`.
 
 Keep archives, IPAs, filled export options, signing material and live diagnostics
 out of version control. Never upload live-smoke token handoffs or xcresults.
+
+## Automatic uploads and previews
+
+Every merge to `main` that changes the app ships a build to the internal TestFlight group
+("Enkel", access to all builds). Its build number is main's first-parent commit count. A manual
+dispatch of any other ref (a feature branch preview) uploads `<count>.<run number>` instead, so a
+preview never takes the number the next main build needs. Concurrent runs queue rather than cancel.

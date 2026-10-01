@@ -548,6 +548,10 @@
 "native_install_title" = "Shepherd nach Programme verschieben?";
 "native_interrupt_failed" = "Session konnte nicht unterbrochen werden: %1$@";
 "native_ios_connecting" = "Verbinde…";
+"native_ios_detail_branch" = "Branch";
+"native_ios_detail_info" = "Info";
+"native_ios_detail_path" = "Repository-Pfad";
+"native_ios_detail_task" = "Task-ID";
 "native_ios_first_run" = "Schließe die Servereinrichtung in der Web-App ab und versuche es erneut.";
 "native_ios_group_collapsed" = "Eingeklappt";
 "native_ios_group_expanded" = "Ausgeklappt";
@@ -556,6 +560,11 @@
 "native_ios_open_session_hint" = "Öffnet die Session-Details.";
 "native_ios_remove_body" = "Die gespeicherte Anmeldung wird von diesem Gerät entfernt. Der serverseitige Widerruf ist nicht bestätigt.";
 "native_ios_session_age" = "Alter: %1$@";
+"native_ios_terminal_font_points" = "%1$@ pt";
+"native_ios_terminal_font_size" = "Terminal-Schriftgröße";
+"native_ios_terminal_hint" = "Live-Ausgabe der Sitzung. Scrolle, um frühere Ausgaben zu lesen.";
+"native_ios_terminal_latest" = "Neueste Ausgabe";
+"native_ios_terminal_superseded_body" = "Ein anderes Gerät ist mit diesem Terminal verbunden. Übernehmen gibt es an dieses iPhone oder iPad zurück und trennt das andere Gerät.";
 "native_ios_usage_warning" = "%1$@: %2$@%% verbraucht";
 "native_ios_welcome_subtitle" = "Verbinde dich mit einem Shepherd-Server, um deine Sitzungen zu verfolgen.";
 "native_local_connect" = "Anmelden";

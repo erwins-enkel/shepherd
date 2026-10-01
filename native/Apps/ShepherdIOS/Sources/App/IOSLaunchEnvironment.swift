@@ -56,6 +56,7 @@ final class IOSLaunchEnvironment {
             notifications: IOSNotificationEnvironment.make(defaults: defaults))
         CoreStreamInstallers.installReadOnlySidebar(into: app)
         app.register(DetailModel.self)
+        app.register(TerminalController.self)
         app.allowsQueueRecomputation = false
         app.allowsTerminalInput = false
         app.liveRequestAudit = ReadOnlyRequestAudit()

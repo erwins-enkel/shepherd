@@ -4858,5 +4858,14 @@
   "native_ios_usage_warning": "{window}: {pct}% used",
   "native_ios_group_collapsed": "Collapsed",
   "native_ios_group_expanded": "Expanded",
-  "native_ios_next_waiting": "Waiting for server recommendations. Refresh Up Next in the web or Mac app to compute them."
+  "native_ios_next_waiting": "Waiting for server recommendations. Refresh Up Next in the web or Mac app to compute them.",
+  "native_ios_detail_info": "Info",
+  "native_ios_detail_task": "Task ID",
+  "native_ios_detail_path": "Repository path",
+  "native_ios_detail_branch": "Branch",
+  "native_ios_terminal_font_size": "Terminal font size",
+  "native_ios_terminal_font_points": "{size} pt",
+  "native_ios_terminal_hint": "Live session output. Scroll to read earlier output.",
+  "native_ios_terminal_latest": "Latest output",
+  "native_ios_terminal_superseded_body": "Another device attached to this terminal. Taking over returns it to this iPhone or iPad and detaches the other device."
 }

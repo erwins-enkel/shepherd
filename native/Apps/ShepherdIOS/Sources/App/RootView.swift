@@ -89,8 +89,11 @@ struct RootView: View {
     @ViewBuilder private var selectedDetail: some View {
         if let id = app.selectedSessionID,
            let session = app.store?.session(id: id) ?? app.extension(QueuesModel.self)?.finishedSessions.first(where: { $0.id == id }),
-           let detail = app.extension(DetailModel.self) {
-            SessionDetailView(session: session, model: detail)
+           let detail = app.extension(DetailModel.self),
+           let terminals = app.extension(TerminalController.self) {
+            SessionDetailView(session: session, model: detail,
+                terminal: terminals.model(for: id), defaults: launch.defaults)
+                .id(DetailTaskKey(session: id, model: detail))
                 .toolbar(.visible, for: .navigationBar)
         } else {
             ContentUnavailableView(L.t("native_detail_no_selection"), systemImage: "list.bullet")

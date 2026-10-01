@@ -2,9 +2,12 @@
 
 The iOS 18 application uses `ShepherdAppCore` and `ShepherdKit`. It registers only
 the shared Sidebar, Detail, Herd, Plan, Queues, Merge and recap models. Profiles,
-login, activation generations and the
-single event connection remain owned by `AppModel`. The app presents session
-metadata and activity; terminal, composition, merge and session mutation are outside
+login, activation generations and the single event connection remain owned by
+`AppModel`. `TerminalController` adds the shared PTY state machine. Session detail
+opens on Terminal, with Activity and Info (including the complete prompt) on
+separate tabs. The iOS SwiftTerm renderer is pinned to 1.20.0, like the Mac app.
+Terminal font size is a per-device setting; the surrounding chrome, metadata and
+activity use Dynamic Type. Composition, merge and session mutation remain outside
 this stage.
 
 The session list defaults to **All**, with the web/Mac lifecycle groups and
@@ -81,7 +84,32 @@ it does not stop and restart the store. Foreground entry refreshes session state
 visible activity. Current-store transitions to `.live` trigger another visible
 activity refresh so a failed earlier attempt cannot leave the screen stale. No
 background execution or timer is promised. Profile changes replace the activation
-and invalidate old selections and detail tasks.
+and invalidate old selections and detail tasks. The visible terminal attaches only
+with an active scene and mounted renderer, and detaches on inactivity, background,
+tab changes and navigation away. Foreground entry clears the emulator before the
+new scrollback replay. The shared core handles reconnects and parked ownership/
+ended states; its connecting overlay uses the same 400 ms debounce as Mac.
+
+Output follows the tail until the operator scrolls into history (including with
+VoiceOver); Latest output returns to the tail. Tapping output never opens a
+keyboard or forwards touch gestures to the agent.
+
+## Mobile web references and visual fixtures
+
+`ui/src/routes/+page.svelte` changes `mobileScreen` from list to detail when a
+session opens. `ui/src/lib/components/Viewport.svelte` defaults and resets its tab
+to `term`, keeps activity separate, and places `SteerBar` and
+`viewport/ViewportTermControls.svelte` below the output. `ActionBar.svelte` is the
+list's New Task/Backlog bar, not the session's reply bar. The
+`docs/design/mobile-herd/README.md` design concerns that list screen; detail uses
+the live Viewport flow. iOS mirrors the terminal-first structure with three tabs
+for the currently supported native surfaces.
+
+`IOSTerminalTests.testRenderFixtureImages` renders the production detail chrome
+with text fixture output via `ImageRenderer`. UIKit terminal rendering cannot be
+captured by ImageRenderer; a separate renderer test feeds real SwiftTerm output
+and verifies history retention. The fixture PNGs cover Terminal, Info and enlarged
+Info text. These fixtures are visual layout evidence, not a live-server check.
 
 ## Live acceptance
 

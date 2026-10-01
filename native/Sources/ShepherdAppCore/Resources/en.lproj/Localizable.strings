@@ -548,6 +548,10 @@
 "native_install_title" = "Move Shepherd to Applications?";
 "native_interrupt_failed" = "Could not interrupt the session: %1$@";
 "native_ios_connecting" = "Connecting…";
+"native_ios_detail_branch" = "Branch";
+"native_ios_detail_info" = "Info";
+"native_ios_detail_path" = "Repository path";
+"native_ios_detail_task" = "Task ID";
 "native_ios_first_run" = "Complete server setup in the web app, then retry.";
 "native_ios_group_collapsed" = "Collapsed";
 "native_ios_group_expanded" = "Expanded";
@@ -556,6 +560,11 @@
 "native_ios_open_session_hint" = "Opens session details.";
 "native_ios_remove_body" = "This removes the saved sign-in from this device. Server-side revocation is not confirmed.";
 "native_ios_session_age" = "Age: %1$@";
+"native_ios_terminal_font_points" = "%1$@ pt";
+"native_ios_terminal_font_size" = "Terminal font size";
+"native_ios_terminal_hint" = "Live session output. Scroll to read earlier output.";
+"native_ios_terminal_latest" = "Latest output";
+"native_ios_terminal_superseded_body" = "Another device attached to this terminal. Taking over returns it to this iPhone or iPad and detaches the other device.";
 "native_ios_usage_warning" = "%1$@: %2$@%% used";
 "native_ios_welcome_subtitle" = "Connect to a Shepherd server to follow your sessions.";
 "native_local_connect" = "Sign in";

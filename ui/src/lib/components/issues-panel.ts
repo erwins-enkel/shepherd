@@ -285,6 +285,93 @@ export function sortEpicsFirst(
   return [...epics, ...rest];
 }
 
+// ── Repo overview (#2638) ─────────────────────────────────────────────────────────────────
+
+/** When an issue last changed: the forge's `updatedAt`, else (older payload, or a forge that
+ *  doesn't report it) its creation. */
+export function lastChange(issue: Issue): number {
+  return issue.updatedAt ?? issue.createdAt;
+}
+
+/** "Älteste zuerst": least recently changed first. Stable; returns a new array. */
+export function sortOldestFirst(issues: readonly Issue[]): Issue[] {
+  return [...issues].sort((a, b) => lastChange(a) - lastChange(b));
+}
+
+/** An issue counts as lying around once it has gone this many days without a change. */
+export const STALE_DAYS = 90;
+const DAY_MS = 86_400_000;
+
+export interface StaleSummary {
+  /** Issues unchanged for over {@link STALE_DAYS} days. */
+  stale: number;
+  total: number;
+  /** The least recently changed issue and its days without a change; null when none. */
+  oldest: { issue: Issue; days: number } | null;
+}
+
+export function staleSummary(issues: readonly Issue[], now: number): StaleSummary {
+  let stale = 0;
+  let oldest: Issue | null = null;
+  for (const issue of issues) {
+    if (now - lastChange(issue) > STALE_DAYS * DAY_MS) stale++;
+    if (!oldest || lastChange(issue) < lastChange(oldest)) oldest = issue;
+  }
+  return {
+    stale,
+    total: issues.length,
+    oldest: oldest
+      ? { issue: oldest, days: Math.floor((now - lastChange(oldest)) / DAY_MS) }
+      : null,
+  };
+}
+
+/** Open issues per label, most first (ties by name). Only `labels` count — pass the list's
+ *  label filter options, so every entry is one the filter can actually apply. */
+export function labelCounts(
+  issues: readonly Issue[],
+  labels: readonly string[],
+): { label: string; count: number }[] {
+  return labels
+    .map((label) => ({
+      label,
+      count: issues.filter((i) => (i.labels ?? []).includes(label)).length,
+    }))
+    .filter((c) => c.count > 0)
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
+
+export interface RunningIssue {
+  issue: Issue;
+  /** The live session working it; null when only the claim label says it runs. */
+  sessionId: string | null;
+  desig: string | null;
+  /** The list's filters currently hide it. */
+  hidden: boolean;
+}
+
+/** Issues being worked right now: a live session links to them, or the drain's claim label
+ *  ({@link ACTIVE_LABEL}) marks them. Listed even when the list's filters hide them — the
+ *  overview says what runs, independent of what the list shows. */
+export function runningIssues(
+  issues: readonly Issue[],
+  sessionFor: (issue: number) => { id: string; desig: string } | null,
+  visible: ReadonlySet<number>,
+): RunningIssue[] {
+  return issues.flatMap((issue) => {
+    const session = sessionFor(issue.number);
+    if (!session && !(issue.labels ?? []).includes(ACTIVE_LABEL)) return [];
+    return [
+      {
+        issue,
+        sessionId: session?.id ?? null,
+        desig: session?.desig ?? null,
+        hidden: !visible.has(issue.number),
+      },
+    ];
+  });
+}
+
 /** One row of the backlog issue list (#2617): an epic header, one of an expanded epic's
  *  children (or its loading placeholder while the record is fetched), or a single issue. */
 export type IssueListRow =

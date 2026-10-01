@@ -56,6 +56,8 @@
     taskDefaults = undefined,
     onopensession = undefined,
     sessionInfo = undefined,
+    issueSession = undefined,
+    ondraftepic = undefined,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
@@ -105,6 +107,10 @@
     onopensession?: (sessionId: string) => void;
     /** A session and its PR state from the store, by id — an epic child's session view. */
     sessionInfo?: (id: string) => { session: Session; git?: GitState } | null;
+    /** The live session working an issue of a repo — the Issues overview's "Running now". */
+    issueSession?: (repoPath: string, issue: number) => Session | null;
+    /** Open the New Task composer set to draft an epic for a repo (Issues overview). */
+    ondraftepic?: (repoPath: string) => void;
     /** Global run defaults for the Issues tab's task box (CLI / model / effort pre-fill). */
     taskDefaults?: TaskRunDefaults;
   } = $props();
@@ -456,6 +462,8 @@
             {taskDefaults}
             {onopensession}
             {sessionInfo}
+            {issueSession}
+            {ondraftepic}
             onopenautomation={() => (activeTab = "automation")}
           />
         </div>
@@ -528,6 +536,8 @@
               {taskDefaults}
               {onopensession}
               {sessionInfo}
+              {issueSession}
+              {ondraftepic}
               onopenautomation={() => (activeTab = "automation")}
             />
           {:else}

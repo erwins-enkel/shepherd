@@ -26,6 +26,11 @@ import {
   buildIssueRows,
   stepSelection,
   resolveSelection,
+  lastChange,
+  sortOldestFirst,
+  staleSummary,
+  labelCounts,
+  runningIssues,
 } from "./issues-panel";
 import type { Issue, EpicSummary, EpicChild } from "$lib/types";
 
@@ -672,5 +677,52 @@ describe("resolveSelection (#2617)", () => {
     expect(resolveSelection(null, issues, new Set(), childrenOf)).toBeNull();
     expect(resolveSelection("s:99", issues, new Set(), childrenOf)).toBeNull();
     expect(resolveSelection("c:7:2", issues, new Set(), childrenOf)).toBeNull();
+  });
+});
+
+describe("repo overview helpers (#2638)", () => {
+  const DAY = 86_400_000;
+  const now = 1_000 * DAY;
+  const at = (number: number, createdDay: number, updatedDay?: number, labels: string[] = []) => ({
+    ...issue(number, `Issue ${number}`, "", labels),
+    createdAt: createdDay * DAY,
+    ...(updatedDay == null ? {} : { updatedAt: updatedDay * DAY }),
+  });
+
+  it("lastChange prefers updatedAt and falls back to createdAt", () => {
+    expect(lastChange(at(1, 10, 500))).toBe(500 * DAY);
+    expect(lastChange(at(2, 10))).toBe(10 * DAY);
+  });
+
+  it("sortOldestFirst orders by last change, least recent first", () => {
+    const sorted = sortOldestFirst([at(1, 0, 900), at(2, 800), at(3, 0, 100)]);
+    expect(sorted.map((i) => i.number)).toEqual([3, 2, 1]);
+  });
+
+  it("staleSummary counts issues unchanged for over 90 days and names the oldest", () => {
+    // #1 changed 10 days ago; #2 created 200 days ago, never changed; #3 changed 95 days ago.
+    const summary = staleSummary([at(1, 0, 990), at(2, 800), at(3, 0, 905)], now);
+    expect(summary.stale).toBe(2);
+    expect(summary.total).toBe(3);
+    expect(summary.oldest?.issue.number).toBe(2);
+    expect(summary.oldest?.days).toBe(200);
+    expect(staleSummary([], now)).toEqual({ stale: 0, total: 0, oldest: null });
+  });
+
+  it("labelCounts counts only the given labels, most first", () => {
+    const issues = [at(1, 0, 0, ["bug", ACTIVE_LABEL]), at(2, 0, 0, ["bug", "docs"]), at(3, 0)];
+    expect(labelCounts(issues, ["docs", "bug", "absent"])).toEqual([
+      { label: "bug", count: 2 },
+      { label: "docs", count: 1 },
+    ]);
+  });
+
+  it("runningIssues lists a live session or the claim label, even when the list hides it", () => {
+    const issues = [at(1, 0, 0, [ACTIVE_LABEL]), at(2, 0), at(3, 0)];
+    const sessionFor = (n: number) => (n === 2 ? { id: "s2", desig: "TASK-02" } : null);
+    expect(runningIssues(issues, sessionFor, new Set([2, 3]))).toEqual([
+      { issue: issues[0], sessionId: null, desig: null, hidden: true },
+      { issue: issues[1], sessionId: "s2", desig: "TASK-02", hidden: false },
+    ]);
   });
 });

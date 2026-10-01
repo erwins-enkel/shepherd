@@ -2,12 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
-import type { Issue, EpicSummary, Epic, Steer } from "$lib/types";
+import type { Issue, EpicSummary, Epic, Session, Steer } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import { listIssues, getEpics, getEpic } from "$lib/api";
 import { steers } from "$lib/steers.svelte";
 import { issuesFilter } from "$lib/issues-filter.svelte";
 import { backlogRefresh } from "$lib/backlog-refresh.svelte";
+import { ACTIVE_LABEL } from "./issues-panel";
 import { reactiveRecord } from "./reactive-fixture.svelte";
 
 // Mock the API so no network calls fire; each test seeds the results.
@@ -363,8 +364,69 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     const overview = document.querySelector<HTMLElement>(".detail-col .overview")!;
     expect(overview.querySelector("h2")?.textContent).toBe(m.repooverview_title({ repo: "repo" }));
     expect(overview.querySelector("[data-repo-run]")?.textContent).toContain(m.repooverview_hint());
-    overview.querySelector<HTMLButtonElement>(".single")!.click();
-    await expect.poll(() => option("s:42")?.getAttribute("aria-selected")).toBe("true");
+    // The overview doesn't repeat the list (#2638): no entry lists the issue.
+    const entries = [...overview.querySelectorAll("li")].map((li) => li.textContent ?? "");
+    expect(entries.some((t) => t.includes("Compact issue row"))).toBe(false);
+    await selectRow("s:42");
+    expect(document.querySelector(".detail-col .overview")).toBeNull();
+  });
+
+  describe("repo overview beside the list (#2638)", () => {
+    let prevActive = false;
+    beforeEach(() => {
+      prevActive = issuesFilter.hideActive;
+    });
+    afterEach(() => {
+      issuesFilter.setActive(prevActive);
+    });
+    const overview = () => document.querySelector<HTMLElement>(".detail-col .overview");
+
+    it("names a running issue the list's filter hides under 'Running now'", async () => {
+      issuesFilter.setActive(true);
+      const onopensession = vi.fn();
+      seed([plain(160, { title: "Portal redesign", labels: [ACTIVE_LABEL] }), plain(159)]);
+      render(IssuesPanel, {
+        repoPath: "/repo",
+        onnewtask: noop,
+        onopensession,
+        issueSession: (rp: string, n: number) =>
+          rp === "/repo" && n === 160 ? ({ id: "s160", desig: "TASK-160" } as Session) : null,
+      });
+      await expect.poll(() => option("s:159")).not.toBeNull();
+      expect(option("s:160")).toBeNull();
+
+      const row = () => overview()?.querySelector<HTMLElement>(".run-row");
+      await expect.poll(() => row()?.textContent).toContain("#160 Portal redesign");
+      expect(row()!.textContent).toContain(`TASK-160 · ${m.repooverview_running_hidden()}`);
+      row()!.querySelector("button")!.click();
+      expect(onopensession).toHaveBeenCalledWith("s160");
+    });
+
+    it("a label filters the list; 'Oldest first' sorts it until cleared", async () => {
+      const DAY = 86_400_000;
+      seed([
+        plain(1, { labels: ["bug"], createdAt: 50 * DAY, updatedAt: 100 * DAY }),
+        plain(2, { labels: ["docs"], createdAt: 10 * DAY }),
+        plain(3, { labels: ["bug"], createdAt: 5 * DAY, updatedAt: 200 * DAY }),
+      ]);
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+      const singles = () => [...document.querySelectorAll(".single-row")].map((r) => r.id);
+      await expect.poll(singles).toEqual(["issue-opt-s:1", "issue-opt-s:2", "issue-opt-s:3"]);
+
+      const oldest = () => overview()!.querySelector<HTMLButtonElement>(".oldest")!;
+      oldest().click();
+      await expect.poll(singles).toEqual(["issue-opt-s:2", "issue-opt-s:1", "issue-opt-s:3"]);
+      expect(oldest().getAttribute("aria-pressed")).toBe("true");
+      document.querySelector<HTMLButtonElement>(".sort-chip")!.click();
+      await expect.poll(singles).toEqual(["issue-opt-s:1", "issue-opt-s:2", "issue-opt-s:3"]);
+      expect(document.querySelector(".sort-chip")).toBeNull();
+
+      const bug = [...overview()!.querySelectorAll<HTMLButtonElement>(".label-row")].find((b) =>
+        b.textContent?.includes("bug"),
+      )!;
+      bug.click();
+      await expect.poll(singles).toEqual(["issue-opt-s:1", "issue-opt-s:3"]);
+    });
   });
 
   it("a click selects the entry and the detail renders its Markdown description", async () => {

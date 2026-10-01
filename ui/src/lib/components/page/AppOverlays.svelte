@@ -206,6 +206,7 @@
     oninject,
     onpr,
     onadopt,
+    ondraftepic,
     onlaunchtrain,
     onaddclone,
     onaddfork,
@@ -361,6 +362,8 @@
     oninject: (repoPath: string, issue: Issue, steer: Steer) => void;
     onpr: (repoPath: string, pr: PullRequest) => void;
     onadopt: (repoPath: string, prompt: string) => void;
+    /** The Issues overview's "Draft epic" (#2638): New Task set to epic authoring. */
+    ondraftepic: (repoPath: string) => void;
     onlaunchtrain: (repoPath: string, prs: PullRequest[]) => void;
     onaddclone: () => void;
     onaddfork: () => void;
@@ -444,6 +447,11 @@
   function backlogSessionInfo(id: string): { session: Session; git?: GitState } | null {
     const session = store.byId(id);
     return session ? { session, git: store.git[id] } : null;
+  }
+
+  // The live session working an issue (#2638): the Issues overview's "Running now".
+  function backlogIssueSession(repoPath: string, issue: number): Session | null {
+    return store.sessions.find((s) => s.repoPath === repoPath && s.issueNumber === issue) ?? null;
   }
 </script>
 
@@ -758,6 +766,8 @@
     onclose={onbacklogclose}
     onopensession={onbacklogopensession}
     sessionInfo={backlogSessionInfo}
+    issueSession={backlogIssueSession}
+    {ondraftepic}
     epics={store.epics}
     {inTrainPrs}
     target={epicTarget}

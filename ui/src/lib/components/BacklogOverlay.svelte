@@ -39,6 +39,8 @@
     taskDefaults = undefined,
     onopensession = undefined,
     sessionInfo = undefined,
+    issueSession = undefined,
+    ondraftepic = undefined,
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
@@ -73,6 +75,10 @@
     onopensession?: (sessionId: string) => void;
     /** A session and its PR state from the store, by id — an epic child's session view. */
     sessionInfo?: (id: string) => { session: Session; git?: GitState } | null;
+    /** The live session working an issue of a repo, forwarded to BacklogView (#2638). */
+    issueSession?: (repoPath: string, issue: number) => Session | null;
+    /** Draft an epic for a repo in the New Task composer, forwarded to BacklogView (#2638). */
+    ondraftepic?: (repoPath: string) => void;
   } = $props();
 
   // ── Desktop modal resize (issue #1787) ──────────────────────────────────────
@@ -157,6 +163,8 @@
         {taskDefaults}
         {onopensession}
         {sessionInfo}
+        {issueSession}
+        {ondraftepic}
       />
     </div>
     {#if resizable}

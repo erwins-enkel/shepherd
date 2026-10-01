@@ -2009,7 +2009,12 @@
         .then((l) => store.seedCompletedEpics(l))
         .catch(() => {});
     refresh();
-    const t = setInterval(refresh, 30_000);
+    // Visible tabs only, every 60s: each GET lists issues for every repo with epic history,
+    // so a backgrounded tab polling at 30s was a steady GitHub API drain (#2656). No wake
+    // refresh here — resync() already re-fetches completed epics on a hidden→visible flip.
+    const t = setInterval(() => {
+      if (!document.hidden) refresh();
+    }, 60_000);
     return () => clearInterval(t);
   });
 

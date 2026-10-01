@@ -284,7 +284,11 @@ describe("UnitRow runtime environment", () => {
         name: m.taskid_button_title({ desig: "TASK-01" }),
       });
       await taskId.hover();
-      expect(document.querySelector(".status-tip:popover-open")).toBeNull();
+      // Poll, not a snapshot: a pointer left over from an earlier test file can sit where the
+      // adjacent environment chip renders, so Chromium opens that chip's tip on layout and the
+      // move onto the task ID only closes it after statusTip's 140ms grace. A tip the task ID
+      // itself opened would stay open while hovered and still fail this.
+      await expect.poll(() => document.querySelector(".status-tip:popover-open")).toBeNull();
       await taskId.click();
       await expect.element(page.getByRole("menuitem", { name: m.taskid_copy() })).toBeVisible();
       expect(document.querySelector(".status-tip:popover-open")).toBeNull();

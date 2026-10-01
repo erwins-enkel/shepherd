@@ -5,15 +5,14 @@ import ShepherdKit
 struct SessionDetailView: View {
     let session: Session
     let model: DetailModel
-    @State private var terminal: IOSTerminalPresentation
+    let terminal: IOSTerminalPresentation
     @AppStorage private var fontSize: Double
     @Environment(AppModel.self) private var app
 
-    init(session: Session, model: DetailModel, terminal: TerminalSessionModel, defaults: UserDefaults,
-         allowsInput: Bool) {
+    init(session: Session, model: DetailModel, terminal: IOSTerminalPresentation, defaults: UserDefaults) {
         self.session = session
         self.model = model
-        _terminal = State(initialValue: IOSTerminalPresentation(session: terminal, allowsInput: allowsInput))
+        self.terminal = terminal
         _fontSize = AppStorage(wrappedValue: 12, "ios.terminal.fontSize", store: defaults)
     }
 

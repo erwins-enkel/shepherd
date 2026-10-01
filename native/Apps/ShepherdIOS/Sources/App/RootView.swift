@@ -90,9 +90,9 @@ struct RootView: View {
         if let id = app.selectedSessionID,
            let session = app.store?.session(id: id) ?? app.extension(QueuesModel.self)?.finishedSessions.first(where: { $0.id == id }),
            let detail = app.extension(DetailModel.self),
-           let terminals = app.extension(TerminalController.self) {
+           let terminals = app.extension(IOSTerminalController.self) {
             SessionDetailView(session: session, model: detail,
-                terminal: terminals.model(for: id), defaults: launch.defaults, allowsInput: app.allowsTerminalInput)
+                terminal: terminals.model(for: id), defaults: launch.defaults)
                 .id(DetailTaskKey(session: id, model: detail))
                 .toolbar(.visible, for: .navigationBar)
         } else {

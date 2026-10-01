@@ -30,12 +30,46 @@ private final class IOSFixturePTY: PTYAttaching {
 
 @MainActor
 final class IOSTerminalTests: XCTestCase {
+    func testFontSettingsRendersFontLabelAndAccessibilityValue() throws {
+        for points in [9.0, 12.0, 24.0] {
+            let settings = IOSTerminalFontSettings(fontSize: .constant(points))
+            let renderer = ImageRenderer(content: settings.frame(width: 300, height: 180))
+            XCTAssertNotNil(renderer.uiImage, "Rendering evaluates both the label and slider accessibility value")
+            XCTAssertEqual(L.t("native_ios_terminal_font_points", String(Int(points))), "\(Int(points)) pt")
+        }
+    }
+
+    func testDismantleClosesDisplayLinkDetachesAndReleasesTerminal() async {
+        let pty = IOSFixturePTY()
+        let session = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
+        let presentation = IOSTerminalPresentation(session: session, reply: { _ in })
+        let coordinator = IOSTerminalHostView.Coordinator(model: presentation)
+        weak var releasedView: IOSWatchingTerminalView?
+        autoreleasepool {
+            let view = IOSWatchingTerminalView(frame: CGRect(x: 0, y: 0, width: 390, height: 400),
+                font: .monospacedSystemFont(ofSize: 12, weight: .regular))
+            releasedView = view
+            view.terminalDelegate = coordinator
+            coordinator.bind(view)
+            presentation.visibilityChanged(visible: true, active: true)
+            IOSTerminalHostView.dismantleUIView(view, coordinator: coordinator)
+            XCTAssertNil(view.terminalDelegate)
+            XCTAssertNil(view.onUserScroll)
+            XCTAssertNil(session.onOutput)
+            XCTAssertNil(session.onClear)
+            XCTAssertNil(presentation.scrollToTail)
+            XCTAssertEqual(pty.stops, 1)
+        }
+        // UIKit can release its transient layout/display references on the next turn.
+        await settle { releasedView == nil }
+    }
+
     func testAttachmentRequiresActiveVisibleRendererAndClosesOnEveryExit() {
         var attachments: [IOSFixturePTY] = []
         let session = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in
             let pty = IOSFixturePTY(); attachments.append(pty); return pty
         })
-        let presentation = IOSTerminalPresentation(session: session)
+        let presentation = IOSTerminalPresentation(session: session, reply: { _ in })
         var clears = 0
         session.onClear = { clears += 1 }
         presentation.visibilityChanged(visible: true, active: true)
@@ -62,7 +96,7 @@ final class IOSTerminalTests: XCTestCase {
     func testUnmountDetachesEvenBeforeSwiftUIDisappearsAndInactiveMountNeverAttaches() {
         let pty = IOSFixturePTY()
         let session = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
-        let presentation = IOSTerminalPresentation(session: session)
+        let presentation = IOSTerminalPresentation(session: session, reply: { _ in })
         presentation.rendererMounted(cols: 50, rows: 20)
         presentation.visibilityChanged(visible: true, active: false)
         XCTAssertEqual(pty.starts, 0)
@@ -77,7 +111,7 @@ final class IOSTerminalTests: XCTestCase {
 
     func testTailFollowStopsForHistoryResumesAtBottomAndResetsOnReplay() {
         let session = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in IOSFixturePTY() })
-        let presentation = IOSTerminalPresentation(session: session)
+        let presentation = IOSTerminalPresentation(session: session, reply: { _ in })
         XCTAssertTrue(presentation.followsTail)
         presentation.userScrolled(position: 0.4, canScroll: true)
         XCTAssertFalse(presentation.followsTail)
@@ -101,7 +135,7 @@ final class IOSTerminalTests: XCTestCase {
         let session = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { cols, rows in
             XCTAssertEqual(cols, 60); XCTAssertEqual(rows, 22); return pty
         })
-        let presentation = IOSTerminalPresentation(session: session)
+        let presentation = IOSTerminalPresentation(session: session, reply: { _ in })
         presentation.rendererMounted(cols: 50, rows: 20)
         presentation.resize(cols: 60, rows: 22)
         XCTAssertTrue(pty.sizes.isEmpty)
@@ -117,7 +151,7 @@ final class IOSTerminalTests: XCTestCase {
     func testRendererFeedsLiveBytesAndPreservesHistory() async {
         let pty = IOSFixturePTY()
         let session = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
-        let presentation = IOSTerminalPresentation(session: session)
+        let presentation = IOSTerminalPresentation(session: session, reply: { _ in })
         let coordinator = IOSTerminalHostView.Coordinator(model: presentation)
         let view = IOSWatchingTerminalView(frame: CGRect(x: 0, y: 0, width: 390, height: 400),
             font: .monospacedSystemFont(ofSize: 12, weight: .regular))
@@ -156,7 +190,7 @@ final class IOSTerminalTests: XCTestCase {
         let core = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in
             let pty = IOSFixturePTY(); attachments.append(pty); return pty
         })
-        let presentation = IOSTerminalPresentation(session: core)
+        let presentation = IOSTerminalPresentation(session: core, reply: { _ in })
         let coordinator = IOSTerminalHostView.Coordinator(model: presentation)
         let view = IOSWatchingTerminalView(frame: CGRect(x: 0, y: 0, width: 390, height: 400),
             font: .monospacedSystemFont(ofSize: 12, weight: .regular))
@@ -181,13 +215,13 @@ final class IOSTerminalTests: XCTestCase {
         presentation.rendererUnmounted()
     }
 
-    func testReplyDelegatesToCoreAndFailureKeepsDraft() async {
+    func testReplyUsesKitRouteAndFailureKeepsDraft() async {
         let recorder = IOSReplyRecorder()
         let pty = IOSFixturePTY()
         let core = TerminalSessionModel(sessionID: "fixture", reply: { text in
             try await recorder.send(text)
         }, makeAttachment: { _, _ in pty })
-        let presentation = IOSTerminalPresentation(session: core)
+        let presentation = IOSTerminalPresentation(session: core, reply: { text in try await recorder.send(text) })
         presentation.rendererMounted(cols: 50, rows: 20)
         presentation.visibilityChanged(visible: true, active: true)
         core.promptText = "   "
@@ -207,7 +241,7 @@ final class IOSTerminalTests: XCTestCase {
         let failed = await presentation.submitReply()
         XCTAssertFalse(failed)
         XCTAssertEqual(core.promptText, "Preserve this draft")
-        XCTAssertNotNil(core.promptError)
+        XCTAssertNotNil(presentation.replyError)
         XCTAssertFalse(presentation.replying)
         presentation.rendererUnmounted()
     }
@@ -219,7 +253,7 @@ final class IOSTerminalTests: XCTestCase {
         let session = TerminalSessionModel(sessionID: "fixture", reply: { text in
             try await gate.send(text)
         }, makeAttachment: { _, _ in pty })
-        let presentation = IOSTerminalPresentation(session: session)
+        let presentation = IOSTerminalPresentation(session: session, reply: { text in try await gate.send(text) })
         presentation.rendererMounted(cols: 50, rows: 20)
         presentation.visibilityChanged(visible: true, active: true)
         pty.emit(.attached)
@@ -239,6 +273,168 @@ final class IOSTerminalTests: XCTestCase {
         presentation.rendererUnmounted()
     }
 
+    func testFailedReplyRetainsDraftAndErrorAcrossSuspensionAndNavigation() async {
+        for (navigatingAway, returnBeforeFailure) in [(false, false), (true, false), (false, true), (true, true)] {
+            let gate = IOSReplyRecorder()
+            gate.hold = true
+            gate.fail = true
+            var attachments: [IOSFixturePTY] = []
+            let session = TerminalSessionModel(sessionID: "fixture", reply: { _ in
+                XCTFail("iOS replies must not use the PTY generation's submitPrompt")
+            }, makeAttachment: { _, _ in
+                let pty = IOSFixturePTY(); attachments.append(pty); return pty
+            })
+            let presentation = IOSTerminalPresentation(session: session, reply: { text in try await gate.send(text) })
+            presentation.rendererMounted(cols: 50, rows: 20)
+            presentation.visibilityChanged(visible: true, active: true)
+            attachments[0].emit(.attached)
+            await settle { session.phase == .live }
+            let draft = "  Keep this paragraph\nand its whitespace  "
+            session.promptText = draft
+            let reply = Task { await presentation.submitReply() }
+            await settle { gate.pending != nil }
+            XCTAssertEqual(session.promptText, draft)
+            if navigatingAway {
+                presentation.rendererUnmounted()
+                presentation.visibilityChanged(visible: false, active: false)
+            } else {
+                presentation.visibilityChanged(visible: true, active: false)
+            }
+            XCTAssertTrue(presentation.replying)
+            if returnBeforeFailure {
+                presentation.rendererMounted(cols: 50, rows: 20)
+                presentation.visibilityChanged(visible: true, active: true)
+                attachments[1].emit(.attached)
+                await settle { session.phase == .live }
+            }
+            XCTAssertFalse(presentation.canSubmitReply)
+            gate.pending?.resume()
+            gate.pending = nil
+            let completed = await reply.value
+            XCTAssertFalse(completed)
+            XCTAssertEqual(session.promptText, draft)
+            let error = presentation.replyError
+            XCTAssertNotNil(error)
+            XCTAssertFalse(presentation.replying)
+            if !returnBeforeFailure {
+                presentation.rendererMounted(cols: 50, rows: 20)
+                presentation.visibilityChanged(visible: true, active: true)
+                attachments[1].emit(.attached)
+                await settle { session.phase == .live }
+            }
+            XCTAssertTrue(presentation.canSubmitReply)
+            // A subsequent detach must also leave the recovered outcome intact.
+            presentation.rendererUnmounted()
+            XCTAssertEqual(presentation.replyError, error)
+            XCTAssertEqual(session.promptText, draft)
+        }
+    }
+
+    func testFailedReplyCannotOverwriteNewerDraft() async {
+        let gate = IOSReplyRecorder()
+        gate.hold = true
+        gate.fail = true
+        let pty = IOSFixturePTY()
+        let session = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
+        let presentation = IOSTerminalPresentation(session: session, reply: { text in try await gate.send(text) })
+        presentation.rendererMounted(cols: 50, rows: 20)
+        presentation.visibilityChanged(visible: true, active: true)
+        pty.emit(.attached)
+        await settle { session.phase == .live }
+        session.promptText = "draft A"
+        let reply = Task { await presentation.submitReply() }
+        await settle { gate.pending != nil }
+        // Even a programmatic edit while the UI is disabled must survive failure.
+        session.promptText = "draft B"
+        gate.pending?.resume()
+        gate.pending = nil
+        let completed = await reply.value
+        XCTAssertFalse(completed)
+        XCTAssertEqual(session.promptText, "draft B")
+        XCTAssertEqual(gate.texts, ["draft A"])
+        XCTAssertNotNil(presentation.replyError)
+        presentation.rendererUnmounted()
+    }
+
+    func testReplyEditorIsDisabledWhileSending() async throws {
+        let gate = IOSReplyRecorder()
+        gate.hold = true
+        let pty = IOSFixturePTY()
+        let session = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
+        let presentation = IOSTerminalPresentation(session: session, reply: { text in try await gate.send(text) })
+        presentation.rendererMounted(cols: 50, rows: 20)
+        presentation.visibilityChanged(visible: true, active: true)
+        pty.emit(.attached)
+        await settle { session.phase == .live }
+        session.promptText = "draft A"
+        let reply = Task { await presentation.submitReply() }
+        await settle { gate.pending != nil }
+        defer { gate.pending?.resume(); gate.pending = nil; presentation.rendererUnmounted() }
+        let host = UIHostingController(rootView: IOSTerminalReplySheet(model: presentation))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 760))
+        window.rootViewController = host
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; window.rootViewController = nil }
+        host.view.layoutIfNeeded()
+        func textView(in view: UIView) -> UITextView? {
+            if let editor = view as? UITextView { return editor }
+            return view.subviews.lazy.compactMap { textView(in: $0) }.first
+        }
+        let editor = try XCTUnwrap(textView(in: host.view))
+        var acceptsInteraction = true
+        var ancestor: UIView? = editor
+        while let view = ancestor {
+            acceptsInteraction = acceptsInteraction && view.isUserInteractionEnabled
+            ancestor = view.superview
+        }
+        XCTAssertFalse(editor.isEditable && acceptsInteraction, "The in-flight draft cannot be edited")
+        gate.pending?.resume()
+        gate.pending = nil
+        _ = await reply.value
+    }
+
+    func testControllerRetainsPresentationAcrossNavigationAndPrunesArchivedSessions() async throws {
+        let launch = try IOSLaunchEnvironment(configuration: .init(isIsolated: true))
+        let app = launch.makeModel()
+        let store = try SessionStore(profile: ServerProfile(name: "fixture",
+            baseURL: URL(string: "http://127.0.0.1:1")!, mode: .local), credentials: InMemoryCredentialStore())
+        let fixture = PreviewData.session(name: "reply state")
+        store.apply(.sessionNew(fixture))
+        let controller = IOSTerminalController(store: store, app: app)
+        defer { controller.teardown() }
+        let first = controller.model(for: fixture.id)
+        first.session.promptText = "saved draft"
+        first.rendererUnmounted()
+        for _ in 0..<20 { await Task.yield() }
+        let returned = controller.model(for: fixture.id)
+        XCTAssertTrue(first === returned)
+        XCTAssertEqual(returned.session.promptText, "saved draft")
+        store.apply(.sessionArchived(.init(id: fixture.id)))
+        await settle { controller.model(for: fixture.id) !== first }
+    }
+
+    func testControllerRetainsSelectedDoneSessionUntilNavigationLeavesIt() async throws {
+        let launch = try IOSLaunchEnvironment(configuration: .init(isIsolated: true))
+        let app = launch.makeModel()
+        let store = try SessionStore(profile: ServerProfile(name: "fixture",
+            baseURL: URL(string: "http://127.0.0.1:1")!, mode: .local), credentials: InMemoryCredentialStore())
+        let archived = PreviewData.session(id: "archived", name: "Done session")
+        app.selectedSessionID = archived.id
+        let controller = IOSTerminalController(store: store, app: app)
+        defer { controller.teardown() }
+        let first = controller.model(for: archived.id)
+        first.session.promptText = "archived draft"
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertTrue(controller.model(for: archived.id) === first)
+        // Unrelated live-list changes must not prune the selected Done detail.
+        store.apply(.sessionNew(PreviewData.session(id: "live", name: "live session")))
+        for _ in 0..<20 { await Task.yield() }
+        XCTAssertTrue(controller.model(for: archived.id) === first)
+        XCTAssertEqual(first.session.promptText, "archived draft")
+        app.selectedSessionID = nil
+        await settle { controller.model(for: archived.id) !== first }
+    }
+
     func testKeyPaletteMatchesWebAndIsGatedByVisibilityAndIsolation() async {
         let expected: [IOSTerminalKey: [UInt8]] = [
             .escape: [27], .left: [27, 91, 68], .right: [27, 91, 67],
@@ -247,7 +443,7 @@ final class IOSTerminalTests: XCTestCase {
         ]
         let pty = IOSFixturePTY()
         let core = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
-        let presentation = IOSTerminalPresentation(session: core)
+        let presentation = IOSTerminalPresentation(session: core, reply: { _ in })
         presentation.rendererMounted(cols: 50, rows: 20)
         presentation.visibilityChanged(visible: true, active: true)
         presentation.sendKey(.ctrlC)
@@ -260,7 +456,7 @@ final class IOSTerminalTests: XCTestCase {
             XCTAssertFalse(key.accessibilityLabel.hasPrefix("controlkey_"))
         }
         let count = pty.sent.count
-        let isolated = IOSTerminalPresentation(session: core, allowsInput: false)
+        let isolated = IOSTerminalPresentation(session: core, allowsInput: false, reply: { _ in XCTFail("Isolated reply") })
         isolated.rendererMounted(cols: 50, rows: 20)
         isolated.visibilityChanged(visible: true, active: true)
         isolated.sendKey(.ctrlC)
@@ -280,7 +476,7 @@ final class IOSTerminalTests: XCTestCase {
         let session = PreviewData.session(name: "iOS live terminal", prompt: "Mirror the mobile web session view. Keep the terminal live and the controls within reach.")
         let pty = IOSFixturePTY()
         let core = TerminalSessionModel(sessionID: session.id, reply: { _ in }, makeAttachment: { _, _ in pty })
-        let presentation = IOSTerminalPresentation(session: core)
+        let presentation = IOSTerminalPresentation(session: core, reply: { _ in })
         presentation.rendererMounted(cols: 54, rows: 32)
         presentation.visibilityChanged(visible: true, active: true)
         pty.emit(.attached)

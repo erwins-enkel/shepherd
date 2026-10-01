@@ -61,6 +61,7 @@ struct IOSTerminalHostView: UIViewRepresentable {
         view.terminalDelegate = nil
         view.onUserScroll = nil
         coordinator.model.rendererUnmounted()
+        view.updateUiClosed()
     }
 
     @MainActor

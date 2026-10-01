@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import ShepherdAppCore
+import ShepherdKit
 
 /// iOS owns visibility and scene suspension; the shared model owns the PTY.
 /// A renderer must be mounted before attaching so the initial replay is never lost.
@@ -12,6 +13,8 @@ final class IOSTerminalPresentation {
     private(set) var followsTail = true
     private(set) var isAttached = false
     private(set) var replying = false
+    private(set) var replyError: String?
+    @ObservationIgnored private let reply: @Sendable (String) async throws -> Void
     @ObservationIgnored var scrollToTail: (@MainActor () -> Void)?
     private var visible = false
     private var active = false
@@ -20,9 +23,11 @@ final class IOSTerminalPresentation {
     private var rows = 24
     private var generation = 0
 
-    init(session: TerminalSessionModel, allowsInput: Bool = true) {
+    init(session: TerminalSessionModel, allowsInput: Bool = true,
+         reply: @escaping @Sendable (String) async throws -> Void) {
         self.session = session
         self.allowsInput = allowsInput
+        self.reply = reply
     }
 
     var canSendInput: Bool { allowsInput && isAttached && session.phase == .live }
@@ -37,14 +42,24 @@ final class IOSTerminalPresentation {
     }
 
     /// Keep the sheet open on failure or if its attachment changed during the request.
-    /// The extra busy gate survives detach, while the core's generation gate resets.
+    /// Reply state belongs to this session, independently of the PTY attachment.
+    /// Keep the submitted draft until success so suspension cannot discard it.
     func submitReply() async -> Bool {
         guard canSubmitReply else { return false }
         let mine = generation
+        let draft = session.promptText
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         replying = true
+        replyError = nil
         defer { replying = false }
-        await session.submitPrompt()
-        return mine == generation && session.promptError == nil
+        do {
+            try await reply(text)
+            if session.promptText == draft { session.promptText = "" }
+            return mine == generation
+        } catch {
+            replyError = L.t("native_terminal_prompt_failed", ShepherdErrorCopy.message(error))
+            return false
+        }
     }
 
     func visibilityChanged(visible: Bool, active: Bool) {

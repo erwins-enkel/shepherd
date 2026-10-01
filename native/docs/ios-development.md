@@ -3,7 +3,8 @@
 The iOS 18 application uses `ShepherdAppCore` and `ShepherdKit`. It registers only
 the shared Sidebar, Detail, Herd, Plan, Queues, Merge and recap models. Profiles,
 login, activation generations and the single event connection remain owned by
-`AppModel`. `TerminalController` adds the shared PTY state machine. Session detail
+`AppModel`. `IOSTerminalController` owns presentations around the shared PTY state
+machine and retains selected Done sessions until navigation leaves them. Session detail
 opens on Terminal, with Activity and Info (including the complete prompt) on
 separate tabs. The iOS SwiftTerm renderer is pinned to 1.20.0, like the Mac app.
 Terminal font size is a per-device setting; the surrounding chrome, metadata and

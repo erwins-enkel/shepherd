@@ -29,16 +29,7 @@ struct IOSTerminalPane<Surface: View>: View {
                 .accessibilityLabel(L.t("native_ios_terminal_font_size"))
                 .accessibilityIdentifier("terminal-font-settings")
                 .popover(isPresented: $fontSettings) {
-                    VStack(alignment: .leading, spacing: 16) {
-                        Text(L.t("native_ios_terminal_font_size"))
-                        Slider(value: $fontSize, in: 9...24, step: 1)
-                            .accessibilityLabel(L.t("native_ios_terminal_font_size"))
-                            .accessibilityValue(L.t("native_ios_terminal_font_points", Int(fontSize)))
-                        Text(verbatim: L.t("native_ios_terminal_font_points", Int(fontSize)))
-                            .monospacedDigit()
-                    }
-                    .font(.system(.body, design: .monospaced))
-                    .padding().frame(minWidth: 260)
+                    IOSTerminalFontSettings(fontSize: $fontSize)
                     .presentationCompactAdaptation(.popover)
                 }
             }
@@ -126,5 +117,22 @@ struct IOSTerminalPane<Surface: View>: View {
         .padding(20)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("terminal-state-overlay")
+    }
+}
+
+struct IOSTerminalFontSettings: View {
+    @Binding var fontSize: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(L.t("native_ios_terminal_font_size"))
+            Slider(value: $fontSize, in: 9...24, step: 1)
+                .accessibilityLabel(L.t("native_ios_terminal_font_size"))
+                .accessibilityValue(L.t("native_ios_terminal_font_points", String(Int(fontSize))))
+            Text(verbatim: L.t("native_ios_terminal_font_points", String(Int(fontSize))))
+                .monospacedDigit()
+        }
+        .font(.system(.body, design: .monospaced))
+        .padding().frame(minWidth: 260)
     }
 }

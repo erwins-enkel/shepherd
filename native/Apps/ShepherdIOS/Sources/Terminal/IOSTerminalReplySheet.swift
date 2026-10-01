@@ -14,6 +14,7 @@ struct IOSTerminalReplySheet: View {
                     .font(.system(.callout, design: .monospaced))
                     .foregroundStyle(IOSTerminalStyle.muted)
                 TextEditor(text: $session.promptText)
+                    .disabled(model.replying)
                     .font(.system(.body, design: .monospaced))
                     .scrollContentBackground(.hidden)
                     .background(IOSTerminalStyle.background)
@@ -21,7 +22,7 @@ struct IOSTerminalReplySheet: View {
                     .focused($focused)
                     .accessibilityLabel(L.t("native_terminal_prompt_placeholder"))
                     .accessibilityIdentifier("terminal-reply-text")
-                if let error = session.promptError {
+                if let error = model.replyError {
                     Text(verbatim: error).font(.system(.callout, design: .monospaced))
                         .accessibilityIdentifier("terminal-reply-error")
                 }

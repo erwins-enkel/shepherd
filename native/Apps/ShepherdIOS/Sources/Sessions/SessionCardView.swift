@@ -13,13 +13,12 @@ struct SessionCardView: View {
             HStack(alignment: .top, spacing: 10) {
                 status.frame(width: 12).padding(.top, 4)
                 VStack(alignment: .leading, spacing: 5) {
-                    ViewThatFits(in: .horizontal) {
-                        titleLine
+                    if typeSize.isAccessibilitySize {
                         VStack(alignment: .leading, spacing: 3) {
                             title
                             age
                         }
-                    }
+                    } else { titleLine }
                     if !card.session.prompt.isEmpty {
                         Text(verbatim: card.session.prompt)
                             .sessionFont().foregroundStyle(SessionListStyle.ink)
@@ -61,7 +60,9 @@ struct SessionCardView: View {
         Text(verbatim: card.age).sessionFont(label: true).monospacedDigit()
             .foregroundStyle(SessionListStyle.ink).fixedSize()
     }
-    private var titleLine: some View { HStack(alignment: .top, spacing: 8) { title; age } }
+    private var titleLine: some View {
+        HStack(alignment: .top, spacing: 8) { title; age.layoutPriority(1) }
+    }
     private var metadata: some View {
         Text(verbatim: card.metadata).sessionFont(label: true)
             .foregroundStyle(SessionListStyle.muted).fixedSize(horizontal: false, vertical: true)

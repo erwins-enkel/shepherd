@@ -19,11 +19,16 @@ import {
   type GhTransport,
 } from "./gh-attempt";
 import {
+  type BucketRateLimit,
   graphRateLimit,
   isGraphqlBucketCall,
   isRateLimitError,
+  isRestBucketCall,
+  isRestReadCall,
   parseRetryAfter,
+  restRateLimit,
 } from "./rate-limit";
+import { Semaphore } from "../semaphore";
 import {
   CRITIC_REVIEW_MARKER,
   EmptyDiffError,
@@ -317,23 +322,72 @@ export type GhRunner = (args: string[]) => Promise<string>;
 
 const execFileAsync = promisify(execFile);
 
-const defaultRunner: GhRunner = (args) =>
-  timedAsync(`gh ${args[0]}`, async () => {
-    try {
-      const { stdout } = await execFileAsync("gh", args, { maxBuffer: 16 * 1024 * 1024 });
-      return stdout.toString();
-    } catch (err) {
-      // Detect GraphQL rate-limit errors and record them in the shared backoff
-      // state so pollers can pause before the next request. The error is always
-      // re-thrown so existing caller behaviour is unchanged.
-      if (isGraphqlBucketCall(args) && isRateLimitError(err)) {
-        graphRateLimit.noteLimitError(
-          parseRetryAfter(String((err as Record<string, unknown>)?.stderr ?? "")),
-        );
-      }
-      throw err;
-    }
-  });
+/** Cap on concurrent `gh` subprocesses across every GitHub forge call (#2656). Sampled live,
+ *  an uncapped server ran up to 26 at once; queued calls wait FIFO for a slot. */
+const GH_MAX_CONCURRENCY = 6;
+
+const execGh: GhRunner = async (args) => {
+  const { stdout } = await execFileAsync("gh", args, { maxBuffer: 16 * 1024 * 1024 });
+  return stdout.toString();
+};
+
+/**
+ * Build the `gh` runner every GitHub forge call goes through (#2656):
+ *  - at most `maxConcurrent` subprocesses at once (FIFO queue);
+ *  - rate-limit errors are recorded on the bucket the call drew on (GraphQL or REST), and a
+ *    REST success clears the REST backoff;
+ *  - while the REST backoff is engaged, REST READS fail fast with a rate-limit error instead
+ *    of spawning `gh` into another 403. Writes and GraphQL calls always run.
+ * Errors are always re-thrown, so callers' fallbacks and error handling are unchanged.
+ * Everything is injectable for tests; production uses {@link sharedGhRunner}.
+ */
+export function makeGhRunner(
+  opts: {
+    exec?: GhRunner;
+    maxConcurrent?: number;
+    graph?: BucketRateLimit;
+    rest?: BucketRateLimit;
+  } = {},
+): GhRunner {
+  const exec = opts.exec ?? execGh;
+  const graph = opts.graph ?? graphRateLimit;
+  const rest = opts.rest ?? restRateLimit;
+  const gate = new Semaphore(opts.maxConcurrent ?? GH_MAX_CONCURRENCY);
+  return (args) =>
+    timedAsync(`gh ${args[0]}`, () =>
+      gate.run(async () => {
+        // Checked once a slot is ours, so a call queued before the backoff engaged
+        // doesn't spawn into it either.
+        if (rest.blocked() && isRestReadCall(args)) throw restBackoffError(args, rest);
+        try {
+          const out = await exec(args);
+          if (isRestBucketCall(args)) rest.noteSuccess();
+          return out;
+        } catch (err) {
+          if (isRateLimitError(err)) {
+            const retryAfter = parseRetryAfter(
+              String((err as Record<string, unknown>)?.stderr ?? ""),
+            );
+            if (isGraphqlBucketCall(args)) graph.noteLimitError(retryAfter);
+            else if (isRestBucketCall(args)) rest.noteLimitError(retryAfter);
+          }
+          throw err;
+        }
+      }),
+    );
+}
+
+/** The error a skipped REST read throws. Carries "rate limit" in `stderr` like a real `gh`
+ *  403, so `isRateLimitError` fallbacks and the `/api/issues` attempt trail treat it the same. */
+function restBackoffError(args: string[], rest: BucketRateLimit): Error {
+  const until = new Date(rest.snapshot().pausedUntil ?? 0).toISOString();
+  const stderr = `REST API rate limit backoff active until ${until}; skipped gh ${args.join(" ")}`;
+  return Object.assign(new Error(stderr), { stderr });
+}
+
+/** The process-wide runner: one concurrency cap and one pair of bucket trackers for every
+ *  GitHub call, whether from a forge or the backlog counts service. */
+export const sharedGhRunner: GhRunner = makeGhRunner();
 
 export interface GhReview {
   author?: { login?: string } | null;
@@ -570,7 +624,7 @@ export class GithubForge implements GitForge {
   constructor(
     readonly slug: string,
     private readonly cfg: ForgeConfig,
-    private readonly run: GhRunner = defaultRunner,
+    private readonly run: GhRunner = sharedGhRunner,
     /** Fork (origin) slug when the repo is a fork (`slug` = upstream). Drives the
      *  fork-aware PR head qualifier and the `canPush` probe target. */
     private readonly forkSlug?: string,

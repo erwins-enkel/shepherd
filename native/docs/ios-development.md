@@ -26,6 +26,8 @@ The list keeps Shepherd's default dark appearance. Titles preserve supplied emoj
 project configuration emoji and cold-resume estimates have no automatic shared
 sidebar data path and are not inferred. Shared usage warnings are shown when known.
 
+The app also creates tasks through the native composer.
+
 ## Local simulator workflow
 
 For the fast incremental dev loop, from the repository root:
@@ -164,3 +166,55 @@ Preserve the size-class fallback on iOS 18.
 Release distribution has separate signing inputs and gates; see
 [TestFlight preparation](testflight-ios.md). No simulator test implies a signed
 archive, tested hardware, uploaded build or approved external beta.
+
+## Task composer and dictation
+
+`RootView` presents `IOSComposeSheet` for `app.sheet = .newSession`. The session-list
+stream opens it through `IOSComposer.open(app)`; no list or bottom-bar files belong to
+the composer stream. Normal launches permit task creation; isolated launches retain
+the read-only audit. The debug-only `-ShepherdComposeFixture 1` launch flag is honored
+only with `-ShepherdIsolated 1`, and uses a client-local fake transport and microphone.
+
+The composer reuses `ComposeModel`, repository/branch selection, issue filters,
+commands, attachments, readiness and `ComposeSubmission`. It offers Code, Research,
+Epic and Plain, engine/model/effort/capacity, plan gate, autopilot and sandbox controls.
+Photos, files and pasted images upload before Start can become available. Starting a
+task is explicit; dictation never submits it. Draft restoration and press-and-hold on
+the + NEU button are follow-ups.
+
+Hold the microphone to dictate, release to keep text, slide left to discard, or slide
+up to continue hands-free. Stop/Done finalizes a locked recording. Accessibility
+activation toggles recording without holding. Language is DE/EN and persists per
+device. Dictation appends to the prompt, with a five-second Undo action. Locked speech
+checkpoints preserve finalized Apple text while the recording continues.
+
+One `AVAudioEngine` tap feeds the Apple preview, level meter and an in-memory WAV
+encoder matching web `wav.ts`: 16 kHz, mono, 16-bit PCM. Clips roll over before 55 seconds,
+below the optional plugin's 60-second bound; recordings stop at five minutes. No audio
+files or background recording are used. Interruptions and route/format changes end
+the recording and retain recognized text; recording never resumes automatically.
+
+`GET /api/plugins` discovers `voice-whisper`. When available, its status and multipart
+transcription routes provide final text; final uploads omit `mode`. During the
+“Transcribing…” state the server text replaces Apple's preview. A failed clip uses its
+Apple text, and a 25-second overall finalization deadline retains the latest Apple
+result. Late replies cannot mutate a dismissed composer or another recording. Plugin
+response schemas document only the web client's expectations: the plugin implementation
+is not vendored here. The core listing and routing are covered by real-server ajv tests
+with a fixture plugin; the native client is covered by a fake transport.
+
+Microphone permission is always required. Speech permission is requested only for
+Apple recognition. iOS 26 selects `SpeechAnalyzer` when supported; iOS 18–25 uses
+`SFSpeechRecognizer` with punctuation and on-device recognition where available. Apple
+server recognition requires a separate persisted consent. If Apple permission is
+refused but Whisper is available, capture can still produce a server transcript.
+Permission descriptions are generated from the EN/DE catalogs into app-local
+`InfoPlist.strings`; run `native/scripts/gen-strings.sh` after changing them.
+
+On the shared development machine, compile and test this worktree only through
+`~/.claude/projects/-Users-kai-osthoff-githubrepos-shepherd/tools/ios-shared-build.sh
+<worktree> build|test`. Pass both isolation environment spellings for hosted tests.
+`IOSComposeTests` renders fixture states with `ImageRenderer`; SwiftUI rendering
+substitutions reuse the production layout for UIKit-backed controls. Real-device
+acceptance (iOS 18/26, DE/EN, AirPods, incoming call, offline and three-minute recording)
+is tracked in the draft PR checklist.

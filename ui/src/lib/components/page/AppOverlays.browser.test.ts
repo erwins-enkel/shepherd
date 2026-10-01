@@ -181,6 +181,7 @@ function baseProps(): Props {
     oninject: vi.fn(),
     onpr: vi.fn(),
     onadopt: vi.fn(),
+    ondraftepic: vi.fn(),
     onlaunchtrain: vi.fn(),
     onaddclone: vi.fn(),
     onaddfork: vi.fn(),

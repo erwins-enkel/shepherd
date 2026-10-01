@@ -1071,6 +1071,15 @@
     showBacklog = false;
   }
 
+  // Issues overview → "Draft epic" (#2638): the composer with epic authoring preset.
+  function ondraftepic(repoPath: string) {
+    composeRepoPath = repoPath;
+    composeIssue = null;
+    composeEpicAuthoring = true;
+    showNew = true;
+    showBacklog = false;
+  }
+
   // Build the prompt seed for a new project's first agent run.
   // For a slash-command kickoff, prepend the command; for the default PRD path,
   // use the verbatim i18n seed template (authored as app chrome, EN+DE).
@@ -3541,6 +3550,7 @@
   oninject={oninjectissue}
   {onpr}
   {onadopt}
+  {ondraftepic}
   {onlaunchtrain}
   onaddclone={addRepoClone}
   onaddfork={addRepoFork}

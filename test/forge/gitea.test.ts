@@ -384,6 +384,24 @@ test("GiteaForge.listIssues: no label carries a color → labelColors omitted", 
   expect(issues[0]!.labelColors).toBeUndefined();
 });
 
+test("GiteaForge.listIssues: maps updated_at into updatedAt (#2638)", async () => {
+  const { fn } = fakeFetch({
+    "GET /api/v1/repos/team/proj/issues?state=open&type=issues&limit=200": {
+      json: [
+        {
+          number: 3,
+          title: "Bug",
+          html_url: "https://git.example.com/team/proj/issues/3",
+          created_at: GITEA_ISSUE_CREATED_AT,
+          updated_at: "2024-06-01T10:00:00Z",
+        },
+      ],
+    },
+  });
+  const issues = await new GiteaForge("team/proj", CFG, fn).listIssues();
+  expect(issues[0]!.updatedAt).toBe(Date.parse("2024-06-01T10:00:00Z"));
+});
+
 test("GiteaForge.currentUser: returns the authenticated login (#824)", async () => {
   const { fn, calls } = fakeFetch({
     "GET /api/v1/user": { json: { login: "octogit" } },

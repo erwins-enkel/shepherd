@@ -32,12 +32,17 @@
     resolveSelection,
     childKey,
     epicKey,
+    sortOldestFirst,
+    staleSummary,
+    labelCounts,
+    runningIssues,
   } from "./issues-panel";
   import { childAsIssue, openBlockers } from "./epic-child";
   import { progress } from "./epic-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
   import { viewerCache } from "$lib/viewer-cache.svelte";
   import { backlogRefresh } from "$lib/backlog-refresh.svelte";
+  import { clock } from "$lib/now.svelte";
   import IssueListRows from "./issues-panel/IssueListRows.svelte";
   import IssueDetail from "./issues-panel/IssueDetail.svelte";
   import EpicsListHeading from "./issues-panel/EpicsListHeading.svelte";
@@ -65,6 +70,8 @@
     onopensession = undefined,
     onopenautomation = undefined,
     sessionInfo = undefined,
+    issueSession = undefined,
+    ondraftepic = undefined,
   }: {
     repoPath: string;
     /** Open the New Task dialog for `issue`, seeded with the run settings the operator changed
@@ -95,6 +102,10 @@
     onopenautomation?: () => void;
     /** A session and its PR state from the store, by id — an epic child's session view. */
     sessionInfo?: (id: string) => { session: Session; git?: GitState } | null;
+    /** The live session working an issue of a repo — the overview's "Running now" (#2638). */
+    issueSession?: (repoPath: string, issue: number) => Session | null;
+    /** Open the New Task composer set to draft an epic for this repo (overview, #2638). */
+    ondraftepic?: () => void;
   } = $props();
 
   // Issue-scoped steers render as one quick-launch button each on every row.
@@ -126,6 +137,8 @@
   // list so picking one value doesn't drop the others from the picker.
   let selectedAuthor = $state<string | null>(null);
   const selectedLabels = new SvelteSet<string>();
+  // "Oldest first" from the repo overview (#2638): least recently changed first.
+  let oldestFirst = $state(false);
   let availableAuthors = $derived(distinctAuthors(issues));
   let availableLabels = $derived(
     distinctLabels(issues, { excludeBlocked: issuesFilter.hideBlocked }),
@@ -199,7 +212,8 @@
       expandEpic != null && !authorLabelFiltered.some((i) => i.number === expandEpic)
         ? [...issues.filter((i) => i.number === expandEpic), ...authorLabelFiltered]
         : authorLabelFiltered;
-    return sortEpicsFirst(filterIssues(base, filter), epicParentNums);
+    const matched = filterIssues(base, filter);
+    return sortEpicsFirst(oldestFirst ? sortOldestFirst(matched) : matched, epicParentNums);
   });
   // True when there ARE open issues but the assignee filter hid them all — drives
   // the distinct "all assigned to others" empty state (vs the text no-match state).
@@ -250,6 +264,7 @@
     filter = "";
     selectedAuthor = null;
     selectedLabels.clear();
+    oldestFirst = false;
     expanded.clear();
     selectedKey = null;
     taskRun = {};
@@ -566,9 +581,23 @@
       return [record ? { ...summary, ...progress(record.children) } : summary];
     }),
   );
-  const overviewSingles = $derived(
-    issues.filter((i) => !epicParentNums.has(i.number) && !nativeSubIssues.has(i.number)),
-  );
+  // What runs, what is labelled how, what lies (#2638) — the repo picture the list can't give.
+  // "Running now" covers the singles; epic work shows in the run area and epic cards.
+  const overviewRunning = $derived.by(() => {
+    const singles = issues.filter(
+      (i) => !epicParentNums.has(i.number) && !nativeSubIssues.has(i.number),
+    );
+    const visible = new Set(visibleIssues.map((i) => i.number));
+    return runningIssues(singles, (n) => issueSession?.(repoPath, n) ?? null, visible);
+  });
+  const overviewLabels = $derived(labelCounts(issues, availableLabels));
+  const overviewStale = $derived(staleSummary(issues, clock.current));
+
+  /** An overview label: show just that label's issues in the list. */
+  function filterToLabel(label: string) {
+    selectedLabels.clear();
+    selectedLabels.add(label);
+  }
 
   function startTask(issue: Issue) {
     onnewtask(issue, $state.snapshot(taskRun));
@@ -719,6 +748,14 @@
             ontogglelabel={toggleLabel}
           />
         </div>
+        {#if oldestFirst}
+          <button
+            type="button"
+            class="sort-chip"
+            aria-label={m.issuespanel_oldest_first_clear()}
+            onclick={() => (oldestFirst = false)}>{m.issuespanel_oldest_first()} ×</button
+          >
+        {/if}
         <!-- Only surface an empty-state reason when the rendered list is truly empty: a
              force-included navigated-to epic keeps it non-empty, so a "hidden by filter"
              message must not sit above the one epic row we deliberately show. -->
@@ -813,11 +850,18 @@
             repoPath.split("/").filter(Boolean).pop() ??
             repoPath}
           epics={overviewEpics}
-          singles={overviewSingles}
+          running={overviewRunning}
+          labels={overviewLabels}
+          labelColors={labelColorsMap}
+          stale={overviewStale}
+          {oldestFirst}
           {drain}
           leadingRecord={overviewEpicNum == null ? undefined : epicFor(overviewEpicNum)}
           {titleFor}
           onselect={selectAndReveal}
+          onfilterlabel={filterToLabel}
+          ontoggleoldest={() => (oldestFirst = !oldestFirst)}
+          {ondraftepic}
           {onopensession}
           {onopenautomation}
         />
@@ -930,6 +974,25 @@
     border-color: var(--color-line-bright);
   }
 
+  /* The overview's "Oldest first" sort, visible and undoable from the list (#2638). */
+  .sort-chip {
+    align-self: flex-start;
+    margin-top: 6px;
+    padding: 1px 6px;
+    background: transparent;
+    border: 1px solid var(--color-amber);
+    border-radius: 2px;
+    color: var(--color-amber);
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    cursor: pointer;
+  }
+  .sort-chip:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+
   .shortcuts {
     flex-shrink: 0;
     padding: 5px 12px;
@@ -1002,7 +1065,8 @@
       font-size: var(--fs-lg);
       min-height: 44px;
     }
-    .filter-bar :global(.filter-chip) {
+    .filter-bar :global(.filter-chip),
+    .sort-chip {
       min-height: 44px;
     }
     .issues-list,

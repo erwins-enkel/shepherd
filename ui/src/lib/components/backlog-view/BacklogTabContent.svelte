@@ -39,6 +39,8 @@
     onopensession = undefined,
     onopenautomation = undefined,
     sessionInfo = undefined,
+    issueSession = undefined,
+    ondraftepic = undefined,
   }: {
     activeTab: Tab;
     selectedPath: string;
@@ -59,6 +61,10 @@
     onopenautomation?: () => void;
     /** A session and its PR state from the store, by id — an epic child's session view. */
     sessionInfo?: (id: string) => { session: Session; git?: GitState } | null;
+    /** The live session working an issue of a repo — the Issues overview's "Running now". */
+    issueSession?: (repoPath: string, issue: number) => Session | null;
+    /** Open the New Task composer set to draft an epic for a repo (Issues overview). */
+    ondraftepic?: (repoPath: string) => void;
   } = $props();
 </script>
 
@@ -78,6 +84,8 @@
     {onopensession}
     {onopenautomation}
     {sessionInfo}
+    {issueSession}
+    ondraftepic={ondraftepic ? () => ondraftepic(selectedPath) : undefined}
   />
 {:else if activeTab === "prs"}
   <PrsPanel

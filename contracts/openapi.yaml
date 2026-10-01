@@ -3352,6 +3352,9 @@ components:
           additionalProperties: { type: string }
           description: Label name to the forge's own "#rrggbb". Absent for forges that do not report colours.
         createdAt: { type: integer }
+        updatedAt:
+          type: integer
+          description: Epoch ms of the issue's last change. Absent when the forge does not report it.
         assignees: { type: array, items: { type: string } }
         author: { type: string }
         blockedBy:

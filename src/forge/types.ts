@@ -24,6 +24,9 @@ export interface Issue {
    *  neutral chip. Populated by the issue-LIST display paths only. */
   labelColors?: Record<string, string>;
   createdAt: number;
+  /** Epoch ms of the issue's last change on the forge. Set by the issue listings; may be
+   *  absent elsewhere. Drives the Repos overview's "unchanged for over 90 days" (#2638). */
+  updatedAt?: number;
   /** GitHub/Gitea logins assigned to the issue (empty when unassigned). Drives the
    *  UI's "mine & unassigned" filter (#824); filtering is purely client-side. */
   assignees: string[];
@@ -51,6 +54,13 @@ export interface Issue {
 export function issueStateField(raw: string | null | undefined): Pick<Issue, "state"> {
   const s = raw?.toLowerCase();
   return s === "open" || s === "closed" ? { state: s } : {};
+}
+
+/** A forge's ISO "updated at" timestamp as the spread-ready `updatedAt` field; an absent or
+ *  unparseable value yields `{}` (the UI then falls back to `createdAt`), never a guess. */
+export function issueUpdatedAtField(raw: string | null | undefined): Pick<Issue, "updatedAt"> {
+  const ts = Date.parse(raw ?? "");
+  return Number.isFinite(ts) ? { updatedAt: ts } : {};
 }
 
 /** An open PR linked to an issue (via `closingIssuesReferences`), reduced to the PR's

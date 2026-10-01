@@ -8,6 +8,30 @@ this stage.
 
 ## Local simulator workflow
 
+For the fast incremental dev loop, from the repository root:
+
+```bash
+native/scripts/uitest-lock.sh native/scripts/ios-dev.sh
+# Optional destination (defaults shown):
+native/scripts/uitest-lock.sh native/scripts/ios-dev.sh --device "iPhone 17 Pro" --os 26.5
+```
+
+This generates the Xcode project only when `project.yml` changes (or the project is
+missing), reuses `Apps/ShepherdIOS/.build`, builds Debug, boots the selected simulator
+if needed, then terminates, installs in place and launches. It never uninstalls the
+app or erases the simulator, preserving saved servers and tokens. Simulator builds
+explicitly use ad-hoc signing (`CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Manual
+CODE_SIGN_IDENTITY=-`): the project's unsigned CI default prevents Keychain token
+storage in the simulator. Tests remain isolated and keep their existing CI defaults.
+Xcode 27's simulator window is **DeviceHub.app**.
+
+If Xcode 27 refuses to launch an unsigned unit-test host, use the same signature
+without changing test isolation or CI defaults:
+
+```bash
+SHEPHERD_IOS_SIMULATOR_SIGNING=1 native/scripts/uitest-lock.sh native/scripts/test-ios-app.sh unit
+```
+
 Install the repository's Swift 6.2+ Xcode toolchain and XcodeGen 2.46+. From the
 repository root, wrap each entire script once. Scripts never acquire another lock.
 

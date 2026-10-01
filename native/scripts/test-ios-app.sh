@@ -40,12 +40,18 @@ cd "$APP_DIR"
 xcodegen generate
 ONLY="$TARGET"
 [[ -z "$SUITE" ]] || ONLY="$TARGET/$SUITE"
+SIGNING=(CODE_SIGNING_ALLOWED=NO)
+# Xcode 27 simulator hosts may refuse an unsigned runner. Local opt-in keeps CI
+# defaults intact and does not change test profile/credential isolation.
+if [[ "${SHEPHERD_IOS_SIMULATOR_SIGNING:-0}" == 1 ]]; then
+  SIGNING=(CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=-)
+fi
 set +e
 xcodebuild -project ShepherdIOS.xcodeproj -scheme ShepherdIOS -configuration Debug \
   -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath .build \
   -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
   -only-testing:"$ONLY" -resultBundlePath "$RESULT" \
-  -skipPackagePluginValidation CODE_SIGNING_ALLOWED=NO test 2>&1 | tail -n 40
+  -skipPackagePluginValidation "${SIGNING[@]}" test 2>&1 | tail -n 40
 TEST_STATUS=${PIPESTATUS[0]}
 set -e
 [[ -d "$RESULT" ]] || { echo 'UNMET: no test result bundle produced' >&2; exit 1; }

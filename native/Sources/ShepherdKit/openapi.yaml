@@ -853,6 +853,42 @@ components:
           type:
             - string
             - "null"
+        waiting:
+          type: array
+          description: Every full-auto PR the merge train is not landing right now, with the first gate it fails (src/automerge-core.ts mergeWaitReason). Presence means the train owns the PR.
+          items:
+            $ref: "#/components/schemas/AutoMergeWait"
+    AutoMergeWait:
+      type: object
+      additionalProperties: true
+      required:
+        - sessionId
+        - code
+      properties:
+        sessionId:
+          type: string
+        code:
+          $ref: "#/components/schemas/MergeWaitCode"
+    MergeWaitCode:
+      anyOf:
+        - $ref: "#/components/schemas/MergeWaitCodeKnown"
+        - type: string
+    MergeWaitCodeKnown:
+      type: string
+      enum:
+        - merge_backoff
+        - conflict
+        - checks_pending
+        - checks_failed
+        - not_mergeable
+        - behind
+        - rebase_cap
+        - signoff
+        - changes_requested
+        - critic_error
+        - critic_pending
+        - stacked
+        - manual_steps
     LimitWindow:
       type: object
       additionalProperties: true
@@ -2684,6 +2720,12 @@ components:
           type:
             - string
             - "null"
+        startedAt:
+          type: integer
+          description: Epoch ms the run started; absent on the run-end signal.
+        timeoutMs:
+          type: integer
+          description: The run's hard deadline in ms from startedAt (PR critic only).
     ReviewerInflightEntry:
       type: object
       additionalProperties: true
@@ -2705,6 +2747,12 @@ components:
           type:
             - string
             - "null"
+        startedAt:
+          type: integer
+          description: Epoch ms the run started.
+        timeoutMs:
+          type: integer
+          description: The run's hard deadline in ms from startedAt (PR critic only).
         held:
           type: boolean
           description: The operator is holding this run — its result is neither settled nor pasted until released.

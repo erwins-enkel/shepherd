@@ -29,8 +29,6 @@ jobs:
     env:
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
       SHEPHERD_IOS_DRY_RUN: ${{ inputs.dry_run }}
-      SHEPHERD_IOS_AUTH_KEY_PATH: ${{ runner.temp }}/ios-auth-key.p8
-      SHEPHERD_IOS_EXPORT_OPTIONS: ${{ runner.temp }}/ios-export-options.plist
     steps:
       - uses: actions/checkout@v7
         with:
@@ -39,11 +37,15 @@ jobs:
           persist-credentials: false
       - name: Prepare API key and export options
         env:
+          SHEPHERD_IOS_AUTH_KEY_PATH: ${{ runner.temp }}/ios-auth-key.p8
+          SHEPHERD_IOS_EXPORT_OPTIONS: ${{ runner.temp }}/ios-export-options.plist
           ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
           set -euo pipefail
+          echo "SHEPHERD_IOS_AUTH_KEY_PATH=$SHEPHERD_IOS_AUTH_KEY_PATH" >> "$GITHUB_ENV"
+          echo "SHEPHERD_IOS_EXPORT_OPTIONS=$SHEPHERD_IOS_EXPORT_OPTIONS" >> "$GITHUB_ENV"
           for name in APPLE_TEAM_ID ASC_API_KEY_P8 ASC_KEY_ID ASC_ISSUER_ID; do
             if [[ -z "${!name:-}" ]]; then
               echo "::error::Required secret/variable $name is missing"
@@ -98,7 +100,7 @@ jobs:
           grep -E 'Authority=|TeamIdentifier=|profile:|Validated|upload completed' "$RUNNER_TEMP/ios-signing.log" >> "$GITHUB_STEP_SUMMARY"
       - name: Remove API key
         if: always()
-        run: rm -f "$SHEPHERD_IOS_AUTH_KEY_PATH"
+        run: rm -f "$RUNNER_TEMP/ios-auth-key.p8"
       - name: Preserve dry-run IPA
         if: success() && env.SHEPHERD_IOS_DRY_RUN == 'true'
         uses: actions/upload-artifact@v7

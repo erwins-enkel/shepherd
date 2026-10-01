@@ -32,12 +32,29 @@ import Testing
         let host = Host(), engine = FakeDictationEngine()
         let c = make(host, engine)
         await c.begin(); #expect(!c.livePreviewAvailable)
-        engine.emit(.livePreview(true)); engine.emit(.preview("Apple")); await settle()
+        engine.emit(.preparing); await settle(); #expect(c.preparing)
+        engine.emit(.livePreview(true)); engine.emit(.preview("Apple")); await settle(); #expect(!c.preparing)
         #expect(c.livePreviewAvailable); #expect(c.preview == "Apple")
         engine.emit(.livePreview(false)); engine.emit(.level(0.7)); await settle()
         #expect(!c.livePreviewAvailable); #expect(c.level == 0.7); #expect(c.state == .recording)
         c.cancel(); await c.begin(); #expect(!c.livePreviewAvailable); #expect(c.preview.isEmpty)
         c.teardown()
+    }
+    @Test func retryableRecordingFailurePreservesFinalAppleTextAndAllowsNextPress() async {
+        let host = Host(), engine = FakeDictationEngine()
+        engine.recording = .init(clips: [.init(wav: Data([1]), appleText: "Apple final")],
+            appleText: "Apple final", finalizationError: .network)
+        let finalizer = WhisperFinalizer(status: { Issue.record("unknown status must not be re-probed twice at finalize"); return true },
+            transcribe: { _, _ in Issue.record("must not upload with unknown status"); return "" })
+        let controller = make(host, engine, finalizer: finalizer)
+        await controller.begin(); host.date.addTimeInterval(1); controller.release(); await settle()
+        #expect(host.text == "Existing. Apple final")
+        #expect(controller.state == .error); #expect(controller.noticeKey == "native_compose_voice_error")
+        #expect(controller.canUndo); #expect(!controller.active)
+        engine.recording = .init(clips: [], appleText: "Next")
+        await controller.begin(); host.date.addTimeInterval(1); controller.release(); await settle()
+        #expect(host.text == "Existing. Apple final Next"); #expect(controller.state == .idle)
+        controller.teardown()
     }
     private func make(_ host: Host, _ engine: FakeDictationEngine, finalizer: (any DictationFinalizer)? = nil) -> DictationController {
         DictationController(engine: engine, finalizer: finalizer, now: { host.date }, getText: { host.text }, setText: { host.text = $0 })

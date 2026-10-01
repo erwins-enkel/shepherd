@@ -48,7 +48,7 @@ struct IOSComposeContent: View {
         else {
             let engine = IOSDictationEngine(client: store.client, defaults: app.composerDefaults, context: [model.repoPath, model.repoBranches.baseBranch])
             _audioEngine = State(initialValue: engine)
-            _voice = State(initialValue: DictationController(engine: engine, finalizer: WhisperFinalizer(client: store.client, status: { await engine.resolvedWhisperAvailability() }), defaults: app.composerDefaults, getText: { model.prompt }, setText: { model.prompt = $0 }))
+            _voice = State(initialValue: DictationController(engine: engine, finalizer: WhisperFinalizer(client: store.client, status: { try await engine.resolvedWhisperAvailability() }), defaults: app.composerDefaults, getText: { model.prompt }, setText: { model.prompt = $0 }))
         }
     }
     private var repos: [Repo] { store.repos.filter { !$0.hidden } }
@@ -69,7 +69,7 @@ struct IOSComposeContent: View {
             }
             if submission.busy { spawnFooter }
             else {
-                MicDock(voice: voice) { attachmentMenu } submit: { startButton }
+                MicDock(voice: voice, audioEngine: audioEngine) { attachmentMenu } submit: { startButton }
                     .padding(.top, promptFocused ? 0 : 12)
                     .disabled(submission.busy)
                 if readiness.dualCTA {
@@ -129,14 +129,14 @@ struct IOSComposeContent: View {
                     context.opacity(voice.active ? 0.4 : 1).disabled(voice.active || submission.busy)
                     prompt
                     attachments
-                    if voice.capturing || voice.state == .finalizing { TranscriptPreview(voice: voice) }
+                    if voice.capturing || voice.state == .finalizing { TranscriptPreview(voice: voice, audioEngine: audioEngine) }
                     if voice.canUndo {
                         HStack {
                             Button(L.t("native_compose_voice_undo")) { voice.undo() }.buttonStyle(ComposeControlStyle()).frame(minHeight: 44)
                             Spacer(); Text(verbatim: L.t("native_compose_voice_kept")).font(.system(.caption2, design: .monospaced)).foregroundStyle(ComposePalette.muted)
                         }.accessibilityIdentifier("compose.voice.undo")
                     }
-                    if audioEngine?.preparing == true, voice.state == .arming { Text(verbatim: L.t("native_compose_voice_preparing")).font(.system(.caption, design: .monospaced)) }
+                    if audioEngine?.preparing == true, voice.state == .arming || voice.capturing { Text(verbatim: L.t("native_compose_voice_preparing")).font(.system(.caption, design: .monospaced)) }
                     notices
                     if let message = submission.message { Text(verbatim: message).foregroundStyle(ComposePalette.red) }
                     if let failure = submission.recoveryFailure { Text(verbatim: BackendRecovery.summary(failure)) }

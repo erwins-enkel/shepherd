@@ -15,7 +15,11 @@ public struct DictationClip: Sendable, Equatable {
 public struct DictationRecording: Sendable {
     public let clips: [DictationClip]
     public let appleText: String
-    public init(clips: [DictationClip], appleText: String) { self.clips = clips; self.appleText = appleText }
+    /// Retryable capture/finalization failure; any audio-derived Apple text is still usable.
+    public let finalizationError: DictationError?
+    public init(clips: [DictationClip], appleText: String, finalizationError: DictationError? = nil) {
+        self.clips = clips; self.appleText = appleText; self.finalizationError = finalizationError
+    }
 }
 @MainActor public protocol DictationEngine: Sendable {
     func start(locale: String) async throws -> AsyncStream<DictationEvent>

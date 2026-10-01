@@ -12489,6 +12489,15 @@
     "[\"ShepherdIOSUITests\",\"native/Apps/ShepherdIOS/UITests/ShepherdIOSLiveCleanupUITests.swift\",\"ShepherdIOSLiveCleanupUITests\",\"testLiveSessionActivityAndReadAudit()\"]",
     "[\"ShepherdIOSUITests\",\"native/Apps/ShepherdIOS/UITests/ShepherdIOSUITests.swift\",\"ShepherdIOSUITests\",\"testGermanAccessibilitySizeRetainsUsableConnectionControls()\"]",
     "[\"ShepherdIOSUITests\",\"native/Apps/ShepherdIOS/UITests/ShepherdIOSUITests.swift\",\"ShepherdIOSUITests\",\"testRemoteFormReachesPasswordWithoutLocalServerControls()\"]",
-    "[\"ShepherdIOSUITests\",\"native/Apps/ShepherdIOS/UITests/ShepherdIOSUITests.swift\",\"ShepherdIOSUITests\",\"testRemotePlainHTTPIsRejectedBeforeLogin()\"]"
+    "[\"ShepherdIOSUITests\",\"native/Apps/ShepherdIOS/UITests/ShepherdIOSUITests.swift\",\"ShepherdIOSUITests\",\"testRemotePlainHTTPIsRejectedBeforeLogin()\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSDictationTests.swift\",\"IOSDictationTests\",\"testTransientProbeFailureRecoversOnNextPressAndAtFinalize() async throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSDictationTests.swift\",\"IOSDictationTests\",\"testFinalizeRetriesTransientInFlightProbeFailure() async throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSDictationTests.swift\",\"IOSDictationTests\",\"testStoppedWhisperProbeCanRestartAndIgnoresStoppedAnswer() async throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSDictationTests.swift\",\"IOSDictationTests\",\"testReleaseWaitsForAppleStartupAndReplaysCapturedAudio() async throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSDictationTests.swift\",\"IOSDictationTests\",\"testReleaseDuringAppleStartupTimeoutReportsRetryableError() async throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSDictationTests.swift\",\"IOSDictationTests\",\"testRecordingHintsShowPreparingAndRemainTruthfulAcrossPresses() async throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSDictationTests.swift\",\"IOSDictationTests\",\"testUnknownWhisperKeepsAppleFinalTextWithRetryableNotice() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"retryableRecordingFailurePreservesFinalAppleTextAndAllowsNextPress() async\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSDictationTests.swift\",\"IOSDictationTests\",\"testAppleStartupAcrossRolloverRebindsPreviewToCurrentClip() async throws\"]"
   ]
 }

@@ -115,7 +115,7 @@ import Observation
         case .interrupted: noticeKey = "native_compose_voice_interrupted"; finalize()
         case .failed: noticeKey = "native_compose_voice_error"; finalize()
         case .preparing: preparing = true
-        case .livePreview(let available): livePreviewAvailable = available
+        case .livePreview(let available): livePreviewAvailable = available; preparing = false
         }
     }
     private func persistStable() {
@@ -169,10 +169,13 @@ import Observation
             guard mine == generation, !Task.isCancelled else { return }
             timeoutTask?.cancel()
             preview = recording.appleText.isEmpty ? fallback : recording.appleText
-            let result = await finalizer?.finalize(recording, locale: language) ?? .init(text: preview)
+            let result: DictationFinalization
+            if recording.finalizationError != nil { result = .init(text: preview) }
+            else { result = await finalizer?.finalize(recording, locale: language) ?? .init(text: preview) }
             guard mine == generation, !Task.isCancelled else { return }
             if !result.missingClips.isEmpty { noticeKey = "native_compose_voice_incomplete" }
-            complete(result.text, mine: mine, incomplete: !result.missingClips.isEmpty)
+            if recording.finalizationError != nil { noticeKey = "native_compose_voice_error" }
+            complete(result.text, mine: mine, incomplete: recording.finalizationError != nil || !result.missingClips.isEmpty)
         }
     }
     private func complete(_ text: String, mine: Int, incomplete: Bool = false) {

@@ -1,6 +1,7 @@
 import XCTest
 import AVFoundation
 import Speech
+import SwiftUI
 import ShepherdAppCore
 @testable import ShepherdIOS
 
@@ -38,12 +39,22 @@ import ShepherdAppCore
     }
     @MainActor private final class Probe {
         var calls = 0
-        var continuation: CheckedContinuation<Bool, any Error>?
+        var continuations: [Int: CheckedContinuation<Bool, any Error>] = [:]
+        var failFirst = false
+        var alwaysFail = false
         func status() async throws -> Bool {
             calls += 1
-            return try await withCheckedThrowingContinuation { continuation = $0 }
+            if alwaysFail || failFirst && calls == 1 { throw DictationError.network }
+            return try await withCheckedThrowingContinuation { continuations[calls] = $0 }
         }
-        func resolve(_ available: Bool) { continuation?.resume(returning: available); continuation = nil }
+        func resolve(_ available: Bool, call: Int? = nil) {
+            for key in call.map({ [$0] }) ?? Array(continuations.keys) {
+                continuations.removeValue(forKey: key)?.resume(returning: available)
+            }
+        }
+        func fail() {
+            for key in Array(continuations.keys) { continuations.removeValue(forKey: key)?.resume(throwing: DictationError.network) }
+        }
     }
     private final class Host {
         var text = "Existing task"
@@ -52,7 +63,8 @@ import ShepherdAppCore
     private func settle() async { for _ in 0..<80 { await Task.yield() } }
     private func engine(capture: Capture, whisper: Bool = true,
         appleSupported: Bool = true, probe: (@Sendable () async throws -> Bool)? = nil,
-        probeTimeout: TimeInterval = 12,
+        probeTimeout: TimeInterval = 12, appleStartupTimeout: TimeInterval = 8,
+        capabilities: (@Sendable (String) async -> AppleSpeechCapabilities)? = nil,
         factory: @escaping @MainActor (String, @escaping (String, Bool) -> Void, @escaping () -> Void) async throws -> any AppleLiveSpeech) throws -> IOSDictationEngine {
         let launch = try IOSLaunchEnvironment(configuration: .init(isIsolated: true))
         let app = launch.makeModel()
@@ -60,8 +72,8 @@ import ShepherdAppCore
         defer { model.teardown() }
         return IOSDictationEngine(client: store.client, defaults: app.composerDefaults, context: [], services: .init(
             microphone: { true }, authorization: { true },
-            capabilities: { _ in .init(analyzer: false, recognizer: appleSupported, onDevice: true) },
-            whisper: probe ?? { whisper }, capture: capture, speech: factory), probeTimeout: probeTimeout)
+            capabilities: capabilities ?? { _ in .init(analyzer: false, recognizer: appleSupported, onDevice: true) },
+            whisper: probe ?? { whisper }, capture: capture, speech: factory), probeTimeout: probeTimeout, appleStartupTimeout: appleStartupTimeout)
     }
     func testSlowWhisperStatusRecordsImmediatelyAndFinalizesViaWhisper() async throws {
         let capture = Capture()
@@ -77,7 +89,7 @@ import ShepherdAppCore
         try capture.emit(); await settle()
         let recording = try await engine.finish()
         XCTAssertEqual(engine.whisperAvailable, true)
-        let finalizer = WhisperFinalizer(status: { await engine.resolvedWhisperAvailability() }, transcribe: { wav, _ in
+        let finalizer = WhisperFinalizer(status: { try await engine.resolvedWhisperAvailability() }, transcribe: { wav, _ in
             XCTAssertGreaterThan(wav.count, 44); return "Whisper"
         })
         let result = await finalizer.finalize(recording, locale: "en-US")
@@ -226,9 +238,9 @@ import ShepherdAppCore
     func testProbeFailureAndTimeoutStayUnknownUntilBoundedFinalize() async throws {
         for timeout in [false, true] {
             let capture = Capture(), probe = Probe()
+            probe.alwaysFail = !timeout
             let engine = try engine(capture: capture, appleSupported: false, probe: {
-                if timeout { return try await probe.status() }
-                throw DictationError.network
+                try await probe.status()
             }, probeTimeout: 0.03) { _, _, _ in XCTFail("Apple must not start"); return Speech() }
             engine.probeWhisper()
             try await Task.sleep(for: .milliseconds(60))
@@ -236,12 +248,150 @@ import ShepherdAppCore
             _ = try await engine.start(locale: "en-US")
             XCTAssertFalse(capture.stopped)
             try capture.emit(); await settle()
-            do { _ = try await engine.finish(); XCTFail("missing unsupported result") }
-            catch { XCTAssertEqual(error as? DictationError, .unsupported) }
-            XCTAssertEqual(engine.whisperAvailable, false); XCTAssertTrue(capture.stopped)
-            if timeout { probe.resolve(true); await settle(); XCTAssertEqual(engine.whisperAvailable, false) }
+            let started = Date(), recording = try await engine.finish()
+            XCTAssertLessThan(Date().timeIntervalSince(started), 0.5)
+            XCTAssertEqual(recording.finalizationError, .network)
+            XCTAssertEqual(probe.calls, 3, "appearance, press, and exactly one finalize retry")
+            XCTAssertEqual(recording.clips.count, 1); XCTAssertGreaterThan(recording.clips[0].wav.count, 44)
+            XCTAssertNil(engine.whisperAvailable); XCTAssertTrue(capture.stopped)
+            if timeout { probe.resolve(true); await settle(); XCTAssertEqual(engine.whisperAvailable, true) }
             await engine.cancel(); engine.stopWhisperProbe()
         }
+    }
+    func testTransientProbeFailureRecoversOnNextPressAndAtFinalize() async throws {
+        for nextPress in [false, true] {
+            let capture = Capture(), probe = Probe()
+            probe.failFirst = true
+            let engine = try engine(capture: capture, appleSupported: false, probe: { try await probe.status() }) {
+                _, _, _ in XCTFail("Apple must not start"); return Speech()
+            }
+            _ = try await engine.start(locale: "en-US"); await settle()
+            XCTAssertNil(engine.whisperAvailable); XCTAssertEqual(probe.calls, 1)
+            if nextPress {
+                await engine.cancel(); _ = try await engine.start(locale: "en-US"); await settle()
+                XCTAssertEqual(probe.calls, 2)
+            }
+            try capture.emit(); await settle()
+            let finishing = Task { try await engine.finish() }
+            await settle(); XCTAssertEqual(probe.calls, 2)
+            probe.resolve(true)
+            let recording = try await finishing.value
+            XCTAssertEqual(engine.whisperAvailable, true); XCTAssertNil(recording.finalizationError)
+            let finalizer = WhisperFinalizer(status: { try await engine.resolvedWhisperAvailability() }, transcribe: { wav, _ in
+                XCTAssertGreaterThan(wav.count, 44); return "Recovered Whisper"
+            })
+            let result = await finalizer.finalize(recording, locale: "en-US")
+            XCTAssertEqual(result.text, "Recovered Whisper"); XCTAssertEqual(probe.calls, 2)
+        }
+    }
+    func testFinalizeRetriesTransientInFlightProbeFailure() async throws {
+        let capture = Capture(), probe = Probe()
+        let engine = try engine(capture: capture, appleSupported: false, probe: { try await probe.status() }) {
+            _, _, _ in XCTFail("Apple must not start"); return Speech()
+        }
+        _ = try await engine.start(locale: "en-US"); try capture.emit(); await settle()
+        let finishing = Task { try await engine.finish() }; await settle()
+        probe.fail(); await settle(); XCTAssertEqual(probe.calls, 2)
+        probe.resolve(true)
+        let recording = try await finishing.value
+        XCTAssertNil(recording.finalizationError); XCTAssertEqual(engine.whisperAvailable, true)
+    }
+    func testStoppedWhisperProbeCanRestartAndIgnoresStoppedAnswer() async throws {
+        let capture = Capture(), probe = Probe()
+        let engine = try engine(capture: capture, probe: { try await probe.status() }) { _, _, _ in Speech() }
+        engine.probeWhisper(); await settle(); engine.stopWhisperProbe()
+        engine.probeWhisper(); await settle(); XCTAssertEqual(probe.calls, 2)
+        probe.resolve(true, call: 1); await settle(); XCTAssertNil(engine.whisperAvailable)
+        probe.resolve(false, call: 2); await settle(); XCTAssertEqual(engine.whisperAvailable, false)
+    }
+    func testReleaseWaitsForAppleStartupAndReplaysCapturedAudio() async throws {
+        let capture = Capture(), speech = Speech()
+        speech.suspend = true
+        let engine = try engine(capture: capture, whisper: false, appleStartupTimeout: 0.5) { _, _, _ in speech }
+        _ = try await engine.start(locale: "en-US"); await settle()
+        XCTAssertEqual(engine.whisperAvailable, false); XCTAssertNotNil(speech.startup)
+        try capture.emit(); await settle()
+        var finished = false
+        let finishing = Task { let recording = try await engine.finish(); finished = true; return recording }
+        await settle(); XCTAssertTrue(capture.stopped); XCTAssertFalse(finished); XCTAssertFalse(speech.cancelled)
+        speech.startup?.resume(); speech.startup = nil
+        let recording = try await finishing.value
+        XCTAssertEqual(speech.appended, 1, "startup must receive the audio captured before release")
+        XCTAssertEqual(recording.appleText, "Apple"); XCTAssertNil(recording.finalizationError)
+        XCTAssertEqual(recording.clips.count, 1)
+    }
+    func testAppleStartupAcrossRolloverRebindsPreviewToCurrentClip() async throws {
+        let capture = Capture(), old = Speech(), current = Speech()
+        old.suspend = true
+        var count = 0
+        let engine = try engine(capture: capture, whisper: false) { _, _, _ in
+            count += 1; return count == 1 ? old : current
+        }
+        _ = try await engine.start(locale: "en-US"); await settle()
+        try capture.emit(); try capture.emit(rate: 32_000); await settle()
+        XCTAssertEqual(count, 1, "rollover must not race the original startup")
+        old.startup?.resume(); old.startup = nil; await settle()
+        let recording = try await engine.finish()
+        XCTAssertTrue(old.cancelled); XCTAssertEqual(current.appended, 1)
+        XCTAssertEqual(recording.appleText, "Apple"); XCTAssertEqual(recording.clips.map(\.appleText), ["", "Apple"])
+        let finalizer = WhisperFinalizer(status: { false }, transcribe: { _, _ in XCTFail("must not upload"); return "" })
+        let result = await finalizer.finalize(recording, locale: "en-US")
+        XCTAssertEqual(result.text, "Apple"); XCTAssertEqual(result.missingClips, [0], "earlier audio without text must be reported")
+    }
+    func testReleaseDuringAppleStartupTimeoutReportsRetryableError() async throws {
+        for beforeCapabilityCheck in [false, true] {
+            let capture = Capture(), speech = Speech(), gate = Probe()
+            speech.suspend = !beforeCapabilityCheck
+            let engine = try engine(capture: capture, whisper: false, appleStartupTimeout: 0.03,
+                capabilities: { _ in
+                    if beforeCapabilityCheck { _ = try? await gate.status() }
+                    return .init(analyzer: false, recognizer: true, onDevice: true)
+                }) { _, _, _ in speech }
+            _ = try await engine.start(locale: "en-US"); try capture.emit(); await settle()
+            let started = Date()
+            do { _ = try await engine.finish(); XCTFail("missing retryable startup error") }
+            catch { XCTAssertEqual(error as? DictationError, .recognition) }
+            XCTAssertLessThan(Date().timeIntervalSince(started), 0.5); XCTAssertTrue(capture.stopped)
+            speech.startup?.resume(); speech.startup = nil; gate.resolve(true); await settle()
+            XCTAssertEqual(engine.appleState, .failed)
+            await engine.cancel()
+        }
+    }
+    func testRecordingHintsShowPreparingAndRemainTruthfulAcrossPresses() async throws {
+        let capture = Capture(), speech = Speech()
+        speech.suspend = true
+        let engine = try engine(capture: capture, whisper: false) { _, _, _ in speech }
+        let host = Host()
+        let controller = DictationController(engine: engine, now: { host.date }, getText: { host.text }, setText: { host.text = $0 })
+        await controller.begin(); await settle()
+        XCTAssertEqual(controller.state, .recording); XCTAssertTrue(controller.preparing)
+        XCTAssertEqual(engine.recordingHintKey.description, "native_compose_voice_preparing")
+        let dock = MicDock(voice: controller, audioEngine: engine, attachment: { EmptyView() }, submit: { EmptyView() })
+        XCTAssertEqual(dock.hintKey.description, "native_compose_voice_preparing")
+        speech.startup?.resume(); speech.startup = nil; await settle()
+        XCTAssertFalse(controller.preparing); XCTAssertEqual(engine.recordingHintKey.description, "native_compose_voice_no_send")
+        controller.cancel(); await controller.begin()
+        XCTAssertEqual(engine.recordingHintKey.description, "native_compose_voice_no_send", "cached Apple capability avoids per-press hint flicker")
+        controller.teardown(); await settle()
+        let unsupported = try self.engine(capture: Capture(), whisper: false, appleSupported: false) { _, _, _ in Speech() }
+        _ = try await unsupported.start(locale: "en-US"); await settle()
+        XCTAssertEqual(unsupported.recordingHintKey.description, "native_compose_voice_unsupported")
+        await unsupported.cancel()
+        let unknown = try self.engine(capture: Capture(), appleSupported: false, probe: { throw DictationError.network }) { _, _, _ in Speech() }
+        _ = try await unknown.start(locale: "en-US"); await settle()
+        XCTAssertEqual(unknown.recordingHintKey.description, "native_compose_voice_recording")
+        await unknown.cancel()
+    }
+    func testUnknownWhisperKeepsAppleFinalTextWithRetryableNotice() async throws {
+        let capture = Capture(), speech = Speech(), host = Host()
+        let engine = try engine(capture: capture, probe: { throw DictationError.network }, probeTimeout: 0.03) { _, _, _ in speech }
+        let controller = DictationController(engine: engine, now: { host.date }, getText: { host.text }, setText: { host.text = $0 })
+        await controller.begin(); await settle(); try capture.emit(); await settle()
+        host.date.addTimeInterval(1); controller.release()
+        for _ in 0..<10 { await settle() }
+        XCTAssertEqual(controller.state, .error); XCTAssertEqual(controller.noticeKey, "native_compose_voice_error")
+        XCTAssertEqual(host.text, "Existing task Apple"); XCTAssertNil(engine.whisperAvailable)
+        controller.teardown()
     }
     func testWhisperFinalTextReplacesUsableApplePreview() async throws {
         let capture = Capture(), speech = Speech()
@@ -250,7 +400,7 @@ import ShepherdAppCore
         try capture.emit(); await settle()
         let recording = try await engine.finish()
         XCTAssertEqual(recording.appleText, "Apple")
-        let finalizer = WhisperFinalizer(status: { await engine.resolvedWhisperAvailability() }, transcribe: { _, _ in "Whisper" })
+        let finalizer = WhisperFinalizer(status: { try await engine.resolvedWhisperAvailability() }, transcribe: { _, _ in "Whisper" })
         let result = await finalizer.finalize(recording, locale: "en-US")
         XCTAssertEqual(result.text, "Whisper", "Whisper remains final when Apple works (preferLocal design)")
     }

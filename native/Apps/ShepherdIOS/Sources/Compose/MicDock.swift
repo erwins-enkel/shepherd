@@ -16,12 +16,13 @@ struct WaveformView: View {
 }
 struct TranscriptPreview: View {
     @Bindable var voice: DictationController
+    var audioEngine: IOSDictationEngine? = nil
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             if voice.state != .cancelling && voice.livePreviewAvailable {
                 Text(verbatim: L.t("native_compose_voice_live").uppercased()).font(.system(.caption2, design: .monospaced)).tracking(1.2).foregroundStyle(ComposePalette.red)
             }
-            Text(verbatim: voice.preview.isEmpty && !voice.livePreviewAvailable ? L.t("native_compose_voice_on_release") : voice.preview).foregroundStyle(voice.state == .cancelling ? ComposePalette.faint : ComposePalette.ink)
+            Text(verbatim: voice.preview.isEmpty && !voice.livePreviewAvailable ? L.t(audioEngine?.recordingHintKey ?? "native_compose_voice_recording") : voice.preview).foregroundStyle(voice.state == .cancelling ? ComposePalette.faint : ComposePalette.ink)
                 .strikethrough(voice.state == .cancelling).frame(maxWidth: .infinity, alignment: .leading)
         }.padding(12).background(ComposePalette.panel2)
             .overlay(alignment: .leading) { Rectangle().fill(voice.state == .cancelling ? ComposePalette.faint : ComposePalette.red).frame(width: 2) }
@@ -114,11 +115,12 @@ struct HoldToTalkButton: View {
 }
 struct MicDock<Attachment: View, Submit: View>: View {
     @Bindable var voice: DictationController
+    let audioEngine: IOSDictationEngine?
     let attachment: Attachment
     let submit: Submit
     @Environment(\.dynamicTypeSize) private var typeSize
-    init(voice: DictationController, @ViewBuilder attachment: () -> Attachment, @ViewBuilder submit: () -> Submit) {
-        self.voice = voice; self.attachment = attachment(); self.submit = submit()
+    init(voice: DictationController, audioEngine: IOSDictationEngine? = nil, @ViewBuilder attachment: () -> Attachment, @ViewBuilder submit: () -> Submit) {
+        self.voice = voice; self.audioEngine = audioEngine; self.attachment = attachment(); self.submit = submit()
     }
     var body: some View {
         VStack(spacing: 12) {
@@ -186,12 +188,12 @@ struct MicDock<Attachment: View, Submit: View>: View {
             Button(L.t("native_compose_voice_done")) { voice.finalize() }.foregroundStyle(ComposePalette.amber).frame(minWidth: 44, minHeight: 44)
         } else { submit.opacity(voice.active ? 0 : 1).allowsHitTesting(!voice.active).accessibilityHidden(voice.active) }
     }
-    private var hintKey: StaticString {
+    var hintKey: StaticString {
         switch voice.state {
         case .arming: voice.preparing ? "native_compose_voice_preparing" : "native_compose_voice_hold"
         case .finalizing: "native_compose_voice_finalize"
-        case .recording: voice.livePreviewAvailable ? "native_compose_voice_no_send" : "native_compose_voice_on_release"
-        case .locked: "native_compose_voice_locked"
+        case .recording: audioEngine?.recordingHintKey ?? (voice.preparing ? "native_compose_voice_preparing" : voice.livePreviewAvailable ? "native_compose_voice_no_send" : "native_compose_voice_recording")
+        case .locked: voice.preparing ? "native_compose_voice_preparing" : "native_compose_voice_locked"
         case .cancelling: "native_compose_voice_unchanged"
         default: "native_compose_voice_hold"
         }

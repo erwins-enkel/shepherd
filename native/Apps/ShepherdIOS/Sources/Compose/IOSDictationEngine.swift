@@ -27,38 +27,69 @@ import ShepherdKit
     private var checkpointIndex = -1
     private var useAppleServer = false
     private var canUseApple = false
-    // nil remains unknown after a failed background probe until finalize resolves it.
+    enum AppleState { case unknown, starting, preparing, ready, unavailable, failed }
+    private(set) var appleState: AppleState = .unknown
+    // Only definitive answers survive across recording presses.
     private(set) var whisperAvailable: Bool?
     private var whisperProbe: Task<Bool?, Never>?
     private var appleStartup: Task<Void, Never>?
-    private var appleError: DictationError = .unsupported
+    private var probeGeneration = 0
+    private var probeID = 0
+    private var appleError: DictationError = .recognition
+    private let appleStartupTimeout: TimeInterval
     private let probeTimeout: TimeInterval
     private var lastLevel = Date.distantPast
-    init(client: ShepherdClient, defaults: UserDefaults, context: [String], services: IOSDictationServices? = nil, probeTimeout: TimeInterval = 12) {
-        self.services = services ?? .live(client: client); self.defaults = defaults; self.context = context; self.probeTimeout = probeTimeout
+    init(client: ShepherdClient, defaults: UserDefaults, context: [String], services: IOSDictationServices? = nil, probeTimeout: TimeInterval = 12, appleStartupTimeout: TimeInterval = 8) {
+        self.services = services ?? .live(client: client); self.defaults = defaults; self.context = context; self.probeTimeout = probeTimeout; self.appleStartupTimeout = appleStartupTimeout
     }
 
-    /// Called on composer appearance. Recording presses reuse this one lifetime probe.
+    /// Composer appearance and later presses retry unknown status; definitive answers are cached.
     func probeWhisper() {
-        guard whisperProbe == nil else { return }
-        let status = services.whisper, timeout = probeTimeout
+        guard whisperAvailable == nil, whisperProbe == nil else { return }
+        probeID += 1
+        let id = probeID, mine = probeGeneration, status = services.whisper, timeout = probeTimeout
         whisperProbe = Task { [weak self] in
-            let result = await DictationDeadline.value(seconds: timeout) { try? await status() } ?? nil
-            guard !Task.isCancelled else { return nil }
-            if let result { self?.whisperAvailable = result }
+            let result = await DictationDeadline.value(seconds: timeout) { [weak self] in
+                let answer = try? await status()
+                // The deadline cancels its worker, but a transport can still answer later.
+                // Cache that answer unless discovery was explicitly stopped.
+                await self?.cacheWhisper(answer, mine: mine)
+                return answer
+            } ?? nil
+            if let self, mine == self.probeGeneration, id == self.probeID { self.whisperProbe = nil }
             return result
         }
     }
-    func resolvedWhisperAvailability() async -> Bool {
-        if let whisperAvailable { return whisperAvailable }
-        probeWhisper()
-        let probe = whisperProbe!, timeout = probeTimeout
-        let result = await DictationDeadline.value(seconds: timeout) { await probe.value } ?? nil
-        guard !Task.isCancelled else { return false }
-        whisperAvailable = result ?? false
-        return whisperAvailable == true
+    private func cacheWhisper(_ answer: Bool?, mine: Int) {
+        guard mine == probeGeneration, let answer else { return }
+        whisperAvailable = answer
     }
-    func stopWhisperProbe() { whisperProbe?.cancel() }
+    func resolvedWhisperAvailability() async throws -> Bool {
+        if let whisperAvailable { return whisperAvailable }
+        // Await any in-flight discovery, then make exactly one bounded finalize retry.
+        if let probe = whisperProbe {
+            _ = await probe.value
+            try Task.checkCancellation()
+            if let whisperAvailable { return whisperAvailable }
+        }
+        probeWhisper()
+        if let retry = whisperProbe { _ = await retry.value }
+        try Task.checkCancellation()
+        if let whisperAvailable { return whisperAvailable }
+        throw DictationError.network
+    }
+    func stopWhisperProbe() {
+        probeGeneration += 1; whisperProbe?.cancel(); whisperProbe = nil
+    }
+
+    var recordingHintKey: StaticString {
+        if preparing { return "native_compose_voice_preparing" }
+        if appleState == .ready { return "native_compose_voice_no_send" }
+        if whisperAvailable == true { return "native_compose_voice_on_release" }
+        if appleState == .unavailable && whisperAvailable == false { return "native_compose_voice_unsupported" }
+        if appleState == .failed { return "native_compose_voice_error" }
+        return "native_compose_voice_recording"
+    }
 
     func resolveAppleServerConsent(_ allowed: Bool) {
         if allowed { defaults.set(true, forKey: "shepherd:apple-server-speech-consent") }
@@ -72,7 +103,8 @@ import ShepherdKit
         guard mine == generation, !Task.isCancelled else { throw CancellationError() }
         guard mic else { throw DictationError.denied }
         probeWhisper()
-        canUseApple = false; useAppleServer = false; appleError = .unsupported
+        canUseApple = false; useAppleServer = false; appleError = .recognition
+        if appleState != .ready { appleState = .starting }
         let events = try capture.start()
         captureTask = Task { [weak self] in
             for await event in events {
@@ -107,15 +139,14 @@ import ShepherdKit
             guard mine == generation, !Task.isCancelled else { return }
             canUseApple = allowed
         }
-        guard canUseApple else { return }
+        guard canUseApple else { appleState = appleError == .unsupported ? .unavailable : .failed; return }
         do {
             try await startSpeech(index: segment, mine: mine)
             guard mine == generation, !Task.isCancelled else { return }
-            continuation?.yield(.livePreview(true))
         } catch {
             guard mine == generation, !Task.isCancelled else { return }
             appleError = error as? DictationError ?? .recognition
-            canUseApple = false
+            canUseApple = false; preparing = false; appleState = .failed
             continuation?.yield(.livePreview(false))
         }
     }
@@ -138,17 +169,17 @@ import ShepherdKit
         let language = locale
         if let factory = services.speech {
             let engine = try await factory(language, update, failed)
-            try await prepareSpeech(engine, mine: mine); return
+            try await prepareSpeech(engine, index: index, mine: mine); return
         }
         if #available(iOS 26, *), SpeechTranscriber.isAvailable,
            let supported = await SpeechTranscriber.supportedLocale(equivalentTo: Locale(identifier: language)) {
             guard mine == generation, !Task.isCancelled else { throw CancellationError() }
             let engine = SpeechAnalyzerEngine(locale: supported, preparing: { [weak self] in
                 guard let self, mine == generation else { return }
-                preparing = true; continuation?.yield(.preparing)
+                preparing = true; appleState = .preparing; continuation?.yield(.preparing)
             }, failed: failed, update: update)
             do {
-                try await prepareSpeech(engine, mine: mine); return
+                try await prepareSpeech(engine, index: index, mine: mine); return
             } catch { if mine != generation { throw CancellationError() } }
         }
         guard mine == generation, !Task.isCancelled else { throw CancellationError() }
@@ -162,15 +193,30 @@ import ShepherdKit
             guard useAppleServer else { throw DictationError.unsupported }
         }
         let engine = SFSpeechEngine(recognizer: recognizer, onDevice: !useAppleServer, contextualStrings: context, failed: failed, update: update)
-        try await prepareSpeech(engine, mine: mine)
+        try await prepareSpeech(engine, index: index, mine: mine)
     }
-    private func prepareSpeech(_ engine: any AppleLiveSpeech, mine: Int) async throws {
+    private func prepareSpeech(_ engine: any AppleLiveSpeech, index: Int, mine: Int) async throws {
         do {
             guard mine == generation, !Task.isCancelled else { throw CancellationError() }
+            preparing = true; appleState = .preparing; continuation?.yield(.preparing)
             try await engine.start()
             guard mine == generation, !Task.isCancelled else { throw CancellationError() }
             guard canUseApple else { engine.cancel(); return }
-            speech = engine
+            // Startup can span a clip rollover. Rebind callbacks before replaying that clip.
+            guard index == segment else {
+                engine.cancel(); try await startSpeech(index: segment, mine: mine); return
+            }
+            // Replay the current PCM segment captured during permissions/model startup.
+            if !samples.isEmpty {
+                guard let format = AVAudioFormat(standardFormatWithSampleRate: inputRate, channels: 1),
+                      let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(samples.count)),
+                      let channel = buffer.floatChannelData?[0] else { throw DictationError.audio }
+                buffer.frameLength = AVAudioFrameCount(samples.count)
+                for (index, sample) in samples.enumerated() { channel[index] = sample }
+                try engine.append(buffer)
+            }
+            speech = engine; preparing = false; appleState = .ready
+            continuation?.yield(.livePreview(true))
         } catch {
             // A suspended startup owns only this candidate, never the current shared engine.
             engine.cancel(); throw error
@@ -178,7 +224,7 @@ import ShepherdKit
     }
     private func previewFailed(index: Int, mine: Int) {
         guard mine == generation, index == segment else { return }
-        canUseApple = false; appleError = .recognition; speech?.cancel(); speech = nil
+        canUseApple = false; appleError = .recognition; preparing = false; appleState = .failed; speech?.cancel(); speech = nil
         continuation?.yield(.livePreview(false))
         if whisperAvailable == false { continuation?.yield(.failed(.recognition)) }
     }
@@ -198,11 +244,12 @@ import ShepherdKit
                 }
                 pendingSpeech.append(task)
             } else { checkpoint(index: index) }
-            if canUseApple {
+            // An outstanding initial startup will attach to the current segment.
+            if canUseApple, old != nil {
                 do { try await startSpeech(index: segment, mine: mine) }
                 catch {
                     guard mine == generation else { return }
-                    canUseApple = false; appleError = .recognition
+                    canUseApple = false; appleError = .recognition; preparing = false; appleState = .failed
                     continuation?.yield(.livePreview(false))
                     if whisperAvailable == false { continuation?.yield(.failed(.recognition)) }
                 }
@@ -234,13 +281,22 @@ import ShepherdKit
     }
     func finish() async throws -> DictationRecording {
         let mine = generation
-        appleStartup?.cancel(); appleStartup = nil; resolveAppleServerConsent(false)
-        if speech == nil { canUseApple = false }
         capture.stop()
         // Drain copied audio already queued by the tap before ending Apple's input.
         await captureTask?.value
         guard mine == generation, !Task.isCancelled else { throw CancellationError() }
         captureTask = nil
+        if let startup = appleStartup {
+            let finished = await DictationDeadline.value(seconds: appleStartupTimeout) {
+                await startup.value; return true
+            } == true
+            guard mine == generation, !Task.isCancelled else { throw CancellationError() }
+            if !finished {
+                startup.cancel(); canUseApple = false; appleError = .recognition
+                preparing = false; appleState = .failed
+            }
+            appleStartup = nil; resolveAppleServerConsent(false)
+        }
         closeAudioClip()
         if let speech {
             let text = await speech.finish()
@@ -256,12 +312,15 @@ import ShepherdKit
             guard mine == generation, !Task.isCancelled else { throw CancellationError() }
             clips.append(.init(wav: wav, appleText: texts.indices.contains(index) ? texts[index] : ""))
         }
-        let recording = DictationRecording(clips: clips, appleText: texts.filter { !$0.isEmpty }.joined(separator: " "))
-        let available = await resolvedWhisperAvailability()
+        let appleText = texts.filter { !$0.isEmpty }.joined(separator: " ")
+        var available: Bool?, finalizationError: DictationError?
+        do { available = try await resolvedWhisperAvailability() }
+        catch is CancellationError { throw CancellationError() }
+        catch { finalizationError = .network }
         guard mine == generation, !Task.isCancelled else { throw CancellationError() }
         continuation?.finish(); continuation = nil; audioClips = []; samples = []
-        if !available && !canUseApple { throw appleError }
-        return recording
+        if available == false && !canUseApple && appleText.isEmpty { throw appleError }
+        return DictationRecording(clips: clips, appleText: appleText, finalizationError: finalizationError)
     }
     func cancel() async {
         generation += 1; appleStartup?.cancel(); appleStartup = nil; preparing = false; resolveAppleServerConsent(false); capture.stop(); captureTask?.cancel(); captureTask = nil

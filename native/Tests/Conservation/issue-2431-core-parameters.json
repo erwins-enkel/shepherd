@@ -182,6 +182,12 @@
       "false",
       "true"
     ],
+    "CoreSeamTests.QueuesModelTests/macEventRefreshPreservesUpNextWithoutPeeking": [
+      "false, false",
+      "false, true",
+      "true, false",
+      "true, true"
+    ],
     "CoreSeamTests.QueuesStringsTests/bothCompiledCatalogsResolveAndInterpolate": [
       "\"de\"",
       "\"en\""

@@ -142,11 +142,9 @@ public final class QueuesModel: AppExtension {
         async let strandedResult = Self.load(sources.stranded)
         async let haltResult = Self.load(sources.haltSnapshots)
         async let upNextResult = Self.load {
-            if recomputeUpNext && mayRecompute {
-                try await sources.refreshUpNext()
-                return nil as UpNextSnapshot?
-            }
-            return try await sources.peekUpNext()
+            if !mayRecompute { return try await sources.peekUpNext() }
+            if recomputeUpNext { try await sources.refreshUpNext() }
+            return nil as UpNextSnapshot?
         }
         let results = await (heldResult, doneResult, recapsResult, strandedResult, upNextResult, haltResult)
         guard isCurrent(mine), activation == app?.activationGeneration,
@@ -174,10 +172,10 @@ public final class QueuesModel: AppExtension {
                     haltedAt: session.haltedAt))
             })
         }
-        if upNextVersion == upNextRevision {
+        if recomputeUpNext || !mayRecompute, upNextVersion == upNextRevision {
             switch results.4 {
             case .success(let cached):
-                if !recomputeUpNext || !mayRecompute { upNext = cached }
+                if !mayRecompute { upNext = cached }
                 upNextLoadFailed = false
             case .failure: upNextLoadFailed = true
             }

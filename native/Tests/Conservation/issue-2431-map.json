@@ -12379,6 +12379,7 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DetailModelTests.swift\",\"CoreSeamTests.DetailModelTests\",\"retainedArchivedDetailIsDroppedOnTeardown() async\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DetailModelTests.swift\",\"CoreSeamTests.DetailModelTests\",\"selectedArchivedDetailSurvivesLivePruningDuringAndAfterLoad() async\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"peekDoesNotOverwriteSnapshotPushedDuringRead() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"macEventRefreshPreservesUpNextWithoutPeeking(loadFailed: Bool, peekFails: Bool) async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/QueuesModelCoreTests.swift\",\"CoreSeamTests.QueuesModelTests\",\"readOnlyBootstrapAndRefreshPeekExistingRecommendations() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ReadOnlySidebarRecoveryTests.swift\",\"CoreSeamTests.ReadOnlySidebarRecoveryTests\",\"concurrentRecoveryCallsCoalesceAndTeardownRejectsFurtherReads() async\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ReadOnlySidebarRecoveryTests.swift\",\"CoreSeamTests.ReadOnlySidebarRecoveryTests\",\"recoveryRepairsAllInstalledSnapshotsWithoutQueueComputation() async\"]",

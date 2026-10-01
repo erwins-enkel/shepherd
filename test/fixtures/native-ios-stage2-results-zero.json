@@ -8,7 +8,5 @@
   "tests": {
     "testNodes": []
   },
-  "expected": [
-    "IOSFixtureTests/testFlow"
-  ]
+  "expected": ["IOSFixtureTests/testFlow"]
 }

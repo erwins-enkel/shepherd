@@ -12374,6 +12374,7 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ServerEventTests.swift\",\"ServerEventTests\",\"terminalOwners() throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"failedBootstrapInvalidatesTerminalOwners() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"terminalOwners() throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"terminalOwnersDuringRefresh() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"terminalOwnersDuringRefresh() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AppModelEventCompositionTests.swift\",\"AppModelEventCompositionTests\",\"activationReceivesEventsAndProfileSwitchStopsOldSocket() async throws\"]"
   ]
 }

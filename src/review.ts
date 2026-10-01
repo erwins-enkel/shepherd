@@ -977,6 +977,8 @@ export class ReviewService extends ReviewerRuns<InFlight> {
       provider: reviewerEnv.provider,
       model: reviewerEnv.model,
       effort: reviewerEnv.effort ?? null,
+      startedAt: this.inflight.get(session.id)!.startedAt,
+      timeoutMs: this.timeoutMs,
     });
   }
 
@@ -2362,6 +2364,9 @@ export class ReviewService extends ReviewerRuns<InFlight> {
   }
   protected nowMs() {
     return this.now();
+  }
+  protected runTimeoutMs() {
+    return this.timeoutMs;
   }
   protected markCancelled(f: InFlight) {
     this.cancelledHeads.set(f.sessionId, f.headSha);

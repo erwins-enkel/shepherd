@@ -41,13 +41,21 @@ export abstract class ReviewerRuns<F extends ReviewerRun> {
   /** Remember what the cancelled run reviewed so the auto path doesn't re-run it unchanged. */
   protected abstract markCancelled(f: F): void;
 
+  /** The run's hard deadline, surfaced on the `…/inflight` rows; undefined when not exposed. */
+  protected runTimeoutMs(): number | undefined {
+    return undefined;
+  }
+
   /** In-flight reviews with the exact reviewer environment captured for each spawn. */
   reviewingInflight(): Array<{ id: string; held: boolean } & ReviewerEnv> {
+    const timeoutMs = this.runTimeoutMs();
     return [...this.inflight.values()].map((f) => ({
       id: f.sessionId,
       provider: f.reviewerProvider,
       model: f.reviewerModel,
       effort: f.reviewerEffort,
+      startedAt: f.startedAt,
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
       held: f.heldSince != null,
     }));
   }

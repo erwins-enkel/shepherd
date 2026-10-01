@@ -5,7 +5,8 @@ import SwiftUI
 import ShepherdAppCore
 @testable import ShepherdIOS
 
-@MainActor final class IOSDictationTests: XCTestCase {
+@MainActor
+final class IOSDictationTests: XCTestCase {
     private final class Capture: DictationAudioCapture {
         var continuation: AsyncStream<AudioCapture.Event>.Continuation?
         var stopped = true

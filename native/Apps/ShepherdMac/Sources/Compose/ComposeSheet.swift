@@ -65,6 +65,7 @@ struct ComposeSheetContent: View {
                     AttachmentsRow(model: model.attachments, choosingFiles: $model.choosingFiles)
                         .modifier(ComposeKeycap(ids: ["attach"]))
                     ShapeRoundView(model: model)
+                    Text(verbatim: L.t("native_compose_dictation_deferred")).font(.caption).foregroundStyle(.secondary)
                 }
                 .padding(.trailing, 6)
                 .disabled(submission.busy)

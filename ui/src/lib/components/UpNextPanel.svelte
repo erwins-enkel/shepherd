@@ -1,59 +1,41 @@
 <script lang="ts">
-  import type { AgentProvider, UpNextItem, UpNextSection } from "$lib/types";
-  import type { HerdStore } from "$lib/store.svelte";
+  import type { UpNextItem, UpNextSection } from "$lib/types";
   import { upNext } from "$lib/up-next.svelte";
-  import { refreshUpNext, startUpNext, type UpNextStartChoice } from "$lib/api";
-  import { toasts } from "$lib/toasts.svelte";
+  import { upNextKey as keyOf, upNextUi } from "$lib/up-next-ui.svelte";
+  import { UpNextStarter, type UpNextLaunchContext } from "$lib/up-next-start.svelte";
+  import { refreshUpNext } from "$lib/api";
   import { formatAgo } from "$lib/format";
   import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
   import { SvelteSet } from "svelte/reactivity";
   import { EMPTY_REPO_FILTER } from "./queue-strip";
   import { onMount } from "svelte";
-  import ModelCliPicker from "./new-task/ModelCliPicker.svelte";
+  import UpNextBand, { type UpNextBandGroup } from "./UpNextBand.svelte";
+  import UpNextPreview from "./UpNextPreview.svelte";
   import UpNextSortMenu from "./UpNextSortMenu.svelte";
-  import {
-    capacitySuggestedProvider,
-    claudeUsageHoldLikely,
-    readyAgentProviders,
-  } from "$lib/provider-capacity";
+  import UpNextStartPicker from "./UpNextStartPicker.svelte";
 
   type SortMode = "recommended" | "newest" | "oldest" | "title-asc" | "title-desc";
-  // One tinted band: the cross-repo priority tier, or one label (bug, enhancement, …, none).
-  // bandKey is the lower-cased label the band stands for, so rows can drop it from their
-  // own label line; tone is the CSS color the band and its heading are tinted with.
-  type RenderGroup = {
-    id: string;
-    title: string;
-    bandKey: string | null;
-    tone: string;
-    items: UpNextItem[];
-    totalCount: number;
-    cap: number;
-  };
+  type RenderGroup = UpNextBandGroup;
 
   // Open the Backlog overlay from the empty state (threaded up through Herd to +page).
   // repoFilter: selected repo paths of the active chip-rail filter (empty = unfiltered) — scopes
   // the queue to those repos, identical to how the session lenses filter. filteredRepo is the
   // pre-computed display name ("N repos" for a multi-selection) for the empty-state copy.
+  // flow: the phone's stacked list — there is no main area beside it, so the preview a title
+  // click opens swaps in place of the list instead (desktop renders it in +page's main area).
   let {
     onbacklog,
     repoFilter = EMPTY_REPO_FILTER,
     filteredRepo = null,
     launchContext = null,
+    flow = false,
   }: {
     onbacklog?: () => void;
     repoFilter?: ReadonlySet<string>;
     filteredRepo?: string | null;
-    launchContext?: {
-      store: Pick<HerdStore, "diagnostics" | "usageLimits">;
-      defaultAgentProvider: AgentProvider;
-      fableAvailable: boolean;
-      upnextSkipCliPicker: boolean;
-      usageHoldEnabled: boolean;
-      usageHoldPct: number;
-      nowMs: number;
-    } | null;
+    launchContext?: UpNextLaunchContext | null;
+    flow?: boolean;
   } = $props();
 
   // On lens-open: repaint the cached snapshot and kick a server recompute (GET /api/up-next
@@ -61,6 +43,7 @@
   // lens reflects "now" rather than the last app-load — not just on-app-load (#1169 spec).
   onMount(() => {
     sortMode = readStoredSortMode();
+    readStoredCollapsed();
     void upNext.load();
   });
 
@@ -74,6 +57,7 @@
   // Bug keeps red (a defect is the one label with a status meaning), priority keeps amber.
   const LABEL_TONES = [3, 1, 2, 4, 5, 6].map((n) => `var(--color-data-${n})`);
   const SORT_STORAGE_KEY = "shepherd.upnext.sort";
+  const COLLAPSED_STORAGE_KEY = "shepherd.upnext.collapsed";
   // Manual starts bypass the per-repo maxAuto drain cap, so a large batch could launch a swarm
   // unintentionally — confirm above this many selected (issue #1169 tunable).
   const CONFIRM_THRESHOLD = 3;
@@ -104,6 +88,26 @@
     sortMode = mode;
     try {
       localStorage.setItem(SORT_STORAGE_KEY, mode);
+    } catch {
+      /* storage may be blocked */
+    }
+  }
+
+  // Bands the operator folded away, by group id; remembered like the sort mode.
+  const collapsed = new SvelteSet<string>();
+  function readStoredCollapsed() {
+    try {
+      const ids: unknown = JSON.parse(localStorage.getItem(COLLAPSED_STORAGE_KEY) ?? "[]");
+      if (Array.isArray(ids)) for (const id of ids) if (typeof id === "string") collapsed.add(id);
+    } catch {
+      /* storage may be blocked or hold junk */
+    }
+  }
+  function toggleCollapsed(g: RenderGroup) {
+    if (collapsed.has(g.id)) collapsed.delete(g.id);
+    else collapsed.add(g.id);
+    try {
+      localStorage.setItem(COLLAPSED_STORAGE_KEY, JSON.stringify([...collapsed]));
     } catch {
       /* storage may be blocked */
     }
@@ -169,14 +173,12 @@
     snap?.generatedAt != null ? formatAgo(clock.current - snap.generatedAt) : null,
   );
 
-  // Selection keyed by repoPath#number (issue numbers repeat across repos).
-  const keyOf = (it: UpNextItem) => `${it.repoPath}#${it.number}`;
-  const selected = new SvelteSet<string>();
+  // Selection is shared with the main-area preview (its "select" box ticks the same row).
+  const selected = upNextUi.selected;
   const expanded = new SvelteSet<string>();
-  let starting = $state(false);
+  const starter = new UpNextStarter(() => launchContext);
   let confirmPending = $state(false);
 
-  const repoBase = (p: string | null) => p?.split("/").filter(Boolean).at(-1) ?? "";
   function stableCompare(a: UpNextItem, b: UpNextItem): number {
     return (
       a.repoLabel.localeCompare(b.repoLabel) ||
@@ -213,7 +215,6 @@
       groups.push({
         id: "priority",
         title: m.upnext_priority_section(),
-        bandKey: null,
         tone: "var(--color-amber)",
         items: priority,
         totalCount: priority.length,
@@ -222,16 +223,12 @@
     }
 
     // eslint-disable-next-line svelte/prefer-svelte-reactivity -- local scratch map, rebuilt per derive
-    const bands = new Map<string, { title: string; bandKey: string | null; items: UpNextItem[] }>();
+    const bands = new Map<string, { title: string; items: UpNextItem[] }>();
     for (const it of sortItems(all.filter((it) => !it.priority))) {
       const label = bandLabel(it);
       const bandKey = label?.toLowerCase() ?? null;
       const id = LABEL_ID_PREFIX + (bandKey ?? "");
-      const band = bands.get(id) ?? {
-        title: label ?? m.upnext_unlabeled_section(),
-        bandKey,
-        items: [],
-      };
+      const band = bands.get(id) ?? { title: label ?? m.upnext_unlabeled_section(), items: [] };
       band.items.push(it);
       bands.set(id, band);
     }
@@ -240,9 +237,9 @@
     let toneIndex = 0;
     for (const [id, band] of [...bands].sort(([a], [b]) => rank(a) - rank(b))) {
       const tone =
-        band.bandKey === BUG_LABEL
+        id === LABEL_ID_PREFIX + BUG_LABEL
           ? "var(--color-red)"
-          : band.bandKey === null
+          : id === LABEL_ID_PREFIX
             ? "var(--color-muted)"
             : LABEL_TONES[toneIndex++ % LABEL_TONES.length]!;
       groups.push({
@@ -260,9 +257,6 @@
   );
   // Bands mix repos, so a row names its repo whenever more than one is on screen.
   const showRepoContext = $derived(visibleRepoCount > 1);
-  function shownItems(g: RenderGroup): UpNextItem[] {
-    return expanded.has(g.id) ? g.items : g.items.slice(0, g.cap);
-  }
 
   // Priority and epic are Up Next workflow badges, so suppress their exact forge
   // label duplicates while retaining every other real label and color.
@@ -273,42 +267,19 @@
       return !(it.kind === "epic" && normalized === "epic");
     });
   }
-  // A row's own label line leaves out the label its band already names.
-  function rowLabels(it: UpNextItem, g: RenderGroup): string[] {
-    return displayLabels(it).filter((label) => label.toLowerCase() !== g.bandKey);
-  }
+  // The preview's ‹ › step through the rows in on-screen band order.
+  $effect(() => {
+    upNextUi.order = renderGroups.flatMap((g) => g.items.map(keyOf));
+  });
 
   // Selected items still present in the current snapshot (a refresh may have dropped some).
   const selectedItems = $derived(
     renderGroups.flatMap((g) => g.items).filter((it) => selected.has(keyOf(it))),
   );
   const selectedCount = $derived(selectedItems.length);
-  const usageLimits = $derived(launchContext?.store.usageLimits ?? null);
-  const diagnostics = $derived(launchContext?.store.diagnostics ?? null);
-  const defaultAgentProvider = $derived(launchContext?.defaultAgentProvider ?? "claude");
-  const fableAvailable = $derived(launchContext?.fableAvailable ?? true);
-  const nowMs = $derived(launchContext?.nowMs ?? clock.current);
-  const holdLikely = $derived(
-    claudeUsageHoldLikely(
-      usageLimits,
-      launchContext?.usageHoldEnabled ?? false,
-      launchContext?.usageHoldPct ?? 80,
-    ),
-  );
-  const heldProviders = $derived(new Set<AgentProvider>(holdLikely ? ["claude"] : []));
-  const suggestedProvider = $derived(
-    capacitySuggestedProvider(defaultAgentProvider, diagnostics, heldProviders),
-  );
-  const readyProviders = $derived(readyAgentProviders(diagnostics));
-  const skipCliPicker = $derived(launchContext?.upnextSkipCliPicker ?? false);
-  let picker = $state<{ items: UpNextItem[]; x: number; y: number; opener: HTMLElement } | null>(
-    null,
-  );
 
   function toggle(it: UpNextItem) {
-    const k = keyOf(it);
-    if (selected.has(k)) selected.delete(k);
-    else selected.add(k);
+    upNextUi.toggle(keyOf(it));
     confirmPending = false; // selection changed — re-confirm if still over threshold
   }
   function toggleExpand(g: RenderGroup) {
@@ -316,82 +287,17 @@
     else expanded.add(g.id);
   }
 
-  async function doStart(items: UpNextItem[], choice?: UpNextStartChoice) {
-    if (starting || items.length === 0) return;
-    starting = true;
-    confirmPending = false;
-    try {
-      const res = await startUpNext(
-        items.map((it) => ({ repoPath: it.repoPath, issueRef: it.issueRef })),
-        choice,
-      );
-      if (res.created.length > 0) {
-        toasts.info(m.upnext_started({ count: res.created.length }), { key: "upnext-started" });
-      }
-      if (res.held.length > 0) {
-        toasts.info(m.upnext_held({ count: res.held.length }), { key: "upnext-held" });
-      }
-      if (res.errors.length > 0) {
-        // Failure surfaced as a 12s alert — tone-namespaced dedupe key so repeats collapse.
-        toasts.info(m.upnext_start_failed({ count: res.errors.length }), {
-          key: "upnext-start-failed",
-          alert: true,
-        });
-      }
-      if (res.created.length === 0 && res.held.length === 0 && res.errors.length === 0) {
-        toasts.info(m.upnext_start_failed({ count: items.length }), {
-          key: "upnext-start-failed",
-          alert: true,
-        });
-      }
-      // Clear only the ones we just started; the WS snapshot refresh removes them shortly.
-      for (const it of items) selected.delete(keyOf(it));
-    } catch {
-      toasts.info(m.upnext_start_failed({ count: items.length }), {
-        key: "upnext-start-failed",
-        alert: true,
-      });
-    } finally {
-      starting = false;
-    }
-  }
-
-  function openPicker(items: UpNextItem[], opener: HTMLElement) {
-    const r = opener.getBoundingClientRect();
-    picker = { items, x: r.left, y: r.bottom + 4, opener };
-  }
-
-  function requestStart(items: UpNextItem[], opener: HTMLElement) {
-    if (starting || picker || items.length === 0) return;
-    if (readyProviders.length >= 2) {
-      if (skipCliPicker) {
-        void doStart(items, { agentProvider: suggestedProvider });
-        return;
-      }
-      openPicker(items, opener);
-      return;
-    }
-    if (readyProviders.length === 1) {
-      void doStart(items, { agentProvider: readyProviders[0]! });
-      return;
-    }
-    void doStart(items);
-  }
-
   function startSelected(e: MouseEvent) {
     if (selectedCount > CONFIRM_THRESHOLD && !confirmPending) {
       confirmPending = true;
       return;
     }
-    requestStart(selectedItems, e.currentTarget as HTMLElement);
+    confirmPending = false;
+    starter.request(selectedItems, e.currentTarget as HTMLElement);
   }
 
-  function confirmPicker(choice: UpNextStartChoice) {
-    const p = picker;
-    picker = null;
-    if (!p) return;
-    void doStart(p.items, choice);
-  }
+  // On the phone the preview takes the list's place (see `flow`).
+  const flowPreview = $derived(flow && upNextUi.previewKey !== null);
 
   let refreshing = $state(false);
   async function refresh() {
@@ -407,138 +313,108 @@
   }
 </script>
 
-{#snippet row(it: UpNextItem, g: RenderGroup, showRepo: boolean)}
-  {@const labels = rowLabels(it, g)}
-  <li class="un-row" class:un-row-selected={selected.has(keyOf(it))}>
-    <label class="un-check">
-      <input
-        type="checkbox"
-        checked={selected.has(keyOf(it))}
-        onchange={() => toggle(it)}
-        aria-label={m.upnext_select_aria({ number: it.number, title: it.title })}
-      />
-    </label>
-    <div class="un-main">
-      <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
-      <a class="un-link" href={it.url} target="_blank" rel="noopener noreferrer">{it.title}</a>
-      {#if showRepo || it.kind === "epic" || labels.length > 0}
-        <span class="un-sub">
-          {#if it.kind === "epic"}<span class="un-pill">{m.upnext_pill_epic()}</span>{/if}
-          {#if showRepo}<span>{it.repoLabel || repoBase(it.repoPath)}</span>{/if}
-          {#each labels as label (label)}<span>{label}</span>{/each}
-        </span>
-      {/if}
-    </div>
-    <span class="un-meta">
-      <span class="un-num">#{it.number}</span>
-      <span class="un-age">{formatAgo(clock.current - it.createdAt)}</span>
-    </span>
-  </li>
-{/snippet}
-
-<section class="upnext" aria-label={m.upnext_title()}>
-  <header class="un-head">
-    <div class="un-head-text">
-      <span class="un-title-h">{m.upnext_title()}</span>
-      {#if updatedAgo}
-        <span class="un-updated">{m.upnext_updated_ago({ ago: updatedAgo })}</span>
-      {/if}
-    </div>
-    <button
-      type="button"
-      class="un-refresh"
-      disabled={refreshing}
-      aria-busy={refreshing}
-      title={m.upnext_refresh()}
-      aria-label={m.upnext_refresh()}
-      onclick={refresh}>⟳</button
-    >
-    <div class="un-sortwrap">
+{#if flowPreview}
+  <UpNextPreview {launchContext} onback={() => (upNextUi.previewKey = null)} />
+{:else}
+  <section class="upnext" class:flow aria-label={m.upnext_title()}>
+    <header class="un-head">
+      <div class="un-head-text">
+        <span class="un-title-h">{m.upnext_title()}</span>
+        {#if updatedAgo}
+          <span class="un-updated">{m.upnext_updated_ago({ ago: updatedAgo })}</span>
+        {/if}
+      </div>
       <button
-        bind:this={sortBtn}
         type="button"
-        class="un-sortbtn"
-        aria-haspopup="listbox"
-        aria-expanded={sortMenuOpen}
-        title={m.upnext_sort_by({ mode: SORT_LABELS[sortMode]() })}
-        aria-label={m.upnext_sort_by({ mode: SORT_LABELS[sortMode]() })}
-        onclick={toggleSortMenu}>⇅</button
+        class="un-refresh"
+        disabled={refreshing}
+        aria-busy={refreshing}
+        title={m.upnext_refresh()}
+        aria-label={m.upnext_refresh()}
+        onclick={refresh}>⟳</button
       >
-    </div>
-  </header>
+      <div class="un-sortwrap">
+        <button
+          bind:this={sortBtn}
+          type="button"
+          class="un-sortbtn"
+          aria-haspopup="listbox"
+          aria-expanded={sortMenuOpen}
+          title={m.upnext_sort_by({ mode: SORT_LABELS[sortMode]() })}
+          aria-label={m.upnext_sort_by({ mode: SORT_LABELS[sortMode]() })}
+          onclick={toggleSortMenu}>⇅</button
+        >
+      </div>
+    </header>
 
-  <div class="un-body">
-    {#if loadFailed}
-      <!-- Fetch failed (GET threw, or every-/some-repo issue fetch errored into an empty queue):
+    <div class="un-body">
+      {#if loadFailed}
+        <!-- Fetch failed (GET threw, or every-/some-repo issue fetch errored into an empty queue):
            surface it rather than implying an empty backlog. The header ⟳ retries. -->
-      <p class="un-muted">{m.common_issues_load_failed()}</p>
-    {:else if !computed}
-      <!-- No server snapshot yet (first compute in flight) → loading, never the all-clear. -->
-      <p class="un-muted">{m.common_loading()}</p>
-    {:else if isEmpty}
-      <div class="un-empty">
-        <p class="un-muted">
-          {#if filteredRepo}
-            {m.upnext_repo_filter_empty({ repo: filteredRepo })}
-          {:else}
-            {m.upnext_empty()}
+        <p class="un-muted">{m.common_issues_load_failed()}</p>
+      {:else if !computed}
+        <!-- No server snapshot yet (first compute in flight) → loading, never the all-clear. -->
+        <p class="un-muted">{m.common_loading()}</p>
+      {:else if isEmpty}
+        <div class="un-empty">
+          <p class="un-muted">
+            {#if filteredRepo}
+              {m.upnext_repo_filter_empty({ repo: filteredRepo })}
+            {:else}
+              {m.upnext_empty()}
+            {/if}
+          </p>
+          {#if onbacklog}
+            <button type="button" class="un-backlog-link" onclick={() => onbacklog?.()}
+              >{m.upnext_open_backlog()}</button
+            >
           {/if}
-        </p>
-        {#if onbacklog}
-          <button type="button" class="un-backlog-link" onclick={() => onbacklog?.()}
-            >{m.upnext_open_backlog()}</button
+        </div>
+      {:else}
+        {#each renderGroups as g (g.id)}
+          <UpNextBand
+            group={g}
+            open={!collapsed.has(g.id)}
+            expanded={expanded.has(g.id)}
+            showRepo={showRepoContext}
+            labelsOf={displayLabels}
+            onfold={() => toggleCollapsed(g)}
+            onexpand={() => toggleExpand(g)}
+            ontick={toggle}
+          />
+        {/each}
+      {/if}
+    </div>
+
+    {#if selectedCount > 0}
+      <div class="un-batch" role="region" aria-label={m.upnext_batch_aria()}>
+        {#if confirmPending}
+          <span class="un-confirm-text">{m.upnext_confirm({ count: selectedCount })}</span>
+          <button
+            type="button"
+            class="un-batch-go un-confirm"
+            disabled={starter.starting}
+            onclick={startSelected}>{m.upnext_confirm_yes()}</button
+          >
+          <button type="button" class="un-batch-cancel" onclick={() => (confirmPending = false)}
+            >{m.common_cancel()}</button
+          >
+        {:else}
+          <span class="un-batch-count">{m.upnext_selected_count({ count: selectedCount })}</span>
+          <button type="button" class="un-batch-cancel" onclick={() => selected.clear()}
+            >{m.upnext_clear_selection()}</button
+          >
+          <button
+            type="button"
+            class="un-batch-go"
+            disabled={starter.starting}
+            onclick={startSelected}>{m.upnext_start_selected({ count: selectedCount })}</button
           >
         {/if}
       </div>
-    {:else}
-      {#each renderGroups as g (g.id)}
-        <div class="un-section" style:--band={g.tone}>
-          <p class="un-section-head">
-            <span class="un-section-title">{g.title}</span>
-            <span class="un-section-count">{g.totalCount}</span>
-          </p>
-          <ul class="un-list">
-            {#each shownItems(g) as it (keyOf(it))}
-              {@render row(it, g, showRepoContext)}
-            {/each}
-          </ul>
-          {#if g.totalCount > g.cap}
-            <button type="button" class="un-expand" onclick={() => toggleExpand(g)}>
-              {expanded.has(g.id)
-                ? m.upnext_show_less()
-                : m.upnext_show_all({ count: g.totalCount })}
-            </button>
-          {/if}
-        </div>
-      {/each}
     {/if}
-  </div>
-
-  {#if selectedCount > 0}
-    <div class="un-batch" role="region" aria-label={m.upnext_batch_aria()}>
-      {#if confirmPending}
-        <span class="un-confirm-text">{m.upnext_confirm({ count: selectedCount })}</span>
-        <button
-          type="button"
-          class="un-batch-go un-confirm"
-          disabled={starting}
-          onclick={startSelected}>{m.upnext_confirm_yes()}</button
-        >
-        <button type="button" class="un-batch-cancel" onclick={() => (confirmPending = false)}
-          >{m.common_cancel()}</button
-        >
-      {:else}
-        <span class="un-batch-count">{m.upnext_selected_count({ count: selectedCount })}</span>
-        <button type="button" class="un-batch-cancel" onclick={() => selected.clear()}
-          >{m.upnext_clear_selection()}</button
-        >
-        <button type="button" class="un-batch-go" disabled={starting} onclick={startSelected}
-          >{m.upnext_start_selected({ count: selectedCount })}</button
-        >
-      {/if}
-    </div>
-  {/if}
-</section>
+  </section>
+{/if}
 
 {#if sortMenuOpen && sortAnchor}
   <UpNextSortMenu
@@ -552,31 +428,18 @@
   />
 {/if}
 
-{#if picker}
-  <ModelCliPicker
-    x={picker.x}
-    y={picker.y}
-    title={m.upnext_picker_title()}
-    confirmLabel={m.upnext_picker_confirm()}
-    {fableAvailable}
-    initialProvider={suggestedProvider}
-    {usageLimits}
-    {nowMs}
-    {holdLikely}
-    opener={picker.opener}
-    onconfirm={confirmPicker}
-    onclose={() => (picker = null)}
-  />
-{/if}
+<UpNextStartPicker {starter} />
 
 <style>
+  /* No overflow of its own: the Herd's .units scrolls, so the sticky batch bar binds to that
+     scrollport. A scroll container here never scrolled (it grows to its content), which left
+     the bar parked after the last row instead of on screen. */
   .upnext {
     position: relative;
     border: 1px solid var(--color-line);
     background: var(--color-panel);
     display: flex;
     flex-direction: column;
-    overflow: auto;
     min-height: 0;
     flex: 1;
   }
@@ -660,9 +523,8 @@
     cursor: not-allowed;
   }
 
-  /* Starting always goes through this bar: tick rows, then start them. Sticky to
-     the bottom of the .upnext scroll container so it stays reachable however
-     deep in a long list the last row was ticked. */
+  /* Starting a batch goes through this bar: tick rows, then start them. Sticky to the
+     bottom of the visible list so it stays reachable however deep the last tick was. */
   .un-batch {
     position: sticky;
     bottom: 0;
@@ -680,6 +542,12 @@
     flex: 1;
     font-size: var(--fs-meta);
     color: var(--color-ink);
+  }
+  /* Phone: the page scrolls and the fixed ActionBar covers its bottom edge — stick above it. */
+  .upnext.flow .un-batch {
+    bottom: calc(
+      var(--mobile-actionbar-h) + max(var(--mobile-actionbar-pad), env(safe-area-inset-bottom))
+    );
   }
   .un-confirm-text {
     flex: 1;
@@ -734,152 +602,10 @@
     padding: 14px;
   }
 
-  /* One band per group, tinted with its --band tone (set inline per group). */
-  .un-section {
-    display: flex;
-    flex-direction: column;
-  }
-  .un-section-head {
-    margin: 0;
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    padding: 7px 14px;
-    font-size: var(--fs-micro);
-    font-weight: 700;
-    letter-spacing: 0.16em;
-    text-transform: uppercase;
-    color: var(--band);
-    background: color-mix(in srgb, var(--band) 9%, var(--color-panel));
-    border-block: 1px solid color-mix(in srgb, var(--band) 26%, var(--color-panel));
-  }
-  .un-section-title {
-    flex: 1;
-    min-width: 0;
-    overflow-wrap: anywhere;
-  }
-  .un-section-count {
-    flex: none;
-    letter-spacing: 0;
-  }
-
-  .un-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  /* The title owns the row's width and wraps instead of truncating; number and age
-     move to a narrow right-aligned column so nothing competes with it. */
-  .un-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-    padding: 9px 14px;
-    border-bottom: 1px solid var(--color-line);
-    transition: background 0.12s;
-  }
-  .un-row:hover,
-  .un-row:focus-within {
-    background: var(--color-hover);
-  }
-  .un-row.un-row-selected {
-    background: var(--color-sel);
-  }
-  .un-check {
-    flex: none;
-    display: flex;
-    align-items: center;
-    padding-top: 2px;
-  }
-  .un-check input {
-    margin: 0;
-    accent-color: var(--color-amber);
-    cursor: pointer;
-  }
-  .un-main {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-  }
-  .un-link {
-    font-size: var(--fs-base);
-    line-height: 1.45;
-    color: var(--color-ink-bright);
-    text-decoration: none;
-    overflow-wrap: anywhere;
-    transition: color 0.12s ease;
-  }
-  .un-link:hover {
-    color: var(--color-amber);
-  }
-  .un-link:focus-visible {
-    outline: none;
-    box-shadow: 0 1px 0 var(--color-amber);
-  }
-  .un-sub {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: 2px 8px;
-    font-size: var(--fs-micro);
-    color: var(--color-muted);
-  }
-  .un-pill {
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
-    padding: 0 4px;
-    color: var(--color-ink-bright);
-  }
-  .un-meta {
-    flex: none;
-    min-width: 5ch;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    gap: 2px;
-    padding-top: 2px;
-    font-size: var(--fs-meta);
-    color: var(--color-muted);
-  }
-  .un-age {
-    color: var(--color-faint);
-  }
-
   @media (max-width: 768px), (pointer: coarse) {
-    .un-check {
-      justify-content: center;
-      min-width: var(--mobile-actionbar-hit);
-      min-height: var(--mobile-actionbar-hit);
-      padding-top: 0;
-    }
-    .un-link {
-      display: flex;
-      align-items: center;
-      min-height: var(--mobile-actionbar-hit);
-    }
     .un-batch-go {
       min-height: var(--mobile-actionbar-hit);
     }
-  }
-
-  .un-expand {
-    align-self: flex-start;
-    background: none;
-    border: 0;
-    padding: 8px 14px;
-    font: inherit;
-    font-size: var(--fs-micro);
-    color: var(--color-muted);
-    cursor: pointer;
-  }
-  .un-expand:hover {
-    color: var(--color-amber);
   }
 
   .un-muted {

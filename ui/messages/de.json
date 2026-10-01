@@ -2395,7 +2395,6 @@
   "upnext_empty": "Alles erledigt — nichts zum Starten in der Warteschlange.",
   "upnext_repo_filter_empty": "Nichts zum Starten für {repo}.",
   "upnext_open_backlog": "Backlog öffnen",
-  "upnext_main_hint": "Als Nächstes wird im Herd-Panel links angezeigt.",
   "upnext_priority_section": "Priorität",
   "upnext_normal_section": "Warteschlange",
   "upnext_unlabeled_section": "Ohne Label",
@@ -4923,5 +4922,14 @@
   "native_ios_actions_revision": "Revision",
   "native_ios_actions_server_default": "Server-Standard",
   "native_ios_plan_open_hint": "Öffnet den Plan und seine Fragen.",
-  "native_ios_plan_readonly": "Planaktionen sind bei schreibgeschützter Ansicht, offline oder im Hintergrund nicht verfügbar."
+  "native_ios_plan_readonly": "Planaktionen sind bei schreibgeschützter Ansicht, offline oder im Hintergrund nicht verfügbar.",
+  "upnext_preview_aria": "Issue-Vorschau",
+  "upnext_preview_title": "Vorschau",
+  "upnext_preview_position": "{index} von {total}",
+  "upnext_preview_prev": "Vorheriges Issue",
+  "upnext_preview_next": "Nächstes Issue",
+  "upnext_preview_select": "Für Stapelstart auswählen",
+  "upnext_preview_empty": "Klick links auf einen Titel, um ihn hier zu lesen",
+  "feat_upnext_preview_title": "Als Nächstes: Issue lesen, bevor du es startest",
+  "feat_upnext_preview_body": "Klick in Als Nächstes auf einen Titel, und das Issue erscheint rechts — mit Labels, Beschreibung und Starten-Button, ohne Umweg über GitHub. Jede Zeile zeigt jetzt alle ihre Labels, Gruppen klappen per Klick auf ihre Überschrift ein, und die Start-Leiste bleibt beim Scrollen sichtbar."
 }

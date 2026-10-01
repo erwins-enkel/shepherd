@@ -598,8 +598,10 @@ test("onReviewing start + inflight snapshot carry the critic's exact reviewer en
 
   await svc.consider(session(), OPEN_GREEN);
 
-  expect(events).toContainEqual(["s1", true, env]);
-  expect(svc.reviewingInflight()).toEqual([{ id: "s1", ...env, held: false }]);
+  // startedAt/timeoutMs let the UI show elapsed vs deadline for the running critic.
+  const timing = { startedAt: expect.any(Number), timeoutMs: 10 * 60 * 1000 };
+  expect(events).toContainEqual(["s1", true, { ...env, ...timing }]);
+  expect(svc.reviewingInflight()).toEqual([{ id: "s1", ...env, ...timing, held: false }]);
   await svc.tick();
   expect(svc.reviewingInflight()).toEqual([]);
   expect(events.at(-1)).toEqual(["s1", false, undefined]);

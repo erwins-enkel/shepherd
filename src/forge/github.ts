@@ -165,6 +165,8 @@ const REST_PAGE_CAP = 10;
 const MAX_CHECK_RUN_PAGES = 2;
 const REST_CHECK_CACHE_TTL_MS = 60_000;
 const REST_CHECK_LOOKUP_BUDGET = 40;
+/** How long {@link GithubForge.listIssues} answers from its cache (#2656). */
+const ISSUES_CACHE_TTL_MS = 30_000;
 const GRAPHQL_PR_REVIEW_STATES: Record<string, PrReviewMeta["state"]> = {
   OPEN: "open",
   MERGED: "merged",
@@ -302,6 +304,12 @@ function collectBlockedByOpenPage(
     hasNextPage: issues?.pageInfo?.hasNextPage ?? false,
     endCursor: issues?.pageInfo?.endCursor ?? null,
   };
+}
+
+/** Shallow per-issue copies, so callers of the shared listIssues cache can annotate their
+ *  own view without mutating the cached entries. */
+function copyIssues(issues: Issue[]): Issue[] {
+  return issues.map((i) => ({ ...i }));
 }
 
 /** Runs `gh` with the given args and returns stdout. Injected in tests. */
@@ -554,6 +562,11 @@ export class GithubForge implements GitForge {
    *  most once per forge instance (on transition into the capped regime). */
   private openPrCapLogged = false;
   private readonly restCheckCache = new Map<string, { at: number; state: ChecksState }>();
+  /** listIssues cache + in-flight share. `issuesGen` bumps on this forge's own issue
+   *  writes so a fetch that started before the write never repopulates the cache. */
+  private issuesCache: { at: number; issues: Issue[] } | null = null;
+  private issuesInflight: Promise<Issue[]> | null = null;
+  private issuesGen = 0;
   constructor(
     readonly slug: string,
     private readonly cfg: ForgeConfig,
@@ -832,6 +845,38 @@ export class GithubForge implements GitForge {
   }
 
   /**
+   * Open issues, served from a {@link ISSUES_CACHE_TTL_MS} cache shared by every caller of
+   * this forge (#2656): the issues panel, the epics routes, the completed-epics band, the
+   * drain and Up Next each list the same repo independently, several of them uncached.
+   * Concurrent calls share one in-flight fetch; a failure is not cached. Each caller gets
+   * shallow copies, so one consumer annotating an issue (e.g. `blockedBy`) can't leak into
+   * another's view. This forge's own issue writes clear the cache ({@link invalidateIssues}).
+   */
+  async listIssues(): Promise<Issue[]> {
+    const hit = this.issuesCache;
+    if (hit && Date.now() - hit.at < ISSUES_CACHE_TTL_MS) return copyIssues(hit.issues);
+    if (!this.issuesInflight) {
+      const gen = this.issuesGen;
+      const p = this.fetchIssues()
+        .then((issues) => {
+          if (gen === this.issuesGen) this.issuesCache = { at: Date.now(), issues };
+          return issues;
+        })
+        .finally(() => {
+          if (this.issuesInflight === p) this.issuesInflight = null;
+        });
+      this.issuesInflight = p;
+    }
+    return copyIssues(await this.issuesInflight);
+  }
+
+  private invalidateIssues(): void {
+    this.issuesGen++;
+    this.issuesCache = null;
+    this.issuesInflight = null;
+  }
+
+  /**
    * Open issues over whichever transport answers.
    *
    * `gh issue list` (GraphQL bucket) and `gh api` (REST bucket) draw on two
@@ -859,7 +904,7 @@ export class GithubForge implements GitForge {
    * rate limit. The trail is built as we go, so it always describes what was really
    * attempted — never a second transport that never ran.
    */
-  async listIssues(): Promise<Issue[]> {
+  private async fetchIssues(): Promise<Issue[]> {
     const order: GhTransport[] = graphRateLimit.blocked() ? ["rest", "cli"] : ["cli", "rest"];
     const attempts: GhFetchAttempt[] = [];
     let preferredErr: unknown;
@@ -1927,9 +1972,22 @@ export class GithubForge implements GitForge {
 
   async createIssue(o: { title: string; body: string }): Promise<{ number: number; url: string }> {
     // `gh issue create` echoes the new issue's URL on stdout (…/issues/<n>).
-    const url = (
-      await this.run(["issue", "create", "--repo", this.slug, "--title", o.title, "--body", o.body])
-    ).trim();
+    let out: string;
+    try {
+      out = await this.run([
+        "issue",
+        "create",
+        "--repo",
+        this.slug,
+        "--title",
+        o.title,
+        "--body",
+        o.body,
+      ]);
+    } finally {
+      this.invalidateIssues();
+    }
+    const url = out.trim();
     const n = Number(url.match(/\/(\d+)\s*$/)?.[1]);
     if (!Number.isInteger(n)) throw new Error(`could not parse issue number from URL: ${url}`);
     return { number: n, url };
@@ -2191,7 +2249,11 @@ export class GithubForge implements GitForge {
   }
 
   async closeIssue(issueNumber: number): Promise<void> {
-    await this.run(["issue", "close", String(issueNumber), "--repo", this.slug]);
+    try {
+      await this.run(["issue", "close", String(issueNumber), "--repo", this.slug]);
+    } finally {
+      this.invalidateIssues();
+    }
   }
 
   async commentIssue(issueNumber: number, body: string): Promise<void> {
@@ -2238,27 +2300,35 @@ export class GithubForge implements GitForge {
     // operator creates the opt-in label, but the claim label is ours — create it
     // first (ignoring "already exists") so the claim doesn't fail on a fresh repo.
     await this.ensureLabel(label);
-    await this.run([
-      "issue",
-      "edit",
-      String(issueNumber),
-      "--repo",
-      this.slug,
-      "--add-label",
-      label,
-    ]);
+    try {
+      await this.run([
+        "issue",
+        "edit",
+        String(issueNumber),
+        "--repo",
+        this.slug,
+        "--add-label",
+        label,
+      ]);
+    } finally {
+      this.invalidateIssues();
+    }
   }
 
   async removeIssueLabel(issueNumber: number, label: string): Promise<void> {
-    await this.run([
-      "issue",
-      "edit",
-      String(issueNumber),
-      "--repo",
-      this.slug,
-      "--remove-label",
-      label,
-    ]);
+    try {
+      await this.run([
+        "issue",
+        "edit",
+        String(issueNumber),
+        "--repo",
+        this.slug,
+        "--remove-label",
+        label,
+      ]);
+    } finally {
+      this.invalidateIssues();
+    }
   }
 
   async addPrLabel(prNumber: number, label: string): Promise<void> {

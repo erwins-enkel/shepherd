@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, setSystemTime } from "bun:test";
 import { GithubForge, reviewerStatesFromReviews } from "../../src/forge/github";
 import { graphRateLimit } from "../../src/forge/rate-limit";
 import { attemptsOf } from "../../src/forge/gh-attempt";
@@ -320,6 +320,77 @@ test("GithubForge.listIssues: maps the last change into updatedAt on both transp
   } finally {
     unblockGraphql();
   }
+});
+
+// #2656: /api/issues, /api/epics, the completed-epics band, the drain and Up Next all list
+// the same repo's issues independently. The forge instance (one per repo, process-lifetime)
+// now answers them all from one short cache.
+test("GithubForge.listIssues: repeat calls within the TTL share one gh call (copies returned)", async () => {
+  const { run, calls } = fakeRunner({ "issue list": ISSUES_JSON });
+  const forge = new GithubForge("o/r", {}, run);
+  const a = await forge.listIssues();
+  a[0]!.blockedBy = [99]; // a consumer annotating its copy must not leak into the cache
+  const b = await forge.listIssues();
+  expect(calls.filter((c) => c[0] === "issue")).toHaveLength(1);
+  expect(b[0]!.blockedBy).toBeUndefined();
+});
+
+test("GithubForge.listIssues: concurrent calls share one in-flight request", async () => {
+  const { run, calls } = fakeRunner({ "issue list": ISSUES_JSON });
+  const forge = new GithubForge("o/r", {}, run);
+  const [a, b] = await Promise.all([forge.listIssues(), forge.listIssues()]);
+  expect(calls.filter((c) => c[0] === "issue")).toHaveLength(1);
+  expect(a.map((i) => i.number)).toEqual(b.map((i) => i.number));
+});
+
+test("GithubForge.listIssues: re-fetches once the TTL has passed", async () => {
+  const { run, calls } = fakeRunner({ "issue list": ISSUES_JSON });
+  const forge = new GithubForge("o/r", {}, run);
+  try {
+    setSystemTime(new Date("2026-10-01T12:00:00Z"));
+    await forge.listIssues();
+    setSystemTime(new Date("2026-10-01T12:00:29Z"));
+    await forge.listIssues();
+    expect(calls.filter((c) => c[0] === "issue")).toHaveLength(1);
+    setSystemTime(new Date("2026-10-01T12:00:31Z"));
+    await forge.listIssues();
+    expect(calls.filter((c) => c[0] === "issue")).toHaveLength(2);
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("GithubForge.listIssues: the forge's own issue writes invalidate the cache", async () => {
+  const writes: Array<(f: GithubForge) => Promise<unknown>> = [
+    (f) => f.createIssue({ title: "t", body: "b" }),
+    (f) => f.closeIssue(1),
+    (f) => f.addIssueLabel(1, "shepherd:active"),
+    (f) => f.removeIssueLabel(1, "shepherd:active"),
+  ];
+  for (const write of writes) {
+    const { run, calls } = fakeRunner({
+      "issue list": ISSUES_JSON,
+      "issue create": "https://github.com/o/r/issues/3\n",
+    });
+    const forge = new GithubForge("o/r", {}, run);
+    await forge.listIssues();
+    await write(forge);
+    await forge.listIssues();
+    expect(calls.filter((c) => c[0] === "issue" && c[1] === "list")).toHaveLength(2);
+  }
+});
+
+test("GithubForge.listIssues: a failure is not cached — the next call retries", async () => {
+  let fail = true;
+  const run = async (args: string[]): Promise<string> => {
+    if (fail) throw new Error(args[0] === "issue" ? "cli boom" : "rest boom");
+    return args[0] === "issue" ? ISSUES_JSON : "[]";
+  };
+  unblockGraphql();
+  const forge = new GithubForge("o/r", {}, run);
+  await expect(forge.listIssues()).rejects.toThrow("cli boom");
+  fail = false;
+  expect((await forge.listIssues()).map((i) => i.number)).toEqual([1, 2]);
 });
 
 // `gh issue list` (GraphQL bucket) and `gh api` (REST bucket) draw on two independent

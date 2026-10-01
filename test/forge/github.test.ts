@@ -294,6 +294,34 @@ test("GithubForge.listIssues: REST fallback maps label color into labelColors (n
   }
 });
 
+test("GithubForge.listIssues: maps the last change into updatedAt on both transports (#2638)", async () => {
+  const updated = "2024-06-01T10:00:00Z";
+  const cli = fakeRunner({
+    "issue list": JSON.stringify([
+      { number: 1, title: "T", url: "u1", createdAt: ISSUE_CREATED_AT, updatedAt: updated },
+      { number: 2, title: "No stamp", url: "u2", createdAt: ISSUE_CREATED_AT },
+    ]),
+  });
+  const viaCli = await new GithubForge("o/r", {}, cli.run).listIssues();
+  expect(viaCli[0]!.updatedAt).toBe(Date.parse(updated));
+  expect("updatedAt" in viaCli[1]!).toBe(false);
+  expect(cli.calls.find((a) => a.includes("list"))?.join(" ")).toContain("updatedAt");
+
+  const rest = async (args: string[]): Promise<string> =>
+    args.includes("repos/o/r/issues")
+      ? JSON.stringify([
+          { number: 1, title: "T", created_at: ISSUE_CREATED_AT, updated_at: updated },
+        ])
+      : "[]";
+  blockGraphql();
+  try {
+    const viaRest = await new GithubForge("o/r", {}, rest).listIssues();
+    expect(viaRest[0]!.updatedAt).toBe(Date.parse(updated));
+  } finally {
+    unblockGraphql();
+  }
+});
+
 // `gh issue list` (GraphQL bucket) and `gh api` (REST bucket) draw on two independent
 // GitHub budgets, so listIssues() tries BOTH before reporting a failure — in whichever
 // order the GraphQL backoff prefers. The three tests below pin each direction and the

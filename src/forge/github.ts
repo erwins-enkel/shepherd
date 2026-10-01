@@ -28,6 +28,7 @@ import {
   CRITIC_REVIEW_MARKER,
   EmptyDiffError,
   issueStateField,
+  issueUpdatedAtField,
   MergeEnqueuedError,
   MergePendingError,
   StackedMergeRefusedError,
@@ -443,6 +444,7 @@ interface RestIssue {
   html_url?: string;
   labels?: Array<{ name?: string | null; color?: string | null }> | null;
   created_at?: string;
+  updated_at?: string;
   state?: string | null;
   author_association?: string | null;
   assignees?: Array<{ login?: string | null }> | null;
@@ -596,6 +598,7 @@ export class GithubForge implements GitForge {
       labels: (i.labels ?? []).map((l) => l.name).filter((n): n is string => !!n),
       ...(labelColors ? { labelColors } : {}),
       createdAt: Number.isFinite(ts) ? ts : Date.now(),
+      ...issueUpdatedAtField(i.updated_at),
       assignees: (i.assignees ?? [])
         .map((a) => a.login ?? undefined)
         .filter((login): login is string => !!login),
@@ -792,7 +795,7 @@ export class GithubForge implements GitForge {
       "--state",
       "open",
       "--json",
-      "number,title,body,url,labels,createdAt,assignees,author",
+      "number,title,body,url,labels,createdAt,updatedAt,assignees,author",
       // Cap matches listPullRequests; the count source (GraphQL totalCount) is
       // unbounded, so a repo with >200 open issues lists a truncated set under a
       // larger count. Raise this or paginate if such repos appear.
@@ -806,6 +809,7 @@ export class GithubForge implements GitForge {
       url: string;
       labels?: Array<{ name: string; color?: string }>;
       createdAt?: string;
+      updatedAt?: string;
       assignees?: Array<{ login: string }>;
       author?: { login?: string } | null;
     }>;
@@ -820,6 +824,7 @@ export class GithubForge implements GitForge {
         labels: (i.labels ?? []).map((l) => l.name),
         ...(labelColors ? { labelColors } : {}),
         createdAt: Number.isFinite(ts) ? ts : Date.now(),
+        ...issueUpdatedAtField(i.updatedAt),
         assignees: (i.assignees ?? []).map((a) => a.login),
         author: i.author?.login,
       };

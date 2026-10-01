@@ -317,6 +317,9 @@ export interface Issue {
    *  `labels` stays authoritative. Absent/partial ⇒ neutral chip fallback. */
   labelColors?: Record<string, string>;
   createdAt: number;
+  /** Epoch ms of the issue's last change on the forge; absent when the forge (or an older
+   *  cached payload) doesn't report it — readers fall back to `createdAt`. */
+  updatedAt?: number;
   /** GitHub/Gitea logins assigned to the issue (empty when unassigned). Drives the
    *  "mine & unassigned" filter (#824). */
   assignees: string[];

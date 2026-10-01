@@ -20,7 +20,7 @@ import type {
   WorkflowJob,
   WorkflowRun,
 } from "./types";
-import { EmptyDiffError, issueStateField } from "./types";
+import { EmptyDiffError, issueStateField, issueUpdatedAtField } from "./types";
 
 interface GiteaPr {
   number: number;
@@ -131,6 +131,7 @@ export class GiteaForge implements GitForge {
       html_url: string;
       labels?: Array<{ name: string; color?: string }>;
       created_at?: string;
+      updated_at?: string;
       assignees?: Array<{ login?: string }> | null;
       user?: { login?: string } | null;
     }>;
@@ -145,6 +146,7 @@ export class GiteaForge implements GitForge {
         labels: (i.labels ?? []).map((l) => l.name),
         ...(labelColors ? { labelColors } : {}),
         createdAt: Number.isFinite(ts) ? ts : Date.now(),
+        ...issueUpdatedAtField(i.updated_at),
         // Gitea serializes a user's canonical name as `login` (matches the PR-author
         // mapping above); drop any null/unnamed assignee defensively.
         assignees: (i.assignees ?? []).map((a) => a.login).filter((l): l is string => !!l),

@@ -1,0 +1,407 @@
+import XCTest
+import SwiftUI
+import UIKit
+import ShepherdKit
+@testable import ShepherdAppCore
+@testable import ShepherdIOS
+
+@MainActor
+final class IOSSessionActionsTests: XCTestCase {
+    func testSwipeChoicesUseSharedAvailabilityAndStatefulReadyLabels() {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        XCTAssertEqual(fixture.state.swipeActions, [.stop])
+        fixture.session.status = .init(known: .done)
+        XCTAssertEqual(fixture.state.swipeActions, [.resume, .toggleReady])
+        XCTAssertEqual(IOSSessionActionState.label(.toggleReady, session: fixture.session), L.t("native_ios_actions_ready"))
+        fixture.session.readyToMerge = true
+        XCTAssertEqual(IOSSessionActionState.label(.toggleReady, session: fixture.session), L.t("native_ios_actions_not_ready"))
+        XCTAssertFalse(fixture.state.actions.contains(.relaunch))
+        fixture.session.status = .init(known: .archived)
+        XCTAssertTrue(fixture.state.swipeActions.isEmpty)
+        XCTAssertTrue(fixture.state.actions.isEmpty)
+    }
+
+    func testReadyUsesWebOpenPRGateAndAlreadyReadyBackstop() {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.session.status = .init(known: .done)
+        fixture.git.state = .init(known: .none)
+        XCTAssertFalse(fixture.state.actions.contains(.toggleReady))
+        fixture.session.readyToMerge = true
+        XCTAssertTrue(fixture.state.actions.contains(.toggleReady))
+        fixture.session.status = .init(known: .running)
+        XCTAssertFalse(fixture.state.actions.contains(.toggleReady))
+    }
+
+    func testIsolatedAndInvalidatedStatesRejectEveryWriteIncludingDirectCalls() async {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.writable = false
+        for action in SessionAction.allCases {
+            fixture.state.present(action)
+            await fixture.state.execute(action)
+        }
+        fixture.session.readyToMerge = true
+        fixture.state.prepareMerge()
+        fixture.state.confirmMerge(now: .distantFuture)
+        await fixture.state.submit()
+        XCTAssertTrue(fixture.calls.isEmpty)
+        XCTAssertNil(fixture.state.sheet)
+        fixture.writable = true
+        fixture.state.invalidate()
+        await fixture.state.execute(.stop)
+        XCTAssertTrue(fixture.calls.isEmpty)
+    }
+
+    func testStopResumeReadyAndRecapReuseCoreSuccessAndFailureCopy() async {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        await fixture.state.execute(.stop)
+        XCTAssertEqual(fixture.state.outcome.note, .success(L.t("cardmenu_stop_toast", fixture.session.name)))
+        fixture.session.status = .init(known: .done)
+        await fixture.state.execute(.resume)
+        XCTAssertEqual(fixture.state.outcome.note, .success(L.t("native_actions_resumed", fixture.session.name)))
+        await fixture.state.execute(.toggleReady)
+        XCTAssertEqual(fixture.readyValue, true)
+        fixture.session.readyToMerge = true
+        await fixture.state.execute(.toggleReady)
+        XCTAssertEqual(fixture.readyValue, false)
+        await fixture.state.execute(.regenerateRecap)
+        XCTAssertEqual(fixture.state.outcome.note, .success(L.t("native_actions_recap_requested")))
+        fixture.error = ShepherdError.notFound
+        await fixture.state.execute(.resume)
+        XCTAssertEqual(fixture.state.command.message, L.t("cardmenu_resume_failed", fixture.session.name))
+        XCTAssertNil(fixture.state.outcome.note)
+        fixture.error = nil; fixture.recapOK = false
+        await fixture.state.execute(.regenerateRecap)
+        XCTAssertEqual(fixture.state.command.message, L.t("recap_regenerate_failed"))
+    }
+
+    func testBusyCommandsCannotOverlapAndLateActivationFailureIsDropped() async {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.hold = true
+        let first = Task { await fixture.state.execute(.stop) }
+        await settle { fixture.pending != nil }
+        XCTAssertTrue(fixture.state.busy)
+        await fixture.state.execute(.stop)
+        fixture.state.present(.rename)
+        XCTAssertNil(fixture.state.sheet)
+        XCTAssertEqual(fixture.calls, ["stop"])
+        fixture.writable = false; fixture.error = ShepherdError.notFound
+        fixture.release()
+        await first.value
+        XCTAssertFalse(fixture.state.busy)
+        XCTAssertNil(fixture.state.error)
+        XCTAssertNil(fixture.state.outcome.note)
+    }
+
+    func testRenameValidationTrimBranchKeptAndNameTakenCopy() async {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.state.present(.rename)
+        XCTAssertFalse(fixture.state.canSubmit)
+        fixture.state.name = " \n "
+        await fixture.state.submit()
+        XCTAssertTrue(fixture.calls.isEmpty)
+        fixture.state.name = "  shorter task  "
+        fixture.branchRenamed = false
+        await fixture.state.submit()
+        XCTAssertEqual(fixture.renameName, "shorter task")
+        XCTAssertEqual(fixture.state.outcome.note, .success(L.t("viewport_rename_branch_kept")))
+        XCTAssertNil(fixture.state.sheet)
+        fixture.state.present(.rename); fixture.state.name = "other task"
+        fixture.error = ShepherdError.conflict(code: nil, message: "name_taken")
+        await fixture.state.submit()
+        XCTAssertEqual(fixture.state.error, RenameSubmission.failureCopy("name_taken"))
+        XCTAssertEqual(fixture.state.name, "other task")
+        XCTAssertEqual(fixture.state.sheet, .rename)
+    }
+
+    func testAmendUTF16LimitAndDeliveryNotePreserveDraftOnFailure() async {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.state.present(.amend)
+        fixture.state.amendment = String(repeating: "😀", count: 1001)
+        XCTAssertFalse(fixture.state.canSubmit)
+        await fixture.state.submit()
+        XCTAssertTrue(fixture.calls.isEmpty)
+        fixture.state.amendment = "  Also cover Codex\nwith tests.  "
+        fixture.steered = false
+        await fixture.state.submit()
+        XCTAssertEqual(fixture.amendedText, "Also cover Codex\nwith tests.")
+        XCTAssertEqual(fixture.state.outcome.note, .success(AmendSubmission.note(steered: false)))
+        fixture.state.present(.amend)
+        fixture.state.amendment = "Keep this draft"; fixture.state.steer = false
+        fixture.error = ShepherdError.notFound
+        await fixture.state.submit()
+        XCTAssertEqual(fixture.state.amendment, "Keep this draft")
+        XCTAssertEqual(fixture.state.error, L.t("amend_failed"))
+        fixture.error = nil
+        await fixture.state.submit()
+        XCTAssertEqual(fixture.state.outcome.note, .success(L.t("amend_recorded")))
+    }
+
+    func testSheetCompletionCannotTouchAChangedSelection() async {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.state.present(.rename); fixture.state.name = "new name"; fixture.hold = true
+        let task = Task { await fixture.state.submit() }
+        await settle { fixture.pending != nil }
+        fixture.selected = false; fixture.replacementAllowed = false
+        fixture.state.detailDidDisappear()
+        fixture.selected = true
+        fixture.release(); await task.value
+        XCTAssertNil(fixture.state.outcome.note)
+        XCTAssertNil(fixture.state.sheet)
+    }
+
+    func testRelaunchRequiresOptionsConfirmationAndSendsOnlyChangedOverrides() async {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        await fixture.state.execute(.relaunch)
+        XCTAssertTrue(fixture.calls.isEmpty)
+        fixture.state.present(.relaunch)
+        XCTAssertEqual(fixture.state.sheet, .relaunch)
+        let unchanged = IOSSessionActionState.relaunchRequest(session: fixture.session,
+            repo: fixture.session.repoPath, branch: fixture.session.baseBranch, prompt: fixture.session.prompt)
+        XCTAssertNil(unchanged.repoPath); XCTAssertNil(unchanged.baseBranch); XCTAssertNil(unchanged.prompt)
+        fixture.state.repo = "/repos/elsewhere"; fixture.state.branch = "develop"; fixture.state.prompt = "Start again"
+        await fixture.state.submit()
+        XCTAssertEqual(fixture.relaunchRequest?.repoPath, "/repos/elsewhere")
+        XCTAssertEqual(fixture.relaunchRequest?.baseBranch, "develop")
+        XCTAssertEqual(fixture.relaunchRequest?.prompt, "Start again")
+        XCTAssertNil(fixture.relaunchRequest?.agentProvider)
+        XCTAssertNil(fixture.relaunchRequest?.model)
+        XCTAssertEqual(fixture.selectedReplacement?.id, "replacement")
+        XCTAssertEqual(fixture.replacementNote, .success(L.t("relaunch_done", "TASK-02")))
+    }
+
+    func testRelaunchPartialArchiveAndCodedErrors() async {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.archived = false
+        fixture.state.present(.relaunch); await fixture.state.submit()
+        XCTAssertEqual(fixture.state.outcome.note, .warning(L.t("relaunch_archive_failed")))
+        XCTAssertNil(fixture.selectedReplacement)
+        let cases: [(ShepherdError, StaticString)] = [(ShepherdError.conflict(code: "in_progress", message: "busy"), "relaunch_in_progress"),
+                             (.upstreamFailure(code: "issue_unresolved", message: "missing"), "relaunch_issue_unresolved")]
+        for (error, key) in cases {
+            fixture.state.present(.relaunch); fixture.error = error
+            await fixture.state.submit()
+            XCTAssertEqual(fixture.state.error, L.t(key))
+            XCTAssertEqual(fixture.state.sheet, .relaunch)
+        }
+    }
+
+    func testRelaunchArchiveCanSelectReplacementButNeverStealsExplicitNavigation() async {
+        for canSelect in [true, false] {
+            let fixture = IOSActionFixture()
+            defer { fixture.merge.teardown() }
+            fixture.state.present(.relaunch); fixture.hold = true
+            let task = Task { await fixture.state.submit() }
+            await settle { fixture.pending != nil }
+            fixture.selected = false; fixture.replacementAllowed = canSelect
+            fixture.release(); await task.value
+            XCTAssertEqual(fixture.selectedReplacement != nil, canSelect)
+        }
+    }
+
+    func testMergeFetchesFreshContextArmsAndEchoesServerResponsibility() async throws {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.session.readyToMerge = true
+        XCTAssertTrue(fixture.state.canMerge(fixture.session, git: [fixture.session.id: fixture.git], reviewing: false))
+        XCTAssertFalse(fixture.state.canMerge(fixture.session, git: [fixture.session.id: fixture.git], reviewing: true))
+        XCTAssertFalse(fixture.state.canMerge(fixture.session, git: [:], reviewing: false))
+        fixture.state.prepareMerge()
+        await settle { fixture.state.sheet == .merge }
+        XCTAssertEqual(fixture.calls, ["git"])
+        let opened = try XCTUnwrap(fixture.state.presentedAt)
+        XCTAssertFalse(fixture.state.canConfirmMerge(now: opened))
+        fixture.state.confirmMerge(now: opened)
+        XCTAssertEqual(fixture.calls, ["git"])
+        XCTAssertTrue(fixture.state.canConfirmMerge(now: opened.addingTimeInterval(0.4)))
+        fixture.state.method = .rebase; fixture.state.deleteBranch = false
+        fixture.state.confirmMerge(now: opened.addingTimeInterval(0.4))
+        await settle { fixture.mergePayload != nil && !fixture.merge.busy }
+        XCTAssertEqual(fixture.mergePayload?.headSha, "fresh-head")
+        XCTAssertEqual(fixture.mergePayload?.baseRefName, "develop")
+        XCTAssertEqual(fixture.mergePayload?.handoff?.rawValue, "reviewer")
+        XCTAssertEqual(fixture.mergePayload?.handoffWho, "alex")
+        XCTAssertEqual(fixture.mergePayload?.reviewBlockBy, "sam")
+        XCTAssertEqual(fixture.mergeMethod, .rebase); XCTAssertEqual(fixture.deleteBranch, false)
+        XCTAssertEqual(fixture.state.outcome.note, .success(L.t("prbadge_merged_toast", "42")))
+        XCTAssertNil(fixture.state.candidate)
+        XCTAssertFalse(fixture.state.canConfirmMerge(now: .distantFuture))
+    }
+
+    func testMergeRefusalSpendsConfirmationAndRetryMustFetchAgain() async throws {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.session.readyToMerge = true
+        fixture.state.prepareMerge(); await settle { fixture.state.candidate != nil }
+        fixture.error = ShepherdError.conflict(code: "merge_confirm_stale", message: "Revision changed")
+        fixture.state.confirmMerge(now: .distantFuture)
+        await settle { fixture.state.candidate == nil && !fixture.merge.busy }
+        XCTAssertNotNil(fixture.state.error)
+        fixture.state.confirmMerge(now: .distantFuture)
+        XCTAssertEqual(fixture.calls, ["git", "merge"])
+        fixture.error = nil
+        fixture.state.prepareMerge(); await settle { fixture.state.candidate != nil }
+        XCTAssertEqual(fixture.calls, ["git", "merge", "git"])
+        XCTAssertFalse(fixture.state.canConfirmMerge(now: fixture.state.presentedAt!))
+    }
+
+    func testMergeRejectsUnknownRolesLostReadyAndChangedSelection() async throws {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.session.readyToMerge = true
+        fixture.git = try IOSActionFixture.decodeGit(handoff: "future-role")
+        fixture.state.prepareMerge(); await settle { fixture.state.candidate != nil }
+        XCTAssertFalse(fixture.state.canConfirmMerge(now: .distantFuture))
+        fixture.state.dismiss(); fixture.git = try IOSActionFixture.decodeGit()
+        fixture.state.prepareMerge(); await settle { fixture.state.candidate != nil }
+        fixture.session.readyToMerge = false
+        fixture.state.confirmMerge(now: .distantFuture)
+        fixture.session.readyToMerge = true; fixture.selected = false
+        fixture.state.confirmMerge(now: .distantFuture)
+        XCTAssertEqual(fixture.calls, ["git", "git"])
+    }
+
+    func testActivationInstallsActionsAndMergeInputsWithoutMacHost() async throws {
+        let launch = try IOSLaunchEnvironment(configuration: .init(isIsolated: true))
+        let app = launch.makeModel()
+        let profile = try app.addRemoteProfile(name: "Fixture", address: "http://127.0.0.1:1")
+        await app.activate(profile)
+        defer { app.deactivate() }
+        XCTAssertNotNil(app.extension(IOSSessionActions.self))
+        XCTAssertNotNil(app.extension(ActionsModel.self)); XCTAssertNotNil(app.extension(MergeModel.self))
+        XCTAssertTrue(MergeInputs.planReviewBlocked(app, "missing"))
+        XCTAssertTrue(MergeInputs.terminalEnded(app, "missing"))
+        let session = PreviewData.session()
+        app.store?.apply(.sessionNew(session))
+        let controller = try XCTUnwrap(app.extension(IOSSessionActions.self))
+        let state = controller.state(for: session)
+        XCTAssertTrue(state === controller.state(for: session))
+        XCTAssertFalse(state.allowsWrites)
+        await state.execute(.stop)
+        XCTAssertEqual(app.liveRequestAudit?.counts.rejected, 0)
+        app.deactivate()
+        XCTAssertFalse(state.allowsWrites)
+    }
+
+    func testRenderFixtureImages() async throws {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        let directory = URL(fileURLWithPath: "/private/tmp/claude-501/-Users-kai-osthoff-githubrepos-shepherd/36c6a6cb-46a0-4781-99da-a39e745b0a43/scratchpad/ios-actions")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let recap = Recap(sessionId: fixture.session.id, state: .init(known: .ready), verdict: .init(known: .ready),
+            headline: "iPhone session steering is ready", body: "Added shared session commands and deliberate merge confirmation.",
+            openItems: ["Check the iPhone layout before shipping."], changedFiles: ["Actions/IOSSessionActions.swift"], updatedAt: 1)
+        func render<V: View>(_ view: V, _ name: String, large: Bool = false, height: CGFloat = 700) throws {
+            let framed = view.padding(16).frame(width: 390, height: height, alignment: .topLeading)
+                .background(SessionListStyle.background).preferredColorScheme(.dark)
+                .environment(\.dynamicTypeSize, large ? .accessibility1 : .large)
+            let renderer = ImageRenderer(content: framed); renderer.scale = 2
+            try XCTUnwrap(renderer.uiImage?.pngData()).write(to: directory.appendingPathComponent(name + ".png"))
+        }
+        func bar(_ ready: Bool = false) -> some View {
+            IOSSessionActionBarContent(session: fixture.session, state: fixture.state, recap: recap, repos: [], canMerge: ready, rendersStaticFixture: true)
+        }
+        try render(bar(), "actions-running", height: 330)
+        fixture.session.status = .init(known: .done); fixture.session.readyToMerge = true
+        try render(bar(true), "actions-ready", height: 380)
+        try render(bar(true), "actions-large-type", large: true, height: 650)
+        fixture.writable = false
+        try render(bar(), "actions-read-only", height: 380)
+        fixture.writable = true; fixture.session.readyToMerge = false
+        fixture.state.present(.amend); fixture.state.amendment = "Also check the German labels with VoiceOver."
+        try render(IOSActionEditorContent(session: fixture.session, state: fixture.state, repos: [], kind: .amend,
+            rendersStaticFixture: true), "amend")
+        fixture.state.present(.relaunch)
+        try render(IOSActionEditorContent(session: fixture.session, state: fixture.state, repos: [], kind: .relaunch,
+            rendersStaticFixture: true), "relaunch")
+        fixture.state.dismiss(); fixture.session.readyToMerge = true
+        fixture.state.prepareMerge(); await settle { fixture.state.candidate != nil }
+        try render(IOSMergeConfirmationContent(session: fixture.session, state: fixture.state,
+            clock: .distantFuture, rendersStaticFixture: true), "merge-confirmation", height: 760)
+        try render(IOSRecapContent(recap: recap), "recap")
+        try render(IOSActionFeedback(error: L.t("recap_regenerate_failed"), busy: true, rendersStaticFixture: true), "progress-error", height: 250)
+        try render(IOSActionFeedback(note: .success(L.t("prbadge_merged_toast", "42"))), "merge-success", height: 200)
+    }
+
+    private func settle(_ condition: () -> Bool) async {
+        let deadline = ContinuousClock.now + .seconds(15)
+        while !condition(), ContinuousClock.now < deadline { await Task.yield() }
+        XCTAssertTrue(condition())
+    }
+}
+
+@MainActor
+private final class IOSActionFixture {
+    var session = PreviewData.session(name: "iPhone session actions")
+    var writable = true
+    var selected = true
+    var replacementAllowed = true
+    var calls: [String] = []
+    var error: ShepherdError?
+    var hold = false
+    var pending: CheckedContinuation<Void, Never>?
+    var branchRenamed = true
+    var steered = true
+    var archived = true
+    var recapOK = true
+    var renameName: String?
+    var amendedText: String?
+    var readyValue: Bool?
+    var relaunchRequest: RelaunchRequest?
+    var selectedReplacement: Session?
+    var replacementNote: ActionNote?
+    var git = try! decodeGit()
+    var mergePayload: Components.Schemas.MergeConfirmation?
+    var mergeMethod: MergeMethod?
+    var deleteBranch: Bool?
+    let merge = MergeModel(reads: .init(snapshot: { MergeSnapshot() }))
+    lazy var rules = ActionsModel(reads: .init(recaps: { [:] }), now: { 1 })
+    lazy var state = IOSSessionActionState(operations: operations, merge: merge,
+        session: { self.session }, actions: { self.rules.actions(for: $0) }, git: { self.git },
+        canWrite: { self.writable }, isSelected: { self.selected },
+        canSelectReplacement: { self.replacementAllowed },
+        selectReplacement: { self.selectedReplacement = $0; self.replacementNote = $1 })
+    var operations: IOSActionOperations {
+        .init(stop: { _ in try await self.record("stop") },
+            resume: { _ in try await self.record("resume") },
+            ready: { _, value in self.readyValue = value; try await self.record("ready") },
+            rename: { _, name in
+                self.renameName = name; try await self.record("rename")
+                var renamed = self.session; renamed.name = name
+                return RenameResult(session: renamed, branchRenamed: self.branchRenamed)
+            }, amend: { id, text, _ in
+                self.amendedText = text; try await self.record("amend")
+                return AmendmentCreated(amendment: .init(id: "a1", sessionId: id, text: text, createdAt: 1), steered: self.steered)
+            }, relaunch: { _, request in
+                self.relaunchRequest = request; try await self.record("relaunch")
+                return RelaunchResult(session: PreviewData.session(id: "replacement", desig: "TASK-02"), archived: self.archived)
+            }, recap: { _ in
+                try await self.record("recap")
+                return RecapRegenerateResult(ok: self.recapOK, status: .init(known: self.recapOK ? .started : .error))
+            }, git: { _ in try await self.record("git"); return self.git },
+            merge: { _, method, delete, payload in
+                self.mergePayload = payload; self.mergeMethod = method; self.deleteBranch = delete
+                try await self.record("merge"); return self.git
+            })
+    }
+    func record(_ call: String) async throws {
+        calls.append(call)
+        if hold { await withCheckedContinuation { pending = $0 } }
+        if let error { throw error }
+    }
+    func release() { hold = false; pending?.resume(); pending = nil }
+    static func decodeGit(handoff: String = "reviewer") throws -> GitState {
+        let payload: [String: Any] = ["state": "open", "checks": "success", "deployConfigured": false, "number": 42, "title": "iPhone session actions", "headSha": "fresh-head",
+            "baseRefName": "develop", "mergeMethod": "squash", "mergeGate": ["handoff": handoff, "handoffWho": "alex", "reviewBlockBy": "sam"]]
+        return try JSONDecoder().decode(GitState.self, from: JSONSerialization.data(withJSONObject: payload))
+    }
+}

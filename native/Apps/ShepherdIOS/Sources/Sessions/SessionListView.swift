@@ -332,6 +332,7 @@ struct SessionListView: View {
             questionsUnanswered: app.extension(PlanModel.self)?.questionsUnanswered(session.id) ?? false,
             showCli: showCli, repoAutopilotDefault: herd?.repoAutopilotDefault(session.repoPath), now: now)
         return SessionCardView(card: presentation, selected: app.selectedSessionID == session.id) { select(session.id) }
+            .modifier(IOSSessionSwipeActions(session: session))
             .listRowInsets(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10))
             .listRowBackground(SessionListStyle.background).listRowSeparator(.hidden)
     }

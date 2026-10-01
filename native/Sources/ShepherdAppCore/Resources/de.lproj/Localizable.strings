@@ -55,6 +55,7 @@
 "buildqueue_start_steer" = "Die Build-Queue ist bereits freigegeben. Fahre jetzt mit dem nächsten Schritt fort und halte den Queue-Fortschritt aktuell.";
 "cardmenu_amend" = "Aufgabe ergänzen…";
 "cardmenu_decommission" = "Stilllegen";
+"cardmenu_label" = "Sitzungs-Aktionen";
 "cardmenu_relaunch" = "Neu starten";
 "cardmenu_rename" = "Umbenennen";
 "cardmenu_replace_with" = "Weiterführen mit…";
@@ -434,9 +435,16 @@
 "login_submit" = "Anmelden";
 "login_subtitle" = "Diese Instanz ist geschützt. Gib das Betreiber-Passwort ein, um fortzufahren.";
 "mergeconfirm_confirm" = "PR mergen";
+"mergeconfirm_confirm_takeover" = "Trotzdem selbst mergen";
+"mergeconfirm_eyebrow" = "Pull Request mergen";
+"mergeconfirm_field_method" = "Merge-Methode";
+"mergeconfirm_field_pr" = "Pull Request";
+"mergeconfirm_field_repo" = "Repository";
+"mergeconfirm_field_target" = "Zielbranch";
 "mergeconfirm_handoff_merger" = "Für den Merge ist @%1$@ zuständig. Mit dieser Aktion übernimmst du den Merge.";
 "mergeconfirm_handoff_reviewer" = "@%1$@ soll diesen Pull Request prüfen. Beim Bestätigen wird er ohne diese Freigabe gemergt.";
 "mergeconfirm_review_block" = "@%1$@ hat Änderungen angefordert, die noch offen sind.";
+"mergeconfirm_value_unknown" = "unbekannt";
 "model_configured_fable_latest" = "Fable (neuestes)";
 "model_configured_opus_1m_latest" = "Opus (neuestes, 1 Mio. Kontext)";
 "model_configured_opus_latest" = "Opus (neuestes)";
@@ -610,6 +618,11 @@
 "native_install_open_existing" = "Installiertes Shepherd öffnen";
 "native_install_title" = "Shepherd nach Programme verschieben?";
 "native_interrupt_failed" = "Session konnte nicht unterbrochen werden: %1$@";
+"native_ios_actions_not_ready" = "Als nicht bereit markieren";
+"native_ios_actions_read_only" = "Sitzungsaktionen sind im schreibgeschützten Modus deaktiviert.";
+"native_ios_actions_ready" = "Als bereit markieren";
+"native_ios_actions_remaining" = "Noch %1$@ Zeichen";
+"native_ios_actions_revision" = "Revision";
 "native_ios_connecting" = "Verbinde…";
 "native_ios_detail_branch" = "Branch";
 "native_ios_detail_info" = "Info";
@@ -1157,7 +1170,9 @@
 "prbadge_draft" = "ENTWURF";
 "prbadge_mark_draft" = "Auf Draft zurücksetzen";
 "prbadge_mark_ready" = "Auf Ready for Review setzen";
+"prbadge_merge" = "PR mergen";
 "prbadge_merged" = "✓ GEMERGT";
+"prbadge_merged_toast" = "PR #%1$@ gemergt";
 "prbadge_open" = "PR #%1$@";
 "prbadge_review_approved" = "Reviewer hat genehmigt";
 "prbadge_review_changes" = "Reviewer fordert Änderungen";

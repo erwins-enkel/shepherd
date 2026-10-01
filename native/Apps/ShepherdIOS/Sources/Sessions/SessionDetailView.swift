@@ -20,6 +20,7 @@ struct SessionDetailView: View {
         IOSSessionDetailContent(session: session, model: model, terminal: terminal,
             allowsInput: app.allowsTerminalInput, fontSize: $fontSize,
             surface: IOSTerminalHostView(model: terminal, fontSize: fontSize))
+            .safeAreaInset(edge: .bottom, spacing: 0) { IOSSessionActionBar(session: session) }
     }
 }
 

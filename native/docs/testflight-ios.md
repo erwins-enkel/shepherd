@@ -38,7 +38,9 @@ against Xcode 27.0's `xcodebuild -help`; see also Apple's
 The build number is `git rev-list --first-parent --count origin/main`, using the
 same counting rule as `native-release.yml`, even for a feature-branch dry run.
 The marketing version is the highest version-sorted `v*` tag, or `0.1.0` when no
-such tag exists. Non-numeric release versions fail before archive. Repeated runs
+such tag exists. SemVer prerelease/build suffixes are omitted for Apple’s numeric
+marketing-version field (for example, `v2.0.0-beta.1` becomes `2.0.0`). Other
+non-numeric versions fail before archive. Repeated runs
 on the same main revision keep the same build number: after uploading it, advance
 main before another upload of that marketing version.
 

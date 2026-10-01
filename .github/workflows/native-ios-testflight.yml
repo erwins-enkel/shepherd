@@ -77,8 +77,11 @@ jobs:
           # Same first-parent count as native-release.yml, rooted at main even
           # when dispatching a feature branch. Retries deliberately keep the number.
           echo "SHEPHERD_IOS_BUILD_NUMBER=$(git rev-list --first-parent --count origin/main)" >> "$GITHUB_ENV"
-          version=$(git tag --list 'v*' --sort=-version:refname | head -n 1)
+          version=$(git tag --list 'v*' --sort=-version:refname | sed -n '1p')
           version=${version#v}
+          # App Store marketing versions omit SemVer prerelease/build suffixes.
+          version=${version%%-*}
+          version=${version%%+*}
           version=${version:-0.1.0}
           if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo '::error::Newest v* tag is not an App Store marketing version'

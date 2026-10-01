@@ -113,7 +113,7 @@
 
 {#if shown && view.code}
   <div
-    class="am-banner"
+    class="term-strip am-banner"
     data-owner={view.owner}
     role="status"
     aria-live="polite"
@@ -135,25 +135,11 @@
 {/if}
 
 <style>
-  /* Bottom strip pinned to the terminal body, above the steer bar — the slot shared with
-     ReviewInFlightBanner and CiRunningBanner (which win it). Non-blocking: no scrim/blur.
+  /* Geometry, tint and entry animation come from the shared .term-strip recipe (app.css) — the
+     slot shared with ReviewInFlightBanner and CiRunningBanner (which win it).
      Slate = Shepherd has it in hand (calm, nothing to do); amber = the train waits for you. */
   .am-banner {
     --accent: var(--color-slate);
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    z-index: 2;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 9px 12px;
-    font-size: var(--fs-base);
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 14%, var(--color-head));
-    border-top: 1px solid color-mix(in srgb, var(--accent) 55%, var(--color-line));
-    animation: am-in 0.14s ease;
   }
   .am-banner[data-owner="operator"] {
     --accent: var(--color-amber);
@@ -175,15 +161,5 @@
   }
   .am-sep {
     color: var(--color-faint);
-  }
-  @keyframes am-in {
-    from {
-      opacity: 0;
-      transform: translateY(4px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
   }
 </style>

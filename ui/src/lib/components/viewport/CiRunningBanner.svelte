@@ -43,7 +43,7 @@
 
 {#if view.show && tab === "term"}
   <div
-    class="ci-banner"
+    class="term-strip ci-banner"
     role="status"
     aria-live="polite"
     bind:this={bannerEl}
@@ -85,29 +85,12 @@
 {/if}
 
 <style>
-  /* Bottom strip pinned to the terminal body, directly above the steer bar —
-     mirrors ReviewInFlightBanner. The terminal reserves this height (.term-mount
-     shrinks by --review-banner-h) so the strip sits BELOW the live prompt, not over
-     it; appearing/resizing it intentionally triggers an xterm refit. Non-blocking:
-     no scrim/blur (it does not seize interaction). */
+  /* Geometry, tint and entry animation come from the shared .term-strip recipe (app.css);
+     appearing/resizing it intentionally triggers an xterm refit. */
   .ci-banner {
     --accent: var(
       --color-amber
     ); /* amber = "CI running" (matches the herd CI head + pending dot) */
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    z-index: 2;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 9px 12px;
-    font-size: var(--fs-base);
-    color: var(--accent);
-    background: color-mix(in srgb, var(--accent) 14%, var(--color-head));
-    border-top: 1px solid color-mix(in srgb, var(--accent) 55%, var(--color-line));
-    animation: cb-in 0.14s ease;
   }
   /* Rotating gear — the "CI is still running" cue. Reuses the shared icon-btn-spin
      keyframe (app.css), NOT the .spin class, whose reduced-motion rule
@@ -146,15 +129,5 @@
   }
   .cb-link:hover {
     color: var(--color-ink-bright);
-  }
-  @keyframes cb-in {
-    from {
-      opacity: 0;
-      transform: translateY(4px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
   }
 </style>

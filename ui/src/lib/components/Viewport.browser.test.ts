@@ -2320,13 +2320,15 @@ describe("Viewport task info reveal", () => {
 });
 
 describe("Viewport full auto-merge strip (TASK-1368)", () => {
-  const status = (id: string, code: "critic_pending" | "critic_error") => ({
-    repoPath: "/repo/shepherd",
-    enabled: true,
-    state: null,
-    detail: null,
-    sessionId: null,
-    waiting: [{ sessionId: id, code }],
+  const train = (id: string, code: "critic_pending" | "critic_error") => ({
+    "/repo/shepherd": {
+      repoPath: "/repo/shepherd",
+      enabled: true,
+      state: null,
+      detail: null,
+      sessionId: null,
+      waiting: [{ sessionId: id, code }],
+    },
   });
   function clearReviewState() {
     reviews.map = {};
@@ -2342,7 +2344,7 @@ describe("Viewport full auto-merge strip (TASK-1368)", () => {
     reviews.reviewing = { [id]: true };
     render(Viewport, {
       session: session({ id, repoPath: "/repo/shepherd" }),
-      autoMerge: status(id, "critic_pending"),
+      autoMergeTrain: train(id, "critic_pending"),
       previewPort: null,
       openPreviewTick: 0,
     });
@@ -2365,7 +2367,7 @@ describe("Viewport full auto-merge strip (TASK-1368)", () => {
       reviews.reviewing = { [id]: true };
       render(Viewport, {
         session: session({ id, repoPath: "/repo/shepherd", status: st }),
-        autoMerge: status(id, "critic_pending"),
+        autoMergeTrain: train(id, "critic_pending"),
         previewPort: null,
         openPreviewTick: 0,
       });
@@ -2379,7 +2381,7 @@ describe("Viewport full auto-merge strip (TASK-1368)", () => {
     const id = "vr-am-operator";
     render(Viewport, {
       session: session({ id, repoPath: "/repo/shepherd" }),
-      autoMerge: status(id, "critic_error"),
+      autoMergeTrain: train(id, "critic_error"),
       previewPort: null,
       openPreviewTick: 0,
     });

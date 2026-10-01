@@ -35,42 +35,113 @@ jobs:
           ref: ${{ inputs.ref }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Prepare API key and export options
+      - name: Prepare manual App Store signing
         env:
-          SHEPHERD_IOS_AUTH_KEY_PATH: ${{ runner.temp }}/ios-auth-key.p8
-          SHEPHERD_IOS_EXPORT_OPTIONS: ${{ runner.temp }}/ios-export-options.plist
+          IOS_DISTRIBUTION_P12: ${{ secrets.IOS_DISTRIBUTION_P12 }}
+          IOS_DISTRIBUTION_P12_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_P12_PASSWORD }}
+          IOS_APPSTORE_PROFILE: ${{ secrets.IOS_APPSTORE_PROFILE }}
           ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
         run: |
           set -euo pipefail
-          echo "SHEPHERD_IOS_AUTH_KEY_PATH=$SHEPHERD_IOS_AUTH_KEY_PATH" >> "$GITHUB_ENV"
-          echo "SHEPHERD_IOS_EXPORT_OPTIONS=$SHEPHERD_IOS_EXPORT_OPTIONS" >> "$GITHUB_ENV"
-          for name in APPLE_TEAM_ID ASC_API_KEY_P8 ASC_KEY_ID ASC_ISSUER_ID; do
+          umask 077
+          for name in APPLE_TEAM_ID IOS_DISTRIBUTION_P12 IOS_DISTRIBUTION_P12_PASSWORD IOS_APPSTORE_PROFILE ASC_API_KEY_P8 ASC_KEY_ID ASC_ISSUER_ID; do
             if [[ -z "${!name:-}" ]]; then
               echo "::error::Required secret/variable $name is missing"
               exit 1
             fi
           done
-          python3 - <<'PY'
-          import base64, os, plistlib, sys
-          try:
-              key = base64.b64decode(os.environ['ASC_API_KEY_P8'].strip(), validate=True)
-              if not key.startswith(b'-----BEGIN PRIVATE KEY-----'):
-                  raise ValueError('invalid key format')
-          except ValueError:
-              sys.exit('::error::ASC_API_KEY_P8 must contain a base64-encoded .p8 private key')
-          fd = os.open(os.environ['SHEPHERD_IOS_AUTH_KEY_PATH'], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-          with os.fdopen(fd, 'wb') as f:
-              f.write(key)
-          dry_run = os.environ['SHEPHERD_IOS_DRY_RUN']
-          if dry_run not in ('true', 'false'):
+          material="$RUNNER_TEMP/ios-signing-material"
+          keychain="$RUNNER_TEMP/ios-signing.keychain-db"
+          export material keychain
+          mkdir "$material"
+          python3 - <<'PYTHON'
+          import base64, json, os, pathlib, plistlib, subprocess, sys
+          material = pathlib.Path(os.environ['material'])
+          if os.environ['SHEPHERD_IOS_DRY_RUN'] not in ('true', 'false'):
               sys.exit('::error::Invalid dry_run input')
-          with open(os.environ['SHEPHERD_IOS_EXPORT_OPTIONS'], 'wb') as f:
-              plistlib.dump(dict(method='app-store-connect', destination='export' if dry_run == 'true' else 'upload',
-                  teamID=os.environ['APPLE_TEAM_ID'], signingStyle='automatic',
+          if not os.environ['ASC_KEY_ID'].isalnum():
+              sys.exit('::error::Invalid ASC_KEY_ID format')
+          for secret, filename in [('IOS_DISTRIBUTION_P12', 'distribution.p12'),
+                                   ('IOS_APPSTORE_PROFILE', 'app.mobileprovision'),
+                                   ('ASC_API_KEY_P8', 'AuthKey_' + os.environ['ASC_KEY_ID'] + '.p8')]:
+              try:
+                  data = base64.b64decode(os.environ[secret].strip(), validate=True)
+                  if not data or (secret == 'ASC_API_KEY_P8' and not data.startswith(b'-----BEGIN PRIVATE KEY-----')):
+                      raise ValueError('invalid signing material')
+              except ValueError:
+                  sys.exit('::error::Invalid base64 signing material: ' + secret)
+              with open(material / filename, 'xb') as f:
+                  f.write(data)
+          # Save the original search list before changing it; never change the default keychain.
+          import shlex
+          search_list = shlex.split(subprocess.check_output(['security', 'list-keychains', '-d', 'user'], text=True))
+          (material / 'search-list.json').write_text(json.dumps(search_list))
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write('SHEPHERD_IOS_AUTH_KEY_PATH=' + str(material / ('AuthKey_' + os.environ['ASC_KEY_ID'] + '.p8')) + '\n')
+              f.write('SHEPHERD_IOS_EXPORT_OPTIONS=' + str(material / 'export-options.plist') + '\n')
+          PYTHON
+          security cms -D -i "$material/app.mobileprovision" > "$material/profile.plist"
+          profile_uuid=$(plutil -extract UUID raw -o - "$material/profile.plist")
+          export profile_uuid
+          python3 - <<'PYTHON'
+          import datetime, os, pathlib, plistlib, sys, uuid
+          material = pathlib.Path(os.environ['material'])
+          with open(material / 'profile.plist', 'rb') as f:
+              profile = plistlib.load(f)
+          team = os.environ['APPLE_TEAM_ID']
+          profile_uuid = os.environ['profile_uuid']
+          if str(uuid.UUID(profile_uuid)) != profile_uuid.lower():
+              sys.exit('::error::Invalid profile UUID')
+          entitlements = profile.get('Entitlements', {})
+          if (profile.get('TeamIdentifier') != [team]
+                  or entitlements.get('application-identifier') != team + '.run.shepherd.ios'
+                  or entitlements.get('get-task-allow', False) or 'ProvisionedDevices' in profile
+                  or profile.get('ProvisionsAllDevices', False)
+                  or profile['ExpirationDate'] <= datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)):
+              sys.exit('::error::Profile must be an unexpired App Store profile for this app and team')
+          path = pathlib.Path.home() / 'Library/MobileDevice/Provisioning Profiles' / (profile_uuid + '.mobileprovision')
+          if path.exists():
+              sys.exit('::error::Refusing to replace an existing provisioning profile')
+          (material / 'installed-profile-path').write_text(str(path))
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              f.write('SHEPHERD_IOS_PROFILE_UUID=' + profile_uuid + '\n')
+          with open(material / 'export-options.plist', 'wb') as f:
+              plistlib.dump(dict(method='app-store-connect', destination='export', teamID=team,
+                  signingStyle='manual', signingCertificate='Apple Distribution',
+                  provisioningProfiles={'run.shepherd.ios': profile_uuid},
                   manageAppVersionAndBuildNumber=False, testFlightInternalTestingOnly=False, uploadSymbols=True), f)
-          PY
+          print(f"Installed profile: {profile['Name']}; UUID={profile_uuid}; expires={profile['ExpirationDate']}")
+          PYTHON
+          password=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
+          echo "::add-mask::$password"
+          [[ ! -e "$keychain" ]]
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          python3 - <<'PYTHON'
+          import json, os, pathlib, subprocess
+          original = json.loads((pathlib.Path(os.environ['material']) / 'search-list.json').read_text())
+          subprocess.run(['security', 'list-keychains', '-d', 'user', '-s', os.environ['keychain'], *original], check=True)
+          PYTHON
+          security import "$material/distribution.p12" -k "$keychain" -P "$IOS_DISTRIBUTION_P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
+          security find-identity -v -p codesigning "$keychain" > "$material/identities.txt"
+          python3 - <<'PYTHON'
+          import hashlib, os, pathlib, plistlib, re, sys
+          material = pathlib.Path(os.environ['material'])
+          identities = re.findall(r'\b([0-9A-F]{40}) "(Apple Distribution: [^"\n]+)"', (material / 'identities.txt').read_text())
+          with open(material / 'profile.plist', 'rb') as f:
+              profile = plistlib.load(f)
+          certificates = {hashlib.sha1(cert).hexdigest().upper() for cert in profile['DeveloperCertificates']}
+          if (len(identities) != 1 or identities[0][0] not in certificates
+                  or not identities[0][1].endswith('(' + os.environ['APPLE_TEAM_ID'] + ')')):
+              sys.exit('::error::Expected exactly one valid Apple Distribution identity matching the profile and team')
+          print('Signing identity: ' + identities[0][1])
+          PYTHON
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          cp "$material/app.mobileprovision" "$HOME/Library/MobileDevice/Provisioning Profiles/$profile_uuid.mobileprovision"
       - name: Select version and build number
         run: |
           set -euo pipefail
@@ -93,7 +164,7 @@ jobs:
         run: |
           brew install xcodegen
           xcodebuild -version
-      - name: Archive and export with automatic signing
+      - name: Archive and export with manual App Store signing
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -101,9 +172,30 @@ jobs:
           set -euo pipefail
           native/scripts/uitest-lock.sh native/scripts/archive-ios-app.sh Release 2>&1 | tee "$RUNNER_TEMP/ios-signing.log"
           grep -E 'Authority=|TeamIdentifier=|profile:|Validated|upload completed' "$RUNNER_TEMP/ios-signing.log" >> "$GITHUB_STEP_SUMMARY"
-      - name: Remove API key
+      - name: Remove signing material and restore keychain search list
         if: always()
-        run: rm -f "$RUNNER_TEMP/ios-auth-key.p8"
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, pathlib, shutil, subprocess, sys
+          material = pathlib.Path(os.environ['RUNNER_TEMP']) / 'ios-signing-material'
+          keychain = pathlib.Path(os.environ['RUNNER_TEMP']) / 'ios-signing.keychain-db'
+          errors = []
+          search_list = material / 'search-list.json'
+          if search_list.exists():
+              result = subprocess.run(['security', 'list-keychains', '-d', 'user', '-s', *json.loads(search_list.read_text())])
+              if result.returncode:
+                  errors.append('restore keychain search list')
+          if keychain.exists():
+              if subprocess.run(['security', 'delete-keychain', str(keychain)]).returncode:
+                  errors.append('delete temporary keychain')
+          profile_path = material / 'installed-profile-path'
+          if profile_path.exists():
+              pathlib.Path(profile_path.read_text()).unlink(missing_ok=True)
+          shutil.rmtree(material, ignore_errors=False) if material.exists() else None
+          if errors:
+              sys.exit('::error::Signing cleanup failed: ' + ', '.join(errors))
+          print('Removed temporary keychain, provisioning profile and key files; restored search list.')
+          PYTHON
       - name: Preserve dry-run IPA
         if: success() && env.SHEPHERD_IOS_DRY_RUN == 'true'
         uses: actions/upload-artifact@v7

@@ -13,7 +13,10 @@ inspect_signature() {
   local app="$1" label="$2"
   [[ -f "$app/embedded.mobileprovision" ]] || { echo '::error::UNMET: provisioning profile missing' >&2; exit 1; }
   codesign --verify --deep --strict "$app"
-  codesign -dv "$app" 2>&1 | grep -E 'Authority=|TeamIdentifier=|Identifier='
+  local signature
+  signature=$(codesign -dv "$app" 2>&1)
+  echo "$signature" | grep -E 'Authority=|TeamIdentifier=|Identifier='
+  [[ "$signature" == *'Authority=Apple Distribution:'* ]] || { echo '::error::UNMET: expected Apple Distribution signature' >&2; exit 1; }
   security cms -D -i "$app/embedded.mobileprovision" > "$TEMP_DIR/profile.plist"
   python3 - "$TEMP_DIR/profile.plist" "$OPTIONS" "$label" <<'PY'
 import datetime, plistlib, sys
@@ -25,9 +28,10 @@ if (profile.get('TeamIdentifier') != [team]
         or entitlements.get('application-identifier') != team + '.run.shepherd.ios'
         or profile['ExpirationDate'] <= datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)):
     sys.exit('::error::UNMET: provisioning team, application or expiry mismatch')
-if sys.argv[3] == 'export' and (entitlements.get('get-task-allow', False)
+if (options.get('provisioningProfiles') != {'run.shepherd.ios': profile['UUID']}
+        or entitlements.get('get-task-allow', False)
         or 'ProvisionedDevices' in profile or profile.get('ProvisionsAllDevices', False)):
-    sys.exit('::error::UNMET: exported profile is not App Store distribution')
+    sys.exit('::error::UNMET: unexpected profile or not App Store distribution')
 print(f"{sys.argv[3]} profile: {profile['Name']}; UUID={profile['UUID']}; expires={profile['ExpirationDate']}")
 PY
 }
@@ -43,9 +47,10 @@ if (info.get('CFBundleIdentifier') != 'run.shepherd.ios' or not info.get('CFBund
         or info.get('CFBundleDisplayName') != 'Shepherd'
         or not info.get('CFBundleIcons', {}).get('CFBundlePrimaryIcon', {}).get('CFBundleIconName')):
     sys.exit('::error::UNMET: archive identity, icon, version, families or encryption declaration invalid')
-if (options.get('method') != 'app-store-connect' or options.get('destination') not in ('export', 'upload')
+if (options.get('method') != 'app-store-connect' or options.get('destination') != 'export'
         or options.get('testFlightInternalTestingOnly', False)
-        or options.get('signingStyle') != 'automatic'
+        or options.get('signingStyle') != 'manual'
+        or options.get('signingCertificate') != 'Apple Distribution'
         or options.get('manageAppVersionAndBuildNumber') is not False):
     sys.exit('::error::UNMET: invalid App Store Connect export options')
 if sys.argv[3] != '--archive-only':

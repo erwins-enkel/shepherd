@@ -10,30 +10,67 @@ never run it against an operator's login keychain.
 
 Set repository variable `APPLE_TEAM_ID` (`3WSC8JG6J4`) and these Actions secrets:
 
-- `ASC_API_KEY_P8`: base64 of the App Store Connect team API key's `.p8` file.
+- `IOS_DISTRIBUTION_P12`: base64 of a `.p12` containing exactly one Apple
+  Distribution certificate and its private key.
+- `IOS_DISTRIBUTION_P12_PASSWORD`: the password protecting that `.p12`.
+- `IOS_APPSTORE_PROFILE`: base64 of the App Store `.mobileprovision` for
+  `3WSC8JG6J4.run.shepherd.ios`, containing that distribution certificate.
+- `ASC_API_KEY_P8`: base64 of the Admin App Store Connect team API key's `.p8` file.
 - `ASC_KEY_ID`: that key's identifier.
 - `ASC_ISSUER_ID`: its issuer identifier.
 
-Use an Admin team API key with access to Certificates, Identifiers & Profiles and
-cloud-managed distribution signing. No distribution certificate, P12 password or
-manually created provisioning profile is required by this pipeline. Missing inputs
-fail closed. The key is decoded into `$RUNNER_TEMP` with mode `0600` and removed by
-an `if: always()` step. It is never included in artifacts.
+Missing inputs fail closed, including the upload credentials on dry runs. The
+workflow decodes signing material with mode `0600`, creates a temporary keychain
+with a random masked password, unlocks it with a six-hour timeout and grants
+`apple-tool:,apple:,codesign:` access to the imported private key. It adds this
+keychain to the user search list without changing or importing into the login or
+default keychain. It reads the profile UUID using `security cms -D` and `plutil`,
+checks the team, app ID, expiry and matching certificate, and installs it under
+`~/Library/MobileDevice/Provisioning Profiles/<UUID>.mobileprovision`.
+An `if: always()` step restores the original search list and removes the temporary
+keychain, installed profile, P12, API key and decoded metadata. Artifacts contain
+only the dry-run IPA.
 
-`archive-ios-app.sh` uses `CODE_SIGN_STYLE=Automatic`, the team ID,
-`-allowProvisioningUpdates`, `-authenticationKeyPath`, `-authenticationKeyID` and
-`-authenticationKeyIssuerID` for archive and export. Xcode manages provisioning;
-distribution export uses Apple's cloud-managed signing when no local distribution
-identity exists. The archive may use an Apple Development identity before export
-re-signs it for distribution. The job summary records the actual identities and
-profile names/UUIDs; a successful simulator run proves neither.
+`archive-ios-app.sh` generates from `project-app-store.yml`, which includes the
+ordinary project spec and sets **only the ShepherdIOS app target's Release
+configuration** to `CODE_SIGN_STYLE=Manual`, `CODE_SIGN_IDENTITY=Apple Distribution`,
+`PROVISIONING_PROFILE_SPECIFIER=<decoded UUID>` and `DEVELOPMENT_TEAM=$APPLE_TEAM_ID`.
+It enables signing only for that app. The script verifies that the scheme archives
+only `ShepherdIOS`; the unit/UI test bundles remain unsigned and test-only. Archive
+and export use neither `-allowProvisioningUpdates` nor API authentication flags.
+No development profile or registered device is needed for TestFlight. Device
+registration is needed when installing and running directly from Xcode on a phone.
 
-Export options use `method=app-store-connect`, `signingStyle=automatic`, the team
-ID, `manageAppVersionAndBuildNumber=false`, and `destination=export` for a dry run
-or `destination=upload` for a real dispatch. `testFlightInternalTestingOnly=false`
-keeps the build eligible for later external testing. These options were verified
-against Xcode 27.0's `xcodebuild -help`; see also Apple's
-[cloud-managed certificate documentation](https://developer.apple.com/help/account/certificates/cloud-managed-certificates/).
+Export options use `method=app-store-connect`, `signingStyle=manual`, `teamID`,
+`signingCertificate=Apple Distribution`, and
+`provisioningProfiles={run.shepherd.ios: <decoded UUID>}`. Both dispatch modes use
+`destination=export` and validate the signed IPA before any upload.
+`manageAppVersionAndBuildNumber=false` preserves the selected version/build;
+`testFlightInternalTestingOnly=false` keeps later external testing possible.
+For `dry_run=false` only, the script then invokes `xcrun altool --upload-app -f
+<IPA> -t ios --apiKey <key ID> --apiIssuer <issuer ID>`, with
+`API_PRIVATE_KEYS_DIR` pointing to the temporary `AuthKey_<key ID>.p8` directory.
+The API key is used only for this upload. Apple currently supports altool uploads
+for iOS apps built using Xcode 26 or later; see
+[Apple's upload documentation](https://developer.apple.com/help/app-store-connect/manage-builds/upload-builds/).
+`notarytool` serves notarization and is not the iOS App Store upload path. The runner
+reports its actual Xcode version; the job summary records the archive/export
+identity and profile name/UUID. A simulator run proves neither.
+
+### Renewal before 2027-10-01
+
+The current identity is **Apple Distribution: Erwins Enkel GmbH (3WSC8JG6J4)**;
+the profile is **Shepherd iOS App Store**, UUID
+`51ef1ac8-764b-4bc0-b647-68cb7a0d7e8d`. Both expire on **2027-10-01**.
+Renew both before that date and run another dry run. Generate a new private key
+and CSR, create an `IOS_DISTRIBUTION` certificate using the Admin API key, export
+that certificate plus its private key into a password-protected P12, then create
+an `IOS_APP_STORE` profile for the app ID with the new certificate. Replace all
+three signing secrets together. The API creates the certificate/profile; keep the
+new private key securely, since it cannot be recovered from the certificate.
+The workflow derives the replacement UUID automatically. See Apple's
+[certificate API](https://developer.apple.com/documentation/appstoreconnectapi/certificates)
+and [profile API](https://developer.apple.com/documentation/appstoreconnectapi/profiles).
 
 The build number is `git rev-list --first-parent --count origin/main`, using the
 same counting rule as `native-release.yml`, even for a feature-branch dry run.
@@ -53,14 +90,14 @@ gh workflow run native-ios-testflight.yml \
   --ref codex/2431-ios-stage-2 \
   -f ref=codex/2431-ios-stage-2 -f dry_run=true
 
-gh run list --workflow native-ios-testflight.yml --limit 5
-gh run view RUN_ID
+gh api repos/erwins-enkel/shepherd/actions/runs/RUN_ID
 ```
 
-A new workflow that exists only on a branch may not be dispatchable. For initial
-PR verification only, a temporary `pull_request` trigger limited to this workflow
-file can run the same job with dry-run forced true. Remove that trigger after
-verification; the shipping workflow must be `workflow_dispatch` only.
+The existing workflow also accepts a branch dispatch for PR verification; use
+`--ref` and input `ref` together as above. Keep the shipping workflow
+`workflow_dispatch` only. Poll at most once every three minutes with one combined
+REST request per poll, never `--watch`; cap verification at six dry-run attempts.
+If GitHub reports a rate limit, read `gh api rate_limit` and wait until its reset.
 
 Download the `shepherd-ios-BUILD_NUMBER` artifact and inspect the run summary.
 `validate-ios-archive.sh` verifies the signature, provisioning team and app ID,

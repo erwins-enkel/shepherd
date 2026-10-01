@@ -118,6 +118,39 @@ describe("native iOS acceptance tools", () => {
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr.toString()).toContain("UNMET:");
   });
+  test("rejects automatic signing, unrelated profiles and upload destinations before invoking Xcode", () => {
+    for (const invalid of ["automatic", "wrong-profile", "upload"]) {
+      const options = join(directory, `${invalid}.plist`);
+      const fixture = Bun.spawnSync([
+        "python3",
+        "-c",
+        "import plistlib, sys; plistlib.dump(dict(method='app-store-connect', destination='upload' if sys.argv[2]=='upload' else 'export', teamID='TEAM', signingStyle='automatic' if sys.argv[2]=='automatic' else 'manual', signingCertificate='Apple Distribution', provisioningProfiles={'run.shepherd.ios': 'OTHER' if sys.argv[2]=='wrong-profile' else 'PROFILE'}, manageAppVersionAndBuildNumber=False), open(sys.argv[1], 'wb'))",
+        options,
+        invalid,
+      ]);
+      expect(fixture.exitCode).toBe(0);
+      const result = Bun.spawnSync(
+        ["bash", resolve("native/scripts/archive-ios-app.sh"), "Release"],
+        {
+          env: {
+            PATH: process.env.PATH!,
+            HOME: directory,
+            GITHUB_ACTIONS: "true",
+            RUNNER_OS: "macOS",
+            APPLE_TEAM_ID: "TEAM",
+            SHEPHERD_IOS_PROFILE_UUID: "PROFILE",
+            SHEPHERD_IOS_EXPORT_OPTIONS: options,
+            SHEPHERD_IOS_BUILD_NUMBER: "1",
+            SHEPHERD_IOS_VERSION: "0.1.0",
+          },
+        },
+      );
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr.toString()).toContain(
+        "export options disagree with manual signing policy",
+      );
+    }
+  });
   test("cleanup verifier rejects a handoff owned by another run without revealing credentials", () => {
     const handoff = json("token.json", {
       runID: "another-run",

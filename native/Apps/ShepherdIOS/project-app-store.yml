@@ -1,0 +1,13 @@
+# CI archive only. The ordinary spec keeps simulator/test targets unsigned.
+include: project.yml
+targets:
+  ShepherdIOS:
+    settings:
+      configs:
+        Release:
+          CODE_SIGNING_ALLOWED: YES
+          CODE_SIGNING_REQUIRED: YES
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          DEVELOPMENT_TEAM: ${APPLE_TEAM_ID}
+          PROVISIONING_PROFILE_SPECIFIER: ${SHEPHERD_IOS_PROFILE_UUID}

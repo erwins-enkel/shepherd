@@ -4,7 +4,12 @@
 <dict>
   <key>method</key><string>app-store-connect</string>
   <key>destination</key><string>export</string>
-  <key>signingStyle</key><string>automatic</string>
+  <key>signingStyle</key><string>manual</string>
+  <key>signingCertificate</key><string>Apple Distribution</string>
+  <key>provisioningProfiles</key>
+  <dict>
+    <key>run.shepherd.ios</key><string>REPLACE_WITH_APP_STORE_PROFILE_UUID</string>
+  </dict>
   <key>teamID</key><string>REPLACE_WITH_TEAM_ID</string>
   <key>testFlightInternalTestingOnly</key><false/>
   <key>manageAppVersionAndBuildNumber</key><false/>

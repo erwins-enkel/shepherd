@@ -954,15 +954,37 @@ class RepoConfigStore {
     return this.rowExists[repoPath] ?? false;
   }
 
-  /** Seed a brand-new repo with the raised default posture (plan-gate ON). Only call when no
-   *  repo_config row exists yet — guarded by automationRowExists() at the call site (Task 3) — so it
-   *  never clobbers an existing repo's planGate choice. */
+  /** Seed a brand-new repo with the raised default posture: Plan gate, Auto-Address, Autopilot and
+   *  Build queue ON (Critic and Learnings are already ON by default). Only call when no repo_config
+   *  row exists yet — guarded by automationRowExists() at the call site (Task 3) — so it never
+   *  clobbers an existing repo's choices. */
   async seedNewRepoDefaults(repoPath: string) {
-    const prev = this.planGate[repoPath];
-    this.planGate = { ...this.planGate, [repoPath]: true }; // optimistic
-    await this.apply(repoPath, { planGateEnabled: true }, () => {
-      this.planGate = { ...this.planGate, [repoPath]: prev };
-    });
+    const prev = {
+      planGate: this.planGate[repoPath],
+      autoAddress: this.autoAddress[repoPath],
+      autopilot: this.autopilot[repoPath],
+      buildQueue: this.buildQueue[repoPath],
+    };
+    // optimistic
+    this.planGate = { ...this.planGate, [repoPath]: true };
+    this.autoAddress = { ...this.autoAddress, [repoPath]: true };
+    this.autopilot = { ...this.autopilot, [repoPath]: true };
+    this.buildQueue = { ...this.buildQueue, [repoPath]: true };
+    await this.apply(
+      repoPath,
+      {
+        planGateEnabled: true,
+        autoAddressEnabled: true,
+        autopilotEnabled: true,
+        buildQueueEnabled: true,
+      },
+      () => {
+        this.planGate = { ...this.planGate, [repoPath]: prev.planGate };
+        this.autoAddress = { ...this.autoAddress, [repoPath]: prev.autoAddress };
+        this.autopilot = { ...this.autopilot, [repoPath]: prev.autopilot };
+        this.buildQueue = { ...this.buildQueue, [repoPath]: prev.buildQueue };
+      },
+    );
   }
 
   /** Mark this repo's automation as reviewed+confirmed (issue #1025). PUT returns the wrapped

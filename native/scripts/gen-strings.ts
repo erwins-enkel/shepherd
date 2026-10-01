@@ -580,6 +580,12 @@ export const KEYS_HERD: readonly string[] = [
   "unitrow_unknown_reviewer",
 ];
 
+/** Phone plan destination and access copy. */
+export const KEYS_IOS_PLAN: readonly string[] = [
+  "native_ios_plan_open_hint",
+  "native_ios_plan_readonly",
+];
+
 /** S8 — plan gates: the badge chips, the plan panel, the visual-block renderer and the
  *  question form. */
 export const KEYS_PLAN: readonly string[] = [
@@ -1567,6 +1573,7 @@ export const KEYS: readonly string[] = [
   ...KEYS_NOTIFICATIONS,
   ...KEYS_HERD,
   ...KEYS_PLAN,
+  ...KEYS_IOS_PLAN,
   ...KEYS_MERGE,
   ...KEYS_QUEUES,
   ...KEYS_COMPOSE,

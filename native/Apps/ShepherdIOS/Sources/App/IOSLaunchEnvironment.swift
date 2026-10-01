@@ -55,6 +55,7 @@ final class IOSLaunchEnvironment {
         let app = AppModel(defaults: defaults, credentials: credentials,
             notifications: IOSNotificationEnvironment.make(defaults: defaults))
         CoreStreamInstallers.installReadOnlySidebar(into: app)
+        IOSPlanStream.install(into: app)
         app.register(DetailModel.self)
         app.register(IOSTerminalController.self)
         CoreStreamInstallers.installIOSSessionActions(into: app)

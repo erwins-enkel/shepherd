@@ -635,6 +635,8 @@
 "native_ios_next_waiting" = "Warte auf Empfehlungen vom Server. Aktualisiere Nächstes in der Web- oder Mac-App, um sie zu berechnen.";
 "native_ios_open_items_count" = "%1$@ offene Einträge";
 "native_ios_open_session_hint" = "Öffnet die Session-Details.";
+"native_ios_plan_open_hint" = "Öffnet den Plan und seine Fragen.";
+"native_ios_plan_readonly" = "Planaktionen sind bei schreibgeschützter Ansicht, offline oder im Hintergrund nicht verfügbar.";
 "native_ios_remove_body" = "Die gespeicherte Anmeldung wird von diesem Gerät entfernt. Der serverseitige Widerruf ist nicht bestätigt.";
 "native_ios_session_age" = "Alter: %1$@";
 "native_ios_terminal_font_points" = "%1$@ pt";

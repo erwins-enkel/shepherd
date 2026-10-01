@@ -5,7 +5,9 @@ import type { ReviewVerdict, Session, SessionArchiveReason } from "./types";
 import type { WorktreeMgr } from "./worktree";
 import {
   computeMerge,
+  mergeWaitReason,
   type MergeDecision,
+  type MergeWaitCode,
   type MergeRepoState,
   type MergeSessionView,
 } from "./automerge-core";
@@ -22,6 +24,16 @@ export interface AutoMergeStatus {
   detail: string | null;
   /** The affected session's id, so the push deep-link selects it; null when none. */
   sessionId: string | null;
+  /** Every full-auto PR the train is currently NOT landing, with the reason (from the latest
+   *  state build). Presence means "the train owns this PR"; absent sessions are either not
+   *  full-auto, have no open PR, or are landing now. */
+  waiting: AutoMergeWait[];
+}
+
+/** One held full-auto PR on {@link AutoMergeStatus.waiting}. */
+export interface AutoMergeWait {
+  sessionId: string;
+  code: MergeWaitCode;
 }
 
 /** Steer text — agent-facing, English, NOT i18n (typed into the PTY like OPEN_PR_STEER).
@@ -102,6 +114,8 @@ export class AutoMergeService {
    *  PR from then on instead of re-probing every pump. Keyed by head so a new push re-tests: a PR
    *  can leave a stack. In-memory only; a restart simply re-learns on the next attempt. */
   private stackedHold = new Map<string, string>();
+  /** Per-repo wait reasons from the latest buildState, attached to every emitted status. */
+  private waiting = new Map<string, AutoMergeWait[]>();
   private now: () => number;
   private behindTtlMs: number;
 
@@ -210,7 +224,7 @@ export class AutoMergeService {
         .filter((s) => s.repoPath === repoPath && s.status !== "archived" && this.fullAuto(s))
         .map((s) => this.toView(s, snapshot[s.id] ?? null)),
     );
-    return {
+    const state: MergeRepoState = {
       enabled: sessions.length > 0,
       now: this.now(),
       criticEnabled: cfg.criticEnabled,
@@ -219,6 +233,14 @@ export class AutoMergeService {
       rebaseCap: this.deps.rebaseCap,
       sessions,
     };
+    this.waiting.set(
+      repoPath,
+      sessions.flatMap((v) => {
+        const code = mergeWaitReason(v, state);
+        return code ? [{ sessionId: v.id, code }] : [];
+      }),
+    );
+    return state;
   }
 
   private status(
@@ -228,7 +250,14 @@ export class AutoMergeService {
     detail: string | null,
     sessionId: string | null,
   ): AutoMergeStatus {
-    return { repoPath, enabled, state, detail, sessionId };
+    return {
+      repoPath,
+      enabled,
+      state,
+      detail,
+      sessionId,
+      waiting: this.waiting.get(repoPath) ?? [],
+    };
   }
 
   /** Reset the rebase budget for sessions whose branch is now current and conflict-free. */

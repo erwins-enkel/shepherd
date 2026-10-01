@@ -353,6 +353,12 @@
   let autoMergeH = $state(0);
   let autoMergeOwned = $state(false);
   const ciStripShown = $derived(ciBannerState({ git, reviewActive }).show);
+  // Dim only while this session's agent is quiet: when it works in THIS PTY (CI fix, rebase,
+  // addressing findings) its live output must stay readable, and a blocked agent needs the
+  // operator — same reasoning as the in-flight review dim above.
+  const autoMergeDim = $derived(
+    autoMergeOwned && !reviewInFlight && (dStatus === "idle" || dStatus === "done"),
+  );
   // Text stashed from an OSC 52 clipboard write that the browser refused (async writes need
   // a user gesture); the ClipboardPill offers a one-click retry that runs inside a real click.
   let pendingCopy = $state<string | null>(null);
@@ -2415,7 +2421,7 @@
 
 <div
   class="viewport"
-  class:auto-owned={autoMergeOwned}
+  class:auto-owned={autoMergeDim}
   class:swiping
   class:phone={mobile}
   bind:this={viewportEl}
@@ -3025,7 +3031,7 @@
       class="term-mount"
       class:dragging
       class:reviewing={reviewInFlight}
-      class:auto-owned={autoMergeOwned && !reviewInFlight}
+      class:auto-owned={autoMergeDim}
       role="region"
       aria-label={m.viewport_terminal_tab()}
       bind:this={el}

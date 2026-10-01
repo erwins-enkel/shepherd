@@ -79,7 +79,7 @@
       case "not_mergeable":
         return m.automergebanner_not_mergeable();
       case "changes_requested":
-        return view.code && view.owner === "shepherd"
+        return view.code !== null && view.owner === "shepherd"
           ? m.automergebanner_changes_auto()
           : m.automergebanner_changes_manual();
       case "critic_error":

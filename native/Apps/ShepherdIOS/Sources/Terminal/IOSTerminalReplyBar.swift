@@ -52,7 +52,8 @@ struct IOSTerminalReplyBar: View {
                 }
                 // This identity survives every recording state and draft change.
                 if let voice = model.voice {
-                    HoldToTalkButton(voice: voice, compact: true, rendersStaticFixture: rendersStaticFixture)
+                    HoldToTalkButton(voice: voice, compact: true, rendersStaticFixture: rendersStaticFixture,
+                        enabled: model.canRecordReply && voice.state != .finalizing, canBegin: { model.canRecordReply })
                         .disabled(!model.canRecordReply || voice.state == .finalizing)
                 } else {
                     Image(systemName: "mic").frame(width: 48, height: 48)
@@ -104,7 +105,7 @@ struct IOSTerminalReplyBar: View {
         .accessibilityElement(children: .contain).accessibilityIdentifier("terminal-reply-bar")
         .onAppear { model.prepareDictation() }
         .onChange(of: model.voice?.active) { _, active in if active == true { focused = false } }
-        .onChange(of: model.canSendInput) { _, canSend in if !rendersStaticFixture && !canSend { focused = false; model.suspendDictation() } }
+        .onChange(of: model.canRecordReply) { _, canSend in if !rendersStaticFixture && !canSend { focused = false; model.suspendDictation() } }
         .onChange(of: scenePhase) { _, phase in if !rendersStaticFixture && phase != .active { focused = false; model.suspendDictation() } }
         .onDisappear { if !rendersStaticFixture { focused = false; model.suspendDictation() } }
         .alert(L.t("native_compose_voice_label"), isPresented: Binding(

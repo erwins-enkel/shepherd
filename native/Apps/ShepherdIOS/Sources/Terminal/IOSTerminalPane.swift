@@ -43,8 +43,7 @@ struct IOSTerminalPane<Surface: View>: View {
             if allowsInput && model.showsReplyBar {
                 Rectangle().fill(IOSTerminalStyle.line).frame(height: 1)
                 IOSTerminalReplyBar(model: model, rendersStaticFixture: rendersStaticFixture)
-                IOSTerminalInputBar(model: model,
-                    rendersStaticFixture: rendersStaticFixture)
+                IOSTerminalInputBar(model: model)
             }
         }
         .accessibilityIdentifier("detail-tab-terminal")

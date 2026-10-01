@@ -111,19 +111,24 @@ keyboard or forwards touch gestures to the agent.
 Reply uses an always-visible multiline draft above the terminal key palette and sends
 through `IOSTerminalPresentation.submitReply` on the existing
 `POST /api/sessions/{id}/reply` route. Esc and Enter stay pinned, with arrows, Tab,
-Space and Ctrl-A/E/U/C/D in the scrolling middle. Input requires a live, visible,
-foreground attachment. Sending disables editing and dictation; failures retain the
+Space and Ctrl-A/E/U/C/D in whole-key pages in the scrolling middle. The viewport
+and Dynamic Type keycaps share a measured width, with snapping at complete pages.
+Input requires a live, visible, foreground attachment. Sending disables editing and dictation; failures retain the
 per-session draft. Dictation never sends. The reply microphone reuses the composer's
 `HoldToTalkButton`, `IOSDictationSession`, Apple preview and Whisper finalizer. Hold,
 slide-left cancel, slide-up lock, haptics and VoiceOver tap-toggle behave the same.
+The terminal microphone is a filled amber circle and grows while held, with no
+scaling animation under Reduce Motion; its gesture identity stays mounted.
 Recording dismisses the keyboard; locked recording shows a Stop control and hint.
 Scene suspension finalizes captured text; activation teardown rejects late results.
 
 A clean ended terminal offers the web's localized Resume action when the shared
 `ActionsModel` rules permit it. `IOSSessionActionState.execute(.resume)` supplies the
 same command gate, progress and error copy as session actions. Successful resume
-reattaches the terminal, deferring attachment while it is offscreen. A transition to
-running after an external resume also reattaches it. An unreachable connection offers
+notifies the existing terminal directly from the shared iOS command state, including
+when the server keeps an already-live agent idle. Attachment is deferred while the
+terminal is offscreen and duplicate status/command notifications are ignored. A
+transition to running after an external resume also reattaches it. An unreachable connection offers
 Reconnect; a nonresumable clean exit offers no retry that would open a missing PTY.
 
 Normal launches permit terminal input and replies. Isolated launches still disable
@@ -214,6 +219,11 @@ activation toggles recording without holding. Language is DE/EN and persists per
 device. Dictation appends to the prompt, with a five-second Undo action. Locked speech
 checkpoints preserve finalized Apple text while the recording continues.
 
+An app-wide iOS recording lease serializes composer and terminal capture. A new
+owner finalizes the previous recording before capture is granted; later cleanup
+from a former owner cannot deactivate the new owner’s audio session. Pending
+holds are cancelled on suspension/input loss and recheck eligibility before capture.
+
 One `AVAudioEngine` tap feeds the Apple preview, level meter and an in-memory WAV
 encoder matching web `wav.ts`: 16 kHz, mono, 16-bit PCM. Clips roll over before 55 seconds,
 below the optional plugin's 60-second bound; recordings stop at five minutes. No audio
@@ -242,6 +252,10 @@ On the shared development machine, compile and test this worktree only through
 `~/.claude/projects/-Users-kai-osthoff-githubrepos-shepherd/tools/ios-shared-build.sh
 <worktree> build|test`. Pass both isolation environment spellings for hosted tests.
 `IOSComposeTests` and `IOSTerminalReplyTests` render fixture states with `ImageRenderer`; SwiftUI rendering
-substitutions reuse the production layout for UIKit-backed controls. Real-device
-acceptance (iOS 18/26, DE/EN, AirPods, incoming call, offline and three-minute recording)
+substitutions reuse the production layout for UIKit-backed controls. The terminal
+key palette renders its production paged ScrollView at default and enlarged text,
+including the page containing Tab. Because ImageRenderer omits UIKit-backed scroll
+content, the test first rasterizes the production view in a private hosted test
+window and passes that image through ImageRenderer. It never screenshots a simulator
+or substitutes clipped key content. Real-device acceptance (iOS 18/26, DE/EN, AirPods, incoming call, offline and three-minute recording)
 is tracked in the draft PR checklist.

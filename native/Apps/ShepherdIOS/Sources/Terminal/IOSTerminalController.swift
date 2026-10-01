@@ -64,6 +64,8 @@ final class IOSTerminalController: AppExtension {
         return model
     }
 
+    func resumeSucceeded(sessionID: String) { models[sessionID]?.resumeSucceeded() }
+
     private func prune(keeping ids: Set<String>) {
         for id in models.keys.filter({ !ids.contains($0) }) {
             models[id]?.teardown()

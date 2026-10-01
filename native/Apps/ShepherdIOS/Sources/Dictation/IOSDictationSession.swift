@@ -46,8 +46,10 @@ struct IOSDictationSession {
         if let whisperStatus { services.whisper = { try await whisperStatus.value() } }
         let engine = IOSDictationEngine(client: client, defaults: defaults, context: context, services: services)
         self.engine = engine
-        voice = DictationController(engine: engine,
+        let leased = IOSLeasedDictationEngine(engine: engine)
+        voice = DictationController(engine: leased,
             finalizer: WhisperFinalizer(client: client, status: { try await engine.resolvedWhisperAvailability() }),
             defaults: defaults, getText: getText, setText: setText)
+        leased.voice = voice
     }
 }

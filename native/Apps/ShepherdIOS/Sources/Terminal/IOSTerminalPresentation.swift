@@ -48,7 +48,7 @@ final class IOSTerminalPresentation {
 
     var actionState: IOSSessionActionState? { readActions() }
     var showsReplyBar: Bool { allowsInput }
-    var canRecordReply: Bool { canSendInput && !replying && !session.promptBusy }
+    var canRecordReply: Bool { visible && active && rendererReady && canSendInput && !replying && !session.promptBusy }
     var canResume: Bool {
         allowsInput && session.phase == .ended(.gone)
             && actionState?.allowsWrites == true && actionState?.actions.contains(.resume) == true
@@ -67,6 +67,8 @@ final class IOSTerminalPresentation {
         if let previous = lastServerStatus, previous.known != .running, value.known == .running,
            session.phase == .ended(.gone) { requestReattach() }
     }
+
+    func resumeSucceeded() { requestReattach() }
 
     private func requestReattach() {
         guard session.phase == .ended(.gone) else { return }

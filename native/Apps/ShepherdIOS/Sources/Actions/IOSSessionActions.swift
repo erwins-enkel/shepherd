@@ -64,6 +64,9 @@ final class IOSSessionActions: AppExtension {
             canSelectReplacement: { [weak app, weak store] in
                 app?.selectedSessionID == id || (app?.selectedSessionID == nil && store?.session(id: id) == nil)
             },
+            resumeSucceeded: { [weak app] id in
+                app?.extension(IOSTerminalController.self)?.resumeSucceeded(sessionID: id)
+            },
             selectReplacement: { [weak app, weak actions] result, note in
                 actions?.recordOutcomeNote(note.text, forSessionID: result.id)
                 app?.selectedSessionID = result.id
@@ -148,15 +151,18 @@ final class IOSSessionActionState {
     private let isReviewing: () -> Bool
     private let canSelectReplacement: () -> Bool
     private let selectReplacement: (Session, ActionNote) -> Void
+    private let resumeSucceeded: (String) -> Void
 
     init(operations: IOSActionOperations, merge: MergeModel, session: @escaping () -> Session?,
          actions: @escaping (Session) -> [SessionAction], git: @escaping () -> GitState? = { nil },
          canWrite: @escaping () -> Bool,
          isSelected: @escaping () -> Bool, isReviewing: @escaping () -> Bool = { false },
          canSelectReplacement: @escaping () -> Bool,
+         resumeSucceeded: @escaping (String) -> Void = { _ in },
          selectReplacement: @escaping (Session, ActionNote) -> Void) {
         self.operations = operations; mergeModel = merge; readSession = session
         readActions = actions; readGit = git; self.canWrite = canWrite; self.isSelected = isSelected
+        self.resumeSucceeded = resumeSucceeded
         self.isReviewing = isReviewing; self.canSelectReplacement = canSelectReplacement; self.selectReplacement = selectReplacement
     }
 
@@ -247,6 +253,9 @@ final class IOSSessionActionState {
                 default: L.t("native_actions_failed", raw)
                 }
             }, isCurrent: current)
+            if action == .resume, current(), error == nil, outcome.note?.tone == .success {
+                resumeSucceeded(session.id)
+            }
         case .rename, .amend, .relaunch: break
         }
     }

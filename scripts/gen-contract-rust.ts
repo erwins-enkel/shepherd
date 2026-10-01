@@ -207,6 +207,7 @@ function transformSchema(node: Obj, pointer: string): Obj {
  */
 export const RUST_EXCLUDED_OPERATIONS: Record<string, string> = {
   uploadFile: "multipart/form-data request body — progenitor 0.15 rejects the content type",
+  transcribeAudio: "multipart/form-data request body — progenitor 0.15 rejects the content type",
 };
 
 function excludeOperations(doc: Obj): void {

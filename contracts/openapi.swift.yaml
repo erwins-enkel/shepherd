@@ -5647,6 +5647,65 @@ components:
             $ref: "#/components/schemas/ComposeLeftover"
         probesUnavailable:
           type: boolean
+    PluginSummary:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+      description: Core plugin loader listing; only the discovery ID is consumed natively.
+      properties:
+        id:
+          type: string
+    PluginListing:
+      type: object
+      additionalProperties: true
+      required:
+        - plugins
+      properties:
+        plugins:
+          type: array
+          items:
+            $ref: "#/components/schemas/PluginSummary"
+    VoiceStatus:
+      type: object
+      additionalProperties: true
+      description: Plugin-provided shape relied on by the web client; voice-whisper is optional and not shipped in this repository.
+      required:
+        - available
+        - engine
+        - model
+        - ffmpeg
+        - language
+        - preferLocal
+        - hint
+      properties:
+        available:
+          type: boolean
+        engine:
+          type:
+            - string
+            - "null"
+        model:
+          type:
+            - string
+            - "null"
+        ffmpeg:
+          type: boolean
+        language:
+          type: string
+        preferLocal:
+          type: boolean
+        hint:
+          type: string
+    VoiceTranscript:
+      type: object
+      additionalProperties: true
+      description: Plugin-provided final or disposable partial transcription.
+      required:
+        - text
+      properties:
+        text:
+          type: string
     SettingsPatch:
       type: object
       additionalProperties: false
@@ -9451,6 +9510,69 @@ paths:
                 $ref: "#/components/schemas/ComposeLeftovers"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/plugins:
+    get:
+      operationId: listPlugins
+      description: Loaded plugins from the core loader; an absent registry returns an empty listing.
+      responses:
+        "200":
+          description: Discovery listing; additional loader fields are intentionally unconstrained.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PluginListing"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/plugins/voice-whisper/status:
+    get:
+      operationId: getVoiceStatus
+      description: Optional plugin-provided status. Probe only when the core listing contains voice-whisper.
+      responses:
+        "200":
+          description: Plugin-provided web-client status shape.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Plugin or route absent; Apple recognition remains usable.
+  /api/plugins/voice-whisper/transcribe:
+    post:
+      operationId: transcribeAudio
+      description: Plugin-provided transcription of a clip of at most 60 seconds. The web uses audio/wav, 16 kHz mono 16-bit PCM. Final requests omit mode.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                lang:
+                  type: string
+                mode:
+                  type: string
+                  enum:
+                    - partial
+      responses:
+        "200":
+          description: Plugin-provided transcript.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VoiceTranscript"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Plugin or route absent.
+        "429":
+          description: Plugin busy; its error body is not part of the client contract.
   /api/repo-config:
     get:
       operationId: getRepoConfig

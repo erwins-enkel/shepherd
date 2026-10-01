@@ -133,12 +133,15 @@ struct SessionListView: View {
     }
 
     private var lensStrip: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: 0) {
-                ForEach(layout.stripLenses, id: \.self) { lensButton($0, bottom: false) }
+        HStack(spacing: 0) {
+            ScrollView(.horizontal) {
+                HStack(spacing: 0) {
+                    ForEach(layout.stripLenses, id: \.self) { lensButton($0, bottom: false) }
+                }
             }
+            .scrollIndicators(.never)
+            if app.liveRequestAudit == nil { newTaskButton(bottom: false) }
         }
-        .scrollIndicators(.never)
         .accessibilityLabel(L.t("herd_lenses_label"))
         .accessibilityIdentifier("herd-lenses-top")
     }
@@ -162,12 +165,32 @@ struct SessionListView: View {
             .accessibilityLabel(L.t("repo_switcher_label"))
             .accessibilityValue(model.activeRepos.sorted().map { ($0 as NSString).lastPathComponent }.joined(separator: ", "))
             .accessibilityIdentifier("show-repos")
+            if app.liveRequestAudit == nil { newTaskButton(bottom: true) }
         }
         .background(SessionListStyle.panel.ignoresSafeArea(edges: .bottom))
         .overlay(alignment: .top) { Rectangle().fill(SessionListStyle.brightLine).frame(height: 1) }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(L.t("herd_lenses_label"))
         .accessibilityIdentifier("herd-lenses-bottom")
+    }
+
+    private func newTaskButton(bottom: Bool) -> some View {
+        Button { IOSComposer.open(app) } label: {
+            VStack(spacing: 4) {
+                Image(systemName: "plus").accessibilityHidden(true)
+                Text(verbatim: L.t("actionbar_new_task_short").uppercased())
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .sessionFont(label: true, weight: .semibold)
+            .foregroundStyle(SessionListStyle.amber)
+            .padding(.horizontal, bottom ? 4 : 10).padding(.vertical, 8)
+            .frame(minWidth: 44, maxWidth: bottom ? .infinity : nil, minHeight: 48)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(app.store == nil)
+        .accessibilityLabel(L.t("actionbar_new_task"))
+        .accessibilityIdentifier("new-task")
     }
 
     private var header: some View {

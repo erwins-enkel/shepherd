@@ -16,7 +16,11 @@ struct RootView: View {
         @Bindable var app = app
         VStack(spacing: 0) {
             if let error = app.isolatedLaunchError { Text(verbatim: error).foregroundStyle(.red) }
-            if app.activeProfile != nil, let sidebar = app.extension(SidebarModel.self) {
+            if composeFixtureEnabled {
+                #if DEBUG
+                IOSComposeFixtureView(app: app)
+                #endif
+            } else if app.activeProfile != nil, let sidebar = app.extension(SidebarModel.self) {
                 ConnectionStatusView()
                 if sizeClass == .regular {
                     NavigationSplitView {
@@ -55,7 +59,7 @@ struct RootView: View {
                         Button(L.t("common_cancel")) { app.sheet = nil }
                     }.padding()
                 }
-            case .newSession: EmptyView()
+            case .newSession: IOSComposeSheet().environment(app)
             }
         }
         .task {
@@ -86,6 +90,13 @@ struct RootView: View {
         .onChange(of: sizeClass) { _, _ in path = app.selectedSessionID.map { [$0] } ?? [] }
     }
 
+    private var composeFixtureEnabled: Bool {
+        #if DEBUG
+        launch.configuration.isIsolated && IOSComposeFixture.enabled && !IOSComposeFixture.sessionListEnabled
+        #else
+        false
+        #endif
+    }
     @ViewBuilder private var selectedDetail: some View {
         if let id = app.selectedSessionID,
            let session = app.store?.session(id: id) ?? app.extension(QueuesModel.self)?.finishedSessions.first(where: { $0.id == id }),

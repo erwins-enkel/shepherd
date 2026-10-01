@@ -258,6 +258,8 @@ export const KEYS_DETAIL: readonly string[] = [
 /** Keys the Herd sidebar and header strip use. Owned by stream S3 — keep alphabetical. */
 export const KEYS_IOS_SIDEBAR: readonly string[] = [
   "actionbar_backlog",
+  "actionbar_new_task",
+  "actionbar_new_task_short",
   "herd_help_active",
   "herd_help_ci_failed",
   "herd_help_ci_running",
@@ -877,6 +879,56 @@ export const KEYS_QUEUES: readonly string[] = [
 
 /** S11 — the composer: create fields, slash commands, steers, attachments. */
 export const KEYS_COMPOSE: readonly string[] = [
+  "native_compose_prompt_missing",
+  "native_compose_ready_to_start",
+  "native_compose_engine_claude",
+  "native_compose_mode_plain",
+  "native_compose_dictation_deferred",
+
+  "native_compose_voice_placeholder",
+  "native_compose_voice_hold",
+  "native_compose_voice_hint",
+  "native_compose_voice_cancel_swipe",
+  "native_compose_voice_lock",
+  "native_compose_voice_discard",
+  "native_compose_voice_slide_back",
+  "native_compose_voice_no_send",
+  "native_compose_voice_unchanged",
+  "native_compose_voice_locked",
+  "native_compose_voice_stop",
+  "native_compose_voice_done",
+  "native_compose_voice_finalize",
+  "native_compose_voice_live",
+  "native_compose_voice_on_release",
+  "native_compose_voice_undo",
+  "native_compose_voice_kept",
+  "native_compose_voice_label",
+  "native_compose_voice_ready",
+  "native_compose_voice_recording",
+  "native_compose_voice_denied",
+  "native_compose_voice_settings",
+  "native_compose_voice_type",
+  "native_compose_voice_unsupported",
+  "native_compose_voice_error",
+  "native_compose_voice_incomplete",
+  "native_compose_voice_interrupted",
+  "native_compose_voice_limit",
+  "native_compose_voice_preparing",
+  "native_compose_voice_apple_disclosure",
+  "native_compose_voice_allow",
+  "native_compose_voice_language",
+  "native_compose_voice_microphone_usage",
+  "native_compose_voice_speech_usage",
+  "native_compose_issue_choose",
+  "native_compose_prompt_label",
+  "native_compose_photos",
+  "native_compose_files",
+  "native_compose_paste",
+  "native_compose_attach",
+  "native_compose_plan_on",
+  "native_compose_plan_off",
+  "native_compose_start",
+
   "recommend_copy",
   "recommend_copied",
   "issuespanel_filter_placeholder",
@@ -923,7 +975,6 @@ export const KEYS_COMPOSE: readonly string[] = [
   "steerseditor_scope_none_error",
   "steerseditor_text_aria",
   "steerseditor_title",
-  "native_compose_dictation_deferred",
   "newtask_readiness_ready",
   "newtask_readiness_branches",
   "newtask_readiness_empty_prompt",
@@ -1642,6 +1693,29 @@ export function buildOutputs(base: string = OUT): Record<string, string> {
       ),
     );
   }
+  // Permission prompts are app resources, sourced from the same EN/DE catalogs.
+  // Keep test callers that pass an alternate output root confined to that root.
+  if (base === OUT) {
+    for (const locale of ["en", "de"] as const) {
+      outputs[
+        join(
+          ROOT,
+          "native",
+          "Apps",
+          "ShepherdIOS",
+          "Sources",
+          locale + ".lproj",
+          "InfoPlist.strings",
+        )
+      ] = renderStrings({
+        NSMicrophoneUsageDescription:
+          catalog.strings.native_compose_voice_microphone_usage!.localizations[locale].stringUnit
+            .value,
+        NSSpeechRecognitionUsageDescription:
+          catalog.strings.native_compose_voice_speech_usage!.localizations[locale].stringUnit.value,
+      });
+    }
+  }
   return outputs;
 }
 
@@ -1668,12 +1742,12 @@ if (import.meta.main) {
       );
       process.exit(1);
     }
-    console.log(`All three localization outputs are up to date (${KEYS.length} keys).`);
+    console.log(`All localization outputs are up to date (${KEYS.length} keys).`);
   } else {
     for (const [path, text] of Object.entries(outputs)) {
       mkdirSync(dirname(path), { recursive: true });
       writeFileSync(path, text, "utf8");
     }
-    console.log(`Wrote three localization outputs (${KEYS.length} keys, en + de).`);
+    console.log(`Wrote localization outputs (${KEYS.length} keys, en + de).`);
   }
 }

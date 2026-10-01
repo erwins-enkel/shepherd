@@ -1044,3 +1044,29 @@ test("held status carries waiting: critic-pending full-auto PR listed, non-full-
   const last = (emitStatus as any).mock.calls.at(-1)[0];
   expect(last.waiting).toEqual([{ sessionId: "s1", code: "critic_pending" }]);
 });
+
+test("tick clears a stale wait list once full-auto is switched off for the repo", async () => {
+  const session = baseSession();
+  const emitStatus = mock(() => {});
+  const d = deps({
+    store: {
+      ...deps().store,
+      get: () => session as any,
+      list: () => [session as any],
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: true, criticEnabled: true, autopilotEnabled: true }) as any,
+    } as any,
+    emitStatus,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.tick();
+  expect((emitStatus as any).mock.calls.at(-1)[0].waiting).toEqual([
+    { sessionId: "s1", code: "critic_pending" },
+  ]);
+  session.autoMergeEnabled = false; // operator turns full-auto off for this session
+  await svc.tick();
+  expect((emitStatus as any).mock.calls.at(-1)[0]).toMatchObject({ enabled: false, waiting: [] });
+  const calls = (emitStatus as any).mock.calls.length;
+  await svc.tick(); // nothing left to clear → no further emit
+  expect((emitStatus as any).mock.calls.length).toBe(calls);
+});

@@ -28,23 +28,47 @@ final class CapturedAudio: @unchecked Sendable {
     private var continuation: AsyncStream<Event>.Continuation?
     private var observers: [any NSObjectProtocol] = []
     private var tapped = false
+    private var capture = 0
+    private var recoveries = 0
     func start() throws -> AsyncStream<Event> {
         let session = AVAudioSession.sharedInstance()
         try session.setCategory(.record, mode: .default, options: [.allowBluetooth])
         try session.setActive(true)
         let pair = AsyncStream<Event>.makeStream(bufferingPolicy: .bufferingNewest(64))
-        continuation = pair.continuation
-        let input = engine.inputNode, format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0, format.channelCount > 0 else { stop(); throw DictationError.audio }
-        input.installTap(onBus: 0, bufferSize: 1024, format: format, block: Self.tapCallback(pair.continuation))
-        tapped = true
-        observers = [AVAudioSession.interruptionNotification, AVAudioSession.routeChangeNotification,
-                     Notification.Name.AVAudioEngineConfigurationChange].map { name in
-            NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil,
+        continuation = pair.continuation; capture += 1; recoveries = 0
+        guard installTap(pair.continuation) else { stop(); throw DictationError.audio }
+        // Activating the session posts route changes and an engine configuration change
+        // on device. Only real interruptions stop capture; a reconfigured engine resumes.
+        let mine = capture
+        let recover: @Sendable () -> Void = { [weak self] in
+            Task { @MainActor in self?.recover(capture: mine) }
+        }
+        let center = NotificationCenter.default
+        observers = [AVAudioSession.interruptionNotification, AVAudioSession.mediaServicesWereResetNotification].map { name in
+            center.addObserver(forName: name, object: nil, queue: nil,
                 using: Self.interruptionCallback(name: name, continuation: pair.continuation))
         }
+        observers.append(center.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: nil,
+            using: Self.interruptionCallback(name: .AVAudioEngineConfigurationChange,
+                                             continuation: pair.continuation, recover: recover)))
         do { engine.prepare(); try engine.start() } catch { stop(); throw DictationError.audio }
         return pair.stream
+    }
+    private func installTap(_ continuation: AsyncStream<Event>.Continuation) -> Bool {
+        if tapped { engine.inputNode.removeTap(onBus: 0); tapped = false }
+        let input = engine.inputNode, format = input.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else { return false }
+        input.installTap(onBus: 0, bufferSize: 1024, format: format, block: Self.tapCallback(continuation))
+        tapped = true
+        return true
+    }
+    /// The engine stops itself after an I/O change. Reinstall the tap at the new hardware
+    /// format and resume; only a capture that cannot resume reports an interruption.
+    private func recover(capture mine: Int) {
+        guard mine == capture, let continuation, !engine.isRunning else { return }
+        recoveries += 1
+        guard recoveries <= 3, installTap(continuation) else { continuation.yield(.interrupted); return }
+        do { engine.prepare(); try engine.start() } catch { continuation.yield(.interrupted) }
     }
     /// Built outside actor isolation; AVAudioEngine invokes this on its realtime thread.
     nonisolated static func tapCallback(_ continuation: AsyncStream<Event>.Continuation)
@@ -55,15 +79,26 @@ final class CapturedAudio: @unchecked Sendable {
             if case .dropped = continuation.yield(.audio(copy)) { continuation.yield(.interrupted) }
         }
     }
-    nonisolated private static func interruptionCallback(name: Notification.Name,
-        continuation: AsyncStream<Event>.Continuation) -> @Sendable (Notification) -> Void {
+    /// Route changes (category change, override, new or lost device) are deliberately not
+    /// interruptions: starting capture causes them, and a real input change also posts an
+    /// engine configuration change, which `recover` handles.
+    nonisolated static func interruptionCallback(name: Notification.Name,
+        continuation: AsyncStream<Event>.Continuation,
+        recover: @escaping @Sendable () -> Void = {}) -> @Sendable (Notification) -> Void {
         { @Sendable note in
-            if name == AVAudioSession.interruptionNotification,
-               note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt != AVAudioSession.InterruptionType.began.rawValue { return }
-            continuation.yield(.interrupted)
+            switch name {
+            case AVAudioSession.interruptionNotification:
+                if note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt == AVAudioSession.InterruptionType.began.rawValue {
+                    continuation.yield(.interrupted)
+                }
+            case AVAudioSession.mediaServicesWereResetNotification: continuation.yield(.interrupted)
+            case .AVAudioEngineConfigurationChange: recover()
+            default: break
+            }
         }
     }
     func stop() {
+        capture += 1
         engine.stop()
         if tapped { engine.inputNode.removeTap(onBus: 0); tapped = false }
         observers.forEach(NotificationCenter.default.removeObserver); observers = []

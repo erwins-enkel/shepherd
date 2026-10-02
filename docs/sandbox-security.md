@@ -175,6 +175,23 @@ execution controls below, Shepherd bounds the injection surface at ingestion
   signature set (`scanForInjection`); a hit is **advisory only** — it records an
   `injection_detected` signal and toasts the operator to eyeball the session, but
   never blocks the spawn.
+- **Rendering side: agent/forge markdown is shown through a closed allow-list.**
+  Text an agent writes after reading untrusted input (recaps, plan + reviewer
+  bodies, review findings, rich-text/callout blocks) and forge issue bodies is
+  injection-carrying, so the HUD renders it with `sanitizeAgentHtml`
+  (`ui/src/lib/agent-markdown.ts`) instead of DOMPurify's permissive default:
+  reading markup only — no `<img>`/media/SVG (silent beacons), no
+  `<form>`/`<input>`/`<button>` (in-app phishing; GFM task-list checkboxes stay,
+  disabled), no `style=` (CSS tracking), `class` limited to `language-*`, and
+  every link forced to `target=_blank rel="noopener noreferrer"`. The HUD also
+  ships a **Content-Security-Policy** (`kit.csp` in `ui/svelte.config.js`,
+  emitted as a `<meta>` tag because the app is prerendered) as a backstop for
+  anything that slips past: same-origin/inline-only `img-src`,
+  `form-action 'self'`, `object-src 'none'`, no `'unsafe-eval'`, with the Google
+  Fonts hosts allowed. The `connect-src` and `frame-src` allowances are wide on
+  purpose (`ws:`/`wss:` for the HUD sockets; `http:`/`https:` for the preview
+  pane's arbitrary-port iframe) — the policy targets passive loads, not script
+  exfiltration. A `<meta>` CSP cannot carry `frame-ancestors`.
 
 These are content-boundary defenses; the execution-confinement residuals below
 still stand.

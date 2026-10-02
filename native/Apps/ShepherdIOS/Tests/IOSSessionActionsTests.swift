@@ -347,8 +347,14 @@ final class IOSSessionActionsTests: XCTestCase {
         let profile = try app.addRemoteProfile(name: "Fixture", address: "http://127.0.0.1:1")
         await app.activate(profile)
         defer { app.deactivate() }
-        let store = try XCTUnwrap(app.store)
-        let controller = try XCTUnwrap(app.extension(IOSSessionActions.self))
+        // The activated store keeps bootstrapping against the unreachable address and
+        // holds every pushed frame in its snapshot-load buffer until a load ends, so it
+        // cannot order these events. An unstarted store applies them synchronously; only
+        // the Actions and Merge extensions are borrowed from the activation.
+        let store = try SessionStore(profile: ServerProfile(name: "fixture",
+            baseURL: URL(string: "http://127.0.0.1:1")!, mode: .local), credentials: InMemoryCredentialStore())
+        let controller = IOSSessionActions(store: store, app: app)
+        defer { controller.teardown() }
         let session = PreviewData.session()
         store.apply(.sessionNew(session))
         var state: IOSSessionActionState? = controller.state(for: session)
@@ -483,10 +489,10 @@ final class IOSSessionActionsTests: XCTestCase {
         try render(IOSActionFeedback(note: .success(L.t("prbadge_merged_toast", "42"))), "merge-success", height: 200)
     }
 
-    private func settle(_ condition: () -> Bool) async {
+    private func settle(line: UInt = #line, _ condition: () -> Bool) async {
         let deadline = ContinuousClock.now + .seconds(15)
         while !condition(), ContinuousClock.now < deadline { await Task.yield() }
-        XCTAssertTrue(condition())
+        XCTAssertTrue(condition(), line: line)
     }
 }
 

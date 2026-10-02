@@ -319,6 +319,10 @@ final class IOSTerminalTests: XCTestCase {
         await settle { !view.agentOwnsScroll }
         XCTAssertTrue(presentation.followsTail, "Leaving mouse tracking ends the agent's scroll")
         XCTAssertFalse(view.forwardsSwipesToAgent)
+        let sentBeforeExit = pty.sent.count
+        XCTAssertEqual(view.onWheel?(1), false, "A drag or coast that outlives mouse tracking stops")
+        XCTAssertEqual(pty.sent.count, sentBeforeExit, "No wheel report reaches the program that took over")
+        XCTAssertTrue(presentation.followsTail)
         presentation.rendererUnmounted()
     }
 

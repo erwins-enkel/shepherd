@@ -53,6 +53,11 @@ final class IOSWatchingTerminalView: SwiftTerm.TerminalView {
     // reporting off its handler does nothing, yet it still competes with scrolling.
     override func mouseModeChanged(source: SwiftTerm.Terminal) {
         guard source.mouseMode == .off else { return }
+        // Cancel a drag in flight: the program that takes over must not receive wheel reports.
+        if let wheelPan, wheelPan.state != .possible {
+            wheelPan.isEnabled = false
+            wheelPan.isEnabled = true
+        }
         stopWheelMomentum()
         onAgentScrollEnded?()
     }
@@ -273,7 +278,7 @@ struct IOSTerminalHostView: UIViewRepresentable {
         /// The one gesture that reaches the agent: it owns its transcript scroll while it
         /// tracks the mouse.
         private func forwardWheel(_ view: IOSWatchingTerminalView, lines: Int) -> Bool {
-            guard model.canSendInput else { return false }
+            guard view.agentOwnsScroll, model.canSendInput else { return false }
             forwardingWheel = true
             view.sendWheel(lines: lines)
             forwardingWheel = false

@@ -52,7 +52,16 @@ function inflightState(inflight: InflightRow[]) {
       boolean
     >,
     reviewerEnv: Object.fromEntries(
-      inflight.map(({ id, provider, model, effort }) => [id, { provider, model, effort }]),
+      inflight.map(({ id, provider, model, effort, startedAt, timeoutMs }) => [
+        id,
+        {
+          provider,
+          model,
+          effort,
+          ...(startedAt != null ? { startedAt } : {}),
+          ...(timeoutMs != null ? { timeoutMs } : {}),
+        },
+      ]),
     ) as Record<string, ReviewerEnv>,
   };
 }

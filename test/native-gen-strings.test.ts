@@ -29,6 +29,7 @@ import {
   KEYS_SIDEBAR,
   KEYS_TERMINAL,
   KEYS_IOS_TERMINAL,
+  KEYS_IOS_STEERS,
   KEYS_IOS_LATENCY,
   placeholderOrder,
 } from "../native/scripts/gen-strings";
@@ -161,6 +162,7 @@ describe("gen-strings manifest", () => {
   const streamManifests = [
     KEYS_TERMINAL,
     KEYS_IOS_TERMINAL,
+    KEYS_IOS_STEERS,
     KEYS_IOS_LATENCY,
     KEYS_DETAIL,
     KEYS_SIDEBAR,

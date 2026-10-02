@@ -1277,6 +1277,24 @@ describe("NewTask research mode (segmented control)", () => {
     expect(segActive(m.newtask_mode_code())).toBe(true);
   });
 
+  it("swaps the prompt placeholder to match the selected mode", async () => {
+    render(NewTask, { props: base() });
+    const placeholder = () =>
+      document.querySelector<HTMLTextAreaElement>("#nt-prompt")!.placeholder;
+    await expect.poll(() => researchSeg()).toBeTruthy();
+    expect(placeholder()).toBe(m.newtask_prompt_placeholder());
+
+    for (const [seg, expected] of [
+      [m.newtask_mode_research(), m.newtask_prompt_placeholder_research()],
+      [m.newtask_mode_epic(), m.newtask_prompt_placeholder_epic()],
+      [m.newtask_mode_plain(), m.newtask_prompt_placeholder_plain()],
+      [m.newtask_mode_code(), m.newtask_prompt_placeholder()],
+    ]) {
+      segButton(seg).click();
+      await expect.poll(placeholder).toBe(expected);
+    }
+  });
+
   it("toggling Research on clears plan-gate and submits it off", async () => {
     const repoPath = "/repo/research-clears-plangate";
     mockGetRepoConfig.mockResolvedValue(repoConfig(true));

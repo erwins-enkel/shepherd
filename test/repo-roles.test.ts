@@ -1,5 +1,6 @@
-import { test, expect } from "bun:test";
+import { afterEach, test, expect } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { annotateHandoff, computeHandoff, parseRoles, normalizeLogin } from "../src/repo-roles";
@@ -196,8 +197,18 @@ test("normalizeLogin trims, drops a leading @, empties to null", () => {
   expect(normalizeLogin(42)).toBeNull();
 });
 
+// Fixture repos live in tmpdir(), never config.repoRoot: Shepherd lists every dir there as a repo,
+// and a forgotten cleanup once left 448 of these behind in the operator's real root (#2683).
+// annotateHandoff/readRepoRoles only need a git dir. afterEach drops every one, so no test can
+// forget to.
+const fixtureRepos: string[] = [];
+afterEach(() => {
+  for (const dir of fixtureRepos.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+
 function repoWithRoles(roles: { reviewer: string | null; merger: string | null }): string {
-  const dir = mkdtempSync(join(config.repoRoot, "shepherd-roles-git-"));
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-roles-git-"));
+  fixtureRepos.push(dir);
   execFileSync("git", ["-C", dir, "init", "-b", "main"], { stdio: "ignore" });
   execFileSync("git", ["-C", dir, "config", "user.email", "test@example.com"], {
     stdio: "ignore",
@@ -212,110 +223,90 @@ function repoWithRoles(roles: { reviewer: string | null; merger: string | null }
 
 test("annotateHandoff stamps reviewBlock only for the configured reviewer", () => {
   const dir = repoWithRoles({ reviewer: "scoop", merger: "scoop" });
-  try {
-    const g = annotateHandoff(
-      gitState({
-        checks: "success",
-        reviewerStates: {
-          scoop: { state: "changes_requested", latestAt: 1 },
-          alice: { state: "changes_requested", latestAt: 2 },
-        },
-      }),
-      dir,
-      "kai",
-    );
-    expect(g.reviewBlock).toEqual({ reviewer: "scoop", state: "changes_requested", latestAt: 1 });
-    expect(g.handoff).toBeUndefined();
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  const g = annotateHandoff(
+    gitState({
+      checks: "success",
+      reviewerStates: {
+        scoop: { state: "changes_requested", latestAt: 1 },
+        alice: { state: "changes_requested", latestAt: 2 },
+      },
+    }),
+    dir,
+    "kai",
+  );
+  expect(g.reviewBlock).toEqual({ reviewer: "scoop", state: "changes_requested", latestAt: 1 });
+  expect(g.handoff).toBeUndefined();
 });
 
 test("annotateHandoff preserves previous reviewerStates when a fallback payload has none", () => {
   const dir = repoWithRoles({ reviewer: "scoop", merger: "scoop" });
-  try {
-    const prev = gitState({
-      number: 7,
-      checks: "success",
-      reviewerStates: { scoop: { state: "changes_requested", latestAt: 1 } },
-      reviewBlock: { reviewer: "scoop", state: "changes_requested", latestAt: 1 },
-    });
-    const g = annotateHandoff(gitState({ number: 7, checks: "success" }), dir, "kai", prev);
-    expect(g.reviewerStates).toEqual(prev.reviewerStates);
-    expect(g.reviewBlock).toEqual(prev.reviewBlock);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  const prev = gitState({
+    number: 7,
+    checks: "success",
+    reviewerStates: { scoop: { state: "changes_requested", latestAt: 1 } },
+    reviewBlock: { reviewer: "scoop", state: "changes_requested", latestAt: 1 },
+  });
+  const g = annotateHandoff(gitState({ number: 7, checks: "success" }), dir, "kai", prev);
+  expect(g.reviewerStates).toEqual(prev.reviewerStates);
+  expect(g.reviewBlock).toEqual(prev.reviewBlock);
 });
 
 test("annotateHandoff clears previous reviewBlock when a fresh empty replay arrives", () => {
   const dir = repoWithRoles({ reviewer: "scoop", merger: "scoop" });
-  try {
-    const prev = gitState({
-      number: 7,
-      checks: "success",
-      reviewerStates: { scoop: { state: "changes_requested", latestAt: 1 } },
-      reviewBlock: { reviewer: "scoop", state: "changes_requested", latestAt: 1 },
-    });
-    const g = annotateHandoff(
-      gitState({ number: 7, checks: "success", reviewerStates: {} }),
-      dir,
-      "kai",
-      prev,
-    );
-    expect(g.reviewBlock).toBeUndefined();
-    expect(g.handoff).toBe("reviewer");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  const prev = gitState({
+    number: 7,
+    checks: "success",
+    reviewerStates: { scoop: { state: "changes_requested", latestAt: 1 } },
+    reviewBlock: { reviewer: "scoop", state: "changes_requested", latestAt: 1 },
+  });
+  const g = annotateHandoff(
+    gitState({ number: 7, checks: "success", reviewerStates: {} }),
+    dir,
+    "kai",
+    prev,
+  );
+  expect(g.reviewBlock).toBeUndefined();
+  expect(g.handoff).toBe("reviewer");
 });
 
 test("annotateHandoff gives an unconfigured fork's active human changes request to self", () => {
   const dir = repoWithRoles(unconfigured);
-  try {
-    const g = annotateHandoff(
-      gitState({
-        number: 7,
-        checks: "success",
-        isFork: true,
-        latestReview: approved,
-        requestedReviewers: ["zed"],
-        reviewerStates: {
-          scoop: { state: "approved", latestAt: 1 },
-          alice: { state: "changes_requested", latestAt: 2 },
-        },
-      }),
-      dir,
-      "kai",
-    );
-    expect(g.reviewBlock).toEqual({
-      reviewer: "alice",
-      state: "changes_requested",
-      latestAt: 2,
-    });
-    expect(g.handoff).toBeUndefined();
-    expect(g.handoffInferred).toBe(true);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  const g = annotateHandoff(
+    gitState({
+      number: 7,
+      checks: "success",
+      isFork: true,
+      latestReview: approved,
+      requestedReviewers: ["zed"],
+      reviewerStates: {
+        scoop: { state: "approved", latestAt: 1 },
+        alice: { state: "changes_requested", latestAt: 2 },
+      },
+    }),
+    dir,
+    "kai",
+  );
+  expect(g.reviewBlock).toEqual({
+    reviewer: "alice",
+    state: "changes_requested",
+    latestAt: 2,
+  });
+  expect(g.handoff).toBeUndefined();
+  expect(g.handoffInferred).toBe(true);
 });
 
 test("annotateHandoff does not attach fork handoffs to drafts or non-green PRs", () => {
   const dir = repoWithRoles(unconfigured);
-  try {
-    for (const state of [
-      gitState({ checks: "success", isDraft: true, isFork: true }),
-      gitState({ checks: "pending", isFork: true }),
-      gitState({ checks: "failure", isFork: true }),
-      gitState({ state: "closed", checks: "success", isFork: true }),
-    ]) {
-      const g = annotateHandoff(state, dir, "kai");
-      expect(g.handoff).toBeUndefined();
-      expect(g.handoffWho).toBeUndefined();
-      expect(g.handoffInferred).toBeUndefined();
-    }
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+  for (const state of [
+    gitState({ checks: "success", isDraft: true, isFork: true }),
+    gitState({ checks: "pending", isFork: true }),
+    gitState({ checks: "failure", isFork: true }),
+    gitState({ state: "closed", checks: "success", isFork: true }),
+  ]) {
+    const g = annotateHandoff(state, dir, "kai");
+    expect(g.handoff).toBeUndefined();
+    expect(g.handoffWho).toBeUndefined();
+    expect(g.handoffInferred).toBeUndefined();
   }
 });
 

@@ -205,10 +205,22 @@ function verdictGateFailure(s: MergeSessionView, criticEnabled: boolean): MergeW
   return null;
 }
 
+/** Gate codes the train answers with a rebase steer (see rebaseEligible's final clause). */
+const REBASE_PATH_CODES: ReadonlySet<MergeWaitCode> = new Set([
+  "behind",
+  "conflict",
+  "not_mergeable",
+]);
+
 /** Why the train is holding this session's PR, or null when there is nothing to wait for (no
  *  open PR, or it is ready and lands on this pump). Pure; the precedence mirrors computeMerge: an
  *  exhausted rebase budget first (that hold is terminal until the operator acts), then the first
- *  failing readiness gate, then the two "otherwise ready" holds. */
+ *  failing readiness gate, then the two "otherwise ready" holds.
+ *
+ *  A rebase-path gate is reported only while the train will actually rebase: when the verdict
+ *  blocks it (rebaseVerdictAllows — a current-head error / changes_requested, or a re-review
+ *  still due) nothing ever steers that rebase (autopilot leaves full-auto rebases to the train),
+ *  so the verdict is what has to change first and is what gets reported. */
 export function mergeWaitReason(
   s: MergeSessionView,
   state: Pick<MergeRepoState, "criticEnabled" | "draftMode" | "signoffAuthority" | "rebaseCap">,
@@ -221,6 +233,8 @@ export function mergeWaitReason(
     return "rebase_cap";
   const gate = readyGateFailure(s, criticEnabled, draftMode, signoffAuthority);
   if (gate === "not_open") return null;
+  if (gate && REBASE_PATH_CODES.has(gate) && !rebaseVerdictAllows(s, criticEnabled))
+    return verdictGateFailure(s, criticEnabled) ?? gate;
   if (gate) return gate;
   if (s.stacked) return "stacked";
   if (hasBlockingManualSteps(s)) return "manual_steps";

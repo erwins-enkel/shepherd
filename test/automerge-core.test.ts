@@ -695,6 +695,35 @@ test("mergeWaitReason: behind base", () => {
   expect(wait({ behind: null })).toBe("behind");
 });
 
+test("mergeWaitReason: a verdict that blocks the rebase is reported instead of behind/conflict", () => {
+  // The train never rebases these (rebaseVerdictAllows), and autopilot leaves full-auto rebases
+  // to the train — so "behind" would claim Shepherd steers a rebase that never comes.
+  expect(wait({ behind: true, reviewDecision: "error", reviewHeadSha: "h1" })).toBe("critic_error");
+  expect(wait({ behind: true, reviewDecision: "changes_requested", reviewHeadSha: "h1" })).toBe(
+    "changes_requested",
+  );
+  const dirty = { mergeable: false, mergeStateStatus: "dirty" as const, checks: "none" as const };
+  expect(wait({ ...dirty, reviewDecision: "error", reviewHeadSha: "h1" })).toBe("critic_error");
+  // critic off: a leftover current verdict still blocks the rebase
+  expect(wait({ behind: true, reviewDecision: "error" }, { criticEnabled: false })).toBe(
+    "critic_error",
+  );
+  // a re-review still due for the new head holds the rebase back too
+  expect(wait({ behind: true, reviewDecision: "commented", reviewHeadSha: "h0" })).toBe(
+    "critic_pending",
+  );
+});
+
+test("mergeWaitReason: behind/conflict stay when the train will rebase", () => {
+  expect(wait({ behind: true })).toBe("behind");
+  expect(wait({ behind: true, reviewDecision: "commented", reviewHeadSha: "h1" })).toBe("behind");
+  // under a definite conflict a stale verdict counts as none — the train rebases anyway
+  const dirty = { mergeable: false, mergeStateStatus: "dirty" as const, checks: "none" as const };
+  expect(wait({ ...dirty, reviewDecision: "changes_requested", reviewHeadSha: "h0" })).toBe(
+    "conflict",
+  );
+});
+
 test("mergeWaitReason: rebase budget exhausted → rebase_cap, ahead of behind", () => {
   expect(wait({ behind: true, rebaseCount: 5 }, { criticEnabled: false, rebaseCap: 5 })).toBe(
     "rebase_cap",

@@ -1,4 +1,4 @@
-import type { AgentProvider, UpNextItem } from "./types";
+import type { AgentProvider, Issue, Steer, UpNextItem } from "./types";
 import type { HerdStore } from "./store.svelte";
 import { startUpNext, type UpNextStartChoice } from "./api";
 import { toasts } from "./toasts.svelte";
@@ -21,7 +21,23 @@ export type UpNextLaunchContext = {
   usageHoldEnabled: boolean;
   usageHoldPct: number;
   nowMs: number;
+  /** The backlog's steer quick-launch (spawn with the steer's prompt + the issue, no dialog):
+   *  "created"/"held", or null when it fell back to the New Task dialog. Absent → no steers. */
+  onquick?: (repoPath: string, issue: Issue, steer: Steer) => Promise<"created" | "held" | null>;
+  /** Open Settings on the steers editor. */
+  onmanagesteers?: () => void;
 };
+
+/** An Up Next row as the backlog's Issue shape, for the issue-steer quick-launch. */
+function upNextIssue(it: UpNextItem): Issue {
+  return {
+    ...it.issueRef,
+    labels: it.labels,
+    labelColors: it.labelColors,
+    createdAt: it.createdAt,
+    assignees: [],
+  };
+}
 
 /** Starts Up Next rows — from the panel's batch bar or the preview's Start. Owns the in-flight
  *  flag and the anchored CLI picker; each surface holds its own starter and renders the picker
@@ -82,6 +98,25 @@ export class UpNextStarter {
       return;
     }
     void this.start(items);
+  }
+
+  /** Start one row with an issue steer through the page's quick-launch. No CLI picker: the
+   *  steer's own CLI pin (or the default) applies, as on a backlog row. */
+  async startWithSteer(item: UpNextItem, steer: Steer) {
+    const onquick = this.#ctx()?.onquick;
+    if (!onquick || this.starting) return;
+    this.starting = true;
+    try {
+      const res = await onquick(item.repoPath, upNextIssue(item), steer);
+      if (res === "created") {
+        toasts.info(m.upnext_started({ count: 1 }), { key: "upnext-started" });
+      } else if (res === "held") {
+        toasts.info(m.upnext_held({ count: 1 }), { key: "upnext-held" });
+      }
+      if (res) upNextUi.selected.delete(upNextKey(item));
+    } finally {
+      this.starting = false;
+    }
   }
 
   confirmPicker(choice: UpNextStartChoice) {

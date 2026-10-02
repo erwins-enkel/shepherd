@@ -794,6 +794,8 @@
     usageHoldEnabled,
     usageHoldPct,
     nowMs,
+    onquick: onquickissue,
+    onmanagesteers: () => openSteersEditor(),
   });
 
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
@@ -1094,12 +1096,17 @@
   // Quick-launch: spawn a session straight from a backlog issue with the picked
   // issue action's prompt, skipping the New Task dialog. Resolve the repo's current
   // branch the same way NewTask does; on any spawn failure fall back to the normal
-  // dialog so the click is never lost.
-  async function onquickissue(repoPath: string, issue: Issue, action: Steer) {
+  // dialog so the click is never lost. Resolves how it ended (null = the dialog took over),
+  // so Up Next — whose lens doesn't show the new session — can confirm with a toast.
+  async function onquickissue(
+    repoPath: string,
+    issue: Issue,
+    action: Steer,
+  ): Promise<"created" | "held" | null> {
     const cmd = action.text.trim();
     if (!cmd) {
       onissue(repoPath, issue);
-      return;
+      return null;
     }
     const br = await listBranches(repoPath).catch(() => null);
     const baseBranch = pickBaseBranch(br);
@@ -1118,13 +1125,15 @@
           body: issue.body,
         },
       });
-      if ("held" in r) return;
+      if ("held" in r) return "held";
       selectNewSession(r.id, repoPath);
       showBacklog = false;
       if (mobile.current) mobileScreen = "detail";
+      return "created";
     } catch {
       // spawn failed → hand off to the dialog so the operator can retry manually
       onissue(repoPath, issue);
+      return null;
     }
   }
 

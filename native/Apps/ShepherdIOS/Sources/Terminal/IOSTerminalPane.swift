@@ -12,7 +12,6 @@ struct IOSTerminalPane<Surface: View>: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var connecting = ConnectingOverlayDebouncer()
     @State private var fontSettings = false
-    @State private var replyOpen = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -41,28 +40,25 @@ struct IOSTerminalPane<Surface: View>: View {
                 surface
                 overlay
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
-            if allowsInput {
+            if allowsInput && model.showsReplyBar {
                 Rectangle().fill(IOSTerminalStyle.line).frame(height: 1)
-                IOSTerminalInputBar(model: model, openReply: { replyOpen = true },
-                    rendersStaticFixture: rendersStaticFixture)
+                IOSTerminalReplyBar(model: model, rendersStaticFixture: rendersStaticFixture)
+                IOSTerminalInputBar(model: model)
             }
         }
         .accessibilityIdentifier("detail-tab-terminal")
-        .onAppear { model.visibilityChanged(visible: true, active: scenePhase == .active) }
+        .onAppear { if !rendersStaticFixture { model.visibilityChanged(visible: true, active: scenePhase == .active) } }
         .onChange(of: scenePhase) { _, phase in
+            guard !rendersStaticFixture else { return }
             model.visibilityChanged(visible: true, active: phase == .active)
         }
         .onChange(of: model.session.phase, initial: true) { _, phase in
             connecting.phaseChanged(toConnecting: phase == .connecting)
         }
         .onDisappear {
+            guard !rendersStaticFixture else { return }
             model.visibilityChanged(visible: false, active: false)
             connecting.phaseChanged(toConnecting: false)
-        }
-        .sheet(isPresented: $replyOpen) {
-            IOSTerminalReplySheet(model: model)
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
         }
     }
 
@@ -86,16 +82,24 @@ struct IOSTerminalPane<Surface: View>: View {
         case .ended(let closure):
             statusCard(
                 title: L.t(closure == .gone ? "native_terminal_ended_title" : "native_terminal_unreachable_title"),
-                message: L.t(closure == .gone ? "native_terminal_ended_body" : "native_terminal_unreachable_body")) {
-                if allowsInput {
-                    Button(L.t("common_retry")) {
-                        if closure == .gone { Task { await model.session.recoverGoneSession() } }
-                        else { model.session.takeOver() }
+                message: L.t(closure == .gone && model.canResume ? "viewport_resume_sub" : closure == .gone ? "native_terminal_ended_body" : "viewport_reconnect_sub")) {
+                if allowsInput && model.allowsInput {
+                    if closure == .gone, model.canResume {
+                        Button { Task { await model.resume() } } label: {
+                            HStack {
+                                if model.actionState?.busy == true { ProgressView() }
+                                Text(L.t(model.actionState?.busy == true ? "common_loading" : "viewport_resume_title"))
+                            }
+                        }
+                        .buttonStyle(IOSActionButtonStyle())
+                        .frame(minHeight: 44).disabled(model.actionState?.busy == true)
+                        .accessibilityIdentifier("terminal-resume")
+                    } else if closure == .unreachable {
+                        Button(L.t("viewport_reconnect_title")) { model.session.takeOver() }
+                            .frame(minHeight: 44).accessibilityIdentifier("terminal-retry")
                     }
-                    .frame(minHeight: 44).disabled(model.session.sessionRecoveryBusy)
-                    .accessibilityIdentifier("terminal-retry")
                 }
-                if let error = model.session.sessionRecoveryError {
+                if closure == .gone, let error = model.actionState?.error {
                     Text(verbatim: error).accessibilityIdentifier("terminal-recovery-error")
                 }
             }
@@ -104,12 +108,9 @@ struct IOSTerminalPane<Surface: View>: View {
 
     private func statusCard<Actions: View>(title: String, message: String?,
                                          @ViewBuilder actions: () -> Actions) -> some View {
-        ScrollView {
-            VStack(spacing: 12) {
-                Text(verbatim: title).font(.system(.headline, design: .monospaced))
-                if let message { Text(verbatim: message).font(.system(.callout, design: .monospaced)) }
-                actions()
-            }.multilineTextAlignment(.center).padding(20)
+        Group {
+            if rendersStaticFixture { statusContent(title: title, message: message, actions: actions) }
+            else { ScrollView { statusContent(title: title, message: message, actions: actions) } }
         }
         .fixedSize(horizontal: false, vertical: true)
         .background(IOSTerminalStyle.panel)
@@ -117,6 +118,15 @@ struct IOSTerminalPane<Surface: View>: View {
         .padding(20)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("terminal-state-overlay")
+    }
+
+    private func statusContent<Actions: View>(title: String, message: String?,
+                                            @ViewBuilder actions: () -> Actions) -> some View {
+        VStack(spacing: 12) {
+            Text(verbatim: title).font(.system(.headline, design: .monospaced))
+            if let message { Text(verbatim: message).font(.system(.callout, design: .monospaced)) }
+            actions()
+        }.multilineTextAlignment(.center).padding(20)
     }
 }
 

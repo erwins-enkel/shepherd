@@ -31,8 +31,8 @@ final class ShepherdIOSLiveCleanupUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["session-detail"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.descendants(matching: .any)["detail-tab-terminal"].waitForExistence(timeout: 15))
         XCTAssertTrue(app.buttons["terminal-font-settings"].exists)
-        for identifier in ["terminal-open-reply", "terminal-reply-text", "terminal-reply-send",
-                           "terminal-take-over", "terminal-retry"] + IOSTerminalKeyIdentifiers.all {
+        for identifier in ["terminal-reply-bar", "terminal-reply-text", "terminal-reply-send",
+                           "terminal-take-over", "terminal-retry", "terminal-resume"] + IOSTerminalKeyIdentifiers.all {
             XCTAssertFalse(app.descendants(matching: .any)[identifier].exists)
         }
         app.buttons["detail-select-activity"].tap()

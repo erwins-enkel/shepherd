@@ -370,14 +370,14 @@ final class IOSTerminalTests: XCTestCase {
         let reply = Task { await presentation.submitReply() }
         await settle { gate.pending != nil }
         defer { gate.pending?.resume(); gate.pending = nil; presentation.rendererUnmounted() }
-        let host = UIHostingController(rootView: IOSTerminalReplySheet(model: presentation))
+        let host = UIHostingController(rootView: IOSTerminalReplyBar(model: presentation))
         let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 760))
         window.rootViewController = host
         window.makeKeyAndVisible()
         defer { window.isHidden = true; window.rootViewController = nil }
         host.view.layoutIfNeeded()
-        func textView(in view: UIView) -> UITextView? {
-            if let editor = view as? UITextView { return editor }
+        func textView(in view: UIView) -> UIView? {
+            if view is UITextView || view is UITextField { return view }
             return view.subviews.lazy.compactMap { textView(in: $0) }.first
         }
         let editor = try XCTUnwrap(textView(in: host.view))
@@ -387,7 +387,7 @@ final class IOSTerminalTests: XCTestCase {
             acceptsInteraction = acceptsInteraction && view.isUserInteractionEnabled
             ancestor = view.superview
         }
-        XCTAssertFalse(editor.isEditable && acceptsInteraction, "The in-flight draft cannot be edited")
+        XCTAssertFalse(((editor as? UITextView)?.isEditable ?? (editor as? UITextField)?.isEnabled ?? false) && acceptsInteraction, "The in-flight draft cannot be edited")
         gate.pending?.resume()
         gate.pending = nil
         _ = await reply.value

@@ -178,6 +178,10 @@ export const KEYS_IOS_TERMINAL: readonly string[] = [
   "native_ios_terminal_latest",
   "native_ios_terminal_reply",
   "native_ios_terminal_superseded_body",
+  "viewport_reconnect_sub",
+  "viewport_reconnect_title",
+  "viewport_resume_sub",
+  "viewport_resume_title",
 ];
 
 export const KEYS_TERMINAL: readonly string[] = [

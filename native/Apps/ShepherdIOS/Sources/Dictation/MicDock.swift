@@ -31,11 +31,14 @@ struct TranscriptPreview: View {
 }
 struct HoldToTalkButton: View {
     @Bindable var voice: DictationController
+    // Compact terminal control keeps the composer's gesture and feedback unchanged.
+    var compact = false
+    var rendersStaticFixture = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var holding = false
-    @State private var translation = CGSize.zero
-    @State private var touchedLocked = false
-    @State private var armTask: Task<Void, Never>?
+    var enabled = true
+    var canBegin: () -> Bool = { true }
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var hold = IOSDictationHold()
     @State private var hint = false
     var body: some View {
         accessibleButton
@@ -47,21 +50,40 @@ struct HoldToTalkButton: View {
                 }
             }
             .task(id: hint) { if hint { try? await Task.sleep(for: .seconds(3)); hint = false } }
-            .onDisappear { armTask?.cancel() }
+            .onChange(of: enabled) { _, enabled in if !enabled { hold.cancel() } }
+            .onChange(of: scenePhase) { _, phase in if !rendersStaticFixture && phase != .active { hold.cancel() } }
+            .onDisappear { hold.cancel() }
     }
     private var accessibleButton: some View {
-        Button { voice.toggle() } label: { microphone }
+        Button { if eligible { voice.toggle() } } label: { microphone }
             .buttonStyle(.plain).highPriorityGesture(holdGesture)
             .accessibilityLabel(voice.state == .locked ? L.t("native_compose_voice_stop") : L.t("native_compose_voice_label"))
             .accessibilityValue(voice.capturing ? L.t("native_compose_voice_recording") : L.t("native_compose_voice_ready"))
             .accessibilityHint(L.t("native_compose_voice_hint"))
             .accessibilityAddTraits(.startsMediaSession)
-            .accessibilityAction { voice.toggle() }
+            .accessibilityAction { if eligible { voice.toggle() } }
             .accessibilityAction(named: L.t("common_cancel")) { voice.cancel() }
             .accessibilityAction(named: L.t("native_compose_voice_lock")) { voice.drag(x: 0, y: -60) }
             .accessibilityIdentifier(voice.state == .locked ? "compose.voice.stop" : "compose.voice.mic.\(voice.state.rawValue)")
     }
     private var microphone: some View {
+        Group {
+            if compact {
+                ZStack {
+                    if (voice.state == .arming || voice.state == .finalizing) && rendersStaticFixture { Image(systemName: "hourglass") }
+                    else if voice.state == .arming || voice.state == .finalizing { ProgressView().tint(ComposePalette.bg) }
+                    else { Image(systemName: symbol).font(.system(.title3, design: .monospaced)) }
+                }
+                .frame(width: IOSTerminalMicStyle.diameter, height: IOSTerminalMicStyle.diameter)
+                .foregroundStyle(ComposePalette.bg)
+                .background(Circle().fill(ComposePalette.amber))
+                .scaleEffect(IOSTerminalMicStyle.scale(held: hold.holding || voice.state == .recording, reduceMotion: reduceMotion))
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: hold.holding || voice.state == .recording)
+                .padding(6)
+            } else { composerMicrophone }
+        }
+    }
+    private var composerMicrophone: some View {
         ZStack {
             if !voice.canUndo && voice.state != .cancelling { Circle().fill(fill.opacity(0.15)).padding(-6) }
             if voice.state == .recording && !reduceMotion { Circle().stroke(fill.opacity(0.12), lineWidth: 8).padding(-14) }
@@ -71,24 +93,12 @@ struct HoldToTalkButton: View {
             else { Image(systemName: symbol).font(.system(size: 30, weight: .medium)) }
         }.frame(width: diameter, height: diameter).foregroundStyle(foreground)
     }
+    private var eligible: Bool { enabled && canBegin() && (rendersStaticFixture || scenePhase == .active) }
     private var holdGesture: some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .global).onChanged { value in
-            translation = value.translation
-            if !holding {
-                holding = true; touchedLocked = voice.state == .locked; UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                armTask = Task {
-                    do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
-                    guard holding else { return }
-                    await voice.begin()
-                    if holding { voice.drag(x: translation.width, y: translation.height) }
-                }
-            }
-            voice.drag(x: translation.width, y: translation.height)
-        }.onEnded { _ in
-            holding = false; armTask?.cancel(); armTask = nil
-            if touchedLocked { voice.finalize() }
-            else if !voice.active { voice.toggle() } else { voice.release() }
-        }
+            if !hold.holding, eligible { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+            hold.changed(voice: voice, translation: value.translation, eligible: { eligible })
+        }.onEnded { _ in hold.ended(voice: voice, eligible: eligible) }
     }
     private func feedback(_ old: DictationController.State, _ state: DictationController.State) {
         if state == .locked { UIImpactFeedbackGenerator(style: .medium).impactOccurred() }

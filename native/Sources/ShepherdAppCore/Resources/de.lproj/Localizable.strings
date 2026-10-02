@@ -1440,8 +1440,12 @@
 "vblock_wireframe_surface_panel" = "Panel-Skizze";
 "vblock_wireframe_surface_popover" = "Popover-Skizze";
 "viewport_diff_annotation_review" = "Prüfung";
+"viewport_reconnect_sub" = "herdr ist offline. Tippen, sobald es zurück ist.";
+"viewport_reconnect_title" = "Neu verbinden";
 "viewport_rename_aria" = "Task umbenennen";
 "viewport_rename_branch_kept" = "Name geändert; Branch beibehalten (offener PR)";
 "viewport_rename_failed" = "Umbenennen fehlgeschlagen";
 "viewport_rename_name_taken" = "Name bereits vergeben";
 "viewport_rename_placeholder" = "Neuer Name";
+"viewport_resume_sub" = "Tippen zum Fortsetzen";
+"viewport_resume_title" = "Session zurückholen";

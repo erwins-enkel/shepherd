@@ -105,4 +105,19 @@ final class IOSComposeUITests: XCTestCase {
         start.tap()
         XCTAssertTrue(app.staticTexts["compose.fixture.created"].waitForExistence(timeout: 10))
     }
+    func testAttachMenuPhotosPresentsLibrary() { assertAttachItemCoversCompose("Fotos") }
+    func testAttachMenuFilesPresentsImporter() { assertAttachItemCoversCompose("Dateien") }
+    /// The pickers render out of process, so the signal is the prompt they cover, not their contents.
+    private func assertAttachItemCoversCompose(_ item: String) {
+        app.launch()
+        let prompt = app.textViews["compose.prompt"]
+        XCTAssertTrue(prompt.waitForExistence(timeout: 10))
+        XCTAssertTrue(prompt.isHittable)
+        let attach = app.buttons["compose.attach"]
+        XCTAssertTrue(attach.waitForExistence(timeout: 5)); attach.tap()
+        let entry = app.buttons[item]
+        XCTAssertTrue(entry.waitForExistence(timeout: 5)); entry.tap()
+        let covered = expectation(for: NSPredicate(format: "exists == false OR hittable == false"), evaluatedWith: prompt)
+        wait(for: [covered], timeout: 10)
+    }
 }

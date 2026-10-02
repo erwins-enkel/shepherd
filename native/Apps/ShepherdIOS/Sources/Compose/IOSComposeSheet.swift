@@ -30,6 +30,7 @@ struct IOSComposeContent: View {
     @State private var submission = ComposeSubmission()
     @State private var options: Options?
     @State private var files = false
+    @State private var photos = false
     @State private var photo: PhotosPickerItem?
     @FocusState private var promptFocused: Bool
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -109,6 +110,8 @@ struct IOSComposeContent: View {
                 case .failure(let error): model.attachments.importError = ShepherdErrorCopy.message(error)
                 }
             }
+            // A PhotosPicker view inside the + Menu never presents: dismissing the menu tears it down.
+            .photosPicker(isPresented: $photos, selection: $photo, matching: .images)
             .onChange(of: photo) { _, photo in importPhoto(photo) }
             .onChange(of: scenePhase) { _, phase in
                 if phase != .active { if voice.capturing { voice.finalize() } else if voice.state == .arming { voice.cancel() } }
@@ -227,14 +230,14 @@ struct IOSComposeContent: View {
     @ViewBuilder private var attachmentMenu: some View {
         if rendering { attachmentLabel }
         else { Menu {
-            PhotosPicker(selection: $photo, matching: .images) { Label(L.t("native_compose_photos"), systemImage: "photo") }
+            Button { photos = true } label: { Label(L.t("native_compose_photos"), systemImage: "photo") }
             Button { files = true } label: { Label(L.t("native_compose_files"), systemImage: "doc") }
             Button {
                 if let bytes = UIPasteboard.general.image?.pngData() { model.attachments.addFiles([.init(name: "paste.png", data: bytes)]) }
             } label: { Label(L.t("native_compose_paste"), systemImage: "doc.on.clipboard") }
             Button { options = .commands } label: { Label(L.t("promptsources_commands_tab"), systemImage: "command") }
         } label: { attachmentLabel }
-            .accessibilityLabel(L.t("native_compose_attach")).disabled(voice.active) }
+            .accessibilityLabel(L.t("native_compose_attach")).accessibilityIdentifier("compose.attach").disabled(voice.active) }
     }
     private var attachmentLabel: some View {
         Image(systemName: "plus").font(.title2).frame(width: 52, height: 52).background(ComposePalette.panel, in: Circle()).overlay(Circle().stroke(ComposePalette.line))

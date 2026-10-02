@@ -215,6 +215,7 @@
       groups.push({
         id: "priority",
         title: m.upnext_priority_section(),
+        label: null,
         tone: "var(--color-amber)",
         items: priority,
         totalCount: priority.length,
@@ -223,12 +224,16 @@
     }
 
     // eslint-disable-next-line svelte/prefer-svelte-reactivity -- local scratch map, rebuilt per derive
-    const bands = new Map<string, { title: string; items: UpNextItem[] }>();
+    const bands = new Map<string, { title: string; label: string | null; items: UpNextItem[] }>();
     for (const it of sortItems(all.filter((it) => !it.priority))) {
       const label = bandLabel(it);
       const bandKey = label?.toLowerCase() ?? null;
       const id = LABEL_ID_PREFIX + (bandKey ?? "");
-      const band = bands.get(id) ?? { title: label ?? m.upnext_unlabeled_section(), items: [] };
+      const band = bands.get(id) ?? {
+        title: label ?? m.upnext_unlabeled_section(),
+        label,
+        items: [],
+      };
       band.items.push(it);
       bands.set(id, band);
     }

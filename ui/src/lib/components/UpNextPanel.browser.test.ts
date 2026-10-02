@@ -282,7 +282,7 @@ describe("UpNextPanel label bands", () => {
     expect(rowNumbers()).toEqual(["#1", "#4", "#2", "#5", "#3"]);
   });
 
-  it("shows every label of a row as a chip beneath the title, its band's label included", async () => {
+  it("omits the band's own label from its rows' chips, keeping every other label", async () => {
     upNext.snapshot = bandSnapshot();
     render(UpNextPanel, {});
     await expect.element(page.getByText("#4")).toBeInTheDocument();
@@ -292,8 +292,9 @@ describe("UpNextPanel label bands", () => {
           .find((row) => row.querySelector(".un-num")?.textContent === `#${n}`)!
           .querySelectorAll(".issue-label-chip"),
       ).map((el) => el.textContent?.trim());
-    expect(chipsOf(4)).toEqual(["enhancement", "bug"]);
-    expect(chipsOf(5)).toEqual(["enhancement"]);
+    expect(chipsOf(4)).toEqual(["enhancement"]);
+    expect(chipsOf(2)).toEqual(["enhancement"]);
+    expect(chipsOf(5)).toEqual([]);
     expect(chipsOf(1)).toEqual(["enhancement"]);
     expect(chipsOf(3)).toEqual([]);
   });

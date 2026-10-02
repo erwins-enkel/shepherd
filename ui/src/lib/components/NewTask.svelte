@@ -862,6 +862,15 @@
   const mode = $derived<ComposeMode>(
     research ? "research" : epicAuthoring ? "epic" : plain ? "plain" : "code",
   );
+  // The empty prompt says what THIS mode wants written — a research question is not a fix.
+  const promptPlaceholder = $derived(
+    {
+      code: m.newtask_prompt_placeholder,
+      research: m.newtask_prompt_placeholder_research,
+      epic: m.newtask_prompt_placeholder_epic,
+      plain: m.newtask_prompt_placeholder_plain,
+    }[mode](),
+  );
   // True once the operator picked a mode by hand — the `/design` pre-selection below then
   // never overrides their choice.
   let modeTouched = $state(draft?.modeTouched ?? false);
@@ -2142,7 +2151,7 @@
                     "command-token",
                     "paste-image",
                   )}
-                  placeholder={m.newtask_prompt_placeholder()}
+                  placeholder={promptPlaceholder}
                   oninput={onPromptInput}
                   onkeydown={onPromptKeydown}
                   onfocus={() => (promptFocused = true)}

@@ -24,8 +24,11 @@ export type BannerState =
   | {
       show: true;
       phase: "in-flight";
-      tone: "calm" | "escalated" | "held";
-      copyKey: "reviewbanner_calm" | "reviewbanner_escalated" | "reviewbanner_held";
+      // "watch": a critic review whose result cannot be pasted here (auto-address off, or the
+      // streak is at its cap) — the banner only reports progress, so nothing to hold or escalate.
+      tone: "calm" | "escalated" | "held" | "watch";
+      copyKey:
+        "reviewbanner_calm" | "reviewbanner_escalated" | "reviewbanner_held" | "reviewbanner_watch";
     }
   | {
       // The operator cancelled the review; sticky until Restart, dismiss, or a new review starts.
@@ -58,35 +61,20 @@ export type BannerState =
     };
 
 /**
- * Whether the critic in-flight banner should show. True iff auto-address is on
- * for the repo AND the streak is under its cap. The cap is only knowable from a
- * verdict (it rides on `addressCap`); with no prior verdict treat the round as 0,
- * which is under any positive cap, so the banner shows. There is no global-cap
+ * Whether a concluding critic review could paste its findings into this session.
+ * True iff auto-address is on for the repo AND the streak is under its cap. The cap
+ * is only knowable from a verdict (it rides on `addressCap`); with no prior verdict
+ * treat the round as 0, which is under any positive cap. There is no global-cap
  * fallback — `prReviewCyclesCap` is a Settings value, not on the repo-config store.
+ * When false the in-flight banner still shows, as the progress-only "watch" tier.
  */
-export function criticInFlightShows(
+export function criticSteerCanLand(
   autoAddressOn: boolean,
   verdict: Pick<ReviewVerdict, "addressRound" | "addressCap"> | undefined,
 ): boolean {
   if (!autoAddressOn) return false;
   if (!verdict) return true; // no prior verdict → round 0 < cap
   return verdict.addressRound < verdict.addressCap;
-}
-
-/**
- * Whether a concluded critic review should flash a conclusion tier. Same gate as
- * the in-flight tier (so auto-address off, or a streak stalled at the cap, stays
- * silent and the "no banner when auto-address off" criterion holds) — EXCEPT a
- * steer that actually landed (`delivered`) is always worth confirming, even on the
- * final round where the streak has just reached the cap. Plan-gate always shows,
- * so this gate is critic-only.
- */
-export function criticConclusionShows(
-  autoAddressOn: boolean,
-  verdict: Pick<ReviewVerdict, "addressRound" | "addressCap"> | undefined,
-  delivered: boolean,
-): boolean {
-  return delivered || criticInFlightShows(autoAddressOn, verdict);
 }
 
 /**
@@ -138,9 +126,9 @@ export interface ReviewBannerInput {
   escalated: boolean;
   /** The operator is holding the in-flight review (wins over `escalated`). */
   held: boolean;
-  /** Critic in-flight gating: auto-address on for the repo. */
+  /** Critic in-flight tone: auto-address on for the repo. */
   autoAddressOn: boolean;
-  /** Critic in-flight gating: latest verdict (for round/cap), if any. */
+  /** Critic in-flight tone: latest verdict (for round/cap), if any. */
   verdict: Pick<ReviewVerdict, "addressRound" | "addressCap"> | undefined;
   /** Conclusion: the resolved decision. */
   decision: ReviewDecision | PlanDecision | undefined;
@@ -236,12 +224,13 @@ export function reviewBannerState(input: ReviewBannerInput): BannerState {
     return CONCLUSION_COPY[outcome];
   }
 
-  // in-flight: critic is gated on auto-address + cap; plan-gate always shows.
-  if (input.kind === "critic" && !criticInFlightShows(input.autoAddressOn, input.verdict)) {
-    return { show: false };
-  }
+  // in-flight: always shows. A held review stays held (so it can be resumed); a critic whose
+  // result cannot land here only reports progress; otherwise warn, louder once the operator typed.
   if (input.held)
     return { show: true, phase: "in-flight", tone: "held", copyKey: "reviewbanner_held" };
+  if (input.kind === "critic" && !criticSteerCanLand(input.autoAddressOn, input.verdict)) {
+    return { show: true, phase: "in-flight", tone: "watch", copyKey: "reviewbanner_watch" };
+  }
   return input.escalated
     ? { show: true, phase: "in-flight", tone: "escalated", copyKey: "reviewbanner_escalated" }
     : { show: true, phase: "in-flight", tone: "calm", copyKey: "reviewbanner_calm" };

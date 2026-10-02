@@ -7,7 +7,6 @@
     activeReworkBannerState,
     reviewBannerState,
     cancelledBannerState,
-    criticConclusionShows,
     type BannerState,
     type ReviewKind,
   } from "$lib/review-banner";
@@ -24,10 +23,11 @@
   import { clock } from "$lib/now.svelte";
   import { environmentLabel } from "$lib/reviewer-env";
 
-  // Non-blocking signal that an in-flight PR-critic / plan-gate review may steer
-  // this session when it concludes (issue #1022). Shown only when a paste could
-  // actually land per current toggles; escalates if the operator types mid-review;
-  // flips to a brief auto-dismissing conclusion tier. The operator can hold the review (its
+  // Non-blocking signal that an in-flight PR-critic / plan-gate review is running and
+  // may steer this session when it concludes (issue #1022). A critic review that cannot
+  // paste here (auto-address off / streak at cap) still shows, as a progress-only tier;
+  // otherwise it escalates if the operator types mid-review. Flips to a brief
+  // auto-dismissing conclusion tier. The operator can hold the review (its
   // result waits for Resume) or cancel it (then Restart), from any in-flight tier.
   let {
     session,
@@ -136,22 +136,6 @@
       ? (verdict as { round: number }).round
       : (verdict as { addressRound: number }).addressRound;
     const delivered = newRound > snapshotRound;
-    // Critic conclusion is gated on the SAME predicate as the in-flight tier: if
-    // auto-address is off (or the streak is stalled at the cap) the banner never
-    // warned in-flight, so it must not flash a conclusion either — unless a steer
-    // actually landed (delivered), which is always worth confirming. Plan-gate
-    // always shows, so no gate there. (issue #1022)
-    if (
-      !isPlan &&
-      !criticConclusionShows(
-        repoConfig.autoAddress[session.repoPath] ?? false,
-        verdict as { addressRound: number; addressCap: number },
-        delivered,
-      )
-    ) {
-      conclusion = null;
-      return;
-    }
     conclusion = reviewBannerState({
       kind,
       phase: "conclusion",
@@ -333,6 +317,8 @@
         return m.reviewbanner_escalated();
       case "reviewbanner_held":
         return m.reviewbanner_held();
+      case "reviewbanner_watch":
+        return m.reviewbanner_watch();
       case "reviewbanner_cancelled":
         return m.reviewbanner_cancelled();
       case "reviewbanner_pasted":
@@ -466,30 +452,33 @@
       </span>
       {#if view.phase === "in-flight"}
         <span class="rb-actions">
-          <button
-            type="button"
-            class="rb-btn"
-            class:primary={view.tone !== "calm"}
-            disabled={pending}
-            onclick={toggleHold}
-            use:coachTarget={"review-hold"}
-            use:statusTip={{
-              text: isHeldView ? reviewResumeExplanation() : reviewHoldExplanation(),
-              stopClickPropagation: false,
-            }}
-          >
-            {#if isHeldView}
-              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                <path
-                  d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5z"
-                />
-              </svg>
-              {m.reviewbanner_resume()}
-            {:else}
-              {@render pauseIcon()}
-              {m.reviewbanner_hold()}
-            {/if}
-          </button>
+          <!-- No Hold on the watch tier: its result is never pasted, so there is nothing to hold. -->
+          {#if view.tone !== "watch"}
+            <button
+              type="button"
+              class="rb-btn"
+              class:primary={view.tone !== "calm"}
+              disabled={pending}
+              onclick={toggleHold}
+              use:coachTarget={"review-hold"}
+              use:statusTip={{
+                text: isHeldView ? reviewResumeExplanation() : reviewHoldExplanation(),
+                stopClickPropagation: false,
+              }}
+            >
+              {#if isHeldView}
+                <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  <path
+                    d="M7 4.5v15a1 1 0 0 0 1.5.86l12.5-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5z"
+                  />
+                </svg>
+                {m.reviewbanner_resume()}
+              {:else}
+                {@render pauseIcon()}
+                {m.reviewbanner_hold()}
+              {/if}
+            </button>
+          {/if}
           <button
             type="button"
             class="rb-btn danger"
@@ -766,9 +755,10 @@
     text-overflow: ellipsis;
     color: var(--color-ink-bright);
   }
-  /* Tone → accent token. Calm = amber (matches the REVIEWING dot); escalated =
+  /* Tone → accent token. Calm/watch = amber (matches the REVIEWING dot); escalated =
      warn; pasted/released = green; nothing/awaiting-go = slate (done); error = red. */
-  .review-banner[data-tone="calm"] {
+  .review-banner[data-tone="calm"],
+  .review-banner[data-tone="watch"] {
     --accent: var(--color-amber);
   }
   .review-banner[data-tone="escalated"] {

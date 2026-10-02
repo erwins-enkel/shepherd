@@ -5135,5 +5135,6 @@
   "recap_verdict_auto_merge": "Kein Handlungsbedarf · Shepherd merged automatisch",
   "feat_auto_merge_strip_title": "Sehen, worauf Voll-Auto-Merge wartet",
   "feat_auto_merge_strip_body": "Merged ein Repo selbst, sagt es dir das Terminal: Ein Streifen nennt, worauf der PR noch wartet, etwa ein Kritiker-Urteil zum letzten Commit oder grüne CI, und das Terminal wird gedimmt, solange Shepherd die Sache in der Hand hat. Ein laufender Kritiker zeigt jetzt auch, wie lange er schon läuft und wann seine Frist endet.",
-  "reviewbanner_run_clock": "{elapsed} von {timeout} Min."
+  "reviewbanner_run_clock": "{elapsed} von {timeout} Min.",
+  "automergebanner_protection_blocked": "der Branch-Schutz blockiert den Merge, etwa eine nötige Freigabe. Gib frei oder merge selbst"
 }

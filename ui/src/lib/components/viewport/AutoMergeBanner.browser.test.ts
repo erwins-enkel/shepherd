@@ -87,6 +87,13 @@ describe("AutoMergeBanner", () => {
     expect(h.owned()).toBe(false);
   });
 
+  it("branch protection on a green PR: amber operator strip, no dimming", async () => {
+    const h = mount("protection_blocked");
+    await expect.poll(() => banner()?.dataset.owner).toBe("operator");
+    expect(banner()!.textContent).toContain(m.automergebanner_protection_blocked());
+    expect(h.owned()).toBe(false);
+  });
+
   it("yields the bottom strip to the review / CI banner but still dims", async () => {
     const h = mount("checks_pending", { stripTaken: true });
     await expect.poll(() => h.owned()).toBe(true);

@@ -958,6 +958,7 @@ export type MergeWaitCode =
   | "checks_pending"
   | "checks_failed"
   | "not_mergeable"
+  | "protection_blocked"
   | "behind"
   | "rebase_cap"
   | "signoff"

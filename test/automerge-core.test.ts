@@ -685,9 +685,14 @@ test("mergeWaitReason: definite conflict outranks red CI", () => {
   expect(wait({ checks: "none", mergeable: false, mergeStateStatus: "dirty" })).toBe("conflict");
 });
 
-test("mergeWaitReason: forge not mergeable / branch protection blocked", () => {
+test("mergeWaitReason: forge still computing → not_mergeable", () => {
   expect(wait({ mergeable: null })).toBe("not_mergeable");
-  expect(wait({ mergeStateStatus: "blocked" })).toBe("not_mergeable");
+});
+
+test("mergeWaitReason: branch protection blocking a green PR → protection_blocked", () => {
+  expect(wait({ mergeStateStatus: "blocked" })).toBe("protection_blocked");
+  // red CI is reported as CI, not as protection
+  expect(wait({ mergeStateStatus: "blocked", checks: "pending" })).toBe("checks_pending");
 });
 
 test("mergeWaitReason: behind base", () => {

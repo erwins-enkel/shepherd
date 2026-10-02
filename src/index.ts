@@ -100,7 +100,6 @@ import { readMembraneLaunchFacts } from "./membrane-launch";
 import { TelemetryService, normalizeTelemetryHealth } from "./telemetry";
 import { normalizeTelemetryConsent } from "./telemetry-consent";
 import { wirePrOpenedTelemetry } from "./pr-opened-telemetry";
-import { wireCodexPrFlag } from "./codex-pr-flag";
 import { StarPromptService } from "./star-prompt";
 import {
   PushService,
@@ -1596,10 +1595,6 @@ onSessionGit(({ id, git }) => {
 // Anonymous product telemetry: emit `pr_opened` the first time a session's tracked PR
 // transitions to open (see src/pr-opened-telemetry.ts for the transition/dedup design).
 wirePrOpenedTelemetry({ events, store, telemetry });
-
-// Flag Codex-authored session PRs with the `codex-authored` label (server-side off
-// `agentProvider`, the only reliable signal — see src/codex-pr-flag.ts).
-wireCodexPrFlag({ events, store, resolveForge });
 
 // Drive tailscale serve mappings: register when a preview port binds, unregister
 // on teardown. Listens on session:preview (NOT session:preview-serve to avoid

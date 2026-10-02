@@ -58,8 +58,14 @@
       : m.backlog_tab_issues(),
   );
 
-  // The row shows one number (open issues); the PR count and the bot PRs live in the
-  // row's tooltip. Opens to the right so it never covers — and swallows the hover of —
+  const prsLabel = $derived(
+    project.openPRs != null
+      ? m.backlog_tab_prs_count({ count: project.openPRs })
+      : m.backlog_tab_prs(),
+  );
+
+  // The row shows open issues · code PRs plus bot-PR notes; the tooltip spells them
+  // out. Opens to the right so it never covers — and swallows the hover of —
   // the next row, and a click only selects (no pinned tip over the detail pane).
   const tip = $derived.by((): StatusTipParams => {
     const sections: { label: string; text: string }[] = [];
@@ -121,7 +127,43 @@
       </span>
     {/if}
   </div>
-  <span class="row-count" aria-label={issuesLabel}>{project.openIssues ?? "—"}</span>
+  <div class="row-counts">
+    <span class="count-item" aria-label={issuesLabel}>{project.openIssues ?? "—"}</span>
+    <span class="sep" aria-hidden="true">·</span>
+    {#if project.prKinds}
+      <span
+        class="count-item count-prs"
+        class:prom={project.prKinds.regular > 0}
+        aria-label={m.backlog_code_prs_count({ count: project.prKinds.regular })}
+      >
+        {project.prKinds.regular}
+      </span>
+      {#if project.prKinds.dependabot > 0}
+        <span
+          class="bot-note"
+          aria-label={m.prkind_dependabot_title({ count: project.prKinds.dependabot })}
+        >
+          {m.prkind_dependabot_badge({ count: project.prKinds.dependabot })}
+        </span>
+      {/if}
+      {#if project.prKinds.release > 0}
+        <span
+          class="bot-note"
+          aria-label={m.prkind_release_title({ count: project.prKinds.release })}
+        >
+          {m.prkind_release_badge({ count: project.prKinds.release })}
+        </span>
+      {/if}
+    {:else}
+      <span
+        class="count-item count-prs"
+        class:prom={(project.openPRs ?? 0) > 0}
+        aria-label={prsLabel}
+      >
+        {project.openPRs ?? "—"}
+      </span>
+    {/if}
+  </div>
   <button
     class="row-hide"
     type="button"
@@ -285,11 +327,27 @@
     vertical-align: -0.125em;
   }
 
-  .row-count {
+  .row-counts {
+    display: flex;
+    align-items: center;
+    gap: 4px;
     flex-shrink: 0;
     font-size: var(--fs-meta);
     color: var(--color-muted);
     letter-spacing: 0.04em;
     font-variant-numeric: tabular-nums;
+  }
+
+  .sep {
+    color: var(--color-faint);
+  }
+
+  .count-prs.prom {
+    color: var(--color-ink-bright);
+    font-weight: 500;
+  }
+
+  .bot-note {
+    font-size: var(--fs-micro);
   }
 </style>

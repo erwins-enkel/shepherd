@@ -96,6 +96,38 @@ final class IOSDictationTests: XCTestCase {
         let result = await finalizer.finalize(recording, locale: "en-US")
         XCTAssertEqual(result.text, "Whisper")
     }
+    /// Activating the record session posts route changes (category change, override,
+    /// route configuration) and the engine posts a configuration change. Those are
+    /// side effects of starting capture, not interruptions, and must not end the hold.
+    func testSessionSideEffectsDoNotInterruptCapture() async throws {
+        let pair = AsyncStream<AudioCapture.Event>.makeStream()
+        let recoveries = AsyncStream<Void>.makeStream()
+        func post(_ name: Notification.Name, _ info: [AnyHashable: Any]) {
+            AudioCapture.interruptionCallback(name: name, continuation: pair.continuation,
+                                              recover: { recoveries.continuation.yield(()) })(
+                Notification(name: name, object: nil, userInfo: info))
+        }
+        let reasons: [AVAudioSession.RouteChangeReason] = [.categoryChange, .override, .routeConfigurationChange,
+            .newDeviceAvailable, .oldDeviceUnavailable, .wakeFromSleep, .noSuitableRouteForCategory, .unknown]
+        for reason in reasons {
+            post(AVAudioSession.routeChangeNotification, [AVAudioSessionRouteChangeReasonKey: reason.rawValue])
+        }
+        post(.AVAudioEngineConfigurationChange, [:])
+        post(AVAudioSession.interruptionNotification,
+             [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.ended.rawValue])
+        // A real interruption (call, Siri, another app taking the mic) still stops capture.
+        post(AVAudioSession.interruptionNotification,
+             [AVAudioSessionInterruptionTypeKey: AVAudioSession.InterruptionType.began.rawValue])
+        pair.continuation.finish()
+        var interruptions = 0
+        for await event in pair.stream { if case .interrupted = event { interruptions += 1 } }
+        XCTAssertEqual(interruptions, 1)
+        // The engine stops itself on a configuration change; capture restarts instead.
+        recoveries.continuation.finish()
+        var restarts = 0
+        for await _ in recoveries.stream { restarts += 1 }
+        XCTAssertEqual(restarts, 1)
+    }
     func testAudioTapAndAuthorizationCallbacksRunOffMainActor() async throws {
         let pair = AsyncStream<AudioCapture.Event>.makeStream()
         let tap: @Sendable (AVAudioPCMBuffer, AVAudioTime) -> Void = AudioCapture.tapCallback(pair.continuation)

@@ -3,10 +3,13 @@
   import { m } from "$lib/paraglide/messages";
   import { ACTIVE_LABEL } from "./issues-panel";
 
+  // all: every label, wrapping — for rows that give labels their own line (Up Next); the
+  // default caps at two plus a "+N" so a one-line row keeps its title.
   let {
     labels,
     labelColors = undefined,
-  }: { labels: string[]; labelColors?: Record<string, string> } = $props();
+    all = false,
+  }: { labels: string[]; labelColors?: Record<string, string>; all?: boolean } = $props();
 
   // Claimed work is the one semantic label Shepherd owns. Keep it first so it
   // survives the responsive cap; forge labels retain their source order.
@@ -21,12 +24,12 @@
 </script>
 
 {#if ordered.length > 0}
-  <span class="issue-labels">
-    {#each ordered.slice(0, 2) as label, index (label)}
+  <span class="issue-labels" class:all>
+    {#each all ? ordered : ordered.slice(0, 2) as label, index (label)}
       {@const style = chipStyle(label)}
       <span
         class="issue-label-chip"
-        class:issue-label-second={index === 1}
+        class:issue-label-second={index === 1 && !all}
         class:active={label === ACTIVE_LABEL}
         class:hued={style !== null}
         {style}
@@ -34,12 +37,12 @@
         >{label}</span
       >
     {/each}
-    {#if ordered.length > 2}
+    {#if !all && ordered.length > 2}
       <span class="issue-label-chip issue-label-more more-wide" title={ordered.slice(2).join(", ")}
         >{m.issuechips_more({ count: ordered.length - 2 })}</span
       >
     {/if}
-    {#if ordered.length > 1}
+    {#if !all && ordered.length > 1}
       <span
         class="issue-label-chip issue-label-more more-narrow"
         title={ordered.slice(1).join(", ")}>{m.issuechips_more({ count: ordered.length - 1 })}</span
@@ -55,6 +58,13 @@
     gap: 3px;
     min-width: 0;
     flex: 0 1 auto;
+  }
+
+  .issue-labels.all {
+    flex-wrap: wrap;
+  }
+  .issue-labels.all .issue-label-chip {
+    max-width: 100%;
   }
 
   .issue-label-chip {

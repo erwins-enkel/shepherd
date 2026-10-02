@@ -2395,7 +2395,6 @@
   "upnext_empty": "You're all caught up — nothing queued to start.",
   "upnext_repo_filter_empty": "Nothing queued to start for {repo}.",
   "upnext_open_backlog": "Open the Backlog",
-  "upnext_main_hint": "Up Next is shown in the herd panel on the left.",
   "upnext_priority_section": "Priority",
   "upnext_normal_section": "Queued",
   "upnext_unlabeled_section": "No label",
@@ -4923,5 +4922,14 @@
   "native_ios_actions_revision": "Revision",
   "native_ios_actions_server_default": "Server default",
   "native_ios_plan_open_hint": "Opens the plan and its questions.",
-  "native_ios_plan_readonly": "Plan actions are unavailable while this view is read-only, offline or inactive."
+  "native_ios_plan_readonly": "Plan actions are unavailable while this view is read-only, offline or inactive.",
+  "upnext_preview_aria": "Issue preview",
+  "upnext_preview_title": "Preview",
+  "upnext_preview_position": "{index} of {total}",
+  "upnext_preview_prev": "Previous issue",
+  "upnext_preview_next": "Next issue",
+  "upnext_preview_select": "Select for batch start",
+  "upnext_preview_empty": "Click a title on the left to read it here",
+  "feat_upnext_preview_title": "Up Next: read an issue before you start it",
+  "feat_upnext_preview_body": "Click a title in Up Next to read the issue on the right — labels, description and a Start button, no detour to GitHub. Every row now shows all its labels, band headings fold away with a click, and the start bar stays on screen while you scroll."
 }

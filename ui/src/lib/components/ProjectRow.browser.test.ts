@@ -90,9 +90,10 @@ describe("ProjectRow compact counts", () => {
       onhide: () => {},
     });
     const row = document.body.querySelector<HTMLElement>(".project-row")!;
-    // A sidebar-width row away from the test cursor (parked at the viewport origin),
-    // which would otherwise re-enter the row and reopen the tip after the leave.
-    row.style.cssText += "position:absolute;left:40px;top:120px;width:200px";
+    // A sidebar-width row outside the viewport, so no real cursor can be over it: the shared
+    // browser page keeps whatever pointer position an earlier test file left, and a cursor
+    // over the row would re-enter it and reopen the tip after the leave.
+    row.style.cssText += "position:fixed;left:-1000px;top:120px;width:200px";
     row.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
     const panel = document.querySelector<HTMLElement>(".status-tip")!;
     expect(panel.matches(":popover-open")).toBe(true);

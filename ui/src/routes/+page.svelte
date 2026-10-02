@@ -128,6 +128,7 @@
   } from "$lib/components/merge-train";
   import Viewport from "$lib/components/Viewport.svelte";
   import DoneRecapPanel from "$lib/components/DoneRecapPanel.svelte";
+  import UpNextPreview from "$lib/components/UpNextPreview.svelte";
   import type { KickoffChoice } from "$lib/components/NewProject.svelte";
   import ActionBar from "$lib/components/ActionBar.svelte";
   import ReposSheet from "$lib/components/ReposSheet.svelte";
@@ -1443,10 +1444,9 @@
   let owedFocusSnapshot = $state<OwedFocusSnapshot | null>(null);
   let owedFocusNonce = $state(0);
   let owedFocusHandledNonce = $state(0);
-  // Panel-only lenses (owed, #1061 + up next): the rail swaps in a dedicated panel and the main
-  // area shows a neutral pointer. One derived keeps the template's branch count flat as lenses grow.
+  // Panel-only lenses (owed, #1061 + up next): the rail swaps in a dedicated panel. The main
+  // area shows Up Next's issue preview, or a neutral pointer for Owed.
   const panelOnlyLens = $derived(herdFilter === "owed" || herdFilter === "next");
-  const panelMainHint = $derived(herdFilter === "next" ? m.upnext_main_hint() : m.owed_main_hint());
 
   // Done lens: separate selection state. selectedId resolves against store.sessions
   // (the live list), which has EVICTED archived sessions — so reusing it for a done
@@ -3229,10 +3229,13 @@
             ></div>
           </div>
         {/if}
-        {#if panelOnlyLens}
-          <!-- Owed + Up Next lenses render their panel inside the rail (left); the main area
-               shows a neutral pointer (panelMainHint) so the right pane never reads as empty. -->
-          <div class="empty">{panelMainHint}</div>
+        {#if herdFilter === "next"}
+          <!-- Up Next lens: the rail lists the queue; a clicked title reads here. -->
+          <UpNextPreview launchContext={upNextLaunch} />
+        {:else if panelOnlyLens}
+          <!-- Owed lens renders its panel inside the rail (left); the main area shows a neutral
+               pointer so the right pane never reads as empty. -->
+          <div class="empty">{m.owed_main_hint()}</div>
         {:else if herdFilter === "done"}
           <!-- Done lens: read-only recap for the picked archived session -->
           {#if doneSelected}

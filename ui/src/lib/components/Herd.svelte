@@ -685,7 +685,7 @@
   <div class="units" class:flow>
     {#if filter === "next"}
       <!-- Up Next lens (#1169): cross-repo ranked queue of un-started work, no session list. -->
-      <UpNextPanel {onbacklog} {repoFilter} {filteredRepo} launchContext={upNextLaunch} />
+      <UpNextPanel {onbacklog} {repoFilter} {filteredRepo} launchContext={upNextLaunch} {flow} />
     {:else if filter === "owed"}
       <!-- Owed lens: durable post-merge manual steps still owed, across merged sessions (#1061).
          Panel-only (no session list), persists beyond the Done lens's 48h window. -->

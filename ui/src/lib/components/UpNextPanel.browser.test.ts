@@ -11,6 +11,7 @@ import type {
 } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import { upNext } from "$lib/up-next.svelte";
+import { upNextUi } from "$lib/up-next-ui.svelte";
 import { expectMinPx } from "$lib/test-support/geometry";
 import { getUpNext, startUpNext } from "$lib/api";
 
@@ -181,6 +182,8 @@ const pickSort = async (name: string) => {
 let fontStyle: HTMLStyleElement;
 beforeEach(() => {
   localStorage.removeItem("shepherd.upnext.sort");
+  localStorage.removeItem("shepherd.upnext.collapsed");
+  upNextUi.reset();
   upNext.snapshot = SNAPSHOT;
   fontStyle = document.createElement("style");
   fontStyle.textContent = `:root {
@@ -194,7 +197,9 @@ beforeEach(() => {
 afterEach(async () => {
   upNext.snapshot = null;
   upNext.loadError = false;
+  upNextUi.reset();
   localStorage.removeItem("shepherd.upnext.sort");
+  localStorage.removeItem("shepherd.upnext.collapsed");
   vi.clearAllMocks();
   fontStyle.remove();
   await page.viewport(1024, 768);
@@ -277,18 +282,20 @@ describe("UpNextPanel label bands", () => {
     expect(rowNumbers()).toEqual(["#1", "#4", "#2", "#5", "#3"]);
   });
 
-  it("drops the band's own label from a row and lists the rest beneath the title", async () => {
+  it("shows every label of a row as a chip beneath the title, its band's label included", async () => {
     upNext.snapshot = bandSnapshot();
     render(UpNextPanel, {});
     await expect.element(page.getByText("#4")).toBeInTheDocument();
-    const rowOf = (n: number) =>
-      Array.from(document.querySelectorAll<HTMLElement>(".un-row")).find(
-        (row) => row.querySelector(".un-num")?.textContent === `#${n}`,
-      )!;
-    expect(rowOf(4).querySelector(".un-sub")?.textContent?.trim()).toBe("enhancement");
-    expect(rowOf(5).querySelector(".un-sub")).toBeNull();
-    // The priority band names no label, so the row keeps all of its own.
-    expect(rowOf(1).querySelector(".un-sub")?.textContent?.trim()).toBe("enhancement");
+    const chipsOf = (n: number) =>
+      Array.from(
+        Array.from(document.querySelectorAll<HTMLElement>(".un-row"))
+          .find((row) => row.querySelector(".un-num")?.textContent === `#${n}`)!
+          .querySelectorAll(".issue-label-chip"),
+      ).map((el) => el.textContent?.trim());
+    expect(chipsOf(4)).toEqual(["enhancement", "bug"]);
+    expect(chipsOf(5)).toEqual(["enhancement"]);
+    expect(chipsOf(1)).toEqual(["enhancement"]);
+    expect(chipsOf(3)).toEqual([]);
   });
 
   it("has no per-row Start: a ticked row starts from the batch bar", async () => {
@@ -736,5 +743,78 @@ describe("UpNextPanel load failure", () => {
     render(UpNextPanel, {});
     await expect.element(page.getByText("#2")).toBeInTheDocument();
     await expect.element(page.getByText(m.common_issues_load_failed())).not.toBeInTheDocument();
+  });
+});
+
+describe("UpNextPanel preview and folding", () => {
+  const rowTitle = (n: number) =>
+    Array.from(document.querySelectorAll<HTMLElement>(".un-row"))
+      .find((row) => row.querySelector(".un-num")?.textContent === `#${n}`)!
+      .querySelector<HTMLButtonElement>(".un-link")!;
+  const bandHead = (title: string) =>
+    Array.from(document.querySelectorAll<HTMLButtonElement>(".un-section-head")).find(
+      (el) => el.querySelector(".un-section-title")?.textContent === title,
+    )!;
+
+  it("opens a clicked title in the preview instead of linking to the forge", async () => {
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#2")).toBeInTheDocument();
+    const title = rowTitle(2);
+    expect(title.tagName).toBe("BUTTON");
+    title.click();
+    expect(upNextUi.previewKey).toBe("~/projects/homeassistant#2");
+    await expect.poll(() => rowTitle(2).getAttribute("aria-current")).toBe("true");
+    expect(upNextUi.order).toContain("~/projects/homeassistant#2");
+  });
+
+  it("swaps the preview in for the list on the phone (flow) and back", async () => {
+    render(UpNextPanel, { flow: true });
+    await expect.element(page.getByText("#2")).toBeInTheDocument();
+    rowTitle(2).click();
+    await expect.element(page.getByRole("region", { name: m.upnext_preview_aria() })).toBeVisible();
+    expect(document.querySelector(".un-row")).toBeNull();
+    await page.getByRole("button", { name: `← ${m.issuedetail_back()}` }).click();
+    await expect.poll(() => document.querySelector(".un-row")).toBeTruthy();
+    expect(upNextUi.previewKey).toBeNull();
+  });
+
+  it("folds a band from its heading, remembers it, and counts ticked rows it hides", async () => {
+    const { unmount } = await render(UpNextPanel, {});
+    await expect.element(page.getByText("#1")).toBeInTheDocument();
+    const priority = m.upnext_priority_section();
+    expect(bandHead(priority).getAttribute("aria-expanded")).toBe("true");
+    document.querySelector<HTMLInputElement>(".un-check input")!.click(); // ticks #1 (priority)
+    bandHead(priority).click();
+    await expect.poll(() => bandHead(priority).getAttribute("aria-expanded")).toBe("false");
+    expect(rowNumbers()).not.toContain("#1");
+    expect(bandHead(priority).querySelector(".un-section-hidden")?.textContent).toBe(
+      m.upnext_selected_count({ count: 1 }),
+    );
+    // The batch bar still offers the hidden tick.
+    await expect
+      .element(page.getByRole("button", { name: m.upnext_start_selected({ count: 1 }) }))
+      .toBeVisible();
+
+    unmount();
+    render(UpNextPanel, {});
+    await expect.poll(() => document.querySelector(".un-section-head")).toBeTruthy();
+    expect(bandHead(priority).getAttribute("aria-expanded")).toBe("false");
+    bandHead(priority).click();
+    await expect.poll(() => rowNumbers()).toContain("#1");
+  });
+
+  it("keeps the batch bar on screen in a list taller than its scroll container", async () => {
+    // Stand-in for the Herd's .units scroller.
+    const { container } = await render(UpNextPanel, {});
+    container.style.height = "160px";
+    container.style.overflow = "auto";
+    await expect.element(page.getByText("#6")).toBeInTheDocument();
+    document.querySelector<HTMLInputElement>(".un-check input")!.click();
+    await expect.poll(() => document.querySelector(".un-batch")).toBeTruthy();
+    expect(container.scrollHeight).toBeGreaterThan(container.clientHeight);
+    const bar = document.querySelector<HTMLElement>(".un-batch")!.getBoundingClientRect();
+    const box = container.getBoundingClientRect();
+    expect(bar.bottom).toBeLessThanOrEqual(box.bottom + 1);
+    expect(bar.top).toBeGreaterThanOrEqual(box.top);
   });
 });

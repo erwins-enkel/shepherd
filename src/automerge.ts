@@ -128,12 +128,17 @@ export class AutoMergeService {
     return isFullAuto(s, this.deps.store.getRepoConfig(s.repoPath));
   }
 
-  /** Whether the repo has any non-archived full-auto session — the real gate for the train
-   *  (a per-session override enables it even when the repo flag defaults off). */
-  private repoHasFullAuto(repoPath: string): boolean {
-    return this.deps.store
-      .list()
-      .some((s) => s.repoPath === repoPath && s.status !== "archived" && this.fullAuto(s));
+  /** Repos with any non-archived full-auto session — the real gate for the train (a per-session
+   *  override enables it even when the repo flag defaults off). One table read serves a whole
+   *  loop over `repos()`: a repoRoot can hold hundreds of repos, and a read per repo blocked the
+   *  event loop for seconds on every snapshot and tick. */
+  private fullAutoRepos(): Set<string> {
+    return new Set(
+      this.deps.store
+        .list()
+        .filter((s) => s.status !== "archived" && this.fullAuto(s))
+        .map((s) => s.repoPath),
+    );
   }
 
   /** True when a session's merge is currently backed off: CAP failures on the current head,
@@ -459,22 +464,24 @@ export class AutoMergeService {
   private async pumpForSession(id: string): Promise<void> {
     const s = this.deps.store.get(id);
     if (!s) return;
-    if (!this.repoHasFullAuto(s.repoPath)) return;
+    if (!this.fullAutoRepos().has(s.repoPath)) return;
     await this.pump(s.repoPath);
   }
 
   /** Periodic sweep (~30s): catch stale branches after sibling merges + resumed sessions. */
   async tick(): Promise<void> {
+    const fullAuto = this.fullAutoRepos();
     for (const repoPath of this.deps.repos()) {
-      if (this.repoHasFullAuto(repoPath)) await this.pump(repoPath);
+      if (fullAuto.has(repoPath)) await this.pump(repoPath);
     }
   }
 
   /** Client bootstrap: a status per full-auto-active repo, no side effects. */
   async snapshot(): Promise<AutoMergeStatus[]> {
     const out: AutoMergeStatus[] = [];
+    const fullAuto = this.fullAutoRepos();
     for (const repoPath of this.deps.repos()) {
-      if (!this.repoHasFullAuto(repoPath)) continue;
+      if (!fullAuto.has(repoPath)) continue;
       const d = computeMerge(await this.buildState(repoPath));
       const reason = d.kind === "hold" ? (d.reason.code === "idle" ? null : d.reason.code) : d.kind;
       const detail = d.kind === "hold" ? (d.reason.detail ?? null) : null;

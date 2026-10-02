@@ -1,4 +1,4 @@
-import { test, expect, mock } from "bun:test";
+import { test, expect, mock, spyOn } from "bun:test";
 import { AutoMergeService, type AutoMergeDeps } from "../src/automerge";
 import { MergeEnqueuedError, StackedMergeRefusedError } from "../src/forge/types";
 
@@ -980,4 +980,21 @@ test("Codex capacity: automatic rebase waits without consuming attempt budget", 
   free = true;
   await svc.pump("/r");
   expect(d.service.reply).toHaveBeenCalledTimes(1);
+});
+
+test("snapshot and tick read the sessions table once, not once per repo", async () => {
+  // A repoRoot with hundreds of repos made every GET /api/automerge and every 30s tick
+  // re-read and re-hydrate the whole table per repo — seconds of blocked event loop.
+  const reads = async (repos: string[]) => {
+    const d = deps({ repos: () => repos });
+    const list = spyOn(d.store, "list");
+    const svc = new AutoMergeService(d);
+    expect((await svc.snapshot()).map((s) => s.repoPath)).toEqual(["/r"]);
+    const snapshot = list.mock.calls.length;
+    list.mockClear();
+    await svc.tick();
+    return { snapshot, tick: list.mock.calls.length };
+  };
+  const idle = Array.from({ length: 50 }, (_, i) => `/idle-${i}`);
+  expect(await reads(["/r", ...idle])).toEqual(await reads(["/r"]));
 });

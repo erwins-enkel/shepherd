@@ -170,6 +170,7 @@ function makeHarness(
     // Epic support
     listSubIssuesImpl?: (parentNumber: number) => Promise<SubIssueRef[]>;
     listBlockedByImpl?: (issueNumber: number) => Promise<number[]>;
+    repos?: string[];
   } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
@@ -300,7 +301,7 @@ function makeHarness(
     resolveForge: () => forge,
     prCache: { snapshot: () => prCache },
     usage,
-    repos: () => [REPO],
+    repos: () => opts.repos ?? [REPO],
     emitStatus: (s) => statuses.push(s),
     emitArchived: (id) => {
       harness.archived.push(id);
@@ -1667,6 +1668,16 @@ describe("drain epic mode", () => {
     const h2 = makeHarness({ autoDrainEnabled: false });
     seedAuto(h2, 6);
     expect(await h2.drain.snapshot()).toEqual([]);
+  });
+
+  test("snapshot reads the sessions table once, not once per repo", async () => {
+    // A repoRoot with hundreds of drain-off repos made every GET /api/drain re-read and
+    // re-hydrate the whole table per repo — seconds of blocked event loop per request.
+    const repos = [REPO, ...Array.from({ length: 50 }, (_, i) => `/idle-${i}`)];
+    const h = makeHarness({ autoDrainEnabled: false, repos });
+    const list = spyOn(h.store, "list");
+    expect(await h.drain.snapshot()).toEqual([]);
+    expect(list.mock.calls.length).toBeLessThanOrEqual(1);
   });
 
   test("emitEpic fires once per change, not once per pump iteration", async () => {

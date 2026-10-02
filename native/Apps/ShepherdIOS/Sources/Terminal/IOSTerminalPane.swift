@@ -9,6 +9,8 @@ struct IOSTerminalPane<Surface: View>: View {
     let surface: Surface
     @Binding var fontSize: Double
     var rendersStaticFixture = false
+    /// Saved steers above the reply draft; nil in fixtures and read-only launches.
+    var steerChips: AnyView? = nil
     @Environment(\.scenePhase) private var scenePhase
     @State private var connecting = ConnectingOverlayDebouncer()
     @State private var fontSettings = false
@@ -42,6 +44,7 @@ struct IOSTerminalPane<Surface: View>: View {
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
             if allowsInput && model.showsReplyBar {
                 Rectangle().fill(IOSTerminalStyle.line).frame(height: 1)
+                if let steerChips { steerChips }
                 IOSTerminalReplyBar(model: model, rendersStaticFixture: rendersStaticFixture)
                 IOSTerminalInputBar(model: model)
             }

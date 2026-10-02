@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import ShepherdAppCore
 import ShepherdKit
 
@@ -8,7 +9,10 @@ struct SessionDetailView: View {
     let terminal: IOSTerminalPresentation
     @AppStorage private var fontSize: Double
     @Environment(AppModel.self) private var app
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var latency: IOSLatencyMonitor?
+    @State private var steers = IOSSteerLibrary()
+    @State private var gesture = IOSSteerGestureState()
 
     init(session: Session, model: DetailModel, terminal: IOSTerminalPresentation, defaults: UserDefaults) {
         self.session = session
@@ -18,22 +22,126 @@ struct SessionDetailView: View {
     }
 
     var body: some View {
+        ZStack {
+            swipeReveal
+            detailContent
+                .safeAreaInset(edge: .bottom, spacing: 0) { IOSSessionActionBar(session: session) }
+                .offset(x: gesture.swipe.offset)
+            if gesture.steersOpen { steerPanel }
+        }
+        .onAppear { configureGesture() }
+        .onChange(of: sizeClass) { _, _ in configureGesture() }
+        .task(id: session.id) {
+            guard let client = app.store?.client else { latency = nil; return }
+            let monitor = IOSLatencyMonitor.make(client: client, terminal: terminal, sessionID: session.id)
+            latency = monitor
+            await monitor.run()
+        }
+        .task(id: app.activationGeneration) {
+            guard let client = app.store?.client, app.allowsTerminalInput else { return }
+            await steers.load(steers: { try await client.steers() }, repos: {
+                Dictionary(try await client.repos().repos.map { ($0.path, $0.name) }, uniquingKeysWith: { first, _ in first })
+            })
+        }
+    }
+
+    private var detailContent: some View {
         IOSSessionDetailContent(session: session, model: model, terminal: terminal,
             allowsInput: app.allowsTerminalInput, fontSize: $fontSize,
-            surface: IOSTerminalHostView(model: terminal, fontSize: fontSize),
+            surface: terminalSurface,
             planSurface: planSurface,
             planEntryLabel: planEntryLabel,
-            planInitialEntry: app.extension(IOSPlanController.self)?.entrySessionID == session.id
-                && app.extension(IOSPlanController.self)?.entryOpensPlan == true,
+            planInitialEntry: planInitialEntry,
             planOpenTick: app.extension(PlanModel.self)?.openPlanTick[session.id] ?? 0,
-            latency: latency)
-            .safeAreaInset(edge: .bottom, spacing: 0) { IOSSessionActionBar(session: session) }
-            .task(id: session.id) {
-                guard let client = app.store?.client else { latency = nil; return }
-                let monitor = IOSLatencyMonitor.make(client: client, terminal: terminal, sessionID: session.id)
-                latency = monitor
-                await monitor.run()
+            latency: latency,
+            steerChips: steerChips)
+    }
+
+    private var terminalSurface: IOSTerminalHostView {
+        let gesture = gesture
+        guard !gesture.steersOpen else { return IOSTerminalHostView(model: terminal, fontSize: fontSize) }
+        return IOSTerminalHostView(model: terminal, fontSize: fontSize,
+            onHorizontalPan: { @MainActor pan in gesture.handle(pan) })
+    }
+
+    private var planInitialEntry: Bool {
+        let controller = app.extension(IOSPlanController.self)
+        return controller?.entrySessionID == session.id && controller?.entryOpensPlan == true
+    }
+
+    private var steerChips: AnyView? {
+        guard app.allowsTerminalInput else { return nil }
+        let chips = IOSSteerChips(steers: steers.barSteers(for: session), terminal: terminal,
+            openAll: { gesture.setSteersOpen(true) })
+        return AnyView(chips)
+    }
+
+    // MARK: - Swipe: right to the overview, left to the steers
+
+    /// Right goes back only where there is a list to go back to (compact width).
+    private func configureGesture() {
+        gesture.allowsBack = sizeClass != .regular
+        gesture.allowsSteers = app.allowsTerminalInput
+        gesture.back = { [app] in app.selectedSessionID = nil }
+    }
+
+    @ViewBuilder private var swipeReveal: some View {
+        if gesture.swipe.offset != 0 {
+            let left = gesture.swipe.offset < 0
+            HStack {
+                if left { Spacer() }
+                VStack(spacing: 8) {
+                    Image(systemName: left ? "slider.horizontal.3" : "list.bullet")
+                        .font(.title2)
+                        .frame(width: 52, height: 52)
+                        .background(gesture.swipe.armed ? ComposePalette.amber : ComposePalette.panel2, in: Circle())
+                        .foregroundStyle(gesture.swipe.armed ? ComposePalette.bg : ComposePalette.ink)
+                    Text(L.t(left ? "native_ios_steers_title" : "native_ios_steers_overview"))
+                        .font(.system(.callout).weight(.semibold))
+                        .foregroundStyle(gesture.swipe.armed ? ComposePalette.amber : ComposePalette.ink)
+                    if gesture.swipe.armed {
+                        Text(L.t(left ? "native_ios_steers_release_open" : "native_ios_steers_release_back"))
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(ComposePalette.muted)
+                            .multilineTextAlignment(.center)
+                    }
+                }
+                .frame(width: max(96, abs(gesture.swipe.offset)))
+                if !left { Spacer() }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(ComposePalette.panel)
+            .accessibilityHidden(true)
+        }
+    }
+
+    private var steerPanel: some View {
+        ZStack(alignment: .trailing) {
+            Color.black.opacity(0.45).ignoresSafeArea()
+                .onTapGesture { gesture.setSteersOpen(false) }
+                .accessibilityHidden(true)
+                .transition(.opacity)
+            IOSSteerPanel(session: session, steers: steers.barSteers(for: session), loadError: steers.loadError,
+                terminal: terminal, endSession: endSession, close: { gesture.setSteersOpen(false) })
+                .containerRelativeFrame(.horizontal) { width, _ in min(width * 0.86, 420) }
+                .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { value in
+                    if value.translation.width > 80, abs(value.translation.width) > abs(value.translation.height) {
+                        gesture.setSteersOpen(false)
+                    }
+                })
+                .transition(.move(edge: .trailing))
+        }
+    }
+
+    /// Archive is the server's "end session": the agent stops, the row is kept.
+    private var endSession: (@MainActor () async throws -> Void)? {
+        guard let store = app.store, app.allowsTerminalInput, app.liveRequestAudit == nil,
+              session.status.known != .archived else { return nil }
+        let id = session.id
+        return { [app] in
+            try await store.archive(id: id)
+            app.selectedSessionID = nil
+        }
     }
 
     private var planSurface: AnyView? {
@@ -76,6 +184,7 @@ struct IOSSessionDetailContent<Surface: View>: View {
     var planInitialEntry = false
     var planOpenTick = 0
     var latency: IOSLatencyMonitor? = nil
+    var steerChips: AnyView? = nil
     @State private var planNavigation = IOSPlanNavigation()
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -109,7 +218,7 @@ struct IOSSessionDetailContent<Surface: View>: View {
             switch tab {
             case .terminal:
                 IOSTerminalPane(model: terminal, allowsInput: allowsInput, surface: surface, fontSize: $fontSize,
-                    rendersStaticFixture: !selectableText)
+                    rendersStaticFixture: !selectableText, steerChips: steerChips)
             case .activity:
                 List { ActivityView(session: session, model: model).listRowBackground(IOSTerminalStyle.panel) }
                     .listStyle(.plain).scrollContentBackground(.hidden)

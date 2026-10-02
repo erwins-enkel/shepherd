@@ -1,0 +1,57 @@
+import Foundation
+import Observation
+import ShepherdAppCore
+import ShepherdKit
+
+/// Which saved steers a session's steer bar shows. Byte-for-byte the rule of
+/// `ui/src/lib/steer-scope.ts` plus SteerBar's `inSteerBar` filter: an empty or
+/// absent allowlist is universal; a non-empty one with an unknown repo name hides.
+enum IOSSteerScope {
+    static func barSteers(_ steers: [ComposeSteer], repoName: String?, provider: String?) -> [ComposeSteer] {
+        steers.filter { $0.inSteerBar && applies($0, repoName: repoName, provider: provider) }
+    }
+
+    static func applies(_ steer: ComposeSteer, repoName: String?, provider: String?) -> Bool {
+        if let repos = steer.repos, !repos.isEmpty {
+            guard let repoName, repos.contains(repoName) else { return false }
+        }
+        guard let provider, let providers = steer.agentProviders, !providers.isEmpty else { return true }
+        return providers.contains { $0.rawValue == provider }
+    }
+}
+
+/// The operator's saved steers and the repo names they are scoped by. Loaded once
+/// per detail; steers change rarely and a stale list only costs a chip.
+@MainActor
+@Observable
+final class IOSSteerLibrary {
+    private(set) var steers: [ComposeSteer] = []
+    private(set) var repoNames: [String: String] = [:]
+    private(set) var loadError: String?
+    private(set) var loaded = false
+
+    init(steers: [ComposeSteer] = [], repoNames: [String: String] = [:]) {
+        self.steers = steers
+        self.repoNames = repoNames
+        loaded = !steers.isEmpty
+    }
+
+    func load(steers fetchSteers: () async throws -> [ComposeSteer],
+              repos fetchRepos: () async throws -> [String: String]) async {
+        do {
+            steers = try await fetchSteers()
+            loadError = nil
+        } catch {
+            loadError = L.t("native_ios_steers_load_failed", ShepherdErrorCopy.message(error))
+        }
+        // Without repo names, repo-scoped steers stay hidden: same as the web before
+        // its repo list has loaded. Universal steers still show.
+        repoNames = (try? await fetchRepos()) ?? repoNames
+        loaded = true
+    }
+
+    func barSteers(for session: Session) -> [ComposeSteer] {
+        IOSSteerScope.barSteers(steers, repoName: repoNames[session.repoPath],
+            provider: session.agentProvider?.rawValue)
+    }
+}

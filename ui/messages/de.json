@@ -4988,5 +4988,17 @@
   "native_ios_latency_terminal_slow_explanation": "Der Terminalstart ist langsam, während Anfragen zügig sind; Terminalprozess und Replay-Größe auf dem Server prüfen.",
   "native_ios_latency_title": "Verbindungsgeschwindigkeit",
   "feat_epicflow_pulse_title": "Ablauf: sehen, an welchem Schritt gearbeitet wird",
-  "feat_epicflow_pulse_body": "Im Ablauf eines Epics glüht der Schritt, an dem gerade ein Agent arbeitet, leicht an seiner linken Kante, und sein Punkt pulsiert. Sobald der Agent anhält und auf dich wartet, wird er wieder ruhig."
+  "feat_epicflow_pulse_body": "Im Ablauf eines Epics glüht der Schritt, an dem gerade ein Agent arbeitet, leicht an seiner linken Kante, und sein Punkt pulsiert. Sobald der Agent anhält und auf dich wartet, wird er wieder ruhig.",
+  "native_ios_steers_title": "Steers",
+  "native_ios_steers_all": "Alle Steers",
+  "native_ios_steers_empty": "Noch keine Steers in der Steer-Leiste. Lege sie in der Web- oder Mac-App an.",
+  "native_ios_steers_load_failed": "Steers konnten nicht geladen werden: {reason}",
+  "native_ios_steers_section_terminal": "Terminal",
+  "native_ios_steers_section_session": "Sitzung",
+  "native_ios_steers_end_hold": "Session beenden · gedrückt halten",
+  "native_ios_steers_release_open": "Loslassen zum Öffnen",
+  "native_ios_steers_overview": "Übersicht",
+  "native_ios_steers_release_back": "Loslassen: Übersicht · Task läuft weiter",
+  "native_ios_steers_swipe_hint": "Nach rechts wischen: zurück zum Terminal",
+  "native_ios_steers_sent": "Gesendet: {label}"
 }

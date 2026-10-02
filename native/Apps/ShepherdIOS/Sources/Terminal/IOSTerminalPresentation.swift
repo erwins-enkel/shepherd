@@ -123,6 +123,24 @@ final class IOSTerminalPresentation {
         }
     }
 
+    /// A saved steer travels the same reply route as a typed draft, but it never
+    /// touches the draft, and like web's SteerBar it does not need an attached PTY.
+    var canSendSteer: Bool { allowsInput && !replying && actionState?.allowsWrites != false }
+
+    func sendSteer(_ text: String) async -> Bool {
+        guard canSendSteer, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+        replying = true
+        replyError = nil
+        defer { replying = false }
+        do {
+            try await reply(text)
+            return true
+        } catch {
+            replyError = L.t("native_terminal_prompt_failed", ShepherdErrorCopy.message(error))
+            return false
+        }
+    }
+
     func visibilityChanged(visible: Bool, active: Bool) {
         self.visible = visible
         self.active = active

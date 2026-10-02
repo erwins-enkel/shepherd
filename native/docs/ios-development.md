@@ -133,9 +133,30 @@ Reconnect; a nonresumable clean exit offers no retry that would open a missing P
 
 Normal launches permit terminal input and replies. Isolated launches still disable
 input, including emulator protocol replies, and install the read-only request
-audit. No new server API or Mac terminal behaviour is introduced. File attachment,
-saved steer chips, diff/files/preview tabs remain outside the terminal stream; session action swipes are described in
+audit. No new server API or Mac terminal behaviour is introduced. File attachment and
+diff/files/preview tabs remain outside the terminal stream; session action swipes are described in
 [session actions](ios-session-actions.md).
+
+## Steers and swipe gestures
+
+Saved steers come from `GET /api/steers` and are filtered exactly like web's SteerBar:
+`inSteerBar`, then `IOSSteerScope` mirrors `ui/src/lib/steer-scope.ts` (an empty allowlist
+is universal; a non-empty one with an unresolved repo name hides). Repo names come from
+`/api/repos` by `repoPath`. A steer is sent through the same `POST /api/sessions/{id}/reply`
+route as a typed reply (`IOSTerminalPresentation.sendSteer`), never touches the draft and,
+like web, does not need an attached PTY.
+
+The bar steers sit as chips directly above the reply draft; the leading button opens the
+full **Steers** panel. A sideways swipe across the terminal output does the same without
+looking: **left** opens the panel, **right** returns to the session list on compact width
+(the task keeps running). `IOSSteerSwipe` holds the thresholds (90 pt or a 700 pt/s flick
+in the same direction); a `UIPanGestureRecognizer` on the terminal view begins only for a
+clearly horizontal start, so vertical scrolling and the scrolling key palette are untouched.
+The panel lists every bar steer, Esc/^C/Tab, Stop/Resume when `ActionsModel` offers them,
+and **End session**, which archives the session (`DELETE /api/sessions/{id}`: the agent
+stops, the row is kept). Ending requires a 1.2 s hold so the swipe that opened the panel can
+never end a session; VoiceOver gets an explicit confirmation instead. Read-only and isolated
+launches show neither chips nor panel. Editing steers stays in web/Mac.
 
 ## Mobile web references and visual fixtures
 

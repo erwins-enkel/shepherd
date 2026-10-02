@@ -973,13 +973,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
       reviewerEffort: reviewerEnv.effort ?? null,
       spawnedAt: this.now(),
     });
-    this.deps.onReviewing?.(session.id, true, {
-      provider: reviewerEnv.provider,
-      model: reviewerEnv.model,
-      effort: reviewerEnv.effort ?? null,
-      startedAt: this.inflight.get(session.id)!.startedAt,
-      timeoutMs: this.timeoutMs,
-    });
+    this.deps.onReviewing?.(session.id, true, this.runEnv(this.inflight.get(session.id)!));
   }
 
   /**

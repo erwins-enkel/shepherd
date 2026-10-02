@@ -5015,6 +5015,28 @@ test("held time does not count toward the critic timeout", async () => {
   expect(svc.reviewingIds()).toEqual(["s1"]);
 });
 
+test("release re-sends the env with startedAt shifted past the held time", async () => {
+  let t = 1000;
+  const events: unknown[][] = [];
+  const { deps: d } = makeDeps({
+    now: () => t,
+    readVerdict: () => null,
+    onReviewing: (id: string, reviewing: boolean, env?: unknown) =>
+      events.push([id, reviewing, env]),
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  svc.setHeld("s1", true);
+  t += 5 * 60_000; // held for five minutes
+  svc.setHeld("s1", false);
+  // the client's run clock must not count the hold: startedAt moved forward by exactly that much
+  expect(events.at(-1)).toEqual([
+    "s1",
+    true,
+    expect.objectContaining({ startedAt: 1000 + 5 * 60_000, timeoutMs: 10 * 60 * 1000 }),
+  ]);
+});
+
 test("setHeld is false with no run in flight", () => {
   const { deps: d } = makeDeps({});
   expect(new ReviewService(d as any).setHeld("s1", true)).toBe(false);

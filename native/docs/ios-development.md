@@ -105,8 +105,14 @@ new scrollback replay. The shared core handles reconnects and parked ownership/
 ended states; its connecting overlay uses the same 400 ms debounce as Mac.
 
 Output follows the tail until the operator scrolls into history (including with
-VoiceOver); Latest output returns to the tail. Tapping output never opens a
-keyboard or forwards touch gestures to the agent.
+VoiceOver); Latest output returns to the tail. When the agent tracks the mouse
+(Claude Code's default), it repaints its own scrolled transcript, so a vertical
+one-finger swipe becomes mouse-wheel input for the agent instead, with fling
+momentum, as on the web and Mac. VoiceOver page scrolls take the same path, and
+Latest output sends Ctrl+End. This needs a live attachment that permits input;
+otherwise, and for agents without mouse tracking, the emulator's own history
+scrolls. Tapping output never opens a keyboard, and no other touch gesture
+reaches the agent.
 
 Reply uses an always-visible multiline draft above the terminal key palette and sends
 through `IOSTerminalPresentation.submitReply` on the existing

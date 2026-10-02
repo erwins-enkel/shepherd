@@ -5,6 +5,7 @@ import type { EventHub } from "./events";
 import type { BlockReason } from "./blocked";
 import type { ChecksState, GitState } from "./forge/types";
 import { blockReasonToHoldCode, renderHold } from "./hold";
+import { isDeadToken, parseApnsEndpoint, type ApnsSender } from "./apns";
 
 export interface PushPayload {
   title: string;
@@ -462,6 +463,8 @@ export class PushService {
     private now: () => number = () => Date.now(),
     /** True while a window is actively in use; such pushes are suppressed. */
     private isActive: () => boolean = () => false,
+    /** Delivers to native iOS devices (`apns:` endpoints); null leaves them unreachable. */
+    private apns: Pick<ApnsSender, "enabled" | "send"> | null = null,
   ) {
     let pub = config.vapidPublic ?? store.getSetting("vapidPublic");
     let priv = config.vapidPrivate ?? store.getSetting("vapidPrivate");
@@ -490,6 +493,11 @@ export class PushService {
 
   publicKey(): string {
     return this.pub;
+  }
+
+  /** Whether native iOS devices can be reached on this server at all. */
+  apnsEnabled(): boolean {
+    return this.apns?.enabled ?? false;
   }
 
   subscribe(sub: PushSubInput, ua: string): void {
@@ -539,6 +547,8 @@ export class PushService {
 
   /** Send one notification; prune dead subs, log diagnostics. Returns true if delivered. */
   private async deliver(row: StoredPushSub, input: NotifyInput): Promise<boolean> {
+    const apnsTarget = parseApnsEndpoint(row.endpoint);
+    if (apnsTarget) return this.deliverApns(row, apnsTarget, input);
     const sub: PushSubInput = {
       endpoint: row.endpoint,
       keys: { p256dh: row.p256dh, auth: row.auth },
@@ -553,6 +563,30 @@ export class PushService {
       return true;
     } catch (err) {
       this.onSendError(row.endpoint, (err as { statusCode?: number })?.statusCode, err);
+      return false;
+    }
+  }
+
+  /** Native iOS delivery. A token APNs calls dead is pruned like a 410 Web Push sub; the
+   *  phone registers again on its next launch. */
+  private async deliverApns(
+    row: StoredPushSub,
+    target: NonNullable<ReturnType<typeof parseApnsEndpoint>>,
+    input: NotifyInput,
+  ): Promise<boolean> {
+    if (!this.apns?.enabled) return false;
+    try {
+      const result = await this.apns.send(
+        target.environment,
+        target.token,
+        buildPayload(input, row.locale),
+      );
+      if (result.status === 200) return true;
+      if (isDeadToken(result)) this.store.deletePushSub(row.endpoint);
+      else console.warn(`[push] APNs ${result.status} ${result.reason ?? ""} for an iOS device`);
+      return false;
+    } catch (err) {
+      console.warn("[push] APNs send failed:", err);
       return false;
     }
   }

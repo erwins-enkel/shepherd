@@ -195,6 +195,27 @@ Release distribution has separate signing inputs and gates; see
 [TestFlight preparation](testflight-ios.md). No simulator test implies a signed
 archive, tested hardware, uploaded build or approved external beta.
 
+## Push notifications (interim direct APNs)
+
+Until the push relay exists ([#2665](https://github.com/erwins-enkel/shepherd/issues/2665)),
+a server that has `SHEPHERD_APNS_KEY`, `SHEPHERD_APNS_KEY_ID` and `SHEPHERD_APNS_TEAM_ID` set
+sends straight to Apple. That key belongs to the publisher, so this only works on the publisher's
+own servers; everyone else keeps browser Web Push. `IOSPushRegistration` asks for permission once
+a server profile is active, then posts the device token to `POST /api/push/apns` on every new
+store (launch, login, profile switch). Debug builds register for the APNs sandbox, Release builds
+(TestFlight) for production — the `aps-environment` entitlement follows the same split through
+`APS_ENVIRONMENT` in `project.yml`, so the App Store profile must include Push Notifications.
+
+The server stores the device as an ordinary push subscription with an `apns:<env>:<token>`
+endpoint, so every Web Push gate applies unchanged: nothing is sent while any client reports
+presence as active, repeats per session are collapsed for `SHEPHERD_PUSH_COOLDOWN_MS`, reduced
+push mode and the per-device categories apply, and the copy is the server's EN/DE text. A
+notification groups by session (`thread-id`), replaces an earlier one with the same tag
+(`apns-collapse-id`) and opens its session when tapped. A token APNs reports as gone is pruned;
+the device registers again on its next launch. In this interim transport title and body pass
+through Apple in plain text; the relay adds end-to-end encryption. Isolated launches never prompt
+or register.
+
 ## Task composer and dictation
 
 `RootView` presents `IOSComposeSheet` for `app.sheet = .newSession`. The session-list

@@ -5723,6 +5723,34 @@ components:
           type: boolean
         branch:
           type: string
+    ApnsRegistration:
+      type: object
+      additionalProperties: false
+      required:
+        - token
+        - environment
+      properties:
+        token:
+          type: string
+          description: The device token from registerForRemoteNotifications, hex-encoded.
+        environment:
+          type: string
+          enum:
+            - sandbox
+            - production
+          description: Which APNs host the token belongs to (development builds use sandbox).
+        locale:
+          type: string
+          description: Notification language for this device (en or de; anything else reads as en).
+    ApnsRegistrationResult:
+      type: object
+      additionalProperties: true
+      required:
+        - endpoint
+      properties:
+        endpoint:
+          type: string
+          description: The device's push endpoint; the key for /api/push/prefs and /api/push/unsubscribe.
     CreateSessionSuccess:
       description: "Rust-only: every success body createSession can answer (statuses 200, 201)."
       oneOf:
@@ -9259,6 +9287,37 @@ paths:
                 $ref: "#/components/schemas/Error"
         "502":
           description: Handler refusal; see the verified status matrix.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/push/apns:
+    post:
+      operationId: registerApnsDevice
+      description: Registers a native iOS device for push (interim direct APNs transport,
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApnsRegistration"
+      responses:
+        "200":
+          description: Registered.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApnsRegistrationResult"
+        "400":
+          description: Malformed token or environment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "503":
+          description: This server has no APNs key configured.
           content:
             application/json:
               schema:

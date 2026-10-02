@@ -113,6 +113,7 @@ import {
 } from "./push";
 import { ReadyNotifier } from "./ready-notify";
 import { Presence } from "./presence";
+import { ApnsSender } from "./apns";
 import { ReviewService, isTerminalPr } from "./review";
 import { StandalonePrCriticService } from "./standalone-critic";
 import { createIssueLogger } from "./issue-log";
@@ -1480,7 +1481,19 @@ const presence = new Presence(() => {
     void backlogPoller.tick();
   }, 1_500);
 });
-const push = new PushService(store, undefined, undefined, undefined, () => presence.isActive());
+const push = new PushService(
+  store,
+  undefined,
+  undefined,
+  undefined,
+  () => presence.isActive(),
+  new ApnsSender({
+    key: config.apnsKey,
+    keyId: config.apnsKeyId,
+    teamId: config.apnsTeamId,
+    topic: config.apnsTopic,
+  }),
+);
 attachPush(events, store, push);
 
 // poll PR status for active sessions every 120s; push session:git on change so

@@ -3,6 +3,7 @@ import ShepherdAppCore
 
 @main
 struct ShepherdIOSApp: App {
+    @UIApplicationDelegateAdaptor(IOSAppDelegate.self) private var appDelegate
     @State private var appModel: AppModel
     private let launch: IOSLaunchEnvironment
 
@@ -21,7 +22,13 @@ struct ShepherdIOSApp: App {
         WindowGroup {
             RootView(launch: launch)
                 .environment(appModel)
-                .task { await launch.start(appModel) }
+                .task {
+                    IOSPushRegistration.shared.attach(appModel, enabled: !launch.configuration.isIsolated)
+                    await launch.start(appModel)
+                }
+                .onChange(of: appModel.store.map(ObjectIdentifier.init), initial: true) { _, _ in
+                    IOSPushRegistration.shared.storeChanged()
+                }
         }
     }
 }

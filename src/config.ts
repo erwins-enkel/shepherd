@@ -692,6 +692,12 @@ export const config = {
   // are unset; provide them via env to pin a stable key pair across DB resets.
   vapidPublic: process.env.SHEPHERD_VAPID_PUBLIC ?? null,
   vapidPrivate: process.env.SHEPHERD_VAPID_PRIVATE ?? null,
+  // Native iOS push, interim direct-to-APNs transport (#2665) until the relay exists.
+  // Enabled only when key, key id and team id are all set; the key is a `.p8` path or PEM.
+  apnsKey: process.env.SHEPHERD_APNS_KEY || null,
+  apnsKeyId: process.env.SHEPHERD_APNS_KEY_ID || null,
+  apnsTeamId: process.env.SHEPHERD_APNS_TEAM_ID || null,
+  apnsTopic: process.env.SHEPHERD_APNS_TOPIC || "run.shepherd.ios",
   // ── anonymous usage telemetry (Aptabase) ────────────────────────────────
   // The App-Key is the master enable. It defaults to Shepherd's public Aptabase
   // Cloud (EU) ingestion key — an Aptabase App-Key is write-only and safe to ship

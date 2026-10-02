@@ -289,6 +289,7 @@ import { PluginSpawnAborted } from "./plugins/types";
 import { signedOff, type SignoffView } from "./signoff";
 import { scanInstalled, installPlugin, uninstallPlugin } from "./plugins/manage";
 import { randomUUID } from "node:crypto";
+import { apnsEndpoint, isApnsToken } from "./apns";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
 
@@ -444,7 +445,7 @@ export interface AppDeps {
    *  disabled or tailscale is unavailable. Merged into /api/preview responses. */
   previewServe?: { snapshot(): Record<string, "ok" | "failed"> };
   /** Web Push delivery; absent in tests that don't exercise notifications. */
-  push?: Pick<PushService, "publicKey" | "subscribe" | "unsubscribe">;
+  push?: Pick<PushService, "publicKey" | "subscribe" | "unsubscribe" | "apnsEnabled">;
   /** Active-window tracker fed by /events presence frames; gates push suppression. */
   presence?: Pick<Presence, "set" | "drop" | "connect">;
   /** Status poller; used to manually dismiss a stall flag (`acknowledgeStall`) and, when
@@ -2267,6 +2268,40 @@ async function pushSubscribe(req: Request, deps: AppDeps): Promise<Response> {
   return json({ ok: true });
 }
 
+/** POST /api/push/apns {token, environment, locale?} — register a native iOS device. Stored as a
+ *  push subscription with an `apns:` endpoint, so prefs/unsubscribe take that endpoint too. */
+async function pushApnsRegister(req: Request, deps: AppDeps): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as {
+    token?: unknown;
+    environment?: unknown;
+    locale?: unknown;
+  } | null;
+  if (
+    !body ||
+    typeof body.token !== "string" ||
+    !isApnsToken(body.token) ||
+    (body.environment !== "sandbox" && body.environment !== "production")
+  ) {
+    return json(
+      { error: "body must be {token: hex device token, environment: sandbox|production}" },
+      400,
+    );
+  }
+  if (!deps.push?.apnsEnabled()) return json({ error: "native iOS push is not configured" }, 503);
+  const endpoint = apnsEndpoint(body.environment, body.token);
+  deps.push.subscribe(
+    {
+      endpoint,
+      keys: { p256dh: "", auth: "" },
+      locale: typeof body.locale === "string" ? body.locale : undefined,
+    },
+    req.headers.get("User-Agent") ?? "",
+  );
+  return json({ endpoint });
+}
+
 async function pushUnsubscribe(req: Request, deps: AppDeps): Promise<Response> {
   const body = (await req.json().catch(() => null)) as { endpoint?: unknown } | null;
   if (!body || typeof body.endpoint !== "string") {
@@ -2326,6 +2361,7 @@ const PUSH_ROUTES: {
   },
   { method: "POST", seg: "subscribe", run: ({ req, deps }) => pushSubscribe(req, deps) },
   { method: "POST", seg: "unsubscribe", run: ({ req, deps }) => pushUnsubscribe(req, deps) },
+  { method: "POST", seg: "apns", run: ({ req, deps }) => pushApnsRegister(req, deps) },
   { method: "GET", seg: "prefs", run: ({ url, deps }) => pushPrefsRead(url, deps) },
   { method: "POST", seg: "prefs", run: ({ req, deps }) => pushPrefsWrite(req, deps) },
 ];

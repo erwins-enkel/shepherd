@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Epic, EpicChild } from "$lib/types";
+  import type { Epic, EpicChild, Session } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import {
     firstParallelStage,
@@ -20,10 +20,13 @@
   let {
     epic,
     onselect = undefined,
+    sessionInfo = undefined,
   }: {
     epic: Epic;
     /** Select the clicked child in the issue list. */
     onselect?: (child: number) => void;
+    /** A session from the store, by id; null when unknown. Drives the working pulse. */
+    sessionInfo?: (id: string) => { session: Session } | null;
   } = $props();
 
   /** Narrower than this, the columns stack as a list. */
@@ -61,6 +64,12 @@
     return s.index === 1 ? m.epicflow_stage_first() : String(s.index);
   }
 
+  /** In flight and its agent mid-turn — not parked waiting for the operator or a review. */
+  function working(c: EpicChild): boolean {
+    if (flowTone(c.state) !== "active" || c.sessionId == null) return false;
+    return sessionInfo?.(c.sessionId)?.session.status === "running";
+  }
+
   function edgePath(e: { x1: number; y1: number; x2: number; y2: number }): string {
     const mid = (e.x1 + e.x2) / 2;
     return `M ${e.x1} ${e.y1} C ${mid} ${e.y1}, ${mid} ${e.y2}, ${e.x2} ${e.y2}`;
@@ -68,7 +77,12 @@
 </script>
 
 {#snippet node(c: EpicChild)}
-  <button class="node tone-{flowTone(c.state)}" type="button" onclick={() => onselect?.(c.number)}>
+  <button
+    class="node tone-{flowTone(c.state)}"
+    class:working={working(c)}
+    type="button"
+    onclick={() => onselect?.(c.number)}
+  >
     <span class="node-line">
       <span class="dot" aria-hidden="true"></span>
       <span class="num">#{c.number}</span>
@@ -302,6 +316,30 @@
   }
   .node.tone-merged {
     color: var(--color-muted);
+  }
+  /* Agent at work: the left edge glows and the dot breathes, slow enough to stay in the
+     background. The glow is decoration (reduced motion leaves it standing at its resting
+     opacity); the dot is functional status motion like the other working dots (app.css). */
+  .node.working {
+    position: relative;
+    isolation: isolate;
+  }
+  .node.working::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--status-running) 22%, transparent),
+      transparent 55%
+    );
+    opacity: 0.6;
+    pointer-events: none;
+    animation: dot-pulse 3.2s ease-in-out infinite;
+  }
+  .node.working .dot {
+    animation: dot-pulse 3.2s ease-in-out infinite !important;
   }
   .node:hover {
     border-color: var(--color-amber);

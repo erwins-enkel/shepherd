@@ -184,7 +184,7 @@
         {onopenautomation}
       />
     {/if}
-    {#if epic}<EpicFlowGraph {epic} onselect={selectFlowChild} />{/if}
+    {#if epic}<EpicFlowGraph {epic} {sessionInfo} onselect={selectFlowChild} />{/if}
     <div class="epic-host" data-epic-panel>
       {#if epic}
         <EpicPanel

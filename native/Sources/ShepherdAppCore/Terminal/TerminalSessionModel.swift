@@ -46,7 +46,7 @@ public final class TerminalSessionModel {
             guard onOutput != nil, !pendingOutput.isEmpty else { return }
             let buffered = pendingOutput
             pendingOutput = []
-            for chunk in buffered { onOutput?(chunk) }
+            for chunk in buffered { feed(chunk) }
         }
     }
     /// Set by the SwiftTerm view: wipe the emulator's buffer. Called on every
@@ -81,6 +81,16 @@ public final class TerminalSessionModel {
     /// reclaim the terminal.
     private var parked: Phase?
 
+    /// How the latest fresh attach went, phase by phase, for the latency
+    /// indicator. Deliberately unobserved: it changes per output chunk during
+    /// the replay, and readers poll it instead of re-rendering on every byte.
+    @ObservationIgnored public private(set) var openTiming: TerminalOpenTiming?
+    @ObservationIgnored private var openStartedAt: ContinuousClock.Instant?
+    @ObservationIgnored private var firstOutputAt: ContinuousClock.Instant?
+    @ObservationIgnored private let clock: @MainActor () -> ContinuousClock.Instant
+    /// Output within this long of the first byte counts as the scrollback replay.
+    static let replayWindow: Duration = .seconds(2)
+
     init(
         sessionID: String,
         allowsInput: Bool = true,
@@ -89,8 +99,10 @@ public final class TerminalSessionModel {
         resumeSession: @escaping @MainActor () async throws -> Void = {},
         reloadSessions: @escaping @MainActor () async throws -> Void = {},
         reply: @escaping @Sendable (String) async throws -> Void,
-        makeAttachment: @escaping @MainActor (Int, Int) -> any PTYAttaching
+        makeAttachment: @escaping @MainActor (Int, Int) -> any PTYAttaching,
+        clock: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }
     ) {
+        self.clock = clock
         self.readSession = readSession
         self.resumeSession = resumeSession
         self.reloadSessions = reloadSessions
@@ -136,6 +148,9 @@ public final class TerminalSessionModel {
         let generation = self.generation
         let attachment = makeAttachment(self.cols, self.rows)
         self.attachment = attachment
+        openStartedAt = clock()
+        firstOutputAt = nil
+        openTiming = TerminalOpenTiming()
         phase = .connecting
         pumps = [
             Task { [weak self] in
@@ -280,16 +295,42 @@ public final class TerminalSessionModel {
     }
 
     private func deliver(_ bytes: Data) {
-        guard let onOutput else {
+        let now = clock()
+        if let started = openStartedAt, openTiming != nil {
+            if firstOutputAt == nil {
+                firstOutputAt = now
+                openTiming?.firstOutputMs = Self.milliseconds(now - started)
+            }
+            if let first = firstOutputAt, now - first <= Self.replayWindow { openTiming?.replayBytes += bytes.count }
+        }
+        guard onOutput != nil else {
             pendingOutput.append(bytes)
             return
         }
-        onOutput(bytes)
+        feed(bytes)
+    }
+
+    /// Hand bytes to the emulator, timing the replay's share of main-thread work.
+    private func feed(_ bytes: Data) {
+        guard let first = firstOutputAt, clock() - first <= Self.replayWindow else {
+            onOutput?(bytes)
+            return
+        }
+        let start = clock()
+        onOutput?(bytes)
+        openTiming?.renderMs += Self.milliseconds(clock() - start)
+    }
+
+    static func milliseconds(_ duration: Duration) -> Double {
+        Double(duration.components.seconds) * 1000 + Double(duration.components.attoseconds) / 1e15
     }
 
     private func apply(_ event: PTYConnection.LifecycleEvent) {
         switch event {
         case .attached:
+            if let started = openStartedAt, openTiming?.connectedMs == nil {
+                openTiming?.connectedMs = Self.milliseconds(clock() - started)
+            }
             phase = .live
         case .reattached:
             // The scrollback is replayed on every attach: clear before it lands.

@@ -12410,6 +12410,12 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"whisperTimeoutPreservesCompletedClipsInOrderAndReportsMissingText() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"deferredPermissionFailuresPreservePromptAndAllowNextRecording() async\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"livePreviewAvailabilityTracksAppleAndResetsAcrossPresses() async\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"retryableRecordingFailurePreservesFinalAppleTextAndAllowsNextPress() async\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/DictationControllerTests.swift\",\"DictationControllerTests\",\"retryableRecordingFailurePreservesFinalAppleTextAndAllowsNextPress() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TerminalStateCoreTests.swift\",\"CoreSeamTests.TerminalStateTests\",\"openTimingRecordsConnectFirstOutputReplayAndRender() async\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LatencyProbeTests.swift\",\"LatencyProbeTests\",\"clientRecordsSamples() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LatencyProbeTests.swift\",\"LatencyProbeTests\",\"parsesServerTiming()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LatencyProbeTests.swift\",\"LatencyProbeTests\",\"recorderCapacity()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LatencyProbeTests.swift\",\"LatencyProbeTests\",\"statistics()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LatencyProbeTests.swift\",\"LatencyProbeTests\",\"verdicts()\"]"
   ]
 }

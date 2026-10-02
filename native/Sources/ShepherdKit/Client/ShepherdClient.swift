@@ -34,6 +34,9 @@ public final class ShepherdClient: Sendable {
   /// Owned by this client and invalidated on deinit. Stream wrappers use
   /// `longRunning`; internal visibility lets tests inspect its configuration.
   let longRunningURLSession: URLSession
+  /// Per-attempt timings of ordinary operations (not `longRunning`, which is
+  /// slow by design), for the connection-quality indicator.
+  public let latency: LatencyRecorder
   private let credentials: any CredentialStore
   private let needsLoginContinuation: AsyncStream<Void>.Continuation
 
@@ -55,6 +58,8 @@ public final class ShepherdClient: Sendable {
     let validated = try profile.validated()
     self.profile = validated
     self.credentials = credentials
+    let latency = LatencyRecorder()
+    self.latency = latency
 
     let (stream, continuation) = AsyncStream<Void>.makeStream(
       bufferingPolicy: .bufferingNewest(1))
@@ -83,6 +88,8 @@ public final class ShepherdClient: Sendable {
     generated = Client(
       serverURL: validated.baseURL,
       transport: URLSessionTransport(configuration: .init(session: urlSession)),
+      // Latency is innermost: one sample per attempt, retries included, timed
+      // to response headers. It only observes.
       // The first middleware is the outermost one. Auth signs the request
       // once, outside the retry loop, and observes the final response the
       // caller is handed — not an intermediate retried attempt. This still
@@ -90,7 +97,7 @@ public final class ShepherdClient: Sendable {
       // because retry never retries a 401 in the first place: it only
       // retries transient failures, so ordering the two this way costs
       // nothing.
-      middlewares: middlewares
+      middlewares: middlewares + [LatencyMiddleware(recorder: latency)]
     )
   }
 

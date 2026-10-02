@@ -151,6 +151,47 @@ export const KEYS_CORE: readonly string[] = [
   "status_working",
 ];
 
+/** iOS connection diagnostics. Keep alphabetical. */
+export const KEYS_IOS_LATENCY: readonly string[] = [
+  "native_ios_latency_app_slow",
+  "native_ios_latency_app_slow_explanation",
+  "native_ios_latency_connected",
+  "native_ios_latency_done",
+  "native_ios_latency_first_output",
+  "native_ios_latency_handler_median",
+  "native_ios_latency_handler_p90",
+  "native_ios_latency_maximum",
+  "native_ios_latency_measure_again",
+  "native_ios_latency_measuring",
+  "native_ios_latency_measuring_explanation",
+  "native_ios_latency_median",
+  "native_ios_latency_network",
+  "native_ios_latency_network_fallback",
+  "native_ios_latency_network_slow",
+  "native_ios_latency_network_slow_explanation",
+  "native_ios_latency_no_server_timing",
+  "native_ios_latency_ok",
+  "native_ios_latency_ok_explanation",
+  "native_ios_latency_p90",
+  "native_ios_latency_render_time",
+  "native_ios_latency_replay_size",
+  "native_ios_latency_requests",
+  "native_ios_latency_round_trip",
+  "native_ios_latency_sample_count",
+  "native_ios_latency_server",
+  "native_ios_latency_server_slow",
+  "native_ios_latency_server_slow_explanation",
+  "native_ios_latency_server_stalled",
+  "native_ios_latency_server_stalled_explanation",
+  "native_ios_latency_slow_unknown",
+  "native_ios_latency_slow_unknown_explanation",
+  "native_ios_latency_stall",
+  "native_ios_latency_terminal",
+  "native_ios_latency_terminal_slow",
+  "native_ios_latency_terminal_slow_explanation",
+  "native_ios_latency_title",
+];
+
 /** Terminal stream (S1). Keep alphabetical. */
 // Stream T — iOS terminal/detail chrome. Additive; Mac keys stay unchanged.
 export const KEYS_IOS_TERMINAL: readonly string[] = [
@@ -1568,6 +1609,7 @@ export const KEYS: readonly string[] = [
   ...KEYS_CORE,
   ...KEYS_TERMINAL,
   ...KEYS_IOS_TERMINAL,
+  ...KEYS_IOS_LATENCY,
   ...KEYS_DETAIL,
   ...KEYS_SIDEBAR,
   ...KEYS_IOS_SIDEBAR,

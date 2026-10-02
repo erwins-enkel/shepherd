@@ -74,6 +74,33 @@ extension CoreSeamTests {
 @MainActor
 struct TerminalStateTests {
 
+    @Test func openTimingRecordsConnectFirstOutputReplayAndRender() async {
+        let attachment = FakeAttachment()
+        let base = ContinuousClock.now
+        var offset: Duration = .zero
+        let model = TerminalSessionModel(sessionID: "s1", reply: { _ in },
+            makeAttachment: { _, _ in attachment }, clock: { base + offset })
+        var fed = 0
+        model.onOutput = { bytes in fed += bytes.count; offset += .milliseconds(30) }
+        model.attach(cols: 80, rows: 24)
+        offset = .milliseconds(120)
+        attachment.emit(.attached)
+        #expect(await settle(until: { model.phase == .live }))
+        offset = .milliseconds(400)
+        attachment.emit(bytes: Data(repeating: 65, count: 1000))
+        #expect(await settle(until: { fed == 1000 }))
+        offset += .seconds(5)
+        attachment.emit(bytes: Data(repeating: 66, count: 10))
+        #expect(await settle(until: { fed == 1010 }))
+        let timing = model.openTiming
+        #expect(timing?.connectedMs == 120)
+        #expect(timing?.firstOutputMs == 400)
+        // Bytes after the replay window are live output, not replay.
+        #expect(timing?.replayBytes == 1000)
+        #expect(timing?.renderMs == 30)
+        model.detach()
+    }
+
     @Test func goneSessionReadsThenResumesBeforeReattaching() async {
         let attachment = FakeAttachment()
         var operations: [String] = []

@@ -8,6 +8,7 @@ struct SessionDetailView: View {
     let terminal: IOSTerminalPresentation
     @AppStorage private var fontSize: Double
     @Environment(AppModel.self) private var app
+    @State private var latency: IOSLatencyMonitor?
 
     init(session: Session, model: DetailModel, terminal: IOSTerminalPresentation, defaults: UserDefaults) {
         self.session = session
@@ -24,8 +25,15 @@ struct SessionDetailView: View {
             planEntryLabel: planEntryLabel,
             planInitialEntry: app.extension(IOSPlanController.self)?.entrySessionID == session.id
                 && app.extension(IOSPlanController.self)?.entryOpensPlan == true,
-            planOpenTick: app.extension(PlanModel.self)?.openPlanTick[session.id] ?? 0)
+            planOpenTick: app.extension(PlanModel.self)?.openPlanTick[session.id] ?? 0,
+            latency: latency)
             .safeAreaInset(edge: .bottom, spacing: 0) { IOSSessionActionBar(session: session) }
+            .task(id: session.id) {
+                guard let client = app.store?.client else { latency = nil; return }
+                let monitor = IOSLatencyMonitor.make(client: client, terminal: terminal, sessionID: session.id)
+                latency = monitor
+                await monitor.run()
+            }
     }
 
     private var planSurface: AnyView? {
@@ -67,6 +75,7 @@ struct IOSSessionDetailContent<Surface: View>: View {
     var planEntryLabel: String? = nil
     var planInitialEntry = false
     var planOpenTick = 0
+    var latency: IOSLatencyMonitor? = nil
     @State private var planNavigation = IOSPlanNavigation()
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
@@ -75,6 +84,7 @@ struct IOSSessionDetailContent<Surface: View>: View {
             HStack(spacing: 8) {
                 Text(verbatim: session.desig).foregroundStyle(IOSTerminalStyle.muted)
                 Spacer(minLength: 4)
+                if let latency { IOSLatencyIndicator(monitor: latency) }
                 if let planEntryLabel, planSurface != nil {
                     Button { tab = .plan } label: {
                         Text(verbatim: planEntryLabel).foregroundStyle(IOSTerminalStyle.amber)

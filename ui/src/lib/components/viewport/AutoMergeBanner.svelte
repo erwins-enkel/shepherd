@@ -2,9 +2,7 @@
   import type { AutoMergeStatus, GitState, MergeWaitCode } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { reviews, repoConfig } from "$lib/reviews.svelte";
-  import { autoMergeView, elapsedMinutes } from "$lib/auto-merge-banner";
-  import { clock } from "$lib/now.svelte";
-  import { environmentLabel } from "$lib/reviewer-env";
+  import { autoMergeView } from "$lib/auto-merge-banner";
   import { autoMergeStripExplanation } from "$lib/tooltips/explanations";
   import InfoTip from "$lib/components/InfoTip.svelte";
 
@@ -49,25 +47,12 @@
 
   const sha = $derived(git?.headSha ? git.headSha.slice(0, 7) : "");
 
-  function criticRunningText(): string {
-    const env = reviews.reviewerEnvFor(sessionId);
-    const timed =
-      env?.startedAt != null && env.timeoutMs != null
-        ? m.automergebanner_critic_running({
-            sha,
-            elapsed: String(elapsedMinutes(env.startedAt, clock.current)),
-            timeout: String(Math.round(env.timeoutMs / 60_000)),
-          })
-        : m.automergebanner_critic_running_bare({ sha });
-    return env?.provider
-      ? `${timed} · ${environmentLabel(env.provider, env.model, env.effort)}`
-      : timed;
-  }
-
   function reason(code: MergeWaitCode): string {
     switch (code) {
+      // A running critic owns the slot itself (ReviewInFlightBanner), so this is the gap
+      // between a new head and its critic run.
       case "critic_pending":
-        return criticRunning ? criticRunningText() : m.automergebanner_critic_pending({ sha });
+        return m.automergebanner_critic_pending({ sha });
       case "checks_pending":
         return m.automergebanner_checks_pending();
       case "checks_failed":

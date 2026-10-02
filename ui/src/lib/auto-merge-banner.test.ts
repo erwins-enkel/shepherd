@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { autoMergeView, elapsedMinutes, waitCodeFor, waitOwner } from "./auto-merge-banner";
+import { autoMergeView, waitCodeFor, waitOwner } from "./auto-merge-banner";
 import type { AutoMergeStatus, MergeWaitCode } from "./types";
 
 const status = (waiting: AutoMergeStatus["waiting"]): AutoMergeStatus => ({
@@ -90,13 +90,5 @@ describe("autoMergeView", () => {
       show: false,
       owned: true,
     });
-  });
-});
-
-describe("elapsedMinutes", () => {
-  it("floors to whole minutes and never goes negative", () => {
-    expect(elapsedMinutes(0, 59_999)).toBe(0);
-    expect(elapsedMinutes(0, 3 * 60_000 + 5_000)).toBe(3);
-    expect(elapsedMinutes(10_000, 0)).toBe(0);
   });
 });

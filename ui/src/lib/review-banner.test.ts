@@ -5,6 +5,7 @@ import {
   criticSteerCanLand,
   reviewBannerState,
   cancelledBannerState,
+  elapsedMinutes,
   type ReviewBannerInput,
 } from "./review-banner";
 
@@ -336,5 +337,13 @@ describe("activeReworkBannerState", () => {
     expect(activeReworkBannerState({ ...criticBase, criticStalled: true })).toEqual({
       show: false,
     });
+  });
+});
+
+describe("elapsedMinutes", () => {
+  it("floors to whole minutes and never goes negative", () => {
+    expect(elapsedMinutes(0, 59_999)).toBe(0);
+    expect(elapsedMinutes(0, 3 * 60_000 + 5_000)).toBe(3);
+    expect(elapsedMinutes(10_000, 0)).toBe(0);
   });
 });

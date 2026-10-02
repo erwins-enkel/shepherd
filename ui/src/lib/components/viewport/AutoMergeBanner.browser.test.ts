@@ -63,25 +63,11 @@ afterEach(() => {
 });
 
 describe("AutoMergeBanner", () => {
-  it("running critic: Shepherd-owned strip with head sha, elapsed / deadline and reviewer", async () => {
-    const now = Date.now();
+  it("running critic: Shepherd-owned and dims (the review banner shows its progress)", async () => {
     reviews.reviewing = { [ID]: true };
-    reviews.reviewerEnv = {
-      [ID]: {
-        provider: "codex",
-        model: "gpt-5.6-sol",
-        effort: "medium",
-        startedAt: now - 3 * 60_000 - 10_000,
-        timeoutMs: 600_000,
-      },
-    };
     const h = mount("critic_pending");
     await expect.poll(() => banner()?.dataset.owner).toBe("shepherd");
-    const text = banner()!.textContent!;
-    expect(text).toContain(m.automergebanner_shepherd_lead());
-    expect(text).toContain(
-      m.automergebanner_critic_running({ sha: "4fba4ee", elapsed: "3", timeout: "10" }),
-    );
+    expect(banner()!.textContent).toContain(m.automergebanner_shepherd_lead());
     expect(h.owned()).toBe(true);
   });
 

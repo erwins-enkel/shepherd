@@ -70,8 +70,3 @@ export function autoMergeView(input: AutoMergeViewInput): AutoMergeView {
   const owned = owner === "shepherd" && (code !== "critic_pending" || input.criticRunning);
   return { code, owner, show: !input.stripTaken, owned };
 }
-
-/** Whole minutes elapsed since `startedAt`, floored at 0 (the shared clock ticks every 30 s). */
-export function elapsedMinutes(startedAt: number, now: number): number {
-  return Math.max(0, Math.floor((now - startedAt) / 60_000));
-}

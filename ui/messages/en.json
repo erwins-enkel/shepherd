@@ -5110,8 +5110,6 @@
   "feat_done_row_bring_back_body": "Right-click a finished session in the Done list — or long-press it on touch — and choose Bring back to restore it without opening its recap first. Like the recap's button, it asks you to confirm with a second click.",
   "automergebanner_shepherd_lead": "Full auto-merge — Shepherd merges this PR itself",
   "automergebanner_operator_lead": "Full auto-merge is waiting for you",
-  "automergebanner_critic_running": "critic reviewing {sha} · {elapsed} of {timeout} min",
-  "automergebanner_critic_running_bare": "critic reviewing {sha}",
   "automergebanner_critic_pending": "waiting for a critic run on {sha}",
   "automergebanner_checks_pending": "waiting for CI to go green",
   "automergebanner_checks_failed": "CI is red — autopilot has the agent fix it",
@@ -5136,5 +5134,6 @@
   "automergebanner_tip_needs_you_body": "The strip turns amber and nothing is dimmed: a critic error, an exhausted rebase budget, repeated merge failures, manual steps or a stack.",
   "recap_verdict_auto_merge": "No action needed · Shepherd merges automatically",
   "feat_auto_merge_strip_title": "See what full auto-merge is waiting for",
-  "feat_auto_merge_strip_body": "When a repo merges on its own, the terminal says so: a strip names what the PR still waits for, like a running critic or green CI, and the terminal dims while Shepherd has it in hand."
+  "feat_auto_merge_strip_body": "When a repo merges on its own, the terminal says so: a strip names what the PR still waits for, like a critic verdict on the latest commit or green CI, and the terminal dims while Shepherd has it in hand. A running critic now also shows how long it has run against its deadline.",
+  "reviewbanner_run_clock": "{elapsed} of {timeout} min"
 }

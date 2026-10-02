@@ -2320,7 +2320,7 @@ describe("Viewport task info reveal", () => {
 });
 
 describe("Viewport full auto-merge strip (TASK-1368)", () => {
-  const train = (id: string, code: "critic_pending" | "critic_error") => ({
+  const train = (id: string, code: "behind" | "critic_pending" | "critic_error") => ({
     "/repo/shepherd": {
       repoPath: "/repo/shepherd",
       enabled: true,
@@ -2339,12 +2339,11 @@ describe("Viewport full auto-merge strip (TASK-1368)", () => {
   beforeEach(clearReviewState);
   afterEach(clearReviewState);
 
-  it("a running critic on a train-held PR dims terminal + steer chips and reserves the strip", async () => {
+  it("a Shepherd-owned hold dims terminal + steer chips and reserves the strip", async () => {
     const id = "vr-am-owned";
-    reviews.reviewing = { [id]: true };
     render(Viewport, {
       session: session({ id, repoPath: "/repo/shepherd" }),
-      autoMergeTrain: train(id, "critic_pending"),
+      autoMergeTrain: train(id, "behind"),
       previewPort: null,
       openPreviewTick: 0,
     });
@@ -2361,13 +2360,28 @@ describe("Viewport full auto-merge strip (TASK-1368)", () => {
     expect(mount.hasAttribute("inert")).toBe(false);
   });
 
+  it("a running critic: the review banner takes the slot and the dim, the strip yields", async () => {
+    const id = "vr-am-critic";
+    reviews.reviewing = { [id]: true };
+    render(Viewport, {
+      session: session({ id, repoPath: "/repo/shepherd" }),
+      autoMergeTrain: train(id, "critic_pending"),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() => expect(document.querySelector(".review-banner")).not.toBeNull());
+    expect(document.querySelector(".am-banner")).toBeNull();
+    const mount = document.querySelector<HTMLElement>(".term-mount")!;
+    expect(mount.classList.contains("reviewing")).toBe(true);
+    expect(mount.classList.contains("auto-owned")).toBe(false);
+  });
+
   it("never dims while the session's own agent is working or blocked in this PTY", async () => {
     for (const st of ["running", "blocked"] as const) {
       const id = `vr-am-${st}`;
-      reviews.reviewing = { [id]: true };
       render(Viewport, {
         session: session({ id, repoPath: "/repo/shepherd", status: st }),
-        autoMergeTrain: train(id, "critic_pending"),
+        autoMergeTrain: train(id, "behind"),
         previewPort: null,
         openPreviewTick: 0,
       });

@@ -66,7 +66,7 @@
     "svelte": "^5.57.1",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.71.0",
-    "varlock": "^1.21.0",
+    "varlock": "^1.21.1",
     "yaml": "^2.9.1"
   },
   "dependencies": {

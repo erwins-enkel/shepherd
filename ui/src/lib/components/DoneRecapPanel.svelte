@@ -10,6 +10,7 @@
   import { formatAgo } from "$lib/format";
   import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
+  import { sanitizeAgentHtml } from "$lib/agent-markdown";
   import { getSessionUsage } from "$lib/api";
   import { recapSkipHeadline, recapSkipBody } from "$lib/recap-skip";
   import VisualReview from "./VisualReview.svelte";
@@ -92,7 +93,10 @@
     Promise.all([import("marked"), import("dompurify")])
       .then(([{ marked }, { default: DOMPurify }]) => {
         if (alive)
-          renderedBody = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
+          renderedBody = sanitizeAgentHtml(
+            DOMPurify,
+            marked.parse(body, { async: false }) as string,
+          );
       })
       .catch((err) => {
         console.warn("Recap body markdown render failed", err);

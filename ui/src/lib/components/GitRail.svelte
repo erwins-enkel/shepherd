@@ -15,6 +15,7 @@
   import type { DrainStatus, GitState, Session, SessionStatus } from "$lib/types";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
+  import { sanitizeAgentHtml } from "$lib/agent-markdown";
   import { reviews, repoConfig, planGates } from "$lib/reviews.svelte";
   import { checksCleared } from "$lib/checks-cleared";
   import { isConflicting } from "$lib/pr-conflict";
@@ -512,7 +513,10 @@
     Promise.all([import("marked"), import("dompurify")])
       .then(([{ marked }, { default: DOMPurify }]) => {
         if (alive)
-          renderedBody = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
+          renderedBody = sanitizeAgentHtml(
+            DOMPurify,
+            marked.parse(body, { async: false }) as string,
+          );
       })
       .catch((e) => {
         // Never assigns to renderedBody — a failed load must not leave unsanitized

@@ -4,6 +4,7 @@
   import { recaps } from "$lib/recaps.svelte";
   import { regenerateRecap } from "$lib/api";
   import { m } from "$lib/paraglide/messages";
+  import { sanitizeAgentHtml } from "$lib/agent-markdown";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import VisualReview from "./VisualReview.svelte";
 
@@ -30,7 +31,10 @@
     Promise.all([import("marked"), import("dompurify")])
       .then(([{ marked }, { default: DOMPurify }]) => {
         if (alive)
-          renderedBody = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
+          renderedBody = sanitizeAgentHtml(
+            DOMPurify,
+            marked.parse(body, { async: false }) as string,
+          );
       })
       .catch((err) => {
         console.warn("Recap body markdown render failed", err);

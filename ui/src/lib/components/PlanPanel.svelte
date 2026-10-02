@@ -22,6 +22,7 @@
   import { dialog } from "$lib/a11yDialog";
   import { portal } from "$lib/portal";
   import { m } from "$lib/paraglide/messages";
+  import { sanitizeAgentHtml } from "$lib/agent-markdown";
   import { environmentLabel } from "$lib/reviewer-env";
   import { DOCS_URL } from "$lib/build-info";
   import VisualReview from "./VisualReview.svelte";
@@ -160,8 +161,10 @@
     Promise.all([import("marked"), import("dompurify")])
       .then(([{ marked }, { default: DOMPurify }]) => {
         if (!alive) return;
-        planHtml = plan ? DOMPurify.sanitize(marked.parse(plan, { async: false }) as string) : "";
-        bodyHtml = body ? DOMPurify.sanitize(marked.parse(body, { async: false }) as string) : "";
+        const render = (md: string) =>
+          md ? sanitizeAgentHtml(DOMPurify, marked.parse(md, { async: false }) as string) : "";
+        planHtml = render(plan);
+        bodyHtml = render(body);
       })
       .catch((err) => {
         // Markdown render is progressive enhancement; warn so a broken load isn't swallowed.

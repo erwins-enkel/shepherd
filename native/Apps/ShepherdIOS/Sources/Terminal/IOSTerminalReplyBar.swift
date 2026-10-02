@@ -50,6 +50,9 @@ struct IOSTerminalReplyBar: View {
                     .accessibilityLabel(L.t(model.replying ? "common_loading" : "native_terminal_prompt_send"))
                     .accessibilityIdentifier("terminal-reply-send")
                 }
+                if let voice = model.voice, !voice.active, session.promptText.isEmpty {
+                    languageControl(voice)
+                }
                 // This identity survives every recording state and draft change.
                 if let voice = model.voice {
                     HoldToTalkButton(voice: voice, compact: true, rendersStaticFixture: rendersStaticFixture,
@@ -61,29 +64,19 @@ struct IOSTerminalReplyBar: View {
                 }
             }
             if let voice = model.voice {
-                HStack(alignment: .top, spacing: 8) {
-                    if voice.canUndo {
-                        Button(L.t("native_compose_voice_undo")) { voice.undo() }
-                            .frame(minHeight: 44).disabled(model.replying)
-                    } else if voice.state == .locked {
-                        Button(L.t("common_cancel")) { voice.cancel() }.frame(minHeight: 44)
-                    } else if !voice.active {
-                        Text(L.t("native_compose_voice_hold"))
-                            .foregroundStyle(ComposePalette.muted)
-                    }
-                    Spacer(minLength: 0)
-                    if !voice.active {
-                        if rendersStaticFixture { languageLabel(voice) }
-                        else {
-                            Menu {
-                                Button("DE") { voice.locale = "de-DE" }
-                                Button("EN") { voice.locale = "en-US" }
-                            } label: { languageLabel(voice) }
-                                .disabled(model.replying)
-                                .accessibilityLabel(L.t("native_compose_voice_language"))
+                // The hold hint lives on the microphone's VoiceOver hint now; this row only
+                // appears when there is something to undo or cancel.
+                if voice.canUndo || voice.state == .locked {
+                    HStack(alignment: .top, spacing: 8) {
+                        if voice.canUndo {
+                            Button(L.t("native_compose_voice_undo")) { voice.undo() }
+                                .frame(minHeight: 44).disabled(model.replying)
+                        } else {
+                            Button(L.t("common_cancel")) { voice.cancel() }.frame(minHeight: 44)
                         }
-                    }
-                }.font(.system(.caption, design: .monospaced))
+                        Spacer(minLength: 0)
+                    }.font(.system(.caption, design: .monospaced))
+                }
                 if let notice = voice.noticeCopy {
                     Text(verbatim: notice).foregroundStyle(ComposePalette.red)
                         .accessibilityIdentifier("terminal-reply-voice-error")
@@ -116,9 +109,23 @@ struct IOSTerminalReplyBar: View {
             } message: { Text(L.t("native_compose_voice_apple_disclosure")) }
     }
 
+    @ViewBuilder private func languageControl(_ voice: DictationController) -> some View {
+        if rendersStaticFixture { languageLabel(voice) }
+        else {
+            Menu {
+                Button("DE") { voice.locale = "de-DE" }
+                Button("EN") { voice.locale = "en-US" }
+            } label: { languageLabel(voice) }
+                .disabled(model.replying)
+                .accessibilityLabel(L.t("native_compose_voice_language"))
+                .accessibilityHint(L.t("native_compose_voice_hold"))
+        }
+    }
+
     private func languageLabel(_ voice: DictationController) -> some View {
         Text(verbatim: voice.locale.hasPrefix("de") ? "DE" : "EN")
-            .frame(minWidth: 44, minHeight: 44).foregroundStyle(ComposePalette.muted)
+            .font(.system(.caption, design: .monospaced))
+            .frame(minWidth: 36, minHeight: 44).foregroundStyle(ComposePalette.muted)
     }
 
     private func recordingStatus(_ voice: DictationController) -> some View {

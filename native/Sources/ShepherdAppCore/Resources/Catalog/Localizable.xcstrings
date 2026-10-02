@@ -11815,6 +11815,40 @@
         }
       }
     },
+    "native_ios_terminal_focus": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal im Vollbild"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Focus on the terminal"
+          }
+        }
+      }
+    },
+    "native_ios_terminal_focus_exit": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tippen zeigt den vollständigen Kopf wieder"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap to show the full header again"
+          }
+        }
+      }
+    },
     "native_ios_terminal_font_points": {
       "comment": "%1$@ = size",
       "extractionState": "manual",

@@ -5000,5 +5000,7 @@
   "native_ios_steers_overview": "Overview",
   "native_ios_steers_release_back": "Release for the overview · task keeps running",
   "native_ios_steers_swipe_hint": "Swipe right to return to the terminal",
-  "native_ios_steers_sent": "Sent: {label}"
+  "native_ios_steers_sent": "Sent: {label}",
+  "native_ios_terminal_focus": "Focus on the terminal",
+  "native_ios_terminal_focus_exit": "Tap to show the full header again"
 }

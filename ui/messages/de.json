@@ -5000,5 +5000,7 @@
   "native_ios_steers_overview": "Übersicht",
   "native_ios_steers_release_back": "Loslassen: Übersicht · Task läuft weiter",
   "native_ios_steers_swipe_hint": "Nach rechts wischen: zurück zum Terminal",
-  "native_ios_steers_sent": "Gesendet: {label}"
+  "native_ios_steers_sent": "Gesendet: {label}",
+  "native_ios_terminal_focus": "Terminal im Vollbild",
+  "native_ios_terminal_focus_exit": "Tippen zeigt den vollständigen Kopf wieder"
 }

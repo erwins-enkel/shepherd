@@ -40,6 +40,7 @@ struct IOSTerminalHostView: UIViewRepresentable {
     let model: IOSTerminalPresentation
     let fontSize: Double
     var onHorizontalPan: (@MainActor (IOSHorizontalPan) -> Void)?
+    var onDoubleTap: (@MainActor () -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(model: model) }
 
@@ -57,6 +58,11 @@ struct IOSTerminalHostView: UIViewRepresentable {
         view.accessibilityIdentifier = "terminal-view"
         context.coordinator.bind(view)
         context.coordinator.onHorizontalPan = onHorizontalPan
+        context.coordinator.onDoubleTap = onDoubleTap
+        let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.doubleTapped))
+        doubleTap.numberOfTapsRequired = 2
+        doubleTap.delegate = context.coordinator
+        view.addGestureRecognizer(doubleTap)
         let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.horizontalPan(_:)))
         pan.delegate = context.coordinator
         view.addGestureRecognizer(pan)
@@ -65,6 +71,7 @@ struct IOSTerminalHostView: UIViewRepresentable {
 
     func updateUIView(_ view: IOSWatchingTerminalView, context: Context) {
         context.coordinator.onHorizontalPan = onHorizontalPan
+        context.coordinator.onDoubleTap = onDoubleTap
         if view.font.pointSize != CGFloat(fontSize) {
             view.font = .monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
         }
@@ -81,7 +88,10 @@ struct IOSTerminalHostView: UIViewRepresentable {
     final class Coordinator: NSObject, @MainActor TerminalViewDelegate, UIGestureRecognizerDelegate {
         let model: IOSTerminalPresentation
         var onHorizontalPan: (@MainActor (IOSHorizontalPan) -> Void)?
+        var onDoubleTap: (@MainActor () -> Void)?
         private var feedingOutput = false
+
+        @objc func doubleTapped() { onDoubleTap?() }
 
         @objc func horizontalPan(_ pan: UIPanGestureRecognizer) {
             let dx = pan.translation(in: pan.view).x
@@ -95,6 +105,7 @@ struct IOSTerminalHostView: UIViewRepresentable {
 
         /// Only a clearly sideways start is a swipe; anything else stays a scroll.
         func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+            if recognizer is UITapGestureRecognizer { return onDoubleTap != nil }
             guard onHorizontalPan != nil, let pan = recognizer as? UIPanGestureRecognizer else { return false }
             let velocity = pan.velocity(in: pan.view)
             return abs(velocity.x) > abs(velocity.y) * 1.5

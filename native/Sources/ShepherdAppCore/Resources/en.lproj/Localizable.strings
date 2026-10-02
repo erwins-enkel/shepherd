@@ -688,6 +688,8 @@
 "native_ios_steers_sent" = "Sent: %1$@";
 "native_ios_steers_swipe_hint" = "Swipe right to return to the terminal";
 "native_ios_steers_title" = "Steers";
+"native_ios_terminal_focus" = "Focus on the terminal";
+"native_ios_terminal_focus_exit" = "Tap to show the full header again";
 "native_ios_terminal_font_points" = "%1$@ pt";
 "native_ios_terminal_font_size" = "Terminal font size";
 "native_ios_terminal_hint" = "Live session output. Scroll to read earlier output.";

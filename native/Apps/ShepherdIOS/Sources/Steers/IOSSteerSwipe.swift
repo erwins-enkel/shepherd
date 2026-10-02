@@ -55,6 +55,8 @@ struct IOSSteerSwipe: Equatable {
 final class IOSSteerGestureState {
     private(set) var swipe = IOSSteerSwipe()
     private(set) var steersOpen = false
+    /// Focus mode: chrome collapses to one line so the terminal gets the screen.
+    private(set) var focused = false
     @ObservationIgnored var allowsBack = true
     @ObservationIgnored var allowsSteers = true
     @ObservationIgnored var back: () -> Void = {}
@@ -71,6 +73,10 @@ final class IOSSteerGestureState {
         case .openSteers: setSteersOpen(true)
         case .back: back()
         }
+    }
+
+    func toggleFocus() {
+        withAnimation(.easeInOut(duration: 0.2)) { focused.toggle() }
     }
 
     func setSteersOpen(_ open: Bool) {

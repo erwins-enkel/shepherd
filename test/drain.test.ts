@@ -170,6 +170,7 @@ function makeHarness(
     // Epic support
     listSubIssuesImpl?: (parentNumber: number) => Promise<SubIssueRef[]>;
     listBlockedByImpl?: (issueNumber: number) => Promise<number[]>;
+    repos?: () => string[];
   } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
@@ -300,7 +301,7 @@ function makeHarness(
     resolveForge: () => forge,
     prCache: { snapshot: () => prCache },
     usage,
-    repos: () => [REPO],
+    repos: opts.repos ?? (() => [REPO]),
     emitStatus: (s) => statuses.push(s),
     emitArchived: (id) => {
       harness.archived.push(id);
@@ -1087,6 +1088,39 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
   // snapshot must not trigger additional spawns (no side-effects beyond what tick did)
   const createsAfterSnapshot = creates.length;
   expect(creates.length).toBe(createsAfterSnapshot);
+});
+
+test("snapshot reads the session list a constant number of times, not once per repo", async () => {
+  // Regression: snapshot() re-ran store.list() — a full SELECT + hydrate of every session — for
+  // each repo under the root. ~500 dirs there blocked the event loop ~2.6s per GET /api/drain,
+  // and every web terminal's keystrokes queued behind it.
+  const others = Array.from({ length: 50 }, (_, i) => `/other-${i}`);
+  const listCalls = async (repos: string[]): Promise<number> => {
+    const h = makeHarness({ repos: () => repos });
+    const list = spyOn(h.store, "list");
+    await h.drain.snapshot();
+    return list.mock.calls.length;
+  };
+  expect(await listCalls([REPO, ...others])).toBe(await listCalls([REPO]));
+});
+
+test("snapshot still lists a drain-disabled repo with an epic child in flight", async () => {
+  const h = makeHarness({ repos: () => [REPO, "/other"] });
+  h.store.create({
+    name: "child",
+    prompt: "p",
+    repoPath: "/other",
+    baseBranch: "epic/42-x",
+    branch: "shepherd/child",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "t",
+    auto: true,
+    issueNumber: 43,
+    epicParent: 42,
+  });
+  expect((await h.drain.snapshot()).map((s) => s.repoPath)).toEqual([REPO, "/other"]);
 });
 
 test("out-of-band merge: onGit(merged) without prior retire closes issue and archives", async () => {

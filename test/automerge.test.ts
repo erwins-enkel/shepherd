@@ -1,4 +1,4 @@
-import { test, expect, mock } from "bun:test";
+import { test, expect, mock, spyOn } from "bun:test";
 import { AutoMergeService, type AutoMergeDeps } from "../src/automerge";
 import { MergeEnqueuedError, StackedMergeRefusedError } from "../src/forge/types";
 
@@ -566,7 +566,7 @@ test("tick: skips repo with no full-auto session (no merge/steer)", async () => 
 
 // ── Fix 2: per-session override enables the train in a repo defaulting off ────────
 
-test("per-session override true + repo default false → merges (repoHasFullAuto via override)", async () => {
+test("per-session override true + repo default false → merges (fullAutoRepos via override)", async () => {
   const merge = mock(async () => {});
   const archive = mock(() => 1);
   // Repo flag OFF, but the session overrides autoMergeEnabled true → full-auto → train runs.
@@ -980,4 +980,23 @@ test("Codex capacity: automatic rebase waits without consuming attempt budget", 
   free = true;
   await svc.pump("/r");
   expect(d.service.reply).toHaveBeenCalledTimes(1);
+});
+
+test("snapshot and tick read the session list a constant number of times, not once per repo", async () => {
+  // Regression: repoHasFullAuto() re-ran store.list() — a full SELECT + hydrate of every session —
+  // for each repo under the root. ~500 dirs there blocked the event loop ~2.6s per GET
+  // /api/automerge and per ~30s tick, and every web terminal's keystrokes queued behind it.
+  const others = Array.from({ length: 50 }, (_, i) => `/other-${i}`);
+  const listCalls = async (repos: string[], run: (svc: AutoMergeService) => Promise<unknown>) => {
+    const d = deps({ repos: () => repos });
+    const list = spyOn(d.store, "list");
+    await run(new AutoMergeService(d));
+    return list.mock.calls.length;
+  };
+  for (const run of [
+    (svc: AutoMergeService) => svc.snapshot(),
+    (svc: AutoMergeService) => svc.tick(),
+  ]) {
+    expect(await listCalls(["/r", ...others], run)).toBe(await listCalls(["/r"], run));
+  }
 });

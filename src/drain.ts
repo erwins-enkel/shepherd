@@ -4033,13 +4033,14 @@ export class DrainService {
    *  skipped unless an epic child is still in flight there (a superseded epic winding down). */
   async snapshot(): Promise<DrainStatus[]> {
     const out: DrainStatus[] = [];
+    const epicChildRepos = this.reposWithEpicChildInFlight();
     for (const repoPath of this.deps.repos()) {
       const cfg = this.deps.store.getRepoConfig(repoPath);
       const er = this.deps.store.getEpicRun(repoPath);
       if (
         !cfg.autoDrainEnabled &&
         !(er?.status === "running" || er?.status === "paused") &&
-        !this.hasEpicChildInFlight(repoPath)
+        !epicChildRepos.has(repoPath)
       )
         continue;
       const { state } = await this.buildState(repoPath);
@@ -4048,17 +4049,16 @@ export class DrainService {
     return out;
   }
 
-  /** A non-archived auto session in `repoPath` is still working for some epic. */
-  private hasEpicChildInFlight(repoPath: string): boolean {
-    return this.deps.store
-      .list()
-      .some(
-        (s) =>
-          s.repoPath === repoPath &&
-          s.auto &&
-          s.status !== "archived" &&
-          sessionEpicParent(s) != null,
-      );
+  /** Repos where a non-archived auto session is still working for some epic. One `list()` for
+   *  all repos: it hydrates every session, so asking per repo is O(repos × sessions) on the
+   *  event loop. */
+  private reposWithEpicChildInFlight(): Set<string> {
+    return new Set(
+      this.deps.store
+        .list()
+        .filter((s) => s.auto && s.status !== "archived" && sessionEpicParent(s) != null)
+        .map((s) => s.repoPath),
+    );
   }
 
   /** The actual backlog issues behind {@link DrainStatus.queued}: the not-yet-

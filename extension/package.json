@@ -20,7 +20,7 @@
     "test": "vitest run"
   },
   "devDependencies": {
-    "@crxjs/vite-plugin": "^2.7.1",
+    "@crxjs/vite-plugin": "^3.0.0",
     "@eslint/js": "^10.0.1",
     "@inlang/paraglide-js": "^2.25.4",
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

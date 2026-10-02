@@ -34,19 +34,38 @@ function renderRow(p: BacklogProject) {
 }
 
 describe("ProjectRow compact counts", () => {
-  it("shows one number — the open issues — and no PR or bot badges", () => {
+  it("shows issues · code PRs with Dependabot and release notes", () => {
     const row = renderRow(
       project({ openIssues: 7, openPRs: 4, prKinds: { regular: 2, dependabot: 1, release: 1 } }),
     );
-    expect(row.querySelector(".row-count")?.textContent?.trim()).toBe("7");
-    expect(row.querySelectorAll(".row-count").length).toBe(1);
-    expect(row.textContent).not.toContain("+1d");
-    expect(row.textContent).not.toContain("+1r");
+    const items = row.querySelectorAll(".count-item");
+    expect(items[0]?.textContent?.trim()).toBe("7");
+    const prs = row.querySelector<HTMLElement>(".count-prs")!;
+    expect(prs.textContent?.trim()).toBe("2");
+    expect(prs.classList.contains("prom")).toBe(true);
+    const notes = [...row.querySelectorAll(".bot-note")].map((n) => n.textContent?.trim());
+    expect(notes).toEqual(["+1d", "+1r"]);
+  });
+
+  it("no bot notes and a muted code count when there are no PRs", () => {
+    const row = renderRow(
+      project({ openPRs: 0, prKinds: { regular: 0, dependabot: 0, release: 0 } }),
+    );
+    const prs = row.querySelector<HTMLElement>(".count-prs")!;
+    expect(prs.textContent?.trim()).toBe("0");
+    expect(prs.classList.contains("prom")).toBe(false);
+    expect(row.querySelectorAll(".bot-note").length).toBe(0);
+  });
+
+  it("null prKinds (Gitea fallback): shows openPRs, no bot notes", () => {
+    const row = renderRow(project({ kind: "gitea", openPRs: 5, prKinds: null }));
+    expect(row.querySelector(".count-prs")?.textContent?.trim()).toBe("5");
+    expect(row.querySelectorAll(".bot-note").length).toBe(0);
   });
 
   it("shows — when the issue count is unknown", () => {
     const row = renderRow(project({ openIssues: null }));
-    expect(row.querySelector(".row-count")?.textContent?.trim()).toBe("—");
+    expect(row.querySelector(".count-item")?.textContent?.trim()).toBe("—");
     expect(row.getAttribute("aria-description")).toContain(m.backlog_row_tip_issues_unknown());
   });
 

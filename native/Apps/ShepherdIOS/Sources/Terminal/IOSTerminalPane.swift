@@ -1,6 +1,7 @@
 import ShepherdAppCore
 import ShepherdKit
 import SwiftUI
+import UIKit
 
 /// Shared chrome accepts a surface so ImageRenderer fixtures exercise the real layout.
 struct IOSTerminalPane<Surface: View>: View {
@@ -9,44 +10,48 @@ struct IOSTerminalPane<Surface: View>: View {
     let surface: Surface
     @Binding var fontSize: Double
     var rendersStaticFixture = false
+    /// Saved steers above the reply draft; nil in fixtures and read-only launches.
+    var steerChips: AnyView? = nil
     @Environment(\.scenePhase) private var scenePhase
     @State private var connecting = ConnectingOverlayDebouncer()
-    @State private var fontSettings = false
+    @State private var keyboardVisible = false
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                if !model.followsTail {
-                    Button { model.jumpToTail() } label: {
-                        Label(L.t("native_ios_terminal_latest"), systemImage: "arrow.down.to.line")
-                    }.accessibilityIdentifier("terminal-jump-to-tail")
-                }
-                Spacer(minLength: 0)
-                Button { fontSettings = true } label: {
-                    Image(systemName: "textformat.size").frame(width: 44, height: 44)
-                }
-                .accessibilityLabel(L.t("native_ios_terminal_font_size"))
-                .accessibilityIdentifier("terminal-font-settings")
-                .popover(isPresented: $fontSettings) {
-                    IOSTerminalFontSettings(fontSize: $fontSize)
-                    .presentationCompactAdaptation(.popover)
-                }
-            }
-            .font(.system(.caption, design: .monospaced))
-            .padding(.horizontal, 12)
-            .background(IOSTerminalStyle.panel)
-            Rectangle().fill(IOSTerminalStyle.line).frame(height: 1)
             ZStack {
                 surface
                 overlay
-            }.frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if !model.followsTail {
+                    Button { model.jumpToTail() } label: {
+                        Label(L.t("native_ios_terminal_latest"), systemImage: "arrow.down.to.line")
+                            .font(.system(.caption, design: .monospaced))
+                            .padding(.horizontal, 12).frame(minHeight: 36)
+                            .background(IOSTerminalStyle.panel, in: Capsule())
+                            .overlay(Capsule().stroke(IOSTerminalStyle.line))
+                    }
+                    .buttonStyle(.plain).foregroundStyle(IOSTerminalStyle.amber)
+                    .frame(minHeight: 44).padding(10)
+                    .accessibilityIdentifier("terminal-jump-to-tail")
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             if allowsInput && model.showsReplyBar {
                 Rectangle().fill(IOSTerminalStyle.line).frame(height: 1)
+                if let steerChips { steerChips }
                 IOSTerminalReplyBar(model: model, rendersStaticFixture: rendersStaticFixture)
-                IOSTerminalInputBar(model: model)
+                // Special keys only while typing; without a keyboard the steers panel has Esc/^C/Tab.
+                if keyboardVisible || rendersStaticFixture { IOSTerminalInputBar(model: model) }
             }
         }
         .accessibilityIdentifier("detail-tab-terminal")
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            keyboardVisible = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardVisible = false
+        }
         .onAppear { if !rendersStaticFixture { model.visibilityChanged(visible: true, active: scenePhase == .active) } }
         .onChange(of: scenePhase) { _, phase in
             guard !rendersStaticFixture else { return }

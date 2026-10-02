@@ -192,6 +192,25 @@ export const KEYS_IOS_LATENCY: readonly string[] = [
   "native_ios_latency_title",
 ];
 
+// Stream iOS steers — steer panel, chips and swipe gestures in session detail.
+export const KEYS_IOS_STEERS: readonly string[] = [
+  "native_ios_steers_all",
+  "native_ios_steers_empty",
+  "native_ios_steers_end_hold",
+  "native_ios_steers_load_failed",
+  "native_ios_steers_overview",
+  "native_ios_steers_release_back",
+  "native_ios_steers_release_open",
+  "native_ios_steers_section_session",
+  "native_ios_steers_section_terminal",
+  "native_ios_steers_sent",
+  "native_ios_steers_swipe_hint",
+  "native_ios_steers_title",
+  "steerbar_send_aria",
+  "steerbar_send_failed",
+  "steerbar_toolbar_aria",
+];
+
 /** Terminal stream (S1). Keep alphabetical. */
 // Stream T — iOS terminal/detail chrome. Additive; Mac keys stay unchanged.
 export const KEYS_IOS_TERMINAL: readonly string[] = [
@@ -213,6 +232,8 @@ export const KEYS_IOS_TERMINAL: readonly string[] = [
   "native_ios_detail_info",
   "native_ios_detail_path",
   "native_ios_detail_task",
+  "native_ios_terminal_focus",
+  "native_ios_terminal_focus_exit",
   "native_ios_terminal_font_points",
   "native_ios_terminal_font_size",
   "native_ios_terminal_hint",
@@ -1609,6 +1630,7 @@ export const KEYS: readonly string[] = [
   ...KEYS_CORE,
   ...KEYS_TERMINAL,
   ...KEYS_IOS_TERMINAL,
+  ...KEYS_IOS_STEERS,
   ...KEYS_IOS_LATENCY,
   ...KEYS_DETAIL,
   ...KEYS_SIDEBAR,

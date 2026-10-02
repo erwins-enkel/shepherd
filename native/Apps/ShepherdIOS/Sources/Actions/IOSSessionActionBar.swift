@@ -30,38 +30,25 @@ struct IOSSessionActionBarContent: View {
     let canMerge: Bool
     var rendersStaticFixture = false
     @State private var showsRecap = false
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             IOSActionFeedback(error: state.error, note: state.outcome.note, busy: state.busy, rendersStaticFixture: rendersStaticFixture)
-            if let recap {
-                Button { showsRecap = true } label: {
-                    HStack(alignment: .firstTextBaseline, spacing: 6) {
-                        Image(systemName: "text.alignleft").accessibilityHidden(true)
-                        Text(verbatim: RecapLine.content(for: recap)?.headline ?? recapStatus(recap))
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
-                        Image(systemName: "chevron.up").accessibilityHidden(true)
-                    }.frame(minHeight: 44)
+            if !dynamicTypeSize.isAccessibilitySize, session.status.known != .archived {
+                // One row: the recap's first line yields to the buttons, the sheet has the rest.
+                HStack(spacing: 8) {
+                    if let recap { recapButton(recap, compact: true) } else { Spacer(minLength: 0) }
+                    primaryButtons
+                    moreMenu
                 }
-                .buttonStyle(.plain).foregroundStyle(SessionListStyle.muted)
-                .accessibilityLabel(L.t("feat_visual_recap_title"))
-                .accessibilityValue(recap.headline)
-                .accessibilityIdentifier("actions-recap")
-            }
-            if session.status.known != .archived {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 8) { primaryButtons; moreMenu }
-                    VStack(alignment: .leading, spacing: 8) { primaryButtons; moreMenu }
-                }
-                if !state.allowsWrites {
-                    Text(L.t("native_ios_actions_read_only")).foregroundStyle(SessionListStyle.muted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                if !state.allowsWrites { readOnlyNote }
+            } else {
+                stackedBody
             }
         }
         .sessionFont()
-        .foregroundStyle(SessionListStyle.ink).padding(.horizontal, 12).padding(.vertical, 8)
+        .foregroundStyle(SessionListStyle.ink).padding(.horizontal, 12).padding(.vertical, 6)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(SessionListStyle.panel)
         .overlay(alignment: .top) { Rectangle().fill(SessionListStyle.brightLine).frame(height: 1) }
@@ -74,6 +61,40 @@ struct IOSSessionActionBarContent: View {
         }
         .sheet(isPresented: $showsRecap) { IOSRecapSheet(recap: recap) }
         .onDisappear { state.detailDidDisappear() }
+    }
+
+    private var readOnlyNote: some View {
+        Text(L.t("native_ios_actions_read_only")).foregroundStyle(SessionListStyle.muted)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func recapButton(_ recap: Recap, compact: Bool) -> some View {
+        Button { showsRecap = true } label: {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Image(systemName: "text.alignleft").accessibilityHidden(true)
+                Text(verbatim: RecapLine.content(for: recap)?.headline ?? recapStatus(recap))
+                    .lineLimit(compact ? 1 : nil)
+                    .fixedSize(horizontal: false, vertical: !compact)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.up").accessibilityHidden(true)
+            }.frame(minHeight: 44)
+        }
+        .buttonStyle(.plain).foregroundStyle(SessionListStyle.muted)
+        .accessibilityLabel(L.t("feat_visual_recap_title"))
+        .accessibilityValue(recap.headline)
+        .accessibilityIdentifier("actions-recap")
+    }
+
+    /// Large text: everything stacks, nothing truncates.
+    @ViewBuilder private var stackedBody: some View {
+        if let recap { recapButton(recap, compact: false) }
+        if session.status.known != .archived {
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 8) { primaryButtons; moreMenu }
+                VStack(alignment: .leading, spacing: 8) { primaryButtons; moreMenu }
+            }
+            if !state.allowsWrites { readOnlyNote }
+        }
     }
 
     @ViewBuilder private var primaryButtons: some View {

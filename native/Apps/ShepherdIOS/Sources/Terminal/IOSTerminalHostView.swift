@@ -29,9 +29,18 @@ final class IOSWatchingTerminalView: SwiftTerm.TerminalView {
     }
 }
 
+/// A horizontal swipe across the output. Vertical scrolling stays the emulator's.
+enum IOSHorizontalPan: Equatable {
+    case changed(CGFloat)
+    case ended(translation: CGFloat, velocity: CGFloat)
+    case cancelled
+}
+
 struct IOSTerminalHostView: UIViewRepresentable {
     let model: IOSTerminalPresentation
     let fontSize: Double
+    var onHorizontalPan: (@MainActor (IOSHorizontalPan) -> Void)?
+    var onDoubleTap: (@MainActor () -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator(model: model) }
 
@@ -48,10 +57,21 @@ struct IOSTerminalHostView: UIViewRepresentable {
         view.accessibilityHint = L.t("native_ios_terminal_hint")
         view.accessibilityIdentifier = "terminal-view"
         context.coordinator.bind(view)
+        context.coordinator.onHorizontalPan = onHorizontalPan
+        context.coordinator.onDoubleTap = onDoubleTap
+        let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.doubleTapped))
+        doubleTap.numberOfTapsRequired = 2
+        doubleTap.delegate = context.coordinator
+        view.addGestureRecognizer(doubleTap)
+        let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.horizontalPan(_:)))
+        pan.delegate = context.coordinator
+        view.addGestureRecognizer(pan)
         return view
     }
 
     func updateUIView(_ view: IOSWatchingTerminalView, context: Context) {
+        context.coordinator.onHorizontalPan = onHorizontalPan
+        context.coordinator.onDoubleTap = onDoubleTap
         if view.font.pointSize != CGFloat(fontSize) {
             view.font = .monospacedSystemFont(ofSize: CGFloat(fontSize), weight: .regular)
         }
@@ -65,9 +85,34 @@ struct IOSTerminalHostView: UIViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, @MainActor TerminalViewDelegate {
+    final class Coordinator: NSObject, @MainActor TerminalViewDelegate, UIGestureRecognizerDelegate {
         let model: IOSTerminalPresentation
+        var onHorizontalPan: (@MainActor (IOSHorizontalPan) -> Void)?
+        var onDoubleTap: (@MainActor () -> Void)?
         private var feedingOutput = false
+
+        @objc func doubleTapped() { onDoubleTap?() }
+
+        @objc func horizontalPan(_ pan: UIPanGestureRecognizer) {
+            let dx = pan.translation(in: pan.view).x
+            switch pan.state {
+            case .changed: onHorizontalPan?(.changed(dx))
+            case .ended: onHorizontalPan?(.ended(translation: dx, velocity: pan.velocity(in: pan.view).x))
+            case .cancelled, .failed: onHorizontalPan?(.cancelled)
+            default: break
+            }
+        }
+
+        /// Only a clearly sideways start is a swipe; anything else stays a scroll.
+        func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+            if recognizer is UITapGestureRecognizer { return onDoubleTap != nil }
+            guard onHorizontalPan != nil, let pan = recognizer as? UIPanGestureRecognizer else { return false }
+            let velocity = pan.velocity(in: pan.view)
+            return abs(velocity.x) > abs(velocity.y) * 1.5
+        }
+
+        func gestureRecognizer(_ recognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool { true }
 
         init(model: IOSTerminalPresentation) { self.model = model }
 

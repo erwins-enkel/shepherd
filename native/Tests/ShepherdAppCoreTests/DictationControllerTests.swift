@@ -124,13 +124,17 @@ import Testing
         }
     }
     @Test func timeoutAndTeardownFenceLateServerResults() async throws {
+        // The server answers only when the test releases it, so the timeout always wins — no race with slow CI clocks.
+        let gate = LateServerGate()
         let host = Host(), engine = FakeDictationEngine(); engine.recording = .init(clips: [.init(wav: Data([1]), appleText: "Apple final")], appleText: "Apple final")
-        let finalizer = WhisperFinalizer(status: { true }, requestTimeout: 0.01, transcribe: { _, _ in try? await Task.sleep(for: .milliseconds(50)); return "Late server" })
+        let finalizer = WhisperFinalizer(status: { true }, requestTimeout: 0.01, transcribe: { _, _ in await gate.wait(); return "Late server" })
         let c = DictationController(engine: engine, finalizer: finalizer, finalizationTimeout: 0.01, now: { host.date }, getText: { host.text }, setText: { host.text = $0 })
         await c.begin(); host.date.addTimeInterval(1); c.finalize()
         #expect(await eventually { host.text == "Existing. Apple final" && c.state != .finalizing })
         await c.begin(); host.date.addTimeInterval(1); c.finalize(); c.teardown()
-        try await Task.sleep(for: .milliseconds(90)); #expect(host.text == "Existing. Apple final")
+        await gate.open()
+        for _ in 0..<200 { await Task.yield() }
+        #expect(host.text == "Existing. Apple final")
     }
     @Test func fallbackIsPerClipAndAbsentPluginSkipsUpload() async {
         let recording = DictationRecording(clips: [.init(wav: Data([1]), appleText: "One"), .init(wav: Data([2]), appleText: "Two")], appleText: "One Two")
@@ -142,19 +146,22 @@ import Testing
         #expect(await absent.finalize(recording, locale: "en-US") == .init(text: "One Two"))
     }
     @Test func discoveryDeadlineDoesNotDelayOfflineAppleFallback() async {
+        let gate = LateServerGate()
         let result = await DictationDeadline.value(seconds: 0.01) {
-            try? await Task.sleep(for: .milliseconds(100))
+            await gate.wait()
             return true
         }
+        await gate.open()
         #expect(result == nil)
     }
     @Test func whisperTimeoutPreservesCompletedClipsInOrderAndReportsMissingText() async throws {
+        let gate = LateServerGate()
         let host = Host(), engine = FakeDictationEngine()
         engine.recording = .init(clips: (1...3).map { .init(wav: Data([UInt8($0)]), appleText: "") }, appleText: "")
         let finalizer = WhisperFinalizer(status: { true }, requestTimeout: 0.01, transcribe: { bytes, _ in
             if bytes == Data([2]) {
                 // A transport may ignore cancellation; late text must never replace the result.
-                try? await Task.sleep(for: .milliseconds(100)); return "Late second"
+                await gate.wait(); return "Late second"
             }
             return bytes == Data([1]) ? "First" : "Third"
         })
@@ -167,6 +174,7 @@ import Testing
         #expect(c.noticeKey == "native_compose_voice_incomplete")
         #expect(c.noticeCopy != nil); #expect(c.state == .error); #expect(c.canUndo)
         c.undo(); #expect(host.text == "Existing.")
+        await gate.open()
     }
     @Test func eachWhisperRequestGetsItsOwnDeadlineBeyondCaptureShutdownTimeout() async throws {
         let host = Host(), engine = FakeDictationEngine()
@@ -234,4 +242,19 @@ import Testing
         try? await Task.sleep(for: .milliseconds(10))
     }
     return condition()
+}
+
+/// Holds fake Whisper requests until released, independent of task cancellation.
+private actor LateServerGate {
+    private var opened = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    func wait() async {
+        if opened { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+    func open() {
+        opened = true
+        waiters.forEach { $0.resume() }
+        waiters = []
+    }
 }

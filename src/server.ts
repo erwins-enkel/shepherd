@@ -238,6 +238,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import type { ServerWebSocket } from "bun";
 import { execFileSync, markPtyEvent } from "./instrument";
 import { opStart } from "./loop-watchdog";
+import { startLoopLagMonitor, withServerTiming } from "./server-timing";
 import { isOperatorKeystroke, stampOperatorKeystroke } from "./operator-activity";
 import {
   normalizeDefaultCodexModelSetting,
@@ -8951,10 +8952,16 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
       // Both listeners funnel through here (the agent ingress delegates to this seam), so every
       // HTTP request — hooks included — is visible to the loop watchdog's stall report. Path only:
       // the query string can carry anything and this label is what lands in the log.
-      const settled = opStart(`${req.method} ${new URL(req.url).pathname}`);
+      const pathname = new URL(req.url).pathname;
+      const settled = opStart(`${req.method} ${pathname}`);
+      // Server-Timing (server-timing.ts) on credentialed API responses only: the public probes
+      // (health, login) keep disclosing nothing, and the agent ingress has no reader for it.
+      const timed = !opts.skipAuth && pathname.startsWith("/api/") && !isPublicRequest(req);
+      const started = timed ? performance.now() : 0;
       return (
         app
           .fetch(req)
+          .then((res) => (timed ? withServerTiming(res, performance.now() - started) : res))
           // Sliding re-stamp at this single HTTP seam (never on the skipAuth ingress app — agents
           // carry no cookie — and never on WS upgrades, which return before reaching makeApp).
           .then((res) => (opts.skipAuth ? res : maybeRestamp(req, res)))
@@ -9220,6 +9227,8 @@ export const slowRequestTimeoutSec = (req: Request, url: URL): number | null => 
 
 export function serve(deps: AppDeps, port: number) {
   const app = makeApp(deps);
+  // Feeds the `lag` metric of Server-Timing; one unref'd timer, production listener only.
+  startLoopLagMonitor();
   // current owning socket per terminal — a single owner avoids the takeover war
   const ptyOwners = new Map<string, ServerWebSocket<WsData>>();
   const terminalOwners = () => ({

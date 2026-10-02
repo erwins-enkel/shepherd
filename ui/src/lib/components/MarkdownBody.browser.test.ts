@@ -27,7 +27,8 @@ describe("MarkdownBody", () => {
     });
     await expect.poll(() => container.querySelector(".md-body")?.textContent).toContain("ok");
     expect(container.querySelector("script")).toBeNull();
-    expect(container.querySelector("img")?.getAttribute("onerror")).toBeNull();
+    // <img> itself is dropped (passive-load beacon), not just its handler.
+    expect(container.querySelector("img")).toBeNull();
   });
 
   it("shows the empty hint for a blank body", async () => {

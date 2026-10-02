@@ -35,6 +35,21 @@ describe("RichTextBlock", () => {
     expect(container.querySelector("script")).toBeNull();
   });
 
+  it("drops images and forces links out-of-app (hardened agent-text sanitizer)", async () => {
+    const { container } = await render(RichTextBlock, {
+      block: {
+        type: "rich-text",
+        id: "r-hard",
+        markdown: "see ![x](https://evil.example/p.png) and [docs](https://example.com/d)",
+      },
+    });
+    await expect.element(page.getByText(/see/)).toBeInTheDocument();
+    expect(container.querySelector("img")).toBeNull();
+    const a = container.querySelector("a")!;
+    expect(a.getAttribute("target")).toBe("_blank");
+    expect(a.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
   // ── #2194: fenced blocks ───────────────────────────────────────────────────
   // The recap prompt now asks for a "shape sketch" — a fenced ```diff of a component tree,
   // file layout or control flow — inside a rich-text block. Before #2194 there was no

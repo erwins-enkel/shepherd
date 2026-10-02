@@ -1,5 +1,6 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
+  import { sanitizeAgentHtml } from "$lib/agent-markdown";
 
   // Shared reading surface for forge Markdown (issue descriptions, #2617): renders `source`
   // through marked + DOMPurify, styled from tokens only. Same lazy-import recipe as GitRail's
@@ -18,7 +19,8 @@
     let alive = true;
     Promise.all([import("marked"), import("dompurify")])
       .then(([{ marked }, { default: DOMPurify }]) => {
-        if (alive) rendered = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
+        if (alive)
+          rendered = sanitizeAgentHtml(DOMPurify, marked.parse(body, { async: false }) as string);
       })
       .catch((e) => {
         console.warn("Markdown render failed", e);
@@ -164,8 +166,5 @@
     padding: 3px 8px;
     border: 1px solid var(--color-line);
     text-align: left;
-  }
-  .md-body :global(img) {
-    max-width: 100%;
   }
 </style>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { VisualBlock, CalloutTone } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { sanitizeAgentHtml } from "$lib/agent-markdown";
   let { block }: { block: Extract<VisualBlock, { type: "callout" }> } = $props();
 
   const TONE_COLOR: Record<CalloutTone, string> = {
@@ -36,7 +37,8 @@
     let alive = true;
     Promise.all([import("marked"), import("dompurify")])
       .then(([{ marked }, { default: DOMPurify }]) => {
-        if (alive) rendered = DOMPurify.sanitize(marked.parse(md, { async: false }) as string);
+        if (alive)
+          rendered = sanitizeAgentHtml(DOMPurify, marked.parse(md, { async: false }) as string);
       })
       .catch((err) => console.warn("CalloutBlock markdown render failed", err));
     return () => {

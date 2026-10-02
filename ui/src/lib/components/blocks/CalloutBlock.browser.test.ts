@@ -31,6 +31,20 @@ describe("CalloutBlock", () => {
     expect(strongEl?.textContent).toBe("critical");
   });
 
+  it("drops images and forces links out-of-app (hardened agent-text sanitizer)", async () => {
+    const { container } = await render(CalloutBlock, {
+      block: {
+        type: "callout",
+        id: "c-hard",
+        tone: "risk",
+        markdown: "see ![x](https://evil.example/p.png) and [docs](https://example.com/d)",
+      },
+    });
+    await expect.element(page.getByText(/see/)).toBeInTheDocument();
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("a")?.getAttribute("target")).toBe("_blank");
+  });
+
   it("shows 'Info' label for info tone", async () => {
     render(CalloutBlock, {
       block: { type: "callout", id: "c3", tone: "info", markdown: "Just so you know." },

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { VisualBlock } from "$lib/types";
+  import { sanitizeAgentHtml } from "$lib/agent-markdown";
   let { block }: { block: Extract<VisualBlock, { type: "rich-text" }> } = $props();
   let rendered = $state("");
 
@@ -51,8 +52,8 @@
       .then(([{ marked }, { default: DOMPurify }]) => {
         if (alive)
           rendered = tintDiffFences(
-            DOMPurify.sanitize(marked.parse(md, { async: false }) as string, {
-              RETURN_DOM_FRAGMENT: true,
+            sanitizeAgentHtml(DOMPurify, marked.parse(md, { async: false }) as string, {
+              fragment: true,
             }),
           );
       })

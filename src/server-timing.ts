@@ -78,7 +78,7 @@ export function serverTimingValue(appMs: number, lagMs: number | null = currentL
   return lagMs === null ? app : `${app}, lag;dur=${Math.round(lagMs)}`;
 }
 
-export function currentLoopLag(): number | null {
+function currentLoopLag(): number | null {
   return lagWindow ? lagWindow.maxLag(performance.now()) : null;
 }
 

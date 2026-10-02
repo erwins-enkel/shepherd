@@ -63,6 +63,8 @@
         return m.automergebanner_conflict();
       case "not_mergeable":
         return m.automergebanner_not_mergeable();
+      case "protection_blocked":
+        return m.automergebanner_protection_blocked();
       case "changes_requested":
         return view.code !== null && view.owner === "shepherd"
           ? m.automergebanner_changes_auto()

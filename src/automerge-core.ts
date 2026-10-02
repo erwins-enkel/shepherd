@@ -140,16 +140,18 @@ function readyExceptManualSteps(
  *  `automerge:status` so the UI can say what the train waits for. Codes, by owner:
  *  - Shepherd resolves it on its own: `critic_pending` (a verdict for the current head is still
  *    due), `checks_pending`/`checks_failed` (CI running / autopilot steers the fix), `behind`/
- *    `conflict` (the train steers a rebase), `not_mergeable` (forge still computing or blocked),
+ *    `conflict` (the train steers a rebase), `not_mergeable` (forge still computing mergeability),
  *    `changes_requested` (auto-address — or the operator — answers the critic).
  *  - Needs the operator: `critic_error`, `rebase_cap`, `merge_backoff`, `manual_steps`,
- *    `stacked`, `signoff`. */
+ *    `stacked`, `signoff`, `protection_blocked` (branch protection holds a green PR — typically a
+ *    required human approval, which Shepherd never gives). */
 export type MergeWaitCode =
   | "merge_backoff"
   | "conflict"
   | "checks_pending"
   | "checks_failed"
   | "not_mergeable"
+  | "protection_blocked"
   | "behind"
   | "rebase_cap"
   | "signoff"
@@ -188,6 +190,8 @@ function forgeGateFailure(s: MergeSessionView): MergeWaitCode | null {
   if (cleared && s.mergeable === true && s.mergeStateStatus !== "blocked") return null;
   if (isDefiniteConflict(s)) return "conflict";
   if (!cleared) return s.checks === "failure" ? "checks_failed" : "checks_pending";
+  // Green CI yet blocked: branch protection wants something only a human gives (an approval).
+  if (s.mergeStateStatus === "blocked") return "protection_blocked";
   return "not_mergeable";
 }
 

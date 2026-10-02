@@ -6,6 +6,8 @@
   export type UpNextBandGroup = {
     id: string;
     title: string;
+    /** The label this band groups by; its rows omit it from their chips. Null for priority/unlabeled. */
+    label: string | null;
     tone: string;
     items: UpNextItem[];
     totalCount: number;
@@ -67,7 +69,9 @@
     <ul class="un-list">
       {#each shown as it (upNextKey(it))}
         {@const key = upNextKey(it)}
-        {@const labels = labelsOf(it)}
+        {@const labels = labelsOf(it).filter(
+          (label) => label.toLowerCase() !== group.label?.toLowerCase(),
+        )}
         {@const current = upNextUi.previewKey === key}
         <li class="un-row" class:un-row-selected={selected.has(key)} class:un-row-current={current}>
           <label class="un-check">

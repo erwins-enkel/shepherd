@@ -18,6 +18,9 @@ import { operationsForStream, eventsForStream } from "./stream-blocks";
 import { config } from "../../src/config";
 import { firstRun } from "../../src/first-run";
 import { diagnostic } from "./settings-fixtures";
+import { generateKeyPairSync } from "node:crypto";
+import { PushService } from "../../src/push";
+import { ApnsSender } from "../../src/apns";
 let s: ContractServer, token: string, cookie: string;
 const OPS = operationsForStream("settings"),
   EVENTS = eventsForStream("settings");
@@ -274,6 +277,33 @@ test("approved core PATCH exception writes one field, preserves GET and refuses 
     await request("PATCH", "/api/settings", 401, { reducedPushMode: true }, undefined, {});
   } finally {
     config.reducedPushMode = saved;
+  }
+});
+test("native iOS registration: 503 without an APNs key, 400 on a bad token, 200 once configured", async () => {
+  const device = { token: "ab".repeat(32), environment: "production", locale: "de" };
+  const saved = s.deps.push;
+  try {
+    s.deps.push = undefined;
+    await request("POST", "/api/push/apns", 503, device);
+    await request("POST", "/api/push/apns", 400, { token: "nope", environment: "production" });
+    const key = generateKeyPairSync("ec", { namedCurve: "P-256" })
+      .privateKey.export({ type: "pkcs8", format: "pem" })
+      .toString();
+    s.deps.push = new PushService(
+      s.deps.store,
+      async () => ({}),
+      () => ({ publicKey: "PUB", privateKey: "PRIV" }),
+      undefined,
+      undefined,
+      new ApnsSender(
+        { key, keyId: "KEY1234567", teamId: "TEAM123456", topic: "run.shepherd.ios" },
+        async () => ({ status: 200 }),
+      ),
+    );
+    const ok = (await request("POST", "/api/push/apns", 200, device)) as { endpoint: string };
+    expect(ok.endpoint).toBe(`apns:production:${device.token}`);
+  } finally {
+    s.deps.push = saved;
   }
 });
 test("existing token contract is cookie-admin only", async () => {

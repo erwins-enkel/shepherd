@@ -92,6 +92,22 @@ keypair invalidates every existing browser subscription, which then has to re-su
 | `SHEPHERD_VAPID_PRIVATE` | _(generated + persisted)_ | VAPID private key. Set it together with `SHEPHERD_VAPID_PUBLIC` or not at all — a half-configured pair cannot sign for the key the browser holds |
 | `SHEPHERD_VAPID_SUBJECT` | `https://github.com/erwins-enkel/shepherd` | JWT `sub` claim sent with every push. Must be a routable `https:` or `mailto:` URL: Apple's push service rejects a non-routable one (`mailto:shepherd@localhost` and the like) with HTTP 403 `BadJwtToken`, which is why the default is a real URL rather than a local address |
 
+## Native iOS push (APNs, interim)
+
+The native iOS app receives pushes straight from Apple's push service while the shared push
+relay is being built ([#2665](https://github.com/erwins-enkel/shepherd/issues/2665)). This needs
+the publisher's APNs auth key, so it is for the publisher's own servers only — a self-hoster
+leaves these unset and keeps browser Web Push. Native pushes pass the same gates as Web Push
+(presence, cooldown, reduced mode, per-device categories). Until the relay lands, the title and
+body travel in plain text through Apple.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_APNS_KEY` | _(unset: native push off)_ | APNs auth key, as a path to the `.p8` file or its PEM text |
+| `SHEPHERD_APNS_KEY_ID` | _(unset)_ | The key's 10-character ID from Apple's developer portal |
+| `SHEPHERD_APNS_TEAM_ID` | _(unset)_ | Apple Developer team that owns the key and the app |
+| `SHEPHERD_APNS_TOPIC` | `run.shepherd.ios` | The iOS app's bundle identifier, sent as `apns-topic` |
+
 ## Model, effort and provider defaults
 
 What a **new** session starts on. All five are persisted and UI-configurable; the env value

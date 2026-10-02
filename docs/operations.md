@@ -189,6 +189,12 @@ systemctl --user status shepherd
 journalctl --user -u shepherd -f        # unit lifecycle; app log: ~/.shepherd/shepherd.log
 ```
 
+To restart without a shell: **Settings → Session → Restart Shepherd**. Ticking **Also restart
+the herdr daemon** runs `herdr server live-handoff` first, so agent sessions survive. The API
+behind it is `POST /api/restart` `{ "herdr": bool }`; the detached restart logs to
+`journalctl --user -u shepherd-restart`. It only works on the systemd unit itself — a Shepherd
+started from a terminal or dev worktree answers `not_systemd`.
+
 ### Shipping a code change
 
 The unit runs straight from the working tree, so **whatever is checked out is what runs**. To

@@ -17,6 +17,30 @@ systemctl --user restart shepherd    # restart it
 The unit runs straight from the working tree, so **whatever is checked out is what
 runs**.
 
+### Restart from the UI
+
+You don't need a shell to restart: **Settings → Session → Restart Shepherd → Restart…**
+(searching "restart" in Settings jumps there). The page reloads by itself once Shepherd
+answers again, usually within a few seconds. Agent sessions keep running — they live in
+herdr, not in Shepherd.
+
+Tick **Also restart the herdr daemon** in the confirm dialog to restart herdr too. herdr
+goes first, via `herdr server live-handoff`: its panes move to a fresh server, so sessions
+survive and attached terminals reconnect briefly. If the handoff fails, the old herdr server
+keeps running and Shepherd restarts anyway.
+
+The same dialog opens from the plugin banner (**Restart Shepherd to apply your changes**)
+after a plugin update or uninstall.
+
+Under the hood this is `POST /api/restart` with `{ "herdr": true | false }`, answered `202`
+once launched. The restart runs in a detached transient unit, so its output lands in
+`journalctl --user -u shepherd-restart`.
+
+The button only works on the systemd unit itself. A Shepherd started from a terminal or a
+dev worktree answers `not_systemd` — on purpose, so a dev UI can never bounce the production
+instance; restart that one by hand. A second click within a minute answers
+`already_restarting`.
+
 ### If the HUD freezes
 
 HTTP, the web terminal and all background work share **one event loop**. If code ever spins

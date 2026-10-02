@@ -1,5 +1,5 @@
 import { afterAll } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -19,13 +19,12 @@ import { join } from "node:path";
 // feature flag is neutralised automatically — no per-flag maintenance. We keep only the short
 // allowlist of resource/harness vars that tests and the pre-push lane deliberately provide;
 // deleting those would be actively harmful (e.g. `SHEPHERD_DB` unset falls back to the real
-// `~/.shepherd/shepherd.db`, and the pre-push lane sets `SHEPHERD_REPO_ROOT` to a temp dir for
-// repo-discovery isolation).
+// `~/.shepherd/shepherd.db`). `SHEPHERD_REPO_ROOT` is stripped too, and re-pinned to a per-run
+// temp dir below.
 const KEEP = new Set([
   "SHEPHERD_DB", // resource path — never let tests fall back to the real user DB
   "SHEPHERD_FORGES", // resource path (derived from the DB dir)
   "SHEPHERD_PLUGINS_DIR", // resource path (derived from the DB dir)
-  "SHEPHERD_REPO_ROOT", // pre-push lane sets a temp root for repo-discovery isolation
   "SHEPHERD_TMP_SWEEP_DIR", // scratchpad*.test.ts set + restore this per-test
   "SHEPHERD_PROFILE_LOOP", // instrument.test.ts sets + restores this
   "SHEPHERD_NODE_COMPILE_CACHE", // herdr.test.ts sets this sentinel
@@ -79,3 +78,19 @@ afterAll(() => {
     /* best-effort: never fail a green run over cleanup */
   }
 });
+
+// ── Per-run repo root (#2683) ────────────────────────────────────────────────
+//
+// ~40 test files `mkdtemp` into `config.repoRoot` (safeRepoDir only accepts paths inside it), and
+// inside a Shepherd session that root is the operator's REAL one (`SHEPHERD_REPO_ROOT=~/projects`).
+// Shepherd lists every dir there as a repo, so one test that forgot its cleanup left 448 fixture
+// repos behind and multiplied every drain/automerge sweep (#2682). Pin the root to a dir inside the
+// run root instead: no in-process `config.repoRoot` can reach the real one, and leftovers go with
+// the run. It is a child, not the run root itself, so `tmpdir()` paths still sit OUTSIDE it for
+// the out-of-root tests.
+//
+// In-process only: verified empirically, Bun's child processes see the env the run was LAUNCHED
+// with, not these mutations. That is why the pre-push lane and CI still set `SHEPHERD_REPO_ROOT`
+// at launch.
+process.env.SHEPHERD_REPO_ROOT = join(runTmpRoot, "repo-root");
+mkdirSync(process.env.SHEPHERD_REPO_ROOT);

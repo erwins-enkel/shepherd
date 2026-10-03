@@ -9784,6 +9784,269 @@
         }
       }
     },
+    "native_connect_detail_elapsed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartezeit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting"
+          }
+        }
+      }
+    },
+    "native_connect_detail_endpoint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Endpunkt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Endpoint"
+          }
+        }
+      }
+    },
+    "native_connect_detail_fast_fails": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sofortabbrüche"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instant drops"
+          }
+        }
+      }
+    },
+    "native_connect_detail_last_failure": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Letzter Fehler"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last failure"
+          }
+        }
+      }
+    },
+    "native_connect_detail_server": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server"
+          }
+        }
+      }
+    },
+    "native_connect_detail_step": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schritt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Step"
+          }
+        }
+      }
+    },
+    "native_connect_drop_close": {
+      "comment": "%1$@ = code",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close-Code %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "close code %1$@"
+          }
+        }
+      }
+    },
+    "native_connect_drop_lived": {
+      "comment": "%1$@ = duration",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "nach %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "after %1$@"
+          }
+        }
+      }
+    },
+    "native_connect_drop_no_close": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kein Close-Frame"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "no close frame"
+          }
+        }
+      }
+    },
+    "native_connect_fast_fails_value": {
+      "comment": "%1$@ = count, %2$@ = max",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ von %2$@, dann gibt Shepherd auf"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ of %2$@, then Shepherd gives up"
+          }
+        }
+      }
+    },
+    "native_connect_step_events": {
+      "comment": "%1$@ = attempt",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-Verbindung (/events) wird aufgebaut, Versuch %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opening the live connection (/events), attempt %1$@"
+          }
+        }
+      }
+    },
+    "native_connect_step_events_retry": {
+      "comment": "%1$@ = attempt, %2$@ = duration",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live-Verbindung (/events) getrennt, Versuch %1$@ in %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Live connection (/events) dropped, attempt %1$@ in %2$@"
+          }
+        }
+      }
+    },
+    "native_connect_step_handshake": {
+      "comment": "%1$@ = attempt",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebSocket-Handshake, Versuch %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "WebSocket handshake, attempt %1$@"
+          }
+        }
+      }
+    },
+    "native_connect_step_retry": {
+      "comment": "%1$@ = duration",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Socket geschlossen, nächster Versuch in %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Socket closed, next attempt in %1$@"
+          }
+        }
+      }
+    },
+    "native_connect_step_snapshot": {
+      "comment": "%1$@ = attempt",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungen, Einstellungen und Repos laden, Versuch %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading sessions, settings and repos, attempt %1$@"
+          }
+        }
+      }
+    },
     "native_detail_action_failed": {
       "comment": "%1$@ = reason",
       "extractionState": "manual",
@@ -11725,6 +11988,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Age: %1$@"
+          }
+        }
+      }
+    },
+    "native_ios_spawn_events_down": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Live-Verbindung zum Server ist getrennt. Fortschrittsmeldungen kommen erst an, wenn sie wieder steht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The live connection to the server is down, so progress reports cannot arrive until it is back."
+          }
+        }
+      }
+    },
+    "native_ios_spawn_no_progress": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Fortschrittsmeldung vom Server."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No progress report from the server yet."
           }
         }
       }
@@ -19149,6 +19446,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Taking longer than usual"
+          }
+        }
+      }
+    },
+    "newtask_spawn_stale": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Antwort vom Server. Der Agent läuft vielleicht schon — sieh in der Sitzungsliste nach."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No answer from the server yet. The agent may already be running — check the session list."
           }
         }
       }

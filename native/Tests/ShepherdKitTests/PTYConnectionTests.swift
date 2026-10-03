@@ -723,6 +723,43 @@ struct PTYConnectionTests {
     #expect(try await eventually { bytes.all() == [Data([0x68])] })
     await connection.stop()
   }
+
+  @Test("a refused upgrade reports its attempt, why it died and the pause before the next one")
+  func refusedUpgradeReportsTheAttempt() async throws {
+    let server = try FakePTYServer()
+    defer { server.stop() }
+    server.setRejectUpgrades(true)
+    // Long enough that the retry never fires inside the test.
+    let connection = makeConnection(server, reconnectDelay: .seconds(30))
+    let (attempts, reader) = collect(await connection.attempts())
+    defer { reader.cancel() }
+
+    await connection.start()
+    #expect(try await eventually { attempts.all().last?.stage == .waiting(.seconds(30)) })
+    let attempt = try #require(attempts.all().last)
+    #expect(attempt.endpoint == "ws://127.0.0.1:\(server.baseURL.port ?? 0)/pty/sess-1")
+    #expect(attempt.number == 1)
+    #expect(attempt.fastFails == 1)
+    let drop = try #require(attempt.lastDrop)
+    #expect(drop.error != nil)
+    #expect(drop.lived < PTYConnection.fastFailWindow)
+
+    // The operator's takeOver starts a fresh run: the numbering and the drop reset.
+    server.setRejectUpgrades(false)
+    await connection.takeOver()
+    #expect(try await eventually {
+      attempts.all().last == PTYConnection.Attempt(
+        endpoint: attempt.endpoint, number: 1, stage: .handshake, fastFails: 0, lastDrop: nil)
+    })
+    await connection.stop()
+  }
+
+  @Test("the reported endpoint drops the query and any userinfo")
+  func endpointIsTheBareSocketURL() throws {
+    let url = try #require(
+      URL(string: "wss://me:secret@host.example.ts.net:7330/shepherd/pty/a-b?cols=1&rows=2"))
+    #expect(PTYConnection.endpoint(of: url) == "wss://host.example.ts.net:7330/shepherd/pty/a-b")
+  }
 }
 
 extension PTYConnection {

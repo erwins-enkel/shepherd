@@ -193,7 +193,7 @@ test("setupGitViaGh: gh missing → missing", async () => {
   expect(await setupGitViaGh({ gh, git: storeGit })).toEqual({ ok: false, error: "missing" });
 });
 
-test("setupGitViaGh: setup-git succeeded but git still doesn't use gh → failed", async () => {
+test("setupGitViaGh: setup-git succeeded but git still doesn't use gh → setup", async () => {
   const gh: CmdRunner = async () => "";
-  expect(await setupGitViaGh({ gh, git: storeGit })).toEqual({ ok: false, error: "failed" });
+  expect(await setupGitViaGh({ gh, git: storeGit })).toEqual({ ok: false, error: "setup" });
 });

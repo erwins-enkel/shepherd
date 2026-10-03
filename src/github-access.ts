@@ -139,7 +139,7 @@ export async function diagnoseGithubAccess(
 }
 
 export type SetupGitResult =
-  { ok: true; git: GitHelperInfo } | { ok: false; error: "missing" | "logged_out" | "failed" };
+  { ok: true; git: GitHelperInfo } | { ok: false; error: "missing" | "logged_out" | "setup" };
 
 /** Point git at `gh` for github.com (`gh auth setup-git`), then confirm git now reports it. */
 export async function setupGitViaGh(runners: GithubAccessRunners = {}): Promise<SetupGitResult> {
@@ -148,8 +148,8 @@ export async function setupGitViaGh(runners: GithubAccessRunners = {}): Promise<
     await gh(["auth", "setup-git"]);
   } catch (e) {
     const state = ghFailure(e);
-    return { ok: false, error: state === "error" ? "failed" : state };
+    return { ok: false, error: state === "error" ? "setup" : state };
   }
   const git = await gitCredentialHelper(runners.git);
-  return git.usesGh ? { ok: true, git } : { ok: false, error: "failed" };
+  return git.usesGh ? { ok: true, git } : { ok: false, error: "setup" };
 }

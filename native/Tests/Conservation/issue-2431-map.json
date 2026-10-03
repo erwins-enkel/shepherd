@@ -12417,6 +12417,16 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LatencyProbeTests.swift\",\"LatencyProbeTests\",\"recorderCapacity()\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LatencyProbeTests.swift\",\"LatencyProbeTests\",\"statistics()\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LatencyProbeTests.swift\",\"LatencyProbeTests\",\"verdicts()\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift\",\"ShepherdClientComposeTests\",\"sessionUploadUsesExistingQueryAndPreservesMultipart() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift\",\"ShepherdClientComposeTests\",\"sessionUploadUsesExistingQueryAndPreservesMultipart() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoRecencyTests.swift\",\"CoreSeamTests.RepoRecencyTests\",\"ageReadsAsARelativeTime()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoRecencyTests.swift\",\"CoreSeamTests.RepoRecencyTests\",\"aLiveSessionNewerThanTheBootstrapStampWins() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoRecencyTests.swift\",\"CoreSeamTests.RepoRecencyTests\",\"alphabeticalUsesNaturalOrder() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoRecencyTests.swift\",\"CoreSeamTests.RepoRecencyTests\",\"defaultPathFallsBackToTheFirstRepo() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoRecencyTests.swift\",\"CoreSeamTests.RepoRecencyTests\",\"defaultPathPrefersTheMostRecentRepo() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoRecencyTests.swift\",\"CoreSeamTests.RepoRecencyTests\",\"equalStampsOrderByName() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoRecencyTests.swift\",\"CoreSeamTests.RepoRecencyTests\",\"ranksByLastUseNewestFirst() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoRecencyTests.swift\",\"CoreSeamTests.RepoRecencyTests\",\"recentStopsAtTheLimit() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoRecencyTests.swift\",\"CoreSeamTests.RepoRecencyTests\",\"reposNeverUsedAreNotRecent() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoRecencyTests.swift\",\"CoreSeamTests.RepoRecencyTests\",\"sessionsOfUnlistedReposAreIgnored() throws\"]"
   ]
 }

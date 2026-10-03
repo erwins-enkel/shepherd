@@ -102,7 +102,7 @@ struct ComposeSheetContent: View {
     }
 
     private func seedRepo() {
-        if model.repoPath.isEmpty, let first = repos.first { model.repoPath = first.path }
+        if model.repoPath.isEmpty, let path = RepoRecency.defaultPath(repos, sessions: store.sessions) { model.repoPath = path }
     }
     private func submit(_ force: Bool = false) {
         guard current else { return }

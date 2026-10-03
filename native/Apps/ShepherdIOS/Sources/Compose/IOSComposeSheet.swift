@@ -290,7 +290,7 @@ struct IOSComposeContent: View {
             }.disabled(submission.canceling || submission.cancelRequested).frame(minHeight: 44)
         }.padding()
     }
-    private func seedRepo() { if model.repoPath.isEmpty, let first = repos.first { model.repoPath = first.path } }
+    private func seedRepo() { if model.repoPath.isEmpty, let path = RepoRecency.defaultPath(repos, sessions: store.sessions) { model.repoPath = path } }
     private func submit(force: Bool) {
         guard current, !voice.active else { return }
         voice.teardown(); promptFocused = false

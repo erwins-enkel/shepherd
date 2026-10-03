@@ -39,7 +39,7 @@ struct RepoRecencyTests {
     }
 
     @Test func recentStopsAtTheLimit() throws {
-        let repos = try (1...7).map { try repo("r\($0)", lastUsedAt: $0) }
+        let repos = try (1...7).map { (n: Int) in try repo("r\(n)", lastUsedAt: n) }
         #expect(RepoRecency.recent(repos, sessions: []).map(\.name) == ["r7", "r6", "r5", "r4", "r3"])
         #expect(RepoRecency.recent(repos, sessions: [], limit: 2).count == 2)
     }

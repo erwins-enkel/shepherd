@@ -155,15 +155,17 @@ struct IOSTerminalReplyBar: View {
                 } else {
                     TextField(L.t("native_terminal_prompt_placeholder"), text: $session.promptText, axis: .vertical)
                         .lineLimit(1...5).focused($focused).frame(minHeight: 44)
+                        // A hardware Return submits; the on-screen one types "\n" instead.
+                        .submitLabel(.send).onSubmit { submit() }
+                        .onChange(of: session.promptText) { old, _ in
+                            if focused && model.consumeTypedReturn(previous: old) { submit() }
+                        }
                         .disabled(!model.canRecordReply)
                 }
             }
             .accessibilityLabel(L.t("native_terminal_prompt_placeholder"))
             .accessibilityIdentifier("terminal-reply-text")
-            Button {
-                hideKeyboard()
-                Task { _ = await model.submitReply() }
-            } label: {
+            Button { submit() } label: {
                 Group {
                     if model.replying && !rendersStaticFixture { ProgressView() }
                     else { Image(systemName: model.replying ? "hourglass" : "arrow.up") }
@@ -244,6 +246,7 @@ struct IOSTerminalReplyBar: View {
         }
     }
     private func hideKeyboard() { focused = false; model.closeWriting() }
+    private func submit() { hideKeyboard(); Task { _ = await model.submitReply() } }
 
     private func recordingStatus(_ voice: DictationController) -> some View {
         VStack(alignment: .leading, spacing: 6) {

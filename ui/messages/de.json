@@ -5015,5 +5015,7 @@
   "native_ios_attachment_invalid": "Das Bild konnte nicht importiert werden.",
   "native_ios_attachment_remove": "{name} entfernen",
   "native_ios_reply_draft": "Entwurf gespeichert",
-  "native_ios_attachment_camera_usage": "Shepherd verwendet die Kamera, wenn du einer Sitzung ein Foto anhängst."
+  "native_ios_attachment_camera_usage": "Shepherd verwendet die Kamera, wenn du einer Sitzung ein Foto anhängst.",
+  "native_ios_terminal_dialog_keys": "Antworttasten",
+  "native_ios_terminal_dialog_type": "Antwort tippen"
 }

@@ -26,6 +26,8 @@ final class IOSTerminalPresentation {
     private(set) var isAttached = false
     private(set) var replying = false
     private(set) var replyError: String?
+    /// A Claude selection dialog is on screen (see `IOSTerminalDialog`).
+    private(set) var dialogOpen = false
     private(set) var voice: DictationController?
     private(set) var audioEngine: IOSDictationEngine?
     @ObservationIgnored private let readActions: () -> IOSSessionActionState?
@@ -179,6 +181,7 @@ final class IOSTerminalPresentation {
     func rendererUnmounted() {
         suspendDictation()
         rendererReady = false
+        dialogOpen = false
         reconcile()
         session.onOutput = nil
         session.onClear = nil
@@ -220,7 +223,17 @@ final class IOSTerminalPresentation {
         scrollToTail?()
     }
 
-    func replayWillBegin() { resetAgentScroll() }
+    func replayWillBegin() {
+        resetAgentScroll()
+        dialogOpen = false
+    }
+
+    /// The renderer's visible rows after output settled. Assigns only on change, so steady
+    /// output does not invalidate the views that swap on it.
+    func screenChanged(_ rows: [String]) {
+        let open = IOSTerminalDialog.isOpen(rows)
+        if open != dialogOpen { dialogOpen = open }
+    }
 
     private func reconcile() {
         let shouldAttach = visible && active && rendererReady

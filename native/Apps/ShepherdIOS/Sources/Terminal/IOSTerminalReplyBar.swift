@@ -97,6 +97,8 @@ struct IOSTerminalReplyBar: View {
             imports = IOSReplyImports(model: model)
         }
         .onChange(of: model.writing) { _, writing in focused = writing && model.writingWantsKeyboard && model.voice?.active != true }
+        // ⌨ in a dialog's key row mounts this bar already writing; focus once the field exists.
+        .task { if !rendersStaticFixture && model.writing && model.writingWantsKeyboard && model.voice?.active != true { focused = true } }
         .onChange(of: model.voice?.active) { _, active in
             if active == true { focused = false; model.openWriting(focus: false) }
         }

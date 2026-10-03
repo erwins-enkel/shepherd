@@ -40,7 +40,8 @@ struct IOSTerminalPane<Surface: View>: View {
             }
             .simultaneousGesture(TapGesture().onEnded { model.closeWriting() }, including: model.writing ? .all : .none)
             .overlay(alignment: .bottom) {
-                if allowsInput && !model.showsWriting {
+                // An open dialog's last line is its footer, not the prompt: ⌨ in the key row writes.
+                if allowsInput && !model.showsWriting && !model.dialogOpen {
                     // Only the prompt line summons writing; output remains a terminal surface.
                     Button { model.openWriting(focus: true) } label: { Color.clear.frame(height: 44).contentShape(Rectangle()) }
                         .buttonStyle(.plain)
@@ -49,10 +50,15 @@ struct IOSTerminalPane<Surface: View>: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if let inlineActions { inlineActions }
+            // A Claude dialog is answered with keys; the question keeps the screen.
+            if let inlineActions, !(allowsInput && model.dialogOpen) { inlineActions }
             if allowsInput && model.showsReplyBar {
-                IOSTerminalReplyBar(model: model, rendersStaticFixture: rendersStaticFixture,
-                    steerChips: steerChips, fixtureClipboard: fixtureClipboard, fixtureThumbnails: fixtureThumbnails)
+                if model.dialogOpen && !model.showsWriting {
+                    IOSTerminalDialogBar(model: model, startTyping: { model.openWriting(focus: true) })
+                } else {
+                    IOSTerminalReplyBar(model: model, rendersStaticFixture: rendersStaticFixture,
+                        steerChips: steerChips, fixtureClipboard: fixtureClipboard, fixtureThumbnails: fixtureThumbnails)
+                }
             }
         }
         .accessibilityIdentifier("detail-tab-terminal")

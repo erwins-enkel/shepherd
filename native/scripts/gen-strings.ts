@@ -213,6 +213,18 @@ export const KEYS_IOS_STEERS: readonly string[] = [
 
 /** Terminal stream (S1). Keep alphabetical. */
 // Stream T — iOS terminal/detail chrome. Additive; Mac keys stay unchanged.
+export const KEYS_IOS_CHROME: readonly string[] = [
+  "newtask_attach_aria",
+  "native_ios_attachment_photos",
+  "native_ios_attachment_camera",
+  "native_ios_attachment_camera_usage",
+  "native_ios_attachment_files",
+  "native_ios_attachment_invalid",
+  "native_ios_attachment_remove",
+  "native_ios_reply_draft",
+  "newtask_compose_hide_keyboard_aria",
+];
+
 export const KEYS_IOS_TERMINAL: readonly string[] = [
   "controlbar_toolbar_aria",
   "controlkey_arrow_down",
@@ -1629,6 +1641,7 @@ export const KEYS_SETTINGS: readonly string[] = [
 export const KEYS: readonly string[] = [
   ...KEYS_CORE,
   ...KEYS_TERMINAL,
+  ...KEYS_IOS_CHROME,
   ...KEYS_IOS_TERMINAL,
   ...KEYS_IOS_STEERS,
   ...KEYS_IOS_LATENCY,
@@ -1804,6 +1817,9 @@ export function buildOutputs(base: string = OUT): Record<string, string> {
           "InfoPlist.strings",
         )
       ] = renderStrings({
+        NSCameraUsageDescription:
+          catalog.strings.native_ios_attachment_camera_usage!.localizations[locale].stringUnit
+            .value,
         NSMicrophoneUsageDescription:
           catalog.strings.native_compose_voice_microphone_usage!.localizations[locale].stringUnit
             .value,

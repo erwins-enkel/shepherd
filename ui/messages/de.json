@@ -5005,5 +5005,12 @@
   "native_ios_steers_swipe_hint": "Nach rechts wischen: zurück zum Terminal",
   "native_ios_steers_sent": "Gesendet: {label}",
   "native_ios_terminal_focus": "Terminal im Vollbild",
-  "native_ios_terminal_focus_exit": "Tippen zeigt den vollständigen Kopf wieder"
+  "native_ios_terminal_focus_exit": "Tippen zeigt den vollständigen Kopf wieder",
+  "native_ios_attachment_photos": "Fotomediathek",
+  "native_ios_attachment_camera": "Foto aufnehmen",
+  "native_ios_attachment_files": "Datei wählen",
+  "native_ios_attachment_invalid": "Das Bild konnte nicht importiert werden.",
+  "native_ios_attachment_remove": "{name} entfernen",
+  "native_ios_reply_draft": "Entwurf gespeichert",
+  "native_ios_attachment_camera_usage": "Shepherd verwendet die Kamera, wenn du einer Sitzung ein Foto anhängst."
 }

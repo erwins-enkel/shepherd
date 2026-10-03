@@ -47,6 +47,6 @@ final class IOSDictationHold {
 
 /// Terminal-only affordance. Scale changes drawing, never the gesture's layout identity.
 enum IOSTerminalMicStyle {
-    static let diameter: CGFloat = 56
+    static let diameter: CGFloat = 44
     static func scale(held: Bool, reduceMotion: Bool) -> CGFloat { held && !reduceMotion ? 1.18 : 1 }
 }

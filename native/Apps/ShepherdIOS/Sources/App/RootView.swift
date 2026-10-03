@@ -105,7 +105,7 @@ struct RootView: View {
             SessionDetailView(session: session, model: detail,
                 terminal: terminals.model(for: id), defaults: launch.defaults)
                 .id(DetailTaskKey(session: id, model: detail))
-                .toolbar(.visible, for: .navigationBar)
+                .toolbar(.hidden, for: .navigationBar)
         } else {
             ContentUnavailableView(L.t("native_detail_no_selection"), systemImage: "list.bullet")
         }

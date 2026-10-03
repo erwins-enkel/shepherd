@@ -281,6 +281,19 @@ struct ShepherdClientComposeTests {
         #expect(body.contains("\r\n\r\n" + content + "\r\n"))
     }
 
+    @Test func sessionUploadUsesExistingQueryAndPreservesMultipart() async throws {
+        let server = FakeShepherdServer()
+        defer { server.tearDown() }
+        server.stub("POST", "/api/uploads", status: 200, json: Data(#"{"path":"/worktree/image.png"}"#.utf8))
+        let result = try await makeClient(server).uploadFile(data: Data([1, 2]), filename: "image.png", sessionID: "session 1")
+        #expect(result.path == "/worktree/image.png")
+        let request = try #require(server.requests().last)
+        let components = try #require(URLComponents(string: "https://example.com/api/uploads?" + (request.query ?? "")))
+        #expect(components.queryItems?.first(where: { $0.name == "session" })?.value == "session 1")
+        #expect(request.path == "/api/uploads")
+        #expect(try #require(request.body).range(of: Data([1, 2])) != nil)
+    }
+
     @Test func uploadProgressTracksFileBytesThroughGeneratedMultipart() async throws {
         let server = FakeShepherdServer()
         defer { server.tearDown() }

@@ -10,11 +10,12 @@ Mobile web uses `CardMenu.svelte` for Stop, Resume, Rename, Amend and Relaunch,
 `git-rail/RailStatusActions.svelte` for Ready and Merge. `UnitRow.svelte` reserves
 its phone swipe for Decommission. That action is outside this stream.
 
-The iOS detail keeps Stop/Resume, Ready and an eligible Merge immediately below
-the detail content. The menu holds all available commands; when Merge is visible, Ready moves into
-the menu to keep the row compact. Sheets provide room
-for Rename, Amend, Relaunch options and Merge confirmation. The existing terminal
-Reply/key controls keep their own behavior.
+The iOS detail header menu holds every available command, including eligible Merge.
+Only one next-step button is repeated above the terminal footer: Merge, or Ready
+when no Merge is available. Recap opens from Info. The header owns Rename, Amend,
+Relaunch and Merge confirmation sheets, keeping them reachable across tabs.
+Errors, progress, outcome notes and read-only copy remain inline above the footer
+or other tab content.
 
 The list exposes **Stop, Resume and Ready** as state-dependent trailing swipe
 buttons and context-menu commands. These are the web's quick lifecycle/handback
@@ -23,8 +24,8 @@ rail's direct operator toggle. Usually only one or two apply. This is a delibera
 placement difference from web's Decommission swipe, not a claim about usage
 analytics. Full swipe never executes a command. System swipe buttons expose
 VoiceOver actions; the detail also offers explicit labeled buttons and a menu.
-Dynamic Type is uncapped, and the action bar changes to vertical layout when
-horizontal labels no longer fit. Controls have at least a 44-point hit target.
+Dynamic Type is uncapped; menus and sheets keep commands reachable at larger
+text sizes. Controls have at least a 44-point hit target.
 
 ## Reuse and lifecycle
 

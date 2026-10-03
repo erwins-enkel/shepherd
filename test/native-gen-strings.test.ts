@@ -28,6 +28,7 @@ import {
   KEYS_SETTINGS,
   KEYS_SIDEBAR,
   KEYS_TERMINAL,
+  KEYS_IOS_CHROME,
   KEYS_IOS_TERMINAL,
   KEYS_IOS_STEERS,
   KEYS_IOS_LATENCY,
@@ -161,6 +162,7 @@ describe("gen-strings convert", () => {
 describe("gen-strings manifest", () => {
   const streamManifests = [
     KEYS_TERMINAL,
+    KEYS_IOS_CHROME,
     KEYS_IOS_TERMINAL,
     KEYS_IOS_STEERS,
     KEYS_IOS_LATENCY,

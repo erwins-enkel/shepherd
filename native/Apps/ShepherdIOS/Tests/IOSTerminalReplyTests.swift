@@ -7,6 +7,26 @@ import ShepherdKit
 
 @MainActor
 final class IOSTerminalReplyTests: XCTestCase {
+    func testActionWriteBlockDisablesAttachmentsKeysAndRepliesOnLivePTY() async {
+        let f = ReplyFixture()
+        f.uploads = AttachmentModel(upload: { _, _ in XCTFail("Unexpected upload"); throw ShepherdError.notFound })
+        defer { f.teardown() }
+        await f.live()
+        f.core.promptText = "Keep my draft"
+        XCTAssertTrue(f.model.canAttach)
+        XCTAssertTrue(f.model.canSubmitReply)
+        f.writable = false
+        XCTAssertFalse(f.model.canAttach)
+        XCTAssertFalse(f.model.canSendInput)
+        XCTAssertFalse(f.model.canRecordReply)
+        XCTAssertFalse(f.model.canSubmitReply)
+        f.model.sendKey(.ctrlC)
+        let sent = await f.model.submitReply()
+        XCTAssertFalse(sent)
+        XCTAssertTrue(f.sent.isEmpty)
+        XCTAssertEqual(f.core.promptText, "Keep my draft")
+    }
+
     func testEndedSessionOffersResumeOnlyForSharedEligibleWritableSessions() async {
         let f = ReplyFixture()
         defer { f.teardown() }
@@ -341,7 +361,7 @@ final class IOSTerminalReplyTests: XCTestCase {
     }
 
     func testTerminalMicHeldGrowthRespectsReduceMotionAndRendersFilledCircle() throws {
-        XCTAssertEqual(IOSTerminalMicStyle.diameter, 56)
+        XCTAssertEqual(IOSTerminalMicStyle.diameter, 44)
         XCTAssertEqual(IOSTerminalMicStyle.scale(held: false, reduceMotion: false), 1)
         XCTAssertGreaterThan(IOSTerminalMicStyle.scale(held: true, reduceMotion: false), 1)
         XCTAssertEqual(IOSTerminalMicStyle.scale(held: true, reduceMotion: true), 1)
@@ -351,9 +371,9 @@ final class IOSTerminalReplyTests: XCTestCase {
             .background(ComposePalette.bg))
         renderer.scale = 2
         let image = try XCTUnwrap(renderer.uiImage)
-        XCTAssertEqual(image.size.width, 68)
+        XCTAssertEqual(image.size.width, 44)
         // Interior below the glyph must be filled amber, rather than the old dark outline.
-        let sample = try pixel(image, x: 68, y: 104)
+        let sample = try pixel(image, x: 44, y: 70)
         XCTAssertGreaterThan(sample.0, 180)
         XCTAssertGreaterThan(sample.1, 100)
         XCTAssertLessThan(sample.2, 100)
@@ -524,6 +544,7 @@ private final class ReplyPTY: PTYAttaching {
 @MainActor
 private final class ReplyFixture {
     var record = PreviewData.session(name: "Terminal reply")
+    var uploads: AttachmentModel?
     var writable = true, holdResume = false, holdReply = false
     var resumes = 0
     var clock: TimeInterval = 100
@@ -552,7 +573,7 @@ private final class ReplyFixture {
         session: { self.record }, actions: { self.rules.actions(for: $0) },
         canWrite: { self.writable }, isSelected: { true }, canSelectReplacement: { false },
         resumeSucceeded: { [weak self] _ in self?.model.resumeSucceeded() }, selectReplacement: { _, _ in })
-    lazy var model: IOSTerminalPresentation = IOSTerminalPresentation(session: core, actions: { self.state }, reply: { text in
+    lazy var model: IOSTerminalPresentation = IOSTerminalPresentation(session: core, attachments: uploads, actions: { self.state }, reply: { text in
         try await self.send(text)
     })
     init() { record.status = .init(known: .done) }

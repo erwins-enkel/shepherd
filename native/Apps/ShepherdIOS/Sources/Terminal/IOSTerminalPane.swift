@@ -14,7 +14,9 @@ struct IOSTerminalPane<Surface: View>: View {
     var steerChips: AnyView? = nil
     @Environment(\.scenePhase) private var scenePhase
     @State private var connecting = ConnectingOverlayDebouncer()
-    @State private var keyboardVisible = false
+    var inlineActions: AnyView? = nil
+    var fixtureClipboard = false
+    var fixtureThumbnails: [UUID: UIImage] = [:]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,22 +38,24 @@ struct IOSTerminalPane<Surface: View>: View {
                     .accessibilityIdentifier("terminal-jump-to-tail")
                 }
             }
+            .simultaneousGesture(TapGesture().onEnded { model.closeWriting() }, including: model.writing ? .all : .none)
+            .overlay(alignment: .bottom) {
+                if allowsInput && !model.showsWriting {
+                    // Only the prompt line summons writing; output remains a terminal surface.
+                    Button { model.openWriting(focus: true) } label: { Color.clear.frame(height: 44).contentShape(Rectangle()) }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(L.t("native_ios_terminal_reply"))
+                        .accessibilityIdentifier("terminal-prompt-write")
+                }
+            }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if let inlineActions { inlineActions }
             if allowsInput && model.showsReplyBar {
-                Rectangle().fill(IOSTerminalStyle.line).frame(height: 1)
-                if let steerChips { steerChips }
-                IOSTerminalReplyBar(model: model, rendersStaticFixture: rendersStaticFixture)
-                // Special keys only while typing; without a keyboard the steers panel has Esc/^C/Tab.
-                if keyboardVisible || rendersStaticFixture { IOSTerminalInputBar(model: model) }
+                IOSTerminalReplyBar(model: model, rendersStaticFixture: rendersStaticFixture,
+                    steerChips: steerChips, fixtureClipboard: fixtureClipboard, fixtureThumbnails: fixtureThumbnails)
             }
         }
         .accessibilityIdentifier("detail-tab-terminal")
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-            keyboardVisible = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            keyboardVisible = false
-        }
         .onAppear { if !rendersStaticFixture { model.visibilityChanged(visible: true, active: scenePhase == .active) } }
         .onChange(of: scenePhase) { _, phase in
             guard !rendersStaticFixture else { return }

@@ -10723,6 +10723,109 @@
         }
       }
     },
+    "native_ios_attachment_camera": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Foto aufnehmen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Take Photo"
+          }
+        }
+      }
+    },
+    "native_ios_attachment_camera_usage": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd verwendet die Kamera, wenn du einer Sitzung ein Foto anhängst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd uses the camera when you attach a photo to a session."
+          }
+        }
+      }
+    },
+    "native_ios_attachment_files": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datei wählen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose File"
+          }
+        }
+      }
+    },
+    "native_ios_attachment_invalid": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Bild konnte nicht importiert werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The image could not be imported."
+          }
+        }
+      }
+    },
+    "native_ios_attachment_photos": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fotomediathek"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Photo Library"
+          }
+        }
+      }
+    },
+    "native_ios_attachment_remove": {
+      "comment": "%1$@ = name",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Remove %1$@"
+          }
+        }
+      }
+    },
     "native_ios_connecting": {
       "extractionState": "manual",
       "localizations": {
@@ -11587,6 +11690,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "This removes the saved sign-in from this device. Server-side revocation is not confirmed."
+          }
+        }
+      }
+    },
+    "native_ios_reply_draft": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entwurf gespeichert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Draft saved"
           }
         }
       }
@@ -17765,6 +17885,23 @@
         }
       }
     },
+    "newtask_attach_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datei oder Bild anhängen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attach file or image"
+          }
+        }
+      }
+    },
     "newtask_attach_image": {
       "extractionState": "manual",
       "localizations": {
@@ -17897,6 +18034,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "from"
+          }
+        }
+      }
+    },
+    "newtask_compose_hide_keyboard_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tastatur ausblenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide keyboard"
           }
         }
       }

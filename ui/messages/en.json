@@ -5005,5 +5005,12 @@
   "native_ios_steers_swipe_hint": "Swipe right to return to the terminal",
   "native_ios_steers_sent": "Sent: {label}",
   "native_ios_terminal_focus": "Focus on the terminal",
-  "native_ios_terminal_focus_exit": "Tap to show the full header again"
+  "native_ios_terminal_focus_exit": "Tap to show the full header again",
+  "native_ios_attachment_photos": "Photo Library",
+  "native_ios_attachment_camera": "Take Photo",
+  "native_ios_attachment_files": "Choose File",
+  "native_ios_attachment_invalid": "The image could not be imported.",
+  "native_ios_attachment_remove": "Remove {name}",
+  "native_ios_reply_draft": "Draft saved",
+  "native_ios_attachment_camera_usage": "Shepherd uses the camera when you attach a photo to a session."
 }

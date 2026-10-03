@@ -47,6 +47,7 @@ final class IOSTerminalController: AppExtension {
         let terminal = TerminalSessionModel(sessionID: sessionID, store: store, allowsInput: allowsInput,
             recovery: app?.extension(BackendRecoveryModel.self))
         let model = IOSTerminalPresentation(session: terminal, allowsInput: allowsInput,
+            attachments: allowsInput ? .forSession(client: client, sessionID: sessionID) : nil,
             actions: { [weak app, weak store] in
                 guard let session = store?.session(id: sessionID) else { return nil }
                 return app?.extension(IOSSessionActions.self)?.state(for: session)

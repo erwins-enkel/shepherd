@@ -193,7 +193,7 @@ extension ShepherdClient {
     /// Buffered bytes are not a server acknowledgement: callers must cap progress below 100%
     /// until this method returns successfully. Uses this client's usual auth and credential store.
     public func uploadFile(
-        data: Data, filename: String,
+        data: Data, filename: String, sessionID: String? = nil,
         progress: @escaping @Sendable (Int) async -> Void = { _ in }
     ) async throws -> Components.Schemas.UploadResponse {
         do {
@@ -206,7 +206,7 @@ extension ShepherdClient {
             let body: MultipartBody<Operations.UploadFile.Input.Body.MultipartFormPayload> = [
                 .file(.init(payload: .init(body: file), filename: filename))
             ]
-            switch try await generated.uploadFile(.init(body: .multipartForm(body))) {
+            switch try await generated.uploadFile(.init(query: .init(session: sessionID), body: .multipartForm(body))) {
             case .ok(let ok): return try ok.body.json
             case .badRequest(let bad): throw ShepherdError.badRequest(try bad.body.json.error)
             case .unauthorized: throw ShepherdError.unauthenticated

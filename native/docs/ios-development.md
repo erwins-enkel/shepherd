@@ -111,19 +111,22 @@ one-finger swipe becomes mouse-wheel input for the agent instead, with fling
 momentum, as on the web and Mac. VoiceOver page scrolls take the same path, and
 Latest output sends Ctrl+End. This needs a live attachment that permits input;
 otherwise, and for agents without mouse tracking, the emulator's own history
-scrolls. Tapping output never opens a keyboard, and no other touch gesture
-reaches the agent.
+scrolls. Tapping the bottom prompt area opens writing; tapping output while
+writing dismisses the keyboard and preserves the draft.
 
-Reply uses an always-visible multiline draft above the terminal key palette and sends
-through `IOSTerminalPresentation.submitReply` on the existing
-`POST /api/sessions/{id}/reply` route. Esc and Enter stay pinned, with arrows, Tab,
-Space and Ctrl-A/E/U/C/D in whole-key pages in the scrolling middle. The viewport
-and Dynamic Type keycaps share a measured width, with snapping at complete pages.
+At rest, a floating capsule contains Attach, an image-only system paste control,
+scrolling saved steers, Keyboard and a 44-point hold-to-talk microphone. Keyboard
+opens a one-to-five-line draft with Send inside, above a borderless accessory row
+for Attach, Esc, Tab, Ctrl-C and arrows. The remaining keys stay in its menu.
+Steers are hidden while writing; the keyboard button shows a dot for a retained
+draft or attachments. Reply uses `IOSTerminalPresentation.submitReply` on the
+existing `POST /api/sessions/{id}/reply` route.
 Input requires a live, visible, foreground attachment. Sending disables editing and dictation; failures retain the
 per-session draft. Dictation never sends. The reply microphone reuses the composer's
 `HoldToTalkButton`, `IOSDictationSession`, Apple preview and Whisper finalizer. Hold,
 slide-left cancel, slide-up lock, haptics and VoiceOver tap-toggle behave the same.
-The terminal microphone is a filled amber circle and grows while held, with no
+The resting microphone is a filled amber circle; writing uses a plain amber icon.
+The control grows while held, with no
 scaling animation under Reduce Motion; its gesture identity stays mounted.
 Recording dismisses the keyboard; locked recording shows a Stop control and hint.
 Scene suspension finalizes captured text; activation teardown rejects late results.
@@ -139,8 +142,16 @@ Reconnect; a nonresumable clean exit offers no retry that would open a missing P
 
 Normal launches permit terminal input and replies. Isolated launches still disable
 input, including emulator protocol replies, and install the read-only request
-audit. No new server API or Mac terminal behaviour is introduced. File attachment and
-diff/files/preview tabs remain outside the terminal stream; session action swipes are described in
+audit. Attach shares the composer upload queue, using `POST /api/uploads?session=<id>`.
+Photo Library, Camera, any file type and explicit system image paste feed that
+queue. Uploads never send terminal input. Chips expose progress, failure/retry and
+removal; outstanding imports/uploads block Send. Uploaded paths precede the typed
+message on separate lines, with the web's video extraction hint. The reply
+endpoint removes nested paste markers and bracket-pastes the entire message.
+Clipboard visibility probes `hasImages` on appearance, clipboard change and scene
+activation; image data is loaded only from an authorized `UIPasteControl` provider.
+No new server API or Mac terminal behaviour is introduced. Diff/files/preview tabs
+remain outside the terminal stream; session action swipes are described in
 [session actions](ios-session-actions.md).
 
 ## Steers and swipe gestures
@@ -152,7 +163,7 @@ is universal; a non-empty one with an unresolved repo name hides). Repo names co
 route as a typed reply (`IOSTerminalPresentation.sendSteer`), never touches the draft and,
 like web, does not need an attached PTY.
 
-The bar steers sit as chips directly above the reply draft; the leading button opens the
+The resting capsule contains scrolling steer chips and a management entry to the
 full **Steers** panel. A sideways swipe across the terminal output does the same without
 looking: **left** opens the panel, **right** returns to the session list on compact width
 (the task keeps running). `IOSSteerSwipe` holds the thresholds (90 pt or a 700 pt/s flick
@@ -173,16 +184,22 @@ to `term`, keeps activity separate, and places `SteerBar` and
 list's New Task/Backlog bar, not the session's reply bar. The
 `docs/design/mobile-herd/README.md` design concerns that list screen; detail uses
 the live Viewport flow. iOS mirrors the terminal-first structure with Terminal,
-Activity and Info tabs, plus Plan when a plan phase or gate exists. The session
-actions bar remains below the detail content on every tab; list swipes remain
-available alongside Plan/Answer badge entries.
+Activity and Info tabs, plus Plan when a plan phase or gate exists. A 52-point
+header carries title, status, repo, latency and the complete session actions menu;
+the 38-point tabs row includes font size and focus controls. Larger Dynamic Type
+expands the layout. Task id and recap remain in Info. Only an eligible Merge or
+Ready is repeated above the footer; command feedback and the read-only note remain
+visible on every tab. List swipes remain available alongside Plan/Answer badges.
 
 `IOSTerminalTests.testRenderFixtureImages` renders the production detail chrome
 with text fixture output via `ImageRenderer`. UIKit terminal rendering cannot be
 captured by ImageRenderer; a separate renderer test feeds real SwiftTerm output
 and verifies history retention. The fixture PNGs cover Terminal, Info and enlarged
 Info text. Info fixtures use the same field layout without UIKit-backed scrolling
-or text selection. These fixtures are visual layout evidence, not a live-server check.
+or text selection. `IOSSessionChromeTests.testRenderCompactChromeFixtures` renders
+resting, clipboard-present, writing and attachment states with production chrome,
+static terminal text and a schematic keyboard. These fixtures are visual layout
+evidence, not a live-server check.
 
 ## Live acceptance
 

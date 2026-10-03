@@ -10,6 +10,18 @@ import ShepherdKit
 final class IOSTerminalPresentation {
     let session: TerminalSessionModel
     let allowsInput: Bool
+    let attachments: AttachmentModel?
+    var writing = false
+    var writingWantsKeyboard = false
+    func openWriting(focus: Bool) { writingWantsKeyboard = focus; writing = true }
+    func closeWriting() { writing = false; writingWantsKeyboard = false }
+    var clipboard = IOSClipboardVisibility()
+    var hasDraft: Bool {
+        !session.promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || attachments?.rows.isEmpty == false
+    }
+    var showsWriting: Bool { writing || voice?.active == true }
+    var canAttach: Bool { canRecordReply && actionState?.allowsWrites != false && attachments != nil }
+
     private(set) var followsTail = true
     private(set) var isAttached = false
     private(set) var replying = false
@@ -32,20 +44,22 @@ final class IOSTerminalPresentation {
     private var generation = 0
 
     init(session: TerminalSessionModel, allowsInput: Bool = true,
+         attachments: AttachmentModel? = nil,
          actions: @escaping () -> IOSSessionActionState? = { nil },
          dictation: (() -> IOSDictationSession?)? = nil,
          reply: @escaping @Sendable (String) async throws -> Void) {
         self.session = session
         self.allowsInput = allowsInput
+        self.attachments = attachments
         self.reply = reply
         readActions = actions
         makeDictation = dictation
     }
 
-    var canSendInput: Bool { allowsInput && isAttached && session.phase == .live }
+    var canSendInput: Bool { allowsInput && actionState?.allowsWrites != false && isAttached && session.phase == .live }
     var canSubmitReply: Bool {
         canSendInput && !replying && !session.promptBusy && voice?.active != true &&
-            !session.promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            attachments?.hasOutstandingUploads != true && hasDraft
     }
 
     var actionState: IOSSessionActionState? { readActions() }
@@ -95,6 +109,7 @@ final class IOSTerminalPresentation {
 
     func teardown() {
         rendererUnmounted()
+        attachments?.teardown()
         voice?.teardown()
         audioEngine?.stopWhisperProbe()
     }
@@ -111,13 +126,17 @@ final class IOSTerminalPresentation {
         guard canSubmitReply else { return false }
         let mine = generation
         let draft = session.promptText
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rows = attachments?.rows ?? []
+        let text = IOSAttachmentPaste.reply(paths: rows.compactMap { row in
+            row.path.map { IOSAttachmentPaste.path($0, filename: row.file.name) }
+        }, draft: draft)
         replying = true
         replyError = nil
         defer { replying = false }
         do {
             try await reply(text)
             if session.promptText == draft { session.promptText = "" }
+            rows.forEach { attachments?.remove($0.id) }
             return mine == generation
         } catch {
             replyError = L.t("native_terminal_prompt_failed", ShepherdErrorCopy.message(error))

@@ -1,9 +1,21 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { cloneRepo, getGithubRepos, type GithubRepo } from "$lib/api";
+  import {
+    CloneFailedError,
+    cloneRepo,
+    getGithubAccess,
+    getGithubRepos,
+    type GithubAccess,
+    type GithubRepo,
+    type GitHelperInfo,
+  } from "$lib/api";
   import type { RepoEntry } from "$lib/types";
   import { dialog } from "$lib/a11yDialog";
+  import { accessCase, helperLabel, looksLikeGithubUrl } from "$lib/clone-access";
   import { m } from "$lib/paraglide/messages";
+  import CloneAccessPanel from "./CloneAccessPanel.svelte";
+  import GhSetupConfirm from "./GhSetupConfirm.svelte";
+  import "./clone-access.css";
 
   let {
     onclose,
@@ -31,12 +43,53 @@
   let cloningUrl = $state<string | null>(null);
   /** Whether the clone-by-URL fallback section is expanded. */
   let showUrl = $state(false);
+  /** git's credential helper for github.com — the list above comes from gh, the clone doesn't. */
+  let git = $state<GitHelperInfo | null>(null);
+
+  // ── refused GitHub clone → CloneAccessPanel ──
+  /** The refused clone the access panel explains; `seq` remounts the panel per failure, and
+   *  `listRepo` (a list clone) collapses the list to that one repo. */
+  type Failure = {
+    url: string;
+    repo: string;
+    detail?: string;
+    initial?: GithubAccess;
+    listRepo: GithubRepo | null;
+    seq: number;
+  };
+  let failure = $state<Failure | null>(null);
+  let failSeq = 0;
+
+  // ── up-front note: git doesn't authenticate through gh ──
+  const NOTE_KEY = "shepherd:clone-git-note-dismissed";
+  let noteDismissed = $state(readNoteDismissed());
+  let noteConfirm = $state(false);
+  let noteDone = $state(false);
+  const showNote = $derived(available && !!git && !git.usesGh && !noteDismissed && !failure);
+
+  function readNoteDismissed(): boolean {
+    try {
+      return localStorage.getItem(NOTE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  function dismissNote() {
+    noteDismissed = true;
+    try {
+      localStorage.setItem(NOTE_KEY, "1");
+    } catch {
+      /* private mode — the note just comes back next time */
+    }
+  }
 
   onMount(async () => {
     const res = await getGithubRepos();
     repos = res.repos;
     login = res.login;
     available = res.available;
+    git = res.git ?? null;
     loadingRepos = false;
     // No listing available (gh missing/unauthed) → the URL field is the only path.
     if (!available) showUrl = true;
@@ -99,6 +152,38 @@
     }
   }
 
+  /** Map a failed clone to the error line, and — for a github.com URL — hand it to the
+   *  access panel: a refusal (`auth`) always, a "not found" (`url`) only when gh can see the
+   *  repo, since a git token for another account reads a private repo as missing. */
+  function cloneFailed(
+    err: unknown,
+    cloneUrl: string,
+    repoLabel: string,
+    listRepo: GithubRepo | null,
+    again: () => void,
+  ) {
+    const code = err instanceof Error ? err.message.replace(/^clonerepo_failed_/, "") : "";
+    const detail = err instanceof CloneFailedError ? err.detail : undefined;
+    error = msg(code);
+    retry = again;
+    failure = null;
+    if (!looksLikeGithubUrl(cloneUrl)) return;
+    const seq = ++failSeq;
+    if (code === "auth") {
+      failure = { url: cloneUrl, repo: repoLabel, detail, listRepo, seq };
+    } else if (code === "url") {
+      getGithubAccess(cloneUrl)
+        .then((a) => {
+          if (seq === failSeq && accessCase(a) === "mismatch") {
+            failure = { url: cloneUrl, repo: repoLabel, detail, initial: a, listRepo, seq };
+          }
+        })
+        .catch(() => {
+          /* the URL message stands */
+        });
+    }
+  }
+
   async function cloneFromList(repo: GithubRepo) {
     if (busy) return;
     cloningUrl = repo.url;
@@ -108,32 +193,56 @@
       const entry = await cloneRepo(repo.url);
       ondone(entry);
     } catch (err) {
-      const code = err instanceof Error ? err.message.replace(/^clonerepo_failed_/, "") : "";
-      error = msg(code);
-      retry = () => cloneFromList(repo);
+      cloneFailed(err, repo.url, repo.nameWithOwner, repo, () => cloneFromList(repo));
     } finally {
       cloningUrl = null;
     }
   }
 
-  async function submit(e: Event) {
-    e.preventDefault();
-    if (!url.trim() || busy) return;
+  async function cloneByUrl(target: string) {
+    if (busy) return;
     submitting = true;
     error = null;
     retry = null;
     try {
-      const entry = await cloneRepo(url.trim());
+      const entry = await cloneRepo(target);
       ondone(entry);
     } catch (err) {
-      const code = err instanceof Error ? err.message.replace(/^clonerepo_failed_/, "") : "";
-      error = msg(code);
-      retry = () => submit(e);
+      const label = target.replace(/^.*github\.com[:/]/i, "").replace(/\.git$/i, "");
+      cloneFailed(err, target, label, null, () => cloneByUrl(target));
     } finally {
       submitting = false;
     }
   }
+
+  function submit(e: Event) {
+    e.preventDefault();
+    if (!url.trim() || busy) return;
+    void cloneByUrl(url.trim());
+  }
+
+  /** Leave the focused refused-repo view for the full list. */
+  function back() {
+    failure = null;
+    error = null;
+    retry = null;
+  }
 </script>
+
+{#snippet accessPanel()}
+  {#if failure}
+    {#key failure.seq}
+      <CloneAccessPanel
+        url={failure.url}
+        repo={failure.repo}
+        detail={failure.detail}
+        initial={failure.initial}
+        cloning={busy}
+        onretry={() => retry?.()}
+      />
+    {/key}
+  {/if}
+{/snippet}
 
 <div
   class="overlay"
@@ -160,7 +269,72 @@
 
     {#if loadingRepos}
       <p class="status">{m.clonerepo_loading_repos()}</p>
+    {:else if available && failure?.listRepo}
+      {@const fr = failure.listRepo}
+      <button type="button" class="ca-link" onclick={back}>
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"><path d="M19 12H5" /><path d="M11 6l-6 6 6 6" /></svg
+        >
+        {m.cloneaccess_back()}
+      </button>
+      <div class="failedrow">
+        <span class="rname">{fr.nameWithOwner}</span>
+        {#if fr.isPrivate}<span class="tag" title={m.clonerepo_private()}>🔒</span>{/if}
+        {#if cloningUrl === fr.url}
+          <span class="rstatus">{m.clonerepo_cloning()}</span>
+        {:else}
+          <span class="ca-badge bad">{m.cloneaccess_badge_no_git()}</span>
+        {/if}
+      </div>
+      {@render accessPanel()}
     {:else if available}
+      {#if noteDone}
+        <div class="ca-box ok" role="status">
+          <p>{m.cloneaccess_done_title()} · {m.cloneaccess_done_body_norepo()}</p>
+        </div>
+      {:else if showNote && noteConfirm}
+        <GhSetupConfirm
+          {login}
+          onback={() => (noteConfirm = false)}
+          ondone={(g) => {
+            git = g;
+            noteConfirm = false;
+            noteDone = true;
+          }}
+        />
+      {:else if showNote && git}
+        <div class="ca-box note" role="note">
+          <div class="ca-head warn">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              aria-hidden="true"
+              ><circle cx="12" cy="12" r="9" /><path d="M12 11v5.5" /><path d="M12 7.5h.01" /></svg
+            >
+            <div class="ca-headtext">
+              <span class="ca-title">{m.cloneaccess_note_title()}</span>
+              <p>{m.cloneaccess_note_body({ helper: helperLabel(git.kind) })}</p>
+            </div>
+          </div>
+          <div class="ca-actions">
+            <button type="button" class="ca-gbtn primary" onclick={() => (noteConfirm = true)}>
+              {m.cloneaccess_note_align()}
+            </button>
+            <button type="button" class="ca-gbtn quiet" onclick={dismissNote}>
+              {m.cloneaccess_note_dismiss()}
+            </button>
+          </div>
+        </div>
+      {/if}
       <label class="micro" for="cr-search">{m.clonerepo_pick_label()}</label>
       <input
         id="cr-search"
@@ -237,7 +411,11 @@
       </button>
     {/if}
 
-    {#if error}
+    {#if failure && !failure.listRepo}
+      {@render accessPanel()}
+    {/if}
+
+    {#if error && !failure}
       <div class="err" role="alert">
         <span>{error}</span>
         {#if retry}
@@ -386,6 +564,16 @@
   .repo:disabled {
     cursor: default;
     opacity: 0.6;
+  }
+  .failedrow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 9px 10px;
+    border: 1px solid var(--color-line-bright);
+    background: var(--color-inset);
+    color: var(--color-ink-bright);
+    font-size: var(--fs-base);
   }
   .rname {
     flex: 1 1 auto;

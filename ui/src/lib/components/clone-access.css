@@ -1,0 +1,324 @@
+/* Shared chrome for the clone dialog's access diagnosis: CloneAccessPanel (why a GitHub
+   clone was refused), GhSetupConfirm (what `gh auth setup-git` changes) and CloneRepo's
+   up-front note. Hoisted so the three don't each carry a verbatim copy.
+
+   A plain CSS import is global, so every class is namespaced `ca-` (same caution as
+   settings-controls.css's `set-`). Buttons are the `.gbtn` recipe under that prefix. */
+.ca-box {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid var(--color-line-bright);
+  padding: 14px;
+  margin-top: 6px;
+}
+.ca-box.ok {
+  border-color: color-mix(in srgb, var(--color-green) 45%, var(--color-line));
+}
+.ca-box.note {
+  gap: 10px;
+  padding: 12px;
+  border-color: color-mix(in srgb, var(--color-amber) 55%, var(--color-line));
+  background: color-mix(in srgb, var(--color-amber) 5%, var(--color-panel));
+}
+.ca-head {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+.ca-head svg {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+}
+.ca-head.bad svg {
+  color: var(--color-red);
+}
+.ca-head.good svg {
+  color: var(--color-green);
+}
+.ca-head.warn svg {
+  width: 16px;
+  height: 16px;
+  color: var(--color-amber);
+}
+.ca-headtext {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.ca-title {
+  margin: 0;
+  font-size: var(--fs-base);
+  font-weight: 700;
+  color: var(--color-ink-bright);
+}
+.ca-box p,
+.ca-box li {
+  margin: 0;
+  font-size: var(--fs-base);
+  color: var(--color-ink);
+  overflow-wrap: anywhere;
+}
+.ca-box code {
+  font: inherit;
+  color: var(--color-ink-bright);
+}
+.ca-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ca-sec-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.ca-label {
+  font-size: var(--fs-meta);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.ca-label.warn {
+  color: var(--color-amber);
+}
+.ca-box ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Both credentials side by side: tool · what it is · verdict. */
+.ca-table {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+  column-gap: 12px;
+  row-gap: 8px;
+  align-items: baseline;
+  padding: 10px;
+  background: var(--color-inset);
+  border: 1px solid var(--color-line);
+  font-size: var(--fs-base);
+  color: var(--color-ink);
+}
+.ca-table code {
+  font: inherit;
+  color: var(--color-ink-bright);
+}
+.ca-sub {
+  display: block;
+  font-size: var(--fs-meta);
+  color: var(--color-muted);
+}
+.ca-verdict {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: var(--fs-meta);
+  white-space: nowrap;
+}
+.ca-verdict span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ca-verdict svg {
+  width: 12px;
+  height: 12px;
+}
+.ca-verdict.bad {
+  color: var(--color-red);
+}
+.ca-verdict .ca-no {
+  color: var(--color-red);
+}
+.ca-verdict.good {
+  color: var(--color-green);
+}
+.ca-verdict.pending {
+  color: var(--color-amber);
+}
+.ca-verdict.unknown {
+  color: var(--color-muted);
+}
+
+/* One way out: title, what it does, its consequences, its action. */
+.ca-option {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--color-line);
+  padding: 12px;
+}
+.ca-option.primary {
+  border-color: var(--color-line-bright);
+}
+.ca-option.dim {
+  border-style: dashed;
+}
+.ca-option-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  color: var(--color-ink-bright);
+  font-size: var(--fs-base);
+}
+.ca-badge {
+  margin-left: auto;
+  font-size: var(--fs-micro);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border: 1px solid var(--color-amber);
+  border-radius: 2px;
+  color: var(--color-amber);
+  font-weight: 400;
+}
+.ca-badge.bad {
+  border-color: var(--color-red);
+  color: var(--color-red);
+}
+.ca-inline-label {
+  font-size: var(--fs-meta);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-amber);
+  margin-right: 6px;
+}
+
+.ca-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.ca-actions.end {
+  justify-content: flex-end;
+}
+.ca-hint {
+  font-size: var(--fs-meta);
+  color: var(--color-muted);
+}
+.ca-gbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  background: transparent;
+  border: 1px solid var(--color-line-bright);
+  border-radius: 2px;
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: var(--fs-meta);
+  letter-spacing: 0.08em;
+  padding: 4px 12px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.ca-gbtn:hover:not(:disabled) {
+  border-color: var(--color-amber);
+  color: var(--color-amber);
+}
+.ca-gbtn:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--color-amber);
+}
+.ca-gbtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.ca-gbtn.primary {
+  border-color: var(--color-amber);
+  color: var(--color-amber);
+}
+.ca-gbtn.quiet {
+  border-color: transparent;
+  color: var(--color-muted);
+}
+.ca-gbtn svg {
+  width: 12px;
+  height: 12px;
+}
+.ca-link {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: var(--fs-meta);
+  cursor: pointer;
+}
+.ca-link:hover {
+  color: var(--color-ink-bright);
+}
+.ca-link svg {
+  width: 12px;
+  height: 12px;
+}
+.ca-sec-head .ca-link {
+  margin-left: auto;
+}
+
+.ca-code {
+  margin: 0;
+  padding: 10px;
+  background: var(--color-inset);
+  border: 1px solid var(--color-line);
+  font-family: var(--font-mono);
+  font-size: var(--fs-meta);
+  line-height: 1.6;
+  color: var(--color-ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ca-code .ca-comment {
+  color: var(--color-muted);
+}
+.ca-err {
+  color: var(--color-red);
+  font-size: var(--fs-meta);
+}
+.ca-bar {
+  height: 3px;
+  background: var(--color-line);
+  overflow: hidden;
+}
+.ca-bar::after {
+  content: "";
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: var(--color-amber);
+  animation: ca-slide 1.2s ease-in-out infinite;
+}
+@keyframes ca-slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ca-bar::after {
+    animation: none;
+    width: 100%;
+    opacity: 0.5;
+  }
+}
+
+@media (max-width: 768px) {
+  .ca-gbtn {
+    min-height: 44px;
+  }
+}

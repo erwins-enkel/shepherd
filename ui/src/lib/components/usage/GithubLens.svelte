@@ -63,6 +63,11 @@
   const graphqlResumeAt = $derived(
     Math.max(data.graphql?.resetAt ?? 0, data.backoff.pausedUntil ?? 0),
   );
+  // Same for an empty REST bucket: its cooldown escalates to 15 min and clears only on
+  // a success, so it can outlast the reset.
+  const restResumeAt = $derived(
+    Math.max(data.rest?.resetAt ?? 0, data.restBackoff.pausedUntil ?? 0),
+  );
 
   // Status pill for a row: "Exhausted" only when the bucket is truly empty;
   // "Paused" when Shepherd backed off the bucket while it still reads as having
@@ -86,9 +91,9 @@
       {m.github_lens_graphql_backoff({ time: formatResetIn(graphqlResumeAt, nowMs) })}
     </div>
   {/if}
-  {#if restExhausted && data.rest}
+  {#if restExhausted}
     <div class="paused-banner" role="alert">
-      {m.github_lens_rest_paused({ time: formatResetIn(data.rest.resetAt, nowMs) })}
+      {m.github_lens_rest_paused({ time: formatResetIn(restResumeAt, nowMs) })}
     </div>
   {:else if restBackedOff}
     <div class="paused-banner" role="alert">

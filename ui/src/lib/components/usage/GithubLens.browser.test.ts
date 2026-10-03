@@ -113,6 +113,27 @@ describe("GithubLens", () => {
     expect(document.body.textContent).not.toContain(m.github_lens_paused());
   });
 
+  it("times the exhausted REST banner by the backoff when it outlasts the reset", async () => {
+    // The REST cooldown escalates to 15 min and clears only on a success, so it can
+    // outlast the bucket reset — reads stay skipped until the later of the two.
+    const data = fixture({
+      rest: { limit: 5000, used: 5000, remaining: 0, resetAt: BASE + 2 * 60_000 },
+      graphql: { limit: 5000, used: 1000, remaining: 4000, resetAt: BASE + H },
+      backoff: { remaining: 4000, resetAt: BASE + H, pausedUntil: null, blocked: false },
+      restBackoff: {
+        remaining: null,
+        resetAt: null,
+        pausedUntil: BASE + 15 * 60_000 + 30_000,
+        blocked: true,
+      },
+    });
+    render(GithubLens, { data });
+    await expect
+      .element(page.getByText("REST budget exhausted", { exact: false }))
+      .toBeInTheDocument();
+    expect(document.body.textContent).toContain("paused for ~15m");
+  });
+
   it("shows no pill when both buckets are healthy and backoff is clear", async () => {
     const data = fixture({
       graphql: { limit: 5000, used: 1000, remaining: 4000, resetAt: BASE + H },

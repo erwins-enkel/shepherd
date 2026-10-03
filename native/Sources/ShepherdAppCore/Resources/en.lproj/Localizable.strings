@@ -531,6 +531,8 @@
 "native_compose_prompt_label" = "Prompt";
 "native_compose_prompt_missing" = "Prompt still missing";
 "native_compose_ready_to_start" = "Ready to start";
+"native_compose_repo_all" = "All repos";
+"native_compose_repo_recent" = "Recently used";
 "native_compose_share_prompt" = "Share prompt";
 "native_compose_start" = "Start";
 "native_compose_steer_down" = "Move steer down";

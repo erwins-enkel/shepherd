@@ -531,6 +531,8 @@
 "native_compose_prompt_label" = "Prompt";
 "native_compose_prompt_missing" = "Prompt fehlt noch";
 "native_compose_ready_to_start" = "Bereit zum Starten";
+"native_compose_repo_all" = "Alle Repos";
+"native_compose_repo_recent" = "Zuletzt benutzt";
 "native_compose_share_prompt" = "Prompt teilen";
 "native_compose_start" = "Starten";
 "native_compose_steer_down" = "Steer nach unten verschieben";

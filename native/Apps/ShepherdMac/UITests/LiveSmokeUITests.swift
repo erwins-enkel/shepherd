@@ -82,13 +82,9 @@ final class LiveSmokeUITests: XCTestCase {
         let rows = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "compose.issue."))
         // Some configured repositories intentionally have no forge/issues. Select a real listing.
         if !rows.firstMatch.waitForExistence(timeout: 20) {
-            app.buttons["compose.repo"].click()
-            let options = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "compose.repo.option."))
-            let count = options.count
-            app.typeKey(.escape, modifierFlags: [])
-            for index in 0..<count {
-                app.buttons["compose.repo"].click()
-                app.buttons["compose.repo.option.\(index)"].click()
+            // ⌥] steps through every visible repo; the picker itself is an NSMenu now.
+            for _ in 0..<60 {
+                app.typeKey("]", modifierFlags: .option)
                 if rows.firstMatch.waitForExistence(timeout: 12) { break }
             }
         }

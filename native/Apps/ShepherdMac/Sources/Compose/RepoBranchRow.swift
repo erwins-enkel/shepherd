@@ -1,3 +1,4 @@
+import AppKit
 import ShepherdAppCore
 import ShepherdKit
 import SwiftUI
@@ -6,6 +7,7 @@ import SwiftUI
 struct RepoBranchRow: View {
     @Bindable var model: ComposeModel
     let repos: [Repo]
+    let sessions: [Session]
     @FocusState private var editingBase: Bool
 
     private var visibleRepos: [Repo] { repos.filter { !$0.hidden } }
@@ -14,6 +16,13 @@ struct RepoBranchRow: View {
         Binding(get: { model.repoBranches.presentedPicker == picker }, set: { showing in
             if !showing, model.repoBranches.presentedPicker == picker { model.repoBranches.presentedPicker = nil }
         })
+    }
+    private func repoMenu() -> NSMenu {
+        let stamps = RepoRecency.lastUsed(visibleRepos, sessions: sessions)
+        return RepoMenu.make(recent: RepoRecency.recent(visibleRepos, sessions: sessions),
+                             all: RepoRecency.alphabetical(visibleRepos), selected: model.repoPath,
+                             age: { repo in stamps[repo.path].map { RepoRecency.age($0) } },
+                             pick: { [model] path in model.repoPath = path })
     }
 
     var body: some View {
@@ -29,20 +38,8 @@ struct RepoBranchRow: View {
                 }
                 .accessibilityLabel(L.t("newtask_repo_label"))
                 .accessibilityIdentifier("compose.repo")
-                .popover(isPresented: presented(.repo)) {
-                    ScrollView {
-                        VStack(alignment: .leading) {
-                            ForEach(Array(visibleRepos.enumerated()), id: \.element.path) { index, repo in
-                                Button {
-                                    model.repoPath = repo.path
-                                    branch.presentedPicker = nil
-                                } label: {
-                                    Text(verbatim: repo.name).frame(maxWidth: .infinity, alignment: .leading)
-                                }.accessibilityIdentifier("compose.repo.option.\(index)")
-                            }
-                        }.padding()
-                    }.frame(minWidth: 240, maxHeight: 300)
-                }
+                .background(RepoMenuAnchor(presented: branch.presentedPicker == .repo, menu: repoMenu,
+                                           closed: { presented(.repo).wrappedValue = false }))
                 Text(verbatim: L.t("newtask_chip_from")).foregroundStyle(.secondary)
                 Button(action: model.openBranchPicker) {
                     HStack {

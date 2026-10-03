@@ -4927,6 +4927,8 @@
   "native_compose_dictation_deferred": "Dictation is not available in the native composer yet.",
   "native_compose_voice_incomplete": "Some audio clips could not be transcribed. The available text was kept; review it or record the missing parts again.",
   "native_compose_voice_on_release": "Transcription on release",
+  "native_compose_repo_recent": "Recently used",
+  "native_compose_repo_all": "All repos",
   "native_ios_actions_not_ready": "Mark not ready",
   "native_ios_actions_ready": "Mark ready",
   "native_ios_actions_read_only": "Session actions are disabled in read-only mode.",

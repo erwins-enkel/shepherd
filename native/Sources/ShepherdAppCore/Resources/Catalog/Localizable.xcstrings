@@ -9268,13 +9268,30 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bild einfügen"
+            "value": "Aus Zwischenablage"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Paste image"
+            "value": "From clipboard"
+          }
+        }
+      }
+    },
+    "native_compose_paste_empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Bild in der Zwischenablage — kopiere zuerst ein Bild."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No image on the clipboard — copy an image first."
           }
         }
       }

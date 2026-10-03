@@ -47,11 +47,15 @@ if [[ "${SHEPHERD_IOS_SIMULATOR_SIGNING:-0}" == 1 ]]; then
   SIGNING=(CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=-)
 fi
 set +e
+# Resolve packages without a github.com Keychain prompt (#2694): netrc instead
+# of the Keychain authorizes binary-artifact downloads, and the system git only
+# asks a credential helper after a 401, which public repositories never send.
 xcodebuild -project ShepherdIOS.xcodeproj -scheme ShepherdIOS -configuration Debug \
   -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath .build \
   -parallel-testing-enabled NO -maximum-concurrent-test-simulator-destinations 1 \
   -only-testing:"$ONLY" -resultBundlePath "$RESULT" \
-  -skipPackagePluginValidation "${SIGNING[@]}" test 2>&1 | tail -n 40
+  -skipPackagePluginValidation -packageAuthorizationProvider netrc -scmProvider system \
+  "${SIGNING[@]}" test 2>&1 | tail -n 40
 TEST_STATUS=${PIPESTATUS[0]}
 set -e
 [[ -d "$RESULT" ]] || { echo 'UNMET: no test result bundle produced' >&2; exit 1; }

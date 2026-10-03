@@ -46,9 +46,13 @@ if targets != ['ShepherdIOS']:
     sys.exit('::error::UNMET: archive scheme must build only the app target')
 print('Archive targets: ShepherdIOS; test bundles remain unsigned and test-only.')
 PY
+# Resolve packages without a github.com Keychain prompt (#2694): netrc instead
+# of the Keychain authorizes binary-artifact downloads, and the system git only
+# asks a credential helper after a 401, which public repositories never send.
 xcodebuild -project ShepherdIOS.xcodeproj -scheme ShepherdIOS -configuration Release \
   -destination 'generic/platform=iOS' -archivePath "$ARCHIVE" \
   -derivedDataPath "$RUNNER_TEMP/ios-derived-data" -skipPackagePluginValidation \
+  -packageAuthorizationProvider netrc -scmProvider system \
   "MARKETING_VERSION=$SHEPHERD_IOS_VERSION" \
   "CURRENT_PROJECT_VERSION=$SHEPHERD_IOS_BUILD_NUMBER" archive 2>&1 | tail -n 40
 "$SCRIPT_DIR/validate-ios-archive.sh" "$ARCHIVE" --archive-only "$SHEPHERD_IOS_EXPORT_OPTIONS"

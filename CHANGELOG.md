@@ -1,5 +1,78 @@
 # Changelog
 
+## [2.1.0](https://github.com/erwins-enkel/shepherd/compare/v2.0.0...v2.1.0) (2026-10-03)
+
+
+### Features
+
+* **cli:** add shepherd wait to block until a session needs attention ([#2588](https://github.com/erwins-enkel/shepherd/issues/2588)) ([#2598](https://github.com/erwins-enkel/shepherd/issues/2598)) ([8e49edc](https://github.com/erwins-enkel/shepherd/commit/8e49edc0b53da383afdc30f15a3359d51c85003a))
+* **cli:** find archived sessions (show by desig, list --all) ([#2590](https://github.com/erwins-enkel/shepherd/issues/2590)) ([#2593](https://github.com/erwins-enkel/shepherd/issues/2593)) ([2559e81](https://github.com/erwins-enkel/shepherd/commit/2559e816147b0894b4831442fa078a6276a0b761))
+* **cli:** read an agent's last messages and open question ([#2585](https://github.com/erwins-enkel/shepherd/issues/2585)) ([#2611](https://github.com/erwins-enkel/shepherd/issues/2611)) ([bbd56e0](https://github.com/erwins-enkel/shepherd/commit/bbd56e0fabcf753741e1eaa8b1f2ad5d9c88c53c))
+* **clone:** explain a refused github clone and fix it in the dialog ([#2708](https://github.com/erwins-enkel/shepherd/issues/2708)) ([a980697](https://github.com/erwins-enkel/shepherd/commit/a980697621f1ab7d1f5fac8f9bb63c7a0af4e5cc))
+* **drain:** cadence-rebase epic branch + re-escalate stale landing conflicts ([#1841](https://github.com/erwins-enkel/shepherd/issues/1841)) ([#2606](https://github.com/erwins-enkel/shepherd/issues/2606)) ([6d91398](https://github.com/erwins-enkel/shepherd/commit/6d91398cfb54873ebbc66380a3bc8fa01e1b70b9))
+* **herdr:** admit herdr 0.9.2 to the supported range ([#2594](https://github.com/erwins-enkel/shepherd/issues/2594)) ([f16b78c](https://github.com/erwins-enkel/shepherd/commit/f16b78cc0f3e2e0eed4b38af61c903857a73835a))
+* **herdr:** admit herdr 0.9.3 to the supported range ([#2605](https://github.com/erwins-enkel/shepherd/issues/2605)) ([de9f445](https://github.com/erwins-enkel/shepherd/commit/de9f445a340ed83a1ea6eb01b91fed6aa25dddfc))
+* **herd:** scope decommission all to the repo filter ([#2631](https://github.com/erwins-enkel/shepherd/issues/2631)) ([8e0200b](https://github.com/erwins-enkel/shepherd/commit/8e0200b2d97d026fbcc2397c964bf6465c51112b))
+* **ios:** answer Claude's dialogs with a key row instead of the reply bar ([#2700](https://github.com/erwins-enkel/shepherd/issues/2700)) ([99618c3](https://github.com/erwins-enkel/shepherd/commit/99618c3931bc8d47a6ee34673c0328df49b37074))
+* **ios:** answer plan questions and operate plan gates ([#2668](https://github.com/erwins-enkel/shepherd/issues/2668)) ([ba66be8](https://github.com/erwins-enkel/shepherd/commit/ba66be8df315041503f5b5b1c9f2c95ee09ccac4))
+* **ios:** compact session chrome with attachments and clipboard paste ([#2701](https://github.com/erwins-enkel/shepherd/issues/2701)) ([3829a0c](https://github.com/erwins-enkel/shepherd/commit/3829a0c563e25cb801fe5d531cb8db0042f7973a))
+* **ios:** connection-speed indicator with server timing ([#2676](https://github.com/erwins-enkel/shepherd/issues/2676)) ([3034b51](https://github.com/erwins-enkel/shepherd/commit/3034b51227271ab7efd51a073bb43f6b75d5a6fe))
+* **ios:** session actions and confirmed PR merge ([#2667](https://github.com/erwins-enkel/shepherd/issues/2667)) ([dd9e529](https://github.com/erwins-enkel/shepherd/commit/dd9e529813b3d3c81ae9244438ce82bb99415861))
+* **ios:** steers, swipe gestures and a denser session terminal ([#2691](https://github.com/erwins-enkel/shepherd/issues/2691)) ([d70b0b7](https://github.com/erwins-enkel/shepherd/commit/d70b0b707a72bb5b3841829ba7d2071a8c00baaa))
+* **ios:** terminal resume and hold-to-talk replies ([#2671](https://github.com/erwins-enkel/shepherd/issues/2671)) ([7dd1602](https://github.com/erwins-enkel/shepherd/commit/7dd16028dfc83a5f07f9c37d4d035754d7a09afc))
+* **native:** add iOS Stage 2 shell and TestFlight-ready gates ([#2452](https://github.com/erwins-enkel/shepherd/issues/2452)) ([607d2bd](https://github.com/erwins-enkel/shepherd/commit/607d2bd6d1c7c4c6697b1c36a8dfb50fb2f4d695))
+* **native:** ios composer with hold-to-talk dictation ([#2655](https://github.com/erwins-enkel/shepherd/issues/2655)) ([7004332](https://github.com/erwins-enkel/shepherd/commit/70043325f39424fb55c36ff113457fa1b1cd3ee5))
+* **native:** ios live terminal and session detail ([#2654](https://github.com/erwins-enkel/shepherd/issues/2654)) ([98959c8](https://github.com/erwins-enkel/shepherd/commit/98959c8bb8648c883d708f55271b0b7169994fee))
+* **native:** ios session list with lenses and web parity ([#2652](https://github.com/erwins-enkel/shepherd/issues/2652)) ([f3459a1](https://github.com/erwins-enkel/shepherd/commit/f3459a1d454ebaf911bb6927596be6c2dbc361e5))
+* **native:** sign and notarize mac releases with developer id ([#2644](https://github.com/erwins-enkel/shepherd/issues/2644)) ([ecc19e5](https://github.com/erwins-enkel/shepherd/commit/ecc19e5cc55f4af72687a4e373a953d868c77a07))
+* **push:** native iOS push via direct APNs (interim until the relay) ([#2692](https://github.com/erwins-enkel/shepherd/issues/2692)) ([b993bcc](https://github.com/erwins-enkel/shepherd/commit/b993bccec81491edb0152d12b2727a6f64457151))
+* **readiness:** conditional env_schema guardrail (varlock) [no-feature-entry] ([#2591](https://github.com/erwins-enkel/shepherd/issues/2591)) ([6351f6c](https://github.com/erwins-enkel/shepherd/commit/6351f6c92c566ff372f319accdf1caf010755c9f))
+* repos-Dialog V2 — Liste + Leseansicht mit sichtbarer Abarbeitung (epic [#2615](https://github.com/erwins-enkel/shepherd/issues/2615)) ([#2637](https://github.com/erwins-enkel/shepherd/issues/2637)) ([4db4eb4](https://github.com/erwins-enkel/shepherd/commit/4db4eb4361436ba15e003e2797ca72abc2e7a89b))
+* **review:** hold, cancel and restart an in-flight review from the review banner ([#2625](https://github.com/erwins-enkel/shepherd/issues/2625)) ([346913e](https://github.com/erwins-enkel/shepherd/commit/346913e1a1dcd2cdc66df0fe05ebbec40c2c362d))
+* **review:** show the critic banner when auto-address is off ([#2653](https://github.com/erwins-enkel/shepherd/issues/2653)) ([c5a7175](https://github.com/erwins-enkel/shepherd/commit/c5a71757d49223e3523744daa6e14cb43ebd3ba7))
+* **terminal:** show the active client across devices ([#2614](https://github.com/erwins-enkel/shepherd/issues/2614)) ([356b60d](https://github.com/erwins-enkel/shepherd/commit/356b60dbcf8505bc4b6f92a818611fafab201d2f))
+* **ui:** pulse the epic flow step its agent is working on ([#2647](https://github.com/erwins-enkel/shepherd/issues/2647)) ([7d19c64](https://github.com/erwins-enkel/shepherd/commit/7d19c64cdcdddbc1b3da1041b7ce20d5ea4bfa0e))
+* **ui:** seed auto-address, autopilot, build queue on first task in new repo [no-feature-entry] ([#2645](https://github.com/erwins-enkel/shepherd/issues/2645)) ([1e6cafa](https://github.com/erwins-enkel/shepherd/commit/1e6cafa90ccdffb056828866685247d846eeb6ed))
+* **upnext:** drop band's own label chip from its rows [no-feature-entry] ([#2686](https://github.com/erwins-enkel/shepherd/issues/2686)) ([d8b5eed](https://github.com/erwins-enkel/shepherd/commit/d8b5eed5f38eb47647c6723f3b44f97e96644013))
+* **upnext:** group up next into label bands with full wrapping titles ([#2612](https://github.com/erwins-enkel/shepherd/issues/2612)) ([fc98413](https://github.com/erwins-enkel/shepherd/commit/fc98413c4414ed678bc96b0a44d3a8efd6d6eb6e))
+* **upnext:** read a clicked issue in a preview beside the queue ([#2648](https://github.com/erwins-enkel/shepherd/issues/2648)) ([5fa4353](https://github.com/erwins-enkel/shepherd/commit/5fa4353e668930f51ad2a3a7f59e0155b5419685))
+* **upnext:** start an issue with a steer from the preview ([#2681](https://github.com/erwins-enkel/shepherd/issues/2681)) ([3ce94c7](https://github.com/erwins-enkel/shepherd/commit/3ce94c7aa354c7fd96729743a9f9fe2b8db69691))
+* **usage:** show the REST rate-limit backoff in the GitHub tab ([#2662](https://github.com/erwins-enkel/shepherd/issues/2662)) ([#2702](https://github.com/erwins-enkel/shepherd/issues/2702)) ([da6b6f0](https://github.com/erwins-enkel/shepherd/commit/da6b6f04c71aaeb4ef27d0b4145fad1fb4465ab6))
+
+
+### Bug Fixes
+
+* **agent-mcp:** serve the MCP endpoint while a session is still spawning ([#2597](https://github.com/erwins-enkel/shepherd/issues/2597)) ([91598dc](https://github.com/erwins-enkel/shepherd/commit/91598dc1166b7da8104a5521bfb5bdada2708e05))
+* **autopilot:** nudge backoff, phase-aware start steer, full directives on resume ([#2608](https://github.com/erwins-enkel/shepherd/issues/2608)) ([#2610](https://github.com/erwins-enkel/shepherd/issues/2610)) ([0ab6f00](https://github.com/erwins-enkel/shepherd/commit/0ab6f00f6c96b9711c06bba89187ca0ca9f38f00))
+* **commands:** surface Claude Code's built-in /goal in the slash picker ([#2613](https://github.com/erwins-enkel/shepherd/issues/2613)) ([0c33f2b](https://github.com/erwins-enkel/shepherd/commit/0c33f2b9b209aa0783d11e917366c1a40bafda12))
+* **docs-site:** light mode + per-page social cards ([#2581](https://github.com/erwins-enkel/shepherd/issues/2581)) ([9d94207](https://github.com/erwins-enkel/shepherd/commit/9d942078c8d340342b22bcc597f5344e8ff66107))
+* **drain:** emit session:new for epic landing-repair spawns ([#2707](https://github.com/erwins-enkel/shepherd/issues/2707)) ([51590fe](https://github.com/erwins-enkel/shepherd/commit/51590fe9f47b26d7e7d9414e73f467e87f2d45e0))
+* **github:** cut gh call volume and back off REST rate limits ([#2656](https://github.com/erwins-enkel/shepherd/issues/2656)) ([#2663](https://github.com/erwins-enkel/shepherd/issues/2663)) ([ba03c46](https://github.com/erwins-enkel/shepherd/commit/ba03c467ff87a22dff5eb51543270b360d4adf62))
+* **ios:** keep hold-to-talk recording through session route changes ([#2675](https://github.com/erwins-enkel/shepherd/issues/2675)) ([653a8e3](https://github.com/erwins-enkel/shepherd/commit/653a8e3cae59a22c3b85ee20c0720f32725914c5))
+* **ios:** make the session-action cache test independent of store bootstrap ([#2678](https://github.com/erwins-enkel/shepherd/issues/2678)) ([cbe460b](https://github.com/erwins-enkel/shepherd/commit/cbe460b811bf01841ecd0084655a4026880ebb02))
+* **ios:** present photo library from compose attach menu ([#2689](https://github.com/erwins-enkel/shepherd/issues/2689)) ([18b553d](https://github.com/erwins-enkel/shepherd/commit/18b553ddeb4ebe9edfa788949ae28ee20bf438ad))
+* **ios:** scroll the terminal by swiping while the agent tracks the mouse ([#2687](https://github.com/erwins-enkel/shepherd/issues/2687)) ([d8799aa](https://github.com/erwins-enkel/shepherd/commit/d8799aa59c7e5a450f2dba5028696d4ebce03a24))
+* **ios:** send the terminal reply when Return is pressed ([#2718](https://github.com/erwins-enkel/shepherd/issues/2718)) ([e4db5c0](https://github.com/erwins-enkel/shepherd/commit/e4db5c0b56b8cc735bda53d6a2ec6690fe867a91))
+* **native:** resolve Swift packages without github.com keychain prompts ([#2694](https://github.com/erwins-enkel/shepherd/issues/2694)) ([#2706](https://github.com/erwins-enkel/shepherd/issues/2706)) ([ced34d1](https://github.com/erwins-enkel/shepherd/commit/ced34d196dd4819b09467445654a5e666ef8b605))
+* **newtask:** match the prompt placeholder to the selected mode ([#2688](https://github.com/erwins-enkel/shepherd/issues/2688)) ([c6d1cc4](https://github.com/erwins-enkel/shepherd/commit/c6d1cc466847b16b129f41d0e94284a0eeff6198))
+* **review:** critic diffs against PR's real base ([#1763](https://github.com/erwins-enkel/shepherd/issues/1763)) ([#2604](https://github.com/erwins-enkel/shepherd/issues/2604)) ([86028f6](https://github.com/erwins-enkel/shepherd/commit/86028f61f0b48dfd31acc7ba7632ff77c5895ba0))
+* **server:** read the session list once per drain/automerge sweep ([#2682](https://github.com/erwins-enkel/shepherd/issues/2682)) ([2441ded](https://github.com/erwins-enkel/shepherd/commit/2441ded56d0a038974135314c300fc9be66ea694))
+* **site:** add VAT ID to impressum ([#2643](https://github.com/erwins-enkel/shepherd/issues/2643)) ([2aa8465](https://github.com/erwins-enkel/shepherd/commit/2aa8465c91c01b1d1650ddf1ddeb7ed600ee7662))
+* **steer:** trust whole-turn pasted steers in Claude sessions ([#2609](https://github.com/erwins-enkel/shepherd/issues/2609)) ([e785364](https://github.com/erwins-enkel/shepherd/commit/e785364229e3f41b073e95fb04b7e601e42acc09))
+* **test:** stop the suite leaving fixture repos in the real repo root ([#2683](https://github.com/erwins-enkel/shepherd/issues/2683)) ([#2684](https://github.com/erwins-enkel/shepherd/issues/2684)) ([36a05e6](https://github.com/erwins-enkel/shepherd/commit/36a05e681cb2869f65285bfa370f356b8f14b929))
+* **tmp-sweep:** reclaim stale orphans in agent tmp root so tmp_inodes can clear ([#2584](https://github.com/erwins-enkel/shepherd/issues/2584)) ([f430d74](https://github.com/erwins-enkel/shepherd/commit/f430d74ec78838f6d0b27451f71289a7af76a15f))
+* **ui:** repos dialog — tell selection from hover, drop the duplicate overview list ([#2638](https://github.com/erwins-enkel/shepherd/issues/2638)) ([#2641](https://github.com/erwins-enkel/shepherd/issues/2641)) ([778e4fb](https://github.com/erwins-enkel/shepherd/commit/778e4fb6d25c772d6abb529cfa8afc4a694d7249))
+* **ui:** restore code/dependabot/release PR split on repo rows ([#2685](https://github.com/erwins-enkel/shepherd/issues/2685)) ([8dad1b4](https://github.com/erwins-enkel/shepherd/commit/8dad1b4591538c43a113c15b16cf00f9d0e63c98))
+* **ui:** restore wrapping session-card badges in the desktop sidebar ([#2607](https://github.com/erwins-enkel/shepherd/issues/2607)) ([64195be](https://github.com/erwins-enkel/shepherd/commit/64195be7d191cca877319baac394e32882919fde))
+* **whatsnew:** relabel 1.48.0 entries as 2.0.0 + stranded-version gate ([#2580](https://github.com/erwins-enkel/shepherd/issues/2580)) ([7e8450c](https://github.com/erwins-enkel/shepherd/commit/7e8450cdff4fd4598de4c203d7c9fffb02d966ae))
+
+
+### Documentation
+
+* group shepherd + herdr under CLI reference ([#2583](https://github.com/erwins-enkel/shepherd/issues/2583)) ([840ca88](https://github.com/erwins-enkel/shepherd/commit/840ca88d37e8327ec66919280e3c5cdc8df82aac))
+* list Sonnet 5.5 in 2.0 announcement ([#2578](https://github.com/erwins-enkel/shepherd/issues/2578)) ([6df6145](https://github.com/erwins-enkel/shepherd/commit/6df6145f9109448bb1bd648dcedf60d80ef999cf))
+* **operating:** document in-app shepherd restart ([#2673](https://github.com/erwins-enkel/shepherd/issues/2673)) ([460eb81](https://github.com/erwins-enkel/shepherd/commit/460eb8156d2e089e30bc9846585b7c25ad62345d))
+
 ## [2.0.0](https://github.com/erwins-enkel/shepherd/compare/v1.47.0...v2.0.0) (2026-09-29)
 
 

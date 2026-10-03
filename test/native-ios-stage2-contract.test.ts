@@ -110,6 +110,21 @@ describe("native iOS acceptance tools", () => {
     expect(result.exitCode).not.toBe(0);
     expect(result.stdout.toString()).toBe("");
   });
+  test("ui/messages-only PRs don't start the iOS workflow; contract and native edits still do", () => {
+    const workflow = Bun.YAML.parse(readFileSync(".github/workflows/native-ios.yml", "utf8")) as {
+      on: Record<"pull_request" | "push", { paths: string[] }>;
+      jobs: { ios: { steps: { run?: string }[] } };
+    };
+    // #2709: the Linux `static` lane owns the catalog check on every PR.
+    for (const event of ["pull_request", "push"] as const) {
+      expect(workflow.on[event].paths).not.toContain("ui/messages/*.json");
+      expect(workflow.on[event].paths).toContain("native/**");
+      expect(workflow.on[event].paths).toContain("contracts/**");
+    }
+    expect(
+      workflow.jobs.ios.steps.some((step) => step.run?.includes("bun run check:strings")),
+    ).toBe(true);
+  });
   test("rejects unsigned release export inputs before invoking Xcode", () => {
     const result = Bun.spawnSync(
       ["bash", resolve("native/scripts/archive-ios-app.sh"), "Release"],

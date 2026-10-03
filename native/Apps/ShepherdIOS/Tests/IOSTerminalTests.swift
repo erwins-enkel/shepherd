@@ -499,6 +499,8 @@ final class IOSTerminalTests: XCTestCase {
         pty.emit(.attached)
         await settle { session.phase == .live }
         session.promptText = "draft A"
+        // The resting dock has no editor; exercise the writing-state editor.
+        presentation.openWriting(focus: false)
         let reply = Task { await presentation.submitReply() }
         await settle { gate.pending != nil }
         defer { gate.pending?.resume(); gate.pending = nil; presentation.rendererUnmounted() }

@@ -353,12 +353,12 @@
   let autoMergeH = $state(0);
   let autoMergeOwned = $state(false);
   const ciStripShown = $derived(ciBannerState({ git, reviewActive }).show);
-  // Dim only while this session's agent is quiet: when it works in THIS PTY (CI fix, rebase,
-  // addressing findings) its live output must stay readable, and a blocked agent needs the
-  // operator — same reasoning as the in-flight review dim above.
-  const autoMergeDim = $derived(
-    autoMergeOwned && !reviewInFlight && (dStatus === "idle" || dStatus === "done"),
-  );
+  // "Shepherd has this" only holds while this session's agent is quiet: when it works in THIS PTY
+  // (CI fix, rebase, addressing findings) its live output must stay readable, and a blocked agent
+  // needs the operator. Gates both the recap relabel and the dim; the dim additionally yields to
+  // the in-flight review dim above.
+  const autoMergeHandsOff = $derived(autoMergeOwned && (dStatus === "idle" || dStatus === "done"));
+  const autoMergeDim = $derived(autoMergeHandsOff && !reviewInFlight);
   // Text stashed from an OSC 52 clipboard write that the browser refused (async writes need
   // a user gesture); the ClipboardPill offers a one-click retry that runs inside a real click.
   let pendingCopy = $state<string | null>(null);
@@ -3255,7 +3255,7 @@
   {/if}
 
   {#if tab !== "activity"}
-    <SessionRecap {session} {autoMergeOwned} />
+    <SessionRecap {session} autoMergeOwned={autoMergeHandsOff} />
   {/if}
 
   <!-- footer: keyboard-affordance hints — true desktop only (mouse + hardware

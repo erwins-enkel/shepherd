@@ -639,6 +639,13 @@ final class IOSTerminalTests: XCTestCase {
         XCTAssertFalse(presentation.answersWithKeys)
         presentation.closeWriting()
         XCTAssertTrue(presentation.answersWithKeys)
+        // A picker takes the draft's focus and closes writing; its bar stays until it returns.
+        presentation.openWriting(focus: true)
+        presentation.pickingAttachment = true
+        presentation.closeWriting()
+        XCTAssertFalse(presentation.answersWithKeys)
+        presentation.pickingAttachment = false
+        XCTAssertTrue(presentation.answersWithKeys)
         presentation.screenChanged(["❯ ", "? for shortcuts"])
         XCTAssertFalse(presentation.answersWithKeys)
     }

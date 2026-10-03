@@ -116,7 +116,12 @@ struct IOSTerminalReplyBar: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             if !rendersStaticFixture { model.closeWriting(); focused = false }
         }
-        .onDisappear { if !rendersStaticFixture { hideKeyboard(); model.suspendDictation() } }
+        .onDisappear {
+            if !rendersStaticFixture { hideKeyboard(); model.suspendDictation() }
+            model.pickingAttachment = false
+        }
+        // An open dialog would otherwise swap this bar, and its pickers, for the key row.
+        .onChange(of: photos || files || camera) { _, picking in model.pickingAttachment = picking }
         .fileImporter(isPresented: $files, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             switch result {
             case .success(let urls): imports?.files(urls)

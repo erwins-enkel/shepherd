@@ -235,9 +235,13 @@ final class IOSTerminalPresentation {
         if open != dialogOpen { dialogOpen = open }
     }
 
+    /// The reply bar presents a photo, file or camera picker. Presenting takes the draft's focus
+    /// and closes writing, but the bar that owns the picker must stay mounted until it returns.
+    var pickingAttachment = false
+
     /// An open dialog is answered from the key row until ⌨ or dictation opens the writing
     /// state; closing it (keyboard down, sent) returns to the keys.
-    var answersWithKeys: Bool { dialogOpen && !showsWriting }
+    var answersWithKeys: Bool { dialogOpen && !showsWriting && !pickingAttachment }
 
     private func reconcile() {
         let shouldAttach = visible && active && rendererReady

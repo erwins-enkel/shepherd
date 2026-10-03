@@ -196,9 +196,11 @@ the way back to the tail (scrolling or Latest output).
 **⌨** is the way to a free-text answer ("Type something", "Chat about this"): it opens the
 reply bar's writing state, focused, and carries the same retained-draft dot as the resting
 keyboard button. Closing writing — keyboard down, or a sent reply — returns to the key row
-while the dialog is open; dictation opens writing as usual. A dialog that appears while writing
-keeps the draft. When the footer leaves the screen, the resting capsule and inline actions
-return. Read-only launches are unchanged.
+while the dialog is open; dictation opens writing as usual. A photo, file or camera picker
+closes writing too, but the reply bar that presents it stays until it returns
+(`pickingAttachment`). A dialog that appears while writing keeps the draft. When the footer
+leaves the screen, the resting capsule and inline actions return. Read-only launches are
+unchanged.
 
 ## Mobile web references and visual fixtures
 

@@ -1,12 +1,19 @@
 name: native-ios
 
+# `ui/messages/*.json` is deliberately NOT in the filter (#2709, as in
+# native.yml since #2567): the string catalog's freshness check
+# (`bun run check:strings`) is a plain Bun script, so CI's Linux `static` job
+# (required via `verify`) runs it on every PR. A PR that changes a mirrored
+# key must regenerate the catalog under `native/**`, which starts this
+# workflow anyway; any other message edit leaves the iOS build's input
+# unchanged. The in-job copy below still catches `native/**` edits to the key
+# lists.
 on:
   pull_request:
     branches: [main, "epic/**"]
     paths:
       - "native/**"
       - "contracts/**"
-      - "ui/messages/*.json"
       - "scripts/gen-contract-swift.ts"
       - "test/native-ios-*.test.ts"
       - "test/fixtures/native-ios-*.json"
@@ -16,7 +23,6 @@ on:
     paths:
       - "native/**"
       - "contracts/**"
-      - "ui/messages/*.json"
       - "scripts/gen-contract-swift.ts"
       - "test/native-ios-*.test.ts"
       - "test/fixtures/native-ios-*.json"

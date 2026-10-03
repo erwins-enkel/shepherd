@@ -323,6 +323,20 @@ test("cloneRepo: returns clonerepo_failed_outside for a name containing '..'", (
   }
 });
 
+test("cloneRepo: a failed git clone carries git's stderr as a redacted detail", () => {
+  const cloneRoot = mkdtempSync(join(tmpdir(), "shepherd-clone-root-"));
+  try {
+    const url = `file://${join(cloneRoot, "nope")}`;
+    const result = cloneRepo(url, "nope-clone", cloneRoot);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.detail).toContain("does not appear to be a git repository");
+    expect(result.detail).not.toContain("\n");
+  } finally {
+    rmSync(cloneRoot, { recursive: true, force: true });
+  }
+});
+
 // ── classifyCloneError ────────────────────────────────────────────────────────
 
 test("classifyCloneError: killed+SIGTERM → clonerepo_failed_timeout", () => {

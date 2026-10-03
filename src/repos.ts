@@ -17,6 +17,7 @@ import { execFileSync } from "./instrument";
 import { join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { expandHome, safeRepoDir } from "./validate";
+import { sanitizeDetail } from "./forge/gh-attempt";
 
 /** Shape of Node child_process exec errors (code / signal / killed / stderr). */
 interface ExecLikeError {
@@ -209,13 +210,14 @@ export function writeTodo(repoPathRaw: string, repoRoot: string, content: string
  * Clone a remote (or local) git repository into `<repoRoot>/<name>`.
  * Returns `{ ok: true, entry }` on success, or `{ ok: false, error }` with
  * one of: `clonerepo_failed_outside`, `clonerepo_failed_exists`, or a code
- * from `classifyCloneError`.
+ * from `classifyCloneError` — the latter with git's own stderr as a
+ * single-line, credential-redacted `detail` for the dialog's "technical details".
  */
 export function cloneRepo(
   url: string,
   name: string,
   repoRoot: string,
-): { ok: true; entry: RepoEntry } | { ok: false; error: string } {
+): { ok: true; entry: RepoEntry } | { ok: false; error: string; detail?: string } {
   const root = resolve(expandHome(repoRoot));
   const target = join(root, name);
 
@@ -236,7 +238,8 @@ export function cloneRepo(
       env: { ...process.env, GIT_TERMINAL_PROMPT: "0" },
     });
   } catch (e) {
-    return { ok: false, error: classifyCloneError(e) };
+    const detail = sanitizeDetail(String((e as ExecLikeError).stderr ?? ""));
+    return { ok: false, error: classifyCloneError(e), ...(detail ? { detail } : {}) };
   }
 
   const entry: RepoEntry = {

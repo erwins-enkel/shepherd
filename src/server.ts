@@ -101,6 +101,13 @@ import {
   type GhRunner,
   type GhOutRunner,
 } from "./repos";
+import {
+  diagnoseGithubAccess,
+  githubSlugFromUrl,
+  gitCredentialHelper,
+  setupGitViaGh,
+  type GithubAccessRunners,
+} from "./github-access";
 import { resolveDefaultBranch, fastForwardDefaultBranch } from "./pull";
 import { analyzeReadiness } from "./readiness";
 import { composeTaskBrief } from "./intent-shape";
@@ -648,6 +655,11 @@ export interface AppDeps {
    *  (listGithubRepos falls back to the real `gh` runner); tests inject a fake so the
    *  repo-enumeration route can be exercised without hitting GitHub. */
   githubReposRunner?: GhOutRunner;
+  /** Injectable `gh`/`git` runners behind the clone dialog's access diagnosis
+   *  (GET /api/github/access, POST /api/github/git-credentials, and the `git` field of
+   *  GET /api/github/repos). Absent in production (the real binaries run); tests inject
+   *  fakes so nothing touches GitHub or the operator's git config. */
+  githubAccessRunners?: GithubAccessRunners;
   /** Analyze a session's recent terminal history via a transient second agent and return a
    *  recommended next prompt (the task-id menu's "Promptempfehlung"). Wired to
    *  recommendPrompt in index.ts; absent in tests that don't exercise it → route 503s. */
@@ -5528,7 +5540,10 @@ async function cloneRepoFromRequest(req: Request): Promise<Response> {
   const parsed = validateCloneUrl(body?.url);
   if (!parsed.ok) return json({ error: parsed.error }, 400);
   const r = cloneRepo(parsed.value.url, parsed.value.name, config.repoRoot);
-  if (!r.ok) return json({ error: r.error }, CLONE_ERROR_STATUS[r.error] ?? 422);
+  if (!r.ok) {
+    const body = r.detail ? { error: r.error, detail: r.detail } : { error: r.error };
+    return json(body, CLONE_ERROR_STATUS[r.error] ?? 422);
+  }
   return json(r.entry, 201);
 }
 
@@ -5688,7 +5703,41 @@ async function handleGithubRepos({ req, parts, deps }: Ctx): Promise<Response | 
     ...r,
     cloned: clonedSlugs.has(r.nameWithOwner.toLowerCase()),
   }));
-  return json({ repos: withCloned, login, available: true });
+  // Which helper `git clone` will authenticate with — the list above came from gh, so the
+  // dialog warns up front when git is on a different (possibly narrower) credential.
+  const git = await gitCredentialHelper(deps.githubAccessRunners?.git);
+  return json({ repos: withCloned, login, available: true, git });
+}
+
+// GET /api/github/access?url=<clone url> — after a refused clone, name both credentials for
+// that one repo: which helper git used, and whether gh is signed in and may pull/push it.
+// `protocol` tells the dialog whether pointing git at gh can help at all (https only).
+async function handleGithubAccess({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "github" && parts[2] === "access" && !parts[3])) {
+    return null;
+  }
+  if (req.method !== "GET") return null;
+  const target = githubSlugFromUrl(url.searchParams.get("url") ?? "");
+  if (!target) return json({ error: "githubaccess_failed_url" }, 400);
+  const access = await diagnoseGithubAccess(target.slug, deps.githubAccessRunners);
+  return json({ ...access, protocol: target.protocol });
+}
+
+// POST /api/github/git-credentials — the operator confirmed "set up git access via gh":
+// run `gh auth setup-git`, which points git's github.com credential helper at gh for every
+// repo and session. Never automatic; the dialog shows exactly what changes before calling.
+async function handleGitCredentials({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "github" && parts[2] === "git-credentials")) {
+    return null;
+  }
+  if (parts[3] || req.method !== "POST") return null;
+  const b = firstRunBlock();
+  if (b) return b;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const r = await setupGitViaGh(deps.githubAccessRunners);
+  if (!r.ok) return json({ error: `gitcreds_failed_${r.error}` }, 422);
+  return json(r);
 }
 
 // ── settings: verify the configured api-key authenticates end-to-end ──
@@ -8897,6 +8946,8 @@ const ROUTE_HANDLERS = [
   handleProjects,
   handleGithubOwners,
   handleGithubRepos,
+  handleGithubAccess,
+  handleGitCredentials,
   handleSettingsVerifyKey,
   handleSettings,
   handleSteers,

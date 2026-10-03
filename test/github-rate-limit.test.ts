@@ -5,8 +5,9 @@
  * A deterministic clock (`now`) is injected so the TTL window is testable without
  * wall-clock dependence. The module cache is reset before each test.
  */
-import { describe, it, expect, beforeEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { fetchGithubRateLimit, __resetGithubRateLimitCache } from "../src/forge/github-rate-limit";
+import { restRateLimit } from "../src/forge/rate-limit";
 
 // A trimmed but realistic `gh api rate_limit` payload (epoch *seconds* for reset).
 const SAMPLE = JSON.stringify({
@@ -20,6 +21,8 @@ const SAMPLE = JSON.stringify({
 });
 
 beforeEach(() => __resetGithubRateLimitCache());
+// The REST tracker is a process singleton; clear any backoff a case engaged.
+afterEach(() => restRateLimit.noteSuccess());
 
 describe("fetchGithubRateLimit — parsing", () => {
   it("extracts REST/core, GraphQL and search buckets with reset in epoch-ms", async () => {
@@ -40,6 +43,18 @@ describe("fetchGithubRateLimit — parsing", () => {
     );
     expect(out.backoff).toHaveProperty("blocked");
     expect(out.backoff).toHaveProperty("remaining");
+  });
+
+  it("includes the REST backoff snapshot (#2662)", async () => {
+    // `gh api rate_limit` can report a full REST budget while every real REST call
+    // 403s, so the payload must carry Shepherd's own REST backoff alongside it.
+    restRateLimit.noteLimitError(120);
+    const out = await fetchGithubRateLimit(
+      async () => SAMPLE,
+      () => 1000,
+    );
+    expect(out.restBackoff.blocked).toBe(true);
+    expect(out.restBackoff.pausedUntil).toBeGreaterThan(Date.now());
   });
 
   it("returns null buckets when resources are absent", async () => {
@@ -63,6 +78,19 @@ describe("fetchGithubRateLimit — caching", () => {
     await fetchGithubRateLimit(run, () => 1000);
     await fetchGithubRateLimit(run, () => 1000 + 5_000); // within 15s TTL
     expect(calls).toBe(1);
+  });
+
+  it("refreshes the REST backoff on a cached reading", async () => {
+    await fetchGithubRateLimit(
+      async () => SAMPLE,
+      () => 1000,
+    );
+    restRateLimit.noteLimitError(120); // engages after the cached `gh` call
+    const out = await fetchGithubRateLimit(
+      async () => SAMPLE,
+      () => 1000 + 5_000,
+    );
+    expect(out.restBackoff.blocked).toBe(true);
   });
 
   it("re-fetches once the TTL has elapsed", async () => {

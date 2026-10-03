@@ -974,7 +974,7 @@ describe("usage lens GETs never fall back to {} (#2295)", () => {
     expect((await get("/api/usage/breakdown?range=nonsense")).body.range).toBe("7d");
   });
 
-  it("GET /api/usage/github carries all three buckets and a clear backoff", async () => {
+  it("GET /api/usage/github carries all three buckets and clear backoffs", async () => {
     const { status, body } = await get("/api/usage/github");
     expect(status).toBe(200);
     for (const bucket of ["rest", "graphql", "search"]) {
@@ -984,6 +984,7 @@ describe("usage lens GETs never fall back to {} (#2295)", () => {
       });
     }
     expect(body.backoff.blocked).toBe(false);
+    expect(body.restBackoff.blocked).toBe(false);
   });
 
   it("GET /api/prompt-budget wraps its array under `records`, one attended + one auto", async () => {

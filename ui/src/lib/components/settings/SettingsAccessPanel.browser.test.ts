@@ -16,6 +16,7 @@ function token(over: Partial<AccessToken> = {}): AccessToken {
     lastUsedAt: null,
     expiresAt: null,
     scope: "full",
+    repoPaths: null,
     ...over,
   };
 }
@@ -38,13 +39,28 @@ function stubApi(opts: {
     status?: number;
   };
   revokeStatus?: number;
+  repoStatus?: number;
+  patchStatus?: number;
 }) {
   const calls: { url: string; method: string; body: string }[] = [];
   vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? "GET";
     calls.push({ url, method, body: init?.body ? String(init.body) : "" });
+    if (url === "/api/repos")
+      return jsonRes(
+        {
+          repos: [{ name: "alpha", path: "/repos/a", realPath: "/repos/a", display: "/repos/a" }],
+          recentWindowDays: 7,
+        },
+        opts.repoStatus ?? 200,
+      );
     if (url.includes("/api/access-tokens")) {
+      if (method === "PATCH")
+        return jsonRes(
+          { entry: token({ repoPaths: JSON.parse(String(init?.body)).repoPaths }) },
+          opts.patchStatus ?? 200,
+        );
       if (method === "POST") {
         const body = JSON.parse(String(init?.body)) as {
           name: string;
@@ -129,6 +145,7 @@ describe("SettingsAccessPanel", () => {
     render(SettingsAccessPanel, { payload: payload(false) });
 
     await page.getByPlaceholder("Asyar extension — MacBook").fill("Raycast");
+    await page.getByLabelText("All repositories (including future ones)").click();
     await page.getByRole("button", { name: "Create token" }).click();
 
     await expect.element(page.getByText(secret)).toBeVisible();
@@ -144,8 +161,9 @@ describe("SettingsAccessPanel", () => {
     render(SettingsAccessPanel, { payload: payload(false) });
 
     await page.getByPlaceholder("Asyar extension — MacBook").fill("Asyar");
+    await page.getByLabelText("All repositories (including future ones)").click();
     await page.getByRole("button", { name: "Create token" }).click();
-    await page.getByRole("button", { name: "Copy" }).click();
+    await page.getByRole("button", { name: "Copy", exact: true }).click();
 
     await expect.element(page.getByRole("button", { name: "Copied" })).toBeVisible();
     expect(written).toEqual([secret]);
@@ -157,6 +175,7 @@ describe("SettingsAccessPanel", () => {
 
     await page.getByPlaceholder("Asyar extension — MacBook").fill("cron job");
     await page.getByLabelText("Expires").selectOptions("90");
+    await page.getByLabelText("All repositories (including future ones)").click();
     await page.getByRole("button", { name: "Create token" }).click();
 
     await expect.element(page.getByText("shp_x")).toBeVisible();
@@ -165,6 +184,7 @@ describe("SettingsAccessPanel", () => {
       name: "cron job",
       expiresInDays: 90,
       scope: "read",
+      repoPaths: null,
     });
   });
 
@@ -177,6 +197,7 @@ describe("SettingsAccessPanel", () => {
     render(SettingsAccessPanel, { payload: payload(false) });
 
     await page.getByPlaceholder("Asyar extension — MacBook").fill("launcher");
+    await page.getByLabelText("All repositories (including future ones)").click();
     await page.getByRole("button", { name: "Create token" }).click();
 
     await expect.element(page.getByText("shp_x")).toBeVisible();
@@ -196,6 +217,7 @@ describe("SettingsAccessPanel", () => {
     await expect.element(page.getByText(/the live terminal included/)).toBeVisible();
 
     await page.getByPlaceholder("Asyar extension — MacBook").fill("cron");
+    await page.getByLabelText("All repositories (including future ones)").click();
     await page.getByRole("button", { name: "Create token" }).click();
 
     await expect.element(page.getByText("shp_x")).toBeVisible();
@@ -265,6 +287,7 @@ describe("SettingsAccessPanel", () => {
     render(SettingsAccessPanel, { payload: payload(false) });
 
     await page.getByPlaceholder("Asyar extension — MacBook").fill("bad");
+    await page.getByLabelText("All repositories (including future ones)").click();
     await page.getByRole("button", { name: "Create token" }).click();
 
     await expect.element(page.getByText("Could not create the token. Try again.")).toBeVisible();
@@ -313,3 +336,146 @@ describe("SettingsAccessPanel", () => {
     await expect.element(page.getByRole("button", { name: "Retry" })).toBeVisible();
   });
 });
+
+describe("repository grants and agent instructions", () => {
+  it("requires a deliberate grant and sends selected repositories", async () => {
+    const calls = stubApi({
+      mint: () => ({
+        payload: {
+          token: "shp_selected",
+          entry: token({ repoPaths: ["/repos/a"], scope: "submit" }),
+        },
+      }),
+    });
+    render(SettingsAccessPanel, { payload: payload(false) });
+    await page.getByPlaceholder("Asyar extension — MacBook").fill("remote");
+    await expect.element(page.getByRole("button", { name: "Create token" })).toBeDisabled();
+    await page.getByLabelText("alpha /repos/a").click();
+    await page.getByLabelText("Scope").selectOptions("submit");
+    await page.getByRole("button", { name: "Create token" }).click();
+    await expect.element(page.getByText("shp_selected", { exact: true })).toBeVisible();
+    expect(JSON.parse(calls.find((c) => c.method === "POST")!.body)).toMatchObject({
+      repoPaths: ["/repos/a"],
+      scope: "submit",
+    });
+  });
+
+  it("edits repositories on the existing token and preserves the form on failure", async () => {
+    const calls = stubApi({ tokens: [token()], patchStatus: 500 });
+    render(SettingsAccessPanel, { payload: payload(false) });
+    await page.getByRole("button", { name: "Edit repositories" }).click();
+    const editor = page.getByRole("group", { name: "Repositories for Asyar extension" });
+    await editor.getByLabelText("Selected repositories").click();
+    await editor.getByLabelText("alpha /repos/a").click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect
+      .element(page.getByText("Could not save repository access. Try again."))
+      .toBeVisible();
+    await expect.element(editor.getByLabelText("alpha /repos/a")).toBeChecked();
+    expect(JSON.parse(calls.find((c) => c.method === "PATCH")!.body)).toEqual({
+      repoPaths: ["/repos/a"],
+    });
+    await page.getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect.element(editor).not.toBeInTheDocument();
+  });
+
+  it("copies minted permissions after the form resets and provides a selectable fallback", async () => {
+    const written = stubClipboard();
+    stubApi({
+      mint: () => ({
+        payload: {
+          token: "shp_instructions",
+          entry: token({ scope: "full", repoPaths: ["/repos/a"] }),
+        },
+      }),
+    });
+    render(SettingsAccessPanel, { payload: payload(false) });
+    await page.getByPlaceholder("Asyar extension — MacBook").fill("remote");
+    await page.getByLabelText("alpha /repos/a").click();
+    await page.getByLabelText("Scope").selectOptions("full");
+    await page.getByRole("button", { name: "Create token" }).click();
+    await page.getByLabelText("Shepherd server address").fill("https://shepherd.example.ts.net");
+    await page.getByRole("button", { name: "Copy agent instructions" }).click();
+    expect(written[0]).toContain("shp_instructions");
+    expect(written[0]).toContain('"repoPaths": [');
+    expect(written[0]).toContain("/reply");
+    expect(written[0]).toContain("/repos/a");
+    vi.stubGlobal("navigator", {
+      clipboard: {
+        writeText: async () => {
+          throw new Error("denied");
+        },
+      },
+    });
+    await page.getByRole("button", { name: "Instructions copied" }).click();
+    await expect
+      .element(page.getByText("Clipboard unavailable. Select and copy the text below."))
+      .toBeVisible();
+    await expect.element(page.getByLabelText("Agent instructions")).toBeVisible();
+    await page.getByRole("button", { name: "Got it" }).click();
+    await expect.element(page.getByLabelText("Agent instructions")).not.toBeInTheDocument();
+  });
+
+  it("removes every grant and updates an open instruction preview without losing the token", async () => {
+    const calls = stubApi({
+      mint: () => ({ payload: { token: "shp_edit", entry: token({ repoPaths: ["/repos/a"] }) } }),
+    });
+    render(SettingsAccessPanel, { payload: payload(false) });
+    await page.getByPlaceholder("Asyar extension — MacBook").fill("remote");
+    await page.getByLabelText("alpha /repos/a").click();
+    await page.getByRole("button", { name: "Create token" }).click();
+    await page.getByLabelText("Shepherd server address").fill("https://shepherd.example.ts.net");
+    await page.getByRole("button", { name: "Edit repositories" }).click();
+    const editor = page.getByRole("group", { name: "Repositories for Asyar extension" });
+    await editor.getByLabelText("alpha /repos/a").click();
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect.element(page.getByText("No repository access", { exact: true })).toBeVisible();
+    expect(JSON.parse(calls.find((c) => c.method === "PATCH")!.body)).toEqual({ repoPaths: [] });
+    await page.getByText("Preview and copy manually", { exact: true }).click();
+    await expect
+      .element(page.getByLabelText("Agent instructions"))
+      .toHaveValue(expect.stringContaining('"repoPaths": []'));
+    await expect.element(page.getByText("shp_edit", { exact: true })).toBeVisible();
+  });
+
+  it("does not turn a failed repository load into an unrestricted grant", async () => {
+    stubApi({ repoStatus: 500 });
+    render(SettingsAccessPanel, { payload: payload(false) });
+    await page.getByPlaceholder("Asyar extension — MacBook").fill("remote");
+    await expect.element(page.getByText("Could not load repositories.")).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Create token" })).toBeDisabled();
+  });
+});
+
+for (const theme of ["dark", "light"]) {
+  it(`keeps repository access and the reveal within a narrow ${theme} viewport`, async () => {
+    await page.viewport(390, 844);
+    document.documentElement.dataset.theme = theme;
+    try {
+      stubApi({
+        mint: () => ({
+          payload: {
+            token: "shp_preview_only",
+            entry: token({ repoPaths: ["/repos/" + "a".repeat(100)] }),
+          },
+        }),
+      });
+      render(SettingsAccessPanel, { payload: payload(false) });
+      await page.getByPlaceholder("Asyar extension — MacBook").fill("remote");
+      await page.getByLabelText("alpha /repos/a").click();
+      await page.getByRole("button", { name: "Create token" }).click();
+      await page.getByLabelText("Shepherd server address").fill("https://shepherd.example.ts.net");
+      await page.getByText("Preview and copy manually", { exact: true }).click();
+      await expect.element(page.getByLabelText("Agent instructions")).toBeVisible();
+      for (const selector of [".reveal", ".tok", ".instruction-text", ".repo-field"]) {
+        for (const el of document.querySelectorAll<HTMLElement>(selector)) {
+          expect(el.getBoundingClientRect().right).toBeLessThanOrEqual(window.innerWidth);
+          expect(el.scrollWidth).toBeLessThanOrEqual(el.clientWidth + 1);
+        }
+      }
+    } finally {
+      delete document.documentElement.dataset.theme;
+      await page.viewport(1280, 900);
+    }
+  });
+}

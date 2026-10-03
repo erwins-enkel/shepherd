@@ -84,7 +84,18 @@ import {
   verifyPassword,
   SESSION_COOKIE,
 } from "./operator-auth";
-import { AccessTokenService, looksLikeAccessToken, parseMintRequest } from "./access-tokens";
+import {
+  normalizeRepositoryPaths,
+  repositoryAllows,
+  repositoryRoutePolicy,
+  filterRepositoryEvent,
+} from "./token-repositories";
+import {
+  AccessTokenService,
+  looksLikeAccessToken,
+  parseMintRequest,
+  type VerifiedToken,
+} from "./access-tokens";
 import { scopeAllows } from "./token-scopes";
 import { resolvePlanAnswers, planAnswerSteerText, type RawAnswer } from "./plan-gate";
 import { slugifyManual } from "./namer";
@@ -800,7 +811,8 @@ function accessTokens(deps: AppDeps): AccessTokenService {
  *    MUST stay gated (they're the live-PTY hole this feature closes), so they're excluded here.
  */
 function isPublicRequest(req: Request): boolean {
-  const path = new URL(req.url).pathname;
+  // Match the dispatcher before exempting static assets from authentication.
+  const path = "/" + new URL(req.url).pathname.split("/").filter(Boolean).join("/");
   if (req.method === "POST" && path === "/api/login") return true;
   if (req.method === "GET" || req.method === "HEAD") {
     // Public liveness (handleHealth): an un-credentialed probe deploy/update.sh + the
@@ -838,7 +850,7 @@ function isPublicRequest(req: Request): boolean {
  * chain and the `/events` + `/pty/:id` upgrades are covered by one edit with nothing to forget.
  * The policy is deny-by-default (src/token-scopes.ts): an unlisted route requires `full`.
  */
-function checkAuth(req: Request, deps: AppDeps): Response | null {
+function checkAuth(req: Request, deps: AppDeps): Response | VerifiedToken | null {
   if (config.cookieSecret === null && config.token === null) return null; // un-bootstrapped (tests)
   if (isPublicRequest(req)) return null;
   if (
@@ -867,7 +879,7 @@ function checkAuth(req: Request, deps: AppDeps): Response | null {
         // enumerating the policy table.
         return json({ error: "insufficient_scope" }, 403);
       }
-      return null;
+      return verified;
     }
   }
   return json({ error: "unauthorized" }, 401);
@@ -968,7 +980,69 @@ function requireJsonContentType(req: Request): Response | null {
 // return `null` (not a 404) for sub-routes it doesn't own so a later handler
 // can claim them.
 
-type Ctx = { req: Request; parts: string[]; url: URL; deps: AppDeps };
+type Ctx = { req: Request; parts: string[]; url: URL; deps: AppDeps; token?: VerifiedToken | null };
+
+/** A token cannot promote a path, body or an unrelated id into repository authority. */
+function tokenRepoAllowed(token: VerifiedToken | null | undefined, path: string): boolean {
+  return !token || repositoryAllows(token.repoPaths, path, config.repoRoot);
+}
+
+function tokenSessionAllowed(
+  token: VerifiedToken | null | undefined,
+  deps: AppDeps,
+  id: string,
+): boolean {
+  const session = deps.store.get(id);
+  return !!session && tokenRepoAllowed(token, session.repoPath);
+}
+
+function tokenMap<T>(
+  token: VerifiedToken | null | undefined,
+  deps: AppDeps,
+  map: Record<string, T>,
+): Record<string, T> {
+  if (!token || token.repoPaths === null) return map;
+  return Object.fromEntries(
+    Object.entries(map).filter(([id]) => tokenSessionAllowed(token, deps, id)),
+  );
+}
+
+function repositoryRequestError({ req, url, deps, token }: Ctx): Response | null {
+  if (!token || token.repoPaths === null) return null;
+  const policy = repositoryRoutePolicy(req.method, url);
+  if (!policy) return json({ error: "insufficient_scope" }, 403);
+  if (policy.kind === "repo")
+    return tokenRepoAllowed(token, policy.path)
+      ? null
+      : json({ error: "repository_not_allowed" }, 403);
+  if (policy.kind === "upload")
+    return token.repoPaths.length ? null : json({ error: "repository_not_allowed" }, 403);
+  let path: string | undefined;
+  if (policy.kind === "session") path = deps.store.get(policy.id)?.repoPath;
+  else if (policy.kind === "held") path = deps.store.getHeldTask(policy.id)?.input.repoPath;
+  else if (policy.kind === "task") path = sessionByTaskKey(policy.id, deps)?.repoPath;
+  else return null;
+  return path && tokenRepoAllowed(token, path) ? null : json({ error: "not found" }, 404);
+}
+
+/** Shared HTTP/WebSocket boundary after authentication, before dispatch or upgrade. */
+function requestBoundaryError(ctx: Ctx): Response | null {
+  return checkOrigin(ctx.req) ?? repositoryRequestError(ctx);
+}
+
+/** Called on validated inputs BEFORE holds, spawns, forge calls or file writes. */
+function repositoryInputError(
+  token: VerifiedToken | null | undefined,
+  { repoPath, images = [] }: { repoPath: string; images?: readonly string[] },
+): Response | null {
+  if (!token || token.repoPaths === null) return null;
+  if (!tokenRepoAllowed(token, repoPath)) return json({ error: "repository_not_allowed" }, 403);
+  // validateImages has already resolved symlinks and confined these paths to staging.
+  if (images.some((file) => !basename(file).startsWith(`${token.id}-`))) {
+    return json({ error: "attachment_not_allowed" }, 403);
+  }
+  return null;
+}
 
 // ── single-operator auth routes (issue #1079) ──────────────────────────────
 // login is the only unauthenticated mutation (isPublicRequest); logout + me sit behind the gate.
@@ -1008,18 +1082,29 @@ function handleLogout({ req, parts }: Ctx): Response | null {
   return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
 }
 
-function handleMe({ req, parts }: Ctx): Response | null {
+function handleMe({ req, parts, token }: Ctx): Response | null {
   if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "me" || parts[2]) return null;
   // Only reachable when checkAuth already passed — an unauthed /api/me 401s at the gate.
-  return json({ authenticated: true });
+  return json({
+    authenticated: true,
+    ...(token
+      ? {
+          access: {
+            tokenId: token.id,
+            scope: token.scope,
+            repoPaths: token.repoPaths,
+            expiresAt: token.expiresAt,
+          },
+        }
+      : {}),
+  });
 }
 
 // ── access tokens (issue #2082) ────────────────────────────────────────────
-// Named machine bearer tokens: minted here, verified in checkAuth. All three routes additionally
+// Named machine bearer tokens: minted here, verified in checkAuth. Management routes additionally
 // require an INTERACTIVE operator session, so a bearer cannot manage the token set it belongs to —
 // with exactly one exception, SELF-revocation (`revokesItself` below).
-// There is deliberately no update route: a token's scope (#2083) is fixed at mint, because a scope
-// that can be widened after the fact cannot answer "what could this credential do last Tuesday".
+// Scope stays fixed at mint. Only the operator may update the repository grant set.
 
 async function mintAccessToken(req: Request, deps: AppDeps): Promise<Response> {
   const ctErr = requireJsonContentType(req);
@@ -1033,7 +1118,12 @@ async function mintAccessToken(req: Request, deps: AppDeps): Promise<Response> {
   const parsed = parseMintRequest(body);
   if ("error" in parsed) return json({ error: parsed.error }, 400);
   // The ONLY response that ever carries the plaintext — it is not recoverable afterwards.
-  return json(accessTokens(deps).mint(parsed.name, parsed.expiresInDays, parsed.scope), 201);
+  const repos = normalizeRepositoryPaths(parsed.repoPaths, config.repoRoot);
+  if ("error" in repos) return json(repos, 400);
+  return json(
+    accessTokens(deps).mint(parsed.name, parsed.expiresInDays, parsed.scope, repos.repoPaths),
+    201,
+  );
 }
 
 /**
@@ -1071,6 +1161,28 @@ function revokesItself(req: Request, deps: AppDeps, id: string): boolean {
   return accessTokens(deps).verify(authHeader)?.id === id;
 }
 
+async function patchAccessToken(req: Request, deps: AppDeps, id: string): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body: unknown = await req.json().catch(() => null);
+  if (
+    !body ||
+    typeof body !== "object" ||
+    Array.isArray(body) ||
+    Object.keys(body).length !== 1 ||
+    !("repoPaths" in body)
+  ) {
+    return json({ error: "body must be {repoPaths: string[] | null}" }, 400);
+  }
+  const entry = accessTokens(deps)
+    .list()
+    .find((t) => t.id === id);
+  if (!entry) return json({ error: "not found" }, 404);
+  const repos = normalizeRepositoryPaths(body.repoPaths, config.repoRoot, entry.repoPaths ?? []);
+  if ("error" in repos) return json(repos, 400);
+  return json({ entry: accessTokens(deps).updateRepositories(id, repos.repoPaths) });
+}
+
 async function handleAccessTokens({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] !== "api" || parts[1] !== "access-tokens" || parts[3]) return null;
   const id = parts[2];
@@ -1078,16 +1190,17 @@ async function handleAccessTokens({ req, parts, deps }: Ctx): Promise<Response |
   // List and mint are collection routes (no id); revoke needs one. Every other shape falls
   // through to the dispatch tail's 404 — it must NOT reach the session guard and answer 403,
   // which would tell an unauthenticated caller that this route group exists.
-  const matched = ((method === "GET" || method === "POST") && !id) || (method === "DELETE" && !!id);
+  const matched = id ? ["DELETE", "PATCH"].includes(method) : ["GET", "POST"].includes(method);
   if (!matched) return null;
 
   const sessErr = requireOperatorSession(req);
-  // Listing, minting and revoking ANY OTHER id keep the operator-session requirement. The single
+  // Listing, minting, updating and revoking ANY OTHER id keep the operator-session requirement. The single
   // exception is a bearer handing its own token back — see `revokesItself`.
   if (sessErr && !(method === "DELETE" && id && revokesItself(req, deps, id))) return sessErr;
 
   if (method === "GET") return json({ tokens: accessTokens(deps).list() });
   if (method === "POST") return mintAccessToken(req, deps);
+  if (method === "PATCH" && id) return patchAccessToken(req, deps, id);
   if (method === "DELETE" && id) {
     if (!accessTokens(deps).revoke(id)) return json({ error: "not found" }, 404);
     return json({ ok: true });
@@ -1095,9 +1208,9 @@ async function handleAccessTokens({ req, parts, deps }: Ctx): Promise<Response |
   return null; // unreachable given `matched`, but keeps the handler total
 }
 
-function handleGitSnapshot({ req, parts, deps }: Ctx): Response | null {
+function handleGitSnapshot({ req, parts, deps, token }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "git" && !parts[2]) {
-    return json(deps.prCache?.snapshot() ?? {});
+    return json(tokenMap(token, deps, deps.prCache?.snapshot() ?? {}));
   }
   return null;
 }
@@ -1152,9 +1265,9 @@ function handleBlocksSnapshot({ req, parts, deps }: Ctx): Response | null {
   return null;
 }
 
-function handleHoldsSnapshot({ req, parts, deps }: Ctx): Response | null {
+function handleHoldsSnapshot({ req, parts, deps, token }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "holds" && !parts[2]) {
-    return json(deps.holds?.snapshot() ?? {});
+    return json(tokenMap(token, deps, deps.holds?.snapshot() ?? {}));
   }
   return null;
 }
@@ -1166,12 +1279,12 @@ function handleSubagentsSnapshot({ req, parts, deps }: Ctx): Response | null {
   return null;
 }
 
-function handleQueuesSnapshot({ req, parts, deps }: Ctx): Response | null {
+function handleQueuesSnapshot({ req, parts, deps, token }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "queues" && !parts[2]) {
     const queues = deps.store.listBuildQueues();
     const map: Record<string, (typeof queues)[number]> = {};
     for (const q of queues) map[q.sessionId] = q;
-    return json(map);
+    return json(tokenMap(token, deps, map));
   }
   return null;
 }
@@ -1189,11 +1302,16 @@ function handlePreviewSnapshot({ req, parts, deps }: Ctx): Response | null {
   return null;
 }
 
-function handleReviews({ req, parts, deps }: Ctx): Response | null {
+function handleReviews({ req, parts, deps, token }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "reviews") {
-    if (!parts[2]) return json(deps.reviewCache?.snapshot() ?? {});
+    if (!parts[2]) return json(tokenMap(token, deps, deps.reviewCache?.snapshot() ?? {}));
     // in-flight run ids so a client loading mid-review still shows the indicator
-    if (parts[2] === "inflight") return json(deps.reviewCache?.reviewing?.() ?? []);
+    if (parts[2] === "inflight")
+      return json(
+        (deps.reviewCache?.reviewing?.() ?? []).filter(
+          (run) => !token || token.repoPaths === null || tokenSessionAllowed(token, deps, run.id),
+        ),
+      );
   }
   return null;
 }
@@ -1219,10 +1337,15 @@ function handleSpawnNotices({ req, parts, deps }: Ctx): Response | null {
 // GET /api/plan-gates[/inflight] — the pre-execution plan gate's bootstrap snapshot,
 // the parallel of /api/reviews. `/plan-gates` → verdicts keyed by session id;
 // `/plan-gates/inflight` → session ids whose plan reviewer is mid-flight.
-function handlePlanGates({ req, parts, deps }: Ctx): Response | null {
+function handlePlanGates({ req, parts, deps, token }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "plan-gates") {
-    if (!parts[2]) return json(deps.planGateCache?.snapshot() ?? {});
-    if (parts[2] === "inflight") return json(deps.planGateCache?.reviewing?.() ?? []);
+    if (!parts[2]) return json(tokenMap(token, deps, deps.planGateCache?.snapshot() ?? {}));
+    if (parts[2] === "inflight")
+      return json(
+        (deps.planGateCache?.reviewing?.() ?? []).filter(
+          (run) => !token || token.repoPaths === null || tokenSessionAllowed(token, deps, run.id),
+        ),
+      );
   }
   return null;
 }
@@ -1239,9 +1362,9 @@ function handleRecaps({ req, parts, deps }: Ctx): Response | null {
 // GET /api/amendments — bootstrap snapshot of operator task amendments keyed by session id
 // (issue #2225), the parallel of /api/recaps. Read straight from the store rather than through a
 // cache: amendments are few, small, and written by hand.
-function handleAmendments({ req, parts, deps }: Ctx): Response | null {
+function handleAmendments({ req, parts, deps, token }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "amendments" && !parts[2]) {
-    return json(deps.store.snapshotTaskAmendments());
+    return json(tokenMap(token, deps, deps.store.snapshotTaskAmendments()));
   }
   return null;
 }
@@ -2522,7 +2645,7 @@ async function handleSpawnCancel({ req, parts }: Ctx): Promise<Response | null> 
 }
 
 // POST /api/sessions — create a session.
-async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response | null> {
+async function handleSessionCreate({ req, parts, deps, token }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && !parts[2])) return null;
   const b = firstRunBlock();
   if (b) return b;
@@ -2531,6 +2654,8 @@ async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response 
   const body = await req.json().catch(() => null);
   const result = validateCreate(body, config.repoRoot);
   if (!result.ok) return json({ error: result.error }, 400);
+  const repoErr = repositoryInputError(token, result.value);
+  if (repoErr) return repoErr;
 
   // Clean-terminal union arm: no usage-hold gate (a bare shell spends no agent budget) and no
   // issue claim — straight to create. Singleton/preflight conflicts map to 409 in
@@ -2728,9 +2853,16 @@ const SESSION_LISTS = new Map<string, (deps: AppDeps) => unknown>([
   ["archived", (deps) => deps.store.listArchivedSessions()],
 ]);
 
-async function handleSessionReads({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+async function handleSessionReads({ req, parts, url, deps, token }: Ctx): Promise<Response | null> {
   if (req.method !== "GET") return null;
-  if (!parts[2]) return json(await withScratchpadFlags(deps.store.list({ activeOnly: true })));
+  if (!parts[2])
+    return json(
+      await withScratchpadFlags(
+        deps.store
+          .list({ activeOnly: true })
+          .filter((session) => tokenRepoAllowed(token, session.repoPath)),
+      ),
+    );
   // Must precede the bare sessionRead fall-through so "done"/"archived" aren't read as session ids.
   const list = parts[3] ? undefined : SESSION_LISTS.get(parts[2]);
   if (list) return json(list(deps));
@@ -3842,7 +3974,7 @@ async function finalizeRelaunch(
 // POST /api/sessions/:id/relaunch — spawn a fresh replacement carrying the original's
 // prompt + current per-task settings (re-resolving its linked issue), emit session:new,
 // then decommission the original (retaining its drain claim — a relaunch is not a retire).
-async function handleSessionRelaunch({ req, parts, deps }: Ctx): Promise<Response | null> {
+async function handleSessionRelaunch({ req, parts, deps, token }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "relaunch")) return null;
   const b = firstRunBlock();
   if (b) return b;
@@ -3862,6 +3994,11 @@ async function handleSessionRelaunch({ req, parts, deps }: Ctx): Promise<Respons
     if ("error" in parsed) return parsed.error;
     const { overrides } = parsed;
     const targetRepo = overrides?.repoPath ?? original.repoPath;
+    const repoErr = repositoryInputError(token, {
+      repoPath: targetRepo,
+      images: overrides?.images,
+    });
+    if (repoErr) return repoErr;
 
     // Decide the issueRef (502 on a same-repo re-resolve failure, leaving the original intact).
     const issueRef = await resolveRelaunchIssueRef(original, targetRepo, deps);
@@ -5511,11 +5648,12 @@ async function handleProviderFailover({ req, parts, deps }: Ctx): Promise<Respon
   return json(writeProviderFailover(deps.store, { defaultProvider: offer.to, from: offer.from }));
 }
 
-function handleUploads({ req, parts, deps }: Ctx): Promise<Response> | null {
+function handleUploads({ req, parts, deps, token }: Ctx): Promise<Response> | null {
   if (parts[0] === "api" && parts[1] === "uploads" && !parts[2]) {
     if (req.method === "POST") {
       return handleUpload(req, {
         store: deps.store,
+        stagingTokenId: token && token.repoPaths !== null ? token.id : undefined,
         repoRoot: config.repoRoot,
         maxUploadBytes: deps.maxUploadBytes,
       });
@@ -5601,14 +5739,16 @@ async function createProjectFromRequest(req: Request, ghRunner?: GhRunner): Prom
 // the count with the same window it was computed over (no duplicated literal).
 const RECENT_WINDOW_DAYS = 3;
 
-async function handleRepos({ req, parts, deps }: Ctx): Promise<Response | null> {
+async function handleRepos({ req, parts, deps, token }: Ctx): Promise<Response | null> {
   if (parts[0] === "api" && parts[1] === "repos" && !parts[2]) {
     if (req.method === "GET") {
       const lastUsed = deps.store.lastUsedByRepo();
       const recentCounts = deps.store.recentSessionCountsByRepo(
         Date.now() - RECENT_WINDOW_DAYS * 24 * 60 * 60 * 1000,
       );
-      const baseRepos = listRepos(config.repoRoot);
+      const baseRepos = listRepos(config.repoRoot).filter((repo) =>
+        tokenRepoAllowed(token, repo.path),
+      );
       // repo_config keys are safeRepoDir/realpath-resolved while listRepos enumerates the
       // raw join(repoRoot, name) path; reconcile the hidden set into raw space (same as the
       // backlog payload) so a persisted hide matches its repo even under a symlinked root.
@@ -6441,8 +6581,8 @@ async function handleBroadcast({ req, parts, deps }: Ctx): Promise<Response | nu
 
 // ── /api/held — usage-hold queue management ──────────────────────────────────
 
-function heldList(deps: AppDeps): Response {
-  return json(deps.store.listHeldTasks());
+function heldList(deps: AppDeps, token?: VerifiedToken | null): Response {
+  return json(deps.store.listHeldTasks().filter((h) => tokenRepoAllowed(token, h.input.repoPath)));
 }
 
 function parseHeldSpawnProvider(body: unknown): { ok: true; value?: AgentProvider } | Response {
@@ -6501,7 +6641,12 @@ function heldDiscard(id: string, deps: AppDeps): Response {
 // New-Task create validation so an edit can't persist a malformed input that would
 // later fail on spawn. Count is unchanged; held:changed still fires so any other client
 // recomputing off the badge stays consistent.
-async function heldUpdate(id: string, deps: AppDeps, body: unknown): Promise<Response> {
+async function heldUpdate(
+  id: string,
+  deps: AppDeps,
+  body: unknown,
+  token?: VerifiedToken | null,
+): Promise<Response> {
   const existing = deps.store.getHeldTask(id);
   if (!existing) return json({ error: "not found" }, 404);
   const result = validateCreate(body, config.repoRoot);
@@ -6509,6 +6654,8 @@ async function heldUpdate(id: string, deps: AppDeps, body: unknown): Promise<Res
   // Held tasks are parked agent creates; a clean terminal is never held and can't become one.
   if (result.value.terminal === true)
     return json({ error: "held tasks cannot be terminal creates" }, 400);
+  const repoErr = repositoryInputError(token, result.value);
+  if (repoErr) return repoErr;
   // The edit composer round-trips every field EXCEPT merge-train membership, which has no
   // UI — so carry mergeTrainPrs forward from the held row. Otherwise editing a held
   // merge-train task would strip its participant PRs and they'd never be marked "merging".
@@ -6520,11 +6667,11 @@ async function heldUpdate(id: string, deps: AppDeps, body: unknown): Promise<Res
   return json(deps.store.getHeldTask(id), 200);
 }
 
-async function handleHeld({ req, parts, deps }: Ctx): Promise<Response | null> {
+async function handleHeld({ req, parts, deps, token }: Ctx): Promise<Response | null> {
   if (parts[0] !== "api" || parts[1] !== "held") return null;
 
   // GET /api/held — list held tasks FIFO
-  if (req.method === "GET" && !parts[2]) return heldList(deps);
+  if (req.method === "GET" && !parts[2]) return heldList(deps, token);
 
   // POST /api/held/:id/spawn — release one held task immediately
   if (req.method === "POST" && parts[2] && parts[3] === "spawn" && !parts[4]) {
@@ -6539,7 +6686,7 @@ async function handleHeld({ req, parts, deps }: Ctx): Promise<Response | null> {
     const ctErr = requireJsonContentType(req);
     if (ctErr) return ctErr;
     const body = await req.json().catch(() => null);
-    return heldUpdate(parts[2], deps, body);
+    return heldUpdate(parts[2], deps, body, token);
   }
 
   // DELETE /api/held/:id — discard a held task
@@ -6838,7 +6985,7 @@ function issueCreateInputError(title: unknown, body: unknown): string | null {
 
 // POST /api/issues — open a new issue on a repo's forge (capture-extension
 // delivery path). Coexists with handleIssues' GET on the same path.
-async function handleIssueCreate({ req, parts, deps }: Ctx): Promise<Response | null> {
+async function handleIssueCreate({ req, parts, deps, token }: Ctx): Promise<Response | null> {
   if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "issues" || parts[2]) return null;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
@@ -6850,6 +6997,8 @@ async function handleIssueCreate({ req, parts, deps }: Ctx): Promise<Response | 
   if (!body) return json({ error: "invalid json" }, 400);
   const dir = safeRepoDir(body.repo ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
+  const repoErr = repositoryInputError(token, { repoPath: dir });
+  if (repoErr) return repoErr;
   const { title, body: issueBody } = body;
   const inputErr = issueCreateInputError(title, issueBody);
   if (inputErr || typeof title !== "string" || typeof issueBody !== "string") {
@@ -8994,17 +9143,14 @@ const ROUTE_HANDLERS = [
 export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
   const app = {
     async fetch(req: Request): Promise<Response> {
-      if (!opts.skipAuth) {
-        const authErr = checkAuth(req, deps);
-        if (authErr) return authErr;
-      }
-
-      const originErr = checkOrigin(req);
-      if (originErr) return originErr;
+      const token = opts.skipAuth ? null : checkAuth(req, deps);
+      if (token instanceof Response) return token;
 
       const url = new URL(req.url);
       const parts = url.pathname.split("/").filter(Boolean); // ["api","sessions",":id"]
-      const ctx: Ctx = { req, parts, url, deps };
+      const ctx: Ctx = { req, parts, url, deps, token };
+      const boundaryErr = requestBoundaryError(ctx);
+      if (boundaryErr) return boundaryErr;
 
       try {
         for (const handle of ROUTE_HANDLERS) {
@@ -9160,7 +9306,7 @@ function parseTerminalClient(params: URLSearchParams) {
   };
 }
 
-type WsData =
+type WsData = (
   | { kind: "events"; unsub?: () => void }
   | {
       kind: "pty";
@@ -9172,7 +9318,13 @@ type WsData =
       bridge?: PtyBridge | SocketPtyBridge;
       pendingInput?: string[];
       awaitingFirstFrame?: boolean;
-    };
+    }
+) & {
+  tokenId?: string;
+  authUnsub?: () => void;
+  expiryTimer?: ReturnType<typeof setTimeout>;
+  authClosed?: boolean;
+};
 
 // A pty WS closed with this code means "a newer client took over this terminal".
 // The client parks (shows a take-over prompt) instead of reconnecting — without
@@ -9325,8 +9477,69 @@ export function serve(deps: AppDeps, port: number) {
       ),
     ),
   });
-  const sendTerminalOwners = (ws: ServerWebSocket<WsData>) =>
-    ws.send(JSON.stringify({ event: "terminal:owners", data: terminalOwners() }));
+  const sendTerminalOwners = (ws: ServerWebSocket<WsData>) => {
+    if (!socketAuthorized(ws)) return;
+    const token = ws.data.tokenId ? accessTokens(deps).current(ws.data.tokenId) : null;
+    ws.send(
+      JSON.stringify({
+        event: "terminal:owners",
+        data: {
+          owners: tokenMap(token, deps, terminalOwners().owners),
+        },
+      }),
+    );
+  };
+
+  function closeTokenSocket(ws: ServerWebSocket<WsData>): void {
+    ws.data.authClosed = true;
+    ws.close(1008, "authorization changed");
+  }
+
+  function socketAuthorized(ws: ServerWebSocket<WsData>): boolean {
+    if (ws.data.authClosed) return false;
+    if (!ws.data.tokenId) return true;
+    const token = accessTokens(deps).current(ws.data.tokenId);
+    const allowed =
+      token &&
+      scopeAllows(
+        token.scope,
+        "GET",
+        ws.data.kind === "events" ? "/events" : `/pty/${ws.data.id}`,
+      ) &&
+      (ws.data.kind === "events" || tokenSessionAllowed(token, deps, ws.data.id));
+    if (!allowed) closeTokenSocket(ws);
+    return !!allowed;
+  }
+
+  function armTokenExpiry(ws: ServerWebSocket<WsData>): void {
+    if (!ws.data.tokenId || !socketAuthorized(ws)) return;
+    const expiresAt = accessTokens(deps).current(ws.data.tokenId)?.expiresAt;
+    if (expiresAt == null) return;
+    // setTimeout overflows beyond ~24 days; long-lived tokens re-arm at that boundary.
+    ws.data.expiryTimer = setTimeout(
+      () => armTokenExpiry(ws),
+      Math.min(2_147_483_647, Math.max(1, expiresAt - Date.now())),
+    );
+    ws.data.expiryTimer.unref();
+  }
+
+  function sendTokenEvent(ws: ServerWebSocket<WsData>, event: string, data: unknown): void {
+    if (!socketAuthorized(ws)) return;
+    const token = ws.data.tokenId ? accessTokens(deps).current(ws.data.tokenId) : null;
+    if (token && token.repoPaths !== null) {
+      if (event === "held:changed")
+        data = {
+          count: deps.store.listHeldTasks().filter((h) => tokenRepoAllowed(token, h.input.repoPath))
+            .length,
+        };
+      else if (event === "terminal:owners") {
+        sendTerminalOwners(ws);
+        return;
+      } else if (!filterRepositoryEvent(event, data, (id) => tokenSessionAllowed(token, deps, id)))
+        return;
+    }
+    ws.send(JSON.stringify({ event, data }));
+  }
   // last time the operator typed into each session's live PTY (issue #1022 seam).
   // In-memory + throttled; pruned in the pty close() handler. Consumed by nothing
   // yet — a future stage-and-apply guard reads it via getLastOperatorKeystrokeAt.
@@ -9342,12 +9555,18 @@ export function serve(deps: AppDeps, port: number) {
     maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
     fetch(req, server) {
       const authErr = checkAuth(req, deps);
-      if (authErr) return authErr;
-
-      const originErr = checkOrigin(req);
-      if (originErr) return originErr;
+      if (authErr instanceof Response) return authErr;
+      const tokenId = authErr?.id;
 
       const url = new URL(req.url);
+      const boundaryErr = requestBoundaryError({
+        req,
+        url,
+        parts: url.pathname.split("/").filter(Boolean),
+        deps,
+        token: authErr,
+      });
+      if (boundaryErr) return boundaryErr;
       if (url.pathname === "/events") {
         const origin = req.headers.get("Origin");
         if (
@@ -9358,7 +9577,7 @@ export function serve(deps: AppDeps, port: number) {
         ) {
           return new Response("forbidden: origin not allowed", { status: 403 });
         }
-        return server.upgrade(req, { data: { kind: "events" } })
+        return server.upgrade(req, { data: { kind: "events", tokenId } })
           ? undefined
           : new Response("upgrade failed", { status: 500 });
       }
@@ -9385,6 +9604,7 @@ export function serve(deps: AppDeps, port: number) {
         return server.upgrade(req, {
           data: {
             kind: "pty",
+            tokenId,
             id: s.id,
             terminalId: s.herdrAgentId,
             cols,
@@ -9403,10 +9623,15 @@ export function serve(deps: AppDeps, port: number) {
     },
     websocket: {
       open(ws) {
+        if (!socketAuthorized(ws)) return;
+        if (ws.data.tokenId) {
+          ws.data.authUnsub = accessTokens(deps).onChange((id) => {
+            if (id === ws.data.tokenId) closeTokenSocket(ws);
+          });
+          armTokenExpiry(ws);
+        }
         if (ws.data.kind === "events") {
-          const unsub = deps.events.subscribe((event, data) =>
-            ws.send(JSON.stringify({ event, data })),
-          );
+          const unsub = deps.events.subscribe((event, data) => sendTokenEvent(ws, event, data));
           ws.data.unsub = unsub;
           sendTerminalOwners(ws);
           // A live /events socket = a dashboard is open (regardless of focus), so
@@ -9439,7 +9664,10 @@ export function serve(deps: AppDeps, port: number) {
           ptyOwners.set(tid, ws);
           deps.events.emit("terminal:owners", terminalOwners());
           if (prev && prev !== ws) prev.close(PTY_SUPERSEDED_CODE, "superseded");
-          const sock = { send: (d: string | Uint8Array) => ws.send(d), close: () => ws.close() };
+          const sock = {
+            send: (d: string | Uint8Array) => (socketAuthorized(ws) ? ws.send(d) : 0),
+            close: () => ws.close(),
+          };
           const kind = pickTerminalBridgeKind({
             herdrSocketTerminal: config.herdrSocketTerminal,
             herdrSocketActive: deps.herdrSocketActive,
@@ -9462,6 +9690,10 @@ export function serve(deps: AppDeps, port: number) {
             data.awaitingFirstFrame = true;
             data.pendingInput = [];
             const flushPending = (b: PtyBridge | SocketPtyBridge) => {
+              if (!socketAuthorized(ws)) {
+                data.pendingInput = [];
+                return;
+              }
               for (const f of data.pendingInput ?? []) b.write(f);
               data.pendingInput = [];
             };
@@ -9473,6 +9705,7 @@ export function serve(deps: AppDeps, port: number) {
                 flushPending(data.bridge!);
               },
               onFallback: () => {
+                if (!socketAuthorized(ws)) return;
                 // A clean-terminal pane has no node-pty fallback (agent attach refuses it) —
                 // surface "ended" instead of a guaranteed agent_not_found reconnect loop.
                 if (cur.terminal) {
@@ -9503,6 +9736,7 @@ export function serve(deps: AppDeps, port: number) {
         }
       },
       message(ws, msg) {
+        if (!socketAuthorized(ws)) return;
         if (ws.data.kind === "events") {
           // Presence frame: the page reports focus+visibility so push delivery
           // can suppress OS banners while a window is actively in use.
@@ -9527,6 +9761,8 @@ export function serve(deps: AppDeps, port: number) {
         else ws.data.bridge?.write(frame);
       },
       close(ws) {
+        ws.data.authUnsub?.();
+        if (ws.data.expiryTimer) clearTimeout(ws.data.expiryTimer);
         if (ws.data.kind === "events") {
           ws.data.unsub?.();
           deps.presence?.drop(ws);

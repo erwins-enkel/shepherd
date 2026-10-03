@@ -22962,13 +22962,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Derselbe Zugriff wie du, das laufende Terminal eingeschlossen — damit lässt sich in jeden laufenden Agenten tippen. Wähle das nur für einen Client, der Arbeit wirklich steuern muss."
+            "value": "Darf Sitzungen innerhalb der Repo-Freigabe steuern, einschließlich des Live-Terminals. Instanzweite Verwaltung erfordert Zugriff auf alle Repositories."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The same access you have, the live terminal included — it can type into any running agent. Pick this only for a client that genuinely needs to drive work."
+            "value": "Can steer sessions, the live terminal included, within the repository grant. Instance-wide administration requires access to all repositories."
           }
         }
       }

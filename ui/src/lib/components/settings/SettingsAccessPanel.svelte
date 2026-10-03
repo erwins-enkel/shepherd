@@ -1,7 +1,18 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { listAccessTokens, createAccessToken, revokeAccessToken } from "$lib/api";
-  import type { AccessToken, Settings, TokenScope } from "$lib/types";
+  import {
+    listAccessTokens,
+    createAccessToken,
+    revokeAccessToken,
+    listRepos,
+    updateAccessTokenRepositories,
+  } from "$lib/api";
+  import type { AccessToken, Settings, TokenScope, RepoEntry } from "$lib/types";
+  import TokenRepositoryPicker from "./TokenRepositoryPicker.svelte";
+  import {
+    buildAccessTokenInstructions,
+    normalizeAgentServerUrl,
+  } from "$lib/access-token-instructions";
   import HighlightText from "./HighlightText.svelte";
   import GlossaryText from "$lib/components/GlossaryText.svelte";
   import "./settings-controls.css";
@@ -51,6 +62,64 @@
   let loading = $state(true);
   let loadFailed = $state(false);
 
+  let repos = $state<RepoEntry[]>([]);
+  let reposLoading = $state(true);
+  let reposFailed = $state(false);
+  let allRepos = $state(false);
+  let selectedRepos = $state<string[]>([]);
+  let editingId = $state<string | null>(null);
+  let editAll = $state(false);
+  let editRepos = $state<string[]>([]);
+  let savingRepos = $state(false);
+  let repoError = $state("");
+  let repoSaved = $state(false);
+  const repoSummary = (t: AccessToken) =>
+    t.repoPaths === null
+      ? m.settings_access_repos_all()
+      : t.repoPaths.length
+        ? t.repoPaths.join(", ")
+        : m.settings_access_repos_none();
+
+  async function loadRepos() {
+    reposLoading = true;
+    reposFailed = false;
+    try {
+      repos = (await listRepos()).repos;
+    } catch {
+      reposFailed = true;
+    } finally {
+      reposLoading = false;
+    }
+  }
+
+  function editRepositories(t: AccessToken) {
+    editingId = t.id;
+    editAll = t.repoPaths === null;
+    editRepos = [...(t.repoPaths ?? [])];
+    repoError = "";
+    repoSaved = false;
+  }
+
+  async function saveRepositories(id: string) {
+    if (savingRepos) return;
+    savingRepos = true;
+    repoError = "";
+    try {
+      const { entry } = await updateAccessTokenRepositories(id, editAll ? null : editRepos);
+      tokens = tokens.map((t) => (t.id === id ? entry : t));
+      if (revealedEntry?.id === id) {
+        revealedEntry = entry;
+        instructionsCopied = false;
+      }
+      editingId = null;
+      repoSaved = true;
+    } catch {
+      repoError = m.settings_access_repos_save_failed();
+    } finally {
+      savingRepos = false;
+    }
+  }
+
   let name = $state("");
   /** The <select> value: "never" or a preset day count as a string. */
   let expiry = $state("never");
@@ -64,6 +133,39 @@
   /** The one-time plaintext. Cleared by the dismiss button — and by any reload. */
   let revealed = $state<string | null>(null);
   let copied = $state(false);
+  let revealedEntry = $state<AccessToken | null>(null);
+  let serverUrl = $state("");
+  let instructionsCopied = $state(false);
+  let instructionsOpen = $state(false);
+  let copyError = $state("");
+  const normalizedUrl = $derived(normalizeAgentServerUrl(serverUrl));
+  const instructions = $derived(
+    revealed && revealedEntry && normalizedUrl
+      ? buildAccessTokenInstructions(normalizedUrl, revealed, revealedEntry)
+      : "",
+  );
+
+  function dismissRevealed() {
+    revealed = null;
+    revealedEntry = null;
+    copied = false;
+    instructionsCopied = false;
+    copyError = "";
+    instructionsOpen = false;
+  }
+
+  async function copyInstructions() {
+    if (!instructions) return;
+    copyError = "";
+    try {
+      await navigator.clipboard.writeText(instructions);
+      instructionsCopied = true;
+    } catch {
+      instructionsCopied = false;
+      copyError = m.settings_access_clipboard_failed();
+      instructionsOpen = true;
+    }
+  }
 
   let confirmingId = $state<string | null>(null);
   let revokingId = $state<string | null>(null);
@@ -93,7 +195,12 @@
 
   async function create(e: SubmitEvent) {
     e.preventDefault();
-    if (creating || name.trim() === "") return;
+    if (
+      creating ||
+      name.trim() === "" ||
+      (!allRepos && (reposLoading || reposFailed || !selectedRepos.length))
+    )
+      return;
     creating = true;
     createError = "";
     try {
@@ -101,13 +208,20 @@
         name.trim(),
         expiry === "never" ? null : Number(expiry),
         scope,
+        allRepos ? null : selectedRepos,
       );
       revealed = minted.token;
+      revealedEntry = minted.entry;
+      instructionsCopied = false;
+      copyError = "";
+      instructionsOpen = false;
       copied = false;
       tokens = [minted.entry, ...tokens];
       name = "";
       expiry = "never";
       scope = "read";
+      allRepos = false;
+      selectedRepos = [];
     } catch {
       createError = m.settings_access_create_failed();
     } finally {
@@ -117,11 +231,13 @@
 
   async function copy() {
     if (!revealed) return;
+    copyError = "";
     try {
       await navigator.clipboard.writeText(revealed);
       copied = true;
     } catch {
-      // clipboard blocked (insecure context / denied) — the value stays selectable on screen.
+      copied = false;
+      copyError = m.settings_access_clipboard_failed();
     }
   }
 
@@ -132,6 +248,8 @@
     try {
       await revokeAccessToken(id);
       tokens = tokens.filter((t) => t.id !== id);
+      if (revealedEntry?.id === id) dismissRevealed();
+      if (editingId === id) editingId = null;
       confirmingId = null;
     } catch {
       revokeError = m.settings_access_revoke_failed();
@@ -140,7 +258,11 @@
     }
   }
 
-  onMount(load);
+  onMount(() => {
+    serverUrl = window.location.origin;
+    void load();
+    void loadRepos();
+  });
 </script>
 
 <div class="block">
@@ -196,7 +318,27 @@
         <span class="set-chev" aria-hidden="true">▾</span>
       </span>
     </label>
-    <button type="submit" class="run" disabled={creating || name.trim() === ""}>
+    <fieldset class="repo-field" disabled={creating}>
+      <legend class="lbl">{m.settings_access_repos_label()}</legend>
+      <TokenRepositoryPicker
+        {repos}
+        bind:all={allRepos}
+        bind:selected={selectedRepos}
+        disabled={creating || reposLoading || reposFailed}
+      />
+    </fieldset>
+    {#if reposLoading}<p class="hint">{m.common_loading()}</p>{/if}
+    {#if reposFailed}
+      <p class="hint err" role="alert">{m.settings_access_repos_load_failed()}</p>
+      <button type="button" class="set-gbtn" onclick={loadRepos}>{m.common_retry()}</button>
+    {/if}
+    <button
+      type="submit"
+      class="run"
+      disabled={creating ||
+        name.trim() === "" ||
+        (!allRepos && (reposLoading || reposFailed || selectedRepos.length === 0))}
+    >
       {creating ? m.settings_access_creating() : m.settings_access_create_button()}
     </button>
   </form>
@@ -207,6 +349,7 @@
     {scopeHint(scope)}
     <GlossaryText text={m.settings_access_scope_fixed_note()} />
   </p>
+  <p class="hint">{m.settings_access_repos_hint()}</p>
   {#if createError}<p class="hint err" role="alert">{createError}</p>{/if}
 </div>
 
@@ -217,19 +360,49 @@
     >
     <code class="value">{revealed}</code>
     <p class="hint">{m.settings_access_reveal_hint()}</p>
+    <p class="hint">{m.settings_access_instructions_once()}</p>
+    <label class="fld">
+      <span class="lbl">{m.settings_access_server_label()}</span>
+      <input
+        class="txt"
+        type="url"
+        bind:value={serverUrl}
+        oninput={() => (instructionsCopied = false)}
+        aria-describedby="token-server-hint"
+      />
+    </label>
+    <p class="hint" id="token-server-hint">{m.settings_access_server_hint()}</p>
+    {#if !normalizedUrl}<p class="hint">{m.settings_access_server_invalid()}</p>{/if}
     <div class="reveal-btns">
       <button type="button" class="run" onclick={copy}>
         {copied ? m.settings_access_copied() : m.settings_access_copy()}
       </button>
-      <button type="button" class="set-gbtn" onclick={() => (revealed = null)}>
+      <button type="button" class="run" onclick={copyInstructions} disabled={!instructions}>
+        {instructionsCopied
+          ? m.settings_access_instructions_copied()
+          : m.settings_access_instructions_copy()}
+      </button>
+      <button type="button" class="set-gbtn" onclick={dismissRevealed}>
         {m.settings_access_dismiss()}
       </button>
     </div>
+    {#if copyError}<p class="hint err" role="alert">{copyError}</p>{/if}
+    {#if instructions}
+      <details bind:open={instructionsOpen}>
+        <summary>{m.settings_access_instructions_preview()}</summary>
+        <textarea
+          class="txt instruction-text"
+          readonly
+          value={instructions}
+          aria-label={m.settings_access_instructions_label()}></textarea>
+      </details>
+    {/if}
   </div>
 {/if}
 
 <div class="block">
   <span class="micro"><HighlightText text={m.settings_access_list_title()} {query} /></span>
+  {#if repoSaved}<p class="hint" role="status">{m.settings_access_repos_saved()}</p>{/if}
   {#if loading}
     <p class="hint">{m.common_loading()}</p>
   {:else if loadFailed}
@@ -250,6 +423,39 @@
                 >{scopeLabel(t.scope)}</span
               >
             </span>
+            <span class="tok-repos">{repoSummary(t)}</span>
+            <button
+              type="button"
+              class="set-gbtn repo-edit"
+              disabled={savingRepos}
+              onclick={() => editRepositories(t)}>{m.settings_access_repos_edit()}</button
+            >
+            {#if editingId === t.id}
+              <fieldset class="repo-field" disabled={savingRepos}>
+                <legend class="lbl">{m.settings_access_repos_edit_label({ name: t.name })}</legend>
+                <TokenRepositoryPicker
+                  {repos}
+                  bind:all={editAll}
+                  bind:selected={editRepos}
+                  disabled={savingRepos || reposLoading || reposFailed}
+                />
+                {#if repoError}<p class="hint err" role="alert">{repoError}</p>{/if}
+                <div class="reveal-btns">
+                  <button
+                    type="button"
+                    class="run"
+                    disabled={savingRepos || reposLoading || reposFailed}
+                    onclick={() => saveRepositories(t.id)}>{m.common_save()}</button
+                  >
+                  <button
+                    type="button"
+                    class="set-gbtn"
+                    disabled={savingRepos}
+                    onclick={() => (editingId = null)}>{m.common_cancel()}</button
+                  >
+                </div>
+              </fieldset>
+            {/if}
             <span class="tok-meta">
               {m.settings_access_created({ date: formatDate(t.createdAt) })} ·
               {t.lastUsedAt === null
@@ -293,6 +499,39 @@
 </div>
 
 <style>
+  .repo-field {
+    border: 0;
+    padding: 0;
+    margin: 4px 0;
+    min-width: 0;
+    flex-basis: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .repo-field legend {
+    padding: 0;
+    margin-bottom: 8px;
+  }
+  .tok-repos {
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+    overflow-wrap: anywhere;
+  }
+  .repo-edit {
+    align-self: flex-start;
+  }
+  .instruction-text {
+    margin-top: 8px;
+    min-height: 240px;
+    resize: vertical;
+  }
+  summary {
+    cursor: pointer;
+    color: var(--color-ink);
+    font-size: var(--fs-meta);
+  }
+
   .micro {
     font-size: var(--fs-meta);
     letter-spacing: 0.18em;
@@ -386,6 +625,9 @@
     background: var(--color-inset);
     padding: 12px;
     border-radius: 2px;
+  }
+  .reveal .fld {
+    flex: initial;
   }
   .reveal-title {
     color: var(--color-amber);

@@ -61,6 +61,8 @@ export function isTokenScope(raw: unknown): raw is TokenScope {
  */
 const READ_ROUTES: ReadonlySet<string> = new Set([
   "GET /api/sessions",
+  "GET /api/repos",
+  "GET /api/branches",
   "GET /api/holds",
   "GET /api/git",
   "GET /api/me",

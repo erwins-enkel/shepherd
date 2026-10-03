@@ -6,6 +6,7 @@ import type { Settings as SettingsPayload, DiagnosticCheck } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import {
   getSettings,
+  createAccessToken,
   verifyApiKey,
   putAnthropicApiKey,
   putDefaultCodexModel,
@@ -29,6 +30,9 @@ vi.mock("$lib/api", async (importOriginal) => {
   return {
     ...actual,
     getSettings: vi.fn(),
+    listAccessTokens: vi.fn(async () => ({ tokens: [] })),
+    listRepos: vi.fn(async () => ({ repos: [] })),
+    createAccessToken: vi.fn(),
     putRoleCli: vi.fn(async (key, value) => ({ [key]: value })),
     putRoleModel: vi.fn(async (key, value) => ({ [key]: value })),
     putRoleEffort: vi.fn(async (key, value) => ({ [key]: value })),
@@ -1293,3 +1297,39 @@ describe("Up Next readiness toggle", () => {
     await expect.element(readinessSwitch()).toHaveAttribute("aria-checked", "false");
   });
 });
+
+for (const width of [390, 1280])
+  it(`clears the one-time access token when leaving its settings section at ${width}px`, async () => {
+    await page.viewport(width, 900);
+    vi.mocked(createAccessToken).mockResolvedValue({
+      token: "shp_one_time",
+      entry: {
+        id: "t1",
+        name: "remote",
+        hint: "test",
+        createdAt: 1,
+        lastUsedAt: null,
+        expiresAt: null,
+        scope: "full",
+        repoPaths: null,
+      },
+    });
+    render(Settings, {
+      initialTab: "access",
+      initialMobileView: "detail",
+      onclose: noop,
+      onsaved: noop,
+    });
+    await page.getByPlaceholder(m.settings_access_name_placeholder()).fill("remote");
+    await page.getByLabelText(m.settings_access_repos_all()).click();
+    await page.getByRole("button", { name: m.settings_access_create_button() }).click();
+    await expect.element(page.getByText("shp_one_time", { exact: true })).toBeVisible();
+    if (width === 390) {
+      await page.getByRole("button", { name: m.settings_back_aria() }).click();
+      await page.getByRole("button", { name: m.settings_tab_access(), exact: false }).click();
+    } else {
+      await page.getByRole("tab", { name: m.settings_tab_workspace() }).click();
+      await page.getByRole("tab", { name: m.settings_tab_access() }).click();
+    }
+    await expect.element(page.getByText("shp_one_time", { exact: true })).not.toBeInTheDocument();
+  });

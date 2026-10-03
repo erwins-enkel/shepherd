@@ -210,6 +210,26 @@ final class IOSTerminalReplyTests: XCTestCase {
         XCTAssertTrue(f.model.canSubmitReply)
     }
 
+    func testTypedReturnSendsDraftWhilePastedNewlinesStay() async {
+        let f = ReplyFixture()
+        defer { f.teardown() }
+        await f.live()
+        f.core.promptText = "\n"
+        XCTAssertFalse(f.model.consumeTypedReturn(previous: ""))
+        XCTAssertEqual(f.core.promptText, "")
+        f.core.promptText = "First\nSecond"
+        XCTAssertFalse(f.model.consumeTypedReturn(previous: "First"))
+        XCTAssertEqual(f.core.promptText, "First\nSecond")
+        f.core.promptText = "First\nSecond!"
+        XCTAssertFalse(f.model.consumeTypedReturn(previous: "First\nSecond"))
+        f.core.promptText = "First\n\nSecond!"
+        XCTAssertTrue(f.model.consumeTypedReturn(previous: "First\nSecond!"))
+        XCTAssertEqual(f.core.promptText, "First\nSecond!")
+        let success = await f.model.submitReply()
+        XCTAssertTrue(success)
+        XCTAssertEqual(f.sent, ["First\nSecond!"])
+    }
+
     func testWhisperFinalReplacesApplePreviewWithoutSending() async {
         let f = ReplyFixture()
         defer { f.teardown() }

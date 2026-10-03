@@ -121,6 +121,18 @@ final class IOSTerminalPresentation {
         session.send(Data(key.sequence.utf8))
     }
 
+    /// The on-screen Return in the vertical draft field types "\n" instead of firing `onSubmit`.
+    /// Strip one typed newline and report whether to send; pasted newlines stay.
+    func consumeTypedReturn(previous old: String) -> Bool {
+        let new = session.promptText
+        guard new.count == old.count + 1 else { return false }
+        let kept = zip(old, new).prefix { $0 == $1 }.count
+        let at = new.index(new.startIndex, offsetBy: kept)
+        guard new[at] == "\n", new[new.index(after: at)...] == old.dropFirst(kept) else { return false }
+        session.promptText = old
+        return canSubmitReply
+    }
+
     /// Report success only to the attachment that submitted the draft.
     /// Reply state belongs to this session, independently of the PTY attachment.
     /// Keep the submitted draft until success so suspension cannot discard it.

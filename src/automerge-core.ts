@@ -216,15 +216,31 @@ const REBASE_PATH_CODES: ReadonlySet<MergeWaitCode> = new Set([
   "not_mergeable",
 ]);
 
+/** Why the train will NOT rebase a PR whose gate asks for one, or null when it will. Mirrors
+ *  rebaseEligible's refusals in its own order (its open/checks clauses are already settled for a
+ *  rebase-path gate): a stack layer is restacked, never rebased; an unsigned draft is left alone;
+ *  a blocking verdict must change first. */
+function rebaseBlocker(
+  s: MergeSessionView,
+  criticEnabled: boolean,
+  draftMode: boolean,
+  authority: SignoffAuthority,
+): MergeWaitCode | null {
+  if (s.stacked) return "stacked";
+  if (draftMode && !signedOff(authority, signoffView(s))) return "signoff";
+  if (!rebaseVerdictAllows(s, criticEnabled)) return verdictGateFailure(s, criticEnabled);
+  return null;
+}
+
 /** Why the train is holding this session's PR, or null when there is nothing to wait for (no
  *  open PR, or it is ready and lands on this pump). Pure; the precedence mirrors computeMerge: an
  *  exhausted rebase budget first (that hold is terminal until the operator acts), then the first
  *  failing readiness gate, then the two "otherwise ready" holds.
  *
- *  A rebase-path gate is reported only while the train will actually rebase: when the verdict
- *  blocks it (rebaseVerdictAllows — a current-head error / changes_requested, or a re-review
- *  still due) nothing ever steers that rebase (autopilot leaves full-auto rebases to the train),
- *  so the verdict is what has to change first and is what gets reported. */
+ *  A rebase-path gate is reported only while the train will actually rebase. When rebaseEligible
+ *  refuses (see {@link rebaseBlocker}) nothing ever steers that rebase — autopilot leaves
+ *  full-auto rebases to the train — so the refusal is what has to change first and is what gets
+ *  reported instead. */
 export function mergeWaitReason(
   s: MergeSessionView,
   state: Pick<MergeRepoState, "criticEnabled" | "draftMode" | "signoffAuthority" | "rebaseCap">,
@@ -237,8 +253,8 @@ export function mergeWaitReason(
     return "rebase_cap";
   const gate = readyGateFailure(s, criticEnabled, draftMode, signoffAuthority);
   if (gate === "not_open") return null;
-  if (gate && REBASE_PATH_CODES.has(gate) && !rebaseVerdictAllows(s, criticEnabled))
-    return verdictGateFailure(s, criticEnabled) ?? gate;
+  if (gate && REBASE_PATH_CODES.has(gate))
+    return rebaseBlocker(s, criticEnabled, draftMode, signoffAuthority) ?? gate;
   if (gate) return gate;
   if (s.stacked) return "stacked";
   if (hasBlockingManualSteps(s)) return "manual_steps";

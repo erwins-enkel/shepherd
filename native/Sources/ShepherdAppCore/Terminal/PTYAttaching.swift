@@ -19,6 +19,13 @@ protocol PTYAttaching: AnyObject {
     func resize(cols: Int, rows: Int)
     var output: AsyncStream<Data> { get }
     var lifecycle: AsyncStream<PTYConnection.LifecycleEvent> { get }
+    /// Attach attempts, for the "connecting" detail. See `PTYConnection.attempts()`.
+    var attempts: AsyncStream<PTYConnection.Attempt> { get }
+}
+
+extension PTYAttaching {
+    /// A stand-in that does not model attempts reports none.
+    var attempts: AsyncStream<PTYConnection.Attempt> { AsyncStream { $0.finish() } }
 }
 
 /// Runs connection commands one at a time, in the order they were issued.
@@ -91,9 +98,11 @@ final class LivePTYAttachment: PTYAttaching {
     private let connection: PTYConnection
     let output: AsyncStream<Data>
     let lifecycle: AsyncStream<PTYConnection.LifecycleEvent>
+    let attempts: AsyncStream<PTYConnection.Attempt>
 
     private typealias Taps = (
-        output: AsyncStream<Data>, lifecycle: AsyncStream<PTYConnection.LifecycleEvent>
+        output: AsyncStream<Data>, lifecycle: AsyncStream<PTYConnection.LifecycleEvent>,
+        attempts: AsyncStream<PTYConnection.Attempt>
     )
     private let taps: Task<Taps, Never>
     private let pumps: [Task<Void, Never>]
@@ -118,20 +127,26 @@ final class LivePTYAttachment: PTYAttaching {
         let (output, outputSink) = AsyncStream<Data>.makeStream(bufferingPolicy: .unbounded)
         let (lifecycle, lifecycleSink) = AsyncStream<PTYConnection.LifecycleEvent>.makeStream(
             bufferingPolicy: .bufferingNewest(16))
+        // Only the newest attempt describes the terminal now.
+        let (attempts, attemptsSink) = AsyncStream<PTYConnection.Attempt>.makeStream(
+            bufferingPolicy: .bufferingNewest(1))
         self.output = output
         self.lifecycle = lifecycle
-        // Taken once, here: both kit streams are per-call, so a second call
+        self.attempts = attempts
+        // Taken once, here: the kit streams are per-call, so a second call
         // would register a second tap rather than hand back this one.
         let taps = Task { [connection] () -> Taps in
-            (output: await connection.output(), lifecycle: await connection.lifecycle())
+            (output: await connection.output(), lifecycle: await connection.lifecycle(),
+             attempts: await connection.attempts())
         }
         self.taps = taps
         let pumps = [
             Task { await pump(from: taps.value.output, into: outputSink) },
             Task { await pump(from: taps.value.lifecycle, into: lifecycleSink) },
+            Task { await pump(from: taps.value.attempts, into: attemptsSink) },
         ]
         self.pumps = pumps
-        // The kit finishes every tap it handed out on `stop()`, which ends both
+        // The kit finishes every tap it handed out on `stop()`, which ends the
         // pumps; cancelling them once the queue has drained is the belt to that
         // braces.
         commands = PTYCommandQueue(

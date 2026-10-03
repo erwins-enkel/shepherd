@@ -8,12 +8,19 @@ import ShepherdKit
 public final class ComposeSubmission {
     public init() {}
 
+    /// Past the server's 30 s agent bound plus margin, the create has almost
+    /// certainly answered and the answer is stuck in transit — the web dialog's
+    /// `SPAWN_STALE_MS`.
+    public static let staleAfter: TimeInterval = 45
+
     public private(set) var busy = false
     public private(set) var slow = false
     public private(set) var canceling = false
     public private(set) var cancelRequested = false
     private(set) var spawnID: String?
     public private(set) var progress: Components.Schemas.SpawnProgressEvent?
+    /// When the in-flight create was sent, for the elapsed-time readout.
+    public private(set) var startedAt: Date?
     public private(set) var message: String?
     public private(set) var recoveryFailure: BackendFailure?
     @ObservationIgnored private var eventsTask: Task<Void, Never>?
@@ -29,6 +36,18 @@ public final class ComposeSubmission {
         case .launch: L.t("newtask_spawn_phase_launch")
         case .agent: L.t("newtask_spawn_phase_agent")
         case nil: L.t("newtask_spawning")
+        }
+    }
+
+    /// Why a phase can take a while — the web dialog's `phaseWhy`.
+    public static func phaseWhy(_ phase: Components.Schemas.SpawnPhase) -> String? {
+        switch phase.known {
+        case .base: L.t("newtask_spawn_why_base")
+        case .worktree: L.t("newtask_spawn_why_worktree")
+        case .prompt: L.t("newtask_spawn_why_prompt")
+        case .launch: L.t("newtask_spawn_why_launch")
+        case .agent: L.t("newtask_spawn_why_agent")
+        case nil: nil
         }
     }
 
@@ -49,6 +68,7 @@ public final class ComposeSubmission {
         request.force = force
         recoveryFailure = nil
         busy = true; slow = false; message = nil; progress = nil; cancelRequested = false
+        startedAt = Date()
         generation += 1
         let mine = generation, id = UUID().uuidString
         spawnID = id
@@ -116,7 +136,7 @@ public final class ComposeSubmission {
     private func finish() {
         eventsTask?.cancel(); eventsTask = nil
         timer?.cancel(); timer = nil
-        busy = false; slow = false; canceling = false; spawnID = nil; progress = nil
+        busy = false; slow = false; canceling = false; spawnID = nil; progress = nil; startedAt = nil
     }
     public func teardown() {
         stopped = true; generation += 1

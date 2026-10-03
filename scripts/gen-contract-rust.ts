@@ -16,7 +16,7 @@
  *   f. An enum flagged `x-shepherd-open-enum: true` loses its `enum` list and decodes as a plain
  *      string. Generated Rust enums are closed, and the server can emit a member a shipped CLI has
  *      never heard of — which would fail the whole response.
- *   g. `x-shepherd-explicit-null` scalars are already `type: [boolean|string, "null"]`: (b) applies.
+ *   g. `x-shepherd-explicit-null` values are already `type: [boolean|string|array, "null"]`: (b) applies.
  *   h. An operation whose 2xx (or error) statuses answer different bodies gets one shared body
  *      type — see unifyResponses.
  *   i. An operation progenitor cannot generate at all is dropped — see RUST_EXCLUDED_OPERATIONS.

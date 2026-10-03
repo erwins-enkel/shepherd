@@ -849,13 +849,27 @@ export async function createAccessToken(
   name: string,
   expiresInDays: number | null,
   scope: TokenScope,
+  repoPaths: string[] | null,
 ): Promise<{ token: string; entry: AccessToken }> {
   const r = await fetch("/api/access-tokens", {
     method: "POST",
     headers: JSON_HEADERS,
-    body: JSON.stringify({ name, expiresInDays, scope }),
+    body: JSON.stringify({ name, expiresInDays, scope, repoPaths }),
   });
   if (!r.ok) throw await failed(r, "create access token");
+  return r.json();
+}
+
+export async function updateAccessTokenRepositories(
+  id: string,
+  repoPaths: string[] | null,
+): Promise<{ entry: AccessToken }> {
+  const r = await fetch(`/api/access-tokens/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ repoPaths }),
+  });
+  if (!r.ok) throw await failed(r, "update token repositories");
   return r.json();
 }
 

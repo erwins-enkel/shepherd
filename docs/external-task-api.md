@@ -49,11 +49,11 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
 
 ## What actually gates access
 
-| Gate                 | Default                                               | What Hermes must do                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| -------------------- | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Network bind**     | `127.0.0.1:7330` (loopback only)                      | Run on the same host, reach it over Tailscale serve, or set `SHEPHERD_HOST` to expose another NIC                                                                                                                                                                                                                                                                                                                                                                                                            |
-| **Auth**             | Gated by default (operator password → session cookie) | Machine clients can't use the browser login, so they authenticate with a bearer: `Authorization: Bearer <token>` on every request. Two sources, both accepted at once — mint a **named token** in the HUD under Settings → Access (recommended; revocable per client, no restart, and carries a **scope** — see below), or set `SHEPHERD_TOKEN=<random>` in the server's environment (the deployment-provisioned option; no scope, always full reach). Without a valid cookie or bearer the request is `401` |
-| **Repo confinement** | `SHEPHERD_REPO_ROOT` = `~` (home)                     | `repoPath` must resolve **inside** the root, or the request is rejected `400`                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| Gate                 | Default                                               | What Hermes must do                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Network bind**     | `127.0.0.1:7330` (loopback only)                      | Run on the same host, reach it over Tailscale serve, or set `SHEPHERD_HOST` to expose another NIC                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| **Auth**             | Gated by default (operator password → session cookie) | Machine clients can't use the browser login, so they authenticate with a bearer: `Authorization: Bearer <token>` on every request. Two sources, both accepted at once — mint a **named token** in the HUD under Settings → Access (recommended; revocable per client, no restart, and carries a **scope and repository grant** — see below), or set `SHEPHERD_TOKEN=<random>` in the server's environment (the deployment-provisioned option; no scope, always full reach). Without a valid cookie or bearer the request is `401` |
+| **Repo confinement** | `SHEPHERD_REPO_ROOT` = `~` (home)                     | `repoPath` must resolve **inside** the root, or the request is rejected `400`                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 
 ### Recommended setup for a remote agent
 
@@ -75,7 +75,7 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
      recommended route for anything you _install_.
 
      Pick the token's **scope** in the same dialog; it is fixed for the token's
-     lifetime. **Read** covers `GET /api/sessions`, `/api/holds`, `/api/git`,
+     lifetime. **Read** covers `GET /api/repos`, `/api/branches`, `/api/sessions`, `/api/holds`, `/api/git`,
      `/api/me`, `POST /api/ping`, the `/events` stream, and the two in-flight
      review probes `GET /api/reviews/inflight` and
      `GET /api/plan-gates/inflight` — each returns one row per run currently in
@@ -107,7 +107,7 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
      logout instead of waiting for an operator to revoke it in the HUD
      ([#2358](https://github.com/erwins-enkel/shepherd/pull/2358)). It is
      deliberately scope-blind: self-destruction reaches nothing. Listing,
-     minting, and revoking **any other** id still require the operator session
+     minting, changing repository grants, and revoking **any other** id still require the operator session
      cookie, and a bearer naming an id that isn't its own is answered `403`
      whether or not that id exists, so the route is not an existence oracle.
 
@@ -117,7 +117,68 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
 
    Either way the request looks the same: `Authorization: Bearer <token>`.
 
-3. Keep `SHEPHERD_REPO_ROOT` tight so Hermes can only target intended repos.
+3. Select the permitted repositories in **Settings → Access**. New UI tokens require
+   a selection or an explicit **All repositories (including future ones)**. Use
+   **Edit repositories** on an existing token to change its grant without changing
+   its secret, scope or expiry. Removing every selection grants no repository access.
+
+### Copy instructions for another agent
+
+After creating a token, choose **Copy agent instructions** in the one-time reveal.
+Enter the Shepherd server's reachable HTTP(S) address, typically its HTTPS Tailnet
+address. A localhost address points at the receiving computer and is not accepted.
+The application does not send a request or the token to an address you enter.
+
+Paste the instructions into the agent working on your project. Its HTTP tool runtime
+must itself reach the server through the Tailnet; a desktop or cloud product name
+alone does not guarantee that network access. The instructions include the secret,
+current permissions and scope-appropriate requests. A selectable preview is available
+if clipboard access fails. The secret and instructions remain only in component
+memory; after dismissing the reveal or reloading, create a new token if you need
+another complete copy. Do not commit the instructions or include the secret in logs.
+
+Start with `GET /api/me`, then discover permitted repositories and sessions. A
+**Full** token can coordinate multiple existing and newly created sessions in its
+granted repositories: read individual status, send `/reply` with `{ "text": "…" }`,
+interrupt, relaunch, and use the session's plan, queue, review and Git/PR actions.
+Follow the plan and review gates before `/go`. Do not submit the example task merely
+because the connection instructions were pasted. After an ambiguous create timeout,
+inspect sessions and held tasks before retrying to avoid duplicate work.
+
+### Repository grants and changes
+
+`POST /api/access-tokens` accepts `repoPaths`, an array of exact server repository
+roots, or `null` for all repositories including future ones. Omission preserves the
+legacy all-repository behavior. Existing tokens also remain unrestricted until edited.
+Paths are checked against repository discovery, canonicalized and deduplicated; grants
+are not path prefixes. An empty array grants nothing.
+
+An operator cookie can call `PATCH /api/access-tokens/:id` with only
+`{ "repoPaths": ["/server/projects/my-repo"] }`. The response is
+`{ "entry": <updated token summary> }`, with no plaintext. Scope and expiry stay
+fixed. A bearer cannot edit its own grant or manage other tokens.
+
+For minted bearer tokens, `GET /api/me` returns
+`{ "authenticated": true, "access": { "tokenId": "…", "scope": "full", "repoPaths": ["/server/projects/my-repo"], "expiresAt": null } }`.
+This live value takes precedence over an old copied instruction. Cookie and environment
+credentials keep their existing behavior.
+
+Both scope and repository grant must permit each request. Lists, status snapshots and
+live events contain only permitted sessions. Unknown or foreign session/task/held IDs
+return `404`; explicit foreign repository targets and disallowed actions return `403`.
+Repository-limited **Full** tokens cannot administer global settings, tokens, plugins,
+new repositories or global bulk operations. Unclassified endpoints are denied.
+Staged attachments from a limited token can be reused only by that token; session
+uploads also require access to the destination repository.
+
+Grant changes and revocation close existing event and terminal WebSockets; clients
+must reconnect with current rights. Idle sockets close at expiry, too. New HTTP
+requests use current grants; already authorized in-flight HTTP operations are not
+retroactively canceled. Invalid, expired or revoked tokens return `401`.
+
+Repository grants limit the Shepherd API. They do not sandbox a running agent's OS
+permissions or remove host/Git credentials it already possesses. Keep
+`SHEPHERD_REPO_ROOT` and the agent environment appropriate for the work.
 
 ## Request schema
 

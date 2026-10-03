@@ -438,7 +438,8 @@
       <!-- Every panel stays mounted and toggles via `hidden`: each
            settings-panel-* id resolves for the rail's aria-controls, and the
            steers editor keeps any in-progress draft across section switches
-           instead of remounting and resyncing from the store. -->
+           instead of remounting and resyncing from the store. Access content is
+           unmounted when hidden so its one-time credentials leave component memory. -->
       <div
         class="panel"
         use:panelShape={isNarrow}
@@ -549,7 +550,9 @@
         aria-label={m.settings_tab_access()}
         hidden={active !== "access"}
       >
-        <SettingsAccessPanel {payload} {query} />
+        {#if active === "access" && (!isNarrow || !mobileList)}
+          <SettingsAccessPanel {payload} {query} />
+        {/if}
       </div>
 
       <div

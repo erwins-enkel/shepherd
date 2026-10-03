@@ -183,7 +183,7 @@ test.each(["[boolean, string, 'null']", "[object, 'null']", "boolean"])(
       ].join("\n"),
     );
     await expect(deriveSwiftSpec(input)).rejects.toThrow(
-      "invalid explicit-null scalar at #/components/schemas/Override/properties/enabled",
+      "invalid explicit-null value at #/components/schemas/Override/properties/enabled",
     );
   },
 );
@@ -199,7 +199,7 @@ test("explicit null rejects an array item where nullableOk is false with its poi
     ].join("\n"),
   );
   await expect(deriveSwiftSpec(input)).rejects.toThrow(
-    "invalid explicit-null scalar at #/components/schemas/Override/items",
+    "invalid explicit-null value at #/components/schemas/Override/items",
   );
 });
 
@@ -475,4 +475,22 @@ describe("namedOpenEnum description handling", () => {
       description: "a colour",
     });
   });
+});
+
+test("explicit null repository arrays preserve an all-repositories PATCH in generated Swift", async () => {
+  const input = doc(`    Grant:
+      type: object
+      required: [repoPaths]
+      properties:
+        repoPaths:
+          type: [array, 'null']
+          items: {type: string}
+          x-shepherd-explicit-null: true`);
+  const result = Bun.YAML.parse(await deriveSwiftSpec(input)) as {
+    components: {
+      schemas: { Grant: { required: string[]; properties: { repoPaths: { type?: unknown } } } };
+    };
+  };
+  expect(result.components.schemas.Grant.required).toEqual(["repoPaths"]);
+  expect(result.components.schemas.Grant.properties.repoPaths.type).toBeUndefined();
 });

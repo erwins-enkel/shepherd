@@ -147,6 +147,8 @@ export interface UploadDeps {
   /** Test seam: overrides MAX_UPLOAD_BYTES so the 413 path is testable without
    *  allocating limit-sized fixtures. Production never sets this. */
   maxUploadBytes?: number;
+  /** Server-authenticated owner for pre-session staging only. */
+  stagingTokenId?: string;
 }
 
 /**
@@ -185,7 +187,8 @@ export async function handleUpload(req: Request, deps: UploadDeps): Promise<Resp
   }
 
   mkdirSync(destDir, { recursive: true });
-  const path = join(destDir, uploadFilename(ext));
+  const prefix = !sessionId && deps.stagingTokenId ? `${deps.stagingTokenId}-` : "";
+  const path = join(destDir, prefix + uploadFilename(ext));
   await Bun.write(path, file);
   return j({ path });
 }

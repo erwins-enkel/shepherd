@@ -263,6 +263,8 @@ export function sectionSearchRows(ctx: {
       // tokens have one, and the section titles alone would not match it.
       [m.settings_access_scope_label(), m.settings_access_scope_read_hint()],
       [m.settings_access_list_title()],
+      [m.settings_access_repos_label(), m.settings_access_repos_edit()],
+      [m.settings_access_instructions_copy(), m.settings_access_server_hint()],
     ],
     diagnose: [[m.settings_tab_diagnose()], [m.diagnostics_title(), m.diagnostics_subtitle()]],
   };

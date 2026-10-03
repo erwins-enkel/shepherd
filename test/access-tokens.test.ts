@@ -100,16 +100,19 @@ test("parseMintRequest: accepts a well-formed body, defaulting an absent expiry 
     name: "Asyar",
     expiresInDays: 90,
     scope: "full",
+    repoPaths: null,
   });
   expect(parseMintRequest({ name: "Asyar", expiresInDays: null })).toEqual({
     name: "Asyar",
     expiresInDays: null,
     scope: "full",
+    repoPaths: null,
   });
   expect(parseMintRequest({ name: "Asyar" })).toEqual({
     name: "Asyar",
     expiresInDays: null,
     scope: "full",
+    repoPaths: null,
   });
 });
 
@@ -121,6 +124,7 @@ test("parseMintRequest: an absent scope defaults to full — a #2082-era body is
       name: "Asyar",
       expiresInDays: null,
       scope,
+      repoPaths: null,
     });
   }
   expect(parseMintRequest({ name: "Asyar" })).toMatchObject({ scope: DEFAULT_TOKEN_SCOPE });
@@ -178,7 +182,12 @@ test("list(): newest first, metadata only", () => {
 test("verify: accepts the minted token and returns its id and scope", () => {
   const { svc } = harness();
   const { token, entry } = svc.mint("Asyar", null, "read");
-  expect(svc.verify(bearer(token))).toEqual({ id: entry.id, scope: "read" });
+  expect(svc.verify(bearer(token))).toEqual({
+    id: entry.id,
+    scope: "read",
+    repoPaths: null,
+    expiresAt: null,
+  });
 });
 
 // ── scopes (#2083) ─────────────────────────────────────────────────────────
@@ -343,4 +352,62 @@ test("stampUsed: a re-minted token id starts its throttle fresh after a revoke",
   const second = svc.mint("b", null).entry.id;
   svc.stampUsed(second);
   expect(only(store.listAccessTokens()).lastUsedAt).not.toBeNull();
+});
+
+test("repository grants persist and change without rotating the credential", () => {
+  const { store, svc } = harness();
+  const { token, entry } = svc.mint("driver", null, "full", ["/repos/a"]);
+  expect(entry.repoPaths).toEqual(["/repos/a"]);
+  expect(svc.verify(bearer(token))?.repoPaths).toEqual(["/repos/a"]);
+  const hash = store.listAccessTokens()[0]!.tokenHash;
+  const changes: string[] = [];
+  const off = svc.onChange((id) => changes.push(id));
+  expect(svc.updateRepositories(entry.id, ["/repos/b"])?.repoPaths).toEqual(["/repos/b"]);
+  expect(svc.current(entry.id)?.repoPaths).toEqual(["/repos/b"]);
+  expect(new AccessTokenService(store).verify(bearer(token))?.repoPaths).toEqual(["/repos/b"]);
+  expect(store.listAccessTokens()[0]!.tokenHash).toBe(hash);
+  svc.updateRepositories(entry.id, []);
+  expect(svc.verify(bearer(token))?.repoPaths).toEqual([]);
+  svc.updateRepositories(entry.id, null);
+  expect(svc.verify(bearer(token))?.repoPaths).toBeNull();
+  svc.revoke(entry.id);
+  expect(svc.current(entry.id)).toBeNull();
+  expect(changes).toEqual([entry.id, entry.id, entry.id, entry.id]);
+  off();
+});
+
+test("repository updates never grant access if persistence fails", () => {
+  const { store, svc } = harness();
+  const { token, entry } = svc.mint("driver", null, "full", []);
+  store.updateAccessTokenRepos = () => {
+    throw new Error("disk full");
+  };
+  expect(() => svc.updateRepositories(entry.id, null)).toThrow("disk full");
+  expect(svc.verify(bearer(token))?.repoPaths).toEqual([]);
+});
+
+test("repository field validates arrays without treating empty as unrestricted", () => {
+  expect(parseMintRequest({ name: "reader", repoPaths: [] })).toMatchObject({ repoPaths: [] });
+  expect(parseMintRequest({ name: "reader" })).toMatchObject({ repoPaths: null });
+  for (const repoPaths of ["all", {}, [1], [null], [""]]) {
+    expect(parseMintRequest({ name: "reader", repoPaths })).toHaveProperty("error");
+  }
+});
+
+test("malformed stored repository grants fail closed after restart", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-token-repos-"));
+  const path = join(dir, "tokens.db");
+  try {
+    const { token, entry } = new AccessTokenService(new SessionStore(path)).mint("driver", null);
+    const raw = new Database(path);
+    for (const value of ["broken", "null", '"all"', "[1]", '[""]']) {
+      raw.run("UPDATE access_tokens SET repoPaths = ? WHERE id = ?", [value, entry.id]);
+      expect(
+        new AccessTokenService(new SessionStore(path)).verify(bearer(token))?.repoPaths,
+      ).toEqual([]);
+    }
+    raw.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

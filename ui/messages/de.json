@@ -4927,6 +4927,8 @@
   "native_compose_dictation_deferred": "Diktieren ist im nativen Aufgabenfenster noch nicht verfügbar.",
   "native_compose_voice_incomplete": "Einige Audioclips konnten nicht transkribiert werden. Der verfügbare Text wurde übernommen; prüfe ihn oder nimm die fehlenden Teile erneut auf.",
   "native_compose_voice_on_release": "Transkription beim Loslassen",
+  "native_compose_repo_recent": "Zuletzt benutzt",
+  "native_compose_repo_all": "Alle Repos",
   "native_ios_actions_not_ready": "Als nicht bereit markieren",
   "native_ios_actions_ready": "Als bereit markieren",
   "native_ios_actions_read_only": "Sitzungsaktionen sind im schreibgeschützten Modus deaktiviert.",

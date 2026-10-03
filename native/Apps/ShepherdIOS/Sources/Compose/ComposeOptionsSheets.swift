@@ -2,14 +2,10 @@ import SwiftUI
 import ShepherdAppCore
 import ShepherdKit
 
-struct ComposeContextSheet: View {
+struct ComposeBranchSheet: View {
     @Bindable var model: ComposeModel
-    let repos: [Repo]
     var body: some View {
         Form {
-            Picker(L.t("newtask_repo_label"), selection: $model.repoPath) {
-                ForEach(repos, id: \.path) { repo in Text(verbatim: repo.name).tag(repo.path) }
-            }.accessibilityIdentifier("compose.repo")
             Picker(L.t("newtask_branch_label"), selection: Binding(get: { model.repoBranches.baseBranch }, set: { model.repoBranches.baseBranch = $0 })) {
                 ForEach(model.repoBranches.baseOptions, id: \.self) { branch in Text(verbatim: branch).tag(branch) }
             }.accessibilityIdentifier("compose.branch")
@@ -20,7 +16,7 @@ struct ComposeContextSheet: View {
                     .disabled(model.repoBranches.repairingBase)
             }
             if let error = model.repoBranches.error { Text(verbatim: error) }
-        }.navigationTitle(L.t("newtask_repo_label"))
+        }.navigationTitle(L.t("newtask_branch_label"))
     }
 }
 struct ComposeEngineSheet: View {

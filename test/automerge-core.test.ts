@@ -649,6 +649,16 @@ test("mergeWaitReason: a verdict that blocks the rebase is reported instead of b
   );
 });
 
+test("mergeWaitReason: a stacked or unsigned-draft PR is never rebased, so that is reported", () => {
+  const dirty = { mergeable: false, mergeStateStatus: "dirty" as const, checks: "none" as const };
+  // a stack layer is restacked, never rebased onto the default branch
+  expect(wait({ behind: true, stacked: true })).toBe("stacked");
+  expect(wait({ ...dirty, stacked: true })).toBe("stacked");
+  // draft mode: an unsigned PR is left alone — the sign-off is what is missing
+  expect(wait({ behind: true }, { criticEnabled: false, draftMode: true })).toBe("signoff");
+  expect(wait({ ...dirty }, { criticEnabled: false, draftMode: true })).toBe("signoff");
+});
+
 test("mergeWaitReason: behind/conflict stay when the train will rebase", () => {
   expect(wait({ behind: true })).toBe("behind");
   expect(wait({ behind: true, reviewDecision: "commented", reviewHeadSha: "h1" })).toBe("behind");

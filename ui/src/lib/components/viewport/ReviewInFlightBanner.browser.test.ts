@@ -115,6 +115,23 @@ describe("ReviewInFlightBanner preview — in-flight tier", () => {
       .toBe("Claude Code · opus · High");
   });
 
+  it("adds the critic's elapsed time against its hard deadline to the environment line", async () => {
+    reviews.setReviewing(ID, true, {
+      provider: "codex",
+      model: "gpt-5.5",
+      effort: "high",
+      startedAt: Date.now() - 3 * 60_000 - 10_000,
+      timeoutMs: 600_000,
+    });
+    render(ReviewInFlightBanner, props() as never);
+
+    await expect
+      .poll(() => document.querySelector(".rb-env")?.textContent?.trim())
+      .toBe(
+        `Codex · gpt-5.5 · High · ${m.reviewbanner_run_clock({ elapsed: "3", timeout: "10" })}`,
+      );
+  });
+
   it("keeps the current banner unchanged when the reviewer provider is unavailable", async () => {
     planGates.applyReviewing(ID, true, { provider: null, model: "opus", effort: "high" });
     render(ReviewInFlightBanner, props() as never);

@@ -742,6 +742,10 @@ export interface ReviewerEnv {
   provider: AgentProvider | null;
   model: string | null;
   effort: string | null;
+  /** Epoch ms the run started (held time excluded once released). Absent on the run-end signal. */
+  startedAt?: number;
+  /** The run's hard deadline in ms, counted from `startedAt`. PR critic only. */
+  timeoutMs?: number;
 }
 
 /** Which transient-agent spawn a {@link SpawnNotice} describes. */

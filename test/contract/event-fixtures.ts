@@ -58,6 +58,7 @@ export const automergeEvent: AutoMergeStatus = {
   state: "merging",
   detail: "PR #12",
   sessionId: "sess_fixture",
+  waiting: [{ sessionId: "sess_fixture", code: "critic_pending" }],
 };
 
 export const usageEvent: UsageLimits = {

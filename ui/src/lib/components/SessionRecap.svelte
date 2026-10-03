@@ -7,7 +7,17 @@
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import VisualReview from "./VisualReview.svelte";
 
-  let { session, inline = false }: { session: Session; inline?: boolean } = $props();
+  let {
+    session,
+    inline = false,
+    autoMergeOwned = false,
+  }: {
+    session: Session;
+    inline?: boolean;
+    /** Full-auto merge carries this PR (TASK-1368): a "needs attention" verdict reads as
+     *  "no action needed" — the agent's recap was written before the train took over. */
+    autoMergeOwned?: boolean;
+  } = $props();
 
   const recap = $derived(recaps.map[session.id]);
 
@@ -46,7 +56,14 @@
     needs_attention: "var(--color-amber)",
   };
 
+  const relabeled = (v: RecapVerdict) => autoMergeOwned && v === "needs_attention";
+
+  function verdictColor(v: RecapVerdict): string {
+    return relabeled(v) ? "var(--status-done)" : VERDICT_COLOR[v];
+  }
+
   function verdictLabel(v: RecapVerdict): string {
+    if (relabeled(v)) return m.recap_verdict_auto_merge();
     if (v === "ready") return m.recap_verdict_ready();
     if (v === "parked") return m.recap_verdict_parked();
     return m.recap_verdict_needs_attention();
@@ -66,6 +83,10 @@
   }
 </script>
 
+{#snippet verdictChip(v: RecapVerdict)}
+  <span class="recap-verdict-chip" style:color={verdictColor(v)}>{verdictLabel(v)}</span>
+{/snippet}
+
 {#snippet inner(isInline: boolean)}
   {#if recap.state === "generating"}
     <p class="recap-generating">{m.recap_generating()}</p>
@@ -82,20 +103,12 @@
   {:else if recap.state === "ready"}
     {#if isInline}
       <div class="recap-header recap-header-static">
-        {#if recap.verdict}
-          <span class="recap-verdict-chip" style:color={VERDICT_COLOR[recap.verdict]}
-            >{verdictLabel(recap.verdict)}</span
-          >
-        {/if}
+        {#if recap.verdict}{@render verdictChip(recap.verdict)}{/if}
         <span class="recap-headline">{recap.headline}</span>
       </div>
     {:else}
       <button class="recap-header" onclick={() => (expanded = !expanded)} aria-expanded={expanded}>
-        {#if recap.verdict}
-          <span class="recap-verdict-chip" style:color={VERDICT_COLOR[recap.verdict]}
-            >{verdictLabel(recap.verdict)}</span
-          >
-        {/if}
+        {#if recap.verdict}{@render verdictChip(recap.verdict)}{/if}
         <span class="recap-headline">{recap.headline}</span>
         <span class="recap-expand-icon" aria-hidden="true"
           >{expanded ? m.recap_collapse() : m.recap_expand()}</span

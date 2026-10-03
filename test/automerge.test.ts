@@ -941,7 +941,14 @@ test("stacked hold surfaces on snapshot() too, not only the live status event", 
   const svc = new AutoMergeService(d);
   await svc.pump("/r"); // learn the stack
   expect(await svc.snapshot()).toEqual([
-    { repoPath: "/r", enabled: true, state: "stacked", detail: "TASK-01", sessionId: "s1" },
+    {
+      repoPath: "/r",
+      enabled: true,
+      state: "stacked",
+      detail: "TASK-01",
+      sessionId: "s1",
+      waiting: [{ sessionId: "s1", code: "stacked" }],
+    },
   ]);
 });
 
@@ -999,4 +1006,55 @@ test("snapshot and tick read the session list a constant number of times, not on
   ]) {
     expect(await listCalls(["/r", ...others], run)).toBe(await listCalls(["/r"], run));
   }
+});
+
+test("held status carries waiting: critic-pending full-auto PR listed, non-full-auto omitted", async () => {
+  const held = baseSession();
+  const manual = baseSession({ id: "s2", desig: "TASK-02", autoMergeEnabled: false });
+  const emitStatus = mock(() => {});
+  const d = deps({
+    store: {
+      ...deps().store,
+      get: (id: string) => ([held, manual].find((s) => s.id === id) as any) ?? null,
+      list: () => [held, manual] as any,
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: true, criticEnabled: true, autopilotEnabled: true }) as any,
+    } as any,
+    prCache: {
+      snapshot: () => ({
+        s1: { state: "open", checks: "success", mergeable: true, number: 7, headSha: "h1" },
+        s2: { state: "open", checks: "success", mergeable: true, number: 8, headSha: "h2" },
+      }),
+    } as any,
+    emitStatus,
+  });
+  await new AutoMergeService(d).pump("/r");
+  const last = (emitStatus as any).mock.calls.at(-1)[0];
+  expect(last.waiting).toEqual([{ sessionId: "s1", code: "critic_pending" }]);
+});
+
+test("tick clears a stale wait list once full-auto is switched off for the repo", async () => {
+  const session = baseSession();
+  const emitStatus = mock(() => {});
+  const d = deps({
+    store: {
+      ...deps().store,
+      get: () => session as any,
+      list: () => [session as any],
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: true, criticEnabled: true, autopilotEnabled: true }) as any,
+    } as any,
+    emitStatus,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.tick();
+  expect((emitStatus as any).mock.calls.at(-1)[0].waiting).toEqual([
+    { sessionId: "s1", code: "critic_pending" },
+  ]);
+  session.autoMergeEnabled = false; // operator turns full-auto off for this session
+  await svc.tick();
+  expect((emitStatus as any).mock.calls.at(-1)[0]).toMatchObject({ enabled: false, waiting: [] });
+  const calls = (emitStatus as any).mock.calls.length;
+  await svc.tick(); // nothing left to clear → no further emit
+  expect((emitStatus as any).mock.calls.length).toBe(calls);
 });

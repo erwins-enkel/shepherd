@@ -3101,6 +3101,7 @@
           <Viewport
             terminalOwners={store.terminalOwners}
             session={selected}
+            autoMergeTrain={store.autoMerge}
             mobile={mobile.current}
             connected={store.connected}
             limits={store.usageLimits}
@@ -3279,6 +3280,7 @@
             terminalOwners={store.terminalOwners}
             bind:this={viewportRef}
             session={selected}
+            autoMergeTrain={store.autoMerge}
             touch={touch.current}
             git={store.git[selected.id]}
             activity={store.activity[selected.id]}

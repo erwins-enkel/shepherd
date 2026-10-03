@@ -2318,3 +2318,127 @@ describe("Viewport task info reveal", () => {
     await expect.poll(() => isOpen(container)).toBe(false);
   });
 });
+
+describe("Viewport full auto-merge strip (TASK-1368)", () => {
+  const train = (id: string, code: "behind" | "critic_pending" | "critic_error") => ({
+    "/repo/shepherd": {
+      repoPath: "/repo/shepherd",
+      enabled: true,
+      state: null,
+      detail: null,
+      sessionId: null,
+      waiting: [{ sessionId: id, code }],
+    },
+  });
+  function clearReviewState() {
+    reviews.map = {};
+    reviews.reviewing = {};
+    reviews.reviewerEnv = {};
+    reviews.activity = {};
+  }
+  beforeEach(clearReviewState);
+  afterEach(clearReviewState);
+
+  it("a Shepherd-owned hold dims terminal + steer chips and reserves the strip", async () => {
+    const id = "vr-am-owned";
+    render(Viewport, {
+      session: session({ id, repoPath: "/repo/shepherd" }),
+      autoMergeTrain: train(id, "behind"),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() => expect(document.querySelector(".am-banner")).not.toBeNull());
+    const mount = document.querySelector<HTMLElement>(".term-mount")!;
+    expect(mount.classList.contains("auto-owned")).toBe(true);
+    expect(document.querySelector(".viewport")!.classList.contains("auto-owned")).toBe(true);
+    const body = document.querySelector<HTMLElement>(".vp-body")!;
+    await vi.waitFor(() =>
+      expect(parseFloat(body.style.getPropertyValue("--review-banner-h"))).toBeGreaterThan(0),
+    );
+    // A dim cue, not a lock: the terminal's input path is untouched.
+    expect(mount.getAttribute("aria-disabled")).toBeNull();
+    expect(mount.hasAttribute("inert")).toBe(false);
+  });
+
+  it("a running critic: the review banner takes the slot and the dim, the strip yields", async () => {
+    const id = "vr-am-critic";
+    reviews.reviewing = { [id]: true };
+    render(Viewport, {
+      session: session({ id, repoPath: "/repo/shepherd" }),
+      autoMergeTrain: train(id, "critic_pending"),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() => expect(document.querySelector(".review-banner")).not.toBeNull());
+    expect(document.querySelector(".am-banner")).toBeNull();
+    const mount = document.querySelector<HTMLElement>(".term-mount")!;
+    expect(mount.classList.contains("reviewing")).toBe(true);
+    expect(mount.classList.contains("auto-owned")).toBe(false);
+  });
+
+  it("never dims while the session's own agent is working or blocked in this PTY", async () => {
+    for (const st of ["running", "blocked"] as const) {
+      const id = `vr-am-${st}`;
+      render(Viewport, {
+        session: session({ id, repoPath: "/repo/shepherd", status: st }),
+        autoMergeTrain: train(id, "behind"),
+        previewPort: null,
+        openPreviewTick: 0,
+      });
+      await vi.waitFor(() => expect(document.querySelector(".am-banner")).not.toBeNull());
+      expect(document.querySelector(".term-mount")!.classList.contains("auto-owned")).toBe(false);
+      document.body.innerHTML = "";
+    }
+  });
+
+  it("relabels a needs-attention recap only while the agent is quiet", async () => {
+    const recap = (sessionId: string): Recap => ({
+      sessionId,
+      state: "ready",
+      headSha: "abc123",
+      verdict: "needs_attention",
+      headline: "merge verification is not evidenced",
+      body: "",
+      openItems: [],
+      changedFiles: [],
+      spawnSessionId: "sp1",
+      cwd: "/repo/shepherd",
+      model: null,
+      spawnedAt: 0,
+      generatedAt: 1000,
+      updatedAt: 1000,
+      blocks: [],
+    });
+    for (const [st, label] of [
+      ["idle", m.recap_verdict_auto_merge()],
+      // a blocked agent needs the operator — the agent's own verdict must stand
+      ["blocked", m.recap_verdict_needs_attention()],
+    ] as const) {
+      const id = `vr-am-recap-${st}`;
+      recaps.map = { [id]: recap(id) };
+      render(Viewport, {
+        session: session({ id, repoPath: "/repo/shepherd", status: st }),
+        autoMergeTrain: train(id, "behind"),
+        previewPort: null,
+        openPreviewTick: 0,
+      });
+      await vi.waitFor(() =>
+        expect(document.querySelector(".recap-verdict-chip")?.textContent?.trim()).toBe(label),
+      );
+      document.body.innerHTML = "";
+      recaps.map = {};
+    }
+  });
+
+  it("an operator-owned hold shows the strip without dimming", async () => {
+    const id = "vr-am-operator";
+    render(Viewport, {
+      session: session({ id, repoPath: "/repo/shepherd" }),
+      autoMergeTrain: train(id, "critic_error"),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() => expect(document.querySelector(".am-banner")).not.toBeNull());
+    expect(document.querySelector(".term-mount")!.classList.contains("auto-owned")).toBe(false);
+  });
+});

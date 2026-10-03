@@ -30,7 +30,7 @@ export abstract class ReviewerRuns<F extends ReviewerRun> {
   protected abstract runDeps(): {
     herdr: { stop(terminalId: string): Promise<void> };
     worktree: { remove(worktreePath: string): void };
-    onReviewing?: (id: string, reviewing: boolean) => void;
+    onReviewing?: (id: string, reviewing: boolean, env?: ReviewerEnv) => void;
     onHeld?: (id: string, held: boolean) => void;
   };
   protected abstract nowMs(): number;
@@ -41,13 +41,28 @@ export abstract class ReviewerRuns<F extends ReviewerRun> {
   /** Remember what the cancelled run reviewed so the auto path doesn't re-run it unchanged. */
   protected abstract markCancelled(f: F): void;
 
+  /** The run's hard deadline, surfaced on the `…/inflight` rows; undefined when not exposed. */
+  protected runTimeoutMs(): number | undefined {
+    return undefined;
+  }
+
+  /** The reviewer environment a run reports to clients: who reviews, plus its clock. */
+  protected runEnv(f: F): ReviewerEnv {
+    const timeoutMs = this.runTimeoutMs();
+    return {
+      provider: f.reviewerProvider,
+      model: f.reviewerModel,
+      effort: f.reviewerEffort,
+      startedAt: f.startedAt,
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    };
+  }
+
   /** In-flight reviews with the exact reviewer environment captured for each spawn. */
   reviewingInflight(): Array<{ id: string; held: boolean } & ReviewerEnv> {
     return [...this.inflight.values()].map((f) => ({
       id: f.sessionId,
-      provider: f.reviewerProvider,
-      model: f.reviewerModel,
-      effort: f.reviewerEffort,
+      ...this.runEnv(f),
       held: f.heldSince != null,
     }));
   }
@@ -71,7 +86,10 @@ export abstract class ReviewerRuns<F extends ReviewerRun> {
       f.startedAt += now - f.heldSince!;
       f.heldSince = null;
     }
-    this.runDeps().onHeld?.(sessionId, held);
+    const deps = this.runDeps();
+    deps.onHeld?.(sessionId, held);
+    // Release moved startedAt; re-send the env so a client's run clock excludes the held time.
+    if (!held) deps.onReviewing?.(sessionId, true, this.runEnv(f));
     return true;
   }
 

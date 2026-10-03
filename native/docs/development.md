@@ -79,6 +79,49 @@ First complete [setup, build and connection](getting-started.md).
    [Parallel streams: seams and rules](#parallel-streams-seams-and-rules) before editing any
    shared file.
 
+### Package resolution without Keychain prompts
+
+Every worktree builds with its own `-derivedDataPath .build`, so each fresh one resolves the
+public GitHub packages again: SwiftTerm, the Sparkle binary artifact, and the Apple OpenAPI
+packages with their transitive dependencies. Two defaults of `xcodebuild` can then raise a
+dialog like "xcodebuild wants to use your confidential information stored in 'github.com' in your
+keychain", which an unattended run has nobody to answer:
+
+- **Binary artifacts:** SwiftPM's default authorization provider (`keychain`) looks up an
+  internet password for the host before it downloads a `binaryTarget`, such as Sparkle's zip from
+  github.com releases.
+- **Git:** `xcodebuild` clones with Xcode's built-in Git by default, not with the Mac's `git`.
+
+Every package-resolving `xcodebuild` call in the repository (`build`, `test`, `archive`, and
+`-list` on a package) therefore passes two switches:
+
+- `-packageAuthorizationProvider netrc` reads credentials from `~/.netrc` instead of the
+  Keychain.
+- `-scmProvider system` uses the Mac's `git`, which asks a credential helper only after a 401, and
+  public repositories never send one.
+
+**Scope:** `native/scripts/*.sh`, `.github/workflows/native.yml` and the commands under
+[Stage 1 validation commands](#stage-1-validation-commands). Builds from the Xcode IDE are
+unchanged. `test/native-package-resolution.test.ts` fails when a script or workflow gains a
+package-resolving `xcodebuild` call without both switches; only `-version`, `-downloadComponent`
+and `-exportArchive` are exempt.
+
+**Consequence:** these entry points no longer use Xcode accounts or the Keychain for package
+credentials. A private package would need an entry in `~/.netrc`.
+
+**If the dialog still appears**, note the command and the phase (resolution, build or test). Then
+check what could still reach the Keychain. None of these commands prints a secret:
+
+```bash
+git config --show-origin --get-all credential.helper
+git config --get-regexp '^url\..*insteadof'
+security find-internet-password -s github.com   # attributes only
+```
+
+Never add `-g` or `-w` to `security find-internet-password`: both print the password. Grant
+access narrowly: answer the dialog with "Always Allow", or add a per-app access rule to the
+`github.com` item in Keychain Access. Never open up the whole login keychain.
+
 ## Test
 
 ```
@@ -407,13 +450,16 @@ unset SHEPHERD_KEYCHAIN_TESTS TEST_RUNNER_SHEPHERD_KEYCHAIN_TESTS
 swift build --package-path native
 swift test --package-path native --no-parallel
 
-(cd native && "$UITEST_LOCK" xcodebuild -list -json)
+(cd native && "$UITEST_LOCK" xcodebuild -list -json \
+  -packageAuthorizationProvider netrc -scmProvider system)
 (cd native && "$UITEST_LOCK" xcodebuild -scheme ShepherdAppCore \
-  -destination 'generic/platform=iOS Simulator' -skipPackagePluginValidation build)
+  -destination 'generic/platform=iOS Simulator' -skipPackagePluginValidation \
+  -packageAuthorizationProvider netrc -scmProvider system build)
 (cd native && "$UITEST_LOCK" xcodebuild -scheme ShepherdAppCore \
   -destination "platform=iOS Simulator,id=$CORE_SIMULATOR_UDID" \
   -parallel-testing-enabled NO -only-testing:ShepherdAppCoreTests \
-  -resultBundlePath "$EVIDENCE/core.xcresult" -skipPackagePluginValidation test)
+  -resultBundlePath "$EVIDENCE/core.xcresult" -skipPackagePluginValidation \
+  -packageAuthorizationProvider netrc -scmProvider system test)
 
 xcrun xcresulttool get test-results summary --path "$EVIDENCE/core.xcresult" \
   >"$EVIDENCE/summary.json"

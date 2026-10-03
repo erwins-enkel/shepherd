@@ -523,7 +523,8 @@
 "native_compose_issue_choose" = "# Issue wählen";
 "native_compose_leftovers_kept" = "Beim Schließen der Sitzung laufen diese Hintergrundprozesse weiter.";
 "native_compose_mode_plain" = "Plain";
-"native_compose_paste" = "Bild einfügen";
+"native_compose_paste" = "Aus Zwischenablage";
+"native_compose_paste_empty" = "Kein Bild in der Zwischenablage — kopiere zuerst ein Bild.";
 "native_compose_photos" = "Fotos";
 "native_compose_plan_off" = "Plan aus";
 "native_compose_plan_on" = "Plan an";

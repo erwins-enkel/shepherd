@@ -11,7 +11,7 @@
         "@sveltejs/vite-plugin-svelte": "^7.3.1",
         "@tailwindcss/vite": "^4.3.3",
         "@tsconfig/svelte": "^5.0.4",
-        "@types/chrome": "^0.3.3",
+        "@types/chrome": "^0.3.4",
         "axe-core": "^4.13.0",
         "esbuild": "^0.28.2",
         "eslint": "^10.11.0",
@@ -291,7 +291,7 @@
 
     "@types/chai": ["@types/chai@5.2.3", "", { "dependencies": { "@types/deep-eql": "*", "assertion-error": "^2.0.1" } }, "sha512-Mw558oeA9fFbv65/y4mHtXDs9bPnFMZAL/jxdPFUpOHHIXX91mcgEHbS5Lahr+pwZFR8A7GQleRWeI6cGFC2UA=="],
 
-    "@types/chrome": ["@types/chrome@0.3.3", "", { "dependencies": { "@types/filesystem": "*", "@types/har-format": "*" } }, "sha512-XdJPtwgZs4k8xN+YpSzruqNxmKtEb4sBDtFarj1H7bPmZTSidyk/QkFu4swksTs28JmW5IuxuL7gMeEswm3Hfg=="],
+    "@types/chrome": ["@types/chrome@0.3.4", "", { "dependencies": { "@types/filesystem": "*", "@types/har-format": "*" } }, "sha512-dcySM5R3WAUVYFjylu6tvI4D03hPKjgAqk+tKZ/tm/vxL4mLgbnSsOEQ3J7V99qP/U3Oo9IORstJLmX2hPaDlA=="],
 
     "@types/deep-eql": ["@types/deep-eql@4.0.2", "", {}, "sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw=="],
 

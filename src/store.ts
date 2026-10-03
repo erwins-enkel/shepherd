@@ -3295,7 +3295,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       enabled?: boolean | null;
       rebaseCount?: number;
       rebaseHead?: string | null;
-      /** Epoch ms of the last conflict-path rebase steer. Drives the expiring dedup AND the
+      /** Epoch ms of the last merge-train rebase steer (or autopilot conflict steer). Drives the expiring dedup AND the
        *  CI-fix stand-down's ownership window — cleared wherever rebaseHead is cleared. */
       rebaseSteeredAt?: number | null;
     },

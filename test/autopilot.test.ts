@@ -1557,7 +1557,7 @@ test("rebase: commented-with-findings verdict → no-op (avoids racing the auto-
   expect(h.events.some((e) => e.steer === REBASE_STEER_MAIN)).toBe(false);
 });
 
-test("rebase: critic on + no verdict → no-op (stricter than needsRebase, which rebases with null)", async () => {
+test("rebase: critic on + no verdict + behind → steers (don't wait for the critic on a stale base)", async () => {
   const h = harness({
     session: sess({ status: "done" }),
     openPr: true,
@@ -1565,18 +1565,33 @@ test("rebase: critic on + no verdict → no-op (stricter than needsRebase, which
     review: null,
   });
   await h.svc.onDone("s1");
-  expect(h.events.some((e) => e.steer === REBASE_STEER_MAIN)).toBe(false);
+  expect(h.events).toContainEqual({ steer: REBASE_STEER_MAIN });
 });
 
-test("rebase: critic on + stale reviewHeadSha → no-op", async () => {
+test("rebase: critic on + stale reviewHeadSha + behind → steers (the critic is held while behind)", async () => {
   const h = harness({
     session: sess({ status: "done" }),
     openPr: true,
     prGit: greenPr({ headSha: "sha2", mergeStateStatus: "behind" }),
-    review: review({ headSha: "sha1" }), // verdict applies to an old head
+    review: review({ headSha: "sha1", findings: ["old"] }), // verdict applies to an old head
   });
   await h.svc.onDone("s1");
-  expect(h.events.some((e) => e.steer === REBASE_STEER_MAIN)).toBe(false);
+  expect(h.events).toContainEqual({ steer: REBASE_STEER_MAIN });
+});
+
+test("rebase: behind + CI pending + no verdict → steers", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    openPr: true,
+    prGit: greenPr({ checks: "pending", mergeStateStatus: "behind" }),
+    review: null,
+  });
+  await h.svc.onDone("s1");
+  expect(h.events).toContainEqual({ steer: REBASE_STEER_MAIN });
+});
+
+test("rebase: the behind steer no longer claims the PR passed review", () => {
+  expect(REBASE_STEER_MAIN).not.toContain("passed review");
 });
 
 test("rebase: changes_requested verdict → no-op", async () => {
@@ -1615,7 +1630,7 @@ test("rebase: full-auto session → no-op (the merge train owns it)", async () =
   expect(h.events.some((e) => e.steer === REBASE_STEER_MAIN)).toBe(false);
 });
 
-test("rebase: red CI → no-op (rebase path requires green; red is the CI-fix path's job)", async () => {
+test("rebase: behind + red CI → rebase steer, NOT a CI-fix steer (red ran on a stale base)", async () => {
   const h = harness({
     session: sess({ status: "done" }),
     openPr: true,
@@ -1623,7 +1638,8 @@ test("rebase: red CI → no-op (rebase path requires green; red is the CI-fix pa
     review: review(),
   });
   await h.svc.onDone("s1");
-  expect(h.events.some((e) => e.steer === REBASE_STEER_MAIN)).toBe(false);
+  expect(h.events).toContainEqual({ steer: REBASE_STEER_MAIN });
+  expect(h.events).not.toContainEqual({ steer: CI_FIX_STEER });
 });
 
 test("rebase: at cap → pause(REBASE_CAP_MESSAGE), no steer", async () => {
@@ -1687,6 +1703,136 @@ test("rebase: tick skips a running session (don't interrupt active work)", async
   });
   await h.svc.tick();
   expect(h.events.some((e) => e.steer === REBASE_STEER_MAIN)).toBe(false);
+});
+
+// ── behind + red: the rebase actor owns it, the CI-fix loop stands down (never both) ──────
+
+test("behind+red, non-full-auto candidate: red edge sends no CI-fix, the tick only rebases", async () => {
+  const pr = greenPr({ checks: "failure", mergeStateStatus: "behind" });
+  const h = harness({
+    session: sess({ status: "idle" }),
+    repoEnabled: true,
+    fullAuto: false,
+    prGit: pr,
+    review: null,
+  });
+  h.svc.onGit("s1", pr);
+  await flush();
+  await h.svc.tick();
+  await flush();
+  expect(h.events).not.toContainEqual({ steer: CI_FIX_STEER });
+  expect(h.events).toContainEqual({ steer: REBASE_STEER_MAIN });
+});
+
+test("behind+red, non-full-auto with current-head findings: no rebase, CI-fix stays the backstop", async () => {
+  const pr = greenPr({ checks: "failure", mergeStateStatus: "behind" });
+  const h = harness({
+    session: sess({ status: "idle" }),
+    repoEnabled: true,
+    fullAuto: false,
+    prGit: pr,
+    review: review({ findings: ["fix the thing"] }),
+  });
+  h.svc.onGit("s1", pr);
+  await flush();
+  await h.svc.tick();
+  await flush();
+  expect(h.events.some((e) => e.steer === REBASE_STEER_MAIN)).toBe(false);
+  expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
+});
+
+test("behind+red, full-auto with a fresh train stamp on the current head: no CI-fix on edge or tick", async () => {
+  const pr = greenPr({ checks: "failure", mergeStateStatus: "behind" });
+  const h = harness({
+    session: sess({ status: "idle", autoMergeRebaseHead: "sha1", autoMergeRebaseSteeredAt: 0 }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: pr,
+    now: 1_000,
+  });
+  h.svc.onGit("s1", pr);
+  await flush();
+  await h.svc.tick();
+  await flush();
+  expect(h.events).not.toContainEqual({ steer: CI_FIX_STEER });
+});
+
+test("behindBase-only (mergeStateStatus clean) + red, full-auto, fresh stamp: no CI-fix steer", async () => {
+  // A repo without an up-to-date branch rule never reports BEHIND; the train still sees it via
+  // git fetch and steers. Its stamp alone must stand the CI-fix loop down.
+  const pr = greenPr({ checks: "failure", mergeStateStatus: "clean" });
+  const h = harness({
+    session: sess({ status: "idle", autoMergeRebaseHead: "sha1", autoMergeRebaseSteeredAt: 0 }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: pr,
+    now: 1_000,
+  });
+  h.svc.onGit("s1", pr);
+  await flush();
+  await h.svc.tick();
+  await flush();
+  expect(h.events).not.toContainEqual({ steer: CI_FIX_STEER });
+});
+
+test("full-auto, fresh stamp on an OLDER head (agent rebased, new head red): CI-fix is sent", async () => {
+  const pr = greenPr({ headSha: "sha2", checks: "failure", mergeStateStatus: "clean" });
+  const h = harness({
+    session: sess({ status: "idle", autoMergeRebaseHead: "sha1", autoMergeRebaseSteeredAt: 0 }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: pr,
+    now: 1_000,
+  });
+  h.svc.onGit("s1", pr);
+  await flush();
+  expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
+});
+
+test("behind+red, full-auto, no stamp: the red edge defers; the idle tick backstops with CI-fix", async () => {
+  const pr = greenPr({ checks: "failure", mergeStateStatus: "behind" });
+  const h = harness({
+    session: sess({ status: "idle" }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: pr,
+  });
+  h.svc.onGit("s1", pr);
+  await flush();
+  // Deferred to the train's pump on the same edge — and the head is NOT marked nudged.
+  expect(h.events).not.toContainEqual({ steer: CI_FIX_STEER });
+  await h.svc.tick(); // still no stamp → the train declined → CI-fix takes it
+  await flush();
+  expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
+});
+
+test("behind+red, full-auto, STALE stamp on the current head: the tick sends CI-fix", async () => {
+  const pr = greenPr({ checks: "failure", mergeStateStatus: "behind" });
+  const h = harness({
+    session: sess({ status: "idle", autoMergeRebaseHead: "sha1", autoMergeRebaseSteeredAt: 0 }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: pr,
+    now: OWNERSHIP_TTL_MS + 1,
+  });
+  await h.svc.tick();
+  await flush();
+  expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
+});
+
+test("behind+red, full-auto at the rebase cap: reEngageCi hands back with REBASE_CAP_MESSAGE", async () => {
+  const pr = greenPr({ checks: "failure", mergeStateStatus: "behind" });
+  const h = harness({
+    session: sess({ status: "idle", autoMergeRebaseCount: 5 }),
+    repoEnabled: true,
+    fullAuto: true,
+    rebaseCap: 5,
+    prGit: pr,
+  });
+  await h.svc.tick();
+  await flush();
+  expect(h.events).toContainEqual({ pause: "s1", q: REBASE_CAP_MESSAGE });
+  expect(h.events).not.toContainEqual({ steer: CI_FIX_STEER });
 });
 
 // ── MCP OAuth stand-down (human-only auth prompt) ───────────────────────────────────────
@@ -1886,9 +2032,8 @@ test("8(g): a BUSY full-auto session is not CI-fix-steered mid-resolution, stale
 });
 
 test("rebaseSteeredAt is CONFLICT-ONLY: stamped on a conflict steer, absent on a behind-only one", async () => {
-  // Both readers — rebaseAvailable (automerge-core) and conflictOwnedByRebaser — check the stamp
-  // only under isDefiniteConflict, so writing it on the behind path would be write-only data
-  // contradicting the field's contract in store.ts.
+  // Autopilot's own (non-full-auto) rebase path: nothing reads the stamp for a non-full-auto
+  // session (ownedByRebaser's non-full-auto arm uses rebaseCandidate), so it stays conflict-only.
   const conflicting = harness({
     session: sess({ status: "idle" }),
     repoEnabled: true,

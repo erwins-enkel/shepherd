@@ -445,6 +445,18 @@ export function isTerminalPr(git: GitState): boolean {
   return git.state === "merged" || git.state === "closed";
 }
 
+/** Why consider() must not run a critic on this PR — and stop one already running.
+ *  - "terminal" (#1790): the PR merged/closed → retire the critic. Checked BEFORE consider()'s
+ *    open/green gate so every caller — the `session:git` subscription, the boot reconcile,
+ *    forceReview — reaches the cleanup by this one path.
+ *  - "behind": the PR is about to be rebased (autopilot / the merge train steer it as soon as it
+ *    shows behind), so reviewing this head is wasted spend. The head is never marked reviewed, so
+ *    the rebased head is considered normally. `force` (the operator's re-review) bypasses it. */
+function holdReason(git: GitState, force: boolean): "terminal" | "behind" | null {
+  if (isTerminalPr(git)) return "terminal";
+  return !force && git.mergeStateStatus === "behind" ? "behind" : null;
+}
+
 export class ReviewService extends ReviewerRuns<InFlight> {
   // `inflight` / `starting` live on ReviewerRuns. `starting` matters here because begin() awaits a
   // gh fetch on the re-review path: it claims the slot across that await — without it, a second
@@ -526,13 +538,10 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     opts?: { force?: boolean },
   ): Promise<ReviewOutcome> {
     const force = opts?.force === true;
-    // #1790: a TERMINAL PR retires the critic instead of considering one. Routed BEFORE the
-    // open/green gate below so every consider() caller — the `session:git` subscription, the boot
-    // reconcile, forceReview — reaches the cleanup by this one path.
-    if (isTerminalPr(git)) {
-      await this.settleTerminalPr(session);
-      return "skipped";
-    }
+    // Synchronous predicate: the common (no-hold) path must reach the `starting` claim below
+    // without yielding, or a concurrent forget() would land before it.
+    const hold = holdReason(git, force);
+    if (hold) return this.applyHold(session, hold);
     if (
       git.state !== "open" ||
       !checksCleared(git.checks, git.noCi ?? false) ||
@@ -596,6 +605,12 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     return this.inflight.has(session.id) ? "started" : "error";
   }
 
+  private async applyHold(session: Session, hold: "terminal" | "behind"): Promise<ReviewOutcome> {
+    if (hold === "terminal") await this.settleTerminalPr(session);
+    else await this.cancelRun(session.id);
+    return "skipped";
+  }
+
   private async beginCurrentReview(
     session: Session,
     git: GitState,
@@ -640,29 +655,34 @@ export class ReviewService extends ReviewerRuns<InFlight> {
    * observation emits nothing.
    */
   async settleTerminalPr(session: Session): Promise<void> {
+    await this.cancelRun(session.id);
+    this.retireTerminalVerdict(session.id);
+  }
+
+  /** Stop any critic for `sessionId` without touching its verdict — shared by a terminal PR
+   *  (settleTerminalPr) and a behind PR (consider()'s behind hold). Idempotent. */
+  private async cancelRun(sessionId: string): Promise<void> {
     // 1. Clear a mid-spawn claim. A begin() suspended in one of its gh fetches re-checks
     //    `starting` on resume and aborts at that tombstone — the same mechanism forget() uses —
     //    so a merge observed mid-startup can't still be followed by a fresh critic.
-    this.starting.delete(session.id);
+    this.starting.delete(sessionId);
 
     // 2. Cancel a live run, but NEVER steal one tick() already owns (`finalizing`): that single
     //    owner completes its own teardown, and finalizeErrorVerdict() already suppresses the
     //    now-moot error verdict it would otherwise persist. The claim + drop below are
     //    SYNCHRONOUS, before any await, so an overlapping tick() cannot pass its own `finalizing`
     //    guard and double-reap the same run.
-    const f = this.inflight.get(session.id);
+    const f = this.inflight.get(sessionId);
     if (f && !f.finalizing) {
       f.finalizing = true;
-      this.dropInflight(session.id, f);
-      this.deps.onReviewing?.(session.id, false);
+      this.dropInflight(sessionId, f);
+      this.deps.onReviewing?.(sessionId, false);
       // Best-effort cost attribution — mirrors finalize(). It also closes the reviewer_spawns row;
       // if the transcript is unreadable the row stays open and the boot sweep closes it with NULL
       // totals, exactly as it does for a finalize that raced the same way.
       await this.captureRunUsage(f);
       await reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
     }
-
-    this.retireTerminalVerdict(session.id);
   }
 
   /** Verdict hygiene for a terminal PR.

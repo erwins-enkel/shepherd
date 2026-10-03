@@ -5091,3 +5091,68 @@ test("after cancel, auto consider at the same head is skipped; a new head or for
   expect(await svc.forceReview(session(), atHead("def"))).toBe("started");
   expect(started).toHaveLength(3);
 });
+
+// ── behind hold: no critic on a head the rebase is about to replace ──────────────────────
+
+test("behind: consider() on a behind PR skips — no critic spawned", async () => {
+  const { deps: d, started } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  const outcome = await svc.consider(session(), { ...OPEN_GREEN, mergeStateStatus: "behind" });
+  expect(outcome).toBe("skipped");
+  expect(started).toHaveLength(0);
+});
+
+test("behind: an in-flight critic is reaped when the PR goes behind; the verdict row is untouched", async () => {
+  const events: { id: string; reviewing: boolean }[] = [];
+  const {
+    deps: d,
+    stopped,
+    removed,
+    reviews,
+  } = makeDeps({
+    onReviewing: (id: string, reviewing: boolean) => events.push({ id, reviewing }),
+  });
+  const prior = verdict({ headSha: "old", decision: "commented" });
+  reviews["s1"] = prior;
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN); // in flight
+  expect(svc.reviewingIds()).toEqual(["s1"]);
+  const before = reviews["s1"];
+  const outcome = await svc.consider(session(), { ...OPEN_GREEN, mergeStateStatus: "behind" });
+  expect(outcome).toBe("skipped");
+  expect(stopped).toContain("rt");
+  expect(removed).toContain("/review-wt");
+  expect(events).toContainEqual({ id: "s1", reviewing: false });
+  expect(svc.reviewingIds()).toEqual([]);
+  expect(reviews["s1"]).toBe(before);
+});
+
+test("behind: a finalizing critic is NOT reaped (tick owns its teardown)", async () => {
+  const { deps: d, stopped } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  (svc as any).inflight.get("s1").finalizing = true;
+  await svc.consider(session(), { ...OPEN_GREEN, mergeStateStatus: "behind" });
+  expect(stopped).toEqual([]);
+});
+
+test("behind: force (operator re-review) bypasses the hold", async () => {
+  const { deps: d, started } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  const outcome = await svc.forceReview(session(), { ...OPEN_GREEN, mergeStateStatus: "behind" });
+  expect(outcome).toBe("started");
+  expect(started).toHaveLength(1);
+});
+
+test("behind: once the rebased head lands (no longer behind) the critic spawns", async () => {
+  const { deps: d, started, atHead } = makeDeps({});
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), { ...OPEN_GREEN, mergeStateStatus: "behind" });
+  expect(started).toHaveLength(0);
+  const outcome = await svc.consider(session(), {
+    ...atHead("rebased"),
+    mergeStateStatus: "clean",
+  });
+  expect(outcome).toBe("started");
+  expect(started).toHaveLength(1);
+});

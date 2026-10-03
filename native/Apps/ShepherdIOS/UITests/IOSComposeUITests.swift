@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 @MainActor
@@ -107,6 +108,15 @@ final class IOSComposeUITests: XCTestCase {
     }
     func testAttachMenuPhotosPresentsLibrary() { assertAttachItemCoversCompose("Fotos") }
     func testAttachMenuFilesPresentsImporter() { assertAttachItemCoversCompose("Dateien") }
+    func testAttachMenuPasteWithoutImageShowsNotice() {
+        UIPasteboard.general.items = []
+        app.launch()
+        let attach = app.buttons["compose.attach"]
+        XCTAssertTrue(attach.waitForExistence(timeout: 10)); attach.tap()
+        let entry = app.buttons["Aus Zwischenablage"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 5)); entry.tap()
+        XCTAssertTrue(app.staticTexts["Kein Bild in der Zwischenablage — kopiere zuerst ein Bild."].waitForExistence(timeout: 5))
+    }
     /// The pickers render out of process, so the signal is the prompt they cover, not their contents.
     private func assertAttachItemCoversCompose(_ item: String) {
         app.launch()

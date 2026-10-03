@@ -5,8 +5,9 @@
   // credentials side by side and offers the fix that applies (see $lib/clone-access).
   import { onMount } from "svelte";
   import { getGithubAccess, type GithubAccess } from "$lib/api";
-  import { accessCase, ghFixApplies, helperLabel, TOKEN_SETTINGS_URL } from "$lib/clone-access";
+  import { accessCase, ghFixApplies, TOKEN_SETTINGS_URL } from "$lib/clone-access";
   import { m } from "$lib/paraglide/messages";
+  import CloneAccessTable from "./CloneAccessTable.svelte";
   import GhSetupConfirm from "./GhSetupConfirm.svelte";
   import "./clone-access.css";
 
@@ -45,6 +46,22 @@
     [detail && `git clone: ${detail}`, ghDetail && `gh: ${ghDetail}`].filter(Boolean).join("\n"),
   );
   const hasDetails = $derived(detailText !== "");
+  /** Headline + one-line summary for the diagnosed case. */
+  const head = $derived.by(() => {
+    switch (kase) {
+      case "denied":
+        return { title: m.cloneaccess_denied_title(), body: m.cloneaccess_denied_body({ repo }) };
+      case "gherror":
+        return { title: m.cloneaccess_gherror_title(), body: m.cloneaccess_gherror_body({ repo }) };
+      case "nogh":
+        return { title: m.cloneaccess_mismatch_title(), body: m.cloneaccess_nogh_body({ repo }) };
+      default:
+        return {
+          title: m.cloneaccess_mismatch_title(),
+          body: m.cloneaccess_mismatch_body({ repo }),
+        };
+    }
+  });
 
   async function check() {
     phase = "checking";
@@ -90,26 +107,6 @@
     aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg
   >
 {/snippet}
-{#snippet iconX()}
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="2.4"
-    stroke-linecap="round"
-    aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" /></svg
-  >
-{/snippet}
-{#snippet iconDash()}
-  <svg
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    stroke-width="2.4"
-    stroke-linecap="round"
-    aria-hidden="true"><path d="M5 12h14" /></svg
-  >
-{/snippet}
 {#snippet iconRefresh()}
   <svg
     viewBox="0 0 24 24"
@@ -147,12 +144,6 @@
   >
 {/snippet}
 
-{#snippet gitRow(label: string)}
-  <code>git</code>
-  <span>{label}<span class="ca-sub">{m.cloneaccess_git_hint()}</span></span>
-  <span class="ca-verdict bad"><span>{@render iconX()}{m.cloneaccess_git_refused()}</span></span>
-{/snippet}
-
 {#snippet tokenSettingsLink(primary: boolean)}
   <!-- eslint-disable svelte/no-navigation-without-resolve -- external GitHub settings page -->
   <a
@@ -179,16 +170,7 @@
       <h3 class="ca-title">{m.cloneaccess_checking_title()}</h3>
       <p>{m.cloneaccess_checking_body({ repo })}</p>
     </div>
-    <div class="ca-sec">
-      <span class="ca-label">{m.cloneaccess_table_label({ repo })}</span>
-      <div class="ca-table">
-        {@render gitRow(m.cloneaccess_git_generic())}
-        <code>gh</code>
-        <span class="ca-sub">{m.cloneaccess_gh_question()}</span>
-        <span class="ca-verdict pending" role="status"><span>{m.cloneaccess_checking()}</span></span
-        >
-      </div>
-    </div>
+    <CloneAccessTable {repo} access={null} />
   </section>
 {:else if phase === "confirm"}
   <GhSetupConfirm
@@ -217,82 +199,14 @@
     <div class="ca-head bad">
       {@render iconAlert()}
       <div class="ca-headtext">
-        {#if kase === "denied"}
-          <h3 class="ca-title">{m.cloneaccess_denied_title()}</h3>
-          <p>{m.cloneaccess_denied_body({ repo })}</p>
-        {:else if kase === "gherror"}
-          <h3 class="ca-title">{m.cloneaccess_gherror_title()}</h3>
-          <p>{m.cloneaccess_gherror_body({ repo })}</p>
-        {:else if kase === "nogh"}
-          <h3 class="ca-title">{m.cloneaccess_mismatch_title()}</h3>
-          <p>{m.cloneaccess_nogh_body({ repo })}</p>
-        {:else}
-          <h3 class="ca-title">{m.cloneaccess_mismatch_title()}</h3>
-          <p>{m.cloneaccess_mismatch_body({ repo })}</p>
-        {/if}
+        <h3 class="ca-title">{head.title}</h3>
+        <p>{head.body}</p>
       </div>
     </div>
 
     {#if access}
       {@const a = access}
-      <div class="ca-sec">
-        <div class="ca-sec-head">
-          <span class="ca-label">{m.cloneaccess_table_label({ repo })}</span>
-          {#if kase !== "nogh"}
-            <button type="button" class="ca-link" onclick={check}>
-              {@render iconRefresh()}{m.cloneaccess_recheck()}
-            </button>
-          {/if}
-        </div>
-        <div class="ca-table">
-          {@render gitRow(helperLabel(a.git.kind, a.protocol))}
-          <code>gh</code>
-          {#if a.gh.state === "ok"}
-            <span
-              >{m.cloneaccess_gh_account({ login: a.gh.login })}<span class="ca-sub"
-                >{m.cloneaccess_gh_signed_in()}</span
-              ></span
-            >
-            {#if a.gh.pull}
-              <span class="ca-verdict good">
-                <span>{@render iconCheck()}{m.cloneaccess_gh_read()}</span>
-                {#if a.gh.push}
-                  <span>{@render iconCheck()}{m.cloneaccess_gh_push()}</span>
-                {:else}
-                  <span class="ca-no">{@render iconX()}{m.cloneaccess_gh_push()}</span>
-                {/if}
-              </span>
-            {:else}
-              <span class="ca-verdict bad"
-                ><span>{@render iconX()}{m.cloneaccess_gh_no_access()}</span></span
-              >
-            {/if}
-          {:else if a.gh.state === "missing"}
-            <span
-              >{m.cloneaccess_gh_missing()}<span class="ca-sub"
-                >{m.cloneaccess_gh_missing_hint()}</span
-              ></span
-            >
-            <span class="ca-verdict unknown"
-              ><span>{@render iconDash()}{m.cloneaccess_gh_unknown()}</span></span
-            >
-          {:else if a.gh.state === "logged_out"}
-            <span
-              >{m.cloneaccess_gh_logged_out()}<span class="ca-sub"
-                >{m.cloneaccess_gh_logged_out_hint()}</span
-              ></span
-            >
-            <span class="ca-verdict unknown"
-              ><span>{@render iconDash()}{m.cloneaccess_gh_unknown()}</span></span
-            >
-          {:else}
-            <span>{m.cloneaccess_gh_error()}</span>
-            <span class="ca-verdict unknown"
-              ><span>{@render iconDash()}{m.cloneaccess_gh_unknown()}</span></span
-            >
-          {/if}
-        </div>
-      </div>
+      <CloneAccessTable {repo} access={a} onrecheck={kase === "nogh" ? undefined : check} />
 
       {#if kase === "mismatch"}
         {#if ghFixApplies(a)}

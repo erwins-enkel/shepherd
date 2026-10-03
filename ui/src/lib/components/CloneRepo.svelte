@@ -11,10 +11,10 @@
   } from "$lib/api";
   import type { RepoEntry } from "$lib/types";
   import { dialog } from "$lib/a11yDialog";
-  import { accessCase, helperLabel, looksLikeGithubUrl } from "$lib/clone-access";
+  import { accessCase, looksLikeGithubUrl } from "$lib/clone-access";
   import { m } from "$lib/paraglide/messages";
   import CloneAccessPanel from "./CloneAccessPanel.svelte";
-  import GhSetupConfirm from "./GhSetupConfirm.svelte";
+  import CloneGitNote from "./CloneGitNote.svelte";
   import "./clone-access.css";
 
   let {
@@ -59,30 +59,6 @@
   };
   let failure = $state<Failure | null>(null);
   let failSeq = 0;
-
-  // ── up-front note: git doesn't authenticate through gh ──
-  const NOTE_KEY = "shepherd:clone-git-note-dismissed";
-  let noteDismissed = $state(readNoteDismissed());
-  let noteConfirm = $state(false);
-  let noteDone = $state(false);
-  const showNote = $derived(available && !!git && !git.usesGh && !noteDismissed && !failure);
-
-  function readNoteDismissed(): boolean {
-    try {
-      return localStorage.getItem(NOTE_KEY) === "1";
-    } catch {
-      return false;
-    }
-  }
-
-  function dismissNote() {
-    noteDismissed = true;
-    try {
-      localStorage.setItem(NOTE_KEY, "1");
-    } catch {
-      /* private mode — the note just comes back next time */
-    }
-  }
 
   onMount(async () => {
     const res = await getGithubRepos();
@@ -169,13 +145,16 @@
     failure = null;
     if (!looksLikeGithubUrl(cloneUrl)) return;
     const seq = ++failSeq;
+    // The panel replaces the error line; `retry` stays for the panel's "try again".
     if (code === "auth") {
       failure = { url: cloneUrl, repo: repoLabel, detail, listRepo, seq };
+      error = null;
     } else if (code === "url") {
       getGithubAccess(cloneUrl)
         .then((a) => {
           if (seq === failSeq && accessCase(a) === "mismatch") {
             failure = { url: cloneUrl, repo: repoLabel, detail, initial: a, listRepo, seq };
+            error = null;
           }
         })
         .catch(() => {
@@ -294,47 +273,7 @@
       </div>
       {@render accessPanel()}
     {:else if available}
-      {#if noteDone}
-        <div class="ca-box ok" role="status">
-          <p>{m.cloneaccess_done_title()} · {m.cloneaccess_done_body_norepo()}</p>
-        </div>
-      {:else if showNote && noteConfirm}
-        <GhSetupConfirm
-          {login}
-          onback={() => (noteConfirm = false)}
-          ondone={(g) => {
-            git = g;
-            noteConfirm = false;
-            noteDone = true;
-          }}
-        />
-      {:else if showNote && git}
-        <div class="ca-box note" role="note">
-          <div class="ca-head warn">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              aria-hidden="true"
-              ><circle cx="12" cy="12" r="9" /><path d="M12 11v5.5" /><path d="M12 7.5h.01" /></svg
-            >
-            <div class="ca-headtext">
-              <span class="ca-title">{m.cloneaccess_note_title()}</span>
-              <p>{m.cloneaccess_note_body({ helper: helperLabel(git.kind) })}</p>
-            </div>
-          </div>
-          <div class="ca-actions">
-            <button type="button" class="ca-gbtn primary" onclick={() => (noteConfirm = true)}>
-              {m.cloneaccess_note_align()}
-            </button>
-            <button type="button" class="ca-gbtn quiet" onclick={dismissNote}>
-              {m.cloneaccess_note_dismiss()}
-            </button>
-          </div>
-        </div>
-      {/if}
+      {#if git}<CloneGitNote {git} {login} />{/if}
       <label class="micro" for="cr-search">{m.clonerepo_pick_label()}</label>
       <input
         id="cr-search"
@@ -415,7 +354,7 @@
       {@render accessPanel()}
     {/if}
 
-    {#if error && !failure}
+    {#if error}
       <div class="err" role="alert">
         <span>{error}</span>
         {#if retry}

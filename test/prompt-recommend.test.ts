@@ -2,6 +2,8 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import { recommendPrompt, recommenderPrompt, RECOMMEND_FILE } from "../src/prompt-recommend";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
+import { spawnFootprintBytes } from "../src/argv-limit";
+import { buildWrappedArgv } from "../src/herdr";
 
 beforeEach(() => {
   __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
@@ -61,6 +63,26 @@ const args = (over: Partial<import("../src/prompt-recommend").RecommendArgs> = {
   label: "recommend TASK-07",
   ...over,
 });
+
+for (const provider of ["claude", "codex"] as const) {
+  test(`long task recommendation: ${provider} keeps the existing task bound in the spawned argv`, async () => {
+    const { deps, calls } = makeDeps({ readSuggestion: () => ({ prompt: "Run the tests." }) });
+    const result = await recommendPrompt(
+      args({
+        provider,
+        taskPrompt: `TASK-START\n${"世界😀'".repeat(40_000)}\nTASK-END`,
+      }),
+      deps,
+    );
+
+    expect(result).toEqual({ prompt: "Run the tests." });
+    const { argv, env } = calls.started;
+    expect(spawnFootprintBytes(buildWrappedArgv(argv, env))).toBeLessThan(131_072);
+    expect(argv.at(-1)).toContain("TASK-START");
+    expect(argv.at(-1)).not.toContain("TASK-END");
+    expect(argv.at(-1)).toContain("⟦UNTRUSTED:agent task:");
+  });
+}
 
 test("recommenderPrompt embeds the tail + task and asks for the suggestion file", () => {
   const p = recommenderPrompt(["agent: I'm blocked on the failing test"], "Build a login page");

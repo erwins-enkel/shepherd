@@ -8,6 +8,8 @@ import { CODEX_ROLE_OUTPUT_SCHEMAS } from "../src/codex-role-output-schema";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawnFootprintBytes } from "../src/argv-limit";
+import { buildWrappedArgv } from "../src/herdr";
 
 beforeEach(() => {
   __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
@@ -85,6 +87,29 @@ const CLASSIFIER_USAGE: SessionUsage = {
   fullRecaches: 0,
   sidechainCount: 0,
 };
+
+for (const provider of ["claude", "codex"] as const) {
+  test(`long task classifier: ${provider} keeps the existing task bound in the spawned argv`, async () => {
+    const task = `TASK-START\n${"世界😀'".repeat(40_000)}\nTASK-END`;
+    const { deps, calls } = makeDeps({
+      provider,
+      readVerdict: () => ({ kind: "finished", summary: "Ready for review." }),
+    });
+    const verdict = await classifyStop(
+      ["Implementation complete; tests pass."],
+      task,
+      deps,
+      "long task",
+    );
+
+    expect(verdict.kind).toBe("finished");
+    const { argv, env } = calls.started;
+    expect(spawnFootprintBytes(buildWrappedArgv(argv, env))).toBeLessThan(131_072);
+    expect(argv.at(-1)).toContain("TASK-START");
+    expect(argv.at(-1)).not.toContain("TASK-END");
+    expect(argv.at(-1)).toContain("⟦UNTRUSTED:agent task:");
+  });
+}
 
 test("classifierPrompt embeds the tail + task and asks for the verdict file", () => {
   const p = classifierPrompt(["agent: Shall I write the spec first? (y/n)"], "Build a login page");

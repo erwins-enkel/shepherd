@@ -854,13 +854,15 @@ export class RecapService {
       // #2225: resolved once, outside the clamp-ladder composer below.
       const amendments = this.deps.store.listActiveTaskAmendments(session.id);
       const composePrompt = (v: {
+        taskPrompt: string;
         plan: string;
         changedFiles: { path: string; status: DiffFileStatus }[];
         context: string;
         uiMarkup: string;
       }): string =>
         buildRecapPrompt({
-          taskPrompt: session.prompt,
+          taskPrompt: v.taskPrompt,
+          taskTruncated: v.taskPrompt !== session.prompt,
           plan: v.plan,
           changedFiles: v.changedFiles,
           digest,
@@ -878,7 +880,14 @@ export class RecapService {
       // #1944: fit the prompt inside the OS argv budget, or null when it cannot be made to fit.
       // The helper owns the clamp log line so this already-long orchestration carries one branch.
       const prompt = fitRecapPrompt(
-        { plan, changedFiles, changedFilesWithStatus, context, uiMarkup },
+        {
+          taskPrompt: session.prompt,
+          plan,
+          changedFiles,
+          changedFilesWithStatus,
+          context,
+          uiMarkup,
+        },
         composePrompt,
         (p) => ({ wrapped: argvFor(p), spawnEnv: apiKeyPassthroughEnv(false) }),
         `${session.id} (${session.desig})`,
@@ -1177,11 +1186,12 @@ export class RecapService {
  *  Recap spawns MEMBRANE-LESS (no bwrap wrap), but `herdr.start` still applies its own
  *  `buildWrappedArgv` env shim, which `spawnBudget` accounts for.
  *
- *  `taskPrompt` is never clamped — it is the human-authored ground truth the recap is written
- *  against. `changedFiles` IS clampable because it is unbounded in COUNT (`diff.ts` caps total
- *  LINES, not file count), so a wide commit can blow the budget on paths alone. */
+ *  The task yields last, keeping both ends when an unlimited task cannot fit inline.
+ *  `changedFiles` is also unbounded in COUNT (`diff.ts` caps total LINES, not file count).
+ *  Keep the same conservative ceiling on macOS, whose whole-argv limit still applies. */
 function fitRecapPrompt(
   input: {
+    taskPrompt: string;
     plan: string;
     changedFiles: string[];
     changedFilesWithStatus: { path: string; status: DiffFileStatus }[];
@@ -1189,6 +1199,7 @@ function fitRecapPrompt(
     uiMarkup: string;
   },
   compose: (v: {
+    taskPrompt: string;
     plan: string;
     changedFiles: { path: string; status: DiffFileStatus }[];
     context: string;
@@ -1197,8 +1208,10 @@ function fitRecapPrompt(
   assemble: SpawnAssembler,
   label: string,
 ): string | null {
+  const budget = spawnBudget(assemble);
   const fitted = fitFrom({
-    ...spawnBudget(assemble),
+    ...budget,
+    budget: Math.min(budget.budget, 128 * 1024 - 1),
     // Order IS the clamp order (fitAssembledPrompt gives blocks up in the caller's order). `uiMarkup`
     // goes FIRST: it is the newest and most expendable input (#2209), and `plan`/`context` keep
     // exactly the protection they had before it existed (#1944).
@@ -1207,9 +1220,11 @@ function fitRecapPrompt(
       { id: "plan", kind: "text", text: input.plan, mode: "head-tail" },
       { id: "changedFiles", kind: "list", items: input.changedFiles, noun: "files" },
       { id: "context", kind: "text", text: input.context, mode: "head" },
+      { id: "taskPrompt", kind: "text", text: input.taskPrompt, mode: "head-tail" },
     ],
     compose: (v) =>
       compose({
+        taskPrompt: v.taskPrompt as string,
         plan: v.plan as string,
         uiMarkup: v.uiMarkup as string,
         // clampList emits its marker as a trailing pseudo-entry; re-attach a status so the typed

@@ -1,4 +1,5 @@
 import { localHealthIdentity } from "./local-health";
+import { clampBlock } from "./prompt-fit";
 import { isHerdrProtocolMismatch } from "./herdr-runtime";
 import type { RepoConfig, SessionStore } from "./store";
 import type { PluginRegistry } from "./plugins/loader";
@@ -4355,6 +4356,7 @@ async function forgeOpenPr(
 ): Promise<Response> {
   const head = session.branch ?? "";
   const body = (await req.json().catch(() => ({}))) as { title?: string; body?: string };
+  const description = body.body ?? session.prompt;
   const cfg = deps.store.getRepoConfig(session.repoPath);
   let status: PrStatus;
   try {
@@ -4362,7 +4364,10 @@ async function forgeOpenPr(
       head,
       base: session.baseBranch,
       title: body.title?.trim() || session.name,
-      body: body.body ?? session.prompt,
+      // Also covers the UI's unchanged task prefill. Edited descriptions remain operator-authored.
+      // Bound UTF-8 bytes below both host body and argv limits, including an elision marker.
+      body:
+        description === session.prompt ? clampBlock(description, 60_000, "head-tail") : description,
       draft: cfg.draftMode,
     });
   } catch (err) {

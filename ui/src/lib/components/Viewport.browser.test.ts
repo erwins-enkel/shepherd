@@ -2391,6 +2391,45 @@ describe("Viewport full auto-merge strip (TASK-1368)", () => {
     }
   });
 
+  it("relabels a needs-attention recap only while the agent is quiet", async () => {
+    const recap = (sessionId: string): Recap => ({
+      sessionId,
+      state: "ready",
+      headSha: "abc123",
+      verdict: "needs_attention",
+      headline: "merge verification is not evidenced",
+      body: "",
+      openItems: [],
+      changedFiles: [],
+      spawnSessionId: "sp1",
+      cwd: "/repo/shepherd",
+      model: null,
+      spawnedAt: 0,
+      generatedAt: 1000,
+      updatedAt: 1000,
+      blocks: [],
+    });
+    for (const [st, label] of [
+      ["idle", m.recap_verdict_auto_merge()],
+      // a blocked agent needs the operator — the agent's own verdict must stand
+      ["blocked", m.recap_verdict_needs_attention()],
+    ] as const) {
+      const id = `vr-am-recap-${st}`;
+      recaps.map = { [id]: recap(id) };
+      render(Viewport, {
+        session: session({ id, repoPath: "/repo/shepherd", status: st }),
+        autoMergeTrain: train(id, "behind"),
+        previewPort: null,
+        openPreviewTick: 0,
+      });
+      await vi.waitFor(() =>
+        expect(document.querySelector(".recap-verdict-chip")?.textContent?.trim()).toBe(label),
+      );
+      document.body.innerHTML = "";
+      recaps.map = {};
+    }
+  });
+
   it("an operator-owned hold shows the strip without dimming", async () => {
     const id = "vr-am-operator";
     render(Viewport, {

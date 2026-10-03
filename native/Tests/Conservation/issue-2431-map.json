@@ -12846,16 +12846,24 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/CompletedEpicsTests.swift\",\"CoreSeamTests.CompletedEpicStatusTests\",\"onlyAReadyRowCanLand() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/CompletedEpicsTests.swift\",\"CoreSeamTests.CompletedEpicStatusTests\",\"redCiOffersTheRepairAgentOnlyOnGitHub() throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/EventStreamTests.swift\",\"EventStreamTests\",\"yieldsFramesAboveDefaultLimit() async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientWriteTests.swift\",\"ShepherdClientWriteTests\",\"archiveServerFailure() async throws\"]"
-  ],
-  "iosFeatureAdded": [
-    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",
-    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testChangedSettingsSendOnlyTheChangedField() throws\"]",
-    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testSwitchingToInheritOmitsUnsupportedNullRatherThanPinningDefaults() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientWriteTests.swift\",\"ShepherdClientWriteTests\",\"archiveServerFailure() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/PTYConnectionTests.swift\",\"PTYConnectionTests\",\"endpointIsTheBareSocketURL() throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/PTYConnectionTests.swift\",\"PTYConnectionTests\",\"refusedUpgradeReportsTheAttempt() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"connectingDetailCountsBootstrapAttempts() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"connectingDetailFollowsTheEventsSocket() async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"liveStoreHasNoConnectingDetail() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"liveStoreHasNoConnectingDetail() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"aCloseCodeStandsInForTheTransportErrorAndWaitingNamesThePause()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"debouncerRemembersWhenConnectingBegan()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"durationsReadAsMillisecondsBelowASecond()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"serverRowsSayWhatTheStoreWaitsOnAndCountDownTheBackoff()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"spawnPhasesExplainWhyTheyCanTakeAWhile()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"terminalModelReportsTheLatestAttemptAndAttachClearsIt() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"terminalRowsNameTheSocketTheTryAndWhyTheLastOneDied()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"withoutAnAttemptOnlyTheWaitIsShown()\"]"
+  ],
+  "iosFeatureAdded": [
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testChangedSettingsSendOnlyTheChangedField() throws\"]",
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testSwitchingToInheritOmitsUnsupportedNullRatherThanPinningDefaults() throws\"]"
   ]
 }

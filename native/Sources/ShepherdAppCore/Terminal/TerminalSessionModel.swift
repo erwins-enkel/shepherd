@@ -21,6 +21,9 @@ public final class TerminalSessionModel {
     }
 
     public private(set) var phase: Phase = .idle
+    /// The latest attach attempt of this socket, for the detail a `.connecting`
+    /// terminal shows once it takes longer than a moment. Cleared by `attach()`.
+    public private(set) var connectAttempt: PTYConnection.Attempt?
     /// The prompt bar's text, two-way bound by the view.
     public var promptText: String = ""
     public private(set) var promptBusy = false
@@ -156,6 +159,7 @@ public final class TerminalSessionModel {
         openStartedAt = clock()
         firstOutputAt = nil
         openTiming = TerminalOpenTiming()
+        connectAttempt = nil
         phase = .connecting
         pumps = [
             Task { [weak self] in
@@ -168,6 +172,12 @@ public final class TerminalSessionModel {
                 for await event in attachment.lifecycle {
                     guard let self, self.generation == generation else { return }
                     self.apply(event)
+                }
+            },
+            Task { [weak self] in
+                for await attempt in attachment.attempts {
+                    guard let self, self.generation == generation else { return }
+                    self.connectAttempt = attempt
                 }
             },
         ]

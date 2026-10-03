@@ -12,6 +12,9 @@ import Observation
 @Observable
 public final class ConnectingOverlayDebouncer {
     public private(set) var isVisible = false
+    /// When the current `.connecting` stretch began, for an elapsed-time
+    /// readout; `nil` while not connecting.
+    public private(set) var since: Date?
     private let delay: Duration
     /// The pending "show it" timer. `@ObservationIgnored`: it is plumbing, not
     /// state anything renders.
@@ -36,9 +39,11 @@ public final class ConnectingOverlayDebouncer {
             pending?.cancel()
             pending = nil
             isVisible = false
+            since = nil
             return
         }
         guard pending == nil else { return }
+        since = Date()
         let delay = self.delay
         pending = Task { [weak self] in
             try? await Task.sleep(for: delay)

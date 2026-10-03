@@ -189,7 +189,8 @@ Detection is client-side: `IOSTerminalHostView` reads the visible rows once outp
 flicker the layout) and `IOSTerminalDialog` looks for the dialog footer ("Enter to select ·
 ↑/↓ to navigate · Esc to cancel") in the last 15 non-empty rows — the same fragments as the
 server's `DIALOG_FOOTER_RE` in `src/blocked.ts`. It does not wait for the server's block
-classification. The scan pauses while the operator reads local history.
+classification. The scan pauses while the operator reads local history and runs again on
+the way back to the tail (scrolling or Latest output).
 
 **⌨** is the way to a free-text answer ("Type something", "Chat about this"): it shows the
 reply draft focused, with the keyboard and key palette. Text mode ends when the dialog closes,

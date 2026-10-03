@@ -246,8 +246,11 @@ struct IOSTerminalHostView: UIViewRepresentable {
         init(model: IOSTerminalPresentation) { self.model = model }
 
         func bind(_ view: IOSWatchingTerminalView) {
-            view.onUserScroll = { [weak model] position, canScroll in
+            // The scan pauses in history, so returning to the tail re-reads the screen: a dialog
+            // painted (or answered) meanwhile sent no further output.
+            view.onUserScroll = { [weak self, weak model, weak view] position, canScroll in
                 model?.userScrolled(position: position, canScroll: canScroll)
+                if let self, let view { self.scheduleScreenScan(view) }
             }
             view.canForwardWheel = { [weak model] in model?.canSendInput == true }
             view.onWheel = { [weak self, weak view] lines in
@@ -256,7 +259,11 @@ struct IOSTerminalHostView: UIViewRepresentable {
             }
             view.onAgentScrollEnded = { [weak model] in model?.resetAgentScroll() }
             view.installWheelScroll()
-            model.scrollToTail = { [weak view] in view?.scroll(toPosition: 1) }
+            model.scrollToTail = { [weak self, weak view] in
+                guard let view else { return }
+                view.scroll(toPosition: 1)
+                self?.scheduleScreenScan(view)
+            }
             model.session.onClear = { [weak view, weak model] in
                 view?.getTerminal().resetToInitialState()
                 model?.replayWillBegin()
@@ -336,6 +343,7 @@ struct IOSTerminalHostView: UIViewRepresentable {
         func scrolled(source: SwiftTerm.TerminalView, position: Double) {
             if source.isTracking || source.isDecelerating {
                 model.userScrolled(position: position, canScroll: source.canScroll)
+                if let view = source as? IOSWatchingTerminalView { scheduleScreenScan(view) }
             }
         }
         func requestOpenLink(source: SwiftTerm.TerminalView, link: String, params: [String: String]) {

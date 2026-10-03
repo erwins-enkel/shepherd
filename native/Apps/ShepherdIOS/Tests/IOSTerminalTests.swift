@@ -682,6 +682,37 @@ final class IOSTerminalTests: XCTestCase {
         presentation.rendererUnmounted()
     }
 
+    func testDialogPaintedWhileReadingHistoryIsFoundOnReturnToTheTail() async {
+        let pty = IOSFixturePTY()
+        let session = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
+        let presentation = IOSTerminalPresentation(session: session, reply: { _ in })
+        let coordinator = IOSTerminalHostView.Coordinator(model: presentation)
+        let view = IOSWatchingTerminalView(frame: CGRect(x: 0, y: 0, width: 390, height: 400),
+            font: .monospacedSystemFont(ofSize: 12, weight: .regular))
+        view.terminalDelegate = coordinator
+        coordinator.bind(view)
+        presentation.visibilityChanged(visible: true, active: true)
+        pty.emit(.attached)
+        await settle { session.phase == .live }
+        pty.emit((0..<100).map { "history line \($0)\r\n" }.joined())
+        await settle { view.canScroll }
+        view.scroll(toPosition: 0.3)
+        presentation.userScrolled(position: view.scrollPosition, canScroll: view.canScroll)
+        let feed = session.onOutput
+        var received = false
+        session.onOutput = { bytes in feed?(bytes); received = true }
+        pty.emit("❯ 1. Yes\r\n  2. No\r\nEnter to select · ↑/↓ to navigate · Esc to cancel")
+        await settle { received }
+        // Past the scan delay: history on screen is not read as the live dialog.
+        try? await Task.sleep(for: .milliseconds(300))
+        XCTAssertFalse(presentation.dialogOpen)
+        // No further output arrives; returning to the tail reads the screen again.
+        presentation.jumpToTail()
+        await settle { presentation.dialogOpen }
+        coordinator.cancelScreenScan()
+        presentation.rendererUnmounted()
+    }
+
     func testRenderFixtureImages() async throws {
         // SwiftUI ImageRenderer cannot draw a UIViewRepresentable. Inject text output
         // into the same production detail chrome; live UIKit feed is tested above.

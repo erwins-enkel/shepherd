@@ -1,14 +1,18 @@
 name: native-ios-testflight
 
+# The run name marks real uploads of main; the nightly gate below finds the last
+# uploaded revision by its "upload" prefix (branch previews say "preview upload").
+run-name: >-
+  ${{ github.event_name == 'schedule' && 'upload (nightly)'
+  || (inputs.dry_run == true && format('dry-run {0}', inputs.ref)
+  || (inputs.ref == 'main' && 'upload (manual)' || format('preview upload {0}', inputs.ref))) }}
+
 on:
-  # Every merge to main that touches the iOS app or what it is built from ships a
-  # TestFlight build to the internal group (build number = main's first-parent count).
-  push:
-    branches: [main]
-    paths:
-      - native/**
-      - contracts/**
-      - .github/workflows/native-ios-testflight.yml
+  # Nightly at 04:00 UTC (06:00 Berlin summer time, 05:00 in winter): ship main to the
+  # internal group, but only when the app or what it is built from changed since the
+  # last upload (build number = main's first-parent count).
+  schedule:
+    - cron: "0 4 * * *"
   workflow_dispatch:
     inputs:
       ref:
@@ -27,22 +31,57 @@ permissions:
 
 concurrency:
   group: native-ios-testflight
-  # Queued main pushes wait; App Store Connect rejects a reused build number, so
+  # Queued runs wait; App Store Connect rejects a reused build number, so
   # each run must finish (or fail) before the next one archives.
   cancel-in-progress: false
 
 jobs:
+  changes:
+    name: Changed since the last upload?
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      build: ${{ steps.diff.outputs.build }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Last successful real upload: nightly/manual "upload" runs, or the older
+          # per-merge push runs.
+          last=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/native-ios-testflight.yml/runs?status=success&per_page=100" \
+            --jq '[.workflow_runs[] | select(.event == "push" or (.display_title | startswith("upload")))][0].head_sha // ""')
+          build=true
+          if [[ -n "$last" ]] && git cat-file -e "$last^{commit}" 2>/dev/null \
+            && git diff --quiet "$last" HEAD -- native contracts .github/workflows/native-ios-testflight.yml; then
+            build=false
+          fi
+          echo "Last upload: ${last:-none}; HEAD: $(git rev-parse HEAD); build: $build" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+
   testflight:
     name: iOS TestFlight archive and export
+    needs: changes
+    if: >-
+      !cancelled() && (github.event_name == 'workflow_dispatch'
+      || needs.changes.outputs.build == 'true')
     runs-on: macos-latest
     timeout-minutes: 45
     env:
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-      SHEPHERD_IOS_DRY_RUN: ${{ github.event_name == 'push' && 'false' || inputs.dry_run }}
+      SHEPHERD_IOS_DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'push' && github.sha || inputs.ref }}
+          ref: ${{ github.event_name == 'schedule' && github.sha || inputs.ref }}
           fetch-depth: 0
           persist-credentials: false
       - name: Prepare manual App Store signing

@@ -198,6 +198,36 @@ final class IOSSessionActionsTests: XCTestCase {
         XCTAssertEqual(fixture.replacementNote, .success(L.t("relaunch_done", "TASK-02")))
     }
 
+    func testRelaunchAcceptsAnUnchangedLongStoredPrompt() async {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.session.prompt = String(repeating: "Aufgabe 🐑\n", count: 8_001)
+        fixture.state.present(.relaunch)
+        XCTAssertEqual(fixture.state.prompt, fixture.session.prompt)
+        XCTAssertTrue(fixture.state.canSubmit)
+        await fixture.state.submit()
+        XCTAssertEqual(fixture.calls, ["relaunch"])
+        XCTAssertNil(fixture.relaunchRequest?.prompt)
+        XCTAssertEqual(fixture.selectedReplacement?.id, "replacement")
+    }
+
+    func testRelaunchPreservesALongEditedPromptAndRejectsBlankInput() async {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.state.present(.relaunch)
+        fixture.state.prompt = " \n "
+        XCTAssertFalse(fixture.state.canSubmit)
+        await fixture.state.submit()
+        XCTAssertTrue(fixture.calls.isEmpty)
+
+        let prompt = "Anfang\n" + String(repeating: "Aufgabe 🐑\n", count: 8_001) + "Ende\n"
+        fixture.state.prompt = prompt
+        XCTAssertTrue(fixture.state.canSubmit)
+        await fixture.state.submit()
+        XCTAssertEqual(fixture.calls, ["relaunch"])
+        XCTAssertEqual(fixture.relaunchRequest?.prompt, prompt)
+    }
+
     func testRelaunchPartialArchiveAndCodedErrors() async {
         let fixture = IOSActionFixture()
         defer { fixture.merge.teardown() }

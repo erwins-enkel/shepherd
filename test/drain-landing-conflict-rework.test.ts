@@ -83,6 +83,7 @@ interface Harness {
   setPr: (pr: PrStatus) => void;
   clock: { t: number };
   notifies: NotifyInput[];
+  sessionNews: unknown[];
 }
 
 function makeHarness(
@@ -129,6 +130,7 @@ function makeHarness(
   const forge = fakeForge(() => pr, opts.forgeKind);
   const clock = { t: 1_000_000 };
   const notifies: NotifyInput[] = [];
+  const sessionNews: unknown[] = [];
   const drain = new DrainService({
     store,
     service: {
@@ -148,6 +150,7 @@ function makeHarness(
     dropPrCache: () => {},
     emitEpic: () => {},
     emitEpicCompleted: () => {},
+    emitSessionNew: (s) => sessionNews.push(s),
     readCodexAuthMode: () => "unknown",
     notify: async (n: NotifyInput) => {
       notifies.push(n);
@@ -171,6 +174,7 @@ function makeHarness(
     },
     clock,
     notifies,
+    sessionNews,
   };
 }
 
@@ -243,6 +247,8 @@ describe("conflict rework: auto dispatch (drain tick)", () => {
     expect(row(h).landingRepairCount).toBe(0);
     // Never re-runs the auto-rebase that just conflicted.
     expect(h.rebaseSeamCalls()).toBe(0);
+    // Pushed to the UI live.
+    expect(h.sessionNews).toEqual([{ id: "rework-sess", baseBranch: BRANCH }]);
   });
 
   test("second tick while still conflicting → no new spawn (auto cap 1)", async () => {
@@ -345,6 +351,7 @@ describe("conflict rework: manual resolveLandingConflict", () => {
     expect(h.creates[0]!.landingRepair).toBe(true);
     expect(row(h).landingConflictReworkCount).toBe(2);
     expect(row(h).landingRepairCount).toBe(0);
+    expect(h.sessionNews).toEqual([{ id: "rework-sess", baseBranch: BRANCH }]);
   });
 
   test("refused while a live repair session holds the branch", async () => {
@@ -423,6 +430,7 @@ describe("conflict rework: manual resolveLandingConflict", () => {
     });
     expect(h.creates).toHaveLength(2);
     expect(row(h).landingConflictReworkCount).toBe(0);
+    expect(h.sessionNews).toHaveLength(0);
   });
 });
 

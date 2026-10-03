@@ -2741,8 +2741,9 @@ export class DrainService {
       }))
     )
       return false;
+    let session: Session;
     try {
-      await this.deps.service.create({
+      session = await this.deps.service.create({
         repoPath,
         baseBranch: input.branch,
         prompt: input.prompt,
@@ -2753,7 +2754,6 @@ export class DrainService {
         landingRepair: true,
       });
       this.repairSpawnCooldown.delete(cooldownKey);
-      return true;
     } catch (err) {
       // Refusal (hold/egress/transient): back off; the caller does NOT burn its lifetime attempt.
       this.repairSpawnCooldown.set(cooldownKey, this.now());
@@ -2764,6 +2764,15 @@ export class DrainService {
       console.warn(`[drain] ${input.what} spawn for ${cooldownKey} failed: ${reason}`);
       return false;
     }
+    // Success-only, outside the spawn try: push the new session to the UI live. A throwing
+    // listener must not turn a real spawn into a refusal (cooldown, unbumped budget, duplicate).
+    try {
+      this.deps.emitSessionNew?.(session);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(`[drain] ${input.what} session:new emit for ${cooldownKey} failed: ${reason}`);
+    }
+    return true;
   }
 
   /** #1841: the task prompt for a conflict-rework session. The goal + exact force-with-lease push

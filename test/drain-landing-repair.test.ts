@@ -123,6 +123,7 @@ interface Harness {
   spy: ForgeSpy;
   createCalls: CreateCall[];
   repairCountCalls: RepairCountCall[];
+  sessionNews: unknown[];
   rebaseSeamCalls: number;
   rebaseStateCalls: unknown[];
 }
@@ -134,6 +135,7 @@ function makeHarness(opts: {
   createThrows?: boolean;
   repoDefaultModel?: string;
   authMode?: "chatgpt" | "apikey" | "unknown";
+  emitSessionNewThrows?: boolean;
 }): Harness {
   const store = new SessionStore(":memory:");
   store.setRepoConfig(REPO, {
@@ -167,6 +169,7 @@ function makeHarness(opts: {
   const spy = fakeForge({ prStatus: opts.prStatus });
   const createCalls: CreateCall[] = [];
   const repairCountCalls: RepairCountCall[] = [];
+  const sessionNews: unknown[] = [];
   const harness = { rebaseSeamCalls: 0, rebaseStateCalls: [] as unknown[] };
 
   // Record every landingRepairCount write while preserving the real UPDATE.
@@ -206,6 +209,10 @@ function makeHarness(opts: {
     dropPrCache: () => {},
     emitEpic: () => {},
     emitEpicCompleted: () => {},
+    emitSessionNew: (s) => {
+      sessionNews.push(s);
+      if (opts.emitSessionNewThrows) throw new Error("listener blew up");
+    },
     readCodexAuthMode: () => opts.authMode ?? "unknown",
     rebaseCap: 5,
     rebaseLandingBranch: async () => {
@@ -220,6 +227,7 @@ function makeHarness(opts: {
     spy,
     createCalls,
     repairCountCalls,
+    sessionNews,
     get rebaseSeamCalls() {
       return harness.rebaseSeamCalls;
     },
@@ -364,6 +372,31 @@ describe("landing-repair: dispatch", () => {
     expect(input.issueRef).toBeUndefined(); // never stamp the closed epic issue
     // Durable count incremented ONLY on a successful spawn, recording the PR head.
     expect(h.repairCountCalls).toEqual([{ count: 1, head: "h1" }]);
+    // Pushed to the UI live, not only on the next full refresh.
+    expect(h.sessionNews).toEqual([{ id: "repair-sess", baseBranch: INTEGRATION_BRANCH }]);
+  });
+
+  test("throwing session:new listener: spawn still counts (budget bumped, no cooldown, no duplicate)", async () => {
+    const h = makeHarness({
+      autoDrainEnabled: true,
+      prStatus: async () => redPr(),
+      emitSessionNewThrows: true,
+    });
+    seedOpenLanding(h);
+    spendRerunBudget(h);
+
+    await callRerunPass(h);
+
+    expect(h.createCalls).toHaveLength(1);
+    expect(h.sessionNews).toHaveLength(1);
+    expect(h.repairCountCalls).toEqual([{ count: 1, head: "h1" }]);
+    const cooldown = (h.drain as unknown as { repairSpawnCooldown: Map<string, number> })
+      .repairSpawnCooldown;
+    expect(cooldown.size).toBe(0);
+
+    spendRerunBudget(h);
+    await callRerunPass(h);
+    expect(h.createCalls).toHaveLength(1);
   });
 
   test("ChatGPT auth clamps a blocked Codex global default for landing repair", async () => {
@@ -451,6 +484,7 @@ describe("landing-repair: dispatch", () => {
 
     expect(h.createCalls).toHaveLength(1); // exactly one attempt, then backed off
     expect(h.repairCountCalls).toHaveLength(0); // lifetime attempt NOT burned
+    expect(h.sessionNews).toHaveLength(0); // no session → nothing pushed to the UI
   });
 });
 

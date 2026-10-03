@@ -30,6 +30,7 @@ enum IOSLatencyCopy {
 
 struct IOSLatencyIndicator: View {
     let monitor: IOSLatencyMonitor
+    var compact = false
     @State private var showsSheet = false
 
     var body: some View {
@@ -39,8 +40,9 @@ struct IOSLatencyIndicator: View {
                 Text(verbatim: label).foregroundStyle(color)
             }
             .font(.system(.caption, design: .monospaced))
-            .frame(minWidth: 44, minHeight: 44)
-            .contentShape(Rectangle())
+            .frame(minWidth: 44, minHeight: compact ? 14 : 44)
+
+            .contentShape(Rectangle().inset(by: compact ? -15 : 0))
         }
         .buttonStyle(.plain)
         .accessibilityLabel(L.t("native_ios_latency_title") + ": " + IOSLatencyCopy.title(monitor.report.verdict))

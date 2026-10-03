@@ -25,10 +25,6 @@ struct SessionDetailView: View {
         ZStack {
             swipeReveal
             detailContent
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    // Focus mode gives the bar's room to the terminal; the panel keeps Stop/Resume.
-                    if !gesture.focused { IOSSessionActionBar(session: session) }
-                }
                 .offset(x: gesture.swipe.offset)
             if gesture.steersOpen { steerPanel }
         }
@@ -61,7 +57,10 @@ struct SessionDetailView: View {
             repoName: steers.repoNames[session.repoPath] ?? IOSSessionDetailContent<EmptyView>.repoFallback(session.repoPath),
             focused: gesture.focused,
             toggleFocus: { gesture.toggleFocus() },
-            back: { [app] in app.selectedSessionID = nil })
+            back: { [app] in app.selectedSessionID = nil },
+            actionMenu: AnyView(IOSSessionChromeActions(session: session, placement: .menu)),
+            inlineActions: AnyView(IOSSessionChromeActions(session: session, placement: .inline)),
+            recap: AnyView(IOSSessionChromeActions(session: session, placement: .recap)))
     }
 
     private var terminalSurface: IOSTerminalHostView {
@@ -199,6 +198,11 @@ struct IOSSessionDetailContent<Surface: View>: View {
     var focused = false
     var toggleFocus: (() -> Void)? = nil
     var back: (() -> Void)? = nil
+    var actionMenu: AnyView? = nil
+    var inlineActions: AnyView? = nil
+    var recap: AnyView? = nil
+    var fixtureClipboard = false
+    var fixtureThumbnails: [UUID: UIImage] = [:]
     @State private var fontSettings = false
     @State private var planNavigation = IOSPlanNavigation()
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
@@ -206,10 +210,12 @@ struct IOSSessionDetailContent<Surface: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             if focused { focusBar } else { header; tabRow }
+            if tab != .terminal, let inlineActions { inlineActions }
             switch tab {
             case .terminal:
                 IOSTerminalPane(model: terminal, allowsInput: allowsInput, surface: surface, fontSize: $fontSize,
-                    rendersStaticFixture: !selectableText, steerChips: steerChips)
+                    rendersStaticFixture: !selectableText, steerChips: steerChips,
+                    inlineActions: inlineActions, fixtureClipboard: fixtureClipboard, fixtureThumbnails: fixtureThumbnails)
             case .activity:
                 List { ActivityView(session: session, model: model).listRowBackground(IOSTerminalStyle.panel) }
                     .listStyle(.plain).scrollContentBackground(.hidden)
@@ -224,9 +230,7 @@ struct IOSSessionDetailContent<Surface: View>: View {
         .background(IOSTerminalStyle.background)
         .tint(IOSTerminalStyle.amber)
         .preferredColorScheme(.dark)
-        .navigationTitle(session.name)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(focused ? .hidden : .visible, for: .navigationBar)
+        .toolbar(.hidden, for: .navigationBar)
         .accessibilityIdentifier("session-detail")
         .onAppear {
             if planNavigation.enter(opensPlan: planInitialEntry, tick: planOpenTick), planSurface != nil { tab = .plan }
@@ -241,35 +245,34 @@ struct IOSSessionDetailContent<Surface: View>: View {
         return name.isEmpty || name == "/" ? nil : name
     }
 
-    /// Where am I: repo and designation on the left, connection and state on the right.
+    /// Two compact rows carry title/context and tabs. Task identity lives in Info.
     private var header: some View {
-        HStack(spacing: 8) {
-            HStack(spacing: 6) {
-                if let repoName {
-                    Image(systemName: "folder").foregroundStyle(IOSTerminalStyle.muted).accessibilityHidden(true)
-                    Text(verbatim: repoName).foregroundStyle(IOSTerminalStyle.ink).lineLimit(1)
-                    Text(verbatim: "·").foregroundStyle(IOSTerminalStyle.muted).accessibilityHidden(true)
-                }
-                Text(verbatim: session.desig).foregroundStyle(IOSTerminalStyle.muted).lineLimit(1)
+        HStack(spacing: 4) {
+            if let back {
+                Button(action: back) { Image(systemName: "chevron.backward").frame(width: 44, height: 44) }
+                    .buttonStyle(.plain).foregroundStyle(IOSTerminalStyle.amber)
+                    .accessibilityLabel(L.t("native_ios_steers_overview"))
             }
-            .layoutPriority(1)
-            .accessibilityElement(children: .combine)
-            .accessibilityIdentifier("detail-repo")
-            Spacer(minLength: 4)
-            if let latency { IOSLatencyIndicator(monitor: latency) }
-            if let planEntryLabel, planSurface != nil {
-                Button { tab = .plan } label: {
-                    Text(verbatim: planEntryLabel).foregroundStyle(IOSTerminalStyle.amber)
-                        .frame(minHeight: 44)
-                }.buttonStyle(.plain)
-                    .accessibilityLabel(L.t("plangate_menu_open_plan") + ": " + planEntryLabel)
-                    .accessibilityIdentifier("detail-open-plan")
-            }
-            Label(SessionStatusStyle.label(session.status), systemImage: statusSymbol)
-                .foregroundStyle(statusColor)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(verbatim: session.name).font(.system(.subheadline).weight(.semibold))
+                    .lineLimit(dynamicTypeSize.isAccessibilitySize ? 2 : 1)
+                HStack(spacing: 6) {
+                    Circle().fill(statusColor).frame(width: 7, height: 7).accessibilityHidden(true)
+                    Text(verbatim: SessionStatusStyle.label(session.status).lowercased()).foregroundStyle(statusColor)
+                    if let repoName {
+                        Text(verbatim: "·").accessibilityHidden(true)
+                        Text(verbatim: repoName).lineLimit(1).accessibilityIdentifier("detail-repo")
+                    }
+                    if let latency {
+                        Text(verbatim: "·").accessibilityHidden(true)
+                        IOSLatencyIndicator(monitor: latency, compact: true)
+                    }
+                }.font(.system(.caption2)).foregroundStyle(IOSTerminalStyle.muted)
+            }.frame(maxWidth: .infinity, alignment: .leading)
+            if let actionMenu { actionMenu }
+            else { Image(systemName: "ellipsis").frame(width: 44, height: 44).accessibilityHidden(true) }
         }
-        .font(.system(.caption, design: .monospaced))
-        .padding(.horizontal, 12).padding(.vertical, 6)
+        .padding(.horizontal, 4).frame(minHeight: 52)
     }
 
     /// Tabs and the terminal's own controls share one row instead of two.
@@ -286,20 +289,24 @@ struct IOSSessionDetailContent<Surface: View>: View {
                 } else { tabs }
             }
             if tab == .terminal { terminalControls }
-        }.background(IOSTerminalStyle.panel)
+        }
+        .background(IOSTerminalStyle.panel)
+        .overlay(alignment: .bottom) { Rectangle().fill(IOSTerminalStyle.line).frame(height: 1) }
     }
 
     @ViewBuilder private var terminalControls: some View {
         if let toggleFocus {
             Button(action: toggleFocus) {
-                Image(systemName: "arrow.up.left.and.arrow.down.right").frame(width: 44, height: 44)
+                Image(systemName: "arrow.up.left.and.arrow.down.right").frame(width: 44, height: dynamicTypeSize.isAccessibilitySize ? 44 : 38)
+                    .contentShape(Rectangle().inset(by: dynamicTypeSize.isAccessibilitySize ? 0 : -3))
             }
             .buttonStyle(.plain).foregroundStyle(IOSTerminalStyle.muted)
             .accessibilityLabel(L.t("native_ios_terminal_focus"))
             .accessibilityIdentifier("terminal-focus")
         }
         Button { fontSettings = true } label: {
-            Image(systemName: "textformat.size").frame(width: 44, height: 44)
+            Image(systemName: "textformat.size").frame(width: 44, height: dynamicTypeSize.isAccessibilitySize ? 44 : 38)
+                    .contentShape(Rectangle().inset(by: dynamicTypeSize.isAccessibilitySize ? 0 : -3))
         }
         .buttonStyle(.plain).foregroundStyle(IOSTerminalStyle.muted)
         .accessibilityLabel(L.t("native_ios_terminal_font_size"))
@@ -315,7 +322,7 @@ struct IOSSessionDetailContent<Surface: View>: View {
     private var focusBar: some View {
         HStack(spacing: 4) {
             if let back {
-                Button(action: back) { Image(systemName: "chevron.left").frame(width: 40, height: 40) }
+                Button(action: back) { Image(systemName: "chevron.backward").frame(width: 44, height: 44) }
                     .buttonStyle(.plain).foregroundStyle(IOSTerminalStyle.ink)
                     .accessibilityLabel(L.t("native_ios_steers_overview"))
             }
@@ -337,6 +344,7 @@ struct IOSSessionDetailContent<Surface: View>: View {
             .buttonStyle(.plain)
             .accessibilityHint(L.t("native_ios_terminal_focus_exit"))
             .accessibilityIdentifier("terminal-focus-bar")
+            if let actionMenu { actionMenu }
         }
         .font(.system(.caption, design: .monospaced))
         .padding(.trailing, 12)
@@ -351,8 +359,9 @@ struct IOSSessionDetailContent<Surface: View>: View {
                     Text(verbatim: item.title.uppercased())
                         .font(.system(.caption, design: .monospaced).weight(.semibold))
                         .fixedSize(horizontal: true, vertical: false)
-                        .padding(.horizontal, 12)
-                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .padding(.horizontal, 8)
+                        .frame(maxWidth: .infinity, minHeight: dynamicTypeSize.isAccessibilitySize ? 44 : 38)
+                        .contentShape(Rectangle().inset(by: dynamicTypeSize.isAccessibilitySize ? 0 : -3))
                         .foregroundStyle(tab == item ? IOSTerminalStyle.amber : IOSTerminalStyle.muted)
                         .overlay(alignment: .bottom) {
                             Rectangle().fill(tab == item ? IOSTerminalStyle.amber : IOSTerminalStyle.line)
@@ -382,6 +391,7 @@ struct IOSSessionDetailContent<Surface: View>: View {
 
     private var infoFields: some View {
         VStack(alignment: .leading, spacing: 20) {
+            if let recap { recap }
             infoField(L.t("native_detail_status_label"), SessionStatusStyle.label(session.status))
             infoField(L.t("native_ios_detail_task"), session.desig)
             infoField(L.t("native_ios_detail_path"), session.repoPath)
@@ -411,8 +421,8 @@ struct IOSSessionDetailContent<Surface: View>: View {
     private var statusColor: Color {
         switch session.status.known {
         case .running: IOSTerminalStyle.amber
-        case .blocked: Color(red: 229 / 255, green: 72 / 255, blue: 77 / 255)
-        case .done where session.readyToMerge: Color(red: 90 / 255, green: 209 / 255, blue: 154 / 255)
+        case .blocked: SessionListStyle.red
+        case .done where session.readyToMerge: SessionListStyle.green
         default: IOSTerminalStyle.muted
         }
     }

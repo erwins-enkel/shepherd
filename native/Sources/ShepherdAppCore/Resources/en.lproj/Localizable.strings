@@ -624,6 +624,12 @@
 "native_ios_actions_remaining" = "%1$@ characters remaining";
 "native_ios_actions_revision" = "Revision";
 "native_ios_actions_server_default" = "Server default";
+"native_ios_attachment_camera" = "Take Photo";
+"native_ios_attachment_camera_usage" = "Shepherd uses the camera when you attach a photo to a session.";
+"native_ios_attachment_files" = "Choose File";
+"native_ios_attachment_invalid" = "The image could not be imported.";
+"native_ios_attachment_photos" = "Photo Library";
+"native_ios_attachment_remove" = "Remove %1$@";
 "native_ios_connecting" = "Connecting…";
 "native_ios_detail_branch" = "Branch";
 "native_ios_detail_info" = "Info";
@@ -675,6 +681,7 @@
 "native_ios_plan_open_hint" = "Opens the plan and its questions.";
 "native_ios_plan_readonly" = "Plan actions are unavailable while this view is read-only, offline or inactive.";
 "native_ios_remove_body" = "This removes the saved sign-in from this device. Server-side revocation is not confirmed.";
+"native_ios_reply_draft" = "Draft saved";
 "native_ios_session_age" = "Age: %1$@";
 "native_ios_steers_all" = "All steers";
 "native_ios_steers_empty" = "No steers in the steer bar yet. Create them in the web or Mac app.";
@@ -1036,6 +1043,7 @@
 "newtask_agent_provider_label" = "Coding CLI";
 "newtask_alpha_caution" = "Alpha: runs unattended, sandbox forced to trusted.";
 "newtask_alpha_details" = "details";
+"newtask_attach_aria" = "Attach file or image";
 "newtask_attach_image" = "↥ Attach file/image";
 "newtask_autopilot_hint" = "Drive this task autonomously through to a PR. Turn off to discuss, iterate and approve each step yourself. Defaults to this repo's Autopilot setting.";
 "newtask_base_missing" = "Repo has no commit yet. Create the initial commit, then run the task.";
@@ -1044,6 +1052,7 @@
 "newtask_capacity_all" = "all";
 "newtask_capacity_all_aria" = "Remaining capacity across all engines";
 "newtask_chip_from" = "from";
+"newtask_compose_hide_keyboard_aria" = "Hide keyboard";
 "newtask_create_failed" = "Create failed: %1$@. Check repo and base branch, then retry.";
 "newtask_edit_held_failed" = "Couldn't save the changes. The task is still held — try again.";
 "newtask_edit_held_saving" = "Saving…";

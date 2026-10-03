@@ -33,6 +33,7 @@ struct HoldToTalkButton: View {
     @Bindable var voice: DictationController
     // Compact terminal control keeps the composer's gesture and feedback unchanged.
     var compact = false
+    var plainCompact = false
     var rendersStaticFixture = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var enabled = true
@@ -71,15 +72,15 @@ struct HoldToTalkButton: View {
             if compact {
                 ZStack {
                     if (voice.state == .arming || voice.state == .finalizing) && rendersStaticFixture { Image(systemName: "hourglass") }
-                    else if voice.state == .arming || voice.state == .finalizing { ProgressView().tint(ComposePalette.bg) }
-                    else { Image(systemName: symbol).font(.system(.title3, design: .monospaced)) }
+                    else if voice.state == .arming || voice.state == .finalizing { ProgressView().tint(plainCompact ? ComposePalette.amber : ComposePalette.bg) }
+                    else { Image(systemName: voice.state == .locked ? "stop.fill" : "mic.fill").font(.system(.title3)) }
                 }
                 .frame(width: IOSTerminalMicStyle.diameter, height: IOSTerminalMicStyle.diameter)
-                .foregroundStyle(ComposePalette.bg)
-                .background(Circle().fill(ComposePalette.amber))
+                .foregroundStyle(plainCompact ? ComposePalette.amber : ComposePalette.bg)
+                .background(Circle().fill(plainCompact ? Color.clear : ComposePalette.amber))
                 .scaleEffect(IOSTerminalMicStyle.scale(held: hold.holding || voice.state == .recording, reduceMotion: reduceMotion))
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: hold.holding || voice.state == .recording)
-                .padding(6)
+
             } else { composerMicrophone }
         }
     }

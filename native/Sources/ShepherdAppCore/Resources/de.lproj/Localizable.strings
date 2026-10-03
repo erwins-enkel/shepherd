@@ -624,6 +624,12 @@
 "native_ios_actions_remaining" = "Noch %1$@ Zeichen";
 "native_ios_actions_revision" = "Revision";
 "native_ios_actions_server_default" = "Server-Standard";
+"native_ios_attachment_camera" = "Foto aufnehmen";
+"native_ios_attachment_camera_usage" = "Shepherd verwendet die Kamera, wenn du einer Sitzung ein Foto anhängst.";
+"native_ios_attachment_files" = "Datei wählen";
+"native_ios_attachment_invalid" = "Das Bild konnte nicht importiert werden.";
+"native_ios_attachment_photos" = "Fotomediathek";
+"native_ios_attachment_remove" = "%1$@ entfernen";
 "native_ios_connecting" = "Verbinde…";
 "native_ios_detail_branch" = "Branch";
 "native_ios_detail_info" = "Info";
@@ -675,6 +681,7 @@
 "native_ios_plan_open_hint" = "Öffnet den Plan und seine Fragen.";
 "native_ios_plan_readonly" = "Planaktionen sind bei schreibgeschützter Ansicht, offline oder im Hintergrund nicht verfügbar.";
 "native_ios_remove_body" = "Die gespeicherte Anmeldung wird von diesem Gerät entfernt. Der serverseitige Widerruf ist nicht bestätigt.";
+"native_ios_reply_draft" = "Entwurf gespeichert";
 "native_ios_session_age" = "Alter: %1$@";
 "native_ios_steers_all" = "Alle Steers";
 "native_ios_steers_empty" = "Noch keine Steers in der Steer-Leiste. Lege sie in der Web- oder Mac-App an.";
@@ -1036,6 +1043,7 @@
 "newtask_agent_provider_label" = "Coding CLI";
 "newtask_alpha_caution" = "Alpha: läuft unbeaufsichtigt, Sandbox auf »trusted« erzwungen.";
 "newtask_alpha_details" = "Details";
+"newtask_attach_aria" = "Datei oder Bild anhängen";
 "newtask_attach_image" = "↥ Datei/Bild anhängen";
 "newtask_autopilot_hint" = "Diese Aufgabe autonom bis zum PR durchziehen. Aus, um mitzudiskutieren, zu iterieren und jeden Schritt selbst freizugeben. Übernimmt standardmäßig die Autopilot-Einstellung des Repos.";
 "newtask_base_missing" = "Repo hat noch keinen Commit. Initialen Commit erstellen, dann Task starten.";
@@ -1044,6 +1052,7 @@
 "newtask_capacity_all" = "alle";
 "newtask_capacity_all_aria" = "Verbleibende Kapazität aller Engines";
 "newtask_chip_from" = "von";
+"newtask_compose_hide_keyboard_aria" = "Tastatur ausblenden";
 "newtask_create_failed" = "Erstellen fehlgeschlagen: %1$@. Repo und Base-Branch prüfen, dann erneut versuchen.";
 "newtask_edit_held_failed" = "Änderungen konnten nicht gespeichert werden. Die Aufgabe bleibt zurückgehalten – bitte erneut versuchen.";
 "newtask_edit_held_saving" = "Wird gespeichert…";

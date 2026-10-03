@@ -7,6 +7,26 @@ import ShepherdKit
 
 @MainActor
 final class IOSSessionActionsTests: XCTestCase {
+    func testHeaderMenuKeepsEveryRailActionAcrossStatusesAndReadOnly() {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        XCTAssertTrue(IOSSessionHeaderActions.actions(fixture.state).contains(.stop))
+        XCTAssertTrue(IOSSessionHeaderActions.actions(fixture.state).contains(.rename))
+        XCTAssertTrue(IOSSessionHeaderActions.actions(fixture.state).contains(.amend))
+        XCTAssertTrue(IOSSessionHeaderActions.actions(fixture.state).contains(.regenerateRecap))
+        fixture.session.status = .init(known: .done)
+        XCTAssertTrue(IOSSessionHeaderActions.actions(fixture.state).contains(.resume))
+        XCTAssertTrue(IOSSessionHeaderActions.actions(fixture.state).contains(.toggleReady))
+        for status in [SessionStatusKnown.running, .blocked, .done, .idle, .archived] {
+            fixture.session.status = .init(known: status)
+            for writable in [true, false] {
+                fixture.writable = writable
+                XCTAssertEqual(IOSSessionHeaderActions.actions(fixture.state), fixture.state.actions)
+                XCTAssertTrue(Set(fixture.state.swipeActions).isSubset(of: Set(IOSSessionHeaderActions.actions(fixture.state))))
+            }
+        }
+    }
+
     func testSwipeChoicesUseSharedAvailabilityAndStatefulReadyLabels() {
         let fixture = IOSActionFixture()
         defer { fixture.merge.teardown() }

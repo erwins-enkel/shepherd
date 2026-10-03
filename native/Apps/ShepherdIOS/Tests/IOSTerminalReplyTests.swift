@@ -7,6 +7,26 @@ import ShepherdKit
 
 @MainActor
 final class IOSTerminalReplyTests: XCTestCase {
+    func testActionWriteBlockDisablesAttachmentsKeysAndRepliesOnLivePTY() async {
+        let f = ReplyFixture()
+        f.uploads = AttachmentModel(upload: { _, _ in XCTFail("Unexpected upload"); throw ShepherdError.notFound })
+        defer { f.teardown() }
+        await f.live()
+        f.core.promptText = "Keep my draft"
+        XCTAssertTrue(f.model.canAttach)
+        XCTAssertTrue(f.model.canSubmitReply)
+        f.writable = false
+        XCTAssertFalse(f.model.canAttach)
+        XCTAssertFalse(f.model.canSendInput)
+        XCTAssertFalse(f.model.canRecordReply)
+        XCTAssertFalse(f.model.canSubmitReply)
+        f.model.sendKey(.ctrlC)
+        let sent = await f.model.submitReply()
+        XCTAssertFalse(sent)
+        XCTAssertTrue(f.sent.isEmpty)
+        XCTAssertEqual(f.core.promptText, "Keep my draft")
+    }
+
     func testEndedSessionOffersResumeOnlyForSharedEligibleWritableSessions() async {
         let f = ReplyFixture()
         defer { f.teardown() }
@@ -341,7 +361,7 @@ final class IOSTerminalReplyTests: XCTestCase {
     }
 
     func testTerminalMicHeldGrowthRespectsReduceMotionAndRendersFilledCircle() throws {
-        XCTAssertEqual(IOSTerminalMicStyle.diameter, 56)
+        XCTAssertEqual(IOSTerminalMicStyle.diameter, 44)
         XCTAssertEqual(IOSTerminalMicStyle.scale(held: false, reduceMotion: false), 1)
         XCTAssertGreaterThan(IOSTerminalMicStyle.scale(held: true, reduceMotion: false), 1)
         XCTAssertEqual(IOSTerminalMicStyle.scale(held: true, reduceMotion: true), 1)
@@ -351,9 +371,9 @@ final class IOSTerminalReplyTests: XCTestCase {
             .background(ComposePalette.bg))
         renderer.scale = 2
         let image = try XCTUnwrap(renderer.uiImage)
-        XCTAssertEqual(image.size.width, 68)
+        XCTAssertEqual(image.size.width, 44)
         // Interior below the glyph must be filled amber, rather than the old dark outline.
-        let sample = try pixel(image, x: 68, y: 104)
+        let sample = try pixel(image, x: 44, y: 70)
         XCTAssertGreaterThan(sample.0, 180)
         XCTAssertGreaterThan(sample.1, 100)
         XCTAssertLessThan(sample.2, 100)
@@ -394,7 +414,7 @@ final class IOSTerminalReplyTests: XCTestCase {
     /// ImageRenderer omits UIKit-backed ScrollView content. Rasterize the actual
     /// hosted production view first, then use ImageRenderer for the fixture PNG.
     /// This is a unit-test window on the shared runner, never a simulator screenshot.
-    private func renderHostedFixture<V: View>(_ content: V, width: CGFloat, height: CGFloat? = nil, palettePage: Int = 0) async throws -> UIImage {
+    private func renderHostedFixture<V: View>(_ content: V, width: CGFloat, height: CGFloat? = nil, palettePage: Int? = nil) async throws -> UIImage {
         let measuring = UIHostingController(rootView: content)
         let fitted = measuring.sizeThatFits(in: CGSize(width: width, height: height ?? 1000))
         let size = CGSize(width: width, height: height ?? fitted.height)
@@ -405,28 +425,35 @@ final class IOSTerminalReplyTests: XCTestCase {
         window.isHidden = false
         host.view.frame = window.bounds
         defer { window.isHidden = true; window.rootViewController = nil }
-        await settle {
-            host.view.setNeedsLayout(); host.view.layoutIfNeeded()
-            func ready(_ view: UIView) -> Bool {
-                if let scroll = view as? UIScrollView { return scroll.contentSize.width > scroll.bounds.width && scroll.bounds.width > 0 }
-                return view.subviews.contains(where: ready)
+        host.view.setNeedsLayout(); host.view.layoutIfNeeded()
+        if let palettePage {
+            // Only the standalone key palette promises horizontal overflow.
+            // The compact resting/writing dock need not contain a scroll view.
+            await settle {
+                host.view.setNeedsLayout(); host.view.layoutIfNeeded()
+                func ready(_ view: UIView) -> Bool {
+                    if let scroll = view as? UIScrollView { return scroll.contentSize.width > scroll.bounds.width && scroll.bounds.width > 0 }
+                    return view.subviews.contains(where: ready)
+                }
+                return ready(host.view)
             }
-            return ready(host.view)
-        }
-        if palettePage > 0 {
-            func scrollView(_ view: UIView) -> UIScrollView? {
-                if let scroll = view as? UIScrollView { return scroll }
-                return view.subviews.compactMap { scrollView($0) }.first
+            if palettePage > 0 {
+                func scrollView(_ view: UIView) -> UIScrollView? {
+                    if let scroll = view as? UIScrollView { return scroll }
+                    return view.subviews.compactMap { scrollView($0) }.first
+                }
+                let scroll = try XCTUnwrap(scrollView(host.view))
+                scroll.setContentOffset(CGPoint(x: scroll.bounds.width * CGFloat(palettePage), y: 0), animated: false)
+                host.view.layoutIfNeeded()
             }
-            let scroll = try XCTUnwrap(scrollView(host.view))
-            scroll.setContentOffset(CGPoint(x: scroll.bounds.width * CGFloat(palettePage), y: 0), animated: false)
-            host.view.layoutIfNeeded()
         }
         // UIKit fills its backing surfaces only after the hosted scroll layout.
         let format = UIGraphicsImageRendererFormat(); format.scale = 2
+        var rendered = false
         let hosted = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
+            rendered = host.view.drawHierarchy(in: host.view.bounds, afterScreenUpdates: true)
         }
+        XCTAssertTrue(rendered, "The hosted production view must finish rendering")
         let renderer = ImageRenderer(content: Image(uiImage: hosted).resizable().frame(width: size.width, height: size.height))
         renderer.scale = 2
         return try XCTUnwrap(renderer.uiImage)
@@ -452,6 +479,8 @@ final class IOSTerminalReplyTests: XCTestCase {
             if name == "finalizing" { f.finalizer = ReplyFinalizer() }
             await f.live()
             if name == "ended-resume" { await f.end(.gone) }
+            let writing = ["transcript", "sending", "error", "large-type"].contains(name)
+            if writing { f.model.openWriting(focus: false) }
             if name == "transcript" { f.core.promptText = "Prüfe die Tests und ergänze die deutsche Beschriftung." }
             if name == "recording" || name == "locked" {
                 await f.voice.begin(locked: name == "locked")
@@ -491,9 +520,13 @@ final class IOSTerminalReplyTests: XCTestCase {
                 .tint(IOSTerminalStyle.amber).preferredColorScheme(.dark)
                 .environment(\.dynamicTypeSize, name == "large-type" ? .accessibility3 : .large)
             let stateBeforeRendering = f.voice.state
+            let showsWriting = writing || f.voice.active
+            XCTAssertEqual(f.model.showsWriting, showsWriting, "Unexpected dock state for \(name)")
             let image = try await renderHostedFixture(content, width: 390, height: 760)
+            XCTAssertEqual(image.size, CGSize(width: 390, height: 760))
             try XCTUnwrap(image.pngData()).write(to: directory.appendingPathComponent("terminal-\(name).png"))
             XCTAssertEqual(f.voice.state, stateBeforeRendering, "Rendering must preserve the fixture recording state")
+            XCTAssertEqual(f.model.showsWriting, showsWriting, "Rendering must preserve the dock state for \(name)")
             f.release()
             if let sending { _ = await sending.value }
         }
@@ -524,6 +557,7 @@ private final class ReplyPTY: PTYAttaching {
 @MainActor
 private final class ReplyFixture {
     var record = PreviewData.session(name: "Terminal reply")
+    var uploads: AttachmentModel?
     var writable = true, holdResume = false, holdReply = false
     var resumes = 0
     var clock: TimeInterval = 100
@@ -552,7 +586,7 @@ private final class ReplyFixture {
         session: { self.record }, actions: { self.rules.actions(for: $0) },
         canWrite: { self.writable }, isSelected: { true }, canSelectReplacement: { false },
         resumeSucceeded: { [weak self] _ in self?.model.resumeSucceeded() }, selectReplacement: { _, _ in })
-    lazy var model: IOSTerminalPresentation = IOSTerminalPresentation(session: core, actions: { self.state }, reply: { text in
+    lazy var model: IOSTerminalPresentation = IOSTerminalPresentation(session: core, attachments: uploads, actions: { self.state }, reply: { text in
         try await self.send(text)
     })
     init() { record.status = .init(known: .done) }

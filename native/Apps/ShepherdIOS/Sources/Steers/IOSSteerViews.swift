@@ -18,37 +18,26 @@ struct IOSSteerChips: View {
     @State private var sentID: String?
 
     var body: some View {
-        HStack(spacing: 8) {
-            Button(action: openAll) {
-                Image(systemName: "slider.horizontal.3")
-                    .frame(width: 44, height: 36)
-                    .overlay(RoundedRectangle(cornerRadius: 18).stroke(ComposePalette.line))
-            }
-            .buttonStyle(.plain).foregroundStyle(ComposePalette.ink)
-            .frame(minHeight: 44)
-            .accessibilityLabel(L.t("native_ios_steers_all"))
-            .accessibilityIdentifier("steer-open-panel")
-            if !steers.isEmpty {
-                Group {
-                    if rendersStaticFixture {
-                        Color.clear.frame(height: 44).overlay(alignment: .leading) { chipRow.fixedSize() }.clipped()
-                    }
-                    else { ScrollView(.horizontal) { chipRow }.scrollIndicators(.hidden) }
-                }
-                .accessibilityElement(children: .contain)
-                .accessibilityLabel(L.t("steerbar_toolbar_aria"))
-            }
-            Spacer(minLength: 0)
+        Group {
+            if rendersStaticFixture {
+                Color.clear.frame(height: 44).overlay(alignment: .leading) { chipRow.fixedSize() }.clipped()
+            } else { ScrollView(.horizontal) { chipRow }.scrollIndicators(.hidden) }
         }
-        .font(.system(.callout, design: .monospaced))
-        .padding(.horizontal, 12).padding(.top, 6)
-        .background(ComposePalette.panel)
+        .font(.system(.subheadline))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(L.t("steerbar_toolbar_aria"))
         .accessibilityIdentifier("steer-chips")
     }
 
     private var chipRow: some View {
         HStack(spacing: 6) {
             ForEach(steers, id: \.id) { steer in chip(steer) }
+            Button(action: openAll) {
+                Image(systemName: "slider.horizontal.3").frame(width: 44, height: 44)
+            }
+            .buttonStyle(.plain).foregroundStyle(ComposePalette.ink)
+            .accessibilityLabel(L.t("native_ios_steers_all"))
+            .accessibilityIdentifier("steer-open-panel")
         }
     }
 
@@ -66,7 +55,7 @@ struct IOSSteerChips: View {
                 if sentID == steer.id { Image(systemName: "checkmark") }
                 Text(verbatim: steer.chipTitle).lineLimit(1)
             }
-            .padding(.horizontal, 12).frame(height: 36)
+            .padding(.horizontal, 12).frame(height: 32)
             .background(ComposePalette.panel2, in: Capsule())
             .overlay(Capsule().stroke(sentID == steer.id ? ComposePalette.green : ComposePalette.line))
         }

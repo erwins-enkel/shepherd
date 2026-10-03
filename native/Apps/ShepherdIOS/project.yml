@@ -59,6 +59,7 @@ targets:
       path: Sources/Info.plist
       properties:
         ITSAppUsesNonExemptEncryption: false
+        NSCameraUsageDescription: Shepherd uses the camera when you attach a photo to a session.
         NSMicrophoneUsageDescription: Shepherd uses the microphone while you dictate a task.
         NSSpeechRecognitionUsageDescription: Speech recognition provides live text and fallback dictation.
         CFBundleDisplayName: Shepherd

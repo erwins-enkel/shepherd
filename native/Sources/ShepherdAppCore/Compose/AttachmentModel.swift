@@ -54,6 +54,13 @@ public final class AttachmentModel {
         })
     }
 
+    /// Session uploads reuse the composer queue without changing composer staging.
+    public static func forSession(client: ShepherdClient, sessionID: String) -> AttachmentModel {
+        AttachmentModel(uploadWithProgress: { data, name, progress in
+            try await client.uploadFile(data: data, filename: name, sessionID: sessionID, progress: progress).path
+        })
+    }
+
     public var hasOutstandingUploads: Bool { uploading || pendingImports > 0 || rows.contains { $0.state != .uploaded } }
 
     /// Only the current batch contributes; transport callbacks include active-file bytes.
@@ -196,7 +203,7 @@ public final class AttachmentModel {
         change(&rows[index])
     }
 
-    func teardown() {
+    public func teardown() {
         stopped = true
         generation += 1
         worker?.cancel()

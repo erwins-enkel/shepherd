@@ -381,6 +381,10 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/repos/sync-fork",
     "/api/repos/init-empty-commit",
     "/api/github/repos",
+    // The clone dialog's access diagnosis + `gh auth setup-git`: only reached after a REAL
+    // clone fails, and the demo's clone always succeeds.
+    "/api/github/access",
+    "/api/github/git-credentials",
   ],
 
   // Settings/plugin/update WRITES and the probes behind them. Every corresponding read is

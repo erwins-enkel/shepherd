@@ -641,8 +641,72 @@ async function postJson<T>(url: string, body: unknown, label: string): Promise<T
   return r.json() as Promise<T>;
 }
 
+/** A refused clone. `message` is the server's `clonerepo_failed_*` code (same contract as
+ *  before); `detail` is git's own redacted, single-line stderr for the dialog's technical
+ *  details, when git produced any. */
+export class CloneFailedError extends ApiError {
+  constructor(
+    status: number,
+    message: string,
+    readonly detail: string | undefined,
+    serverAuthoredMessage: boolean,
+  ) {
+    super(status, message, undefined, serverAuthoredMessage);
+  }
+}
+
 export async function cloneRepo(url: string): Promise<RepoEntry> {
-  return postJson<RepoEntry>("/api/repos", { url }, "clone");
+  const r = await fetch("/api/repos", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ url }),
+  });
+  if (r.ok) return r.json() as Promise<RepoEntry>;
+  const body = (await r.json().catch(() => null)) as { error?: string; detail?: string } | null;
+  const base = apiError(r.status, body, `clone failed: ${r.status}`);
+  if (isPreviewBlocked(base)) throw base;
+  throw new CloneFailedError(r.status, base.message, body?.detail, serverAuthored(base));
+}
+
+/** Which credential helper git uses for github.com — a closed set; the server never sends
+ *  the helper's text (it can be an inline script holding a secret). */
+export type GitHelperKind =
+  "gh" | "store" | "cache" | "osxkeychain" | "manager" | "libsecret" | "wincred" | "other" | "none";
+export type GitHelperInfo = { kind: GitHelperKind; usesGh: boolean };
+
+/** Whether `gh` is installed, signed in, and may pull/push the repo in question. */
+export type GhAccess =
+  | { state: "ok"; login: string; pull: boolean; push: boolean }
+  | { state: "missing" }
+  | { state: "logged_out" }
+  | { state: "error"; detail: string };
+
+/** Both credentials behind one refused GitHub clone. `protocol` is the clone URL's: pointing
+ *  git at gh only helps an https clone. */
+export type GithubAccess = {
+  repo: string;
+  protocol: "https" | "ssh";
+  git: GitHelperInfo;
+  gh: GhAccess;
+};
+
+/** Diagnose a refused clone of a github.com URL. Throws on a non-GitHub URL (400). */
+export async function getGithubAccess(cloneUrl: string): Promise<GithubAccess> {
+  return getJson<GithubAccess>(
+    `/api/github/access?url=${encodeURIComponent(cloneUrl)}`,
+    "github_access",
+  );
+}
+
+/** Run `gh auth setup-git` on the server (the operator confirmed it). Resolves to git's new
+ *  helper; throws with `message` = `gitcreds_failed_missing|logged_out|setup`. */
+export async function setupGitViaGh(): Promise<GitHelperInfo> {
+  const r = await postJson<{ ok: true; git: GitHelperInfo }>(
+    "/api/github/git-credentials",
+    {},
+    "git_credentials",
+  );
+  return r.git;
 }
 
 /** Fork a GitHub repo under the user's account and clone it locally.
@@ -715,16 +779,17 @@ export interface GithubRepo {
 /** List the GitHub repos the user can clone — their own account plus any team/org
  *  repos they reach. `available` is false when gh is unavailable/unauthed, in which
  *  case the clone dialog falls back to the URL field. Never throws (degrades). */
-export async function getGithubRepos(): Promise<{
+export type GithubReposResult = {
   repos: GithubRepo[];
   login: string | null;
   available: boolean;
-}> {
+  /** git's credential helper for github.com; present only when the listing is available. */
+  git?: GitHelperInfo;
+};
+
+export async function getGithubRepos(): Promise<GithubReposResult> {
   try {
-    return await getJson<{ repos: GithubRepo[]; login: string | null; available: boolean }>(
-      "/api/github/repos",
-      "github_repos",
-    );
+    return await getJson<GithubReposResult>("/api/github/repos", "github_repos");
   } catch {
     return { repos: [], login: null, available: false };
   }

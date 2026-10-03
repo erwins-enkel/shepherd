@@ -175,6 +175,28 @@ stops, the row is kept). Ending requires a 1.2 s hold so the swipe that opened t
 never end a session; VoiceOver gets an explicit confirmation instead. Read-only and isolated
 launches show neither chips nor panel. Editing steers stays in web/Mac.
 
+## Answering Claude's dialogs
+
+A Claude selection dialog (AskUserQuestion, a permission prompt, a picker) is answered with
+keys, not text, and the question needs the screen. While one is on screen the terminal shows a
+single key row instead of steer chips, reply draft, microphone, key palette and session action
+bar: **↑ ↓ ⏎** large on the right, **Esc ← →** (← → switch the tabs of a multi-question
+dialog) and **⌨** on the left. No keyboard opens. The keys send the palette's bytes
+(`IOSTerminalKey`).
+
+Detection is client-side: `IOSTerminalHostView` reads the visible rows once output pauses
+(120 ms, at most 500 ms behind streaming output, so a repaint split across chunks cannot
+flicker the layout) and `IOSTerminalDialog` looks for the dialog footer ("Enter to select ·
+↑/↓ to navigate · Esc to cancel") in the last 15 non-empty rows — the same fragments as the
+server's `DIALOG_FOOTER_RE` in `src/blocked.ts`. It does not wait for the server's block
+classification. The scan pauses while the operator reads local history.
+
+**⌨** is the way to a free-text answer ("Type something", "Chat about this"): it shows the
+reply draft focused, with the keyboard and key palette. Text mode ends when the dialog closes,
+or when the keyboard is down with an empty draft and no dictation — after sending, for
+example. A dialog that appears while the keyboard is up keeps the draft. When the footer
+leaves the screen, chips, draft and action bar return. Read-only launches are unchanged.
+
 ## Mobile web references and visual fixtures
 
 `ui/src/routes/+page.svelte` changes `mobileScreen` from list to detail when a

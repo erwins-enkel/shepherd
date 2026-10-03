@@ -53,7 +53,7 @@ struct IOSTerminalPane<Surface: View>: View {
             // A Claude dialog is answered with keys; the question keeps the screen.
             if let inlineActions, !(allowsInput && model.dialogOpen) { inlineActions }
             if allowsInput && model.showsReplyBar {
-                if model.dialogOpen && !model.showsWriting {
+                if model.answersWithKeys {
                     IOSTerminalDialogBar(model: model, startTyping: { model.openWriting(focus: true) })
                 } else {
                     IOSTerminalReplyBar(model: model, rendersStaticFixture: rendersStaticFixture,

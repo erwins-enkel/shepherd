@@ -620,26 +620,27 @@ final class IOSTerminalTests: XCTestCase {
         XCTAssertTrue(IOSTerminalDialog.isOpen([footer] + (1...14).map { "output \($0)" } + ["", "   "]))
     }
 
-    func testDialogTextModeIsOptInAndEndsWhenTheFieldGoesIdle() {
-        var input = IOSDialogInput()
-        input.dialogOpened(keyboardVisible: false)
-        XCTAssertFalse(input.typing)
-        input.beginTyping()
-        XCTAssertTrue(input.typing)
-        // A draft, a recording or a raised keyboard keeps the field; only idle returns to the keys.
-        input.inputSettled(keyboardVisible: false, draftEmpty: false, voiceActive: false)
-        XCTAssertTrue(input.typing)
-        input.inputSettled(keyboardVisible: false, draftEmpty: true, voiceActive: true)
-        XCTAssertTrue(input.typing)
-        input.inputSettled(keyboardVisible: true, draftEmpty: true, voiceActive: false)
-        XCTAssertTrue(input.typing)
-        input.inputSettled(keyboardVisible: false, draftEmpty: true, voiceActive: false)
-        XCTAssertFalse(input.typing)
-        // A dialog that appears mid-typing keeps the field; closing it always ends text mode.
-        input.dialogOpened(keyboardVisible: true)
-        XCTAssertTrue(input.typing)
-        input.dialogClosed()
-        XCTAssertFalse(input.typing)
+    func testDialogKeyRowYieldsToTheWritingStateAndReturnsWhenItCloses() {
+        let pty = IOSFixturePTY()
+        let core = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
+        let presentation = IOSTerminalPresentation(session: core, reply: { _ in })
+        let dialog = ["❯ 1. Yes", "  2. No", "Enter to select · ↑/↓ to navigate · Esc to cancel"]
+        presentation.screenChanged(dialog)
+        XCTAssertTrue(presentation.answersWithKeys)
+        // ⌨ opens writing for a free-text answer; keyboard down or a sent reply closes it again.
+        presentation.openWriting(focus: true)
+        XCTAssertFalse(presentation.answersWithKeys)
+        presentation.closeWriting()
+        XCTAssertTrue(presentation.answersWithKeys)
+        // A dialog that appears mid-writing keeps the draft until writing closes.
+        presentation.screenChanged(["❯ ", "? for shortcuts"])
+        presentation.openWriting(focus: true)
+        presentation.screenChanged(dialog)
+        XCTAssertFalse(presentation.answersWithKeys)
+        presentation.closeWriting()
+        XCTAssertTrue(presentation.answersWithKeys)
+        presentation.screenChanged(["❯ ", "? for shortcuts"])
+        XCTAssertFalse(presentation.answersWithKeys)
     }
 
     func testScreenChangesToggleTheDialogAndReplayOrUnmountClearIt() {

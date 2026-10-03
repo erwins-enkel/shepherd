@@ -235,6 +235,10 @@ final class IOSTerminalPresentation {
         if open != dialogOpen { dialogOpen = open }
     }
 
+    /// An open dialog is answered from the key row until ⌨ or dictation opens the writing
+    /// state; closing it (keyboard down, sent) returns to the keys.
+    var answersWithKeys: Bool { dialogOpen && !showsWriting }
+
     private func reconcile() {
         let shouldAttach = visible && active && rendererReady
         guard shouldAttach != isAttached else { return }

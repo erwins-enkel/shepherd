@@ -43,9 +43,13 @@ if not devices:
 devices.sort(key=lambda d: (d["state"] != "Booted", d["udid"]))
 print(devices[0]["udid"])
 ' "$DEVICE" "$OS")"
+# Resolve packages without a github.com Keychain prompt (#2694): netrc instead
+# of the Keychain authorizes binary-artifact downloads, and the system git only
+# asks a credential helper after a 401, which public repositories never send.
 xcodebuild -project ShepherdIOS.xcodeproj -scheme ShepherdIOS -configuration Debug \
   -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath .build \
-  -skipPackagePluginValidation CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Manual \
+  -skipPackagePluginValidation -packageAuthorizationProvider netrc -scmProvider system \
+  CODE_SIGNING_ALLOWED=YES CODE_SIGN_STYLE=Manual \
   CODE_SIGN_IDENTITY=- build 2>&1 | grep -E "error:|^\*\* BUILD"
 STATE="$(xcrun simctl list devices available -j | python3 -c '
 import json, sys

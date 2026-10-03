@@ -27,6 +27,9 @@ xcodegen generate
 # ShepherdKit runs the OpenAPIGenerator build-tool plugin. Outside the Xcode UI
 # there is nobody to click "Trust & Enable", so the plugin-validation step fails
 # the build; -skipPackagePluginValidation is the non-interactive equivalent.
+# Resolve packages without a github.com Keychain prompt (#2694): netrc instead
+# of the Keychain authorizes binary-artifact downloads, and the system git only
+# asks a credential helper after a 401, which public repositories never send.
 xcodebuild \
   -project Shepherd.xcodeproj \
   -scheme Shepherd \
@@ -34,6 +37,8 @@ xcodebuild \
   -destination 'platform=macOS' \
   -derivedDataPath .build \
   -skipPackagePluginValidation \
+  -packageAuthorizationProvider netrc \
+  -scmProvider system \
   "${CODESIGN_ARGS[@]+"${CODESIGN_ARGS[@]}"}" \
   "$@" \
   build

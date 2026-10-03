@@ -12851,6 +12851,11 @@
   "iosFeatureAdded": [
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testUnchangedSettingsOmitProviderModelAndEffortOnSaveAndStart() throws\"]",
     "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testChangedSettingsSendOnlyTheChangedField() throws\"]",
-    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testSwitchingToInheritOmitsUnsupportedNullRatherThanPinningDefaults() throws\"]"
+    "[\"ShepherdIOSTests\",\"native/Apps/ShepherdIOS/Tests/IOSEpicControlTests.swift\",\"IOSEpicControlTests\",\"testSwitchingToInheritOmitsUnsupportedNullRatherThanPinningDefaults() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/PTYConnectionTests.swift\",\"PTYConnectionTests\",\"endpointIsTheBareSocketURL() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/PTYConnectionTests.swift\",\"PTYConnectionTests\",\"refusedUpgradeReportsTheAttempt() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"connectingDetailCountsBootstrapAttempts() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"connectingDetailFollowsTheEventsSocket() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"liveStoreHasNoConnectingDetail() async throws\"]"
   ]
 }

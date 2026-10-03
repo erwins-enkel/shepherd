@@ -12417,6 +12417,11 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LatencyProbeTests.swift\",\"LatencyProbeTests\",\"recorderCapacity()\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LatencyProbeTests.swift\",\"LatencyProbeTests\",\"statistics()\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LatencyProbeTests.swift\",\"LatencyProbeTests\",\"verdicts()\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift\",\"ShepherdClientComposeTests\",\"sessionUploadUsesExistingQueryAndPreservesMultipart() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift\",\"ShepherdClientComposeTests\",\"sessionUploadUsesExistingQueryAndPreservesMultipart() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/PTYConnectionTests.swift\",\"PTYConnectionTests\",\"endpointIsTheBareSocketURL() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/PTYConnectionTests.swift\",\"PTYConnectionTests\",\"refusedUpgradeReportsTheAttempt() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"connectingDetailCountsBootstrapAttempts() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"connectingDetailFollowsTheEventsSocket() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"liveStoreHasNoConnectingDetail() async throws\"]"
   ]
 }

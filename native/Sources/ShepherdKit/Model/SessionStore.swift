@@ -24,6 +24,33 @@ public enum ConnectionState: Sendable, Equatable {
   case offline(message: String)
 }
 
+/// What a `.connecting` store is waiting on, for an operator who wants to know
+/// why connecting takes as long as it does. Diagnostic data, not copy — like
+/// the message `ConnectionState.offline` carries.
+public struct ConnectingDetail: Sendable, Equatable {
+  public enum Step: Sendable, Equatable {
+    /// Reading sessions, settings and repos (`bootstrap()`).
+    case snapshot
+    /// Reopening the `/events` socket after it dropped.
+    case events
+  }
+
+  public var step: Step
+  /// 1-based try within this step.
+  public var attempt: Int
+  /// Why the previous try failed, verbatim.
+  public var lastFailure: String?
+  /// When the next try opens while a backoff runs; `nil` while one is in flight.
+  public var retryAt: Date?
+
+  public init(step: Step, attempt: Int, lastFailure: String? = nil, retryAt: Date? = nil) {
+    self.step = step
+    self.attempt = attempt
+    self.lastFailure = lastFailure
+    self.retryAt = retryAt
+  }
+}
+
 /// The live view of one server, for a SwiftUI app to render.
 ///
 /// Event application mirrors `ui/src/lib/store.svelte.ts::apply` for the eight
@@ -57,6 +84,9 @@ public final class SessionStore {
   /// other property here, so SwiftUI and `withObservationTracking` both see it
   /// move — a consumer never has to poll.
   public private(set) var connection: ConnectionState = .idle
+  /// Why `.connecting` is taking its time. Meaningful only while `connection`
+  /// is `.connecting`; `nil` until the store has something to say.
+  public private(set) var connectingDetail: ConnectingDetail?
 
   /// nil means no current snapshot; an empty map means no connected terminal owners.
   public private(set) var terminalOwners: [String: Components.Schemas.TerminalClientInfo]?
@@ -213,12 +243,17 @@ public final class SessionStore {
       startWatchingLifecycle(eventStream)
     }
 
+    var attempt = 0
+    var lastFailure: String?
     while running {
       publish(.connecting)
+      attempt += 1
+      connectingDetail = ConnectingDetail(step: .snapshot, attempt: attempt, lastFailure: lastFailure)
 
       do {
         try await bootstrap()
         currentReconnectDelay = reconnectDelay
+        connectingDetail = nil
       } catch {
         switch ShepherdError.from(error, route: "bootstrap") {
         case .cancelled:
@@ -240,10 +275,12 @@ public final class SessionStore {
           // one starts to; the state machine covers it either way.
           publish(.firstRunPending)
         case .transport(let message):
+          lastFailure = message
           publish(.offline(message: message))
           guard await waitThenContinue() else { return }
           continue
         case let other:
+          lastFailure = String(describing: other)
           publish(.offline(message: String(describing: other)))
           guard await waitThenContinue() else { return }
           continue
@@ -298,6 +335,7 @@ public final class SessionStore {
     // Assigned rather than published: `stopped` is already true, and `.idle`
     // is the one state that outranks the gate.
     connection = .idle
+    connectingDetail = nil
     // A tap must not outlive the store it reads from: finishing the
     // continuations ends every consumer's `for await`.
     finishEventTaps()
@@ -373,6 +411,8 @@ public final class SessionStore {
           sawFirstConnect = true
           continue
         }
+        // The backoff is over and an upgrade is in flight.
+        if connectingDetail?.step == .events { connectingDetail?.retryAt = nil }
         // Re-read the three lists: the stream keeps only the newest 256
         // frames, so a reconnect can have dropped pushes. A failure here is
         // not fatal — `start()`'s retry loop owns the offline state.
@@ -384,8 +424,23 @@ public final class SessionStore {
         // `.firstRunPending` and `.offline` are facts about the server, not
         // about the socket, and `.idle` means the operator stopped the store.
         if connection == .live { publish(.connecting) }
+        // A bootstrap in flight owns the detail. Otherwise say why the socket
+        // went and when the stream tries again.
+        guard connection == .connecting, connectingDetail?.step != .snapshot,
+          let eventStream
+        else { continue }
+        let state = await eventStream.reconnectState()
+        guard connection == .connecting else { continue }
+        connectingDetail = ConnectingDetail(
+          step: .events, attempt: state.failures + 1, lastFailure: state.lastFailure,
+          retryAt: Date().addingTimeInterval(Self.seconds(state.delay)))
       }
     }
+  }
+
+  private static func seconds(_ duration: Duration) -> TimeInterval {
+    let (seconds, attoseconds) = duration.components
+    return TimeInterval(seconds) + TimeInterval(attoseconds) / 1e18
   }
 
   /// `true` when the caller should try again, `false` when `stop()` or task
@@ -431,6 +486,7 @@ public final class SessionStore {
       break
     case .connecting, .live, .firstRunPending, .offline:
       connection = self.firstRunPending ? .firstRunPending : .live
+      connectingDetail = nil
     }
   }
 

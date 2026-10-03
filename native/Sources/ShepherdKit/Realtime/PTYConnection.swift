@@ -35,6 +35,59 @@ public actor PTYConnection {
     case closed(Closure)
   }
 
+  /// One attach attempt, for an operator watching a terminal that will not come
+  /// up: which socket, which try, and why the one before it died. Diagnostic
+  /// data for `attempts()`, shown verbatim — nothing in the policy reads it.
+  public struct Attempt: Sendable, Equatable {
+    public enum Stage: Sendable, Equatable {
+      /// The upgrade is in flight.
+      case handshake
+      /// The previous socket died; the next attach opens after this pause.
+      case waiting(Duration)
+    }
+
+    /// The upgrade URL without its query. Never the token: that is a header.
+    public let endpoint: String
+    /// The try this report is about, 1-based, counted from the last
+    /// `start()`, `takeOver()` or socket that carried a session. A `.waiting`
+    /// right after such a socket reports 0: no attach has failed yet.
+    public let number: Int
+    public let stage: Stage
+    /// Attaches in a row that died within `fastFailWindow`. At `maxFastFails`
+    /// the connection parks with `.unreachable`.
+    public let fastFails: Int
+    /// Why the latest socket died, or `nil` while none has.
+    public let lastDrop: Drop?
+
+    public init(endpoint: String, number: Int, stage: Stage, fastFails: Int, lastDrop: Drop?) {
+      self.endpoint = endpoint
+      self.number = number
+      self.stage = stage
+      self.fastFails = fastFails
+      self.lastDrop = lastDrop
+    }
+  }
+
+  /// Why a socket died, as far as URLSession could tell.
+  public struct Drop: Sendable, Equatable {
+    /// The WebSocket close code, or `0` when no close frame arrived.
+    public let closeCode: Int
+    /// The status a refused upgrade was answered with. `nil` when the upgrade
+    /// went through or never got an answer at all.
+    public let httpStatus: Int?
+    /// `domain code: description` of the transport error, verbatim.
+    public let error: String?
+    /// How long the socket lived.
+    public let lived: Duration
+
+    public init(closeCode: Int, httpStatus: Int?, error: String?, lived: Duration) {
+      self.closeCode = closeCode
+      self.httpStatus = httpStatus
+      self.error = error
+      self.lived = lived
+    }
+  }
+
   /// Contract `x-shepherd-pty.closeCodes` / `.resizePrefix`.
   static let supersededCode = 4000
   static let goneCode = 4001
@@ -42,7 +95,7 @@ public actor PTYConnection {
   /// A socket that died within this long of opening never carried a session.
   static let fastFailWindow: Duration = .seconds(4)
   /// Consecutive fast failures that mean herdr itself is gone (`MAX_FAST_FAILS`).
-  static let maxFastFails = 8
+  public static let maxFastFails = 8
 
   private let baseURL: URL
   private let clientInfo: Components.Schemas.TerminalClientInfo?
@@ -57,6 +110,7 @@ public actor PTYConnection {
   /// its elements between iterators instead of broadcasting — see `output()`.
   private var outputTaps: [UUID: AsyncStream<Data>.Continuation] = [:]
   private var lifecycleTaps: [UUID: AsyncStream<LifecycleEvent>.Continuation] = [:]
+  private var attemptTaps: [UUID: AsyncStream<Attempt>.Continuation] = [:]
   /// A trailing UTF-8 sequence `send(_:)` is holding until the caller finishes
   /// it. At most 3 bytes. See `send(_:)`.
   private(set) var pendingInput = Data()
@@ -94,6 +148,11 @@ public actor PTYConnection {
   var beforeHandlingClose: (@Sendable () async -> Void)?
   private var connectedAt: ContinuousClock.Instant?
   private var consecutiveFastFails = 0
+  /// What `attempts()` reports: reset by `start()`/`takeOver()` along with the
+  /// fast-fail counter, so the numbers describe the run the operator is watching.
+  private var attemptNumber = 0
+  private var lastDrop: Drop?
+  private var currentEndpoint = ""
 
   public init(
     baseURL: URL,
@@ -249,8 +308,31 @@ public actor PTYConnection {
     return stream
   }
 
+  /// Attach attempts — one independent stream per call, like `lifecycle()`.
+  /// `.bufferingNewest(1)`: only the latest attempt describes the terminal
+  /// now. Finished by `stop()`.
+  public func attempts() -> AsyncStream<Attempt> {
+    let (stream, continuation) = AsyncStream<Attempt>.makeStream(
+      bufferingPolicy: .bufferingNewest(1))
+    let id = UUID()
+    continuation.onTermination = { [weak self] _ in
+      Task { await self?.removeAttemptTap(id) }
+    }
+    attemptTaps[id] = continuation
+    return stream
+  }
+
   private func removeOutputTap(_ id: UUID) { outputTaps[id] = nil }
   private func removeLifecycleTap(_ id: UUID) { lifecycleTaps[id] = nil }
+  private func removeAttemptTap(_ id: UUID) { attemptTaps[id] = nil }
+
+  /// Fans the current attempt out to every `attempts()` stream.
+  private func report(_ stage: Attempt.Stage) {
+    let attempt = Attempt(
+      endpoint: currentEndpoint, number: attemptNumber, stage: stage, fastFails: consecutiveFastFails,
+      lastDrop: lastDrop)
+    for tap in attemptTaps.values { tap.yield(attempt) }
+  }
 
   /// Fans one lifecycle event out to every `lifecycle()` stream.
   private func deliver(lifecycle event: LifecycleEvent) {
@@ -263,8 +345,10 @@ public actor PTYConnection {
   private func finishTaps() {
     for tap in outputTaps.values { tap.finish() }
     for tap in lifecycleTaps.values { tap.finish() }
+    for tap in attemptTaps.values { tap.finish() }
     outputTaps.removeAll()
     lifecycleTaps.removeAll()
+    attemptTaps.removeAll()
   }
 
   /// The size the next attach will use.
@@ -279,6 +363,8 @@ public actor PTYConnection {
     guard stopped, !parked else { return }
     stopped = false
     consecutiveFastFails = 0
+    attemptNumber = 0
+    lastDrop = nil
     connect()
   }
 
@@ -332,6 +418,8 @@ public actor PTYConnection {
     stopped = false
     parked = false
     consecutiveFastFails = 0
+    attemptNumber = 0
+    lastDrop = nil
     // Same reason as in `stop()`: whatever `send(_:)` is still holding was
     // typed at the session this connection just lost, and the attach event the
     // old socket never proved must not be flushed by the new one's first frame.
@@ -407,8 +495,9 @@ public actor PTYConnection {
   }
 
   private func connect() {
-    var request = URLRequest(
-      url: Self.ptyURL(for: baseURL, sessionID: sessionID, cols: cols, rows: rows, clientInfo: clientInfo))
+    let url = Self.ptyURL(
+      for: baseURL, sessionID: sessionID, cols: cols, rows: rows, clientInfo: clientInfo)
+    var request = URLRequest(url: url)
     // Read the token afresh: a rotated token has to reach the next upgrade.
     if let token = tokenProvider() {
       request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
@@ -418,6 +507,9 @@ public actor PTYConnection {
     connectionGeneration += 1
     let generation = connectionGeneration
     connectedAt = .now
+    attemptNumber += 1
+    currentEndpoint = Self.endpoint(of: url)
+    report(.handshake)
     socket.resume()
     // Produced here, delivered later. `resume()` only *starts* the upgrade, and
     // an attach event over an upgrade that is then refused is actively harmful:
@@ -447,7 +539,46 @@ public actor PTYConnection {
   private enum Frame: Sendable {
     case text(String)
     case binary(Data)
-    case closed(code: Int)
+    case closed(CloseFacts)
+  }
+
+  /// Everything a dead socket can still say about why it died.
+  private struct CloseFacts: Sendable {
+    var code = 0
+    var httpStatus: Int?
+    var error: String?
+  }
+
+  /// The upgrade URL as an operator may see it: no query (`cols`/`rows` and
+  /// client metadata are noise there) and no userinfo.
+  static func endpoint(of url: URL) -> String {
+    guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+      return url.absoluteString
+    }
+    components.query = nil
+    components.user = nil
+    components.password = nil
+    return components.string ?? url.absoluteString
+  }
+
+  /// `domain code: description`, the way the platform reports it. Verbatim on
+  /// purpose: an operator asking why the terminal will not attach wants the
+  /// URLError, not a paraphrase of it.
+  static func describe(_ error: any Error) -> String {
+    let ns = error as NSError
+    return "\(ns.domain) \(ns.code): \(ns.localizedDescription)"
+  }
+
+  /// Read in URLSession's completion callback, beside the close code and for
+  /// the same reason (see `nextFrame(on:)`).
+  private static func closeFacts(
+    of socket: URLSessionWebSocketTask, error: (any Error)?
+  ) -> CloseFacts {
+    // 101 is an upgrade that went through: only a refused one carries news.
+    let status = (socket.response as? HTTPURLResponse)?.statusCode
+    return CloseFacts(
+      code: socket.closeCode.rawValue, httpStatus: status == 101 ? nil : status,
+      error: error.map { describe($0) })
   }
 
   /// `receive()` plus the close code, read **inside URLSession's own completion
@@ -472,8 +603,10 @@ public actor PTYConnection {
         case .success(.data(let data)): continuation.resume(returning: .binary(data))
         // An unknown message kind cannot be replayed to the view, and any
         // failure means the socket is gone: both end the loop.
-        case .success, .failure:
-          continuation.resume(returning: .closed(code: socket.closeCode.rawValue))
+        case .success:
+          continuation.resume(returning: .closed(Self.closeFacts(of: socket, error: nil)))
+        case .failure(let error):
+          continuation.resume(returning: .closed(Self.closeFacts(of: socket, error: error)))
         }
       }
     }
@@ -490,7 +623,7 @@ public actor PTYConnection {
   /// dropping the call here would lose the close code of a socket a racing
   /// `stop()` had already detached.
   private func receiveLoop(_ socket: URLSessionWebSocketTask, generation: Int) async {
-    var closeCode = 0
+    var facts = CloseFacts()
     receiving: while !Task.isCancelled {
       switch await nextFrame(on: socket) {
       case .text(let text):
@@ -499,13 +632,15 @@ public actor PTYConnection {
         }
       case .binary(let data):
         guard deliverIfCurrent(data, from: socket, generation: generation) else { return }
-      case .closed(let code):
-        closeCode = code
+      case .closed(let closed):
+        facts = closed
         await beforeHandlingClose?()
         break receiving
       }
     }
-    await handleClose(of: socket, closeCode: closeCode, generation: generation)
+    await handleClose(
+      of: socket, closeCode: facts.code, httpStatus: facts.httpStatus, error: facts.error,
+      generation: generation)
   }
 
   /// Whether the pump — or the pong callback — asking still owns the
@@ -613,8 +748,13 @@ public actor PTYConnection {
   ///   `.goingAway` (1001) and pointed `task` at a new socket or at `nil`.
   ///   `URLSessionWebSocketTask.CloseCode` has no case for 4000 or 4001, so the
   ///   comparison is on raw values, never on enum cases.
+  /// - Parameters:
+  ///   - httpStatus: the status of a refused upgrade, captured beside the code.
+  ///   - error: the transport error, captured beside the code. Like
+  ///     `httpStatus` it only feeds `attempts()`; the policy never reads it.
   private func handleClose(
-    of socket: URLSessionWebSocketTask, closeCode: Int, generation: Int
+    of socket: URLSessionWebSocketTask, closeCode: Int, httpStatus: Int?, error: String?,
+    generation: Int
   ) async {
     // Before the guard, and keyed on the generation rather than on `task`:
     // see `recordCloseCode(_:generation:)`.
@@ -646,8 +786,10 @@ public actor PTYConnection {
     // shorter is an attach against a herdr that is not there. `everAttached` is
     // deliberately not the test: a long-lived but silent terminal is healthy.
     let lived = connectedAt.map { ContinuousClock.now - $0 } ?? .zero
+    lastDrop = Drop(closeCode: closeCode, httpStatus: httpStatus, error: error, lived: lived)
     if lived >= Self.fastFailWindow {
       consecutiveFastFails = 0
+      attemptNumber = 0
     } else {
       consecutiveFastFails += 1
     }
@@ -662,6 +804,7 @@ public actor PTYConnection {
 
     // Said before the sleep, so a view can repaint "reconnecting" immediately
     // rather than after the delay.
+    report(.waiting(reconnectDelay))
     deliver(lifecycle: .detached)
     do {
       try await Task.sleep(for: reconnectDelay)

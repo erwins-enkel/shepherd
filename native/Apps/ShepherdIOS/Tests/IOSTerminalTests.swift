@@ -55,6 +55,7 @@ final class IOSTerminalTests: XCTestCase {
             IOSTerminalHostView.dismantleUIView(view, coordinator: coordinator)
             XCTAssertNil(view.terminalDelegate)
             XCTAssertNil(view.onUserScroll)
+            XCTAssertNil(view.onWheel)
             XCTAssertNil(session.onOutput)
             XCTAssertNil(session.onClear)
             XCTAssertNil(presentation.scrollToTail)
@@ -148,6 +149,65 @@ final class IOSTerminalTests: XCTestCase {
         presentation.rendererUnmounted()
     }
 
+    func testWheelTurnsFingerTravelIntoWholeLinesAndCoastsToAStop() {
+        var wheel = IOSTerminalWheel(lineHeight: 10)
+        XCTAssertEqual(wheel.drag(by: 6), 0)
+        XCTAssertEqual(wheel.drag(by: 6), 1, "The remainder carries into the next move")
+        XCTAssertEqual(wheel.drag(by: -25), -2)
+        XCTAssertEqual(wheel.drag(by: -7), -1)
+        wheel.release(velocity: 20)
+        XCTAssertNil(wheel.coast(dt: 0.016), "A slow release does not coast")
+        wheel.release(velocity: 1_000_000)
+        XCTAssertEqual(wheel.velocity, IOSTerminalWheel.maximumVelocity)
+        var coasted = 0
+        var frames = 0
+        while let lines = wheel.coast(dt: 0.016) {
+            coasted += lines
+            frames += 1
+            XCTAssertLessThan(frames, 1000, "Momentum must decay")
+        }
+        XCTAssertGreaterThan(coasted, 0)
+        XCTAssertEqual(wheel.velocity, 0)
+        wheel.release(velocity: -3000)
+        XCTAssertLessThan(wheel.coast(dt: 0.1) ?? 0, 0, "Flicking up coasts toward newer output")
+    }
+
+    func testAgentScrollDepthDrivesLatestOutputAndJumpsWithCtrlEnd() async {
+        let pty = IOSFixturePTY()
+        let core = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
+        let presentation = IOSTerminalPresentation(session: core, reply: { _ in })
+        presentation.rendererMounted(cols: 50, rows: 20)
+        presentation.visibilityChanged(visible: true, active: true)
+        pty.emit(.attached)
+        await settle { core.phase == .live }
+        XCTAssertTrue(presentation.agentScrolled(lines: 3))
+        XCTAssertFalse(presentation.followsTail)
+        XCTAssertTrue(presentation.agentScrolled(lines: -2), "Still above the tail")
+        XCTAssertFalse(presentation.followsTail)
+        XCTAssertFalse(presentation.agentScrolled(lines: -5), "Reaching the tail ends a coasting flick")
+        XCTAssertTrue(presentation.followsTail)
+        var jumps = 0
+        presentation.scrollToTail = { jumps += 1 }
+        presentation.jumpToTail()
+        XCTAssertTrue(pty.sent.isEmpty, "At the tail there is nothing to ask the agent for")
+        _ = presentation.agentScrolled(lines: 4)
+        presentation.jumpToTail()
+        XCTAssertEqual(Array(pty.sent.last ?? Data()), Array("\u{1b}[1;5F".utf8))
+        XCTAssertTrue(presentation.followsTail)
+        XCTAssertEqual(jumps, 2)
+        let count = pty.sent.count
+        _ = presentation.agentScrolled(lines: 1)
+        presentation.resetAgentScroll()
+        XCTAssertTrue(presentation.followsTail)
+        presentation.jumpToTail()
+        _ = presentation.agentScrolled(lines: 1)
+        presentation.replayWillBegin()
+        XCTAssertTrue(presentation.followsTail)
+        presentation.jumpToTail()
+        XCTAssertEqual(pty.sent.count, count, "A reset or replay leaves no agent position to jump from")
+        presentation.rendererUnmounted()
+    }
+
     func testRendererFeedsLiveBytesAndPreservesHistory() async {
         let pty = IOSFixturePTY()
         let session = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
@@ -212,6 +272,78 @@ final class IOSTerminalTests: XCTestCase {
         XCTAssertEqual(view.getTerminal().buffer.yDisp, originalTail, "Replay must not duplicate scrollback")
         attachments[1].emit("\u{1b}[c")
         await settle { !attachments[1].sent.isEmpty }
+        presentation.rendererUnmounted()
+    }
+
+    func testSwipesBecomeAgentWheelReportsWhileTheAgentTracksTheMouse() async {
+        let pty = IOSFixturePTY()
+        let core = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
+        let presentation = IOSTerminalPresentation(session: core, reply: { _ in })
+        let coordinator = IOSTerminalHostView.Coordinator(model: presentation)
+        let view = IOSWatchingTerminalView(frame: CGRect(x: 0, y: 0, width: 390, height: 400),
+            font: .monospacedSystemFont(ofSize: 12, weight: .regular))
+        view.terminalDelegate = coordinator
+        coordinator.bind(view)
+        let pans = view.gestureRecognizers?.filter { $0 is UIPanGestureRecognizer }.count
+        presentation.visibilityChanged(visible: true, active: true)
+        pty.emit(.attached)
+        pty.emit((0..<100).map { "fixture line \($0)\r\n" }.joined())
+        await settle { view.canScroll && core.phase == .live }
+        XCTAssertFalse(view.forwardsSwipesToAgent, "Plain output keeps SwiftTerm's local scrolling")
+        // Claude Code turns on button tracking with SGR encoding.
+        pty.emit("\u{1b}[?1002h\u{1b}[?1006h")
+        await settle { view.agentOwnsScroll }
+        XCTAssertTrue(view.forwardsSwipesToAgent)
+        XCTAssertFalse(view.gestureRecognizerShouldBegin(view.panGestureRecognizer), "The agent owns the scroll")
+        XCTAssertEqual(view.gestureRecognizers?.filter { $0 is UIPanGestureRecognizer }.count, pans,
+            "SwiftTerm's inert mouse pan must not compete with the swipe")
+        XCTAssertTrue(pty.sent.isEmpty)
+        let terminal = view.getTerminal()
+        let centre = "\(terminal.cols / 2 + 1);\(terminal.rows / 2 + 1)M"
+        XCTAssertEqual(view.onWheel?(2), true)
+        XCTAssertEqual(pty.sent.map { String(decoding: $0, as: UTF8.self) },
+            ["\u{1b}[<64;\(centre)", "\u{1b}[<64;\(centre)"])
+        XCTAssertFalse(presentation.followsTail)
+        XCTAssertEqual(view.onWheel?(-1), true)
+        XCTAssertEqual(String(decoding: pty.sent.last ?? Data(), as: UTF8.self), "\u{1b}[<65;\(centre)")
+        XCTAssertTrue(view.accessibilityScroll(.up))
+        XCTAssertEqual(pty.sent.count, 3 + terminal.rows, "VoiceOver pages the agent's view")
+        coordinator.send(source: view, data: [3])
+        XCTAssertEqual(pty.sent.count, 3 + terminal.rows, "Touch output outside the wheel path stays local")
+        presentation.jumpToTail()
+        XCTAssertEqual(String(decoding: pty.sent.last ?? Data(), as: UTF8.self), "\u{1b}[1;5F")
+        XCTAssertTrue(presentation.followsTail)
+        _ = view.onWheel?(1)
+        XCTAssertFalse(presentation.followsTail)
+        pty.emit("\u{1b}[?1002l")
+        await settle { !view.agentOwnsScroll }
+        XCTAssertTrue(presentation.followsTail, "Leaving mouse tracking ends the agent's scroll")
+        XCTAssertFalse(view.forwardsSwipesToAgent)
+        let sentBeforeExit = pty.sent.count
+        XCTAssertEqual(view.onWheel?(1), false, "A drag or coast that outlives mouse tracking stops")
+        XCTAssertEqual(pty.sent.count, sentBeforeExit, "No wheel report reaches the program that took over")
+        XCTAssertTrue(presentation.followsTail)
+        presentation.rendererUnmounted()
+    }
+
+    func testReadOnlyTerminalNeverForwardsSwipes() async {
+        let pty = IOSFixturePTY()
+        let core = TerminalSessionModel(sessionID: "fixture", allowsInput: false, reply: { _ in },
+            makeAttachment: { _, _ in pty })
+        let presentation = IOSTerminalPresentation(session: core, allowsInput: false, reply: { _ in })
+        let coordinator = IOSTerminalHostView.Coordinator(model: presentation)
+        let view = IOSWatchingTerminalView(frame: CGRect(x: 0, y: 0, width: 390, height: 400),
+            font: .monospacedSystemFont(ofSize: 12, weight: .regular))
+        view.terminalDelegate = coordinator
+        coordinator.bind(view)
+        presentation.visibilityChanged(visible: true, active: true)
+        pty.emit(.attached)
+        pty.emit("\u{1b}[?1002h\u{1b}[?1006h")
+        await settle { view.agentOwnsScroll && core.phase == .live }
+        XCTAssertFalse(view.forwardsSwipesToAgent, "Read-only keeps local scrolling")
+        XCTAssertEqual(view.onWheel?(1), false)
+        XCTAssertTrue(pty.sent.isEmpty)
+        XCTAssertTrue(presentation.followsTail)
         presentation.rendererUnmounted()
     }
 

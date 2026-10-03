@@ -7,8 +7,129 @@ import UIKit
 /// Text entry and control keys live in explicit controls below it.
 final class IOSWatchingTerminalView: SwiftTerm.TerminalView {
     var onUserScroll: (@MainActor (Double, Bool) -> Void)?
+    /// Whether wheel input may reach the agent now: a live attachment that permits input.
+    var canForwardWheel: (@MainActor () -> Bool)?
+    /// Forwards wheel lines (positive reveals older output); false ends a coasting flick.
+    var onWheel: (@MainActor (Int) -> Bool)?
+    var onAgentScrollEnded: (@MainActor () -> Void)?
+    private var wheelPan: UIPanGestureRecognizer?
+    private var wheel = IOSTerminalWheel(lineHeight: 1)
+    private var momentum: Task<Void, Never>?
     override var canBecomeFirstResponder: Bool { false }
+
+    /// Claude Code tracks the mouse and repaints its own scrolled transcript, so local
+    /// history cannot move it.
+    var agentOwnsScroll: Bool { getTerminal().mouseMode != .off }
+    /// Vertical swipes then become wheel input for the agent, as on the web and Mac.
+    /// Everything else keeps SwiftTerm's local scrolling.
+    var forwardsSwipesToAgent: Bool { agentOwnsScroll && canForwardWheel?() == true }
+
+    func installWheelScroll() {
+        guard wheelPan == nil else { return }
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(wheelPanned(_:)))
+        pan.maximumNumberOfTouches = 1
+        addGestureRecognizer(pan)
+        wheelPan = pan
+    }
+
+    /// One wheel report per line through SwiftTerm's encoder, so the app's chosen mouse
+    /// protocol (SGR for Claude Code) is honoured. Reported at the grid centre.
+    func sendWheel(lines: Int) {
+        let terminal = getTerminal()
+        let flags = terminal.encodeButton(button: lines > 0 ? 4 : 5, release: false,
+            shift: false, meta: false, control: false)
+        for _ in 0..<abs(lines) {
+            terminal.sendEvent(buttonFlags: flags, x: terminal.cols / 2, y: terminal.rows / 2)
+        }
+    }
+
+    func stopWheelMomentum() {
+        momentum?.cancel()
+        momentum = nil
+        wheel.stop()
+    }
+
+    // SwiftTerm adds a mouse pan recognizer while the app tracks the mouse. With mouse
+    // reporting off its handler does nothing, yet it still competes with scrolling.
+    override func mouseModeChanged(source: SwiftTerm.Terminal) {
+        guard source.mouseMode == .off else { return }
+        // Cancel a drag in flight: the program that takes over must not receive wheel reports.
+        if let wheelPan, wheelPan.state != .possible {
+            wheelPan.isEnabled = false
+            wheelPan.isEnabled = true
+        }
+        stopWheelMomentum()
+        onAgentScrollEnded?()
+    }
+
+    override func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
+        if let wheelPan, recognizer === wheelPan {
+            let velocity = wheelPan.velocity(in: self)
+            return forwardsSwipesToAgent && abs(velocity.y) > abs(velocity.x)
+        }
+        if recognizer === panGestureRecognizer, forwardsSwipesToAgent { return false }
+        return super.gestureRecognizerShouldBegin(recognizer)
+    }
+
+    // A fresh touch catches the coast, like grabbing a moving page.
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        stopWheelMomentum()
+        super.touchesBegan(touches, with: event)
+    }
+
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        if newWindow == nil { stopWheelMomentum() }
+    }
+
+    @objc private func wheelPanned(_ pan: UIPanGestureRecognizer) {
+        switch pan.state {
+        case .began:
+            stopWheelMomentum()
+            wheel = IOSTerminalWheel(lineHeight: font.lineHeight)
+        case .changed:
+            let lines = wheel.drag(by: pan.translation(in: self).y)
+            pan.setTranslation(.zero, in: self)
+            if lines != 0 { _ = onWheel?(lines) }
+        case .ended:
+            wheel.release(velocity: pan.velocity(in: self).y)
+            coast()
+        default:
+            stopWheelMomentum()
+        }
+    }
+
+    private func coast() {
+        guard wheel.velocity != 0 else { return }
+        momentum?.cancel()
+        momentum = Task { @MainActor [weak self] in
+            var last = ContinuousClock.now
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(16))
+                guard !Task.isCancelled, let self else { return }
+                let now = ContinuousClock.now
+                let lines = self.wheel.coast(dt: (now - last) / .seconds(1))
+                last = now
+                guard let lines else { return }
+                if lines != 0, self.onWheel?(lines) != true {
+                    self.wheel.stop()
+                    return
+                }
+            }
+        }
+    }
+
     override func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
+        if forwardsSwipesToAgent {
+            let page = getTerminal().rows
+            switch direction {
+            case .up, .previous: _ = onWheel?(page)
+            case .down, .next: _ = onWheel?(-page)
+            default: return false
+            }
+            UIAccessibility.post(notification: .pageScrolled, argument: nil)
+            return true
+        }
         guard canScroll else { return false }
         let scrolled = super.accessibilityScroll(direction)
         if scrolled {
@@ -80,6 +201,10 @@ struct IOSTerminalHostView: UIViewRepresentable {
     static func dismantleUIView(_ view: IOSWatchingTerminalView, coordinator: Coordinator) {
         view.terminalDelegate = nil
         view.onUserScroll = nil
+        view.canForwardWheel = nil
+        view.onWheel = nil
+        view.onAgentScrollEnded = nil
+        view.stopWheelMomentum()
         coordinator.model.rendererUnmounted()
         view.updateUiClosed()
     }
@@ -90,6 +215,7 @@ struct IOSTerminalHostView: UIViewRepresentable {
         var onHorizontalPan: (@MainActor (IOSHorizontalPan) -> Void)?
         var onDoubleTap: (@MainActor () -> Void)?
         private var feedingOutput = false
+        private var forwardingWheel = false
 
         @objc func doubleTapped() { onDoubleTap?() }
 
@@ -120,6 +246,13 @@ struct IOSTerminalHostView: UIViewRepresentable {
             view.onUserScroll = { [weak model] position, canScroll in
                 model?.userScrolled(position: position, canScroll: canScroll)
             }
+            view.canForwardWheel = { [weak model] in model?.canSendInput == true }
+            view.onWheel = { [weak self, weak view] lines in
+                guard let self, let view else { return false }
+                return self.forwardWheel(view, lines: lines)
+            }
+            view.onAgentScrollEnded = { [weak model] in model?.resetAgentScroll() }
+            view.installWheelScroll()
             model.scrollToTail = { [weak view] in view?.scroll(toPosition: 1) }
             model.session.onClear = { [weak view, weak model] in
                 view?.getTerminal().resetToInitialState()
@@ -142,10 +275,21 @@ struct IOSTerminalHostView: UIViewRepresentable {
             model.resize(cols: newCols, rows: newRows)
         }
 
+        /// The one gesture that reaches the agent: it owns its transcript scroll while it
+        /// tracks the mouse.
+        private func forwardWheel(_ view: IOSWatchingTerminalView, lines: Int) -> Bool {
+            guard view.agentOwnsScroll, model.canSendInput else { return false }
+            forwardingWheel = true
+            view.sendWheel(lines: lines)
+            forwardingWheel = false
+            return model.agentScrolled(lines: lines)
+        }
+
         func send(source: SwiftTerm.TerminalView, data: ArraySlice<UInt8>) {
-            // Only emulator protocol replies travel here. Touch navigation never sends
-            // bytes, including SwiftTerm's alternate-buffer pan-to-arrow translation.
-            guard feedingOutput else { return }
+            // Only emulator protocol replies and agent-owned wheel scrolling travel here.
+            // Taps, selection and SwiftTerm's alternate-buffer pan-to-arrow translation
+            // never send bytes.
+            guard feedingOutput || forwardingWheel else { return }
             model.session.send(Data(data))
         }
 

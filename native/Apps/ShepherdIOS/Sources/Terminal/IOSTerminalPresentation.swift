@@ -24,6 +24,8 @@ final class IOSTerminalPresentation {
     @ObservationIgnored var scrollToTail: (@MainActor () -> Void)?
     private var visible = false
     private var active = false
+    /// Wheel lines the operator scrolled up in the agent's own view (see `agentScrolled`).
+    private var agentScrollDepth = 0
     private var rendererReady = false
     private var cols = 80
     private var rows = 24
@@ -176,12 +178,30 @@ final class IOSTerminalPresentation {
         followsTail = !canScroll || position >= 1
     }
 
-    func jumpToTail() {
+    /// Claude Code tracks the mouse and repaints its own scrolled transcript, so the local
+    /// view never moves: count the forwarded wheel lines instead, like the web terminal's
+    /// gesture accumulator. Returns false once scrolling down reaches the live tail,
+    /// which ends a coasting flick.
+    func agentScrolled(lines: Int) -> Bool {
+        agentScrollDepth = max(0, agentScrollDepth + lines)
+        followsTail = agentScrollDepth == 0
+        return lines > 0 || agentScrollDepth > 0
+    }
+
+    func resetAgentScroll() {
+        agentScrollDepth = 0
         followsTail = true
+    }
+
+    func jumpToTail() {
+        // The agent owns that scroll: Ctrl+End is Claude's jump-to-latest shortcut,
+        // the same lever the web terminal sends.
+        if agentScrollDepth > 0, canSendInput { session.send(Data("\u{1b}[1;5F".utf8)) }
+        resetAgentScroll()
         scrollToTail?()
     }
 
-    func replayWillBegin() { followsTail = true }
+    func replayWillBegin() { resetAgentScroll() }
 
     private func reconcile() {
         let shouldAttach = visible && active && rendererReady

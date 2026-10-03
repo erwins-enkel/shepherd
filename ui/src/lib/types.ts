@@ -1534,6 +1534,15 @@ export interface GhRateBucket {
   resetAt: number;
 }
 
+/** Shepherd's own backoff state for one GitHub bucket. Mirrors the server
+ *  `RateLimitSnapshot`. */
+export interface GhBackoff {
+  remaining: number | null;
+  resetAt: number | null;
+  pausedUntil: number | null;
+  blocked: boolean;
+}
+
 /** GitHub REST + GraphQL rate-limit state shown in the usage view's GitHub tab.
  *  Mirrors the server `GithubRateLimitPayload`. GitHub runs the REST and GraphQL
  *  buckets independently, so one can be exhausted while the other is healthy. */
@@ -1545,12 +1554,10 @@ export interface GithubRateLimit {
   fetchedAt: number;
   /** Shepherd's GraphQL backoff state — explains a polling pause even before a
    *  bucket is fully empty. */
-  backoff: {
-    remaining: number | null;
-    resetAt: number | null;
-    pausedUntil: number | null;
-    blocked: boolean;
-  };
+  backoff: GhBackoff;
+  /** Shepherd's REST backoff state — the only signal of a REST pause, since
+   *  `rest` can read full while every real REST call is refused. */
+  restBackoff: GhBackoff;
 }
 
 /** Raw token detail (authoring side). */

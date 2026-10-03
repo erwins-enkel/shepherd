@@ -16,6 +16,7 @@ function fixture(over: Partial<GithubRateLimit> = {}): GithubRateLimit {
     search: { limit: 30, used: 0, remaining: 30, resetAt: BASE + H },
     fetchedAt: BASE,
     backoff: { remaining: 0, resetAt: BASE + H, pausedUntil: BASE + H, blocked: true },
+    restBackoff: { remaining: null, resetAt: null, pausedUntil: null, blocked: false },
     ...over,
   };
 }
@@ -64,6 +65,52 @@ describe("GithubLens", () => {
     await expect
       .element(page.getByText("GraphQL budget exhausted", { exact: false }))
       .not.toBeInTheDocument();
+  });
+
+  it("marks a backed-off REST bucket Paused even while it reads full (#2662)", async () => {
+    // `gh api rate_limit` was seen reporting 5000/5000 while every real REST call
+    // 403'd — Shepherd's REST backoff is the only signal, so it must show.
+    const data = fixture({
+      rest: { limit: 5000, used: 0, remaining: 5000, resetAt: BASE + H },
+      graphql: { limit: 5000, used: 1000, remaining: 4000, resetAt: BASE + H },
+      backoff: { remaining: 4000, resetAt: BASE + H, pausedUntil: null, blocked: false },
+      restBackoff: {
+        remaining: null,
+        resetAt: null,
+        pausedUntil: BASE + 5 * 60_000,
+        blocked: true,
+      },
+    });
+    render(GithubLens, { data });
+    await expect
+      .element(page.getByText(m.github_lens_paused(), { exact: true }))
+      .toBeInTheDocument();
+    // Time-independent clause of the banner, plus the hint that the numbers can't be trusted.
+    await expect
+      .element(page.getByText("REST reads are paused", { exact: false }))
+      .toBeInTheDocument();
+    expect(document.body.textContent).toContain("may still read full");
+    expect(document.body.textContent).not.toContain("REST budget exhausted");
+  });
+
+  it("shows only the exhausted REST banner when the bucket is empty and backed off", async () => {
+    const data = fixture({
+      rest: { limit: 5000, used: 5000, remaining: 0, resetAt: BASE + H },
+      graphql: { limit: 5000, used: 1000, remaining: 4000, resetAt: BASE + H },
+      backoff: { remaining: 4000, resetAt: BASE + H, pausedUntil: null, blocked: false },
+      restBackoff: {
+        remaining: null,
+        resetAt: null,
+        pausedUntil: BASE + 5 * 60_000,
+        blocked: true,
+      },
+    });
+    render(GithubLens, { data });
+    await expect
+      .element(page.getByText("REST budget exhausted", { exact: false }))
+      .toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("REST reads are paused");
+    expect(document.body.textContent).not.toContain(m.github_lens_paused());
   });
 
   it("shows no pill when both buckets are healthy and backoff is clear", async () => {

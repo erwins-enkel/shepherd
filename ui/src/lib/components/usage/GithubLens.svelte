@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { GithubRateLimit, GhRateBucket } from "$lib/types";
+  import type { GithubRateLimit, GhBackoff, GhRateBucket } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { gaugeColor } from "$lib/components/usage-gauges";
   import { formatResetIn } from "$lib/format";
@@ -12,8 +12,8 @@
     bucket: GhRateBucket;
     label: string;
     desc: string;
-    /** True when this is the GraphQL bucket — drives the backoff-aware paused banner. */
-    isGraphql: boolean;
+    /** Shepherd's backoff for this bucket (none for Search) — drives the "Paused" pill. */
+    backoff: GhBackoff | null;
   };
 
   // Build only the buckets we actually received, in fixed order (REST, GraphQL, Search).
@@ -24,21 +24,21 @@
         bucket: d.rest,
         label: m.github_lens_rest_label(),
         desc: m.github_lens_rest_desc(),
-        isGraphql: false,
+        backoff: d.restBackoff,
       });
     if (d.graphql)
       out.push({
         bucket: d.graphql,
         label: m.github_lens_graphql_label(),
         desc: m.github_lens_graphql_desc(),
-        isGraphql: true,
+        backoff: d.backoff,
       });
     if (d.search)
       out.push({
         bucket: d.search,
         label: m.github_lens_search_label(),
         desc: m.github_lens_search_desc(),
-        isGraphql: false,
+        backoff: null,
       });
     return out;
   }
@@ -54,7 +54,10 @@
   // bucket still has budget ("paused" — a transient secondary-rate-limit error).
   const graphqlExhausted = $derived(!!data.graphql && data.graphql.remaining <= 0);
   const graphqlBackedOff = $derived(!graphqlExhausted && data.backoff.blocked);
-  const restPaused = $derived(!!data.rest && data.rest.remaining <= 0);
+  // REST keeps the same split. Its backoff is the only trustworthy signal: `rate_limit`
+  // can report a full REST budget while every real REST call is refused (#2662).
+  const restExhausted = $derived(!!data.rest && data.rest.remaining <= 0);
+  const restBackedOff = $derived(!restExhausted && data.restBackoff.blocked);
 
   // When to resume GraphQL: the later of the bucket reset and any active backoff window.
   const graphqlResumeAt = $derived(
@@ -62,11 +65,11 @@
   );
 
   // Status pill for a row: "Exhausted" only when the bucket is truly empty;
-  // "Paused" when GraphQL polling is backed off while the bucket still has budget
-  // (a transient secondary-rate-limit error, not a drained quota); none otherwise.
+  // "Paused" when Shepherd backed off the bucket while it still reads as having
+  // budget (a transient rate-limit error, not a drained quota); none otherwise.
   function pillLabel(row: Row): string | null {
     if (row.bucket.remaining <= 0) return m.github_lens_exhausted();
-    if (row.isGraphql && data.backoff.blocked) return m.github_lens_paused();
+    if (row.backoff?.blocked) return m.github_lens_paused();
     return null;
   }
 </script>
@@ -83,9 +86,15 @@
       {m.github_lens_graphql_backoff({ time: formatResetIn(graphqlResumeAt, nowMs) })}
     </div>
   {/if}
-  {#if restPaused && data.rest}
+  {#if restExhausted && data.rest}
     <div class="paused-banner" role="alert">
       {m.github_lens_rest_paused({ time: formatResetIn(data.rest.resetAt, nowMs) })}
+    </div>
+  {:else if restBackedOff}
+    <div class="paused-banner" role="alert">
+      {m.github_lens_rest_backoff({
+        time: formatResetIn(data.restBackoff.pausedUntil ?? 0, nowMs),
+      })}
     </div>
   {/if}
 

@@ -239,6 +239,7 @@ export function buildGithubRateLimit(): GithubRateLimit {
     search: { limit: 30, used: 4, remaining: 26, resetAt: NOW + 60_000 },
     fetchedAt: NOW - 45_000,
     backoff: { remaining: 4110, resetAt: NOW + 38 * 60_000, pausedUntil: null, blocked: false },
+    restBackoff: { remaining: null, resetAt: null, pausedUntil: null, blocked: false },
   };
 }
 

@@ -97,13 +97,13 @@ struct HeldQueueTests {
         #expect(request.mergeTrainPrs == [12, 34])
     }
 
-    @Test func editValidationRejectsMissingFieldsAndOversizedPrompts() throws {
+    @Test func editValidationRejectsMissingFieldsAndAcceptsLongPrompts() throws {
         var request = HeldQueuePresentation.editRequest(try entry().input)
         #expect(HeldQueuePresentation.canSave(request))
         request.prompt = " \n "
         #expect(!HeldQueuePresentation.canSave(request))
         request.prompt = String(repeating: "a", count: 8_001)
-        #expect(!HeldQueuePresentation.canSave(request))
+        #expect(HeldQueuePresentation.canSave(request))
         request.prompt = "valid"
         request.repoPath = " "
         #expect(!HeldQueuePresentation.canSave(request))
@@ -128,7 +128,12 @@ struct HeldQueueTests {
     }
 
     @Test func saveSendsTheFullRequestAndThenRereads() async throws {
-        let input = HeldQueuePresentation.editRequest(try entry().input)
+        var row = try entry()
+        row.input.prompt = "Anfang\n" + String(repeating: "Aufgabe 🐑\n", count: 8_001) + "Ende\n"
+        var input = HeldQueuePresentation.editRequest(row.input)
+        #expect(input.prompt == row.input.prompt && HeldQueuePresentation.canSave(input))
+        input.prompt += "Änderung\n"
+        #expect(HeldQueuePresentation.canSave(input))
         var saved: CreateSessionRequest?
         var calls: [String] = []
         let commands = HeldQueueCommands(spawn: { _, _ in }, update: { id, request in

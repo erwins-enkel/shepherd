@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { prepareTaskPrompt, removeTaskPromptFile } from "./task-prompt-file";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -2203,8 +2204,8 @@ type SpawnOutcome =
   SpawnSuccess | { ok: false; holdReason: string; abortCause?: PluginSpawnAborted };
 
 /** Total char budget for the issue-comment block appended to a spawn prompt. Generous —
- *  comments ride out-of-band like the body, so they don't count against the 8000-char
- *  human-prompt guard; this only bounds a runaway thread from bloating the agent's context. */
+ *  comments ride separately like the body; this bounds a runaway thread from bloating
+ *  the agent's context. */
 export const ISSUE_COMMENTS_CHAR_BUDGET = 50_000;
 
 /** True when a comment is one of Shepherd's own issue-log workflow notes: marker-tagged
@@ -2436,8 +2437,8 @@ export class SessionService {
 
   /**
    * Build the human-turn prompt: the user's text plus any attached files, the issue
-   * body, and the issue's comment thread — all appended out-of-band so they never count
-   * against the 8000-char human-prompt guard (the same approach for each). The comment
+   * body, and the issue's comment thread — all appended separately from the operator's
+   * task text, which uses file delivery when long. The comment
    * thread is the human discussion that refined the original request; fetching it is
    * best-effort (see fetchIssueCommentsBlock) so a spawn never fails on comments.
    *
@@ -2450,11 +2451,12 @@ export class SessionService {
     worktreePath: string,
   ): Promise<{
     promptArg: string;
+    taskFile: string | null;
     dropped: number;
     injectionHits: string[];
     attachments: LaunchAttachmentMetadata[];
   }> {
-    let promptArg = input.prompt;
+    let promptArg = "";
     const scanTargets: string[] = [];
     // #2225: standing amendments CARRIED from the session this spawn continues (relaunch /
     // provider replace). Folded in here, next to the task and outside every fence, so the agent
@@ -2478,8 +2480,10 @@ export class SessionService {
         scanTargets.push(comments);
       }
     }
+    const task = prepareTaskPrompt(input.prompt, worktreePath, "execute");
     return {
-      promptArg,
+      promptArg: task.prompt + promptArg,
+      taskFile: task.filePath,
       dropped: uploads.dropped,
       injectionHits: scanForInjection(scanTargets.join("\n")),
       attachments: uploads.attachments,
@@ -4054,6 +4058,7 @@ export class SessionService {
     const wt = await phases.phase("worktree", () =>
       this.deps.worktree.create(input.repoPath, baseRef, name),
     );
+    let taskFile: string | null = null;
     // The worktree is created before the agent can start, so any failure past this
     // point (e.g. herdr `tab create` rejecting) would otherwise leave an orphan
     // worktree with no session row. Roll it back so a failed create leaves nothing.
@@ -4063,12 +4068,11 @@ export class SessionService {
     try {
       const claudeSessionId = randomUUID();
 
-      const {
-        promptArg,
-        dropped: droppedImages,
-        injectionHits,
-        attachments,
-      } = await phases.phase("prompt", () => this.composePromptArg(input, wt.worktreePath));
+      const composed = await phases.phase("prompt", () =>
+        this.composePromptArg(input, wt.worktreePath),
+      );
+      taskFile = composed.taskFile;
+      const { promptArg, dropped: droppedImages, injectionHits, attachments } = composed;
       const {
         launchIdentity,
         agentProvider,
@@ -4203,6 +4207,7 @@ export class SessionService {
       return session;
     } catch (e) {
       // best-effort rollback; surface the original failure, not any cleanup error
+      removeTaskPromptFile(taskFile);
       if (wt.isolated) {
         try {
           this.deps.worktree.remove(wt.worktreePath, {
@@ -4485,80 +4490,85 @@ export class SessionService {
       carriedAmendments: this.deps.store.listActiveTaskAmendments(s.id),
     };
     const composed = await this.composePromptArg(input, s.worktreePath);
-    const promptArg =
-      promptUploads.length > 0
-        ? `${composed.promptArg}\n\nAttached files:\n${promptUploads.join("\n")}`
-        : composed.promptArg;
-    const launch = await this.resolveCreateLaunch(
-      input,
-      { isolated: s.isolated, worktreePath: s.worktreePath },
-      promptArg,
-      s.id,
-      claudeSessionId,
-      { planGateOn: s.planPhase === "planning" },
-    );
-
-    const outcome = await this.prepareSpawnOrThrow(launch.argv, {
-      sessionId: s.id,
-      name: s.name,
-      worktreePath: s.worktreePath,
-      repoPath: s.repoPath,
-      isolated: s.isolated,
-      auto: false,
-      profileOverride: launch.profileOverride,
-      model: launch.spawnInput.model,
-      agentProvider,
-    });
-
     try {
-      this.deps.store.update(s.id, {
-        herdrAgentId: outcome.terminalId,
-        ...launch.launchIdentity,
-        // Relaunch spawns a fresh agent → a fresh rollout; clear any stale captured Codex id so the
-        // poller resolves the new launch marker, never an earlier conversation for this task.
-        providerSessionId: "",
+      const promptArg =
+        promptUploads.length > 0
+          ? `${composed.promptArg}\n\nAttached files:\n${promptUploads.join("\n")}`
+          : composed.promptArg;
+      const launch = await this.resolveCreateLaunch(
+        input,
+        { isolated: s.isolated, worktreePath: s.worktreePath },
+        promptArg,
+        s.id,
+        claudeSessionId,
+        { planGateOn: s.planPhase === "planning" },
+      );
+
+      const outcome = await this.prepareSpawnOrThrow(launch.argv, {
+        sessionId: s.id,
+        name: s.name,
+        worktreePath: s.worktreePath,
+        repoPath: s.repoPath,
+        isolated: s.isolated,
+        auto: false,
+        profileOverride: launch.profileOverride,
+        model: launch.spawnInput.model,
         agentProvider,
-        model: launch.resolvedInput.model,
-        // Mirror the create path (#1418): persist the effort actually spawned with, so a later
-        // resume of this same row (post-crash) re-emits the effort the operator chose here rather
-        // than reverting to whatever was stored before the replace.
-        effort: launch.spawnInput.effort ?? null,
-        status: "running",
-        lastState: "idle",
-        readyToMerge: false,
-        mergingSince: null,
-        mergingTrainId: null,
-        mergingPrNumber: null,
-        // Provider-agnostic (TASK-413): mirror the create path — Codex persists the flag too, so a
-        // replaced Codex session that entered planning (launch.planGateOn) doesn't record the gate
-        // as disabled (which would mis-display and drop the explicit-on choice on resume).
-        planGateEnabled: launch.spawnInput.planGateEnabled ?? null,
-        planPhase: s.planPhase,
       });
-      this.deps.store.setSandboxState(s.id, {
-        applied: outcome.applied,
-        degraded: outcome.degraded,
-        egressApplied: outcome.egressApplied,
-        egressDegraded: outcome.egressDegraded,
-      });
-      const updated = this.deps.store.get(s.id);
-      if (updated) this.persistSpawnIdentity(updated, outcome);
-    } catch (e) {
+
       try {
-        await this.deps.herdr.stop(outcome.terminalId);
-      } catch {
-        /* best-effort: leave the original agent registered if persistence failed */
+        this.deps.store.update(s.id, {
+          herdrAgentId: outcome.terminalId,
+          ...launch.launchIdentity,
+          // Relaunch spawns a fresh agent → a fresh rollout; clear any stale captured Codex id so the
+          // poller resolves the new launch marker, never an earlier conversation for this task.
+          providerSessionId: "",
+          agentProvider,
+          model: launch.resolvedInput.model,
+          // Mirror the create path (#1418): persist the effort actually spawned with, so a later
+          // resume of this same row (post-crash) re-emits the effort the operator chose here rather
+          // than reverting to whatever was stored before the replace.
+          effort: launch.spawnInput.effort ?? null,
+          status: "running",
+          lastState: "idle",
+          readyToMerge: false,
+          mergingSince: null,
+          mergingTrainId: null,
+          mergingPrNumber: null,
+          // Provider-agnostic (TASK-413): mirror the create path — Codex persists the flag too, so a
+          // replaced Codex session that entered planning (launch.planGateOn) doesn't record the gate
+          // as disabled (which would mis-display and drop the explicit-on choice on resume).
+          planGateEnabled: launch.spawnInput.planGateEnabled ?? null,
+          planPhase: s.planPhase,
+        });
+        this.deps.store.setSandboxState(s.id, {
+          applied: outcome.applied,
+          degraded: outcome.degraded,
+          egressApplied: outcome.egressApplied,
+          egressDegraded: outcome.egressDegraded,
+        });
+        const updated = this.deps.store.get(s.id);
+        if (updated) this.persistSpawnIdentity(updated, outcome);
+      } catch (e) {
+        try {
+          await this.deps.herdr.stop(outcome.terminalId);
+        } catch {
+          /* best-effort: leave the original agent registered if persistence failed */
+        }
+        throw e;
       }
-      throw e;
-    }
 
-    try {
-      await this.deps.herdr.stop(s.herdrAgentId);
-    } catch {
-      /* best-effort: the replacement is already persisted */
-    }
+      try {
+        await this.deps.herdr.stop(s.herdrAgentId);
+      } catch {
+        /* best-effort: the replacement is already persisted */
+      }
 
-    return this.deps.store.get(s.id)!;
+      return this.deps.store.get(s.id)!;
+    } catch (error) {
+      removeTaskPromptFile(composed.taskFile);
+      throw error;
+    }
   }
 
   /**

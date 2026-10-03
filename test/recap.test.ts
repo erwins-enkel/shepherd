@@ -8,7 +8,8 @@ import type { VerdictRead } from "../src/json-tolerant";
 import type { DiffResult, Recap, Session } from "../src/types";
 import type { ActivityEntry } from "../src/activity";
 import { buildRecapPrompt, buildUiMarkupDigest } from "../src/recap-core";
-import { hostArgvBudget, joinedElementBytes } from "../src/argv-limit";
+import { hostArgvBudget, joinedElementBytes, spawnFootprintBytes } from "../src/argv-limit";
+import { buildWrappedArgv } from "../src/herdr";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 import { CODEX_ROLE_OUTPUT_SCHEMAS } from "../src/codex-role-output-schema";
@@ -234,6 +235,34 @@ function makeHerdr(livePanes: FakePaneEntry[] = [], defaultProcs: string[] = ["z
     readAsync: async () => h.readBuffer,
   };
   return h;
+}
+
+for (const provider of ["claude", "codex"] as const) {
+  test(`long task recap: ${provider} fits an oversized Unicode task and preserves both ends`, async () => {
+    const task = `TASK-START\n${"世界😀'\0".repeat(30_000)}\nTASK-END`;
+    const session = makeSession({ prompt: task });
+    const store = makeStore([session]);
+    const herdr = makeHerdr();
+    const svc = buildSvc({
+      store,
+      herdr,
+      nowFn: () => 1,
+      env: () => ({ provider, model: null }),
+    });
+
+    await svc.regenerate(session);
+
+    expect(herdr.started).toHaveLength(1);
+    const { argv, env } = herdr.started[0]!;
+    expect(spawnFootprintBytes(buildWrappedArgv(argv, env))).toBeLessThan(131_072);
+    const prompt = argv.at(-1)!;
+    expect(prompt).toContain("TASK-START");
+    expect(prompt).toContain("TASK-END");
+    expect(prompt).toContain("bytes elided");
+    expect(prompt).toContain("The task above is an excerpt");
+    expect(prompt).not.toContain("�");
+    expect(session.prompt).toBe(task);
+  });
 }
 
 const NON_EMPTY_DIFF: DiffResult = {

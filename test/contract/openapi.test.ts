@@ -754,3 +754,14 @@ describe("coverage gate", () => {
     expect(declaredEvents().filter((e) => !owned.has(e) && !events.has(e))).toEqual([]);
   });
 });
+
+for (const schema of ["CreateSessionRequest", "RelaunchRequest", "HeldQueueInput"]) {
+  test(`${schema} accepts long task prompts without truncation`, () => {
+    const ajv = new Ajv2020({ strict: false, allErrors: true });
+    ajv.addSchema(loadContract() as unknown as object, "contract");
+    const validate = ajv.compile({ $ref: `contract#/components/schemas/${schema}` });
+    const input = { repoPath: "/repo", baseBranch: "main", prompt: "x".repeat(150_000) };
+    expect(validate(input), JSON.stringify(validate.errors)).toBe(true);
+    expect(validate({ ...input, prompt: "" })).toBe(false);
+  });
+}

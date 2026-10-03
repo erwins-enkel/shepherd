@@ -451,13 +451,17 @@ test("empty prompt rejected", () => {
   if (!r.ok) expect(r.error).toMatch(/prompt/i);
 });
 
-test("oversized prompt (>8000 chars) rejected", () => {
+test("long task prompt is accepted in full for create and relaunch", () => {
+  const prompt = `START${"ä🙂".repeat(50_000)}END`;
   const r = validateCreate(
-    { repoPath: validRepo, baseBranch: "main", prompt: "x".repeat(8001) },
+    { repoPath: validRepo, baseBranch: "main", prompt: `  ${prompt}\n` },
     root,
   );
-  expect(r.ok).toBe(false);
-  if (!r.ok) expect(r.error).toMatch(/prompt/i);
+  expect(r.ok).toBe(true);
+  if (r.ok && "prompt" in r.value) expect(r.value.prompt).toBe(prompt);
+  const relaunch = validateRelaunchOverrides({ prompt: `  ${prompt}\n` }, root);
+  expect(relaunch.ok).toBe(true);
+  if (relaunch.ok) expect(relaunch.value.prompt).toBe(prompt);
 });
 
 test("prompt exactly 8000 chars accepted", () => {
@@ -792,7 +796,7 @@ const validIssueRef = {
   number: 42,
   url: "https://github.com/o/r/issues/42",
   title: "Soft-delete users",
-  body: "x".repeat(20_000), // far past the 8000 prompt guard — but rides out-of-band
+  body: "x".repeat(20_000), // a long issue body, carried separately from the task
 };
 
 test("validateCreate accepts a valid issueRef with an oversized body", () => {

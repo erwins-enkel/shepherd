@@ -262,6 +262,7 @@ export function buildUiMarkupDigest(
  *  `.shepherd-recap.json` LAST with {verdict, headline, openItems}. */
 export function buildRecapPrompt(input: {
   taskPrompt: string;
+  taskTruncated?: boolean;
   plan: string; // "" when no .shepherd-plan.md
   changedFiles: { path: string; status: DiffFileStatus }[];
   digest: string;
@@ -281,6 +282,11 @@ export function buildRecapPrompt(input: {
     "",
     "The task that was worked on:",
     fenceUntrusted("task", input.taskPrompt),
+    ...(input.taskTruncated
+      ? [
+          "The task above is an excerpt with omitted content. Summarize only the visible evidence; do not infer omitted requirements or claim that the full task was verified.",
+        ]
+      : []),
     "",
     // Outside the fence, directly under the task — operator-authored, and it is part of what the
     // operator is deciding whether to merge against.

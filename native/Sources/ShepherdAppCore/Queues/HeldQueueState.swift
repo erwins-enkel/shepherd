@@ -46,7 +46,6 @@ public enum HeldQueuePresentation {
         !request.repoPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !request.baseBranch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !request.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && request.prompt.count <= 8_000
     }
 }
 

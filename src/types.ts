@@ -247,8 +247,8 @@ export interface PostMergeSteps {
 
 /**
  * A GitHub/Gitea issue attached to a task by reference. The body rides along
- * out-of-band into the agent's prompt argv (like uploaded files) so it never counts
- * against the 8000-char human-prompt guard.
+ * separately into the agent's prompt argv (like uploaded files), outside the
+ * operator's task text and its file delivery.
  */
 export interface IssueRef {
   number: number;

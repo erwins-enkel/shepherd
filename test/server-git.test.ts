@@ -320,6 +320,40 @@ test("POST git/pr honors explicit title", async () => {
   expect(f.log[0]).toBe("openPr:shepherd/add-feature->main:Custom");
 });
 
+test.each([false, true])(
+  "long task PR fallback: bounds the generated body, including UI prefill (%s)",
+  async (prefilled) => {
+    const task = `TASK-START\n${"世界😀".repeat(40_000)}\nTASK-END`;
+    const session = { ...SESSION, prompt: task };
+    const bodies: string[] = [];
+    const forge = fakeForge({
+      kind: "github",
+      openPr: async (input) => {
+        bodies.push(input.body);
+        return { state: "open", number: 5, checks: "pending", deployConfigured: false };
+      },
+    });
+    const app = makeApp(makeDeps(forge, session));
+
+    expect(
+      (await app.fetch(post("/api/sessions/s1/git/pr", prefilled ? { body: task } : {}))).status,
+    ).toBe(200);
+    expect(Buffer.byteLength(bodies[0]!, "utf8")).toBeLessThan(65_536);
+    expect(bodies[0]).toContain("TASK-START");
+    expect(bodies[0]).toContain("TASK-END");
+    expect(bodies[0]).toContain("bytes elided");
+    expect(bodies[0]).not.toContain("�");
+    expect(session.prompt).toBe(task);
+
+    expect(
+      (await app.fetch(post("/api/sessions/s1/git/pr", { body: "Explicit summary" }))).status,
+    ).toBe(200);
+    expect(bodies[1]).toBe("Explicit summary");
+    expect((await app.fetch(post("/api/sessions/s1/git/pr", { body: "" }))).status).toBe(200);
+    expect(bodies[2]).toBe("");
+  },
+);
+
 test("POST git/merge uses forge-default method + deletes branch, returns refreshed status", async () => {
   const f = fakeForge();
   const app = makeApp(makeDeps(f));

@@ -55,10 +55,8 @@ struct IOSServerConnectionStatus: View {
             if unavailable {
                 // Closing an outage also hides its reconnect line until recovery.
             } else if Self.isConnecting(store.connection) {
-                if showSpinner { ProgressView(serverName.map { "\($0): \(L.t("native_ios_connecting"))" } ?? L.t("native_ios_connecting")).padding().accessibilityIdentifier("connection-loading") }
-                else if let serverName {
-                    Text(verbatim: "\(serverName): \(L.t("native_ios_connecting"))").sessionFont(label: true).padding(8)
-                }
+                ServerConnectingView(store: store, server: app.activeProfile?.baseURL.absoluteString,
+                    showSpinner: showSpinner, serverName: serverName)
             } else if Self.isFirstRun(store.connection) {
                 VStack {
                     if let serverName { Text(verbatim: serverName).bold() }
@@ -94,5 +92,57 @@ struct IOSServerConnectionStatus: View {
                 .accessibilityLabel(L.t("common_close"))
                 .accessibilityIdentifier("connection-unavailable-close-\(profileID?.uuidString ?? "server")")
         }
+    }
+}
+
+/// The app-wide spinner, plus what it is waiting on once that takes longer than a moment.
+/// Its own view so `since` restarts every time connecting does.
+private struct ServerConnectingView: View {
+    let store: SessionStore
+    let server: String?
+    let showSpinner: Bool
+    let serverName: String?
+    @State private var since = Date()
+
+    var body: some View {
+        VStack(spacing: 8) {
+            if showSpinner {
+                ProgressView(serverName.map { "\($0): \(L.t("native_ios_connecting"))" } ?? L.t("native_ios_connecting"))
+                    .accessibilityIdentifier("connection-loading")
+            } else if let serverName {
+                Text(verbatim: "\(serverName): \(L.t("native_ios_connecting"))").sessionFont(label: true)
+            }
+            TimelineView(.periodic(from: since, by: 1)) { context in
+                let elapsed = context.date.timeIntervalSince(since)
+                if elapsed >= ConnectingDetailCopy.threshold {
+                    IOSConnectingDetails(rows: ConnectingDetailCopy.serverRows(
+                        server: server, detail: store.connection == .connecting ? store.connectingDetail : nil,
+                        elapsed: elapsed, now: context.date))
+                }
+            }
+        }.padding()
+    }
+}
+
+/// Label/value lines that say where a slow connect is stuck. Selectable, so a URL
+/// or an error can be copied into a bug report.
+struct IOSConnectingDetails: View {
+    let rows: [ConnectingDetailRow]
+
+    var body: some View {
+        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 4) {
+            ForEach(rows, id: \.self) { row in
+                GridRow {
+                    Text(verbatim: row.label).foregroundStyle(IOSTerminalStyle.muted)
+                    Text(verbatim: row.value).foregroundStyle(IOSTerminalStyle.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .font(.system(.caption, design: .monospaced))
+        .multilineTextAlignment(.leading)
+        .textSelection(.enabled)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("connecting-details")
     }
 }

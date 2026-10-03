@@ -5103,5 +5103,7 @@
   "native_ios_attachment_invalid": "The image could not be imported.",
   "native_ios_attachment_remove": "Remove {name}",
   "native_ios_reply_draft": "Draft saved",
-  "native_ios_attachment_camera_usage": "Shepherd uses the camera when you attach a photo to a session."
+  "native_ios_attachment_camera_usage": "Shepherd uses the camera when you attach a photo to a session.",
+  "native_ios_terminal_dialog_keys": "Answer keys",
+  "native_ios_terminal_dialog_type": "Type an answer"
 }

@@ -695,6 +695,8 @@
 "native_ios_steers_sent" = "Gesendet: %1$@";
 "native_ios_steers_swipe_hint" = "Nach rechts wischen: zurück zum Terminal";
 "native_ios_steers_title" = "Steers";
+"native_ios_terminal_dialog_keys" = "Antworttasten";
+"native_ios_terminal_dialog_type" = "Antwort tippen";
 "native_ios_terminal_focus" = "Terminal im Vollbild";
 "native_ios_terminal_focus_exit" = "Tippen zeigt den vollständigen Kopf wieder";
 "native_ios_terminal_font_points" = "%1$@ pt";

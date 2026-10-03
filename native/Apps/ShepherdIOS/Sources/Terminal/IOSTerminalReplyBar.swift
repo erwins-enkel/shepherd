@@ -97,6 +97,8 @@ struct IOSTerminalReplyBar: View {
             imports = IOSReplyImports(model: model)
         }
         .onChange(of: model.writing) { _, writing in focused = writing && model.writingWantsKeyboard && model.voice?.active != true }
+        // ⌨ in a dialog's key row mounts this bar already writing; focus once the field exists.
+        .task { if !rendersStaticFixture && model.writing && model.writingWantsKeyboard && model.voice?.active != true { focused = true } }
         .onChange(of: model.voice?.active) { _, active in
             if active == true { focused = false; model.openWriting(focus: false) }
         }
@@ -114,7 +116,12 @@ struct IOSTerminalReplyBar: View {
         .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
             if !rendersStaticFixture { model.closeWriting(); focused = false }
         }
-        .onDisappear { if !rendersStaticFixture { hideKeyboard(); model.suspendDictation() } }
+        .onDisappear {
+            if !rendersStaticFixture { hideKeyboard(); model.suspendDictation() }
+            model.pickingAttachment = false
+        }
+        // An open dialog would otherwise swap this bar, and its pickers, for the key row.
+        .onChange(of: photos || files || camera) { _, picking in model.pickingAttachment = picking }
         .fileImporter(isPresented: $files, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
             switch result {
             case .success(let urls): imports?.files(urls)

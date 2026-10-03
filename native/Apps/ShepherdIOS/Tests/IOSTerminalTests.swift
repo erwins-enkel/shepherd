@@ -602,6 +602,125 @@ final class IOSTerminalTests: XCTestCase {
         presentation.rendererUnmounted()
     }
 
+    func testDialogFooterMarksAnOpenDialogOnlyInTheScreenTail() {
+        let question = ["☐ Bild einfügen", "Was soll damit passieren?", "❯ 1. Ganz entfernen (Recommended)",
+            "  2. Behalten, aber klarer", "  3. Type something.", "", "  4. Chat about this", "",
+            "Enter to select · ↑/↓ to navigate · Esc to cancel"]
+        XCTAssertTrue(IOSTerminalDialog.isOpen(question))
+        // A permission prompt, and a footer wrapped by a narrow pane.
+        XCTAssertTrue(IOSTerminalDialog.isOpen(["Do you want to proceed?", "❯ 1. Yes", "  2. No",
+            "Esc to cancel · Tab to amend"]))
+        XCTAssertTrue(IOSTerminalDialog.isOpen(["❯ 1. Yes", "Enter to", "select · ↑/↓ to navigate"]))
+        // Printed prose and the at-rest prompt carry no footer.
+        XCTAssertFalse(IOSTerminalDialog.isOpen(["Plan:", "1. Detect the footer", "2. Swap the bars", "",
+            "❯ ", "? for shortcuts"]))
+        // A footer above the 15-row window is history, not the live dialog; blank rows do not count.
+        let footer = "Enter to select · ↑/↓ to navigate"
+        XCTAssertFalse(IOSTerminalDialog.isOpen([footer] + (1...15).map { "output \($0)" }))
+        XCTAssertTrue(IOSTerminalDialog.isOpen([footer] + (1...14).map { "output \($0)" } + ["", "   "]))
+    }
+
+    func testDialogKeyRowYieldsToTheWritingStateAndReturnsWhenItCloses() {
+        let pty = IOSFixturePTY()
+        let core = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
+        let presentation = IOSTerminalPresentation(session: core, reply: { _ in })
+        let dialog = ["❯ 1. Yes", "  2. No", "Enter to select · ↑/↓ to navigate · Esc to cancel"]
+        presentation.screenChanged(dialog)
+        XCTAssertTrue(presentation.answersWithKeys)
+        // ⌨ opens writing for a free-text answer; keyboard down or a sent reply closes it again.
+        presentation.openWriting(focus: true)
+        XCTAssertFalse(presentation.answersWithKeys)
+        presentation.closeWriting()
+        XCTAssertTrue(presentation.answersWithKeys)
+        // A dialog that appears mid-writing keeps the draft until writing closes.
+        presentation.screenChanged(["❯ ", "? for shortcuts"])
+        presentation.openWriting(focus: true)
+        presentation.screenChanged(dialog)
+        XCTAssertFalse(presentation.answersWithKeys)
+        presentation.closeWriting()
+        XCTAssertTrue(presentation.answersWithKeys)
+        // A picker takes the draft's focus and closes writing; its bar stays until it returns.
+        presentation.openWriting(focus: true)
+        presentation.pickingAttachment = true
+        presentation.closeWriting()
+        XCTAssertFalse(presentation.answersWithKeys)
+        presentation.pickingAttachment = false
+        XCTAssertTrue(presentation.answersWithKeys)
+        presentation.screenChanged(["❯ ", "? for shortcuts"])
+        XCTAssertFalse(presentation.answersWithKeys)
+    }
+
+    func testScreenChangesToggleTheDialogAndReplayOrUnmountClearIt() {
+        let pty = IOSFixturePTY()
+        let core = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
+        let presentation = IOSTerminalPresentation(session: core, reply: { _ in })
+        let dialog = ["❯ 1. Yes", "  2. No", "Esc to cancel"]
+        presentation.screenChanged(dialog)
+        XCTAssertTrue(presentation.dialogOpen)
+        presentation.screenChanged(["❯ ", "? for shortcuts"])
+        XCTAssertFalse(presentation.dialogOpen)
+        presentation.screenChanged(dialog)
+        presentation.replayWillBegin()
+        XCTAssertFalse(presentation.dialogOpen)
+        presentation.screenChanged(dialog)
+        presentation.rendererUnmounted()
+        XCTAssertFalse(presentation.dialogOpen)
+    }
+
+    func testRendererDetectsADialogOnScreenAndItsDisappearance() async {
+        let pty = IOSFixturePTY()
+        let session = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
+        let presentation = IOSTerminalPresentation(session: session, reply: { _ in })
+        let coordinator = IOSTerminalHostView.Coordinator(model: presentation)
+        let view = IOSWatchingTerminalView(frame: CGRect(x: 0, y: 0, width: 390, height: 400),
+            font: .monospacedSystemFont(ofSize: 12, weight: .regular))
+        view.terminalDelegate = coordinator
+        coordinator.bind(view)
+        presentation.visibilityChanged(visible: true, active: true)
+        pty.emit(.attached)
+        await settle { session.phase == .live }
+        pty.emit(["☐ Bild einfügen", "", "Was soll damit passieren?", "",
+            "❯ 1. Ganz entfernen (Recommended)", "  2. Behalten, aber klarer", "  3. Type something.", "",
+            "Enter to select · ↑/↓ to navigate · Esc to cancel"].joined(separator: "\r\n"))
+        await settle { presentation.dialogOpen }
+        // Answered: the agent repaints without the dialog.
+        pty.emit("\u{1b}[2J\u{1b}[H⏺ Removing the menu entry…\r\n\r\n❯ ")
+        await settle { !presentation.dialogOpen }
+        coordinator.cancelScreenScan()
+        presentation.rendererUnmounted()
+    }
+
+    func testDialogPaintedWhileReadingHistoryIsFoundOnReturnToTheTail() async {
+        let pty = IOSFixturePTY()
+        let session = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
+        let presentation = IOSTerminalPresentation(session: session, reply: { _ in })
+        let coordinator = IOSTerminalHostView.Coordinator(model: presentation)
+        let view = IOSWatchingTerminalView(frame: CGRect(x: 0, y: 0, width: 390, height: 400),
+            font: .monospacedSystemFont(ofSize: 12, weight: .regular))
+        view.terminalDelegate = coordinator
+        coordinator.bind(view)
+        presentation.visibilityChanged(visible: true, active: true)
+        pty.emit(.attached)
+        await settle { session.phase == .live }
+        pty.emit((0..<100).map { "history line \($0)\r\n" }.joined())
+        await settle { view.canScroll }
+        view.scroll(toPosition: 0.3)
+        presentation.userScrolled(position: view.scrollPosition, canScroll: view.canScroll)
+        let feed = session.onOutput
+        var received = false
+        session.onOutput = { bytes in feed?(bytes); received = true }
+        pty.emit("❯ 1. Yes\r\n  2. No\r\nEnter to select · ↑/↓ to navigate · Esc to cancel")
+        await settle { received }
+        // Past the scan delay: history on screen is not read as the live dialog.
+        try? await Task.sleep(for: .milliseconds(300))
+        XCTAssertFalse(presentation.dialogOpen)
+        // No further output arrives; returning to the tail reads the screen again.
+        presentation.jumpToTail()
+        await settle { presentation.dialogOpen }
+        coordinator.cancelScreenScan()
+        presentation.rendererUnmounted()
+    }
+
     func testRenderFixtureImages() async throws {
         // SwiftUI ImageRenderer cannot draw a UIViewRepresentable. Inject text output
         // into the same production detail chrome; live UIKit feed is tested above.
@@ -639,6 +758,15 @@ final class IOSTerminalTests: XCTestCase {
         let renderer = ImageRenderer(content: large)
         renderer.scale = 2
         try XCTUnwrap(renderer.uiImage?.pngData()).write(to: directory.appendingPathComponent("detail-info-large.png"))
+        // An open Claude dialog swaps chips and reply draft for the key row.
+        presentation.screenChanged(["❯ 1. Ganz entfernen (Recommended)", "Enter to select · ↑/↓ to navigate · Esc to cancel"])
+        XCTAssertTrue(presentation.dialogOpen)
+        let dialog = IOSSessionDetailContent(session: session, model: detail, terminal: presentation,
+            allowsInput: true, fontSize: .constant(12), surface: output, tab: .terminal, selectableText: false)
+            .frame(width: 390, height: 760)
+        let dialogRenderer = ImageRenderer(content: dialog)
+        dialogRenderer.scale = 2
+        try XCTUnwrap(dialogRenderer.uiImage?.pngData()).write(to: directory.appendingPathComponent("detail-terminal-dialog.png"))
     }
 
     private func settle(_ condition: () -> Bool) async {

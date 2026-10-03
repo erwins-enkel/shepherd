@@ -205,6 +205,7 @@ struct IOSTerminalHostView: UIViewRepresentable {
         view.onWheel = nil
         view.onAgentScrollEnded = nil
         view.stopWheelMomentum()
+        coordinator.cancelScreenScan()
         coordinator.model.rendererUnmounted()
         view.updateUiClosed()
     }
@@ -216,6 +217,8 @@ struct IOSTerminalHostView: UIViewRepresentable {
         var onDoubleTap: (@MainActor () -> Void)?
         private var feedingOutput = false
         private var forwardingWheel = false
+        private var screenScan: Task<Void, Never>?
+        private var screenScanDeadline: ContinuousClock.Instant?
 
         @objc func doubleTapped() { onDoubleTap?() }
 
@@ -243,8 +246,11 @@ struct IOSTerminalHostView: UIViewRepresentable {
         init(model: IOSTerminalPresentation) { self.model = model }
 
         func bind(_ view: IOSWatchingTerminalView) {
-            view.onUserScroll = { [weak model] position, canScroll in
+            // The scan pauses in history, so returning to the tail re-reads the screen: a dialog
+            // painted (or answered) meanwhile sent no further output.
+            view.onUserScroll = { [weak self, weak model, weak view] position, canScroll in
                 model?.userScrolled(position: position, canScroll: canScroll)
+                if let self, let view { self.scheduleScreenScan(view) }
             }
             view.canForwardWheel = { [weak model] in model?.canSendInput == true }
             view.onWheel = { [weak self, weak view] lines in
@@ -253,7 +259,11 @@ struct IOSTerminalHostView: UIViewRepresentable {
             }
             view.onAgentScrollEnded = { [weak model] in model?.resetAgentScroll() }
             view.installWheelScroll()
-            model.scrollToTail = { [weak view] in view?.scroll(toPosition: 1) }
+            model.scrollToTail = { [weak self, weak view] in
+                guard let view else { return }
+                view.scroll(toPosition: 1)
+                self?.scheduleScreenScan(view)
+            }
             model.session.onClear = { [weak view, weak model] in
                 view?.getTerminal().resetToInitialState()
                 model?.replayWillBegin()
@@ -266,9 +276,46 @@ struct IOSTerminalHostView: UIViewRepresentable {
                 self.feedingOutput = true
                 view.feed(byteArray: ArraySlice(bytes))
                 self.feedingOutput = false
+                self.scheduleScreenScan(view)
             }
             let terminal = view.getTerminal()
             model.rendererMounted(cols: terminal.cols, rows: terminal.rows)
+        }
+
+        /// Rows are read once output pauses, and at most half a second behind streaming output,
+        /// so a repaint split across chunks cannot flicker the bottom bar.
+        private func scheduleScreenScan(_ view: IOSWatchingTerminalView) {
+            let now = ContinuousClock.now
+            let deadline = screenScanDeadline ?? now + .milliseconds(500)
+            screenScan?.cancel()
+            guard now < deadline else {
+                screenScanDeadline = nil
+                scanScreen(view)
+                return
+            }
+            screenScanDeadline = deadline
+            let delay = min(.milliseconds(120), deadline - now)
+            screenScan = Task { @MainActor [weak self, weak view] in
+                try? await Task.sleep(for: delay)
+                guard !Task.isCancelled, let self, let view else { return }
+                self.screenScanDeadline = nil
+                self.scanScreen(view)
+            }
+        }
+
+        func cancelScreenScan() {
+            screenScan?.cancel()
+            screenScan = nil
+            screenScanDeadline = nil
+        }
+
+        private func scanScreen(_ view: IOSWatchingTerminalView) {
+            // getLine is display-relative: local history on screen is not the live dialog.
+            if !view.agentOwnsScroll, view.canScroll, view.scrollPosition < 1 { return }
+            let terminal = view.getTerminal()
+            model.screenChanged((0..<terminal.rows).map {
+                terminal.getLine(row: $0)?.translateToString(trimRight: true) ?? ""
+            })
         }
 
         func sizeChanged(source: SwiftTerm.TerminalView, newCols: Int, newRows: Int) {
@@ -296,6 +343,7 @@ struct IOSTerminalHostView: UIViewRepresentable {
         func scrolled(source: SwiftTerm.TerminalView, position: Double) {
             if source.isTracking || source.isDecelerating {
                 model.userScrolled(position: position, canScroll: source.canScroll)
+                if let view = source as? IOSWatchingTerminalView { scheduleScreenScan(view) }
             }
         }
         func requestOpenLink(source: SwiftTerm.TerminalView, link: String, params: [String: String]) {

@@ -11935,6 +11935,40 @@
         }
       }
     },
+    "native_ios_terminal_dialog_keys": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antworttasten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Answer keys"
+          }
+        }
+      }
+    },
+    "native_ios_terminal_dialog_type": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Antwort tippen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type an answer"
+          }
+        }
+      }
+    },
     "native_ios_terminal_focus": {
       "extractionState": "manual",
       "localizations": {

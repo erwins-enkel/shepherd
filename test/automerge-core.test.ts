@@ -612,3 +612,29 @@ test("conflict + current-head changes_requested → no rebase", () => {
   );
   expect(d.kind).not.toBe("rebase");
 });
+
+test("behind with a current-head SPAWN-ABORTED error → rebase (the held critic can't retry it)", () => {
+  const d = computeMerge(
+    state(
+      [
+        sess({
+          behind: true,
+          reviewDecision: "error",
+          reviewHeadSha: "h1",
+          reviewSpawnAborted: true,
+        }),
+      ],
+      { criticEnabled: true },
+    ),
+  );
+  expect(d.kind).toBe("rebase");
+});
+
+test("behind with a current-head REAL error verdict → hold", () => {
+  const d = computeMerge(
+    state([sess({ behind: true, reviewDecision: "error", reviewHeadSha: "h1" })], {
+      criticEnabled: true,
+    }),
+  );
+  expect(d.kind).toBe("hold");
+});

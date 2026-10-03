@@ -172,6 +172,7 @@ export class AutoMergeService {
     return {
       reviewDecision: review?.decision ?? null,
       reviewHeadSha: review?.headSha ?? null,
+      reviewSpawnAborted: review?.spawnAborted === true,
       findings: review?.findings ?? [],
     };
   }

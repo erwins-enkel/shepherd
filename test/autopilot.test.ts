@@ -1835,6 +1835,38 @@ test("behind+red, full-auto at the rebase cap: reEngageCi hands back with REBASE
   expect(h.events).not.toContainEqual({ steer: CI_FIX_STEER });
 });
 
+test("behind with a current-head SPAWN-ABORTED error verdict → steers (no critic ran)", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    openPr: true,
+    prGit: greenPr({ mergeStateStatus: "behind" }),
+    review: review({ decision: "error", spawnAborted: true }),
+  });
+  await h.svc.onDone("s1");
+  expect(h.events).toContainEqual({ steer: REBASE_STEER_MAIN });
+});
+
+test("behind with a current-head real error verdict → no steer", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    openPr: true,
+    prGit: greenPr({ mergeStateStatus: "behind" }),
+    review: review({ decision: "error" }),
+  });
+  await h.svc.onDone("s1");
+  expect(h.events.some((e) => e.steer === REBASE_STEER_MAIN)).toBe(false);
+});
+
+test("rebasesWhenBehind: full-auto or autopilot-on-and-not-handed-back only", () => {
+  const on = harness({ session: sess(), fullAuto: false });
+  expect(on.svc.rebasesWhenBehind(sess())).toBe(true);
+  expect(on.svc.rebasesWhenBehind(sess({ autopilotPaused: true }))).toBe(false);
+  expect(on.svc.rebasesWhenBehind(sess({ autopilotComplete: true }))).toBe(false);
+  expect(on.svc.rebasesWhenBehind(sess({ autopilotEnabled: false }))).toBe(false);
+  const fa = harness({ session: sess(), fullAuto: true });
+  expect(fa.svc.rebasesWhenBehind(sess({ autopilotPaused: true }))).toBe(true);
+});
+
 // ── MCP OAuth stand-down (human-only auth prompt) ───────────────────────────────────────
 // An awaiting-input block carrying an authUrl is a human-only OAuth flow autopilot cannot
 // complete, so it must stand down on every steer path and recover once the operator resumes.

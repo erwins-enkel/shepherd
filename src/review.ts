@@ -350,6 +350,9 @@ export interface ReviewServiceDeps extends MembraneSeams {
   /** #1944: broadcast a spawn-notice change. Separate from `onChange`, which carries a verdict — a
    *  clamp or refusal must never synthesize one (it would wipe in-flight findings). */
   onSpawnNotice?: (id: string) => void;
+  /** Whether a rebase actor (autopilot / the merge train) will steer this session's PR once it
+   *  shows behind. Only then is the critic held while the PR is behind; absent = never hold. */
+  rebasesWhenBehind?: (s: Session) => boolean;
   /** Fired when a critic run starts (true) and when it ends (false) for a session. The start
    *  transition carries the exact environment captured for that spawn; end omits it. */
   onReviewing?: (id: string, reviewing: boolean, env?: ReviewerEnv) => void;
@@ -451,10 +454,16 @@ export function isTerminalPr(git: GitState): boolean {
  *    forceReview — reaches the cleanup by this one path.
  *  - "behind": the PR is about to be rebased (autopilot / the merge train steer it as soon as it
  *    shows behind), so reviewing this head is wasted spend. The head is never marked reviewed, so
- *    the rebased head is considered normally. `force` (the operator's re-review) bypasses it. */
-function holdReason(git: GitState, force: boolean): "terminal" | "behind" | null {
+ *    the rebased head is considered normally. Only when a rebase actor exists (rebaseActor) —
+ *    otherwise nothing would rebase it and the critic keeps reviewing. `force` (the operator's
+ *    re-review) bypasses it. */
+function holdReason(
+  git: GitState,
+  force: boolean,
+  rebaseActor: () => boolean,
+): "terminal" | "behind" | null {
   if (isTerminalPr(git)) return "terminal";
-  return !force && git.mergeStateStatus === "behind" ? "behind" : null;
+  return !force && git.mergeStateStatus === "behind" && rebaseActor() ? "behind" : null;
 }
 
 export class ReviewService extends ReviewerRuns<InFlight> {
@@ -540,7 +549,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     const force = opts?.force === true;
     // Synchronous predicate: the common (no-hold) path must reach the `starting` claim below
     // without yielding, or a concurrent forget() would land before it.
-    const hold = holdReason(git, force);
+    const hold = holdReason(git, force, () => this.deps.rebasesWhenBehind?.(session) ?? false);
     if (hold) return this.applyHold(session, hold);
     if (
       git.state !== "open" ||

@@ -49,6 +49,9 @@ export interface MergeSessionView {
   behind: boolean | null;
   reviewDecision: ReviewDecision | null;
   reviewHeadSha: string | null;
+  /** The verdict records a pre-spawn abort (the critic never ran, e.g. no usable account), not a
+   *  review. Absent = false. */
+  reviewSpawnAborted?: boolean;
   /** The PR is a draft (not ready-for-review). false when unknown/no PR. */
   isDraft: boolean;
   /** A human submitted an APPROVED review on the PR (forge data). */
@@ -212,6 +215,9 @@ function rebaseUrgent(s: MergeSessionView): boolean {
  *  findings it gates too ("fix first, then rebase"), so the critic's auto-address steer and the
  *  rebase steer never land on the same idle pane. */
 function rebaseVerdictAllows(s: MergeSessionView, criticEnabled: boolean): boolean {
+  // A spawn-aborted error is no verdict on an urgent PR: review.ts holds the critic while behind,
+  // so it can't retry, and blocking on it would wedge the PR until an operator forces a review.
+  if (s.reviewSpawnAborted && rebaseUrgent(s)) return true;
   const stale = s.reviewDecision !== null && s.reviewHeadSha !== s.headSha;
   if (stale && rebaseUrgent(s)) return true;
   if (s.reviewDecision === "changes_requested" || s.reviewDecision === "error") return false;

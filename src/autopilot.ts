@@ -982,15 +982,12 @@ export class AutopilotService {
     }
     // Count the attempt regardless of whether the steer lands (see the no-dedup note above).
     //
-    // rebaseSteeredAt is written CONFLICT-ONLY here, matching doRebase and the field's documented
-    // contract in store.ts ("the last conflict-path rebase steer"). Note what this is NOT: on
-    // THIS path no consumer ever reads the stamp. reEngageRebase runs only for non-full-auto
-    // sessions (rebaseCandidate bails on fullAuto below), buildState filters to full-auto so
-    // rebaseAvailable never sees them, and ownedByRebaser's non-full-auto arm returns
-    // rebaseCandidate(s) !== null without consulting it. The sole observer is the reset branch's
-    // `!= null` check above. So the conditional buys contract-honesty, not correctness: it keeps
-    // the column meaning what it says rather than accumulating behind-path values a future reader
-    // would reasonably mistake for a general "last steer" clock.
+    // rebaseSteeredAt is written CONFLICT-ONLY on THIS (non-full-auto) path, unlike the merge
+    // train's doRebase, which stamps both paths. Nothing reads the stamp for a non-full-auto
+    // session: buildState filters to full-auto so rebaseAvailable never sees it, and
+    // ownedByRebaser's non-full-auto arm returns rebaseCandidate(s) !== null without consulting
+    // it. The sole observer is the reset branch's `!= null` check above, so the conditional only
+    // keeps the column from accumulating values no reader needs.
     const conflict = isDefiniteConflict(git);
     this.deps.store.setAutoMergeState(id, {
       rebaseCount: s.autoMergeRebaseCount + 1,
@@ -1005,6 +1002,15 @@ export class AutopilotService {
       console.warn("[autopilot] rebase re-engage steer:", err),
     );
     return true;
+  }
+
+  /** True when a rebase actor will steer this session's PR once it shows behind: the merge train
+   *  (full-auto) or reEngageRebase (non-full-auto with autopilot on and not handed back — the
+   *  session-level gates of rebaseCandidate). review.ts holds the critic on a behind PR only then;
+   *  without an actor nothing rebases it, so the critic must keep reviewing. */
+  rebasesWhenBehind(s: Session): boolean {
+    if (this.deps.fullAuto(s.id)) return true;
+    return this.enabled(s) && !s.autopilotPaused && !s.autopilotComplete;
   }
 
   /** True when a rebase actor has ALREADY taken this red session (conflicting or behind), so the
@@ -1084,7 +1090,10 @@ export class AutopilotService {
       // verdict on an OLDER head counts as none: it can never be refreshed, and its findings were already steered once at publish (runAutoAddress
       // fires per verdict), which is why the head moved. Without this, changes_requested → fix
       // push → base moves wedged the session forever (TASK-2435).
-      if (review?.decision == null || review.headSha !== git.headSha) return true;
+      // A spawn-aborted error is no verdict either: the critic never ran, and while the PR is
+      // behind review.ts holds it, so it can't retry — blocking on it would wedge the PR.
+      if (review?.decision == null || review.spawnAborted || review.headSha !== git.headSha)
+        return true;
       if (review.decision === "changes_requested" || review.decision === "error") return false;
       // Zero-findings is KEPT and is NOT redundant with the check above: review.ts's
       // runAutoAddress bails only on findings.length === 0 and steers regardless of `decision`,

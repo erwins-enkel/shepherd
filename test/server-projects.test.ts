@@ -393,3 +393,111 @@ test("GET /api/github/repos gh failure → 200 with empty list, available false"
   expect(body.repos).toEqual([]);
   expect(body.login).toBeNull();
 });
+
+test("GET /api/github/repos reports which credential helper git uses for github.com", async () => {
+  const runner = async (args: string[]) => (args[1] === "user" ? "octocat\n" : "");
+  const git = async () => "store\n";
+  const app = makeApp({
+    ...makeDeps(),
+    githubReposRunner: runner,
+    githubAccessRunners: { git },
+  });
+  const body = await (await getRepos(app)).json();
+  expect(body.git).toEqual({ kind: "store", usesGh: false });
+});
+
+// ── GET /api/github/access ──────────────────────────────────────────────────
+
+function getAccess(app: ReturnType<typeof makeApp>, url: string): Promise<Response> {
+  return app.fetch(
+    new Request(`http://x/api/github/access?url=${encodeURIComponent(url)}`, { method: "GET" }),
+  );
+}
+
+test("GET /api/github/access → both sides of the clone for one repo", async () => {
+  const gh = async (args: string[]) => {
+    if (args[1] === "user") return "octocat\n";
+    expect(args[1]).toBe("repos/acme/widget");
+    return JSON.stringify({ pull: true, push: false });
+  };
+  const git = async () => "store\n";
+  const app = makeApp({ ...makeDeps(), githubAccessRunners: { gh, git } });
+  const res = await getAccess(app, "https://github.com/acme/widget.git");
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({
+    repo: "acme/widget",
+    protocol: "https",
+    git: { kind: "store", usesGh: false },
+    gh: { state: "ok", login: "octocat", pull: true, push: false },
+  });
+});
+
+test("GET /api/github/access reports an ssh clone URL as such", async () => {
+  const gh = async (args: string[]) =>
+    args[1] === "user" ? "octocat\n" : JSON.stringify({ pull: true, push: true });
+  const app = makeApp({ ...makeDeps(), githubAccessRunners: { gh, git: async () => "" } });
+  const body = await (await getAccess(app, "git@github.com:acme/widget.git")).json();
+  expect(body.protocol).toBe("ssh");
+  expect(body.repo).toBe("acme/widget");
+});
+
+test("GET /api/github/access for a non-GitHub URL → 400", async () => {
+  const app = makeApp({
+    ...makeDeps(),
+    githubAccessRunners: { gh: async () => "", git: async () => "" },
+  });
+  const res = await getAccess(app, "https://gitlab.com/acme/widget.git");
+  expect(res.status).toBe(400);
+  expect((await res.json()).error).toBe("githubaccess_failed_url");
+});
+
+// ── POST /api/github/git-credentials ────────────────────────────────────────
+
+function postGitCredentials(app: ReturnType<typeof makeApp>, headers?: HeadersInit) {
+  return app.fetch(
+    new Request("http://x/api/github/git-credentials", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: "{}",
+    }),
+  );
+}
+
+test("POST /api/github/git-credentials runs gh auth setup-git and returns the new helper", async () => {
+  const ghCalls: string[][] = [];
+  let configured = false;
+  const gh = async (args: string[]) => {
+    ghCalls.push(args);
+    configured = true;
+    return "";
+  };
+  const git = async () => (configured ? "!/usr/bin/gh auth git-credential\n" : "store\n");
+  const app = makeApp({ ...makeDeps(), githubAccessRunners: { gh, git } });
+  const res = await postGitCredentials(app);
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ ok: true, git: { kind: "gh", usesGh: true } });
+  expect(ghCalls).toEqual([["auth", "setup-git"]]);
+});
+
+test("POST /api/github/git-credentials with gh logged out → 422 gitcreds_failed_logged_out", async () => {
+  const gh = () =>
+    Promise.reject(Object.assign(new Error("exit 4"), { code: 4, stderr: "run: gh auth login" }));
+  const app = makeApp({ ...makeDeps(), githubAccessRunners: { gh, git: async () => "store\n" } });
+  const res = await postGitCredentials(app);
+  expect(res.status).toBe(422);
+  expect((await res.json()).error).toBe("gitcreds_failed_logged_out");
+});
+
+test("POST /api/github/git-credentials without a JSON body → 415, gh never runs", async () => {
+  let ran = false;
+  const gh = async () => {
+    ran = true;
+    return "";
+  };
+  const app = makeApp({ ...makeDeps(), githubAccessRunners: { gh, git: async () => "" } });
+  const res = await app.fetch(
+    new Request("http://x/api/github/git-credentials", { method: "POST", body: "" }),
+  );
+  expect(res.status).toBe(415);
+  expect(ran).toBe(false);
+});

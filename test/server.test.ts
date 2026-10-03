@@ -2450,6 +2450,8 @@ test("POST /api/repos unreachable https url → 422 (clone attempted, not a vali
   const body = await res.json();
   expect(typeof body.error).toBe("string");
   expect(body.error).toMatch(/^clonerepo_/);
+  // git's own stderr rides along for the dialog's "technical details".
+  expect(body.detail).toMatch(/nonexistent\.invalid/);
 });
 
 test("POST /api/repos target already exists → 409", async () => {

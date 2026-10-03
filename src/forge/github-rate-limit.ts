@@ -11,11 +11,13 @@
  * `gh api rate_limit` returns every bucket in one call and — crucially — does
  * **not** itself count against any bucket, so we can poll it for display even
  * while a bucket is at zero. We pair the live readings with Shepherd's own
- * GraphQL backoff state ({@link graphRateLimit}) so the UI can explain *why*
- * polling is paused, not just that a budget is low.
+ * GraphQL and REST backoff state ({@link graphRateLimit}, {@link restRateLimit})
+ * so the UI can explain *why* polling is paused, not just that a budget is low —
+ * and the REST one is the only signal there is when `rate_limit` reports a full
+ * `core` bucket while real REST calls 403 (#2662).
  */
 
-import { graphRateLimit, type RateLimitSnapshot } from "./rate-limit";
+import { graphRateLimit, restRateLimit, type RateLimitSnapshot } from "./rate-limit";
 
 /** A single GitHub rate-limit bucket (REST core / GraphQL / search). */
 export interface GhRateBucket {
@@ -30,7 +32,7 @@ export interface GhRateBucket {
 }
 
 /** Snapshot of the GitHub rate-limit buckets relevant to Shepherd, plus the
- *  GraphQL backoff state that gates background polling. */
+ *  GraphQL and REST backoff state that gates background polling. */
 export interface GithubRateLimitPayload {
   /** REST bucket (`resources.core`). Null if the response lacked it. */
   rest: GhRateBucket | null;
@@ -43,6 +45,9 @@ export interface GithubRateLimitPayload {
   /** Shepherd's GraphQL backoff state — non-null `pausedUntil`/`blocked`
    *  explains a polling pause even before a bucket is fully empty. */
   backoff: RateLimitSnapshot;
+  /** Shepherd's REST backoff state — while `blocked`, REST reads (CI status, run
+   *  logs, REST issue lists) are skipped, whatever `rest` reports. */
+  restBackoff: RateLimitSnapshot;
 }
 
 type GhRun = (args: string[]) => Promise<string>;
@@ -69,8 +74,8 @@ function parseBucket(raw: unknown): GhRateBucket | null {
 
 /**
  * Fetch the current GitHub REST + GraphQL + search rate-limit buckets via
- * `gh api rate_limit`, cached for {@link TTL_MS}. The GraphQL backoff snapshot is
- * always read live (it's free). Throws if `gh` fails or returns unparseable JSON.
+ * `gh api rate_limit`, cached for {@link TTL_MS}. The backoff snapshots are
+ * always read live (they're free). Throws if `gh` fails or returns unparseable JSON.
  *
  * @param run  injected `gh` runner (production passes the shared async runner).
  * @param now  injectable clock for deterministic tests.
@@ -81,9 +86,13 @@ export async function fetchGithubRateLimit(
 ): Promise<GithubRateLimitPayload> {
   const t = now();
   if (cache && t - cache.at < TTL_MS) {
-    // Refresh only the (free) backoff view so a cached buckets reading still
+    // Refresh only the (free) backoff views so a cached buckets reading still
     // reflects a backoff that engaged since the last `gh` call.
-    return { ...cache.payload, backoff: graphRateLimit.snapshot() };
+    return {
+      ...cache.payload,
+      backoff: graphRateLimit.snapshot(),
+      restBackoff: restRateLimit.snapshot(),
+    };
   }
 
   const out = await run(["api", "rate_limit"]);
@@ -95,6 +104,7 @@ export async function fetchGithubRateLimit(
     search: parseBucket(r.search),
     fetchedAt: t,
     backoff: graphRateLimit.snapshot(),
+    restBackoff: restRateLimit.snapshot(),
   };
   cache = { at: t, payload };
   return payload;

@@ -26,32 +26,33 @@ for scale in [1, 2] {
     }
     let white = NSColor(srgbRed: 233/255, green: 241/255, blue: 236/255, alpha: 1)
     let muted = NSColor(srgbRed: 154/255, green: 174/255, blue: 164/255, alpha: 1)
-    text("Shepherd", y: 326, size: 26, color: white, weight: .semibold)
 
     // Finder uses black filenames over image backgrounds, even in dark mode.
     // Quiet label backplates preserve contrast without altering signed bundles.
     NSColor(srgbRed: 200/255, green: 212/255, blue: 206/255, alpha: 1).setFill()
     for x in [170, 490] {
-        NSBezierPath(roundedRect: NSRect(x: x - 80, y: 99, width: 160, height: 30),
+        NSBezierPath(roundedRect: NSRect(x: x - 80, y: 134, width: 160, height: 30),
                      xRadius: 15, yRadius: 15).fill()
     }
 
-    // Finder's icon centres are (170, 200) and (490, 200), from the top.
+    // Finder's icon centres are (170, 165) and (490, 165), from the top.
+    // AppKit artwork coordinates start at the bottom of the 400pt background.
     let arrow = NSBezierPath()
-    arrow.move(to: NSPoint(x: 285, y: 200))
-    arrow.line(to: NSPoint(x: 375, y: 200))
-    arrow.move(to: NSPoint(x: 360, y: 215))
-    arrow.line(to: NSPoint(x: 375, y: 200))
-    arrow.line(to: NSPoint(x: 360, y: 185))
+    arrow.move(to: NSPoint(x: 285, y: 235))
+    arrow.line(to: NSPoint(x: 375, y: 235))
+    arrow.move(to: NSPoint(x: 360, y: 250))
+    arrow.line(to: NSPoint(x: 375, y: 235))
+    arrow.line(to: NSPoint(x: 360, y: 220))
     arrow.lineWidth = 3
     arrow.lineCapStyle = .round
     arrow.lineJoinStyle = .round
     NSColor(srgbRed: 232/255, green: 161/255, blue: 58/255, alpha: 1).setStroke()
     arrow.stroke()
 
-    // Leave room for Finder's window chrome inside the saved 400pt bounds.
+    // Captions begin near y=300/324 from the top, with space below the
+    // 30pt filename backplates and above the bottom of Finder's content area.
     text("Drag Shepherd to Applications to install", y: 80, size: 14, color: white)
-    text("Zum Installieren auf Programme ziehen", y: 60, size: 12, color: muted)
+    text("Zum Installieren auf Programme ziehen", y: 58, size: 12, color: muted)
     NSGraphicsContext.restoreGraphicsState()
     let name = scale == 1 ? "background.png" : "background@2x.png"
     try bitmap.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name))

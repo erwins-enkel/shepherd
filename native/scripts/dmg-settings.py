@@ -20,11 +20,13 @@ symlinks = {"Applications": "/Applications"}
 # which codesign --verify --strict rejects as signing detritus.
 background = defines["background"]
 window_rect = ((200, 200), (660, 400))
+# Save a compact installer window with all optional Finder chrome hidden.
+# Finder may still override the path bar with the user's global preference.
+show_pathbar = False
 show_toolbar = False
 show_sidebar = False
 show_status_bar = False
 show_tab_view = False
-show_pathbar = False
 default_view = "icon-view"
 include_icon_view_settings = True
 show_icon_preview = False
@@ -34,4 +36,4 @@ scroll_position = (0, 0)
 label_pos = "bottom"
 text_size = 13
 icon_size = 128
-icon_locations = {"Shepherd.app": (170, 200), "Applications": (490, 200)}
+icon_locations = {"Shepherd.app": (170, 165), "Applications": (490, 165)}

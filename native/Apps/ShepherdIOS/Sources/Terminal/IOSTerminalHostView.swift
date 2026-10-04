@@ -24,6 +24,21 @@ final class IOSWatchingTerminalView: SwiftTerm.TerminalView {
     /// Everything else keeps SwiftTerm's local scrolling.
     var forwardsSwipesToAgent: Bool { agentOwnsScroll && canForwardWheel?() == true }
 
+    /// The link under a point in view coordinates: an OSC 8 hyperlink (Claude Code's
+    /// `PR #…` badge) or a bare URL. SwiftTerm resolves link taps only while the view is
+    /// first responder, which this watching surface never becomes.
+    func link(at point: CGPoint) -> String? {
+        let terminal = getTerminal()
+        let grid = getOptimalFrameSize()
+        guard terminal.cols > 0, terminal.rows > 0, grid.width > 0, grid.height > 0,
+              point.x >= 0, point.y >= 0 else { return nil }
+        // View coordinates include the scroll offset, so the row indexes the whole buffer.
+        let col = Int(point.x / (grid.width / CGFloat(terminal.cols)))
+        let row = Int(point.y / (grid.height / CGFloat(terminal.rows)))
+        guard col < terminal.cols else { return nil }
+        return terminal.link(at: .buffer(SwiftTerm.Position(col: col, row: row)), mode: .explicitAndImplicit)
+    }
+
     func installWheelScroll() {
         guard wheelPan == nil else { return }
         let pan = UIPanGestureRecognizer(target: self, action: #selector(wheelPanned(_:)))
@@ -183,7 +198,13 @@ struct IOSTerminalHostView: UIViewRepresentable {
         let doubleTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.doubleTapped))
         doubleTap.numberOfTapsRequired = 2
         doubleTap.delegate = context.coordinator
+        context.coordinator.doubleTap = doubleTap
         view.addGestureRecognizer(doubleTap)
+        // Waits out the double tap, so a focus toggle over a link never opens it.
+        let linkTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.linkTapped(_:)))
+        linkTap.require(toFail: doubleTap)
+        linkTap.delegate = context.coordinator
+        view.addGestureRecognizer(linkTap)
         let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.horizontalPan(_:)))
         pan.delegate = context.coordinator
         view.addGestureRecognizer(pan)
@@ -215,12 +236,19 @@ struct IOSTerminalHostView: UIViewRepresentable {
         let model: IOSTerminalPresentation
         var onHorizontalPan: (@MainActor (IOSHorizontalPan) -> Void)?
         var onDoubleTap: (@MainActor () -> Void)?
+        weak var doubleTap: UITapGestureRecognizer?
         private var feedingOutput = false
         private var forwardingWheel = false
         private var screenScan: Task<Void, Never>?
         private var screenScanDeadline: ContinuousClock.Instant?
 
         @objc func doubleTapped() { onDoubleTap?() }
+
+        @objc func linkTapped(_ tap: UITapGestureRecognizer) {
+            guard let view = tap.view as? IOSWatchingTerminalView,
+                  let link = view.link(at: tap.location(in: view)) else { return }
+            requestOpenLink(source: view, link: link, params: [:])
+        }
 
         @objc func horizontalPan(_ pan: UIPanGestureRecognizer) {
             let dx = pan.translation(in: pan.view).x
@@ -233,8 +261,10 @@ struct IOSTerminalHostView: UIViewRepresentable {
         }
 
         /// Only a clearly sideways start is a swipe; anything else stays a scroll.
+        /// A link tap may always begin.
         func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {
-            if recognizer is UITapGestureRecognizer { return onDoubleTap != nil }
+            if recognizer === doubleTap { return onDoubleTap != nil }
+            if recognizer is UITapGestureRecognizer { return true }
             guard onHorizontalPan != nil, let pan = recognizer as? UIPanGestureRecognizer else { return false }
             let velocity = pan.velocity(in: pan.view)
             return abs(velocity.x) > abs(velocity.y) * 1.5

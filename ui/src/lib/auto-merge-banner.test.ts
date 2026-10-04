@@ -17,6 +17,7 @@ const input = (code: MergeWaitCode | null, over: Record<string, unknown> = {}) =
   criticRunning: false,
   autoAddressOn: false,
   stripTaken: false,
+  handedBack: false,
   ...over,
 });
 
@@ -84,6 +85,18 @@ describe("autoMergeView", () => {
 
   it("operator codes show without dimming", () => {
     expect(autoMergeView(input("critic_error"))).toMatchObject({ owner: "operator", owned: false });
+  });
+
+  it("an autopilot that handed back makes every hold the operator's — no dim", () => {
+    for (const code of ["checks_failed", "behind", "conflict", "critic_pending"] as const) {
+      expect(autoMergeView(input(code, { handedBack: true, criticRunning: true }))).toMatchObject({
+        owner: "operator",
+        owned: false,
+      });
+    }
+    expect(
+      autoMergeView(input("changes_requested", { handedBack: true, autoAddressOn: true })),
+    ).toMatchObject({ owner: "operator", owned: false });
   });
 
   it("yields the strip to the review / CI banner but keeps dimming", () => {

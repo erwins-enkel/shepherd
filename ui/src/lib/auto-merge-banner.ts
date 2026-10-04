@@ -29,6 +29,9 @@ export interface AutoMergeViewInput {
   autoAddressOn: boolean;
   /** The review-in-flight or CI banner already occupies the bottom strip. */
   stripTaken: boolean;
+  /** Autopilot paused and handed the session back (CI-fix or rebase cap, a question, a stall):
+   *  nothing drives the agent any more, so every hold is the operator's. */
+  handedBack: boolean;
 }
 
 /** Codes only the operator can clear — the train holds until someone acts. */
@@ -59,7 +62,7 @@ export function waitCodeFor(
 
 /**
  * The strip + dim decision. `owned` (dim the terminal, relabel the recap) needs a Shepherd-owned
- * code; for `critic_pending` it additionally needs a critic actually in flight — a pending verdict
+ * code and an autopilot that has not handed back; for `critic_pending` it additionally needs a critic actually in flight — a pending verdict
  * with no run (cancelled, paused, never started) must not tell the operator "hands off" forever.
  * The strip yields the bottom slot to the review and CI banners, which carry the more specific
  * signal; dimming does not depend on which strip renders.
@@ -67,7 +70,7 @@ export function waitCodeFor(
 export function autoMergeView(input: AutoMergeViewInput): AutoMergeView {
   const code = waitCodeFor(input.status, input.sessionId);
   if (!code) return { code: null, show: false, owned: false };
-  const owner = waitOwner(code, input.autoAddressOn);
+  const owner = input.handedBack ? "operator" : waitOwner(code, input.autoAddressOn);
   const owned = owner === "shepherd" && (code !== "critic_pending" || input.criticRunning);
   return { code, owner, show: !input.stripTaken, owned };
 }

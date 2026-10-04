@@ -2430,6 +2430,22 @@ describe("Viewport full auto-merge strip (TASK-1368)", () => {
     }
   });
 
+  it("a paused autopilot hands the hold back: no dim, the strip says so", async () => {
+    const id = "vr-am-paused";
+    render(Viewport, {
+      session: session({ id, repoPath: "/repo/shepherd", autopilotPaused: true }),
+      autoMergeTrain: train(id, "behind"),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await vi.waitFor(() =>
+      expect(document.querySelector(".am-banner")?.textContent).toContain(
+        m.automergebanner_handed_back(),
+      ),
+    );
+    expect(document.querySelector(".term-mount")!.classList.contains("auto-owned")).toBe(false);
+  });
+
   it("an operator-owned hold shows the strip without dimming", async () => {
     const id = "vr-am-operator";
     render(Viewport, {

@@ -3105,6 +3105,7 @@
       status={autoMergeTrain[session.repoPath]}
       {tab}
       stripTaken={reviewActive || ciStripShown}
+      handedBack={session.autopilotPaused}
       bind:height={autoMergeH}
       bind:owned={autoMergeOwned}
     />

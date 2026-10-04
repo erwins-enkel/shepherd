@@ -17,6 +17,7 @@
     status,
     tab,
     stripTaken,
+    handedBack,
     height = $bindable(0),
     owned = $bindable(false),
   }: {
@@ -27,6 +28,8 @@
     tab: string;
     /** The review-in-flight or CI banner occupies the bottom strip. */
     stripTaken: boolean;
+    /** Autopilot paused and handed the session back to the operator. */
+    handedBack: boolean;
     height?: number;
     owned?: boolean;
   } = $props();
@@ -39,6 +42,7 @@
       criticRunning,
       autoAddressOn: repoConfig.autoAddress[repoPath] ?? false,
       stripTaken,
+      handedBack,
     }),
   );
   $effect(() => {
@@ -48,6 +52,8 @@
   const sha = $derived(git?.headSha ? git.headSha.slice(0, 7) : "");
 
   function reason(code: MergeWaitCode): string {
+    // Autopilot stopped driving the agent; its question / reason shows on the autopilot badge.
+    if (handedBack) return m.automergebanner_handed_back();
     switch (code) {
       // A running critic owns the slot itself (ReviewInFlightBanner), so this is the gap
       // between a new head and its critic run.

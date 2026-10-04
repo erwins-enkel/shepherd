@@ -37,6 +37,7 @@ function mount(code: MergeWaitCode | null, over: Record<string, unknown> = {}) {
     status: status(code),
     tab: "term",
     stripTaken: false,
+    handedBack: false,
     get owned() {
       return owned;
     },
@@ -91,6 +92,13 @@ describe("AutoMergeBanner", () => {
     const h = mount("protection_blocked");
     await expect.poll(() => banner()?.dataset.owner).toBe("operator");
     expect(banner()!.textContent).toContain(m.automergebanner_protection_blocked());
+    expect(h.owned()).toBe(false);
+  });
+
+  it("autopilot handed back: amber operator strip saying so, no dimming", async () => {
+    const h = mount("checks_failed", { handedBack: true });
+    await expect.poll(() => banner()?.dataset.owner).toBe("operator");
+    expect(banner()!.textContent).toContain(m.automergebanner_handed_back());
     expect(h.owned()).toBe(false);
   });
 

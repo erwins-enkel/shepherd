@@ -5136,5 +5136,6 @@
   "feat_auto_merge_strip_title": "See what full auto-merge is waiting for",
   "feat_auto_merge_strip_body": "When a repo merges on its own, the terminal says so: a strip names what the PR still waits for, like a critic verdict on the latest commit or green CI, and the terminal dims while Shepherd has it in hand. A running critic now also shows how long it has run against its deadline.",
   "reviewbanner_run_clock": "{elapsed} of {timeout} min",
-  "automergebanner_protection_blocked": "branch protection blocks the merge, e.g. a required approval. Approve it or merge yourself"
+  "automergebanner_protection_blocked": "branch protection blocks the merge, e.g. a required approval. Approve it or merge yourself",
+  "automergebanner_handed_back": "autopilot paused and handed this session back to you"
 }

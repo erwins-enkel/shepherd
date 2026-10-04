@@ -5187,5 +5187,8 @@
   "settings_access_instruction_errors": "401: token expired, revoked or invalid. 403: action or repository is not permitted. 404: resource is unavailable or outside the grant. Report the limitation instead of trying other credentials or bypassing the grant.",
   "settings_access_instruction_task": "Describe the actual work assignment here",
   "feat_token_repository_access_title": "Give an external agent access to selected repositories",
-  "feat_token_repository_access_body": "Choose and edit repository access for each token in Settings → Access. Copy a ready-to-use agent instruction with the token, server address and permitted workflow."
+  "feat_token_repository_access_body": "Choose and edit repository access for each token in Settings → Access. Copy a ready-to-use agent instruction with the token, server address and permitted workflow.",
+  "model_guidance_codex_61_sol": "GPT-6.1 model for complex coding and long-running work, with near-Astra capability at lower token costs than Astra.",
+  "feat_gpt_61_codex_model_title": "GPT-6.1 Sol in Codex",
+  "feat_gpt_61_codex_model_body": "Choose GPT-6.1 Sol for new Codex tasks, as your default model, or for individual agent roles. The model picker includes cost guidance and reasoning effort from Low through Ultra."
 }

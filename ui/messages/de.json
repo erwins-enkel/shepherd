@@ -5187,5 +5187,8 @@
   "settings_access_instruction_errors": "401: Token abgelaufen, widerrufen oder ungültig. 403: Aktion oder Repository nicht freigegeben. 404: Ressource nicht verfügbar oder außerhalb der Freigabe. Melde die Einschränkung, statt andere Zugangsdaten zu versuchen oder die Freigabe zu umgehen.",
   "settings_access_instruction_task": "Hier den tatsächlichen Arbeitsauftrag beschreiben",
   "feat_token_repository_access_title": "Externen Agents ausgewählte Repositories freigeben",
-  "feat_token_repository_access_body": "Wähle und ändere die Repo-Freigabe pro Token unter Einstellungen → Zugriff. Kopiere eine fertige Arbeitsanweisung mit Token, Serveradresse und erlaubtem Ablauf."
+  "feat_token_repository_access_body": "Wähle und ändere die Repo-Freigabe pro Token unter Einstellungen → Zugriff. Kopiere eine fertige Arbeitsanweisung mit Token, Serveradresse und erlaubtem Ablauf.",
+  "model_guidance_codex_61_sol": "GPT-6.1-Modell für komplexes Coding und länger laufende Aufgaben, mit Fähigkeiten nahe Astra bei niedrigeren Token-Kosten als Astra.",
+  "feat_gpt_61_codex_model_title": "GPT-6.1 Sol in Codex",
+  "feat_gpt_61_codex_model_body": "Wähle GPT-6.1 Sol für neue Codex-Aufgaben, als Standardmodell oder für einzelne Agentenrollen. Die Modellauswahl enthält Kostenhinweise und Reasoning-Stufen von Niedrig bis Ultra."
 }

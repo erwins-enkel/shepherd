@@ -571,19 +571,20 @@ describe("UpNextPanel provider picker", () => {
       .poll(() =>
         Array.from(model.options)
           .map((o) => o.value)
-          .slice(0, 7),
+          .slice(0, 8),
       )
       .toEqual([
         "default",
         "gpt-5.6-sol",
         "gpt-6-astra",
+        "gpt-6.1-sol",
         "gpt-6-sol",
         "gpt-6-luna",
         "gpt-5.6-terra",
         "gpt-5.6-luna",
       ]);
-    await expect.poll(() => Array.from(model.options).map((o) => o.value)).toContain("gpt-6-astra");
-    model.value = "gpt-6-astra";
+    await expect.poll(() => Array.from(model.options).map((o) => o.value)).toContain("gpt-6.1-sol");
+    model.value = "gpt-6.1-sol";
     model.dispatchEvent(new Event("change", { bubbles: true }));
     const effort = document.querySelector<HTMLSelectElement>("#mcp-effort")!;
     effort.value = "ultra";
@@ -592,7 +593,7 @@ describe("UpNextPanel provider picker", () => {
     await expect.poll(() => vi.mocked(startUpNext).mock.calls.length).toBe(1);
     expect(vi.mocked(startUpNext).mock.calls[0]?.[1]).toEqual({
       agentProvider: "codex",
-      model: "gpt-6-astra",
+      model: "gpt-6.1-sol",
       effort: "ultra",
     });
   });

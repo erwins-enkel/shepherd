@@ -66,6 +66,14 @@ describe("normalizeDefaultModelSetting", () => {
 });
 
 describe("normalizeDefaultCodexModelSetting", () => {
+  test("preserves GPT-6.1 Sol as a saved default and explicit role model", () => {
+    expect(normalizeDefaultCodexModelSetting("gpt-6.1-sol")).toBe("gpt-6.1-sol");
+    expect(resolvePersistedDefaultCodexModel("gpt-6.1-sol", "gpt-5.6-sol")).toBe("gpt-6.1-sol");
+    expect(resolveRoleEnvironment("codex", "gpt-6.1-sol", "claude", "opus", true, "ultra")).toEqual(
+      { provider: "codex", model: "gpt-6.1-sol", effort: "ultra" },
+    );
+  });
+
   test("accepts 'default' and each curated Codex model", () => {
     expect(normalizeDefaultCodexModelSetting("default")).toBe("default");
     for (const model of CODEX_MODELS) {

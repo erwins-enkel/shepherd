@@ -1,7 +1,7 @@
 import { m } from "$lib/paraglide/messages";
 import { CODEX_MODELS, EFFORTS, type AgentProvider } from "$lib/types";
 
-/** Codex 0.156.1 model catalog: Astra/Sol/Terra offer Ultra, Luna stops at Max.
+/** Codex model catalog: Astra/Sol/Terra offer Ultra, Luna stops at Max.
  * Older curated models keep their four tiers. Unknown models and CLI-default choices are
  * left to the CLI rather than restricted by an assumed capability. Claude offers five tiers. */
 export function providerEfforts(provider: AgentProvider, model?: string | null): readonly string[] {
@@ -9,6 +9,7 @@ export function providerEfforts(provider: AgentProvider, model?: string | null):
     return EFFORTS.filter((e) => e !== "ultra");
   if (
     model === "gpt-6-astra" ||
+    model === "gpt-6.1-sol" ||
     model === "gpt-6-sol" ||
     model === "gpt-5.6-sol" ||
     model === "gpt-5.6-terra"

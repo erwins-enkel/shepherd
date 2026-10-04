@@ -8195,6 +8195,23 @@
         }
       }
     },
+    "model_guidance_codex_61_sol": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPT-6.1-Modell für komplexes Coding und länger laufende Aufgaben, mit Fähigkeiten nahe Astra bei niedrigeren Token-Kosten als Astra."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPT-6.1 model for complex coding and long-running work, with near-Astra capability at lower token costs than Astra."
+          }
+        }
+      }
+    },
     "model_guidance_codex_6_astra": {
       "extractionState": "manual",
       "localizations": {

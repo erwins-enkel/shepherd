@@ -28,7 +28,7 @@ extension MacSeamTests {
     }
 
     @Test func updatesAreAvailableOnlyForManagedCheckouts() {
-        for state in [LocalServerState.stopped, .running(pid: 1), .failed(.updateFailed(exitCode: 1))] {
+        for state in [LocalServerState.stopped, .running(pid: 1)] {
             let panel = LocalServerPanelState(state: state, busy: false, managesUpdates: true, updateBehind: 2)
             #expect(panel.showsUpdate && panel.canUpdate)
             #expect(panel.showsUpdateCheck && panel.canCheckUpdate)
@@ -50,8 +50,11 @@ extension MacSeamTests {
         #expect(panel.isBusyState)
         let checking = LocalServerPanelState(state: .stopped, busy: false, managesUpdates: true, checkingUpdate: true)
         #expect(checking.showsUpdateCheck && !checking.canCheckUpdate)
-        let failed = LocalServerPanelState(state: .failed(.updateFailed(exitCode: 1)), busy: false, managesUpdates: true)
+        // The old server keeps running after a failed update: retry is offered
+        // next to the normal running controls, never instead of them.
+        let failed = LocalServerPanelState(state: .running(pid: 1), busy: false, managesUpdates: true, updateFailed: true)
         #expect(failed.showsUpdate && failed.canUpdate && !failed.showsInstall)
+        #expect(failed.canStop && failed.canRestart && failed.canOpenWeb)
     }
 
     @Test func openWebIsPresentAndEnabledOnlyForRunningOrExternalServers() {
@@ -59,7 +62,7 @@ extension MacSeamTests {
             let panel = LocalServerPanelState(state: state, busy: false)
             #expect(panel.showsOpenWeb && panel.canOpenWeb)
         }
-        for state in [LocalServerState.notInstalled, .installing, .updating, .stopped, .starting, .failed(.updateFailed(exitCode: 1))] {
+        for state in [LocalServerState.notInstalled, .installing, .updating, .stopped, .starting, .failed(.exited(code: 1))] {
             let panel = LocalServerPanelState(state: state, busy: false)
             #expect(panel.showsOpenWeb && !panel.canOpenWeb)
         }

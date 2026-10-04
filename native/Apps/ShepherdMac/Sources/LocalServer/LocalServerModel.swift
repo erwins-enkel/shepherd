@@ -103,6 +103,10 @@ final class LocalServerModel {
     private var installTask: Task<Void, Never>?
     private(set) var updateStatus: LocalUpdateStatus?
     private(set) var updateCheckFailure: LocalUpdateCheckFailure?
+    /// A failed `update.sh` run, kept beside `state` rather than in it: the
+    /// old supervised server is usually still healthy, and folding the failure
+    /// into `state` would hide Stop/Restart/Connect for a server that works.
+    private(set) var updateFailure: LocalServerFailure?
     private(set) var isCheckingUpdate = false
     private var updateCheckGeneration = 0
     private var lastUpdateCheckAttempt: Date?
@@ -173,7 +177,7 @@ final class LocalServerModel {
     }
     var canInstall: Bool {
         switch state {
-        case .failed(.bunOutdated), .failed(.bunUpgradeFailed), .failed(.updateFailed), .upgradingBun, .updating: false
+        case .failed(.bunOutdated), .failed(.bunUpgradeFailed), .upgradingBun, .updating: false
         default: !busy && (state == .notInstalled || isFailed)
         }
     }
@@ -216,12 +220,7 @@ final class LocalServerModel {
         guard generation == expected else { return }
         if supervised.isRunning || supervised == .starting {
             clearExternalObservation()
-            // An update failure belongs to the checkout, even if the old
-            // supervised process is still healthy. Keep its log/retry visible.
-            switch state {
-            case .failed(.updateFailed): break
-            default: state = supervised
-            }
+            state = supervised
             await pullLog()
             return
         }
@@ -248,7 +247,7 @@ final class LocalServerModel {
         }
         clearExternalObservation()
         switch state {
-        case .failed(.bunOutdated), .failed(.bunUpgradeFailed), .failed(.updateFailed):
+        case .failed(.bunOutdated), .failed(.bunUpgradeFailed):
             break // Keep the upgrade result and retry button when the panel reappears.
         default:
             if case .failed = supervised { state = supervised }
@@ -375,6 +374,7 @@ final class LocalServerModel {
         busy = true
         generation += 1
         state = .updating
+        updateFailure = nil
         // A check begun before the pull is stale. Cancel and wait for its fetch
         // to finish before update.sh mutates the same checkout.
         updateCheckTask?.cancel()
@@ -401,7 +401,9 @@ final class LocalServerModel {
             // The old preview no longer describes the installed checkout.
             updateStatus = nil
             await performUpdateCheck(force: true, allowBusy: true)
-        case .failure(let failure): state = .failed(failure)
+        case .failure(let failure):
+            updateFailure = failure
+            await resolveState()
         }
     }
 

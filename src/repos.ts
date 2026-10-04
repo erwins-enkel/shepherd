@@ -4,6 +4,8 @@ import {
   writeFileSync,
   existsSync,
   statSync,
+  lstatSync,
+  readlinkSync,
   realpathSync,
   mkdirSync,
   rmSync,
@@ -14,7 +16,7 @@ import {
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { execFileSync } from "./instrument";
-import { join, resolve, sep } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { expandHome, safeRepoDir } from "./validate";
 import { sanitizeDetail } from "./forge/gh-attempt";
@@ -62,14 +64,77 @@ function toDisplay(p: string): string {
   return home && p.startsWith(home) ? "~" + p.slice(home.length) : p;
 }
 
-export function listRepos(repoRoot: string): RepoEntry[] {
+/**
+ * Home-directory children macOS guards behind a privacy (TCC) prompt, or that
+ * are system folders rather than repos. With the default repo root ($HOME) every
+ * child is a candidate repo that pollers read into (TODO.md, `.git`, workflows),
+ * so a fresh install made the app that launched the server ask for Desktop,
+ * Documents, Downloads, … access it never needed.
+ */
+const MACOS_HOME_PRIVACY_DIRS = new Set([
+  "Applications",
+  "Desktop",
+  "Documents",
+  "Downloads",
+  "Library",
+  "Movies",
+  "Music",
+  "Pictures",
+  "Public",
+]);
+
+/** Sync clients' home folders (or aliases), each a separate File Provider prompt. */
+const CLOUD_SYNC_NAME =
+  /^(OneDrive|Google ?Drive|Dropbox|iCloud Drive|Box|Creative Cloud Files)\b/i;
+
+/** Whether a symlink in $HOME points into a File Provider or iCloud location. */
+function linksIntoCloudStorage(path: string, home: string): boolean {
+  let target: string;
+  try {
+    if (!lstatSync(path).isSymbolicLink()) return false;
+    target = resolve(dirname(path), readlinkSync(path));
+  } catch {
+    return false;
+  }
+  const guarded = [
+    join(home, "Library", "CloudStorage"),
+    join(home, "Library", "Mobile Documents"),
+    "/Volumes/GoogleDrive",
+  ];
+  return guarded.some((dir) => target === dir || target.startsWith(dir + sep));
+}
+
+/**
+ * Skip privacy-guarded and cloud-sync folders when the repo root is the home
+ * directory itself, deciding from the name and link alone so nothing inside them
+ * is touched. An operator who points the repo root at such a folder chose it, so
+ * that case still lists — and prompts — as before.
+ */
+function isGuardedHomeEntry(name: string, path: string, home: string): boolean {
+  return (
+    MACOS_HOME_PRIVACY_DIRS.has(name) ||
+    CLOUD_SYNC_NAME.test(name) ||
+    linksIntoCloudStorage(path, home)
+  );
+}
+
+export function listRepos(
+  repoRoot: string,
+  opts: { home?: string; platform?: NodeJS.Platform } = {},
+): RepoEntry[] {
   let entries: string[];
   try {
     entries = readdirSync(repoRoot);
   } catch {
     return [];
   }
+  const home = opts.home ?? homedir();
+  const guardHome =
+    (opts.platform ?? process.platform) === "darwin" &&
+    !!home &&
+    resolve(repoRoot) === resolve(home);
   return entries
+    .filter((name) => !guardHome || !isGuardedHomeEntry(name, join(repoRoot, name), home))
     .map((name) => {
       const p = join(repoRoot, name);
       return { name, path: p, display: toDisplay(p), realPath: realpathOrRaw(p) };

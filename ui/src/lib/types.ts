@@ -108,6 +108,8 @@ export interface AccessToken {
   /** What the token may reach (#2083). Fixed at mint — there is no route to change it, so the
    *  list renders this read-only. Tokens minted before scopes existed report `full`. */
   scope: TokenScope;
+  /** null grants all repositories; [] grants none. Editable by the operator. */
+  repoPaths: string[] | null;
 }
 
 /** Mirrors TOKEN_SCOPES in src/token-scopes.ts — the server rejects any other value at mint.

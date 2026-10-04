@@ -454,9 +454,8 @@ test("validation: scope must be one of the three levels", async () => {
   }
 });
 
-test("mint: there is no route to change a scope after the fact", async () => {
-  // The audit story depends on this: a token's reach is fixed at mint. PATCH/PUT on the collection
-  // and on a single token must not resolve to anything — they 404 as unmatched /api routes.
+test("mint: repository updates cannot change a token scope", async () => {
+  // Scope stays fixed at mint, including through the repository-only PATCH route.
   const app = makeApp(makeDeps());
   const { entry } = (await (await app.fetch(post({ name: "reader", scope: "read" }))).json()) as {
     entry: { id: string };
@@ -469,7 +468,7 @@ test("mint: there is no route to change a scope after the fact", async () => {
         body: JSON.stringify({ scope: "full" }),
       }),
     );
-    expect(`${method} → ${res.status}`).toBe(`${method} → 404`);
+    expect(`${method} → ${res.status}`).toBe(`${method} → ${method === "PATCH" ? 400 : 404}`);
   }
   // …and the scope is unchanged.
   const listed = (await (
@@ -570,4 +569,68 @@ test("settings payload: envTokenActive mirrors whether SHEPHERD_TOKEN is set, ne
   ).json()) as Record<string, unknown>;
   expect(on.envTokenActive).toBe(true);
   expect(JSON.stringify(on)).not.toContain("operator-bearer");
+});
+
+test("operator can set and edit canonical repo grants; bearers cannot widen them", async () => {
+  const { mkdtempSync, mkdirSync, symlinkSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const root = mkdtempSync(join(tmpdir(), "token-repo-api-"));
+  const a = join(root, "a"),
+    b = join(root, "b");
+  mkdirSync(a);
+  mkdirSync(b);
+  symlinkSync(a, join(root, "alias"));
+  const before = config.repoRoot;
+  config.repoRoot = root;
+  try {
+    const deps = makeDeps();
+    const app = makeApp(deps);
+    const res = await app.fetch(
+      post({ name: "remote", scope: "full", repoPaths: [a, join(root, "alias")] }),
+    );
+    expect(res.status).toBe(201);
+    const minted = (await res.json()) as {
+      token: string;
+      entry: { id: string; repoPaths: string[] };
+    };
+    expect(minted.entry.repoPaths).toEqual([a]);
+    const patch = (body: unknown, headers = asOperator()) =>
+      app.fetch(
+        new Request(`http://x/api/access-tokens/${minted.entry.id}`, {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify(body),
+        }),
+      );
+    expect(
+      (
+        await patch({ repoPaths: null }, {
+          "content-type": "application/json",
+          Authorization: `Bearer ${minted.token}`,
+        } as never)
+      ).status,
+    ).toBe(403);
+    expect((await patch({ repoPaths: [join(root, "missing")] })).status).toBe(400);
+    expect((await patch({ repoPaths: [b], scope: "read" })).status).toBe(400);
+    expect((await patch({})).status).toBe(400);
+    expect((await patch({ repoPaths: [b] })).status).toBe(200);
+    const me = await (
+      await app.fetch(
+        new Request("http://x/api/me", { headers: { Authorization: `Bearer ${minted.token}` } }),
+      )
+    ).json();
+    expect(me.access).toEqual({
+      tokenId: minted.entry.id,
+      scope: "full",
+      repoPaths: [b],
+      expiresAt: null,
+    });
+    expect((await patch({ repoPaths: [] })).status).toBe(200);
+    expect((await patch({ repoPaths: null })).status).toBe(200);
+    expect(deps.accessTokens!.verify(`Bearer ${minted.token}`)?.repoPaths).toBeNull();
+  } finally {
+    config.repoRoot = before;
+    rmSync(root, { recursive: true, force: true });
+  }
 });

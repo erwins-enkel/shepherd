@@ -203,13 +203,17 @@ function transformSchema(node: Obj, pointer: string, nullableOk: boolean): Obj {
       !Array.isArray(types) ||
       types.length !== 2 ||
       !types.includes("null") ||
-      !types.some((t) => t === "boolean" || t === "string")
+      !types.some((t) => t === "boolean" || t === "string" || t === "array")
     ) {
-      throw new Error(`invalid explicit-null scalar at ${pointer}`);
+      throw new Error(`invalid explicit-null value at ${pointer}`);
     }
-    // Required opaque scalar in Swift, preserving JSON null rather than omitting it.
-    // The truth schema still validates boolean|string-or-null, and stream factories are typed.
-    return { description: "Required JSON scalar; use the stream's typed value factory." };
+    // Required opaque value in Swift, preserving JSON null rather than omitting it.
+    // The truth schema still validates the wire type.
+    return {
+      description: types.includes("array")
+        ? "Required JSON array or null; supply an explicit JSON value."
+        : "Required JSON scalar; use the stream's typed value factory.",
+    };
   }
 
   for (const key of Object.keys(node)) {

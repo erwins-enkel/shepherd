@@ -54,6 +54,8 @@ export interface AccessTokenRow {
   lastUsedAt: number | null;
   expiresAt: number | null;
   scope: TokenScope;
+  /** null = all repositories; [] = no repository access. */
+  repoPaths: string[] | null;
 }
 
 /** What the API and the UI ever see — the same row minus the hash. */
@@ -69,6 +71,7 @@ function toSummary(row: AccessTokenRow): AccessTokenSummary {
     lastUsedAt: row.lastUsedAt,
     expiresAt: row.expiresAt,
     scope: row.scope,
+    repoPaths: row.repoPaths,
   };
 }
 
@@ -104,6 +107,25 @@ export function isExpiryPreset(raw: unknown): raw is number | null {
   return (ACCESS_TOKEN_EXPIRY_DAYS as readonly number[]).includes(raw as number);
 }
 
+/** Wire validation; canonical repository membership is checked by the operator route. */
+export function isRepositoryPaths(value: unknown): value is string[] | null {
+  return (
+    value === null ||
+    (Array.isArray(value) && value.every((p) => typeof p === "string" && p.trim().length > 0))
+  );
+}
+
+/** Only SQL NULL means unrestricted. Corrupt JSON always fails closed. */
+export function decodeStoredRepoPaths(value: string | null): string[] | null {
+  if (value === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return Array.isArray(parsed) && isRepositoryPaths(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * Validate a mint request body from the wire. Returns the normalized fields, or the operator-facing
  * message the route turns into a 400. Pure, so every rejection path is unit-testable without HTTP —
@@ -116,12 +138,14 @@ export function isExpiryPreset(raw: unknown): raw is number | null {
  */
 export function parseMintRequest(
   body: unknown,
-): { name: string; expiresInDays: number | null; scope: TokenScope } | { error: string } {
+):
+  | { name: string; expiresInDays: number | null; scope: TokenScope; repoPaths: string[] | null }
+  | { error: string } {
   if (typeof body !== "object" || body === null || Array.isArray(body)) {
     return { error: "invalid body" };
   }
   const raw = body as Record<string, unknown>;
-  const known = ["name", "expiresInDays", "scope"];
+  const known = ["name", "expiresInDays", "scope", "repoPaths"];
   const unknownField = Object.keys(raw).find((k) => !known.includes(k));
   if (unknownField) return { error: `unknown field: ${unknownField}` };
 
@@ -137,7 +161,10 @@ export function parseMintRequest(
   if (!isTokenScope(scope)) {
     return { error: `scope must be one of ${TOKEN_SCOPES.join(", ")}` };
   }
-  return { name, expiresInDays, scope };
+  const repoPaths = raw.repoPaths === undefined ? null : raw.repoPaths;
+  if (!isRepositoryPaths(repoPaths))
+    return { error: "repoPaths must be null or an array of paths" };
+  return { name, expiresInDays, scope, repoPaths };
 }
 
 /**
@@ -155,13 +182,19 @@ export function looksLikeAccessToken(
 
 type Store = Pick<
   SessionStore,
-  "listAccessTokens" | "insertAccessToken" | "deleteAccessToken" | "touchAccessToken"
+  | "listAccessTokens"
+  | "insertAccessToken"
+  | "deleteAccessToken"
+  | "touchAccessToken"
+  | "updateAccessTokenRepos"
 >;
 
 /** What `verify` hands the auth seam: who presented the token, and how far it reaches. */
 export interface VerifiedToken {
   id: string;
   scope: TokenScope;
+  repoPaths: string[] | null;
+  expiresAt: number | null;
 }
 
 export class AccessTokenService {
@@ -169,10 +202,9 @@ export class AccessTokenService {
   private readonly now: () => number;
   /** hash → identity. The hot-path index; expired entries stay (verify checks) so the list stays
    *  whole. Carries the SCOPE so the gate never needs a DB read to authorize a route (#2083). */
-  private readonly byHash = new Map<
-    string,
-    { id: string; expiresAt: number | null; scope: TokenScope }
-  >();
+  private readonly byHash = new Map<string, VerifiedToken>();
+  private readonly byId = new Map<string, VerifiedToken>();
+  private readonly changes = new Set<(id: string) => void>();
   /** token id → last `lastUsedAt` write, for the throttle. */
   private readonly stampedAt = new Map<string, number>();
 
@@ -180,11 +212,14 @@ export class AccessTokenService {
     this.store = store;
     this.now = now;
     for (const row of store.listAccessTokens()) {
-      this.byHash.set(row.tokenHash, {
+      const entry: VerifiedToken = {
         id: row.id,
         expiresAt: row.expiresAt,
         scope: row.scope,
-      });
+        repoPaths: row.repoPaths,
+      };
+      this.byHash.set(row.tokenHash, entry);
+      this.byId.set(row.id, entry);
     }
   }
 
@@ -203,6 +238,7 @@ export class AccessTokenService {
     name: string,
     expiresInDays: number | null,
     scope: TokenScope = DEFAULT_TOKEN_SCOPE,
+    repoPaths: string[] | null = null,
   ): { token: string; entry: AccessTokenSummary } {
     const token = generateAccessToken();
     const createdAt = this.now();
@@ -215,9 +251,17 @@ export class AccessTokenService {
       lastUsedAt: null,
       expiresAt: expiresInDays === null ? null : createdAt + expiresInDays * DAY_MS,
       scope,
+      repoPaths: repoPaths === null ? null : [...repoPaths],
     };
     this.store.insertAccessToken(row);
-    this.byHash.set(row.tokenHash, { id: row.id, expiresAt: row.expiresAt, scope: row.scope });
+    const identity = {
+      id: row.id,
+      expiresAt: row.expiresAt,
+      scope: row.scope,
+      repoPaths: row.repoPaths,
+    };
+    this.byHash.set(row.tokenHash, identity);
+    this.byId.set(row.id, identity);
     return { token, entry: toSummary(row) };
   }
 
@@ -227,7 +271,9 @@ export class AccessTokenService {
     for (const [hash, entry] of this.byHash) {
       if (entry.id === id) this.byHash.delete(hash);
     }
+    this.byId.delete(id);
     this.stampedAt.delete(id);
+    for (const listener of this.changes) listener(id);
     return true;
   }
 
@@ -245,8 +291,31 @@ export class AccessTokenService {
     const presented = authorization.slice(BEARER.length);
     const entry = this.byHash.get(hashAccessToken(presented));
     if (!entry) return null;
-    if (entry.expiresAt !== null && entry.expiresAt <= this.now()) return null;
-    return { id: entry.id, scope: entry.scope };
+    return this.current(entry.id);
+  }
+
+  /** Re-read mutable grants without retaining credentials on a WebSocket. */
+  current(id: string): VerifiedToken | null {
+    const entry = this.byId.get(id);
+    if (!entry || (entry.expiresAt !== null && entry.expiresAt <= this.now())) return null;
+    return entry;
+  }
+
+  updateRepositories(id: string, repoPaths: string[] | null): AccessTokenSummary | null {
+    const entry = this.byId.get(id);
+    if (!entry || !this.store.updateAccessTokenRepos(id, repoPaths)) return null;
+    entry.repoPaths = repoPaths === null ? null : [...repoPaths];
+    for (const listener of this.changes) listener(id);
+    const row = this.store.listAccessTokens().find((row) => row.id === id);
+    return row ? toSummary(row) : null;
+  }
+
+  /** Disconnect live clients when the operator changes or revokes their credential. */
+  onChange(listener: (id: string) => void): () => void {
+    this.changes.add(listener);
+    return () => {
+      this.changes.delete(listener);
+    };
   }
 
   /** Throttled `lastUsedAt` stamp. Called after a successful `verify` on every authed request. */

@@ -122,6 +122,41 @@ describe("auth", () => {
     expect(viaBearer.status).toBe(403);
   });
 
+  test("GET /api/me returns current token grants without secrets", async () => {
+    for (const headers of [bearer(token), { cookie }]) {
+      const res = await fetch(`${s.baseUrl}/api/me`, { headers });
+      const body = (await validateResponse("GET", "/api/me", res)) as {
+        access?: { tokenId: string; repoPaths: string[] | null };
+      };
+      expect(res.status).toBe(200);
+      if ("cookie" in headers) expect(body.access).toBeUndefined();
+      else expect(body.access).toMatchObject({ tokenId, repoPaths: null });
+    }
+  });
+
+  test("PATCH /api/access-tokens/{id} changes grants only with an operator session", async () => {
+    const { id, token: editable } = await mintToken(s, cookie, "editable");
+    for (const [path, headers, body, status] of [
+      [id, { cookie }, { repoPaths: [] }, 200],
+      [id, { cookie }, { scope: "full" }, 400],
+      [id, bearer(editable), { repoPaths: null }, 403],
+      ["missing", { cookie }, { repoPaths: [] }, 404],
+    ] as const) {
+      const res = await fetch(`${s.baseUrl}/api/access-tokens/${path}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json", ...headers },
+        body: JSON.stringify(body),
+      });
+      expect(res.status).toBe(status);
+      await validateResponse("PATCH", "/api/access-tokens/{id}", res);
+    }
+    const res = await fetch(`${s.baseUrl}/api/me`, { headers: bearer(editable) });
+    const body = (await validateResponse("GET", "/api/me", res)) as {
+      access: { repoPaths: string[] };
+    };
+    expect(body.access.repoPaths).toEqual([]);
+  });
+
   test("DELETE /api/access-tokens/{id} revokes once, then 404", async () => {
     const { id } = await mintToken(s, cookie, "to revoke");
     const viaBearer = await fetch(`${s.baseUrl}/api/access-tokens/${id}`, {

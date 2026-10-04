@@ -73,7 +73,7 @@ import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 import { normalizeRepoDefaultModelSetting } from "./default-model";
 import { normalizeRepoDefaultEffortSetting } from "./default-effort";
 import { sanitizeScopeGlobs } from "./house-rules";
-import type { AccessTokenRow } from "./access-tokens";
+import { decodeStoredRepoPaths, type AccessTokenRow } from "./access-tokens";
 import type { EpicQueueEntry, EpicRun } from "./epic-core";
 import type { EpicLandingState } from "./completed-epic";
 import { normalizeRule } from "./learning-rule";
@@ -1843,7 +1843,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // migrate tokens minted before per-token scopes (#2083). The column DEFAULT is the whole
     // migration: every pre-existing token keeps the full reach it was minted with, so no client
     // breaks on upgrade. New tokens carry whatever the mint request chose.
-    this.addMissingColumns("access_tokens", { scope: "TEXT NOT NULL DEFAULT 'full'" });
+    this.addMissingColumns("access_tokens", {
+      scope: "TEXT NOT NULL DEFAULT 'full'",
+      repoPaths: "TEXT",
+    });
     this.db.run(`CREATE TABLE IF NOT EXISTS session_usage (
       sessionId      TEXT PRIMARY KEY,
       desig          TEXT NOT NULL,
@@ -1927,18 +1930,28 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   /** Every token, newest first. Rows carry the HASH — the plaintext exists only in the mint response. */
   listAccessTokens(): AccessTokenRow[] {
-    return this.db
+    const rows = this.db
       .query(
-        `SELECT id, name, tokenHash, hint, createdAt, lastUsedAt, expiresAt, scope
-         FROM access_tokens ORDER BY createdAt DESC`,
+        `SELECT id, name, tokenHash, hint, createdAt, lastUsedAt, expiresAt, scope, repoPaths
+       FROM access_tokens ORDER BY createdAt DESC`,
       )
-      .all() as AccessTokenRow[];
+      .all() as Array<Omit<AccessTokenRow, "repoPaths"> & { repoPaths: string | null }>;
+    return rows.map((row) => ({ ...row, repoPaths: decodeStoredRepoPaths(row.repoPaths) }));
+  }
+
+  updateAccessTokenRepos(id: string, repoPaths: string[] | null): boolean {
+    return (
+      this.db.run("UPDATE access_tokens SET repoPaths = ? WHERE id = ?", [
+        repoPaths === null ? null : JSON.stringify(repoPaths),
+        id,
+      ]).changes > 0
+    );
   }
 
   insertAccessToken(row: AccessTokenRow): void {
     this.db.run(
-      `INSERT INTO access_tokens (id, name, tokenHash, hint, createdAt, lastUsedAt, expiresAt, scope)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO access_tokens (id, name, tokenHash, hint, createdAt, lastUsedAt, expiresAt, scope, repoPaths)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         row.id,
         row.name,
@@ -1948,6 +1961,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         row.lastUsedAt,
         row.expiresAt,
         row.scope,
+        row.repoPaths === null ? null : JSON.stringify(row.repoPaths),
       ],
     );
   }

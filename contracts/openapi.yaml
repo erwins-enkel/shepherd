@@ -74,6 +74,40 @@ components:
     TokenScope:
       type: string
       enum: [read, submit, full]
+    AccessTokenRepositoryRequest:
+      type: object
+      additionalProperties: false
+      required: [repoPaths]
+      properties:
+        repoPaths:
+          type: [array, "null"]
+          items: { type: string }
+          description: Exact canonical roots; null grants all including future repositories, an empty array grants none.
+          x-shepherd-explicit-null: true
+    AccessTokenUpdated:
+      type: object
+      required: [entry]
+      properties:
+        entry:
+          $ref: "#/components/schemas/AccessTokenSummary"
+    AuthenticatedIdentity:
+      type: object
+      required: [authenticated]
+      properties:
+        authenticated: { type: boolean, const: true }
+        access:
+          description: Present only for a minted bearer token, with its current permissions.
+          type: object
+          required: [tokenId, scope, repoPaths, expiresAt]
+          properties:
+            tokenId: { type: string }
+            scope:
+              $ref: "#/components/schemas/TokenScope"
+            repoPaths:
+              type: [array, "null"]
+              items: { type: string }
+              description: Exact canonical roots; null grants all including future repositories, an empty array grants none.
+            expiresAt: { type: [integer, "null"] }
     AccessTokenMintRequest:
       type: object
       additionalProperties: false
@@ -88,10 +122,14 @@ components:
           enum: [30, 90, 365, null]
         scope:
           $ref: "#/components/schemas/TokenScope"
+        repoPaths:
+          type: [array, "null"]
+          items: { type: string }
+          description: Exact canonical roots; null grants all including future repositories, an empty array grants none.
     AccessTokenSummary:
       type: object
       additionalProperties: true
-      required: [id, name, hint, createdAt, lastUsedAt, expiresAt, scope]
+      required: [id, name, hint, createdAt, lastUsedAt, expiresAt, scope, repoPaths]
       properties:
         id: { type: string }
         name: { type: string }
@@ -101,6 +139,10 @@ components:
         expiresAt: { type: [integer, "null"] }
         scope:
           $ref: "#/components/schemas/TokenScope"
+        repoPaths:
+          type: [array, "null"]
+          items: { type: string }
+          description: Exact canonical roots; null grants all including future repositories, an empty array grants none.
     AccessTokenMinted:
       type: object
       additionalProperties: true
@@ -4669,6 +4711,18 @@ paths:
                 $ref: "#/components/schemas/Ok"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/me:
+    get:
+      operationId: getAuthenticatedIdentity
+      responses:
+        "200":
+          description: Current identity and token permissions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthenticatedIdentity"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /api/access-tokens:
     get:
       operationId: listAccessTokens
@@ -4726,6 +4780,44 @@ paths:
         in: path
         required: true
         schema: { type: string }
+    patch:
+      operationId: updateAccessTokenRepositories
+      description: Update only repository grants, preserving the token, scope and expiry. Closes existing token WebSockets so they reauthenticate.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccessTokenRepositoryRequest"
+      responses:
+        "200":
+          description: Updated permissions; no plaintext token.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessTokenUpdated"
+        "400":
+          description: Invalid body or repository.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Caller is not an operator session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Unknown token id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
     delete:
       operationId: revokeAccessToken
       description: >-

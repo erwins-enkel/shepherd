@@ -709,12 +709,16 @@ test("mergeWaitReason: a verdict that blocks the rebase is reported instead of b
   );
   const dirty = { mergeable: false, mergeStateStatus: "dirty" as const, checks: "none" as const };
   expect(wait({ ...dirty, reviewDecision: "error", reviewHeadSha: "h1" })).toBe("critic_error");
-  // critic off: a leftover current verdict still blocks the rebase
-  expect(wait({ behind: true, reviewDecision: "error" }, { criticEnabled: false })).toBe(
-    "critic_error",
-  );
-  // a re-review still due for the new head holds the rebase back too
-  expect(wait({ behind: true, reviewDecision: "commented", reviewHeadSha: "h0" })).toBe(
+  // critic off: a leftover current-head verdict still blocks the rebase
+  expect(
+    wait({ behind: true, reviewDecision: "error", reviewHeadSha: "h1" }, { criticEnabled: false }),
+  ).toBe("critic_error");
+  // findings on the current head: fix first, then rebase (#2722)
+  expect(
+    wait({ behind: true, reviewDecision: "commented", reviewHeadSha: "h1", findings: ["x"] }),
+  ).toBe("changes_requested");
+  // off the urgent path a re-review still due for the new head holds the rebase back too
+  expect(wait({ mergeable: false, reviewDecision: "commented", reviewHeadSha: "h0" })).toBe(
     "critic_pending",
   );
 });
@@ -727,6 +731,21 @@ test("mergeWaitReason: a stacked or unsigned-draft PR is never rebased, so that 
   // draft mode: an unsigned PR is left alone — the sign-off is what is missing
   expect(wait({ behind: true }, { criticEnabled: false, draftMode: true })).toBe("signoff");
   expect(wait({ ...dirty }, { criticEnabled: false, draftMode: true })).toBe("signoff");
+});
+
+test("mergeWaitReason: a behind PR is rebased first, whatever CI or an old verdict says", () => {
+  // #2722: behind waives the CI gate, so the rebase — not CI — is what the train waits on
+  expect(wait({ behind: true, checks: "pending" })).toBe("behind");
+  expect(wait({ behind: true, checks: "failure" })).toBe("behind");
+  // a verdict on an older head can't refresh while behind, so it doesn't block the rebase
+  expect(wait({ behind: true, reviewDecision: "error", reviewHeadSha: "h0" })).toBe("behind");
+  expect(wait({ behind: true, reviewDecision: "commented", reviewHeadSha: "h0" })).toBe("behind");
+  // a spawn-aborted critic is no verdict on an urgent PR
+  expect(
+    wait({ behind: true, reviewDecision: "error", reviewHeadSha: "h1", reviewSpawnAborted: true }),
+  ).toBe("behind");
+  // backoff still outranks everything
+  expect(wait({ behind: true, mergeBlocked: true })).toBe("merge_backoff");
 });
 
 test("mergeWaitReason: behind/conflict stay when the train will rebase", () => {

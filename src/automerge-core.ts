@@ -228,7 +228,10 @@ function rebaseBlocker(
 ): MergeWaitCode | null {
   if (s.stacked) return "stacked";
   if (draftMode && !signedOff(authority, signoffView(s))) return "signoff";
-  if (!rebaseVerdictAllows(s, criticEnabled)) return verdictGateFailure(s, criticEnabled);
+  // A verdict that blocks the rebase: an error / changes_requested, a re-review still due, or
+  // findings on the current head ("fix first, then rebase" — verdictGateFailure passes those).
+  if (!rebaseVerdictAllows(s, criticEnabled))
+    return verdictGateFailure(s, criticEnabled) ?? "changes_requested";
   return null;
 }
 
@@ -253,8 +256,16 @@ export function mergeWaitReason(
     return "rebase_cap";
   const gate = readyGateFailure(s, criticEnabled, draftMode, signoffAuthority);
   if (gate === "not_open") return null;
-  if (gate && REBASE_PATH_CODES.has(gate))
-    return rebaseBlocker(s, criticEnabled, draftMode, signoffAuthority) ?? gate;
+  // A behind or conflicting PR is rebased before anything else, whatever CI says (rebaseUrgent):
+  // report that rebase — or what blocks it — rather than the CI it is about to re-run.
+  const rebaseGate =
+    gate !== "merge_backoff" && rebaseUrgent(s)
+      ? isDefiniteConflict(s)
+        ? "conflict"
+        : "behind"
+      : gate;
+  if (rebaseGate && REBASE_PATH_CODES.has(rebaseGate))
+    return rebaseBlocker(s, criticEnabled, draftMode, signoffAuthority) ?? rebaseGate;
   if (gate) return gate;
   if (s.stacked) return "stacked";
   if (hasBlockingManualSteps(s)) return "manual_steps";

@@ -6494,6 +6494,224 @@ components:
         endpoint:
           type: string
           description: The device's push endpoint; the key for /api/push/prefs and /api/push/unsubscribe.
+    ApnsField:
+      type: string
+      enum:
+        - key
+        - keyId
+        - teamId
+        - topic
+    ApnsKeyError:
+      type: string
+      enum:
+        - unreadable
+        - invalid
+        - not_p256
+      description: Why a configured key cannot sign — a missing env file, not a private key, or not the EC P-256 key APNs requires.
+    ApnsFailure:
+      type: object
+      additionalProperties: true
+      required:
+        - status
+        - reason
+        - at
+      properties:
+        status:
+          type: integer
+          description: HTTP status APNs answered (0 when the connection itself failed).
+        reason:
+          type:
+            - string
+            - "null"
+          description: APNs' reason, e.g. InvalidProviderToken or BadDeviceToken.
+        at:
+          type: integer
+    ApnsStatus:
+      type: object
+      additionalProperties: true
+      description: Native iOS push configuration. Never carries the key, not even part of it.
+      required:
+        - state
+        - hasKey
+        - keyId
+        - teamId
+        - topic
+        - keySavedAt
+        - env
+        - lastDeliveredAt
+      properties:
+        state:
+          type: string
+          enum:
+            - unconfigured
+            - configured
+            - error
+        hasKey:
+          type: boolean
+        keyId:
+          type:
+            - string
+            - "null"
+        teamId:
+          type:
+            - string
+            - "null"
+        topic:
+          type: string
+        keySavedAt:
+          type:
+            - integer
+            - "null"
+          description: When the stored key was saved; null when none is stored or the environment supplies it.
+        env:
+          type: object
+          additionalProperties: false
+          description: Fields set by SHEPHERD_APNS_* — they override the stored value and cannot be edited.
+          required:
+            - key
+            - keyId
+            - teamId
+            - topic
+          properties:
+            key:
+              type: boolean
+            keyId:
+              type: boolean
+            teamId:
+              type: boolean
+            topic:
+              type: boolean
+        keyError:
+          $ref: "#/components/schemas/ApnsKeyError"
+        lastError:
+          $ref: "#/components/schemas/ApnsFailure"
+        lastDeliveredAt:
+          type:
+            - integer
+            - "null"
+    ApnsConfigRequest:
+      type: object
+      additionalProperties: true
+      description: Fields to store; a field left out keeps its stored value. `key` is the .p8 file's PEM text, never a path.
+      properties:
+        key:
+          type: string
+        keyId:
+          type: string
+        teamId:
+          type: string
+        topic:
+          type: string
+    ApnsConfigError:
+      type: object
+      additionalProperties: true
+      required:
+        - error
+        - field
+      properties:
+        error:
+          type: string
+          enum:
+            - env_locked
+            - key_required
+            - unreadable
+            - invalid
+            - not_p256
+            - key_id_invalid
+            - team_id_invalid
+            - topic_invalid
+        field:
+          $ref: "#/components/schemas/ApnsField"
+    PushCategories:
+      type: object
+      additionalProperties: false
+      required:
+        - agent
+        - reviews
+        - ci
+      properties:
+        agent:
+          type: boolean
+        reviews:
+          type: boolean
+        ci:
+          type: boolean
+    PushDevice:
+      type: object
+      additionalProperties: true
+      description: One registered push device. Identified by an opaque id, never by its endpoint.
+      required:
+        - id
+        - kind
+        - environment
+        - userAgent
+        - locale
+        - createdAt
+        - registeredAt
+        - categories
+      properties:
+        id:
+          type: string
+        kind:
+          type: string
+          enum:
+            - ios
+            - web
+        environment:
+          type:
+            - string
+            - "null"
+          enum:
+            - sandbox
+            - production
+        userAgent:
+          type: string
+        locale:
+          type: string
+        createdAt:
+          type: integer
+        registeredAt:
+          type: integer
+        categories:
+          $ref: "#/components/schemas/PushCategories"
+    PushDeviceList:
+      type: object
+      additionalProperties: true
+      required:
+        - devices
+      properties:
+        devices:
+          type: array
+          items:
+            $ref: "#/components/schemas/PushDevice"
+    PushDevicePatch:
+      type: object
+      additionalProperties: true
+      required:
+        - categories
+      properties:
+        categories:
+          $ref: "#/components/schemas/PushCategories"
+    PushTestResult:
+      type: object
+      additionalProperties: true
+      required:
+        - delivered
+        - status
+        - reason
+      properties:
+        delivered:
+          type: boolean
+        status:
+          type:
+            - integer
+            - "null"
+          description: The push service's HTTP status; null when nothing was sent.
+        reason:
+          type:
+            - string
+            - "null"
+          description: The push service's reason (BadDeviceToken, …) or not_configured.
   responses:
     Unauthorized:
       description: Missing or invalid credential.
@@ -10139,7 +10357,241 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "503":
-          description: This server has no APNs key configured.
+          description: This server has no APNs key configured; the operator sets it up under Settings → Notifications.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/push/apns/config:
+    get:
+      operationId: getApnsConfig
+      description: Native iOS push setup (Settings → Notifications,
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: The configuration, without the key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApnsStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Caller is not an operator session (a bearer token cannot manage push).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Native iOS push is not available on this server.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      operationId: putApnsConfig
+      description: Stores APNs credentials after validating them (EC P-256 key, 10-character key and team IDs, bundle-id topic) and reloads the sender without a restart. Operator session only.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApnsConfigRequest"
+      responses:
+        "200":
+          description: The configuration, without the key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApnsStatus"
+        "400":
+          description: Malformed body.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Caller is not an operator session (a bearer token cannot manage push).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The field is set by the environment and cannot be changed here.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApnsConfigError"
+        "422":
+          description: Validation failed; `field` names the offending input.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApnsConfigError"
+        "503":
+          description: Native iOS push is not available on this server.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: deleteApnsConfig
+      description: Forgets the stored credentials; values from the environment stay in force. Operator session only.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: The configuration, without the key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApnsStatus"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Caller is not an operator session (a bearer token cannot manage push).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Native iOS push is not available on this server.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/push/devices:
+    get:
+      operationId: listPushDevices
+      description: Every registered push device, iOS and browser. Operator session only.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: The devices.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushDeviceList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Caller is not an operator session (a bearer token cannot manage push).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/push/devices/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    patch:
+      operationId: updatePushDevice
+      description: Sets which notification categories the device receives. Operator session only.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PushDevicePatch"
+      responses:
+        "200":
+          description: The updated device.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushDevice"
+        "400":
+          description: Malformed categories.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Caller is not an operator session (a bearer token cannot manage push).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Unknown device id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: deletePushDevice
+      description: Removes the device; it receives nothing until it registers again. Operator session only.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: Removed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Ok"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Caller is not an operator session (a bearer token cannot manage push).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Unknown device id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/push/devices/{id}/test:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    post:
+      operationId: testPushDevice
+      description: Sends one test notification to the device, deliberately past presence, cooldown, reduced mode and categories, and reports what the push service answered. A refused device is not pruned. Operator session only.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: The push service's answer (also when it refused).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PushTestResult"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Caller is not an operator session (a bearer token cannot manage push).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Unknown device id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Push is not available on this server.
           content:
             application/json:
               schema:

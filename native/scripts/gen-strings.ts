@@ -1034,6 +1034,8 @@ export const KEYS_COMPOSE: readonly string[] = [
   "native_compose_plan_on",
   "native_compose_plan_off",
   "native_compose_start",
+  "native_compose_repo_recent",
+  "native_compose_repo_all",
 
   "recommend_copy",
   "recommend_copied",

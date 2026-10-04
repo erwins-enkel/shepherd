@@ -53,7 +53,7 @@ struct ComposeSheetContent: View {
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    RepoBranchRow(model: model, repos: repos).modifier(ComposeKeycap(ids: ["repo", "branch"]))
+                    RepoBranchRow(model: model, repos: repos, sessions: store.sessions).modifier(ComposeKeycap(ids: ["repo", "branch"]))
                     IssuePickerView(model: model).modifier(ComposeKeycap(ids: ["issue-filter", "sources-tab"]))
                     ModeTabs(model: model).modifier(ComposeKeycap(ids: ["mode-code", "mode-research", "mode-epic", "mode-plain"]))
                     ComposePromptEditor(model: model).modifier(ComposeKeycap(ids: ["focus-prompt", "issue-token", "command-token", "paste-image"]))
@@ -102,7 +102,7 @@ struct ComposeSheetContent: View {
     }
 
     private func seedRepo() {
-        if model.repoPath.isEmpty, let first = repos.first { model.repoPath = first.path }
+        if model.repoPath.isEmpty, let path = RepoRecency.defaultPath(repos, sessions: store.sessions) { model.repoPath = path }
     }
     private func submit(_ force: Bool = false) {
         guard current else { return }

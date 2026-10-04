@@ -39,7 +39,7 @@ struct IOSComposeContent: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
     @ScaledMetric(relativeTo: .body) private var promptHeight = 230
-    enum Options: String, Identifiable { case context, engine, issues, commands; var id: String { rawValue } }
+    enum Options: String, Identifiable { case branch, engine, issues, commands; var id: String { rawValue } }
     init(app: AppModel, store: SessionStore, activation: Int, model: ComposeModel? = nil, voice: DictationController? = nil, fixtureCurrent: (() -> Bool)? = nil) {
         self.app = app; self.store = store; self.activation = activation; self.fixtureCurrent = fixtureCurrent
         let model = model ?? ComposeModel(client: store.client, defaults: app.composerDefaults, runDefaults: ComposeRunConfig.defaults(from: store.settings))
@@ -57,6 +57,7 @@ struct IOSComposeContent: View {
     }
     private var repos: [Repo] { store.repos.filter { !$0.hidden } }
     private var repo: Repo? { repos.first { $0.path == model.repoPath } }
+    private var repoName: String { repo?.name ?? model.repoPath.components(separatedBy: "/").last ?? "" }
     private var current: Bool { fixtureCurrent?() ?? (app.store === store && app.activationGeneration == activation && app.sheet == .newSession) }
     private var holdLikely: Bool { ComposeReadiness.holdLikely(limits: SessionSignals.usageLimits(), settings: store.settings) }
     var readiness: ComposeReadiness.State { model.readiness(submitting: submission.busy, repoResolved: repo != nil, holdLikely: holdLikely) }
@@ -96,7 +97,7 @@ struct IOSComposeContent: View {
                 NavigationStack {
                     Group {
                         switch option {
-                        case .context: ComposeContextSheet(model: model, repos: repos)
+                        case .branch: ComposeBranchSheet(model: model)
                         case .engine: ComposeEngineSheet(model: model)
                         case .issues: ComposeSourceSheet(model: model, commands: false) { options = nil }
                         case .commands: ComposeSourceSheet(model: model, commands: true) { options = nil }
@@ -174,9 +175,12 @@ struct IOSComposeContent: View {
     private var context: some View {
         VStack(alignment: .leading, spacing: 10) {
             contextLayout {
-                Button { promptFocused = false; options = .context } label: {
-                    Text(verbatim: "\(repo?.name ?? model.repoPath.components(separatedBy: "/").last ?? "") · \(model.repoBranches.baseBranch) ▾").lineLimit(typeSize.isAccessibilitySize ? nil : 1).frame(maxWidth: .infinity, alignment: .leading)
-                }.accessibilityIdentifier("compose.context")
+                repoChip.accessibilityIdentifier("compose.repo")
+                    .accessibilityLabel(L.t("newtask_repo_label")).accessibilityValue(repoName)
+                Button { promptFocused = false; options = .branch } label: {
+                    Text(verbatim: "\(model.repoBranches.baseBranch) ▾").lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                }.accessibilityIdentifier("compose.branch.open")
+                    .accessibilityLabel(L.t("newtask_branch_label")).accessibilityValue(model.repoBranches.baseBranch)
                 Button { promptFocused = false; options = .engine } label: {
                     Text(verbatim: "\(model.provider == .claude ? L.t("native_compose_engine_claude") : L.t("agent_provider_codex")) · \(L.t(model.planGateEnabled ? "native_compose_plan_on" : "native_compose_plan_off")) ▾").lineLimit(typeSize.isAccessibilitySize ? nil : 1)
                 }.accessibilityIdentifier("compose.engine.open")
@@ -189,6 +193,33 @@ struct IOSComposeContent: View {
                     Button { model.removeIssue() } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }.accessibilityLabel(L.t("newtask_issue_remove_aria"))
                 }
             }
+        }
+    }
+    /// One tap opens the repo list itself; ImageRenderer cannot draw a Menu, so renders get the bare chip.
+    @ViewBuilder private var repoChip: some View {
+        let label = Text(verbatim: "\(repoName) ▾").lineLimit(typeSize.isAccessibilitySize ? nil : 1).frame(maxWidth: .infinity, alignment: .leading)
+        if rendering { Button {} label: { label } }
+        else { Menu { repoOptions } label: { label }.menuStyle(.button).menuOrder(.fixed) }
+    }
+    @ViewBuilder private var repoOptions: some View {
+        let recent = RepoRecency.recent(repos, sessions: store.sessions)
+        let stamps = RepoRecency.lastUsed(repos, sessions: store.sessions)
+        if recent.isEmpty {
+            ForEach(RepoRecency.alphabetical(repos), id: \.path) { repoOption($0, age: nil) }
+        } else {
+            Section(L.t("native_compose_repo_recent")) {
+                ForEach(recent, id: \.path) { repo in repoOption(repo, age: stamps[repo.path].map { RepoRecency.age($0) }) }
+            }
+            Menu(L.t("native_compose_repo_all")) {
+                ForEach(RepoRecency.alphabetical(repos), id: \.path) { repoOption($0, age: nil) }
+            }
+        }
+    }
+    private func repoOption(_ option: Repo, age: String?) -> some View {
+        Button { model.repoPath = option.path } label: {
+            Text(verbatim: option.name)
+            if let age { Text(verbatim: age) }
+            if option.path == model.repoPath { Image(systemName: "checkmark") }
         }
     }
     @ViewBuilder private var modeBar: some View {
@@ -290,7 +321,7 @@ struct IOSComposeContent: View {
             }.disabled(submission.canceling || submission.cancelRequested).frame(minHeight: 44)
         }.padding()
     }
-    private func seedRepo() { if model.repoPath.isEmpty, let first = repos.first { model.repoPath = first.path } }
+    private func seedRepo() { if model.repoPath.isEmpty, let path = RepoRecency.defaultPath(repos, sessions: store.sessions) { model.repoPath = path } }
     private func submit(force: Bool) {
         guard current, !voice.active else { return }
         voice.teardown(); promptFocused = false

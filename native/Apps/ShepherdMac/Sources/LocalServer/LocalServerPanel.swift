@@ -12,6 +12,7 @@ struct LocalServerPanelState: Equatable {
     var managesUpdates = false
     var updateBehind = 0
     var checkingUpdate = false
+    var updateFailed = false
 
     var statusText: String { LocalServerCopy.label(for: state) }
     private var isFailed: Bool { if case .failed = state { return true }; return false }
@@ -32,16 +33,15 @@ struct LocalServerPanelState: Equatable {
         default: false
         }
     }
-    var showsInstall: Bool { !showsBunUpgrade && !isUpdateFailure && (state == .notInstalled || state == .installing || isFailed) }
+    var showsInstall: Bool { !showsBunUpgrade && (state == .notInstalled || state == .installing || isFailed) }
     var showsStart: Bool { state == .stopped || state == .starting || state == .upgradingBun || state == .updating || isFailed }
     /// Never for `.externallyManaged`: we did not start that process and have no
     /// business killing it.
     var showsStop: Bool { state.isRunning }
     var showsRestart: Bool { state.isRunning }
 
-    private var isUpdateFailure: Bool { if case .failed(.updateFailed) = state { return true }; return false }
     var showsUpdateCheck: Bool { managesUpdates && state != .externallyManaged && state != .notInstalled && state != .installing }
-    var showsUpdate: Bool { showsUpdateCheck && (updateBehind > 0 || state == .updating || isUpdateFailure) }
+    var showsUpdate: Bool { showsUpdateCheck && (updateBehind > 0 || state == .updating || updateFailed) }
     var canUpdate: Bool { !isBusyState && showsUpdate }
     var canCheckUpdate: Bool { !isBusyState && !checkingUpdate && showsUpdateCheck }
     var showsOpenWeb: Bool { true }
@@ -69,7 +69,7 @@ struct LocalServerPanel: View {
     private var panel: LocalServerPanelState {
         LocalServerPanelState(state: model.state, busy: model.busy, externalAcknowledged: model.externalAcknowledged,
             managesUpdates: model.canManageUpdates, updateBehind: model.updateStatus?.behind ?? 0,
-            checkingUpdate: model.isCheckingUpdate)
+            checkingUpdate: model.isCheckingUpdate, updateFailed: model.updateFailure != nil)
     }
 
     var body: some View {
@@ -158,6 +158,10 @@ struct LocalServerPanel: View {
     private var updateNotice: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(verbatim: L.t("native_local_update_title")).font(.callout.weight(.semibold))
+            if let failure = model.updateFailure {
+                Text(verbatim: LocalServerCopy.message(for: failure)).font(.callout).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             if let status = model.updateStatus, status.behind > 0 {
                 Text(verbatim: L.t("native_local_update_summary", String(status.behind), status.current, status.latest))
                     .font(.callout).fixedSize(horizontal: false, vertical: true)

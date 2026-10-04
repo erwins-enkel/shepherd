@@ -23,6 +23,18 @@ struct SettingsSceneTests {
 
     }
 
+    @Test func localServerPaneIsReachableWithoutAnActiveConnection() {
+        SettingsPaneRegistry.reset()
+        defer { resetStreamSeams() }
+        SettingsFeature.installScene()
+        SettingsPaneRegistry.register(LocalServerSettingsPane())
+        SettingsPaneRegistry.register(LocalServerSettingsPane())
+        #expect(SettingsPaneRegistry.panes.map(\.id) == ["general", "local-server", "notifications", "workspace", "clis", "access", "diagnose"])
+        let pane = LocalServerSettingsPane()
+        #expect(!pane.title.hasPrefix("native_settings_"))
+        #expect(NSImage(systemSymbolName: pane.systemImage, accessibilityDescription: nil) != nil)
+    }
+
     @Test func registeredSettingsSymbolsResolveOnMacOS() {
         SettingsPaneRegistry.reset()
         SettingsFeature.installScene()

@@ -12746,6 +12746,23 @@
         }
       }
     },
+    "native_local_open_web": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Web-Backend öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open web backend"
+          }
+        }
+      }
+    },
     "native_local_password_body": {
       "extractionState": "manual",
       "localizations": {
@@ -12981,6 +12998,213 @@
           "stringUnit": {
             "state": "translated",
             "value": "Stop"
+          }
+        }
+      }
+    },
+    "native_local_update_apply": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jetzt aktualisieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update now"
+          }
+        }
+      }
+    },
+    "native_local_update_check": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach Updates suchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check for updates"
+          }
+        }
+      }
+    },
+    "native_local_update_check_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend-Updates konnten nicht geprüft werden. Später erneut versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Could not check for backend updates. Try again later."
+          }
+        }
+      }
+    },
+    "native_local_update_checked": {
+      "comment": "%1$@ = date",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zuletzt geprüft %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Last checked %1$@"
+          }
+        }
+      }
+    },
+    "native_local_update_commits": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Änderungen ansehen (bis zu 10 Commits)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview changes (up to 10 commits)"
+          }
+        }
+      }
+    },
+    "native_local_update_current": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend ist aktuell."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend is up to date."
+          }
+        }
+      }
+    },
+    "native_local_update_failed": {
+      "comment": "%1$@ = code",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend-Update fehlgeschlagen (Exit %1$@). Protokoll prüfen und erneut versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend update failed (exit %1$@). Check the log, then retry."
+          }
+        }
+      }
+    },
+    "native_local_update_summary": {
+      "comment": "%1$@ = count, %2$@ = current, %3$@ = latest",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ neue Commits (%2$@ → %3$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ new commits (%2$@ → %3$@)"
+          }
+        }
+      }
+    },
+    "native_local_update_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend-Update verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend update available"
+          }
+        }
+      }
+    },
+    "native_local_update_updating": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend wird aktualisiert…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updating backend…"
+          }
+        }
+      }
+    },
+    "native_local_update_what_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lädt main herunter, installiert Abhängigkeiten und baut die Weboberfläche neu. Ein laufender lokaler Server startet mit dem neuen Code neu; ein gestoppter Server bleibt gestoppt. Laufende Agent-Sessions bleiben in herdr erhalten. Lokale Änderungen müssen vorher committet oder anderweitig gesichert werden; bei Fehlern das Protokoll prüfen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Downloads main, installs dependencies and rebuilds the web UI. A running local server restarts to load the new code; a stopped server stays stopped. Running agent sessions survive in herdr. Local changes must be committed or saved elsewhere first; see the log if the update fails."
+          }
+        }
+      }
+    },
+    "native_local_update_what_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was passiert beim Update?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What happens during the update?"
           }
         }
       }
@@ -15613,6 +15837,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Local server unavailable"
+          }
+        }
+      }
+    },
+    "native_settings_local_server_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokaler Server"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Local server"
           }
         }
       }

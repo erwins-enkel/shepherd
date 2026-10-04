@@ -223,6 +223,189 @@ extension MacSeamTests {
         #expect(!model.state.isRunning)
     }
 
+    @Test func applyingUpdateRestartsARunningServerAndRechecks() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let launches = Mutex(0)
+        let checks = Mutex(0)
+        let gate = LocalServerGate()
+        let model = LocalServerModel(
+            environment: try checkout(in: home), probeExternal: { false }, health: { true },
+            launch: { launches.withLock { $0 += 1 }; return launch },
+            updateChecker: { _ in
+                checks.withLock { $0 += 1 }
+                return .success(.init(behind: 0, current: "def5678", latest: "def5678"))
+            }, updater: { _, log in
+                await gate.wait()
+                await log.append("Backend rebuilt")
+                return .success(())
+            })
+        await model.start()
+        let oldPID = try #require(model.state.pid)
+        let task = Task { await model.applyUpdate() }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !(await gate.isWaiting), ContinuousClock.now < deadline { await Task.yield() }
+        #expect(model.state == .updating && model.busy)
+        await model.refresh()
+        #expect(model.state == .updating)
+        await gate.open()
+        await task.value
+        #expect(model.state.isRunning)
+        #expect(model.state.pid != oldPID)
+        #expect(launches.withLock { $0 } == 2)
+        #expect(checks.withLock { $0 } == 1)
+        #expect(model.updateStatus?.behind == 0)
+        #expect(model.logLines.contains("Backend rebuilt"))
+        #expect(!model.busy)
+        await model.stop()
+    }
+
+    @Test func applyingUpdateToAStoppedServerDoesNotStartIt() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let launches = Mutex(0)
+        let model = LocalServerModel(
+            environment: try checkout(in: home), probeExternal: { false },
+            launch: { launches.withLock { $0 += 1 }; return nil },
+            updateChecker: { _ in .success(.init(behind: 0, current: "abcd123", latest: "abcd123")) },
+            updater: { _, _ in .success(()) })
+        await model.applyUpdate()
+        #expect(model.state == .stopped)
+        #expect(launches.withLock { $0 } == 0)
+        #expect(model.updateStatus?.behind == 0)
+    }
+
+    @Test func failedUpdateKeepsTheOldServerAndFailureVisibleAcrossRefresh() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let launches = Mutex(0)
+        let model = LocalServerModel(
+            environment: try checkout(in: home), probeExternal: { false }, health: { true },
+            launch: { launches.withLock { $0 += 1 }; return launch },
+            updateChecker: { _ in .failure(.commandFailed(exitCode: 7)) },
+            updater: { _, log in
+                await log.append("--pull needs a clean tree")
+                return .failure(.updateFailed(exitCode: 1))
+            })
+        await model.start()
+        await model.applyUpdate()
+        #expect(model.state == .failed(.updateFailed(exitCode: 1)))
+        await model.refresh()
+        #expect(model.state == .failed(.updateFailed(exitCode: 1)))
+        #expect(launches.withLock { $0 } == 1)
+        #expect(model.logLines.contains("--pull needs a clean tree"))
+        #expect(!model.canInstall)
+        await model.stop()
+    }
+
+    @Test func refreshThrottlesChecksForThirtyMinutesButManualCheckForcesThem() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let checks = Mutex(0)
+        let now = Mutex(Date(timeIntervalSince1970: 1000))
+        let model = LocalServerModel(environment: try checkout(in: home), probeExternal: { false },
+            updateChecker: { _ in
+                checks.withLock { $0 += 1 }
+                return .success(.init(behind: 2, current: "abc1234", latest: "def5678"))
+            }, updateNow: { now.withLock { $0 } })
+        await model.refresh()
+        await model.refresh()
+        #expect(checks.withLock { $0 } == 1)
+        now.withLock { $0 += 1799 }
+        await model.refresh()
+        #expect(checks.withLock { $0 } == 1)
+        now.withLock { $0 += 1 }
+        await model.refresh()
+        #expect(checks.withLock { $0 } == 2)
+        await model.checkForUpdate()
+        #expect(checks.withLock { $0 } == 3)
+    }
+
+    @Test func failedCheckIsQuietAndAlsoThrottled() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let checks = Mutex(0)
+        let model = LocalServerModel(environment: try checkout(in: home), probeExternal: { false },
+            updateChecker: { _ in checks.withLock { $0 += 1 }; return .failure(.commandFailed(exitCode: 7)) })
+        await model.refresh()
+        await model.refresh()
+        #expect(model.state == .stopped)
+        #expect(model.updateCheckFailure == .commandFailed(exitCode: 7))
+        #expect(checks.withLock { $0 } == 1)
+    }
+
+    @Test func externalAndMissingServersNeverCheckOrApplyUpdates() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let calls = Mutex(0)
+        for external in [false, true] {
+            let environment = external ? try checkout(in: home) : LocalServerEnvironment(home: home)
+            let model = LocalServerModel(environment: environment, probeExternal: { external },
+                updateChecker: { _ in calls.withLock { $0 += 1 }; return .failure(.invalidOutput) },
+                updater: { _, _ in calls.withLock { $0 += 1 }; return .success(()) })
+            await model.refresh()
+            await model.checkForUpdate()
+            await model.applyUpdate()
+            #expect(!model.canManageUpdates)
+        }
+        #expect(calls.withLock { $0 } == 0)
+    }
+
+    @Test func staleCheckCannotLandAfterALifecycleAction() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let gate = LocalServerGate()
+        let model = LocalServerModel(environment: try checkout(in: home), probeExternal: { false },
+            updateChecker: { _ in
+                await gate.wait()
+                return .success(.init(behind: 2, current: "abc1234", latest: "def5678"))
+            })
+        let check = Task { await model.checkForUpdate() }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !(await gate.isWaiting), ContinuousClock.now < deadline { await Task.yield() }
+        await model.stop()
+        await gate.open()
+        await check.value
+        #expect(model.updateStatus == nil)
+        #expect(!model.isCheckingUpdate)
+    }
+
+    @Test func quitCancelsTheKeptUpdateTask() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let entered = Mutex(false)
+        let cancelled = Mutex(false)
+        let model = LocalServerModel(environment: try checkout(in: home), probeExternal: { false },
+            updater: { _, _ in
+                await withTaskCancellationHandler {
+                    entered.withLock { $0 = true }
+                    do { try await Task.sleep(for: .seconds(30)) } catch {}
+                    return .failure(.updateFailed(exitCode: 130))
+                } onCancel: { cancelled.withLock { $0 = true } }
+            })
+        model.beginUpdate()
+        #expect(await settle { entered.withLock { $0 } })
+        model.cancelUpdateForQuit()
+        #expect(cancelled.withLock { $0 })
+        #expect(await settle { !model.busy })
+        #expect(!model.state.isRunning)
+    }
+
+    @Test func quitCancelsTheKeptCheckTask() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let entered = Mutex(false)
+        let cancelled = Mutex(false)
+        let model = LocalServerModel(environment: try checkout(in: home), probeExternal: { false },
+            updateChecker: { _ in
+                await withTaskCancellationHandler {
+                    entered.withLock { $0 = true }
+                    do { try await Task.sleep(for: .seconds(30)) } catch {}
+                    return .failure(.commandFailed(exitCode: 130))
+                } onCancel: { cancelled.withLock { $0 = true } }
+            })
+        let task = Task { await model.checkForUpdate() }
+        #expect(await settle { entered.withLock { $0 } })
+        model.cancelUpdateForQuit()
+        #expect(cancelled.withLock { $0 })
+        await task.value
+        #expect(model.updateCheckFailure == nil)
+        #expect(!model.isCheckingUpdate)
+    }
+
     @Test func everyStateHasACatalogSentence() {
         let states: [LocalServerState] = [
             .notInstalled, .installing, .stopped, .starting, .running(pid: 42), .externallyManaged,
@@ -234,6 +417,13 @@ extension MacSeamTests {
             let text = LocalServerCopy.label(for: state)
             #expect(!text.isEmpty)
             #expect(text.hasPrefix("native_local_") == false)  // a leaked key = missing catalog entry
+        }
+    }
+
+    @Test func everyBackendUpdateStateHasACatalogSentence() {
+        for state in [LocalServerState.updating, .failed(.updateFailed(exitCode: 1))] {
+            let text = LocalServerCopy.label(for: state)
+            #expect(!text.isEmpty && !text.hasPrefix("native_local_"))
         }
     }
 

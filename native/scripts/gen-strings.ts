@@ -539,6 +539,20 @@ export const KEYS_LOCALSERVER: readonly string[] = [
   "native_local_state_starting",
   "native_local_state_stopped",
   "native_local_stop",
+  "native_local_open_web",
+  "native_local_update_title",
+  "native_local_update_summary",
+  "native_local_update_commits",
+  "native_local_update_apply",
+  "native_local_update_updating",
+  "native_local_update_check",
+  "native_local_update_check_failed",
+  "native_local_update_failed",
+  "native_local_update_checked",
+  "native_local_update_current",
+  "native_local_update_what_title",
+  "native_local_update_what_body",
+  "native_settings_local_server_title",
 ];
 
 /** S6 — notification titles and bodies. Keep alphabetical. */

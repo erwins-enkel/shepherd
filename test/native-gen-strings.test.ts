@@ -96,6 +96,40 @@ describe("gen-strings core resources", () => {
     expect(KEYS_LOCALSERVER).toContain("native_local_bun_upgrading");
   });
 
+  test("local backend updates and browser action reach both native locales", () => {
+    const outputs = buildOutputs();
+    for (const locale of ["en", "de"]) {
+      const path = Object.keys(outputs).find((path) =>
+        path.endsWith(`${locale}.lproj/Localizable.strings`),
+      );
+      const resources = outputs[path!]!;
+      for (const key of [
+        "native_local_update_apply",
+        "native_local_update_check",
+        "native_local_update_failed",
+        "native_local_open_web",
+        "native_settings_local_server_title",
+      ]) {
+        expect(KEYS_LOCALSERVER).toContain(key);
+        expect(resources).toContain(`"${key}"`);
+      }
+      const messages = JSON.parse(
+        readFileSync(join(import.meta.dir, `../ui/messages/${locale}.json`), "utf8"),
+      );
+      expect([...placeholderOrder(messages.native_local_update_summary).keys()]).toEqual([
+        "count",
+        "current",
+        "latest",
+      ]);
+      const summary = resources
+        .split("\n")
+        .find((line) => line.startsWith('"native_local_update_summary"'));
+      expect(summary).toContain("%1$@");
+      expect(summary).toContain("%2$@");
+      expect(summary).toContain("%3$@");
+    }
+  });
+
   test("strings source escapes syntax and controls", () => {
     expect(stringsLiteral('a"b\\c\n\r\t\u0001')).toBe('"a\\"b\\\\c\\n\\r\\t\\U0001"');
   });

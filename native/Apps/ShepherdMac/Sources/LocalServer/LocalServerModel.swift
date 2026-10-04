@@ -11,6 +11,7 @@ enum LocalServerCopy {
         case .notInstalled: L.t("native_local_state_not_installed")
         case .installing: L.t("native_local_state_installing")
         case .upgradingBun: L.t("native_local_bun_upgrading")
+        case .updating: L.t("native_local_update_updating")
         case .stopped: L.t("native_local_state_stopped")
         case .starting: L.t("native_local_state_starting")
         case .running(let pid): L.t("native_local_state_running", String(pid))
@@ -28,6 +29,7 @@ enum LocalServerCopy {
         case .runnerTimeout: L.t("native_local_error_runner_timeout")
         case .bunMissing: L.t("native_local_error_bun_missing")
         case .bunOutdated(let version): L.t("native_local_error_bun_outdated", version)
+        case .updateFailed(let code): L.t("native_local_update_failed", String(code))
         case .bunUpgradeFailed(let code): L.t("native_local_error_bun_upgrade_failed", String(code))
         case .notAShepherdCheckout(let path): L.t("native_local_error_not_checkout", path)
         case .installFailed(let code): L.t("native_local_error_install_failed", String(code))
@@ -92,6 +94,16 @@ final class LocalServerModel {
     /// The in-flight `install()`, held so the quit path can cancel it — see
     /// `beginInstall()` / `cancelInstallForQuit()`.
     private var installTask: Task<Void, Never>?
+    private(set) var updateStatus: LocalUpdateStatus?
+    private(set) var updateCheckFailure: LocalUpdateCheckFailure?
+    private(set) var isCheckingUpdate = false
+    private var updateCheckGeneration = 0
+    private var lastUpdateCheckAttempt: Date?
+    private var updateTask: Task<Void, Never>?
+    private var updateCheckTask: Task<Result<LocalUpdateStatus, LocalUpdateCheckFailure>, Never>?
+    private let updateChecker: @Sendable (LocalServerEnvironment) async -> Result<LocalUpdateStatus, LocalUpdateCheckFailure>
+    private let updater: @Sendable (LocalServerEnvironment, LogRing) async -> Result<Void, LocalServerFailure>
+    private let updateNow: @Sendable () -> Date
     private var bunUpgradeTask: Task<Void, Never>?
     private var lastOutdatedBunVersion: String?
     private let bunUpgrader: @Sendable (LocalServerEnvironment, LogRing) async -> Result<String, LocalServerFailure>
@@ -111,6 +123,9 @@ final class LocalServerModel {
             @Sendable (LocalServerEnvironment, LogRing) async -> Result<Void, LocalServerFailure>
         )? = nil,
         bunUpgrader: (@Sendable (LocalServerEnvironment, LogRing) async -> Result<String, LocalServerFailure>)? = nil,
+        updateChecker: (@Sendable (LocalServerEnvironment) async -> Result<LocalUpdateStatus, LocalUpdateCheckFailure>)? = nil,
+        updater: (@Sendable (LocalServerEnvironment, LogRing) async -> Result<Void, LocalServerFailure>)? = nil,
+        updateNow: @escaping @Sendable () -> Date = { Date() },
         bunVersion: @escaping @Sendable (URL) async -> String? = { await LocalServerEnvironment.probeBunVersion($0) },
         clock: any SupervisorClock = SystemSupervisorClock()
     ) {
@@ -127,6 +142,13 @@ final class LocalServerModel {
         self.bunUpgrader = bunUpgrader ?? { environment, log in
             await BunUpgradeRun(environment: environment, log: log).run()
         }
+        self.updateChecker = updateChecker ?? { environment in
+            await LocalUpdateCheck(environment: environment).run()
+        }
+        self.updater = updater ?? { environment, log in
+            await LocalUpdateRun(environment: environment, log: log).run()
+        }
+        self.updateNow = updateNow
         let ring = log
         self.supervisor = LocalServerSupervisor(
             environment: environment, log: ring,
@@ -144,13 +166,17 @@ final class LocalServerModel {
     }
     var canInstall: Bool {
         switch state {
-        case .failed(.bunOutdated), .failed(.bunUpgradeFailed), .upgradingBun: false
+        case .failed(.bunOutdated), .failed(.bunUpgradeFailed), .failed(.updateFailed), .upgradingBun, .updating: false
         default: !busy && (state == .notInstalled || isFailed)
         }
     }
     var canStart: Bool { !busy && (state == .stopped || isFailed) }
     var canStop: Bool { !busy && state.isRunning }
     var canRestart: Bool { !busy && state.isRunning }
+
+    var canManageUpdates: Bool {
+        environment.isShepherdCheckout() && state != .notInstalled && state != .installing && state != .externallyManaged
+    }
 
     /// Order matters: a server we already supervise wins over the loopback probe,
     /// because the probe cannot tell our child from anyone else's.
@@ -169,6 +195,7 @@ final class LocalServerModel {
     func refresh() async {
         guard !busy else { return }
         await resolveState()
+        await checkForUpdate(force: false)
     }
 
     /// `refresh()` without the `busy` guard, for the one caller that is itself
@@ -182,7 +209,12 @@ final class LocalServerModel {
         guard generation == expected else { return }
         if supervised.isRunning || supervised == .starting {
             clearExternalObservation()
-            state = supervised
+            // An update failure belongs to the checkout, even if the old
+            // supervised process is still healthy. Keep its log/retry visible.
+            switch state {
+            case .failed(.updateFailed): break
+            default: state = supervised
+            }
             await pullLog()
             return
         }
@@ -200,7 +232,7 @@ final class LocalServerModel {
         }
         clearExternalObservation()
         switch state {
-        case .failed(.bunOutdated), .failed(.bunUpgradeFailed):
+        case .failed(.bunOutdated), .failed(.bunUpgradeFailed), .failed(.updateFailed):
             break // Keep the upgrade result and retry button when the panel reappears.
         default:
             if case .failed = supervised { state = supervised }
@@ -284,6 +316,91 @@ final class LocalServerModel {
     func cancelBunUpgradeForQuit() {
         bunUpgradeTask?.cancel()
         bunUpgradeTask = nil
+    }
+
+    /// A check may overlap a lifecycle action, but its answer may not overwrite
+    /// one. Capture the same generation as refresh; throttle failed attempts too
+    /// so a panel reappearing offline does not repeatedly fetch.
+    func checkForUpdate(force: Bool = true) async {
+        await performUpdateCheck(force: force)
+    }
+
+    private func performUpdateCheck(force: Bool, allowBusy: Bool = false) async {
+        guard (!busy || allowBusy), canManageUpdates, !isCheckingUpdate else { return }
+        let now = updateNow()
+        if !force, let lastUpdateCheckAttempt, now.timeIntervalSince(lastUpdateCheckAttempt) < 30 * 60 { return }
+        lastUpdateCheckAttempt = now
+        let expected = generation
+        isCheckingUpdate = true
+        updateCheckGeneration += 1
+        let checkGeneration = updateCheckGeneration
+        let task = Task { await updateChecker(environment) }
+        updateCheckTask = task
+        defer {
+            if updateCheckGeneration == checkGeneration {
+                isCheckingUpdate = false
+                updateCheckTask = nil
+            }
+        }
+        let result = await withTaskCancellationHandler {
+            await task.value
+        } onCancel: { task.cancel() }
+        guard generation == expected, !Task.isCancelled, !task.isCancelled, canManageUpdates else { return }
+        switch result {
+        case .success(let status):
+            updateStatus = status
+            updateCheckFailure = nil
+        case .failure(let failure): updateCheckFailure = failure
+        }
+    }
+
+    func applyUpdate() async {
+        guard !busy, canManageUpdates else { return }
+        busy = true
+        generation += 1
+        state = .updating
+        // A check begun before the pull is stale. Cancel and wait for its fetch
+        // to finish before update.sh mutates the same checkout.
+        updateCheckTask?.cancel()
+        if let task = updateCheckTask { _ = await task.value }
+        updateCheckGeneration += 1
+        updateCheckTask = nil
+        isCheckingUpdate = false
+        let wasRunning = await supervisor.state.isRunning
+        let progress = sampleProgress()
+        defer { progress.cancel(); busy = false }
+        guard !Task.isCancelled else { state = .stopped; return }
+        let result = await updater(environment, log)
+        await pullLog()
+        guard !Task.isCancelled else { state = .stopped; return }
+        switch result {
+        case .success:
+            if wasRunning {
+                await supervisor.restart()
+                state = await supervisor.state
+            } else {
+                await resolveState()
+            }
+            await pullLog()
+            // The old preview no longer describes the installed checkout.
+            updateStatus = nil
+            await performUpdateCheck(force: true, allowBusy: true)
+        case .failure(let failure): state = .failed(failure)
+        }
+    }
+
+    func beginUpdate() {
+        guard !busy, updateTask == nil, canManageUpdates else { return }
+        updateTask = Task {
+            defer { updateTask = nil }
+            await self.applyUpdate()
+        }
+    }
+
+    func cancelUpdateForQuit() {
+        updateTask?.cancel()
+        updateTask = nil
+        updateCheckTask?.cancel()
     }
 
     func acknowledgeExternalServer() {

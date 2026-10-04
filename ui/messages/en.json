@@ -5187,5 +5187,19 @@
   "settings_access_instruction_errors": "401: token expired, revoked or invalid. 403: action or repository is not permitted. 404: resource is unavailable or outside the grant. Report the limitation instead of trying other credentials or bypassing the grant.",
   "settings_access_instruction_task": "Describe the actual work assignment here",
   "feat_token_repository_access_title": "Give an external agent access to selected repositories",
-  "feat_token_repository_access_body": "Choose and edit repository access for each token in Settings → Access. Copy a ready-to-use agent instruction with the token, server address and permitted workflow."
+  "feat_token_repository_access_body": "Choose and edit repository access for each token in Settings → Access. Copy a ready-to-use agent instruction with the token, server address and permitted workflow.",
+  "native_local_open_web": "Open web backend",
+  "native_local_update_title": "Backend update available",
+  "native_local_update_summary": "{count} new commits ({current} → {latest})",
+  "native_local_update_commits": "Preview changes (up to 10 commits)",
+  "native_local_update_apply": "Update now",
+  "native_local_update_updating": "Updating backend…",
+  "native_local_update_check": "Check for updates",
+  "native_local_update_check_failed": "Could not check for backend updates. Try again later.",
+  "native_local_update_failed": "Backend update failed (exit {code}). Check the log, then retry.",
+  "native_local_update_checked": "Last checked {date}",
+  "native_local_update_current": "Backend is up to date.",
+  "native_local_update_what_title": "What happens during the update?",
+  "native_local_update_what_body": "Downloads main, installs dependencies and rebuilds the web UI. A running local server restarts to load the new code; a stopped server stays stopped. Running agent sessions survive in herdr. Local changes must be committed or saved elsewhere first; see the log if the update fails.",
+  "native_settings_local_server_title": "Local server"
 }

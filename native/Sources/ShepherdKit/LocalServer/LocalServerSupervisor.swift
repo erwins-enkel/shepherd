@@ -6,7 +6,7 @@ import os
 /// `externallyManaged` is a server we did not start and must not stop — the
 /// operator's own `bun run start` in a terminal, or a launchd job.
 public enum LocalServerState: Sendable, Equatable {
-  case notInstalled, installing, upgradingBun, stopped, starting
+  case notInstalled, installing, upgradingBun, updating, stopped, starting
   case running(pid: Int32)
   case externallyManaged
   case failed(LocalServerFailure)

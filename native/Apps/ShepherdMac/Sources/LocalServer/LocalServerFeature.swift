@@ -21,6 +21,7 @@ enum LocalServerFeature {
         // also builds an instance immediately if a store is already active,
         // exactly like `StreamRegistrations` expects.
         app.register(LocalServerSessionExtension.self)
+        SettingsPaneRegistry.register(LocalServerSettingsPane())
         guard !installed else { return }
         installed = true
         // The child server lives exactly as long as the app (design spec: "keep
@@ -35,9 +36,24 @@ enum LocalServerFeature {
                 // one thing `terminateForQuit()` cannot reach.
                 LocalServerModel.shared.cancelInstallForQuit()
                 LocalServerModel.shared.cancelBunUpgradeForQuit()
+                LocalServerModel.shared.cancelUpdateForQuit()
                 LocalServerModel.shared.terminateForQuit()
             }
         }
         Log.app.info("local server feature installed")
+    }
+}
+
+/// Available before and after connecting; local maintenance needs no server login.
+struct LocalServerSettingsPane: SettingsPane {
+    let id = "local-server"
+    var title: String { L.t("native_settings_local_server_title") }
+    let systemImage = "server.rack"
+    let order = 80
+    @MainActor func makeView(app: AppModel) -> AnyView {
+        AnyView(ScrollView {
+            LocalServerPanel(model: .shared, app: app)
+                .padding(24).frame(maxWidth: .infinity, alignment: .leading)
+        }.frame(minWidth: 640))
     }
 }

@@ -34,6 +34,7 @@ struct ShepherdApp: App {
         // Before `body` is first evaluated — see StreamRegistrations.installScene().
         MacStreamHost.configure()
         StreamRegistrations.installScene()
+        SettingsPaneRegistry.register(LocalServerSettingsPane())
         SettingsPaneRegistry.register(AppUpdateSettingsPane(updater: appUpdater))
         Log.app.info("Shepherd for Mac starting — \(launch.logDescription, privacy: .public)")
     }

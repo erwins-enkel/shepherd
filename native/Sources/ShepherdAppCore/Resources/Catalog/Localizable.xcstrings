@@ -12039,6 +12039,109 @@
         }
       }
     },
+    "native_ios_push_denied": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In der iOS-Einstellungen-App für Shepherd ausgeschaltet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turned off for Shepherd in the iOS Settings app"
+          }
+        }
+      }
+    },
+    "native_ios_push_failed": {
+      "comment": "%1$@ = error",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registrierung fehlgeschlagen: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registration failed: %1$@"
+          }
+        }
+      }
+    },
+    "native_ios_push_pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wird bei diesem Server registriert…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Registering with this server…"
+          }
+        }
+      }
+    },
+    "native_ios_push_registered": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für diesen Server aktiv"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Active for this server"
+          }
+        }
+      }
+    },
+    "native_ios_push_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Benachrichtigungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Notifications"
+          }
+        }
+      }
+    },
+    "native_ios_push_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf diesem Server nicht eingerichtet — auf dem Server unter Einstellungen → Benachrichtigungen einrichten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not set up on this server — set it up on the server under Settings → Notifications"
+          }
+        }
+      }
+    },
     "native_ios_remove_body": {
       "extractionState": "manual",
       "localizations": {

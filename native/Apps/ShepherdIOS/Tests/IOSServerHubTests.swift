@@ -236,6 +236,29 @@ final class IOSServerHubTests: XCTestCase {
         XCTAssertEqual(target.servers(in: hub), [a.id])
     }
 
+    /// The settings menu reports push for the focused server, not whichever server answered last
+    /// (#2696): one server has an APNs key, the other answers 503.
+    func testPushStatusIsPerServer() async throws {
+        let (_, hub, a, b) = try fixture()
+        defer { stop(hub) }
+        await hub.connect(a); await hub.connect(b)
+        let storeA = try XCTUnwrap(hub.models[a.id]?.store)
+        let storeB = try XCTUnwrap(hub.models[b.id]?.store)
+        let registration = IOSPushRegistration()
+        registration.registerDevice = { store, _ in
+            store === storeA ? .registered(endpoint: "fixture") : .unavailable
+        }
+        registration.attach(hub, enabled: true)
+        XCTAssertEqual(registration.status(for: storeA), .idle)
+        registration.didRegister(deviceToken: Data([1, 2]))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while registration.status(for: storeA) == .idle || registration.status(for: storeB) == .idle,
+              ContinuousClock.now < deadline { await Task.yield() }
+        XCTAssertEqual(registration.status(for: storeA), .registered)
+        XCTAssertEqual(registration.status(for: storeB), .unavailable)
+        XCTAssertEqual(registration.status(for: nil), .idle)
+    }
+
     func testPushTokenRegistersOnEveryStoreOnceAndAgainAfterReconnect() async throws {
         let (_, hub, a, b) = try fixture()
         defer { stop(hub) }

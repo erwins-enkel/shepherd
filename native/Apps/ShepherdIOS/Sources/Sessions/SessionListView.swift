@@ -279,6 +279,13 @@ struct SessionListView: View {
                 .accessibilityIdentifier("herd-lens-\(lens.rawValue)")
             }
             Divider()
+            if IOSPushRegistration.shared.isEnabled {
+                Section(L.t("native_ios_push_title")) {
+                    // The same server the sign-out below acts on.
+                    Text(verbatim: IOSPushRegistration.shared.statusText(for: hub?.focused.store ?? app.store))
+                        .accessibilityIdentifier("push-status")
+                }
+            }
             Button(L.t("native_toolbar_servers")) {
                 if let hub { hub.managingServers = true } else { app.deactivate() }
             }

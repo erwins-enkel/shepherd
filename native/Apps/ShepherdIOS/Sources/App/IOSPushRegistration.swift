@@ -29,6 +29,14 @@ final class IOSPushRegistration {
         let token: String
         init(store: SessionStore, token: String) { self.store = store; self.token = token }
     }
+    /// What each connected server answered, so the menu can say whether the FOCUSED server can
+    /// reach this phone (#2696) — `state` alone only holds whichever answer came last.
+    private var outcomes: [ObjectIdentifier: Outcome] = [:]
+    private final class Outcome {
+        weak var store: SessionStore?
+        let state: State
+        init(store: SessionStore, state: State) { self.store = store; self.state = state }
+    }
     @ObservationIgnored private var registering: Set<ObjectIdentifier> = []
     @ObservationIgnored private var permissionRequested = false
     @ObservationIgnored var registerDevice: @MainActor (SessionStore, String) async throws -> ApnsRegistrationOutcome = { store, token in
@@ -57,10 +65,35 @@ final class IOSPushRegistration {
         routePendingNotification()
     }
 
+    /// Isolated launches never register, so they have no status to show.
+    var isEnabled: Bool { enabled }
+
+    /// Push for one server: denied is device-wide; otherwise that server's own answer, and
+    /// `idle` until it has answered.
+    func status(for store: SessionStore?) -> State {
+        if state == .denied { return .denied }
+        guard let store, let outcome = outcomes[ObjectIdentifier(store)], outcome.store === store
+        else { return .idle }
+        return outcome.state
+    }
+
+    /// One line for the settings menu: whether this server can reach this phone, and what to do
+    /// when it cannot (#2696).
+    func statusText(for store: SessionStore?) -> String {
+        switch status(for: store) {
+        case .registered: L.t("native_ios_push_registered")
+        case .unavailable: L.t("native_ios_push_unavailable")
+        case .denied: L.t("native_ios_push_denied")
+        case .idle: L.t("native_ios_push_pending")
+        case .failed(let message): L.t("native_ios_push_failed", message)
+        }
+    }
+
     /// A new store means a new server or a fresh login: register this device there.
     func storeChanged() {
         guard enabled, let hub, hub.connected.contains(where: { $0.store != nil }) else { return }
         registeredFor = registeredFor.filter { $0.value.store != nil }
+        outcomes = outcomes.filter { $0.value.store != nil }
         if let token {
             for app in hub.connected {
                 if let store = app.store { Task { await register(token, store: store) } }
@@ -114,9 +147,11 @@ final class IOSPushRegistration {
             case .unavailable:
                 state = .unavailable
             }
+            outcomes[id] = Outcome(store: store, state: state)
         } catch {
             guard hub?.connected.contains(where: { $0.store === store }) == true else { return }
             state = .failed(ShepherdErrorCopy.message(error))
+            outcomes[id] = Outcome(store: store, state: state)
         }
     }
 

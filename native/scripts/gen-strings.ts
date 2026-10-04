@@ -617,6 +617,13 @@ export const KEYS_NOTIFICATIONS: readonly string[] = [
   "hold_quota_plan",
   "hold_quota_review",
   "hold_quota_rework",
+  // iOS push status in the settings menu (#2696)
+  "native_ios_push_denied",
+  "native_ios_push_failed",
+  "native_ios_push_pending",
+  "native_ios_push_registered",
+  "native_ios_push_title",
+  "native_ios_push_unavailable",
   "native_notify_blocked_title",
   "native_notify_done_body",
   "native_notify_done_title",

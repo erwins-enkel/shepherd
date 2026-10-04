@@ -1,12 +1,14 @@
 <script lang="ts">
-  import type { EpicDraftChild } from "$lib/types";
+  import { SvelteSet } from "svelte/reactivity";
   import { dialog } from "$lib/a11yDialog";
   import { epicDrafts } from "$lib/epic-draft.svelte";
   import { replySession, archiveSession } from "$lib/api";
   import { approveEpic } from "$lib/epic-approve";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
-  import EpicDraftChildRow from "$lib/components/EpicDraftChildRow.svelte";
+  import { childWaves, splitMarkdownSections } from "$lib/epic-draft-outline";
+  import EpicDraftToc from "$lib/components/EpicDraftToc.svelte";
+  import EpicDraftDocument from "$lib/components/EpicDraftDocument.svelte";
 
   let {
     sessionId,
@@ -27,10 +29,52 @@
   const children = $derived(draft?.children ?? []);
   const awaiting = $derived(status === "draft" && children.length > 0);
 
-  const titleByKey = $derived(new Map(children.map((c) => [c.key, c.title])));
-  function blockedLabel(child: EpicDraftChild): string {
-    return child.blockedBy.map((k) => titleByKey.get(k) ?? k).join(", ");
+  // The parent body is the agent's Markdown: split at its headings so every part gets an anchor and
+  // a table-of-contents entry, then render each part instead of printing raw `##`/`**`.
+  const sections = $derived(splitMarkdownSections(draft?.parent.body ?? ""));
+  const waves = $derived(childWaves(children));
+
+  let bodyEl = $state<HTMLElement | null>(null);
+  function jump(anchor: string) {
+    bodyEl
+      ?.querySelector<HTMLElement>(`[data-anchor="${anchor}"]`)
+      ?.scrollIntoView({ block: "start" });
   }
+
+  // Seen marks: a child counts as seen once half its row has stayed on screen for a moment, so
+  // scrolling past (or the rows showing before the Markdown above them has loaded) doesn't count.
+  // A review aid, not a gate — an amended draft (new children array) starts over.
+  const SEEN_DWELL_MS = 800;
+  const seen = new SvelteSet<string>();
+  $effect(() => {
+    const root = bodyEl;
+    void children;
+    seen.clear();
+    if (!root) return;
+    // eslint-disable-next-line svelte/prefer-svelte-reactivity -- timer bookkeeping, never rendered
+    const pending = new Map<string, ReturnType<typeof setTimeout>>();
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          const key = (e.target as HTMLElement).dataset.childKey;
+          if (!key) continue;
+          clearTimeout(pending.get(key));
+          pending.delete(key);
+          if (e.isIntersecting)
+            pending.set(
+              key,
+              setTimeout(() => seen.add(key), SEEN_DWELL_MS),
+            );
+        }
+      },
+      { root, threshold: 0.5 },
+    );
+    for (const row of root.querySelectorAll("[data-child-key]")) observer.observe(row);
+    return () => {
+      observer.disconnect();
+      for (const timer of pending.values()) clearTimeout(timer);
+    };
+  });
 
   let approving = $state(false);
   let abortArmed = $state(false);
@@ -132,45 +176,20 @@
     {#if !draft || children.length === 0}
       <p class="empty">{m.epicdraft_empty()}</p>
     {:else}
-      <div class="body">
-        {#if awaiting}
-          <p class="hint">{m.epicdraft_awaiting_hint()}</p>
-        {/if}
-
-        <!-- Parent -->
-        <section class="parent">
-          <span class="section-label">{m.epicdraft_parent_label()}</span>
-          <h4 class="parent-title">{draft.parent.title}</h4>
-          {#if draft.parent.body}<p class="parent-body">{draft.parent.body}</p>{/if}
-          {#if draft.parent.acceptanceCriteria.length}
-            <span class="sub-label">{m.epicdraft_acceptance_label()}</span>
-            <ul class="crit">
-              {#each draft.parent.acceptanceCriteria as c, i (i)}<li>{c}</li>{/each}
-            </ul>
-          {/if}
-          {#if draft.parent.nonGoals.length}
-            <span class="sub-label">{m.epicdraft_nongoals_label()}</span>
-            <ul class="crit">
-              {#each draft.parent.nonGoals as g, i (i)}<li>{g}</li>{/each}
-            </ul>
-          {/if}
-        </section>
-
-        <!-- Children (dependency DAG rendered as an ordered list with blocked-by annotations) -->
-        <section class="children">
-          <span class="section-label">{m.epicdraft_children_label({ count: children.length })}</span
-          >
-          <ol class="list">
-            {#each children as child, i (child.key)}
-              <EpicDraftChildRow
-                {child}
-                index={i}
-                materializedNumber={draft.materializedChildren[child.key] ?? null}
-                blockedLabel={blockedLabel(child)}
-              />
-            {/each}
-          </ol>
-        </section>
+      <!-- The body is the dialog's only scroller. On a wide card it becomes two columns: a sticky
+           table of contents (with the approve outcome) beside the rendered draft. -->
+      <div class="body" bind:this={bodyEl}>
+        <EpicDraftToc
+          {sections}
+          hasAcceptance={draft.parent.acceptanceCriteria.length > 0}
+          hasNonGoals={draft.parent.nonGoals.length > 0}
+          {children}
+          {waves}
+          {seen}
+          showOutcome={awaiting}
+          onjump={jump}
+        />
+        <EpicDraftDocument {draft} {sections} {waves} {awaiting} onjump={jump} />
       </div>
 
       <!-- Footer: pinned, never scrolls away. While the draft awaits review it carries the actions;
@@ -209,6 +228,9 @@
               onblur={() => (abortArmed = false)}
               >{abortArmed ? m.epicdraft_abort_confirm() : m.epicdraft_abort()}</button
             >
+            <span class="seen-progress"
+              >{m.epicdraft_seen_progress({ seen: seen.size, total: children.length })}</span
+            >
             <button
               type="button"
               class="btn approve"
@@ -216,7 +238,9 @@
               onclick={() => void approve()}
             >
               <span class="approve-glyph" aria-hidden="true">▸</span>
-              {approving ? m.epicdraft_approving() : m.epicdraft_approve()}
+              {approving
+                ? m.epicdraft_approving()
+                : m.epicdraft_approve_count({ count: children.length + 1 })}
             </button>
           </div>
         {:else if status === "materializing"}
@@ -254,7 +278,8 @@
   }
   .card {
     box-sizing: border-box;
-    width: min(760px, 100%);
+    width: min(1240px, 100%);
+    container-type: inline-size;
     max-height: 90dvh;
     display: flex;
     flex-direction: column;
@@ -330,6 +355,14 @@
     overscroll-behavior: contain;
     touch-action: pan-y;
   }
+  @container (min-width: 880px) {
+    .body {
+      display: grid;
+      grid-template-columns: 232px minmax(0, 1fr);
+      column-gap: 32px;
+      align-items: start;
+    }
+  }
 
   .empty,
   .note {
@@ -342,66 +375,6 @@
   }
   .link {
     color: var(--color-accent);
-  }
-
-  .hint {
-    margin: 0;
-    padding: 8px 10px;
-    border: 1px solid color-mix(in oklab, var(--color-amber) 30%, transparent);
-    border-radius: 3px;
-    background: color-mix(in oklab, var(--color-amber) 10%, transparent);
-    color: var(--color-ink-bright);
-    font-size: var(--fs-base);
-    line-height: 1.5;
-  }
-
-  .parent,
-  .children {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .section-label,
-  .sub-label {
-    font-size: var(--fs-meta);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    color: var(--color-muted);
-  }
-  .sub-label {
-    margin-top: 4px;
-    color: var(--color-faint);
-  }
-  .parent-title {
-    margin: 0;
-    font-size: var(--fs-lg);
-    color: var(--color-ink-bright);
-    font-weight: 600;
-  }
-  .parent-body {
-    margin: 0;
-    max-width: 74ch;
-    color: var(--color-ink);
-    font-size: var(--fs-base);
-    line-height: 1.5;
-    white-space: pre-wrap;
-  }
-  .crit {
-    margin: 0;
-    max-width: 74ch;
-    padding-left: 18px;
-    color: var(--color-ink);
-    font-size: var(--fs-base);
-    line-height: 1.5;
-  }
-
-  .list {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
   }
 
   .actions {
@@ -438,8 +411,13 @@
 
   .footer-row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 10px;
+  }
+  .seen-progress {
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
   }
 
   .btn {

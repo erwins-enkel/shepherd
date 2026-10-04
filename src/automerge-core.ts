@@ -136,18 +136,140 @@ function readyExceptManualSteps(
   draftMode: boolean,
   authority: SignoffAuthority,
 ): boolean {
-  if (s.mergeBlocked) return false; // backed off after repeated merge failures → skip, try siblings
-  if (s.state !== "open" || !checksCleared(s.checks, s.noCi) || s.mergeable !== true || !s.number)
-    return false;
-  if (s.mergeStateStatus === "blocked") return false;
-  if (s.behind !== false) return false; // true=stale, null=unknown → not now
-  if (draftMode && !signedOff(authority, signoffView(s))) return false; // backstop: never merge an unsigned draft
-  if (s.reviewDecision === "changes_requested" || s.reviewDecision === "error") return false;
-  if (criticEnabled) {
-    if (s.reviewDecision === null) return false;
-    if (s.reviewHeadSha !== s.headSha) return false;
-  }
-  return true;
+  return readyGateFailure(s, criticEnabled, draftMode, authority) === null;
+}
+
+/** Why the merge train is not landing this full-auto PR right now — surfaced per session on
+ *  `automerge:status` so the UI can say what the train waits for. Codes, by owner:
+ *  - Shepherd resolves it on its own: `critic_pending` (a verdict for the current head is still
+ *    due), `checks_pending`/`checks_failed` (CI running / autopilot steers the fix), `behind`/
+ *    `conflict` (the train steers a rebase), `not_mergeable` (forge still computing mergeability),
+ *    `changes_requested` (auto-address — or the operator — answers the critic).
+ *  - Needs the operator: `critic_error`, `rebase_cap`, `merge_backoff`, `manual_steps`,
+ *    `stacked`, `signoff`, `protection_blocked` (branch protection holds a green PR — typically a
+ *    required human approval, which Shepherd never gives). */
+export type MergeWaitCode =
+  | "merge_backoff"
+  | "conflict"
+  | "checks_pending"
+  | "checks_failed"
+  | "not_mergeable"
+  | "protection_blocked"
+  | "behind"
+  | "rebase_cap"
+  | "signoff"
+  | "changes_requested"
+  | "critic_error"
+  | "critic_pending"
+  | "stacked"
+  | "manual_steps";
+
+/** The first readiness gate this PR fails, as a wait code — or null when it passes every gate of
+ *  readyExceptManualSteps (which is literally `readyGateFailure(...) === null`, so the reported
+ *  reason can never drift from the merge decision). `not_open` (no PR / closed / merged) is
+ *  internal: nothing to wait for, so {@link mergeWaitReason} reports it as null.
+ *
+ *  The labels only REFINE a failing gate; they never add one. A stale `changes_requested`/
+ *  `error` verdict (for an older head) still blocks, exactly as before, but reads as
+ *  `critic_pending` because the re-review of the new head is what will clear it. */
+function readyGateFailure(
+  s: MergeSessionView,
+  criticEnabled: boolean,
+  draftMode: boolean,
+  authority: SignoffAuthority,
+): MergeWaitCode | "not_open" | null {
+  if (s.mergeBlocked) return "merge_backoff"; // backed off after repeated merge failures → skip, try siblings
+  if (s.state !== "open" || !s.number) return "not_open";
+  const forge = forgeGateFailure(s);
+  if (forge) return forge;
+  if (s.behind !== false) return "behind"; // true=stale, null=unknown → not now
+  if (draftMode && !signedOff(authority, signoffView(s))) return "signoff"; // backstop: never merge an unsigned draft
+  return verdictGateFailure(s, criticEnabled);
+}
+
+/** The forge half of the gate: green CI, host-mergeable, not branch-protection blocked. */
+function forgeGateFailure(s: MergeSessionView): MergeWaitCode | null {
+  const cleared = checksCleared(s.checks, s.noCi);
+  if (cleared && s.mergeable === true && s.mergeStateStatus !== "blocked") return null;
+  if (isDefiniteConflict(s)) return "conflict";
+  if (!cleared) return s.checks === "failure" ? "checks_failed" : "checks_pending";
+  // Green CI yet blocked: branch protection wants something only a human gives (an approval).
+  if (s.mergeStateStatus === "blocked") return "protection_blocked";
+  return "not_mergeable";
+}
+
+/** The verdict half of the gate. A stale `changes_requested`/`error` (older head) still blocks,
+ *  but reads as `critic_pending`: the re-review of the new head is what clears it. */
+function verdictGateFailure(s: MergeSessionView, criticEnabled: boolean): MergeWaitCode | null {
+  const staleVerdict = criticEnabled && s.reviewHeadSha !== s.headSha;
+  if (s.reviewDecision === "changes_requested")
+    return staleVerdict ? "critic_pending" : "changes_requested";
+  if (s.reviewDecision === "error") return staleVerdict ? "critic_pending" : "critic_error";
+  if (criticEnabled && (s.reviewDecision === null || staleVerdict)) return "critic_pending";
+  return null;
+}
+
+/** Gate codes the train answers with a rebase steer (see rebaseEligible's final clause). */
+const REBASE_PATH_CODES: ReadonlySet<MergeWaitCode> = new Set([
+  "behind",
+  "conflict",
+  "not_mergeable",
+]);
+
+/** Why the train will NOT rebase a PR whose gate asks for one, or null when it will. Mirrors
+ *  rebaseEligible's refusals in its own order (its open/checks clauses are already settled for a
+ *  rebase-path gate): a stack layer is restacked, never rebased; an unsigned draft is left alone;
+ *  a blocking verdict must change first. */
+function rebaseBlocker(
+  s: MergeSessionView,
+  criticEnabled: boolean,
+  draftMode: boolean,
+  authority: SignoffAuthority,
+): MergeWaitCode | null {
+  if (s.stacked) return "stacked";
+  if (draftMode && !signedOff(authority, signoffView(s))) return "signoff";
+  // A verdict that blocks the rebase: an error / changes_requested, a re-review still due, or
+  // findings on the current head ("fix first, then rebase" — verdictGateFailure passes those).
+  if (!rebaseVerdictAllows(s, criticEnabled))
+    return verdictGateFailure(s, criticEnabled) ?? "changes_requested";
+  return null;
+}
+
+/** Why the train is holding this session's PR, or null when there is nothing to wait for (no
+ *  open PR, or it is ready and lands on this pump). Pure; the precedence mirrors computeMerge: an
+ *  exhausted rebase budget first (that hold is terminal until the operator acts), then the first
+ *  failing readiness gate, then the two "otherwise ready" holds.
+ *
+ *  A rebase-path gate is reported only while the train will actually rebase. When rebaseEligible
+ *  refuses (see {@link rebaseBlocker}) nothing ever steers that rebase — autopilot leaves
+ *  full-auto rebases to the train — so the refusal is what has to change first and is what gets
+ *  reported instead. */
+export function mergeWaitReason(
+  s: MergeSessionView,
+  state: Pick<MergeRepoState, "criticEnabled" | "draftMode" | "signoffAuthority" | "rebaseCap">,
+): MergeWaitCode | null {
+  const { criticEnabled, draftMode, signoffAuthority } = state;
+  if (
+    rebaseEligible(s, criticEnabled, draftMode, signoffAuthority) &&
+    s.rebaseCount >= state.rebaseCap
+  )
+    return "rebase_cap";
+  const gate = readyGateFailure(s, criticEnabled, draftMode, signoffAuthority);
+  if (gate === "not_open") return null;
+  // A behind or conflicting PR is rebased before anything else, whatever CI says (rebaseUrgent):
+  // report that rebase — or what blocks it — rather than the CI it is about to re-run.
+  const rebaseGate =
+    gate !== "merge_backoff" && rebaseUrgent(s)
+      ? isDefiniteConflict(s)
+        ? "conflict"
+        : "behind"
+      : gate;
+  if (rebaseGate && REBASE_PATH_CODES.has(rebaseGate))
+    return rebaseBlocker(s, criticEnabled, draftMode, signoffAuthority) ?? rebaseGate;
+  if (gate) return gate;
+  if (s.stacked) return "stacked";
+  if (hasBlockingManualSteps(s)) return "manual_steps";
+  return null;
 }
 
 /** True when this PR is clean enough to land RIGHT NOW: readyExceptManualSteps AND not held by an

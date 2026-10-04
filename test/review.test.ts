@@ -598,8 +598,10 @@ test("onReviewing start + inflight snapshot carry the critic's exact reviewer en
 
   await svc.consider(session(), OPEN_GREEN);
 
-  expect(events).toContainEqual(["s1", true, env]);
-  expect(svc.reviewingInflight()).toEqual([{ id: "s1", ...env, held: false }]);
+  // startedAt/timeoutMs let the UI show elapsed vs deadline for the running critic.
+  const timing = { startedAt: expect.any(Number), timeoutMs: 10 * 60 * 1000 };
+  expect(events).toContainEqual(["s1", true, { ...env, ...timing }]);
+  expect(svc.reviewingInflight()).toEqual([{ id: "s1", ...env, ...timing, held: false }]);
   await svc.tick();
   expect(svc.reviewingInflight()).toEqual([]);
   expect(events.at(-1)).toEqual(["s1", false, undefined]);
@@ -5011,6 +5013,28 @@ test("held time does not count toward the critic timeout", async () => {
   await svc.tick();
   expect(reviews["s1"]).toBeUndefined(); // still waiting — no timeout error verdict
   expect(svc.reviewingIds()).toEqual(["s1"]);
+});
+
+test("release re-sends the env with startedAt shifted past the held time", async () => {
+  let t = 1000;
+  const events: unknown[][] = [];
+  const { deps: d } = makeDeps({
+    now: () => t,
+    readVerdict: () => null,
+    onReviewing: (id: string, reviewing: boolean, env?: unknown) =>
+      events.push([id, reviewing, env]),
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  svc.setHeld("s1", true);
+  t += 5 * 60_000; // held for five minutes
+  svc.setHeld("s1", false);
+  // the client's run clock must not count the hold: startedAt moved forward by exactly that much
+  expect(events.at(-1)).toEqual([
+    "s1",
+    true,
+    expect.objectContaining({ startedAt: 1000 + 5 * 60_000, timeoutMs: 10 * 60 * 1000 }),
+  ]);
 });
 
 test("setHeld is false with no run in flight", () => {

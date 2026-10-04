@@ -246,3 +246,9 @@ export function cancelledBannerState(kind: ReviewKind): BannerState {
     copyKey: "reviewbanner_cancelled",
   };
 }
+
+/** Whole minutes a review run has been going, floored at 0 — shown against its hard deadline so
+ *  the operator can tell a slow critic from a stuck one (the shared clock ticks every 30 s). */
+export function elapsedMinutes(startedAt: number, now: number): number {
+  return Math.max(0, Math.floor((now - startedAt) / 60_000));
+}

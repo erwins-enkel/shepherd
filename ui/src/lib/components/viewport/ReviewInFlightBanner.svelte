@@ -7,6 +7,7 @@
     activeReworkBannerState,
     reviewBannerState,
     cancelledBannerState,
+    elapsedMinutes,
     type BannerState,
     type ReviewKind,
   } from "$lib/review-banner";
@@ -343,11 +344,20 @@
         : "⚠",
   );
   const isHeldView = $derived(view.show && view.phase === "in-flight" && view.tone === "held");
+  // Elapsed vs the run's hard deadline (PR critic only) — tells a slow critic from a stuck one.
+  const runClock = $derived(
+    reviewerEnv?.startedAt != null && reviewerEnv.timeoutMs != null
+      ? m.reviewbanner_run_clock({
+          elapsed: String(elapsedMinutes(reviewerEnv.startedAt, clock.current)),
+          timeout: String(Math.round(reviewerEnv.timeoutMs / 60_000)),
+        })
+      : null,
+  );
   // Reviewer identity line; while held it also says the reviewer is still working.
   const envLine = $derived(
     isHeldView
       ? [reviewerIdentity, m.reviewbanner_held_running()].filter(Boolean).join(" · ")
-      : reviewerIdentity,
+      : [reviewerIdentity, runClock].filter(Boolean).join(" · ") || null,
   );
 
   // While a review is running or the task agent is actively addressing REWORK,
@@ -580,7 +590,7 @@
     color: var(--accent);
     background: color-mix(in srgb, var(--accent) 14%, var(--color-head));
     border-top: 1px solid color-mix(in srgb, var(--accent) 55%, var(--color-line));
-    animation: rb-in 0.14s ease;
+    animation: term-strip-in 0.14s ease; /* shared keyframes, app.css */
   }
   /* Prominence bump scoped to the in-flight tier only: the "review is running"
      message reads taller + larger, while the short-lived conclusion tiers keep
@@ -781,15 +791,5 @@
   }
   .review-banner[data-tone="errored"] {
     --accent: var(--color-red);
-  }
-  @keyframes rb-in {
-    from {
-      opacity: 0;
-      transform: translateY(4px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
   }
 </style>

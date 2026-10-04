@@ -973,6 +973,23 @@ test("inflight bootstrap restores the held flag", async () => {
   expect(planGates.isHeld("s3")).toBe(true);
 });
 
+test("inflight bootstrap keeps the critic run clock, so a reload mid-run still shows it", async () => {
+  vi.mocked(getReviews).mockResolvedValue({});
+  vi.mocked(getReviewingIds).mockResolvedValue([
+    { id: "s1", provider: "codex", model: "m", effort: null, startedAt: 1000, timeoutMs: 600_000 },
+    { id: "s2", provider: "claude", model: null, effort: null },
+  ]);
+  await reviews.load();
+  expect(reviews.reviewerEnvFor("s1")).toEqual({
+    provider: "codex",
+    model: "m",
+    effort: null,
+    startedAt: 1000,
+    timeoutMs: 600_000,
+  });
+  expect(reviews.reviewerEnvFor("s2")).toEqual({ provider: "claude", model: null, effort: null });
+});
+
 test("held flags ignore a non-session-id key", () => {
   reviews.held.set("__proto__", true);
   reviews.held.set("constructor", false);

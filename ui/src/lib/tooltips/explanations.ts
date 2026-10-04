@@ -151,3 +151,16 @@ export function epicRunStateExplanation(): TooltipExplanation {
     ],
   };
 }
+
+/** Terminal auto-merge strip — what full auto-merge does and when it needs the operator. */
+export function autoMergeStripExplanation(): TooltipExplanation {
+  return {
+    title: m.automergebanner_tip_title(),
+    summary: m.automergebanner_tip_summary(),
+    sections: [
+      { label: m.automergebanner_tip_you(), text: m.automergebanner_tip_you_body() },
+      { label: m.automergebanner_tip_waits(), text: m.automergebanner_tip_waits_body() },
+      { label: m.automergebanner_tip_needs_you(), text: m.automergebanner_tip_needs_you_body() },
+    ],
+  };
+}

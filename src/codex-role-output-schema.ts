@@ -1,7 +1,11 @@
 import { join } from "node:path";
 
-const schemaPath = (filename: string): string =>
-  join(import.meta.dir, "codex-role-schemas", filename);
+/** Host dir holding every `--output-schema` file. It lives in the Shepherd checkout under `$HOME`,
+ *  which the bwrap membrane tmpfs's — so a wrapped codex role needs it bound (sandbox.ts
+ *  `codexCliFlags`), or codex aborts at startup with "Failed to read output schema file" (#2595). */
+export const CODEX_ROLE_SCHEMA_DIR = join(import.meta.dir, "codex-role-schemas");
+
+const schemaPath = (filename: string): string => join(CODEX_ROLE_SCHEMA_DIR, filename);
 
 export const CODEX_ROLE_OUTPUT_SCHEMAS = {
   autopilot: schemaPath("autopilot.json"),

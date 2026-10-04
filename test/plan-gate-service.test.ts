@@ -363,7 +363,14 @@ test("begin carries the reviewer env on the reviewing:true signal + reviewingInf
   ]);
   // The inflight bootstrap snapshot exposes the same env for a mid-review reload.
   expect(h.svc.reviewingInflight()).toEqual([
-    { id: "s1", provider: "codex", model: "gpt-5.5", effort: "high", held: false },
+    {
+      id: "s1",
+      provider: "codex",
+      model: "gpt-5.5",
+      effort: "high",
+      startedAt: expect.any(Number),
+      held: false,
+    },
   ]);
   expect(h.started[0]!.argv.slice(h.started[0]!.argv.indexOf("--output-schema"), -1)).toEqual([
     "--output-schema",

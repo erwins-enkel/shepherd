@@ -18,6 +18,7 @@
 import { existsSync, readdirSync, realpathSync } from "node:fs";
 import { basename, dirname } from "node:path";
 import { execFileSync } from "./instrument";
+import { CODEX_ROLE_SCHEMA_DIR } from "./codex-role-output-schema";
 import { resolveNodeBin } from "./node-bin";
 import type { EgressBackend } from "./egress";
 
@@ -235,6 +236,10 @@ export interface CodexMembraneInputs {
    *  refresh, rollout writes and sqlite WAL all need a writable directory. Tool-level
    *  writes stay confined by codex's own `--sandbox workspace-write`. */
   codexHome: string;
+  /** Shepherd's `--output-schema` dir (CODEX_ROLE_SCHEMA_DIR) — bound RO. It sits in the Shepherd
+   *  checkout under the tmpfs'd `$HOME`; unbound, every schema-constrained role (critic, plan
+   *  review, …) died at startup with "Failed to read output schema file" (#2595). */
+  schemaDir: string;
 }
 
 /** Injectable host probes for codex membrane resolution (tests never touch the host). */
@@ -279,6 +284,7 @@ export function resolveCodexMembrane(
     binDir: dirname(bin),
     pkgRoot: nodeModulesAncestor(real) ?? dirname(real),
     codexHome,
+    schemaDir: CODEX_ROLE_SCHEMA_DIR,
   };
 }
 
@@ -417,13 +423,14 @@ function agentSupportFlags(paths: string[] | undefined): string[] {
  * same node_modules, so binding the launcher's package alone would not start).
  * CODEX_HOME RW: auth.json token refresh, sessions/ rollouts and sqlite WAL files
  * all need a writable directory; tool-level writes remain confined by codex's own
- * `--sandbox workspace-write`.
+ * `--sandbox workspace-write`. The `--output-schema` dir RO: codex reads it at startup.
  */
 function codexCliFlags(codex: CodexMembraneInputs | undefined): string[] {
   if (!codex) return [];
   const f = ["--ro-bind-try", codex.binDir, codex.binDir];
   if (codex.pkgRoot !== codex.binDir) f.push("--ro-bind-try", codex.pkgRoot, codex.pkgRoot);
   f.push("--bind-try", codex.codexHome, codex.codexHome);
+  f.push("--ro-bind-try", codex.schemaDir, codex.schemaDir);
   return f;
 }
 

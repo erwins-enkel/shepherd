@@ -20,6 +20,7 @@ import {
   type CodexMembraneInputs,
 } from "../src/sandbox";
 import { resolveNodeBin } from "../src/node-bin";
+import { CODEX_ROLE_SCHEMA_DIR } from "../src/codex-role-output-schema";
 import type { EgressBackend } from "../src/egress";
 
 // A deterministic MembraneInputs for flag-construction tests. exists is
@@ -1025,6 +1026,7 @@ const fakeCodex: CodexMembraneInputs = {
   binDir: "/home/me/.bun/bin",
   pkgRoot: "/home/me/.bun/install/global/node_modules",
   codexHome: "/home/me/.codex",
+  schemaDir: CODEX_ROLE_SCHEMA_DIR,
 };
 
 describe("resolveCodexMembrane", () => {
@@ -1113,6 +1115,21 @@ describe("buildMembraneFlags codex flags", () => {
     const codexBind = f.findIndex((v, i) => v === "--bind-try" && f[i + 1] === fakeCodex.codexHome);
     expect(tmpfsHome).toBeGreaterThanOrEqual(0);
     expect(codexBind).toBeGreaterThan(tmpfsHome);
+  });
+
+  test("codex inputs → RO --output-schema dir, after the home tmpfs (#2595)", () => {
+    const f = buildMembraneFlags(fakeMembrane({ codex: fakeCodex }), detDeps);
+    expect(hasTriple(f, "--ro-bind-try", fakeCodex.schemaDir, fakeCodex.schemaDir)).toBe(true);
+    const tmpfsHome = f.findIndex((v, i) => v === "--tmpfs" && f[i + 1] === "/home/me");
+    const schemaBind = f.findIndex(
+      (v, i) => v === "--ro-bind-try" && f[i + 1] === fakeCodex.schemaDir,
+    );
+    expect(schemaBind).toBeGreaterThan(tmpfsHome);
+  });
+
+  test("claude spawn gets no --output-schema dir bind", () => {
+    const f = buildMembraneFlags(fakeMembrane(), detDeps);
+    expect(f).not.toContain(CODEX_ROLE_SCHEMA_DIR);
   });
 
   test("pkgRoot equal to binDir is not re-bound", () => {

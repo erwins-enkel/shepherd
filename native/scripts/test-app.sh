@@ -6,6 +6,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP_DIR="$(cd "$SCRIPT_DIR/../Apps/ShepherdMac" && pwd)"
 
+# Stops a run with UI tests before anything else when macOS would ask to
+# "Enable UI Automation" and nobody may be there to answer. A unit-only run
+# never even reads the status.
+# shellcheck source=native/scripts/automation-mode.sh
+. "$SCRIPT_DIR/automation-mode.sh"
+shepherd_automation_preflight "$@" || exit 1
+
 # Fills CODESIGN_ARGS and prints which signing mode this machine uses.
 # shellcheck source=native/scripts/codesign-mode.sh
 . "$SCRIPT_DIR/codesign-mode.sh"

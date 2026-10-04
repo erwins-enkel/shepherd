@@ -48,6 +48,14 @@ Deps for those three install themselves — the `ensure-deps.sh` SessionStart ho
 cover `docs-site/` or `site/`: run `bun install` there by hand before building or checking
 either.
 
+## Always work in a worktree
+
+The main checkout stays on a clean `main`: never edit, commit, build or test there. Every task
+gets its own git worktree on its own branch — create one under `.claude/worktrees/<name>`
+(gitignored) with `git worktree add -b <branch> .claude/worktrees/<name> origin/main`. A session
+that already starts inside a worktree (Shepherd-spawned, `claude --worktree`, Codex) stays in it.
+Parallel agents never share a worktree. Remove it (`git worktree remove`) once its PR is merged.
+
 ## Branch hygiene
 
 Cut every branch from **`origin/main`** — never from another feature branch or a shared

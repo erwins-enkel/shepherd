@@ -5,6 +5,8 @@ import ShepherdKit
 struct SessionCardView: View {
     let card: IOSSessionListPresentation.Card
     var selected = false
+    var serverName: String?
+    var rowID: String?
     let select: () -> Void
     @Environment(\.dynamicTypeSize) private var typeSize
 
@@ -47,7 +49,7 @@ struct SessionCardView: View {
         .accessibilityLabel(Text(verbatim: accessibilityLabel))
         .accessibilityHint(L.t(card.opensPlan
             ? "native_ios_plan_open_hint" : "native_ios_open_session_hint"))
-        .accessibilityIdentifier("session-row-\(card.id)")
+        .accessibilityIdentifier("session-row-\(rowID ?? card.id)")
     }
 
     @ViewBuilder private var promptAndSummary: some View {
@@ -88,8 +90,11 @@ struct SessionCardView: View {
             .foregroundStyle(SessionListStyle.ink).fixedSize()
     }
     private var metadata: some View {
-        Text(verbatim: card.metadata).sessionFont(label: true)
-            .foregroundStyle(SessionListStyle.muted).fixedSize(horizontal: false, vertical: true)
+        VStack(alignment: .leading, spacing: 3) {
+            Text(verbatim: card.metadata).sessionFont(label: true)
+                .foregroundStyle(SessionListStyle.muted).fixedSize(horizontal: false, vertical: true)
+            if let serverName { IOSServerHint(name: serverName) }
+        }
     }
 
     @ViewBuilder private var status: some View {
@@ -128,7 +133,7 @@ struct SessionCardView: View {
             : card.displayed.readyToMerge ? L.t("status_ready_to_merge") : SessionStatusStyle.label(card.displayed.status),
          L.t("native_ios_session_age", card.age), card.session.prompt, card.summary ?? "",
          card.badges.map { ([$0.text] + $0.markers.map(\.text)).joined(separator: ", ") }.joined(separator: ", "),
-         card.metadata, card.progress.accessibilityLabel,
+         card.metadata, serverName.map { L.t("native_ios_server_hint", $0) } ?? "", card.progress.accessibilityLabel,
          card.heartbeat.isEmpty ? "" : L.t("heartbeat_pop_intro") + ": " +
             (card.heartbeat.contains { $0.error } ? L.t("heartbeat_legend_error_label")
                 : card.heartbeat.contains { $0.level > 0 } ? L.t("heartbeat_legend_active_label") : L.t("heartbeat_legend_idle_label"))]

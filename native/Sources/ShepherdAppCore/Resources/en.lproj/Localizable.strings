@@ -690,12 +690,17 @@
 "native_ios_latency_terminal_slow_explanation" = "Terminal startup is slow while requests are responsive; check the terminal process and replay size on the server.";
 "native_ios_latency_title" = "Connection speed";
 "native_ios_next_waiting" = "Waiting for server recommendations. Refresh Up Next in the web or Mac app to compute them.";
+"native_ios_notification_server" = "Open session on which server?";
 "native_ios_open_items_count" = "%1$@ open records";
 "native_ios_open_session_hint" = "Opens session details.";
 "native_ios_plan_open_hint" = "Opens the plan and its questions.";
 "native_ios_plan_readonly" = "Plan actions are unavailable while this view is read-only, offline or inactive.";
 "native_ios_remove_body" = "This removes the saved sign-in from this device. Server-side revocation is not confirmed.";
 "native_ios_reply_draft" = "Draft saved";
+"native_ios_server_connected" = "Connected";
+"native_ios_server_disconnect" = "Disconnect";
+"native_ios_server_disconnected" = "Disconnected";
+"native_ios_server_hint" = "Server: %1$@";
 "native_ios_session_age" = "Age: %1$@";
 "native_ios_steers_all" = "All steers";
 "native_ios_steers_empty" = "No steers in the steer bar yet. Create them in the web or Mac app.";

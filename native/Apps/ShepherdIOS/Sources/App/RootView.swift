@@ -4,43 +4,43 @@ import ShepherdKit
 
 struct RootView: View {
     let launch: IOSLaunchEnvironment
-    @Environment(AppModel.self) private var app
+    @Environment(IOSServerHub.self) private var hub
+    private var app: AppModel { hub.focused }
     @Environment(\.horizontalSizeClass) private var sizeClass
-    @Environment(\.scenePhase) private var scenePhase
-    @State private var lifecycle: IOSAppLifecycle?
-    @State private var recovery: IOSVisibleActivityRecovery?
-    @State private var path: [String] = []
+    @State private var path: [IOSSessionIdentity] = []
     @State private var cleanupState = "pending"
 
     var body: some View {
-        @Bindable var app = app
         VStack(spacing: 0) {
             if let error = app.isolatedLaunchError { Text(verbatim: error).foregroundStyle(.red) }
+            if hub.hasSidebar, !hub.managingServers, let warning = hub.catalogue.signOutWarning {
+                Text(verbatim: warning).foregroundStyle(.orange)
+            }
+            if !composeFixtureEnabled { ConnectionStatusView() }
             if composeFixtureEnabled {
                 #if DEBUG
                 IOSComposeFixtureView(app: app)
                 #endif
-            } else if app.activeProfile != nil, let sidebar = app.extension(SidebarModel.self) {
-                ConnectionStatusView()
+            } else if hub.hasSidebar, !hub.managingServers {
                 if sizeClass == .regular {
                     NavigationSplitView {
-                        SessionListView(model: sidebar, select: selectSession)
+                        IOSHubSessionListView(select: selectSession)
                     } detail: {
                         NavigationStack { selectedDetail }
                     }.accessibilityIdentifier("navigation-regular")
                 } else {
                     NavigationStack(path: $path) {
-                        SessionListView(model: sidebar, select: selectSession)
-                            .navigationDestination(for: String.self) { _ in selectedDetail }
+                        IOSHubSessionListView(select: selectSession)
+                            .navigationDestination(for: IOSSessionIdentity.self) { _ in selectedDetail }
                     }.accessibilityIdentifier("navigation-compact")
                 }
             } else {
-                NavigationStack { ServerListView() }
+                NavigationStack { ServerListView().environment(hub.catalogue) }
             }
             if launch.configuration.isIsolated, launch.cleanup != nil {
                 Button(L.t("native_toolbar_sign_out")) {
                     Task {
-                        app.deactivate()
+                        if let id = app.activeProfile?.id { hub.disconnect(id) }
                         do { try await launch.cleanup?.revoke(); cleanupState = "revocation_returned" }
                         catch { cleanupState = "pending" }
                     }
@@ -48,8 +48,9 @@ struct RootView: View {
                 Text(verbatim: cleanupState).accessibilityIdentifier("live-cleanup-status")
             }
         }
-        .sheet(item: $app.sheet) { sheet in
-            switch sheet {
+        .sheet(item: Binding(get: { hub.routedSheet }, set: { if $0 == nil { hub.dismissSheet() } })) { route in
+            let app = route.model
+            switch route.sheet {
             case .login(let profile): LoginSheet(profile: profile).environment(app)
             case .firstRun:
                 NavigationStack {
@@ -59,35 +60,26 @@ struct RootView: View {
                         Button(L.t("common_cancel")) { app.sheet = nil }
                     }.padding()
                 }
-            case .newSession: IOSComposeSheet().environment(app)
+            case .newSession: IOSMultiServerComposeSheet(owner: app).environment(app)
             }
         }
-        .task {
-            if lifecycle == nil {
-                lifecycle = IOSAppLifecycle(app: app) {
-                    let generation = app.activationGeneration
-                    await app.extension(ReadOnlySidebarRecovery.self)?.refresh()
-                    guard generation == app.activationGeneration else { return }
-                    await recovery?.reloadVisibleActivityIfNeeded()
+        .confirmationDialog(L.t("native_ios_notification_server"), isPresented: Binding(
+            get: { !IOSPushRegistration.shared.notificationChoices.isEmpty },
+            set: { if !$0 { IOSPushRegistration.shared.cancelNotification() } })) {
+            ForEach(IOSPushRegistration.shared.notificationChoices, id: \.self) { identity in
+                Button(hub.profiles.first { $0.id == identity.profileID }?.name ?? "") {
+                    IOSPushRegistration.shared.chooseNotification(identity)
                 }
             }
-            bindStore()
-            await lifecycle?.update(mappedPhase)
+            Button(L.t("common_cancel"), role: .cancel) { IOSPushRegistration.shared.cancelNotification() }
         }
-        .onChange(of: app.store.map(ObjectIdentifier.init)) { _, _ in bindStore() }
-        .onChange(of: scenePhase) { _, phase in
-            let mapped = Self.map(phase)
-            Task { await lifecycle?.update(mapped) }
-        }
-        .onChange(of: app.selectedSessionID) { _, selected in
-            recovery?.cancelVisibleWork()
-            app.extension(DetailModel.self)?.retainSession(selected)
+        .onChange(of: hub.selection) { _, selected in
             path = selected.map { [$0] } ?? []
         }
         .onChange(of: path) { _, path in
             if sizeClass != .regular, path.isEmpty { app.selectedSessionID = nil }
         }
-        .onChange(of: sizeClass) { _, _ in path = app.selectedSessionID.map { [$0] } ?? [] }
+        .onChange(of: sizeClass) { _, _ in path = hub.selection.map { [$0] } ?? [] }
     }
 
     private var composeFixtureEnabled: Bool {
@@ -110,32 +102,8 @@ struct RootView: View {
             ContentUnavailableView(L.t("native_detail_no_selection"), systemImage: "list.bullet")
         }
     }
-    private var mappedPhase: IOSScenePhase { Self.map(scenePhase) }
-    private static func map(_ phase: ScenePhase) -> IOSScenePhase {
-        switch phase {
-        case .active: .active
-        case .inactive: .inactive
-        case .background: .background
-        @unknown default: .inactive
-        }
-    }
-    private func selectSession(_ id: String) {
-        app.extension(DetailModel.self)?.retainSession(id)
-        app.selectedSessionID = id
-        app.extension(IOSPlanController.self)?.select(app.store?.session(id: id), model: app.extension(PlanModel.self))
-        if let session = app.store?.session(id: id), let plan = app.extension(PlanModel.self),
-           IOSPlanPresentation.opensPlan(session: session, model: plan) {
-            plan.openPlan(id)
-        }
-        path = [id]
-    }
-    private func bindStore() {
-        recovery?.storeDidChange(to: nil)
-        if let detail = app.extension(DetailModel.self) {
-            detail.retainSession(app.selectedSessionID)
-            recovery = IOSVisibleActivityRecovery(app: app, detail: detail, selectedID: { app.selectedSessionID })
-            recovery?.storeDidChange(to: app.store)
-        } else { recovery = nil }
-        lifecycle?.storeDidChange(app.store)
+    private func selectSession(_ identity: IOSSessionIdentity) {
+        hub.select(identity)
+        path = [identity]
     }
 }

@@ -286,6 +286,33 @@ Release distribution has separate signing inputs and gates; see
 [TestFlight preparation](testflight-ios.md). No simulator test implies a signed
 archive, tested hardware, uploaded build or approved external beta.
 
+## Several connected servers
+
+`IOSServerHub` owns the saved profile catalogue and one fully wired `AppModel` per
+connected server. It persists connected profile IDs in
+`run.shepherd.ios.connectedProfileIDs`, migrating the previous active-profile ID
+once. Each model writes only its scoped activation key; the hub's catalogue model
+is the sole profile-list writer. The Mac keeps the original persistence defaults.
+
+The session list merges lifecycle groups by creation time, finished sessions by
+archive time, and outstanding steps by creation time. Selection includes both
+profile and session ID. Filters and counters span all connected servers; detail,
+terminal, plan and actions receive the selected server's existing model. Cards show
+a profile-name hint with several connections. Servers in the settings menu opens
+the connection manager without parking other servers. Disconnect keeps the token;
+Remove revokes it. The composer starts on the focused server and offers a server
+picker with several connections. Switching servers retains prompt text and resets
+server-specific repository, branch and upload state.
+
+Every connected model receives foreground recovery and APNs device registration.
+Notification routing accepts `serverURL`, `baseURL`, `serverId` (profile UUID), or
+`server` (origin URL). Existing origin-free payloads are looked up in connected
+stores; duplicate IDs offer a server chooser. A connecting peer is allowed to
+finish its first lookup, while an offline peer does not block an available match.
+Direct APNs delivery and simultaneous real-server connections still need device
+acceptance. `IOSMultiServerRenderTests` exports the production list, connection
+manager and composer fixtures through `ImageRenderer`.
+
 ## Push notifications (interim direct APNs)
 
 Until the push relay exists ([#2665](https://github.com/erwins-enkel/shepherd/issues/2665)),

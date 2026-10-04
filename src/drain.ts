@@ -573,6 +573,10 @@ export class DrainService {
     let openIssuesTruncated = false;
     if (!native) {
       const open = await this.listIssues(repoPath);
+      // The markdown resolver reads a member missing from the open list as closed, so a failed
+      // listing ([]) would read as "every child done" and auto-complete a live epic. No open
+      // list, no epic this round.
+      if (this.issuesCache.get(repoPath)?.failed) return null;
       openIssues = open.map((i) => ({
         number: i.number,
         title: i.title,

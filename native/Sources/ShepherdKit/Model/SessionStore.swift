@@ -39,6 +39,8 @@ public enum ConnectionState: Sendable, Equatable {
 @Observable
 @MainActor
 public final class SessionStore {
+  /// True after this activation has accepted its first snapshot, including an empty list.
+  public private(set) var hasLoadedSessions = false
   public private(set) var sessions: [Session] = []
   /// Blocked sessions, keyed by session id. Absent means not blocked.
   public private(set) var blocks: [String: Components.Schemas.BlockReason] = [:]
@@ -493,6 +495,7 @@ public final class SessionStore {
       // these three lists are the older read of the same server.
       guard generation == snapshotGeneration else { return }
       self.sessions = loadedSessions
+      hasLoadedSessions = true
       self.settings = loadedSettings
       self.repos = loadedRepos.repos
       lastError = nil

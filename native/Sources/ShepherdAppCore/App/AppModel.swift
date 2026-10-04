@@ -327,11 +327,13 @@ public final class AppModel {
     public init(
         defaults: UserDefaults = .standard,
         credentials: any CredentialStore = KeychainCredentialStore(),
-        notifications: NotificationEnvironment
+        notifications: NotificationEnvironment,
+        activeProfileKey: String = "run.shepherd.mac.activeProfileID",
+        persistsProfileCatalogue: Bool = true
     ) {
         self.notificationEnvironment = notifications
         self.composerDefaults = defaults
-        self.persistence = ProfileStore(defaults: defaults)
+        self.persistence = ProfileStore(defaults: defaults, activeKey: activeProfileKey, persistsCatalogue: persistsProfileCatalogue)
         self.credentials = credentials
 
         let loaded = persistence.load()
@@ -342,6 +344,10 @@ public final class AppModel {
     public var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
     }
+
+    /// Refreshes the shared catalogue without changing this instance’s activation.
+    /// iOS uses one catalogue writer and read-only catalogues in per-server models.
+    public func reloadProfiles() { profiles = persistence.load().profiles }
 
     // MARK: - Profiles
 

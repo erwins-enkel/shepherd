@@ -52,7 +52,12 @@ Run commands from the repository root.
    [Local code signing (stable Keychain access)](development.md#local-code-signing-stable-keychain-access) for
    why, and what the script does.
 
-4. Build and run:
+4. Optional, once per Mac, if you run the UI tests: set the Mac up for UI Automation Mode, so
+   that macOS stops asking to "Enable UI Automation" and unattended UI runs can proceed. See
+   [UI Automation Mode](development.md#ui-automation-mode) for the command, the status check and
+   how to revert it.
+
+5. Build and run:
 
    ```
    native/scripts/build-app.sh Release
@@ -61,7 +66,7 @@ Run commands from the repository root.
 
    See [Build](#build) and [Run](#run).
 
-5. Connect to a server. On first launch the app offers two ways in:
+6. Connect to a server. On first launch the app offers two ways in:
    - **Run on this Mac** — choose **Install and start** for a cold install. The app downloads
      the official HTTPS bootstrap when no checkout installer exists, shows its progress in
      the log, then starts the installed server. The bootstrap provisions Bun and checks its

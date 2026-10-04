@@ -146,13 +146,13 @@ test("critic on: verdict for a stale head → hold (must not merge)", () => {
   expect(d.kind).toBe("hold"); // verdict is for an older head than headSha "h1"
 });
 
-test("critic on: behind but verdict pending for new head → hold (let critic settle, no rebase yet)", () => {
+test("critic on: behind with a verdict on an OLDER head → rebase (critic is held while behind)", () => {
   const d = computeMerge(
     state([sess({ behind: true, reviewDecision: "commented", reviewHeadSha: "OLD" })], {
       criticEnabled: true,
     }),
   );
-  expect(d.kind).toBe("hold"); // not "rebase": a re-review is pending for the current head
+  expect(d.kind).toBe("rebase");
 });
 
 // ── rebase-outstanding guard (Fix 1) ────────────────────────────────────────────
@@ -298,8 +298,52 @@ test("A: dirty with mergeable:null still triggers (the trigger term)", () => {
   expect(d).toEqual({ kind: "rebase", sessionId: "s1", headSha: "h1", conflict: true });
 });
 
-test("A: behind + checks:pending → no rebase (waiver is conflict-only)", () => {
-  expect(computeMerge(state([sess({ behind: true, checks: "pending" })])).kind).toBe("hold");
+// ── rebase as soon as behind: no waiting on CI or the critic ───────────────────
+
+test("behind + checks:pending → rebase (don't wait for CI on a stale base)", () => {
+  expect(computeMerge(state([sess({ behind: true, checks: "pending" })])).kind).toBe("rebase");
+});
+
+test("behind + checks:failure → rebase", () => {
+  expect(computeMerge(state([sess({ behind: true, checks: "failure" })])).kind).toBe("rebase");
+});
+
+test("critic on: behind with no verdict yet → rebase", () => {
+  const d = computeMerge(
+    state([sess({ behind: true, checks: "pending" })], { criticEnabled: true }),
+  );
+  expect(d.kind).toBe("rebase");
+});
+
+test("behind with current-head findings → hold (fix first, then rebase)", () => {
+  const d = computeMerge(
+    state(
+      [sess({ behind: true, reviewDecision: "commented", reviewHeadSha: "h1", findings: ["x"] })],
+      { criticEnabled: true },
+    ),
+  );
+  expect(d.kind).toBe("hold");
+});
+
+test("behind with current-head changes_requested → hold", () => {
+  const d = computeMerge(
+    state([sess({ behind: true, reviewDecision: "changes_requested", reviewHeadSha: "h1" })]),
+  );
+  expect(d.kind).toBe("hold");
+});
+
+test("behind with a clean current-head verdict + green → rebase (regression)", () => {
+  const d = computeMerge(
+    state([sess({ behind: true, reviewDecision: "commented", reviewHeadSha: "h1" })], {
+      criticEnabled: true,
+    }),
+  );
+  expect(d.kind).toBe("rebase");
+});
+
+test("behind but the agent is busy → hold (never steer a rebase mid-work)", () => {
+  const d = computeMerge(state([sess({ behind: true, checks: "pending", busy: true })]));
+  expect(d).toEqual({ kind: "hold", reason: { code: "idle" } });
 });
 
 // ── Defect D: the expiring dedup makes rebaseCap reachable ──────────────────────
@@ -567,4 +611,30 @@ test("conflict + current-head changes_requested → no rebase", () => {
     }),
   );
   expect(d.kind).not.toBe("rebase");
+});
+
+test("behind with a current-head SPAWN-ABORTED error → rebase (the held critic can't retry it)", () => {
+  const d = computeMerge(
+    state(
+      [
+        sess({
+          behind: true,
+          reviewDecision: "error",
+          reviewHeadSha: "h1",
+          reviewSpawnAborted: true,
+        }),
+      ],
+      { criticEnabled: true },
+    ),
+  );
+  expect(d.kind).toBe("rebase");
+});
+
+test("behind with a current-head REAL error verdict → hold", () => {
+  const d = computeMerge(
+    state([sess({ behind: true, reviewDecision: "error", reviewHeadSha: "h1" })], {
+      criticEnabled: true,
+    }),
+  );
+  expect(d.kind).toBe("hold");
 });

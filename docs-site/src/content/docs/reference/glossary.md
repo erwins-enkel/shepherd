@@ -44,9 +44,11 @@ Best-effort automation that drives a task through its routine stops to an open
 pull request. It never merges — landing a PR is the [merge train](#merge-train),
 which requires Autopilot **and** full-auto merge. Switched off, every step stays
 with you, and no automatic merge is possible at all. It also owns rebase recovery
-for the PRs it handed back: once a review has passed, a green PR that falls behind
-its base branch or picks up a conflict is steered back to the agent to rebase, and
-CI and the critic then run again on the rebased version. Repeated attempts are
+for the PRs it handed back: as soon as a PR falls behind its base branch or picks
+up a conflict, it is steered back to the agent to rebase — without waiting for CI
+or the critic, which would only be spent on the stale version. Open critic findings
+on the current version are fixed first. The critic waits for the rebased version,
+and CI runs again on it. Repeated attempts are
 capped (5 by default) so a genuine conflict pauses for you instead of thrashing;
 in a full-auto session the [merge train](#merge-train) owns that same recovery
 instead. Claude and Codex follow the same rule, in either checkout mode:

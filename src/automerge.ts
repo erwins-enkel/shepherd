@@ -172,6 +172,7 @@ export class AutoMergeService {
     return {
       reviewDecision: review?.decision ?? null,
       reviewHeadSha: review?.headSha ?? null,
+      reviewSpawnAborted: review?.spawnAborted === true,
       findings: review?.findings ?? [],
     };
   }
@@ -438,10 +439,15 @@ export class AutoMergeService {
     }
     if (await this.deps.service.reply(sessionId, rebaseSteer(s.baseBranch))) {
       // Already recorded above on the conflict path — don't double-count.
+      // The behind path stamps rebaseSteeredAt too, so autopilot's CI-fix loop stands down on a
+      // behind+red PR the train has taken (ownedByRebaser) — whatever GitHub's mergeStateStatus
+      // says, since the train's `behind` is a git fetch. Recorded on success only: a head stamped
+      // before a failed delivery would sit behind the behind path's permanent per-head dedup.
       if (!conflict) {
         this.deps.store.setAutoMergeState(sessionId, {
           rebaseCount: s.autoMergeRebaseCount + 1,
           rebaseHead: headSha,
+          rebaseSteeredAt: this.now(),
         });
       }
       // A rebase is a fresh procedural task; give autopilot a clean step budget so unblocking

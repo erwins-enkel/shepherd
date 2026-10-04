@@ -1741,6 +1741,9 @@ const reviewService = new ReviewService({
   // Per-role critic environment thunk (read per spawn so a settings change applies without restart).
   env: () => roleEnv(config.criticCli, config.criticModel, config.criticEffort),
   onChange: (id, verdict) => events.emit("session:review", { id, review: verdict }),
+  // Hold the critic on a behind PR only when a rebase actor will steer it (autopilot is built
+  // below; this is only called at runtime).
+  rebasesWhenBehind: (s) => autopilot.rebasesWhenBehind(s),
   // #1944: clamp/refusal sidecar. A SEPARATE channel from `onChange` on purpose — those carry a
   // verdict, and a clamped or refused spawn must never synthesize one.
   onSpawnNotice: (id) =>

@@ -2,7 +2,8 @@
 
 `.github/workflows/native-ios-testflight.yml` runs nightly at 04:00 UTC on `main` (a real upload,
 `dry_run` forced off) when `native/**`, `contracts/**` or the workflow itself changed since the last
-upload, and can also be dispatched manually. It archives
+upload, after an app-relevant merge when no upload happened for 24 hours, and can also be
+dispatched manually. It archives
 `run.shepherd.ios` for **Shepherd for Agents** (App Store Connect Apple ID
 `6818120191`) and defaults to a **dry run**: a signed App Store IPA artifact retained
 for 14 days, with no upload. Signing runs only on the macOS GitHub Actions runner;
@@ -151,6 +152,10 @@ Each night at 04:00 UTC (06:00 Berlin in summer, 05:00 in winter) the workflow s
 internal TestFlight group ("Enkel", access to all builds), but only if the app changed since the last
 upload: a gate job compares `main` with the head of the last successful run named `upload …` (or an
 older per-merge push run) and skips the archive when nothing under `native/`, `contracts/` or the
-workflow changed. For a build right after a merge, dispatch it manually (`-f dry_run=false`). Its build number is main's first-parent commit count. A manual
+workflow changed. As a fallback while GitHub's scheduled runs are unreliable, an app-relevant
+merge to `main` runs the same gate and uploads only when the last real upload is more than 24 hours
+old, so there is at most one automatic build a day. The gate counts a run as an upload only if its
+archive job succeeded (a gated-off nightly also concludes "success"). For a build right after a
+merge, dispatch it manually (`-f dry_run=false`). Its build number is main's first-parent commit count. A manual
 dispatch of any other ref (a feature branch preview) uploads `<count>.<run number>` instead, so a
 preview never takes the number the next main build needs. Concurrent runs queue rather than cancel.

@@ -1,4 +1,5 @@
 import webpush from "web-push";
+import { createHash } from "node:crypto";
 import { config } from "./config";
 import type { SessionStore, PushSubInput, StoredPushSub } from "./store";
 import type { EventHub } from "./events";
@@ -29,7 +30,9 @@ export interface PushPayload {
     | "backup_stale"
     | "onboarding_stale"
     | "landing_conflict"
-    | "judge_ceiling";
+    | "judge_ceiling"
+    // Settings → Notifications "send test message" (#2696); never produced by notify().
+    | "test";
   tag: string;
 }
 
@@ -37,7 +40,7 @@ export interface PushPayload {
 type PushCategory = "agent" | "reviews" | "ci";
 
 /** Maps each internal kind to the category a device toggles. Single source of truth. */
-const KIND_CATEGORY: Record<PushPayload["kind"], PushCategory> = {
+const KIND_CATEGORY: Record<NotifyInput["kind"], PushCategory> = {
   blocked: "agent",
   done: "agent",
   autopilot: "agent",
@@ -210,6 +213,8 @@ const NOTIFY_TEXT = {
     judgeCeilingTitle: "Judge daily limit reached",
     judgeCeilingBody: (spent: string, ceiling: string) =>
       `The stop classifier spent ${spent} of its ${ceiling} daily limit and is back on the agent spawn. Nothing is blocked.`,
+    testTitle: "Shepherd test message",
+    testBody: "Push notifications reach this device.",
   },
   de: {
     doneTitle: (name: string) => `${name} — wartet`,
@@ -274,6 +279,8 @@ const NOTIFY_TEXT = {
     judgeCeilingTitle: "Judge-Tageslimit erreicht",
     judgeCeilingBody: (spent: string, ceiling: string) =>
       `Der Stop-Klassifikator hat ${spent} von ${ceiling} Tagesbudget verbraucht und läuft wieder über den Agent-Spawn. Es ist nichts blockiert.`,
+    testTitle: "Shepherd-Testnachricht",
+    testBody: "Push-Benachrichtigungen erreichen dieses Gerät.",
   },
 } as const;
 
@@ -451,6 +458,35 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
   }
 }
 
+/** What one test push came to; `reason` is the push service's own word (`BadDeviceToken`). */
+export interface PushTestResult {
+  delivered: boolean;
+  status: number | null;
+  reason: string | null;
+}
+
+/** The push service's reason for a failed send: APNs and Apple's Web Push answer
+ *  `{"reason": "…"}`; anything else is cut to a line so a stray HTML error page stays readable. */
+function errorReason(err: unknown): string | null {
+  const body = (err as { body?: unknown })?.body;
+  if (typeof body === "string" && body) {
+    try {
+      const reason = (JSON.parse(body) as { reason?: unknown }).reason;
+      if (typeof reason === "string") return reason;
+    } catch {
+      /* not JSON — fall through to the message */
+    }
+  }
+  const msg = (err as Error)?.message;
+  return typeof msg === "string" && msg ? msg.split("\n")[0]!.slice(0, 200) : null;
+}
+
+/** Stable, opaque id for a device in the settings list, so the list never echoes endpoints
+ *  (a Web Push endpoint is a capability URL). */
+export function pushDeviceId(endpoint: string): string {
+  return createHash("sha256").update(endpoint).digest("hex").slice(0, 16);
+}
+
 export class PushService {
   private pub: string;
   /** Last *successful-send* timestamp per `${kind}:${sessionId}`, for cooldown debouncing. */
@@ -588,6 +624,40 @@ export class PushService {
     } catch (err) {
       console.warn("[push] APNs send failed:", err);
       return false;
+    }
+  }
+
+  /** Settings → Notifications "send test message" (#2696): one push to one device, deliberately
+   *  past presence, cooldown, reduced mode and categories, reporting what the push service said.
+   *  Nothing is pruned — the operator is looking at this device and should see why it failed. */
+  async testSend(row: StoredPushSub): Promise<PushTestResult> {
+    const t = NOTIFY_TEXT[asLocale(row.locale)];
+    const payload: PushPayload = {
+      title: t.testTitle,
+      body: t.testBody,
+      sessionId: "",
+      kind: "test",
+      tag: "test",
+    };
+    const apnsTarget = parseApnsEndpoint(row.endpoint);
+    if (apnsTarget) {
+      if (!this.apns?.enabled) return { delivered: false, status: null, reason: "not_configured" };
+      try {
+        const r = await this.apns.send(apnsTarget.environment, apnsTarget.token, payload);
+        return { delivered: r.status === 200, status: r.status, reason: r.reason ?? null };
+      } catch (err) {
+        return { delivered: false, status: null, reason: errorReason(err) };
+      }
+    }
+    try {
+      const { statusCode } = await this.send(
+        { endpoint: row.endpoint, keys: { p256dh: row.p256dh, auth: row.auth } },
+        JSON.stringify(payload),
+      );
+      return { delivered: true, status: statusCode ?? null, reason: null };
+    } catch (err) {
+      const e = err as { statusCode?: number; body?: unknown };
+      return { delivered: false, status: e?.statusCode ?? null, reason: errorReason(err) };
     }
   }
 

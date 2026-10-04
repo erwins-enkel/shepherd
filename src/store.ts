@@ -590,6 +590,8 @@ export interface StoredPushSub {
   ua: string;
   locale: string;
   createdAt: number;
+  /** Last time the device (re-)registered; iOS does so on every launch. */
+  registeredAt: number;
   cats: PushPrefs;
 }
 
@@ -1835,6 +1837,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       catAgent: "INTEGER NOT NULL DEFAULT 1",
       catReviews: "INTEGER NOT NULL DEFAULT 1",
       catCi: "INTEGER NOT NULL DEFAULT 1",
+      // last (re-)registration, for the settings device list (#2696); NULL reads as createdAt
+      registeredAt: "INTEGER",
     });
     // Named machine bearer tokens minted from the HUD (#2082). Only the SHA-256 of the plaintext
     // is stored — `hint` is the last 4 plaintext chars so the list can render `shp_…a9Fz`.
@@ -2163,12 +2167,14 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   // ── web push subscriptions ────────────────────────────────────────────────
   putPushSub(sub: PushSubInput, ua: string): void {
+    const now = Date.now();
     this.db.run(
-      `INSERT INTO push_subscriptions (endpoint, p256dh, auth, ua, locale, createdAt)
-       VALUES (?,?,?,?,?,?)
+      `INSERT INTO push_subscriptions (endpoint, p256dh, auth, ua, locale, createdAt, registeredAt)
+       VALUES (?,?,?,?,?,?,?)
        ON CONFLICT(endpoint) DO UPDATE SET
-         p256dh = excluded.p256dh, auth = excluded.auth, ua = excluded.ua, locale = excluded.locale`,
-      [sub.endpoint, sub.keys.p256dh, sub.keys.auth, ua, sub.locale ?? "en", Date.now()],
+         p256dh = excluded.p256dh, auth = excluded.auth, ua = excluded.ua, locale = excluded.locale,
+         registeredAt = excluded.registeredAt`,
+      [sub.endpoint, sub.keys.p256dh, sub.keys.auth, ua, sub.locale ?? "en", now, now],
     );
   }
 
@@ -2179,7 +2185,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   listPushSubs(): StoredPushSub[] {
     const rows = this.db
       .query(
-        `SELECT endpoint, p256dh, auth, ua, locale, catAgent, catReviews, catCi, createdAt
+        `SELECT endpoint, p256dh, auth, ua, locale, catAgent, catReviews, catCi, createdAt,
+           COALESCE(registeredAt, createdAt) AS registeredAt
          FROM push_subscriptions`,
       )
       .all() as (Omit<StoredPushSub, "cats"> & {

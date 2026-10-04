@@ -98,26 +98,81 @@ export interface ApnsConfig {
   topic: string;
 }
 
+/** Why a configured key cannot sign: the file is missing, it is not a private key, or it is a
+ *  private key APNs cannot use (APNs auth keys are always EC P-256). */
+export type ApnsKeyError = "unreadable" | "invalid" | "not_p256";
+
+const PEM_RE = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
+
+/** Parse PEM text into an APNs signing key, or say why it is not one. */
+export function parseApnsKey(pem: string): KeyObject | ApnsKeyError {
+  let key: KeyObject;
+  try {
+    key = createPrivateKey(pem);
+  } catch {
+    return "invalid";
+  }
+  if (key.asymmetricKeyType !== "ec" || key.asymmetricKeyDetails?.namedCurve !== "prime256v1") {
+    return "not_p256";
+  }
+  return key;
+}
+
+/** `source` is PEM text or, from the environment only, a path to the `.p8` file. */
+function loadApnsKey(source: string): KeyObject | ApnsKeyError {
+  if (PEM_RE.test(source)) return parseApnsKey(source);
+  try {
+    return parseApnsKey(readFileSync(source, "utf8"));
+  } catch {
+    return "unreadable";
+  }
+}
+
+/** The last APNs answer that was not a delivery, kept for the settings status. */
+export interface ApnsFailure {
+  status: number;
+  reason: string | null;
+  at: number;
+}
+
 /** Apple accepts a provider token for an hour and rejects refreshes more often than every 20
  *  minutes; renewing at 40 keeps both. */
 const TOKEN_LIFETIME_S = 40 * 60;
 
 export class ApnsSender {
+  private cfg!: ApnsConfig;
   private key: KeyObject | null = null;
   private jwt: { value: string; issuedAt: number } | null = null;
+  /** Set when a complete configuration names a key that cannot sign. */
+  keyError: ApnsKeyError | null = null;
+  lastError: ApnsFailure | null = null;
+  lastDeliveredAt: number | null = null;
 
   constructor(
-    private cfg: ApnsConfig,
+    cfg: ApnsConfig,
     private transport: ApnsTransport = http2Transport,
     private nowSeconds: () => number = () => Math.floor(Date.now() / 1000),
   ) {
+    this.reload(cfg);
+  }
+
+  /** Swap in a new configuration without a restart. The provider token and the delivery history
+   *  belong to the old key, so both start over. */
+  reload(cfg: ApnsConfig): void {
+    this.cfg = cfg;
+    this.key = null;
+    this.jwt = null;
+    this.keyError = null;
+    this.lastError = null;
+    this.lastDeliveredAt = null;
     if (!cfg.key || !cfg.keyId || !cfg.teamId) return;
-    try {
-      const pem = cfg.key.includes("BEGIN PRIVATE KEY") ? cfg.key : readFileSync(cfg.key, "utf8");
-      this.key = createPrivateKey(pem);
-    } catch (err) {
-      console.warn("[apns] SHEPHERD_APNS_KEY could not be read — native iOS push stays off:", err);
+    const key = loadApnsKey(cfg.key);
+    if (typeof key === "string") {
+      this.keyError = key;
+      console.warn(`[apns] the APNs key is ${key} — native iOS push stays off`);
+      return;
     }
+    this.key = key;
   }
 
   get enabled(): boolean {
@@ -145,7 +200,15 @@ export class ApnsSender {
       "apns-expiration": String(now + 24 * 60 * 60),
     };
     if (payload.tag) headers["apns-collapse-id"] = collapseId(payload.tag);
-    const result = await this.transport(HOSTS[environment], headers, apnsBody(payload));
+    let result: ApnsResult;
+    try {
+      result = await this.transport(HOSTS[environment], headers, apnsBody(payload));
+    } catch (err) {
+      this.lastError = { status: 0, reason: (err as Error)?.message ?? null, at: now * 1000 };
+      throw err;
+    }
+    if (result.status === 200) this.lastDeliveredAt = now * 1000;
+    else this.lastError = { status: result.status, reason: result.reason ?? null, at: now * 1000 };
     // A rejected provider token is not the device's fault: mint a fresh one next time.
     if (result.status === 403) this.jwt = null;
     return result;

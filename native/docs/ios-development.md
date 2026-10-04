@@ -57,6 +57,24 @@ CODE_SIGN_IDENTITY=-`): the project's unsigned CI default prevents Keychain toke
 storage in the simulator. Tests remain isolated and keep their existing CI defaults.
 Xcode 27's simulator window is **DeviceHub.app**.
 
+### On your iPhone ("Shepherd Dev")
+
+Pair the iPhone once in **DeviceHub.app** (same Wi-Fi as the Mac, no cable needed on
+iOS 17+), then turn on Developer Mode (Settings → Privacy & Security). After that:
+
+```bash
+native/scripts/uitest-lock.sh native/scripts/ios-device.sh            # the only paired iPhone
+native/scripts/uitest-lock.sh native/scripts/ios-device.sh --device <UDID|name>
+```
+
+It builds Debug as `run.shepherd.ios.dev` with the display name **Shepherd Dev**, so it
+installs next to the TestFlight app instead of replacing it (sign in once in it), and
+installs in place over USB or Wi-Fi. Signing is automatic for team `3WSC8JG6J4`: the
+first run registers the device and the dev bundle id. Without a team Apple ID in Xcode,
+pass the App Store Connect API key via `SHEPHERD_ASC_KEY_PATH`, `SHEPHERD_ASC_KEY_ID`
+and `SHEPHERD_ASC_ISSUER_ID`. Debug builds use the APNs sandbox; push only reaches the
+dev app if the server sends to that environment.
+
 If Xcode 27 refuses to launch an unsigned unit-test host, use the same signature
 without changing test isolation or CI defaults:
 

@@ -43,6 +43,8 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: run.shepherd.ios
         PRODUCT_NAME: ShepherdIOS
+        # ios-device.sh overrides this (and the bundle id) for the side-by-side "Shepherd Dev" app.
+        SHEPHERD_DISPLAY_NAME: Shepherd
         GENERATE_INFOPLIST_FILE: NO
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
       configs:
@@ -62,7 +64,7 @@ targets:
         NSCameraUsageDescription: Shepherd uses the camera when you attach a photo to a session.
         NSMicrophoneUsageDescription: Shepherd uses the microphone while you dictate a task.
         NSSpeechRecognitionUsageDescription: Speech recognition provides live text and fallback dictation.
-        CFBundleDisplayName: Shepherd
+        CFBundleDisplayName: $(SHEPHERD_DISPLAY_NAME)
         CFBundleName: Shepherd
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)

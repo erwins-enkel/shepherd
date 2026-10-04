@@ -2651,6 +2651,19 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
+  /** Drop the completion of an epic whose run is starting again — a running epic is not complete.
+   *  Kept while its landing PR is open or merged: that row still tracks a real landing. A stale
+   *  row would otherwise keep its terminal landingState (recordEpicCompleted never resets it) and
+   *  dismissedAt, so the epic's real completion would open no landing PR and show no band. */
+  clearEpicCompletedOnRestart(repoPath: string, parentIssueNumber: number): boolean {
+    const r = this.db.run(
+      `DELETE FROM epic_completed WHERE repoPath = ? AND parentIssueNumber = ?
+       AND landingState NOT IN ('open', 'merged')`,
+      [repoPath, parentIssueNumber],
+    );
+    return r.changes > 0;
+  }
+
   /** True if an epic_completed row exists for this key, regardless of dismissedAt.
    *  Used by the backfill pre-check so a dismissed-but-idle run isn't re-backfilled. */
   hasEpicCompleted(repoPath: string, parentIssueNumber: number): boolean {

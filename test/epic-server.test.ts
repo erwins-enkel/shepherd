@@ -132,12 +132,19 @@ function harness(opts?: {
   drainOverrides?: Partial<FakeDrain>;
   resolveForge?: AppDeps["resolveForge"];
   authMode?: "chatgpt" | "apikey" | "unknown";
-}): { app: ReturnType<typeof makeApp>; store: SessionStore; emitted: unknown[] } {
+}): {
+  app: ReturnType<typeof makeApp>;
+  store: SessionStore;
+  emitted: unknown[];
+  cleared: unknown[];
+} {
   const store = new SessionStore(":memory:");
   const emitted: unknown[] = [];
+  const cleared: unknown[] = [];
   const events = new EventHub();
   events.subscribe((event, data) => {
     if (event === "epic:update") emitted.push(data);
+    if (event === "epic:completed-cleared") cleared.push(data);
   });
 
   const defaultDrain: FakeDrain = {
@@ -161,7 +168,7 @@ function harness(opts?: {
     resolveForge: opts?.resolveForge,
     readCodexAuthMode: () => opts?.authMode ?? "unknown",
   };
-  return { app: makeApp(deps), store, emitted };
+  return { app: makeApp(deps), store, emitted, cleared };
 }
 
 const encRepo = (dir: string) => encodeURIComponent(dir);
@@ -394,6 +401,66 @@ describe("PUT /api/epic", () => {
     );
     expect(res.status).toBe(200);
     expect(tickCalled).toBe(false);
+  });
+
+  describe("restarting clears a stale completion", () => {
+    function seedCompleted(store: SessionStore, landing?: "open" | "merged" | "none") {
+      store.recordEpicCompleted({
+        repoPath: repoDir,
+        parentIssueNumber: 327,
+        parentTitle: "Epic #327",
+        completedAt: 1,
+        childrenJson: "[]",
+      });
+      if (landing)
+        store.setEpicLandingPr(repoDir, 327, {
+          state: landing,
+          prNumber: landing === "none" ? null : 9,
+          prUrl: null,
+          attempts: 0,
+        });
+    }
+    const put = (app: ReturnType<typeof makeApp>, status: string) =>
+      app.fetch(
+        new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=327`, {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ status }),
+        }),
+      );
+
+    test("{status:'running'} removes a completion whose landing never opened", async () => {
+      const { app, store, cleared } = harness();
+      seedCompleted(store, "none");
+      expect((await put(app, "running")).status).toBe(200);
+      expect(store.hasEpicCompleted(repoDir, 327)).toBe(false);
+      expect(cleared).toEqual([{ repoPath: repoDir, parentIssueNumber: 327 }]);
+    });
+
+    test("{status:'running'} removes a dismissed completion too", async () => {
+      const { app, store } = harness();
+      seedCompleted(store);
+      store.dismissEpicCompleted(repoDir, 327);
+      await put(app, "running");
+      expect(store.hasEpicCompleted(repoDir, 327)).toBe(false);
+    });
+
+    test("{status:'running'} keeps a completion whose landing PR is open or merged", async () => {
+      for (const landing of ["open", "merged"] as const) {
+        const { app, store } = harness();
+        seedCompleted(store, landing);
+        await put(app, "running");
+        expect(store.hasEpicCompleted(repoDir, 327)).toBe(true);
+      }
+    });
+
+    test("a non-running patch keeps the completion", async () => {
+      const { app, store, cleared } = harness();
+      seedCompleted(store, "none");
+      await put(app, "paused");
+      expect(store.hasEpicCompleted(repoDir, 327)).toBe(true);
+      expect(cleared).toEqual([]);
+    });
   });
 
   test("{status:'running'} with a throwing drain.tick() still returns 200 (kick is best-effort)", async () => {

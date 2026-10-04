@@ -1,9 +1,10 @@
 name: native-ios-testflight
 
-# The run name marks real uploads of main; the nightly gate below finds the last
-# uploaded revision by its "upload" prefix (branch previews say "preview upload").
+# The run name marks real uploads of main; the gate below finds the last uploaded
+# revision by its "upload" prefix (branch previews say "preview upload").
 run-name: >-
   ${{ github.event_name == 'schedule' && 'upload (nightly)'
+  || github.event_name == 'push' && 'upload (after merge, if none for 24h)'
   || (inputs.dry_run == true && format('dry-run {0}', inputs.ref)
   || (inputs.ref == 'main' && 'upload (manual)' || format('preview upload {0}', inputs.ref))) }}
 
@@ -13,6 +14,14 @@ on:
   # last upload (build number = main's first-parent count).
   schedule:
     - cron: "0 4 * * *"
+  # Fallback while scheduled runs are unreliable: an app-relevant merge uploads only
+  # when the last real upload is more than 24 h old, so at most one build a day.
+  push:
+    branches: [main]
+    paths:
+      - native/**
+      - contracts/**
+      - .github/workflows/native-ios-testflight.yml
   workflow_dispatch:
     inputs:
       ref:
@@ -38,7 +47,7 @@ concurrency:
 jobs:
   changes:
     name: Changed since the last upload?
-    if: github.event_name == 'schedule'
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -55,16 +64,29 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # Last successful real upload: nightly/manual "upload" runs, or the older
-          # per-merge push runs.
-          last=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/native-ios-testflight.yml/runs?status=success&per_page=100" \
-            --jq '[.workflow_runs[] | select(.event == "push" or (.display_title | startswith("upload")))][0].head_sha // ""')
-          build=true
+          api="repos/$GITHUB_REPOSITORY/actions"
+          # Last real upload of main: the newest successful candidate run whose archive
+          # job actually ran (a gated-off nightly also concludes "success").
+          last="" last_at=""
+          while read -r id sha at; do
+            job=$(gh api "$api/runs/$id/jobs" \
+              --jq '[.jobs[] | select(.name == "iOS TestFlight archive and export")][0].conclusion // ""')
+            if [[ "$job" == success ]]; then last=$sha last_at=$at; break; fi
+          done < <(gh api "$api/workflows/native-ios-testflight.yml/runs?status=success&per_page=50" \
+            --jq '.workflow_runs[] | select(.id != ${{ github.run_id }})
+              | select(.event != "workflow_dispatch" or (.display_title | startswith("upload")))
+              | "\(.id) \(.head_sha) \(.updated_at)"')
+          changed=true
           if [[ -n "$last" ]] && git cat-file -e "$last^{commit}" 2>/dev/null \
             && git diff --quiet "$last" HEAD -- native contracts .github/workflows/native-ios-testflight.yml; then
-            build=false
+            changed=false
           fi
-          echo "Last upload: ${last:-none}; HEAD: $(git rev-parse HEAD); build: $build" | tee -a "$GITHUB_STEP_SUMMARY"
+          age=999999
+          if [[ -n "$last_at" ]]; then age=$(( $(date +%s) - $(date -d "$last_at" +%s) )); fi
+          build=$changed
+          if [[ "$GITHUB_EVENT_NAME" == push && "$age" -lt 86400 ]]; then build=false; fi
+          echo "Last upload: ${last:-none} at ${last_at:-never} (${age}s ago); HEAD: $(git rev-parse HEAD); changed: $changed; build: $build" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
           echo "build=$build" >> "$GITHUB_OUTPUT"
 
   testflight:
@@ -77,11 +99,11 @@ jobs:
     timeout-minutes: 45
     env:
       APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-      SHEPHERD_IOS_DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
+      SHEPHERD_IOS_DRY_RUN: ${{ github.event_name != 'workflow_dispatch' && 'false' || inputs.dry_run }}
     steps:
       - uses: actions/checkout@v7
         with:
-          ref: ${{ github.event_name == 'schedule' && github.sha || inputs.ref }}
+          ref: ${{ github.event_name != 'workflow_dispatch' && github.sha || inputs.ref }}
           fetch-depth: 0
           persist-credentials: false
       - name: Prepare manual App Store signing

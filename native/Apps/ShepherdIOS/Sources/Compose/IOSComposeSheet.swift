@@ -283,12 +283,44 @@ struct IOSComposeContent: View {
     private var spawnFooter: some View {
         VStack(spacing: 8) {
             ProgressView()
-            Text(verbatim: submission.progress.map { ComposeSubmission.phaseCopy($0.phase) } ?? L.t("newtask_spawning"))
-            if submission.slow { Text(verbatim: L.t("newtask_spawn_slow")).font(.system(.caption, design: .monospaced)) }
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                spawnStatus(elapsed: submission.startedAt.map { context.date.timeIntervalSince($0) } ?? 0)
+            }
             Button(L.t("newtask_spawn_cancel")) {
                 Task { await submission.cancel(using: { try await store.client.cancelSpawn(id: $0) }, isCurrent: { current }) }
             }.disabled(submission.canceling || submission.cancelRequested).frame(minHeight: 44)
         }.padding()
+    }
+    /// The phase the create is in; past `ConnectingDetailCopy.threshold` also how long it has
+    /// taken, why that phase can be slow, and what already finished — or why no progress arrives.
+    @ViewBuilder private func spawnStatus(elapsed: TimeInterval) -> some View {
+        let phase = submission.progress.map { ComposeSubmission.phaseCopy($0.phase) } ?? L.t("newtask_spawning")
+        if elapsed < ConnectingDetailCopy.threshold {
+            Text(verbatim: phase)
+        } else {
+            Text(verbatim: "\(phase) · \(ConnectingDetailCopy.elapsed(elapsed))").monospacedDigit()
+            VStack(alignment: .leading, spacing: 4) {
+                if let progress = submission.progress {
+                    if let why = ComposeSubmission.phaseWhy(progress.phase) { Text(verbatim: why) }
+                    ForEach(progress.completed.indices, id: \.self) { i in
+                        Label {
+                            Text(verbatim: "\(ComposeSubmission.phaseCopy(progress.completed[i].phase)) · \(ConnectingDetailCopy.duration(progress.completed[i].ms / 1000))")
+                        } icon: { Image(systemName: "checkmark") }
+                    }
+                } else {
+                    Text(verbatim: L.t("native_ios_spawn_no_progress"))
+                    if store.connection != .live { Text(verbatim: L.t("native_ios_spawn_events_down")) }
+                }
+            }
+            .font(.system(.caption, design: .monospaced)).foregroundStyle(ComposePalette.muted)
+            .multilineTextAlignment(.leading).frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityIdentifier("compose.spawn.details")
+            if submission.slow { Text(verbatim: L.t("newtask_spawn_slow")).font(.system(.caption, design: .monospaced)) }
+            if elapsed >= ComposeSubmission.staleAfter {
+                Text(verbatim: L.t("newtask_spawn_stale")).font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(ComposePalette.amber)
+            }
+        }
     }
     private func seedRepo() { if model.repoPath.isEmpty, let first = repos.first { model.repoPath = first.path } }
     private func submit(force: Bool) {

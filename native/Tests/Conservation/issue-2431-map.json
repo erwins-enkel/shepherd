@@ -12417,6 +12417,19 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LatencyProbeTests.swift\",\"LatencyProbeTests\",\"recorderCapacity()\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LatencyProbeTests.swift\",\"LatencyProbeTests\",\"statistics()\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LatencyProbeTests.swift\",\"LatencyProbeTests\",\"verdicts()\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift\",\"ShepherdClientComposeTests\",\"sessionUploadUsesExistingQueryAndPreservesMultipart() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientComposeTests.swift\",\"ShepherdClientComposeTests\",\"sessionUploadUsesExistingQueryAndPreservesMultipart() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"aCloseCodeStandsInForTheTransportErrorAndWaitingNamesThePause()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"debouncerRemembersWhenConnectingBegan()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"durationsReadAsMillisecondsBelowASecond()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"serverRowsSayWhatTheStoreWaitsOnAndCountDownTheBackoff()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"spawnPhasesExplainWhyTheyCanTakeAWhile()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"terminalModelReportsTheLatestAttemptAndAttachClearsIt() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"terminalRowsNameTheSocketTheTryAndWhyTheLastOneDied()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ConnectingDetailTests.swift\",\"CoreSeamTests.ConnectingDetailTests\",\"withoutAnAttemptOnlyTheWaitIsShown()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/PTYConnectionTests.swift\",\"PTYConnectionTests\",\"endpointIsTheBareSocketURL() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/PTYConnectionTests.swift\",\"PTYConnectionTests\",\"refusedUpgradeReportsTheAttempt() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"connectingDetailCountsBootstrapAttempts() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"connectingDetailFollowsTheEventsSocket() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreTests.swift\",\"SessionStoreTests\",\"liveStoreHasNoConnectingDetail() async throws\"]"
   ]
 }

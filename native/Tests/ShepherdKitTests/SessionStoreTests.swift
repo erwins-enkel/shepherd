@@ -1049,3 +1049,70 @@ extension SessionStoreTests {
     #expect(store.terminalOwners == nil)
   }
 }
+
+extension SessionStoreTests {
+  @Test("a failing bootstrap says which attempt it is on and why the last one failed")
+  func connectingDetailCountsBootstrapAttempts() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    // Not a single stub: every request fails.
+    let store = try makeStore(server)
+
+    let runner = Task { await store.start() }
+    #expect(
+      await eventually {
+        guard let detail = store.connectingDetail else { return false }
+        return detail.step == .snapshot && detail.attempt >= 2 && detail.lastFailure != nil
+      })
+
+    store.stop()
+    _ = await runner.value
+    #expect(store.connectingDetail == nil)
+  }
+
+  @Test("a bootstrap that succeeds leaves no connecting detail behind")
+  func liveStoreHasNoConnectingDetail() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    try stubBootstrap(server)
+    let store = try makeStore(server)
+
+    await store.start()
+
+    #expect(store.connection == .live)
+    #expect(store.connectingDetail == nil)
+  }
+
+  @Test("a lost socket says the live connection is reopening, why it went and when it retries")
+  func connectingDetailFollowsTheEventsSocket() async throws {
+    let http = FakeShepherdServer()
+    defer { http.tearDown() }
+    let events = try FakeEventServer()
+    defer { events.stop() }
+    try stubBootstrap(http)
+    // As in `disconnectIsConnectingThenLive`: a 30 s backoff keeps the store
+    // connecting until the test reconnects by hand.
+    let stream = EventStream(
+      baseURL: events.url, tokenProvider: { "shp_test" }, reconnectDelay: .seconds(30))
+    let store = SessionStore(
+      client: try makeClient(http), events: stream,
+      reconnectDelay: .milliseconds(20), maxReconnectDelay: .milliseconds(200))
+
+    let runner = Task { await store.start() }
+    #expect(await eventually { store.connection == .live })
+    #expect(await eventually { events.connectionCount() == 1 })
+
+    events.closeCurrentConnection()
+    #expect(await eventually { store.connectingDetail?.step == .events })
+    let detail = try #require(store.connectingDetail)
+    #expect(detail.attempt >= 1)
+    #expect(detail.lastFailure != nil)
+    #expect((detail.retryAt ?? .distantPast) > Date())
+
+    await stream.reconnectNow()
+    #expect(await eventually { store.connection == .live })
+
+    store.stop()
+    _ = await runner.value
+  }
+}

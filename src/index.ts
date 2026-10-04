@@ -12,6 +12,7 @@ import { mkdirSync, existsSync, readdirSync, realpathSync, statSync } from "node
 import { readFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
+import { scrubAgentShellEnv } from "./agent-shell-env";
 import {
   config,
   SESSION_RETENTION_MS,
@@ -256,6 +257,9 @@ const execFileAsync = promisify(execFile);
 // a live critic's background work as a runaway. Delete it once, here, at the top of boot: the
 // server is not an agent's child in any sense the reaper should honour.
 delete process.env[SESSION_MARKER_ENV];
+// Same reasoning for the parent agent CLI's own markers (and its NO_COLOR): a herdr server this
+// process starts would pass them into every session pane.
+scrubAgentShellEnv(process.env);
 
 // Event-loop watchdog (loop-watchdog.ts): heartbeat + off-thread stall report + systemd ping.
 // Started here, before anything spawns, for the same reason as the scrub above — it also claims

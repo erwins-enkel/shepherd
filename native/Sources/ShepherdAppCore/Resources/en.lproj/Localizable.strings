@@ -764,6 +764,7 @@
 "native_local_install" = "Install and start";
 "native_local_log_hide" = "Hide log";
 "native_local_log_show" = "Show log";
+"native_local_open_web" = "Open web backend";
 "native_local_password_body" = "Shown once. Sign in now, or set SHEPHERD_PASSWORD in ~/.shepherd/env and restart the server.";
 "native_local_password_copy" = "Copy password";
 "native_local_password_title" = "The server generated a password";
@@ -778,6 +779,18 @@
 "native_local_state_starting" = "Starting…";
 "native_local_state_stopped" = "Installed, not running.";
 "native_local_stop" = "Stop";
+"native_local_update_apply" = "Update now";
+"native_local_update_check" = "Check for updates";
+"native_local_update_check_failed" = "Could not check for backend updates. Try again later.";
+"native_local_update_checked" = "Last checked %1$@";
+"native_local_update_commits" = "Preview changes (up to 10 commits)";
+"native_local_update_current" = "Backend is up to date.";
+"native_local_update_failed" = "Backend update failed (exit %1$@). Check the log, then retry.";
+"native_local_update_summary" = "%1$@ new commits (%2$@ → %3$@)";
+"native_local_update_title" = "Backend update available";
+"native_local_update_updating" = "Updating backend…";
+"native_local_update_what_body" = "Downloads main, installs dependencies and rebuilds the web UI. A running local server restarts to load the new code; a stopped server stays stopped. Running agent sessions survive in herdr. Local changes must be committed or saved elsewhere first; see the log if the update fails.";
+"native_local_update_what_title" = "What happens during the update?";
 "native_login_sheet_title" = "Sign in to %1$@";
 "native_menu_session" = "Session";
 "native_merge_ack" = "I own the manual steps";
@@ -932,6 +945,7 @@
 "native_settings_local_active_title" = "Local server ready";
 "native_settings_local_offline_summary" = "Start or install the local server to open these settings.";
 "native_settings_local_offline_title" = "Local server unavailable";
+"native_settings_local_server_title" = "Local server";
 "native_settings_lock_access" = "Lock access";
 "native_settings_login_failed" = "Could not start operator login.";
 "native_settings_merger" = "Merger login";

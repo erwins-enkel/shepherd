@@ -764,6 +764,7 @@
 "native_local_install" = "Installieren und starten";
 "native_local_log_hide" = "Log ausblenden";
 "native_local_log_show" = "Log anzeigen";
+"native_local_open_web" = "Web-Backend öffnen";
 "native_local_password_body" = "Wird nur einmal angezeigt. Melde dich jetzt an, oder setze SHEPHERD_PASSWORD in ~/.shepherd/env und starte den Server neu.";
 "native_local_password_copy" = "Passwort kopieren";
 "native_local_password_title" = "Der Server hat ein Passwort erzeugt";
@@ -778,6 +779,18 @@
 "native_local_state_starting" = "Wird gestartet…";
 "native_local_state_stopped" = "Installiert, läuft nicht.";
 "native_local_stop" = "Stoppen";
+"native_local_update_apply" = "Jetzt aktualisieren";
+"native_local_update_check" = "Nach Updates suchen";
+"native_local_update_check_failed" = "Backend-Updates konnten nicht geprüft werden. Später erneut versuchen.";
+"native_local_update_checked" = "Zuletzt geprüft %1$@";
+"native_local_update_commits" = "Änderungen ansehen (bis zu 10 Commits)";
+"native_local_update_current" = "Backend ist aktuell.";
+"native_local_update_failed" = "Backend-Update fehlgeschlagen (Exit %1$@). Protokoll prüfen und erneut versuchen.";
+"native_local_update_summary" = "%1$@ neue Commits (%2$@ → %3$@)";
+"native_local_update_title" = "Backend-Update verfügbar";
+"native_local_update_updating" = "Backend wird aktualisiert…";
+"native_local_update_what_body" = "Lädt main herunter, installiert Abhängigkeiten und baut die Weboberfläche neu. Ein laufender lokaler Server startet mit dem neuen Code neu; ein gestoppter Server bleibt gestoppt. Laufende Agent-Sessions bleiben in herdr erhalten. Lokale Änderungen müssen vorher committet oder anderweitig gesichert werden; bei Fehlern das Protokoll prüfen.";
+"native_local_update_what_title" = "Was passiert beim Update?";
 "native_login_sheet_title" = "Bei %1$@ anmelden";
 "native_menu_session" = "Sitzung";
 "native_merge_ack" = "Ich übernehme die manuellen Schritte";
@@ -932,6 +945,7 @@
 "native_settings_local_active_title" = "Lokaler Server bereit";
 "native_settings_local_offline_summary" = "Starte oder installiere den lokalen Server, um diese Einstellungen zu öffnen.";
 "native_settings_local_offline_title" = "Lokaler Server ist nicht verfügbar";
+"native_settings_local_server_title" = "Lokaler Server";
 "native_settings_lock_access" = "Zugriff sperren";
 "native_settings_login_failed" = "Operator-Anmeldung konnte nicht gestartet werden.";
 "native_settings_merger" = "Merger-Login";

@@ -27,6 +27,44 @@ extension MacSeamTests {
         #expect(state.isBusyState)
     }
 
+    @Test func updatesAreAvailableOnlyForManagedCheckouts() {
+        for state in [LocalServerState.stopped, .running(pid: 1), .failed(.updateFailed(exitCode: 1))] {
+            let panel = LocalServerPanelState(state: state, busy: false, managesUpdates: true, updateBehind: 2)
+            #expect(panel.showsUpdate && panel.canUpdate)
+            #expect(panel.showsUpdateCheck && panel.canCheckUpdate)
+        }
+        for state in [LocalServerState.notInstalled, .installing, .externallyManaged] {
+            let panel = LocalServerPanelState(state: state, busy: false, managesUpdates: true, updateBehind: 2)
+            #expect(!panel.showsUpdate && !panel.canUpdate)
+            #expect(!panel.showsUpdateCheck && !panel.canCheckUpdate)
+        }
+        #expect(!LocalServerPanelState(state: .stopped, busy: false, updateBehind: 2).showsUpdate)
+        #expect(!LocalServerPanelState(state: .stopped, busy: false, managesUpdates: true).showsUpdate)
+    }
+
+    @Test func updateAndCheckControlsStayPresentButDisabledWhileUpdating() {
+        let panel = LocalServerPanelState(state: .updating, busy: true, managesUpdates: true, updateBehind: 2)
+        #expect(panel.showsUpdate && panel.showsUpdateCheck && panel.showsStart)
+        #expect(!panel.canUpdate && !panel.canCheckUpdate && !panel.canStart)
+        #expect(!panel.showsInstall)
+        #expect(panel.isBusyState)
+        let checking = LocalServerPanelState(state: .stopped, busy: false, managesUpdates: true, checkingUpdate: true)
+        #expect(checking.showsUpdateCheck && !checking.canCheckUpdate)
+        let failed = LocalServerPanelState(state: .failed(.updateFailed(exitCode: 1)), busy: false, managesUpdates: true)
+        #expect(failed.showsUpdate && failed.canUpdate && !failed.showsInstall)
+    }
+
+    @Test func openWebIsPresentAndEnabledOnlyForRunningOrExternalServers() {
+        for state in [LocalServerState.running(pid: 1), .externallyManaged] {
+            let panel = LocalServerPanelState(state: state, busy: false)
+            #expect(panel.showsOpenWeb && panel.canOpenWeb)
+        }
+        for state in [LocalServerState.notInstalled, .installing, .updating, .stopped, .starting, .failed(.updateFailed(exitCode: 1))] {
+            let panel = LocalServerPanelState(state: state, busy: false)
+            #expect(panel.showsOpenWeb && !panel.canOpenWeb)
+        }
+    }
+
     @Test func aMissingCheckoutOffersOnlyInstall() {
         let state = LocalServerPanelState(state: .notInstalled, busy: false)
         #expect(state.canInstall)

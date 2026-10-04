@@ -293,9 +293,8 @@ describe("EpicRunControl actions", () => {
       .toBeInTheDocument();
   });
 
-  it("'Open session' and 'More slots' call the host", async () => {
+  it("'Open session' calls the host; the Now step offers −/+ for the slots", async () => {
     const onopensession = vi.fn();
-    const onopenautomation = vi.fn();
     render(EpicRunControl, {
       repoPath: "/repo",
       parent: B,
@@ -303,13 +302,13 @@ describe("EpicRunControl actions", () => {
       drain: drain(),
       titleFor,
       onopensession,
-      onopenautomation,
     });
 
     await page.getByRole("button", { name: m.epic_run_open_session() }).click();
     expect(onopensession).toHaveBeenCalledWith("sess-11");
-    await page.getByRole("button", { name: m.epic_run_more_slots() }).click();
-    expect(onopenautomation).toHaveBeenCalled();
+    await expect
+      .element(page.getByRole("button", { name: m.slotstepper_more() }))
+      .toBeInTheDocument();
   });
 
   it("hides the links when the host offers no route", async () => {
@@ -322,7 +321,6 @@ describe("EpicRunControl actions", () => {
     });
     await expect.element(page.getByText("Child of A")).toBeInTheDocument();
     expect(page.getByRole("button", { name: m.epic_run_open_session() }).query()).toBeNull();
-    expect(page.getByRole("button", { name: m.epic_run_more_slots() }).query()).toBeNull();
   });
 
   it("without a runSummary it still controls the epic, just without steps", async () => {

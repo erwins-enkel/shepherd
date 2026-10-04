@@ -4,24 +4,26 @@
   import { agentSlotExplanation } from "$lib/tooltips/explanations";
   import type { EpicRunSteps, SlotHolder } from "../epic-panel";
   import EpicRoleBadge from "./EpicRoleBadge.svelte";
+  import SlotStepper, { slotCap } from "./SlotStepper.svelte";
 
   // The run area's three steps side by side (#2620). Leading epic: Now (slot holders) → Next
   // (runSummary.next[0]) → After (its direct successors). Winding-down epic: Now (its own
   // in-flight child) → After (complete / tasks left behind) → Then (who gets the slot next).
   let {
+    repoPath,
     steps,
     titleFor,
     onapprove = undefined,
     onopensession = undefined,
-    onopenautomation = undefined,
   }: {
+    /** The repo whose agent-slot cap the Now step's −/+ steps. */
+    repoPath: string;
     steps: EpicRunSteps;
     /** Issue title when known (loaded epic children, open issues); null → show the desig. */
     titleFor: (issue: number) => string | null;
     /** Approve the next child — offered inline while the run waits for approval. */
     onapprove?: () => void;
     onopensession?: (sessionId: string) => void;
-    onopenautomation?: () => void;
   } = $props();
 
   // A holder of the leading epic "leads"; any other epic in flight is, by construction of
@@ -57,9 +59,15 @@
 
 <ol class="steps">
   <li class="step step-now">
-    <span class="step-head" use:statusTip={{ text: agentSlotExplanation(), placement: "bottom" }}
-      >{m.epic_run_step_now({ used: steps.slots.used, max: steps.slots.max })}</span
-    >
+    <span class="now-head">
+      <span class="step-head" use:statusTip={{ text: agentSlotExplanation(), placement: "bottom" }}
+        >{m.epic_run_step_now({
+          used: steps.slots.used,
+          max: slotCap(repoPath, steps.slots.max),
+        })}</span
+      >
+      <SlotStepper {repoPath} max={steps.slots.max} />
+    </span>
     {#if steps.now.length === 0}
       <span class="quiet">{m.epic_run_now_empty()}</span>
     {:else}
@@ -84,11 +92,6 @@
           </li>
         {/each}
       </ul>
-    {/if}
-    {#if onopenautomation}
-      <button class="link" type="button" onclick={onopenautomation}
-        >{m.epic_run_more_slots()}</button
-      >
     {/if}
   </li>
 
@@ -171,6 +174,14 @@
   }
   .step-next {
     border-left-color: var(--color-green);
+  }
+
+  /* The Now head with its −/+ beside the slot count. */
+  .now-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
   }
 
   .step-head {

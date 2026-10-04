@@ -4835,7 +4835,6 @@
   "epic_run_now_empty": "Kein Platz belegt",
   "epic_run_holder_epic": "Epic #{parent}",
   "epic_run_open_session": "Sitzung öffnen",
-  "epic_run_more_slots": "Mehr Plätze",
   "epic_run_next_after_slot": "startet, sobald {holder} fertig ist",
   "epic_run_next_approval": "wartet auf deine Freigabe",
   "epic_run_next_resume": "startet, sobald du fortsetzt",
@@ -4863,7 +4862,7 @@
   "tooltip_agent_slot_full": "Wenn alle belegt sind",
   "tooltip_agent_slot_full_body": "Neue Starts pausieren. Die nächste Aufgabe startet, sobald ein Platz frei wird.",
   "tooltip_agent_slot_change": "Ändern",
-  "tooltip_agent_slot_change_body": "Repos → Automatisierung → Limit. Mehr Plätze heißt mehr Agenten gleichzeitig — und mehr Verbrauch.",
+  "tooltip_agent_slot_change_body": "Repos → Issues: − / + neben der Platz-Zahl, oder Repos → Automatisierung → Limit. Mehr Plätze heißt mehr Agenten gleichzeitig — und mehr Verbrauch.",
   "tooltip_epic_lead_title": "Pro Repo führt ein Epic",
   "tooltip_epic_lead_summary": "Nur das führende Epic startet neue Aufgaben. Startest du ein anderes Epic, führt ab dann dieses — es reiht sich nicht hinter dem aktuellen ein.",
   "tooltip_epic_lead_previous": "Das bisherige Epic",
@@ -5209,5 +5208,10 @@
   "settings_access_instruction_errors": "401: Token abgelaufen, widerrufen oder ungültig. 403: Aktion oder Repository nicht freigegeben. 404: Ressource nicht verfügbar oder außerhalb der Freigabe. Melde die Einschränkung, statt andere Zugangsdaten zu versuchen oder die Freigabe zu umgehen.",
   "settings_access_instruction_task": "Hier den tatsächlichen Arbeitsauftrag beschreiben",
   "feat_token_repository_access_title": "Externen Agents ausgewählte Repositories freigeben",
-  "feat_token_repository_access_body": "Wähle und ändere die Repo-Freigabe pro Token unter Einstellungen → Zugriff. Kopiere eine fertige Arbeitsanweisung mit Token, Serveradresse und erlaubtem Ablauf."
+  "feat_token_repository_access_body": "Wähle und ändere die Repo-Freigabe pro Token unter Einstellungen → Zugriff. Kopiere eine fertige Arbeitsanweisung mit Token, Serveradresse und erlaubtem Ablauf.",
+  "slotstepper_label": "Agenten-Plätze",
+  "slotstepper_less": "Einen Agenten-Platz weniger",
+  "slotstepper_more": "Einen Agenten-Platz mehr",
+  "feat_slot_stepper_title": "Agenten-Plätze mit − / + ändern",
+  "feat_slot_stepper_body": "Unter Repos → Issues ändern − und + neben der Zahl der Agenten-Plätze — im Listenkopf und im Schritt „Jetzt“ der Abarbeitung — das Limit des Repos direkt, ohne Umweg über Automatisierung → Limit. Ein zusätzlicher Platz wird beim nächsten Durchlauf genutzt, spätestens nach etwa 30 Sekunden."
 }

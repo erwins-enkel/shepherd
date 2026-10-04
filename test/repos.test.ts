@@ -56,6 +56,50 @@ test("listRepos returns [] for nonexistent root", () => {
   expect(listRepos(join(root, "nonexistent"))).toEqual([]);
 });
 
+test("listRepos skips macOS privacy and cloud-sync folders when the root is $HOME", () => {
+  const home = mkdtempSync(join(tmpdir(), "shepherd-home-"));
+  try {
+    for (const name of [
+      "code",
+      "Desktop",
+      "Documents",
+      "Downloads",
+      "Library",
+      "Pictures",
+      "Google Drive",
+      "OneDrive - Acme",
+      "Creative Cloud Files op@example.com",
+    ])
+      mkdirSync(join(home, name));
+    const cloud = join(home, "Library", "CloudStorage", "GoogleDrive-op@example.com");
+    mkdirSync(cloud, { recursive: true });
+    symlinkSync(cloud, join(home, "work-drive"), "dir");
+
+    const names = (platform: NodeJS.Platform) =>
+      listRepos(home, { home, platform }).map((r) => r.name);
+    expect(names("darwin")).toEqual(["code"]);
+    // Linux has no TCC prompts, so its home listing is unchanged.
+    expect(names("linux")).toContain("Desktop");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test("listRepos keeps every child when the operator points the root inside a guarded folder", () => {
+  const home = mkdtempSync(join(tmpdir(), "shepherd-home-"));
+  try {
+    const documents = join(home, "Documents");
+    mkdirSync(join(documents, "Desktop"), { recursive: true });
+    mkdirSync(join(documents, "repo"));
+    expect(listRepos(documents, { home, platform: "darwin" }).map((r) => r.name)).toEqual([
+      "Desktop",
+      "repo",
+    ]);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 // ── listReposPathForReal (post-merge backlog refresh key reconciliation) ───────
 
 test("listReposPathForReal maps a realpath back to listRepos' join(repoRoot, name) key", () => {

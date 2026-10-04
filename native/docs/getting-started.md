@@ -122,4 +122,4 @@ Download the DMG from the [Mac releases](https://github.com/erwins-enkel/shepher
 open it, and drag Shepherd.app into Applications. Open Shepherd from Applications, then eject
 the image. A direct launch from the image or Downloads also offers to install the app, with
 an option for your account only. See [first installation and updates](app-updates.md#first-installation)
-for existing installations and the ad-hoc beta's Gatekeeper limitations.
+for existing installations. Releases are signed with Developer ID and notarized by Apple.

@@ -12,7 +12,8 @@ STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
 if [[ -z "${DMGBUILD:-}" ]]; then
   python3 -m venv "$STAGE/venv"
-  "$STAGE/venv/bin/python" -m pip install --disable-pip-version-check --quiet 'dmgbuild==1.6.7'
+  "$STAGE/venv/bin/python" -m pip install --disable-pip-version-check --quiet \
+    --require-hashes --only-binary :all: -r "$SCRIPTS/dmg-requirements.txt"
   DMGBUILD="$STAGE/venv/bin/dmgbuild"
 fi
 # Keep the signed input isolated from the image builder.

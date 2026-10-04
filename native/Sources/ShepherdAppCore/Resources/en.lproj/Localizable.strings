@@ -538,7 +538,8 @@
 "native_compose_keep_app_open" = "Switching apps briefly is fine — don't close the app.";
 "native_compose_leftovers_kept" = "Closing the session leaves these background processes running.";
 "native_compose_mode_plain" = "Plain";
-"native_compose_paste" = "From clipboard";
+"native_compose_paste" = "Paste image";
+"native_compose_paste_clipboard" = "From clipboard";
 "native_compose_paste_empty" = "No image on the clipboard — copy an image first.";
 "native_compose_photos" = "Photos";
 "native_compose_plan_off" = "Plan off";

@@ -298,7 +298,7 @@ struct IOSComposeContent: View {
         else { Menu {
             Button { photos = true } label: { Label(L.t("native_compose_photos"), systemImage: "photo") }
             Button { files = true } label: { Label(L.t("native_compose_files"), systemImage: "doc") }
-            Button { pasteImage() } label: { Label(L.t("native_compose_paste"), systemImage: "doc.on.clipboard") }
+            Button { pasteImage() } label: { Label(L.t("native_compose_paste_clipboard"), systemImage: "doc.on.clipboard") }
             Button { options = .commands } label: { Label(L.t("promptsources_commands_tab"), systemImage: "command") }
         } label: { attachmentLabel }
             .accessibilityLabel(L.t("native_compose_attach")).accessibilityIdentifier("compose.attach").disabled(voice.active || autoStart.armed) }

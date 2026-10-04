@@ -5034,7 +5034,7 @@
   "native_compose_prompt_label": "Prompt",
   "native_compose_photos": "Photos",
   "native_compose_files": "Files",
-  "native_compose_paste": "From clipboard",
+  "native_compose_paste": "Paste image",
   "native_compose_attach": "Add attachment",
   "native_compose_plan_on": "Plan on",
   "native_compose_plan_off": "Plan off",
@@ -5315,5 +5315,6 @@
   "native_keychain_waiting": "Waiting for Keychain access. Allow access to reconnect with your saved token.",
   "native_keychain_unavailable": "Cannot read the saved token from Keychain. Unlock it or allow access, then retry.",
   "prspanel_load_failed": "Couldn't load PRs.",
-  "native_compose_paste_empty": "No image on the clipboard — copy an image first."
+  "native_compose_paste_empty": "No image on the clipboard — copy an image first.",
+  "native_compose_paste_clipboard": "From clipboard"
 }

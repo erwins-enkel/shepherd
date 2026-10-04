@@ -137,7 +137,9 @@ cryptography. `ITSAppUsesNonExemptEncryption=false` is set both in the source pl
 and XcodeGen properties. Reassess this declaration if encryption dependencies or
 features change. `CFBundleDisplayName` is `Shepherd`.
 
-Neither this branch nor the rebased main has a Mac AppIcon asset. The iOS icon uses
+Both apps use the existing brand artwork. The Mac target compiles
+`native/Apps/ShepherdMac/Sources/AppIcon.icon` with a dark background and a separate
+sheep layer; Xcode supplies the macOS shape and the macOS 15 fallback. The iOS icon uses
 the existing brand source `ui/static/icons/v2/icon-maskable.svg`, rasterized with
 Sharp at 1024×1024 with the alpha channel removed. This retains the repository's
 sheep artwork and full-bleed background; iOS supplies the corner mask. The asset

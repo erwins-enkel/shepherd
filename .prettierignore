@@ -74,3 +74,6 @@ native/.build
 native/Apps/ShepherdMac/Shepherd.xcodeproj
 native/Apps/ShepherdMac/.build
 native/Apps/ShepherdMac/Resources/Localizable.xcstrings
+
+# Icon Composer owns this JSON; re-saving it in the app must not fail the format check
+native/Apps/ShepherdMac/Sources/AppIcon.icon

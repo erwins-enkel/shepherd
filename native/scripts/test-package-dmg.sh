@@ -17,8 +17,16 @@ mkdir "$FIXTURE/mount"
 hdiutil attach "$FIXTURE/Shepherd.dmg" -readonly -nobrowse -mountpoint "$FIXTURE/mount" >/dev/null
 MOUNTED=true
 test "$(readlink "$FIXTURE/mount/Applications")" = /Applications
-grep -q 'Drag Shepherd.app' "$FIXTURE/mount/Read me - Bitte lesen.txt"
-grep -q 'Ziehe Shepherd.app' "$FIXTURE/mount/Read me - Bitte lesen.txt"
+diskutil info -plist "$FIXTURE/mount" > "$FIXTURE/volume.plist"
+test "$(/usr/libexec/PlistBuddy -c 'Print :VolumeName' "$FIXTURE/volume.plist")" = Shepherd
+test -s "$FIXTURE/mount/.DS_Store"
+test -s "$FIXTURE/mount/.VolumeIcon.icns"
+test -s "$FIXTURE/mount/.background.tiff"
+test ! -e "$FIXTURE/mount/Read me - Bitte lesen.txt"
+ICON_NAME="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconFile' "$FIXTURE/mount/Shepherd.app/Contents/Info.plist")"
+[[ "$ICON_NAME" == *.icns ]] || ICON_NAME="$ICON_NAME.icns"
+cmp "$FIXTURE/mount/.VolumeIcon.icns" "$FIXTURE/mount/Shepherd.app/Contents/Resources/$ICON_NAME"
+test -s "$FIXTURE/mount/Shepherd.app/Contents/Resources/Assets.car"
 codesign --verify --deep --strict "$FIXTURE/mount/Shepherd.app"
 # Compile the same file-copy implementation used by the app, without launching
 # Shepherd or touching any real installation/profile.

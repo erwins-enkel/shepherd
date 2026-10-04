@@ -212,7 +212,13 @@ jobs:
             native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app \
             native/Apps/ShepherdMac/.build/SourcePackages/artifacts/sparkle/Sparkle/bin
 
+      - name: Set up Python for DMG packaging
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
       - name: Test DMG installation from read-only image and Downloads
+        # dmgbuild installs into a disposable venv; no global pip/Homebrew deps.
         run: |
           native/scripts/test-package-dmg.sh \
             native/Apps/ShepherdMac/.build/Build/Products/Release/Shepherd.app

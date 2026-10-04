@@ -60,7 +60,9 @@ also retained as a workflow artifact for 14 days.
 ## First installation
 
 Download `Shepherd-<build>.dmg` from the [Mac releases](https://github.com/erwins-enkel/shepherd/releases?q=macos-),
-open it and drag Shepherd.app onto the Applications shortcut. Open the installed app, then eject
+open the `Shepherd` volume and follow the window's arrow from Shepherd to the Applications
+shortcut. The dark installer window shows English and German drag-to-install instructions.
+Open the installed app, then eject
 the image. For an installation only for your account, copy it to `~/Applications` instead.
 
 Opening a distributed app directly from Downloads or the disk image offers installation into
@@ -171,7 +173,9 @@ Run `native/scripts/test-app.sh -only-testing:ShepherdTests/AppInstallationTests
 -only-testing:ShepherdTests/AppUpdaterTests` for path recognition, signed copying, collision
 protection, failed-copy cleanup and updater eligibility. Run
 `native/scripts/test-package-dmg.sh /path/to/Shepherd.app` to create and mount a disposable
-read-only DMG and verify its shortcut, EN/DE instructions and copied code signature.
+read-only DMG and verify its volume name, background, Finder layout metadata, volume icon,
+Applications shortcut and copied code signature. Packaging writes `.DS_Store` directly without
+Finder or AppleScript, so the same test runs on headless CI.
 
 These automated checks do not replace the Finder launch and App Translocation checks above,
 or the two-release Sparkle update test. Test those on a clean Mac with the downloaded release.

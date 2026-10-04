@@ -233,12 +233,27 @@ describe("#2002 deterministic backstops for the moved notices", () => {
     expect(d?.additionalContext).toContain("shepherd:manual-steps");
     expect(d?.additionalContext).toContain("Manual-Step:");
     expect(d?.additionalContext).toContain("shepherd-pull-requests");
+    expect(d?.additionalContext).toContain("rebased");
     // It informs, it does not gate: no permission decision rides along.
     expect(d).not.toHaveProperty("permissionDecision");
   });
 
   it("does not fire on other gh subcommands", () => {
     for (const cmd of ["gh pr view 12", "gh pr checks --watch", "gh issue create -t x"])
+      expect(`${cmd}: ${ctx(bash(cmd))}`).toBe(`${cmd}: null`);
+  });
+
+  it("asks for a rebase on every `git push`, without gating it", () => {
+    for (const cmd of [
+      "git push",
+      "git -C ../repo push -u origin feat",
+      "git commit -m x && git push --force-with-lease",
+    ]) {
+      const d = ctx(bash(cmd));
+      expect(`${cmd}: ${d?.additionalContext}`).toContain("rebase onto `origin/<base>`");
+      expect(d).not.toHaveProperty("permissionDecision");
+    }
+    for (const cmd of ["git pushx", "echo git push", "git log", 'git commit -m "then git push"'])
       expect(`${cmd}: ${ctx(bash(cmd))}`).toBe(`${cmd}: null`);
   });
 

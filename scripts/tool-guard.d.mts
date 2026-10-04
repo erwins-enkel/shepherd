@@ -27,6 +27,7 @@ export type ToolGuardDecision = ToolGuardDenial | ToolGuardContext;
 
 export const STASH_REASON: string;
 export const PR_CREATE_CONTEXT: string;
+export const PUSH_CONTEXT: string;
 export const BACKGROUND_CONTEXT: string;
 export function worktreeTmpfsReason(path: string): string;
 export function installTmpfsReason(path: string): string;

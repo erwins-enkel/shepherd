@@ -369,7 +369,9 @@ prompt — a bare `git stash` (the stash stack is shared across worktrees) and a
 dependency install under a tmpfs root. The refusal carries the explanation, so the agent learns why
 only when it matters. It runs as a local `command` hook (not the fail-open HTTP ingest transport)
 so the deny still holds for unattended, sandboxed sessions, and it is bound into the bwrap membrane
-so it exists inside the sandbox too. Claude spawns only — Codex spawns have no such mechanism and
+so it exists inside the sandbox too. It also injects non-blocking reminders: the one-PR and
+manual-steps rules on `gh pr create`, and "rebase onto the PR's base before every push" on
+`git push`. Claude spawns only — Codex spawns have no such mechanism and
 keep the equivalent prompt notices resident.
 
 | Variable | Default | Purpose |

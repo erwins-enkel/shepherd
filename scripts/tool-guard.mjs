@@ -70,8 +70,20 @@ export const PR_CREATE_CONTEXT =
   "a ```shepherd:manual-steps``` fenced block of `- [ ]` lines or column-0 `Manual-Step:` trailer " +
   "lines, prefixed `POST-MERGE:` when they must happen after merge. Most PRs need none — an " +
   "un-acked non-`POST-MERGE` step blocks the PR's auto-merge, so a spurious one strands a ready " +
-  "PR; use `gh pr edit --body` if you only notice one later. The `shepherd-pull-requests` skill " +
-  "has the full rules.";
+  "PR; use `gh pr edit --body` if you only notice one later. Push only a branch freshly rebased " +
+  "onto `origin/<base>` (the branch this PR targets) — a stale base re-runs CI and review later. " +
+  "The `shepherd-pull-requests` skill has the full rules.";
+
+/**
+ * Injected on every `git push`. Main moves under a running session, so a branch pushed without a
+ * fresh rebase spends CI and the critic on a base the later "behind" rebase steer replaces anyway.
+ * The hook cannot stop this push (context, not a denial), so it asks for the catch-up right away.
+ */
+export const PUSH_CONTEXT =
+  "Shepherd: rebase before every push. If you did not `git fetch origin` and rebase onto " +
+  "`origin/<base>` (the branch your PR targets) right before this push, do it now and push again " +
+  "with `--force-with-lease`, before CI and review spend cycles on a stale base. Never merge the " +
+  "base branch in — that breaks the linear-history gate.";
 
 /**
  * Injected when a Bash call is backgrounded. A detached job reparents to PID 1 and outlives the
@@ -303,6 +315,7 @@ export function decideToolGuard(event, deps = {}) {
   const denial = denyFor(command, event.cwd, deps.isTmpfs ?? isTmpfsPath);
   if (denial) return denial;
   if (opensPullRequest(command)) return { additionalContext: PR_CREATE_CONTEXT };
+  if (pushesBranch(command)) return { additionalContext: PUSH_CONTEXT };
   if (isBackgrounded(input, command)) return { additionalContext: BACKGROUND_CONTEXT };
   return null;
 }
@@ -314,6 +327,14 @@ function opensPullRequest(command) {
     if (w[0] !== "gh") return false;
     const operands = w.slice(1).filter((a) => !a.startsWith("-"));
     return operands[0] === "pr" && operands[1] === "create";
+  });
+}
+
+/** True when any segment of `command` runs `git push`. */
+function pushesBranch(command) {
+  return segments(command).some((segment) => {
+    const w = words(segment);
+    return w[0] === "git" && gitOperands(w.slice(1))[0] === "push";
   });
 }
 

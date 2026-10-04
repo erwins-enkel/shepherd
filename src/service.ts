@@ -914,7 +914,9 @@ const AUTOPILOT_DIRECTIVE =
   "lint/check/test commands from the repository instructions for the files you touched, and fix " +
   "failures before proceeding. Then self-review the diff you produced — read your own changes for " +
   "bugs, security issues, and quality defects and fix what you find BEFORE opening the PR; keep this " +
-  "to the code you changed, do not expand scope or add unrequested improvements. Only stop to ask when " +
+  "to the code you changed, do not expand scope or add unrequested improvements. Before every push, " +
+  "fetch origin and rebase onto your PR's base branch (never merge it in), then push with " +
+  "`--force-with-lease`. Only stop to ask when " +
   "you hit a genuine product or requirements decision that only a human can make.";
 
 /**
@@ -1636,7 +1638,9 @@ const PLAN_GO_STEER_BASE =
   "relevant local lint/check/test commands from the repository instructions for the files you " +
   "touched, and fix failures before proceeding. Then self-review the diff you produced — read your " +
   "own changes for bugs, security issues, and quality defects and fix what you find before opening " +
-  "the PR; keep this to the code you changed, do not expand scope. Don't re-litigate the plan; if you " +
+  "the PR; keep this to the code you changed, do not expand scope. Before every push, `git fetch " +
+  "origin` and rebase onto `origin/<base>` (the branch your PR targets; never merge it in), then push " +
+  "with `--force-with-lease`. Don't re-litigate the plan; if you " +
   "hit a genuine product decision that only the user can make, ask, otherwise keep going.";
 
 /**

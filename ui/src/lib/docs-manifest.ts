@@ -93,7 +93,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Project house rules",
     path: "/reference/house-rules/",
     keywords:
-      "shepherd's in-repo contributor & agent house rules (claude.md), rendered verbatim. verify branch hygiene locale-catalog merge conflicts are real",
+      "shepherd's in-repo contributor & agent house rules (claude.md), rendered verbatim. verify always work in a worktree branch hygiene locale-catalog merge conflicts are real",
   },
   {
     title: "Keyboard shortcuts",

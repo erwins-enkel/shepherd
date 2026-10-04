@@ -110,6 +110,7 @@ function harness(over: any = {}) {
     },
     // no bwrap on test hosts: degrade to passthrough so existing argv assertions hold
     detectBackend: () => null,
+    codexResolver: new CodexRolloutResolver({ listMetas: () => [], now: () => 0 }),
     reply: async () => true,
     // Default: pane live (Claude idles at its prompt) → resumeThenSteer skips resume and delivers
     // via `reply`, preserving every pre-existing test's behavior. Codex-exit tests override paneAlive.

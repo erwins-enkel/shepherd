@@ -322,6 +322,7 @@ function makeDeps(
     })(),
     // no bwrap on test hosts: degrade to passthrough so existing argv assertions hold
     detectBackend: () => null,
+    codexResolver: new CodexRolloutResolver({ listMetas: () => [], now: () => 0 }),
     resolveForge: () =>
       fakeForge(
         rec,

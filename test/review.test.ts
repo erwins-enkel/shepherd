@@ -5165,3 +5165,39 @@ test("behind: NO rebase actor (autopilot off, not full-auto) → the critic stil
   expect(outcome).toBe("started");
   expect(started).toHaveLength(1);
 });
+
+test("behind: a non-forced consider after forceReview does NOT reap the operator's run", async () => {
+  const { deps: d, started, stopped } = makeDeps({ rebasesWhenBehind: () => true });
+  const svc = new ReviewService(d as any);
+  const behind = { ...OPEN_GREEN, mergeStateStatus: "behind" as const };
+  expect(await svc.forceReview(session(), behind)).toBe("started");
+  // A later session:git change (e.g. a reviewer-state diff) re-runs the auto consider().
+  expect(await svc.consider(session(), behind)).toBe("skipped");
+  expect(stopped).toEqual([]);
+  expect(svc.reviewingIds()).toEqual(["s1"]);
+  expect(started).toHaveLength(1);
+});
+
+test("behind: a non-forced consider while a FORCED run is mid-startup keeps its claim", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const { deps: d, started } = makeDeps({
+    rebasesWhenBehind: () => true,
+    resolveForge: () =>
+      ({
+        prStatus: async () => {
+          await gate;
+          return { ...OPEN_GREEN, mergeStateStatus: "behind" };
+        },
+        getIssue: async () => ({ body: "" }),
+      }) as any,
+  });
+  const svc = new ReviewService(d as any);
+  const behind = { ...OPEN_GREEN, mergeStateStatus: "behind" as const };
+  const forced = svc.forceReview(session(), behind); // parks in the pre-spawn head recheck
+  await Promise.resolve();
+  await svc.consider(session(), behind);
+  release();
+  expect(await forced).toBe("started");
+  expect(started).toHaveLength(1);
+});

@@ -245,6 +245,9 @@ interface InFlight {
   priorReviewedPatchIds: string[]; // patch-ids reviewed on this streak before this run (churn/revert dedup set)
   priorSeenNoteIds: string[]; // seen-note set carried in (before this run's fetch)
   seenNoteIds: string[]; // priorSeen + notes fed to THIS run's critic; only "consumed" on a real verdict
+  /** The operator forced this run (forceReview), which bypasses the behind hold — so a later
+   *  auto consider() on the still-behind PR must not tear it down either. */
+  forced: boolean;
   /** #2155: an APPROVED PLAN block was in this run's prompt, so a plan-drift answer is meaningful.
    *  False ⇒ the critic had nothing to measure against and any drift it reports is discarded. */
   planShown: boolean;
@@ -475,6 +478,8 @@ export class ReviewService extends ReviewerRuns<InFlight> {
   // stays skipped (headAlreadySettled) so the cancelled review doesn't auto-restart; a new head or a
   // force re-runs it.
   private cancelledHeads = new Map<string, string>();
+  // Sessions whose `starting` claim belongs to an operator-forced run (see operatorForced).
+  private forcedStarting = new Set<string>();
   private now: () => number;
   private timeoutMs: number;
   // Resolve the cap on every read so a live config thunk (UI setting) takes effect on the
@@ -594,7 +599,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     if (!force && prior && prior.findings.length > 0 && prior.streakReviews >= 2 * this.cap)
       return "skipped";
     // Claim the slot synchronously, BEFORE begin()'s await, so a concurrent consider bails.
-    this.starting.add(session.id);
+    this.claimStart(session.id, force);
     try {
       // #2175: `git` is the poller's CACHED snapshot (up to a full idle sweep old), so a push can
       // have landed since it was taken — the critic would then review superseded code and steer a
@@ -604,7 +609,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
       // await must not open a window for a second consider()/forceReview() to reach begin().
       if (!(await this.beginCurrentReview(session, git, force))) return "skipped";
     } finally {
-      this.starting.delete(session.id);
+      this.releaseStart(session.id);
     }
     // begin() populates `inflight` only when it actually spawned a critic; its silent early
     // returns (worktree/spawn fail, api-key-mode-without-key, post-await `starting` tombstone,
@@ -616,8 +621,24 @@ export class ReviewService extends ReviewerRuns<InFlight> {
 
   private async applyHold(session: Session, hold: "terminal" | "behind"): Promise<ReviewOutcome> {
     if (hold === "terminal") await this.settleTerminalPr(session);
-    else await this.cancelRun(session.id);
+    else if (!this.operatorForced(session.id)) await this.cancelRun(session.id);
     return "skipped";
+  }
+
+  private claimStart(sessionId: string, force: boolean): void {
+    this.starting.add(sessionId);
+    if (force) this.forcedStarting.add(sessionId);
+  }
+
+  private releaseStart(sessionId: string): void {
+    this.starting.delete(sessionId);
+    this.forcedStarting.delete(sessionId);
+  }
+
+  /** An operator-forced run (mid-startup or in flight) bypasses the behind hold for its lifetime —
+   *  without this the next auto consider() on the still-behind PR would reap it mid-review. */
+  private operatorForced(sessionId: string): boolean {
+    return this.forcedStarting.has(sessionId) || this.inflight.get(sessionId)?.forced === true;
   }
 
   private async beginCurrentReview(
@@ -920,6 +941,7 @@ export class ReviewService extends ReviewerRuns<InFlight> {
     if (terminalId == null) return;
     this.inflight.set(session.id, {
       sessionId: session.id,
+      forced: force,
       headSha: git.headSha!,
       patchId,
       baseSha,

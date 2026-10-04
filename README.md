@@ -9,7 +9,8 @@ what needs you and what's ready to ship — from your browser, phone, or the new
 [![Latest release](https://img.shields.io/github/v/release/erwins-enkel/shepherd)](https://github.com/erwins-enkel/shepherd/releases)
 [![License: BUSL-1.1](https://img.shields.io/badge/license-BUSL--1.1-blue)](./LICENSE)
 
-**[Get started](docs/getting-started.md)** · **[Shepherd for Mac](native/README.md)** ·
+**[Get started](docs/getting-started.md)** · **[Download for macOS](https://github.com/erwins-enkel/shepherd/releases?q=macos-)** ·
+**[Shepherd for Mac](native/README.md)** ·
 [Website](https://shepherd.run) · [Documentation](https://docs.shepherd.run)
 
 <p align="center">
@@ -75,7 +76,10 @@ native notifications.
 
 The app connects to a Shepherd server on your Mac or a remote machine. It's an early preview,
 already useful for daily work, with broader workflow coverage still available in the web UI.
-Currently, you build it from source.
+
+**[⬇ Download Shepherd for Mac](https://github.com/erwins-enkel/shepherd/releases?q=macos-)** — open the newest _Shepherd for Mac_ release, download
+`Shepherd-<build>.dmg`, open it and drag Shepherd.app into Applications. Requires macOS 15 or newer.
+The app is signed and notarized by Apple, and updates install automatically.
 
 **[Explore Shepherd for Mac →](native/README.md)**
 
@@ -97,7 +101,7 @@ server platform; hosting the server on macOS currently has
 ## Take the next step
 
 - **[Start with Shepherd](docs/getting-started.md)** — installation, supported platforms and first login.
-- **[Use the Mac app](native/docs/getting-started.md)** — build, connect and find your way around.
+- **[Download the Mac app](https://github.com/erwins-enkel/shepherd/releases?q=macos-)** — then [connect and find your way around](native/docs/getting-started.md).
 - **[Read the user docs](https://docs.shepherd.run)** — workflows and feature guides.
 - **[Ask a question or share an idea](https://github.com/erwins-enkel/shepherd/discussions)** — help shape what comes next.
 

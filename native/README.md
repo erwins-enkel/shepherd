@@ -6,8 +6,8 @@ Keep parallel coding work in view without hunting through terminal windows and b
 Shepherd for Mac brings your sessions, code changes and pull requests together, so you can see
 what needs attention and give your agents direction.
 
-**[Get started →](docs/getting-started.md)** · [See more screenshots](docs/screenshots.md) ·
-[Discover Shepherd](../README.md)
+**[⬇ Download for macOS](https://github.com/erwins-enkel/shepherd/releases?q=macos-)** · [Get started →](docs/getting-started.md) ·
+[See more screenshots](docs/screenshots.md) · [Discover Shepherd](../README.md)
 
 ![Shepherd for Mac with session filters, usage gauges and the selected agent's activity](docs/screenshots/01-sessions-and-activity.png)
 
@@ -47,11 +47,20 @@ The interface supports English and German; the screenshots show a live instance 
 
 The backlog, epic management and learnings are still web-only. Use the browser for those.
 
-**Current availability:** macOS 15 or newer; [download the tester DMG](docs/app-updates.md#first-installation)
-or build from source with Xcode. The
-[getting-started guide](docs/getting-started.md) covers requirements and setup. Connecting to a
-remote Linux server gives you the fully supported server platform; running the server on a Mac
-has [reduced capabilities](../docs/getting-started.md#os-matrix).
+## Download and install
+
+Requires **macOS 15 or newer**.
+
+1. Open the [Mac releases](https://github.com/erwins-enkel/shepherd/releases?q=macos-) and pick the newest **Shepherd for Mac** release.
+2. Download `Shepherd-<build>.dmg`, open it and drag **Shepherd.app** onto the Applications shortcut.
+3. Open Shepherd from Applications and confirm macOS's “downloaded from the internet” prompt.
+   The app is signed with Developer ID and notarized by Apple.
+
+After that, updates arrive automatically. Details: [first installation](docs/app-updates.md#first-installation).
+Prefer to build it yourself? The [getting-started guide](docs/getting-started.md) covers building
+from source with Xcode and connecting to a server. Connecting to a remote Linux server gives you
+the fully supported server platform; running the server on a Mac has
+[reduced capabilities](../docs/getting-started.md#os-matrix).
 
 ## Make it your workspace
 

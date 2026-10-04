@@ -1545,6 +1545,8 @@ function interimHarness(opts: {
     7000, // probeCheckMs
     () => {},
     (id, activity) => opts.onActivity?.(id, activity),
+    undefined, // preview
+    { scan: () => new Map() }, // heartbeat fixtures do not inspect the host's processes
   );
 }
 

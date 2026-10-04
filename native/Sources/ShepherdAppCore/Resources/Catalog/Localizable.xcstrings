@@ -20721,13 +20721,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Noch kein prüfbarer Plan vorhanden. Der Planungs-Agent wartet möglicherweise noch auf deine Antwort. Kehre zum Task zurück, beantworte eine offene Planungsfrage und prüfe erneut, nachdem der Agent .shepherd-plan.md geschrieben hat."
+            "value": "Noch kein geprüfter Plan verfügbar."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No reviewable plan yet. The planning agent may still be waiting for your answer. Return to the task, answer any open planning question, then review again after the agent writes .shepherd-plan.md."
+            "value": "No reviewed plan available yet."
           }
         }
       }
@@ -21027,13 +21027,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prüfung nicht gestartet, weil .shepherd-plan.md fehlt, leer oder nicht lesbar ist. Kehre zum Task zurück und beantworte eine noch offene Planungsfrage; prüfe erneut, sobald die Datei geschrieben ist."
+            "value": "Prüfung nicht gestartet, weil die Plan-Datei fehlt, leer oder nicht lesbar ist. Versuche es erneut, sobald der Agent einen lesbaren Plan geschrieben hat."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Review did not start because .shepherd-plan.md is missing, empty, or unreadable. Return to the task and answer any pending planning question, then review again after the file is written."
+            "value": "Review did not start because the plan file is missing, empty, or unreadable. Try again once the agent has written a readable plan."
           }
         }
       }

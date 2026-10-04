@@ -17,6 +17,101 @@ import type { AgentProvider, Session } from "./types";
 const CMD_MAX = 60;
 const DEFAULT_LIMIT = 30;
 
+export interface CodexCompletedTurn {
+  turnId: string;
+  completedAt: number;
+}
+
+type CodexTurnRecord =
+  | { type: "start"; turnId: string }
+  | ({ type: "complete" } & CodexCompletedTurn)
+  | { type: "input" | "abort" | "ignore" | "unknown" };
+
+/** Native CLI lifecycle evidence only; assistant prose and queued questions are not turn ends. */
+export function parseCodexCompletedTurn(text: string): CodexCompletedTurn | null {
+  let completed: CodexCompletedTurn | null = null;
+  let started: string | null = null;
+  let aborted = false;
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    const record = readCodexTurnRecord(line);
+    if (!record) return null;
+    if (record.type === "complete") {
+      if (aborted || (started !== null && started !== record.turnId)) return null;
+      completed = { turnId: record.turnId, completedAt: record.completedAt };
+    } else if (record.type === "start") {
+      started = record.turnId;
+      aborted = false;
+      completed = null;
+    } else if (record.type === "unknown") {
+      // A later native completion can supersede unknown history; never retain an old one.
+      completed = null;
+    } else if (record.type !== "ignore") {
+      aborted = record.type === "abort";
+      completed = null;
+    }
+  }
+  return completed;
+}
+
+function readCodexTurnRecord(line: string): CodexTurnRecord | null {
+  try {
+    const record = JSON.parse(line);
+    if (!record || typeof record.type !== "string") return null;
+    const p = record.payload;
+    if (!p || typeof p !== "object" || Array.isArray(p)) return null;
+    if (record.type === "event_msg") return codexLifecycleEvent(p, record.timestamp);
+    if (record.type === "turn_context" || record.type === "world_state") return { type: "input" };
+    if (record.type === "session_meta" || record.type === "token_usage_record")
+      return { type: "ignore" };
+    if (record.type !== "response_item") return { type: "unknown" };
+    if (typeof p.type !== "string") return null;
+    // Unknown response items may be new tool calls; never preserve an old completion over them.
+    const passive = ["message", "reasoning", "function_call_output", "custom_tool_call_output"];
+    return { type: p.role !== "user" && passive.includes(p.type) ? "ignore" : "input" };
+  } catch {
+    return null;
+  }
+}
+
+function codexLifecycleEvent(
+  p: { type?: string; turn_id?: unknown },
+  timestamp: unknown,
+): CodexTurnRecord | null {
+  switch (p.type) {
+    case "task_started":
+      return typeof p.turn_id === "string" && p.turn_id.trim()
+        ? { type: "start", turnId: p.turn_id }
+        : null;
+    case "task_complete": {
+      const ts = typeof timestamp === "string" ? Date.parse(timestamp) : NaN;
+      return typeof p.turn_id === "string" && p.turn_id.trim() && Number.isFinite(ts)
+        ? { type: "complete", turnId: p.turn_id, completedAt: ts }
+        : null;
+    }
+    case "turn_aborted":
+      return { type: "abort" };
+    case "user_message":
+    case "item_completed":
+    case "thread_settings_applied":
+      return { type: "input" };
+    case "token_count":
+    case "agent_message":
+    case "agent_reasoning":
+      return { type: "ignore" };
+    default:
+      return typeof p.type === "string" ? { type: "unknown" } : null;
+  }
+}
+
+export function readCodexCompletedTurn(path: string): CodexCompletedTurn | null {
+  try {
+    return parseCodexCompletedTurn(readTranscriptTail(path));
+  } catch {
+    return null;
+  }
+}
+
 function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max) + "…" : s;
 }

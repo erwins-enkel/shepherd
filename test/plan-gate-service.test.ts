@@ -110,6 +110,7 @@ function harness(over: any = {}) {
     },
     // no bwrap on test hosts: degrade to passthrough so existing argv assertions hold
     detectBackend: () => null,
+    codexResolver: new CodexRolloutResolver({ listMetas: () => [], now: () => 0 }),
     reply: async () => true,
     // Default: pane live (Claude idles at its prompt) → resumeThenSteer skips resume and delivers
     // via `reply`, preserving every pre-existing test's behavior. Codex-exit tests override paneAlive.
@@ -191,6 +192,327 @@ const planningSession = () => ({
   prompt: "do X",
   planPhase: "planning",
 });
+
+function completedCodexPlanHarness() {
+  const root = mkdtempSync(join(process.cwd(), ".completed-plan-"));
+  const store = new SessionStore(":memory:");
+  const plan = "# Plan\n\nMake the existing plan visible.";
+  writeFileSync(join(root, ".shepherd-plan.md"), plan);
+  const rollout = join(root, "rollout.jsonl");
+  writeFileSync(
+    rollout,
+    readFileSync(join(import.meta.dir, "fixtures/codex-activity/plan-turn-complete.jsonl")),
+  );
+  const session = store.create({
+    name: "planning",
+    prompt: "show the plan",
+    repoPath: process.cwd(),
+    baseBranch: "main",
+    branch: "shepherd/completed-plan",
+    worktreePath: root,
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "codex-terminal",
+    agentProvider: "codex",
+    providerSessionId: "codex-plan-task",
+    codexLaunchId: "launch-one",
+    planGateEnabled: true,
+    planPhase: "planning",
+  });
+  store.update(session.id, { status: "blocked" });
+  let metas = [
+    { path: rollout, cwd: root, rolloutId: "codex-plan-task", source: "cli", mtimeMs: 1 },
+  ];
+  let scans = 0;
+  const resolver = new CodexRolloutResolver({
+    listMetas: () => {
+      scans++;
+      return metas;
+    },
+    now: () => 1000,
+  });
+  const reviewing: boolean[] = [];
+  const h = harness();
+  const deps = {
+    ...h.deps,
+    store,
+    readPlan: undefined,
+    codexTaskResolver: resolver,
+    onReviewing: (_id: string, active: boolean) => reviewing.push(active),
+  };
+  return {
+    ...h,
+    store,
+    session,
+    root,
+    rollout,
+    plan,
+    reviewing,
+    resolver,
+    deps,
+    svc: new PlanGateService(deps),
+    scans: () => scans,
+    setMetas: (value: typeof metas) => {
+      metas = value;
+    },
+    cleanup: () => rmSync(root, { recursive: true, force: true }),
+  };
+}
+
+test("completed Codex plan starts one review while the task remains blocked", async () => {
+  const h = completedCodexPlanHarness();
+  try {
+    await Promise.all([h.svc.sweepCompletedCodexPlans(), h.svc.sweepCompletedCodexPlans()]);
+    await h.svc.sweepCompletedCodexPlans();
+    expect(h.started).toHaveLength(1);
+    expect(h.started[0].argv.at(-1)).toContain(h.plan);
+    expect(h.reviewing).toEqual([true]);
+    expect(h.store.get(h.session.id)?.status).toBe("blocked");
+    expect(h.store.getPlanGate(h.session.id)).toBeNull();
+    expect(h.scans()).toBe(1);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("completed Codex plan shares the normal consider lock and preserves a newer turn during review", async () => {
+  const h = completedCodexPlanHarness();
+  try {
+    await Promise.all([
+      h.svc.consider(h.store.get(h.session.id)!),
+      h.svc.sweepCompletedCodexPlans(),
+    ]);
+    expect(h.started).toHaveLength(1);
+    writeFileSync(join(h.root, ".shepherd-plan.md"), "# Revised plan");
+    writeFileSync(
+      h.rollout,
+      '{"timestamp":"2026-09-20T22:00:00Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"second-turn"}}\n',
+    );
+    await h.svc.sweepCompletedCodexPlans();
+    expect(h.started).toHaveLength(1);
+    h.svc.reapReviewer(h.session.id);
+    await h.svc.sweepCompletedCodexPlans();
+    expect(h.started).toHaveLength(2);
+    expect(h.started[1].argv.at(-1)).toContain("# Revised plan");
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("completed Codex plan retries a missing artifact but does not loop on spawn failure", async () => {
+  const h = completedCodexPlanHarness();
+  try {
+    writeFileSync(join(h.root, ".shepherd-plan.md"), "  ");
+    await h.svc.sweepCompletedCodexPlans();
+    expect(h.started).toHaveLength(0);
+    writeFileSync(join(h.root, ".shepherd-plan.md"), h.plan);
+    let attempts = 0;
+    h.deps.herdr.start = async () => {
+      attempts++;
+      throw new Error("launch failed");
+    };
+    await h.svc.sweepCompletedCodexPlans();
+    await h.svc.sweepCompletedCodexPlans();
+    expect(attempts).toBe(1);
+    expect(await h.svc.consider(h.store.get(h.session.id)!, { force: true })).toBe("error-spawn");
+    expect(attempts).toBe(2);
+  } finally {
+    h.cleanup();
+  }
+});
+
+for (const update of [
+  { providerSessionId: null },
+  { codexLaunchId: null },
+  { providerSessionId: "foreign" },
+  { agentProvider: "claude" },
+  { planPhase: "executing" },
+  { status: "archived" },
+]) {
+  test(`completed Codex plan requires active planning and launch identity: ${JSON.stringify(update)}`, async () => {
+    const h = completedCodexPlanHarness();
+    try {
+      h.store.update(h.session.id, update as any);
+      await h.svc.sweepCompletedCodexPlans();
+      expect(h.started).toHaveLength(0);
+    } finally {
+      h.cleanup();
+    }
+  });
+}
+
+test("completed Codex plan refuses ambiguous pinned rollouts and an unfinished turn", async () => {
+  const h = completedCodexPlanHarness();
+  try {
+    h.setMetas(
+      [h.rollout, h.rollout + ".duplicate"].map((path) => ({
+        path,
+        cwd: h.root,
+        rolloutId: "codex-plan-task",
+        source: "cli",
+        mtimeMs: 1,
+      })),
+    );
+    await h.svc.sweepCompletedCodexPlans();
+    expect(h.started).toHaveLength(0);
+    h.svc.forget(h.session.id);
+    h.setMetas([
+      { path: h.rollout, cwd: h.root, rolloutId: "codex-plan-task", source: "cli", mtimeMs: 1 },
+    ]);
+    writeFileSync(
+      h.rollout,
+      '{"type":"event_msg","payload":{"type":"task_started","turn_id":"unfinished"}}\n',
+    );
+    await h.svc.sweepCompletedCodexPlans();
+    expect(h.started).toHaveLength(0);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("completed Codex plan refreshes identity on relaunch and clears history outside planning", async () => {
+  const h = completedCodexPlanHarness();
+  try {
+    await h.svc.sweepCompletedCodexPlans();
+    h.svc.reapReviewer(h.session.id);
+    h.store.update(h.session.id, {
+      providerSessionId: "new-provider",
+      codexLaunchId: "launch-two",
+    });
+    h.setMetas([
+      { path: h.rollout, cwd: h.root, rolloutId: "new-provider", source: "cli", mtimeMs: 1 },
+    ]);
+    await h.svc.sweepCompletedCodexPlans();
+    expect(h.started).toHaveLength(2);
+    expect(h.scans()).toBe(2);
+    h.svc.reapReviewer(h.session.id);
+    h.store.setPlanPhase(h.session.id, "executing");
+    await h.svc.sweepCompletedCodexPlans();
+    h.store.setPlanPhase(h.session.id, "planning");
+    await h.svc.sweepCompletedCodexPlans();
+    expect(h.scans()).toBe(3);
+    expect(h.started).toHaveLength(3);
+    h.store.update(h.session.id, { status: "archived" });
+    h.svc.forget(h.session.id);
+    await h.svc.sweepCompletedCodexPlans();
+    expect(h.started).toHaveLength(3);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("completed Codex plan restart adopts its reviewer and a saved verdict deduplicates the plan", async () => {
+  const h = completedCodexPlanHarness();
+  try {
+    await h.svc.sweepCompletedCodexPlans();
+    const restarted = new PlanGateService({
+      ...h.deps,
+      readVerdict: () => ({
+        decision: "request-changes",
+        summary: "needs changes",
+        body: "",
+        findings: ["clarify tests"],
+      }),
+    });
+    await restarted.adoptOrphans();
+    await restarted.sweepCompletedCodexPlans();
+    expect(h.started).toHaveLength(1);
+    await restarted.tick();
+    expect(h.store.getPlanGate(h.session.id)?.decision).toBe("changes_requested");
+    await new PlanGateService(h.deps).sweepCompletedCodexPlans();
+    expect(h.started).toHaveLength(1);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test("completed Codex plan records approved-plan drift without starting a reviewer or releasing execution", async () => {
+  const h = completedCodexPlanHarness();
+  try {
+    const approving = new PlanGateService({
+      ...h.deps,
+      readVerdict: () => ({ decision: "approve", summary: "ok", body: "", findings: [] }),
+    });
+    await approving.sweepCompletedCodexPlans();
+    await approving.tick();
+    writeFileSync(join(h.root, ".shepherd-plan.md"), "# Edited approved plan");
+    await new PlanGateService(h.deps).sweepCompletedCodexPlans();
+    const gate = h.store.getPlanGate(h.session.id)!;
+    expect(gate.approved).toBe(true);
+    expect(gate.livePlanHash).not.toBe(gate.planHash);
+    expect(gate.plan).toBe(h.plan);
+    expect(h.started).toHaveLength(1);
+    expect(h.store.get(h.session.id)?.planPhase).toBe("planning");
+  } finally {
+    h.cleanup();
+  }
+});
+
+for (const update of [
+  { status: "archived" },
+  { planPhase: "executing" },
+  { providerSessionId: "new-unresolved-provider", codexLaunchId: "new-launch" },
+]) {
+  test(`completed Codex plan reloads later candidates after a slow start: ${JSON.stringify(update)}`, async () => {
+    const h = completedCodexPlanHarness();
+    const waiting = Promise.withResolvers<void>();
+    const resume = Promise.withResolvers<void>();
+    try {
+      const second = h.store.create({
+        name: "second",
+        prompt: "plan",
+        repoPath: process.cwd(),
+        baseBranch: "main",
+        branch: "shepherd/second",
+        worktreePath: h.root,
+        isolated: true,
+        herdrSession: "default",
+        herdrAgentId: "second-terminal",
+        agentProvider: "codex",
+        providerSessionId: "second-provider",
+        codexLaunchId: "second-launch",
+        planPhase: "planning",
+      });
+      const secondRollout = join(h.root, "second.jsonl");
+      writeFileSync(
+        secondRollout,
+        readFileSync(h.rollout, "utf8").replaceAll("codex-plan-task", "second-provider"),
+      );
+      h.setMetas([
+        { path: h.rollout, cwd: h.root, rolloutId: "codex-plan-task", source: "cli", mtimeMs: 1 },
+        {
+          path: secondRollout,
+          cwd: h.root,
+          rolloutId: "second-provider",
+          source: "cli",
+          mtimeMs: 1,
+        },
+      ]);
+      let calls = 0;
+      const svc = new PlanGateService({
+        ...h.deps,
+        capacity: async () => {
+          if (++calls === 1) {
+            waiting.resolve();
+            await resume.promise;
+          }
+          return true;
+        },
+      });
+      const sweep = svc.sweepCompletedCodexPlans();
+      await waiting.promise;
+      h.store.update(second.id, update as any);
+      if ("status" in update) svc.forget(second.id);
+      resume.resolve();
+      await sweep;
+      expect(h.started).toHaveLength(1);
+      expect(svc.reviewingIds()).toEqual([h.session.id]);
+    } finally {
+      resume.resolve();
+      h.cleanup();
+    }
+  });
+}
 
 test("consider spawns reviewer when a plan exists and is unreviewed", async () => {
   const h = harness();

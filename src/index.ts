@@ -2228,6 +2228,9 @@ deferredStarts.push(() => {
     // a rejected applyApproved → release → releasePlanGate → reply → herdr.send propagates straight
     // out of the timer callback as an unhandled rejection.
     void planGate.tick().catch((err) => console.warn("[plan-gate] tick failed:", err));
+    void planGate
+      .sweepCompletedCodexPlans()
+      .catch((err) => console.warn("[plan-gate] Codex completion sweep failed:", err));
     void standaloneCritic.tick().catch((err) => console.warn("[critic] tick failed:", err));
     void recapService.tick().catch((err) => console.warn("[recap] tick failed:", err)); // finalize in-flight recaps (restart-safe)
     void recapService.sweep().catch((err) => console.warn("[recap] sweep failed:", err)); // settled-idle auto-fire

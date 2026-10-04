@@ -7946,6 +7946,8 @@ test("epicAuthoringDirective (Claude) submits via the tool, not a hand-written J
   });
   expect(d).toContain("epic_draft");
   expect(d).toContain("NEVER run `gh issue create`");
+  // The review renders parent.body as a document whose table of contents comes from `##` headings.
+  expect(d).toContain("open each part with a `##` heading");
   // The draft contract now lives in the tool's parameter schema.
   expect(d).not.toContain("curl");
   expect(d).not.toContain("http://127.0.0.1:7330/api/sessions/sess-42/epic-draft");

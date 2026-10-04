@@ -329,7 +329,12 @@ const EPIC_DRAFT: McpTool = {
         type: "object",
         properties: {
           title: { type: "string" },
-          body: { type: "string" },
+          body: {
+            type: "string",
+            description:
+              "Markdown. Open each part with a `##` heading — the review UI builds its table of " +
+              "contents from them. Acceptance criteria and non-goals go in their own fields.",
+          },
           acceptanceCriteria: { type: "array", items: { type: "string" } },
           nonGoals: { type: "array", items: { type: "string" } },
         },

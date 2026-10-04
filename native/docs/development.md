@@ -11,6 +11,15 @@ The Xcode project is **generated** from `native/Apps/ShepherdMac/project.yml` by
 [XcodeGen](https://github.com/yonaskolb/XcodeGen) — never edit `Shepherd.xcodeproj`, it is
 gitignored.
 
+The Mac icon is `Sources/AppIcon.icon`, an [Icon Composer](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer)
+bundle using the dark fill and sheep from `ui/static/icons/v2/icon-maskable.svg`.
+Run `native/scripts/render-mac-icon.sh` after changing that SVG, then rebuild with
+Xcode 26.6 or newer. Xcode compiles the layered icon and renders the macOS 15 fallback.
+The installer artwork lives in `native/scripts/render-dmg-background.swift`; regenerate
+its committed 1x/2x PNGs and HiDPI TIFF with `native/scripts/render-dmg-background.sh`.
+Packaging uses [dmgbuild 1.6.7](https://dmgbuild.readthedocs.io/en/v1.6.7/) in a temporary
+Python venv; set `DMGBUILD` to an existing binary to reuse a local installation.
+
 ## Contributor workflow
 
 First complete [setup, build and connection](getting-started.md).

@@ -27,6 +27,14 @@ If the work is genuinely too large for one cohesive PR, pick ONE of:
 
 Never split the work across two PRs from this one session.
 
+## Rebase before every push
+
+The base branch moves while you work. Before **every** push — the first one, `gh pr create`, and
+each later CI-fix or review-fix push — run `git fetch origin` and rebase onto `origin/<base>` (the
+branch your PR targets). After a rebase, push with `--force-with-lease`. Never merge the base
+branch into yours: it breaks the linear-history gate. A stale push spends CI and review on a base
+the later "behind" rebase replaces anyway.
+
 ## The epic shape (option (a))
 
 Shepherd recognizes an epic ONLY structurally — the parent issue's body must reference each child's

@@ -136,9 +136,10 @@ test("#1999 reproduces the epic's measured spawn-payload baseline (chars)", () =
   // plan-gate directives (+321 chars) — a deliberate spend that exists to shrink a far larger
   // artifact, the plan itself. Every shape then gained 657 chars / 667 bytes when the
   // steer-provenance notice joined the floor (TASK-2614: pasted steers were being refused).
+  // Autopilot then gained 128 chars for rebase-before-every-push (stale pushes burned CI + review).
   const baseline: [string, number, string][] = [
     ["attended Claude, no house rules", 2805, "2841"],
-    ["+ autopilot", 3763, "3803"],
+    ["+ autopilot", 3891, "3931"],
     ["plan-gate interactive", 8108, "8188"],
     ["research", 3614, "3654"],
   ];

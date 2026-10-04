@@ -4842,6 +4842,8 @@ test("composeSystemPrompt adds the autopilot directive only when active", () => 
   // #1812 finding G: diff-scoped self-review before the PR (NOT "improve the code" → no scope creep)
   expect(on).toContain("self-review the diff");
   expect(on).toContain("do not expand scope");
+  expect(on).toContain("Before every push");
+  expect(on).toContain("--force-with-lease");
   // #2002: the branch-rename notice rides only where a rename can land, so it is opt-gated now.
   expect(composeSystemPrompt(null, true, { branchRename: true })).toContain(
     "<branch-rename-notice>",
@@ -6218,6 +6220,7 @@ test("planGoSteer(false) matches the base text exactly (no draft note)", () => {
   // #1812 finding G: diff-scoped self-review before opening the PR
   expect(steer).toContain("self-review the diff");
   expect(steer).toContain("do not expand scope");
+  expect(steer).toContain("Before every push");
   expect(steer).not.toContain(DRAFT_PR_NOTE);
 });
 

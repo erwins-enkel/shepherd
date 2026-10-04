@@ -84,7 +84,8 @@ export function openPrSteer(draftMode: boolean, baseBranch: string): string {
     "You're in autopilot and you've stopped, but there's no pull request yet. Commit your",
     `work, push the branch, and open a PR (gh pr create --base ${baseBranch}). Before committing,`,
     "pushing, or opening the PR, run the relevant local lint/check/test commands from the repository",
-    "instructions for the files you touched, and fix failures before proceeding. If something",
+    "instructions for the files you touched, and fix failures before proceeding. Right before pushing,",
+    `fetch origin and rebase onto origin/${baseBranch} (never merge it in). If something`,
     "genuinely blocks that, say specifically what you need.",
   ].join("\n");
   return draftMode ? `${steer} ${DRAFT_PR_NOTE}` : steer;
@@ -93,7 +94,8 @@ export function openPrSteer(draftMode: boolean, baseBranch: string): string {
 export const CI_FIX_STEER = [
   "You're in autopilot and CI is failing on your open pull request. The critic won't review a",
   "red PR, so this is on you: inspect the failing checks (`gh pr checks`, `gh run view --log-failed`),",
-  "fix the root cause, and push. Don't stop to ask — only surface if it's a genuine blocker you",
+  "fix the root cause, then fetch origin, rebase onto your PR's base branch (never merge it in) and",
+  "push with --force-with-lease. Don't stop to ask — only surface if it's a genuine blocker you",
   "can't resolve, and then say exactly what you need.",
 ].join("\n");
 

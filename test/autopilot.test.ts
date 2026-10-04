@@ -388,6 +388,12 @@ test("openPrSteer requires local verification before commit/push/PR", () => {
   expect(steer).toContain("lint/check/test");
 });
 
+test("open-PR and CI-fix steers ask for a rebase onto the base before pushing", () => {
+  expect(openPrSteer(false, "epic/9-x")).toContain("rebase onto origin/epic/9-x");
+  expect(CI_FIX_STEER).toContain("rebase onto your PR's base branch");
+  expect(CI_FIX_STEER).toContain("--force-with-lease");
+});
+
 test("openPrSteer(false, ...) omits the draft note", () => {
   expect(openPrSteer(false, "main")).not.toContain(DRAFT_PR_NOTE);
 });

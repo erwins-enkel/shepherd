@@ -49,10 +49,11 @@ for scale in [1, 2] {
     NSColor(srgbRed: 232/255, green: 161/255, blue: 58/255, alpha: 1).setStroke()
     arrow.stroke()
 
-    // Captions begin near y=300/324 from the top, with space below the
-    // 30pt filename backplates and above the bottom of Finder's content area.
-    text("Drag Shepherd to Applications to install", y: 80, size: 14, color: white)
-    text("Zum Installieren auf Programme ziehen", y: 58, size: 12, color: muted)
+    // Captions begin near y=278/300 from the top, with space below the
+    // 30pt filename backplates and clear of Finder's path bar, which a global
+    // user preference can show despite the DMG settings.
+    text("Drag Shepherd to Applications to install", y: 102, size: 14, color: white)
+    text("Zum Installieren auf Programme ziehen", y: 80, size: 12, color: muted)
     NSGraphicsContext.restoreGraphicsState()
     let name = scale == 1 ? "background.png" : "background@2x.png"
     try bitmap.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent(name))

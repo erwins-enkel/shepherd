@@ -34,43 +34,40 @@ public struct BunUpgradeRun: Sendable {
     process.environment = environment.childEnvironment(prepending: [bun.deletingLastPathComponent().path])
     process.standardOutput = pipe
     process.standardError = pipe
-    let (exits, exitSignal) = AsyncStream<Int32>.makeStream()
-    process.terminationHandler = { child in
-      exitSignal.yield(child.terminationStatus)
-      exitSignal.finish()
-    }
-    // One Sendable reference for the timer task, the cancel handler and the run
-    // body: capturing the two local `Mutex`es directly is rejected by Swift 6.3.
+    // Built from the two patterns `LocalRunnerStart` already runs on CI: output is
+    // drained by its own task (`launch`) and the exit is polled under a deadline
+    // (`probeCommand`). A separate timer task plus an AsyncStream exit wait inside
+    // the cancellation handler aborted Swift 6.3's runtime on the CI runners
+    // ("freed pointer was not the last allocation").
     let shared = SharedState()
+    process.terminationHandler = { child in shared.exitCode.withLock { $0 = child.terminationStatus } }
     let timeout = self.timeout
-    // The handler wraps only the child's lifetime; the version re-check runs after
-    // it. Swift 6.3's task allocator aborts ("freed pointer was not the last
-    // allocation") when a `defer`-cancelled timer task and further awaits share
-    // the cancellation-handler closure, so neither lives in there.
     let exit: ChildExit = await withTaskCancellationHandler {
       do { try process.run() } catch {
         await log.append("could not start bun upgrade: \(error)")
         return .notStarted
       }
       testSeamAfterRun?()
-      shared.livePID.withLock { $0 = process.processIdentifier }
-      if Task.isCancelled { Self.terminate(process.processIdentifier, gracePeriod: 2) }
-      let timer = Task {
-        do { try await Task.sleep(for: .seconds(timeout)) } catch { return }
-        guard let pid = shared.livePID.withLock({ $0 }) else { return }
-        shared.timedOut.withLock { $0 = true }
-        await log.append("bun upgrade timed out")
-        Self.terminate(pid, gracePeriod: 2)
+      let pid = process.processIdentifier
+      shared.livePID.withLock { $0 = pid }
+      if Task.isCancelled { Self.terminate(pid, gracePeriod: 2) }
+      let output = Task { [log] in
+        await ProcessOutputPump.pump(pipe.fileHandleForReading) { line in await log.append(line) }
       }
-      await ProcessOutputPump.pump(pipe.fileHandleForReading) { line in await log.append(line) }
-      // An independent reader still reaps the child when this task is cancelled.
-      let code = await Task {
-        var exit = exits.makeAsyncIterator()
-        return await exit.next()
-      }.value
-      timer.cancel()
+      let deadline = Date().addingTimeInterval(timeout)
+      while shared.exitCode.withLock({ $0 }) == nil {
+        if Date() >= deadline, !shared.timedOut.withLock({ $0 }) {
+          shared.timedOut.withLock { $0 = true }
+          await log.append("bun upgrade timed out")
+          Self.terminate(pid, gracePeriod: 2)
+        }
+        // A cancelled task's sleep throws at once; `onCancel` is already killing
+        // the child, so back off briefly instead of spinning until it is reaped.
+        do { try await Task.sleep(for: .milliseconds(50)) } catch { usleep(20_000) }
+      }
+      await output.value
       shared.livePID.withLock { $0 = nil }
-      return .exited(code)
+      return .exited(shared.exitCode.withLock { $0 })
     } onCancel: {
       guard let pid = shared.livePID.withLock({ $0 }) else { return }
       Self.terminate(pid, gracePeriod: 2)
@@ -96,6 +93,7 @@ public struct BunUpgradeRun: Sendable {
 
   private final class SharedState: Sendable {
     let livePID = Mutex<Int32?>(nil)
+    let exitCode = Mutex<Int32?>(nil)
     let timedOut = Mutex(false)
   }
 

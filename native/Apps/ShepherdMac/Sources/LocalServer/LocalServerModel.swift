@@ -111,7 +111,7 @@ final class LocalServerModel {
             @Sendable (LocalServerEnvironment, LogRing) async -> Result<Void, LocalServerFailure>
         )? = nil,
         bunUpgrader: (@Sendable (LocalServerEnvironment, LogRing) async -> Result<String, LocalServerFailure>)? = nil,
-        bunVersion: @escaping @Sendable (URL) async -> String? = LocalServerEnvironment.probeBunVersion,
+        bunVersion: @escaping @Sendable (URL) async -> String? = { await LocalServerEnvironment.probeBunVersion($0) },
         clock: any SupervisorClock = SystemSupervisorClock()
     ) {
         self.environment = environment

@@ -212,7 +212,7 @@ public actor LocalServerSupervisor {
     identityHealth: (@Sendable (LocalServerIdentity) async -> Bool)? = nil,
     clock: any SupervisorClock = SystemSupervisorClock(),
     policy: RestartPolicy = RestartPolicy(),
-    bunVersion: @escaping @Sendable (URL) async -> String? = LocalServerEnvironment.probeBunVersion,
+    bunVersion: @escaping @Sendable (URL) async -> String? = { await LocalServerEnvironment.probeBunVersion($0) },
     launch: @escaping @Sendable () -> LocalServerLaunch?
   ) {
     self.environment = environment

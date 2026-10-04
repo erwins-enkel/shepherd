@@ -12445,6 +12445,7 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quitCancelsTheKeptBunUpgradeTask() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"upgradingBunStartsTheSupervisorAndPullsTheLog() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"bunFailuresOfferUpgradeAndStartInsteadOfInstall()\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"bunUpgradeControlsStayVisibleAndDisabledWhileUpgrading()\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"bunUpgradeControlsStayVisibleAndDisabledWhileUpgrading()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/BunUpgradeRunTests.swift\",\"BunUpgradeRunTests\",\"probeReadsTheVersionAndRejectsUnreadableOutput() async throws\"]"
   ]
 }

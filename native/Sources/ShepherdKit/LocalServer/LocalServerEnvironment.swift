@@ -69,34 +69,35 @@ public struct LocalServerEnvironment: Sendable {
     return numbers.lexicographicallyPrecedes(minimum)
   }
 
+  /// `bun --version`, bounded to five seconds. Waits on the termination handler
+  /// like `InstallerRun` does rather than blocking a worker in `waitUntilExit()`.
   public static func probeBunVersion(_ bun: URL) async -> String? {
-    await Task.detached {
-      // A file avoids a full stdout pipe stalling the five-second probe.
-      let output = FileManager.default.temporaryDirectory.appendingPathComponent("shepherd-bun-version-\(UUID().uuidString)")
-      guard FileManager.default.createFile(atPath: output.path, contents: nil, attributes: [.posixPermissions: 0o600]),
-            let handle = try? FileHandle(forUpdating: output) else { return nil }
-      defer { try? handle.close(); try? FileManager.default.removeItem(at: output) }
-      let process = Process()
-      process.executableURL = bun
-      process.arguments = ["--version"]
-      process.standardOutput = handle
-      process.standardError = FileHandle.nullDevice
-      do { try process.run() } catch { return nil }
-      let deadline = Date().addingTimeInterval(5)
-      while process.isRunning, Date() < deadline { usleep(20_000) }
-      if process.isRunning {
-        BunUpgradeRun.terminate(process.processIdentifier, gracePeriod: 0)
-        process.waitUntilExit()
-        return nil
-      }
-      process.waitUntilExit()
-      guard process.terminationStatus == 0 else { return nil }
-      try? handle.seek(toOffset: 0)
-      guard let data = try? handle.read(upToCount: 4096),
-            let version = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-            bunVersionComponents(version) != nil else { return nil }
-      return version
-    }.value
+    let pipe = Pipe()
+    let process = Process()
+    process.executableURL = bun
+    process.arguments = ["--version"]
+    process.standardOutput = pipe
+    process.standardError = FileHandle.nullDevice
+    let (exits, exitSignal) = AsyncStream<Int32>.makeStream()
+    process.terminationHandler = { child in
+      exitSignal.yield(child.terminationStatus)
+      exitSignal.finish()
+    }
+    do { try process.run() } catch { return nil }
+    let pid = process.processIdentifier
+    let deadline = Task {
+      do { try await Task.sleep(for: .seconds(5)) } catch { return }
+      kill(pid, SIGKILL)
+    }
+    var exit = exits.makeAsyncIterator()
+    let code = await exit.next()
+    deadline.cancel()
+    guard code == 0 else { return nil }
+    // `--version` prints one short line, far below the pipe buffer, and the child has exited.
+    guard let data = try? pipe.fileHandleForReading.read(upToCount: 4096),
+          let version = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+          bunVersionComponents(version) != nil else { return nil }
+    return version
   }
 
   /// The installer's `SHEPHERD_DIR` default (`deploy/install.sh`).

@@ -12,6 +12,15 @@ import Testing
     return (bun, home)
   }
 
+  @Test func probeReadsTheVersionAndRejectsUnreadableOutput() async throws {
+    let (bun, home) = try fakeBun("if [ \"$1\" = --version ]; then echo 1.4.2; fi")
+    defer { try? FileManager.default.removeItem(at: home) }
+    #expect(await LocalServerEnvironment.probeBunVersion(bun) == "1.4.2")
+    let (garbled, garbledHome) = try fakeBun("echo not-a-version")
+    defer { try? FileManager.default.removeItem(at: garbledHome) }
+    #expect(await LocalServerEnvironment.probeBunVersion(garbled) == nil)
+  }
+
   @Test func successfulUpgradeStreamsOutputAndRechecksTheLocatedExecutable() async throws {
     let (bun, home) = try fakeBun("""
     if [ "$1" = --version ]; then echo 1.4.2; exit; fi

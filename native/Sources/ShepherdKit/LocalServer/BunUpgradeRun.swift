@@ -14,7 +14,7 @@ public struct BunUpgradeRun: Sendable {
   public init(
     environment: LocalServerEnvironment, log: LogRing, executable: URL? = nil,
     timeout: TimeInterval = 180,
-    bunVersion: @escaping @Sendable (URL) async -> String? = LocalServerEnvironment.probeBunVersion
+    bunVersion: @escaping @Sendable (URL) async -> String? = { await LocalServerEnvironment.probeBunVersion($0) }
   ) {
     self.environment = environment
     self.log = log

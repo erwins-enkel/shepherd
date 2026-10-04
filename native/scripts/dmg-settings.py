@@ -1,16 +1,21 @@
 """Headless Finder layout for dmgbuild 1.6.7; no Finder/AppleScript required."""
 import os
 import plistlib
+import sys
 
 application = defines["app"]
 with open(os.path.join(application, "Contents", "Info.plist"), "rb") as source:
     info = plistlib.load(source)
-icon_name = info["CFBundleIconFile"]
-if not icon_name.endswith(".icns"):
+# The volume icon is cosmetic: packaging an older tag that predates the app icon
+# still yields a valid installer. test-package-dmg.sh asserts both icons in CI.
+icon_name = info.get("CFBundleIconFile")
+if icon_name and not icon_name.endswith(".icns"):
     icon_name += ".icns"
-icon = os.path.join(application, "Contents", "Resources", icon_name)
-if not os.path.isfile(icon):
-    raise ValueError("The app must contain its compiled .icns icon")
+volume_icon = icon_name and os.path.join(application, "Contents", "Resources", icon_name)
+if volume_icon and os.path.isfile(volume_icon):
+    icon = volume_icon
+else:
+    print("warning: Shepherd.app has no compiled .icns icon; using the default volume icon", file=sys.stderr)
 
 format = "UDZO"
 filesystem = "HFS+"

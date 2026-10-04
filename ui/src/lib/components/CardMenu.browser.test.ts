@@ -151,3 +151,28 @@ describe("CardMenu amend action (#2225)", () => {
     expect(onamend).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("CardMenu bring-back action", () => {
+  it("renders Bring back only when onbringback is provided", async () => {
+    const { rerender } = await render(CardMenu, { props: base() });
+    expect(page.getByRole("menuitem", { name: m.donerecap_bringback() }).query()).toBeNull();
+
+    await rerender(base({ onbringback: vi.fn() }));
+    await expect
+      .element(page.getByRole("menuitem", { name: m.donerecap_bringback() }))
+      .toBeInTheDocument();
+  });
+
+  it("first click arms, second click fires onbringback once", async () => {
+    const onbringback = vi.fn();
+    render(CardMenu, { props: base({ onbringback }) });
+
+    await page.getByRole("menuitem", { name: m.donerecap_bringback() }).click();
+    expect(onbringback).not.toHaveBeenCalled();
+    const confirm = page.getByRole("menuitem", { name: m.donerecap_bringback_confirm() });
+    await expect.element(confirm).toHaveClass(/\barmed\b/);
+
+    await confirm.click();
+    expect(onbringback).toHaveBeenCalledTimes(1);
+  });
+});

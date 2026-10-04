@@ -3,18 +3,45 @@
   import { recaps } from "$lib/recaps.svelte";
   import { formatAgo } from "$lib/format";
   import { m } from "$lib/paraglide/messages";
+  import CardMenu from "../CardMenu.svelte";
+  import { longPress } from "../longpress";
 
   let {
     doneList,
     doneSelectedId,
     ondoneselect,
+    onbringback,
     nowMs,
   }: {
     doneList: Session[];
     doneSelectedId: string | null;
     ondoneselect?: (id: string) => void;
+    // when provided, right-click / long-press on a row opens a menu with "Bring back"
+    onbringback?: (id: string) => void;
     nowMs: number;
   } = $props();
+
+  // Row context menu (right-click on desktop, long-press on touch) — mirrors UnitRow.
+  // Row buttons by id: the long-press callback carries only coords, and the menu returns
+  // focus to the row that opened it.
+  const rowEls: Record<string, HTMLButtonElement | null> = {};
+  let menu = $state<{ id: string; x: number; y: number; opener?: HTMLElement } | null>(null);
+  // Returns whether a menu opened, so the long-press knows to swallow the trailing tap.
+  function openMenuAt(id: string, x: number, y: number): boolean {
+    if (menu || !onbringback) return false;
+    menu = { id, x, y, opener: rowEls[id] ?? undefined };
+    return true;
+  }
+  function onContextMenu(e: MouseEvent, id: string) {
+    if (!onbringback) return; // nothing to offer → leave native menu
+    e.preventDefault();
+    openMenuAt(id, e.clientX, e.clientY);
+  }
+  function bringBackFromMenu() {
+    const id = menu?.id;
+    menu = null;
+    if (id) onbringback?.(id);
+  }
 
   // Done lens row chrome: a finished session's recap verdict drives a small chip.
   // Semantic colors mirror SessionRecap/DoneRecapPanel (green = genuinely READY only;
@@ -43,11 +70,14 @@
   {#each doneList as ds (ds.id)}
     {@const r = recaps.map[ds.id]}
     <button
+      bind:this={rowEls[ds.id]}
       type="button"
       class="done-row"
       class:sel={ds.id === doneSelectedId}
       data-unit-id={ds.id}
       onclick={() => ondoneselect?.(ds.id)}
+      oncontextmenu={(e) => onContextMenu(e, ds.id)}
+      use:longPress={{ onTrigger: (x, y) => openMenuAt(ds.id, x, y) }}
     >
       <div class="done-row-top">
         <span class="done-desig">{ds.desig}</span>
@@ -66,6 +96,16 @@
       <span class="done-snippet">{r?.state === "ready" ? r.headline : ds.name || ds.prompt}</span>
     </button>
   {/each}
+{/if}
+{#if menu}
+  <CardMenu
+    x={menu.x}
+    y={menu.y}
+    resumable={false}
+    opener={menu.opener}
+    onbringback={bringBackFromMenu}
+    onclose={() => (menu = null)}
+  />
 {/if}
 
 <style>

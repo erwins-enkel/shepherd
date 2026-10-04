@@ -3039,6 +3039,7 @@
               doneSelectedId = id;
               mobileScreen = "detail";
             }}
+            onbringback={onBringBack}
             onackmigrationsepic={onAckEpicMigrations}
             onackmanualsteps={onAckManualSteps}
             onshowowed={onShowOwed}
@@ -3209,6 +3210,7 @@
               doneList={shownDoneSessions}
               {doneSelectedId}
               ondoneselect={(id) => (doneSelectedId = id)}
+              onbringback={onBringBack}
               onackmigrationsepic={onAckEpicMigrations}
               onackmanualsteps={onAckManualSteps}
               onshowowed={onShowOwed}

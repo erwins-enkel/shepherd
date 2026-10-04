@@ -1,6 +1,14 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
-import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ApnsSender, apnsEndpoint, type ApnsResult, type ApnsTransport } from "../src/apns";
@@ -55,9 +63,14 @@ test("saving a valid key turns the sender on without a restart and never echoes 
   });
   expect(JSON.stringify(status)).not.toContain("PRIVATE KEY");
   expect(sender.enabled).toBe(true);
-  // Stored beside the db, readable by the owner only.
-  expect(statSync(path).mode & 0o777).toBe(0o600);
-  expect(JSON.parse(readFileSync(path, "utf8")).key).toBe(key.trim() + "\n");
+  // Stored beside the db, readable by the owner only — mode and content read through one fd.
+  const fd = openSync(path, "r");
+  try {
+    expect(fstatSync(fd).mode & 0o777).toBe(0o600);
+    expect(JSON.parse(readFileSync(fd, "utf8")).key).toBe(key.trim() + "\n");
+  } finally {
+    closeSync(fd);
+  }
 
   await sender.send("production", TOKEN, {
     title: "T",

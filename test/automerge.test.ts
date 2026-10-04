@@ -145,7 +145,10 @@ test("behind → steers a rebase + bumps the counter, does NOT merge", async () 
   const svc = new AutoMergeService(d);
   await svc.pump("/r");
   expect(reply.mock.calls.length).toBe(1);
-  expect((setState as any).mock.calls[0]).toEqual(["s1", { rebaseCount: 1, rebaseHead: "h1" }]);
+  expect((setState as any).mock.calls[0]).toEqual([
+    "s1",
+    { rebaseCount: 1, rebaseHead: "h1", rebaseSteeredAt: expect.any(Number) },
+  ]);
   // The rebase is a fresh procedural task → autopilot's step budget is reset so unblocking
   // it across gates doesn't spuriously trip the runaway cap.
   expect((apState as any).mock.calls[0]).toEqual(["s1", { stepCount: 0 }]);
@@ -187,7 +190,10 @@ test("dead pane → resume attempted before steer; counter bumped once resumed",
   await svc.pump("/r");
   expect(resume.mock.calls.length).toBe(1);
   expect(reply.mock.calls.length).toBe(1);
-  expect((setState as any).mock.calls[0]).toEqual(["s1", { rebaseCount: 1, rebaseHead: "h1" }]);
+  expect((setState as any).mock.calls[0]).toEqual([
+    "s1",
+    { rebaseCount: 1, rebaseHead: "h1", rebaseSteeredAt: expect.any(Number) },
+  ]);
 });
 
 test("herdr-restored account husk (deferSteer true) → resume attempted before steer, even though paneAlive", async () => {
@@ -205,7 +211,10 @@ test("herdr-restored account husk (deferSteer true) → resume attempted before 
   await svc.pump("/r");
   expect(resume.mock.calls.length).toBe(1);
   expect(reply.mock.calls.length).toBe(1);
-  expect((setState as any).mock.calls[0]).toEqual(["s1", { rebaseCount: 1, rebaseHead: "h1" }]);
+  expect((setState as any).mock.calls[0]).toEqual([
+    "s1",
+    { rebaseCount: 1, rebaseHead: "h1", rebaseSteeredAt: expect.any(Number) },
+  ]);
 });
 
 test("deferSteer false + paneAlive true → replies directly, no resume (unchanged)", async () => {
@@ -486,7 +495,10 @@ test("reset-on-progress NEGATIVE: behind=false + mergeable=false → counter NOT
   expect(resetCalls.length).toBe(0);
   // A rebase steer was sent (mergeable=false triggers needsRebase) and counter bumped to 4
   expect(reply.mock.calls.length).toBe(1);
-  expect((setState as any).mock.calls).toContainEqual(["s1", { rebaseCount: 4, rebaseHead: "h1" }]);
+  expect((setState as any).mock.calls).toContainEqual([
+    "s1",
+    { rebaseCount: 4, rebaseHead: "h1", rebaseSteeredAt: expect.any(Number) },
+  ]);
 });
 
 // ── behind cache ───────────────────────────────────────────────────────────────

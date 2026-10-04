@@ -49,6 +49,9 @@ export interface MergeSessionView {
   behind: boolean | null;
   reviewDecision: ReviewDecision | null;
   reviewHeadSha: string | null;
+  /** The verdict records a pre-spawn abort (the critic never ran, e.g. no usable account), not a
+   *  review. Absent = false. */
+  reviewSpawnAborted?: boolean;
   /** The PR is a draft (not ready-for-review). false when unknown/no PR. */
   isDraft: boolean;
   /** A human submitted an APPROVED review on the PR (forge data). */
@@ -173,10 +176,10 @@ function readyToMerge(
  *  `refs/pull/N/merge`, so no `pull_request` workflow runs, so `checks` stays "none" — which
  *  simultaneously shuts the critic (review.ts's consider), this predicate, and autopilot's
  *  rebaseCandidate. A rebase would require green CI, and green CI would require a rebase. So the
- *  CI-green gate is waived for a DEFINITE conflict only, where it is unsatisfiable by
- *  construction; a `behind` PR with pending checks keeps it (CI is genuinely still coming). The
- *  same deadlock means a verdict on an older head can never be refreshed, so under a definite
- *  conflict it is treated as no verdict (its changes_requested/error/head-mismatch legs waived).
+ *  CI-green gate is waived for a DEFINITE conflict, where it is unsatisfiable by construction —
+ *  and for a `behind` PR, where CI and review would only be spent on a base the rebase replaces
+ *  (rebase as soon as behind shows). For both, a verdict on an older head can never be refreshed
+ *  (no CI / critic held), so it is treated as no verdict; see {@link rebaseVerdictAllows}.
  */
 function rebaseEligible(
   s: MergeSessionView,
@@ -189,7 +192,8 @@ function rebaseEligible(
   // default branch. Steering the agent to `git rebase origin/main` would be actively wrong, and
   // the train can't land it anyway — so it warrants no rebase either.
   if (s.stacked) return false;
-  if (!isDefiniteConflict(s) && !checksCleared(s.checks, s.noCi)) return false;
+  // Behind waives it too: CI on a stale base is wasted — rebase first, then CI runs once.
+  if (!rebaseUrgent(s) && !checksCleared(s.checks, s.noCi)) return false;
   // draftMode: never rebase an unsigned PR (don't churn CI on a draft awaiting sign-off).
   if (draftMode && !signedOff(authority, signoffView(s))) return false;
   if (!rebaseVerdictAllows(s, criticEnabled)) return false;
@@ -198,14 +202,26 @@ function rebaseEligible(
   return s.behind === true || s.mergeable === false || isDefiniteConflict(s);
 }
 
-/** The critic-verdict leg of {@link rebaseEligible}. Under a definite conflict a verdict on an
- *  OLDER head counts as none: no CI runs, so the critic can never re-review and that verdict can
- *  never refresh (changes_requested → fix push → base moves would otherwise wedge the PR forever).
- *  A current-head verdict still gates. */
+/** Behind or definitely conflicting: rebase as soon as possible, without waiting for CI or the
+ *  critic. A conflicting PR can't run CI at all, and CI/review on a behind PR is spent on a base
+ *  the rebase is about to replace (review.ts holds the critic while the PR is behind). */
+function rebaseUrgent(s: MergeSessionView): boolean {
+  return s.behind === true || isDefiniteConflict(s);
+}
+
+/** The critic-verdict leg of {@link rebaseEligible}. When the rebase is urgent (behind or a
+ *  definite conflict) a verdict on an OLDER head counts as none: the critic is held (behind) or
+ *  can't run (conflict), so it can never refresh. A CURRENT-head verdict still gates — and with
+ *  findings it gates too ("fix first, then rebase"), so the critic's auto-address steer and the
+ *  rebase steer never land on the same idle pane. */
 function rebaseVerdictAllows(s: MergeSessionView, criticEnabled: boolean): boolean {
+  // A spawn-aborted error is no verdict on an urgent PR: review.ts holds the critic while behind,
+  // so it can't retry, and blocking on it would wedge the PR until an operator forces a review.
+  if (s.reviewSpawnAborted && rebaseUrgent(s)) return true;
   const stale = s.reviewDecision !== null && s.reviewHeadSha !== s.headSha;
-  if (stale && isDefiniteConflict(s)) return true;
+  if (stale && rebaseUrgent(s)) return true;
   if (s.reviewDecision === "changes_requested" || s.reviewDecision === "error") return false;
+  if (s.reviewDecision !== null && !stale && s.findings.length > 0) return false;
   // a re-review is already pending for a newer head → let the critic settle first
   return !(criticEnabled && stale);
 }
@@ -213,8 +229,9 @@ function rebaseVerdictAllows(s: MergeSessionView, criticEnabled: boolean): boole
 /** AVAILABILITY — is NOW the moment to act on an eligible PR? */
 function rebaseAvailable(s: MergeSessionView, now: number): boolean {
   // The train has no tick-level idleness filter (unlike autopilot.tick()), so without this it
-  // would re-steer an agent midway through resolving the conflict.
-  if (isDefiniteConflict(s) && s.busy) return false;
+  // would steer an agent mid-work — mid-conflict-resolution, or (now that behind no longer waits
+  // for green CI) while it is still pushing.
+  if (s.busy) return false;
   if (s.headSha === null || s.rebaseSteeredHead !== s.headSha) return true;
   // Same head already steered. behind-only keeps today's permanent dedup — its head DOES move
   // once the agent rebases. A conflicting head may never move, so that dedup EXPIRES (Defect D):

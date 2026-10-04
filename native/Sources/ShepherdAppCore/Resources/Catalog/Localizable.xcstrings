@@ -20530,13 +20530,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Noch keine Plan-Datei vorhanden. Öffne dieses Fenster erneut, sobald der Agent den Plan geschrieben hat."
+            "value": "Noch kein geprüfter Plan verfügbar."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No plan file yet. Reopen this panel after the agent writes the plan."
+            "value": "No reviewed plan available yet."
           }
         }
       }

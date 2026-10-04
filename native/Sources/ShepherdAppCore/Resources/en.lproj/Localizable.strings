@@ -1197,7 +1197,7 @@
 "planpanel_native_go_failed" = "Execution could not be started. Try again.";
 "planpanel_native_not_releasable" = "The plan is not approved or is no longer in the planning phase.";
 "planpanel_no_verdict" = "The plan reviewer did not produce a verdict.";
-"planpanel_plan_unavailable" = "No plan file yet. Reopen this panel after the agent writes the plan.";
+"planpanel_plan_unavailable" = "No reviewed plan available yet.";
 "planpanel_proposed_caption" = "Proposed — not yet built · the plan text below is authoritative";
 "planpanel_quota_dismiss" = "Dismiss stall";
 "planpanel_quota_dismissing" = "Dismissing…";

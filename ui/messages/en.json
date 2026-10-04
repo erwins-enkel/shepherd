@@ -676,7 +676,7 @@
   "planpanel_title": "Pre-execution plan",
   "planpanel_back_aria": "Back to session",
   "planpanel_empty": "No plan written yet.",
-  "planpanel_plan_unavailable": "No plan file yet. Reopen this panel after the agent writes the plan.",
+  "planpanel_plan_unavailable": "No reviewed plan available yet.",
   "planpanel_verdict": "Reviewer verdict",
   "planpanel_findings": "Requested changes",
   "planpanel_go": "Go: start execution",

@@ -43,10 +43,14 @@ public struct BunUpgradeRun: Sendable {
     // body: capturing the two local `Mutex`es directly is rejected by Swift 6.3.
     let shared = SharedState()
     let timeout = self.timeout
-    return await withTaskCancellationHandler {
+    // The handler wraps only the child's lifetime; the version re-check runs after
+    // it. Swift 6.3's task allocator aborts ("freed pointer was not the last
+    // allocation") when a `defer`-cancelled timer task and further awaits share
+    // the cancellation-handler closure, so neither lives in there.
+    let exit: ChildExit = await withTaskCancellationHandler {
       do { try process.run() } catch {
         await log.append("could not start bun upgrade: \(error)")
-        return .failure(.bunUpgradeFailed(exitCode: 127))
+        return .notStarted
       }
       testSeamAfterRun?()
       shared.livePID.withLock { $0 = process.processIdentifier }
@@ -58,29 +62,36 @@ public struct BunUpgradeRun: Sendable {
         await log.append("bun upgrade timed out")
         Self.terminate(pid, gracePeriod: 2)
       }
-      defer { timer.cancel() }
       await ProcessOutputPump.pump(pipe.fileHandleForReading) { line in await log.append(line) }
       // An independent reader still reaps the child when this task is cancelled.
       let code = await Task {
         var exit = exits.makeAsyncIterator()
         return await exit.next()
       }.value
+      timer.cancel()
       shared.livePID.withLock { $0 = nil }
-      if Task.isCancelled { return .failure(.bunUpgradeFailed(exitCode: 130)) }
-      if shared.timedOut.withLock({ $0 }) { return .failure(.bunUpgradeFailed(exitCode: 124)) }
-      guard let code, code == 0 else { return .failure(.bunUpgradeFailed(exitCode: code ?? 127)) }
-      guard let version = await bunVersion(bun), LocalServerEnvironment.bunVersionComponents(version) != nil else {
-        await log.append("could not read Bun version after upgrade")
-        return .failure(.bunUpgradeFailed(exitCode: 127))
-      }
-      guard !Task.isCancelled else { return .failure(.bunUpgradeFailed(exitCode: 130)) }
-      if LocalServerEnvironment.bunTooOld(version) { return .failure(.bunOutdated(version: version)) }
-      await log.append("Bun updated to \(version)")
-      return .success(version)
+      return .exited(code)
     } onCancel: {
       guard let pid = shared.livePID.withLock({ $0 }) else { return }
       Self.terminate(pid, gracePeriod: 2)
     }
+    guard case .exited(let code) = exit else { return .failure(.bunUpgradeFailed(exitCode: 127)) }
+    if Task.isCancelled { return .failure(.bunUpgradeFailed(exitCode: 130)) }
+    if shared.timedOut.withLock({ $0 }) { return .failure(.bunUpgradeFailed(exitCode: 124)) }
+    guard let code, code == 0 else { return .failure(.bunUpgradeFailed(exitCode: code ?? 127)) }
+    guard let version = await bunVersion(bun), LocalServerEnvironment.bunVersionComponents(version) != nil else {
+      await log.append("could not read Bun version after upgrade")
+      return .failure(.bunUpgradeFailed(exitCode: 127))
+    }
+    guard !Task.isCancelled else { return .failure(.bunUpgradeFailed(exitCode: 130)) }
+    if LocalServerEnvironment.bunTooOld(version) { return .failure(.bunOutdated(version: version)) }
+    await log.append("Bun updated to \(version)")
+    return .success(version)
+  }
+
+  private enum ChildExit: Sendable {
+    case notStarted
+    case exited(Int32?)
   }
 
   private final class SharedState: Sendable {

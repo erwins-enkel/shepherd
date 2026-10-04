@@ -201,6 +201,9 @@ jobs:
           native/scripts/test-update-signature.sh
           python3 native/scripts/test-publish-appcast.py
 
+      - name: Check the dev-launch session guard
+        run: python3 native/scripts/test-mac-dev-preflight.py
+
       - name: Build Shepherd.app
         run: |
           set -euo pipefail

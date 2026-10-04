@@ -5105,5 +5105,7 @@
   "native_ios_reply_draft": "Entwurf gespeichert",
   "native_ios_attachment_camera_usage": "Shepherd verwendet die Kamera, wenn du einer Sitzung ein Foto anhängst.",
   "native_ios_terminal_dialog_keys": "Antworttasten",
-  "native_ios_terminal_dialog_type": "Antwort tippen"
+  "native_ios_terminal_dialog_type": "Antwort tippen",
+  "feat_done_row_bring_back_title": "Zurückholen direkt aus „Fertig“",
+  "feat_done_row_bring_back_body": "Rechtsklicke eine beendete Sitzung unter „Fertig“ — oder halte sie auf Touch gedrückt — und wähle Zurückholen, um sie wiederherzustellen, ohne erst ihre Zusammenfassung zu öffnen. Wie der Button in der Zusammenfassung verlangt es eine Bestätigung per zweitem Klick."
 }

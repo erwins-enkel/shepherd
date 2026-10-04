@@ -22,6 +22,7 @@
     onreplace,
     oncleanTerminal,
     ondecommission,
+    onbringback,
     onclose,
   }: {
     // viewport coordinates of the pointer/long-press that opened the menu
@@ -59,6 +60,9 @@
     // repo's bare-shell session in the MAIN checkout; one-click, the action is cheap+reversible
     oncleanTerminal?: () => void;
     ondecommission?: () => void;
+    // when provided, a two-step armed "Bring back" item appears (a Done-lens row restoring its
+    // archived session) — armed like the DoneRecapPanel button, since restore is consequential
+    onbringback?: () => void;
     onclose: () => void;
   } = $props();
 
@@ -82,6 +86,21 @@
     relaunchTimer = setTimeout(() => (relaunchArmed = false), RELAUNCH_ARM_MS);
   }
   $effect(() => () => clearTimeout(relaunchTimer));
+
+  // Same arm → confirm window for Bring back.
+  let bringBackArmed = $state(false);
+  let bringBackTimer: ReturnType<typeof setTimeout> | undefined;
+  function onBringBackClick() {
+    clearTimeout(bringBackTimer);
+    if (bringBackArmed) {
+      bringBackArmed = false;
+      onbringback?.();
+      return;
+    }
+    bringBackArmed = true;
+    bringBackTimer = setTimeout(() => (bringBackArmed = false), RELAUNCH_ARM_MS);
+  }
+  $effect(() => () => clearTimeout(bringBackTimer));
 
   let el = $state<HTMLDivElement>();
 
@@ -163,6 +182,20 @@
   style="left:{pos?.left ?? x}px;top:{pos?.top ?? y}px"
   onkeydown={onNav}
 >
+  {#if onbringback}
+    <button
+      class="cm-item"
+      class:armed={bringBackArmed}
+      type="button"
+      role="menuitem"
+      tabindex="-1"
+      onclick={onBringBackClick}
+    >
+      <span class="cm-icon" aria-hidden="true">{bringBackArmed ? "⚠" : "↺"}</span>{bringBackArmed
+        ? m.donerecap_bringback_confirm()
+        : m.donerecap_bringback()}
+    </button>
+  {/if}
   {#if onmergepr}
     <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={onmergepr}>
       <span class="cm-icon" aria-hidden="true">⇥</span>{m.prbadge_merge()}

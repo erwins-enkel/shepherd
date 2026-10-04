@@ -5105,5 +5105,7 @@
   "native_ios_reply_draft": "Draft saved",
   "native_ios_attachment_camera_usage": "Shepherd uses the camera when you attach a photo to a session.",
   "native_ios_terminal_dialog_keys": "Answer keys",
-  "native_ios_terminal_dialog_type": "Type an answer"
+  "native_ios_terminal_dialog_type": "Type an answer",
+  "feat_done_row_bring_back_title": "Bring back from the Done list",
+  "feat_done_row_bring_back_body": "Right-click a finished session in the Done list — or long-press it on touch — and choose Bring back to restore it without opening its recap first. Like the recap's button, it asks you to confirm with a second click."
 }

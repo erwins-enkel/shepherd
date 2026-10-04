@@ -93,6 +93,7 @@
     doneList = [],
     doneSelectedId = null,
     ondoneselect = undefined,
+    onbringback = undefined,
     onackmigrationsepic = undefined,
     onackmanualsteps = undefined,
     onshowowed = undefined,
@@ -224,6 +225,8 @@
     doneSelectedId?: string | null;
     // a done row was picked → page selects it + shows its DoneRecapPanel in the main area
     ondoneselect?: (id: string) => void;
+    // a done row's context menu confirmed "Bring back" → page restores that archived session
+    onbringback?: (id: string) => void;
     // acknowledge a completed epic's landing-PR migrations (#645); also clears the row
     onackmigrationsepic?: (repoPath: string, parent: number) => void;
     // acknowledge a session's manual operator steps (#1060); clears its auto-merge gate
@@ -701,7 +704,7 @@
     {:else if filter === "done"}
       <!-- Done lens: archived sessions from the page's lazy doneSessions store (NOT the
          live `sessions` list). Read-only rows; clicking opens the DoneRecapPanel. -->
-      <HerdDoneList {doneList} {doneSelectedId} {ondoneselect} {nowMs} />
+      <HerdDoneList {doneList} {doneSelectedId} {ondoneselect} {onbringback} {nowMs} />
     {:else if sessions.length === 0}
       <!-- the status filter empties the list at PAGE level (herdSessions), so an
          empty status result lands HERE — it must outrank the repo note and the

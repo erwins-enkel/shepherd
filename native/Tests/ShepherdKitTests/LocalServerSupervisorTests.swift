@@ -87,6 +87,33 @@ func processesInGroup(_ group: Int32) -> [Int32] {
       log: LogRing(capacity: 200), health: { true }, clock: TestClock(), launch: { launch })
   }
 
+  @Test func outdatedBunFailsWithoutSpawning() async throws {
+    let (original, cleanup) = try fakeScript("touch spawned\nsleep 30\n")
+    defer { cleanup() }
+    let bun = original.workingDirectory.appendingPathComponent("bun")
+    try FileManager.default.copyItem(at: URL(fileURLWithPath: original.arguments[0]), to: bun)
+    let launch = LocalServerLaunch(executable: bun, arguments: [], workingDirectory: original.workingDirectory, environment: original.environment)
+    let sut = LocalServerSupervisor(environment: LocalServerEnvironment(home: original.workingDirectory),
+                                    health: { true }, bunVersion: { _ in "1.3.1" }, launch: { launch })
+    await sut.start()
+    #expect(await sut.state == .failed(.bunOutdated(version: "1.3.1")))
+    #expect(await sut.state.pid == nil)
+    #expect(!FileManager.default.fileExists(atPath: original.workingDirectory.appendingPathComponent("spawned").path))
+  }
+
+  @Test func unreadableBunVersionDoesNotBlockLaunch() async throws {
+    let (original, cleanup) = try fakeScript("sleep 30\n")
+    defer { cleanup() }
+    let bun = original.workingDirectory.appendingPathComponent("bun")
+    try FileManager.default.copyItem(at: URL(fileURLWithPath: original.arguments[0]), to: bun)
+    let launch = LocalServerLaunch(executable: bun, arguments: [], workingDirectory: original.workingDirectory, environment: original.environment)
+    let sut = LocalServerSupervisor(environment: LocalServerEnvironment(home: original.workingDirectory),
+                                    health: { true }, bunVersion: { _ in nil }, launch: { launch })
+    await sut.start()
+    #expect(await sut.state.isRunning)
+    await sut.stop()
+  }
+
   @Test func startingRunsTheChildAndLogsItsOutput() async throws {
     let (launch, cleanup) = try fakeScript(
       "echo 'shepherd core on http://localhost:7330'\necho 'loaded 3 sessions'\nsleep 30\n")

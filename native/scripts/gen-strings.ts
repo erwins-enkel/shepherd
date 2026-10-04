@@ -492,8 +492,19 @@ export const KEYS_IOS_ACTIONS: readonly string[] = [
 
 /** S5 — local server detection, install, start/stop/restart and the log tail. */
 export const KEYS_LOCALSERVER: readonly string[] = [
+  "native_local_bun_outdated_summary",
+  "native_local_bun_outdated_title",
+  "native_local_bun_outdated_what_body",
+  "native_local_bun_outdated_what_title",
+  "native_local_bun_outdated_why_body",
+  "native_local_bun_outdated_why_label",
+  "native_local_bun_outdated_why_title",
+  "native_local_bun_upgrade",
+  "native_local_bun_upgrading",
   "native_local_connect",
   "native_local_error_bun_missing",
+  "native_local_error_bun_outdated",
+  "native_local_error_bun_upgrade_failed",
   "native_local_error_crash_loop",
   "native_local_error_download",
   "native_local_error_exited",

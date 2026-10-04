@@ -12431,6 +12431,21 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoRecencyTests.swift\",\"CoreSeamTests.RepoRecencyTests\",\"reposNeverUsedAreNotRecent() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RepoRecencyTests.swift\",\"CoreSeamTests.RepoRecencyTests\",\"sessionsOfUnlistedReposAreIgnored() throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/RepoMenuTests.swift\",\"MacSeamTests.RepoMenuTests\",\"recentReposComeFirstThenEveryRepoInASubmenu() throws\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/RepoMenuTests.swift\",\"MacSeamTests.RepoMenuTests\",\"withoutRecentReposEveryRepoIsListedFlat() throws\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/RepoMenuTests.swift\",\"MacSeamTests.RepoMenuTests\",\"withoutRecentReposEveryRepoIsListedFlat() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/BunUpgradeRunTests.swift\",\"BunUpgradeRunTests\",\"cancellationBeforePidPublicationStillKillsTheUpgrade() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/BunUpgradeRunTests.swift\",\"BunUpgradeRunTests\",\"cancellationReapsTheUpgradeAndItsChildren() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/BunUpgradeRunTests.swift\",\"BunUpgradeRunTests\",\"failedUpgradeReportsExitAndSuccessStillBelowTheFloorFails() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/BunUpgradeRunTests.swift\",\"BunUpgradeRunTests\",\"successfulUpgradeStreamsOutputAndRechecksTheLocatedExecutable() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/BunUpgradeRunTests.swift\",\"BunUpgradeRunTests\",\"timeoutKillsTheChildAndReports124() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerEnvironmentTests.swift\",\"LocalServerEnvironmentTests\",\"bunMinimumUsesNumericComponentsAndIgnoresSuffixes()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerSupervisorTests.swift\",\"LocalServerSupervisorProcessTests\",\"outdatedBunFailsWithoutSpawning() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerSupervisorTests.swift\",\"LocalServerSupervisorProcessTests\",\"unreadableBunVersionDoesNotBlockLaunch() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"aFailedBunUpgradeDoesNotSpawnAndAllowsRetry() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"everyBunUpgradeStateHasACatalogSentence()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quitCancelsTheKeptBunUpgradeTask() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"upgradingBunStartsTheSupervisorAndPullsTheLog() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"bunFailuresOfferUpgradeAndStartInsteadOfInstall()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"bunUpgradeControlsStayVisibleAndDisabledWhileUpgrading()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/BunUpgradeRunTests.swift\",\"BunUpgradeRunTests\",\"probeReadsTheVersionAndRejectsUnreadableOutput() async throws\"]"
   ]
 }

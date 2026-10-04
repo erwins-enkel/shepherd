@@ -34,6 +34,7 @@ enum LocalServerFeature {
                 // its subtree synchronously, and an install in flight is the
                 // one thing `terminateForQuit()` cannot reach.
                 LocalServerModel.shared.cancelInstallForQuit()
+                LocalServerModel.shared.cancelBunUpgradeForQuit()
                 LocalServerModel.shared.terminateForQuit()
             }
         }

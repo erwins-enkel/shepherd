@@ -10,6 +10,7 @@ enum LocalServerCopy {
         switch state {
         case .notInstalled: L.t("native_local_state_not_installed")
         case .installing: L.t("native_local_state_installing")
+        case .upgradingBun: L.t("native_local_bun_upgrading")
         case .stopped: L.t("native_local_state_stopped")
         case .starting: L.t("native_local_state_starting")
         case .running(let pid): L.t("native_local_state_running", String(pid))
@@ -26,6 +27,8 @@ enum LocalServerCopy {
         case .runnerMissing: L.t("native_local_error_runner_missing")
         case .runnerTimeout: L.t("native_local_error_runner_timeout")
         case .bunMissing: L.t("native_local_error_bun_missing")
+        case .bunOutdated(let version): L.t("native_local_error_bun_outdated", version)
+        case .bunUpgradeFailed(let code): L.t("native_local_error_bun_upgrade_failed", String(code))
         case .notAShepherdCheckout(let path): L.t("native_local_error_not_checkout", path)
         case .installFailed(let code): L.t("native_local_error_install_failed", String(code))
         case .exited(let code): L.t("native_local_error_exited", String(code))
@@ -89,6 +92,14 @@ final class LocalServerModel {
     /// The in-flight `install()`, held so the quit path can cancel it — see
     /// `beginInstall()` / `cancelInstallForQuit()`.
     private var installTask: Task<Void, Never>?
+    private var bunUpgradeTask: Task<Void, Never>?
+    private var lastOutdatedBunVersion: String?
+    private let bunUpgrader: @Sendable (LocalServerEnvironment, LogRing) async -> Result<String, LocalServerFailure>
+
+    var outdatedBunVersion: String? {
+        if case .failed(.bunOutdated(let version)) = state { return version }
+        return lastOutdatedBunVersion
+    }
 
     init(
         environment: LocalServerEnvironment = LocalServerEnvironment(),
@@ -99,6 +110,8 @@ final class LocalServerModel {
         installer: (
             @Sendable (LocalServerEnvironment, LogRing) async -> Result<Void, LocalServerFailure>
         )? = nil,
+        bunUpgrader: (@Sendable (LocalServerEnvironment, LogRing) async -> Result<String, LocalServerFailure>)? = nil,
+        bunVersion: @escaping @Sendable (URL) async -> String? = { await LocalServerEnvironment.probeBunVersion($0) },
         clock: any SupervisorClock = SystemSupervisorClock()
     ) {
         self.environment = environment
@@ -111,11 +124,14 @@ final class LocalServerModel {
         self.installer = installer ?? { environment, log in
             await InstallerRun(environment: environment, log: log).run()
         }
+        self.bunUpgrader = bunUpgrader ?? { environment, log in
+            await BunUpgradeRun(environment: environment, log: log).run()
+        }
         let ring = log
         self.supervisor = LocalServerSupervisor(
             environment: environment, log: ring,
             health: health,
-            clock: clock,
+            clock: clock, bunVersion: bunVersion,
             launch: launch ?? LocalServerSupervisor.defaultLaunch(environment))
     }
 
@@ -126,7 +142,12 @@ final class LocalServerModel {
         if case .failed = state { return true }
         return false
     }
-    var canInstall: Bool { !busy && (state == .notInstalled || isFailed) }
+    var canInstall: Bool {
+        switch state {
+        case .failed(.bunOutdated), .failed(.bunUpgradeFailed), .upgradingBun: false
+        default: !busy && (state == .notInstalled || isFailed)
+        }
+    }
     var canStart: Bool { !busy && (state == .stopped || isFailed) }
     var canStop: Bool { !busy && state.isRunning }
     var canRestart: Bool { !busy && state.isRunning }
@@ -178,8 +199,13 @@ final class LocalServerModel {
             return
         }
         clearExternalObservation()
-        if case .failed = supervised { state = supervised }
-        else { state = environment.isShepherdCheckout() ? .stopped : .notInstalled }
+        switch state {
+        case .failed(.bunOutdated), .failed(.bunUpgradeFailed):
+            break // Keep the upgrade result and retry button when the panel reappears.
+        default:
+            if case .failed = supervised { state = supervised }
+            else { state = environment.isShepherdCheckout() ? .stopped : .notInstalled }
+        }
         await pullLog()
     }
 
@@ -225,6 +251,39 @@ final class LocalServerModel {
     func cancelInstallForQuit() {
         installTask?.cancel()
         installTask = nil
+    }
+
+    func upgradeBun() async {
+        guard !busy else { return }
+        busy = true
+        generation += 1
+        lastOutdatedBunVersion = outdatedBunVersion
+        state = .upgradingBun
+        let progress = sampleProgress()
+        defer { progress.cancel(); busy = false }
+        let result = await bunUpgrader(environment, log)
+        await pullLog()
+        guard !Task.isCancelled else { state = .stopped; return }
+        switch result {
+        case .success:
+            await resolveState()
+            guard state != .externallyManaged, !Task.isCancelled else { return }
+            state = .starting
+            await supervisor.start()
+            state = await supervisor.state
+            await pullLog()
+        case .failure(let failure): state = .failed(failure)
+        }
+    }
+
+    func beginBunUpgrade() {
+        guard !busy else { return }
+        bunUpgradeTask = Task { await self.upgradeBun() }
+    }
+
+    func cancelBunUpgradeForQuit() {
+        bunUpgradeTask?.cancel()
+        bunUpgradeTask = nil
     }
 
     func acknowledgeExternalServer() {

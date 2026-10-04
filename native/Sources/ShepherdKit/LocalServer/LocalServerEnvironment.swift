@@ -10,6 +10,8 @@ public enum LocalServerFailure: Error, Equatable, Sendable {
   case runnerMissing
   case runnerTimeout
   case bunMissing
+  case bunOutdated(version: String)
+  case bunUpgradeFailed(exitCode: Int32)
   case notAShepherdCheckout(path: String)
   case installFailed(exitCode: Int32)
   case exited(code: Int32)
@@ -48,6 +50,56 @@ public struct LocalServerSystemFileManager: LocalServerFileManaging {
 /// injected so tests never touch the real `~/.shepherd`. macOS-only: `Process`
 /// and `/bin/bash` do not exist on iOS and the kit compiles for `.iOS(.v18)` (D1).
 public struct LocalServerEnvironment: Sendable {
+  // Keep in sync with deploy/install.sh + src/runtime-guard.ts.
+  public static let minimumBunVersion = "1.3.2"
+
+  static func bunVersionComponents(_ version: String) -> [Int]? {
+    let core = version.trimmingCharacters(in: .whitespacesAndNewlines)
+      .components(separatedBy: "-")[0]
+    let parts = core.split(separator: ".", omittingEmptySubsequences: false)
+    guard parts.count == 3, parts.allSatisfy({ !$0.isEmpty && $0.allSatisfy({ $0.isASCII && $0.isNumber }) }) else { return nil }
+    let numbers = parts.compactMap { Int($0) }
+    return numbers.count == 3 ? numbers : nil
+  }
+
+  /// Unknown versions fail open; only a parsed numeric version can block launch.
+  public static func bunTooOld(_ version: String) -> Bool {
+    guard let numbers = bunVersionComponents(version),
+          let minimum = bunVersionComponents(minimumBunVersion) else { return false }
+    return numbers.lexicographicallyPrecedes(minimum)
+  }
+
+  /// `bun --version`, bounded to five seconds. Waits on the termination handler
+  /// like `InstallerRun` does rather than blocking a worker in `waitUntilExit()`.
+  public static func probeBunVersion(_ bun: URL) async -> String? {
+    let pipe = Pipe()
+    let process = Process()
+    process.executableURL = bun
+    process.arguments = ["--version"]
+    process.standardOutput = pipe
+    process.standardError = FileHandle.nullDevice
+    let (exits, exitSignal) = AsyncStream<Int32>.makeStream()
+    process.terminationHandler = { child in
+      exitSignal.yield(child.terminationStatus)
+      exitSignal.finish()
+    }
+    do { try process.run() } catch { return nil }
+    let pid = process.processIdentifier
+    let deadline = Task {
+      do { try await Task.sleep(for: .seconds(5)) } catch { return }
+      kill(pid, SIGKILL)
+    }
+    var exit = exits.makeAsyncIterator()
+    let code = await exit.next()
+    deadline.cancel()
+    guard code == 0 else { return nil }
+    // `--version` prints one short line, far below the pipe buffer, and the child has exited.
+    guard let data = try? pipe.fileHandleForReading.read(upToCount: 4096),
+          let version = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+          bunVersionComponents(version) != nil else { return nil }
+    return version
+  }
+
   /// The installer's `SHEPHERD_DIR` default (`deploy/install.sh`).
   public let appDirectory: URL
   /// Sourced by `install.sh` with `set -a` and by the systemd units'

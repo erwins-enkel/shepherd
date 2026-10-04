@@ -6,7 +6,7 @@ import os
 /// `externallyManaged` is a server we did not start and must not stop — the
 /// operator's own `bun run start` in a terminal, or a launchd job.
 public enum LocalServerState: Sendable, Equatable {
-  case notInstalled, installing, stopped, starting
+  case notInstalled, installing, upgradingBun, stopped, starting
   case running(pid: Int32)
   case externallyManaged
   case failed(LocalServerFailure)
@@ -72,6 +72,7 @@ public actor LocalServerSupervisor {
   private var launchIdentity: LocalServerIdentity?
   private let clock: any SupervisorClock
   private let makeLaunch: @Sendable () -> LocalServerLaunch?
+  private let bunVersion: @Sendable (URL) async -> String?
   private let policy: RestartPolicy
 
   public private(set) var state: LocalServerState = .stopped
@@ -211,6 +212,7 @@ public actor LocalServerSupervisor {
     identityHealth: (@Sendable (LocalServerIdentity) async -> Bool)? = nil,
     clock: any SupervisorClock = SystemSupervisorClock(),
     policy: RestartPolicy = RestartPolicy(),
+    bunVersion: @escaping @Sendable (URL) async -> String? = { await LocalServerEnvironment.probeBunVersion($0) },
     launch: @escaping @Sendable () -> LocalServerLaunch?
   ) {
     self.environment = environment
@@ -223,6 +225,7 @@ public actor LocalServerSupervisor {
     self.clock = clock
     self.policy = policy
     self.makeLaunch = launch
+    self.bunVersion = bunVersion
   }
 
   /// The production launch spec: `bun run src/index.ts` in the resolved install directory.
@@ -308,6 +311,14 @@ public actor LocalServerSupervisor {
       state = .failed(.bunMissing)
       return
     }
+    if launch.executable.lastPathComponent == "bun",
+       let version = await bunVersion(launch.executable),
+       LocalServerEnvironment.bunTooOld(version) {
+      guard terminationEpoch.withLock({ $0 }) == epoch else { return }
+      state = .failed(.bunOutdated(version: version))
+      return
+    }
+    guard terminationEpoch.withLock({ $0 }) == epoch, !Task.isCancelled else { return }
     stopping = false
     state = .starting
     let generation: Int

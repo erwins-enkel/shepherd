@@ -1,26 +1,11 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import { m } from "$lib/paraglide/messages";
 import { infoTips } from "$lib/info-tips.svelte";
 import { theme } from "$lib/theme.svelte";
-
-// Stub $lib/push so pushState resolves to unsupported — avoids navigator.
-vi.mock("$lib/push", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/push")>();
-  return {
-    ...actual,
-    pushState: vi.fn(async () => ({
-      supported: false,
-      permission: "unsupported" as const,
-      subscribed: false,
-    })),
-    getPushCategories: vi.fn(async () => ({ agent: true, reviews: true, ci: true })),
-  };
-});
-
-const { default: SettingsDevicePanel } = await import("./SettingsDevicePanel.svelte");
+import SettingsDevicePanel from "./SettingsDevicePanel.svelte";
 
 let fontStyle: HTMLStyleElement;
 beforeEach(() => {
@@ -51,37 +36,6 @@ beforeEach(() => {
 afterEach(() => {
   fontStyle.remove();
   document.body.innerHTML = "";
-});
-
-const switchEl = () => page.getByRole("switch", { name: m.settings_reduced_push_title() });
-
-describe("SettingsDevicePanel reduced-notifications switch", () => {
-  it("renders aria-checked=true and On state when reducedPushMode is true", async () => {
-    render(SettingsDevicePanel, { reducedPushMode: true });
-
-    await expect.element(switchEl()).toBeInTheDocument();
-    await expect.element(switchEl()).toHaveAttribute("aria-checked", "true");
-    await expect
-      .element(page.getByText(m.settings_reduced_push_on(), { exact: true }))
-      .toBeInTheDocument();
-  });
-
-  it("renders aria-checked=false when reducedPushMode is false", async () => {
-    render(SettingsDevicePanel, { reducedPushMode: false });
-
-    await expect.element(switchEl()).toBeInTheDocument();
-    await expect.element(switchEl()).toHaveAttribute("aria-checked", "false");
-  });
-
-  it("calls onToggleReducedPush when the switch is clicked", async () => {
-    const spy = vi.fn();
-    render(SettingsDevicePanel, { reducedPushMode: false, onToggleReducedPush: spy });
-
-    await expect.element(switchEl()).toBeInTheDocument();
-    await switchEl().click();
-
-    expect(spy).toHaveBeenCalledOnce();
-  });
 });
 
 // The hide-info-tips switch is a device pref, so the panel drives the store directly

@@ -48,6 +48,8 @@ import type {
   StandardCreateInput,
   DirListing,
   AccessToken,
+  ApnsStatus,
+  PushDevice,
   PluginUpdatesStatus,
   PullRequest,
   WorkflowRun,
@@ -352,6 +354,24 @@ export const demoState = {
   /** GET /api/access-tokens — the demo mints no machine tokens, so the empty list is a true
    *  zero. `{ tokens: [] }`, never `{}`: SettingsAccessPanel reads `tokens.length`. */
   accessTokens: (): { tokens: AccessToken[] } => ({ tokens: [] }),
+
+  /** GET /api/push/apns/config — the demo server has no APNs key, so iOS push reads as not set
+   *  up; the key itself is never part of this shape anyway. */
+  apnsConfig: (): ApnsStatus => ({
+    state: "unconfigured",
+    hasKey: false,
+    keyId: null,
+    teamId: null,
+    topic: "run.shepherd.ios",
+    keySavedAt: null,
+    env: { key: false, keyId: false, teamId: false, topic: false },
+    keyError: null,
+    lastError: null,
+    lastDeliveredAt: null,
+  }),
+
+  /** GET /api/push/devices — no device registers against the demo. `{ devices: [] }`, never `{}`. */
+  pushDevices: (): { devices: PushDevice[] } => ({ devices: [] }),
 
   /** GET /api/plugin-update — the demo's seeded plugins are all current, so no update is
    *  offered. The `plugins` array must be present: Settings' `$derived` reads

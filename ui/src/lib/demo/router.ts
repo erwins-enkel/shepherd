@@ -192,6 +192,9 @@ const newTaskGetRoutes: Record<string, GetHandler> = {
 const settingsGetRoutes: Record<string, GetHandler> = {
   "/api/fs/dirs": (url) => json(demoState.dirs(url.searchParams.get("path") ?? "")),
   "/api/access-tokens": () => json(demoState.accessTokens()),
+  // Settings → Notifications (#2696) reads both on mount; the panel dereferences `devices`.
+  "/api/push/apns/config": () => json(demoState.apnsConfig()),
+  "/api/push/devices": () => json(demoState.pushDevices()),
 };
 
 // ── repo-scoped lenses (#2295) ───────────────────────────────────────────────

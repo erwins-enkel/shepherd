@@ -30,6 +30,7 @@
   import SettingsCodingCliPanel from "$lib/components/settings/SettingsCodingCliPanel.svelte";
   import SettingsSessionPanel from "$lib/components/settings/SettingsSessionPanel.svelte";
   import SettingsDevicePanel from "$lib/components/settings/SettingsDevicePanel.svelte";
+  import SettingsNotificationsPanel from "$lib/components/settings/SettingsNotificationsPanel.svelte";
   import SettingsAccessPanel from "$lib/components/settings/SettingsAccessPanel.svelte";
   import SettingsDiagnosePanel from "$lib/components/settings/SettingsDiagnosePanel.svelte";
   import SettingsPluginsPanel from "$lib/components/settings/SettingsPluginsPanel.svelte";
@@ -189,7 +190,7 @@
   // Fable availability — shared by Coding CLI guidance and the Session toggle.
   let fableAvailable = $state(true);
   let fableAvailableBusy = $state(false);
-  // Reduced-notifications mode — surfaced in the Device panel.
+  // Reduced-notifications mode — surfaced in the Notifications panel.
   let reducedPushMode = $state(false);
   let reducedPushBusy = $state(false);
   // Repo root, resolved by the single getSettings() below and handed to the
@@ -333,6 +334,8 @@
         return m.settings_tab_plugins();
       case "session":
         return m.settings_tab_session();
+      case "notifications":
+        return m.settings_tab_notifications();
       case "device":
         return m.settings_tab_device();
       case "access":
@@ -525,16 +528,28 @@
       <div
         class="panel"
         use:panelShape={isNarrow}
+        id="settings-panel-notifications"
+        aria-label={m.settings_tab_notifications()}
+        hidden={active !== "notifications"}
+      >
+        <SettingsNotificationsPanel
+          {reducedPushMode}
+          {reducedPushBusy}
+          {query}
+          onToggleReducedPush={toggleReducedPush}
+        />
+      </div>
+
+      <div
+        class="panel"
+        use:panelShape={isNarrow}
         id="settings-panel-device"
         aria-label={m.settings_tab_device()}
         hidden={active !== "device"}
       >
         <SettingsDevicePanel
           {onwhatsnew}
-          {reducedPushMode}
-          {reducedPushBusy}
           {query}
-          onToggleReducedPush={toggleReducedPush}
           onfeedback={(kind: FeedbackKind) => {
             onclose?.();
             openFeedback(kind);

@@ -104,6 +104,7 @@ describe("modelGuidance", () => {
   });
 
   it("adds fit and cost markers to option labels", () => {
+    expect(modelOptionLabel("codex", "gpt-6.1-sol")).toBe("gpt-6.1-sol · strong · $$$");
     expect(modelOptionLabel("codex", "gpt-5.6-sol")).toBe("gpt-5.6-sol · max · $$$$");
     expect(modelOptionLabel("codex", "gpt-5.6-terra")).toBe("gpt-5.6-terra · balanced · $$$");
     expect(modelOptionLabel("codex", "gpt-5.6-luna")).toBe("gpt-5.6-luna · budget · $");

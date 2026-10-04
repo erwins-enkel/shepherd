@@ -476,6 +476,7 @@
 "model_guidance_codex_56_sol" = "Highly capable GPT-5.6 model for ambitious coding, research, and document work.";
 "model_guidance_codex_56_terra" = "Balanced GPT-5.6 Codex option for everyday agentic coding work.";
 "model_guidance_codex_5_codex" = "Budget Codex-specific option for small edits and routine follow-ups.";
+"model_guidance_codex_61_sol" = "GPT-6.1 model for complex coding and long-running work, with near-Astra performance at lower cost. Requires access for your Codex account.";
 "model_guidance_codex_6_astra" = "Most capable Codex model for complex, multi-step coding, research, and document work.";
 "model_guidance_codex_6_luna" = "Fast and affordable GPT-6 model for focused coding and clear, repeatable tasks.";
 "model_guidance_codex_6_sol" = "GPT-6 model for everyday work and complex coding, with lower token costs than GPT-5.6 Sol.";

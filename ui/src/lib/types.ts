@@ -2641,6 +2641,7 @@ export const EFFORTS = ["low", "medium", "high", "xhigh", "max", "ultra"] as con
 /** Curated Codex CLI model aliases shown in the task dialog. */
 export const CODEX_MODELS = [
   "gpt-5.6-sol",
+  "gpt-6.1-sol",
   "gpt-6-astra",
   "gpt-6-sol",
   "gpt-6-luna",

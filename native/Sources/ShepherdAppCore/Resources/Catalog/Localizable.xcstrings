@@ -8195,6 +8195,23 @@
         }
       }
     },
+    "model_guidance_codex_61_sol": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPT-6.1-Modell für komplexes Coding und langlaufende Aufgaben, mit Leistung nahe Astra bei niedrigeren Kosten. Benötigt Zugriff über dein Codex-Konto."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GPT-6.1 model for complex coding and long-running work, with near-Astra performance at lower cost. Requires access for your Codex account."
+          }
+        }
+      }
+    },
     "model_guidance_codex_6_astra": {
       "extractionState": "manual",
       "localizations": {

@@ -39,20 +39,22 @@ public struct BunUpgradeRun: Sendable {
       exitSignal.yield(child.terminationStatus)
       exitSignal.finish()
     }
-    let livePID = Mutex<Int32?>(nil)
-    let timedOut = Mutex(false)
+    // One Sendable reference for the timer task, the cancel handler and the run
+    // body: capturing the two local `Mutex`es directly is rejected by Swift 6.3.
+    let shared = SharedState()
+    let timeout = self.timeout
     return await withTaskCancellationHandler {
       do { try process.run() } catch {
         await log.append("could not start bun upgrade: \(error)")
         return .failure(.bunUpgradeFailed(exitCode: 127))
       }
       testSeamAfterRun?()
-      livePID.withLock { $0 = process.processIdentifier }
+      shared.livePID.withLock { $0 = process.processIdentifier }
       if Task.isCancelled { Self.terminate(process.processIdentifier, gracePeriod: 2) }
       let timer = Task {
         do { try await Task.sleep(for: .seconds(timeout)) } catch { return }
-        guard let pid = livePID.withLock({ $0 }) else { return }
-        timedOut.withLock { $0 = true }
+        guard let pid = shared.livePID.withLock({ $0 }) else { return }
+        shared.timedOut.withLock { $0 = true }
         await log.append("bun upgrade timed out")
         Self.terminate(pid, gracePeriod: 2)
       }
@@ -63,9 +65,9 @@ public struct BunUpgradeRun: Sendable {
         var exit = exits.makeAsyncIterator()
         return await exit.next()
       }.value
-      livePID.withLock { $0 = nil }
+      shared.livePID.withLock { $0 = nil }
       if Task.isCancelled { return .failure(.bunUpgradeFailed(exitCode: 130)) }
-      if timedOut.withLock({ $0 }) { return .failure(.bunUpgradeFailed(exitCode: 124)) }
+      if shared.timedOut.withLock({ $0 }) { return .failure(.bunUpgradeFailed(exitCode: 124)) }
       guard let code, code == 0 else { return .failure(.bunUpgradeFailed(exitCode: code ?? 127)) }
       guard let version = await bunVersion(bun), LocalServerEnvironment.bunVersionComponents(version) != nil else {
         await log.append("could not read Bun version after upgrade")
@@ -76,9 +78,14 @@ public struct BunUpgradeRun: Sendable {
       await log.append("Bun updated to \(version)")
       return .success(version)
     } onCancel: {
-      guard let pid = livePID.withLock({ $0 }) else { return }
+      guard let pid = shared.livePID.withLock({ $0 }) else { return }
       Self.terminate(pid, gracePeriod: 2)
     }
+  }
+
+  private final class SharedState: Sendable {
+    let livePID = Mutex<Int32?>(nil)
+    let timedOut = Mutex(false)
   }
 
   static func terminate(_ pid: Int32, gracePeriod: TimeInterval) {

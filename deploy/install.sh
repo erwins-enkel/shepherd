@@ -4,7 +4,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/erwins-enkel/shepherd/main/deploy/install.sh | bash
 #
 # THIN bootstrap: does only what must happen before Bun + a checkout exist — OS
-# detect, distro OS-prereqs, install Bun, land the repo, install deps — then hands off to
+# detect, distro OS-prereqs, install/upgrade Bun, land the repo, install deps — then hands off to
 # `deploy/provision.ts` (run FROM the checkout), which finishes provisioning from
 # the shared remediation table (src/remediations.ts).
 #
@@ -157,18 +157,40 @@ ensure_toolchain() {
 }
 
 # ── Bun ───────────────────────────────────────────────────────────────────────
-# Install Bun (idempotent — its installer no-ops when current) and put ~/.bun/bin
-# on PATH for the rest of this script. Transparency: echo the third-party command
-# before running it.
+# Bun 1.3.1 breaks keep-alive connections and crashes; sync with src/runtime-guard.ts + native LocalServerEnvironment.
+MIN_BUN_VERSION=1.3.2
+
+# POSIX numeric comparison; prerelease suffixes do not change the runtime floor.
+bun_version_at_least() {
+  awk -v version="${1%%-*}" -v minimum="$MIN_BUN_VERSION" 'BEGIN {
+    if (version !~ /^[0-9]+\.[0-9]+\.[0-9]+$/) exit 1
+    split(version, v, "."); split(minimum, m, ".")
+    for (i = 1; i <= 3; i++) {
+      if (v[i]+0 > m[i]+0) exit 0
+      if (v[i]+0 < m[i]+0) exit 1
+    }
+    exit 0
+  }'
+}
+
+# Install absent Bun, upgrade older runtimes, and put ~/.bun/bin on PATH.
 install_bun() {
   if ! command -v bun >/dev/null 2>&1 && [ ! -x "$HOME/.bun/bin/bun" ]; then
     note "installing Bun via: curl -fsSL https://bun.sh/install | bash"
     curl -fsSL https://bun.sh/install | bash || die "Bun install failed"
-  else
-    note "Bun already present — skipping"
   fi
   export PATH="$HOME/.bun/bin:$PATH"
   command -v bun >/dev/null 2>&1 || die "bun not on PATH after install (expected ~/.bun/bin/bun)"
+  local version
+  version="$(bun --version)" || die "Could not read Bun version; Shepherd requires Bun $MIN_BUN_VERSION or newer"
+  if ! bun_version_at_least "$version"; then
+    note "Bun $version is older than $MIN_BUN_VERSION — running bun upgrade"
+    bun upgrade || die "Bun upgrade failed; run bun upgrade manually (requires $MIN_BUN_VERSION or newer)"
+    version="$(bun --version)" || die "Could not read Bun version after upgrade"
+    bun_version_at_least "$version" || die "Bun $version is still too old after upgrade; Shepherd requires $MIN_BUN_VERSION or newer"
+  else
+    note "Bun $version already meets the $MIN_BUN_VERSION minimum — skipping upgrade"
+  fi
 }
 
 # retry <attempts> <cmd...>: run <cmd> until it succeeds, up to <attempts> times (mirrors

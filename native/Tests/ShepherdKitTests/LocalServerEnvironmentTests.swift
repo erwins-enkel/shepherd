@@ -17,6 +17,13 @@ func makeExecutable(_ url: URL) throws {
 }
 
 @Suite(.timeLimit(.minutes(1))) struct LocalServerEnvironmentTests {
+  @Test func bunMinimumUsesNumericComponentsAndIgnoresSuffixes() {
+    for version in ["1.3.1", "1.2.99", "0.99.99"] { #expect(LocalServerEnvironment.bunTooOld(version)) }
+    for version in ["1.3.2", "1.3.2-canary", "1.4.2", "1.10.0", "2.0.0", "", "unknown", "1.3", "1.3.x"] {
+      #expect(!LocalServerEnvironment.bunTooOld(version))
+    }
+  }
+
   @Test func customInstallAndDatabaseKeepExplicitHome() throws {
     let home = try makeTempHome()
     defer { try? FileManager.default.removeItem(at: home) }

@@ -12175,6 +12175,161 @@
         }
       }
     },
+    "native_local_bun_outdated_summary": {
+      "comment": "%1$@ = required, %2$@ = installed",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd benötigt Bun %1$@ oder neuer. Auf diesem Mac ist Bun %2$@ installiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd needs Bun %1$@ or newer. This Mac has Bun %2$@."
+          }
+        }
+      }
+    },
+    "native_local_bun_outdated_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bun muss aktualisiert werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bun needs an update"
+          }
+        }
+      }
+    },
+    "native_local_bun_outdated_what_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Er führt `bun upgrade` aus und startet den Server danach neu. Das dauert meist unter einer Minute. Dein Arbeitsordner, deine Sessions und Einstellungen bleiben unverändert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "It runs `bun upgrade` and then starts the server again. This usually takes under a minute. Your working folder, sessions and settings stay as they are."
+          }
+        }
+      }
+    },
+    "native_local_bun_outdated_what_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Was der Button macht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "What the button does"
+          }
+        }
+      }
+    },
+    "native_local_bun_outdated_why_body": {
+      "comment": "%1$@ = installed",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bun %1$@ hat einen Fehler: Sobald Shepherd seine Hintergrundarbeit startet, bricht Bun offene Verbindungen ab und stürzt kurz darauf ab. Die App meldet dann irreführend eine andere API-Version."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bun %1$@ has a bug: as soon as Shepherd starts its background work, Bun drops open connections and crashes shortly after. The app then misleadingly reports a different API version."
+          }
+        }
+      }
+    },
+    "native_local_bun_outdated_why_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warum ist das nötig?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Why is this needed?"
+          }
+        }
+      }
+    },
+    "native_local_bun_outdated_why_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Ursache"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cause"
+          }
+        }
+      }
+    },
+    "native_local_bun_upgrade": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bun aktualisieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Update Bun"
+          }
+        }
+      }
+    },
+    "native_local_bun_upgrading": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bun wird aktualisiert …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updating Bun…"
+          }
+        }
+      }
+    },
     "native_local_connect": {
       "extractionState": "manual",
       "localizations": {
@@ -12205,6 +12360,42 @@
           "stringUnit": {
             "state": "translated",
             "value": "Bun was not found. Choose Install and start to provision it, then check the log if installation fails."
+          }
+        }
+      }
+    },
+    "native_local_error_bun_outdated": {
+      "comment": "%1$@ = installed",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bun %1$@ ist zu alt für Shepherd."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bun %1$@ is too old for Shepherd."
+          }
+        }
+      }
+    },
+    "native_local_error_bun_upgrade_failed": {
+      "comment": "%1$@ = code",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Aktualisierung von Bun ist fehlgeschlagen (Exit %1$@). Öffne das Log für Details oder führe `bun upgrade` im Terminal aus und wähle „Starten“."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Updating Bun failed (exit %1$@). Open the log for details, or run `bun upgrade` in Terminal and choose Start."
           }
         }
       }

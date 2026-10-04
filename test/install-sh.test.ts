@@ -176,3 +176,47 @@ describe("install_deps", () => {
     expect(calls(log)).toHaveLength(3);
   });
 });
+
+describe("install_bun minimum version", () => {
+  it("compares numeric components and ignores suffixes", () => {
+    for (const [version, status] of [
+      ["1.3.1", 1],
+      ["1.3.2", 0],
+      ["1.3.2-canary", 0],
+      ["1.4.2", 0],
+      ["1.10.0", 0],
+      ["2.0.0", 0],
+      ["0.99.99", 1],
+    ] as const) {
+      expect(runLib(`bun_version_at_least '${version}'`).status).toBe(status);
+    }
+  });
+
+  it("upgrades old Bun and rechecks, leaving current Bun alone", () => {
+    for (const [initial, upgraded, status, calls] of [
+      ["1.3.1", "1.3.2", 0, "upgrade"],
+      ["1.3.1", "1.3.1", 1, "upgrade"],
+      ["1.4.2", "1.4.2", 0, ""],
+    ] as const) {
+      const home = tmp();
+      const bin = join(home, ".bun/bin");
+      mkdirSync(bin, { recursive: true });
+      writeFileSync(join(home, "version"), initial);
+      writeFileSync(
+        join(bin, "bun"),
+        `#!/bin/sh
+if [ "$1" = --version ]; then cat "$HOME/version"; else
+  echo "$*" >> "$HOME/calls"
+  echo '${upgraded}' > "$HOME/version"
+fi
+`,
+        { mode: 0o755 },
+      );
+      const result = runLib("install_bun", { HOME: home });
+      expect(result.status).toBe(status);
+      if (calls) expect(readFileSync(join(home, "calls"), "utf8").trim()).toBe(calls);
+      else expect(result.stdout).toContain("skipping upgrade");
+      if (status) expect(result.stderr).toContain("still too old after upgrade");
+    }
+  });
+});

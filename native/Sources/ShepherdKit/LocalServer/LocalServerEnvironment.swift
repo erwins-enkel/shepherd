@@ -10,6 +10,8 @@ public enum LocalServerFailure: Error, Equatable, Sendable {
   case runnerMissing
   case runnerTimeout
   case bunMissing
+  case bunOutdated(version: String)
+  case bunUpgradeFailed(exitCode: Int32)
   case notAShepherdCheckout(path: String)
   case installFailed(exitCode: Int32)
   case exited(code: Int32)
@@ -48,6 +50,55 @@ public struct LocalServerSystemFileManager: LocalServerFileManaging {
 /// injected so tests never touch the real `~/.shepherd`. macOS-only: `Process`
 /// and `/bin/bash` do not exist on iOS and the kit compiles for `.iOS(.v18)` (D1).
 public struct LocalServerEnvironment: Sendable {
+  // Keep in sync with deploy/install.sh + src/runtime-guard.ts.
+  public static let minimumBunVersion = "1.3.2"
+
+  static func bunVersionComponents(_ version: String) -> [Int]? {
+    let core = version.trimmingCharacters(in: .whitespacesAndNewlines)
+      .components(separatedBy: "-")[0]
+    let parts = core.split(separator: ".", omittingEmptySubsequences: false)
+    guard parts.count == 3, parts.allSatisfy({ !$0.isEmpty && $0.allSatisfy({ $0.isASCII && $0.isNumber }) }) else { return nil }
+    let numbers = parts.compactMap { Int($0) }
+    return numbers.count == 3 ? numbers : nil
+  }
+
+  /// Unknown versions fail open; only a parsed numeric version can block launch.
+  public static func bunTooOld(_ version: String) -> Bool {
+    guard let numbers = bunVersionComponents(version),
+          let minimum = bunVersionComponents(minimumBunVersion) else { return false }
+    return numbers.lexicographicallyPrecedes(minimum)
+  }
+
+  public static func probeBunVersion(_ bun: URL) async -> String? {
+    await Task.detached {
+      // A file avoids a full stdout pipe stalling the five-second probe.
+      let output = FileManager.default.temporaryDirectory.appendingPathComponent("shepherd-bun-version-\(UUID().uuidString)")
+      guard FileManager.default.createFile(atPath: output.path, contents: nil, attributes: [.posixPermissions: 0o600]),
+            let handle = try? FileHandle(forUpdating: output) else { return nil }
+      defer { try? handle.close(); try? FileManager.default.removeItem(at: output) }
+      let process = Process()
+      process.executableURL = bun
+      process.arguments = ["--version"]
+      process.standardOutput = handle
+      process.standardError = FileHandle.nullDevice
+      do { try process.run() } catch { return nil }
+      let deadline = Date().addingTimeInterval(5)
+      while process.isRunning, Date() < deadline { usleep(20_000) }
+      if process.isRunning {
+        BunUpgradeRun.terminate(process.processIdentifier, gracePeriod: 0)
+        process.waitUntilExit()
+        return nil
+      }
+      process.waitUntilExit()
+      guard process.terminationStatus == 0 else { return nil }
+      try? handle.seek(toOffset: 0)
+      guard let data = try? handle.read(upToCount: 4096),
+            let version = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
+            bunVersionComponents(version) != nil else { return nil }
+      return version
+    }.value
+  }
+
   /// The installer's `SHEPHERD_DIR` default (`deploy/install.sh`).
   public let appDirectory: URL
   /// Sourced by `install.sh` with `set -a` and by the systemd units'

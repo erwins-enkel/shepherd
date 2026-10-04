@@ -7,6 +7,26 @@ extension MacSeamTests {
 /// The panel's enablement logic, pulled out of the view so it is testable without
 /// hosting SwiftUI — same pattern as LoginSheetState.
 @Suite @MainActor struct LocalServerPanelStateTests {
+    @Test func bunFailuresOfferUpgradeAndStartInsteadOfInstall() {
+        for failure in [LocalServerFailure.bunOutdated(version: "1.3.1"), .bunUpgradeFailed(exitCode: 3)] {
+            let state = LocalServerPanelState(state: .failed(failure), busy: false)
+            #expect(state.showsBunUpgrade)
+            #expect(state.canUpgradeBun)
+            #expect(state.showsStart && state.canStart)
+            #expect(!state.showsInstall && !state.canInstall)
+        }
+        #expect(!LocalServerPanelState(state: .failed(.bunMissing), busy: false).showsBunUpgrade)
+    }
+
+    @Test func bunUpgradeControlsStayVisibleAndDisabledWhileUpgrading() {
+        let state = LocalServerPanelState(state: .upgradingBun, busy: true)
+        #expect(state.showsBunUpgrade)
+        #expect(state.showsStart)
+        #expect(!state.showsInstall)
+        #expect(!state.canUpgradeBun && !state.canStart)
+        #expect(state.isBusyState)
+    }
+
     @Test func aMissingCheckoutOffersOnlyInstall() {
         let state = LocalServerPanelState(state: .notInstalled, busy: false)
         #expect(state.canInstall)

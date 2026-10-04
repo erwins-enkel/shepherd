@@ -160,12 +160,86 @@ extension MacSeamTests {
         #expect(model.canStop == false)
     }
 
+    @Test func upgradingBunStartsTheSupervisorAndPullsTheLog() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let gate = LocalServerGate()
+        let model = LocalServerModel(
+            environment: try checkout(in: home), probeExternal: { false }, health: { true }, launch: { launch },
+            bunUpgrader: { _, log in
+                await gate.wait()
+                await log.append("Bun updated")
+                return .success("1.4.2")
+            })
+        let task = Task { await model.upgradeBun() }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !(await gate.isWaiting), ContinuousClock.now < deadline { await Task.yield() }
+        #expect(model.busy)
+        #expect(model.state == .upgradingBun)
+        await model.refresh()
+        #expect(model.state == .upgradingBun)
+        await gate.open()
+        await task.value
+        #expect(model.state.isRunning)
+        #expect(model.logLines.contains("Bun updated"))
+        #expect(!model.busy)
+        await model.stop()
+    }
+
+    @Test func aFailedBunUpgradeDoesNotSpawnAndAllowsRetry() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let launches = Mutex(0)
+        let model = LocalServerModel(
+            environment: try checkout(in: home), probeExternal: { false },
+            launch: { launches.withLock { $0 += 1 }; return nil },
+            bunUpgrader: { _, _ in .failure(.bunUpgradeFailed(exitCode: 3)) })
+        await model.upgradeBun()
+        #expect(model.state == .failed(.bunUpgradeFailed(exitCode: 3)))
+        await model.refresh()
+        #expect(model.state == .failed(.bunUpgradeFailed(exitCode: 3)))
+        #expect(launches.withLock { $0 } == 0)
+        #expect(!model.busy)
+        #expect(LocalServerPanelState(state: model.state, busy: model.busy).canUpgradeBun)
+    }
+
+    @Test func quitCancelsTheKeptBunUpgradeTask() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let entered = Mutex(false)
+        let cancelled = Mutex(false)
+        let model = LocalServerModel(
+            environment: try checkout(in: home), probeExternal: { false },
+            bunUpgrader: { _, _ in
+                await withTaskCancellationHandler {
+                    entered.withLock { $0 = true }
+                    do { try await Task.sleep(for: .seconds(30)) } catch {}
+                    return .failure(.bunUpgradeFailed(exitCode: 130))
+                } onCancel: { cancelled.withLock { $0 = true } }
+            })
+        model.beginBunUpgrade()
+        #expect(await settle { entered.withLock { $0 } })
+        model.cancelBunUpgradeForQuit()
+        #expect(cancelled.withLock { $0 })
+        #expect(await settle { !model.busy })
+        #expect(!model.state.isRunning)
+    }
+
     @Test func everyStateHasACatalogSentence() {
         let states: [LocalServerState] = [
             .notInstalled, .installing, .stopped, .starting, .running(pid: 42), .externallyManaged,
             .failed(.bunMissing), .failed(.notAShepherdCheckout(path: "/tmp/x")),
             .failed(.installFailed(exitCode: 3)), .failed(.exited(code: 1)),
             .failed(.crashLoop(restarts: 3)), .failed(.healthTimeout),
+        ]
+        for state in states {
+            let text = LocalServerCopy.label(for: state)
+            #expect(!text.isEmpty)
+            #expect(text.hasPrefix("native_local_") == false)  // a leaked key = missing catalog entry
+        }
+    }
+
+    @Test func everyBunUpgradeStateHasACatalogSentence() {
+        let states: [LocalServerState] = [
+            .upgradingBun, .failed(.bunOutdated(version: "1.3.1")), .failed(.bunUpgradeFailed(exitCode: 3)),
         ]
         for state in states {
             let text = LocalServerCopy.label(for: state)

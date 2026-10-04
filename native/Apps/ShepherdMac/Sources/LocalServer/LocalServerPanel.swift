@@ -23,19 +23,26 @@ struct LocalServerPanelState: Equatable {
     /// — a `refresh()` can also observe `.starting` mid-flight from elsewhere,
     /// which Start covers the same way. `.disabled(...)` is what gates
     /// interaction; presence must never flicker with it.
-    var showsInstall: Bool { state == .notInstalled || state == .installing || isFailed }
-    var showsStart: Bool { state == .stopped || state == .starting || isFailed }
+    var showsBunUpgrade: Bool {
+        switch state {
+        case .failed(.bunOutdated), .failed(.bunUpgradeFailed), .upgradingBun: true
+        default: false
+        }
+    }
+    var showsInstall: Bool { !showsBunUpgrade && (state == .notInstalled || state == .installing || isFailed) }
+    var showsStart: Bool { state == .stopped || state == .starting || state == .upgradingBun || isFailed }
     /// Never for `.externallyManaged`: we did not start that process and have no
     /// business killing it.
     var showsStop: Bool { state.isRunning }
     var showsRestart: Bool { state.isRunning }
 
+    var canUpgradeBun: Bool { !isBusyState && showsBunUpgrade }
     var canInstall: Bool { !busy && showsInstall }
     var canStart: Bool { !busy && showsStart }
     var canStop: Bool { !busy && showsStop }
     var canRestart: Bool { !busy && showsRestart }
     var canConnect: Bool { !busy && (state.isRunning || (state == .externallyManaged && externalAcknowledged)) }
-    var isBusyState: Bool { busy || state == .installing || state == .starting }
+    var isBusyState: Bool { busy || state == .installing || state == .starting || state == .upgradingBun }
 }
 
 /// Fills `WelcomeSlots.localPanel`: status, the four lifecycle buttons, the
@@ -60,6 +67,7 @@ struct LocalServerPanel: View {
                 Text(verbatim: LocalServerCopy.message(for: failure)).font(.callout).foregroundStyle(.orange)
             }
             if let password = model.capturedPassword { passwordNotice(password) }
+            if panel.showsBunUpgrade { bunOutdatedNotice }
             controls
             logDisclosure
         }
@@ -98,6 +106,38 @@ struct LocalServerPanel: View {
         case .failed: .orange
         default: .secondary
         }
+    }
+
+    private var bunOutdatedNotice: some View {
+        let installed = model.outdatedBunVersion ?? "?"
+        return VStack(alignment: .leading, spacing: 8) {
+            Text(verbatim: L.t("native_local_bun_outdated_title")).font(.callout.weight(.semibold))
+            Text(verbatim: L.t("native_local_bun_outdated_summary", LocalServerEnvironment.minimumBunVersion, installed))
+                .font(.callout).fixedSize(horizontal: false, vertical: true)
+            Button(action: model.beginBunUpgrade) {
+                HStack(spacing: 6) {
+                    if model.state == .upgradingBun { ProgressView().controlSize(.small) }
+                    Text(verbatim: L.t(model.state == .upgradingBun ? "native_local_bun_upgrading" : "native_local_bun_upgrade"))
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!panel.canUpgradeBun)
+            .accessibilityIdentifier("local-bun-upgrade")
+            DisclosureGroup(L.t("native_local_bun_outdated_why_label")) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(verbatim: L.t("native_local_bun_outdated_why_title")).fontWeight(.semibold)
+                    Text(verbatim: L.t("native_local_bun_outdated_why_body", installed))
+                    Text(verbatim: L.t("native_local_bun_outdated_what_title")).fontWeight(.semibold)
+                    Text(verbatim: L.t("native_local_bun_outdated_what_body"))
+                }
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(10)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityIdentifier("local-bun-outdated-notice")
+        .accessibilityElement(children: .contain)
     }
 
     private var externalNotice: some View {

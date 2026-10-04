@@ -70,6 +70,32 @@ describe("gen-strings core resources", () => {
       ).toContain(deferred);
     }
   });
+  test("Bun upgrade copy reaches native resources with required then installed arguments", () => {
+    const outputs = buildOutputs();
+    for (const locale of ["en", "de"]) {
+      const path = Object.keys(outputs).find((path) =>
+        path.endsWith(`${locale}.lproj/Localizable.strings`),
+      );
+      expect(path).toBeDefined();
+      const resources = outputs[path!]!;
+      expect(resources).toContain('"native_local_bun_upgrade"');
+      expect(resources).toContain('"native_local_error_bun_upgrade_failed"');
+      const summary = resources
+        .split("\n")
+        .find((line) => line.startsWith('"native_local_bun_outdated_summary"'));
+      expect(summary).toContain("%1$@");
+      expect(summary).toContain("%2$@");
+    }
+    const en = JSON.parse(readFileSync(join(import.meta.dir, "../ui/messages/en.json"), "utf8"));
+    expect([...placeholderOrder(en.native_local_bun_outdated_summary).keys()]).toEqual([
+      "required",
+      "installed",
+    ]);
+    expect(KEYS_LOCALSERVER).toContain("native_local_bun_outdated_summary");
+    expect(KEYS_LOCALSERVER).toContain("native_local_bun_outdated_why_body");
+    expect(KEYS_LOCALSERVER).toContain("native_local_bun_upgrading");
+  });
+
   test("strings source escapes syntax and controls", () => {
     expect(stringsLiteral('a"b\\c\n\r\t\u0001')).toBe('"a\\"b\\\\c\\n\\r\\t\\U0001"');
   });

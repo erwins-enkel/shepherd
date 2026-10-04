@@ -235,6 +235,13 @@ import { HoldReasonService } from "./hold-service";
 import { graphRateLimit } from "./forge/rate-limit";
 import { fetchGithubRateLimit } from "./forge/github-rate-limit";
 import { sharedGhRunner } from "./forge/github";
+import { MIN_BUN_VERSION, bunTooOld } from "./runtime-guard";
+
+if (bunTooOld(Bun.version)) {
+  console.warn(
+    `[shepherd] Bun ${Bun.version} is older than ${MIN_BUN_VERSION}: it can drop connections and crash — run \`bun upgrade\` and restart`,
+  );
+}
 
 const execFileAsync = promisify(execFile);
 

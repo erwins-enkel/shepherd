@@ -17,6 +17,40 @@ func makeExecutable(_ url: URL) throws {
 }
 
 @Suite(.timeLimit(.minutes(1))) struct LocalServerEnvironmentTests {
+  @Test func childrenStripParentAgentMarkersAfterEnvFileOverrides() throws {
+    let home = try makeTempHome()
+    defer { try? FileManager.default.removeItem(at: home) }
+    let markers = [
+      "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_CHILD_SESSION",
+      "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_EXECPATH",
+      "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID",
+      "CLAUDE_EFFORT", "AI_AGENT", "CODEX_CI", "CODEX_THREAD_ID", "CODEX_SESSION_ID",
+      "CLAUDE_CODE_FUTURE_SESSION_MARKER",
+    ]
+    let config = home.appendingPathComponent(".shepherd/env")
+    try FileManager.default.createDirectory(at: config.deletingLastPathComponent(), withIntermediateDirectories: true)
+    try "CLAUDE_CODE_CHILD_SESSION=from-file\nCLAUDE_CODE_NEW_SESSION=from-file\n".write(to: config, atomically: true, encoding: .utf8)
+    var inherited = Dictionary(uniqueKeysWithValues: markers.map { ($0, "1") })
+    inherited["NO_COLOR"] = "1"
+    inherited["CLAUDE_CODE_OAUTH_TOKEN"] = "operator-token"
+    inherited["SHEPHERD_PORT"] = "8123"
+    let environment = LocalServerEnvironment(home: home, processEnvironment: inherited)
+    for child in [environment.childEnvironment(), environment.spawnEnvironment(bun: URL(fileURLWithPath: "/bin/bun"))] {
+      for marker in markers + ["CLAUDE_CODE_NEW_SESSION"] { #expect(child[marker] == nil) }
+      #expect(child["NO_COLOR"] == nil)
+      #expect(child["CLAUDE_CODE_OAUTH_TOKEN"] == "operator-token")
+      #expect(child["SHEPHERD_PORT"] == "8123")
+      #expect(child["HOME"] == home.path)
+    }
+  }
+
+  @Test func childKeepsOperatorNoColorWithoutAgentMarkers() throws {
+    let home = try makeTempHome()
+    defer { try? FileManager.default.removeItem(at: home) }
+    let environment = LocalServerEnvironment(home: home, processEnvironment: ["NO_COLOR": "1"])
+    #expect(environment.childEnvironment()["NO_COLOR"] == "1")
+  }
+
   @Test func bunMinimumUsesNumericComponentsAndIgnoresSuffixes() {
     for version in ["1.3.1", "1.2.99", "0.99.99"] { #expect(LocalServerEnvironment.bunTooOld(version)) }
     for version in ["1.3.2", "1.3.2-canary", "1.4.2", "1.10.0", "2.0.0", "", "unknown", "1.3", "1.3.x"] {

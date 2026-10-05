@@ -214,6 +214,20 @@ public struct LocalServerEnvironment: Sendable {
   /// HOME is explicit; changing SHEPHERD_DIR never changes the state directory.
   public func childEnvironment(prepending: [String] = []) -> [String: String] {
     var values = resolvedValues
+    // These describe the parent agent shell, never the supervised backend.
+    // Keep the explicit list in sync with src/agent-shell-env.ts; session-pattern
+    // filtering also covers new Claude session markers before the list catches up.
+    let markers: Set<String> = [
+      "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_CHILD_SESSION",
+      "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_EXECPATH",
+      "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID",
+      "CLAUDE_EFFORT", "AI_AGENT", "CODEX_CI", "CODEX_THREAD_ID", "CODEX_SESSION_ID",
+    ]
+    let inherited = values.keys.filter {
+      markers.contains($0) || ($0.hasPrefix("CLAUDE_CODE_") && $0.contains("SESSION"))
+    }
+    for key in inherited { values.removeValue(forKey: key) }
+    if !inherited.isEmpty { values.removeValue(forKey: "NO_COLOR") }
     values["HOME"] = homeDirectory.path
     values["SHEPHERD_HOST"] = "127.0.0.1"
     values["SHEPHERD_DIR"] = appDirectory.path

@@ -12522,6 +12522,8 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"openWebIsPresentAndEnabledOnlyForRunningOrExternalServers()\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"updateAndCheckControlsStayPresentButDisabledWhileUpdating()\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"updatesAreAvailableOnlyForManagedCheckouts()\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SettingsSceneTests.swift\",\"MacSeamTests.SettingsSceneTests\",\"localServerPaneIsReachableWithoutAnActiveConnection()\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SettingsSceneTests.swift\",\"MacSeamTests.SettingsSceneTests\",\"localServerPaneIsReachableWithoutAnActiveConnection()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerEnvironmentTests.swift\",\"LocalServerEnvironmentTests\",\"childKeepsOperatorNoColorWithoutAgentMarkers() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerEnvironmentTests.swift\",\"LocalServerEnvironmentTests\",\"childrenStripParentAgentMarkersAfterEnvFileOverrides() throws\"]"
   ]
 }

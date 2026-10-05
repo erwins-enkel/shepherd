@@ -5230,5 +5230,6 @@
   "native_ios_server_connected": "Connected",
   "native_ios_server_disconnected": "Disconnected",
   "native_ios_server_disconnect": "Disconnect",
-  "native_ios_notification_server": "Open session on which server?"
+  "native_ios_notification_server": "Open session on which server?",
+  "toast_details": "Details"
 }

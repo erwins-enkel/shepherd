@@ -24,6 +24,24 @@
         onfocusout={() => toasts.release(t.id)}
       >
         <span class="msg">{t.text}</span>
+        <!-- A full-width row (flex-basis 100%) between message and controls: the reason stays
+             in view, the explanation waits behind a native disclosure (keyboard + touch). -->
+        {#if t.detail}
+          <div class="detail">
+            <span class="reason">{t.detail.reason}</span>
+            {#if t.detail.sections.length}
+              <details>
+                <summary>{m.toast_details()}</summary>
+                <dl>
+                  {#each t.detail.sections as s (s.label)}
+                    <dt>{s.label}</dt>
+                    <dd class:mono={s.mono}>{s.text}</dd>
+                  {/each}
+                </dl>
+              </details>
+            {/if}
+          </div>
+        {/if}
         <!-- Both tones put their controls in .actions: it carries the row's single
              margin-left:auto, which is the ONLY thing right-aligning them once the row
              wraps (a lone button on line 2 has no free space to grow into, so .msg's
@@ -119,6 +137,44 @@
     color: var(--color-ink-bright);
     font-size: var(--fs-base);
     letter-spacing: 0.02em;
+  }
+  .detail {
+    flex: 1 1 100%;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: var(--fs-meta);
+    color: var(--color-ink);
+    overflow-wrap: anywhere;
+  }
+  .detail summary {
+    cursor: pointer;
+    color: var(--color-muted);
+  }
+  .detail dl {
+    margin: 6px 0 0;
+  }
+  .detail dt {
+    color: var(--color-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .detail dd {
+    margin: 2px 0 8px;
+  }
+  .detail dd:last-child {
+    margin-bottom: 0;
+  }
+  /* Raw server text (a gh stderr can carry a whole command line): kept verbatim, bounded. */
+  .detail .mono {
+    white-space: pre-wrap;
+    max-height: 8em;
+    overflow: auto;
+    padding: 4px 6px;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
   }
   /* The one auto margin on the row (see markup note). min-width:0 lets it shrink
      so .undo inside it can, which is what keeps the ✕ beside the button at

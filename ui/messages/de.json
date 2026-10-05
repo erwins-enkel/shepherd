@@ -5230,5 +5230,6 @@
   "native_ios_server_connected": "Verbunden",
   "native_ios_server_disconnected": "Getrennt",
   "native_ios_server_disconnect": "Verbindung trennen",
-  "native_ios_notification_server": "Auf welchem Server soll die Session geöffnet werden?"
+  "native_ios_notification_server": "Auf welchem Server soll die Session geöffnet werden?",
+  "toast_details": "Details"
 }

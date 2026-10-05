@@ -258,3 +258,55 @@ describe("Toasts: long action label wraps instead of squishing the message", () 
     expect(undo.scrollHeight).toBeLessThanOrEqual(undo.clientHeight + 1);
   });
 });
+
+describe("Toasts: a failure detail explains why", () => {
+  const detail = {
+    reason: "Reason: GitHub rate limit reached",
+    sections: [
+      { label: "What happened", text: "GitHub is refusing requests." },
+      { label: "Server message", text: "GraphQL: API rate limit already exceeded", mono: true },
+    ],
+  };
+
+  it("shows the reason under the message and the sections behind a closed disclosure", async () => {
+    await page.viewport(1280, 900);
+    toasts.info(MERGED, {
+      sticky: true,
+      detail,
+      action: { label: m.common_retry(), run: () => {} },
+    });
+    render(Toasts, {});
+    await tick();
+
+    const msg = el<HTMLElement>(".msg");
+    const block = el<HTMLElement>(".detail");
+    const actions = el<HTMLElement>(".actions");
+    expect(el<HTMLElement>(".reason").textContent).toBe(detail.reason);
+    // Its own full-width row between the message and the controls.
+    expect(block.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+      msg.getBoundingClientRect().bottom,
+    );
+    expect(actions.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+      block.getBoundingClientRect().bottom,
+    );
+
+    const disclosure = el<HTMLDetailsElement>(".detail details");
+    expect(disclosure.open).toBe(false);
+    expect(el<HTMLElement>(".detail summary").textContent?.trim()).toBe(m.toast_details());
+    el<HTMLElement>(".detail summary").click();
+    await tick();
+    expect(disclosure.open).toBe(true);
+    const terms = [...document.querySelectorAll(".detail dt")].map((n) => n.textContent);
+    expect(terms).toEqual(["What happened", "Server message"]);
+    expect(el<HTMLElement>(".detail dd.mono").textContent).toBe(
+      "GraphQL: API rate limit already exceeded",
+    );
+    const toast = el<HTMLElement>(".toast");
+    expect(toast.scrollWidth).toBeLessThanOrEqual(toast.clientWidth + 1);
+  });
+
+  it("renders no detail block for a plain toast", async () => {
+    await renderToast(MERGED, m.common_retry());
+    expect(document.querySelector(".detail")).toBeNull();
+  });
+});

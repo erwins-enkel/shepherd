@@ -17,6 +17,7 @@ function makeService(hooks: { fn: Hooks }) {
   const store = new SessionStore(":memory:");
   let startCount = 0;
   const service = new SessionService({
+    transcriptExists: () => true, // Fixture conversations exist; filesystem refusal is tested separately.
     store,
     namer: async () => "repo-x",
     runSpawnHooks: (d) => hooks.fn(d),

@@ -21,6 +21,7 @@ function makeService(hooks: { fn: Hooks }) {
   const stopCalls: string[] = [];
   const liveAgent: { current: HerdrAgent | null } = { current: null };
   const service = new SessionService({
+    transcriptExists: () => true, // Fixture conversations exist; filesystem refusal is tested separately.
     store,
     namer: async () => "repo-x",
     runSpawnHooks: (d) => hooks.fn(d),

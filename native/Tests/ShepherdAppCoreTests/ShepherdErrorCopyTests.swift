@@ -40,6 +40,12 @@ struct ShepherdErrorCopyTests {
         }
     }
 
+    @Test func missingTranscriptUsesLocalizedCopy() {
+        #expect(ShepherdErrorCopy.message(
+            ShepherdError.conflict(code: "transcript-missing", message: "transcript-missing"))
+            == L.t("session_resume_transcript_missing"))
+    }
+
     @Test func serverSuppliedMessagesAreShownVerbatim() {
         #expect(ShepherdErrorCopy.message(ShepherdError.badRequest("bad input")) == "bad input")
         #expect(ShepherdErrorCopy.message(

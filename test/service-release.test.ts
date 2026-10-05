@@ -67,6 +67,7 @@ function harness(opts: {
     },
   };
   const svc = new SessionService({
+    transcriptExists: () => true, // Fixture conversations exist; filesystem refusal is tested separately.
     store: store as any,
     namer: async () => "x",
     worktree: { create: () => ({}) as any, remove: () => {} } as any,

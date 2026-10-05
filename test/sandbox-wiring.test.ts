@@ -56,6 +56,7 @@ function makeService(opts: {
   egressProbed?: { called: boolean };
 }) {
   return new SessionService({
+    transcriptExists: () => true, // Fixture conversations exist; filesystem refusal is tested separately.
     store: opts.store,
     namer: async () => "s",
     worktree: worktreeStub(),
@@ -485,6 +486,7 @@ test("egressWatcher.start called on autonomous egress spawn", async () => {
   const record: { argv?: string[] } = {};
   const watcher = makeWatcherStub();
   const service = new SessionService({
+    transcriptExists: () => true, // Fixture conversations exist; filesystem refusal is tested separately.
     store,
     namer: async () => "s",
     worktree: worktreeStub(),
@@ -512,6 +514,7 @@ test("egressWatcher.stop called on archive (before removeEgressTmp)", async () =
   const record: { argv?: string[] } = {};
   const watcher = makeWatcherStub();
   const service = new SessionService({
+    transcriptExists: () => true, // Fixture conversations exist; filesystem refusal is tested separately.
     store,
     namer: async () => "s",
     worktree: {
@@ -543,6 +546,7 @@ test("egressWatcher NOT called for trusted spawn (no egress)", async () => {
   const record: { argv?: string[] } = {};
   const watcher = makeWatcherStub();
   const service = new SessionService({
+    transcriptExists: () => true, // Fixture conversations exist; filesystem refusal is tested separately.
     store,
     namer: async () => "s",
     worktree: worktreeStub(),

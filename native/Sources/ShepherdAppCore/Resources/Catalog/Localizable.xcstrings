@@ -23076,6 +23076,23 @@
         }
       }
     },
+    "session_resume_transcript_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verlauf wurde nicht gespeichert – diese Sitzung kann nicht fortgesetzt werden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conversation history was not saved – this session cannot be resumed."
+          }
+        }
+      }
+    },
     "settings_access_created": {
       "comment": "%1$@ = date",
       "extractionState": "manual",

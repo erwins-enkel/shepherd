@@ -1346,6 +1346,7 @@
 "session_autopilot_paused_title" = "Autopilot hat dies für eine Entscheidung zurückgegeben: %1$@";
 "session_autopilot_unavailable_label" = "AP nicht verfügbar";
 "session_autopilot_unavailable_title" = "Autopilot wartet auf eine eindeutig zugeordnete Unterhaltung der Aufgabe.";
+"session_resume_transcript_missing" = "Verlauf wurde nicht gespeichert – diese Sitzung kann nicht fortgesetzt werden.";
 "settings_access_created" = "Angelegt %1$@";
 "settings_access_expired" = "Abgelaufen";
 "settings_access_expires" = "Läuft ab am %1$@";

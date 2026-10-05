@@ -1346,6 +1346,7 @@
 "session_autopilot_paused_title" = "Autopilot handed this back for a decision: %1$@";
 "session_autopilot_unavailable_label" = "AP unavailable";
 "session_autopilot_unavailable_title" = "Autopilot is waiting for an unambiguous task conversation.";
+"session_resume_transcript_missing" = "Conversation history was not saved – this session cannot be resumed.";
 "settings_access_created" = "Created %1$@";
 "settings_access_expired" = "Expired";
 "settings_access_expires" = "Expires %1$@";

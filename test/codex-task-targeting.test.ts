@@ -77,6 +77,7 @@ function harness(provider: AgentProvider, shell = false) {
   const stopped: string[] = [];
   const failSend = { value: false };
   const svc = new SessionService({
+    transcriptExists: () => true, // Fixture conversations exist; filesystem refusal is tested separately.
     store,
     namer: async () => "task",
     detectBackend: () => null,

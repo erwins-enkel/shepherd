@@ -12,6 +12,8 @@
     endReason,
     resuming,
     resumeFailed,
+    resumeFailure = "",
+    resumeTranscriptMissing = false,
     resumable,
     stranded = false,
     authUrl = null,
@@ -29,6 +31,8 @@
     endReason: "gone" | "unreachable";
     resuming: boolean;
     resumeFailed: boolean;
+    resumeFailure?: string;
+    resumeTranscriptMissing?: boolean;
     resumable: boolean;
     // herdr-restored husk → distinct "agent died — revive" label on the in-terminal resume banner (#1630)
     stranded?: boolean;
@@ -123,12 +127,18 @@
     <span class="parked-icon" aria-hidden="true">{resuming ? "⟳" : "↻"}</span>
     <span class="parked-title"
       >{resumeFailed
-        ? m.viewport_resume_failed()
+        ? resumeFailure || m.viewport_resume_failed()
         : stranded
           ? m.stranded_revive_title()
           : m.viewport_resume_title()}</span
     >
-    <span class="parked-sub">{resuming ? m.common_loading() : m.viewport_resume_sub()}</span>
+    <span class="parked-sub"
+      >{resuming
+        ? m.common_loading()
+        : resumeTranscriptMissing
+          ? m.session_resume_transcript_missing_next()
+          : m.viewport_resume_sub()}</span
+    >
   </button>
 {/if}
 

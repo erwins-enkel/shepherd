@@ -3,6 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { jsonlPathFor } from "./usage";
 import type { RepoConfig, SessionStore } from "./store";
 import { TERMINAL_CLAIM_TTL_MS } from "./store";
 import { detectedHerdrVersion, herdrPaneControlSupported } from "./herdr-capabilities";
@@ -229,6 +230,8 @@ const UNIQUE_NAME_MAX_PROBES = 100;
 const ISSUE_NAME_MAX = HERDR_AGENT_NAME_MAX - `-${UNIQUE_NAME_MAX_PROBES + 1}`.length;
 
 export interface ServiceDeps {
+  /** Filesystem seam for conversation availability; defaults to the real transcript file check. */
+  transcriptExists?: (path: string) => boolean;
   capacity?: (session: Session) => Promise<boolean>;
   store: SessionStore;
   worktree: Pick<
@@ -3568,12 +3571,30 @@ export class SessionService {
 
   /** Also called after planner exit: the poller may not have captured the rollout yet. */
   hasConversation(s: Session): boolean {
-    if ((s.agentProvider ?? "claude") === "claude") return !!s.claudeSessionId;
+    if ((s.agentProvider ?? "claude") === "claude")
+      return (
+        !!s.claudeSessionId &&
+        (this.deps.transcriptExists ?? existsSync)(
+          jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir),
+        )
+      );
     // Old cached ids came from cwd recency, not provenance; never promote them to safe targets.
     if (!s.codexLaunchId) return false;
     this.captureCodexSessionId(s);
     const current = this.deps.store.get(s.id);
     return current?.codexLaunchId === s.codexLaunchId && !!current.providerSessionId;
+  }
+
+  /** Stable manual-API refusal; autonomous callers keep resume()'s null/no-spawn contract. */
+  resumeRefusalCode(id: string): "transcript-missing" | null {
+    const s = this.deps.store.get(id);
+    return s &&
+      s.status !== "archived" &&
+      (s.agentProvider ?? "claude") === "claude" &&
+      !!s.claudeSessionId &&
+      !this.hasConversation(s)
+      ? "transcript-missing"
+      : null;
   }
 
   private resumeTarget(id: string): { session: Session; provider: AgentProvider } | null {
@@ -5035,6 +5056,8 @@ export class SessionService {
     // Same trim as the fresh-spawn path (buildSpawnArgv) — a resumed auto session must
     // keep the slim context, not silently regrow the bundled/personal catalogs + plugin hooks.
     const trim = await this.trimFor(session.auto, session.worktreePath);
+    // Capacity/trim can yield: refuse a transcript removed while we prepared, before teardown.
+    if (!this.hasConversation(session)) return null;
     // Forced respawn over a live agent: close the stale husk tab first so it doesn't
     // leak alongside the fresh one. (No-op when the agent is already gone.)
     // PLUGIN NOTE (#1124): this teardown runs on a forced resume OR a non-forced Locus-B

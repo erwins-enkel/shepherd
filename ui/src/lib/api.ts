@@ -1301,6 +1301,17 @@ export async function composeTaskBrief(
   return r.ok && data && typeof data.brief === "string" ? data.brief : null;
 }
 
+export function isMissingTranscriptError(error: unknown): boolean {
+  return error instanceof ApiError && error.code === "transcript-missing";
+}
+
+/** Translate the stable resume refusal and point to the existing fresh-agent action. */
+export function resumeFailureMessage(error: unknown, fallback: string): string {
+  return isMissingTranscriptError(error)
+    ? `${m.session_resume_transcript_missing()} ${m.session_resume_transcript_missing_next()}`
+    : fallback;
+}
+
 /**
  * Bring a finished session back — re-spawns the provider's resume in its worktree.
  * `force` tears down a surviving husk shell first, for the case the provider exited but

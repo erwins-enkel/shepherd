@@ -91,4 +91,61 @@ describe("createDecommissionCommit", () => {
     expect(api.mergePr).toHaveBeenCalledTimes(1);
     expect(api.archiveSession).toHaveBeenCalledTimes(2);
   });
+
+  const notOpen = (code: string) => Object.assign(new Error("no open PR"), { status: 409, code });
+
+  it("archives on the retry when the failed merge had landed after all", async () => {
+    // The merge went through on the host but the request still failed; replaying it can only
+    // ever earn "no open PR to merge", so the retry must move on to the teardown.
+    const api = actions();
+    api.mergePr
+      .mockRejectedValueOnce(new Error("forge error"))
+      .mockRejectedValueOnce(notOpen("pr_already_merged"));
+    const commit = createDecommissionCommit({ id: "s1", action: "merge" }, api);
+
+    await expect(commit.run()).rejects.toThrow("forge error");
+    await commit.run();
+    await commit.run();
+
+    expect(api.mergePr).toHaveBeenCalledTimes(2);
+    expect(api.archiveSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("never archives a merge whose PR was closed without merging", async () => {
+    for (const code of ["pr_already_closed", "pr_not_found"]) {
+      const api = actions();
+      api.mergePr.mockRejectedValue(notOpen(code));
+      const commit = createDecommissionCommit({ id: "s1", action: "merge" }, api);
+
+      await expect(commit.run(), code).rejects.toThrow("no open PR");
+      expect(api.archiveSession, code).not.toHaveBeenCalled();
+      expect(commit.step, code).toBe("merge");
+    }
+  });
+
+  it("archives a close whose PR is no longer open, however it ended", async () => {
+    for (const code of ["pr_already_closed", "pr_already_merged", "pr_not_found"]) {
+      const api = actions();
+      api.closePr.mockRejectedValueOnce(notOpen(code));
+
+      await createDecommissionCommit({ id: "s1", action: "close" }, api).run();
+
+      expect(api.archiveSession, code).toHaveBeenCalledWith("s1", undefined);
+    }
+  });
+
+  it("reports the step a failed run stopped at", async () => {
+    const api = actions();
+    api.closePr.mockRejectedValueOnce(new Error("close failed"));
+    api.archiveSession.mockRejectedValueOnce(new Error("archive failed"));
+    const commit = createDecommissionCommit({ id: "s1", action: "close" }, api);
+    expect(commit.step).toBe("close");
+
+    await expect(commit.run()).rejects.toThrow("close failed");
+    expect(commit.step).toBe("close");
+
+    await expect(commit.run()).rejects.toThrow("archive failed");
+    expect(commit.step).toBe("archive");
+    expect(createDecommissionCommit({ id: "s2", action: "keep" }, actions()).step).toBe("archive");
+  });
 });

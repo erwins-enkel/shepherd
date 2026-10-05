@@ -273,6 +273,7 @@ export interface DrainDeps {
     | "recordEpicIntegrated"
     | "listEpicIntegratedDetails"
     | "recordEpicCompleted"
+    | "clearEpicCompletedOnRestart"
     | "listEpicCompleted"
     | "setEpicLandingPr"
     | "setEpicLandingRebaseState"
@@ -310,6 +311,8 @@ export interface DrainDeps {
   emitEpic?: (epic: Epic) => void;
   /** → events.emit("epic:completed", e). Optional — absent in tests that don't need it. */
   emitEpicCompleted?: (epic: CompletedEpic) => void;
+  /** → events.emit("epic:completed-cleared", key). Optional — absent in tests that don't need it. */
+  emitEpicCompletedCleared?: (key: { repoPath: string; parentIssueNumber: number }) => void;
   /** → events.emit("session:new", s). Optional — absent in tests that don't need it. */
   emitSessionNew?: (s: Session) => void;
   /** Anonymous product telemetry. `event()` no-ops unless consent is granted (src/telemetry.ts),
@@ -1481,6 +1484,10 @@ export class DrainService {
     if (!next) return;
     this.approvedNext.delete(repoPath);
     this.deps.store.setEpicRun({ ...queuedEpicRun(next), status: "running" });
+    // A re-queued epic that completed (or falsely completed) before is starting again — same
+    // reason as the PUT /api/epic start path (clearEpicCompletedOnRestart).
+    if (this.deps.store.clearEpicCompletedOnRestart(repoPath, next.parentIssueNumber))
+      this.deps.emitEpicCompletedCleared?.({ repoPath, parentIssueNumber: next.parentIssueNumber });
     console.info(`[drain] ${repoPath}: queued epic #${next.parentIssueNumber} starts`);
   }
 

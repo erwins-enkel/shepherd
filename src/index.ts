@@ -2656,6 +2656,7 @@ const drain = new DrainService({
   dropPrCache: (id) => prPoller.drop(id),
   emitEpic: (epic) => events.emit("epic:update", epic),
   emitEpicCompleted: (e) => events.emit("epic:completed", e),
+  emitEpicCompletedCleared: (key) => events.emit("epic:completed-cleared", key),
   // A brand-new session's agent is only just starting — its scratchpad can't hold artifacts
   // yet, so seed hasScratchpadFiles=false (#1164). The live truth thereafter rides the
   // session:status (idle/done) push and the /api/sessions list enrichment.

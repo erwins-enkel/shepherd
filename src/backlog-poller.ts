@@ -43,11 +43,16 @@ export class BacklogPoller {
     private shouldWarm: () => boolean = () => true,
     /** Hot/cold cadence split. Omitted → every forge-backed repo is warmed every tick. */
     private tiering?: BacklogTiering,
+    /** Repos someone else keeps current — the repo fingerprint refreshes their counts only when
+     *  they change (#2756). Skipped here; `onWarmed` still broadcasts. */
+    private skipRepo: (repoPath: string) => boolean = () => false,
   ) {}
 
   async tick(): Promise<void> {
     if (!this.shouldWarm()) return; // cold / rate-limited — skip warming and the broadcast
-    const forgeRepos = this.listRepos().filter((r) => this.isForgeBacked(r.path));
+    const forgeRepos = this.listRepos().filter(
+      (r) => this.isForgeBacked(r.path) && !this.skipRepo(r.path),
+    );
     const due = this.dueRepos(forgeRepos.map((r) => r.path));
     await Promise.all(due.map((path) => this.warm(path).catch(() => null)));
     if (this.onWarmed) await Promise.resolve(this.onWarmed()).catch(() => null);

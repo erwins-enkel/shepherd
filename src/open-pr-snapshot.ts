@@ -58,12 +58,14 @@ export class OpenPrSnapshotService {
   }
 
   /**
-   * Synchronous cache-only peek — last cached value for forge.slug regardless
-   * of TTL freshness, or null. Never fetches.
+   * Synchronous cache-only peek — last cached value for forge.slug, or null. Never fetches.
+   * Without `maxAgeMs` any age is served; with it, an older entry reads as null.
    */
-  peek(forge: GitForge): OpenPrSnapshot | null {
+  peek(forge: GitForge, maxAgeMs?: number): OpenPrSnapshot | null {
     if (!this.isCapable(forge)) return null;
-    return this.cache.get(forge.slug!)?.value ?? null;
+    const entry = this.cache.get(forge.slug!);
+    if (!entry || (maxAgeMs !== undefined && this.now() - entry.at > maxAgeMs)) return null;
+    return entry.value;
   }
 
   /**

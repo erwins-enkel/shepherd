@@ -172,6 +172,9 @@ export interface EnrichLandingDeps {
   /** Whether a genuinely-live repair session currently holds this epic's integration branch.
    *  Callers build it via anyLiveRepairSession(store.list(), repoPath, integrationBranch, now). */
   hasLiveRepairSession: (repoPath: string, integrationBranch: string) => boolean;
+  /** Read the landing PR's state. Absent ⇒ a fresh `forge.prStatus(branch)` per row; the GET
+   *  route passes a snapshot-first, shared-TTL read so polling tabs don't multiply calls. */
+  prStatus?: (repoPath: string, branch: string) => Promise<PrStatus>;
   now: number;
 }
 
@@ -192,7 +195,9 @@ export async function enrichLandingEpics(
       const forge = deps.resolveForge(row.repoPath);
       if (!forge) return;
       try {
-        const pr = await forge.prStatus(branch);
+        const pr = deps.prStatus
+          ? await deps.prStatus(row.repoPath, branch)
+          : await forge.prStatus(branch);
         row.landingChecks = pr.checks;
         row.landingMergeable = pr.mergeable ?? null;
         const landingReady = computeLandingReady(pr, repoHasNoCiCached(forge.kind, row.repoPath));

@@ -108,6 +108,16 @@ export class CountsService {
   }
 
   /**
+   * Restamp an existing entry as fresh without a fetch — for a repo whose fingerprint was just
+   * seen unchanged (#2756), so its counts don't expire into a request-path re-fetch. No-op
+   * when nothing is cached yet.
+   */
+  touch(repoPath: string): void {
+    const entry = this.cache.get(repoPath);
+    if (entry) entry.at = Date.now();
+  }
+
+  /**
    * Force a refetch regardless of TTL — used by the background warmer to rewrite
    * the cached value on a cadence so the request path always finds a fresh
    * entry. Single-flight still dedupes against any in-flight load.

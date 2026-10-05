@@ -24,6 +24,31 @@ test("warms only forge-backed repos", async () => {
   expect(warmed.sort()).toEqual(["/a", "/b"]);
 });
 
+test("skipRepo: repos the fingerprint keeps current are not warmed; onWarmed still fires", async () => {
+  const warmed: string[] = [];
+  let broadcasts = 0;
+  const poller = new BacklogPoller(
+    () => [{ path: "/covered" }, { path: "/gitea" }],
+    () => ({ kind: "github", slug: "o/r" }),
+    async (p) => {
+      warmed.push(p);
+      return { openIssues: 1, openPRs: 0, ciStatus: null, prKinds: null };
+    },
+    90_000,
+    () => {
+      broadcasts++;
+    },
+    () => true,
+    undefined,
+    (p) => p === "/covered",
+  );
+
+  await poller.tick();
+
+  expect(warmed).toEqual(["/gitea"]);
+  expect(broadcasts).toBe(1);
+});
+
 test("a rejecting warm does not sink the tick or sibling repos", async () => {
   const warmed: string[] = [];
   const poller = new BacklogPoller(

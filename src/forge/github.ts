@@ -29,6 +29,7 @@ import {
   parseRetryAfter,
   restRateLimit,
 } from "./rate-limit";
+import { issuesFreshness } from "./repo-freshness";
 import { Semaphore } from "../semaphore";
 import {
   CRITIC_REVIEW_MARKER,
@@ -631,8 +632,9 @@ export class GithubForge implements GitForge {
   private openPrCapLogged = false;
   private readonly restCheckCache = new Map<string, { at: number; state: ChecksState }>();
   /** listIssues cache + in-flight share. `issuesGen` bumps on this forge's own issue
-   *  writes so a fetch that started before the write never repopulates the cache. */
-  private issuesCache: { at: number; issues: Issue[] } | null = null;
+   *  writes so a fetch that started before the write never repopulates the cache. `fpGen` is
+   *  the repo fingerprint's issue generation when the fetch STARTED (null: not covered). */
+  private issuesCache: { at: number; issues: Issue[]; fpGen: number | null } | null = null;
   private issuesInflight: Promise<Issue[]> | null = null;
   private issuesGen = 0;
   /** Per-repo backoff after a failed listing: the last error is replayed until `until`. */
@@ -915,16 +917,25 @@ export class GithubForge implements GitForge {
   }
 
   /**
-   * Open issues, served from a {@link ISSUES_CACHE_TTL_MS} cache shared by every caller of
-   * this forge (#2656): the issues panel, the epics routes, the completed-epics band, the
-   * drain and Up Next each list the same repo independently, several of them uncached.
-   * Concurrent calls share one in-flight fetch; a failure is not cached. Each caller gets
-   * shallow copies, so one consumer annotating an issue (e.g. `blockedBy`) can't leak into
-   * another's view. This forge's own issue writes clear the cache ({@link invalidateIssues}).
+   * Open issues, served from a cache shared by every caller of this forge (#2656): the issues
+   * panel, the epics routes, the completed-epics band, the drain and Up Next each list the same
+   * repo independently. Concurrent calls share one in-flight fetch; a failure is not cached.
+   * Each caller gets shallow copies, so one consumer annotating an issue (e.g. `blockedBy`)
+   * can't leak into another's view. This forge's own issue writes clear the cache
+   * ({@link invalidateIssues}).
+   *
+   * While the repo fingerprint covers this slug (#2756), an entry stays valid until the slug's
+   * issue generation moves — no timed re-list. The entry is tagged with the generation seen when
+   * its fetch STARTED, so a change landing mid-fetch leaves it stale for the next read.
+   * Uncovered slugs keep the {@link ISSUES_CACHE_TTL_MS} expiry.
    */
   async listIssues(): Promise<Issue[]> {
+    const fpGen = issuesFreshness(this.slug);
     const hit = this.issuesCache;
-    if (hit && Date.now() - hit.at < ISSUES_CACHE_TTL_MS) return copyIssues(hit.issues);
+    const fresh =
+      hit !== null &&
+      (fpGen !== null ? hit.fpGen === fpGen : Date.now() - hit.at < ISSUES_CACHE_TTL_MS);
+    if (fresh) return copyIssues(hit.issues);
     const fail = this.issuesFailure;
     if (fail && Date.now() < fail.until) throw fail.err;
     if (!this.issuesInflight) {
@@ -933,7 +944,7 @@ export class GithubForge implements GitForge {
         .then(
           (issues) => {
             if (gen === this.issuesGen) {
-              this.issuesCache = { at: Date.now(), issues };
+              this.issuesCache = { at: Date.now(), issues, fpGen };
               this.issuesFailure = null;
             }
             return issues;

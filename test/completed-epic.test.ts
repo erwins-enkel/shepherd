@@ -380,6 +380,28 @@ describe("enrichLandingEpics", () => {
     expect(rows[0]?.landingStranded).toBe(true);
   });
 
+  it("an injected prStatus read replaces the forge's own", async () => {
+    const rows = [baseEpic()];
+    const seen: Array<[string, string]> = [];
+    await enrichLandingEpics(rows, {
+      getEpicIntegrationBranch: () => "epic/7",
+      resolveForge: () => ({
+        kind: "local",
+        prStatus: async () => {
+          throw new Error("must not be called");
+        },
+      }),
+      prStatus: async (repoPath, branch) => {
+        seen.push([repoPath, branch]);
+        return prStatus({ checks: "pending" });
+      },
+      hasLiveRepairSession: () => false,
+      now: 2_000,
+    });
+    expect(seen).toEqual([["/repo/a", "epic/7"]]);
+    expect(rows[0]?.landingChecks).toBe("pending");
+  });
+
   it("open but CI red → landingReady false, not stranded", async () => {
     const rows = [baseEpic({ completedAt: 0 })];
     await enrichLandingEpics(rows, {

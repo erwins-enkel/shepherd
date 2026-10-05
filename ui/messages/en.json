@@ -5224,5 +5224,6 @@
   "native_compose_autostart_aborted": "Automatic start cancelled: an upload failed.",
   "native_compose_keep_app_open": "Switching apps briefly is fine — don't close the app.",
   "feat_ios_upload_autostart_title": "Start while files upload (iOS)",
-  "feat_ios_upload_autostart_body": "The iOS composer now shows live upload progress. Tap Start during the upload and the session starts on its own when it finishes — switching apps briefly is fine."
+  "feat_ios_upload_autostart_body": "The iOS composer now shows live upload progress. Tap Start during the upload and the session starts on its own when it finishes — switching apps briefly is fine.",
+  "newtask_upload_keep_tab_open": "Keep this tab open until the upload finishes."
 }

@@ -2612,6 +2612,10 @@
                 {/if}
               {/if}
             </span>
+            {#if mobile}
+              <!-- A phone browser suspends a backgrounded tab, which stalls the upload. -->
+              <span class="upload-keep-open">{m.newtask_upload_keep_tab_open()}</span>
+            {/if}
           </div>
         {:else}
           <span class="readiness">
@@ -3586,6 +3590,10 @@
     color: var(--color-muted);
     font-size: var(--fs-meta);
     font-variant-numeric: tabular-nums;
+  }
+  .upload-keep-open {
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
   }
   .run {
     margin-left: auto;

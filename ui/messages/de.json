@@ -5224,5 +5224,6 @@
   "native_compose_autostart_aborted": "Automatischer Start abgebrochen: Ein Upload ist fehlgeschlagen.",
   "native_compose_keep_app_open": "Kurz die App wechseln geht – App nicht schließen.",
   "feat_ios_upload_autostart_title": "Starten, während Dateien hochladen (iOS)",
-  "feat_ios_upload_autostart_body": "Die iOS-Eingabe zeigt den Upload jetzt live in Prozent. Tippe während des Uploads auf Starten, dann startet die Sitzung von selbst, sobald er fertig ist – kurz die App wechseln geht."
+  "feat_ios_upload_autostart_body": "Die iOS-Eingabe zeigt den Upload jetzt live in Prozent. Tippe während des Uploads auf Starten, dann startet die Sitzung von selbst, sobald er fertig ist – kurz die App wechseln geht.",
+  "newtask_upload_keep_tab_open": "Diesen Tab geöffnet lassen, bis der Upload fertig ist."
 }

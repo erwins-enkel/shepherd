@@ -48,7 +48,6 @@ export const KEYS_CORE: readonly string[] = [
   "login_password_placeholder",
   "login_submit",
   "login_subtitle",
-  "native_archive_confirm_action",
   "native_archive_confirm_body",
   "native_archive_confirm_title",
   "native_archive_failed",
@@ -196,7 +195,6 @@ export const KEYS_IOS_LATENCY: readonly string[] = [
 export const KEYS_IOS_STEERS: readonly string[] = [
   "native_ios_steers_all",
   "native_ios_steers_empty",
-  "native_ios_steers_end_hold",
   "native_ios_steers_load_failed",
   "native_ios_steers_overview",
   "native_ios_steers_release_back",

@@ -129,7 +129,7 @@ struct SessionDetailView: View {
                 .accessibilityHidden(true)
                 .transition(.opacity)
             IOSSteerPanel(session: session, steers: steers.barSteers(for: session), loadError: steers.loadError,
-                terminal: terminal, endSession: endSession, close: { gesture.setSteersOpen(false) })
+                terminal: terminal, decommission: decommission, close: { gesture.setSteersOpen(false) })
                 .containerRelativeFrame(.horizontal) { width, _ in min(width * 0.86, 420) }
                 .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { value in
                     if value.translation.width > 80, abs(value.translation.width) > abs(value.translation.height) {
@@ -140,14 +140,14 @@ struct SessionDetailView: View {
         }
     }
 
-    /// Archive is the server's "end session": the agent stops, the row is kept.
-    private var endSession: (@MainActor () async throws -> Void)? {
-        guard let store = app.store, app.allowsTerminalInput, app.liveRequestAudit == nil,
-              session.status.known != .archived else { return nil }
-        let id = session.id
-        return { [app] in
-            try await store.archive(id: id)
-            app.selectedSessionID = nil
+    /// The header menu's decommission sheet; the panel steps aside for it.
+    private var decommission: (() -> Void)? {
+        guard let state = app.extension(IOSSessionActions.self)?.state(for: session),
+              state.canDecommission else { return nil }
+        let gesture = gesture
+        return {
+            gesture.setSteersOpen(false)
+            state.presentDecommission()
         }
     }
 

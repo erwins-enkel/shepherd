@@ -69,21 +69,18 @@ struct IOSSteerChips: View {
 }
 
 /// The panel a left swipe reveals: every steer of this session's bar, the two
-/// interrupting keys and the session lifecycle. Ending the session needs a hold,
-/// so the swipe that opened the panel can never end a session by accident.
+/// interrupting keys and the session lifecycle. Decommission only opens its
+/// sheet, so the swipe that opened the panel can never end a session by accident.
 struct IOSSteerPanel: View {
     let session: Session
     let steers: [ComposeSteer]
     let loadError: String?
     let terminal: IOSTerminalPresentation
     /// nil while writes are not allowed (read-only, wrong activation, archived).
-    let endSession: (@MainActor () async throws -> Void)?
+    let decommission: (() -> Void)?
     let close: () -> Void
     var rendersStaticFixture = false
     @State private var sendingID: String?
-    @State private var ending = false
-    @State private var endError: String?
-    @State private var confirmEnd = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -105,10 +102,6 @@ struct IOSSteerPanel: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("steer-panel")
         .accessibilityAction(.escape) { close() }
-        .alert(L.t("native_archive_confirm_title"), isPresented: $confirmEnd) {
-            Button(L.t("native_archive_confirm_action"), role: .destructive) { end() }
-            Button(L.t("common_cancel"), role: .cancel) {}
-        } message: { Text(L.t("native_archive_confirm_body")) }
     }
 
     private var panelBody: some View {
@@ -207,7 +200,7 @@ struct IOSSteerPanel: View {
     @ViewBuilder private var sessionSection: some View {
         let state = terminal.actionState
         let lifecycle = (state?.actions ?? []).filter { $0 == .stop || $0 == .resume }
-        if !lifecycle.isEmpty || endSession != nil {
+        if !lifecycle.isEmpty || decommission != nil {
             VStack(alignment: .leading, spacing: 8) {
                 sectionTitle(L.t("native_ios_steers_section_session"))
                 if let state {
@@ -222,11 +215,16 @@ struct IOSSteerPanel: View {
                     }
                     if let error = state.error { Text(verbatim: error).foregroundStyle(ComposePalette.red) }
                 }
-                if endSession != nil {
-                    IOSHoldToConfirmButton(title: L.t("native_ios_steers_end_hold"), busy: ending,
-                        confirm: end, accessibilityConfirm: { confirmEnd = true })
-                        .accessibilityIdentifier("steer-end-session")
-                    if let endError { Text(verbatim: endError).foregroundStyle(ComposePalette.red) }
+                if let decommission {
+                    Button(action: decommission) {
+                        // Inside the label: ComposeControlStyle's ink would override an outer style.
+                        Label(L.t("cardmenu_decommission"), systemImage: "xmark.circle")
+                            .foregroundStyle(ComposePalette.red)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(ComposeControlStyle())
+                    .accessibilityHint(L.t("viewport_decommission_title"))
+                    .accessibilityIdentifier("steer-decommission")
                 }
             }
             .font(.system(.callout, design: .monospaced))
@@ -237,65 +235,5 @@ struct IOSSteerPanel: View {
         Text(verbatim: title.uppercased())
             .font(.system(.caption, design: .monospaced).weight(.semibold))
             .foregroundStyle(ComposePalette.muted)
-    }
-
-    private func end() {
-        guard let endSession, !ending else { return }
-        ending = true
-        endError = nil
-        Task {
-            do {
-                try await endSession()
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
-            } catch {
-                endError = L.t("native_archive_failed", ShepherdErrorCopy.message(error))
-                UINotificationFeedbackGenerator().notificationOccurred(.error)
-            }
-            ending = false
-        }
-    }
-}
-
-/// Fills while held; fires once the hold completes. VoiceOver cannot hold, so its
-/// activation asks for an explicit confirmation instead.
-struct IOSHoldToConfirmButton: View {
-    let title: String
-    let busy: Bool
-    let confirm: () -> Void
-    let accessibilityConfirm: () -> Void
-    var duration = 1.2
-    @State private var progress: CGFloat = 0
-
-    var body: some View {
-        HStack(spacing: 8) {
-            if busy { ProgressView().tint(ComposePalette.red) }
-            Text(verbatim: title).font(.system(.callout).weight(.semibold))
-        }
-        .foregroundStyle(ComposePalette.red)
-        .frame(maxWidth: .infinity, minHeight: 50)
-        .background(alignment: .leading) {
-            GeometryReader { geometry in
-                ComposePalette.red.opacity(0.22).frame(width: geometry.size.width * progress)
-            }
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).stroke(ComposePalette.red.opacity(0.7)))
-        .contentShape(RoundedRectangle(cornerRadius: 12))
-        .onLongPressGesture(minimumDuration: duration, maximumDistance: 40) {
-            UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
-            withAnimation(.easeOut(duration: 0.2)) { progress = 0 }
-            confirm()
-        } onPressingChanged: { pressing in
-            guard !busy else { return }
-            if pressing { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
-            withAnimation(pressing ? .linear(duration: duration) : .easeOut(duration: 0.2)) {
-                progress = pressing ? 1 : 0
-            }
-        }
-        .allowsHitTesting(!busy)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title)
-        .accessibilityAddTraits(.isButton)
-        .accessibilityAction { accessibilityConfirm() }
     }
 }

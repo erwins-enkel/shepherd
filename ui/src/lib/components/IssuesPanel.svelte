@@ -50,6 +50,8 @@
   import IssueFilterPopover from "./IssueFilterPopover.svelte";
   import RepoLink from "./RepoLink.svelte";
   import IssueLoadAttempts from "./IssueLoadAttempts.svelte";
+  import IssueRateLimitNotice from "./issues-panel/IssueRateLimitNotice.svelte";
+  import { isRateLimited } from "./issues-panel/rate-limit-wait";
   import { SvelteSet, SvelteMap } from "svelte/reactivity";
   import { tick, untrack } from "svelte";
 
@@ -707,6 +709,9 @@
     <div class="issues-list">
       {#if loading}
         <div class="muted">{m.common_loading()}</div>
+      {:else if loadError && isRateLimited(loadAttempts)}
+        <!-- A rate limit is a wait, not a defect: say when it lifts and retry then. -->
+        <IssueRateLimitNotice attempts={loadAttempts} onretry={retryIssues} />
       {:else if loadError}
         <!-- The failure is often transient (one exhausted gh budget), so offer the retry
              right here rather than asking the operator to wait. -->

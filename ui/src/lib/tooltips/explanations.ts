@@ -164,3 +164,24 @@ export function autoMergeStripExplanation(): TooltipExplanation {
     ],
   };
 }
+
+/** Issues panel rate-limit notice — whether GitHub's API limit can be raised, and what to
+ *  do meanwhile. `resumeTime` is the reload time the notice shows, or null when unknown. */
+export function githubRateLimitRaiseExplanation(resumeTime: string | null): TooltipExplanation {
+  return {
+    title: m.issues_ratelimit_raise_title(),
+    summary: m.issues_ratelimit_raise_summary(),
+    sections: [
+      { label: m.issues_ratelimit_raise_no_label(), text: m.issues_ratelimit_raise_no() },
+      { label: m.issues_ratelimit_raise_yes_label(), text: m.issues_ratelimit_raise_yes() },
+      { label: m.issues_ratelimit_raise_cost_label(), text: m.issues_ratelimit_raise_cost() },
+      {
+        label: m.issues_ratelimit_raise_now_label(),
+        text:
+          resumeTime === null
+            ? m.issues_ratelimit_raise_now_unknown()
+            : m.issues_ratelimit_raise_now({ time: resumeTime }),
+      },
+    ],
+  };
+}

@@ -218,6 +218,26 @@ test("CountsService: an entry warmed 15 min ago is still served from cache", asy
   expect(calls.filter((c) => c.includes("graphql")).length).toBe(1);
 });
 
+// #2756: a repo whose fingerprint was seen unchanged is restamped instead of re-fetched.
+test("CountsService: touch keeps an aging entry fresh without a fetch; no-op when uncached", async () => {
+  const repoDir = gitInit(join(tmpBase, "gh-touch"), "https://github.com/o/touch");
+  const graphqlResponse = JSON.stringify({
+    data: { repository: { issues: { totalCount: 5 }, pullRequests: { totalCount: 1 } } },
+  });
+  const { run, calls } = fakeRunner(graphqlResponse);
+  const svc = new CountsService({}, run);
+
+  svc.touch(repoDir); // nothing cached → nothing to restamp
+  expect(svc.peek(repoDir)).toBeNull();
+
+  await svc.counts(repoDir);
+  (svc as any).cache.get(repoDir).at = Date.now() - 20 * 60_000 - 1_000;
+  svc.touch(repoDir);
+  await svc.counts(repoDir);
+
+  expect(calls.filter((c) => c.includes("graphql")).length).toBe(1);
+});
+
 // 7. TTL expiry: second call after TTL elapses re-invokes the runner
 test("CountsService: TTL expiry — call after the 20 min window re-fetches from runner", async () => {
   const repoDir = gitInit(join(tmpBase, "gh-ttl-expire"), "https://github.com/o/ttl-expire");

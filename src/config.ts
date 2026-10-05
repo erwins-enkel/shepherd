@@ -766,7 +766,8 @@ export const config = {
   // PreToolUse tool guard (issue #2002): a local `command` hook that DENIES the two hazards that
   // used to ride every spawn as standing prompt text — a bare `git stash` on the shared `refs/stash`
   // stack (#1632) and a worktree-add / dependency install under a tmpfs root (#1862) — with the
-  // explanation attached to the refusal. Not the HTTP ingest transport: an HTTP hook is documented
+  // explanation attached to the refusal. It also denies a `bash -c` script Claude Code falsely
+  // flags as running rm (anthropics/claude-code#99630), which would otherwise stall unattended. Not the HTTP ingest transport: an HTTP hook is documented
   // fail-open on timeout/non-2xx, and under the autonomous membrane `--clearenv` strips the token so
   // the restricted ingress 401s by design — every deny would evaporate for exactly the unattended
   // sessions that need it. Default ON; SHEPHERD_TOOL_GUARD=0 is the kill switch, and turning it off

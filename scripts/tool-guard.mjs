@@ -11,10 +11,13 @@
 // (`config.nodeBin`). A TS entrypoint would need a second interpreter bound into every membrane.
 //
 // Every rule FAILS OPEN: anything unparseable, unknown, or merely suspicious returns no decision, so
-// the guard can never wedge a session. It only ever blocks the two shapes it positively recognizes.
+// the guard can never wedge a session. It only ever blocks the shapes it positively recognizes.
 // That contract is why `segments()` below is quoting- and heredoc-aware rather than a plain split:
 // a hazard MENTIONED as data (in a commit message, a PR body, a heredoc) must never read as one
 // INVOKED, and an ambiguous command line must produce no decision at all.
+//
+// A third denial is a workaround, not a hazard: a `<shell> -c` script Claude Code's inline-shell
+// check cannot resolve, which it flags with a bypass-immune "runs rm" ask (anthropics/claude-code#99630).
 
 import { realpathSync, statfsSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
@@ -94,6 +97,24 @@ export const BACKGROUND_CONTEXT =
   "Shepherd: this call backgrounds a process, which reparents to PID 1 and outlives your session " +
   "(silently burning CPU for days). Kill what you spawn from the SAME shell once the step that " +
   "needs it is done, or wrap it in a throwaway script whose `trap` reaps its jobs on exit.";
+
+/**
+ * Reason attached to a denied `<shell> -c` script that Claude Code's inline-shell `rm` check cannot
+ * resolve (anthropics/claude-code#99630): a `$VAR` command name plus a `{…,…}` / `{a..b}` argument
+ * makes it ask "This shell -c script runs rm and could not be checked" even with no `rm` present.
+ * That ask ignores `--dangerously-skip-permissions` and auto-denies an unattended session after a
+ * ~2 min stall, so denying here at once, with the rewrite, costs the agent nothing it would keep.
+ */
+export const INLINE_SHELL_REASON =
+  "Blocked by Shepherd: Claude Code cannot check a `bash -c` / `sh -c` / `zsh -c` script that " +
+  "runs a command through a variable (`$AB …`) with a `{…,…}` argument, so it stops for a manual " +
+  'approval ("runs rm and could not be checked") that bypass mode does not skip and an unattended ' +
+  "session auto-denies. Rewrite it: drop the `-c` wrapper and run the commands directly, spell " +
+  "the command out on each line, or define a shell function (`ab() { agent-browser --session x " +
+  '"$@"; }`) instead of a `$VAR` command.';
+
+/** Shells whose `-c` script Claude Code's inline-shell check parses. */
+const INLINE_SHELLS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
 
 /** Package managers whose install/add/ci subcommands materialize a dependency tree. */
 const PACKAGE_MANAGERS = new Set(["bun", "npm", "pnpm", "yarn"]);
@@ -314,10 +335,21 @@ export function decideToolGuard(event, deps = {}) {
 
   const denial = denyFor(command, event.cwd, deps.isTmpfs ?? isTmpfsPath);
   if (denial) return denial;
+  if (runsUncheckableInlineShell(command)) {
+    return { permissionDecision: "deny", permissionDecisionReason: INLINE_SHELL_REASON };
+  }
   if (opensPullRequest(command)) return { additionalContext: PR_CREATE_CONTEXT };
   if (pushesBranch(command)) return { additionalContext: PUSH_CONTEXT };
   if (isBackgrounded(input, command)) return { additionalContext: BACKGROUND_CONTEXT };
   return null;
+}
+
+/** True when any segment of `command` is a `<shell> -c` script Claude Code cannot check. */
+function runsUncheckableInlineShell(command) {
+  return segments(command).some((segment) => {
+    const script = inlineShellScript(segment);
+    return script !== null && unresolvableInlineScript(script);
+  });
 }
 
 /** True when any segment of `command` opens a pull request. */
@@ -397,6 +429,28 @@ function denyFor(command, eventCwd, isTmpfs) {
     }
   }
   return null;
+}
+
+/**
+ * The script a `<shell> -c` segment runs, or `null`. Only a single- or double-quoted script
+ * directly after a short-flag cluster containing `c` (`-c`, `-lc`, `-ec`) is read; anything else
+ * is no opinion (fail open).
+ */
+function inlineShellScript(segment) {
+  const w = words(segment);
+  if (w.length === 0 || !INLINE_SHELLS.has(w[0].split("/").pop())) return null;
+  const m = /\s-[A-Za-z]*c[A-Za-z]*\s+(?:'([^']*)'|"((?:[^"\\]|\\.)*)")/.exec(segment);
+  if (!m) return null;
+  return m[1] ?? m[2].replace(/\\(.)/g, "$1");
+}
+
+/** True when `script` has the shape Claude Code's inline-shell check cannot resolve: a command
+ *  position starting with `$` AND a brace pattern with a comma or a `..` range. */
+function unresolvableInlineScript(script) {
+  return (
+    /\{[^{}]*(?:,|\.\.)[^{}]*\}/.test(script) &&
+    segments(script).some((s) => words(s)[0]?.startsWith("$"))
+  );
 }
 
 /** Wrap a decision in the `hookSpecificOutput` envelope Claude Code reads, or `null` for silence. */

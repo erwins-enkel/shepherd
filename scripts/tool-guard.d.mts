@@ -26,6 +26,7 @@ export interface ToolGuardContext {
 export type ToolGuardDecision = ToolGuardDenial | ToolGuardContext;
 
 export const STASH_REASON: string;
+export const INLINE_SHELL_REASON: string;
 export const PR_CREATE_CONTEXT: string;
 export const PUSH_CONTEXT: string;
 export const BACKGROUND_CONTEXT: string;

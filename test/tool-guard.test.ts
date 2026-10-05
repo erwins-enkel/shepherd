@@ -224,6 +224,36 @@ describe("#2002 the guard fails open", () => {
   });
 });
 
+describe("inline-shell rule (Claude Code false 'runs rm' prompt, anthropics/claude-code#99630)", () => {
+  it("denies a -c script that runs a $VAR command with a {…,…} argument", () => {
+    for (const cmd of [
+      `bash -c 'AB=echo; $AB "{a, b}"'`,
+      `bash -c '\nAB="agent-browser --session repro"\n$AB eval "JSON.stringify({url: location.href, title: document.title})"\n'`,
+      `sh -lc 'X=echo; $X {1..3}'`,
+      `/bin/zsh -c "AB=echo; \\$AB '{a,b}'"`,
+      `cd /home/u/repo && bash -c 'AB=echo; $AB "{a, b}"'`,
+    ]) {
+      const d = deny(bash(cmd));
+      expect(`${cmd}: ${d?.permissionDecision}`).toBe(`${cmd}: deny`);
+      // The refusal must carry the rewrite, not just a "no".
+      expect(d?.permissionDecisionReason).toContain("shell function");
+    }
+  });
+
+  it("allows the shapes Claude Code checks without asking", () => {
+    for (const cmd of [
+      `bash -c 'AB=echo; $AB a'`, // $VAR command, no brace pattern
+      `bash -c 'echo "{a, b}"'`, // brace pattern, literal command
+      `AB=echo; $AB "{a, b}"`, // no -c script at all
+      `bash -c 'echo "$AB {a,b}"'`, // $VAR only as data
+      `git commit -m "bash -c '$AB {a,b}'"`, // the whole shape mentioned as data
+      `bash script.sh '{a,b}'`, // no -c
+    ]) {
+      expect(`${cmd}: ${deny(bash(cmd))}`).toBe(`${cmd}: null`);
+    }
+  });
+});
+
 describe("#2002 deterministic backstops for the moved notices", () => {
   it("carries the one-PR + manual-steps rules at `gh pr create`", () => {
     // The skill is model-invoked; this fires on the exact call that matters, so the two invariants

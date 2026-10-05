@@ -739,3 +739,190 @@ describe("GithubForge.getEpicStructure", () => {
     }
   });
 });
+
+// #2808: one combined scan per repo serves both listSubIssueSummaries and listBlockedByOpen, and
+// it is kept until the repo fingerprint's issue generation moves.
+describe("GithubForge issue-relations cache", () => {
+  const RELATIONS_PAGE = JSON.stringify({
+    data: {
+      repository: {
+        issues: {
+          pageInfo: { hasNextPage: false, endCursor: null },
+          nodes: [
+            { number: 10, subIssuesSummary: { total: 2, completed: 1 }, parent: null },
+            {
+              number: 11,
+              subIssuesSummary: { total: 0, completed: 0 },
+              parent: { number: 10 },
+              blockedBy: { nodes: [{ number: 12, state: "OPEN" }] },
+            },
+          ],
+        },
+      },
+    },
+  });
+
+  /** Answers the relations scan, `issueId` lookups and writes; counts the GraphQL scans. */
+  function relationsRunner(failScans = 0) {
+    const calls: string[][] = [];
+    let failures = failScans;
+    const run: GhRunner = async (args) => {
+      calls.push(args);
+      if (args[1] === "graphql") {
+        if (failures-- > 0) throw new Error("gh: boom");
+        return RELATIONS_PAGE;
+      }
+      if (args.includes("--jq")) return "111"; // issueId
+      return "";
+    };
+    const scans = () => calls.filter((c) => c[1] === "graphql").length;
+    return { run, calls, scans };
+  }
+
+  async function readBoth(forge: GithubForge) {
+    return {
+      summaries: await forge.listSubIssueSummaries(),
+      blocked: await forge.listBlockedByOpen(),
+    };
+  }
+
+  test("one combined query serves both sub-issue summaries and open blockers", async () => {
+    const { run, calls, scans } = relationsRunner();
+    const forge = new GithubForge("o/r", {} as never, run);
+    setIssuesFreshness(() => 1);
+    try {
+      const { summaries, blocked } = await readBoth(forge);
+      expect(scans()).toBe(1);
+      const query = calls[0]!.join(" ");
+      expect(query).toContain("subIssuesSummary");
+      expect(query).toContain("parent{number}");
+      expect(query).toContain("blockedBy(first:20)");
+      expect(summaries.summaries).toEqual(new Map([[10, { total: 2, completed: 1 }]]));
+      expect(summaries.subIssueNumbers).toEqual([11]);
+      expect(summaries.childrenByParent).toEqual(new Map([[10, [11]]]));
+      expect(blocked).toEqual(new Map([[11, [12]]]));
+    } finally {
+      setIssuesFreshness(null);
+    }
+  });
+
+  test("a covered slug re-scans only when its issue generation moves", async () => {
+    const { run, scans } = relationsRunner();
+    const forge = new GithubForge("o/r", {} as never, run);
+    let gen = 1;
+    setIssuesFreshness((slug) => (slug === "o/r" ? gen : null));
+    try {
+      setSystemTime(new Date("2026-10-05T12:00:00Z"));
+      await readBoth(forge);
+      for (let min = 1; min <= 10; min++) {
+        setSystemTime(new Date(Date.parse("2026-10-05T12:00:00Z") + min * 60_000));
+        await readBoth(forge);
+      }
+      expect(scans()).toBe(1);
+      gen = 2;
+      await readBoth(forge);
+      await readBoth(forge);
+      expect(scans()).toBe(2);
+    } finally {
+      setIssuesFreshness(null);
+      setSystemTime();
+    }
+  });
+
+  test("an uncovered slug keeps the 30 s TTL", async () => {
+    const { run, scans } = relationsRunner();
+    const forge = new GithubForge("o/r", {} as never, run);
+    try {
+      setSystemTime(new Date("2026-10-05T12:00:00Z"));
+      await readBoth(forge);
+      setSystemTime(new Date("2026-10-05T12:00:29Z"));
+      await readBoth(forge);
+      expect(scans()).toBe(1);
+      setSystemTime(new Date("2026-10-05T12:00:31Z"));
+      await readBoth(forge);
+      expect(scans()).toBe(2);
+    } finally {
+      setSystemTime();
+    }
+  });
+
+  test("concurrent reads share one in-flight scan", async () => {
+    const { run, scans } = relationsRunner();
+    const forge = new GithubForge("o/r", {} as never, run);
+    await Promise.all([forge.listSubIssueSummaries(), forge.listBlockedByOpen()]);
+    expect(scans()).toBe(1);
+  });
+
+  test("the forge's own relation and close writes drop the cached relations", async () => {
+    const writes: Array<(f: GithubForge) => Promise<unknown>> = [
+      (f) => f.addSubIssue(10, 11),
+      (f) => f.addBlockedBy(11, 12),
+      (f) => f.closeIssue(12),
+    ];
+    setIssuesFreshness(() => 1);
+    try {
+      for (const write of writes) {
+        const { run, scans } = relationsRunner();
+        const forge = new GithubForge("o/r", {} as never, run);
+        await readBoth(forge);
+        await write(forge);
+        await readBoth(forge);
+        expect(scans()).toBe(2);
+      }
+    } finally {
+      setIssuesFreshness(null);
+    }
+  });
+
+  test("a failed scan is not cached — the next read scans again", async () => {
+    const { run, scans } = relationsRunner(1);
+    const forge = new GithubForge("o/r", {} as never, run);
+    setIssuesFreshness(() => 1);
+    try {
+      expect((await forge.listBlockedByOpen()).size).toBe(0);
+      expect(await forge.listBlockedByOpen()).toEqual(new Map([[11, [12]]]));
+      expect(scans()).toBe(2);
+    } finally {
+      setIssuesFreshness(null);
+    }
+  });
+
+  test("callers get copies — mutating a result leaves the cache intact", async () => {
+    const { run } = relationsRunner();
+    const forge = new GithubForge("o/r", {} as never, run);
+    setIssuesFreshness(() => 1);
+    try {
+      const first = await readBoth(forge);
+      first.blocked.get(11)!.push(99);
+      first.summaries.childrenByParent.get(10)!.push(99);
+      first.summaries.summaries.get(10)!.total = 99;
+      first.summaries.subIssueNumbers.push(99);
+      const again = await readBoth(forge);
+      expect(again.blocked).toEqual(new Map([[11, [12]]]));
+      expect(again.summaries.childrenByParent).toEqual(new Map([[10, [11]]]));
+      expect(again.summaries.summaries.get(10)).toEqual({ total: 2, completed: 1 });
+      expect(again.summaries.subIssueNumbers).toEqual([11]);
+    } finally {
+      setIssuesFreshness(null);
+    }
+  });
+
+  test("while the GraphQL bucket is blocked, the last entry is served even when stale", async () => {
+    const { run, scans } = relationsRunner();
+    const forge = new GithubForge("o/r", {} as never, run);
+    let gen = 1;
+    setIssuesFreshness(() => gen);
+    try {
+      await readBoth(forge);
+      gen = 2;
+      graphRateLimit.noteLimitError(60);
+      const { summaries, blocked } = await readBoth(forge);
+      expect(scans()).toBe(1);
+      expect(blocked).toEqual(new Map([[11, [12]]]));
+      expect(summaries.subIssueNumbers).toEqual([11]);
+    } finally {
+      graphRateLimit.note({ remaining: 1000, resetAt: Date.now() + 60_000 });
+      setIssuesFreshness(null);
+    }
+  });
+});

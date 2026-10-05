@@ -86,6 +86,7 @@ function leading(): Epic {
 const titleFor = (n: number) => (n === 21 ? "First of B" : null);
 // The #2638 sections, empty: a repo with no running work, no labels and no open issues.
 const quiet = {
+  repoPath: "/repo",
   running: [],
   labels: [],
   labelColors: {},

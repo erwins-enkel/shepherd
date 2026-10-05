@@ -4835,7 +4835,6 @@
   "epic_run_now_empty": "No slot in use",
   "epic_run_holder_epic": "epic #{parent}",
   "epic_run_open_session": "Open session",
-  "epic_run_more_slots": "More slots",
   "epic_run_next_after_slot": "starts once {holder} is done",
   "epic_run_next_approval": "waits for your approval",
   "epic_run_next_resume": "starts once you resume",
@@ -4863,7 +4862,7 @@
   "tooltip_agent_slot_full": "When all are taken",
   "tooltip_agent_slot_full_body": "New starts pause. The next task starts as soon as a slot frees up.",
   "tooltip_agent_slot_change": "Change it",
-  "tooltip_agent_slot_change_body": "Repos → Automation → Cap. More slots mean more agents at once — and more usage.",
+  "tooltip_agent_slot_change_body": "Repos → Issues: − / + beside the slot count, or Repos → Automation → Cap. More slots mean more agents at once — and more usage.",
   "tooltip_epic_lead_title": "One epic leads per repo",
   "tooltip_epic_lead_summary": "Only the leading epic starts new tasks. Starting another epic makes it lead instead — it does not queue behind the current one.",
   "tooltip_epic_lead_previous": "The previous epic",
@@ -5209,5 +5208,10 @@
   "settings_access_instruction_errors": "401: token expired, revoked or invalid. 403: action or repository is not permitted. 404: resource is unavailable or outside the grant. Report the limitation instead of trying other credentials or bypassing the grant.",
   "settings_access_instruction_task": "Describe the actual work assignment here",
   "feat_token_repository_access_title": "Give an external agent access to selected repositories",
-  "feat_token_repository_access_body": "Choose and edit repository access for each token in Settings → Access. Copy a ready-to-use agent instruction with the token, server address and permitted workflow."
+  "feat_token_repository_access_body": "Choose and edit repository access for each token in Settings → Access. Copy a ready-to-use agent instruction with the token, server address and permitted workflow.",
+  "slotstepper_label": "Agent slots",
+  "slotstepper_less": "Remove an agent slot",
+  "slotstepper_more": "Add an agent slot",
+  "feat_slot_stepper_title": "Change agent slots with − / +",
+  "feat_slot_stepper_body": "Under Repos → Issues, − and + beside the agent-slot count — in the list heading and in the run area's Now step — raise or lower the repo's cap directly, without the detour through Automation → Cap. An added slot is used on the next pass, within about 30 seconds."
 }

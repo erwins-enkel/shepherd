@@ -225,11 +225,11 @@
 
   {#if steps}
     <EpicRunSteps
+      {repoPath}
       {steps}
       {titleFor}
       onapprove={canApprove ? approveNext : undefined}
       {onopensession}
-      {onopenautomation}
     />
   {/if}
 

@@ -4,13 +4,16 @@
   import { statusTip } from "$lib/tooltips/statusTip.svelte";
   import { epicLeadExplanation } from "$lib/tooltips/explanations";
   import GlossaryText from "../GlossaryText.svelte";
+  import SlotStepper, { slotCap } from "./SlotStepper.svelte";
 
   // Heading over the backlog list's epics (#2620): names the one-epic-leads rule and the repo's
-  // agent-slot use, with a link to the cap (maxAuto) in the Automation tab.
+  // agent-slot use, with −/+ for the cap (maxAuto) and a link to it in the Automation tab.
   let {
+    repoPath,
     runSummary = null,
     onopenautomation = undefined,
   }: {
+    repoPath: string;
     runSummary?: DrainRunSummary | null;
     onopenautomation?: () => void;
   } = $props();
@@ -26,8 +29,12 @@
   {#if runSummary}
     <span class="slots">
       <GlossaryText
-        text={m.issuespanel_slots({ used: runSummary.slots.used, max: runSummary.slots.max })}
+        text={m.issuespanel_slots({
+          used: runSummary.slots.used,
+          max: slotCap(repoPath, runSummary.slots.max),
+        })}
       />
+      <SlotStepper {repoPath} max={runSummary.slots.max} />
       {#if onopenautomation}
         ·
         <button class="change" type="button" onclick={onopenautomation}

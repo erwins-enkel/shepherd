@@ -780,7 +780,7 @@
           {/if}
         {/if}
         {#if rows.some((r) => r.kind === "epic")}
-          <EpicsListHeading runSummary={drain?.runSummary ?? null} {onopenautomation} />
+          <EpicsListHeading {repoPath} runSummary={drain?.runSummary ?? null} {onopenautomation} />
         {/if}
         <div
           bind:this={listEl}
@@ -851,6 +851,7 @@
         {/key}
       {:else}
         <RepoOverview
+          {repoPath}
           repoName={repos.nameFor(repoPath) ??
             repoPath.split("/").filter(Boolean).pop() ??
             repoPath}

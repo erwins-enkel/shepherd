@@ -23,6 +23,7 @@
   // No second issue list — the list is right there.
 
   let {
+    repoPath,
     repoName,
     epics,
     running,
@@ -40,6 +41,7 @@
     onopensession = undefined,
     onopenautomation = undefined,
   }: {
+    repoPath: string;
     repoName: string;
     /** The repo's epics, in list order. */
     epics: readonly EpicSummary[];
@@ -132,7 +134,7 @@
     {/snippet}
 
     {#if steps}
-      <EpicRunSteps {steps} {titleFor} {onopensession} />
+      <EpicRunSteps {repoPath} {steps} {titleFor} {onopensession} />
     {/if}
     {#each summary?.windingDown ?? [] as w (w.epic)}
       <p class="note">

@@ -5252,8 +5252,8 @@
   "decommission_fail_close_what": "Shepherd konnte den Pull Request nicht schließen und hat vor dem Abbau angehalten. Die Session ist unverändert.",
   "decommission_fail_merge_reason": "PR konnte nicht gemergt werden",
   "decommission_fail_merge_what": "Die Merge-Anfrage ist fehlgeschlagen, deshalb hat Shepherd vor dem Abbau angehalten. Die Session ist unverändert.",
-  "decommission_fail_merge_next": "Behebe, was die Servermeldung nennt (etwa einen Merge-Konflikt), dann erneut versuchen. Ist der Merge doch durchgegangen, überspringt der Retry ihn und baut nur noch die Session ab.",
+  "decommission_fail_merge_next": "Behebe, was die Servermeldung nennt (etwa einen Merge-Konflikt), dann erneut versuchen. Ist der Merge doch durchgegangen, wird er beim erneuten Versuch übersprungen und nur noch die Session abgebaut.",
   "decommission_fail_archive_reason": "Abbau fehlgeschlagen",
-  "decommission_fail_archive_what": "Agent beenden oder Worktree entfernen ist fehlgeschlagen, deshalb ist die Session noch da. Ein bereits erledigter PR-Schritt wird nicht wiederholt.",
+  "decommission_fail_archive_what": "Das Beenden des Agents oder das Entfernen seines Worktrees ist fehlgeschlagen, deshalb ist die Session noch da. Ein bereits erledigter PR-Schritt wird nicht wiederholt.",
   "decommission_fail_retry_next": "Erneut versuchen. Scheitert es weiter, steht die Ursache im Server-Log (shepherd.log)."
 }

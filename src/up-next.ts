@@ -74,8 +74,9 @@ export interface UpNextDeps {
   /** Backoff (ms) between post-start recompute attempts; first is immediate. See
    *  `recomputeUntilCleared`. Injectable so tests can drive the loop with tiny delays. */
   postStartRetryDelaysMs?: number[];
-  /** realpath resolver, injectable for tests. Used only to reconcile started-item paths
-   *  (safeRepoDir/realpath space) against snapshot paths (raw listRepos space). */
+  /** realpath resolver, injectable for tests. Reconciles safeRepoDir/realpath-space paths
+   *  against raw listRepos-space repo paths: started items against snapshot paths, and the
+   *  store's session/epic history against each repo (`workedIn`). */
   realpath?: (p: string) => string;
   /** Readiness rerank (#2535). Absent (no judge key) or `enabled()` false ⇒ the snapshot is exactly
    *  today's. `enabled` is read per compute so the Settings toggle lands on the next refresh. */

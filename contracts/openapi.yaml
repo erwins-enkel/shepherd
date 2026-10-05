@@ -5299,7 +5299,7 @@ paths:
           description: Unknown id, or no forge for this repo.
           content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
         "409":
-          description: No open PR, a merge conflict, a busy base checkout, or missing/stale takeover confirmation (code merge_confirm_required/merge_confirm_stale).
+          description: No open PR (code pr_already_merged/pr_already_closed/pr_not_found), a merge conflict, a busy base checkout, or missing/stale takeover confirmation (code merge_confirm_required/merge_confirm_stale).
           content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
         "502":
           description: The forge failed, or the host only enqueued the merge (see `code`).
@@ -5367,7 +5367,7 @@ paths:
           description: Unknown id, or no forge for this repo.
           content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
         "409":
-          description: No open PR.
+          description: No open PR (code pr_already_merged/pr_already_closed/pr_not_found).
           content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } }
         "502":
           description: The forge failed.

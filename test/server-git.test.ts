@@ -345,6 +345,24 @@ test("POST git/merge → 409 when no open PR", async () => {
   expect(res.status).toBe(409);
 });
 
+// A decommission retry tells "the merge already landed" apart from "this PR can no longer land" by
+// these codes — never by the message text.
+for (const [state, code] of [
+  ["merged", "pr_already_merged"],
+  ["closed", "pr_already_closed"],
+  ["none", "pr_not_found"],
+] as const) {
+  test(`POST git/merge on a ${state} PR → 409 with code ${code}`, async () => {
+    const f = fakeForge({
+      prStatus: async () => ({ state, number: 5, checks: "none" }) as PrStatus,
+    });
+    const app = makeApp(makeDeps(f));
+    const res = await app.fetch(post("/api/sessions/s1/git/merge", {}));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "no open PR to merge", code });
+  });
+}
+
 test("POST git/redeploy dispatches configured workflow against base branch", async () => {
   const f = fakeForge();
   const app = makeApp(makeDeps(f));
@@ -539,7 +557,23 @@ test("POST git/close → 409 without an open PR and never calls closePr", async 
   const res = await app.fetch(post("/api/sessions/s1/git/close"));
 
   expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({ error: "no open PR", code: "pr_already_merged" });
   expect(closes).toBe(0);
+});
+
+test("POST git/close → 409 names a closed or missing PR by code", async () => {
+  for (const [state, code] of [
+    ["closed", "pr_already_closed"],
+    ["none", "pr_not_found"],
+  ] as const) {
+    const f = fakeForge({
+      prStatus: async () => ({ state, number: 5, checks: "none" }) as PrStatus,
+      closePr: async () => {},
+    });
+    const res = await makeApp(makeDeps(f)).fetch(post("/api/sessions/s1/git/close"));
+    expect(res.status, state).toBe(409);
+    expect(await res.json(), state).toEqual({ error: "no open PR", code });
+  }
 });
 
 test("POST git/close → 400 when the forge cannot close PRs", async () => {

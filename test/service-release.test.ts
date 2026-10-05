@@ -35,6 +35,7 @@ function harness(opts: {
   session: ReturnType<typeof sess> | null;
   gate: { approved: boolean } | null;
   paneLive?: boolean;
+  transcriptExists?: boolean;
   draftMode?: boolean;
   /** Supersede the plan approval while the steer is in flight (release must then not commit). */
   revokeOnSend?: boolean;
@@ -67,6 +68,7 @@ function harness(opts: {
     },
   };
   const svc = new SessionService({
+    transcriptExists: () => opts.transcriptExists ?? true,
     store: store as any,
     namer: async () => "x",
     worktree: { create: () => ({}) as any, remove: () => {} } as any,
@@ -232,4 +234,11 @@ test("releasePlanGate writes no queue approval when the release does not commit"
   });
   expect(await h.svc.releasePlanGate("s1")).toBe(false);
   expect(h.approvals).toHaveLength(0);
+});
+
+test("plan Go reaches a live Claude pane without a persisted transcript", async () => {
+  const h = harness({ session: sess(), gate: { approved: true }, transcriptExists: false });
+  expect(await h.svc.releasePlanGate("s1", { automatic: true })).toBe(true);
+  expect(h.sent.map((s) => s.text).join("")).toContain("Plan approved.");
+  expect(h.setPhaseCalls).toEqual([{ id: "s1", phase: "executing" }]);
 });

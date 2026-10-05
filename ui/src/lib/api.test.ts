@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createSession,
+  ApiError,
+  resumeSession,
+  resumeFailureMessage,
   fetchCodexReleaseNotes,
   getBuildQueues,
   getCommands,
@@ -146,5 +149,41 @@ describe("fetchCodexReleaseNotes", () => {
     globalThis.fetch = vi.fn(async () => Response.json({ error: "nope" }, { status: 503 }));
 
     await expect(fetchCodexReleaseNotes(new AbortController().signal)).rejects.toThrow();
+  });
+});
+
+describe("resume transcript refusal", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("preserves the typed server code and maps it to localized copy", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              error: "transcript-missing",
+              code: "transcript-missing",
+            }),
+            { status: 409 },
+          ),
+      ),
+    );
+    let error: unknown;
+    try {
+      await resumeSession("s1", true);
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).code).toBe("transcript-missing");
+    const copy = resumeFailureMessage(error, "fallback");
+    expect(copy).not.toBe("fallback");
+    expect(copy).not.toContain("transcript-missing");
+    expect(copy).toContain("Continue with");
+  });
+
+  it("keeps each caller's fallback for other failures", () => {
+    expect(resumeFailureMessage(new ApiError(409, "cannot resume"), "fallback")).toBe("fallback");
   });
 });

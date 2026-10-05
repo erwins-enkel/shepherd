@@ -5213,5 +5213,7 @@
   "slotstepper_less": "Remove an agent slot",
   "slotstepper_more": "Add an agent slot",
   "feat_slot_stepper_title": "Change agent slots with − / +",
-  "feat_slot_stepper_body": "Under Repos → Issues, − and + beside the agent-slot count — in the list heading and in the run area's Now step — raise or lower the repo's cap directly, without the detour through Automation → Cap. An added slot is used on the next pass, within about 30 seconds."
+  "feat_slot_stepper_body": "Under Repos → Issues, − and + beside the agent-slot count — in the list heading and in the run area's Now step — raise or lower the repo's cap directly, without the detour through Automation → Cap. An added slot is used on the next pass, within about 30 seconds.",
+  "session_resume_transcript_missing": "Conversation history was not saved – this session cannot be resumed.",
+  "session_resume_transcript_missing_next": "Use “Continue with…” in the session menu to start a fresh agent in this worktree."
 }

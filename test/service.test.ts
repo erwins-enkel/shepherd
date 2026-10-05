@@ -2966,6 +2966,7 @@ test("resume respawns claude --resume in the worktree and re-points the agent", 
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const svc = new SessionService({
+    transcriptExists: () => true, // Fixture conversation is persisted.
     store,
     namer: async () => "x",
     worktree: {
@@ -3010,6 +3011,7 @@ test("resume omits --model when the session had none", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const svc = new SessionService({
+    transcriptExists: () => true, // Fixture conversation is persisted.
     store,
     namer: async () => "x",
     worktree: {
@@ -3054,6 +3056,7 @@ test("resume re-passes the full directive set, operator-language included, in on
     const store = new SessionStore(":memory:");
     const calls: any = {};
     const svc = new SessionService({
+      transcriptExists: () => true, // Fixture conversation is persisted.
       store,
       namer: async () => "x",
       worktree: {
@@ -3106,6 +3109,7 @@ test("resume re-passes the full directive set, operator-language included, in on
 async function resumeArgv(store: SessionStore, id: string): Promise<string[]> {
   let argv: string[] = [];
   const svc = new SessionService({
+    transcriptExists: () => true, // Fixture conversation is persisted.
     store,
     namer: async () => "x",
     worktree: {
@@ -3158,6 +3162,7 @@ test("resume uses the exact pinned conversation for codex sessions", async () =>
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const svc = new SessionService({
+    transcriptExists: () => true, // Fixture conversation is persisted.
     store,
     namer: async () => "x",
     worktree: {
@@ -3234,6 +3239,7 @@ test("resume re-emits the persisted --effort for a Claude session", async () => 
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const svc = new SessionService({
+    transcriptExists: () => true, // Fixture conversation is persisted.
     store,
     namer: async () => "x",
     worktree: {
@@ -3277,6 +3283,7 @@ test.each(["xhigh", "max", "ultra"])("resume re-emits Codex %s unchanged", async
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const svc = new SessionService({
+    transcriptExists: () => true, // Fixture conversation is persisted.
     store,
     namer: async () => "x",
     worktree: {
@@ -3319,6 +3326,7 @@ test("resume re-uses a still-live agent instead of spawning a duplicate", async 
   const store = new SessionStore(":memory:");
   let started = 0;
   const svc = new SessionService({
+    transcriptExists: () => true, // Fixture conversation is persisted.
     store,
     namer: async () => "x",
     worktree: {
@@ -3349,6 +3357,7 @@ test("resume force=true stops the live husk agent and respawns claude", async ()
   let started = 0;
   const stopped: string[] = [];
   const svc = new SessionService({
+    transcriptExists: () => true, // Fixture conversation is persisted.
     store,
     namer: async () => "x",
     worktree: {
@@ -3379,6 +3388,7 @@ test("resume force=true stops the live husk agent and respawns claude", async ()
 test("resume returns null for unknown, archived, or pre-feature sessions", async () => {
   const store = new SessionStore(":memory:");
   const svc = new SessionService({
+    transcriptExists: () => true, // Fixture conversation is persisted.
     store,
     namer: async () => "x",
     worktree: {
@@ -3478,6 +3488,7 @@ function makeRestoreSvc(
   } = {},
 ) {
   return new SessionService({
+    transcriptExists: () => true, // Fixture conversation is persisted.
     store,
     namer: async () => "x",
     worktree: {
@@ -3866,6 +3877,7 @@ test("restore: spawn failure rolls back worktree and returns null", async () => 
   const store = new SessionStore(":memory:");
   const calls: any = { removed: [] };
   const svc = new SessionService({
+    transcriptExists: () => true, // Fixture conversation is persisted.
     store,
     namer: async () => "x",
     worktree: {
@@ -5172,6 +5184,7 @@ test("resume adopts a live agent found by cwd under a new terminalId — no dupl
   const store = new SessionStore(":memory:");
   let startCalls = 0;
   const svc = new SessionService({
+    transcriptExists: () => true, // Fixture conversation is persisted.
     store,
     namer: async () => "x",
     worktree: {
@@ -5983,6 +5996,7 @@ test("resume of a research session re-passes no queue tools either (#2003)", asy
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const svc = new SessionService({
+    transcriptExists: () => true, // Fixture conversation is persisted.
     store,
     namer: async () => "x",
     worktree: {
@@ -6055,6 +6069,7 @@ test("resume re-passes --mcp-config so a compacted session keeps its tools (#200
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const svc = new SessionService({
+    transcriptExists: () => true, // Fixture conversation is persisted.
     store,
     namer: async () => "x",
     worktree: {
@@ -6902,6 +6917,7 @@ test("resume of an auto session re-applies the trim: plugin-off + skill overlay"
     const store = new SessionStore(":memory:");
     const calls: any = {};
     const svc = new SessionService({
+      transcriptExists: () => true, // Fixture conversation is persisted.
       store,
       namer: async () => "x",
       worktree: {
@@ -6965,6 +6981,7 @@ function relaunchHarness(
   };
   const emitted: { event: string; data: any }[] = [];
   const service = new SessionService({
+    transcriptExists: () => true, // Fixture conversation is persisted.
     store,
     events: { emit: (event, data) => emitted.push({ event, data: data as any }) },
     namer: async () => "relaunched",
@@ -7838,6 +7855,7 @@ test("resume of a non-auto session stays untrimmed even with trim on", async () 
     const store = new SessionStore(":memory:");
     const calls: any = {};
     const svc = new SessionService({
+      transcriptExists: () => true, // Fixture conversation is persisted.
       store,
       namer: async () => "x",
       worktree: {
@@ -8355,6 +8373,7 @@ function baseUrlService(opts: {
   agentIngressPort?: () => number | undefined;
 }) {
   return new SessionService({
+    transcriptExists: () => true, // Fixture conversation is persisted.
     store: opts.store,
     namer: async () => "s",
     worktree: {

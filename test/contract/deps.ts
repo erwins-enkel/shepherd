@@ -124,6 +124,7 @@ export function makeContractDeps(): ContractDeps {
   // Methods are read off the object on every call (never destructured), so a test can swap one
   // in place to drive an outcome and put the original back.
   const service = new SessionService({
+    transcriptExists: () => true, // Contract fixtures model persisted conversations.
     store,
     namer: async () => "x",
     worktree: worktree as any,

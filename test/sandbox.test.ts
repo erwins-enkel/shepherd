@@ -20,6 +20,7 @@ import {
   type CodexMembraneInputs,
 } from "../src/sandbox";
 import { resolveNodeBin } from "../src/node-bin";
+import { AGENT_SHELL_MARKERS } from "../src/agent-shell-env";
 import { CODEX_ROLE_SCHEMA_DIR } from "../src/codex-role-output-schema";
 import type { EgressBackend } from "../src/egress";
 
@@ -761,6 +762,22 @@ describe("buildMembraneFlags", () => {
 });
 
 describe("buildMembraneFlags renderer env", () => {
+  test("inner env cannot re-inject parent markers and forces persistence after extraEnv", () => {
+    const f = buildMembraneFlags(
+      fakeMembrane({
+        extraEnv: {
+          ...Object.fromEntries(AGENT_SHELL_MARKERS.map((name) => [name, "1"])),
+          CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: "0",
+        },
+      }),
+      detDeps,
+    );
+    for (const name of AGENT_SHELL_MARKERS) expect(f).not.toContain(name);
+    expect(hasTriple(f, "--setenv", "CLAUDE_CODE_FORCE_SESSION_PERSISTENCE", "1")).toBe(true);
+    expect(f.lastIndexOf("CLAUDE_CODE_FORCE_SESSION_PERSISTENCE")).toBeGreaterThan(
+      f.indexOf("--clearenv"),
+    );
+  });
   test("CLAUDE_CODE_NO_FLICKER in extraEnv => --setenv triple present, after --clearenv", () => {
     const f = buildMembraneFlags(
       fakeMembrane({ extraEnv: { CLAUDE_CODE_NO_FLICKER: "1" } }),
@@ -790,6 +807,7 @@ describe("buildMembraneFlags renderer env", () => {
 describe("collectPassthroughEnv", () => {
   test("excludes secrets, includes allowlisted locale/display vars", () => {
     const out = collectPassthroughEnv({
+      ...Object.fromEntries(AGENT_SHELL_MARKERS.map((name) => [name, "1"])),
       GH_TOKEN: "secret",
       SHEPHERD_TOKEN: "secret",
       ANTHROPIC_API_KEY: "secret",

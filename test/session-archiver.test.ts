@@ -141,7 +141,7 @@ function harness(
     // to exercise rather than re-stating the happy path.
     livenessOf: (id) => liveness?.[id] ?? "husk",
     livenessFreshAt: () => NOW,
-    hasConversation: (s) =>
+    canRespawnConversation: (s) =>
       (s.agentProvider ?? "claude") === "claude"
         ? !!s.claudeSessionId
         : !!s.codexLaunchId && !!s.providerSessionId,
@@ -335,7 +335,7 @@ test("restorability is asked of the service, not re-derived", async () => {
   // follow it rather than keep its own copy.
   const asked: string[] = [];
   const h = harness([session()], {
-    hasConversation: (s) => {
+    canRespawnConversation: (s) => {
       asked.push(s.id);
       return false;
     },

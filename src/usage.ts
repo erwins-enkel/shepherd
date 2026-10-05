@@ -1,12 +1,12 @@
-import { statSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { config } from "./config";
 import { coldResumeUnits, weightedUnits, type CacheTtl } from "./pricing";
 
-/** Dashify a cwd into its ~/.claude/projects directory name: every `/` and `.` → `-`. */
+/** Claude's unshortened project directory encoding: every non-ASCII-alphanumeric character → `-`. */
 export function dashify(cwd: string): string {
-  return cwd.replace(/[/.]/g, "-");
+  return cwd.replace(/[^a-zA-Z0-9]/g, "-");
 }
 
 /** The claude projects dir a session's transcript lives under. When the agent was spawned
@@ -27,6 +27,28 @@ export function jsonlPathFor(
   spawnAccountDir?: string | null,
 ): string {
   return join(projectsDirFor(spawnAccountDir), dashify(worktreePath), `${claudeSessionId}.jsonl`);
+}
+
+/** Check the owning account for a persisted conversation. Claude may truncate/hash long cwd
+ * encodings or change its encoding again; UUID session ids are unique across project directories.
+ * The fallback reads the projects root once and probes only its immediate directories. Readback
+ * paths keep using jsonlPathFor so routine usage/activity reads do not scan the projects root. */
+export function claudeTranscriptExists(
+  worktreePath: string,
+  claudeSessionId: string,
+  spawnAccountDir?: string | null,
+  transcriptExists: (path: string) => boolean = existsSync,
+): boolean {
+  if (transcriptExists(jsonlPathFor(worktreePath, claudeSessionId, spawnAccountDir))) return true;
+  const root = projectsDirFor(spawnAccountDir);
+  try {
+    return readdirSync(root, { withFileTypes: true }).some(
+      (entry) =>
+        entry.isDirectory() && transcriptExists(join(root, entry.name, `${claudeSessionId}.jsonl`)),
+    );
+  } catch {
+    return false;
+  }
 }
 
 export interface ParsedRecord {

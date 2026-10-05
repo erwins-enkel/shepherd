@@ -5213,5 +5213,7 @@
   "slotstepper_less": "Einen Agenten-Platz weniger",
   "slotstepper_more": "Einen Agenten-Platz mehr",
   "feat_slot_stepper_title": "Agenten-Plätze mit − / + ändern",
-  "feat_slot_stepper_body": "Unter Repos → Issues ändern − und + neben der Zahl der Agenten-Plätze — im Listenkopf und im Schritt „Jetzt“ der Abarbeitung — das Limit des Repos direkt, ohne Umweg über Automatisierung → Limit. Ein zusätzlicher Platz wird beim nächsten Durchlauf genutzt, spätestens nach etwa 30 Sekunden."
+  "feat_slot_stepper_body": "Unter Repos → Issues ändern − und + neben der Zahl der Agenten-Plätze — im Listenkopf und im Schritt „Jetzt“ der Abarbeitung — das Limit des Repos direkt, ohne Umweg über Automatisierung → Limit. Ein zusätzlicher Platz wird beim nächsten Durchlauf genutzt, spätestens nach etwa 30 Sekunden.",
+  "session_resume_transcript_missing": "Verlauf wurde nicht gespeichert – diese Sitzung kann nicht fortgesetzt werden.",
+  "session_resume_transcript_missing_next": "Starte über „Weiterführen mit…“ im Sitzungsmenü einen neuen Agenten in diesem Worktree."
 }

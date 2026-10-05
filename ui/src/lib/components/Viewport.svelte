@@ -41,6 +41,8 @@
     getTodo,
     uploadFile,
     resumeSession as apiResumeSession,
+    resumeFailureMessage,
+    isMissingTranscriptError,
     renameSession,
     getLeftovers,
     setSessionAutopilot,
@@ -372,6 +374,8 @@
   let endReason = $state<"gone" | "unreachable">("gone");
   let resuming = $state(false);
   let resumeFailed = $state(false);
+  let resumeFailure = $state("");
+  let resumeTranscriptMissing = $state(false);
   // bumped on a successful resume to tear down the dead terminal + re-attach to the
   // freshly-spawned herdr agent (the terminal effect keys on it alongside the unit id)
   let resumeEpoch = $state(0);
@@ -953,6 +957,8 @@
     tab = "term";
     ended = false;
     resumeFailed = false;
+    resumeFailure = "";
+    resumeTranscriptMissing = false;
     renaming = false; // close a half-open rename editor when switching units
     renameError = null;
     gitOpen = false; // collapse the PR-actions disclosure on unit switch
@@ -1545,12 +1551,19 @@
     if (resuming) return;
     resuming = true;
     resumeFailed = false;
+    resumeFailure = "";
+    resumeTranscriptMissing = false;
     try {
       await apiResumeSession(session.id, force);
       ended = false;
       resumeEpoch++; // rebuild the terminal + attach to the fresh agent
-    } catch {
+    } catch (error) {
       resumeFailed = true;
+      resumeTranscriptMissing = isMissingTranscriptError(error);
+      resumeFailure = resumeTranscriptMissing
+        ? m.session_resume_transcript_missing()
+        : m.viewport_resume_failed();
+      toasts.info(resumeFailureMessage(error, m.viewport_resume_failed()));
     } finally {
       resuming = false;
     }
@@ -1562,6 +1575,8 @@
   function reattach() {
     ended = false;
     resumeFailed = false;
+    resumeFailure = "";
+    resumeTranscriptMissing = false;
     resumeEpoch++;
   }
 
@@ -3069,6 +3084,8 @@
       {endReason}
       {resuming}
       {resumeFailed}
+      {resumeFailure}
+      {resumeTranscriptMissing}
       {resumable}
       {stranded}
       {authUrl}

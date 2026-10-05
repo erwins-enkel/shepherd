@@ -44,6 +44,8 @@ public enum ShepherdErrorCopy {
         case .firstRunPending: return L.t("native_error_first_run")
         case .notFound: return L.t("native_error_not_found")
         case .badRequest(let message): return message
+        case .conflict(let code, _) where code == "transcript-missing":
+            return L.t("session_resume_transcript_missing")
         case .conflict(_, let message): return message
         case .unprocessable(let message): return message
         case .upstreamFailure(_, let message): return message

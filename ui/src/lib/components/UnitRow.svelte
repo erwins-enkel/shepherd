@@ -20,6 +20,7 @@
   import { displayStatus } from "$lib/display-status";
   import {
     resumeSession,
+    resumeFailureMessage,
     releasePlanGate,
     reviewPlan,
     isPlanReviewError,
@@ -711,8 +712,8 @@
     onselect(session.id); // focus it so the rebuilt terminal lands in view
     try {
       await resumeSession(session.id, true);
-    } catch {
-      toasts.info(m.cardmenu_resume_failed({ name: session.name }));
+    } catch (error) {
+      toasts.info(resumeFailureMessage(error, m.cardmenu_resume_failed({ name: session.name })));
     }
   }
   // Inline "Revive" from the stranded card affordance — force-resume the husk (#1630).
@@ -722,8 +723,8 @@
     onselect(session.id); // focus it so the rebuilt terminal lands in view
     try {
       await resumeSession(session.id, true);
-    } catch {
-      toasts.info(m.cardmenu_resume_failed({ name: session.name }));
+    } catch (error) {
+      toasts.info(resumeFailureMessage(error, m.cardmenu_resume_failed({ name: session.name })));
     } finally {
       ctaBusy = false;
     }

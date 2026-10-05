@@ -16,6 +16,7 @@
  * rather than hard-failing the spawn.
  */
 import { existsSync, readdirSync, realpathSync } from "node:fs";
+import { AGENT_SHELL_MARKERS } from "./agent-shell-env";
 import { basename, dirname } from "node:path";
 import { execFileSync } from "./instrument";
 import { CODEX_ROLE_SCHEMA_DIR } from "./codex-role-output-schema";
@@ -641,11 +642,12 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   // dir IS bound above) and lose auth/onboarding state.
   if (claudeDir !== `${home}/.claude`) f.push("--setenv", "CLAUDE_CONFIG_DIR", claudeDir);
   f.push(...codexEnvFlags(home, inputs.codex));
-  for (const [k, v] of Object.entries(inputs.extraEnv ?? {}).sort(([a], [b]) =>
-    a.localeCompare(b),
-  )) {
+  for (const [k, v] of Object.entries(inputs.extraEnv ?? {})
+    .filter(([k]) => !(AGENT_SHELL_MARKERS as readonly string[]).includes(k))
+    .sort(([a], [b]) => a.localeCompare(b))) {
     f.push("--setenv", k, v);
   }
+  f.push("--setenv", "CLAUDE_CODE_FORCE_SESSION_PERSISTENCE", "1");
   f.push(
     "--die-with-parent",
     "--new-session",

@@ -1,11 +1,12 @@
 import { test, expect } from "bun:test";
-import { appendFileSync, mkdtempSync, writeFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   accumulate,
   parseLine,
   dashify,
+  claudeTranscriptExists,
   jsonlPathFor,
   dominantModelOf,
   foldSessionBuckets,
@@ -46,7 +47,9 @@ function asst(opts: {
   });
 }
 
-test("dashify replaces / and . with -", () => {
+test("dashify replaces every non-alphanumeric character with -", () => {
+  expect(dashify("/repro/my_app+x")).toBe("-repro-my-app-x");
+  expect(dashify("/repro/a b@é")).toBe("-repro-a-b--");
   expect(dashify("/home/patrick/Work/foo")).toBe("-home-patrick-Work-foo");
   expect(dashify("/home/patrick/.config/clawdzilla")).toBe("-home-patrick--config-clawdzilla");
 });
@@ -69,6 +72,49 @@ test("jsonlPathFor falls back to the active projects dir when spawnAccountDir is
   expect(jsonlPathFor("/home/p/Work/r", "abc-123", null)).toBe(
     jsonlPathFor("/home/p/Work/r", "abc-123"),
   );
+});
+
+test("underscore/plus cwd resolves to Claude's literal project directory", () => {
+  const account = mkdtempSync(join(tmpdir(), "claude-path-"));
+  const id = "a6a46b00-0f59-4fc1-a57d-002198019e68";
+  try {
+    mkdirSync(join(account, "projects/-repro-my-app-x"), { recursive: true });
+    const path = join(account, `projects/-repro-my-app-x/${id}.jsonl`);
+    writeFileSync(path, "{}\n");
+    expect(jsonlPathFor("/repro/my_app+x", id, account)).toBe(path);
+    expect(claudeTranscriptExists("/repro/my_app+x", id, account)).toBe(true);
+  } finally {
+    rmSync(account, { recursive: true, force: true });
+  }
+});
+
+test("transcript existence falls back to unexpected project directories, including long cwd encodings", () => {
+  const account = mkdtempSync(join(tmpdir(), "claude-path-"));
+  const id = "a6a46b00-0f59-4fc1-a57d-002198019e68";
+  try {
+    mkdirSync(join(account, "projects/unexpected-truncated-hash"), { recursive: true });
+    writeFileSync(join(account, `projects/unexpected-truncated-hash/${id}.jsonl`), "{}\n");
+    expect(claudeTranscriptExists("/repro/my_app+x", id, account)).toBe(true);
+    expect(claudeTranscriptExists(`/repro/${"x".repeat(210)}`, id, account)).toBe(true);
+    // An unrelated account must not be searched.
+    expect(claudeTranscriptExists("/repro/my_app+x", id, join(account, "other"))).toBe(false);
+  } finally {
+    rmSync(account, { recursive: true, force: true });
+  }
+});
+
+test("transcript absent everywhere is false; sidecars and nested files cannot substitute", () => {
+  const account = mkdtempSync(join(tmpdir(), "claude-path-"));
+  const id = "a6a46b00-0f59-4fc1-a57d-002198019e68";
+  try {
+    expect(claudeTranscriptExists("/repro/my_app+x", id, account)).toBe(false);
+    mkdirSync(join(account, `projects/-repro-my-app-x/${id}/tool-results`), { recursive: true });
+    writeFileSync(join(account, `projects/-repro-my-app-x/${id}/tool-results/${id}.jsonl`), "{}");
+    writeFileSync(join(account, "projects/-repro-my-app-x/other-id.jsonl"), "{}");
+    expect(claudeTranscriptExists("/repro/my_app+x", id, account)).toBe(false);
+  } finally {
+    rmSync(account, { recursive: true, force: true });
+  }
 });
 
 test("parseLine ignores non-assistant and usage-less records", () => {

@@ -136,6 +136,14 @@ function repoConfig(
   };
 }
 
+// These specs exercise Control chords; pin the browser platform independently of the host OS.
+let restorePlatform: () => void;
+beforeEach(() => {
+  const platform = vi.spyOn(navigator, "platform", "get").mockReturnValue("Linux x86_64");
+  restorePlatform = () => platform.mockRestore();
+});
+afterEach(() => restorePlatform());
+
 beforeEach(async () => {
   // The redesigned modal is responsive (MediaQuery-switched rail vs. mobile sheet);
   // vitest-browser's default viewport is mobile-width, so pin desktop here. Tests

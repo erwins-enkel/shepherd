@@ -462,6 +462,7 @@ export const KEYS_ACTIONS: readonly string[] = [
   "relaunch_done",
   "relaunch_in_progress",
   "relaunch_issue_unresolved",
+  "session_resume_transcript_missing",
   "toast_renamed",
   "viewport_rename_aria",
   "viewport_rename_branch_kept",

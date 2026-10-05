@@ -42,6 +42,7 @@ function makeDeps(liveTerminals: string[] = []): AppDeps {
   const store = new SessionStore(":memory:");
   const events = new EventHub();
   const service = new SessionService({
+    transcriptExists: () => true, // Fixture conversation is persisted.
     store,
     namer: async () => "x",
     worktree: {

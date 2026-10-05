@@ -5214,5 +5214,16 @@
   "feat_slot_stepper_title": "Change agent slots with − / +",
   "feat_slot_stepper_body": "Under Repos → Issues, − and + beside the agent-slot count — in the list heading and in the run area's Now step — raise or lower the repo's cap directly, without the detour through Automation → Cap. An added slot is used on the next pass, within about 30 seconds.",
   "session_resume_transcript_missing": "Conversation history was not saved – this session cannot be resumed.",
-  "session_resume_transcript_missing_next": "Use “Continue with…” in the session menu to start a fresh agent in this worktree."
+  "session_resume_transcript_missing_next": "Use “Continue with…” in the session menu to start a fresh agent in this worktree.",
+  "newtask_readiness_upload_failed": "upload failed — retry or remove the attachment",
+  "native_compose_upload_preparing": "Preparing attachment…",
+  "native_compose_upload_autostart_hint": "Tap START: the session starts automatically once the upload finishes.",
+  "native_compose_upload_autostart_armed": "Starts automatically once the upload finishes.",
+  "native_compose_autostart_armed_button": "Starts after upload",
+  "native_compose_autostart_cancel": "Cancel automatic start",
+  "native_compose_autostart_aborted": "Automatic start cancelled: an attachment didn't upload.",
+  "native_compose_keep_app_open": "Switching apps briefly is fine — don't close the app.",
+  "feat_ios_upload_autostart_title": "Start while files upload (iOS)",
+  "feat_ios_upload_autostart_body": "The iOS composer now shows live upload progress. Tap Start during the upload and the session starts on its own when it finishes — switching apps briefly is fine.",
+  "newtask_upload_keep_tab_open": "Keep this tab open until the upload finishes."
 }

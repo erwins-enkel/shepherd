@@ -105,6 +105,18 @@ final class IOSComposeUITests: XCTestCase {
         start.tap()
         XCTAssertTrue(app.staticTexts["compose.fixture.created"].waitForExistence(timeout: 10))
     }
+    func testStartDuringUploadStartsAutomatically() {
+        app.launchArguments += ["-ShepherdComposeAttachmentFixture", "1", "-ShepherdComposeSlowUploadFixture", "1"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["compose.upload.hint"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["compose.upload.status"].exists)
+        let start = app.descendants(matching: .any)["compose.submit"]
+        XCTAssertTrue(start.isEnabled)
+        start.tap()
+        let armed = expectation(for: NSPredicate(format: "label == %@", "Automatischen Start abbrechen"), evaluatedWith: start)
+        wait(for: [armed], timeout: 5)
+        XCTAssertTrue(app.staticTexts["compose.fixture.created"].waitForExistence(timeout: 20))
+    }
     func testAttachMenuPhotosPresentsLibrary() { assertAttachItemCoversCompose("Fotos") }
     func testAttachMenuFilesPresentsImporter() { assertAttachItemCoversCompose("Dateien") }
     /// The pickers render out of process, so the signal is the prompt they cover, not their contents.

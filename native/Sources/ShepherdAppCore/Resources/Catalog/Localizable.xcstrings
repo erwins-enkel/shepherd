@@ -8987,6 +8987,57 @@
         }
       }
     },
+    "native_compose_autostart_aborted": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatischer Start abgebrochen: Ein Anhang wurde nicht hochgeladen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatic start cancelled: an attachment didn't upload."
+          }
+        }
+      }
+    },
+    "native_compose_autostart_armed_button": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startet danach"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starts after upload"
+          }
+        }
+      }
+    },
+    "native_compose_autostart_cancel": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatischen Start abbrechen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cancel automatic start"
+          }
+        }
+      }
+    },
     "native_compose_dictation_deferred": {
       "extractionState": "manual",
       "localizations": {
@@ -9051,6 +9102,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "# Choose issue"
+          }
+        }
+      }
+    },
+    "native_compose_keep_app_open": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kurz die App wechseln geht – App nicht schließen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Switching apps briefly is fine — don't close the app."
           }
         }
       }
@@ -9323,6 +9391,57 @@
           "stringUnit": {
             "state": "translated",
             "value": "Move steer up"
+          }
+        }
+      }
+    },
+    "native_compose_upload_autostart_armed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Startet automatisch, sobald der Upload fertig ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Starts automatically once the upload finishes."
+          }
+        }
+      }
+    },
+    "native_compose_upload_autostart_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "STARTEN tippen: Die Sitzung startet automatisch, sobald der Upload fertig ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tap START: the session starts automatically once the upload finishes."
+          }
+        }
+      }
+    },
+    "native_compose_upload_preparing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anhang wird vorbereitet…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preparing attachment…"
           }
         }
       }
@@ -19124,6 +19243,23 @@
         }
       }
     },
+    "newtask_readiness_upload_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upload fehlgeschlagen – erneut versuchen oder Anhang entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "upload failed — retry or remove the attachment"
+          }
+        }
+      }
+    },
     "newtask_remove_image_aria": {
       "extractionState": "manual",
       "localizations": {
@@ -19670,6 +19806,41 @@
         }
       }
     },
+    "newtask_upload_eta": {
+      "comment": "%1$@ = time",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ remaining"
+          }
+        }
+      }
+    },
+    "newtask_upload_eta_calculating": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restzeit wird berechnet…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estimating time remaining…"
+          }
+        }
+      }
+    },
     "newtask_upload_failed": {
       "comment": "%1$@ = reason",
       "extractionState": "manual",
@@ -19688,6 +19859,41 @@
         }
       }
     },
+    "newtask_upload_file_count": {
+      "comment": "%1$@ = current, %2$@ = total",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datei %1$@ von %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File %1$@ of %2$@"
+          }
+        }
+      }
+    },
+    "newtask_upload_finishing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Upload wird abgeschlossen…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Finishing upload…"
+          }
+        }
+      }
+    },
     "newtask_upload_percent": {
       "comment": "%1$@ = percent",
       "extractionState": "manual",
@@ -19702,6 +19908,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@%%"
+          }
+        }
+      }
+    },
+    "newtask_upload_progress_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fortschritt des Anhang-Uploads"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attachment upload progress"
           }
         }
       }

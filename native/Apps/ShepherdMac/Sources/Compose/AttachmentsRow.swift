@@ -12,11 +12,11 @@ struct AttachmentsRow: View {
                 Button { choosingFiles = true } label: {
                     Label(L.t("newtask_attach_image"), systemImage: "paperclip")
                 }
-                if model.hasOutstandingUploads {
-                    ProgressView(value: Double(model.progressPercent), total: 100).frame(width: 90)
-                    Text(verbatim: L.t("newtask_uploading"))
-                    Text(verbatim: L.t("newtask_upload_percent", String(model.progressPercent)))
-                        .monospacedDigit()
+                if let status = model.status {
+                    if status.phase == .transferring || status.phase == .finishing {
+                        ProgressView(value: Double(status.percent), total: 100).frame(width: 90)
+                    }
+                    Text(verbatim: status.line).monospacedDigit()
                 }
             }
             ForEach(model.rows) { row in

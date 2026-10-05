@@ -127,11 +127,12 @@ struct HoldToTalkButton: View {
 struct MicDock<Attachment: View, Submit: View>: View {
     @Bindable var voice: DictationController
     let audioEngine: IOSDictationEngine?
+    let micEnabled: Bool
     let attachment: Attachment
     let submit: Submit
     @Environment(\.dynamicTypeSize) private var typeSize
-    init(voice: DictationController, audioEngine: IOSDictationEngine? = nil, @ViewBuilder attachment: () -> Attachment, @ViewBuilder submit: () -> Submit) {
-        self.voice = voice; self.audioEngine = audioEngine; self.attachment = attachment(); self.submit = submit()
+    init(voice: DictationController, audioEngine: IOSDictationEngine? = nil, micEnabled: Bool = true, @ViewBuilder attachment: () -> Attachment, @ViewBuilder submit: () -> Submit) {
+        self.voice = voice; self.audioEngine = audioEngine; self.micEnabled = micEnabled; self.attachment = attachment(); self.submit = submit()
     }
     var body: some View {
         VStack(spacing: 12) {
@@ -146,8 +147,9 @@ struct MicDock<Attachment: View, Submit: View>: View {
                         rightControl
                     }
                 }
-                HoldToTalkButton(voice: voice)
-                    .opacity(voice.state == .unsupported ? 0 : 1)
+                HoldToTalkButton(voice: voice, enabled: micEnabled)
+                    .disabled(!micEnabled)
+                    .opacity(voice.state == .unsupported ? 0 : micEnabled ? 1 : 0.4)
                     .allowsHitTesting(voice.state != .unsupported)
                     .accessibilityHidden(voice.state == .unsupported)
                     .offset(x: voice.state == .cancelling ? 120 : 0)

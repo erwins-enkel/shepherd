@@ -607,6 +607,8 @@ describe("NewTask task attachments", () => {
     await expect
       .element(page.getByText("File 1 of 2 · 13% · Estimating time remaining…"))
       .toBeVisible();
+    // Only a phone browser suspends the tab; the desktop footer stays one line.
+    expect(document.querySelector(".upload-keep-open")).toBeNull();
     const progress = document.querySelector<HTMLProgressElement>("progress.upload-progress")!;
     expect(progress.value).toBe(13);
     expect(progress.getAttribute("aria-label")).toBe("Attachment upload progress");
@@ -674,6 +676,7 @@ describe("NewTask task attachments", () => {
     await expect
       .element(page.getByText("File 1 of 1 · 40% · Estimating time remaining…"))
       .toBeVisible();
+    await expect.element(page.getByText(m.newtask_upload_keep_tab_open())).toBeVisible();
     const footer = document.querySelector<HTMLElement>(".cfoot")!;
     const run = document.querySelector<HTMLButtonElement>("button.run")!;
     expect(run.disabled).toBe(true);

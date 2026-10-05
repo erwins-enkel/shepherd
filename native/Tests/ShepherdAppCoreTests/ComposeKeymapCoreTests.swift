@@ -30,15 +30,17 @@ extension CoreSeamTests {
 
     @Test func readinessPrecedenceAndExclusiveAdvisories() {
         var input = ComposeReadiness.Input(promptEmpty: true, issueSeeded: false, repoResolved: false,
-            baseMissing: true, repairing: true, uploading: true, submitting: true,
+            baseMissing: true, repairing: true, uploading: true, uploadFailed: true, submitting: true,
             checking: true, diverged: true, behind: true, holdLikely: true, provider: .claude)
-        for expected in ["submitting", "uploading", "repairing", "no_repo", "base_missing", "empty_prompt"] {
+        for expected in ["submitting", "uploading", "upload_failed", "repairing", "no_repo", "base_missing", "empty_prompt"] {
             let result = ComposeReadiness.derive(input)
             #expect(result.blocker == expected)
             #expect(!result.canSubmit)
+            #expect(!result.canQueue)
             switch expected {
             case "submitting": input.submitting = false
             case "uploading": input.uploading = false
+            case "upload_failed": input.uploadFailed = false
             case "repairing": input.repairing = false
             case "no_repo": input.repoResolved = true
             case "base_missing": input.baseMissing = false
@@ -46,6 +48,11 @@ extension CoreSeamTests {
             }
         }
         #expect(ComposeReadiness.derive(input).canSubmit)
+        input.uploading = true
+        #expect(ComposeReadiness.derive(input).canQueue && ComposeReadiness.derive(input).blockerAfterUpload == nil)
+        input.promptEmpty = true; input.issueSeeded = false
+        #expect(!ComposeReadiness.derive(input).canQueue && ComposeReadiness.derive(input).blockerAfterUpload == "empty_prompt")
+        input.uploading = false; input.issueSeeded = true
         #expect(ComposeReadiness.derive(input).advisories == ["checking", "hold_likely"])
         input.checking = false
         #expect(ComposeReadiness.derive(input).advisories == ["diverged", "hold_likely"])

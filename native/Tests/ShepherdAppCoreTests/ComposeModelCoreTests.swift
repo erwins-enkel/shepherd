@@ -300,13 +300,136 @@ extension CoreSeamTests {
         try await eventually { uploads.rows.first?.error != nil }
         let id = try #require(uploads.rows.first?.id)
         #expect(uploads.rows.count == 1 && uploads.hasOutstandingUploads)
-        #expect(m.readinessBlocker == "uploading")
+        #expect(!uploads.inFlight && uploads.hasFailedUploads)
+        #expect(m.readinessBlocker == "upload_failed")
+        #expect(m.readiness().copy == L.t("newtask_readiness_upload_failed"))
+        #expect(uploads.status?.phase == .failed)
+        #expect(uploads.status?.line == L.t("newtask_readiness_upload_failed"))
         #expect(m.createRequest(baseBranch: "main") == nil)
         uploads.retry(id); uploads.retry(id)
         try await eventually { !uploads.hasOutstandingUploads }
         #expect(attempts == 2 && uploads.rows.first?.id == id)
         #expect(uploads.rows.first?.error == nil)
+        #expect(uploads.status == nil)
         #expect(m.createRequest(baseBranch: "main")?.attachmentNames == ["retry.txt"])
+    }
+
+    @Test func statusCountsFilesPercentAndEstimatesFromTheBatchRate() async throws {
+        let now = Box(Date(timeIntervalSince1970: 0))
+        var pending: [CheckedContinuation<String, any Error>] = []
+        var reports: [AttachmentModel.Progress] = []
+        let uploads = AttachmentModel(uploadWithProgress: { _, _, report in
+            reports.append(report)
+            return try await withCheckedThrowingContinuation { pending.append($0) }
+        }, clock: { now.value })
+        defer { uploads.teardown() }
+        uploads.addFiles([.init(name: "a", data: Data(repeating: 1, count: 100)),
+                          .init(name: "b", data: Data(repeating: 1, count: 300))])
+        try await eventually { pending.count == 1 }
+        #expect(uploads.status == UploadStatus(phase: .transferring, current: 1, total: 2, percent: 0))
+        await reports[0](100)
+        #expect(uploads.status?.percent == 25 && uploads.status?.remainingSeconds == nil)
+        #expect(uploads.status?.line == "\(L.t("newtask_upload_file_count", "1", "2")) · "
+            + "\(L.t("newtask_upload_percent", "25")) · \(L.t("newtask_upload_eta_calculating"))")
+        now.value = Date(timeIntervalSince1970: 2)
+        #expect(uploads.status?.remainingSeconds == 6)
+        #expect(uploads.status?.line.hasSuffix(L.t("newtask_upload_eta", "00:06")) == true)
+        pending[0].resume(returning: "/a")
+        try await eventually { pending.count == 2 }
+        #expect(uploads.status?.current == 2)
+        await reports[1](300)
+        #expect(uploads.status?.phase == .finishing)
+        #expect(uploads.status?.line == "\(L.t("newtask_upload_file_count", "2", "2")) · \(L.t("newtask_upload_finishing"))")
+        pending[1].resume(returning: "/b")
+        try await eventually { !uploads.inFlight }
+        #expect(uploads.status == nil)
+    }
+
+    @Test func remainingTimeReadsLikeTheWebFooter() {
+        #expect(UploadStatus.clock(6) == "00:06")
+        #expect(UploadStatus.clock(3_725) == "1h 02m")
+        #expect(UploadStatus.clock(90_000) == "1d 01h")
+    }
+
+    @Test func photoImportReadsAsPreparingAndCountsAsInFlight() throws {
+        let uploads = AttachmentModel(upload: { _, _ in "/staged" })
+        let m = Self.composer(attachments: uploads)
+        defer { m.teardown() }
+        m.repoPath = "/repo"; m.prompt = "Do work"
+        let stamp = try #require(uploads.beginImport())
+        #expect(uploads.inFlight && uploads.status?.phase == .preparing)
+        #expect(uploads.status?.line == L.t("native_compose_upload_preparing"))
+        #expect(m.readinessBlocker == "uploading" && m.readiness().canQueue)
+        uploads.finishImport(nil, error: "cancelled", generation: stamp)
+        #expect(!uploads.inFlight && uploads.status == nil && m.readiness().canSubmit)
+    }
+
+    @Test func settledWaitsForTheDrainAnImportOrTeardown() async throws {
+        var pending: CheckedContinuation<String, any Error>?
+        let uploads = AttachmentModel(upload: { _, _ in try await withCheckedThrowingContinuation { pending = $0 } })
+        await uploads.settled()
+        uploads.addFiles([.init(name: "a", data: Data([1]))])
+        let done = Box(false)
+        let drained = Task { await uploads.settled(); done.value = true }
+        try await eventually { pending != nil }
+        #expect(!done.value)
+        pending?.resume(returning: "/a")
+        await drained.value
+        #expect(done.value && !uploads.inFlight)
+
+        let stamp = try #require(uploads.beginImport())
+        let imported = Task { await uploads.settled() }
+        for _ in 0..<20 { await Task.yield() }
+        uploads.finishImport(nil, error: "cancelled", generation: stamp)
+        await imported.value
+
+        pending = nil
+        uploads.addFiles([.init(name: "b", data: Data([2]))])
+        try await eventually { pending != nil }
+        let torn = Task { await uploads.settled() }
+        for _ in 0..<20 { await Task.yield() }
+        uploads.teardown()
+        await torn.value
+        pending?.resume(returning: "/late")
+    }
+
+    @Test func keepAliveSpansEachDrainExactlyOnce() async throws {
+        var pending: CheckedContinuation<String, any Error>?
+        let uploads = AttachmentModel(upload: { _, _ in try await withCheckedThrowingContinuation { pending = $0 } })
+        let begun = Box(0), released = Box(0)
+        uploads.keepAlive = { begun.value += 1; return { released.value += 1 } }
+        uploads.addFiles([.init(name: "a", data: Data([1]))])
+        uploads.addFiles([.init(name: "b", data: Data([2]))])
+        #expect(begun.value == 1 && released.value == 0)
+        try await eventually { pending != nil }
+        pending?.resume(returning: "/a"); pending = nil
+        try await eventually { pending != nil }
+        pending?.resume(returning: "/b"); pending = nil
+        try await eventually { !uploads.inFlight }
+        #expect(begun.value == 1 && released.value == 1)
+        uploads.addFiles([.init(name: "c", data: Data([3]))])
+        try await eventually { pending != nil }
+        #expect(begun.value == 2 && released.value == 1)
+        uploads.teardown()
+        #expect(released.value == 2)
+        pending?.resume(returning: "/late")
+        for _ in 0..<20 { await Task.yield() }
+        #expect(released.value == 2)
+    }
+
+    @Test func retryFailedRequeuesEveryFailedRow() async throws {
+        var failing = true
+        let uploads = AttachmentModel(upload: { _, name in
+            if failing { throw ShepherdError.badRequest("nope") }
+            return "/staged/\(name)"
+        })
+        defer { uploads.teardown() }
+        uploads.addFiles([.init(name: "a", data: Data([1])), .init(name: "b", data: Data([2]))])
+        try await eventually { uploads.rows.allSatisfy { $0.state == .failed } && !uploads.inFlight }
+        failing = false
+        uploads.retryFailed()
+        try await eventually { !uploads.hasOutstandingUploads }
+        #expect(uploads.rows.map(\.path) == ["/staged/a", "/staged/b"])
     }
 
     @Test func removalAndTeardownFenceLateUploadsAndStopTheQueue() async throws {

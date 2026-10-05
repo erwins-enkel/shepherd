@@ -5214,5 +5214,16 @@
   "feat_slot_stepper_title": "Agenten-Plätze mit − / + ändern",
   "feat_slot_stepper_body": "Unter Repos → Issues ändern − und + neben der Zahl der Agenten-Plätze — im Listenkopf und im Schritt „Jetzt“ der Abarbeitung — das Limit des Repos direkt, ohne Umweg über Automatisierung → Limit. Ein zusätzlicher Platz wird beim nächsten Durchlauf genutzt, spätestens nach etwa 30 Sekunden.",
   "session_resume_transcript_missing": "Verlauf wurde nicht gespeichert – diese Sitzung kann nicht fortgesetzt werden.",
-  "session_resume_transcript_missing_next": "Starte über „Weiterführen mit…“ im Sitzungsmenü einen neuen Agenten in diesem Worktree."
+  "session_resume_transcript_missing_next": "Starte über „Weiterführen mit…“ im Sitzungsmenü einen neuen Agenten in diesem Worktree.",
+  "newtask_readiness_upload_failed": "Upload fehlgeschlagen – erneut versuchen oder Anhang entfernen",
+  "native_compose_upload_preparing": "Anhang wird vorbereitet…",
+  "native_compose_upload_autostart_hint": "STARTEN tippen: Die Sitzung startet automatisch, sobald der Upload fertig ist.",
+  "native_compose_upload_autostart_armed": "Startet automatisch, sobald der Upload fertig ist.",
+  "native_compose_autostart_armed_button": "Startet danach",
+  "native_compose_autostart_cancel": "Automatischen Start abbrechen",
+  "native_compose_autostart_aborted": "Automatischer Start abgebrochen: Ein Anhang wurde nicht hochgeladen.",
+  "native_compose_keep_app_open": "Kurz die App wechseln geht – App nicht schließen.",
+  "feat_ios_upload_autostart_title": "Starten, während Dateien hochladen (iOS)",
+  "feat_ios_upload_autostart_body": "Die iOS-Eingabe zeigt den Upload jetzt live in Prozent. Tippe während des Uploads auf Starten, dann startet die Sitzung von selbst, sobald er fertig ist – kurz die App wechseln geht.",
+  "newtask_upload_keep_tab_open": "Diesen Tab geöffnet lassen, bis der Upload fertig ist."
 }

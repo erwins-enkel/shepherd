@@ -196,7 +196,7 @@ struct SessionListView: View {
     }
 
     private func newTaskButton(bottom: Bool) -> some View {
-        Button { IOSComposer.open(app) } label: {
+        Button { if let hub { hub.openComposer() } else { IOSComposer.open(app) } } label: {
             VStack(spacing: 4) {
                 Image(systemName: "plus").accessibilityHidden(true)
                 Text(verbatim: L.t("actionbar_new_task_short").uppercased())
@@ -209,7 +209,7 @@ struct SessionListView: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .disabled(app.store == nil)
+        .disabled(hub.map { $0.composeModel == nil } ?? (app.store == nil))
         .accessibilityLabel(L.t("actionbar_new_task"))
         .accessibilityIdentifier("new-task")
     }

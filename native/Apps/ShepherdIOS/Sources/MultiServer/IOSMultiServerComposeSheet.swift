@@ -8,9 +8,11 @@ import ShepherdKit
 final class IOSComposeTarget {
     private(set) var profileID: UUID?
     var prompt = ""
-    init(hub: IOSServerHub) { profileID = hub.focusedID ?? hub.connectedIDs.first }
+    init(hub: IOSServerHub) {
+        profileID = hub.connectedIDs.first { hub.models[$0] === hub.composeModel }
+    }
     func select(_ id: UUID, hub: IOSServerHub) {
-        guard hub.models[id] != nil else { return }
+        guard let app = hub.models[id], app.store != nil, app.liveRequestAudit == nil else { return }
         profileID = id
     }
     func model(in hub: IOSServerHub) -> AppModel? { profileID.flatMap { hub.models[$0] } }

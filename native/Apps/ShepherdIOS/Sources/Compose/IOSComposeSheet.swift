@@ -67,7 +67,7 @@ struct IOSComposeContent: View {
     private var repo: Repo? { repos.first { $0.path == model.repoPath } }
     private var repoName: String { repo?.name ?? model.repoPath.components(separatedBy: "/").last ?? "" }
     private var current: Bool { fixtureCurrent?() ?? (app.store === store && app.activationGeneration == activation && app.sheet == .newSession) }
-    private var holdLikely: Bool { ComposeReadiness.holdLikely(limits: SessionSignals.usageLimits(), settings: store.settings) }
+    private var holdLikely: Bool { ComposeReadiness.holdLikely(limits: SessionSignals.usageLimits(for: app), settings: store.settings) }
     var readiness: ComposeReadiness.State { model.readiness(submitting: submission.busy, repoResolved: repo != nil, holdLikely: holdLikely) }
     var body: some View {
         VStack(spacing: 0) {
@@ -112,7 +112,7 @@ struct IOSComposeContent: View {
                     Group {
                         switch option {
                         case .branch: ComposeBranchSheet(model: model)
-                        case .engine: ComposeEngineSheet(model: model)
+                        case .engine: ComposeEngineSheet(model: model).environment(app)
                         case .issues: ComposeSourceSheet(model: model, commands: false) { options = nil }
                         case .commands: ComposeSourceSheet(model: model, commands: true) { options = nil }
                         }

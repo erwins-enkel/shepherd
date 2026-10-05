@@ -25,6 +25,21 @@ final class IOSServerHub {
     @ObservationIgnored private let makeModel: (UUID) -> AppModel
     @ObservationIgnored private var started = false
     @ObservationIgnored private var removing: Set<UUID> = []
+    @ObservationIgnored private var authenticationQueues: [UUID: AppAuthenticationQueue] = [:]
+    @ObservationIgnored private var retired: [UUID: [RetiredModel]] = [:]
+    private var loadingIDs: Set<UUID> = []
+    private final class RetiredModel {
+        weak var model: AppModel?
+        init(_ model: AppModel) { self.model = model }
+    }
+
+    private func newModel(_ id: UUID) -> AppModel {
+        let model = makeModel(id)
+        let queue = authenticationQueues[id] ?? AppAuthenticationQueue()
+        authenticationQueues[id] = queue
+        model.authenticationQueue = queue
+        return model
+    }
 
     init(defaults: UserDefaults, catalogue: AppModel, makeModel: @escaping (UUID) -> AppModel) {
         self.defaults = defaults
@@ -41,7 +56,8 @@ final class IOSServerHub {
             if catalogue.profiles.contains(where: { $0.id == id }), !ids.contains(id) { ids.append(id) }
         }
         persist()
-        for id in connectedIDs { models[id] = makeModel(id) }
+        loadingIDs = Set(connectedIDs)
+        for id in connectedIDs { models[id] = newModel(id) }
         focusedID = connectedIDs.first
     }
 
@@ -70,7 +86,11 @@ final class IOSServerHub {
             let tasks = connectedIDs.compactMap { id -> Task<Void, Never>? in
                 guard let profile = profiles.first(where: { $0.id == id }), let model = models[id] else { return nil }
                 return Task { [weak self, weak model] in
-                    guard let model, self?.models[id] === model, model.sheet == nil, model.activationGeneration == 0 else { return }
+                    guard let model, self?.models[id] === model else { return }
+                    defer { if self?.models[id] === model { self?.loadingIDs.remove(id) } }
+                    guard model.sheet == nil, model.activationGeneration == 0 else { return }
+                    await model.authenticationQueue?.waitForIdle()
+                    guard self?.models[id] === model, model.sheet == nil, model.activationGeneration == 0 else { return }
                     await model.activate(profile)
                     model.extension(SidebarModel.self)?.lens = self?.lens ?? .all
                 }
@@ -85,13 +105,18 @@ final class IOSServerHub {
             if model.store == nil || model.store?.connection == .needsLogin { model.sheet = .login(profile) }
             return
         }
-        let model = makeModel(profile.id)
+        let model = newModel(profile.id)
         model.reloadProfiles()
         models[profile.id] = model
         connectedIDs.append(profile.id)
         if focusedID == nil { focusedID = profile.id }
         persist()
         if login { model.sheet = .login(profile); return }
+        loadingIDs.insert(profile.id)
+        defer { if models[profile.id] === model { loadingIDs.remove(profile.id) } }
+        let generation = model.activationGeneration
+        await model.authenticationQueue?.waitForIdle()
+        guard models[profile.id] === model, model.activationGeneration == generation else { return }
         await model.activate(profile)
         model.extension(SidebarModel.self)?.lens = lens
     }
@@ -105,7 +130,15 @@ final class IOSServerHub {
     }
 
     func disconnect(_ profileID: UUID) {
-        models.removeValue(forKey: profileID)?.deactivate()
+        if let model = models.removeValue(forKey: profileID) {
+            // A suspended sign-in keeps the model alive. Keep a weak removal route until
+            // its complete sign-in (including late-token cleanup) has returned.
+            var pending = retired[profileID, default: []].filter { ($0.model?.pendingSignIns ?? 0) > 0 }
+            if model.pendingSignIns > 0 { pending.append(RetiredModel(model)) }
+            retired[profileID] = pending.isEmpty ? nil : pending
+            model.deactivate(includingPendingActivation: true)
+        }
+        loadingIDs.remove(profileID)
         connectedIDs.removeAll { $0 == profileID }
         if focusedID == profileID { focusedID = connectedIDs.first }
         persist()
@@ -114,19 +147,23 @@ final class IOSServerHub {
     func signOutFocused() async {
         let model = focused
         guard let id = model.activeProfile?.id else { return }
+        let generation = model.activationGeneration
         await model.signOutActiveReporting()
         let warning = model.signOutWarning
+        guard models[id] === model, model.activeProfile == nil,
+              model.activationGeneration == generation &+ 1 else { return }
         disconnect(id)
         catalogue.signOutWarning = warning
     }
 
     func remove(_ profile: ServerProfile) async {
         guard removing.insert(profile.id).inserted else { return }
-        let owner = models[profile.id]
+        let owners = ([models[profile.id]] + retired[profile.id, default: []].map(\.model)).compactMap { $0 }
         disconnect(profile.id)
         // Keep the outgoing model’s remove/sign-in guards in charge of late token mints.
         // Its catalogue is read-only; the catalogue model performs the persisted deletion.
-        await owner?.remove(profile)
+        for owner in owners { await owner.remove(profile) }
+        retired.removeValue(forKey: profile.id)
         catalogue.reloadProfiles()
         await catalogue.remove(profile)
         reloadCatalogue()
@@ -136,6 +173,30 @@ final class IOSServerHub {
     func reloadCatalogue() {
         catalogue.reloadProfiles()
         for model in connected { model.reloadProfiles() }
+    }
+
+    /// Prefer focus, but a server awaiting authentication must not hide creation elsewhere.
+    var composeModel: AppModel? {
+        ([focused] + connected.filter { $0 !== focused }).first { $0.store != nil && $0.liveRequestAudit == nil }
+    }
+
+    @discardableResult
+    func openComposer() -> Bool {
+        guard let model = composeModel else { return false }
+        return IOSComposer.open(model)
+    }
+
+    /// A no-store login has no automatic lookup left to finish after dismissal.
+    /// Restored/connecting models and running sign-ins still have a lookup ahead.
+    func awaitsNotificationLookup(_ app: AppModel) -> Bool {
+        if app.store?.hasLoadedSessions == true { return false }
+        if let connection = app.store?.connection {
+            switch connection {
+            case .offline, .needsLogin, .firstRunPending: return false
+            default: return true
+            }
+        }
+        return app.activeProfile != nil || app.pendingSignIns > 0 || connectedIDs.contains { models[$0] === app && loadingIDs.contains($0) }
     }
 
     func focus(_ profileID: UUID) {

@@ -34,7 +34,26 @@ enum IOSMergedQueuePresentation {
             return order.firstIndex(of: a)! < order.firstIndex(of: b)!
         }.compactMap { id in
             guard var group = result[id] else { return nil }
-            if sort != .recommended {
+            if sort == .recommended {
+                func kindRank(_ item: UpNextItem) -> Int {
+                    switch item.kind.rawValue { case "epic": 0; case "bug": 1; default: 2 }
+                }
+                // src/up-next-core.ts: normal repos rank epic/bug/feature, then age
+                // and issue number. Priority uses repo warmth/order, then age/number.
+                let repoOrder = order.filter { $0.hasPrefix("repo:") }
+                group.rows.sort { left, right in
+                    let a = left.item, b = right.item
+                    if id == "priority" {
+                        let rankA = repoOrder.firstIndex(of: "repo:\(a.repoPath)") ?? Int.max
+                        let rankB = repoOrder.firstIndex(of: "repo:\(b.repoPath)") ?? Int.max
+                        if rankA != rankB { return rankA < rankB }
+                    } else if kindRank(a) != kindRank(b) { return kindRank(a) < kindRank(b) }
+                    if a.createdAt != b.createdAt { return a.createdAt < b.createdAt }
+                    if a.number != b.number { return a.number < b.number }
+                    if a.repoPath != b.repoPath { return a.repoPath < b.repoPath }
+                    return left.profile.id.uuidString < right.profile.id.uuidString
+                }
+            } else {
                 group.rows = group.rows.enumerated().sorted { left, right in
                     let a = left.element.item, b = right.element.item
                     switch sort {

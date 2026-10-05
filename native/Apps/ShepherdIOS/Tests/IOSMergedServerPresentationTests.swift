@@ -104,6 +104,22 @@ final class IOSMergedServerPresentationTests: XCTestCase {
         XCTAssertEqual(recommended.first?.totalCount, 4)
     }
 
+    func testRecommendedMergeRanksAcrossServersBeforeDisplayCap() {
+        let a = profile("studio"), b = profile("laptop")
+        func item(_ number: Int, kind: String, at: Int) -> UpNextItem {
+            .init(repoPath: "/app", repoSlug: nil, repoLabel: "App", number: number, title: "Task", url: "https://fixture.invalid", kind: .init(unknown: kind), priority: false, createdAt: at, labels: [], issueRef: .init(number: number, url: "https://fixture.invalid", title: "Task", body: ""))
+        }
+        func source(_ profile: ServerProfile, _ items: [UpNextItem]) -> IOSMergedQueuePresentation.Source {
+            .init(profile: profile, snapshot: .init(generatedAt: 1, sections: [.init(kind: .init(known: .repo), repoPath: "/app", repoSlug: nil, repoLabel: "App", items: items, totalCount: items.count)], repoCount: 1, fallback: nil, failedRepoCount: 0))
+        }
+        let sources = [source(a, (1...5).map { item($0, kind: "feature", at: $0) }), source(b, [item(9, kind: "bug", at: 100), item(8, kind: "epic", at: 200), item(7, kind: "bug", at: 50)])]
+        for order in [sources, sources.reversed().map { $0 }] {
+            let group = IOSMergedQueuePresentation.groups(order, sort: .recommended, repos: []).first!
+            XCTAssertEqual(group.rows.prefix(group.cap).map(\.item.number), [8, 7, 9, 1, 2])
+            XCTAssertEqual(group.totalCount, 8)
+        }
+    }
+
     func testServerStringsResolveInBothLocales() throws {
         for locale in ["en", "de"] {
             let bundle = try XCTUnwrap(Bundle(path: CoreResources.bundle.path(forResource: locale, ofType: "lproj")!))

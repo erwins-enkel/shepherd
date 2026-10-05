@@ -124,6 +124,10 @@ public final class ActionsModel: AppExtension {
         self.now = { Int(Date().timeIntervalSince1970 * 1_000) }
         self.app = app
         self.store = store
+        if app.usesModelScopedSignals {
+            workingBlocked = { [weak app] in app.map { SessionSignals.workingBlocked(for: $0) } ?? [:] }
+            gitMerged = { [weak app] id in app.map { SessionSignals.gitMerged(id, for: $0) } ?? false }
+        }
         self.connectionSource = ConnectionSource(
             read: { [weak store] in store?.connection }, abandon: {})
         subscribe(to: store)

@@ -20,6 +20,7 @@ struct ComposeBranchSheet: View {
     }
 }
 struct ComposeEngineSheet: View {
+    @Environment(AppModel.self) private var app
     @Bindable var model: ComposeModel
     var body: some View {
         Form {
@@ -38,7 +39,7 @@ struct ComposeEngineSheet: View {
                     Text(verbatim: effortLabel(effort)).tag(effort)
                 }
             }.accessibilityIdentifier("compose.effort")
-            ForEach(Array(ComposeCapacity.rows(SessionSignals.usageLimits()).enumerated()), id: \.offset) { _, row in
+            ForEach(Array(ComposeCapacity.rows(SessionSignals.usageLimits(for: app)).enumerated()), id: \.offset) { _, row in
                 ForEach(row.windows, id: \.key) { window in
                     VStack(alignment: .leading) {
                         Text(verbatim: ComposeCapacity.code(row.provider, key: window.key) + " · " + window.copy())

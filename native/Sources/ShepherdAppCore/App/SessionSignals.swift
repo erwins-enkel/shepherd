@@ -56,11 +56,28 @@ public enum SessionSignals {
     /// rebuilt per activation: a captured instance would answer for the profile the operator has
     /// already left.
     static func connect(_ app: AppModel) {
+        guard !app.usesModelScopedSignals else { return }
         workingBlocked = { [weak app] in app?.extension(SidebarModel.self)?.workingBlocked ?? [:] }
         usageLimits = { [weak app] in app?.extension(SidebarModel.self)?.limits }
         gitMerged = { [weak app] id in
             isMerged(app?.extension(DetailModel.self)?.git[id])
         }
+    }
+
+    public static func usageLimits(for app: AppModel) -> UsageLimits? {
+        app.usesModelScopedSignals ? app.extension(SidebarModel.self)?.limits : usageLimits()
+    }
+
+    public static func planQuestionsUnanswered(_ id: String, for app: AppModel) -> Bool {
+        app.usesModelScopedSignals ? app.extension(PlanModel.self)?.questionsUnanswered(id) ?? false : planQuestionsUnanswered(id)
+    }
+
+    static func workingBlocked(for app: AppModel) -> [String: Bool] {
+        app.usesModelScopedSignals ? app.extension(SidebarModel.self)?.workingBlocked ?? [:] : workingBlocked()
+    }
+
+    static func gitMerged(_ id: String, for app: AppModel) -> Bool {
+        app.usesModelScopedSignals ? app.extension(HerdSignals.self)?.git[id]?.state.known == .merged : gitMerged(id)
     }
 
     /// How a cached git snapshot answers "has this PR merged?". Pure, so the mapping is

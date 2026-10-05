@@ -200,23 +200,25 @@ keys, not text, and the question needs the screen. While one is on screen the te
 single key row instead of the resting capsule (attach, paste, steers, keyboard, microphone) and
 the inline session actions: **↑ ↓ ⏎** large on the right, **Esc ← →** (← → switch the tabs of
 a multi-question dialog) and **⌨** on the left. No keyboard opens, and the bottom prompt area
-does not open writing (its last line is the dialog's footer). The keys send the palette's
+does not open writing (its last lines are the dialog's). The keys send the palette's
 bytes (`IOSTerminalKey`).
 
 Detection is client-side: `IOSTerminalHostView` reads the visible rows once output pauses
 (120 ms, at most 500 ms behind streaming output, so a repaint split across chunks cannot
-flicker the layout) and `IOSTerminalDialog` looks for the dialog footer ("Enter to select ·
-↑/↓ to navigate · Esc to cancel") in the last 15 non-empty rows — the same fragments as the
-server's `DIALOG_FOOTER_RE` in `src/blocked.ts`. It does not wait for the server's block
-classification. The scan pauses while the operator reads local history and runs again on
-the way back to the tail (scrolling or Latest output).
+flicker the layout) and `IOSTerminalDialog` looks in the last 15 non-empty rows for either
+mark of a rendered dialog: the key-hint footer ("Enter to select · ↑/↓ to navigate · Esc to
+cancel") or the caret on the selected numbered option (`❯ 1.`). The review screen that ends a
+multi-question AskUserQuestion ("Submit answers") carries only the caret. Both mirror the
+server's `hasDialogChrome` (`DIALOG_FOOTER_RE`, `CARET_OPTION_RE`) in `src/blocked.ts`. It does
+not wait for the server's block classification. The scan pauses while the operator reads local
+history and runs again on the way back to the tail (scrolling or Latest output).
 
 **⌨** is the way to a free-text answer ("Type something", "Chat about this"): it opens the
 reply bar's writing state, focused, and carries the same retained-draft dot as the resting
 keyboard button. Closing writing — keyboard down, or a sent reply — returns to the key row
 while the dialog is open; dictation opens writing as usual. A photo, file or camera picker
 closes writing too, but the reply bar that presents it stays until it returns
-(`pickingAttachment`). A dialog that appears while writing keeps the draft. When the footer
+(`pickingAttachment`). A dialog that appears while writing keeps the draft. When the dialog
 leaves the screen, the resting capsule and inline actions return. Read-only launches are
 unchanged.
 

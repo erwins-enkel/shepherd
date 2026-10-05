@@ -13,6 +13,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { posixShellJoin } from "../src/argv-limit";
+import { AGENT_SHELL_MARKERS } from "../src/agent-shell-env";
 import { buildWrappedArgv } from "../src/herdr";
 import { buildSpawnScript, spawnCommandLine, writeSpawnScript } from "../src/spawn-script";
 import { DARWIN_MAX_INPUT } from "./helpers/spawn-script";
@@ -67,7 +68,10 @@ describe("buildSpawnScript", () => {
 
     const lines = script.split("\n").filter((l) => l && !l.startsWith("#"));
     // Order matters: after `exec` nothing in this script runs, so the unlink must precede it.
-    expect(lines).toEqual([`rm -f -- "$0"`, `exec ${posixShellJoin(ARGV)}`]);
+    expect(lines[0]).toBe(`rm -f -- "$0"`);
+    expect(lines.at(-1)).toBe(`exec ${posixShellJoin(ARGV)}`);
+    expect(script).toContain(`unset ${AGENT_SHELL_MARKERS.join(" ")}`);
+    expect(script).toContain("export CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1");
   });
 
   test("reconstructs the exact argv — multi-word, newline and quote-bearing tokens survive", () => {
@@ -81,6 +85,39 @@ describe("buildSpawnScript", () => {
     ];
     expect(buildSpawnScript(gnarly)).toContain(`exec ${posixShellJoin(gnarly)}`);
   });
+
+  test.each(["1", "", undefined])(
+    "protects the executed env with child marker %j; preserves operator NO_COLOR without markers",
+    async (marker) => {
+      const env: NodeJS.ProcessEnv = {
+        ...process.env,
+        NO_COLOR: "1",
+        CLAUDE_CODE_FORCE_SESSION_PERSISTENCE: "0",
+      };
+      for (const name of AGENT_SHELL_MARKERS) delete env[name];
+      if (marker !== undefined) {
+        env.CLAUDE_CODE_CHILD_SESSION = marker;
+        env.CLAUDECODE = marker;
+      }
+      const path = await writeSpawnScript(["env"]);
+      const child = Bun.spawn(["sh", path], { env, stdout: "pipe", stderr: "pipe" });
+      const output = await new Response(child.stdout).text();
+      expect(await child.exited).toBe(0);
+      const vars = Object.fromEntries(
+        output
+          .trim()
+          .split("\n")
+          .map((line) => {
+            const i = line.indexOf("=");
+            return [line.slice(0, i), line.slice(i + 1)];
+          }),
+      );
+      for (const name of AGENT_SHELL_MARKERS) expect(vars[name]).toBeUndefined();
+      expect(vars.CLAUDE_CODE_FORCE_SESSION_PERSISTENCE).toBe("1");
+      expect(vars.NO_COLOR).toBe(marker === undefined ? "1" : undefined);
+      expect(existsSync(path)).toBe(false);
+    },
+  );
 });
 
 describe("writeSpawnScript", () => {

@@ -16,6 +16,7 @@
  * rather than hard-failing the spawn.
  */
 import { existsSync, readdirSync, realpathSync } from "node:fs";
+import { AGENT_SHELL_MARKERS } from "./agent-shell-env";
 import { basename, dirname } from "node:path";
 import { execFileSync } from "./instrument";
 import { CODEX_ROLE_SCHEMA_DIR } from "./codex-role-output-schema";
@@ -644,8 +645,10 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   for (const [k, v] of Object.entries(inputs.extraEnv ?? {}).sort(([a], [b]) =>
     a.localeCompare(b),
   )) {
+    if ((AGENT_SHELL_MARKERS as readonly string[]).includes(k)) continue;
     f.push("--setenv", k, v);
   }
+  f.push("--setenv", "CLAUDE_CODE_FORCE_SESSION_PERSISTENCE", "1");
   f.push(
     "--die-with-parent",
     "--new-session",

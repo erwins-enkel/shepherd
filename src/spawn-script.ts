@@ -3,6 +3,7 @@ import { lstat, mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/pro
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { posixShellJoin } from "./argv-limit";
+import { AGENT_SHELL_MARKERS } from "./agent-shell-env";
 import { agentTmpDir } from "./tmp-sweep";
 
 /**
@@ -17,8 +18,8 @@ import { agentTmpDir } from "./tmp-sweep";
  *
  * The fix is to make the TYPED line short regardless of command size: the real command goes into a
  * throwaway script and only `sh '<path>'` (~60 bytes) is typed. The process that ends up running is
- * byte-identical to before — same argv, same env — so herdr's detection, the membrane wrap and every
- * downstream consumer are unaffected.
+ * given the same argv, with inherited parent-agent markers removed and Claude transcript
+ * persistence forced on, even when an independently started herdr server supplies the pane env.
  *
  * Shrinking `argvElementLimit` for Darwin (#1944's lever) was NOT an option: trimming a system
  * prompt to fit under 1 KB would gut it.
@@ -88,11 +89,13 @@ async function ensureSpawnDir(): Promise<string> {
 }
 
 /**
- * The POSIX script that launches `wrapped`. Two lines carry the whole contract:
+ * The POSIX script that launches `wrapped`: self-delete first, protect the pane env, exec last.
  *
  *  - `rm -f -- "$0"` — self-delete. The shell holds an open fd, so the script stays readable after
  *    the unlink and leaves nothing behind. Retry-safe: both drivers only retry a run that was
  *    REJECTED before execution, so a script that has not launched is still on disk for the retry.
+ *  - Remove parent-agent markers; remove NO_COLOR only if any marker was set (even empty),
+ *    preserving an operator's choice otherwise. Force Claude transcript persistence for resumes.
  *  - `exec` — mandatory, not cosmetic. Without it `sh` survives as the pane's foreground process and
  *    herdr detects `sh` instead of the agent.
  */
@@ -103,6 +106,9 @@ export function buildSpawnScript(wrapped: string[]): string {
     "# under the tty's canonical-mode MAX_INPUT. Self-deletes, then execs so the pane's foreground",
     "# process is the agent itself.",
     'rm -f -- "$0"',
+    `[ -z "${AGENT_SHELL_MARKERS.map((name) => `\${${name}+x}`).join("")}" ] || unset NO_COLOR`,
+    `unset ${AGENT_SHELL_MARKERS.join(" ")}`,
+    "export CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1",
     `exec ${posixShellJoin(wrapped)}`,
     "",
   ].join("\n");

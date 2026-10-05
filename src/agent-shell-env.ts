@@ -2,7 +2,7 @@
  * Env vars an agent CLI sets for the shell commands it runs: Claude Code's and Codex's
  * "you are inside my tool call" markers. They describe the PARENT agent, not Shepherd.
  */
-const AGENT_SHELL_MARKERS = [
+export const AGENT_SHELL_MARKERS = [
   "CLAUDECODE",
   "CLAUDE_CODE_ENTRYPOINT",
   "CLAUDE_CODE_CHILD_SESSION",
@@ -24,7 +24,9 @@ const AGENT_SHELL_MARKERS = [
  *
  * When Shepherd is started from inside an agent's tool call (a dev run, an agent restarting the
  * server), it inherits those markers — and hands them, through a herdr server it starts, to every
- * session pane. `CLAUDE_CODE_CHILD_SESSION` then turns off Claude Code's transcript saving, and
+ * session pane. `CLAUDE_CODE_CHILD_SESSION` disables transcript saving for interactive Claude
+ * sessions that are not team agents and whose marker is not ambient in tmux (herdr panes have
+ * no TMUX). `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1` overrides that suppression. Meanwhile,
  * the `NO_COLOR=1` Codex sets for its own plain-text tool output renders every session without
  * colour. `NO_COLOR` goes only when a marker shows it came from such a shell: an operator who sets
  * it on purpose keeps it.

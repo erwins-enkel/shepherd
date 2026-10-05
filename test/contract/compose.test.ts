@@ -268,7 +268,7 @@ describe("epic", () => {
       )) as Epic;
       expect(next.run.mode).toBe("attended");
       expect(approved).toEqual([s.validRepo]);
-      expect(ticks).toBe(1);
+      expect(ticks).toBe(2); // the paused PUT kicks one, approve-next awaits one
 
       found = false;
       await call("GET", "/api/epic", `/api/epic${q()}`, 404);

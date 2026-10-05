@@ -8464,23 +8464,22 @@ async function handleEpicDiagnose({ req, parts, url, deps }: Ctx): Promise<Respo
   return json(diagnosis);
 }
 
-// Kick the drain immediately on epic Start so the first sub-issue session spawns
-// at once and surfaces live in the (push-only) Herd via doSpawn's session:new
-// emit — without this it only appears on the next ~30s sweep. Fire-and-forget,
-// DELIBERATELY unlike approve-next which `await`s tick(): the EpicPanel discards
-// the PUT response and gets session:new + epic:update over the WS, so awaiting
-// tick() (which pumps ALL repos with forge I/O) would only add Start latency with
-// no payoff. The .catch keeps a throwing/slow tick from turning Start into a
-// 500 — the periodic sweep remains the safety net.
-function kickDrainOnEpicStart(
+// Kick the drain immediately when an epic's run changes. On Start the first sub-issue session
+// spawns at once and surfaces live in the (push-only) Herd via doSpawn's session:new emit —
+// without this it only appears on the next ~30s sweep. On End or Pause the tick re-emits the
+// repo's run picture (drain:status), so the panel stops showing the epic as leading at once.
+// Fire-and-forget, DELIBERATELY unlike approve-next which `await`s tick(): the EpicPanel discards
+// the PUT response and gets session:new + epic:update over the WS, so awaiting tick() (which pumps
+// ALL repos with forge I/O) would only add latency with no payoff. The .catch keeps a
+// throwing/slow tick from turning the PUT into a 500 — the periodic sweep remains the safety net.
+function kickDrainOnEpicChange(
   drain: NonNullable<AppDeps["drain"]>,
   status: EpicRun["status"],
 ): void {
-  if (status !== "running") return;
-  kickDrain(drain, "start");
+  kickDrain(drain, status === "running" ? "start" : status);
 }
 
-// Fire-and-forget tick (see kickDrainOnEpicStart): it also re-emits drain:status, so a changed
+// Fire-and-forget tick (see kickDrainOnEpicChange): it also re-emits drain:status, so a changed
 // epic queue (#2624) reaches runSummary.queued without waiting for the periodic sweep.
 function kickDrain(drain: NonNullable<AppDeps["drain"]>, why: string): void {
   void drain.tick().catch((err) => console.warn(`[epic] ${why} tick:`, err));
@@ -8527,15 +8526,13 @@ function saveEpicRunPatch(
     else store.setEpicSettings(merged);
     return false;
   }
-  if (place === "queue") {
-    store.removeEpicQueueEntry(merged.repoPath, merged.parentIssueNumber);
-    if (merged.status !== "running") kickDrain(drain, "dequeue");
-  }
+  if (place === "queue") store.removeEpicQueueEntry(merged.repoPath, merged.parentIssueNumber);
   store.setEpicRun(merged, { via });
   const cleared =
     merged.status === "running" &&
     store.clearEpicCompletedOnRestart(merged.repoPath, merged.parentIssueNumber);
-  kickDrainOnEpicStart(drain, merged.status);
+  if (patch.status !== undefined || merged.status === "running")
+    kickDrainOnEpicChange(drain, merged.status);
   return cleared;
 }
 

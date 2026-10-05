@@ -377,7 +377,7 @@ describe("PUT /api/epic", () => {
     expect(tickCalled).toBe(true);
   });
 
-  test("non-running status does not kick drain.tick()", async () => {
+  test("non-running status also kicks drain.tick() (the run picture refreshes at once)", async () => {
     // seed a running run so the patch transitions OUT of running
     let tickCalled = false;
     const { app, store } = harness({
@@ -401,7 +401,7 @@ describe("PUT /api/epic", () => {
       }),
     );
     expect(res.status).toBe(200);
-    expect(tickCalled).toBe(false);
+    expect(tickCalled).toBe(true);
   });
 
   describe("restarting clears a stale completion", () => {

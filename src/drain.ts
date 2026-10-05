@@ -461,6 +461,10 @@ export class DrainService {
    *  membership-only check would latch the hold forever instead of letting it lapse and retry. */
   private spawnFailures = new Map<string, { at: number; epicBase?: string }>();
   private approvedNext = new Set<string>();
+  /** Repos whose last emitted status still showed a leading or winding-down epic. Once such a repo
+   *  is no longer pumped (its epic ended, drain off), the tick owes it read-only statuses until one
+   *  shows neither — else the panel freezes on the last pump's picture (see refreshRunPicture). */
+  private liveStatusRepos = new Set<string>();
   /** Extra-credit cost-guard baseline (account-wide, in-memory/ephemeral). The scraped paid-credit
    *  total is CUMULATIVE MONTHLY, but paid overage only accrues once a subscription window is
    *  exhausted — so a nonzero month-to-date total while the weekly window still has headroom is
@@ -3190,9 +3194,9 @@ export class DrainService {
       // still use the original state — only the emitted status needs the correction.
       if (epicAutoCompleted) {
         const { state: idleState } = await this.buildState(repoPath);
-        this.deps.emitStatus(this.toStatus(repoPath, idleState, decision));
+        this.emitStatus(this.toStatus(repoPath, idleState, decision));
       } else {
-        this.deps.emitStatus(this.toStatus(repoPath, state, decision));
+        this.emitStatus(this.toStatus(repoPath, state, decision));
       }
     } catch (err) {
       console.warn(`[drain] pump iteration failed for ${repoPath}:`, err);
@@ -4036,8 +4040,31 @@ export class DrainService {
     await this.pump(repoPath);
   }
 
+  /** Every drain:status goes out here, so {@link liveStatusRepos} tracks what the clients last saw. */
+  private emitStatus(status: DrainStatus): void {
+    const summary = status.runSummary;
+    if (summary && (summary.leadingEpic != null || summary.windingDown.length > 0))
+      this.liveStatusRepos.add(status.repoPath);
+    else this.liveStatusRepos.delete(status.repoPath);
+    this.deps.emitStatus(status);
+  }
+
+  /** The run picture of a repo the tick does not pump (no running epic, drain off), built and
+   *  emitted WITHOUT side effects — like {@link snapshot}. Without it a superseded or ended epic's
+   *  panel freezes on the last pump's status: "#39 in Arbeit" long after #39 finished. No forge
+   *  call: with no active epic and the drain off, buildState reads only the store. */
+  private async refreshRunPicture(repoPath: string): Promise<void> {
+    try {
+      const { state } = await this.buildState(repoPath);
+      this.emitStatus(this.toStatus(repoPath, state, computeNext(state)));
+    } catch (err) {
+      console.warn(`[drain] run-picture refresh failed for ${repoPath}:`, err);
+    }
+  }
+
   /** Periodic sweep (~30s): catches newly-labeled issues + resumed usage windows. */
   async tick(): Promise<void> {
+    const epicChildRepos = this.reposWithEpicChildInFlight();
     for (const repoPath of this.deps.repos()) {
       // #1401: backfill missed epic-integration rows BEFORE the pump so a stalled epic
       // completes (and opens its landing PR) in this same tick. UNGATED by the drain toggle,
@@ -4079,6 +4106,11 @@ export class DrainService {
       const cfg = this.deps.store.getRepoConfig(repoPath);
       const er = this.deps.store.getEpicRun(repoPath);
       if (cfg.autoDrainEnabled || er?.status === "running") await this.pump(repoPath);
+      else if (
+        er?.status !== "paused" &&
+        (epicChildRepos.has(repoPath) || this.liveStatusRepos.has(repoPath))
+      )
+        await this.refreshRunPicture(repoPath);
     }
   }
 

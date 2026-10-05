@@ -1,16 +1,19 @@
 import ShepherdAppCore
 import SwiftUI
 
-/// Claude's selection dialogs (AskUserQuestion, permission prompts, pickers) end in a key-hint
-/// footer that printed prose does not carry. The fragments mirror `DIALOG_FOOTER_RE` in
-/// `src/blocked.ts`; reading them from the rendered screen lets the key row follow the dialog
-/// without waiting for the server's block classification.
+/// Claude's selection dialogs (AskUserQuestion, permission prompts, pickers) carry a mark that
+/// printed prose does not: a key-hint footer, or a caret on the selected numbered option. The
+/// AskUserQuestion review screen ("Submit answers") has only the caret. Both mirror
+/// `hasDialogChrome` in `src/blocked.ts` (`DIALOG_FOOTER_RE`, `CARET_OPTION_RE`); reading them
+/// from the rendered screen lets the key row follow the dialog without waiting for the server's
+/// block classification.
 enum IOSTerminalDialog {
     /// The same window the server classifies: the footer sits just above the input box.
     private static let tailRows = 15
     private static let footerHints = [
         "enter to select", "enter to confirm", "esc to cancel", "↑/↓ to navigate", "arrow keys to navigate",
     ]
+    private static let selectedOption = #"^[\s│|]*[❯>]\s*\d+[.)]"#
 
     static func isOpen(_ rows: [String]) -> Bool {
         rows.map { $0.trimmingCharacters(in: .whitespaces) }
@@ -19,6 +22,7 @@ enum IOSTerminalDialog {
             .contains { row in
                 let lower = row.lowercased()
                 return footerHints.contains { lower.contains($0) }
+                    || row.range(of: selectedOption, options: .regularExpression) != nil
             }
     }
 }

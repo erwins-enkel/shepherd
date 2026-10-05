@@ -179,11 +179,14 @@ execution controls below, Shepherd bounds the injection surface at ingestion
 These are content-boundary defenses; the execution-confinement residuals below
 still stand.
 
-- **A `PreToolUse` tool guard denies two hazards at the call site** on Claude
+- **A `PreToolUse` tool guard denies hazards at the call site** on Claude
   spawns (`scripts/tool-guard.mjs`, wired by `src/tool-guard-hook.ts`,
   `config.toolGuard` / `SHEPHERD_TOOL_GUARD`): a bare `git stash` against the
-  shared `refs/stash` stack, and a worktree-add or dependency install under a
-  tmpfs root. It is a **local `command` hook**, not the fail-open HTTP ingest
+  shared `refs/stash` stack, a worktree-add or dependency install under a
+  tmpfs root, and a `bash -c` script running a `$VAR` command with a `{…,…}`
+  argument — Claude Code can't check that shape and asks a bypass-immune
+  "runs rm" approval (anthropics/claude-code#99630), so the guard denies it at
+  once with a rewrite. It is a **local `command` hook**, not the fail-open HTTP ingest
   transport, precisely so the deny still holds for unattended sessions whose
   `--clearenv` membrane 401s the restricted ingress. Its script is bound RO into
   the membrane (`agentSupportPaths` → `agentSupportFlags`, `src/sandbox.ts`),

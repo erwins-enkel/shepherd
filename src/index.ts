@@ -2708,7 +2708,7 @@ const sessionArchiver = new SessionArchiver({
   livenessFreshAt: () => poller.livenessFreshAt(),
   // The same predicate restore() gates on, so the sweep can never archive a session the operator
   // would then be unable to bring back.
-  hasConversation: (s) => service.hasConversation(s),
+  canRespawnConversation: (s) => service.canRespawnConversation(s),
   retainClaim: (id) => drain.retainClaim(id),
   archive: (id, reason) => service.archive(id, undefined, reason),
   dropPrCache: (id) => prPoller.drop(id),

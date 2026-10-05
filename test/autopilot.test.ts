@@ -1,4 +1,5 @@
 import { test, expect, mock } from "bun:test";
+import { SessionService } from "../src/service";
 import {
   AutopilotService,
   PROCEED_STEER,
@@ -91,6 +92,7 @@ function block(tail = ["Shall I start? (y/n)"]): BlockReason {
 
 function harness(opts: {
   capacity?: () => Promise<boolean>;
+  hasConversation?: (s: Session) => boolean;
   session: Session;
   verdict?: AutopilotVerdict;
   repoEnabled?: boolean;
@@ -139,6 +141,7 @@ function harness(opts: {
   let classifyCalls = 0;
   const svc = new AutopilotService({
     capacity: opts.capacity,
+    hasConversation: opts.hasConversation,
     store: {
       get: () => cur,
       list: () => [cur],
@@ -2537,4 +2540,26 @@ test("a nudge that doesn't land is not counted toward the stall", async () => {
   for (let i = 0; i < 4; i++) await h.svc.onBlock("s1", block());
   expect(h.state().autopilotPaused).toBe(false);
   expect(h.state().autopilotStepCount).toBe(0);
+});
+
+test("autopilot still delivers steps to live Claude without a JSONL transcript", async () => {
+  const session = sess();
+  const service = new SessionService({
+    transcriptExists: () => false,
+    store: {} as never,
+    worktree: {} as never,
+    herdr: {} as never,
+    namer: () => "x",
+  });
+  expect(service.canRespawnConversation(session)).toBe(false);
+  const h = harness({
+    session,
+    hasConversation: (s) => service.hasConversation(s),
+    verdict: { kind: "gate", summary: "asking to start" },
+    paneAlive: true,
+  });
+  await h.svc.onBlock("s1", block());
+  expect(h.events).toContainEqual({ steer: PROCEED_STEER });
+  expect(h.events.some((event) => "resume" in event)).toBe(false);
+  expect(h.state().autopilotStepCount).toBe(1);
 });

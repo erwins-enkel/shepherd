@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
-import { jsonlPathFor } from "./usage";
+import { claudeTranscriptExists } from "./usage";
 import type { RepoConfig, SessionStore } from "./store";
 import { TERMINAL_CLAIM_TTL_MS } from "./store";
 import { detectedHerdrVersion, herdrPaneControlSupported } from "./herdr-capabilities";
@@ -230,7 +230,7 @@ const UNIQUE_NAME_MAX_PROBES = 100;
 const ISSUE_NAME_MAX = HERDR_AGENT_NAME_MAX - `-${UNIQUE_NAME_MAX_PROBES + 1}`.length;
 
 export interface ServiceDeps {
-  /** Filesystem seam for conversation availability; defaults to the real transcript file check. */
+  /** Filesystem seam for persisted conversation availability; defaults to the real transcript file check. */
   transcriptExists?: (path: string) => boolean;
   capacity?: (session: Session) => Promise<boolean>;
   store: SessionStore;
@@ -3571,18 +3571,26 @@ export class SessionService {
 
   /** Also called after planner exit: the poller may not have captured the rollout yet. */
   hasConversation(s: Session): boolean {
-    if ((s.agentProvider ?? "claude") === "claude")
-      return (
-        !!s.claudeSessionId &&
-        (this.deps.transcriptExists ?? existsSync)(
-          jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir),
-        )
-      );
+    if ((s.agentProvider ?? "claude") === "claude") return !!s.claudeSessionId;
     // Old cached ids came from cwd recency, not provenance; never promote them to safe targets.
     if (!s.codexLaunchId) return false;
     this.captureCodexSessionId(s);
     const current = this.deps.store.get(s.id);
     return current?.codexLaunchId === s.codexLaunchId && !!current.providerSessionId;
+  }
+
+  /** A new --resume process needs a persisted Claude transcript; live delivery only needs identity. */
+  canRespawnConversation(s: Session): boolean {
+    return (
+      this.hasConversation(s) &&
+      ((s.agentProvider ?? "claude") !== "claude" ||
+        claudeTranscriptExists(
+          s.worktreePath,
+          s.claudeSessionId,
+          s.spawnAccountDir,
+          this.deps.transcriptExists,
+        ))
+    );
   }
 
   /** Stable manual-API refusal; autonomous callers keep resume()'s null/no-spawn contract. */
@@ -3592,7 +3600,7 @@ export class SessionService {
       s.status !== "archived" &&
       (s.agentProvider ?? "claude") === "claude" &&
       !!s.claudeSessionId &&
-      !this.hasConversation(s)
+      !this.canRespawnConversation(s)
       ? "transcript-missing"
       : null;
   }
@@ -5047,6 +5055,8 @@ export class SessionService {
     // re-applied, BEFORE a human PTY attaches to it (raw keystrokes bypass the steer gate). The
     // teardown + prepareResumeSpawn below does exactly that; persistSpawnIdentity records the heal.
 
+    if (!this.canRespawnConversation(session)) return null;
+
     // Re-check the auto-gate BEFORE tearing down the existing husk — a refused resume
     // must not kill a live agent (mirrors drain's pre-check). So a mid-flight profile or
     // backend change leaves the running session intact rather than stopping it dead.
@@ -5057,7 +5067,7 @@ export class SessionService {
     // keep the slim context, not silently regrow the bundled/personal catalogs + plugin hooks.
     const trim = await this.trimFor(session.auto, session.worktreePath);
     // Capacity/trim can yield: refuse a transcript removed while we prepared, before teardown.
-    if (!this.hasConversation(session)) return null;
+    if (!this.canRespawnConversation(session)) return null;
     // Forced respawn over a live agent: close the stale husk tab first so it doesn't
     // leak alongside the fresh one. (No-op when the agent is already gone.)
     // PLUGIN NOTE (#1124): this teardown runs on a forced resume OR a non-forced Locus-B
@@ -5221,7 +5231,7 @@ export class SessionService {
    */
   /** Archived sessions use the same pinned identity as live resume; no cwd fallback. */
   private resolveCodexRestoreId(s: Session, provider: AgentProvider): string | null {
-    if (!this.hasConversation(s)) throw new RestoreError("cannot_restore");
+    if (!this.canRespawnConversation(s)) throw new RestoreError("cannot_restore");
     return provider === "codex" ? this.deps.store.get(s.id)!.providerSessionId! : null;
   }
 

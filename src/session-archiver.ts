@@ -64,14 +64,11 @@ export interface SessionArchiverDeps {
    */
   retainClaim: (id: string) => void;
   /**
-   * `SessionService.hasConversation` — the SAME predicate `restore()` gates on, not a local
-   * re-derivation of it. Restorability is the difference between an archive the operator can undo
-   * and a one-way teardown, and its definition moves: it is currently "a pinned `claudeSessionId`"
-   * for Claude and "`codexLaunchId` plus a matching `providerSessionId`" for Codex, having last
-   * changed under this file's feet. Calling the real thing is the only way this gate cannot drift
-   * out of agreement with what `restore()` will actually accept.
+   * `SessionService.canRespawnConversation` — the SAME predicate restore() gates on.
+   * A pinned Claude id alone cannot undo an archive: its transcript must also exist.
+   * Codex requires launch provenance plus a captured rollout id. Do not re-derive this locally.
    */
-  hasConversation: (s: Session) => boolean;
+  canRespawnConversation: (s: Session) => boolean;
   /** `SessionService.archive`. */
   archive: (id: string, reason: "stale") => Promise<unknown>;
   /** `prCache.drop` — the archived row must not keep serving a cached PR state. */
@@ -236,7 +233,7 @@ export class SessionArchiver {
   private async blockedBy(s: Session, livenessFresh: boolean): Promise<SkipReason | null> {
     if (!this.isSettledHusk(s, livenessFresh)) return "liveness";
     if (this.hasWorkInFlight(s)) return "inflight";
-    if (!this.deps.hasConversation(s)) return "unrestorable";
+    if (!this.deps.canRespawnConversation(s)) return "unrestorable";
     if (await this.hasUnsyncedWork(s)) return "unsynced";
     const pr = await this.prSettled(s);
     if (pr === "open") return "pr-open";

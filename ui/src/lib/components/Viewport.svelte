@@ -53,6 +53,7 @@
   import { trimTrailingWhitespace } from "$lib/terminalSelection";
   import { composeKeystrokes } from "$lib/compose";
   import { findCommandLinks } from "$lib/slashLinks";
+  import { oscLinkHandler, openTerminalLink } from "$lib/terminalLinks";
   import { createTypingCounter } from "$lib/terminal-input";
   import { shouldForwardEscape } from "$lib/terminalEscape";
   import { altComboKey, isPtySuppressedChord } from "./herd-keynav";
@@ -1671,6 +1672,9 @@
       // macOS path only works when this option is enabled (default off). Without
       // it, Mac users can't select terminal text at all while an agent is running.
       macOptionClickForcesSelection: true,
+      // OSC 8 hyperlinks (Claude Code's `PR #…` badge) open on a plain tap/click like the
+      // linkified URLs below, instead of xterm's default confirm() warning.
+      linkHandler: oscLinkHandler,
     });
     termRef = term;
 
@@ -1682,11 +1686,7 @@
     // canvas), and even on desktop a click beats copy-paste. Plain tap/click
     // opens in a new tab; noopener so the opened page can't reach back via
     // window.opener.
-    term.loadAddon(
-      new WebLinksAddon((_event, uri) => {
-        window.open(uri, "_blank", "noopener,noreferrer");
-      }),
-    );
+    term.loadAddon(new WebLinksAddon((_event, uri) => openTerminalLink(uri)));
     term.open(el);
     fit.fit();
 

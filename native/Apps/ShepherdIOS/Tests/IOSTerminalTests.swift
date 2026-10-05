@@ -347,6 +347,27 @@ final class IOSTerminalTests: XCTestCase {
         presentation.rendererUnmounted()
     }
 
+    func testLinkAtPointFindsHyperlinksAndBareURLsAcrossScrollback() {
+        let view = IOSWatchingTerminalView(frame: CGRect(x: 0, y: 0, width: 390, height: 400),
+            font: .monospacedSystemFont(ofSize: 12, weight: .regular))
+        let filler = (0..<40).map { "fixture line \($0)\r\n" }.joined()
+        // Claude Code's status line badge: an OSC 8 hyperlink whose visible text is only "#7".
+        let line = "PR \u{1b}]8;;https://github.com/o/r/pull/7\u{1b}\\#7\u{1b}]8;;\u{1b}\\ see https://example.com/x\r\n"
+        view.feed(byteArray: ArraySlice(Array((filler + line).utf8)))
+        let terminal = view.getTerminal()
+        let grid = view.getOptimalFrameSize()
+        func cell(_ col: Int, _ row: Int) -> CGPoint {
+            CGPoint(x: (CGFloat(col) + 0.5) * grid.width / CGFloat(terminal.cols),
+                y: (CGFloat(row) + 0.5) * grid.height / CGFloat(terminal.rows))
+        }
+        XCTAssertGreaterThan(40, terminal.rows, "The link line sits below the first screen")
+        XCTAssertEqual(view.link(at: cell(3, 40)), "https://github.com/o/r/pull/7", "The badge opens its hyperlink")
+        XCTAssertNil(view.link(at: cell(0, 40)), "Plain text is not a link")
+        XCTAssertEqual(view.link(at: cell(14, 40)), "https://example.com/x", "A bare URL opens too")
+        XCTAssertNil(view.link(at: cell(3, 0)), "Rows count from the top of the scrollback")
+        XCTAssertNil(view.link(at: CGPoint(x: -1, y: 0)))
+    }
+
     func testReplyUsesKitRouteAndFailureKeepsDraft() async {
         let recorder = IOSReplyRecorder()
         let pty = IOSFixturePTY()

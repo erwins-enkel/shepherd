@@ -3121,7 +3121,15 @@ async function handleSessionDelete({ req, parts, deps }: Ctx): Promise<Response 
   const reap = Array.isArray(body?.reap)
     ? (body!.reap as unknown[]).filter((x): x is string => typeof x === "string")
     : undefined;
-  await deps.service.archive(parts[2], reap);
+  try {
+    await deps.service.archive(parts[2], reap);
+  } catch (err) {
+    // The dispatch seam still answers the JSON 500; this line is what survives the toast.
+    console.warn(
+      `[archive] session ${parts[2]} failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    throw err;
+  }
   deps.prCache?.drop(parts[2]);
   deps.events.emit("session:archived", { id: parts[2] });
   return json({ ok: true });
@@ -4972,6 +4980,13 @@ async function handleSessionGit(ctx: Ctx): Promise<Response | null> {
   try {
     return await dispatchForgeAction(forge, session, ctx);
   } catch (e) {
+    // Mutations only: a failed merge/close is an operator action worth tracing, while the GET
+    // state reads fail routinely under a rate limit and would flood the log.
+    if (ctx.req.method === "POST") {
+      console.warn(
+        `[git] ${parts[4]} for session ${session.id} failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
     return json({ error: e instanceof Error ? e.message : "forge error" }, 502);
   }
 }

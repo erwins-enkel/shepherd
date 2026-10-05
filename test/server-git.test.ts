@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, spyOn } from "bun:test";
 import { makeApp, type AppDeps } from "../src/server";
 import { SessionStore } from "../src/store";
 import type { SessionService } from "../src/service";
@@ -573,6 +573,42 @@ test("POST git/close → 409 names a closed or missing PR by code", async () => 
     const res = await makeApp(makeDeps(f)).fetch(post("/api/sessions/s1/git/close"));
     expect(res.status, state).toBe(409);
     expect(await res.json(), state).toEqual({ error: "no open PR", code });
+  }
+});
+
+test("a failing PR action is logged with its cause and answered 502", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const f = fakeForge({
+      closePr: async () => {
+        throw new Error("GraphQL: API rate limit already exceeded");
+      },
+    });
+    const res = await makeApp(makeDeps(f)).fetch(post("/api/sessions/s1/git/close"));
+    expect(res.status).toBe(502);
+    expect(warn).toHaveBeenCalledWith(
+      "[git] close for session s1 failed: GraphQL: API rate limit already exceeded",
+    );
+  } finally {
+    warn.mockRestore();
+  }
+});
+
+test("a failing git state read is answered 502 without logging", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const f = fakeForge({
+      prStatus: async () => {
+        throw new Error("GraphQL: API rate limit already exceeded");
+      },
+    });
+    const res = await makeApp(makeDeps(f)).fetch(
+      new Request("http://localhost/api/sessions/s1/git"),
+    );
+    expect(res.status).toBe(502);
+    expect(warn).not.toHaveBeenCalledWith(expect.stringContaining("[git]"));
+  } finally {
+    warn.mockRestore();
   }
 });
 

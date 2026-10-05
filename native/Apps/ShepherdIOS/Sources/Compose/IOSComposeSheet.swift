@@ -28,6 +28,7 @@ struct IOSComposeContent: View {
     @State var voice: DictationController
     @State private var audioEngine: IOSDictationEngine?
     @State private var submission = ComposeSubmission()
+    @State private var autoStart = ComposeAutoStart(keepAlive: { IOSBackgroundGrace.begin("shepherd.compose.autostart") })
     @State private var options: Options?
     @State private var files = false
     @State private var photos = false
@@ -44,6 +45,7 @@ struct IOSComposeContent: View {
         self.app = app; self.store = store; self.activation = activation; self.fixtureCurrent = fixtureCurrent
         let model = model ?? ComposeModel(client: store.client, defaults: app.composerDefaults, runDefaults: ComposeRunConfig.defaults(from: store.settings))
         model.repoBranches.allowsStatusProbe = app.liveRequestAudit == nil
+        model.attachments.keepAlive = { IOSBackgroundGrace.begin("shepherd.compose.upload") }
         _model = State(initialValue: model)
         if let voice { _voice = State(initialValue: voice) }
         else {
@@ -74,23 +76,27 @@ struct IOSComposeContent: View {
             }
             if submission.busy { spawnFooter }
             else {
-                MicDock(voice: voice, audioEngine: audioEngine) { attachmentMenu } submit: { startButton }
+                MicDock(voice: voice, audioEngine: audioEngine, micEnabled: !autoStart.armed) { attachmentMenu } submit: { startButton }
                     .padding(.top, promptFocused ? 0 : 12)
                     .disabled(submission.busy)
                 if readiness.dualCTA {
                     HStack {
                         Button(L.t("newtask_hold_for_reset")) { submit(force: false) }
                         Button(L.t("newtask_submit_anyway")) { submit(force: true) }
-                    }.buttonStyle(ComposeControlStyle(accent: true)).disabled(!readiness.canSubmit || voice.active)
+                    }.buttonStyle(ComposeControlStyle(accent: true))
+                        .disabled(!(readiness.canSubmit || readiness.canQueue) || voice.active || autoStart.armed)
                 }
             }
-            Text(verbatim: readiness.blocker == "empty_prompt" ? L.t("native_compose_prompt_missing") : readiness.canSubmit ? L.t("native_compose_ready_to_start") : readiness.copy).font(.system(.caption, design: .monospaced)).foregroundStyle(ComposePalette.muted).multilineTextAlignment(.center)
-                .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 18).accessibilityIdentifier("compose.readiness")
+            if let status = model.attachments.status { uploadFooter(status) }
+            else {
+                Text(verbatim: readiness.blocker == "empty_prompt" ? L.t("native_compose_prompt_missing") : readiness.canSubmit ? L.t("native_compose_ready_to_start") : readiness.copy).font(.system(.caption, design: .monospaced)).foregroundStyle(ComposePalette.muted).multilineTextAlignment(.center)
+                    .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 18).accessibilityIdentifier("compose.readiness")
+            }
         }.background(ComposePalette.bg).foregroundStyle(ComposePalette.ink)
             .font(.system(size: bodySize, design: .monospaced)).tint(ComposePalette.amber)
             .preferredColorScheme(.dark)
             .presentationDetents([.large]).presentationDragIndicator(.hidden)
-            .interactiveDismissDisabled(voice.active || submission.busy)
+            .interactiveDismissDisabled(voice.active || submission.busy || autoStart.armed)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("compose.sheet")
             .sheet(item: $options) { option in
@@ -124,8 +130,9 @@ struct IOSComposeContent: View {
             }
             .onChange(of: store.settings) { _, settings in model.runDefaults = ComposeRunConfig.defaults(from: settings) }
             .onChange(of: store.repos) { _, _ in seedRepo() }
+            .onChange(of: model.attachments.inFlight) { _, inFlight in if inFlight { autoStart.clearAborted() } }
             .onAppear { seedRepo(); audioEngine?.probeWhisper() }
-            .onDisappear { audioEngine?.stopWhisperProbe(); voice.teardown(); submission.teardown(); model.teardown() }
+            .onDisappear { audioEngine?.stopWhisperProbe(); voice.teardown(); submission.teardown(); autoStart.teardown(); model.teardown() }
             .alert(L.t("native_compose_voice_label"), isPresented: Binding(get: { audioEngine?.needsAppleServerConsent == true }, set: { if !$0 { audioEngine?.resolveAppleServerConsent(false) } })) {
                 Button(L.t("native_compose_voice_allow")) { audioEngine?.resolveAppleServerConsent(true) }
                 Button(L.t("common_cancel"), role: .cancel) { audioEngine?.resolveAppleServerConsent(false) }
@@ -133,7 +140,7 @@ struct IOSComposeContent: View {
     }
     private var formContent: some View {
                 VStack(alignment: .leading, spacing: 12) {
-                    context.opacity(voice.active ? 0.4 : 1).disabled(voice.active || submission.busy)
+                    context.opacity(voice.active || autoStart.armed ? 0.4 : 1).disabled(voice.active || submission.busy || autoStart.armed)
                     prompt
                     attachments
                     if voice.capturing || voice.state == .finalizing { TranscriptPreview(voice: voice, audioEngine: audioEngine) }
@@ -250,7 +257,7 @@ struct IOSComposeContent: View {
                     Text(verbatim: model.prompt).frame(maxWidth: .infinity, alignment: .topLeading).padding(12)
                 } else {
                     TextEditor(text: $model.prompt).scrollContentBackground(.hidden).padding(6).focused($promptFocused)
-                        .disabled(voice.active || submission.busy).accessibilityIdentifier("compose.prompt")
+                        .disabled(voice.active || submission.busy || autoStart.armed).accessibilityIdentifier("compose.prompt")
                         .accessibilityLabel(L.t("native_compose_prompt_label"))
                 }
             }.frame(maxWidth: .infinity, alignment: .topLeading).frame(height: voice.capturing ? (voice.state == .locked ? 110 : 70) : voice.canUndo ? 180 : promptFocused ? min(promptHeight, 150) : promptHeight, alignment: .topLeading).clipped()
@@ -268,19 +275,57 @@ struct IOSComposeContent: View {
             } label: { Label(L.t("native_compose_paste"), systemImage: "doc.on.clipboard") }
             Button { options = .commands } label: { Label(L.t("promptsources_commands_tab"), systemImage: "command") }
         } label: { attachmentLabel }
-            .accessibilityLabel(L.t("native_compose_attach")).accessibilityIdentifier("compose.attach").disabled(voice.active) }
+            .accessibilityLabel(L.t("native_compose_attach")).accessibilityIdentifier("compose.attach").disabled(voice.active || autoStart.armed) }
     }
     private var attachmentLabel: some View {
         Image(systemName: "plus").font(.title2).frame(width: 52, height: 52).background(ComposePalette.panel, in: Circle()).overlay(Circle().stroke(ComposePalette.line))
     }
     private var startButton: some View {
         Button { submit(force: false) } label: {
-            Text(verbatim: L.t("native_compose_start").uppercased()).font(.system(.caption, design: .monospaced).bold()).padding(.horizontal, 16).frame(height: 52)
-                .foregroundStyle(readiness.canSubmit && !voice.active ? ComposePalette.bg : ComposePalette.faint)
-                .background(readiness.canSubmit && !voice.active ? ComposePalette.amber : ComposePalette.panel, in: Capsule())
-                .overlay(Capsule().stroke(ComposePalette.line))
-        }.buttonStyle(.plain).disabled(!readiness.canSubmit || voice.active || readiness.dualCTA)
+            HStack(spacing: 6) {
+                Text(verbatim: startLabel.uppercased())
+                if autoStart.armed { Image(systemName: "xmark") }
+            }.font(.system(.caption, design: .monospaced).bold()).monospacedDigit().padding(.horizontal, 16).frame(height: 52)
+                .foregroundStyle(autoStart.armed ? ComposePalette.amber : startEnabled ? ComposePalette.bg : ComposePalette.faint)
+                .background(startEnabled && !autoStart.armed ? ComposePalette.amber : ComposePalette.panel, in: Capsule())
+                .overlay(Capsule().stroke(autoStart.armed ? ComposePalette.amber : ComposePalette.line))
+        }.buttonStyle(.plain).disabled(!startEnabled)
+            .accessibilityLabel(autoStart.armed ? L.t("native_compose_autostart_cancel") : startLabel)
             .accessibilityIdentifier("compose.submit")
+    }
+    /// Armed stays tappable so the operator can take the queued start back.
+    private var startEnabled: Bool {
+        autoStart.armed || ((readiness.canSubmit || readiness.canQueue) && !voice.active && !readiness.dualCTA)
+    }
+    private var startLabel: String {
+        if autoStart.armed { return L.t("native_compose_autostart_armed_button") }
+        guard readiness.canQueue, let status = model.attachments.status, status.phase == .transferring || status.phase == .finishing
+        else { return L.t("native_compose_start") }
+        return "\(L.t("native_compose_start")) · \(L.t("newtask_upload_percent", String(status.percent)))"
+    }
+    private func uploadFooter(_ status: UploadStatus) -> some View {
+        VStack(spacing: 6) {
+            if status.phase == .transferring || status.phase == .finishing {
+                ProgressView(value: Double(status.percent), total: 100).accessibilityLabel(L.t("newtask_upload_progress_aria"))
+            }
+            Text(verbatim: status.line).monospacedDigit().accessibilityIdentifier("compose.upload.status")
+            if status.phase == .failed {
+                if autoStart.aborted { Text(verbatim: L.t("native_compose_autostart_aborted")) }
+                Button(L.t("common_retry")) { model.attachments.retryFailed() }
+                    .buttonStyle(ComposeControlStyle()).frame(minHeight: 44).accessibilityIdentifier("compose.upload.retry")
+            } else {
+                Text(verbatim: uploadHint).accessibilityIdentifier("compose.upload.hint")
+            }
+        }.font(.system(.caption, design: .monospaced)).foregroundStyle(ComposePalette.muted).multilineTextAlignment(.center)
+            .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 18)
+    }
+    /// Whether the start follows on its own, then the one rule that keeps it alive.
+    private var uploadHint: String {
+        let next = autoStart.armed ? L.t("native_compose_upload_autostart_armed")
+            : readiness.canQueue ? L.t("native_compose_upload_autostart_hint")
+            : readiness.blockerAfterUpload == "empty_prompt" ? L.t("native_compose_prompt_missing")
+            : ComposeReadiness.copy(for: readiness.blockerAfterUpload)
+        return "\(next) · \(L.t("native_compose_keep_app_open"))"
     }
     private var attachments: some View {
         ForEach(model.attachments.rows) { row in
@@ -292,7 +337,7 @@ struct IOSComposeContent: View {
                         .accessibilityIdentifier("compose.attachment.retry")
                 }
                 Button { model.attachments.remove(row.id) } label: { Image(systemName: "xmark").frame(width: 44, height: 44) }.accessibilityLabel(L.t("common_close"))
-            }.font(.system(.caption, design: .monospaced)).disabled(voice.active || submission.busy)
+            }.font(.system(.caption, design: .monospaced)).disabled(voice.active || submission.busy || autoStart.armed)
             if let error = row.error { Text(verbatim: error).font(.system(.caption, design: .monospaced)).foregroundStyle(ComposePalette.red) }
         }
     }
@@ -316,6 +361,8 @@ struct IOSComposeContent: View {
             ProgressView()
             Text(verbatim: submission.progress.map { ComposeSubmission.phaseCopy($0.phase) } ?? L.t("newtask_spawning"))
             if submission.slow { Text(verbatim: L.t("newtask_spawn_slow")).font(.system(.caption, design: .monospaced)) }
+            Text(verbatim: L.t("native_compose_keep_app_open")).font(.system(.caption, design: .monospaced)).foregroundStyle(ComposePalette.muted)
+                .multilineTextAlignment(.center)
             Button(L.t("newtask_spawn_cancel")) {
                 Task { await submission.cancel(using: { try await store.client.cancelSpawn(id: $0) }, isCurrent: { current }) }
             }.disabled(submission.canceling || submission.cancelRequested).frame(minHeight: 44)
@@ -323,13 +370,22 @@ struct IOSComposeContent: View {
     }
     private func seedRepo() { if model.repoPath.isEmpty, let path = RepoRecency.defaultPath(repos, sessions: store.sessions) { model.repoPath = path } }
     private func submit(force: Bool) {
+        if autoStart.armed { autoStart.disarm(); return }
         guard current, !voice.active else { return }
         voice.teardown(); promptFocused = false
-        Task {
-            let session = await submission.submit(model: model, repoResolved: repo != nil, holdLikely: holdLikely, force: force,
-                events: store.events(), recovery: app.extension(BackendRecoveryModel.self), create: { try await store.client.createSession($0, spawnID: $1) }, onHeld: { app.sheet = nil }, isCurrent: { current })
-            if let session, current { store.apply(.sessionNew(session)); app.selectedSessionID = session.id; app.sheet = nil }
+        if readiness.canQueue {
+            autoStart.arm(force: force, attachments: model.attachments) { force in await performSubmit(force: force) }
+        } else {
+            Task { await performSubmit(force: force) }
         }
+    }
+    private func performSubmit(force: Bool) async {
+        // The create may outlive a brief app switch; the server finishes the spawn regardless.
+        let release = IOSBackgroundGrace.begin("shepherd.compose.create")
+        defer { release() }
+        let session = await submission.submit(model: model, repoResolved: repo != nil, holdLikely: holdLikely, force: force,
+            events: store.events(), recovery: app.extension(BackendRecoveryModel.self), create: { try await store.client.createSession($0, spawnID: $1) }, onHeld: { app.sheet = nil }, isCurrent: { current })
+        if let session, current { store.apply(.sessionNew(session)); app.selectedSessionID = session.id; app.sheet = nil }
     }
     private func importPhoto(_ photo: PhotosPickerItem?) {
         guard let photo, let stamp = model.attachments.beginImport() else { return }

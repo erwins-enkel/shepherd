@@ -77,6 +77,8 @@ final class IOSComposeFixtureTransport: URLProtocol, @unchecked Sendable {
         }
     }
     private static let uploadAttempts = UploadAttempts()
+    /// Holds a successful upload open long enough for a UI test to queue a start during it.
+    private static var slowUploads: Bool { ProcessInfo.processInfo.arguments.contains("-ShepherdComposeSlowUploadFixture") }
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host == "compose.fixture.invalid" }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -98,7 +100,7 @@ final class IOSComposeFixtureTransport: URLProtocol, @unchecked Sendable {
                 : #"{"commands":[{"name":"review","description":"Review changes","scope":"global"}]}"#
         case "/api/epics": json = #"{"epics":[],"subIssues":[]}"#
         case "/api/uploads":
-            if Self.uploadAttempts.next() == 1 {
+            if !Self.slowUploads, Self.uploadAttempts.next() == 1 {
                 status = 500; json = #"{"error":"fixture upload failure"}"#
             } else {
                 json = #"{"path":"/fixtures/uploads/fixture.txt","size":18}"#
@@ -106,9 +108,14 @@ final class IOSComposeFixtureTransport: URLProtocol, @unchecked Sendable {
         default: json = #"{"error":"not found"}"#; status = 404
         }
         if path == "/api/sessions", request.httpMethod == "POST" { status = 201 }
-        guard let url = request.url, let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: ["Content-Type":"application/json"]) else { return }
-        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Data(json.utf8)); client?.urlProtocolDidFinishLoading(self)
+        let code = status
+        let deliver: @Sendable () -> Void = { [self] in
+            guard let url = request.url, let response = HTTPURLResponse(url: url, statusCode: code, httpVersion: nil, headerFields: ["Content-Type":"application/json"]) else { return }
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data(json.utf8)); client?.urlProtocolDidFinishLoading(self)
+        }
+        if path == "/api/uploads", Self.slowUploads { DispatchQueue.global().asyncAfter(deadline: .now() + 6, execute: deliver) }
+        else { deliver() }
     }
     override func stopLoading() {}
     static let sessionJSON = #"{"id":"compose-created","desig":"TASK-01","name":"voice-task","prompt":"Add tests","repoPath":"/fixtures/shepherd","baseBranch":"main","branch":null,"worktreePath":"/fixtures/worktree","isolated":false,"herdrSession":"h1","herdrAgentId":"a1","claudeSessionId":"c1","model":null,"effort":null,"readyToMerge":false,"mergingSince":null,"autopilotEnabled":null,"autopilotPaused":false,"autopilotComplete":false,"planGateEnabled":null,"autoMergeEnabled":null,"auto":false,"issueNumber":null,"sandboxApplied":null,"status":"running","lastState":"working","createdAt":1700000000,"updatedAt":1700000001,"archivedAt":null,"archiveReason":null,"haltedAt":null,"manualSteps":[],"experimentRole":null}"#

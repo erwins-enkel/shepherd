@@ -86,7 +86,7 @@ final class IOSComposeTests: XCTestCase {
     func testRenderApprovedComposerStates() async throws {
         let directory = URL(fileURLWithPath: "/private/tmp/claude-501/-Users-kai-osthoff-githubrepos-shepherd/36c6a6cb-46a0-4781-99da-a39e745b0a43/scratchpad/ios-compose/")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        for state in ["idle", "recording", "cancel", "locked", "result", "finalizing", "denied", "unsupported"] {
+        for state in ["idle", "recording", "cancel", "locked", "result", "finalizing", "denied", "unsupported", "uploading"] {
             let (app, store, model) = try fixture()
             try await store.bootstrap()
             let engine = FakeDictationEngine()
@@ -94,6 +94,12 @@ final class IOSComposeTests: XCTestCase {
             let voice = DictationController(engine: engine, locale: "de-DE", now: { clock }, getText: { model.prompt }, setText: { model.prompt = $0 })
             if state == "denied" || state == "unsupported" {
                 engine.startError = state == "denied" ? .denied : .unsupported; await voice.begin()
+            } else if state == "uploading" {
+                // A pending photo import renders the upload footer without a live transfer.
+                model.prompt = "Bestehender Prompt-Text."
+                _ = model.attachments.beginImport()
+                XCTAssertEqual(model.attachments.status?.phase, .preparing)
+                XCTAssertTrue(model.readiness(repoResolved: true).canQueue)
             } else if state != "idle" {
                 model.prompt = "Bestehender Prompt-Text."
                 engine.recording = .init(clips: [], appleText: "Füge einen Dark-Mode-Schalter in den Einstellungen hinzu und aktualisiere die Tests.")

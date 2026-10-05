@@ -15,6 +15,16 @@ public enum MergeRules {
             return .init(id: s.id, number: number, title: g.title ?? "", url: g.url ?? "", repo: s.repoPath)
         }
     }
+    /// `prMergeAvailable(git)` from `ui/src/lib/components/pr-badge.ts`: an open, numbered forge PR
+    /// with no readiness block. Without a usable `mergeStateStatus` (Gitea, GitHub's transient
+    /// `unknown`) CI is the only merge signal left.
+    public static func prMergeAvailable(_ git: GitState?) -> Bool {
+        guard let git, git.kind?.known == .github || git.kind?.known == .gitea,
+              git.state.known == .open, git.number != nil,
+              HerdClassifier.prReadinessBlock(git) == nil else { return false }
+        let hasMergeState = git.mergeStateStatus.map { $0.rawValue != "unknown" } ?? false
+        return hasMergeState || git.checks.known != .failure
+    }
     public static func train(_ prs: [MergeReadyPR]) -> (repo: String?, prs: [MergeReadyPR], excluded: Int) {
         var order: [String] = []; var groups: [String: [MergeReadyPR]] = [:]
         for pr in prs {

@@ -13,6 +13,35 @@ struct MergeRulesTests {
         #expect(confirm.handoffWho == "owner")
         #expect(confirm.reviewBlockBy == "reviewer")
     }
+    @Test func prMergeAvailableMirrorsWebPredicate() throws {
+        func git(_ fields: [String: Any] = [:]) throws -> GitState {
+            let base: [String: Any] = ["kind": "github", "state": "open", "checks": "success",
+                "number": 7, "deployConfigured": false, "mergeStateStatus": "clean"]
+            return try JSONDecoder().decode(GitState.self, from: JSONSerialization.data(
+                withJSONObject: base.merging(fields) { $1 }))
+        }
+        #expect(MergeRules.prMergeAvailable(try git()))
+        #expect(MergeRules.prMergeAvailable(try git(["kind": "gitea"])))
+        #expect(!MergeRules.prMergeAvailable(nil))
+        #expect(!MergeRules.prMergeAvailable(try git(["kind": "local"])))
+        #expect(!MergeRules.prMergeAvailable(try git(["state": "merged"])))
+        var unnumbered = try git(); unnumbered.number = nil
+        #expect(!MergeRules.prMergeAvailable(unnumbered))
+        var kindless = try git(); kindless.kind = nil
+        #expect(!MergeRules.prMergeAvailable(kindless))
+        #expect(!MergeRules.prMergeAvailable(try git(["isDraft": true])))
+        #expect(!MergeRules.prMergeAvailable(try git(["mergeStateStatus": "dirty"])))
+        #expect(!MergeRules.prMergeAvailable(try git(["mergeStateStatus": "behind"])))
+        #expect(!MergeRules.prMergeAvailable(try git(["mergeStateStatus": "blocked"])))
+        #expect(!MergeRules.prMergeAvailable(try git(["mergeable": false])))
+        // A usable merge state outranks failed CI; without one, failed CI is the only signal.
+        #expect(MergeRules.prMergeAvailable(try git(["checks": "failure"])))
+        #expect(!MergeRules.prMergeAvailable(try git(["checks": "failure", "mergeStateStatus": "unknown"])))
+        var stateless = try git(["checks": "failure"]); stateless.mergeStateStatus = nil
+        #expect(!MergeRules.prMergeAvailable(stateless))
+        stateless.checks = .init(known: .pending)
+        #expect(MergeRules.prMergeAvailable(stateless))
+    }
     func queue(_ statuses: [String], approved: Bool = true) throws -> BuildQueue {
         let rows = statuses.enumerated().map { ["id": String($0.offset), "title": "Step",
             "detail": "", "status": $0.element, "position": $0.offset] as [String: Any] }

@@ -2,6 +2,7 @@ import { test, expect, setSystemTime, spyOn } from "bun:test";
 import { GithubForge, reviewerStatesFromReviews } from "../../src/forge/github";
 import { graphRateLimit, restRateLimit } from "../../src/forge/rate-limit";
 import { attemptsOf } from "../../src/forge/gh-attempt";
+import { setIssuesFreshness } from "../../src/forge/repo-freshness";
 import { CRITIC_REVIEW_MARKER, EmptyDiffError } from "../../src/forge/types";
 import type { PullRequest, PrReviewerState, PrStatus } from "../../src/forge/types";
 import type { GhReview } from "../../src/forge/github";
@@ -357,6 +358,78 @@ test("GithubForge.listIssues: re-fetches once the TTL has passed", async () => {
     expect(calls.filter((c) => c[0] === "issue")).toHaveLength(2);
   } finally {
     setSystemTime();
+  }
+});
+
+// #2756: while the repo fingerprint covers a slug, the list is kept until the slug's issue
+// generation moves — never re-listed on a timer.
+test("GithubForge.listIssues: a covered slug serves its cache until the issue generation moves", async () => {
+  const { run, calls } = fakeRunner({ "issue list": ISSUES_JSON });
+  const forge = new GithubForge("o/r", {}, run);
+  let gen = 1;
+  setIssuesFreshness((slug) => (slug === "o/r" ? gen : null));
+  try {
+    setSystemTime(new Date("2026-10-01T12:00:00Z"));
+    await forge.listIssues();
+    for (let min = 1; min <= 10; min++) {
+      setSystemTime(new Date(Date.parse("2026-10-01T12:00:00Z") + min * 60_000));
+      await forge.listIssues();
+    }
+    expect(calls.filter((c) => c[0] === "issue")).toHaveLength(1);
+    gen = 2;
+    await forge.listIssues();
+    await forge.listIssues();
+    expect(calls.filter((c) => c[0] === "issue")).toHaveLength(2);
+  } finally {
+    setIssuesFreshness(null);
+    setSystemTime();
+  }
+});
+
+test("GithubForge.listIssues: a generation bump during the fetch leaves the entry stale", async () => {
+  const calls: string[][] = [];
+  let gen = 1;
+  const run = async (args: string[]) => {
+    calls.push(args);
+    gen++; // the fingerprint moves while this list is in flight
+    return ISSUES_JSON;
+  };
+  const forge = new GithubForge("o/r", {}, run);
+  setIssuesFreshness(() => gen);
+  try {
+    await forge.listIssues();
+    await forge.listIssues(); // tagged with the pre-bump generation → re-listed
+    expect(calls.filter((c) => c[0] === "issue")).toHaveLength(2);
+  } finally {
+    setIssuesFreshness(null);
+  }
+});
+
+test("GithubForge.listIssues: an entry fetched before coverage began is re-listed once covered", async () => {
+  const { run, calls } = fakeRunner({ "issue list": ISSUES_JSON });
+  const forge = new GithubForge("o/r", {}, run);
+  try {
+    await forge.listIssues(); // uncovered → TTL entry
+    setIssuesFreshness(() => 1);
+    await forge.listIssues();
+    await forge.listIssues();
+    expect(calls.filter((c) => c[0] === "issue")).toHaveLength(2);
+  } finally {
+    setIssuesFreshness(null);
+  }
+});
+
+test("GithubForge.listIssues: writes still invalidate a covered slug's cache", async () => {
+  const { run, calls } = fakeRunner({ "issue list": ISSUES_JSON, "issue close": "" });
+  const forge = new GithubForge("o/r", {}, run);
+  setIssuesFreshness(() => 1);
+  try {
+    await forge.listIssues();
+    await forge.closeIssue(1);
+    await forge.listIssues();
+    expect(calls.filter((c) => c[0] === "issue" && c[1] === "list")).toHaveLength(2);
+  } finally {
+    setIssuesFreshness(null);
   }
 });
 

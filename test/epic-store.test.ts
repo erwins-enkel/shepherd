@@ -1,5 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import { SessionStore } from "../src/store";
+import type { EpicRun } from "../src/epic-core";
 
 describe("epic_run", () => {
   test("absent until set", () =>
@@ -55,6 +56,66 @@ describe("epic_run", () => {
       model: null,
       effort: null,
     });
+  });
+});
+
+describe("epic_settings (an epic off the run row)", () => {
+  const run = (parentIssueNumber: number, extra: Partial<EpicRun> = {}): EpicRun => ({
+    repoPath: "/repo",
+    parentIssueNumber,
+    mode: "auto",
+    status: "running",
+    ...extra,
+  });
+
+  test("absent until set; set+get round-trips and clears model/effort without a provider", () => {
+    const s = new SessionStore(":memory:");
+    expect(s.getEpicSettings("/repo", 7)).toBeNull();
+    s.setEpicSettings({
+      repoPath: "/repo",
+      parentIssueNumber: 7,
+      mode: "attended",
+      agentProvider: null,
+      model: "opus",
+      effort: "high",
+    });
+    expect(s.getEpicSettings("/repo", 7)).toEqual({
+      repoPath: "/repo",
+      parentIssueNumber: 7,
+      mode: "attended",
+      agentProvider: null,
+      model: null,
+      effort: null,
+    });
+    s.deleteEpicSettings("/repo", 7);
+    expect(s.getEpicSettings("/repo", 7)).toBeNull();
+  });
+
+  test("setEpicRun moves the previous epic's settings off the row and drops the new epic's", () => {
+    const s = new SessionStore(":memory:");
+    s.setEpicRun(run(1, { mode: "attended", agentProvider: "codex", model: "gpt-5.5" }));
+    s.setEpicSettings({
+      repoPath: "/repo",
+      parentIssueNumber: 2,
+      mode: "auto",
+      agentProvider: "claude",
+      model: "opus",
+      effort: null,
+    });
+    s.setEpicRun(run(2, { agentProvider: "claude", model: "opus" }));
+    expect(s.getEpicSettings("/repo", 1)).toMatchObject({
+      mode: "attended",
+      agentProvider: "codex",
+      model: "gpt-5.5",
+    });
+    expect(s.getEpicSettings("/repo", 2)).toBeNull();
+  });
+
+  test("setEpicRun for the same epic leaves remembered settings untouched elsewhere", () => {
+    const s = new SessionStore(":memory:");
+    s.setEpicRun(run(1));
+    s.setEpicRun(run(1, { status: "idle" }));
+    expect(s.getEpicSettings("/repo", 1)).toBeNull();
   });
 });
 

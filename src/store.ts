@@ -75,7 +75,7 @@ import { normalizeRepoDefaultModelSetting } from "./default-model";
 import { normalizeRepoDefaultEffortSetting } from "./default-effort";
 import { sanitizeScopeGlobs } from "./house-rules";
 import { decodeStoredRepoPaths, type AccessTokenRow } from "./access-tokens";
-import type { EpicQueueEntry, EpicRun } from "./epic-core";
+import type { EpicQueueEntry, EpicRun, EpicSettings } from "./epic-core";
 import type { EpicLandingState } from "./completed-epic";
 import { normalizeRule } from "./learning-rule";
 import { trimRuleToLimit } from "./learning-shape";
@@ -1741,6 +1741,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       mode TEXT NOT NULL DEFAULT 'auto', agentProvider TEXT, model TEXT, effort TEXT,
       createdAt INTEGER NOT NULL,
       PRIMARY KEY (repoPath, parentIssueNumber))`);
+    // The remembered settings of an epic that neither holds the repo's epic_run row nor waits in
+    // its queue — so editing an idle epic never has to touch (and so supersede) the leading run.
+    this.db.run(`CREATE TABLE IF NOT EXISTS epic_settings (
+      repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL,
+      mode TEXT NOT NULL DEFAULT 'auto', agentProvider TEXT, model TEXT, effort TEXT,
+      updatedAt INTEGER NOT NULL,
+      PRIMARY KEY (repoPath, parentIssueNumber))`);
     // #645: the pinned integration-branch name, keyed PER EPIC (repoPath, parentIssueNumber)
     // — NOT on epic_run, which is one-row-per-repo and superseded when a new epic starts on that
     // repo, so a pin stored there would be inherited by the next epic and would outlive its own
@@ -2229,21 +2236,66 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       .all() as EpicRun[];
   }
 
+  /** Persist the repo's run. When the row passes to another epic, the previous epic's settings
+   *  move to `epic_settings` and the new epic's remembered ones are dropped — they ride on the row
+   *  now (see {@link EpicSettings}). */
   setEpicRun(r: EpicRun): void {
+    this.db.transaction(() => {
+      const prev = this.getEpicRun(r.repoPath);
+      if (prev && prev.parentIssueNumber !== r.parentIssueNumber) this.setEpicSettings(prev);
+      this.deleteEpicSettings(r.repoPath, r.parentIssueNumber);
+      this.db.run(
+        `INSERT INTO epic_run (repoPath, parentIssueNumber, mode, status, agentProvider, model, effort, updatedAt) VALUES (?,?,?,?,?,?,?,?)
+        ON CONFLICT(repoPath) DO UPDATE SET parentIssueNumber=excluded.parentIssueNumber, mode=excluded.mode, status=excluded.status, agentProvider=excluded.agentProvider, model=excluded.model, effort=excluded.effort, updatedAt=excluded.updatedAt`,
+        [
+          r.repoPath,
+          r.parentIssueNumber,
+          r.mode,
+          r.status,
+          r.agentProvider ?? null,
+          r.agentProvider ? (r.model ?? null) : null,
+          r.agentProvider ? (r.effort ?? null) : null,
+          Date.now(),
+        ],
+      );
+    })();
+  }
+
+  // ── epic settings: an epic off the run row and out of the queue ──────────
+  /** The remembered settings of an epic that neither holds its repo's run row nor waits in its
+   *  queue; null when it has none (it runs with the defaults). */
+  getEpicSettings(repoPath: string, parentIssueNumber: number): EpicSettings | null {
+    return (
+      (this.db
+        .query(
+          `SELECT repoPath, parentIssueNumber, mode, agentProvider, model, effort
+          FROM epic_settings WHERE repoPath = ? AND parentIssueNumber = ?`,
+        )
+        .get(repoPath, parentIssueNumber) as EpicSettings | null) ?? null
+    );
+  }
+
+  setEpicSettings(s: EpicSettings): void {
     this.db.run(
-      `INSERT INTO epic_run (repoPath, parentIssueNumber, mode, status, agentProvider, model, effort, updatedAt) VALUES (?,?,?,?,?,?,?,?)
-      ON CONFLICT(repoPath) DO UPDATE SET parentIssueNumber=excluded.parentIssueNumber, mode=excluded.mode, status=excluded.status, agentProvider=excluded.agentProvider, model=excluded.model, effort=excluded.effort, updatedAt=excluded.updatedAt`,
+      `INSERT INTO epic_settings (repoPath, parentIssueNumber, mode, agentProvider, model, effort, updatedAt) VALUES (?,?,?,?,?,?,?)
+      ON CONFLICT(repoPath, parentIssueNumber) DO UPDATE SET mode=excluded.mode, agentProvider=excluded.agentProvider, model=excluded.model, effort=excluded.effort, updatedAt=excluded.updatedAt`,
       [
-        r.repoPath,
-        r.parentIssueNumber,
-        r.mode,
-        r.status,
-        r.agentProvider ?? null,
-        r.agentProvider ? (r.model ?? null) : null,
-        r.agentProvider ? (r.effort ?? null) : null,
+        s.repoPath,
+        s.parentIssueNumber,
+        s.mode,
+        s.agentProvider ?? null,
+        s.agentProvider ? (s.model ?? null) : null,
+        s.agentProvider ? (s.effort ?? null) : null,
         Date.now(),
       ],
     );
+  }
+
+  deleteEpicSettings(repoPath: string, parentIssueNumber: number): void {
+    this.db.run(`DELETE FROM epic_settings WHERE repoPath = ? AND parentIssueNumber = ?`, [
+      repoPath,
+      parentIssueNumber,
+    ]);
   }
 
   // ── epic queue (#2624): epics waiting behind the leading one ─────────────

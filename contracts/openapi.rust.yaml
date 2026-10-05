@@ -8514,7 +8514,7 @@ paths:
                 $ref: "#/components/schemas/Error"
     put:
       operationId: patchEpicRun
-      description: Patch the repo's epic run for this parent (superseding a run for another parent), persist it, and answer the re-assembled epic. status running kicks the drain at once. For a queued epic, a patch without status edits its queued settings instead; one with status takes it out of the queue first.
+      description: Patch the epic's run settings, persist them, and answer the re-assembled epic. A patch without status edits the settings where they live — the repo's run when this epic holds it, its queue row when queued, else its remembered settings — and never supersedes another epic. status running starts this epic (superseding a run for another parent) and kicks the drain at once; status idle or paused for an epic that does not lead, while another epic runs or is paused, is refused with 409. A queued epic given a status leaves the queue first.
       parameters:
         - name: repo
           in: query
@@ -8548,6 +8548,12 @@ paths:
                 $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: 'error is "another epic leads": status idle or paused for an epic that does not lead while another one runs or is paused.'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "503":
           description: error is "drain unavailable".
           content:
@@ -8557,7 +8563,7 @@ paths:
   /api/epic/queue:
     post:
       operationId: queueEpic
-      description: Queue this epic behind the repo's leading (running or paused) epic, at the tail, with default settings. Queueing an already queued epic keeps its place. The queue head starts on its own, with its stored settings, once the leader completes.
+      description: Queue this epic behind the repo's leading (running or paused) epic, at the tail, with its remembered settings (else the defaults). Queueing an already queued epic keeps its place. The queue head starts on its own, with its stored settings, once the leader completes.
       parameters:
         - name: repo
           in: query
@@ -8599,7 +8605,7 @@ paths:
                 $ref: "#/components/schemas/Error"
     delete:
       operationId: unqueueEpic
-      description: Take this epic out of the repo's epic queue (a no-op when it is not queued).
+      description: Take this epic out of the repo's epic queue (a no-op when it is not queued); its queued settings stay remembered.
       parameters:
         - name: repo
           in: query

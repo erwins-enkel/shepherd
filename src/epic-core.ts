@@ -38,6 +38,13 @@ export interface EpicRun {
   model?: string | null;
   effort?: string | null;
 }
+/** An epic's run settings without a status. They live in exactly one place: the repo's `epic_run`
+ *  row while the epic holds it, its `epic_queue` row while queued, else its `epic_settings` row
+ *  (absent = the defaults). */
+export type EpicSettings = Pick<
+  EpicRun,
+  "repoPath" | "parentIssueNumber" | "mode" | "agentProvider" | "model" | "effort"
+>;
 /** Persisted `epic_queue` row (#2624): an epic waiting behind the repo's leading epic, with the
  *  settings it starts with once the queue promotes it. `position` orders the queue (ascending). */
 export interface EpicQueueEntry {

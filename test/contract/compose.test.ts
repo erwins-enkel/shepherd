@@ -289,6 +289,40 @@ describe("epic", () => {
     }
   });
 
+  test("patch refuses to stop or pause an epic that does not lead while another one does", async () => {
+    const previousDrain = s.deps.drain;
+    s.deps.drain = {
+      buildEpic: async (_dir: string, run: EpicRun) => fx.epic(run),
+      tick: async () => {},
+    } as unknown as NonNullable<typeof s.deps.drain>;
+    const other = `/api/epic?repo=${encodeURIComponent(s.validRepo)}&parent=413`;
+    try {
+      s.deps.store.setEpicRun({
+        repoPath: s.validRepo,
+        parentIssueNumber: 412,
+        mode: "auto",
+        status: "running",
+      });
+      for (const status of ["idle", "paused"]) {
+        expect(await call("PUT", "/api/epic", other, 409, { status })).toEqual({
+          error: "another epic leads",
+        });
+      }
+      expect(s.deps.store.getEpicRun(s.validRepo)).toMatchObject({
+        parentIssueNumber: 412,
+        status: "running",
+      });
+    } finally {
+      s.deps.drain = previousDrain;
+      s.deps.store.setEpicRun({
+        repoPath: s.validRepo,
+        parentIssueNumber: 412,
+        mode: "auto",
+        status: "idle",
+      });
+    }
+  });
+
   test("queue answers 409 without a leader, else the assembled epic; unqueue always answers", async () => {
     const previousDrain = s.deps.drain;
     s.deps.drain = {

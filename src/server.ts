@@ -4404,11 +4404,16 @@ async function approveEpicDraft(deps: AppDeps, id: string): Promise<Response> {
       onParentCreated: (number, url) => deps.store.recordEpicDraftParent(id, number, url),
     });
     // Recognition: a fence in a fresh parent body is not auto-discovered — register the epic run so
-    // buildEpic assembles it (mirrors handleEpicPut). Supersedes any prior run for this repo.
+    // buildEpic assembles it (mirrors handleEpicPut). Replaces an idle prior run for this repo, but
+    // never a leading one: approving a draft must not silently stop the epic that runs.
     let epic: Epic | null = null;
     if (deps.drain) {
-      deps.store.setEpicRun(defaultEpicRun(session.repoPath, result.parentNumber));
-      epic = await deps.drain.buildEpic(session.repoPath, deps.store.getEpicRun(session.repoPath)!);
+      if (!leadingRun(deps.store, session.repoPath))
+        deps.store.setEpicRun(defaultEpicRun(session.repoPath, result.parentNumber));
+      epic = await deps.drain.buildEpic(
+        session.repoPath,
+        runForParent(deps.store, session.repoPath, result.parentNumber),
+      );
       if (epic) deps.events?.emit("epic:update", epic);
     }
     deps.store.setEpicDraftApproved(id, result.parentNumber, result.parentUrl);
@@ -8006,12 +8011,21 @@ function defaultEpicRun(repoPath: string, parentIssueNumber: number): EpicRun {
 }
 
 /** The run an epic is assembled from: the repo's stored run when it is for this parent, else the
- *  parent's queue entry (#2624, its stored settings, idle), else the idle auto default. */
+ *  parent's queue entry (#2624, its stored settings, idle), else its remembered settings (idle),
+ *  else the idle auto default. */
 function runForParent(store: AppDeps["store"], dir: string, parentIssueNumber: number): EpicRun {
   const stored = store.getEpicRun(dir);
   if (stored && stored.parentIssueNumber === parentIssueNumber) return stored;
   const queued = store.getEpicQueueEntry(dir, parentIssueNumber);
-  return queued ? queuedEpicRun(queued) : defaultEpicRun(dir, parentIssueNumber);
+  if (queued) return queuedEpicRun(queued);
+  const saved = store.getEpicSettings(dir, parentIssueNumber);
+  return saved ? { ...saved, status: "idle" } : defaultEpicRun(dir, parentIssueNumber);
+}
+
+/** The repo's stored run while it leads (running or paused), else null. */
+function leadingRun(store: AppDeps["store"], dir: string): EpicRun | null {
+  const run = store.getEpicRun(dir);
+  return run && (run.status === "running" || run.status === "paused") ? run : null;
 }
 
 function patchHas<K extends keyof EpicRunPatch>(patch: EpicRunPatch, key: K): boolean {
@@ -8472,21 +8486,47 @@ function kickDrain(drain: NonNullable<AppDeps["drain"]>, why: string): void {
   void drain.tick().catch((err) => console.warn(`[epic] ${why} tick:`, err));
 }
 
-// #2624: a queued epic's settings live on its queue row — editing them must not supersede the
-// leader. A status change leaves the queue and takes over the run, as for any other epic.
+// Where an epic's settings live (see EpicSettings): the run row while it holds it, its queue row
+// while queued (#2624), else its remembered settings. Editing settings writes them in place and
+// never supersedes the leader; only a status change takes over the run, as for any other epic.
+type EpicSettingsPlace = "run" | "queue" | "remembered";
+
+function epicSettingsPlace(
+  store: AppDeps["store"],
+  dir: string,
+  parentIssueNumber: number,
+): EpicSettingsPlace {
+  if (store.getEpicRun(dir)?.parentIssueNumber === parentIssueNumber) return "run";
+  return store.getEpicQueueEntry(dir, parentIssueNumber) ? "queue" : "remembered";
+}
+
+/** One epic leads per repo and only a start supersedes it: stopping or pausing an epic that does
+ *  not lead would silently replace the leading run, so the PUT refuses it. */
+function stopsAnotherEpicsLead(
+  store: AppDeps["store"],
+  dir: string,
+  parentIssueNumber: number,
+  patch: EpicRunPatch,
+): boolean {
+  if (patch.status === undefined || patch.status === "running") return false;
+  const leader = leadingRun(store, dir);
+  return !!leader && leader.parentIssueNumber !== parentIssueNumber;
+}
+
 // Returns true when a start cleared the epic's stale completion (the band must drop it).
 function saveEpicRunPatch(
   store: AppDeps["store"],
   drain: NonNullable<AppDeps["drain"]>,
   merged: EpicRun,
   patch: EpicRunPatch,
-  queued: boolean,
+  place: EpicSettingsPlace,
 ): boolean {
-  if (queued && patch.status === undefined) {
-    store.updateEpicQueueSettings(merged);
+  if (patch.status === undefined && place !== "run") {
+    if (place === "queue") store.updateEpicQueueSettings(merged);
+    else store.setEpicSettings(merged);
     return false;
   }
-  if (queued) {
+  if (place === "queue") {
     store.removeEpicQueueEntry(merged.repoPath, merged.parentIssueNumber);
     if (merged.status !== "running") kickDrain(drain, "dequeue");
   }
@@ -8515,8 +8555,9 @@ async function handleEpicPut({ req, parts, url, deps }: Ctx): Promise<Response |
   const body = await req.json().catch(() => null);
   const patch = validateEpicRunPatch(body);
   if (patch === null) return json({ error: "invalid epic run patch" }, 400);
-  // One epic per repo; ?parent selects/supersedes: use stored run only when it matches the requested parent.
-  const queued = deps.store.getEpicQueueEntry(dir, parentNumber) !== null;
+  if (stopsAnotherEpicsLead(deps.store, dir, parentNumber, patch))
+    return json({ error: "another epic leads" }, 409);
+  const place = epicSettingsPlace(deps.store, dir, parentNumber);
   const base = runForParent(deps.store, dir, parentNumber);
   const incompatibleModel = incompatibleEpicModelForAuth(
     base,
@@ -8532,34 +8573,37 @@ async function handleEpicPut({ req, parts, url, deps }: Ctx): Promise<Response |
     );
   const merged = mergeEpicRunPatch(base, patch);
   if (merged === null) return json({ error: "invalid epic run patch" }, 400);
-  if (saveEpicRunPatch(deps.store, deps.drain, merged, patch, queued))
+  if (saveEpicRunPatch(deps.store, deps.drain, merged, patch, place))
     deps.events?.emit("epic:completed-cleared", { repoPath: dir, parentIssueNumber: parentNumber });
   const epic = await deps.drain.buildEpic(dir, merged);
   if (epic) deps.events?.emit("epic:update", epic);
   return json(epic ?? { ok: true });
 }
 
-/** Queue `parent` at the tail behind the repo's running/paused leader, with default settings;
- *  a 409 when there is no leader or `parent` is the leader. */
+/** Queue `parent` at the tail behind the repo's running/paused leader, with its remembered
+ *  settings (else the defaults), which move onto the queue row; a 409 when there is no leader or
+ *  `parent` is the leader. */
 function enqueueBehindLeader(
   store: AppDeps["store"],
   dir: string,
   parentIssueNumber: number,
 ): Response | null {
-  const leader = store.getEpicRun(dir);
-  if (!leader || (leader.status !== "running" && leader.status !== "paused"))
-    return json({ error: "no leading epic" }, 409);
+  const leader = leadingRun(store, dir);
+  if (!leader) return json({ error: "no leading epic" }, 409);
   if (leader.parentIssueNumber === parentIssueNumber)
     return json({ error: "epic already leads" }, 409);
-  store.enqueueEpic({
-    repoPath: dir,
-    parentIssueNumber,
-    mode: "auto",
-    agentProvider: null,
-    model: null,
-    effort: null,
-  });
+  const { mode, agentProvider, model, effort } = runForParent(store, dir, parentIssueNumber);
+  store.enqueueEpic({ repoPath: dir, parentIssueNumber, mode, agentProvider, model, effort });
+  store.deleteEpicSettings(dir, parentIssueNumber);
   return null;
+}
+
+/** Take `parent` out of the queue; its queued settings stay remembered. */
+function unqueueEpic(store: AppDeps["store"], dir: string, parentIssueNumber: number): void {
+  const entry = store.getEpicQueueEntry(dir, parentIssueNumber);
+  if (!entry) return;
+  store.setEpicSettings(entry);
+  store.removeEpicQueueEntry(dir, parentIssueNumber);
 }
 
 function isEpicQueueRequest(req: Request, parts: string[]): boolean {
@@ -8586,7 +8630,7 @@ async function handleEpicQueue({ req, parts, url, deps }: Ctx): Promise<Response
     const refused = enqueueBehindLeader(deps.store, dir, parentNumber);
     if (refused) return refused;
   } else {
-    deps.store.removeEpicQueueEntry(dir, parentNumber);
+    unqueueEpic(deps.store, dir, parentNumber);
   }
   kickDrain(deps.drain, "queue");
   const epic = await deps.drain.buildEpic(dir, runForParent(deps.store, dir, parentNumber));

@@ -74,7 +74,9 @@ final class IOSServerHub {
         guard let id = focusedID, let sessionID = focused.selectedSessionID else { return nil }
         return .init(profileID: id, sessionID: sessionID)
     }
-    var hasSidebar: Bool { connected.contains { $0.extension(SidebarModel.self) != nil } }
+    /// Extensions are not observable; reading `store` (set in the same main-actor turn)
+    /// lets a cold-launch root view leave the server list once a restore activates.
+    var hasSidebar: Bool { connected.contains { $0.store != nil && $0.extension(SidebarModel.self) != nil } }
     var hasLoadedList: Bool { connected.contains { $0.store?.hasLoadedSessions == true } }
 
     func start(launch: IOSLaunchEnvironment) async {

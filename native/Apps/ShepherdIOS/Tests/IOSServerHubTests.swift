@@ -46,6 +46,21 @@ final class IOSServerHubTests: XCTestCase {
         XCTAssertEqual(launch.defaults.array(forKey: IOSServerHub.connectedKey) as? [String], [])
     }
 
+    /// A cold launch renders the root before any restored server has activated.
+    /// The session list must appear once one has, without another UI event.
+    func testHasSidebarNotifiesObserversWhenARestoredServerActivates() async throws {
+        let (_, hub, a, _) = try fixture()
+        defer { stop(hub) }
+        await hub.connect(a, login: true)
+        let app = try XCTUnwrap(hub.models[a.id])
+        app.sheet = nil
+        let changed = expectation(description: "hasSidebar observers are notified")
+        XCTAssertFalse(withObservationTracking { hub.hasSidebar } onChange: { changed.fulfill() })
+        await app.activate(a)
+        await fulfillment(of: [changed], timeout: 1)
+        XCTAssertTrue(hub.hasSidebar)
+    }
+
     func testNewServerRoutesLoginImmediatelyWithoutStartingAStore() async throws {
         let (_, hub, a, _) = try fixture()
         defer { stop(hub) }

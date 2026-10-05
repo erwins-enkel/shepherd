@@ -173,6 +173,7 @@
     type DecommissionPrAction,
     type DecommissionRequest,
   } from "$lib/decommission-commit";
+  import { describeDecommissionFailure } from "$lib/decommission-failure";
   import {
     isMergeConfirmRefusal,
     mergeConfirmFromGit,
@@ -2405,11 +2406,17 @@
           // 409s forever and the session could never be decommissioned at all. Re-open the PR
           // decision instead, so the operator answers the state the server actually reports.
           if (isMergeConfirmRefusal(err) && reopenPrDecommission(request, err)) return;
+          // Say WHY and what to do. Retry (and with it persistence) only when replaying this
+          // commit can succeed; a dead end is a plain 12s failure (docs/toast-inventory.md).
+          const failure = describeDecommissionFailure(err, commit.step);
           toasts.info(m.toast_decommission_failed({ name }), {
-            sticky: true,
+            sticky: failure.retryable,
             alert: true,
             key: `decommission-fail:${id}`,
-            action: { label: m.common_retry(), run: () => deferDecommission(request, commit) },
+            detail: failure.detail,
+            action: failure.retryable
+              ? { label: m.common_retry(), run: () => deferDecommission(request, commit) }
+              : undefined,
           });
         }
       },

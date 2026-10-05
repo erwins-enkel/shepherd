@@ -20,7 +20,13 @@
     attempts,
     /** Suppress the tooltip's entrance animation on motion-free surfaces (New Task). */
     still = false,
-  }: { attempts: IssueFetchAttempt[]; still?: boolean } = $props();
+    /** Optional trailing note per line, e.g. when a rate-limited transport frees up. */
+    note = undefined,
+  }: {
+    attempts: IssueFetchAttempt[];
+    still?: boolean;
+    note?: (a: IssueFetchAttempt) => string | null;
+  } = $props();
 
   function transportLabel(a: IssueFetchAttempt): string {
     switch (a.transport) {
@@ -65,10 +71,14 @@
       <!-- Keyed by index: the trail is a short, positional record of one fetch, and
            the same transport can legitimately appear twice across future orders. -->
       {#each attempts as a, i (i)}
+        {@const extra = note?.(a) ?? null}
         <li class="attempt" use:statusTip={a.detail ? { text: a.detail, still, wide: true } : null}>
           <span class="attempt-transport">{transportLabel(a)}</span>
           <span class="attempt-arrow" aria-hidden="true">→</span>
           <span class="attempt-reason">{reasonLabel(a)}</span>
+          {#if extra}
+            <span class="attempt-note">· {extra}</span>
+          {/if}
         </li>
       {/each}
     </ul>
@@ -104,9 +114,10 @@
     max-width: 100%;
   }
 
-  .attempt-transport {
-    /* One step brighter than the surrounding faint text: the command name is the
-       part the operator scans for. */
+  .attempt-transport,
+  .attempt-note {
+    /* One step brighter than the surrounding faint text: the command name and the
+       free-at time are the parts the operator scans for. */
     color: var(--color-muted);
   }
 </style>

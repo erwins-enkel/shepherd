@@ -4,11 +4,12 @@ import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import type { Issue, EpicSummary, Epic, Session, Steer } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
-import { listIssues, getEpics, getEpic } from "$lib/api";
+import { listIssues, getEpics, getEpic, getGithubRateLimit } from "$lib/api";
 import { steers } from "$lib/steers.svelte";
 import { issuesFilter } from "$lib/issues-filter.svelte";
 import { backlogRefresh } from "$lib/backlog-refresh.svelte";
 import { ACTIVE_LABEL } from "./issues-panel";
+import { formatReset } from "$lib/format";
 import { reactiveRecord } from "./reactive-fixture.svelte";
 
 // Mock the API so no network calls fire; each test seeds the results.
@@ -19,6 +20,7 @@ vi.mock("$lib/api", async (importOriginal) => {
     listIssues: vi.fn(),
     getEpics: vi.fn(),
     getEpic: vi.fn(),
+    getGithubRateLimit: vi.fn(),
   };
 });
 
@@ -27,6 +29,7 @@ const { default: IssuesPanel } = await import("./IssuesPanel.svelte");
 const mockListIssues = vi.mocked(listIssues);
 const mockGetEpics = vi.mocked(getEpics);
 const mockEpic = vi.mocked(getEpic);
+const mockGithubRateLimit = vi.mocked(getGithubRateLimit);
 // expandEpic suite below was authored against these aliases — keep them pointing at
 // the same mocks so both suites share one reset.
 const mockIssues = mockListIssues;
@@ -36,6 +39,9 @@ beforeEach(() => {
   mockListIssues.mockReset();
   mockGetEpics.mockReset();
   mockEpic.mockReset();
+  // No GitHub reading unless a test seeds one: the rate-limit notice then shows no time.
+  mockGithubRateLimit.mockReset();
+  mockGithubRateLimit.mockRejectedValue(new Error("unavailable"));
   mockEpic.mockImplementation((repoPath: string, parentIssueNumber: number) =>
     Promise.resolve({
       repoPath,
@@ -300,6 +306,133 @@ describe("IssuesPanel empty vs fetch-failed", () => {
       .poll(() => document.querySelector(".issues-list")?.textContent)
       .toContain("Recovered issue");
     expect(document.querySelectorAll(".issues-list .attempt")).toHaveLength(0);
+  });
+});
+
+describe("IssuesPanel rate-limit notice", () => {
+  const MIN = 60_000;
+  const rateLimited = {
+    slug: "owner/repo",
+    webUrl: null,
+    issues: [],
+    viewer: null,
+    error: "fetch_failed",
+    attempts: [
+      { transport: "cli" as const, reason: "rate_limit" as const, detail: "" },
+      { transport: "rest" as const, reason: "rate_limit" as const, detail: "" },
+    ],
+  };
+  function reading(graphqlResetAt: number, restPausedUntil: number | null = null) {
+    const free = { remaining: null, resetAt: null, pausedUntil: null, blocked: false };
+    return {
+      rest: { limit: 5000, used: 0, remaining: 5000, resetAt: Date.now() + 60 * MIN },
+      graphql: { limit: 5000, used: 5000, remaining: 0, resetAt: graphqlResetAt },
+      search: null,
+      fetchedAt: Date.now(),
+      backoff: free,
+      restBackoff:
+        restPausedUntil === null ? free : { ...free, pausedUntil: restPausedUntil, blocked: true },
+    };
+  }
+  const at = (ts: number) => formatReset(ts, Date.now(), { withTime: true });
+  const notice = () => document.querySelector(".issues-list .rl-notice");
+
+  // Both transports are limited; the server falls back between them, so the panel
+  // loads again when the FIRST one refills — and says so per transport.
+  it("says when issues load again and when each transport frees up", async () => {
+    const graphqlFree = Date.now() + 20 * MIN;
+    const restFree = Date.now() + 45 * MIN;
+    mockListIssues.mockResolvedValue(rateLimited);
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    mockGithubRateLimit.mockResolvedValue(reading(graphqlFree, restFree));
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect
+      .poll(() => notice()?.textContent)
+      .toContain(m.issues_ratelimit_resume({ time: at(graphqlFree) }));
+    const lines = Array.from(document.querySelectorAll(".issues-list .attempt")).map(
+      (el) => el.textContent?.replace(/\s+/g, " ").trim() ?? "",
+    );
+    expect(lines).toEqual([
+      `${m.issues_transport_cli()} → ${m.issues_attempt_rate_limit()} · ${m.issues_attempt_free_at({ time: at(graphqlFree) })}`,
+      `${m.issues_transport_rest()} → ${m.issues_attempt_rate_limit()} · ${m.issues_attempt_free_at({ time: at(restFree) })}`,
+    ]);
+  });
+
+  it("retries on its own once the earliest transport refills", async () => {
+    mockListIssues.mockResolvedValueOnce(rateLimited).mockResolvedValueOnce({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [
+        {
+          number: 7,
+          title: "Back after the reset",
+          body: "",
+          url: "https://example.com/issues/7",
+          labels: [],
+          createdAt: 0,
+          assignees: [],
+        },
+      ],
+      viewer: null,
+    });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    mockGithubRateLimit.mockResolvedValue(reading(Date.now() + 50));
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => notice()).not.toBeNull();
+    // The refill plus a few seconds' clock-skew slack.
+    await expect
+      .poll(() => document.querySelector(".issues-list")?.textContent, { timeout: 8_000 })
+      .toContain("Back after the reset");
+    expect(mockListIssues).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the card without a time when the GitHub reading is unavailable", async () => {
+    mockListIssues.mockResolvedValue(rateLimited);
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => notice()?.textContent).toContain(m.issues_ratelimit_unknown());
+    expect(notice()?.textContent).not.toContain(m.issues_ratelimit_resume({ time: "" }).trim());
+  });
+
+  // Answers "can I pay to lift it?" honestly: a personal plan can't, Enterprise Cloud can.
+  it("discloses whether the limit can be raised, with links out", async () => {
+    mockListIssues.mockResolvedValue(rateLimited);
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => notice()).not.toBeNull();
+    const toggle = page.getByRole("button", { name: m.issues_ratelimit_raise_toggle() });
+    await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
+    await toggle.click();
+
+    await expect.element(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(notice()?.textContent).toContain(m.issues_ratelimit_raise_no());
+    expect(notice()?.textContent).toContain(m.issues_ratelimit_raise_now_unknown());
+    const docs = page.getByRole("link", { name: new RegExp(m.issues_ratelimit_docs_link()) });
+    await expect
+      .element(docs)
+      .toHaveAttribute(
+        "href",
+        "https://docs.github.com/rest/using-the-rest-api/rate-limits-for-the-rest-api",
+      );
+  });
+
+  it("keeps the generic failure line when no transport hit a rate limit", async () => {
+    mockListIssues.mockResolvedValue({
+      ...rateLimited,
+      attempts: [{ transport: "cli", reason: "auth", detail: "" }],
+    });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect
+      .poll(() => document.querySelector(".issues-list")?.textContent)
+      .toContain(m.common_issues_load_failed());
+    expect(notice()).toBeNull();
+    expect(mockGithubRateLimit).not.toHaveBeenCalled();
   });
 });
 

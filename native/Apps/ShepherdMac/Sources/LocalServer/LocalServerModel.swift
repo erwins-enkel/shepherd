@@ -117,6 +117,8 @@ final class LocalServerModel {
     private var updateCheckGeneration = 0
     private var lastUpdateCheckAttempt: Date?
     private var updateTask: Task<Void, Never>?
+    private var deployment: LocalUpdateDeployment?
+    private var recoveryFailed = false
     private var updateCheckTask: Task<Result<LocalUpdateStatus, LocalUpdateCheckFailure>, Never>?
     private let updateChecker: @Sendable (LocalServerEnvironment) async -> Result<LocalUpdateStatus, LocalUpdateCheckFailure>
     private let updater: @Sendable (LocalServerEnvironment, LogRing) async -> Result<Void, LocalServerFailure>
@@ -174,6 +176,20 @@ final class LocalServerModel {
         }
         self.updateNow = updateNow
         self.updateMonitorClock = updateMonitorClock
+        // Recovery precedes every supervisor operation, including automatic
+        // startup. Isolated app launches never access the operator's state.
+        if self.updatesAllowed {
+            do {
+                if let message = try LocalUpdateDeployment.recover(environment: environment) {
+                    Task { [log] in await log.append(message) }
+                }
+            } catch {
+                recoveryFailed = true
+                state = .failed(.updateFailed(exitCode: 1))
+                updateFailure = .updateFailed(exitCode: 1)
+                Task { [log] in await log.append("Backend launch recovery failed: \(error). Server startup is blocked.") }
+            }
+        }
         let ring = log
         self.supervisor = LocalServerSupervisor(
             environment: environment, log: ring,
@@ -192,15 +208,15 @@ final class LocalServerModel {
     var canInstall: Bool {
         switch state {
         case .failed(.bunOutdated), .failed(.bunUpgradeFailed), .upgradingBun, .updating: false
-        default: !busy && (state == .notInstalled || isFailed)
+        default: !busy && !recoveryFailed && (state == .notInstalled || isFailed)
         }
     }
-    var canStart: Bool { !busy && (state == .stopped || isFailed) }
+    var canStart: Bool { !busy && !recoveryFailed && (state == .stopped || isFailed) }
     var canStop: Bool { !busy && state.isRunning }
     var canRestart: Bool { !busy && state.isRunning }
 
     var canManageUpdates: Bool {
-        updatesAllowed && environment.isShepherdCheckout() && state != .notInstalled && state != .installing && state != .externallyManaged
+        updatesAllowed && !recoveryFailed && environment.isShepherdCheckout() && state != .notInstalled && state != .installing && state != .externallyManaged
     }
 
     /// Order matters: a server we already supervise wins over the loopback probe,
@@ -219,6 +235,7 @@ final class LocalServerModel {
     /// checkout/probe say with nothing in flight.
     func refresh() async {
         guard !busy else { return }
+        if recoveryFailed { await pullLog(); return }
         await resolveState()
         await checkForUpdate(force: false)
     }
@@ -271,7 +288,7 @@ final class LocalServerModel {
     }
 
     func install() async {
-        guard !busy else { return }
+        guard !busy, !recoveryFailed else { return }
         busy = true
         generation += 1
         lifecycleGeneration += 1
@@ -301,7 +318,7 @@ final class LocalServerModel {
     /// running, still mutating `~/.shepherd/app` — and the next launch's
     /// Install raced a second installer over the same checkout.
     func beginInstall() {
-        guard !busy else { return }
+        guard !busy, !recoveryFailed else { return }
         installTask = Task { await self.install() }
     }
 
@@ -316,7 +333,7 @@ final class LocalServerModel {
     }
 
     func upgradeBun() async {
-        guard !busy else { return }
+        guard !busy, !recoveryFailed else { return }
         busy = true
         generation += 1
         lifecycleGeneration += 1
@@ -340,7 +357,7 @@ final class LocalServerModel {
     }
 
     func beginBunUpgrade() {
-        guard !busy else { return }
+        guard !busy, !recoveryFailed else { return }
         bunUpgradeTask = Task { await self.upgradeBun() }
     }
 
@@ -441,7 +458,7 @@ final class LocalServerModel {
     }
 
     func applyUpdate() async {
-        guard !busy, canManageUpdates else { return }
+        guard !busy, canManageUpdates, !recoveryFailed, !quittingUpdates else { return }
         busy = true
         generation += 1
         lifecycleGeneration += 1
@@ -458,7 +475,6 @@ final class LocalServerModel {
         let wasRunning = await supervisor.suspendRecovery()
         let progress = sampleProgress()
         defer { progress.cancel(); busy = false }
-        var deployment: LocalUpdateDeployment?
         var failure: LocalServerFailure?
         do {
             try Task.checkCancellation()
@@ -470,12 +486,15 @@ final class LocalServerModel {
             let result = await updater(deployment!.environment, log)
             if case .failure(let error) = result { throw error }
             try Task.checkCancellation()
+            guard !quittingUpdates else { throw LocalServerFailure.updateFailed(exitCode: 130) }
             try deployment!.promote()
             if wasRunning {
                 await supervisor.restart()
                 guard await supervisor.state.isRunning else { throw LocalServerFailure.updateFailed(exitCode: 1) }
             }
             try Task.checkCancellation()
+            guard !quittingUpdates else { throw LocalServerFailure.updateFailed(exitCode: 130) }
+            try deployment!.confirm()
         } catch {
             failure = Task.isCancelled ? .updateFailed(exitCode: 130)
                 : (error as? LocalServerFailure ?? .updateFailed(exitCode: 1))
@@ -495,6 +514,7 @@ final class LocalServerModel {
             }
         }
         deployment?.finish()
+        deployment = nil
         updateFailure = failure
         // Cancellation must not cancel rollback recovery. Quit is the explicit
         // exception: its separate termination path must never spawn a child.
@@ -525,6 +545,13 @@ final class LocalServerModel {
         updateTask?.cancel()
         updateTask = nil
         updateCheckTask?.cancel()
+        // willTerminate cannot await the update task. Stop the owned child and
+        // restore the directory synchronously before the process exits.
+        if deployment?.promoted == true {
+            terminateForQuit()
+            do { try deployment?.rollback() }
+            catch { Log.app.error("Could not restore backend on quit: \(String(describing: error))") }
+        }
     }
 
     func acknowledgeExternalServer() {
@@ -539,7 +566,7 @@ final class LocalServerModel {
     }
 
     func startRunner() async {
-        guard !busy else { return }
+        guard !busy, !recoveryFailed else { return }
         busy = true
         runnerFailure = nil
         let progress = sampleProgress()
@@ -582,7 +609,7 @@ final class LocalServerModel {
     nonisolated func terminateForQuit() { supervisor.terminateForQuit() }
 
     private func act(_ body: @MainActor () async -> Void) async {
-        guard !busy else { return }
+        guard !busy, !recoveryFailed else { return }
         busy = true
         generation += 1
         lifecycleGeneration += 1

@@ -264,5 +264,100 @@ import Testing
     #expect(FileManager.default.fileExists(atPath: external.path))
   }
 
+  @Test func launchRecoveryRestoresUnconfirmedPromotionAndOnlyDeletesItsOwnedSibling() throws {
+    let (_, environment) = try script("exit 0")
+    defer { try? FileManager.default.removeItem(at: environment.homeDirectory) }
+    let code = environment.appDirectory.appendingPathComponent("code")
+    try "previous".write(to: code, atomically: true, encoding: .utf8)
+    var deployment = try LocalUpdateDeployment(environment: environment)
+    let staged = deployment.environment.appDirectory
+    try "replacement".write(to: staged.appendingPathComponent("code"), atomically: true, encoding: .utf8)
+    let unrelated = staged.deletingLastPathComponent().appendingPathComponent(".shepherd-update-unowned")
+    try FileManager.default.createDirectory(at: unrelated, withIntermediateDirectories: true)
+    try deployment.promote()
+    #expect(try String(contentsOf: code, encoding: .utf8) == "replacement")
+    #expect(try LocalUpdateDeployment.recover(environment: environment)?.contains("Restored") == true)
+    #expect(try String(contentsOf: code, encoding: .utf8) == "previous")
+    #expect(!FileManager.default.fileExists(atPath: staged.path))
+    #expect(FileManager.default.fileExists(atPath: unrelated.path))
+    #expect(!FileManager.default.fileExists(atPath: LocalUpdateDeployment.journalURL(environment).path))
+    #expect(try LocalUpdateDeployment.recover(environment: environment) == nil)
+  }
+
+  @Test func launchRecoveryCleansCopyingBuildingAndConfirmedJournals() throws {
+    for phase in [LocalUpdateDeployment.Phase.copying, .building, .confirmed] {
+      let (_, environment) = try script("exit 0")
+      defer { try? FileManager.default.removeItem(at: environment.homeDirectory) }
+      let code = environment.appDirectory.appendingPathComponent("code")
+      try "previous".write(to: code, atomically: true, encoding: .utf8)
+      var deployment = try LocalUpdateDeployment(environment: environment)
+      let staged = deployment.environment.appDirectory
+      try "replacement".write(to: staged.appendingPathComponent("code"), atomically: true, encoding: .utf8)
+      if phase == .confirmed {
+        try deployment.promote()
+        try deployment.confirm()
+      } else if phase == .copying {
+        let url = LocalUpdateDeployment.journalURL(environment)
+        var journal = try JSONDecoder().decode(LocalUpdateDeployment.Journal.self, from: Data(contentsOf: url))
+        journal.phase = .copying
+        journal.stagedIdentity = nil
+        try JSONEncoder().encode(journal).write(to: url, options: .atomic)
+      }
+      #expect(try LocalUpdateDeployment.recover(environment: environment) != nil)
+      #expect(try String(contentsOf: code, encoding: .utf8) == (phase == .confirmed ? "replacement" : "previous"))
+      #expect(!FileManager.default.fileExists(atPath: staged.path))
+    }
+  }
+
+  @Test func launchRecoveryHandlesSwapIntentAndAlreadyRolledBackPromotion() throws {
+    for swapped in [false, true] {
+      let (_, environment) = try script("exit 0")
+      defer { try? FileManager.default.removeItem(at: environment.homeDirectory) }
+      var deployment = try LocalUpdateDeployment(environment: environment)
+      let url = LocalUpdateDeployment.journalURL(environment)
+      var journal = try JSONDecoder().decode(LocalUpdateDeployment.Journal.self, from: Data(contentsOf: url))
+      journal.phase = .promoted
+      if swapped {
+        try deployment.promote()
+        try deployment.rollback()
+      }
+      // Simulate death before swap, or after rollback but before journal update.
+      try JSONEncoder().encode(journal).write(to: url, options: .atomic)
+      #expect(try LocalUpdateDeployment.recover(environment: environment)?.contains("Restored") == false)
+      #expect(!FileManager.default.fileExists(atPath: deployment.environment.appDirectory.path))
+      #expect(FileManager.default.fileExists(atPath: environment.appDirectory.path))
+    }
+  }
+
+  @Test func launchRecoveryRejectsUnownedPathsSymlinksAndReplacedDirectories() throws {
+    for invalid in ["outside", "prefix", "symlink", "replaced"] {
+      let (_, environment) = try script("exit 0")
+      defer { try? FileManager.default.removeItem(at: environment.homeDirectory) }
+      let deployment = try LocalUpdateDeployment(environment: environment)
+      let url = LocalUpdateDeployment.journalURL(environment)
+      let journal = try JSONDecoder().decode(LocalUpdateDeployment.Journal.self, from: Data(contentsOf: url))
+      let owned = deployment.environment.appDirectory
+      let target: URL
+      switch invalid {
+      case "outside": target = environment.homeDirectory.appendingPathComponent(".shepherd-update-other")
+      case "prefix": target = owned.deletingLastPathComponent().appendingPathComponent("unrelated")
+      default: target = owned
+      }
+      if target == owned { try FileManager.default.moveItem(at: owned, to: owned.appendingPathExtension("saved")) }
+      if invalid == "symlink" {
+        try FileManager.default.createSymbolicLink(at: target, withDestinationURL: environment.appDirectory)
+      } else {
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+      }
+      let invalidJournal = LocalUpdateDeployment.Journal(live: journal.live, staged: target.path,
+        phase: journal.phase, originalIdentity: journal.originalIdentity, stagedIdentity: journal.stagedIdentity)
+      try JSONEncoder().encode(invalidJournal).write(to: url, options: .atomic)
+      #expect(throws: (any Error).self) { try LocalUpdateDeployment.recover(environment: environment) }
+      #expect(FileManager.default.fileExists(atPath: target.path))
+      #expect(FileManager.default.fileExists(atPath: url.path))
+      #expect(FileManager.default.fileExists(atPath: environment.appDirectory.path))
+    }
+  }
+
 }
 #endif

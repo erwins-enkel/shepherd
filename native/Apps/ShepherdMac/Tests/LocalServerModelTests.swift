@@ -562,6 +562,71 @@ extension MacSeamTests {
         await model.stop()
     }
 
+    @Test func launchRecoveryPrecedesServerStartupAndFailureBlocksIt() async throws {
+        for invalid in [false, true] {
+            let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+            let environment = try checkout(in: home)
+            let code = environment.appDirectory.appendingPathComponent("code")
+            try "previous".write(to: code, atomically: true, encoding: .utf8)
+            var interrupted = try LocalUpdateDeployment(environment: environment)
+            try "replacement".write(to: interrupted.environment.appDirectory.appendingPathComponent("code"),
+                atomically: true, encoding: .utf8)
+            try interrupted.promote()
+            if invalid {
+                try FileManager.default.removeItem(at: interrupted.environment.appDirectory)
+            }
+            let launch = try fakeScript(in: home, emitPasswordOnce: false)
+            let versions = Mutex<[String]>([])
+            let model = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+                probeExternal: { false }, health: { true }, launch: {
+                    versions.withLock { $0.append((try? String(contentsOf: code, encoding: .utf8)) ?? "missing") }
+                    return launch
+                })
+            await model.start()
+            #expect(versions.withLock { $0 } == (invalid ? [] : ["previous"]))
+            #expect(model.state.isRunning == !invalid)
+            if invalid {
+                #expect(model.state == .failed(.updateFailed(exitCode: 1)))
+                #expect(!model.canStart && !model.canInstall && !model.canManageUpdates)
+            }
+            await model.stop()
+        }
+    }
+
+    @Test func quitDuringReadinessSynchronouslyRestoresPreviousDeployment() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        let code = environment.appDirectory.appendingPathComponent("code")
+        try "previous".write(to: code, atomically: true, encoding: .utf8)
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let launches = Mutex(0)
+        let gate = LocalServerGate()
+        let model = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+            probeExternal: { false }, health: {
+                if launches.withLock({ $0 }) == 2 { await gate.wait() }
+                return true
+            }, launch: { launches.withLock { $0 += 1 }; return launch },
+            updater: { staged, _ in
+                try! "replacement".write(to: staged.appDirectory.appendingPathComponent("code"), atomically: true, encoding: .utf8)
+                return .success(())
+            })
+        await model.start()
+        let task = Task { await model.applyUpdate() }
+        #expect(await waitForGate(gate))
+        #expect(try String(contentsOf: code, encoding: .utf8) == "replacement")
+        model.cancelUpdateForQuit()
+        // No await: the previous deployment must already be live at return.
+        #expect(try String(contentsOf: code, encoding: .utf8) == "previous")
+        task.cancel()
+        await gate.open()
+        await task.value
+        #expect(!model.state.isRunning)
+        #expect(model.updateFailure == .updateFailed(exitCode: 130))
+        #expect(launches.withLock { $0 } == 2)
+        #expect(try String(contentsOf: code, encoding: .utf8) == "previous")
+        await model.stop()
+    }
+
     @Test func failedReplacementReadinessRollsBackAndRestartsThePreviousDeployment() async throws {
         let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
         let environment = try checkout(in: home)

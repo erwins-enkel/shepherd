@@ -12541,6 +12541,12 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"lifecycleInvalidationReleasesTheAutomaticCheckThrottle() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"overlappingPanelRefreshRetainsTheSharedFetchResultAndThrottle() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"remoteProfileCancelsAutomaticFetchAndAllowsRetryOnReturnToLocal() async throws\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"remoteProfileSkipsMonitorTicksAndWakeChecks() async throws\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"remoteProfileSkipsMonitorTicksAndWakeChecks() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"launchRecoveryCleansCopyingBuildingAndConfirmedJournals() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"launchRecoveryHandlesSwapIntentAndAlreadyRolledBackPromotion() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"launchRecoveryRejectsUnownedPathsSymlinksAndReplacedDirectories() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"launchRecoveryRestoresUnconfirmedPromotionAndOnlyDeletesItsOwnedSibling() throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"launchRecoveryPrecedesServerStartupAndFailureBlocksIt() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quitDuringReadinessSynchronouslyRestoresPreviousDeployment() async throws\"]"
   ]
 }

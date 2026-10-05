@@ -4563,8 +4563,10 @@
       "destinations": [
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeKeymapCoreTests.swift\",\"CoreSeamTests.ComposeKeymapTests\",\"readinessPrecedenceAndExclusiveAdvisories()\"]"
       ],
-      "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained; extended for the upload_failed blocker.",
+      "assertionChanges": [
+        "current-module: Add the upload_failed blocker (ranked after uploading) to the precedence walk plus canQueue/blockerAfterUpload assertions; preserve all previous blocker, canSubmit and advisory assertions."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeKeymapTests.swift\",\"ComposeKeymapTests\",\"registryMatchesWebAndHasNoDuplicateChords()\"]",
@@ -4805,8 +4807,10 @@
       "destinations": [
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"failedUploadKeepsItsRowBlocksSubmitAndRetriesInline() async throws\"]"
       ],
-      "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained; failed-upload blocker renamed.",
+      "assertionChanges": [
+        "current-module: A failed upload now reports the upload_failed blocker (with its copy and failed status line) instead of uploading, since nothing is in flight; it still blocks createRequest and retries inline, and every other assertion is preserved."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeModelTests.swift\",\"ComposeModelTests\",\"guardExplanationUsesTheExistingPerModeCopy()\"]",
@@ -12447,6 +12451,12 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"bunFailuresOfferUpgradeAndStartInsteadOfInstall()\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"bunUpgradeControlsStayVisibleAndDisabledWhileUpgrading()\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/BunUpgradeRunTests.swift\",\"BunUpgradeRunTests\",\"probeReadsTheVersionAndRejectsUnreadableOutput() async throws\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ShepherdErrorCopyTests.swift\",\"CoreSeamTests.ShepherdErrorCopyTests\",\"missingTranscriptUsesLocalizedCopy()\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ShepherdErrorCopyTests.swift\",\"CoreSeamTests.ShepherdErrorCopyTests\",\"missingTranscriptUsesLocalizedCopy()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"statusCountsFilesPercentAndEstimatesFromTheBatchRate() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"remainingTimeReadsLikeTheWebFooter()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"photoImportReadsAsPreparingAndCountsAsInFlight() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"settledWaitsForTheDrainAnImportOrTeardown() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"keepAliveSpansEachDrainExactlyOnce() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"retryFailedRequeuesEveryFailedRow() async throws\"]"
   ]
 }

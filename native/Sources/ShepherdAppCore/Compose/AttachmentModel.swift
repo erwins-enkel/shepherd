@@ -25,23 +25,33 @@ public final class AttachmentModel {
     }
 
     typealias Progress = @Sendable (Int) async -> Void
+    /// Begins platform keep-alive work (e.g. an iOS background task) and returns its release.
+    public typealias KeepAlive = @MainActor () -> @MainActor () -> Void
     nonisolated static let maximumFileBytes = 250 * 1024 * 1024
     enum FileError: Error { case tooLarge }
 
     private var batchIDs: Set<UUID> = []
     private var sentBytes: [UUID: Int] = [:]
     private var transferID: UUID?
+    private var batchStartedAt = Date.distantPast
     public private(set) var rows: [Row] = []
     private(set) var pendingImports = 0
     private(set) var uploading = false
     public var importError: String?
+    /// Held for exactly one drain, so a brief app switch does not cut the transfer.
+    @ObservationIgnored public var keepAlive: KeepAlive?
+    @ObservationIgnored private var releaseKeepAlive: (@MainActor () -> Void)?
+    @ObservationIgnored private var settleWaiters: [CheckedContinuation<Void, Never>] = []
     @ObservationIgnored private let upload: (Data, String, @escaping Progress) async throws -> String
+    @ObservationIgnored private let clock: () -> Date
     @ObservationIgnored private var worker: Task<Void, Never>?
     private var generation = 0
     private var stopped = false
 
-    init(uploadWithProgress: @escaping (Data, String, @escaping Progress) async throws -> String) {
+    init(uploadWithProgress: @escaping (Data, String, @escaping Progress) async throws -> String,
+         clock: @escaping () -> Date = { Date() }) {
         upload = uploadWithProgress
+        self.clock = clock
     }
 
     convenience init(upload: @escaping (Data, String) async throws -> String) {
@@ -62,6 +72,47 @@ public final class AttachmentModel {
     }
 
     public var hasOutstandingUploads: Bool { uploading || pendingImports > 0 || rows.contains { $0.state != .uploaded } }
+
+    /// Outstanding work that will still settle on its own; a failed row waits for the operator instead.
+    public var inFlight: Bool { uploading || pendingImports > 0 || rows.contains(where: Self.isActive) }
+
+    public var hasFailedUploads: Bool { rows.contains { $0.state == .failed } }
+
+    private static func isActive(_ row: Row) -> Bool { row.state == .queued || row.state == .uploading }
+
+    /// Nil when nothing is pending; otherwise what the footer should say right now.
+    public var status: UploadStatus? {
+        guard uploading || rows.contains(where: Self.isActive) else {
+            if pendingImports > 0 { return .init(phase: .preparing) }
+            return hasFailedUploads ? .init(phase: .failed) : nil
+        }
+        let batch = rows.filter { batchIDs.contains($0.id) }
+        guard !batch.isEmpty else { return nil }
+        let done = batch.filter { $0.state == .uploaded }.count
+        let active = batch.contains { $0.state == .uploading } ? 1 : 0
+        let total = batch.reduce(0) { $0 + $1.byteCount }
+        let sent = batch.reduce(0) { $0 + min($1.byteCount, sentBytes[$1.id] ?? 0) }
+        var status = UploadStatus(phase: total > 0 && sent >= total ? .finishing : .transferring,
+                                  current: min(batch.count, done + active), total: batch.count, percent: progressPercent)
+        let elapsed = clock().timeIntervalSince(batchStartedAt)
+        if status.phase == .transferring, sent > 0, elapsed >= 1 {
+            status.remainingSeconds = Int((Double(total - sent) / (Double(sent) / elapsed)).rounded(.up))
+        }
+        return status
+    }
+
+    /// Returns once nothing is in flight, or once the queue is torn down.
+    public func settled() async {
+        guard !stopped, inFlight else { return }
+        await withCheckedContinuation { settleWaiters.append($0) }
+    }
+
+    private func resumeSettledWaitersIfIdle() {
+        guard stopped || !inFlight else { return }
+        let waiters = settleWaiters
+        settleWaiters = []
+        waiters.forEach { $0.resume() }
+    }
 
     /// Only the current batch contributes; transport callbacks include active-file bytes.
     public var progressPercent: Int {
@@ -103,7 +154,7 @@ public final class AttachmentModel {
 
     public func addFiles(_ files: [File]) {
         guard !stopped else { return }
-        if worker == nil { batchIDs = []; sentBytes = [:] }
+        if worker == nil { batchIDs = []; sentBytes = [:]; batchStartedAt = clock() }
         for file in files {
             var row = Row(file: file)
             switch file.source {
@@ -121,12 +172,16 @@ public final class AttachmentModel {
 
     public func retry(_ id: UUID) {
         guard !stopped, let index = rows.firstIndex(where: { $0.id == id && $0.state == .failed }) else { return }
-        if worker == nil { batchIDs = []; sentBytes = [:] }
+        if worker == nil { batchIDs = []; sentBytes = [:]; batchStartedAt = clock() }
         batchIDs.insert(id)
         sentBytes[id] = 0
         rows[index].error = nil
         rows[index].state = .queued
         startWorker()
+    }
+
+    public func retryFailed() {
+        for row in rows where row.state == .failed { retry(row.id) }
     }
 
     public func remove(_ id: UUID) {
@@ -145,17 +200,30 @@ public final class AttachmentModel {
         pendingImports -= 1
         importError = error
         if let file { addFiles([file]) }
+        resumeSettledWaitersIfIdle()
     }
 
     private func startWorker() {
         guard worker == nil, !stopped else { return }
         let mine = generation
         uploading = true
+        releaseKeepAlive = keepAlive?()
         worker = Task { [weak self] in await self?.drain(generation: mine) }
     }
 
+    private func endKeepAlive() {
+        releaseKeepAlive?()
+        releaseKeepAlive = nil
+    }
+
     private func drain(generation mine: Int) async {
-        defer { if mine == generation { worker = nil; uploading = false } }
+        defer {
+            if mine == generation {
+                worker = nil; uploading = false
+                endKeepAlive()
+                resumeSettledWaitersIfIdle()
+            }
+        }
         while !stopped, mine == generation, let row = rows.first(where: { $0.state == .queued }) {
             let transfer = UUID()
             transferID = transfer
@@ -214,5 +282,7 @@ public final class AttachmentModel {
         rows = []
         pendingImports = 0
         importError = nil
+        endKeepAlive()
+        resumeSettledWaitersIfIdle()
     }
 }

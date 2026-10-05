@@ -522,10 +522,14 @@
 "native_banner_offline" = "%1$@ nicht erreichbar. Neuer Versuch läuft.";
 "native_banner_unhealthy" = "%1$@ antwortet, meldet aber ein Problem. Neuer Versuch.";
 "native_compose_attach" = "Anhang hinzufügen";
+"native_compose_autostart_aborted" = "Automatischer Start abgebrochen: Ein Upload ist fehlgeschlagen.";
+"native_compose_autostart_armed_button" = "Startet danach";
+"native_compose_autostart_cancel" = "Automatischen Start abbrechen";
 "native_compose_dictation_deferred" = "Diktieren ist im nativen Aufgabenfenster noch nicht verfügbar.";
 "native_compose_engine_claude" = "Claude";
 "native_compose_files" = "Dateien";
 "native_compose_issue_choose" = "# Issue wählen";
+"native_compose_keep_app_open" = "Kurz die App wechseln geht – App nicht schließen.";
 "native_compose_leftovers_kept" = "Beim Schließen der Sitzung laufen diese Hintergrundprozesse weiter.";
 "native_compose_mode_plain" = "Plain";
 "native_compose_paste" = "Bild einfügen";
@@ -542,6 +546,9 @@
 "native_compose_start" = "Starten";
 "native_compose_steer_down" = "Steer nach unten verschieben";
 "native_compose_steer_up" = "Steer nach oben verschieben";
+"native_compose_upload_autostart_armed" = "Startet automatisch, sobald der Upload fertig ist.";
+"native_compose_upload_autostart_hint" = "STARTEN tippen: Die Sitzung startet automatisch, sobald der Upload fertig ist.";
+"native_compose_upload_preparing" = "Anhang wird vorbereitet…";
 "native_compose_voice_allow" = "Erlauben";
 "native_compose_voice_apple_disclosure" = "Spracherkennung auf dem Gerät ist für diese Sprache nicht verfügbar. Darf Apple Audio für die Live-Vorschau und die Ersatztranskription verarbeiten?";
 "native_compose_voice_cancel_swipe" = "Zum Abbrechen wischen";
@@ -1115,6 +1122,7 @@
 "newtask_readiness_no_repo" = "Repository wählen";
 "newtask_readiness_ready" = "bereit";
 "newtask_readiness_repairing" = "Basis-Branch wird repariert…";
+"newtask_readiness_upload_failed" = "Upload fehlgeschlagen – erneut versuchen oder Anhang entfernen";
 "newtask_remove_image_aria" = "Anhang entfernen";
 "newtask_repo_label" = "Repo";
 "newtask_research_sandbox_note" = "Recherche-Aufgaben können das autonome Profil nicht verwenden — Websuche benötigt offenen Netzwerkzugang.";
@@ -1147,8 +1155,13 @@
 "newtask_title" = "Neue Aufgabe";
 "newtask_toggle_off" = "AUS";
 "newtask_toggle_on" = "AN";
+"newtask_upload_eta" = "Noch %1$@";
+"newtask_upload_eta_calculating" = "Restzeit wird berechnet…";
 "newtask_upload_failed" = "Anhang-Upload fehlgeschlagen: %1$@. Anhängen erneut versuchen.";
+"newtask_upload_file_count" = "Datei %1$@ von %2$@";
+"newtask_upload_finishing" = "Upload wird abgeschlossen…";
 "newtask_upload_percent" = "%1$@ %%";
+"newtask_upload_progress_aria" = "Fortschritt des Anhang-Uploads";
 "newtask_upload_unknown_reason" = "unbekannter Fehler";
 "newtask_uploading" = "Lädt hoch…";
 "newtask_upstream_behind" = "%1$@ hinter origin — Aufgabe startet vom neuesten Stand";

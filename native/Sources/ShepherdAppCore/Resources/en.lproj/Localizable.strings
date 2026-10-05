@@ -522,10 +522,14 @@
 "native_banner_offline" = "Cannot reach %1$@. Retrying.";
 "native_banner_unhealthy" = "%1$@ answered but reports a problem. Retrying.";
 "native_compose_attach" = "Add attachment";
+"native_compose_autostart_aborted" = "Automatic start cancelled: an upload failed.";
+"native_compose_autostart_armed_button" = "Starts after upload";
+"native_compose_autostart_cancel" = "Cancel automatic start";
 "native_compose_dictation_deferred" = "Dictation is not available in the native composer yet.";
 "native_compose_engine_claude" = "Claude";
 "native_compose_files" = "Files";
 "native_compose_issue_choose" = "# Choose issue";
+"native_compose_keep_app_open" = "Switching apps briefly is fine — don't close the app.";
 "native_compose_leftovers_kept" = "Closing the session leaves these background processes running.";
 "native_compose_mode_plain" = "Plain";
 "native_compose_paste" = "Paste image";
@@ -542,6 +546,9 @@
 "native_compose_start" = "Start";
 "native_compose_steer_down" = "Move steer down";
 "native_compose_steer_up" = "Move steer up";
+"native_compose_upload_autostart_armed" = "Starts automatically once the upload finishes.";
+"native_compose_upload_autostart_hint" = "Tap START: the session starts automatically once the upload finishes.";
+"native_compose_upload_preparing" = "Preparing attachment…";
 "native_compose_voice_allow" = "Allow";
 "native_compose_voice_apple_disclosure" = "On-device speech is unavailable for this language. Allow Apple to process audio for live preview and fallback transcription?";
 "native_compose_voice_cancel_swipe" = "Slide to cancel";
@@ -1115,6 +1122,7 @@
 "newtask_readiness_no_repo" = "pick a repository to start";
 "newtask_readiness_ready" = "ready";
 "newtask_readiness_repairing" = "repairing base branch…";
+"newtask_readiness_upload_failed" = "upload failed — retry or remove the attachment";
 "newtask_remove_image_aria" = "remove attachment";
 "newtask_repo_label" = "Repo";
 "newtask_research_sandbox_note" = "Research can't use the autonomous profile — web search needs open network access.";
@@ -1147,8 +1155,13 @@
 "newtask_title" = "New Task";
 "newtask_toggle_off" = "OFF";
 "newtask_toggle_on" = "ON";
+"newtask_upload_eta" = "%1$@ remaining";
+"newtask_upload_eta_calculating" = "Estimating time remaining…";
 "newtask_upload_failed" = "Attachment upload failed: %1$@. Retry the attach.";
+"newtask_upload_file_count" = "File %1$@ of %2$@";
+"newtask_upload_finishing" = "Finishing upload…";
 "newtask_upload_percent" = "%1$@%%";
+"newtask_upload_progress_aria" = "Attachment upload progress";
 "newtask_upload_unknown_reason" = "unknown error";
 "newtask_uploading" = "Uploading…";
 "newtask_upstream_behind" = "%1$@ behind origin — task will start from latest";

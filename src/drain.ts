@@ -1,6 +1,6 @@
 import type { CapacityCheck } from "./codex-capacity";
 import type { RepoConfig, SessionStore } from "./store";
-import type { GitForge, GitState, Issue, PrStatus, SubIssueRef } from "./forge/types";
+import type { EpicStructure, GitForge, GitState, Issue, PrStatus } from "./forge/types";
 import type { CreateSessionInput, Session, SessionArchiveReason } from "./types";
 import type { SessionStateChange } from "./session-snapshot";
 import type { UsageLimits } from "./usage-limits";
@@ -72,15 +72,10 @@ import {
   MergePendingError,
   type StackInfo,
 } from "./forge/types";
-import { mapBounded } from "./map-bounded";
+import { readEpicStructureByParts } from "./forge/epic-structure";
 import { config } from "./config";
 import { rebaseLandingBranch, isUnionDriverRegistered } from "./landing-rebase";
 import type { NotifyInput } from "./push";
-
-/** Concurrency cap for the per-child blocked_by fan-out when assembling an epic.
- *  Bounds `gh api` subprocesses so a large (100+-child) epic can't exhaust FDs or
- *  trip GitHub secondary rate limits. */
-const EPIC_BLOCKED_BY_CONCURRENCY = 8;
 
 /** #645 (c): re-scan the host for stray `epic/*` branches at most this often per epic. The
  *  scan is an advisory divergence warning, not gating — a 5-minute staleness is harmless and
@@ -216,13 +211,6 @@ import { epicBaseDirective, epicStackedBaseDirective } from "./autopilot";
  *  clone from silently retrying forever while giving transient registration glitches a few chances
  *  to self-heal before surfacing. */
 const DRIVER_MISS_CAP = 3;
-
-/** Cached epic structure for one pump cycle. */
-interface EpicStructure {
-  parent: Issue | null;
-  subIssues: SubIssueRef[];
-  blockedBy: Map<number, number[]>;
-}
 
 /** Live per-repo drain status pushed to the client (and used for bootstrap). */
 export interface DrainStatus {
@@ -544,25 +532,18 @@ export class DrainService {
     return this.clampCodexModel(model, provider);
   }
 
-  /** Fetch and cache the epic's structure (parent issue + sub-issues + blocked-by maps). */
+  /** Fetch and cache the epic's structure (parent issue + sub-issues + blocked-by maps). A forge
+   *  with `getEpicStructure` reads it in one query from its own longer-lived cache (#2807); this
+   *  short cache only spares repeat calls within a pump. */
   private async epicStructure(repoPath: string, run: EpicRun): Promise<EpicStructure | null> {
     const key = `${repoPath}:${run.parentIssueNumber}`;
     const cached = this.epicStructureCache.get(key);
     if (cached && this.now() - cached.ts < this.issuesTtlMs) return cached.reads;
     const forge = this.deps.resolveForge(repoPath);
     if (!forge) return null;
-    const parent = (await forge.getIssue?.(run.parentIssueNumber)) ?? null;
-    const subIssues = (await forge.listSubIssues?.(run.parentIssueNumber)) ?? [];
-    // Each child's blocked_by is independent — fetch concurrently (once per epic per TTL
-    // window, not per pump) but BOUNDED: a 100+-child epic must not spawn 100 `gh api`
-    // subprocesses at once (FD/process pressure + GitHub secondary rate limits).
-    const blockedByEntries = await mapBounded(
-      subIssues,
-      EPIC_BLOCKED_BY_CONCURRENCY,
-      async (s) => [s.number, (await forge.listBlockedBy?.(s.number)) ?? []] as const,
-    );
-    const blockedBy = new Map<number, number[]>(blockedByEntries);
-    const reads: EpicStructure = { parent, subIssues, blockedBy };
+    const reads = forge.getEpicStructure
+      ? await forge.getEpicStructure(run.parentIssueNumber)
+      : await readEpicStructureByParts(forge, run.parentIssueNumber);
     this.epicStructureCache.set(key, { reads, ts: this.now() });
     return reads;
   }

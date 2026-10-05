@@ -1182,6 +1182,8 @@ function completedHarness(opts?: {
   drainOverrides?: Partial<NonNullable<AppDeps["drain"]>>;
   drain?: AppDeps["drain"] | null;
   resolveForge?: AppDeps["resolveForge"];
+  fingerprint?: AppDeps["fingerprint"];
+  openPrSnapshot?: AppDeps["openPrSnapshot"];
 }): {
   app: ReturnType<typeof makeApp>;
   store: SessionStore;
@@ -1214,6 +1216,8 @@ function completedHarness(opts?: {
     usageLimits: { limits: () => ({}) } as any,
     drain,
     resolveForge: opts?.resolveForge,
+    fingerprint: opts?.fingerprint,
+    openPrSnapshot: opts?.openPrSnapshot,
   };
   return { app: makeApp(deps), store, cleared };
 }
@@ -1570,6 +1574,153 @@ describe("GET /api/epics/completed", () => {
     expect(res.status).toBe(200);
     // open set empty → #5 confidently closed → auto-dismissed even without drain
     expect(await res.json()).toEqual([]);
+  });
+});
+
+// #2756: a repo the fingerprint covers is reconciled when its issues change, so the GET (which
+// every visible tab polls) never lists its issues, and the landing PR read is shared.
+describe("GET /api/epics/completed — fingerprint-covered repos", () => {
+  const covered: AppDeps["fingerprint"] = {
+    ensureFresh: async () => {},
+    coversRepo: () => true,
+  };
+
+  function openLanding(store: SessionStore, parent = 42): void {
+    store.recordEpicCompleted({
+      repoPath: repoDir,
+      parentIssueNumber: parent,
+      parentTitle: "Landing",
+      completedAt: Date.now(),
+      childrenJson: "[]",
+    });
+    store.getOrInitEpicIntegrationBranch(repoDir, parent, `epic/${parent}-landing`);
+    store.setEpicLandingPr(repoDir, parent, {
+      state: "open",
+      prNumber: 7,
+      prUrl: "https://x/pull/7",
+      attempts: 0,
+    });
+  }
+
+  function countingForge() {
+    const calls = { listIssues: 0, prStatus: 0 };
+    const forge = {
+      kind: "github",
+      slug: "o/r",
+      listIssues: async () => {
+        calls.listIssues++;
+        return [];
+      },
+      prStatus: async () => {
+        calls.prStatus++;
+        return {
+          state: "open",
+          checks: "success",
+          mergeable: true,
+          mergeStateStatus: "clean",
+          deployConfigured: false,
+        };
+      },
+    };
+    return { forge, calls };
+  }
+
+  test("no issue list: a closed-looking parent is left for the fingerprint's reconcile", async () => {
+    const { forge, calls } = countingForge();
+    const { app, store, cleared } = completedHarness({
+      resolveForge: () => forge as any,
+      fingerprint: covered,
+    });
+    store.recordEpicCompleted({
+      repoPath: repoDir,
+      parentIssueNumber: 5,
+      parentTitle: "Done",
+      completedAt: 1,
+      childrenJson: "[]",
+    });
+    for (let i = 0; i < 3; i++) {
+      const res = await app.fetch(new Request(`http://x/api/epics/completed`));
+      expect(res.status).toBe(200);
+      expect(await res.json()).toHaveLength(1);
+    }
+    expect(calls.listIssues).toBe(0);
+    expect(cleared).toEqual([]);
+  });
+
+  test("an uncovered repo still reconciles on the GET", async () => {
+    const { forge, calls } = countingForge();
+    const { app, store, cleared } = completedHarness({
+      resolveForge: () => forge as any,
+      fingerprint: { ensureFresh: async () => {}, coversRepo: () => false },
+    });
+    store.recordEpicCompleted({
+      repoPath: repoDir,
+      parentIssueNumber: 5,
+      parentTitle: "Done",
+      completedAt: 1,
+      childrenJson: "[]",
+    });
+    const res = await app.fetch(new Request(`http://x/api/epics/completed`));
+    expect(await res.json()).toEqual([]);
+    expect(calls.listIssues).toBe(1);
+    expect(cleared).toHaveLength(1);
+  });
+
+  test("the landing PR is read once per minute however many requests arrive", async () => {
+    const { forge, calls } = countingForge();
+    const { app, store } = completedHarness({
+      resolveForge: () => forge as any,
+      fingerprint: covered,
+    });
+    openLanding(store);
+    const bodies = await Promise.all(
+      [1, 2, 3].map(async () =>
+        (await app.fetch(new Request(`http://x/api/epics/completed`))).json(),
+      ),
+    );
+    const again = await (await app.fetch(new Request(`http://x/api/epics/completed`))).json();
+    expect(calls.prStatus).toBe(1);
+    for (const body of [...bodies, again]) {
+      expect(body[0].landingChecks).toBe("success");
+      expect(body[0].landingReady).toBe(true);
+    }
+  });
+
+  test("a fresh open-PR snapshot entry answers without any prStatus call", async () => {
+    const { forge, calls } = countingForge();
+    const maxAges: Array<number | undefined> = [];
+    const { app, store } = completedHarness({
+      resolveForge: () => forge as any,
+      fingerprint: covered,
+      openPrSnapshot: {
+        get: async () => null,
+        peek: (_f, maxAgeMs) => {
+          maxAges.push(maxAgeMs);
+          return {
+            prs: [],
+            statuses: new Map([
+              [
+                "epic/42-landing",
+                {
+                  state: "open",
+                  checks: "pending",
+                  mergeable: true,
+                  mergeStateStatus: "unstable",
+                  deployConfigured: false,
+                },
+              ],
+            ]),
+            capped: false,
+            source: "graphql",
+          };
+        },
+      },
+    });
+    openLanding(store);
+    const body = await (await app.fetch(new Request(`http://x/api/epics/completed`))).json();
+    expect(calls.prStatus).toBe(0);
+    expect(body[0].landingChecks).toBe("pending");
+    expect(maxAges[0]).toBeGreaterThan(0);
   });
 });
 

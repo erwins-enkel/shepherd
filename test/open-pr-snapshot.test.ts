@@ -269,6 +269,19 @@ test("peek: returns cached value without fetching", async () => {
   expect(forge.calls).toBe(1); // peek triggered no extra fetch
 });
 
+test("peek with maxAgeMs: an entry older than the bound reads as null, never fetching", async () => {
+  let now = 0;
+  const svc = new OpenPrSnapshotService(() => now);
+  const forge = makeForge();
+  await svc.get(forge);
+  now = 60_000;
+  expect(svc.peek(forge, 60_000)).not.toBeNull();
+  now = 60_001;
+  expect(svc.peek(forge, 60_000)).toBeNull();
+  expect(svc.peek(forge)).not.toBeNull(); // unbounded peek still serves it
+  expect(forge.calls).toBe(1);
+});
+
 test("peek: returns null before anything is cached", async () => {
   const svc = new OpenPrSnapshotService();
   const forge = makeForge();

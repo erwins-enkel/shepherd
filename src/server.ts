@@ -239,17 +239,20 @@ import {
 } from "./agent-control";
 import {
   anyLiveRepairSession,
-  buildRollup,
   computeLandingReady,
   enrichLandingEpics,
   type CompletedEpic,
 } from "./completed-epic";
+import {
+  completedEpicScopeRepos,
+  reconcileCompletedEpicsForRepo,
+} from "./completed-epics-reconcile";
 import { repoHasNoCiCached } from "./checks-gate";
 import { parseEpicBody } from "./epic-parse";
 import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./backlog";
 import { peekIssue } from "./issue-peek";
 import { createIssueWithLabels, issueForgeGap } from "./issue-create";
-import type { OpenPrSnapshotService } from "./open-pr-snapshot";
+import { SNAPSHOT_TTL_MS, type OpenPrSnapshotService } from "./open-pr-snapshot";
 import { join, normalize, basename } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
@@ -566,10 +569,15 @@ export interface AppDeps {
   readRoles?: (repoPath: string) => RepoRoles;
   /** Shared per-repo open-PR snapshot cache (read by the PRs tab; warmed by the pr-poller).
    *  `invalidate` is evicted after an interactive merge so the panel's refetch misses the
-   *  stale snapshot. It is optional so `get`-only test stubs keep compiling.
+   *  stale snapshot; `peek` serves the completed-epics landing state without a fetch. Both are
+   *  optional so `get`-only test stubs keep compiling.
    *  Absent in tests that don't exercise it — the PRs route then fetches fresh. */
   openPrSnapshot?: Pick<OpenPrSnapshotService, "get"> &
-    Partial<Pick<OpenPrSnapshotService, "invalidate">>;
+    Partial<Pick<OpenPrSnapshotService, "invalidate" | "peek">>;
+  /** Repo fingerprint (#2756). `ensureFresh` runs before an operator view reads a repo's issues;
+   *  `coversRepo` says the repo's issue changes are observed (so the completed-epics GET leaves
+   *  its reconcile to the fingerprint). Absent in tests that don't exercise it. */
+  fingerprint?: { ensureFresh(): Promise<void>; coversRepo(repoDir: string): boolean };
   /** Force-refresh one repo's backlog counts (bypassing the read-TTL) and push the
    *  rebuilt overview to every client. Fired after a mutation that changes a repo's
    *  open issue/PR counts (e.g. a merge) so the counters + headline drop the item
@@ -8561,32 +8569,13 @@ async function handleEpicImport({ req, parts, url, deps }: Ctx): Promise<Respons
   return json(result);
 }
 
-// Short-TTL per-repo cache around forge.listIssues(), shared by the completed-epics
-// band reconcile. Coalesces the concurrent band fetches a UI poll can fan out into one
-// forge round-trip per repo. The /api/epics route still calls listIssues() uncached, so
-// this is the same network cost — just deduplicated within the TTL window.
+// Short TTL for the per-repo open-PR→{prNumber,author} map below.
 const COMPLETED_EPICS_LIST_TTL_MS = 10_000;
-const completedEpicsIssueCache = new Map<
-  string,
-  { issues: Awaited<ReturnType<GitForge["listIssues"]>>; ts: number }
->();
-
-async function cachedListIssues(
-  repo: string,
-  forge: GitForge,
-): Promise<Awaited<ReturnType<GitForge["listIssues"]>>> {
-  const hit = completedEpicsIssueCache.get(repo);
-  const now = Date.now();
-  if (hit && now - hit.ts < COMPLETED_EPICS_LIST_TTL_MS) return hit.issues;
-  const issues = await forge.listIssues();
-  completedEpicsIssueCache.set(repo, { issues, ts: now });
-  return issues;
-}
 
 // Short-TTL per-repo cache for the open-PR→{prNumber,author} map that feeds the epic-summary
 // "in progress" pill. Unlike Up Next's 15-min amortized cycle, /api/epics is uncached and
 // recomputed on every overview/backlog poll, so without this the extra GraphQL call would land
-// on each poll; the TTL mirrors COMPLETED_EPICS_LIST_TTL_MS. Best-effort — a forge without the
+// on each poll; the TTL is COMPLETED_EPICS_LIST_TTL_MS. Best-effort — a forge without the
 // method (Gitea/Local) or a failure caches an empty map and the pill degrades to the
 // assignee/author signals.
 const epicLinkedPrCache = new Map<string, { linked: Map<number, LinkedPr[]>; ts: number }>();
@@ -8600,114 +8589,34 @@ async function cachedLinkedPrs(repo: string, forge: GitForge): Promise<Map<numbe
   return linked;
 }
 
-// Auto-dismiss: a completed epic whose parent is confidently closed (absent from a complete
-// open set) gets cleared + emitted. openTruncated → can't be confident, so this is a no-op.
-function autoDismissClosed(
-  deps: AppDeps,
-  repo: string,
-  openNumbers: Set<number>,
-  openTruncated: boolean,
-): void {
-  if (openTruncated) return;
-  for (const row of deps.store.listEpicCompleted(repo)) {
-    if (!openNumbers.has(row.parentIssueNumber)) {
-      deps.store.dismissEpicCompleted(repo, row.parentIssueNumber);
-      deps.events?.emit("epic:completed-cleared", {
-        repoPath: repo,
-        parentIssueNumber: row.parentIssueNumber,
-      });
-    }
-  }
+// GET /api/epics/completed re-reads each open landing PR's state for the "Land epic" CTA, and
+// every visible tab polls that route every 60 s — so the read must not scale with tabs (#2756).
+// Prefer the open-PR snapshot the pr-poller keeps warm; otherwise share one prStatus per
+// repo+branch per minute (the cached promise is the single-flight; a failure is evicted).
+const LANDING_PR_TTL_MS = 60_000;
+const landingPrCache = new Map<string, { at: number; value: Promise<PrStatus> }>();
+
+function landingPrStatus(deps: AppDeps, repoPath: string, branch: string): Promise<PrStatus> {
+  const forge = deps.resolveForge?.(repoPath);
+  if (!forge) return Promise.reject(new Error(`no forge for ${repoPath}`));
+  const snap = deps.openPrSnapshot?.peek?.(forge, SNAPSHOT_TTL_MS)?.statuses.get(branch);
+  if (snap) return Promise.resolve(snap);
+  const key = `${repoPath}\0${branch}`;
+  const now = Date.now();
+  const hit = landingPrCache.get(key);
+  if (hit && now - hit.at < LANDING_PR_TTL_MS) return hit.value;
+  const value = forge.prStatus(branch);
+  landingPrCache.set(key, { at: now, value });
+  value.catch(() => {
+    if (landingPrCache.get(key)?.value === value) landingPrCache.delete(key);
+  });
+  return value;
 }
 
-// Backfill: an idle run whose all-merged epic never got recorded (e.g. completion happened
-// across a restart). Needs buildEpic — no-op when drain is absent. Records the completed epic
-// when all children are merged; otherwise logs a visible skip (never silently dropped).
-async function backfillIdleEpic(
-  deps: AppDeps,
-  repo: string,
-  openNumbers: Set<number>,
-  openTruncated: boolean,
-): Promise<void> {
-  if (!deps.drain) return;
-  const run = deps.store.getEpicRun(repo);
-  if (run?.status !== "idle") return;
-  // hasEpicCompleted ignores dismissedAt, so a dismissed-but-idle run counts as recorded
-  // and never re-fires buildEpic (a forge round-trip) on every GET.
-  if (deps.store.hasEpicCompleted(repo, run.parentIssueNumber)) return;
-  // Parent confidently still open? If we have a complete open set and the parent is absent,
-  // it's about to be auto-dismissed anyway — skip the flash of recording it.
-  if (!openTruncated && !openNumbers.has(run.parentIssueNumber)) return;
-
-  const epic = await deps.drain.buildEpic(repo, run);
-  if (!epic || epic.children.length === 0) return;
-  if (epic.children.every((c) => c.state === "merged")) {
-    const rollup = buildRollup(
-      epic.children,
-      deps.store.listEpicIntegratedDetails(repo, run.parentIssueNumber),
-    );
-    // completedAt: latest non-null child mergedAt, else now (not in the sync pump → Date.now OK).
-    const mergedAts = rollup.map((c) => c.mergedAt).filter((m): m is number => m !== null);
-    const completedAt = mergedAts.length > 0 ? Math.max(...mergedAts) : Date.now();
-    const completed: CompletedEpic = {
-      repoPath: repo,
-      parentIssueNumber: run.parentIssueNumber,
-      parentTitle: epic.parentTitle,
-      completedAt,
-      children: rollup,
-      // A backfilled completion (e.g. across a restart) is recorded as pending — its final
-      // state here; the autonomous drain tick (ensureLandingPrsForRepo) opens the landing PR.
-      landingPrNumber: null,
-      landingPrUrl: null,
-      landingState: "pending",
-      migrationPaths: [],
-      migrationsAckedAt: null,
-      landingRebasePauseReason: null,
-      landingRepairCount: 0,
-      landingRepairHead: null,
-      landingConflictReworkCount: 0,
-    };
-    deps.store.recordEpicCompleted({
-      repoPath: completed.repoPath,
-      parentIssueNumber: completed.parentIssueNumber,
-      parentTitle: completed.parentTitle,
-      completedAt: completed.completedAt,
-      childrenJson: JSON.stringify(rollup),
-    });
-  } else {
-    // Visible skip — never silently drop a backfill candidate.
-    const pending = epic.children.filter((c) => c.state !== "merged").map((c) => c.number);
-    console.warn(
-      `[server] completed-epics backfill skipped for ${repo}#${run.parentIssueNumber}: ` +
-        `children not all merged (pending: ${pending.join(", ")})`,
-    );
-  }
-}
-
-// Bounded, best-effort, fail-safe per-repo reconcile: resolve the forge (skip if none), fetch
-// the open set (forge throw → skip this repo, route still serves DB rows), then auto-dismiss
-// confidently-closed parents + backfill an all-merged idle run that never got recorded.
-async function reconcileCompletedEpicsForRepo(deps: AppDeps, repo: string): Promise<void> {
-  const forge = deps.resolveForge?.(repo);
-  if (!forge) return; // no forge → skip reconcile for this repo (its DB rows are still served)
-
-  let open: Awaited<ReturnType<GitForge["listIssues"]>>;
-  try {
-    open = await cachedListIssues(repo, forge);
-  } catch {
-    return; // forge/network error → skip this repo's reconcile (fail-safe)
-  }
-  const openNumbers = new Set(open.map((i) => i.number));
-  const openTruncated = open.length >= 200;
-
-  autoDismissClosed(deps, repo, openNumbers, openTruncated);
-  await backfillIdleEpic(deps, repo, openNumbers, openTruncated);
-}
-
-// GET /api/epics/completed[?repo=] — durable completed-epics band. Primarily pure-DB; also
-// runs a bounded, best-effort, fail-safe reconcile (auto-dismiss confidently-closed parents +
-// backfill an all-merged idle run that never got recorded). Always serves DB rows; never 500s
-// on forge/network failure and never 503s just because drain is absent.
+// GET /api/epics/completed[?repo=] — durable completed-epics band. Primarily pure-DB; for a repo
+// no fingerprint covers it also runs a bounded, best-effort, fail-safe reconcile (auto-dismiss
+// confidently-closed parents + backfill an all-merged idle run that never got recorded). Always
+// serves DB rows; never 500s on forge/network failure and never 503s just because drain is absent.
 async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (!(
     req.method === "GET" &&
@@ -8728,19 +8637,13 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
 
   // scopeRepos: ?repo → just that repo; else the union of repos with a DB completed-epic row
   // and repos with an idle epic_run (the backfill source). One entry per repo — bounded.
-  const scopeRepos: string[] = repoFilter
-    ? [repoFilter]
-    : [
-        ...new Set([
-          ...deps.store.listEpicCompleted().map((r) => r.repoPath),
-          ...deps.store
-            .listEpicRuns()
-            .filter((r) => r.status === "idle")
-            .map((r) => r.repoPath),
-        ]),
-      ];
+  const scopeRepos: string[] = repoFilter ? [repoFilter] : completedEpicScopeRepos(deps.store);
 
-  for (const repo of scopeRepos) await reconcileCompletedEpicsForRepo(deps, repo);
+  // A repo the fingerprint covers is reconciled when its issues change (#2756), so this GET
+  // never lists its issues; only uncovered repos (no fingerprint, e.g. Gitea) reconcile here.
+  for (const repo of scopeRepos) {
+    if (!deps.fingerprint?.coversRepo(repo)) await reconcileCompletedEpicsForRepo(deps, repo);
+  }
 
   // Re-query post-reconcile so the response reflects dismiss + backfill.
   const dbRows = deps.store.listEpicCompleted(repoFilter);
@@ -8773,6 +8676,7 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
     resolveForge: (repoPath) => deps.resolveForge?.(repoPath),
     hasLiveRepairSession: (repoPath, integrationBranch) =>
       anyLiveRepairSession(deps.store.list(), repoPath, integrationBranch, nowMs),
+    prStatus: (repoPath, branch) => landingPrStatus(deps, repoPath, branch),
     now: nowMs,
   });
 

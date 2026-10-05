@@ -494,7 +494,7 @@ describe("GithubForge.getEpicStructure", () => {
   });
 
   /** Answers the one-query read and the REST parts (parent, sub_issues, blocked_by per child). */
-  function epicRunner(graphql: () => string = () => EPIC_GQL) {
+  function epicRunner(graphql: () => string = () => EPIC_GQL, rest = { failBlockedBy: false }) {
     const calls: string[][] = [];
     const run: GhRunner = async (args) => {
       calls.push(args);
@@ -511,6 +511,7 @@ describe("GithubForge.getEpicStructure", () => {
         ]);
       }
       if (path.endsWith("/dependencies/blocked_by") && !args.includes("POST")) {
+        if (rest.failBlockedBy && path.includes("/102/")) throw new Error("gh: HTTP 502");
         return JSON.stringify(path.includes("/102/") ? [{ number: 101 }] : []);
       }
       return "";
@@ -631,6 +632,77 @@ describe("GithubForge.getEpicStructure", () => {
     } finally {
       unblockGraphql();
       setIssuesFreshness(null);
+    }
+  });
+
+  test("a REST fallback with a failed call keeps the last complete read and retries soon", async () => {
+    const rest = { failBlockedBy: false };
+    const { run, count } = epicRunner(undefined, rest);
+    const forge = new GithubForge("o/r", {} as never, run);
+    let gen = 1;
+    setIssuesFreshness(() => gen);
+    const t0 = Date.parse("2026-10-05T12:00:00Z");
+    setSystemTime(new Date(t0));
+    try {
+      await forge.getEpicStructure(100); // complete GraphQL read: #102 blocked by #101, #999
+      gen = 2;
+      graphRateLimit.noteLimitError(3_600);
+      rest.failBlockedBy = true;
+      // #102's blocked_by fails and would read as "unblocked" — the complete read stands instead.
+      const kept = await forge.getEpicStructure(100);
+      expect(kept.blockedBy.get(102)).toEqual([101, 999]);
+      expect(count.blockedByRest()).toBe(2);
+      setSystemTime(new Date(t0 + 29_000));
+      await forge.getEpicStructure(100);
+      expect(count.blockedByRest()).toBe(2);
+      rest.failBlockedBy = false;
+      setSystemTime(new Date(t0 + 30_000));
+      const retried = await forge.getEpicStructure(100);
+      expect(count.blockedByRest()).toBe(4);
+      expect(retried.blockedBy.get(102)).toEqual([101]);
+      setSystemTime(new Date(t0 + 10 * 60_000));
+      await forge.getEpicStructure(100); // complete again → held until the generation moves
+      expect(count.blockedByRest()).toBe(4);
+    } finally {
+      unblockGraphql();
+      setIssuesFreshness(null);
+      setSystemTime();
+    }
+  });
+
+  test("a partial REST read with nothing complete to fall back on is retried with backoff", async () => {
+    const { run, count } = epicRunner(undefined, { failBlockedBy: true });
+    const forge = new GithubForge("o/r", {} as never, run);
+    setIssuesFreshness(() => 1);
+    const t0 = Date.parse("2026-10-05T12:00:00Z");
+    setSystemTime(new Date(t0));
+    graphRateLimit.noteLimitError(3_600);
+    try {
+      const s = await forge.getEpicStructure(100);
+      expect(s.subIssues.map((c) => c.number)).toEqual([101, 102]);
+      setSystemTime(new Date(t0 + 29_000));
+      await forge.getEpicStructure(100);
+      expect(count.blockedByRest()).toBe(2);
+      setSystemTime(new Date(t0 + 30_000));
+      await forge.getEpicStructure(100);
+      expect(count.blockedByRest()).toBe(4);
+      // Still failing: the retry backs off (60 s, then capped at 2 min), not every 30 s.
+      setSystemTime(new Date(t0 + 89_000));
+      await forge.getEpicStructure(100);
+      expect(count.blockedByRest()).toBe(4);
+      setSystemTime(new Date(t0 + 90_000));
+      await forge.getEpicStructure(100);
+      expect(count.blockedByRest()).toBe(6);
+      setSystemTime(new Date(t0 + 209_000));
+      await forge.getEpicStructure(100);
+      expect(count.blockedByRest()).toBe(6);
+      setSystemTime(new Date(t0 + 210_000));
+      await forge.getEpicStructure(100);
+      expect(count.blockedByRest()).toBe(8);
+    } finally {
+      unblockGraphql();
+      setIssuesFreshness(null);
+      setSystemTime();
     }
   });
 

@@ -182,6 +182,9 @@ const ISSUES_FAILURE_BACKOFF_MAX_MS = 15 * 60_000;
 /** How long {@link GithubForge.getEpicStructure} answers from its cache while no fingerprint
  *  covers the repo (#2807). A covered repo keeps it until its issue generation moves. */
 const EPIC_STRUCTURE_TTL_MS = 2 * 60_000;
+/** How soon {@link GithubForge.getEpicStructure} retries after a REST fallback read with a failed
+ *  call in it. Doubles per consecutive failed read, up to {@link EPIC_STRUCTURE_TTL_MS}. */
+const EPIC_STRUCTURE_RETRY_MS = 30_000;
 
 /** Issue fields of the GraphQL single-issue reads ({@link GithubForge.getIssue}, the epic
  *  parent). Carries the author's authorAssociation for the autonomous-spawn author trust gate. */
@@ -732,10 +735,19 @@ export class GithubForge implements GitForge {
   /** Per-repo backoff after a failed listing: the last error is replayed until `until`. */
   private issuesFailure: { err: unknown; until: number; strikes: number } | null = null;
   /** getEpicStructure cache + in-flight share, by parent number. Tagged like `issuesCache`;
-   *  `epicStructuresGen` bumps on this forge's own writes. */
+   *  `epicStructuresGen` bumps on this forge's own writes. `complete`: the structure came from a
+   *  read where every call succeeded. `retryAt`: the latest read had a failed call — the entry
+   *  is fresh only until then; `failures` counts such reads in a row. */
   private epicStructures = new Map<
     number,
-    { at: number; structure: EpicStructure; fpGen: number | null }
+    {
+      at: number;
+      structure: EpicStructure;
+      fpGen: number | null;
+      complete: boolean;
+      retryAt?: number;
+      failures?: number;
+    }
   >();
   private epicStructuresInflight = new Map<number, Promise<EpicStructure>>();
   private epicStructuresGen = 0;
@@ -1186,14 +1198,15 @@ export class GithubForge implements GitForge {
   }
 
   private async getIssueRest(issueNumber: number): Promise<Issue | null> {
-    try {
-      const out = await this.run(this.restGetArgs(`repos/${this.slug}/issues/${issueNumber}`));
-      const issue = JSON.parse(out || "null") as RestIssue | null;
-      if (!issue || issue.pull_request != null) return null;
-      return { ...this.mapRestIssue(issue), ...issueStateField(issue.state) };
-    } catch {
-      return null;
-    }
+    return this.fetchIssueRest(issueNumber).catch(() => null);
+  }
+
+  /** {@link getIssueRest} without the error swallowing. */
+  private async fetchIssueRest(issueNumber: number): Promise<Issue | null> {
+    const out = await this.run(this.restGetArgs(`repos/${this.slug}/issues/${issueNumber}`));
+    const issue = JSON.parse(out || "null") as RestIssue | null;
+    if (!issue || issue.pull_request != null) return null;
+    return { ...this.mapRestIssue(issue), ...issueStateField(issue.state) };
   }
 
   async listIssueComments(issueNumber: number): Promise<IssueComment[]> {
@@ -2713,24 +2726,41 @@ export class GithubForge implements GitForge {
    * it, and concurrent callers share one read.
    *
    * With GraphQL in backoff, or failing, it reads the parts over REST instead. That result is
-   * cached the same way, so the fallback runs at most once per cache window.
+   * cached the same way, so the fallback runs at most once per cache window. A REST read with a
+   * failed call in it is not: a failed call reads as "no sub-issues" or "no blockers", which
+   * would let the drain spawn a blocked child. It keeps serving the last complete structure if
+   * there is one (the partial one if not) and retries after {@link EPIC_STRUCTURE_RETRY_MS},
+   * backing off while the failures persist.
    */
   async getEpicStructure(parentNumber: number): Promise<EpicStructure> {
     const fpGen = issuesFreshness(this.slug);
+    const now = Date.now();
     const hit = this.epicStructures.get(parentNumber);
     const fresh =
       hit !== undefined &&
-      (fpGen !== null ? hit.fpGen === fpGen : Date.now() - hit.at < EPIC_STRUCTURE_TTL_MS);
+      (hit.retryAt !== undefined
+        ? now < hit.retryAt
+        : fpGen !== null
+          ? hit.fpGen === fpGen
+          : now - hit.at < EPIC_STRUCTURE_TTL_MS);
     if (fresh) return hit.structure;
     const inflight = this.epicStructuresInflight.get(parentNumber);
     if (inflight) return inflight;
     const gen = this.epicStructuresGen;
     const p = this.fetchEpicStructure(parentNumber)
-      .then((structure) => {
-        if (gen === this.epicStructuresGen) {
-          this.epicStructures.set(parentNumber, { at: Date.now(), structure, fpGen });
+      .then(({ structure, complete }) => {
+        if (gen !== this.epicStructuresGen) return structure;
+        const at = Date.now();
+        if (complete) {
+          this.epicStructures.set(parentNumber, { at, structure, fpGen, complete });
+          return structure;
         }
-        return structure;
+        const prev = this.epicStructures.get(parentNumber);
+        const keep = prev?.complete ? prev : { at, structure, fpGen, complete };
+        const failures = (prev?.failures ?? 0) + 1;
+        const wait = Math.min(EPIC_STRUCTURE_RETRY_MS * 2 ** (failures - 1), EPIC_STRUCTURE_TTL_MS);
+        this.epicStructures.set(parentNumber, { ...keep, retryAt: at + wait, failures });
+        return keep.structure;
       })
       .finally(() => {
         if (this.epicStructuresInflight.get(parentNumber) === p) {
@@ -2741,11 +2771,14 @@ export class GithubForge implements GitForge {
     return p;
   }
 
-  private async fetchEpicStructure(parentNumber: number): Promise<EpicStructure> {
+  /** `complete` is false when a REST fallback call failed and was read as empty. */
+  private async fetchEpicStructure(
+    parentNumber: number,
+  ): Promise<{ structure: EpicStructure; complete: boolean }> {
     if (!graphRateLimit.blocked()) {
       const [owner = "", repo = ""] = this.slug.split("/");
       try {
-        return parseEpicStructure(
+        const structure = parseEpicStructure(
           await this.run([
             "api",
             "graphql",
@@ -2759,62 +2792,72 @@ export class GithubForge implements GitForge {
             `query=${EPIC_STRUCTURE_QUERY}`,
           ]),
         );
+        return { structure, complete: true };
       } catch {
         // Any failure: read the parts over REST, as this path did before #2807.
       }
     }
-    return readEpicStructureByParts(
+    let complete = true;
+    const settle = <T>(read: Promise<T>, empty: T): Promise<T> =>
+      read.catch(() => {
+        complete = false;
+        return empty;
+      });
+    const structure = await readEpicStructureByParts(
       {
-        getIssue: (n) => this.getIssueRest(n),
-        listSubIssues: (n) => this.listSubIssues(n),
-        listBlockedBy: (n) => this.listBlockedBy(n),
+        getIssue: (n) => settle(this.fetchIssueRest(n), null),
+        listSubIssues: (n) => settle(this.fetchSubIssues(n), []),
+        listBlockedBy: (n) => settle(this.fetchBlockedBy(n), []),
       },
       parentNumber,
     );
+    return { structure, complete };
   }
 
   async listSubIssues(parentNumber: number): Promise<SubIssueRef[]> {
-    try {
-      const out = await this.run([
-        "api",
-        ...this.apiVersion,
-        `repos/${this.slug}/issues/${parentNumber}/sub_issues`,
-        "--paginate",
-      ]);
-      return (
-        JSON.parse(out || "[]") as Array<{
-          number: number;
-          title: string;
-          html_url: string;
-          body?: string;
-          state: string;
-          labels?: Array<{ name: string }>;
-        }>
-      ).map((i) => ({
-        number: i.number,
-        title: i.title,
-        url: i.html_url,
-        body: i.body ?? "",
-        closed: i.state === "closed",
-        labels: (i.labels ?? []).map((l) => l.name),
-      }));
-    } catch {
-      return [];
-    }
+    return this.fetchSubIssues(parentNumber).catch(() => []);
+  }
+
+  /** {@link listSubIssues} without the error swallowing. */
+  private async fetchSubIssues(parentNumber: number): Promise<SubIssueRef[]> {
+    const out = await this.run([
+      "api",
+      ...this.apiVersion,
+      `repos/${this.slug}/issues/${parentNumber}/sub_issues`,
+      "--paginate",
+    ]);
+    return (
+      JSON.parse(out || "[]") as Array<{
+        number: number;
+        title: string;
+        html_url: string;
+        body?: string;
+        state: string;
+        labels?: Array<{ name: string }>;
+      }>
+    ).map((i) => ({
+      number: i.number,
+      title: i.title,
+      url: i.html_url,
+      body: i.body ?? "",
+      closed: i.state === "closed",
+      labels: (i.labels ?? []).map((l) => l.name),
+    }));
   }
 
   async listBlockedBy(issueNumber: number): Promise<number[]> {
-    try {
-      const out = await this.run([
-        "api",
-        ...this.apiVersion,
-        `repos/${this.slug}/issues/${issueNumber}/dependencies/blocked_by`,
-        "--paginate",
-      ]);
-      return (JSON.parse(out || "[]") as Array<{ number: number }>).map((i) => i.number);
-    } catch {
-      return [];
-    }
+    return this.fetchBlockedBy(issueNumber).catch(() => []);
+  }
+
+  /** {@link listBlockedBy} without the error swallowing. */
+  private async fetchBlockedBy(issueNumber: number): Promise<number[]> {
+    const out = await this.run([
+      "api",
+      ...this.apiVersion,
+      `repos/${this.slug}/issues/${issueNumber}/dependencies/blocked_by`,
+      "--paginate",
+    ]);
+    return (JSON.parse(out || "[]") as Array<{ number: number }>).map((i) => i.number);
   }
 
   async issueId(issueNumber: number): Promise<number | null> {

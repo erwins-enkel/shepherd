@@ -8829,23 +8829,6 @@
         }
       }
     },
-    "native_archive_confirm_action": {
-      "extractionState": "manual",
-      "localizations": {
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Archivieren"
-          }
-        },
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Archive"
-          }
-        }
-      }
-    },
     "native_archive_confirm_body": {
       "extractionState": "manual",
       "localizations": {
@@ -11907,13 +11890,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Session beenden · gedrückt halten"
+            "value": "Stilllegen · gedrückt halten"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "End session · hold"
+            "value": "Decommission · hold"
           }
         }
       }

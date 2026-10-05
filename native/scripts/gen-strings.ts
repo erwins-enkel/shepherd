@@ -48,7 +48,6 @@ export const KEYS_CORE: readonly string[] = [
   "login_password_placeholder",
   "login_submit",
   "login_subtitle",
-  "native_archive_confirm_action",
   "native_archive_confirm_body",
   "native_archive_confirm_title",
   "native_archive_failed",

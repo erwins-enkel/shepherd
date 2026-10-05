@@ -513,7 +513,6 @@
 "native_actions_relaunch_confirm_body" = "Eine frische Sitzung startet mit derselben Aufgabe, diese wird stillgelegt — ihr Worktree wird entfernt. Nicht committete Arbeit darin geht verloren.";
 "native_actions_relaunch_confirm_title" = "Sitzung neu starten?";
 "native_actions_resumed" = "%1$@ fortgesetzt";
-"native_archive_confirm_action" = "Archivieren";
 "native_archive_confirm_body" = "Der Agent stoppt und der Worktree wird freigegeben.";
 "native_archive_confirm_title" = "Diese Session archivieren?";
 "native_archive_failed" = "Session konnte nicht stillgelegt werden: %1$@";
@@ -693,7 +692,7 @@
 "native_ios_session_age" = "Alter: %1$@";
 "native_ios_steers_all" = "Alle Steers";
 "native_ios_steers_empty" = "Noch keine Steers in der Steer-Leiste. Lege sie in der Web- oder Mac-App an.";
-"native_ios_steers_end_hold" = "Session beenden · gedrückt halten";
+"native_ios_steers_end_hold" = "Stilllegen · gedrückt halten";
 "native_ios_steers_load_failed" = "Steers konnten nicht geladen werden: %1$@";
 "native_ios_steers_overview" = "Übersicht";
 "native_ios_steers_release_back" = "Loslassen: Übersicht · Task läuft weiter";

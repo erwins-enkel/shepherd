@@ -513,7 +513,6 @@
 "native_actions_relaunch_confirm_body" = "A fresh session starts with the same task, and this one is decommissioned — its worktree is removed. Uncommitted work in it is lost.";
 "native_actions_relaunch_confirm_title" = "Relaunch this session?";
 "native_actions_resumed" = "Resumed %1$@";
-"native_archive_confirm_action" = "Archive";
 "native_archive_confirm_body" = "The agent stops and the worktree is released.";
 "native_archive_confirm_title" = "Archive this session?";
 "native_archive_failed" = "Could not decommission the session: %1$@";
@@ -693,7 +692,7 @@
 "native_ios_session_age" = "Age: %1$@";
 "native_ios_steers_all" = "All steers";
 "native_ios_steers_empty" = "No steers in the steer bar yet. Create them in the web or Mac app.";
-"native_ios_steers_end_hold" = "End session · hold";
+"native_ios_steers_end_hold" = "Decommission · hold";
 "native_ios_steers_load_failed" = "Steers could not be loaded: %1$@";
 "native_ios_steers_overview" = "Overview";
 "native_ios_steers_release_back" = "Release for the overview · task keeps running";

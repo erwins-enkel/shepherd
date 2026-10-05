@@ -12272,8 +12272,10 @@
       "destinations": [
         "[\"ShepherdUITests\",\"native/Apps/ShepherdMac/UITests/SettingsSceneUITests.swift\",\"SettingsSceneUITests\",\"testSettingsUsesOneWindowAndRetiresLegacyMenu()\"]"
       ],
-      "reason": "Retained unchanged in ShepherdUITests.",
-      "assertionChanges": []
+      "reason": "Retained Settings window/menu coverage with bounded window creation waits and the new local-server pane.",
+      "assertionChanges": [
+        "current-module: Keep the one-main/one-Settings-window assertion with a bounded predicate wait; keep all six original toolbar pane assertions with bounded existence waits and add Local server after backend-update registration."
+      ]
     },
     {
       "oldID": "[\"ShepherdUITests\",\"native/Apps/ShepherdMac/UITests/WelcomeSmokeUITests.swift\",\"WelcomeSmokeUITests\",\"testIsolatedLaunchListsNoSavedServers()\"]",

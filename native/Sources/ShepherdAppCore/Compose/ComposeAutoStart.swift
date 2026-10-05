@@ -2,7 +2,7 @@ import Foundation
 import Observation
 
 /// A start requested while attachments are still uploading. It fires once they settle,
-/// unless the operator takes it back or an upload fails.
+/// unless the operator takes it back or an attachment they chose did not make it.
 @Observable @MainActor
 public final class ComposeAutoStart {
     public private(set) var armed = false
@@ -20,11 +20,12 @@ public final class ComposeAutoStart {
         generation += 1
         let mine = generation
         release = keepAlive?()
+        let dropped = attachments.droppedImports
         Task { [weak self] in
             await attachments.settled()
             guard let self, mine == generation, armed else { return }
             armed = false
-            if attachments.hasFailedUploads { aborted = true }
+            if attachments.hasFailedUploads || attachments.droppedImports != dropped { aborted = true }
             else { await fire(force) }
             if mine == generation { endKeepAlive() }
         }

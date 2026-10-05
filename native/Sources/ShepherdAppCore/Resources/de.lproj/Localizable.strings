@@ -522,7 +522,7 @@
 "native_banner_offline" = "%1$@ nicht erreichbar. Neuer Versuch läuft.";
 "native_banner_unhealthy" = "%1$@ antwortet, meldet aber ein Problem. Neuer Versuch.";
 "native_compose_attach" = "Anhang hinzufügen";
-"native_compose_autostart_aborted" = "Automatischer Start abgebrochen: Ein Upload ist fehlgeschlagen.";
+"native_compose_autostart_aborted" = "Automatischer Start abgebrochen: Ein Anhang wurde nicht hochgeladen.";
 "native_compose_autostart_armed_button" = "Startet danach";
 "native_compose_autostart_cancel" = "Automatischen Start abbrechen";
 "native_compose_dictation_deferred" = "Diktieren ist im nativen Aufgabenfenster noch nicht verfügbar.";

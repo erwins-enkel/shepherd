@@ -522,7 +522,7 @@
 "native_banner_offline" = "Cannot reach %1$@. Retrying.";
 "native_banner_unhealthy" = "%1$@ answered but reports a problem. Retrying.";
 "native_compose_attach" = "Add attachment";
-"native_compose_autostart_aborted" = "Automatic start cancelled: an upload failed.";
+"native_compose_autostart_aborted" = "Automatic start cancelled: an attachment didn't upload.";
 "native_compose_autostart_armed_button" = "Starts after upload";
 "native_compose_autostart_cancel" = "Cancel automatic start";
 "native_compose_dictation_deferred" = "Dictation is not available in the native composer yet.";

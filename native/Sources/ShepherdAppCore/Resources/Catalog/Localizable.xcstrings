@@ -8993,13 +8993,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatischer Start abgebrochen: Ein Upload ist fehlgeschlagen."
+            "value": "Automatischer Start abgebrochen: Ein Anhang wurde nicht hochgeladen."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Automatic start cancelled: an upload failed."
+            "value": "Automatic start cancelled: an attachment didn't upload."
           }
         }
       }

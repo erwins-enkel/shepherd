@@ -53,6 +53,20 @@ extension CoreSeamTests {
         #expect(!auto.aborted)
     }
 
+    @Test func importThatEndsWithoutAFileAbortsInsteadOfStartingWithoutIt() async throws {
+        let attachments = AttachmentModel(upload: { _, _ in "/unused" })
+        defer { attachments.teardown() }
+        let fired = Box(0)
+        let auto = ComposeAutoStart()
+        let stamp = try #require(attachments.beginImport())
+        auto.arm(force: false, attachments: attachments) { _ in fired.value += 1 }
+        for _ in 0..<20 { await Task.yield() }
+        attachments.finishImport(nil, error: nil, generation: stamp)
+        try await eventually { auto.aborted }
+        #expect(fired.value == 0 && !auto.armed)
+        #expect(attachments.rows.isEmpty && !attachments.hasFailedUploads)
+    }
+
     @Test func teardownCancelsAPendingStart() async throws {
         var pending: CheckedContinuation<String, any Error>?
         let attachments = AttachmentModel(upload: { _, _ in try await withCheckedThrowingContinuation { pending = $0 } })

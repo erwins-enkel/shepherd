@@ -36,6 +36,8 @@ public final class AttachmentModel {
     private var batchStartedAt = Date.distantPast
     public private(set) var rows: [Row] = []
     private(set) var pendingImports = 0
+    /// Imports that ended without a file: the operator picked something that never became a row.
+    private(set) var droppedImports = 0
     private(set) var uploading = false
     public var importError: String?
     /// Held for exactly one drain, so a brief app switch does not cut the transfer.
@@ -199,7 +201,7 @@ public final class AttachmentModel {
         guard !stopped, mine == generation else { return }
         pendingImports -= 1
         importError = error
-        if let file { addFiles([file]) }
+        if let file { addFiles([file]) } else { droppedImports += 1 }
         resumeSettledWaitersIfIdle()
     }
 

@@ -89,6 +89,8 @@ struct IOSComposeContent: View {
             }
             if let status = model.attachments.status { uploadFooter(status) }
             else {
+                // A photo that never loaded leaves no row behind, so the notice cannot rely on the failed footer.
+                if autoStart.aborted { abortedNotice.padding(.horizontal, 16).padding(.top, 8) }
                 Text(verbatim: readiness.blocker == "empty_prompt" ? L.t("native_compose_prompt_missing") : readiness.canSubmit ? L.t("native_compose_ready_to_start") : readiness.copy).font(.system(.caption, design: .monospaced)).foregroundStyle(ComposePalette.muted).multilineTextAlignment(.center)
                     .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 18).accessibilityIdentifier("compose.readiness")
             }
@@ -310,7 +312,7 @@ struct IOSComposeContent: View {
             }
             Text(verbatim: status.line).monospacedDigit().accessibilityIdentifier("compose.upload.status")
             if status.phase == .failed {
-                if autoStart.aborted { Text(verbatim: L.t("native_compose_autostart_aborted")) }
+                if autoStart.aborted { abortedNotice }
                 Button(L.t("common_retry")) { model.attachments.retryFailed() }
                     .buttonStyle(ComposeControlStyle()).frame(minHeight: 44).accessibilityIdentifier("compose.upload.retry")
             } else {
@@ -318,6 +320,10 @@ struct IOSComposeContent: View {
             }
         }.font(.system(.caption, design: .monospaced)).foregroundStyle(ComposePalette.muted).multilineTextAlignment(.center)
             .padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 18)
+    }
+    private var abortedNotice: some View {
+        Text(verbatim: L.t("native_compose_autostart_aborted")).font(.system(.caption, design: .monospaced))
+            .foregroundStyle(ComposePalette.red).multilineTextAlignment(.center).accessibilityIdentifier("compose.autostart.aborted")
     }
     /// Whether the start follows on its own, then the one rule that keeps it alive.
     private var uploadHint: String {

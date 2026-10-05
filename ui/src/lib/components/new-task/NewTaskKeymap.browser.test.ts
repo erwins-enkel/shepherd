@@ -81,6 +81,14 @@ const repo: RepoEntry = {
 const issue = (number: number, title: string): Issue =>
   ({ number, title, labels: [], author: "someone", labelColors: {} }) as unknown as Issue;
 
+// These specs exercise Control chords; pin the browser platform independently of the host OS.
+let restorePlatform: () => void;
+beforeEach(() => {
+  const platform = vi.spyOn(navigator, "platform", "get").mockReturnValue("Linux x86_64");
+  restorePlatform = () => platform.mockRestore();
+});
+afterEach(() => restorePlatform());
+
 beforeEach(async () => {
   await page.viewport(1280, 900);
   vi.mocked(getTodo).mockResolvedValue({ exists: false, content: "" });

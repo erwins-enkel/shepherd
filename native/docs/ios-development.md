@@ -188,10 +188,28 @@ looking: **left** opens the panel, **right** returns to the session list on comp
 in the same direction); a `UIPanGestureRecognizer` on the terminal view begins only for a
 clearly horizontal start, so vertical scrolling and the scrolling key palette are untouched.
 The panel lists every bar steer, Esc/^C/Tab, Stop/Resume when `ActionsModel` offers them,
-and **End session**, which archives the session (`DELETE /api/sessions/{id}`: the agent
-stops, the row is kept). Ending requires a 1.2 s hold so the swipe that opened the panel can
-never end a session; VoiceOver gets an explicit confirmation instead. Read-only and isolated
-launches show neither chips nor panel. Editing steers stays in web/Mac.
+and **Decommission**, which only opens the header menu's decommission sheet (below), so the
+swipe that opened the panel can never end a session. Read-only and isolated launches show
+neither chips nor panel. Editing steers stays in web/Mac.
+
+## Decommissioning a session
+
+The header menu ends with **Decommission** for every session that is not archived (disabled
+while read-only). It opens `IOSDecommissionSheet`, which follows the web flow
+(`Viewport.svelte` → `DecomLeftovers`/`DecommissionPrDialog` → `createDecommissionCommit`):
+
+- `GET /api/sessions/{id}/leftovers` lists processes the session started; all are checked, as in
+  the web dialog. A failed probe never blocks the close, and `probesUnavailable` shows a caution.
+- A fresh `GET /api/sessions/{id}/git` decides the PR question (a failed read falls back to the
+  cached PR). An open PR offers keep open, merge (only where `MergeRules.prMergeAvailable`, with
+  the takeover label when the gate names someone) and close; otherwise there is one button.
+- The choice runs the PR step first (`POST …/git/close`, or the merge with the fresh stamped
+  confirmation and branch deletion), then `DELETE /api/sessions/{id}` with the checked `reap`
+  keys. A retry after a failed archive only archives; a refused merge re-reads the PR so the
+  operator decides again.
+
+The sheet is the confirmation, so there is no undo window as on the web. On success the
+selection clears and the list shows again.
 
 ## Answering Claude's dialogs
 

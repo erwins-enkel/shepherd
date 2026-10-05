@@ -642,10 +642,9 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   // dir IS bound above) and lose auth/onboarding state.
   if (claudeDir !== `${home}/.claude`) f.push("--setenv", "CLAUDE_CONFIG_DIR", claudeDir);
   f.push(...codexEnvFlags(home, inputs.codex));
-  for (const [k, v] of Object.entries(inputs.extraEnv ?? {}).sort(([a], [b]) =>
-    a.localeCompare(b),
-  )) {
-    if ((AGENT_SHELL_MARKERS as readonly string[]).includes(k)) continue;
+  for (const [k, v] of Object.entries(inputs.extraEnv ?? {})
+    .filter(([k]) => !(AGENT_SHELL_MARKERS as readonly string[]).includes(k))
+    .sort(([a], [b]) => a.localeCompare(b))) {
     f.push("--setenv", k, v);
   }
   f.push("--setenv", "CLAUDE_CODE_FORCE_SESSION_PERSISTENCE", "1");

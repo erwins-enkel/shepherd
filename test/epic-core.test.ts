@@ -1,5 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import {
+  epicRunEnding,
   computeEpicOthersFlags,
   deriveChildState,
   epicQuiescentForCadenceRebase,
@@ -329,5 +330,47 @@ describe("epicQuiescentForCadenceRebase (#1841)", () => {
     expect(
       epicQuiescentForCadenceRebase(kids, [sess({ baseBranch: BR, repoPath: "/o" })], "/r", BR),
     ).toBe(true);
+  });
+});
+
+describe("epicRunEnding", () => {
+  const r = (parentIssueNumber: number, status: "running" | "paused" | "idle") => ({
+    parentIssueNumber,
+    status,
+  });
+
+  test("nothing ends without a leading previous run", () => {
+    expect(epicRunEnding(null, r(1, "running"))).toBeNull();
+    expect(epicRunEnding(r(1, "idle"), r(2, "running"))).toBeNull();
+    expect(epicRunEnding(r(1, "idle"), r(1, "idle"))).toBeNull();
+  });
+
+  test("another epic taking the row supersedes a running or paused leader", () => {
+    for (const status of ["running", "paused"] as const) {
+      expect(epicRunEnding(r(1, status), r(2, "running"))).toEqual({
+        parent: 1,
+        cause: "superseded",
+        successor: 2,
+      });
+    }
+  });
+
+  test("the leader turning idle ends it — or completes it when the drain says so", () => {
+    expect(epicRunEnding(r(1, "paused"), r(1, "idle"))).toEqual({
+      parent: 1,
+      cause: "ended",
+      successor: null,
+    });
+    expect(epicRunEnding(r(1, "running"), r(1, "idle"), { completed: true })).toEqual({
+      parent: 1,
+      cause: "completed",
+      successor: null,
+    });
+  });
+
+  test("pausing, resuming or editing the leader ends nothing", () => {
+    expect(epicRunEnding(r(1, "running"), r(1, "paused"))).toBeNull();
+    expect(epicRunEnding(r(1, "paused"), r(1, "running"))).toBeNull();
+    expect(epicRunEnding(r(1, "running"), r(1, "running"))).toBeNull();
   });
 });

@@ -2315,6 +2315,28 @@ describe("PUT /api/epic for an epic that does not lead", () => {
     });
   });
 
+  test("a start over the leader records why it stopped and re-emits it", async () => {
+    const { app, store, emitted } = harness();
+    lead(store);
+    expect((await app.fetch(put(200, { status: "running" }))).status).toBe(200);
+    expect(store.getEpicRunEnd(repoDir, 100)).toMatchObject({
+      cause: "superseded",
+      successor: 200,
+      via: null,
+    });
+    expect((emitted as Epic[]).map((e) => [e.parentIssueNumber, e.run.status])).toEqual([
+      [200, "running"],
+      [100, "idle"],
+    ]);
+  });
+
+  test("ending the leader records it as ended", async () => {
+    const { app, store } = harness();
+    lead(store);
+    await app.fetch(put(100, { status: "idle" }));
+    expect(store.getEpicRunEnd(repoDir, 100)).toMatchObject({ cause: "ended", successor: null });
+  });
+
   for (const leaderStatus of ["running", "paused"] as const) {
     for (const status of ["idle", "paused"] as const) {
       test(`{status:'${status}'} while another epic is ${leaderStatus} → 409, nothing changes`, async () => {

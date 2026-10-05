@@ -289,10 +289,13 @@ describe("epic", () => {
     }
   });
 
-  test("patch refuses to stop or pause an epic that does not lead while another one does", async () => {
+  test("patch refuses to stop or pause an epic that does not lead; a start records why the leader stopped", async () => {
     const previousDrain = s.deps.drain;
     s.deps.drain = {
-      buildEpic: async (_dir: string, run: EpicRun) => fx.epic(run),
+      buildEpic: async (dir: string, run: EpicRun) => {
+        const runEnd = s.deps.store.getEpicRunEnd(dir, run.parentIssueNumber);
+        return runEnd ? { ...fx.epic(run), runEnd } : fx.epic(run);
+      },
       tick: async () => {},
     } as unknown as NonNullable<typeof s.deps.drain>;
     const other = `/api/epic?repo=${encodeURIComponent(s.validRepo)}&parent=413`;
@@ -311,6 +314,15 @@ describe("epic", () => {
       expect(s.deps.store.getEpicRun(s.validRepo)).toMatchObject({
         parentIssueNumber: 412,
         status: "running",
+      });
+
+      await call("PUT", "/api/epic", other, 200, { status: "running" });
+      const superseded = (await call("GET", "/api/epic", `/api/epic${q()}`, 200)) as Epic;
+      // The start came through the minted bearer token, so the record names it.
+      expect(superseded.runEnd).toMatchObject({
+        cause: "superseded",
+        successor: 413,
+        via: "compose contract test",
       });
     } finally {
       s.deps.drain = previousDrain;

@@ -4733,6 +4733,35 @@ components:
           description: At least two ready children and no dependency edges — everything drains in parallel.
         run:
           $ref: "#/components/schemas/EpicRun"
+        runEnd:
+          $ref: "#/components/schemas/EpicRunEnd"
+    EpicRunEnd:
+      type: object
+      additionalProperties: true
+      description: Why the epic last stopped leading its repo (EpicRunEnd in src/epic-core.ts); absent while it leads or when nothing was recorded.
+      required:
+        - cause
+        - successor
+        - at
+        - via
+      properties:
+        cause:
+          type: string
+          enum:
+            - ended
+            - superseded
+            - completed
+        successor:
+          type: integer
+          nullable: true
+          description: The epic started over this one (superseded only).
+        at:
+          type: integer
+          description: Epoch milliseconds.
+        via:
+          type: string
+          nullable: true
+          description: Name of the access token that made the request; null for the UI.
     EpicRunPatch:
       type: object
       additionalProperties: false

@@ -45,6 +45,42 @@ export type EpicSettings = Pick<
   EpicRun,
   "repoPath" | "parentIssueNumber" | "mode" | "agentProvider" | "model" | "effort"
 >;
+/** Why an epic stopped leading its repo: the operator ended it, another epic was started over it,
+ *  or all its children merged. */
+export type EpicRunEndCause = "ended" | "superseded" | "completed";
+/** The last time an epic stopped leading (persisted `epic_run_end` row, one per epic; cleared when
+ *  it leads again). `via` names the access token that made the request, null for the UI. */
+export interface EpicRunEnd {
+  cause: EpicRunEndCause;
+  /** The epic started over this one (`superseded` only). */
+  successor: number | null;
+  at: number;
+  via: string | null;
+}
+
+/** Pure: does replacing the repo's run `prev` with `next` end an epic's lead, and why? An epic
+ *  leads while its run is running or paused; it stops when the row passes to another epic
+ *  (superseded) or when its own run turns idle (ended, or completed when the drain says so). */
+export function epicRunEnding(
+  prev: Pick<EpicRun, "parentIssueNumber" | "status"> | null,
+  next: Pick<EpicRun, "parentIssueNumber" | "status">,
+  opts: { completed?: boolean } = {},
+): { parent: number; cause: EpicRunEndCause; successor: number | null } | null {
+  if (!prev || (prev.status !== "running" && prev.status !== "paused")) return null;
+  if (prev.parentIssueNumber !== next.parentIssueNumber)
+    return {
+      parent: prev.parentIssueNumber,
+      cause: "superseded",
+      successor: next.parentIssueNumber,
+    };
+  if (next.status !== "idle") return null;
+  return {
+    parent: prev.parentIssueNumber,
+    cause: opts.completed ? "completed" : "ended",
+    successor: null,
+  };
+}
+
 /** Persisted `epic_queue` row (#2624): an epic waiting behind the repo's leading epic, with the
  *  settings it starts with once the queue promotes it. `position` orders the queue (ascending). */
 export interface EpicQueueEntry {
@@ -84,6 +120,8 @@ export interface Epic {
    *  Set once by `assembleEpic`; optional so the many Epic test fixtures stay valid. */
   noDependencyEdges?: boolean;
   run: EpicRun;
+  /** Why the epic last stopped leading; absent while it leads or when nothing was recorded. */
+  runEnd?: EpicRunEnd;
 }
 
 /** Child lifecycle state from its issue/session/PR facts. `done` = the set of member

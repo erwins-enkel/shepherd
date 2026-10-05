@@ -264,6 +264,7 @@ export interface DrainDeps {
     | "archive"
     | "getEpicRun"
     | "setEpicRun"
+    | "getEpicRunEnd"
     | "listEpicQueue"
     | "shiftEpicQueue"
     | "getOrInitEpicIntegrationBranch"
@@ -675,8 +676,12 @@ export class DrainService {
       return true;
     });
     // No swept markers → the probe is already correct; reuse it rather than re-assembling.
-    if (liveMismatches.length === recordedMismatches.length) return probe;
-    return assembleEpic({ ...base, baseMismatches: liveMismatches });
+    const epic =
+      liveMismatches.length === recordedMismatches.length
+        ? probe
+        : assembleEpic({ ...base, baseMismatches: liveMismatches });
+    const runEnd = this.deps.store.getEpicRunEnd(repoPath, run.parentIssueNumber);
+    return runEnd ? { ...epic, runEnd } : epic;
   }
 
   /** On-demand structural diagnosis for one epic parent (GET /api/epic/diagnose). Reuses the
@@ -1488,7 +1493,7 @@ export class DrainService {
         return false; // CONTRACT(#635): stay running, retry next pump
       }
       const completedRun = { ...epicRun, status: "idle" as const };
-      this.deps.store.setEpicRun(completedRun);
+      this.deps.store.setEpicRun(completedRun, { completed: true });
       // Emit a final epic:update reflecting the completed/idle state before
       // the next buildState sees idle and stops emitting epicParent.
       this.emitEpicIfChanged(repoPath, { ...epic, run: completedRun });

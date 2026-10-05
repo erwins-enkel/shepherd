@@ -119,6 +119,50 @@ describe("epic_settings (an epic off the run row)", () => {
   });
 });
 
+describe("epic_run_end (why an epic stopped leading)", () => {
+  const run = (parentIssueNumber: number, status: EpicRun["status"]): EpicRun => ({
+    repoPath: "/repo",
+    parentIssueNumber,
+    mode: "auto",
+    status,
+  });
+
+  test("a start over the leader records it as superseded; leading again clears it", () => {
+    const s = new SessionStore(":memory:");
+    s.setEpicRun(run(1, "running"));
+    expect(s.getEpicRunEnd("/repo", 1)).toBeNull();
+    const before = Date.now();
+    s.setEpicRun(run(2, "running"), { via: "ci-bot" });
+    const end = s.getEpicRunEnd("/repo", 1)!;
+    expect(end).toMatchObject({ cause: "superseded", successor: 2, via: "ci-bot" });
+    expect(end.at).toBeGreaterThanOrEqual(before);
+    s.setEpicRun(run(1, "running"));
+    expect(s.getEpicRunEnd("/repo", 1)).toBeNull();
+    expect(s.getEpicRunEnd("/repo", 2)).toMatchObject({ cause: "superseded", successor: 1 });
+  });
+
+  test("ending the leader records ended (via null from the UI); completion records completed", () => {
+    const s = new SessionStore(":memory:");
+    s.setEpicRun(run(1, "running"));
+    s.setEpicRun(run(1, "idle"));
+    expect(s.getEpicRunEnd("/repo", 1)).toMatchObject({
+      cause: "ended",
+      successor: null,
+      via: null,
+    });
+    s.setEpicRun(run(1, "running"));
+    s.setEpicRun(run(1, "idle"), { completed: true });
+    expect(s.getEpicRunEnd("/repo", 1)).toMatchObject({ cause: "completed" });
+  });
+
+  test("replacing an idle run records nothing", () => {
+    const s = new SessionStore(":memory:");
+    s.setEpicRun(run(1, "idle"));
+    s.setEpicRun(run(2, "idle"));
+    expect(s.getEpicRunEnd("/repo", 1)).toBeNull();
+  });
+});
+
 describe("getOrInitEpicIntegrationBranch (pin-and-record)", () => {
   test("first call pins + returns the derived name", () => {
     const s = new SessionStore(":memory:");

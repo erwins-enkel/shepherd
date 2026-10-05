@@ -75,7 +75,13 @@ import { normalizeRepoDefaultModelSetting } from "./default-model";
 import { normalizeRepoDefaultEffortSetting } from "./default-effort";
 import { sanitizeScopeGlobs } from "./house-rules";
 import { decodeStoredRepoPaths, type AccessTokenRow } from "./access-tokens";
-import type { EpicQueueEntry, EpicRun, EpicSettings } from "./epic-core";
+import {
+  epicRunEnding,
+  type EpicQueueEntry,
+  type EpicRun,
+  type EpicRunEnd,
+  type EpicSettings,
+} from "./epic-core";
 import type { EpicLandingState } from "./completed-epic";
 import { normalizeRule } from "./learning-rule";
 import { trimRuleToLimit } from "./learning-shape";
@@ -1748,6 +1754,12 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       mode TEXT NOT NULL DEFAULT 'auto', agentProvider TEXT, model TEXT, effort TEXT,
       updatedAt INTEGER NOT NULL,
       PRIMARY KEY (repoPath, parentIssueNumber))`);
+    // Why an epic last stopped leading its repo (EpicRunEnd) — the epic_run row is overwritten by
+    // the next run, so without this an ended or superseded epic cannot say why it does not run.
+    this.db.run(`CREATE TABLE IF NOT EXISTS epic_run_end (
+      repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL,
+      cause TEXT NOT NULL, successor INTEGER, at INTEGER NOT NULL, via TEXT,
+      PRIMARY KEY (repoPath, parentIssueNumber))`);
     // #645: the pinned integration-branch name, keyed PER EPIC (repoPath, parentIssueNumber)
     // — NOT on epic_run, which is one-row-per-repo and superseded when a new epic starts on that
     // repo, so a pin stored there would be inherited by the next epic and would outlive its own
@@ -2238,10 +2250,24 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   /** Persist the repo's run. When the row passes to another epic, the previous epic's settings
    *  move to `epic_settings` and the new epic's remembered ones are dropped — they ride on the row
-   *  now (see {@link EpicSettings}). */
-  setEpicRun(r: EpicRun): void {
+   *  now (see {@link EpicSettings}). An epic that stops leading gets its {@link EpicRunEnd}
+   *  (`via`: the requesting token's name; `completed`: the drain finished it); one that leads
+   *  again loses it. */
+  setEpicRun(r: EpicRun, opts: { via?: string | null; completed?: boolean } = {}): void {
     this.db.transaction(() => {
       const prev = this.getEpicRun(r.repoPath);
+      const end = epicRunEnding(prev, r, opts);
+      if (end)
+        this.db.run(
+          `INSERT INTO epic_run_end (repoPath, parentIssueNumber, cause, successor, at, via) VALUES (?,?,?,?,?,?)
+          ON CONFLICT(repoPath, parentIssueNumber) DO UPDATE SET cause=excluded.cause, successor=excluded.successor, at=excluded.at, via=excluded.via`,
+          [r.repoPath, end.parent, end.cause, end.successor, Date.now(), opts.via ?? null],
+        );
+      if (r.status === "running" || r.status === "paused")
+        this.db.run(`DELETE FROM epic_run_end WHERE repoPath = ? AND parentIssueNumber = ?`, [
+          r.repoPath,
+          r.parentIssueNumber,
+        ]);
       if (prev && prev.parentIssueNumber !== r.parentIssueNumber) this.setEpicSettings(prev);
       this.deleteEpicSettings(r.repoPath, r.parentIssueNumber);
       this.db.run(
@@ -2259,6 +2285,17 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         ],
       );
     })();
+  }
+
+  /** Why `parentIssueNumber` last stopped leading its repo; null while it leads or never did. */
+  getEpicRunEnd(repoPath: string, parentIssueNumber: number): EpicRunEnd | null {
+    return (
+      (this.db
+        .query(
+          `SELECT cause, successor, at, via FROM epic_run_end WHERE repoPath = ? AND parentIssueNumber = ?`,
+        )
+        .get(repoPath, parentIssueNumber) as EpicRunEnd | null) ?? null
+    );
   }
 
   // ── epic settings: an epic off the run row and out of the queue ──────────

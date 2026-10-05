@@ -8520,6 +8520,7 @@ function saveEpicRunPatch(
   merged: EpicRun,
   patch: EpicRunPatch,
   place: EpicSettingsPlace,
+  via: string | null,
 ): boolean {
   if (patch.status === undefined && place !== "run") {
     if (place === "queue") store.updateEpicQueueSettings(merged);
@@ -8530,7 +8531,7 @@ function saveEpicRunPatch(
     store.removeEpicQueueEntry(merged.repoPath, merged.parentIssueNumber);
     if (merged.status !== "running") kickDrain(drain, "dequeue");
   }
-  store.setEpicRun(merged);
+  store.setEpicRun(merged, { via });
   const cleared =
     merged.status === "running" &&
     store.clearEpicCompletedOnRestart(merged.repoPath, merged.parentIssueNumber);
@@ -8538,12 +8539,22 @@ function saveEpicRunPatch(
   return cleared;
 }
 
+/** The name of the access token behind a request, recorded as who ended or superseded an epic;
+ *  null for the UI (cookie / env token). */
+function requestTokenName(
+  store: AppDeps["store"],
+  token: VerifiedToken | null | undefined,
+): string | null {
+  if (!token) return null;
+  return store.listAccessTokens().find((t) => t.id === token.id)?.name ?? null;
+}
+
 function isEpicPutRequest(req: Request, parts: string[]): boolean {
   return req.method === "PUT" && parts[0] === "api" && parts[1] === "epic" && !parts[2];
 }
 
 // PUT /api/epic?repo=&parent= — patch the EpicRun settings, re-assemble, emit.
-async function handleEpicPut({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+async function handleEpicPut({ req, parts, url, deps, token }: Ctx): Promise<Response | null> {
   if (!isEpicPutRequest(req, parts)) return null;
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
@@ -8573,11 +8584,31 @@ async function handleEpicPut({ req, parts, url, deps }: Ctx): Promise<Response |
     );
   const merged = mergeEpicRunPatch(base, patch);
   if (merged === null) return json({ error: "invalid epic run patch" }, 400);
-  if (saveEpicRunPatch(deps.store, deps.drain, merged, patch, place))
+  const leader = leadingRun(deps.store, dir);
+  const via = requestTokenName(deps.store, token);
+  if (saveEpicRunPatch(deps.store, deps.drain, merged, patch, place, via))
     deps.events?.emit("epic:completed-cleared", { repoPath: dir, parentIssueNumber: parentNumber });
   const epic = await deps.drain.buildEpic(dir, merged);
   if (epic) deps.events?.emit("epic:update", epic);
+  await emitSupersededLeader(deps, deps.drain, dir, leader, merged);
   return json(epic ?? { ok: true });
+}
+
+/** A start over `leader` superseded it: re-emit it so an open view of it learns why it stopped. */
+async function emitSupersededLeader(
+  deps: AppDeps,
+  drain: NonNullable<AppDeps["drain"]>,
+  dir: string,
+  leader: EpicRun | null,
+  started: EpicRun,
+): Promise<void> {
+  if (!leader || started.status !== "running") return;
+  if (leader.parentIssueNumber === started.parentIssueNumber) return;
+  const superseded = await drain.buildEpic(
+    dir,
+    runForParent(deps.store, dir, leader.parentIssueNumber),
+  );
+  if (superseded) deps.events?.emit("epic:update", superseded);
 }
 
 /** Queue `parent` at the tail behind the repo's running/paused leader, with its remembered

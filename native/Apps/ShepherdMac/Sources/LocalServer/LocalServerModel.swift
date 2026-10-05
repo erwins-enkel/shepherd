@@ -98,6 +98,12 @@ final class LocalServerModel {
     /// bumps it on entry, so a second, later `refresh()` wins over a stale
     /// first one the same way. Pattern: `AppModel.activationGeneration`.
     private var generation = 0
+    private var lifecycleGeneration = 0
+    private let updatesAllowed: Bool
+    private var automaticUpdatesAllowed = true
+    private var automaticProfileSource: (() -> ServerProfile?)?
+    private var automaticCheckInFlight = false
+    private var quittingUpdates = false
     /// The in-flight `install()`, held so the quit path can cancel it — see
     /// `beginInstall()` / `cancelInstallForQuit()`.
     private var installTask: Task<Void, Never>?
@@ -128,6 +134,8 @@ final class LocalServerModel {
 
     init(
         environment: LocalServerEnvironment = LocalServerEnvironment(),
+        isolated: Bool = LaunchEnvironment.configuration().isIsolated,
+        allowTemporaryUpdates: Bool = false,
         probeExternal: (@Sendable () async -> Bool)? = nil,
         discoverExternal: (@Sendable () async -> Components.Schemas.Health?)? = nil,
         health: (@Sendable () async -> Bool)? = nil,
@@ -144,6 +152,8 @@ final class LocalServerModel {
         clock: any SupervisorClock = SystemSupervisorClock()
     ) {
         self.environment = environment
+        self.updatesAllowed = !(isolated || LaunchEnvironment.configuration().isIsolated)
+            || (allowTemporaryUpdates && environment.isTemporaryUpdateEnvironment)
         self.discoverExternal = discoverExternal ?? {
             if let probeExternal {
                 return await probeExternal() ? .init(ok: true, version: "unknown") : nil
@@ -190,7 +200,7 @@ final class LocalServerModel {
     var canRestart: Bool { !busy && state.isRunning }
 
     var canManageUpdates: Bool {
-        environment.isShepherdCheckout() && state != .notInstalled && state != .installing && state != .externallyManaged
+        updatesAllowed && environment.isShepherdCheckout() && state != .notInstalled && state != .installing && state != .externallyManaged
     }
 
     /// Order matters: a server we already supervise wins over the loopback probe,
@@ -264,6 +274,7 @@ final class LocalServerModel {
         guard !busy else { return }
         busy = true
         generation += 1
+        lifecycleGeneration += 1
         state = .installing
         let progress = sampleProgress()
         defer { progress.cancel(); busy = false }
@@ -308,6 +319,7 @@ final class LocalServerModel {
         guard !busy else { return }
         busy = true
         generation += 1
+        lifecycleGeneration += 1
         lastOutdatedBunVersion = outdatedBunVersion
         state = .upgradingBun
         let progress = sampleProgress()
@@ -338,7 +350,7 @@ final class LocalServerModel {
     }
 
     /// A check may overlap a lifecycle action, but its answer may not overwrite
-    /// one. Capture the same generation as refresh; throttle failed attempts too
+    /// one. Capture the lifecycle generation; throttle failed attempts too
     /// so a panel reappearing offline does not repeatedly fetch.
     func checkForUpdate(force: Bool = true) async {
         await performUpdateCheck(force: force)
@@ -347,23 +359,59 @@ final class LocalServerModel {
     /// App lifetime, independent of Welcome/Settings visibility. Wake and panel
     /// refreshes use the same throttle, including failed attempts.
     func startUpdateMonitoring() {
-        guard updateMonitorTask == nil else { return }
+        guard updatesAllowed, updateMonitorTask == nil else { return }
         let clock = updateMonitorClock
         updateMonitorTask = Task { [weak self] in
             while !Task.isCancelled {
-                await self?.refresh()
+                await self?.automaticRefresh()
                 do { try await clock.sleep(for: 30 * 60) }
                 catch { return }
             }
         }
     }
 
+    func automaticRefresh() async {
+        guard updatesAllowed, automaticChecksAllowed else { return }
+        await refresh()
+    }
+
+    func bindAutomaticProfile(_ source: @escaping () -> ServerProfile?) {
+        automaticProfileSource = source
+        updateActiveProfile(source())
+    }
+
+    private var automaticChecksAllowed: Bool {
+        if let automaticProfileSource { return Self.allowsAutomaticUpdates(automaticProfileSource(), endpoint: baseURL) }
+        return automaticUpdatesAllowed
+    }
+
+    private static func allowsAutomaticUpdates(_ profile: ServerProfile?, endpoint: URL) -> Bool {
+        guard let profile else { return true } // Welcome has no active profile.
+        return profile.mode == .local && profile.baseURL.scheme == endpoint.scheme
+            && profile.baseURL.port == endpoint.port
+            && ["127.0.0.1", "localhost", "::1"].contains(profile.baseURL.host(percentEncoded: false) ?? "")
+            && ["", "/"].contains(profile.baseURL.path)
+            && profile.baseURL.user == nil && profile.baseURL.password == nil
+    }
+
+    func cancelAutomaticUpdateCheck() {
+        if automaticCheckInFlight { updateCheckTask?.cancel() }
+    }
+
+    /// Kept at the app layer: profile selection is not a server lifecycle event.
+    /// Explicit maintenance in Settings remains available on a remote profile.
+    func updateActiveProfile(_ profile: ServerProfile?) {
+        automaticUpdatesAllowed = Self.allowsAutomaticUpdates(profile, endpoint: baseURL)
+        if !automaticUpdatesAllowed { cancelAutomaticUpdateCheck() }
+    }
+
     private func performUpdateCheck(force: Bool, allowBusy: Bool = false) async {
-        guard (!busy || allowBusy), canManageUpdates, !isCheckingUpdate else { return }
+        guard (!busy || allowBusy), canManageUpdates, (force || automaticChecksAllowed), !isCheckingUpdate else { return }
         let now = updateNow()
         if !force, let lastUpdateCheckAttempt, now.timeIntervalSince(lastUpdateCheckAttempt) < 30 * 60 { return }
         lastUpdateCheckAttempt = now
-        let expected = generation
+        let expected = lifecycleGeneration
+        automaticCheckInFlight = !force
         isCheckingUpdate = true
         updateCheckGeneration += 1
         let checkGeneration = updateCheckGeneration
@@ -372,13 +420,18 @@ final class LocalServerModel {
         defer {
             if updateCheckGeneration == checkGeneration {
                 isCheckingUpdate = false
+                automaticCheckInFlight = false
                 updateCheckTask = nil
             }
         }
         let result = await withTaskCancellationHandler {
             await task.value
         } onCancel: { task.cancel() }
-        guard generation == expected, !Task.isCancelled, !task.isCancelled, canManageUpdates else { return }
+        guard lifecycleGeneration == expected, !Task.isCancelled, !task.isCancelled,
+              canManageUpdates, (force || automaticChecksAllowed) else {
+            if updateCheckGeneration == checkGeneration { lastUpdateCheckAttempt = nil }
+            return
+        }
         switch result {
         case .success(let status):
             updateStatus = status
@@ -391,37 +444,69 @@ final class LocalServerModel {
         guard !busy, canManageUpdates else { return }
         busy = true
         generation += 1
+        lifecycleGeneration += 1
         state = .updating
         updateFailure = nil
-        // A check begun before the pull is stale. Cancel and wait for its fetch
-        // to finish before update.sh mutates the same checkout.
+        // A check begun before apply is stale. Finish cancelling its fetch
+        // before copying the checkout and its Git metadata.
         updateCheckTask?.cancel()
         if let task = updateCheckTask { _ = await task.value }
         updateCheckGeneration += 1
         updateCheckTask = nil
         isCheckingUpdate = false
-        let wasRunning = await supervisor.state.isRunning
+        automaticCheckInFlight = false
+        let wasRunning = await supervisor.suspendRecovery()
         let progress = sampleProgress()
         defer { progress.cancel(); busy = false }
-        guard !Task.isCancelled else { state = .stopped; return }
-        let result = await updater(environment, log)
-        await pullLog()
-        guard !Task.isCancelled else { state = .stopped; return }
-        switch result {
-        case .success:
+        var deployment: LocalUpdateDeployment?
+        var failure: LocalServerFailure?
+        do {
+            try Task.checkCancellation()
+            // Copy off the main actor; no build writes to the live deployment.
+            deployment = try await Task.detached { [environment] in
+                try LocalUpdateDeployment(environment: environment)
+            }.value
+            try Task.checkCancellation()
+            let result = await updater(deployment!.environment, log)
+            if case .failure(let error) = result { throw error }
+            try Task.checkCancellation()
+            try deployment!.promote()
             if wasRunning {
                 await supervisor.restart()
-                state = await supervisor.state
-            } else {
-                await resolveState()
+                guard await supervisor.state.isRunning else { throw LocalServerFailure.updateFailed(exitCode: 1) }
             }
-            await pullLog()
-            // The old preview no longer describes the installed checkout.
+            try Task.checkCancellation()
+        } catch {
+            failure = Task.isCancelled ? .updateFailed(exitCode: 130)
+                : (error as? LocalServerFailure ?? .updateFailed(exitCode: 1))
+            if deployment?.promoted == true {
+                // Stop a failed/cancelled replacement before restoring the old
+                // directory. Otherwise resume would mistake it for the old child.
+                await Task.detached { [supervisor] in await supervisor.stop() }.value
+            }
+            do { try deployment?.rollback() }
+            catch {
+                // Do not resume into an unknown deployment or delete the backup.
+                updateFailure = .updateFailed(exitCode: 1)
+                await log.append("Could not restore the previous deployment: \(error). Recovery remains suspended.")
+                await resolveState()
+                await pullLog()
+                return
+            }
+        }
+        deployment?.finish()
+        updateFailure = failure
+        // Cancellation must not cancel rollback recovery. Quit is the explicit
+        // exception: its separate termination path must never spawn a child.
+        let recover = wasRunning && !quittingUpdates
+        await Task.detached { [supervisor] in
+            await supervisor.resumeRecovery(restartIfNeeded: recover)
+        }.value
+        await resolveState()
+        await pullLog()
+        if failure == nil {
             updateStatus = nil
             await performUpdateCheck(force: true, allowBusy: true)
-        case .failure(let failure):
-            updateFailure = failure
-            await resolveState()
         }
     }
 
@@ -434,6 +519,7 @@ final class LocalServerModel {
     }
 
     func cancelUpdateForQuit() {
+        quittingUpdates = true
         updateMonitorTask?.cancel()
         updateMonitorTask = nil
         updateTask?.cancel()
@@ -499,6 +585,7 @@ final class LocalServerModel {
         guard !busy else { return }
         busy = true
         generation += 1
+        lifecycleGeneration += 1
         let progress = sampleProgress()
         defer { progress.cancel(); busy = false }
         await body()

@@ -70,18 +70,28 @@ public struct LocalUpdateCheck: Sendable {
     // nested in the cancellation handler (Swift 6.3).
     let started = await withTaskCancellationHandler {
       do { try process.run() } catch { return false }
-      testSeamAfterRun?()
       let pid = process.processIdentifier
+      // On macOS Foundation launches Process in its own group. Store its ID
+      // before the test seam (and before reaping); descendants can outlive pid.
       shared.livePID.withLock { $0 = pid }
-      if Task.isCancelled { BunUpgradeRun.terminate(pid, gracePeriod: 2) }
+      testSeamAfterRun?()
+      if Task.isCancelled { Self.terminateGroup(pid) }
       let output = Task {
         await ProcessOutputPump.pump(pipe.fileHandleForReading) { line in await lines.append(line) }
+        shared.outputDone.withLock { $0 = true }
       }
       let deadline = Date().addingTimeInterval(timeout)
-      while shared.exitCode.withLock({ $0 }) == nil {
+      // Exit and EOF are independent. Keep the deadline and cancellation live
+      // until BOTH have completed, even when the shell was already reaped.
+      while shared.exitCode.withLock({ $0 }) == nil || !shared.outputDone.withLock({ $0 }) {
         if Date() >= deadline, !shared.timedOut.withLock({ $0 }) {
           shared.timedOut.withLock { $0 = true }
-          BunUpgradeRun.terminate(pid, gracePeriod: 2)
+          Self.terminateGroup(pid)
+          output.cancel()
+        }
+        if Task.isCancelled {
+          Self.terminateGroup(pid)
+          output.cancel()
         }
         do { try await Task.sleep(for: .milliseconds(50)) } catch { usleep(20_000) }
       }
@@ -90,7 +100,7 @@ public struct LocalUpdateCheck: Sendable {
       return true
     } onCancel: {
       guard let pid = shared.livePID.withLock({ $0 }) else { return }
-      BunUpgradeRun.terminate(pid, gracePeriod: 2)
+      Self.terminateGroup(pid)
     }
     guard started else { return .failure(.commandFailed(exitCode: 127)) }
     if Task.isCancelled { return .failure(.commandFailed(exitCode: 130)) }
@@ -117,10 +127,17 @@ public struct LocalUpdateCheck: Sendable {
     return .init(behind: behind, current: lines[1], latest: lines[2], commits: commits, checkedAt: checkedAt)
   }
 
+  private static func terminateGroup(_ pid: Int32) {
+    guard pid > 0, pid != getpgrp() else { return }
+    // Never look up the reaped leader. The owned group can still have writers.
+    killpg(pid, SIGKILL)
+  }
+
   private final class SharedState: Sendable {
     let livePID = Mutex<Int32?>(nil)
     let exitCode = Mutex<Int32?>(nil)
     let timedOut = Mutex(false)
+    let outputDone = Mutex(false)
   }
 }
 #endif

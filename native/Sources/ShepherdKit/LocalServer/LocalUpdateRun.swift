@@ -44,19 +44,29 @@ public struct LocalUpdateRun: Sendable {
         await log.append("could not start the backend update: \(error)")
         return .notStarted
       }
-      testSeamAfterRun?()
       let pid = process.processIdentifier
+      // On macOS Foundation launches Process in its own group. Store its ID
+      // before the test seam (and before reaping); descendants can outlive pid.
       shared.livePID.withLock { $0 = pid }
-      if Task.isCancelled { BunUpgradeRun.terminate(pid, gracePeriod: 2) }
+      testSeamAfterRun?()
+      if Task.isCancelled { Self.terminateGroup(pid) }
       let output = Task { [log] in
         await ProcessOutputPump.pump(pipe.fileHandleForReading) { line in await log.append(line) }
+        shared.outputDone.withLock { $0 = true }
       }
       let deadline = Date().addingTimeInterval(timeout)
-      while shared.exitCode.withLock({ $0 }) == nil {
+      // Exit and EOF are independent. Keep the deadline and cancellation live
+      // until BOTH have completed, even when the shell was already reaped.
+      while shared.exitCode.withLock({ $0 }) == nil || !shared.outputDone.withLock({ $0 }) {
         if Date() >= deadline, !shared.timedOut.withLock({ $0 }) {
           shared.timedOut.withLock { $0 = true }
           await log.append("backend update timed out")
-          BunUpgradeRun.terminate(pid, gracePeriod: 2)
+          Self.terminateGroup(pid)
+          output.cancel()
+        }
+        if Task.isCancelled {
+          Self.terminateGroup(pid)
+          output.cancel()
         }
         // A cancelled task's sleep throws at once; `onCancel` is already killing
         // the child, so back off briefly instead of spinning until it is reaped.
@@ -67,7 +77,7 @@ public struct LocalUpdateRun: Sendable {
       return .exited(shared.exitCode.withLock { $0 })
     } onCancel: {
       guard let pid = shared.livePID.withLock({ $0 }) else { return }
-      BunUpgradeRun.terminate(pid, gracePeriod: 2)
+      Self.terminateGroup(pid)
     }
     guard case .exited(let code) = exit else { return .failure(.updateFailed(exitCode: 127)) }
     if Task.isCancelled { return .failure(.updateFailed(exitCode: 130)) }
@@ -82,10 +92,17 @@ public struct LocalUpdateRun: Sendable {
     case exited(Int32?)
   }
 
+  private static func terminateGroup(_ pid: Int32) {
+    guard pid > 0, pid != getpgrp() else { return }
+    // Never look up the reaped leader. The owned group can still have writers.
+    killpg(pid, SIGKILL)
+  }
+
   private final class SharedState: Sendable {
     let livePID = Mutex<Int32?>(nil)
     let exitCode = Mutex<Int32?>(nil)
     let timedOut = Mutex(false)
+    let outputDone = Mutex(false)
   }
 
 }

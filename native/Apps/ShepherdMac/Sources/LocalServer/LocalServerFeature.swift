@@ -1,5 +1,6 @@
 import ShepherdAppCore
 import AppKit
+import Observation
 import SwiftUI
 
 /// The stream's single entry point. The integration lane calls this once from
@@ -26,11 +27,13 @@ enum LocalServerFeature {
         installed = true
         // Automated launches must never fetch or mutate the operator's checkout.
         if !LaunchEnvironment.configuration().isIsolated {
+            LocalServerModel.shared.bindAutomaticProfile { [weak app] in app?.activeProfile }
+            observeProfile(app)
             LocalServerModel.shared.startUpdateMonitoring()
             NSWorkspace.shared.notificationCenter.addObserver(
                 forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
             ) { _ in
-                Task { @MainActor in await LocalServerModel.shared.refresh() }
+                Task { @MainActor in await LocalServerModel.shared.automaticRefresh() }
             }
         }
         // The server survives quit and is adopted on the next launch.
@@ -49,6 +52,19 @@ enum LocalServerFeature {
             }
         }
         Log.app.info("local server feature installed")
+    }
+
+    private static func observeProfile(_ app: AppModel) {
+        withObservationTracking {
+            LocalServerModel.shared.updateActiveProfile(app.activeProfile)
+        } onChange: { [weak app] in
+            // AppModel profile writes are main-actor isolated. Cancel before
+            // the write completes; re-observe afterwards to read the new value.
+            MainActor.assumeIsolated { LocalServerModel.shared.cancelAutomaticUpdateCheck() }
+            Task { @MainActor in
+                if let app { observeProfile(app) }
+            }
+        }
     }
 }
 

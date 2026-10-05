@@ -44,6 +44,11 @@ actor LocalUpdateMonitorClock: SupervisorClock {
     func tick() { ticks.continuation.yield(()) }
 }
 
+private struct ImmediateUpdateHealthClock: SupervisorClock {
+    var now: Date { Date() }
+    func sleep(for seconds: TimeInterval) async throws { await Task.yield() }
+}
+
 extension MacSeamTests {
 @Suite(.serialized) @MainActor struct LocalServerModelTests {
     private func tempHome() throws -> URL {
@@ -54,7 +59,7 @@ extension MacSeamTests {
     }
 
     private func checkout(in home: URL) throws -> LocalServerEnvironment {
-        let environment = LocalServerEnvironment(home: home)
+        let environment = LocalServerEnvironment(home: home, processEnvironment: [:])
         try FileManager.default.createDirectory(
             at: environment.appDirectory, withIntermediateDirectories: true)
         try #"{"name":"shepherd"}"#.write(
@@ -117,6 +122,15 @@ extension MacSeamTests {
         return LocalServerLaunch(
             executable: URL(fileURLWithPath: "/bin/sh"), arguments: [script.path],
             workingDirectory: dir, environment: ["PATH": "/usr/bin:/bin"])
+    }
+
+    private func waitForGate(_ gate: LocalServerGate) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while ContinuousClock.now < deadline {
+            if await gate.isWaiting { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return false
     }
 
     /// Yields until `condition` holds or the budget runs out. Everything under
@@ -244,7 +258,7 @@ extension MacSeamTests {
         let checks = Mutex(0)
         let gate = LocalServerGate()
         let model = LocalServerModel(
-            environment: try checkout(in: home), probeExternal: { false }, health: { true },
+            environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false }, health: { true },
             launch: { launches.withLock { $0 += 1 }; return launch },
             updateChecker: { _ in
                 checks.withLock { $0 += 1 }
@@ -278,7 +292,7 @@ extension MacSeamTests {
         let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
         let launches = Mutex(0)
         let model = LocalServerModel(
-            environment: try checkout(in: home), probeExternal: { false },
+            environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false },
             launch: { launches.withLock { $0 += 1 }; return nil },
             updateChecker: { _ in .success(.init(behind: 0, current: "abcd123", latest: "abcd123")) },
             updater: { _, _ in .success(()) })
@@ -293,7 +307,7 @@ extension MacSeamTests {
         let launch = try fakeScript(in: home, emitPasswordOnce: false)
         let launches = Mutex(0)
         let model = LocalServerModel(
-            environment: try checkout(in: home), probeExternal: { false }, health: { true },
+            environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false }, health: { true },
             launch: { launches.withLock { $0 += 1 }; return launch },
             updateChecker: { _ in .failure(.commandFailed(exitCode: 7)) },
             updater: { _, log in
@@ -317,7 +331,7 @@ extension MacSeamTests {
         let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
         let checks = Mutex(0)
         let now = Mutex(Date(timeIntervalSince1970: 1000))
-        let model = LocalServerModel(environment: try checkout(in: home), probeExternal: { false },
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false },
             updateChecker: { _ in
                 checks.withLock { $0 += 1 }
                 return .success(.init(behind: 2, current: "abc1234", latest: "def5678"))
@@ -340,7 +354,7 @@ extension MacSeamTests {
         let checks = Mutex(0)
         let now = Mutex(Date(timeIntervalSince1970: 1000))
         let clock = LocalUpdateMonitorClock()
-        let model = LocalServerModel(environment: try checkout(in: home), probeExternal: { false },
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false },
             updateChecker: { _ in
                 checks.withLock { $0 += 1 }
                 return .success(.init(behind: 9, current: "abc1234", latest: "def5678"))
@@ -373,7 +387,7 @@ extension MacSeamTests {
         let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
         let started = Mutex(false)
         let cancelled = Mutex(false)
-        let model = LocalServerModel(environment: try checkout(in: home), probeExternal: { false },
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false },
             updateChecker: { _ in
                 started.withLock { $0 = true }
                 do { try await Task.sleep(for: .seconds(60)) }
@@ -390,7 +404,7 @@ extension MacSeamTests {
     @Test func failedCheckIsQuietAndAlsoThrottled() async throws {
         let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
         let checks = Mutex(0)
-        let model = LocalServerModel(environment: try checkout(in: home), probeExternal: { false },
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false },
             updateChecker: { _ in checks.withLock { $0 += 1 }; return .failure(.commandFailed(exitCode: 7)) })
         await model.refresh()
         await model.refresh()
@@ -418,7 +432,7 @@ extension MacSeamTests {
     @Test func staleCheckCannotLandAfterALifecycleAction() async throws {
         let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
         let gate = LocalServerGate()
-        let model = LocalServerModel(environment: try checkout(in: home), probeExternal: { false },
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false },
             updateChecker: { _ in
                 await gate.wait()
                 return .success(.init(behind: 2, current: "abc1234", latest: "def5678"))
@@ -437,7 +451,7 @@ extension MacSeamTests {
         let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
         let entered = Mutex(false)
         let cancelled = Mutex(false)
-        let model = LocalServerModel(environment: try checkout(in: home), probeExternal: { false },
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false },
             updater: { _, _ in
                 await withTaskCancellationHandler {
                     entered.withLock { $0 = true }
@@ -457,7 +471,7 @@ extension MacSeamTests {
         let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
         let entered = Mutex(false)
         let cancelled = Mutex(false)
-        let model = LocalServerModel(environment: try checkout(in: home), probeExternal: { false },
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false },
             updateChecker: { _ in
                 await withTaskCancellationHandler {
                     entered.withLock { $0 = true }
@@ -472,6 +486,222 @@ extension MacSeamTests {
         await task.value
         #expect(model.updateCheckFailure == nil)
         #expect(!model.isCheckingUpdate)
+    }
+
+    @Test func failedAndCancelledBuildsPreserveDeploymentAndDeferCrashRecovery() async throws {
+        for cancelling in [false, true] {
+            let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+            let environment = try checkout(in: home)
+            let ui = environment.appDirectory.appendingPathComponent("ui/build")
+            try FileManager.default.createDirectory(at: ui, withIntermediateDirectories: true)
+            try "working UI".write(to: ui.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+            let code = environment.appDirectory.appendingPathComponent("code")
+            try "previous".write(to: code, atomically: true, encoding: .utf8)
+            let launch = try fakeScript(in: home, emitPasswordOnce: false)
+            let versions = Mutex<[String]>([])
+            let gate = LocalServerGate()
+            let model = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+                probeExternal: { false }, health: { true },
+                launch: {
+                    versions.withLock { $0.append((try? String(contentsOf: code, encoding: .utf8)) ?? "missing") }
+                    return launch
+                }, updater: { staged, _ in
+                    try! "broken".write(to: staged.appDirectory.appendingPathComponent("code"), atomically: true, encoding: .utf8)
+                    try! FileManager.default.removeItem(at: staged.appDirectory.appendingPathComponent("ui/build"))
+                    await gate.wait()
+                    return .failure(.updateFailed(exitCode: 7))
+                })
+            await model.start()
+            let pid = try #require(model.state.pid)
+            let task = Task { await model.applyUpdate() }
+            #expect(await waitForGate(gate))
+            kill(pid, SIGKILL) // Only the temporary fixture child we own.
+            try await Task.sleep(for: .milliseconds(200))
+            #expect(versions.withLock { $0 } == ["previous"])
+            #expect(try String(contentsOf: ui.appendingPathComponent("index.html"), encoding: .utf8) == "working UI")
+            if cancelling { task.cancel() }
+            await gate.open()
+            await task.value
+            #expect(model.state.isRunning)
+            #expect(model.updateFailure == .updateFailed(exitCode: cancelling ? 130 : 7))
+            #expect(versions.withLock { $0 } == ["previous", "previous"])
+            #expect(try String(contentsOf: code, encoding: .utf8) == "previous")
+            #expect(try String(contentsOf: ui.appendingPathComponent("index.html"), encoding: .utf8) == "working UI")
+            await model.stop()
+        }
+    }
+
+    @Test func cancellationAfterPromotionRestoresPreviousDeploymentAndRunningChild() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        let code = environment.appDirectory.appendingPathComponent("code")
+        try "previous".write(to: code, atomically: true, encoding: .utf8)
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let launches = Mutex(0)
+        let gate = LocalServerGate()
+        let model = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+            probeExternal: { false }, health: {
+                if launches.withLock({ $0 }) == 2 { await gate.wait() }
+                return true
+            }, launch: { launches.withLock { $0 += 1 }; return launch },
+            updater: { staged, _ in
+                try! "replacement".write(to: staged.appDirectory.appendingPathComponent("code"), atomically: true, encoding: .utf8)
+                return .success(())
+            })
+        await model.start()
+        let task = Task { await model.applyUpdate() }
+        #expect(await waitForGate(gate))
+        #expect(try String(contentsOf: code, encoding: .utf8) == "replacement")
+        task.cancel()
+        await gate.open()
+        await task.value
+        #expect(model.state.isRunning)
+        #expect(model.updateFailure == .updateFailed(exitCode: 130))
+        #expect(launches.withLock { $0 } == 3)
+        #expect(try String(contentsOf: code, encoding: .utf8) == "previous")
+        await model.stop()
+    }
+
+    @Test func failedReplacementReadinessRollsBackAndRestartsThePreviousDeployment() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        let code = environment.appDirectory.appendingPathComponent("code")
+        try "previous".write(to: code, atomically: true, encoding: .utf8)
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let launches = Mutex(0)
+        let model = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+            probeExternal: { false }, health: { launches.withLock { $0 } != 2 },
+            launch: { launches.withLock { $0 += 1 }; return launch },
+            updater: { staged, _ in
+                try! "replacement".write(to: staged.appDirectory.appendingPathComponent("code"), atomically: true, encoding: .utf8)
+                return .success(())
+            }, clock: ImmediateUpdateHealthClock())
+        await model.start()
+        await model.applyUpdate()
+        #expect(model.state.isRunning)
+        #expect(model.updateFailure == .updateFailed(exitCode: 1))
+        #expect(launches.withLock { $0 } == 3)
+        #expect(try String(contentsOf: code, encoding: .utf8) == "previous")
+        await model.stop()
+    }
+
+    @Test func lifecycleInvalidationReleasesTheAutomaticCheckThrottle() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let gate = LocalServerGate()
+        let checks = Mutex(0)
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true,
+            probeExternal: { false }, updateChecker: { _ in
+                checks.withLock { $0 += 1 }
+                await gate.wait()
+                return .success(.init(behind: 2, current: "abc1234", latest: "def5678"))
+            })
+        let first = Task { await model.automaticRefresh() }
+        #expect(await waitForGate(gate))
+        await model.stop()
+        await gate.open()
+        await first.value
+        #expect(model.updateStatus == nil)
+        await model.automaticRefresh()
+        #expect(checks.withLock { $0 } == 2)
+        #expect(model.updateStatus?.behind == 2)
+    }
+
+    @Test func isolatedModelRejectsEveryUpdateEntryPointWithoutExplicitTemporaryOptIn() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let calls = Mutex(0)
+        let model = LocalServerModel(environment: try checkout(in: home), isolated: true,
+            probeExternal: { false },
+            updateChecker: { _ in calls.withLock { $0 += 1 }; return .failure(.invalidOutput) },
+            updater: { _, _ in calls.withLock { $0 += 1 }; return .success(()) })
+        await model.refresh()
+        await model.checkForUpdate()
+        await model.checkForUpdate(force: false)
+        await model.automaticRefresh()
+        await model.applyUpdate()
+        model.beginUpdate()
+        model.startUpdateMonitoring()
+        await Task.yield()
+        #expect(!model.canManageUpdates)
+        #expect(calls.withLock { $0 } == 0)
+        // This only constructs a value; never reads or writes the real checkout.
+        let real = LocalServerModel(environment: LocalServerEnvironment(home: home, processEnvironment: ["SHEPHERD_DIR": "/outside-temporary-home/app"]),
+            isolated: true, allowTemporaryUpdates: true, probeExternal: { false })
+        #expect(!real.canManageUpdates)
+    }
+
+    @Test func remoteProfileCancelsAutomaticFetchAndAllowsRetryOnReturnToLocal() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let gate = LocalServerGate()
+        let checks = Mutex(0)
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true,
+            probeExternal: { false }, updateChecker: { _ in
+                checks.withLock { $0 += 1 }
+                await gate.wait()
+                return .success(.init(behind: 2, current: "abc1234", latest: "def5678"))
+            })
+        let pending = Task { await model.automaticRefresh() }
+        #expect(await waitForGate(gate))
+        model.updateActiveProfile(ServerProfile(name: "Remote", baseURL: URL(string: "https://remote.invalid")!, mode: .remote))
+        await gate.open()
+        await pending.value
+        #expect(model.updateStatus == nil)
+        await model.refresh()
+        await model.automaticRefresh()
+        #expect(checks.withLock { $0 } == 1)
+        model.updateActiveProfile(nil)
+        await model.automaticRefresh()
+        #expect(checks.withLock { $0 } == 2)
+        #expect(model.updateStatus?.behind == 2)
+    }
+
+    @Test func remoteProfileSkipsMonitorTicksAndWakeChecks() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let remote = ServerProfile(name: "Remote", baseURL: URL(string: "https://remote.invalid")!, mode: .remote)
+        let selected = Mutex<ServerProfile?>(remote)
+        let checks = Mutex(0)
+        let clock = LocalUpdateMonitorClock()
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true,
+            probeExternal: { false }, updateChecker: { _ in
+                checks.withLock { $0 += 1 }
+                return .success(.init(behind: 2, current: "abc1234", latest: "def5678"))
+            }, updateMonitorClock: clock)
+        defer { model.cancelUpdateForQuit() }
+        model.bindAutomaticProfile { selected.withLock { $0 } }
+        model.startUpdateMonitoring()
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await clock.sleeps.count < 1, ContinuousClock.now < deadline { await Task.yield() }
+        await clock.tick()
+        while await clock.sleeps.count < 2, ContinuousClock.now < deadline { await Task.yield() }
+        await model.automaticRefresh()
+        #expect(checks.withLock { $0 } == 0)
+        selected.withLock { $0 = nil }
+        await clock.tick()
+        while await clock.sleeps.count < 3, ContinuousClock.now < deadline { await Task.yield() }
+        #expect(checks.withLock { $0 } == 1)
+        // A profile change is gated immediately, even before its observer runs.
+        selected.withLock { $0 = remote }
+        await model.automaticRefresh()
+        #expect(checks.withLock { $0 } == 1)
+    }
+
+    @Test func overlappingPanelRefreshRetainsTheSharedFetchResultAndThrottle() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let gate = LocalServerGate()
+        let checks = Mutex(0)
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true,
+            probeExternal: { false }, updateChecker: { _ in
+                checks.withLock { $0 += 1 }
+                await gate.wait()
+                return .success(.init(behind: 2, current: "abc1234", latest: "def5678"))
+            })
+        let first = Task { await model.automaticRefresh() }
+        #expect(await waitForGate(gate))
+        await model.refresh()
+        await gate.open()
+        await first.value
+        await model.refresh()
+        #expect(model.updateStatus?.behind == 2)
+        #expect(checks.withLock { $0 } == 1)
     }
 
     @Test func everyStateHasACatalogSentence() {

@@ -102,7 +102,7 @@ public struct LocalServerEnvironment: Sendable {
   }
 
   /// The installer's `SHEPHERD_DIR` default (`deploy/install.sh`).
-  public let appDirectory: URL
+  public private(set) var appDirectory: URL
   /// Sourced by `install.sh` with `set -a` and by the systemd units'
   /// `EnvironmentFile=-%h/.shepherd/env`.
   public let envFilePath: URL
@@ -146,6 +146,21 @@ public struct LocalServerEnvironment: Sendable {
     values["HERDR_SOCKET_PATH"] = URL(fileURLWithPath: socket, relativeTo: appDirectory)
       .standardizedFileURL.path
     self.resolvedValues = values
+  }
+
+  /// Retarget only deployment files, preserving the frozen state/DB/socket paths.
+  public func withAppDirectory(_ directory: URL) -> Self {
+    var copy = self
+    copy.appDirectory = directory
+    return copy
+  }
+
+  /// An isolated app may opt into update tests only inside an explicit temp home
+  /// AND checkout. Resolve links so a temp alias cannot grant real-checkout access.
+  public var isTemporaryUpdateEnvironment: Bool {
+    let root = URL(fileURLWithPath: NSTemporaryDirectory()).resolvingSymlinksInPath().path + "/"
+    return homeDirectory.resolvingSymlinksInPath().path.hasPrefix(root)
+      && appDirectory.resolvingSymlinksInPath().path.hasPrefix(root)
   }
 
   /// Always appended: a Finder-launched app inherits launchd's PATH, which

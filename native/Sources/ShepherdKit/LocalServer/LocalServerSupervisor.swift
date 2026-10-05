@@ -99,6 +99,7 @@ public actor LocalServerSupervisor {
   private var exitWatcher: Task<Void, Never>?
   /// Pending backoff-then-relaunch, cancelled by explicit stop or detachment.
   private var supervision: Task<Void, Never>?
+  private var recoverySuspended = false
   private var crashTimes: [Date] = []
 
   /// Bumped on every `spawn()`, and the identity of one child for everything
@@ -421,6 +422,25 @@ public actor LocalServerSupervisor {
     // crash loop.
     crashTimes.removeAll()
     await startChild(epoch: epoch)
+  }
+
+  /// Serialize with a recovery already entering its launch, then inhibit all
+  /// subsequent recovery until deployment promotion or rollback has completed.
+  public func suspendRecovery() async -> Bool {
+    await beginLifecycle()
+    defer { endLifecycle() }
+    recoverySuspended = true
+    supervision?.cancel()
+    supervision = nil
+    return state.isRunning || state == .starting
+  }
+
+  public func resumeRecovery(restartIfNeeded: Bool) async {
+    let epoch = terminationEpoch.withLock { $0 }
+    await beginLifecycle()
+    defer { endLifecycle() }
+    recoverySuspended = false
+    if restartIfNeeded { await startChild(epoch: epoch) }
   }
 
   /// A quit invalidates lifecycle work that was already queued. Once a
@@ -788,6 +808,7 @@ public actor LocalServerSupervisor {
     guard generation == spawnGeneration, !stopping else { return }
     livePID.withLock { $0 = nil }
     process = nil
+    state = .failed(.exited(code: code))
     Self.logger.error("local server exited with \(code, privacy: .public)")
     await handleCrash(exitCode: code, generation: generation)
   }
@@ -852,6 +873,10 @@ public actor LocalServerSupervisor {
   private func handleCrash(exitCode: Int32, generation: Int) async {
     let now = await clock.now
     guard generation == spawnGeneration, !stopping else { return }
+    guard !recoverySuspended else {
+      state = .failed(.exited(code: exitCode))
+      return
+    }
     crashTimes.append(now)
     crashTimes.removeAll { now.timeIntervalSince($0) > policy.window }
 
@@ -890,7 +915,7 @@ public actor LocalServerSupervisor {
     let epoch = terminationEpoch.withLock { $0 }
     await beginLifecycle()
     defer { endLifecycle() }
-    guard !Task.isCancelled, scheduled == spawnGeneration else { return }
+    guard !Task.isCancelled, !recoverySuspended, scheduled == spawnGeneration else { return }
     await startChild(epoch: epoch)
   }
 }

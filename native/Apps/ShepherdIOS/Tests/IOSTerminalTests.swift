@@ -620,6 +620,27 @@ final class IOSTerminalTests: XCTestCase {
         XCTAssertTrue(IOSTerminalDialog.isOpen([footer] + (1...14).map { "output \($0)" } + ["", "   "]))
     }
 
+    func testSelectedOptionCaretMarksAFooterlessDialog() {
+        // AskUserQuestion's review screen ends at its last option: no key-hint footer.
+        let review = ["←  ☒ Höhe  ☒ Leiste  ✔ Submit  →", "Review your answers",
+            "│ ● Wie hoch darf das Editorfeld werden?", "→ Unbegrenzt mitwachsen (Empfohlen)",
+            "● Wann ist die Formatierleiste zu sehen?", "→ Immer, über dem Feld (Empfohlen)", "",
+            "Ready to submit your answers?", "", "❯ 1. Submit answers", "  2. Cancel"]
+        XCTAssertTrue(IOSTerminalDialog.isOpen(review))
+        XCTAssertTrue(IOSTerminalDialog.isOpen(["│ ❯ 1. Yes", "│   2. No"]))
+        XCTAssertTrue(IOSTerminalDialog.isOpen(["  1. Yes", "> 2) No"]))
+        // The at-rest prompt and a sent message carry a caret but no option number.
+        XCTAssertFalse(IOSTerminalDialog.isOpen(["❯ Resume", "● Picking up the plan.", "❯ ", "? for shortcuts"]))
+        // A caret above the 15-row window is history, not the live dialog.
+        XCTAssertFalse(IOSTerminalDialog.isOpen(["❯ 1. Submit answers"] + (1...15).map { "output \($0)" }))
+
+        let pty = IOSFixturePTY()
+        let core = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
+        let presentation = IOSTerminalPresentation(session: core, reply: { _ in })
+        presentation.screenChanged(review)
+        XCTAssertTrue(presentation.answersWithKeys)
+    }
+
     func testDialogKeyRowYieldsToTheWritingStateAndReturnsWhenItCloses() {
         let pty = IOSFixturePTY()
         let core = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })

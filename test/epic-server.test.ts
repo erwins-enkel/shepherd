@@ -588,6 +588,43 @@ describe("GET /api/epics", () => {
     expect(await res.json()).toEqual({ epics: [], subIssues: [] });
   });
 
+  test("runs the fingerprint check before listing a GitHub repo's issues (#2756)", async () => {
+    const order: string[] = [];
+    const store = new SessionStore(":memory:");
+    const app = makeApp({
+      store,
+      service: {} as AppDeps["service"],
+      events: new EventHub(),
+      usageLimits: { limits: () => ({}) } as any,
+      drain: {
+        snapshot: async () => [],
+        queue: async () => [],
+        retainClaim: () => {},
+        buildEpic: async () => null,
+        diagnoseEpic: async () => null,
+        approveEpicNext: () => {},
+        tick: async () => {},
+      },
+      resolveForge: () =>
+        ({
+          kind: "github",
+          listIssues: async () => {
+            order.push("list");
+            return [];
+          },
+        }) as any,
+      fingerprint: {
+        ensureFresh: async () => {
+          order.push("fresh");
+        },
+        coversRepo: () => true,
+      },
+    });
+    const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
+    expect(res.status).toBe(200);
+    expect(order).toEqual(["fresh", "list"]);
+  });
+
   test("stored epic_run surfaces even with no forge issues match", async () => {
     const { app, store } = harness({
       resolveForge: () =>

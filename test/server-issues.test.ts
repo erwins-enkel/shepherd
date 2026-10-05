@@ -98,6 +98,32 @@ test("GET /api/issues resolves via the forge → {slug, issues}", async () => {
   expect(body.issues).toEqual([ISSUE]);
 });
 
+// #2756: opening the issues view makes sure the repo fingerprint is recent before the cached
+// list is read; a non-GitHub forge has no fingerprint to consult.
+test("GET /api/issues runs the fingerprint check before listing a GitHub repo, not a Gitea one", async () => {
+  const order: string[] = [];
+  const deps = (kind: GitForge["kind"]): AppDeps => ({
+    ...makeDeps(() =>
+      fakeForge({
+        kind,
+        listIssues: async () => {
+          order.push(`list:${kind}`);
+          return [ISSUE];
+        },
+      }),
+    ),
+    fingerprint: {
+      ensureFresh: async () => {
+        order.push("fresh");
+      },
+      coversRepo: () => true,
+    },
+  });
+  expect((await makeApp(deps("github")).fetch(req(repoDir))).status).toBe(200);
+  expect((await makeApp(deps("gitea")).fetch(req(repoDir))).status).toBe(200);
+  expect(order).toEqual(["fresh", "list:github", "list:gitea"]);
+});
+
 test("GET /api/issues with no forge for repo → {slug:null, issues:[]}", async () => {
   const app = makeApp(makeDeps(() => null));
   const res = await app.fetch(req(repoDir));

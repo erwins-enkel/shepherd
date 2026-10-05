@@ -6955,6 +6955,9 @@ async function handleIssues({ req, parts, url, deps }: Ctx): Promise<Response | 
     const forge = deps.resolveForge?.(dir) ?? null;
     if (!forge)
       return json({ slug: null, webUrl: null, issues: [], viewer: null, lightweight: false });
+    // An operator opening the view: make sure the fingerprint is recent, so the cached list is
+    // current without a timed re-list (#2756).
+    if (forge.kind === "github") await deps.fingerprint?.ensureFresh();
     return issuesResponse(forge);
   }
   return null;
@@ -8284,6 +8287,7 @@ async function handleEpicsList({ req, parts, url, deps }: Ctx): Promise<Response
   if (!deps.drain) return json({ epics: [], subIssues: [] });
   const forge = deps.resolveForge?.(dir) ?? null;
   if (!forge) return json({ epics: [], subIssues: [] });
+  if (forge.kind === "github") await deps.fingerprint?.ensureFresh(); // see handleIssues
 
   const storedRun = deps.store.getEpicRun(dir);
   let openIssues: Awaited<ReturnType<typeof forge.listIssues>>;

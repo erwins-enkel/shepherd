@@ -236,6 +236,18 @@ import { HoldReasonService } from "./hold-service";
 import { graphRateLimit } from "./forge/rate-limit";
 import { fetchGithubRateLimit } from "./forge/github-rate-limit";
 import { sharedGhRunner } from "./forge/github";
+import { fetchRepoFingerprints } from "./forge/github-fingerprint";
+import { setIssuesFreshness } from "./forge/repo-freshness";
+import {
+  countsPlan,
+  RepoFingerprintService,
+  type FingerprintObservation,
+  type FingerprintTarget,
+} from "./repo-fingerprint";
+import {
+  completedEpicScopeRepos,
+  reconcileCompletedEpicsForRepo,
+} from "./completed-epics-reconcile";
 import { MIN_BUN_VERSION, bunTooOld } from "./runtime-guard";
 
 if (bunTooOld(Bun.version)) {
@@ -3659,6 +3671,74 @@ const broadcastBacklog = async () =>
       repoRoot: config.repoRoot,
     }),
   );
+
+// Repo fingerprint (#2756): one ~1-point GraphQL query every 2 min says which GitHub repos
+// changed. Issue lists (via the forge cache), backlog counts and the completed-epics reconcile
+// refresh only for those, instead of every consumer re-fetching on its own timer.
+function fingerprintTargets(): FingerprintTarget[] {
+  const bySlug = new Map<string, string[]>();
+  for (const r of listRepos(config.repoRoot)) {
+    const forge = resolveForge(r.path);
+    if (forge?.kind !== "github" || !forge.slug) continue; // lightweight → local forge, skipped
+    bySlug.set(forge.slug, [...(bySlug.get(forge.slug) ?? []), r.path]);
+  }
+  return [...bySlug].map(([slug, paths]) => ({ slug, paths }));
+}
+async function applyFingerprintChanges(o: FingerprintObservation, refresh: string[]) {
+  const issueSlugs = new Set(o.changed.filter((c) => c.issues).map((c) => c.slug));
+  if (issueSlugs.size > 0) {
+    const reconcileDeps = { store, events, drain, resolveForge };
+    for (const repo of completedEpicScopeRepos(store)) {
+      const slug = resolveForge(repo)?.slug;
+      if (slug && issueSlugs.has(slug)) await reconcileCompletedEpicsForRepo(reconcileDeps, repo);
+    }
+  }
+  if (refresh.length === 0) return;
+  await Promise.all(refresh.map((path) => backlog.refresh(path)));
+  if (presence.hasClients()) await broadcastBacklog();
+}
+// The reconcile and count re-fetches run off the fingerprint's own run, so an operator view
+// awaiting a fresh fingerprint never waits for them; chained so two runs never overlap.
+let fingerprintFollowUp: Promise<void> = Promise.resolve();
+function onFingerprintObserved(o: FingerprintObservation): void {
+  const { refresh, touch } = countsPlan(o, (path) => backlog.peek(path) !== null);
+  for (const path of touch) backlog.touch(path);
+  if (refresh.length === 0 && !o.changed.some((c) => c.issues)) return;
+  fingerprintFollowUp = fingerprintFollowUp
+    .then(() => applyFingerprintChanges(o, refresh))
+    .catch((err) => console.warn("[fingerprint] follow-up failed:", err));
+}
+const fingerprint = new RepoFingerprintService({
+  listTargets: fingerprintTargets,
+  fetch: (slugs) => fetchRepoFingerprints(sharedGhRunner, slugs),
+  rateLimit: () => graphRateLimit.snapshot(),
+  onObserved: onFingerprintObserved,
+});
+setIssuesFreshness((slug) => fingerprint.issuesGen(slug));
+const fingerprintCoversRepo = (repoPath: string): boolean => {
+  const forge = resolveForge(repoPath);
+  return forge?.kind === "github" && !!forge.slug && fingerprint.covered(forge.slug);
+};
+deferredStarts.push(() => {
+  setTimeout(() => void fingerprint.tick(), 2_000);
+  fingerprint.start();
+});
+// A PR opening, merging or closing usually moves issues too (a merge closes its linked issue):
+// fingerprint soon rather than waiting out the cadence. Seeded from the rehydrated PR cache so a
+// restart doesn't read every session's first push as a transition.
+const prStateKey = (git: { state: string; number?: number }) => `${git.state}#${git.number ?? ""}`;
+const lastPrState = new Map(
+  Object.entries(prPoller.snapshot()).map(([id, git]) => [id, prStateKey(git)]),
+);
+events.subscribe((event, data) => {
+  if (event !== "session:git") return;
+  const { id, git } = data as { id: string; git: import("./forge/types").GitState };
+  const key = prStateKey(git);
+  const prev = lastPrState.get(id) ?? "none#";
+  lastPrState.set(id, key);
+  if (key !== prev) void fingerprint.refreshSoon();
+});
+
 const backlogPoller = new BacklogPoller(
   () => listRepos(config.repoRoot),
   resolveForge,
@@ -3673,6 +3753,8 @@ const backlogPoller = new BacklogPoller(
     hotRepos: () => reposUsedSince(store.lastUsedByRepo(), Date.now() - 7 * 86_400_000),
     coldIntervalMs: 15 * 60_000,
   },
+  // The fingerprint refreshes a covered repo's counts when they change (#2756).
+  fingerprintCoversRepo,
 );
 deferredStarts.push(() => {
   setTimeout(() => void backlogPoller.tick(), 3_000);
@@ -3719,6 +3801,7 @@ deferredStarts.push(() => {
 const appDeps: AppDeps = {
   store,
   service,
+  fingerprint: { ensureFresh: () => fingerprint.ensureFresh(), coversRepo: fingerprintCoversRepo },
   readCodexAuthMode,
   telemetry,
   learnings: learningsSvc,

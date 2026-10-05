@@ -45,8 +45,11 @@ struct IOSSessionChromeActionContent: View {
         case .menu:
             menu
                 .sheet(item: $state.sheet) { sheet in
-                    if sheet == .merge { IOSMergeConfirmationSheet(session: session, state: state) }
-                    else { IOSActionEditorSheet(session: session, state: state, repos: repos, kind: sheet) }
+                    switch sheet {
+                    case .merge: IOSMergeConfirmationSheet(session: session, state: state)
+                    case .decommission: IOSDecommissionSheet(session: session, state: state)
+                    default: IOSActionEditorSheet(session: session, state: state, repos: repos, kind: sheet)
+                    }
                 }
                 .onDisappear { state.detailDidDisappear() }
         case .inline:
@@ -102,6 +105,15 @@ struct IOSSessionChromeActionContent: View {
                     .disabled(state.busy || !state.allowsWrites)
                     .accessibilityHint(action.help(for: session))
                     .accessibilityIdentifier("menu-action-\(action.id)")
+            }
+            if state.canDecommission {
+                Divider()
+                Button(role: .destructive, action: state.presentDecommission) {
+                    Label(L.t("cardmenu_decommission"), systemImage: "archivebox")
+                }
+                .disabled(state.busy)
+                .accessibilityHint(L.t("viewport_decommission_title"))
+                .accessibilityIdentifier("menu-action-decommission")
             }
             if !state.allowsWrites { Text(L.t("native_ios_actions_read_only")) }
         } label: { Image(systemName: "ellipsis").frame(width: 44, height: 44) }

@@ -70,9 +70,12 @@ struct IOSMergeConfirmationFacts: View {
     let session: Session
     let git: GitState?
     let method: MergeMethod?
+    /// `isMergeTakeover` in `ui/src/lib/components/merge-confirm.ts`: someone else is responsible.
+    static func isTakeover(_ git: GitState?) -> Bool {
+        git?.mergeGate?.handoff != nil || git?.mergeGate?.reviewBlockBy != nil
+    }
     static func confirmTitle(_ git: GitState?) -> String {
-        let takeover = git?.mergeGate?.handoff != nil || git?.mergeGate?.reviewBlockBy != nil
-        return L.t(takeover ? "mergeconfirm_confirm_takeover" : "mergeconfirm_confirm")
+        L.t(isTakeover(git) ? "mergeconfirm_confirm_takeover" : "mergeconfirm_confirm")
     }
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -82,17 +85,7 @@ struct IOSMergeConfirmationFacts: View {
             fact(L.t("mergeconfirm_field_target"), git?.baseRefName ?? L.t("mergeconfirm_value_unknown"))
             fact(L.t("mergeconfirm_field_method"), method?.rawValue ?? L.t("native_ios_actions_server_default"))
             fact(L.t("native_ios_actions_revision"), git?.headSha ?? L.t("mergeconfirm_value_unknown"))
-            if let gate = git?.mergeGate {
-                if let who = gate.handoffWho {
-                    Text(verbatim: gate.handoff?.known == .reviewer
-                        ? L.t("mergeconfirm_handoff_reviewer", who) : L.t("mergeconfirm_handoff_merger", who))
-                        .foregroundStyle(SessionListStyle.amber).fixedSize(horizontal: false, vertical: true)
-                }
-                if let reviewer = gate.reviewBlockBy {
-                    Text(L.t("mergeconfirm_review_block", reviewer)).foregroundStyle(SessionListStyle.amber)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-            }
+            IOSMergeGateNotice(git: git)
         }.sessionFont().foregroundStyle(SessionListStyle.ink)
     }
     private func fact(_ label: String, _ value: String) -> some View {
@@ -100,5 +93,23 @@ struct IOSMergeConfirmationFacts: View {
             Text(verbatim: label.uppercased()).sessionFont(label: true).foregroundStyle(SessionListStyle.muted)
             Text(verbatim: value).fixedSize(horizontal: false, vertical: true)
         }.accessibilityElement(children: .combine)
+    }
+}
+
+/// Who else is responsible for this merge, as the server stamped it. Empty when nobody is.
+struct IOSMergeGateNotice: View {
+    let git: GitState?
+    var body: some View {
+        if let gate = git?.mergeGate {
+            if let who = gate.handoffWho {
+                Text(verbatim: gate.handoff?.known == .reviewer
+                    ? L.t("mergeconfirm_handoff_reviewer", who) : L.t("mergeconfirm_handoff_merger", who))
+                    .foregroundStyle(SessionListStyle.amber).fixedSize(horizontal: false, vertical: true)
+            }
+            if let reviewer = gate.reviewBlockBy {
+                Text(L.t("mergeconfirm_review_block", reviewer)).foregroundStyle(SessionListStyle.amber)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
     }
 }

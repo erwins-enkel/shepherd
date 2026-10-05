@@ -4,6 +4,7 @@ import ShepherdKit
 
 struct ServerListView: View {
     @Environment(AppModel.self) private var app
+    @Environment(IOSServerHub.self) private var hub: IOSServerHub?
     @State private var adding = false
     @State private var removing: ServerProfile?
     @State private var pendingLogin: ServerProfile?
@@ -16,15 +17,27 @@ struct ServerListView: View {
                     .accessibilityIdentifier("add-server")
             }
             Section(L.t("native_welcome_saved_title")) {
-                ForEach(app.savedServers) { profile in
-                    Button { Task { await app.activate(profile) } } label: {
+                ForEach(hub?.profiles ?? app.savedServers) { profile in
+                    Button { Task {
+                        if let hub { await hub.connect(profile) } else { await app.activate(profile) }
+                    } } label: {
                         VStack(alignment: .leading) {
-                            Text(verbatim: profile.name)
+                            HStack {
+                                Text(verbatim: profile.name)
+                                if let hub {
+                                    Spacer()
+                                    Text(verbatim: L.t(hub.models[profile.id] == nil ? "native_ios_server_disconnected" : "native_ios_server_connected"))
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
                             Text(verbatim: profile.baseURL.absoluteString).font(.caption).foregroundStyle(.secondary)
                         }.padding(.vertical, 6)
                     }
                     .accessibilityIdentifier("server-\(profile.id)")
                     .swipeActions {
+                        if let hub, hub.models[profile.id] != nil {
+                            Button(L.t("native_ios_server_disconnect")) { hub.disconnect(profile.id) }.tint(.orange)
+                        }
                         Button(L.t("native_welcome_saved_remove"), role: .destructive) { removing = profile }
                     }
                 }
@@ -32,16 +45,27 @@ struct ServerListView: View {
             if let warning = app.signOutWarning { Text(verbatim: warning).foregroundStyle(.orange) }
         }
         .navigationTitle(L.t("native_welcome_title"))
+        .toolbar {
+            if let hub, !hub.connected.isEmpty {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L.t("common_close")) { hub.managingServers = false }
+                }
+            }
+        }
         .accessibilityIdentifier("server-list")
         .sheet(isPresented: $adding, onDismiss: {
-            if let profile = pendingLogin { app.sheet = .login(profile); pendingLogin = nil }
+            if let profile = pendingLogin {
+                pendingLogin = nil
+                if let hub { hub.reloadCatalogue(); Task { await hub.connect(profile, login: true) } }
+                else { app.sheet = .login(profile) }
+            }
         }) { RemoteServerFormView { pendingLogin = $0 }.environment(app) }
         .confirmationDialog(L.t("native_welcome_saved_remove_confirm_title", removing?.name ?? ""),
             isPresented: Binding(get: { removing != nil }, set: { if !$0 { removing = nil } })) {
             if let profile = removing {
                 Button(L.t("native_welcome_saved_remove_confirm_action"), role: .destructive) {
                     removing = nil
-                    Task { await app.remove(profile) }
+                    Task { if let hub { await hub.remove(profile) } else { await app.remove(profile) } }
                 }
             }
         } message: { Text(verbatim: L.t("native_ios_remove_body")) }

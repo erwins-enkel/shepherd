@@ -9,8 +9,10 @@ enum IOSPlanStream {
         // Registration is idempotent; no Mac host or second event connection is installed.
         app.register(PlanModel.self)
         app.register(IOSPlanController.self)
-        SessionSignals.planQuestionsUnanswered = { [weak app] id in
-            app?.extension(PlanModel.self)?.questionsUnanswered(id) ?? false
+        if !app.usesModelScopedSignals {
+            SessionSignals.planQuestionsUnanswered = { [weak app] id in
+                app?.extension(PlanModel.self)?.questionsUnanswered(id) ?? false
+            }
         }
     }
 }

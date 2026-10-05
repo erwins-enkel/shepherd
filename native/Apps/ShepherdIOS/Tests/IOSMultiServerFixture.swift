@@ -1,0 +1,33 @@
+import Foundation
+import Synchronization
+import ShepherdKit
+@testable import ShepherdIOS
+
+/// Per-origin snapshots prevent background reconnection from erasing rendered fixture rows.
+final class IOSMultiServerFixtureTransport: URLProtocol, @unchecked Sendable {
+    private static let snapshots = Mutex<[String: [Session]]>([:])
+    static func set(_ sessions: [Session], for url: URL) { snapshots.withLock { $0[url.host() ?? ""] = sessions } }
+    override class func canInit(with request: URLRequest) -> Bool { request.url?.host?.hasSuffix(".multi.fixture.invalid") == true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let url = request.url else { return }
+        var status = 200
+        let body: Data
+        switch url.path {
+        case "/api/sessions" where request.httpMethod == "POST":
+            status = 201; body = Data(IOSComposeFixtureTransport.sessionJSON.utf8)
+            if let session = try? JSONDecoder().decode(Session.self, from: body) {
+                Self.snapshots.withLock { $0[url.host() ?? "", default: []].append(session) }
+            }
+        case "/api/sessions": body = (try? JSONEncoder().encode(Self.snapshots.withLock { $0[url.host() ?? ""] ?? [] })) ?? Data("[]".utf8)
+        case "/api/settings": body = Data(#"{"repoRoot":"/fixtures","repoRootDisplay":"/fixtures","firstRunPending":false,"defaultModel":"sonnet","defaultEffort":"medium","defaultAgentProvider":"claude","authMode":"subscription","operatorLanguage":"de"}"#.utf8)
+        case "/api/repos": body = Data(#"{"repos":[{"name":"shepherd","path":"/fixtures/shepherd","display":"shepherd","realPath":"/fixtures/shepherd","isFork":false,"hidden":false}],"recentWindowDays":14}"#.utf8)
+        default: status = 404; body = Data(#"{"error":"not found"}"#.utf8)
+        }
+        let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: body)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}

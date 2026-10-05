@@ -11,8 +11,10 @@ extension CoreStreamInstallers {
         app.register(ActionsModel.self)
         SessionSignals.connect(app)
         app.register(PlanModel.self)
-        PlanSignals.planReviewing = { [weak app] id in
-            app?.extension(PlanModel.self)?.reviewing.contains(id) ?? false
+        if !app.usesModelScopedSignals {
+            PlanSignals.planReviewing = { [weak app] id in
+                app?.extension(PlanModel.self)?.reviewing.contains(id) ?? false
+            }
         }
         HerdStream.install(app)
         app.register(QueuesModel.self)

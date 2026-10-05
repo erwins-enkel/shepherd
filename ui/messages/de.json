@@ -5225,5 +5225,10 @@
   "native_compose_keep_app_open": "Kurz die App wechseln geht – App nicht schließen.",
   "feat_ios_upload_autostart_title": "Starten, während Dateien hochladen (iOS)",
   "feat_ios_upload_autostart_body": "Die iOS-Eingabe zeigt den Upload jetzt live in Prozent. Tippe während des Uploads auf Starten, dann startet die Sitzung von selbst, sobald er fertig ist – kurz die App wechseln geht.",
-  "newtask_upload_keep_tab_open": "Diesen Tab geöffnet lassen, bis der Upload fertig ist."
+  "newtask_upload_keep_tab_open": "Diesen Tab geöffnet lassen, bis der Upload fertig ist.",
+  "native_ios_server_hint": "Server: {name}",
+  "native_ios_server_connected": "Verbunden",
+  "native_ios_server_disconnected": "Getrennt",
+  "native_ios_server_disconnect": "Verbindung trennen",
+  "native_ios_notification_server": "Auf welchem Server soll die Session geöffnet werden?"
 }

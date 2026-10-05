@@ -24,13 +24,20 @@ enum HerdStream {
             }
         }
         if let herd = app.extension(HerdSignals.self) {
-            herd.planReviewing = { session in PlanSignals.planReviewing(session.id) }
+            herd.planReviewing = { [weak app] session in
+                guard let app else { return false }
+                return app.usesModelScopedSignals
+                    ? app.extension(PlanModel.self)?.reviewing.contains(session.id) ?? false
+                    : PlanSignals.planReviewing(session.id)
+            }
             herd.planRework = { [weak app] session in
                 app?.extension(PlanModel.self)?.isReworking(session) ?? false
             }
         }
-        SessionSignals.gitMerged = { [weak app] id in
-            app?.extension(HerdSignals.self)?.git[id]?.state.known == .merged
+        if !app.usesModelScopedSignals {
+            SessionSignals.gitMerged = { [weak app] id in
+                app?.extension(HerdSignals.self)?.git[id]?.state.known == .merged
+            }
         }
     }
 }

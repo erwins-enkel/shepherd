@@ -473,11 +473,11 @@ final class IOSPlanTests: XCTestCase {
         let m = try XCTUnwrap(app.extension(PlanModel.self))
         let g = gate(forms: true)
         m.receive(.unknown(name: "session:plangate", payload: try JSONEncoder().encode(SessionPlanGateEvent(id: session().id, gate: g))))
-        XCTAssertTrue(SessionSignals.planQuestionsUnanswered(session().id))
+        XCTAssertTrue(SessionSignals.planQuestionsUnanswered(session().id, for: app))
         XCTAssertFalse(app.allowsTerminalInput)
         XCTAssertNotNil(app.liveRequestAudit)
         app.deactivate()
-        XCTAssertFalse(SessionSignals.planQuestionsUnanswered(session().id))
+        XCTAssertFalse(SessionSignals.planQuestionsUnanswered(session().id, for: app))
     }
 
     func testMarkdownPreservesHeadingsListMarkersAndLiteralCode() {

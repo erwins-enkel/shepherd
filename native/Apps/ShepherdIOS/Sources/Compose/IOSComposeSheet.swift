@@ -24,6 +24,10 @@ struct IOSComposeContent: View {
     let store: SessionStore
     let activation: Int
     private let fixtureCurrent: (() -> Bool)?
+    private let serverPicker: AnyView?
+    private let closeSheet: (() -> Void)?
+    private let onCreated: ((String) -> Void)?
+    private let promptChanged: ((String) -> Void)?
     @State var model: ComposeModel
     @State var voice: DictationController
     @State private var audioEngine: IOSDictationEngine?
@@ -41,9 +45,11 @@ struct IOSComposeContent: View {
     @Environment(\.openURL) private var openURL
     @ScaledMetric(relativeTo: .body) private var promptHeight = 230
     enum Options: String, Identifiable { case branch, engine, issues, commands; var id: String { rawValue } }
-    init(app: AppModel, store: SessionStore, activation: Int, model: ComposeModel? = nil, voice: DictationController? = nil, fixtureCurrent: (() -> Bool)? = nil) {
+    init(app: AppModel, store: SessionStore, activation: Int, model: ComposeModel? = nil, voice: DictationController? = nil, fixtureCurrent: (() -> Bool)? = nil, serverPicker: AnyView? = nil, close: (() -> Void)? = nil, onCreated: ((String) -> Void)? = nil, initialPrompt: String = "", promptChanged: ((String) -> Void)? = nil) {
         self.app = app; self.store = store; self.activation = activation; self.fixtureCurrent = fixtureCurrent
+        self.serverPicker = serverPicker; self.closeSheet = close; self.onCreated = onCreated; self.promptChanged = promptChanged
         let model = model ?? ComposeModel(client: store.client, defaults: app.composerDefaults, runDefaults: ComposeRunConfig.defaults(from: store.settings))
+        if !initialPrompt.isEmpty { model.prompt = initialPrompt }
         model.repoBranches.allowsStatusProbe = app.liveRequestAudit == nil
         model.attachments.keepAlive = { IOSBackgroundGrace.begin("shepherd.compose.upload") }
         _model = State(initialValue: model)
@@ -61,7 +67,7 @@ struct IOSComposeContent: View {
     private var repo: Repo? { repos.first { $0.path == model.repoPath } }
     private var repoName: String { repo?.name ?? model.repoPath.components(separatedBy: "/").last ?? "" }
     private var current: Bool { fixtureCurrent?() ?? (app.store === store && app.activationGeneration == activation && app.sheet == .newSession) }
-    private var holdLikely: Bool { ComposeReadiness.holdLikely(limits: SessionSignals.usageLimits(), settings: store.settings) }
+    private var holdLikely: Bool { ComposeReadiness.holdLikely(limits: SessionSignals.usageLimits(for: app), settings: store.settings) }
     var readiness: ComposeReadiness.State { model.readiness(submitting: submission.busy, repoResolved: repo != nil, holdLikely: holdLikely) }
     var body: some View {
         VStack(spacing: 0) {
@@ -106,7 +112,7 @@ struct IOSComposeContent: View {
                     Group {
                         switch option {
                         case .branch: ComposeBranchSheet(model: model)
-                        case .engine: ComposeEngineSheet(model: model)
+                        case .engine: ComposeEngineSheet(model: model).environment(app)
                         case .issues: ComposeSourceSheet(model: model, commands: false) { options = nil }
                         case .commands: ComposeSourceSheet(model: model, commands: true) { options = nil }
                         }
@@ -127,6 +133,7 @@ struct IOSComposeContent: View {
             }
             .onChange(of: voice.active) { _, active in if active { promptFocused = false } }
             .onChange(of: model.prompt) { _, text in
+                promptChanged?(text)
                 guard promptFocused, !voice.active, let trigger = ComposeModel.trigger(in: text, caret: text.endIndex) else { return }
                 if trigger.query.isEmpty { options = trigger.symbol == "#" ? .issues : .commands }
             }
@@ -142,6 +149,7 @@ struct IOSComposeContent: View {
     }
     private var formContent: some View {
                 VStack(alignment: .leading, spacing: 12) {
+                    if let serverPicker { serverPicker.disabled(voice.active || submission.busy || autoStart.armed) }
                     context.opacity(voice.active || autoStart.armed ? 0.4 : 1).disabled(voice.active || submission.busy || autoStart.armed)
                     prompt
                     attachments
@@ -160,7 +168,7 @@ struct IOSComposeContent: View {
     }
     private var header: some View {
         HStack {
-            Button { voice.teardown(); app.sheet = nil } label: { Image(systemName: "xmark").frame(width: 44, height: 44).overlay(Circle().stroke(ComposePalette.line)) }
+            Button { voice.teardown(); dismiss() } label: { Image(systemName: "xmark").frame(width: 44, height: 44).overlay(Circle().stroke(ComposePalette.line)) }
                 .buttonStyle(.plain).accessibilityLabel(L.t("common_close")).disabled(submission.busy)
             Spacer(minLength: 8)
             Text(verbatim: L.t("newtask_title").uppercased()).font(.system(size: bodySize, design: .monospaced).weight(.bold)).tracking(1.4).foregroundStyle(ComposePalette.bright)
@@ -374,7 +382,11 @@ struct IOSComposeContent: View {
             }.disabled(submission.canceling || submission.cancelRequested).frame(minHeight: 44)
         }.padding()
     }
-    private func seedRepo() { if model.repoPath.isEmpty, let path = RepoRecency.defaultPath(repos, sessions: store.sessions) { model.repoPath = path } }
+    private func dismiss() { if let closeSheet { closeSheet() } else { app.sheet = nil } }
+    private func seedRepo() {
+        if model.repoPath.isEmpty || (serverPicker != nil && repo == nil),
+           let path = RepoRecency.defaultPath(repos, sessions: store.sessions) { model.repoPath = path }
+    }
     private func submit(force: Bool) {
         if autoStart.armed { autoStart.disarm(); return }
         guard current, !voice.active else { return }
@@ -390,8 +402,12 @@ struct IOSComposeContent: View {
         let release = IOSBackgroundGrace.begin("shepherd.compose.create")
         defer { release() }
         let session = await submission.submit(model: model, repoResolved: repo != nil, holdLikely: holdLikely, force: force,
-            events: store.events(), recovery: app.extension(BackendRecoveryModel.self), create: { try await store.client.createSession($0, spawnID: $1) }, onHeld: { app.sheet = nil }, isCurrent: { current })
-        if let session, current { store.apply(.sessionNew(session)); app.selectedSessionID = session.id; app.sheet = nil }
+            events: store.events(), recovery: app.extension(BackendRecoveryModel.self), create: { try await store.client.createSession($0, spawnID: $1) }, onHeld: { dismiss() }, isCurrent: { current })
+        if let session, current {
+            store.apply(.sessionNew(session))
+            if let onCreated { onCreated(session.id) }
+            else { app.selectedSessionID = session.id; dismiss() }
+        }
     }
     private func importPhoto(_ photo: PhotosPickerItem?) {
         guard let photo, let stamp = model.attachments.beginImport() else { return }

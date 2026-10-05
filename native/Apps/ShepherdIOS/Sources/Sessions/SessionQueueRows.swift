@@ -54,14 +54,15 @@ private struct IOSNextItem: Identifiable {
 }
 
 struct IOSOwedRows: View {
+    var showState = true
     let records: [PostMergeSteps]
     let model: MergeModel?
     let select: (String) -> Void
     @Environment(AppModel.self) private var app
     var body: some View {
-        if model?.settled != true { ProgressView(L.t("common_loading")) }
-        if let error = model?.error { Text(verbatim: error).foregroundStyle(SessionListStyle.red) }
-        if model?.settled == true, model?.error == nil, records.isEmpty {
+        if showState, model?.settled != true { ProgressView(L.t("common_loading")) }
+        if showState, let error = model?.error { Text(verbatim: error).foregroundStyle(SessionListStyle.red) }
+        if showState, model?.settled == true, model?.error == nil, records.isEmpty {
             Text(L.t("owed_empty")).sessionFont().foregroundStyle(SessionListStyle.muted)
                 .listRowBackground(SessionListStyle.background)
         }

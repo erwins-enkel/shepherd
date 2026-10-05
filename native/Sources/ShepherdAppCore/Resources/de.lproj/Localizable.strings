@@ -690,12 +690,17 @@
 "native_ios_latency_terminal_slow_explanation" = "Der Terminalstart ist langsam, während Anfragen zügig sind; Terminalprozess und Replay-Größe auf dem Server prüfen.";
 "native_ios_latency_title" = "Verbindungsgeschwindigkeit";
 "native_ios_next_waiting" = "Warte auf Empfehlungen vom Server. Aktualisiere Nächstes in der Web- oder Mac-App, um sie zu berechnen.";
+"native_ios_notification_server" = "Auf welchem Server soll die Session geöffnet werden?";
 "native_ios_open_items_count" = "%1$@ offene Einträge";
 "native_ios_open_session_hint" = "Öffnet die Session-Details.";
 "native_ios_plan_open_hint" = "Öffnet den Plan und seine Fragen.";
 "native_ios_plan_readonly" = "Planaktionen sind bei schreibgeschützter Ansicht, offline oder im Hintergrund nicht verfügbar.";
 "native_ios_remove_body" = "Die gespeicherte Anmeldung wird von diesem Gerät entfernt. Der serverseitige Widerruf ist nicht bestätigt.";
 "native_ios_reply_draft" = "Entwurf gespeichert";
+"native_ios_server_connected" = "Verbunden";
+"native_ios_server_disconnect" = "Verbindung trennen";
+"native_ios_server_disconnected" = "Getrennt";
+"native_ios_server_hint" = "Server: %1$@";
 "native_ios_session_age" = "Alter: %1$@";
 "native_ios_steers_all" = "Alle Steers";
 "native_ios_steers_empty" = "Noch keine Steers in der Steer-Leiste. Lege sie in der Web- oder Mac-App an.";

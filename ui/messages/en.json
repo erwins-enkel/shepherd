@@ -5225,5 +5225,10 @@
   "native_compose_keep_app_open": "Switching apps briefly is fine — don't close the app.",
   "feat_ios_upload_autostart_title": "Start while files upload (iOS)",
   "feat_ios_upload_autostart_body": "The iOS composer now shows live upload progress. Tap Start during the upload and the session starts on its own when it finishes — switching apps briefly is fine.",
-  "newtask_upload_keep_tab_open": "Keep this tab open until the upload finishes."
+  "newtask_upload_keep_tab_open": "Keep this tab open until the upload finishes.",
+  "native_ios_server_hint": "Server: {name}",
+  "native_ios_server_connected": "Connected",
+  "native_ios_server_disconnected": "Disconnected",
+  "native_ios_server_disconnect": "Disconnect",
+  "native_ios_notification_server": "Open session on which server?"
 }

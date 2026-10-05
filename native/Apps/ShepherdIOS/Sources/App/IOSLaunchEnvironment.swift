@@ -51,9 +51,11 @@ final class IOSLaunchEnvironment {
         }
     }
 
-    func makeModel() -> AppModel {
+    func makeModel(activeProfileKey: String = "run.shepherd.mac.activeProfileID",
+                   persistsProfileCatalogue: Bool = true) -> AppModel {
         let app = AppModel(defaults: defaults, credentials: credentials,
-            notifications: IOSNotificationEnvironment.make(defaults: defaults))
+            notifications: IOSNotificationEnvironment.make(defaults: defaults),
+            activeProfileKey: activeProfileKey, persistsProfileCatalogue: persistsProfileCatalogue, usesModelScopedSignals: true)
         CoreStreamInstallers.installReadOnlySidebar(into: app)
         IOSPlanStream.install(into: app)
         app.register(DetailModel.self)

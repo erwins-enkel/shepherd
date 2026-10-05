@@ -17,9 +17,13 @@ struct ProfileStore {
     static let activeKey = "run.shepherd.mac.activeProfileID"
 
     private let defaults: UserDefaults
+    private let activeKey: String
+    private let persistsCatalogue: Bool
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, activeKey: String = Self.activeKey, persistsCatalogue: Bool = true) {
         self.defaults = defaults
+        self.activeKey = activeKey
+        self.persistsCatalogue = persistsCatalogue
     }
 
     func load() -> (profiles: [ServerProfile], activeID: UUID?) {
@@ -33,7 +37,7 @@ struct ProfileStore {
             return ([], nil)
         }
 
-        let raw = defaults.string(forKey: Self.activeKey)
+        let raw = defaults.string(forKey: activeKey)
         guard let activeID = raw.flatMap(UUID.init(uuidString:)),
               profiles.contains(where: { $0.id == activeID })
         else {
@@ -43,21 +47,23 @@ struct ProfileStore {
     }
 
     func save(profiles: [ServerProfile], activeID: UUID?) {
-        guard !profiles.isEmpty else {
+        guard !persistsCatalogue || !profiles.isEmpty else {
             defaults.removeObject(forKey: Self.profilesKey)
-            defaults.removeObject(forKey: Self.activeKey)
+            defaults.removeObject(forKey: activeKey)
             return
         }
-        do {
-            defaults.set(try JSONEncoder().encode(profiles), forKey: Self.profilesKey)
-        } catch {
-            Log.app.error("could not persist profiles: \(String(describing: error), privacy: .public)")
-            return
+        if persistsCatalogue {
+            do {
+                defaults.set(try JSONEncoder().encode(profiles), forKey: Self.profilesKey)
+            } catch {
+                Log.app.error("could not persist profiles: \(String(describing: error), privacy: .public)")
+                return
+            }
         }
         if let activeID, profiles.contains(where: { $0.id == activeID }) {
-            defaults.set(activeID.uuidString, forKey: Self.activeKey)
+            defaults.set(activeID.uuidString, forKey: activeKey)
         } else {
-            defaults.removeObject(forKey: Self.activeKey)
+            defaults.removeObject(forKey: activeKey)
         }
     }
 }

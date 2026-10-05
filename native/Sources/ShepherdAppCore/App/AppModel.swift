@@ -192,6 +192,11 @@ public final class AppModel {
     public var allowsQueueRecomputation = true
     /// Emulator query replies are PTY input too, even when a live smoke test never types.
     public var allowsTerminalInput = true
+    /// Opt-in for hosts with several independent AppModels. Mac keeps its global seams.
+    public let usesModelScopedSignals: Bool
+    /// iOS shares this queue between all lifetimes of one saved profile.
+    public var authenticationQueue: AppAuthenticationQueue?
+    public private(set) var pendingSignIns = 0
 
     /// Bumped by every `activate(_:)`, every `teardown()`, and every
     /// `remove(_:)` of the profile that is currently active (via the
@@ -327,11 +332,15 @@ public final class AppModel {
     public init(
         defaults: UserDefaults = .standard,
         credentials: any CredentialStore = KeychainCredentialStore(),
-        notifications: NotificationEnvironment
+        notifications: NotificationEnvironment,
+        activeProfileKey: String = "run.shepherd.mac.activeProfileID",
+        persistsProfileCatalogue: Bool = true,
+        usesModelScopedSignals: Bool = false
     ) {
+        self.usesModelScopedSignals = usesModelScopedSignals
         self.notificationEnvironment = notifications
         self.composerDefaults = defaults
-        self.persistence = ProfileStore(defaults: defaults)
+        self.persistence = ProfileStore(defaults: defaults, activeKey: activeProfileKey, persistsCatalogue: persistsProfileCatalogue)
         self.credentials = credentials
 
         let loaded = persistence.load()
@@ -342,6 +351,10 @@ public final class AppModel {
     public var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
     }
+
+    /// Refreshes the shared catalogue without changing this instance’s activation.
+    /// iOS uses one catalogue writer and read-only catalogues in per-server models.
+    public func reloadProfiles() { profiles = persistence.load().profiles }
 
     // MARK: - Profiles
 
@@ -798,6 +811,20 @@ public final class AppModel {
 
     public func signIn(profile: ServerProfile, password: String) async throws {
         let generation = activationGeneration
+        pendingSignIns += 1
+        defer { pendingSignIns -= 1 }
+        if let authenticationQueue {
+            try await authenticationQueue.run {
+                guard generation == self.activationGeneration,
+                      !self.removing.contains(profile.id), self.profiles.contains(where: { $0.id == profile.id }) else { return }
+                try await self.completeSignIn(profile: profile, password: password, generation: generation)
+            }
+        } else {
+            try await completeSignIn(profile: profile, password: password, generation: generation)
+        }
+    }
+
+    private func completeSignIn(profile: ServerProfile, password: String, generation: Int) async throws {
         try await login(profile, password, credentials)
         Log.connect.info("signed in to \(profile.name, privacy: .public)")
         // A profile that `remove(_:)` took mid-flight, or has already
@@ -848,6 +875,18 @@ public final class AppModel {
     func signOutActive() async -> (any Error)? {
         guard let profile = activeProfile else { return nil }
         let generation = activationGeneration
+        if let authenticationQueue {
+            var outcome: (any Error)?
+            try? await authenticationQueue.run {
+                outcome = await self.completeSignOut(profile: profile, generation: generation)
+            }
+            return outcome
+        }
+        return await completeSignOut(profile: profile, generation: generation)
+    }
+
+    private func completeSignOut(profile: ServerProfile, generation: Int) async -> (any Error)? {
+        guard generation == activationGeneration else { return nil }
         var failure: (any Error)?
         do {
             try await logout(profile, credentials)
@@ -875,10 +914,13 @@ public final class AppModel {
     /// operator could not get back to. `savedServers` closes that gap, so the
     /// token stays and the profile is one click from being active again.
     /// "Sign out" still revokes.
-    public func deactivate() {
-        guard let profile = activeProfile else { return }
+    public func deactivate(includingPendingActivation: Bool = false) {
+        let profile = activeProfile
+        guard profile != nil || includingPendingActivation else { return }
         teardown()
-        Log.connect.info("parked \(profile.name, privacy: .public) without revoking its token")
+        if let profile {
+            Log.connect.info("parked \(profile.name, privacy: .public) without revoking its token")
+        }
     }
 
     /// `signOutActive()` plus the operator-facing sentence for a revoke the

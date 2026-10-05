@@ -30,6 +30,7 @@ import {
   restRateLimit,
 } from "./rate-limit";
 import { issuesFreshness } from "./repo-freshness";
+import { readEpicStructureByParts } from "./epic-structure";
 import { Semaphore } from "../semaphore";
 import {
   CRITIC_REVIEW_MARKER,
@@ -43,6 +44,7 @@ import {
 import type {
   ChecksState,
   CiStatus,
+  EpicStructure,
   ForgeConfig,
   ForgeRun,
   ForgeRunJob,
@@ -177,6 +179,99 @@ const ISSUES_CACHE_TTL_MS = 30_000;
 /** First and longest per-repo backoff window after a failed issue listing (#2656). */
 const ISSUES_FAILURE_BACKOFF_MS = 30_000;
 const ISSUES_FAILURE_BACKOFF_MAX_MS = 15 * 60_000;
+/** How long {@link GithubForge.getEpicStructure} answers from its cache while no fingerprint
+ *  covers the repo (#2807). A covered repo keeps it until its issue generation moves. */
+const EPIC_STRUCTURE_TTL_MS = 2 * 60_000;
+/** How soon {@link GithubForge.getEpicStructure} retries after a REST fallback read with a failed
+ *  call in it. Doubles per consecutive failed read, up to {@link EPIC_STRUCTURE_TTL_MS}. */
+const EPIC_STRUCTURE_RETRY_MS = 30_000;
+
+/** Issue fields of the GraphQL single-issue reads ({@link GithubForge.getIssue}, the epic
+ *  parent). Carries the author's authorAssociation for the autonomous-spawn author trust gate. */
+const GQL_ISSUE_FIELDS =
+  "number title state body url createdAt author{login} authorAssociation labels(first:50){nodes{name}} assignees(first:20){nodes{login}}";
+
+interface GqlIssue {
+  number: number;
+  title: string;
+  state?: string;
+  body?: string;
+  url: string;
+  createdAt?: string;
+  author?: { login?: string } | null;
+  authorAssociation?: string | null;
+  labels?: { nodes?: Array<{ name: string }> };
+  assignees?: { nodes?: Array<{ login: string }> };
+}
+
+function mapGqlIssue(i: GqlIssue): Issue {
+  const ts = Date.parse(i.createdAt ?? "");
+  return {
+    number: i.number,
+    title: i.title,
+    body: i.body ?? "",
+    url: i.url,
+    labels: (i.labels?.nodes ?? []).map((l) => l.name),
+    createdAt: Number.isFinite(ts) ? ts : Date.now(),
+    assignees: (i.assignees?.nodes ?? []).map((a) => a.login),
+    author: i.author?.login,
+    authorAssociation: i.authorAssociation ?? undefined,
+    ...issueStateField(i.state),
+  };
+}
+
+/** An epic's whole structure in one query (#2807): the parent, its sub-issues and every child's
+ *  blockers. GitHub caps a parent at 100 sub-issues and a relationship at 50 issues, so neither
+ *  connection needs paging. A point or two, against N + 2 calls for the per-child reads. */
+const EPIC_STRUCTURE_QUERY =
+  "query($owner:String!,$repo:String!,$num:Int!){repository(owner:$owner,name:$repo){issue(number:$num){" +
+  GQL_ISSUE_FIELDS +
+  " subIssues(first:100){nodes{number title url body state labels(first:50){nodes{name}} blockedBy(first:50){nodes{number}}}}}}}";
+
+interface GqlEpicIssue extends GqlIssue {
+  subIssues?: {
+    nodes?: Array<{
+      number: number;
+      title: string;
+      url: string;
+      body?: string;
+      state?: string;
+      labels?: { nodes?: Array<{ name: string }> };
+      blockedBy?: { nodes?: Array<{ number: number } | null> };
+    } | null>;
+  };
+}
+
+/** Parse {@link EPIC_STRUCTURE_QUERY}'s output. A missing parent issue reads as an empty
+ *  structure; output without a `repository` throws, so the caller falls back to REST. */
+function parseEpicStructure(out: string): EpicStructure {
+  const json = JSON.parse(out || "null") as {
+    data?: { repository?: { issue?: GqlEpicIssue | null } | null } | null;
+  } | null;
+  const repo = json?.data?.repository;
+  if (!repo) throw new Error("epic structure: response has no repository");
+  const i = repo.issue;
+  if (!i) return { parent: null, subIssues: [], blockedBy: new Map() };
+  const subIssues: SubIssueRef[] = [];
+  const blockedBy = new Map<number, number[]>();
+  for (const s of i.subIssues?.nodes ?? []) {
+    if (!s) continue;
+    subIssues.push({
+      number: s.number,
+      title: s.title,
+      url: s.url,
+      body: s.body ?? "",
+      closed: s.state === "CLOSED",
+      labels: (s.labels?.nodes ?? []).map((l) => l.name),
+    });
+    blockedBy.set(
+      s.number,
+      (s.blockedBy?.nodes ?? []).flatMap((b) => (b ? [b.number] : [])),
+    );
+  }
+  return { parent: mapGqlIssue(i), subIssues, blockedBy };
+}
+
 const GRAPHQL_PR_REVIEW_STATES: Record<string, PrReviewMeta["state"]> = {
   OPEN: "open",
   MERGED: "merged",
@@ -639,6 +734,23 @@ export class GithubForge implements GitForge {
   private issuesGen = 0;
   /** Per-repo backoff after a failed listing: the last error is replayed until `until`. */
   private issuesFailure: { err: unknown; until: number; strikes: number } | null = null;
+  /** getEpicStructure cache + in-flight share, by parent number. Tagged like `issuesCache`;
+   *  `epicStructuresGen` bumps on this forge's own writes. `complete`: the structure came from a
+   *  read where every call succeeded. `retryAt`: the latest read had a failed call — the entry
+   *  is fresh only until then; `failures` counts such reads in a row. */
+  private epicStructures = new Map<
+    number,
+    {
+      at: number;
+      structure: EpicStructure;
+      fpGen: number | null;
+      complete: boolean;
+      retryAt?: number;
+      failures?: number;
+    }
+  >();
+  private epicStructuresInflight = new Map<number, Promise<EpicStructure>>();
+  private epicStructuresGen = 0;
   constructor(
     readonly slug: string,
     private readonly cfg: ForgeConfig,
@@ -967,6 +1079,13 @@ export class GithubForge implements GitForge {
     this.issuesCache = null;
     this.issuesInflight = null;
     this.issuesFailure = null;
+    this.invalidateEpicStructures();
+  }
+
+  private invalidateEpicStructures(): void {
+    this.epicStructuresGen++;
+    this.epicStructures.clear();
+    this.epicStructuresInflight.clear();
   }
 
   /** Open (or extend) the per-repo backoff after a failed listing (#2656): a repo that keeps
@@ -1058,7 +1177,7 @@ export class GithubForge implements GitForge {
         "api",
         "graphql",
         "-f",
-        "query=query($owner:String!,$repo:String!,$num:Int!){repository(owner:$owner,name:$repo){issue(number:$num){number title state body url createdAt author{login} authorAssociation labels(first:50){nodes{name}} assignees(first:20){nodes{login}}}}}",
+        `query=query($owner:String!,$repo:String!,$num:Int!){repository(owner:$owner,name:$repo){issue(number:$num){${GQL_ISSUE_FIELDS}}}}`,
         "-F",
         `owner=${owner}`,
         "-F",
@@ -1068,38 +1187,10 @@ export class GithubForge implements GitForge {
       ]);
       const i = (
         JSON.parse(out || "null") as {
-          data?: {
-            repository?: {
-              issue?: {
-                number: number;
-                title: string;
-                state?: string;
-                body?: string;
-                url: string;
-                createdAt?: string;
-                author?: { login?: string } | null;
-                authorAssociation?: string | null;
-                labels?: { nodes?: Array<{ name: string }> };
-                assignees?: { nodes?: Array<{ login: string }> };
-              } | null;
-            };
-          };
+          data?: { repository?: { issue?: GqlIssue | null } };
         } | null
       )?.data?.repository?.issue;
-      if (!i) return null;
-      const ts = Date.parse(i.createdAt ?? "");
-      return {
-        number: i.number,
-        title: i.title,
-        body: i.body ?? "",
-        url: i.url,
-        labels: (i.labels?.nodes ?? []).map((l) => l.name),
-        createdAt: Number.isFinite(ts) ? ts : Date.now(),
-        assignees: (i.assignees?.nodes ?? []).map((a) => a.login),
-        author: i.author?.login,
-        authorAssociation: i.authorAssociation ?? undefined,
-        ...issueStateField(i.state),
-      };
+      return i ? mapGqlIssue(i) : null;
     } catch (err) {
       if (isRateLimitError(err)) return this.getIssueRest(issueNumber);
       return null;
@@ -1107,14 +1198,15 @@ export class GithubForge implements GitForge {
   }
 
   private async getIssueRest(issueNumber: number): Promise<Issue | null> {
-    try {
-      const out = await this.run(this.restGetArgs(`repos/${this.slug}/issues/${issueNumber}`));
-      const issue = JSON.parse(out || "null") as RestIssue | null;
-      if (!issue || issue.pull_request != null) return null;
-      return { ...this.mapRestIssue(issue), ...issueStateField(issue.state) };
-    } catch {
-      return null;
-    }
+    return this.fetchIssueRest(issueNumber).catch(() => null);
+  }
+
+  /** {@link getIssueRest} without the error swallowing. */
+  private async fetchIssueRest(issueNumber: number): Promise<Issue | null> {
+    const out = await this.run(this.restGetArgs(`repos/${this.slug}/issues/${issueNumber}`));
+    const issue = JSON.parse(out || "null") as RestIssue | null;
+    if (!issue || issue.pull_request != null) return null;
+    return { ...this.mapRestIssue(issue), ...issueStateField(issue.state) };
   }
 
   async listIssueComments(issueNumber: number): Promise<IssueComment[]> {
@@ -2123,6 +2215,15 @@ export class GithubForge implements GitForge {
    *  /pulls/{n}/merge`, the `mergePullRequest` mutation, and `gh pr merge` on top of them all
    *  refuse. They are routed to the async merge API instead, and only when the caller opted in. */
   async merge(prNumber: number, o: MergeInput): Promise<void> {
+    try {
+      await this.mergeAny(prNumber, o);
+    } finally {
+      // A merge into the default branch closes the issues it fixes — epic children among them.
+      this.invalidateEpicStructures();
+    }
+  }
+
+  private async mergeAny(prNumber: number, o: MergeInput): Promise<void> {
     const probe = await this.probeStack(prNumber);
     if (probe.stacked) return this.mergeStacked(prNumber, o, probe);
     const method =
@@ -2617,48 +2718,146 @@ export class GithubForge implements GitForge {
 
   private readonly apiVersion = ["-H", "X-GitHub-Api-Version: 2026-03-10"];
 
-  async listSubIssues(parentNumber: number): Promise<SubIssueRef[]> {
-    try {
-      const out = await this.run([
-        "api",
-        ...this.apiVersion,
-        `repos/${this.slug}/issues/${parentNumber}/sub_issues`,
-        "--paginate",
-      ]);
-      return (
-        JSON.parse(out || "[]") as Array<{
-          number: number;
-          title: string;
-          html_url: string;
-          body?: string;
-          state: string;
-          labels?: Array<{ name: string }>;
-        }>
-      ).map((i) => ({
-        number: i.number,
-        title: i.title,
-        url: i.html_url,
-        body: i.body ?? "",
-        closed: i.state === "closed",
-        labels: (i.labels ?? []).map((l) => l.name),
-      }));
-    } catch {
-      return [];
+  /**
+   * The epic's structure in ONE GraphQL query (#2807) instead of N + 2 calls. Cached per parent
+   * like {@link listIssues}: while the repo fingerprint covers the slug, until its issue
+   * generation moves (closing a blocker moves it); otherwise for {@link EPIC_STRUCTURE_TTL_MS}.
+   * This forge's own writes (claim labels, closes, merges, sub-issue and dependency links) clear
+   * it, and concurrent callers share one read.
+   *
+   * With GraphQL in backoff, or failing, it reads the parts over REST instead. That result is
+   * cached the same way, so the fallback runs at most once per cache window. A REST read with a
+   * failed call in it is not: a failed call reads as "no sub-issues" or "no blockers", which
+   * would let the drain spawn a blocked child. It keeps serving the last complete structure if
+   * there is one (the partial one if not) and retries after {@link EPIC_STRUCTURE_RETRY_MS},
+   * backing off while the failures persist.
+   */
+  async getEpicStructure(parentNumber: number): Promise<EpicStructure> {
+    const fpGen = issuesFreshness(this.slug);
+    const now = Date.now();
+    const hit = this.epicStructures.get(parentNumber);
+    const fresh =
+      hit !== undefined &&
+      (hit.retryAt !== undefined
+        ? now < hit.retryAt
+        : fpGen !== null
+          ? hit.fpGen === fpGen
+          : now - hit.at < EPIC_STRUCTURE_TTL_MS);
+    if (fresh) return hit.structure;
+    const inflight = this.epicStructuresInflight.get(parentNumber);
+    if (inflight) return inflight;
+    const gen = this.epicStructuresGen;
+    const p = this.fetchEpicStructure(parentNumber)
+      .then(({ structure, complete }) => {
+        if (gen !== this.epicStructuresGen) return structure;
+        const at = Date.now();
+        if (complete) {
+          this.epicStructures.set(parentNumber, { at, structure, fpGen, complete });
+          return structure;
+        }
+        const prev = this.epicStructures.get(parentNumber);
+        const keep = prev?.complete ? prev : { at, structure, fpGen, complete };
+        const failures = (prev?.failures ?? 0) + 1;
+        const wait = Math.min(EPIC_STRUCTURE_RETRY_MS * 2 ** (failures - 1), EPIC_STRUCTURE_TTL_MS);
+        this.epicStructures.set(parentNumber, { ...keep, retryAt: at + wait, failures });
+        return keep.structure;
+      })
+      .finally(() => {
+        if (this.epicStructuresInflight.get(parentNumber) === p) {
+          this.epicStructuresInflight.delete(parentNumber);
+        }
+      });
+    this.epicStructuresInflight.set(parentNumber, p);
+    return p;
+  }
+
+  /** `complete` is false when a REST fallback call failed and was read as empty. */
+  private async fetchEpicStructure(
+    parentNumber: number,
+  ): Promise<{ structure: EpicStructure; complete: boolean }> {
+    if (!graphRateLimit.blocked()) {
+      const [owner = "", repo = ""] = this.slug.split("/");
+      try {
+        const structure = parseEpicStructure(
+          await this.run([
+            "api",
+            "graphql",
+            "-f",
+            `owner=${owner}`,
+            "-f",
+            `repo=${repo}`,
+            "-F",
+            `num=${parentNumber}`,
+            "-f",
+            `query=${EPIC_STRUCTURE_QUERY}`,
+          ]),
+        );
+        return { structure, complete: true };
+      } catch {
+        // Any failure: read the parts over REST, as this path did before #2807.
+      }
     }
+    let complete = true;
+    const settle = <T>(read: Promise<T>, empty: T): Promise<T> =>
+      read.catch(() => {
+        complete = false;
+        return empty;
+      });
+    const structure = await readEpicStructureByParts(
+      {
+        getIssue: (n) => settle(this.fetchIssueRest(n), null),
+        listSubIssues: (n) => settle(this.fetchSubIssues(n), []),
+        listBlockedBy: (n) => settle(this.fetchBlockedBy(n), []),
+      },
+      parentNumber,
+    );
+    return { structure, complete };
+  }
+
+  async listSubIssues(parentNumber: number): Promise<SubIssueRef[]> {
+    return this.fetchSubIssues(parentNumber).catch(() => []);
+  }
+
+  /** {@link listSubIssues} without the error swallowing. */
+  private async fetchSubIssues(parentNumber: number): Promise<SubIssueRef[]> {
+    const out = await this.run([
+      "api",
+      ...this.apiVersion,
+      `repos/${this.slug}/issues/${parentNumber}/sub_issues`,
+      "--paginate",
+    ]);
+    return (
+      JSON.parse(out || "[]") as Array<{
+        number: number;
+        title: string;
+        html_url: string;
+        body?: string;
+        state: string;
+        labels?: Array<{ name: string }>;
+      }>
+    ).map((i) => ({
+      number: i.number,
+      title: i.title,
+      url: i.html_url,
+      body: i.body ?? "",
+      closed: i.state === "closed",
+      labels: (i.labels ?? []).map((l) => l.name),
+    }));
   }
 
   async listBlockedBy(issueNumber: number): Promise<number[]> {
-    try {
-      const out = await this.run([
-        "api",
-        ...this.apiVersion,
-        `repos/${this.slug}/issues/${issueNumber}/dependencies/blocked_by`,
-        "--paginate",
-      ]);
-      return (JSON.parse(out || "[]") as Array<{ number: number }>).map((i) => i.number);
-    } catch {
-      return [];
-    }
+    return this.fetchBlockedBy(issueNumber).catch(() => []);
+  }
+
+  /** {@link listBlockedBy} without the error swallowing. */
+  private async fetchBlockedBy(issueNumber: number): Promise<number[]> {
+    const out = await this.run([
+      "api",
+      ...this.apiVersion,
+      `repos/${this.slug}/issues/${issueNumber}/dependencies/blocked_by`,
+      "--paginate",
+    ]);
+    return (JSON.parse(out || "[]") as Array<{ number: number }>).map((i) => i.number);
   }
 
   async issueId(issueNumber: number): Promise<number | null> {
@@ -2679,29 +2878,37 @@ export class GithubForge implements GitForge {
   async addSubIssue(parentNumber: number, childNumber: number): Promise<void> {
     const id = await this.issueId(childNumber);
     if (id == null) throw new Error(`cannot resolve id for #${childNumber}`);
-    await this.run([
-      "api",
-      "-X",
-      "POST",
-      ...this.apiVersion,
-      `repos/${this.slug}/issues/${parentNumber}/sub_issues`,
-      "-F",
-      `sub_issue_id=${id}`,
-    ]);
+    try {
+      await this.run([
+        "api",
+        "-X",
+        "POST",
+        ...this.apiVersion,
+        `repos/${this.slug}/issues/${parentNumber}/sub_issues`,
+        "-F",
+        `sub_issue_id=${id}`,
+      ]);
+    } finally {
+      this.invalidateEpicStructures();
+    }
   }
 
   async addBlockedBy(issueNumber: number, blockerNumber: number): Promise<void> {
     const id = await this.issueId(blockerNumber);
     if (id == null) throw new Error(`cannot resolve id for #${blockerNumber}`);
-    await this.run([
-      "api",
-      "-X",
-      "POST",
-      ...this.apiVersion,
-      `repos/${this.slug}/issues/${issueNumber}/dependencies/blocked_by`,
-      "-F",
-      `issue_id=${id}`,
-    ]);
+    try {
+      await this.run([
+        "api",
+        "-X",
+        "POST",
+        ...this.apiVersion,
+        `repos/${this.slug}/issues/${issueNumber}/dependencies/blocked_by`,
+        "-F",
+        `issue_id=${id}`,
+      ]);
+    } finally {
+      this.invalidateEpicStructures();
+    }
   }
 
   async listSubIssueSummaries(): Promise<{

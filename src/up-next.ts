@@ -294,13 +294,17 @@ export class UpNextService {
       // snapshot can surface a load error rather than looking "all caught up" (cf. #1221).
       return "fetch_failed";
     }
-    const summaries = (await forge.listSubIssueSummaries?.().catch(() => null)) ?? {
+    // The sub-issue and blocker scans run only for repos the operator works in (#2808): a
+    // reference clone is listed without them — no native-epic or dependency gating there.
+    const scan = this.workedIn(r.repoPath, lastUsed);
+    const summaries = (scan ? await forge.listSubIssueSummaries?.().catch(() => null) : null) ?? {
       summaries: new Map<number, { total: number; completed: number }>(),
       subIssueNumbers: [],
     };
     const linkedIssueNumbers = (await forge.listOpenPrClosingIssues?.().catch(() => null)) ?? [];
     const blockedByOpen =
-      (await forge.listBlockedByOpen?.().catch(() => null)) ?? new Map<number, number[]>();
+      (scan ? await forge.listBlockedByOpen?.().catch(() => null) : null) ??
+      new Map<number, number[]>();
     for (const issue of openIssues) {
       const blockers = blockedByOpen.get(issue.number);
       if (blockers && blockers.length > 0) issue.blockedBy = blockers;
@@ -323,6 +327,19 @@ export class UpNextService {
       subIssueNumbers: summaries.subIssueNumbers,
       linkedIssueNumbers,
     };
+  }
+
+  /** Whether the operator works in the repo: it has a session or a stored epic run. Store keys
+   *  are realpath-space while `repoPath` is raw listRepos space, so both forms are checked. */
+  private workedIn(repoPath: string, lastUsed: Record<string, number>): boolean {
+    let real = repoPath;
+    try {
+      real = this.realpath(repoPath);
+    } catch {
+      // vanished/broken path — only the raw form can match
+    }
+    const paths = real === repoPath ? [repoPath] : [repoPath, real];
+    return paths.some((p) => lastUsed[p] !== undefined || this.deps.getEpicRun(p) !== null);
   }
 
   /** Detect epic parents among visible open issues (markdown epic-dag/checklist members OR a

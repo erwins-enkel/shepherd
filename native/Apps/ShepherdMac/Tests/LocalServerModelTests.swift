@@ -30,6 +30,20 @@ actor LocalServerGate {
     }
 }
 
+/// Cancellable ticks let the monitor run without wall-clock waits.
+actor LocalUpdateMonitorClock: SupervisorClock {
+    private let ticks = AsyncStream<Void>.makeStream()
+    private(set) var sleeps: [TimeInterval] = []
+    var now: Date { Date(timeIntervalSince1970: 0) }
+    func sleep(for seconds: TimeInterval) async throws {
+        sleeps.append(seconds)
+        var iterator = ticks.stream.makeAsyncIterator()
+        guard await iterator.next() != nil else { throw CancellationError() }
+        try Task.checkCancellation()
+    }
+    func tick() { ticks.continuation.yield(()) }
+}
+
 extension MacSeamTests {
 @Suite(.serialized) @MainActor struct LocalServerModelTests {
     private func tempHome() throws -> URL {
@@ -319,6 +333,58 @@ extension MacSeamTests {
         #expect(checks.withLock { $0 } == 2)
         await model.checkForUpdate()
         #expect(checks.withLock { $0 } == 3)
+    }
+
+    @Test func backgroundMonitorChecksAtLaunchOnTimerAndWakeWithoutAPanel() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let checks = Mutex(0)
+        let now = Mutex(Date(timeIntervalSince1970: 1000))
+        let clock = LocalUpdateMonitorClock()
+        let model = LocalServerModel(environment: try checkout(in: home), probeExternal: { false },
+            updateChecker: { _ in
+                checks.withLock { $0 += 1 }
+                return .success(.init(behind: 9, current: "abc1234", latest: "def5678"))
+            }, updateNow: { now.withLock { $0 } }, updateMonitorClock: clock)
+        defer { model.cancelUpdateForQuit() }
+        model.startUpdateMonitoring()
+        model.startUpdateMonitoring() // Multiple windows must not double the timer.
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await clock.sleeps.count < 1, ContinuousClock.now < deadline { await Task.yield() }
+        #expect(await clock.sleeps == [1800])
+        #expect(checks.withLock { $0 } == 1)
+        #expect(model.updateStatus?.behind == 9)
+        await model.refresh() // Wake within the throttle window.
+        #expect(checks.withLock { $0 } == 1)
+        now.withLock { $0 += 1800 }
+        await clock.tick()
+        while await clock.sleeps.count < 2, ContinuousClock.now < deadline { await Task.yield() }
+        #expect(await clock.sleeps == [1800, 1800])
+        #expect(checks.withLock { $0 } == 2)
+        now.withLock { $0 += 1800 }
+        await model.refresh() // Wake after enough time elapsed.
+        #expect(checks.withLock { $0 } == 3)
+        model.cancelUpdateForQuit()
+        await clock.tick()
+        await Task.yield()
+        #expect(checks.withLock { $0 } == 3)
+    }
+
+    @Test func quittingCancelsABackgroundCheckAndCannotPublishItsResult() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let started = Mutex(false)
+        let cancelled = Mutex(false)
+        let model = LocalServerModel(environment: try checkout(in: home), probeExternal: { false },
+            updateChecker: { _ in
+                started.withLock { $0 = true }
+                do { try await Task.sleep(for: .seconds(60)) }
+                catch { cancelled.withLock { $0 = true } }
+                return .success(.init(behind: 9, current: "abc1234", latest: "def5678"))
+            })
+        model.startUpdateMonitoring()
+        #expect(await settle { started.withLock { $0 } })
+        model.cancelUpdateForQuit()
+        #expect(await settle { cancelled.withLock { $0 } && !model.isCheckingUpdate })
+        #expect(model.updateStatus == nil)
     }
 
     @Test func failedCheckIsQuietAndAlsoThrottled() async throws {

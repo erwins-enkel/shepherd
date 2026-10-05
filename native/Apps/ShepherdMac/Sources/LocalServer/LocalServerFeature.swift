@@ -24,11 +24,17 @@ enum LocalServerFeature {
         SettingsPaneRegistry.register(LocalServerSettingsPane())
         guard !installed else { return }
         installed = true
-        // Resume supervision even when saved profiles bypass the Welcome panel.
-        Task { await LocalServerModel.shared.refresh() }
-        // The server survives quit and is adopted on the next launch. Only
-        // Stop/Restart signal it; quit cancels supervision and install/upgrade
-        // work without interrupting sessions.
+        // Automated launches must never fetch or mutate the operator's checkout.
+        if !LaunchEnvironment.configuration().isIsolated {
+            LocalServerModel.shared.startUpdateMonitoring()
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+            ) { _ in
+                Task { @MainActor in await LocalServerModel.shared.refresh() }
+            }
+        }
+        // The server survives quit and is adopted on the next launch.
+        // Quit cancels supervision and update work; Stop/Restart signal it.
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in

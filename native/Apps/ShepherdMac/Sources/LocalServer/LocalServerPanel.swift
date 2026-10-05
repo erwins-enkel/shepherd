@@ -65,6 +65,7 @@ struct LocalServerPanel: View {
     var onConnect: (() -> Void)? = nil
 
     @State private var showingLog = false
+    @State private var confirmingUpdate = false
 
     private var panel: LocalServerPanelState {
         LocalServerPanelState(state: model.state, busy: model.busy, externalAcknowledged: model.externalAcknowledged,
@@ -89,6 +90,13 @@ struct LocalServerPanel: View {
         .task { await model.refresh() }
         .accessibilityIdentifier("welcome-local-panel")
         .accessibilityElement(children: .contain)
+        .alert(L.t("native_local_update_confirm_title"), isPresented: $confirmingUpdate) {
+            Button(L.t("common_cancel"), role: .cancel) {}
+            Button(L.t("native_local_update_apply"), action: model.beginUpdate)
+                .disabled(!panel.canUpdate)
+        } message: {
+            Text(verbatim: L.t("native_local_update_confirm_body"))
+        }
     }
 
     private var statusLine: some View {
@@ -174,7 +182,7 @@ struct LocalServerPanel: View {
                     }
                 }
             }
-            Button(action: model.beginUpdate) {
+            Button { confirmingUpdate = true } label: {
                 HStack(spacing: 6) {
                     if model.state == .updating { ProgressView().controlSize(.small) }
                     Text(verbatim: L.t(model.state == .updating ? "native_local_update_updating" : "native_local_update_apply"))

@@ -115,6 +115,8 @@ final class LocalServerModel {
     private let updateChecker: @Sendable (LocalServerEnvironment) async -> Result<LocalUpdateStatus, LocalUpdateCheckFailure>
     private let updater: @Sendable (LocalServerEnvironment, LogRing) async -> Result<Void, LocalServerFailure>
     private let updateNow: @Sendable () -> Date
+    private let updateMonitorClock: any SupervisorClock
+    private var updateMonitorTask: Task<Void, Never>?
     private var bunUpgradeTask: Task<Void, Never>?
     private var lastOutdatedBunVersion: String?
     private let bunUpgrader: @Sendable (LocalServerEnvironment, LogRing) async -> Result<String, LocalServerFailure>
@@ -137,6 +139,7 @@ final class LocalServerModel {
         updateChecker: (@Sendable (LocalServerEnvironment) async -> Result<LocalUpdateStatus, LocalUpdateCheckFailure>)? = nil,
         updater: (@Sendable (LocalServerEnvironment, LogRing) async -> Result<Void, LocalServerFailure>)? = nil,
         updateNow: @escaping @Sendable () -> Date = { Date() },
+        updateMonitorClock: any SupervisorClock = SystemSupervisorClock(),
         bunVersion: @escaping @Sendable (URL) async -> String? = { await LocalServerEnvironment.probeBunVersion($0) },
         clock: any SupervisorClock = SystemSupervisorClock()
     ) {
@@ -160,6 +163,7 @@ final class LocalServerModel {
             await LocalUpdateRun(environment: environment, log: log).run()
         }
         self.updateNow = updateNow
+        self.updateMonitorClock = updateMonitorClock
         let ring = log
         self.supervisor = LocalServerSupervisor(
             environment: environment, log: ring,
@@ -340,6 +344,20 @@ final class LocalServerModel {
         await performUpdateCheck(force: force)
     }
 
+    /// App lifetime, independent of Welcome/Settings visibility. Wake and panel
+    /// refreshes use the same throttle, including failed attempts.
+    func startUpdateMonitoring() {
+        guard updateMonitorTask == nil else { return }
+        let clock = updateMonitorClock
+        updateMonitorTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.refresh()
+                do { try await clock.sleep(for: 30 * 60) }
+                catch { return }
+            }
+        }
+    }
+
     private func performUpdateCheck(force: Bool, allowBusy: Bool = false) async {
         guard (!busy || allowBusy), canManageUpdates, !isCheckingUpdate else { return }
         let now = updateNow()
@@ -416,6 +434,8 @@ final class LocalServerModel {
     }
 
     func cancelUpdateForQuit() {
+        updateMonitorTask?.cancel()
+        updateMonitorTask = nil
         updateTask?.cancel()
         updateTask = nil
         updateCheckTask?.cancel()

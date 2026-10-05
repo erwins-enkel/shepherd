@@ -13465,6 +13465,40 @@
         }
       }
     },
+    "native_local_update_confirm_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dies installiert den neuesten Backend-Code und baut die Weboberfläche neu. Ein laufender lokaler Server wird kurz neu gestartet. Nicht gespeicherte Git-Änderungen verhindern das Update und bleiben erhalten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This installs the latest backend code and rebuilds the web UI. A running local server will restart briefly. Uncommitted changes block the update and remain intact."
+          }
+        }
+      }
+    },
+    "native_local_update_confirm_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend-Update installieren?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apply backend update?"
+          }
+        }
+      }
+    },
     "native_local_update_current": {
       "extractionState": "manual",
       "localizations": {
@@ -13496,6 +13530,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Backend update failed (exit %1$@). Check the log, then retry."
+          }
+        }
+      }
+    },
+    "native_local_update_indicator": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend-Update verfügbar (%1$@)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Backend update available (%1$@)"
           }
         }
       }

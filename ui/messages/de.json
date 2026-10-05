@@ -5276,5 +5276,8 @@
   "native_local_update_current": "Backend ist aktuell.",
   "native_local_update_what_title": "Was passiert beim Update?",
   "native_local_update_what_body": "Lädt main herunter, installiert Abhängigkeiten und baut die Weboberfläche neu. Ein laufender lokaler Server startet mit dem neuen Code neu; ein gestoppter Server bleibt gestoppt. Laufende Agent-Sessions bleiben in herdr erhalten. Lokale Änderungen müssen vorher committet oder anderweitig gesichert werden; bei Fehlern das Protokoll prüfen.",
-  "native_settings_local_server_title": "Lokaler Server"
+  "native_settings_local_server_title": "Lokaler Server",
+  "native_local_update_indicator": "Backend-Update verfügbar ({count})",
+  "native_local_update_confirm_title": "Backend-Update installieren?",
+  "native_local_update_confirm_body": "Dies installiert den neuesten Backend-Code und baut die Weboberfläche neu. Ein laufender lokaler Server wird kurz neu gestartet. Nicht gespeicherte Git-Änderungen verhindern das Update und bleiben erhalten."
 }

@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 import ShepherdKit
 @testable import Shepherd
@@ -25,6 +26,31 @@ extension MacSeamTests {
         #expect(!state.showsInstall)
         #expect(!state.canUpgradeBun && !state.canStart)
         #expect(state.isBusyState)
+    }
+
+    @Test func mainWindowIndicatorOnlyShowsForTheSupervisedLocalProfile() {
+        let endpoint = URL(string: "http://127.0.0.1:7330")!
+        func count(_ profile: ServerProfile?, _ state: LocalServerState = .running(pid: 42),
+                   manages: Bool = true, behind: Int = 9) -> Int? {
+            LocalBackendUpdateIndicatorState.count(profile: profile, endpoint: endpoint,
+                state: state, managesUpdates: manages, behind: behind)
+        }
+        let local = ServerProfile(name: "Mac", baseURL: endpoint, mode: .local)
+        #expect(count(local) == 9)
+        #expect(count(nil) == nil)
+        #expect(count(local, .externallyManaged) == nil)
+        #expect(count(local, .stopped) == nil)
+        #expect(count(local, .notInstalled) == nil)
+        #expect(count(local, manages: false) == nil)
+        #expect(count(local, behind: 0) == nil)
+        #expect(count(ServerProfile(name: "Remote", baseURL: endpoint, mode: .remote)) == nil)
+        for url in ["https://cloud.example.invalid", "http://127.0.0.1:7331", "http://localhost:7330/proxy"] {
+            #expect(count(ServerProfile(name: "Other", baseURL: URL(string: url)!, mode: .local)) == nil)
+        }
+        for host in ["localhost", "[::1]"] {
+            #expect(count(ServerProfile(name: "Mac", baseURL: URL(string: "http://\(host):7330/")!, mode: .local)) == 9)
+        }
+        #expect(!L.t("native_local_update_indicator", "9").hasPrefix("native_"))
     }
 
     @Test func updatesAreAvailableOnlyForManagedCheckouts() {

@@ -784,8 +784,11 @@
 "native_local_update_check_failed" = "Could not check for backend updates. Try again later.";
 "native_local_update_checked" = "Last checked %1$@";
 "native_local_update_commits" = "Preview changes (up to 10 commits)";
+"native_local_update_confirm_body" = "This installs the latest backend code and rebuilds the web UI. A running local server will restart briefly. Uncommitted changes block the update and remain intact.";
+"native_local_update_confirm_title" = "Apply backend update?";
 "native_local_update_current" = "Backend is up to date.";
 "native_local_update_failed" = "Backend update failed (exit %1$@). Check the log, then retry.";
+"native_local_update_indicator" = "Backend update available (%1$@)";
 "native_local_update_summary" = "%1$@ new commits (%2$@ → %3$@)";
 "native_local_update_title" = "Backend update available";
 "native_local_update_updating" = "Updating backend…";

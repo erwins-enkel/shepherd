@@ -117,7 +117,10 @@ struct RootView: View {
                 if model.store == nil {
                     WelcomeView()
                 } else {
-                    MainWindow()
+                    VStack(spacing: 0) {
+                        MainWindow()
+                        LocalBackendUpdateIndicator(model: .shared, app: model)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -12,6 +12,14 @@ export interface SubIssueRef {
   labels: string[];
 }
 
+/** An epic's structure: the parent issue, its native sub-issues, and each child's blockers
+ *  (ALL blockers, open or closed — the epic model derives readiness from them). */
+export interface EpicStructure {
+  parent: Issue | null;
+  subIssues: SubIssueRef[];
+  blockedBy: Map<number, number[]>;
+}
+
 export interface Issue {
   number: number;
   title: string;
@@ -713,6 +721,10 @@ export interface GitForge {
    *  and POST /api/issues 400s. */
   createIssue?(o: { title: string; body: string }): Promise<{ number: number; url: string }>;
   // Epic structure (GitHub only; absent → markdown fallback)
+  /** The whole {@link EpicStructure} in one cached read (#2807), instead of the N + 2 calls of
+   *  getIssue + listSubIssues + one listBlockedBy per child. Optional: forges without it are read
+   *  call by call (`readEpicStructureByParts`). */
+  getEpicStructure?(parentNumber: number): Promise<EpicStructure>;
   listSubIssues?(parentNumber: number): Promise<SubIssueRef[]>;
   listBlockedBy?(issueNumber: number): Promise<number[]>;
   issueId?(issueNumber: number): Promise<number | null>;

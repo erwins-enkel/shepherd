@@ -1,7 +1,8 @@
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, setSystemTime } from "bun:test";
 import { GithubForge } from "../../src/forge/github";
 import type { GhRunner } from "../../src/forge/github";
 import { graphRateLimit } from "../../src/forge/rate-limit";
+import { setIssuesFreshness } from "../../src/forge/repo-freshness";
 
 function fakeRunner(responses: Record<string, string>) {
   const run = async (args: string[]): Promise<string> => {
@@ -445,5 +446,224 @@ describe("GithubForge listBlockedByOpen", () => {
     const { run, calls } = infiniteRunner(infinitePage);
     await new GithubForge("o/r", {} as never, run).listBlockedByOpen!();
     expect(calls.length).toBe(2);
+  });
+});
+
+// #2807: the epic's structure in one GraphQL query, cached like the issue list.
+describe("GithubForge.getEpicStructure", () => {
+  const EPIC_GQL = JSON.stringify({
+    data: {
+      repository: {
+        issue: {
+          number: 100,
+          title: "Epic",
+          state: "OPEN",
+          body: "epic body",
+          url: "u100",
+          createdAt: "2026-01-01T00:00:00Z",
+          author: { login: "alice" },
+          authorAssociation: "OWNER",
+          labels: { nodes: [{ name: "epic" }] },
+          assignees: { nodes: [] },
+          subIssues: {
+            nodes: [
+              {
+                number: 101,
+                title: "A",
+                url: "u101",
+                body: "a",
+                state: "OPEN",
+                labels: { nodes: [] },
+                blockedBy: { nodes: [] },
+              },
+              {
+                number: 102,
+                title: "B",
+                url: "u102",
+                body: "",
+                state: "CLOSED",
+                labels: { nodes: [{ name: "shepherd:active" }] },
+                // ALL blockers, closed ones included — the epic model derives readiness itself.
+                blockedBy: { nodes: [{ number: 101 }, { number: 999 }] },
+              },
+            ],
+          },
+        },
+      },
+    },
+  });
+
+  /** Answers the one-query read and the REST parts (parent, sub_issues, blocked_by per child). */
+  function epicRunner(graphql: () => string = () => EPIC_GQL) {
+    const calls: string[][] = [];
+    const run: GhRunner = async (args) => {
+      calls.push(args);
+      if (args[0] === "api" && args[1] === "graphql") return graphql();
+      const path = args.find((a) => a.startsWith("repos/")) ?? "";
+      if (path === "repos/o/r/issues/100") {
+        if (args.includes("--jq")) return "4242"; // issueId
+        return JSON.stringify({ number: 100, title: "Epic", body: "epic body", html_url: "u100" });
+      }
+      if (path === "repos/o/r/issues/100/sub_issues" && !args.includes("POST")) {
+        return JSON.stringify([
+          { number: 101, title: "A", html_url: "u101", body: "a", state: "open", labels: [] },
+          { number: 102, title: "B", html_url: "u102", body: "", state: "closed", labels: [] },
+        ]);
+      }
+      if (path.endsWith("/dependencies/blocked_by") && !args.includes("POST")) {
+        return JSON.stringify(path.includes("/102/") ? [{ number: 101 }] : []);
+      }
+      return "";
+    };
+    const count = {
+      graphql: () => calls.filter((c) => c[1] === "graphql").length,
+      blockedByRest: () =>
+        calls.filter((c) => !c.includes("POST") && c.some((a) => a.endsWith("/blocked_by"))).length,
+    };
+    return { run, calls, count };
+  }
+
+  function blockGraphql(): void {
+    graphRateLimit.noteLimitError(60);
+  }
+
+  function unblockGraphql(): void {
+    graphRateLimit.note({ remaining: 1000, resetAt: Date.now() + 60_000 });
+  }
+
+  test("one GraphQL query yields the parent, sub-issues and every child's blockers", async () => {
+    const { run, calls, count } = epicRunner();
+    const s = await new GithubForge("o/r", {} as never, run).getEpicStructure(100);
+    expect(calls).toHaveLength(1);
+    expect(count.graphql()).toBe(1);
+    expect(calls[0]).toContain("num=100");
+    expect(s.parent).toMatchObject({
+      number: 100,
+      title: "Epic",
+      body: "epic body",
+      state: "open",
+    });
+    expect(s.subIssues).toEqual([
+      { number: 101, title: "A", url: "u101", body: "a", closed: false, labels: [] },
+      { number: 102, title: "B", url: "u102", body: "", closed: true, labels: ["shepherd:active"] },
+    ]);
+    expect(s.blockedBy).toEqual(
+      new Map([
+        [101, []],
+        [102, [101, 999]],
+      ]),
+    );
+  });
+
+  test("a missing parent reads as an empty structure", async () => {
+    const { run } = epicRunner(() => JSON.stringify({ data: { repository: { issue: null } } }));
+    const s = await new GithubForge("o/r", {} as never, run).getEpicStructure(100);
+    expect(s).toEqual({ parent: null, subIssues: [], blockedBy: new Map() });
+  });
+
+  test("a covered slug stays quiet until its issue generation moves", async () => {
+    const { run, count } = epicRunner();
+    const forge = new GithubForge("o/r", {} as never, run);
+    let gen = 1;
+    setIssuesFreshness((slug) => (slug === "o/r" ? gen : null));
+    try {
+      setSystemTime(new Date("2026-10-05T12:00:00Z"));
+      await forge.getEpicStructure(100);
+      for (let min = 1; min <= 10; min++) {
+        setSystemTime(new Date(Date.parse("2026-10-05T12:00:00Z") + min * 60_000));
+        await forge.getEpicStructure(100);
+      }
+      expect(count.graphql()).toBe(1);
+      expect(count.blockedByRest()).toBe(0);
+      gen = 2; // e.g. a blocker was closed on GitHub
+      await forge.getEpicStructure(100);
+      await forge.getEpicStructure(100);
+      expect(count.graphql()).toBe(2);
+    } finally {
+      setIssuesFreshness(null);
+      setSystemTime();
+    }
+  });
+
+  test("an uncovered slug keeps its entry for two minutes", async () => {
+    const { run, count } = epicRunner();
+    const forge = new GithubForge("o/r", {} as never, run);
+    try {
+      setSystemTime(new Date("2026-10-05T12:00:00Z"));
+      await forge.getEpicStructure(100);
+      setSystemTime(new Date("2026-10-05T12:01:59Z"));
+      await forge.getEpicStructure(100);
+      expect(count.graphql()).toBe(1);
+      setSystemTime(new Date("2026-10-05T12:02:00Z"));
+      await forge.getEpicStructure(100);
+      expect(count.graphql()).toBe(2);
+    } finally {
+      setSystemTime();
+    }
+  });
+
+  test("concurrent callers share one read", async () => {
+    const { run, count } = epicRunner();
+    const forge = new GithubForge("o/r", {} as never, run);
+    await Promise.all([forge.getEpicStructure(100), forge.getEpicStructure(100)]);
+    expect(count.graphql()).toBe(1);
+  });
+
+  test("GraphQL backoff reads the parts over REST, at most once per cache window", async () => {
+    const { run, count } = epicRunner();
+    const forge = new GithubForge("o/r", {} as never, run);
+    setIssuesFreshness(() => 1);
+    blockGraphql();
+    try {
+      const s = await forge.getEpicStructure(100);
+      await forge.getEpicStructure(100);
+      await forge.getEpicStructure(100);
+      expect(count.graphql()).toBe(0);
+      expect(count.blockedByRest()).toBe(2); // one per child, once
+      expect(s.parent).toMatchObject({ number: 100, title: "Epic" });
+      expect(s.subIssues.map((c) => c.number)).toEqual([101, 102]);
+      expect(s.blockedBy).toEqual(
+        new Map([
+          [101, []],
+          [102, [101]],
+        ]),
+      );
+    } finally {
+      unblockGraphql();
+      setIssuesFreshness(null);
+    }
+  });
+
+  test("a failed GraphQL read falls back to REST", async () => {
+    const { run, count } = epicRunner(() => {
+      throw new Error("gh: something broke");
+    });
+    const s = await new GithubForge("o/r", {} as never, run).getEpicStructure(100);
+    expect(count.graphql()).toBe(1);
+    expect(count.blockedByRest()).toBe(2);
+    expect(s.subIssues.map((c) => c.number)).toEqual([101, 102]);
+  });
+
+  test("the forge's own writes clear the cache", async () => {
+    const writes: Array<(f: GithubForge) => Promise<unknown>> = [
+      (f) => f.addIssueLabel(101, "shepherd:active"),
+      (f) => f.closeIssue(101),
+      (f) => f.addSubIssue(100, 100),
+      (f) => f.addBlockedBy(102, 100),
+      (f) => f.merge(7, { method: "squash", deleteBranch: false }),
+    ];
+    setIssuesFreshness(() => 1);
+    try {
+      for (const write of writes) {
+        const { run, count } = epicRunner();
+        const forge = new GithubForge("o/r", {} as never, run);
+        await forge.getEpicStructure(100);
+        await write(forge);
+        await forge.getEpicStructure(100);
+        expect(count.graphql()).toBe(2);
+      }
+    } finally {
+      setIssuesFreshness(null);
+    }
   });
 });

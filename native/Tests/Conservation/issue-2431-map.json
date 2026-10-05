@@ -12457,6 +12457,11 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"photoImportReadsAsPreparingAndCountsAsInFlight() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"settledWaitsForTheDrainAnImportOrTeardown() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"keepAliveSpansEachDrainExactlyOnce() async throws\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"retryFailedRequeuesEveryFailedRow() async throws\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"retryFailedRequeuesEveryFailedRow() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeAutoStartCoreTests.swift\",\"CoreSeamTests.ComposeAutoStartTests\",\"armedStartFiresOnceWithItsForceFlagAfterUploadsSettle() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeAutoStartCoreTests.swift\",\"CoreSeamTests.ComposeAutoStartTests\",\"disarmBeforeSettleNeverFiresAndReleasesAtOnce() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeAutoStartCoreTests.swift\",\"CoreSeamTests.ComposeAutoStartTests\",\"failedUploadAbortsWithoutFiringUntilNewWorkClearsTheNotice() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeAutoStartCoreTests.swift\",\"CoreSeamTests.ComposeAutoStartTests\",\"teardownCancelsAPendingStart() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeAutoStartCoreTests.swift\",\"CoreSeamTests.ComposeAutoStartTests\",\"armingWithNothingInFlightFiresAtOnce() async throws\"]"
   ]
 }

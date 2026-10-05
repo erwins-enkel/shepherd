@@ -190,12 +190,13 @@ struct IOSActionFeedback: View {
 }
 
 struct IOSActionButtonStyle: ButtonStyle {
+    var tint = SessionListStyle.amber
     @Environment(\.isEnabled) private var isEnabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.sessionFont(label: true, weight: .semibold)
-            .foregroundStyle(isEnabled ? SessionListStyle.amber : SessionListStyle.muted)
+            .foregroundStyle(isEnabled ? tint : SessionListStyle.muted)
             .padding(.horizontal, 10).padding(.vertical, 8).frame(minHeight: 44)
             .background(configuration.isPressed ? SessionListStyle.selected : SessionListStyle.background)
-            .overlay { RoundedRectangle(cornerRadius: 2).stroke(isEnabled ? SessionListStyle.amber : SessionListStyle.brightLine, lineWidth: 1) }
+            .overlay { RoundedRectangle(cornerRadius: 2).stroke(isEnabled ? tint : SessionListStyle.brightLine, lineWidth: 1) }
     }
 }

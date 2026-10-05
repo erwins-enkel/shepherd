@@ -473,6 +473,12 @@ export const KEYS_ACTIONS: readonly string[] = [
 // Stream A — iOS session actions and merge confirmation.
 export const KEYS_IOS_ACTIONS: readonly string[] = [
   "cardmenu_label",
+  "decommission_pr_close",
+  "decommission_pr_desc",
+  "decommission_pr_keep",
+  "decommission_pr_merge",
+  "decommission_pr_merge_takeover",
+  "decommission_pr_title",
   "mergeconfirm_confirm_takeover",
   "mergeconfirm_eyebrow",
   "mergeconfirm_field_method",
@@ -488,6 +494,7 @@ export const KEYS_IOS_ACTIONS: readonly string[] = [
   "native_ios_actions_server_default",
   "prbadge_merge",
   "prbadge_merged_toast",
+  "viewport_decommission_title",
 ];
 
 /** S5 — local server detection, install, start/stop/restart and the log tail. */

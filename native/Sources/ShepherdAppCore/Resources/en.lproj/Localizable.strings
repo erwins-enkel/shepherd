@@ -109,6 +109,12 @@
 "criticbadge_stalled" = "STALLED REVIEW";
 "criticbadge_stalled_title" = "Auto-address gave up after %1$@ rounds with findings still open; needs a human.";
 "criticbadge_title" = "Critic review for this PR head";
+"decommission_pr_close" = "Close PR & decommission";
+"decommission_pr_desc" = "Decommissioning %1$@ stops the agent and removes its worktree. What should happen to the pull request?";
+"decommission_pr_keep" = "Keep PR open & decommission";
+"decommission_pr_merge" = "Merge PR & decommission";
+"decommission_pr_merge_takeover" = "Merge it myself & decommission";
+"decommission_pr_title" = "Open PR #%1$@";
 "diagnostics_all_ok" = "Everything's ready.";
 "diagnostics_doc_link" = "How to fix";
 "diagnostics_fix" = "Fix";
@@ -1517,6 +1523,7 @@
 "vblock_wireframe_surface_mobile" = "Mobile mockup";
 "vblock_wireframe_surface_panel" = "Panel mockup";
 "vblock_wireframe_surface_popover" = "Popover mockup";
+"viewport_decommission_title" = "stop agent + remove worktree";
 "viewport_diff_annotation_review" = "Review";
 "viewport_reconnect_sub" = "herdr is down. Tap once it's back.";
 "viewport_reconnect_title" = "Reconnect";

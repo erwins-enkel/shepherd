@@ -509,6 +509,204 @@ final class IOSSessionActionsTests: XCTestCase {
         try render(IOSActionFeedback(note: .success(L.t("prbadge_merged_toast", "42"))), "merge-success", height: 200)
     }
 
+    func testDecommissionIsOfferedForEveryLiveSessionButNeverArchivedOrReadOnly() {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        for status in [SessionStatusKnown.running, .blocked, .idle, .done] {
+            fixture.session.status = .init(known: status)
+            XCTAssertTrue(fixture.state.canDecommission)
+        }
+        fixture.session.status = .init(known: .archived)
+        XCTAssertFalse(fixture.state.canDecommission)
+        fixture.state.presentDecommission()
+        XCTAssertNil(fixture.state.sheet)
+        fixture.session.status = .init(known: .done); fixture.writable = false
+        XCTAssertFalse(fixture.state.canDecommission)
+        fixture.state.presentDecommission()
+        XCTAssertNil(fixture.state.sheet)
+        fixture.writable = true; fixture.selected = false
+        fixture.state.presentDecommission()
+        XCTAssertNil(fixture.state.sheet)
+        fixture.selected = true; fixture.state.invalidate()
+        XCTAssertFalse(fixture.state.canDecommission)
+        XCTAssertTrue(fixture.calls.isEmpty)
+    }
+
+    func testDecommissionReadsLeftoversAndFreshPRAndOffersTheWebChoices() async throws {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.git = try IOSActionFixture.decodeGit(extra: ["state": "none"])
+        fixture.state.presentDecommission()
+        XCTAssertEqual(fixture.state.sheet, .decommission)
+        XCTAssertFalse(fixture.state.decommission.loaded)
+        XCTAssertFalse(fixture.state.canConfirmDecommission(.keep, now: .distantFuture))
+        await settle { fixture.state.decommission.loaded }
+        XCTAssertEqual(Set(fixture.calls), ["leftovers", "git"])
+        XCTAssertEqual(fixture.state.decommission.choices, [.keep])
+        XCTAssertFalse(fixture.state.decommission.asksAboutPR)
+        XCTAssertFalse(fixture.state.decommission.probesUnavailable)
+
+        let github: [String: Any] = ["kind": "github", "mergeStateStatus": "clean"]
+        fixture.state.dismiss()
+        fixture.git = try IOSActionFixture.decodeGit(extra: github)
+        fixture.state.presentDecommission(); await settle { fixture.state.decommission.loaded }
+        XCTAssertEqual(fixture.state.decommission.choices, [.keep, .merge, .close])
+        XCTAssertTrue(IOSMergeConfirmationFacts.isTakeover(fixture.state.decommission.git))
+        XCTAssertFalse(IOSMergeConfirmationFacts.isTakeover(nil))
+
+        let blocked: [[String: Any]] = [["isDraft": true], ["mergeStateStatus": "dirty"],
+            ["mergeStateStatus": "unknown", "checks": "failure"], ["kind": "local"]]
+        for block in blocked {
+            fixture.state.dismiss()
+            fixture.git = try IOSActionFixture.decodeGit(extra: github.merging(block) { $1 })
+            fixture.state.presentDecommission(); await settle { fixture.state.decommission.loaded }
+            XCTAssertEqual(fixture.state.decommission.choices, [.keep, .close], "\(block)")
+        }
+    }
+
+    func testDecommissionProbeFailuresNeverBlockAndFallBackToTheCachedPR() async throws {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.failures = ["leftovers": .notFound, "git": .notFound]
+        fixture.state.presentDecommission(); await settle { fixture.state.decommission.loaded }
+        XCTAssertTrue(fixture.state.decommission.probesUnavailable)
+        XCTAssertTrue(fixture.state.decommission.leftovers.isEmpty)
+        XCTAssertEqual(fixture.state.decommission.git?.number, 42)
+        XCTAssertEqual(fixture.state.decommission.choices, [.keep, .close])
+
+        fixture.state.dismiss(); fixture.failures = [:]
+        fixture.leftovers = try IOSActionFixture.decodeLeftovers(["vite"], probesUnavailable: true)
+        fixture.state.presentDecommission(); await settle { fixture.state.decommission.loaded }
+        XCTAssertTrue(fixture.state.decommission.probesUnavailable)
+        XCTAssertEqual(fixture.state.decommission.leftovers.map(\.key), ["vite"])
+        fixture.calls = []
+        await fixture.state.confirmDecommission(.keep, now: .distantFuture)
+        XCTAssertEqual(fixture.calls, ["archive"])
+        XCTAssertNil(fixture.reap, "Nothing selected reaps nothing")
+    }
+
+    func testDecommissionArmsLikeTheMergeConfirmation() async throws {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.state.presentDecommission(); await settle { fixture.state.decommission.loaded }
+        let opened = try XCTUnwrap(fixture.state.presentedAt)
+        XCTAssertFalse(fixture.state.canConfirmDecommission(.keep, now: opened))
+        await fixture.state.confirmDecommission(.keep, now: opened)
+        XCTAssertFalse(fixture.calls.contains("archive"))
+        XCTAssertTrue(fixture.state.canConfirmDecommission(.keep, now: opened.addingTimeInterval(0.4)))
+        XCTAssertFalse(fixture.state.canConfirmDecommission(.merge, now: .distantFuture),
+            "A PR on a forge without a merge is never offered one")
+    }
+
+    func testDecommissionChoicesRunThePRStepThenArchiveWithTheSelectedLeftovers() async throws {
+        let cases: [(IOSDecommissionChoice, [String])] = [
+            (.keep, ["archive"]), (.close, ["closePR", "archive"]), (.merge, ["merge", "archive"]),
+        ]
+        for (choice, expected) in cases {
+            let fixture = IOSActionFixture()
+            defer { fixture.merge.teardown() }
+            fixture.git = try IOSActionFixture.decodeGit(extra: ["kind": "github", "mergeStateStatus": "clean"])
+            fixture.leftovers = try IOSActionFixture.decodeLeftovers(["b", "a", "c"])
+            fixture.state.presentDecommission(); await settle { fixture.state.decommission.loaded }
+            fixture.calls = []
+            fixture.state.decommission.reap = ["b", "a"]
+            await fixture.state.confirmDecommission(choice, now: .distantFuture)
+            XCTAssertEqual(fixture.calls, expected)
+            XCTAssertEqual(fixture.reap, ["a", "b"])
+            XCTAssertNil(fixture.state.sheet)
+            XCTAssertNil(fixture.state.error)
+            XCTAssertEqual(fixture.decommissionedID, fixture.session.id)
+            if choice == .merge {
+                XCTAssertNil(fixture.mergeMethod)
+                XCTAssertEqual(fixture.deleteBranch, true)
+                XCTAssertEqual(fixture.mergePayload?.headSha, "fresh-head")
+                XCTAssertEqual(fixture.mergePayload?.handoffWho, "alex")
+                XCTAssertEqual(fixture.mergePayload?.reviewBlockBy, "sam")
+            }
+        }
+    }
+
+    func testDecommissionArchiveFailureRetriesOnlyTheArchive() async throws {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.state.presentDecommission(); await settle { fixture.state.decommission.loaded }
+        fixture.calls = []
+        fixture.failures = ["archive": .notFound]
+        await fixture.state.confirmDecommission(.close, now: .distantFuture)
+        XCTAssertEqual(fixture.calls, ["closePR", "archive"])
+        XCTAssertEqual(fixture.state.sheet, .decommission)
+        XCTAssertEqual(fixture.state.error, L.t("native_archive_failed", ShepherdErrorCopy.message(ShepherdError.notFound)))
+        XCTAssertEqual(fixture.state.decommission.choices, [.keep], "The PR is settled; only the archive is left")
+        XCTAssertNil(fixture.decommissionedID)
+        fixture.failures = [:]
+        await fixture.state.confirmDecommission(.keep, now: .distantFuture)
+        XCTAssertEqual(fixture.calls, ["closePR", "archive", "archive"])
+        XCTAssertNil(fixture.state.sheet)
+        XCTAssertEqual(fixture.decommissionedID, fixture.session.id)
+    }
+
+    func testDecommissionMergeRefusalRereadsThePRBeforeARetry() async throws {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        let github: [String: Any] = ["kind": "github", "mergeStateStatus": "clean"]
+        fixture.git = try IOSActionFixture.decodeGit(extra: github)
+        fixture.state.presentDecommission(); await settle { fixture.state.decommission.loaded }
+        fixture.calls = []
+        fixture.git = try IOSActionFixture.decodeGit(extra: github.merging(["headSha": "newer-head"]) { $1 })
+        fixture.failures = ["merge": ShepherdError.conflict(code: "merge_confirm_stale", message: "Revision changed")]
+        await fixture.state.confirmDecommission(.merge, now: .distantFuture)
+        XCTAssertEqual(fixture.calls, ["merge", "git"])
+        XCTAssertEqual(fixture.mergePayload?.headSha, "fresh-head")
+        XCTAssertNotNil(fixture.state.error)
+        XCTAssertEqual(fixture.state.sheet, .decommission)
+        XCTAssertTrue(fixture.state.decommission.loaded)
+        XCTAssertEqual(fixture.state.decommission.git?.headSha, "newer-head")
+        XCTAssertEqual(fixture.state.decommission.choices, [.keep, .merge, .close])
+        fixture.failures = [:]
+        await fixture.state.confirmDecommission(.merge, now: .distantFuture)
+        XCTAssertEqual(fixture.mergePayload?.headSha, "newer-head")
+        XCTAssertEqual(fixture.calls, ["merge", "git", "merge", "archive"])
+    }
+
+    func testDecommissionSuccessLeavesTheDetailOnlyWhileStillSelected() async throws {
+        let fixture = IOSActionFixture()
+        defer { fixture.merge.teardown() }
+        fixture.state.presentDecommission(); await settle { fixture.state.decommission.loaded }
+        fixture.hold = true
+        let task = Task { await fixture.state.confirmDecommission(.keep, now: .distantFuture) }
+        await settle { fixture.pending != nil }
+        XCTAssertTrue(fixture.state.busy)
+        fixture.state.dismiss()
+        XCTAssertEqual(fixture.state.sheet, .decommission, "A running decommission cannot be dismissed")
+        fixture.selected = false
+        fixture.release(); await task.value
+        XCTAssertEqual(fixture.calls.last, "archive")
+        XCTAssertNil(fixture.state.sheet)
+        XCTAssertNil(fixture.decommissionedID)
+    }
+
+    func testMergeAvailableMatchesTheWebPredicate() throws {
+        func pr(_ over: [String: Any]) throws -> GitState {
+            let base: [String: Any] = ["kind": "github", "state": "open", "number": 12, "checks": "success", "deployConfigured": false]
+            let payload = base.merging(over) { $1 }
+            return try JSONDecoder().decode(GitState.self, from: JSONSerialization.data(withJSONObject: payload))
+        }
+        let available: [[String: Any]] = [
+            [:], ["kind": "gitea"], ["mergeable": NSNull()], ["mergeStateStatus": "clean", "checks": "failure"],
+            ["mergeStateStatus": "unstable", "checks": "failure"], ["checks": "pending"],
+            ["mergeable": true, "mergeStateStatus": "clean"],
+        ]
+        let unavailable: [[String: Any]] = [
+            ["kind": "local"], ["state": "merged"], ["state": "closed"], ["state": "none"], ["number": NSNull()],
+            ["isDraft": true], ["mergeable": false], ["mergeStateStatus": "blocked"], ["mergeStateStatus": "behind"],
+            ["mergeStateStatus": "unknown", "checks": "failure"], ["checks": "failure"],
+            ["mergeable": NSNull(), "mergeStateStatus": "dirty"],
+        ]
+        XCTAssertFalse(MergeConfirmationRules.mergeAvailable(nil))
+        for over in available { XCTAssertTrue(MergeConfirmationRules.mergeAvailable(try pr(over)), "\(over)") }
+        for over in unavailable { XCTAssertFalse(MergeConfirmationRules.mergeAvailable(try pr(over)), "\(over)") }
+    }
+
     private func settle(line: UInt = #line, _ condition: () -> Bool) async {
         let deadline = ContinuousClock.now + .seconds(15)
         while !condition(), ContinuousClock.now < deadline { await Task.yield() }
@@ -540,6 +738,10 @@ private final class IOSActionFixture {
     var mergePayload: Components.Schemas.MergeConfirmation?
     var mergeMethod: MergeMethod?
     var deleteBranch: Bool?
+    var leftovers = try! decodeLeftovers([])
+    var reap: [String]?
+    var decommissionedID: String?
+    var failures: [String: ShepherdError] = [:]
     let merge: MergeModel
     init(merge: MergeModel? = nil) {
         self.merge = merge ?? MergeModel(reads: .init(snapshot: { MergeSnapshot() }))
@@ -549,6 +751,7 @@ private final class IOSActionFixture {
         session: { self.session }, actions: { self.rules.actions(for: $0) }, git: { self.git },
         canWrite: { self.writable }, isSelected: { self.selected },
         canSelectReplacement: { self.replacementAllowed },
+        decommissioned: { self.decommissionedID = $0 },
         selectReplacement: { self.selectedReplacement = $0; self.replacementNote = $1 })
     var operations: IOSActionOperations {
         .init(stop: { _ in try await self.record("stop") },
@@ -571,17 +774,26 @@ private final class IOSActionFixture {
             merge: { _, method, delete, payload in
                 self.mergePayload = payload; self.mergeMethod = method; self.deleteBranch = delete
                 try await self.record("merge"); return self.git
-            })
+            }, leftovers: { _ in try await self.record("leftovers"); return self.leftovers },
+            closePR: { _ in try await self.record("closePR"); return self.git },
+            archive: { _, reap in self.reap = reap; try await self.record("archive") })
     }
     func record(_ call: String) async throws {
         calls.append(call)
         if hold { await withCheckedContinuation { pending = $0 } }
-        if let error { throw error }
+        if let error = failures[call] ?? error { throw error }
     }
     func release() { hold = false; pending?.resume(); pending = nil }
-    static func decodeGit(handoff: String = "reviewer") throws -> GitState {
-        let payload: [String: Any] = ["state": "open", "checks": "success", "deployConfigured": false, "number": 42, "title": "iPhone session actions", "headSha": "fresh-head",
+    static func decodeGit(handoff: String = "reviewer", extra: [String: Any] = [:]) throws -> GitState {
+        var payload: [String: Any] = ["state": "open", "checks": "success", "deployConfigured": false, "number": 42, "title": "iPhone session actions", "headSha": "fresh-head",
             "baseRefName": "develop", "mergeMethod": "squash", "mergeGate": ["handoff": handoff, "handoffWho": "alex", "reviewBlockBy": "sam"]]
+        payload.merge(extra) { $1 }
         return try JSONDecoder().decode(GitState.self, from: JSONSerialization.data(withJSONObject: payload))
+    }
+    static func decodeLeftovers(_ keys: [String], probesUnavailable: Bool = false) throws -> ComposeLeftovers {
+        let payload: [String: Any] = ["probesUnavailable": probesUnavailable, "leftovers": keys.map {
+            ["kind": "process", "name": $0, "port": NSNull(), "key": $0] as [String: Any]
+        }]
+        return try JSONDecoder().decode(ComposeLeftovers.self, from: JSONSerialization.data(withJSONObject: payload))
     }
 }

@@ -602,7 +602,8 @@ private final class ReplyFixture {
         resume: { _ in try await self.resumeSession() }, ready: { _, _ in throw ShepherdError.notFound }, rename: { _, _ in throw ShepherdError.notFound },
         amend: { _, _, _ in throw ShepherdError.notFound }, relaunch: { _, _ in throw ShepherdError.notFound },
         recap: { _ in throw ShepherdError.notFound }, git: { _ in throw ShepherdError.notFound },
-        merge: { _, _, _, _ in throw ShepherdError.notFound }), merge: merge,
+        merge: { _, _, _, _ in throw ShepherdError.notFound }, leftovers: { _ in throw ShepherdError.notFound },
+        closePR: { _ in throw ShepherdError.notFound }, archive: { _, _ in throw ShepherdError.notFound }), merge: merge,
         session: { self.record }, actions: { self.rules.actions(for: $0) },
         canWrite: { self.writable }, isSelected: { true }, canSelectReplacement: { false },
         resumeSucceeded: { [weak self] _ in self?.model.resumeSucceeded() }, selectReplacement: { _, _ in })

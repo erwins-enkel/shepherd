@@ -26,6 +26,7 @@ struct IOSActionEditorSheet: View {
         case .amend: L.t("amend_title", session.name)
         case .relaunch: L.t("native_actions_relaunch_confirm_title")
         case .merge: L.t("prbadge_merge")
+        case .decommission: L.t("cardmenu_decommission")
         }
     }
 }
@@ -73,7 +74,7 @@ struct IOSActionEditorContent: View {
                 }
                 field(L.t("newtask_branch_label"), text: $state.branch, id: "relaunch-branch")
                 editor(L.t("newtask_prompt_label"), text: $state.prompt, id: "relaunch-prompt")
-            case .merge: EmptyView()
+            case .merge, .decommission: EmptyView()
             }
             Button(role: kind == .relaunch ? .destructive : nil) { Task { await state.submit() } } label: {
                 Text(verbatim: submitTitle).frame(maxWidth: .infinity)
@@ -92,6 +93,7 @@ struct IOSActionEditorContent: View {
         case .amend: L.t("amend_submit")
         case .relaunch: L.t("native_actions_relaunch_confirm_action")
         case .merge: L.t("mergeconfirm_confirm")
+        case .decommission: L.t("cardmenu_decommission")
         }
     }
     @ViewBuilder private func field(_ title: String, text: Binding<String>, id: String) -> some View {

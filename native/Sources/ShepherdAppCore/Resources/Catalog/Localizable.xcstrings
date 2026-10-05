@@ -1905,6 +1905,110 @@
         }
       }
     },
+    "decommission_pr_close": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR schließen & stilllegen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close PR & decommission"
+          }
+        }
+      }
+    },
+    "decommission_pr_desc": {
+      "comment": "%1$@ = name",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Beim Stilllegen von %1$@ werden der Agent beendet und sein Worktree entfernt. Was soll mit dem Pull Request geschehen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decommissioning %1$@ stops the agent and removes its worktree. What should happen to the pull request?"
+          }
+        }
+      }
+    },
+    "decommission_pr_keep": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR offen lassen & stilllegen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keep PR open & decommission"
+          }
+        }
+      }
+    },
+    "decommission_pr_merge": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PR mergen & stilllegen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge PR & decommission"
+          }
+        }
+      }
+    },
+    "decommission_pr_merge_takeover": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trotzdem selbst mergen & stilllegen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge it myself & decommission"
+          }
+        }
+      }
+    },
+    "decommission_pr_title": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offener PR #%1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open PR #%1$@"
+          }
+        }
+      }
+    },
     "diagnostics_all_ok": {
       "extractionState": "manual",
       "localizations": {
@@ -8783,13 +8887,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Session konnte nicht archiviert werden: %1$@"
+            "value": "Session konnte nicht stillgelegt werden: %1$@"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Could not archive the session: %1$@"
+            "value": "Could not decommission the session: %1$@"
           }
         }
       }
@@ -26010,6 +26114,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Popover mockup"
+          }
+        }
+      }
+    },
+    "viewport_decommission_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent stoppen + Worktree entfernen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "stop agent + remove worktree"
           }
         }
       }

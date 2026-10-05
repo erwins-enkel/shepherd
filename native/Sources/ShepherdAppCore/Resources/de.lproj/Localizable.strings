@@ -109,6 +109,12 @@
 "criticbadge_stalled" = "PRÜFUNG STECKT";
 "criticbadge_stalled_title" = "Auto-Korrektur hat nach %1$@ Runden mit offenen Befunden aufgegeben; braucht einen Menschen.";
 "criticbadge_title" = "Kritiker-Review für diesen PR-Stand";
+"decommission_pr_close" = "PR schließen & stilllegen";
+"decommission_pr_desc" = "Beim Stilllegen von %1$@ werden der Agent beendet und sein Worktree entfernt. Was soll mit dem Pull Request geschehen?";
+"decommission_pr_keep" = "PR offen lassen & stilllegen";
+"decommission_pr_merge" = "PR mergen & stilllegen";
+"decommission_pr_merge_takeover" = "Trotzdem selbst mergen & stilllegen";
+"decommission_pr_title" = "Offener PR #%1$@";
 "diagnostics_all_ok" = "Alles startklar.";
 "diagnostics_doc_link" = "So behebst du das";
 "diagnostics_fix" = "Beheben";
@@ -510,7 +516,7 @@
 "native_archive_confirm_action" = "Archivieren";
 "native_archive_confirm_body" = "Der Agent stoppt und der Worktree wird freigegeben.";
 "native_archive_confirm_title" = "Diese Session archivieren?";
-"native_archive_failed" = "Session konnte nicht archiviert werden: %1$@";
+"native_archive_failed" = "Session konnte nicht stillgelegt werden: %1$@";
 "native_banner_client_too_old" = "Dieser Server benötigt App-Version %1$@ oder neuer — du hast %2$@. Aktualisiere Shepherd für Mac.";
 "native_banner_mismatch" = "Der Server spricht eine andere API-Version als diese App — Server %1$@, App %2$@. Aktualisiere eines von beiden.";
 "native_banner_needs_login" = "Deine Sitzung ist abgelaufen. Melde dich erneut an.";
@@ -1517,6 +1523,7 @@
 "vblock_wireframe_surface_mobile" = "Mobile Skizze";
 "vblock_wireframe_surface_panel" = "Panel-Skizze";
 "vblock_wireframe_surface_popover" = "Popover-Skizze";
+"viewport_decommission_title" = "Agent stoppen + Worktree entfernen";
 "viewport_diff_annotation_review" = "Prüfung";
 "viewport_reconnect_sub" = "herdr ist offline. Tippen, sobald es zurück ist.";
 "viewport_reconnect_title" = "Neu verbinden";

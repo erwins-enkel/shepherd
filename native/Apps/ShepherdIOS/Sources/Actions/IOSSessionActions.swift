@@ -67,6 +67,7 @@ final class IOSSessionActions: AppExtension {
             resumeSucceeded: { [weak app] id in
                 app?.extension(IOSTerminalController.self)?.resumeSucceeded(sessionID: id)
             },
+            decommissioned: { [weak app] _ in app?.selectedSessionID = nil },
             selectReplacement: { [weak app, weak actions] result, note in
                 actions?.recordOutcomeNote(note.text, forSessionID: result.id)
                 app?.selectedSessionID = result.id
@@ -105,6 +106,9 @@ struct IOSActionOperations {
     var recap: (String) async throws -> RecapRegenerateResult
     var git: (String) async throws -> GitState?
     var merge: (String, MergeMethod?, Bool, Components.Schemas.MergeConfirmation) async throws -> GitState
+    var leftovers: (String) async throws -> ComposeLeftovers
+    var closePR: (String) async throws -> GitState
+    var archive: (String, [String]?) async throws -> Void
 
     static func live(_ store: SessionStore) -> Self {
         let client = store.client
@@ -116,14 +120,42 @@ struct IOSActionOperations {
             relaunch: { try await client.relaunch(sessionID: $0, overrides: $1) },
             recap: { try await client.regenerateRecap(sessionID: $0) },
             git: { try await client.git(sessionID: $0) },
-            merge: { try await client.mergePR(sessionID: $0, method: $1, deleteBranch: $2, confirm: $3) })
+            merge: { try await client.mergePR(sessionID: $0, method: $1, deleteBranch: $2, confirm: $3) },
+            leftovers: { try await client.sessionLeftovers(id: $0) },
+            closePR: { try await client.closePR(sessionID: $0) },
+            archive: { try await store.archive(id: $0, reap: $1) })
+    }
+}
+
+/// What the PR choice in the decommission sheet does before the session is archived.
+enum IOSDecommissionChoice: String, Identifiable {
+    case keep, merge, close
+    var id: String { rawValue }
+}
+
+/// The decommission sheet's facts, read fresh when it opens: what the session still runs, and
+/// the PR as the server sees it now — the merge choice confirms exactly that revision.
+struct IOSDecommissionDraft {
+    var loaded = false
+    var leftovers: [Components.Schemas.ComposeLeftover] = []
+    var probesUnavailable = false
+    var reap: Set<String> = []
+    var git: GitState?
+    /// The PR step already ran, so a retry after a failed archive only archives.
+    var prSettled = false
+
+    var asksAboutPR: Bool { !prSettled && git?.state.known == .open && git?.number != nil }
+    /// `DecommissionPrDialog.svelte`: keep and close always, merge only where the forge can.
+    var choices: [IOSDecommissionChoice] {
+        guard asksAboutPR else { return [.keep] }
+        return MergeConfirmationRules.mergeAvailable(git) ? [.keep, .merge, .close] : [.keep, .close]
     }
 }
 
 @Observable
 @MainActor
 final class IOSSessionActionState {
-    enum Sheet: String, Identifiable { case rename, amend, relaunch, merge; var id: String { rawValue } }
+    enum Sheet: String, Identifiable { case rename, amend, relaunch, merge, decommission; var id: String { rawValue } }
     let command = SessionCommandState()
     let outcome = ActionBarOutcome()
     let mergeModel: MergeModel
@@ -136,6 +168,7 @@ final class IOSSessionActionState {
     var prompt = ""
     var method: MergeMethod?
     var deleteBranch = true
+    var decommission = IOSDecommissionDraft()
     private(set) var candidate: GitState?
     private(set) var presentedAt: Date?
     private var presentationRevision = 0
@@ -152,6 +185,7 @@ final class IOSSessionActionState {
     private let canSelectReplacement: () -> Bool
     private let selectReplacement: (Session, ActionNote) -> Void
     private let resumeSucceeded: (String) -> Void
+    private let decommissioned: (String) -> Void
 
     init(operations: IOSActionOperations, merge: MergeModel, session: @escaping () -> Session?,
          actions: @escaping (Session) -> [SessionAction], git: @escaping () -> GitState? = { nil },
@@ -159,10 +193,11 @@ final class IOSSessionActionState {
          isSelected: @escaping () -> Bool, isReviewing: @escaping () -> Bool = { false },
          canSelectReplacement: @escaping () -> Bool,
          resumeSucceeded: @escaping (String) -> Void = { _ in },
+         decommissioned: @escaping (String) -> Void = { _ in },
          selectReplacement: @escaping (Session, ActionNote) -> Void) {
         self.operations = operations; mergeModel = merge; readSession = session
         readActions = actions; readGit = git; self.canWrite = canWrite; self.isSelected = isSelected
-        self.resumeSucceeded = resumeSucceeded
+        self.resumeSucceeded = resumeSucceeded; self.decommissioned = decommissioned
         self.isReviewing = isReviewing; self.canSelectReplacement = canSelectReplacement; self.selectReplacement = selectReplacement
     }
 
@@ -205,7 +240,7 @@ final class IOSSessionActionState {
     func dismiss() {
         guard !busy else { return }
         presentationRevision &+= 1
-        sheet = nil; candidate = nil; presentedAt = nil
+        sheet = nil; candidate = nil; presentedAt = nil; decommission = IOSDecommissionDraft()
     }
 
     func detailDidDisappear() {
@@ -213,13 +248,14 @@ final class IOSSessionActionState {
         // Explicit navigation revokes the presentation even if a write is in flight.
         if !isSelected(), !canSelectReplacement() {
             presentationRevision &+= 1
-            sheet = nil; candidate = nil; presentedAt = nil
+            sheet = nil; candidate = nil; presentedAt = nil; decommission = IOSDecommissionDraft()
         } else if !busy { dismiss() }
     }
 
     func invalidate() {
         invalidated = true; presentationRevision &+= 1
         sheet = nil; candidate = nil; presentedAt = nil; outcome.note = nil; command.clear()
+        decommission = IOSDecommissionDraft()
         mergeBusy = false; mergeError = nil
     }
 
@@ -269,7 +305,7 @@ final class IOSSessionActionState {
             return actions.contains(.relaunch) && !repo.isEmpty
                 && !branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 && !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && prompt.utf16.count <= 8000
-        case .merge, nil: return false
+        case .merge, .decommission, nil: return false
         }
     }
 
@@ -306,7 +342,7 @@ final class IOSSessionActionState {
                     archived = result.archived; replacement = result.session
                     note = result.archived ? .success(L.t("relaunch_done", result.session.desig))
                         : .warning(L.t("relaunch_archive_failed"))
-                case .merge: return
+                case .merge, .decommission: return
                 }
             } catch { thrown = error; throw error }
         }, failureCopy: { raw in
@@ -314,7 +350,7 @@ final class IOSSessionActionState {
             case .rename: RenameSubmission.failureCopy(raw)
             case .amend: L.t("amend_failed")
             case .relaunch: ActionErrorCopy.relaunchFailure(thrown, fallback: raw)
-            case .merge: raw
+            case .merge, .decommission: raw
             }
         }, isCurrent: {
             if sheet == .relaunch, archived {
@@ -326,6 +362,92 @@ final class IOSSessionActionState {
         self.sheet = nil
         if archived, let replacement { selectReplacement(replacement, note) }
         else { outcome.note = note }
+    }
+
+    var canDecommission: Bool {
+        allowsWrites && readSession().map { $0.status.known != .archived } == true
+    }
+
+    /// Opens the sheet at once, then fills it from a fresh probe of leftovers and the PR. A failed
+    /// probe never blocks: no leftovers is shown as "cannot detect", a failed PR read falls back
+    /// to the herd's cached snapshot.
+    func presentDecommission() {
+        guard canDecommission, !busy, isSelected(), let session = readSession() else { return }
+        command.clear(); mergeError = nil; outcome.note = nil
+        presentationRevision &+= 1
+        candidate = nil; presentedAt = nil
+        decommission = IOSDecommissionDraft()
+        sheet = .decommission
+        let revision = presentationRevision
+        Task { [weak self] in await self?.loadDecommission(session.id, revision: revision) }
+    }
+
+    private func loadDecommission(_ id: String, revision: Int) async {
+        async let listing = probeLeftovers(id)
+        async let git = freshGit(id)
+        let (found, fresh) = await (listing, git)
+        guard decommissionIsCurrent(revision) else { return }
+        decommission.leftovers = found?.leftovers ?? []
+        decommission.probesUnavailable = found?.probesUnavailable ?? true
+        decommission.git = fresh ?? readGit()
+        decommission.loaded = true
+        presentedAt = Date()
+    }
+
+    private func probeLeftovers(_ id: String) async -> ComposeLeftovers? { try? await operations.leftovers(id) }
+    private func freshGit(_ id: String) async -> GitState? { try? await operations.git(id) }
+    private func decommissionIsCurrent(_ revision: Int) -> Bool {
+        allowsWrites && revision == presentationRevision && sheet == .decommission
+    }
+
+    func canConfirmDecommission(_ choice: IOSDecommissionChoice, now: Date = Date()) -> Bool {
+        guard allowsWrites, !busy, isSelected(), sheet == .decommission, decommission.loaded,
+              decommission.choices.contains(choice), readSession()?.status.known != .archived,
+              let presentedAt, now.timeIntervalSince(presentedAt) >= 0.350 else { return false }
+        return choice != .merge || !mergeModel.busy
+    }
+
+    /// `createDecommissionCommit` in `ui/src/lib/decommission-commit.ts`: the PR step first, then
+    /// the archive. Once the PR step went through, a retry only archives.
+    /// - Returns: whether the session was decommissioned.
+    @discardableResult
+    func confirmDecommission(_ choice: IOSDecommissionChoice, now: Date = Date()) async -> Bool {
+        guard canConfirmDecommission(choice, now: now), let session = readSession() else { return false }
+        let draft = decommission, revision = presentationRevision
+        let reap = draft.reap.isEmpty ? nil : draft.reap.sorted()
+        var mergeFailed = false
+        // The archive removes the row, so currency is the presentation, not the session.
+        let ok = await command.run({
+            if !draft.prSettled {
+                switch choice {
+                case .close: _ = try await operations.closePR(session.id)
+                case .merge:
+                    guard let git = draft.git else { throw ShepherdError.cancelled }
+                    do { _ = try await operations.merge(session.id, nil, true, MergeConfirmationRules.payload(git)) }
+                    catch { mergeFailed = true; throw error }
+                case .keep: break
+                }
+                if revision == presentationRevision { decommission.prSettled = true }
+            }
+            try await operations.archive(session.id, reap)
+        }, failureCopy: { L.t("native_archive_failed", $0) },
+        isCurrent: { self.allowsWrites && revision == self.presentationRevision })
+        if ok {
+            sheet = nil; presentedAt = nil; decommission = IOSDecommissionDraft()
+            if isSelected() { decommissioned(session.id) }
+            return true
+        }
+        if mergeFailed, decommissionIsCurrent(revision) {
+            // A refused merge confirmation would be refused again: re-read the PR so a retry
+            // carries the revision and responsibility the server reports now.
+            decommission.loaded = false; presentedAt = nil
+            let fresh = await freshGit(session.id)
+            guard decommissionIsCurrent(revision) else { return false }
+            decommission.git = fresh ?? readGit()
+            decommission.loaded = true
+            presentedAt = Date()
+        }
+        return false
     }
 
     func canMerge(_ session: Session, git: [String: GitState], reviewing: Bool) -> Bool {

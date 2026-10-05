@@ -56,8 +56,11 @@ struct IOSSessionActionBarContent: View {
         .accessibilityElement(children: .contain).accessibilityLabel(L.t("native_actions_bar_label"))
         .accessibilityIdentifier("session-actions")
         .sheet(item: $state.sheet) { sheet in
-            if sheet == .merge { IOSMergeConfirmationSheet(session: session, state: state) }
-            else { IOSActionEditorSheet(session: session, state: state, repos: repos, kind: sheet) }
+            switch sheet {
+            case .merge: IOSMergeConfirmationSheet(session: session, state: state)
+            case .decommission: IOSDecommissionSheet(session: session, state: state)
+            default: IOSActionEditorSheet(session: session, state: state, repos: repos, kind: sheet)
+            }
         }
         .sheet(isPresented: $showsRecap) { IOSRecapSheet(recap: recap) }
         .onDisappear { state.detailDidDisappear() }
@@ -190,12 +193,13 @@ struct IOSActionFeedback: View {
 }
 
 struct IOSActionButtonStyle: ButtonStyle {
+    var tint = SessionListStyle.amber
     @Environment(\.isEnabled) private var isEnabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.sessionFont(label: true, weight: .semibold)
-            .foregroundStyle(isEnabled ? SessionListStyle.amber : SessionListStyle.muted)
+            .foregroundStyle(isEnabled ? tint : SessionListStyle.muted)
             .padding(.horizontal, 10).padding(.vertical, 8).frame(minHeight: 44)
             .background(configuration.isPressed ? SessionListStyle.selected : SessionListStyle.background)
-            .overlay { RoundedRectangle(cornerRadius: 2).stroke(isEnabled ? SessionListStyle.amber : SessionListStyle.brightLine, lineWidth: 1) }
+            .overlay { RoundedRectangle(cornerRadius: 2).stroke(isEnabled ? tint : SessionListStyle.brightLine, lineWidth: 1) }
     }
 }

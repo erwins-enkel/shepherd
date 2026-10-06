@@ -7,7 +7,7 @@
     "summarySHA256": "37c590c1f8447902da284eee0e66506b03ca6855b19e3d9045e147aea6578587",
     "toolchain": "Xcode 26.6 (17F113), Swift 6.3.3, iOS Simulator 26.5",
     "sourceCommit": "e84307181410a81ae7b2de4ba76e24d5c09938eb",
-    "sourceNote": "Executed on the integration worktree; native source/test content is committed unchanged at sourceCommit. Original Task4 arguments retained exactly; five upstream parameterized declarations added from successful simulator execution."
+    "sourceNote": "Executed on the integration worktree; native source/test content is committed unchanged at sourceCommit. Original Task4 arguments retained exactly; five upstream parameterized declarations added from successful simulator execution. GPT-6.1 Sol argument appended from CI run 37455557237 (commit 3de620c2c8cd809ee792bb5e49529892cfa70774), whose model-guidance cases all passed; every prior argument is retained."
   },
   "arguments": {
     "CoreSeamTests.ActionBarTests/failedCompletionsDoNotWriteASuccessNote": [
@@ -119,6 +119,7 @@
       "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"gpt-6-astra\", cost: \"premium\", tag: \"max\", detail: \"codex_6_astra\")",
       "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"gpt-6-luna\", cost: \"low\", tag: \"budget\", detail: \"codex_6_luna\")",
       "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"gpt-6-sol\", cost: \"high\", tag: \"strong\", detail: \"codex_6_sol\")",
+      "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"gpt-6.1-sol\", cost: \"high\", tag: \"strong\", detail: \"codex_61_sol\")",
       "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"inherit\", cost: \"standard\", tag: \"providerDefault\", detail: \"inherit\")",
       "Expected(provider: ShepherdKit.Components.Schemas.AgentProvider.codex, model: \"o3\", cost: \"high\", tag: \"strong\", detail: \"codex_o3\")"
     ],

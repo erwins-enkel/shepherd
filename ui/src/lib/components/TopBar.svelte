@@ -192,6 +192,9 @@
   // WRAPS to a second row instead — handled by the `mobile` flag, never measured.)
   let hudEl = $state<HTMLElement | null>(null);
   let measuredCompact = $state(false);
+  // Second tier: when even the icon-only bar overflows (a narrow unfolded fold), the
+  // attention badges (updates / What's-New / diagnostics) fold into the gear menu.
+  let measuredFold = $state(false);
   // Cached TRUE full-label content width (scrollWidth at the full render). The
   // full-label content is RESIZE-INVARIANT — nothing inside the bar wraps or reflows
   // on container width at desktop, so the content's intrinsic width doesn't change
@@ -200,7 +203,10 @@
   // clientWidth — no reset-to-full, so no per-frame flicker during a window drag.
   // 0 = unknown/stale (must re-measure). Non-reactive: changing it must not re-run effects.
   let fullWidth = 0;
+  // Same cache for the COMPACT (icon-only, unfolded) width — drives the fold tier.
+  let compactWidth = 0;
   let measureScheduled = false;
+  let compactScheduled = false;
 
   // Re-measure the true full-label width: render full (so scrollWidth IS the full-label
   // width), then in the next frame read + cache it and decide compaction. Used on a
@@ -210,18 +216,49 @@
     if (measureScheduled) return;
     measureScheduled = true;
     measuredCompact = false; // render full so scrollWidth is the full-label width
+    measuredFold = false;
+    compactWidth = 0;
     requestAnimationFrame(() => {
-      measureScheduled = false;
       if (!hudEl || mode === "mobile") {
-        measuredCompact = false;
-        fullWidth = 0;
+        measureScheduled = false;
+        resetMeasure();
         return;
       }
       fullWidth = hudEl.scrollWidth;
       // 1px slack absorbs sub-pixel layout rounding, so a flush-fitting full-label bar
       // (scrollWidth a hair over clientWidth) isn't needlessly compacted.
       measuredCompact = fullWidth > hudEl.clientWidth + 1;
+      measureScheduled = false;
+      if (measuredCompact) measureCompact();
     });
+  }
+
+  // Fold tier: with the compact (icon-only, unfolded) bar rendered, read + cache its
+  // width next frame and fold iff even that overflows.
+  function measureCompact() {
+    if (compactScheduled) return;
+    compactScheduled = true;
+    measuredFold = false; // render unfolded so scrollWidth is the compact width
+    requestAnimationFrame(() => {
+      compactScheduled = false;
+      // A pending full measurement supersedes this one (it re-runs measureCompact).
+      if (measureScheduled) return;
+      if (!hudEl || mode === "mobile") {
+        resetMeasure();
+        return;
+      }
+      if (!measuredCompact) return;
+      compactWidth = hudEl.scrollWidth;
+      measuredFold = compactWidth > hudEl.clientWidth + 1;
+    });
+  }
+
+  // Mobile wraps instead: clear both tiers and the caches so re-entry re-measures fresh.
+  function resetMeasure() {
+    measuredCompact = false;
+    measuredFold = false;
+    fullWidth = 0;
+    compactWidth = 0;
   }
 
   // Resize path: decide compaction from the CACHED full width vs the current
@@ -230,12 +267,14 @@
   // full measurement.
   function decideFromCache() {
     if (mode === "mobile" || !hudEl) {
-      measuredCompact = false;
-      fullWidth = 0; // mobile: clear so re-entry re-measures fresh (matches content effect)
+      resetMeasure();
       return;
     }
-    if (fullWidth > 0) measuredCompact = fullWidth > hudEl.clientWidth + 1;
-    else measureFull();
+    if (fullWidth === 0) return measureFull();
+    measuredCompact = fullWidth > hudEl.clientWidth + 1;
+    if (!measuredCompact) measuredFold = false;
+    else if (compactWidth > 0) measuredFold = compactWidth > hudEl.clientWidth + 1;
+    else measureCompact();
   }
 
   // Re-measure when what's-in-the-bar (badge count), the layout mode, or the gauges
@@ -251,17 +290,20 @@
     // neither this effect nor the ResizeObserver would re-fire — the bar would stay
     // un-compacted and overflow until an unrelated resize/badge change self-healed it.
     void gauges.length;
+    // The diagnostics health pip (TopBarBadges) also arrives async with the WS snapshot
+    // and widens the bar — re-measure on its appearance/disappearance.
+    void (diagnosticsOverall !== "ok");
     // Compact provider rotation changes top-bar content without changing `gauges.length`.
     // Remeasure when the provider set/rotation state changes, and when the active view moves
     // between width classes (e.g. two bars ↔ token total), but not for same-width provider ticks.
     void compactUsageSetSignature;
     void activeCompactUsageWidthClass;
     if (mode === "mobile") {
-      measuredCompact = false;
-      fullWidth = 0; // mobile: clear the cache so re-entry re-measures fresh
+      resetMeasure();
       return;
     }
-    fullWidth = 0; // content changed → cached full width is stale
+    fullWidth = 0; // content changed → cached widths are stale
+    compactWidth = 0;
     measureFull();
   });
   // Re-decide when the bar's own box size changes (window resize). This takes the
@@ -282,6 +324,7 @@
   // deliberate loss of #322's two-step ladder, kept consistent with desktop). Mobile uses
   // its own wrapping layout (the `mobile` flag), never these.
   const compactBadges = $derived(mode !== "mobile" && measuredCompact);
+  const foldBadges = $derived(compactBadges && measuredFold);
 
   const idle = $derived(sessions.filter((s) => displayStatus(s, workingBlocked) === "idle").length);
   const blocked = $derived(
@@ -695,18 +738,22 @@
     closeMenu();
     openFeedback(kind);
   }
-  // Mobile only: settings-owned diagnostics attention collapses into one dot on
+  // Mobile: settings-owned diagnostics attention collapses into one dot on
   // the gear, because the Diagnose row lives inside the gear sheet on phones.
   // Herd/session state stays on the tallies and rows instead of duplicating here.
-  type GearPipTier = "red" | "yellow" | null;
+  // Folded (narrow fold) badges also light it: blue "info" for updates / What's-New.
+  type GearPipTier = "red" | "yellow" | "info" | null;
   const gearPipTier = $derived<GearPipTier>(
-    !mobile
+    !mobile && !foldBadges
       ? null
       : diagnosticsOverall === "error"
         ? "red"
         : diagnosticsOverall === "warning"
           ? "yellow"
-          : null,
+          : foldBadges &&
+              (updateAvailable || herdrUpdateAvailable || codexUpdateAvailable || whatsNew)
+            ? "info"
+            : null,
   );
   // The gear ALWAYS toggles the menu (design handoff 3b/3c): the telemetry popover /
   // sheet now carries the identity header, usage gauge, docs and support rows, so it
@@ -908,7 +955,7 @@
     <div class="conn tip" data-tip={connText} aria-label={connText}>
       <span class="dot" class:on={connected}>●</span>
     </div>
-    {#if !mobile}<TopBarBadges
+    {#if !mobile && !foldBadges}<TopBarBadges
         {compactBadges}
         {updateAvailable}
         {update}
@@ -933,6 +980,18 @@
          row lives in that sheet. -->
     <TopBarGear
       {mobile}
+      {foldBadges}
+      {diagnosticsOverall}
+      {updateAvailable}
+      {update}
+      {herdrUpdateAvailable}
+      {codexUpdateAvailable}
+      {whatsNew}
+      {ondiagnose}
+      {onupdate}
+      {onherdrupdate}
+      {oncodexupdate}
+      {onwhatsnew}
       {ondonelens}
       {onowedlens}
       {haltable}

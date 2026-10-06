@@ -3,7 +3,7 @@
   import { m } from "$lib/paraglide/messages";
   import { DOCS_URL, MAC_APP_DOWNLOAD_URL } from "$lib/build-info";
   import type { FeedbackKind } from "$lib/feedback-link";
-  import type { UsageLimits } from "$lib/types";
+  import type { UsageLimits, UpdateStatus, DiagnosticState } from "$lib/types";
   import { isMacPlatform, isMacOSPlatform } from "$lib/platform";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { settingsChordHint } from "../herd-keynav";
@@ -13,11 +13,24 @@
   import GearHaltHero from "./GearHaltHero.svelte";
   import GearGroupHead from "./GearGroupHead.svelte";
   import GearRow from "./GearRow.svelte";
+  import GearAttentionRows from "./GearAttentionRows.svelte";
 
-  type GearPipTier = "red" | "yellow" | null;
+  type GearPipTier = "red" | "yellow" | "info" | null;
 
   let {
     mobile,
+    foldBadges,
+    diagnosticsOverall,
+    updateAvailable,
+    update,
+    herdrUpdateAvailable,
+    codexUpdateAvailable,
+    whatsNew,
+    ondiagnose,
+    onupdate,
+    onherdrupdate,
+    oncodexupdate,
+    onwhatsnew,
     haltable,
     gearPipTier,
     armed,
@@ -55,6 +68,19 @@
     periodLabel,
   }: {
     mobile: boolean;
+    /** Narrow fold: the top-bar attention badges are folded into this popover. */
+    foldBadges: boolean;
+    diagnosticsOverall: DiagnosticState;
+    updateAvailable: boolean;
+    update: UpdateStatus | null;
+    herdrUpdateAvailable: boolean;
+    codexUpdateAvailable: boolean;
+    whatsNew: boolean;
+    ondiagnose: (() => void) | undefined;
+    onupdate: (() => void) | undefined;
+    onherdrupdate: (() => void) | undefined;
+    oncodexupdate: (() => void) | undefined;
+    onwhatsnew: (() => void) | undefined;
     haltable: number;
     gearPipTier: GearPipTier;
     armed: boolean;
@@ -137,7 +163,7 @@
     aria-haspopup="dialog"
     aria-expanded={menuOpen}
     aria-label={m.topbar_menu_aria()}
-    >⚙{#if mobile && gearPipTier}<span class="gear-pip" data-tier={gearPipTier} aria-hidden="true"
+    >⚙{#if gearPipTier}<span class="gear-pip" data-tier={gearPipTier} aria-hidden="true"
       ></span>{/if}</button
   >
   {#if menuOpen && !mobile}
@@ -170,6 +196,23 @@
         onOpenUsage={chooseUsage}
         coachId="usage-link"
       />
+
+      {#if foldBadges}
+        <GearAttentionRows
+          {diagnosticsOverall}
+          {updateAvailable}
+          {update}
+          {herdrUpdateAvailable}
+          {codexUpdateAvailable}
+          {whatsNew}
+          {closeMenu}
+          {ondiagnose}
+          {onupdate}
+          {onherdrupdate}
+          {oncodexupdate}
+          {onwhatsnew}
+        />
+      {/if}
 
       <!-- Workspace rows -->
       <div class="grp">
@@ -336,8 +379,9 @@
     border-color: var(--color-line-bright);
     color: var(--color-ink-bright);
   }
-  /* Mobile only: single settings-attention dot for diagnostics surfaced inside
-     the gear sheet. Session state has its own stronger affordances elsewhere. */
+  /* Settings-attention dot: diagnostics on mobile (surfaced in the sheet), plus
+     folded update / What's-New badges on a narrow fold (blue "info" tier). Session
+     state has its own stronger affordances elsewhere. */
   .gear-pip {
     position: absolute;
     top: 2px;
@@ -352,6 +396,9 @@
   }
   .gear-pip[data-tier="yellow"] {
     background: var(--color-amber);
+  }
+  .gear-pip[data-tier="info"] {
+    background: var(--color-blue);
   }
   /* Mobile: finger-sized tap targets (≥44px). */
   .gear.mobile {

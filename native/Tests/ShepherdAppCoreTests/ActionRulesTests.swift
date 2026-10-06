@@ -182,6 +182,8 @@ struct ActionRulesTests {
         for action in SessionContextAction.allCases {
             #expect(!action.label.contains("_"), "\(action.id) label did not resolve")
         }
+        #expect(!L.t("toast_terminal_failed").contains("_"))
+        #expect(!L.t("toast_terminal_unsupported").contains("_"))
         #expect(SessionContextAction.allCases.filter(\.isDestructive) == [.decommission])
     }
 }

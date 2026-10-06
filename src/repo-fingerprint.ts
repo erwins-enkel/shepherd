@@ -1,5 +1,6 @@
 import type { FingerprintResult, RepoFingerprint } from "./forge/github-fingerprint";
 import type { RateLimitSnapshot } from "./forge/rate-limit";
+import { countsKey, issuesKey, type GithubReadCache } from "./github-read-cache";
 
 /** One tracked GitHub repo: its slug and every local repo path that resolves to it. */
 export interface FingerprintTarget {
@@ -36,6 +37,7 @@ export interface RepoFingerprintDeps {
   reserve?: number;
   /** Minimum spacing between demanded runs. */
   minGapMs?: number;
+  cache?: GithubReadCache;
 }
 
 /** Which backlog-count entries a fingerprint run should re-fetch and which it should merely
@@ -59,29 +61,24 @@ export function countsPlan(
 
 interface SlugState {
   fp: RepoFingerprint;
-  issuesGen: number;
   observedAt: number;
+  rehydrated?: boolean;
 }
-
-const issuesKey = (f: RepoFingerprint) => `${f.openIssues}|${f.issuesUpdatedAt}`;
-const countsKey = (f: RepoFingerprint) =>
-  `${f.openIssues}|${f.openPrs}|${f.prsUpdatedAt}|${f.ciState}`;
 
 /**
  * Refresh repo-level GitHub data on change or demand, not on fixed timers (#2756).
  *
  * One aliased query fingerprints every tracked repo (about one point). A repo's full issue list
  * or backlog counts are re-fetched only when its fingerprint moved — consumers read the shared
- * forge cache, which stays valid while the slug's issue generation ({@link issuesGen}) is
- * unchanged.
+ * forge cache, which stays valid while the slug's content key ({@link issuesKey}) is unchanged.
  *
  * - Background: every `intervalMs`, unless the GraphQL bucket is in backoff or below `reserve`
  *   (until its reset) — then it waits instead of competing with agents for the last points.
  * - Demand: {@link ensureFresh} for an operator opening a view (answers at once if a run is at
  *   most `minGapMs` old), {@link refreshSoon} after an event that likely changed GitHub (a PR
  *   opened or merged). Both run under a low budget; only the backoff stops them.
- * - Coverage ({@link covered}): a slug observed within three intervals, or any observed slug while
- *   the background refresh is paused — a paused budget serves the cache rather than re-listing.
+ * - Coverage ({@link covered}): rehydrated slugs until their first observation, then slugs seen
+ *   within three intervals or while background refresh is paused — serve the cache during backoff.
  *
  * Blind spot, accepted: a change that bumps neither an issue's `updatedAt` nor a count (e.g. a
  * repo-wide label rename) stays invisible until the next real change, an operator view, or one
@@ -93,8 +90,6 @@ export class RepoFingerprintService {
   private readonly reserve: number;
   private readonly minGapMs: number;
   private readonly state = new Map<string, SlugState>();
-  /** Monotonic across slugs, so a slug that drops out and returns never reuses a generation. */
-  private genSeq = 0;
   private inflight: Promise<void> | null = null;
   /** Start time of the latest run. */
   private lastRunAt = Number.NEGATIVE_INFINITY;
@@ -102,12 +97,16 @@ export class RepoFingerprintService {
   private pendingTimer: ReturnType<typeof setTimeout> | null = null;
   private timer: ReturnType<typeof setInterval> | null = null;
   private pausedLogged = false;
+  private observed = false;
 
   constructor(private readonly deps: RepoFingerprintDeps) {
     this.now = deps.now ?? Date.now;
     this.intervalMs = deps.intervalMs ?? 120_000;
     this.reserve = deps.reserve ?? 1_000;
     this.minGapMs = deps.minGapMs ?? 30_000;
+    for (const { slug, fp, observedAt } of deps.cache?.fingerprints() ?? []) {
+      this.state.set(slug, { fp, observedAt, rehydrated: true });
+    }
   }
 
   /** Background run: skipped while paused, or when a demanded run is fresher than half an
@@ -155,16 +154,23 @@ export class RepoFingerprintService {
     return this.pending;
   }
 
-  /** True when the slug's issue list may be served from cache until its generation moves. */
+  /** True when the slug's issue list may be served from cache until its content key moves. */
   covered(slug: string): boolean {
     const s = this.state.get(slug);
     if (!s) return false;
-    return this.now() - s.observedAt < 3 * this.intervalMs || this.backgroundPaused();
+    return (
+      !!s.rehydrated || this.now() - s.observedAt < 3 * this.intervalMs || this.backgroundPaused()
+    );
   }
 
-  /** The slug's issue generation, or null when not {@link covered}. */
-  issuesGen(slug: string): number | null {
-    return this.covered(slug) ? this.state.get(slug)!.issuesGen : null;
+  /** The slug's content identity, or null when not {@link covered}. */
+  issuesKey(slug: string): string | null {
+    return this.covered(slug) ? issuesKey(this.state.get(slug)!.fp) : null;
+  }
+
+  /** Broad boot work waits for a successful fingerprint and the background reserve. */
+  backgroundReady(): boolean {
+    return this.observed && !this.backgroundPaused();
   }
 
   start(): void {
@@ -207,9 +213,14 @@ export class RepoFingerprintService {
 
   private async observe(): Promise<void> {
     const targets = this.deps.listTargets();
-    if (targets.length === 0) return;
+    if (targets.length === 0) {
+      this.observed = true;
+      await this.deps.onObserved({ changed: [], unchanged: [] });
+      return;
+    }
     const { fingerprints, rateLimit } = await this.deps.fetch(targets.map((t) => t.slug));
     const at = this.now();
+    if (fingerprints.size > 0) this.observed = true;
     const observation: FingerprintObservation = { changed: [], unchanged: [] };
     for (const target of targets) {
       if (!fingerprints.has(target.slug)) continue; // its chunk failed — leave as it was
@@ -227,7 +238,9 @@ export class RepoFingerprintService {
     into: FingerprintObservation,
   ): void {
     if (!fp) {
-      this.state.delete(target.slug); // unreadable now → uncovered, consumers keep a TTL
+      const hadState = this.state.delete(target.slug); // unreadable now → consumers keep a TTL
+      if (hadState || this.deps.cache?.get("fingerprint", target.slug))
+        this.deps.cache?.invalidate(target.slug, ["fingerprint"]);
       return;
     }
     const prev = this.state.get(target.slug);
@@ -235,9 +248,9 @@ export class RepoFingerprintService {
     const counts = !prev || countsKey(prev.fp) !== countsKey(fp);
     this.state.set(target.slug, {
       fp,
-      issuesGen: issues ? ++this.genSeq : prev!.issuesGen,
       observedAt: at,
     });
+    this.deps.cache?.put("fingerprint", target.slug, null, fp, "", at);
     if (issues || counts) into.changed.push({ ...target, first: !prev, issues, counts });
     else into.unchanged.push(target);
   }

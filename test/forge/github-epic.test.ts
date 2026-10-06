@@ -566,7 +566,7 @@ describe("GithubForge.getEpicStructure", () => {
     const { run, count } = epicRunner();
     const forge = new GithubForge("o/r", {} as never, run);
     let gen = 1;
-    setIssuesFreshness((slug) => (slug === "o/r" ? gen : null));
+    setIssuesFreshness((slug) => (slug === "o/r" ? String(gen) : null));
     try {
       setSystemTime(new Date("2026-10-05T12:00:00Z"));
       await forge.getEpicStructure(100);
@@ -613,7 +613,7 @@ describe("GithubForge.getEpicStructure", () => {
   test("GraphQL backoff reads the parts over REST, at most once per cache window", async () => {
     const { run, count } = epicRunner();
     const forge = new GithubForge("o/r", {} as never, run);
-    setIssuesFreshness(() => 1);
+    setIssuesFreshness(() => "key-1");
     blockGraphql();
     try {
       const s = await forge.getEpicStructure(100);
@@ -640,7 +640,7 @@ describe("GithubForge.getEpicStructure", () => {
     const { run, count } = epicRunner(undefined, rest);
     const forge = new GithubForge("o/r", {} as never, run);
     let gen = 1;
-    setIssuesFreshness(() => gen);
+    setIssuesFreshness(() => String(gen));
     const t0 = Date.parse("2026-10-05T12:00:00Z");
     setSystemTime(new Date(t0));
     try {
@@ -673,7 +673,7 @@ describe("GithubForge.getEpicStructure", () => {
   test("a partial REST read with nothing complete to fall back on is retried with backoff", async () => {
     const { run, count } = epicRunner(undefined, { failBlockedBy: true });
     const forge = new GithubForge("o/r", {} as never, run);
-    setIssuesFreshness(() => 1);
+    setIssuesFreshness(() => "key-1");
     const t0 = Date.parse("2026-10-05T12:00:00Z");
     setSystemTime(new Date(t0));
     graphRateLimit.noteLimitError(3_600);
@@ -724,7 +724,7 @@ describe("GithubForge.getEpicStructure", () => {
       (f) => f.addBlockedBy(102, 100),
       (f) => f.merge(7, { method: "squash", deleteBranch: false }),
     ];
-    setIssuesFreshness(() => 1);
+    setIssuesFreshness(() => "key-1");
     try {
       for (const write of writes) {
         const { run, count } = epicRunner();
@@ -789,7 +789,7 @@ describe("GithubForge issue-relations cache", () => {
   test("one combined query serves both sub-issue summaries and open blockers", async () => {
     const { run, calls, scans } = relationsRunner();
     const forge = new GithubForge("o/r", {} as never, run);
-    setIssuesFreshness(() => 1);
+    setIssuesFreshness(() => "key-1");
     try {
       const { summaries, blocked } = await readBoth(forge);
       expect(scans()).toBe(1);
@@ -810,7 +810,7 @@ describe("GithubForge issue-relations cache", () => {
     const { run, scans } = relationsRunner();
     const forge = new GithubForge("o/r", {} as never, run);
     let gen = 1;
-    setIssuesFreshness((slug) => (slug === "o/r" ? gen : null));
+    setIssuesFreshness((slug) => (slug === "o/r" ? String(gen) : null));
     try {
       setSystemTime(new Date("2026-10-05T12:00:00Z"));
       await readBoth(forge);
@@ -859,7 +859,7 @@ describe("GithubForge issue-relations cache", () => {
       (f) => f.addBlockedBy(11, 12),
       (f) => f.closeIssue(12),
     ];
-    setIssuesFreshness(() => 1);
+    setIssuesFreshness(() => "key-1");
     try {
       for (const write of writes) {
         const { run, scans } = relationsRunner();
@@ -877,7 +877,7 @@ describe("GithubForge issue-relations cache", () => {
   test("a failed scan is not cached — the next read scans again", async () => {
     const { run, scans } = relationsRunner(1);
     const forge = new GithubForge("o/r", {} as never, run);
-    setIssuesFreshness(() => 1);
+    setIssuesFreshness(() => "key-1");
     try {
       expect((await forge.listBlockedByOpen()).size).toBe(0);
       expect(await forge.listBlockedByOpen()).toEqual(new Map([[11, [12]]]));
@@ -890,7 +890,7 @@ describe("GithubForge issue-relations cache", () => {
   test("callers get copies — mutating a result leaves the cache intact", async () => {
     const { run } = relationsRunner();
     const forge = new GithubForge("o/r", {} as never, run);
-    setIssuesFreshness(() => 1);
+    setIssuesFreshness(() => "key-1");
     try {
       const first = await readBoth(forge);
       first.blocked.get(11)!.push(99);
@@ -911,7 +911,7 @@ describe("GithubForge issue-relations cache", () => {
     const { run, scans } = relationsRunner();
     const forge = new GithubForge("o/r", {} as never, run);
     let gen = 1;
-    setIssuesFreshness(() => gen);
+    setIssuesFreshness(() => String(gen));
     try {
       await readBoth(forge);
       gen = 2;

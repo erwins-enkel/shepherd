@@ -34,6 +34,7 @@ import {
 import { issuesFreshness } from "./repo-freshness";
 import { readEpicStructureByParts } from "./epic-structure";
 import { Semaphore } from "../semaphore";
+import type { GithubCacheEntry, GithubReadCache, IssueRelations } from "../github-read-cache";
 import {
   CRITIC_REVIEW_MARKER,
   EmptyDiffError,
@@ -297,15 +298,6 @@ const MAX_SUMMARY_PAGES = 2;
 /** One repo's open-issue relations, from a single combined scan (#2808): native sub-issue
  *  counts and parent links (served by `listSubIssueSummaries`) plus still-open blockers
  *  (served by `listBlockedByOpen`). */
-interface IssueRelations {
-  /** Parent number → its sub-issue counts; only parents with total > 0. */
-  summaries: Map<number, { total: number; completed: number }>;
-  /** Open issues that have a native parent. */
-  subIssueNumbers: Set<number>;
-  childrenByParent: Map<number, number[]>;
-  /** Open issue → its still-OPEN blockers; only issues with at least one. */
-  blockedByOpen: Map<number, number[]>;
-}
 
 /** Parse one page of the issue-relations GraphQL response into `into`: every node with
  *  total > 0 into `summaries`, every node with a non-null parent into `subIssueNumbers` and
@@ -726,10 +718,8 @@ export class GithubForge implements GitForge {
    *  most once per forge instance (on transition into the capped regime). */
   private openPrCapLogged = false;
   private readonly restCheckCache = new Map<string, { at: number; state: ChecksState }>();
-  /** listIssues cache + in-flight share. `issuesGen` bumps on this forge's own issue
-   *  writes so a fetch that started before the write never repopulates the cache. `fpGen` is
-   *  the repo fingerprint's issue generation when the fetch STARTED (null: not covered). */
-  private issuesCache: { at: number; issues: Issue[]; fpGen: number | null } | null = null;
+  /** Own-write generations guard in-flight reads; content keys validate cached data. */
+  private issuesCache: GithubCacheEntry<Issue[]> | null = null;
   private issuesInflight: Promise<Issue[]> | null = null;
   private issuesGen = 0;
   /** Per-repo backoff after a failed listing: the last error is replayed until `until`. */
@@ -743,7 +733,7 @@ export class GithubForge implements GitForge {
     {
       at: number;
       structure: EpicStructure;
-      fpGen: number | null;
+      contentKey: string | null;
       complete: boolean;
       retryAt?: number;
       failures?: number;
@@ -753,10 +743,11 @@ export class GithubForge implements GitForge {
   private epicStructuresGen = 0;
   /** {@link issueRelations} cache + in-flight share, validated like `issuesCache`. `relationsGen`
    *  bumps on this forge's own writes that can move relations. */
-  private relationsCache: { at: number; relations: IssueRelations; fpGen: number | null } | null =
-    null;
+  private relationsCache: GithubCacheEntry<IssueRelations> | null = null;
   private relationsInflight: Promise<IssueRelations | null> | null = null;
   private relationsGen = 0;
+  private linksInflight: Promise<Map<number, LinkedPr[]> | null> | null = null;
+  private cacheRevision = 0;
   constructor(
     readonly slug: string,
     private readonly cfg: ForgeConfig,
@@ -766,10 +757,39 @@ export class GithubForge implements GitForge {
     private readonly forkSlug?: string,
     /** Injected only so tests can drive the merge-async poll loop without real delays. */
     private readonly sleep: (ms: number) => Promise<void> = defaultSleep,
+    private readonly readCache?: GithubReadCache,
   ) {
     this.mergeMethod = cfg.mergeMethod ?? "squash";
     this.deployWorkflow = cfg.deployWorkflow ?? null;
     this.forkOwner = forkSlug?.split("/")[0] || undefined;
+  }
+
+  private now(): number {
+    return this.readCache?.now() ?? Date.now();
+  }
+
+  /** A write through another adapter also detaches this adapter's pre-write reads. */
+  private syncReadCache(): void {
+    const revision = this.readCache?.revision(this.slug) ?? 0;
+    if (revision === this.cacheRevision) return;
+    this.cacheRevision = revision;
+    this.issuesGen++;
+    this.epicStructuresGen++;
+    this.relationsGen++;
+    this.issuesInflight = null;
+    this.epicStructuresInflight.clear();
+    this.relationsInflight = null;
+    this.linksInflight = null;
+    this.issuesFailure = null;
+    this.issuesCache = null;
+    this.epicStructures.clear();
+    this.relationsCache = null;
+  }
+
+  private issueKey(): string | null {
+    return this.readCache
+      ? this.readCache.contentKey("issues", this.slug)
+      : issuesFreshness(this.slug);
   }
 
   get webUrl(): string {
@@ -1043,26 +1063,37 @@ export class GithubForge implements GitForge {
    * ({@link invalidateIssues}).
    *
    * While the repo fingerprint covers this slug (#2756), an entry stays valid until the slug's
-   * issue generation moves — no timed re-list. The entry is tagged with the generation seen when
+   * issue content key moves — no timed re-list. The entry is tagged with the key seen when
    * its fetch STARTED, so a change landing mid-fetch leaves it stale for the next read.
    * Uncovered slugs keep the {@link ISSUES_CACHE_TTL_MS} expiry.
    */
   async listIssues(): Promise<Issue[]> {
-    const fpGen = issuesFreshness(this.slug);
-    const hit = this.issuesCache;
+    this.syncReadCache();
+    const fpKey = this.issueKey();
+    const hit = this.readCache ? this.readCache.get("issues", this.slug) : this.issuesCache;
     const fresh =
       hit !== null &&
-      (fpGen !== null ? hit.fpGen === fpGen : Date.now() - hit.at < ISSUES_CACHE_TTL_MS);
-    if (fresh) return copyIssues(hit.issues);
+      (fpKey !== null ? hit.contentKey === fpKey : this.now() - hit.at < ISSUES_CACHE_TTL_MS);
+    if (fresh) {
+      if (this.readCache?.expired(hit) && this.readCache.canRefresh())
+        void this.loadIssues(fpKey).catch(() => {});
+      return copyIssues(hit.value);
+    }
+    return copyIssues(await this.loadIssues(fpKey));
+  }
+
+  private loadIssues(fpKey: string | null): Promise<Issue[]> {
     const fail = this.issuesFailure;
-    if (fail && Date.now() < fail.until) throw fail.err;
+    if (fail && this.now() < fail.until) return Promise.reject(fail.err);
     if (!this.issuesInflight) {
       const gen = this.issuesGen;
+      const revision = this.readCache?.revision(this.slug);
       const p = this.fetchIssues()
         .then(
           (issues) => {
-            if (gen === this.issuesGen) {
-              this.issuesCache = { at: Date.now(), issues, fpGen };
+            if (gen === this.issuesGen && revision === this.readCache?.revision(this.slug)) {
+              this.issuesCache = { at: this.now(), value: issues, contentKey: fpKey };
+              this.readCache?.put("issues", this.slug, fpKey, issues);
               this.issuesFailure = null;
             }
             return issues;
@@ -1077,7 +1108,7 @@ export class GithubForge implements GitForge {
         });
       this.issuesInflight = p;
     }
-    return copyIssues(await this.issuesInflight);
+    return this.issuesInflight;
   }
 
   private invalidateIssues(): void {
@@ -1085,6 +1116,7 @@ export class GithubForge implements GitForge {
     this.issuesCache = null;
     this.issuesInflight = null;
     this.issuesFailure = null;
+    this.readCache?.invalidate(this.slug, ["issues", "counts"]);
     this.invalidateEpicStructures();
     this.invalidateRelations();
   }
@@ -1093,12 +1125,19 @@ export class GithubForge implements GitForge {
     this.epicStructuresGen++;
     this.epicStructures.clear();
     this.epicStructuresInflight.clear();
+    this.readCache?.invalidate(this.slug, ["epic"]);
   }
 
   private invalidateRelations(): void {
     this.relationsGen++;
     this.relationsCache = null;
     this.relationsInflight = null;
+    this.readCache?.invalidate(this.slug, ["relations"]);
+  }
+
+  private invalidatePrs(): void {
+    this.linksInflight = null;
+    this.readCache?.invalidate(this.slug, ["prs", "counts", "links", "session"]);
   }
 
   /** Open (or extend) the per-repo backoff after a failed listing (#2656): a repo that keeps
@@ -1111,7 +1150,7 @@ export class GithubForge implements GitForge {
       ISSUES_FAILURE_BACKOFF_MS * 2 ** (strikes - 1),
       ISSUES_FAILURE_BACKOFF_MAX_MS,
     );
-    const until = Date.now() + ms;
+    const until = this.now() + ms;
     this.issuesFailure = { err, until, strikes };
     const attempts = attemptsOf(err) ?? [];
     if (attempts.every((a) => a.reason === "rate_limit") && attempts.length > 0) return;
@@ -1523,11 +1562,13 @@ export class GithubForge implements GitForge {
     // `--failed` retries only the failed jobs (+ their dependents) of a failed run;
     // a fully green run has none, so the caller passes failedOnly:false there.
     if (o.failedOnly) args.push("--failed");
-    await this.run(args);
+    await this.run(args).finally(() => this.invalidatePrs());
   }
 
   async cancelWorkflowRun(runId: number): Promise<void> {
-    await this.run(["run", "cancel", String(runId), "--repo", this.slug]);
+    await this.run(["run", "cancel", String(runId), "--repo", this.slug]).finally(() =>
+      this.invalidatePrs(),
+    );
   }
 
   /** Default-branch runs in any status with id > `sinceId` — one REST page (100, newest-first),
@@ -1959,6 +2000,8 @@ export class GithubForge implements GitForge {
   /** Cheap open-PR count (`gh pr list --state open --json number --limit 200`).
    *  Returns the array length; capped at 200 (≥200 means "at least 200"). */
   async countOpenPrs(): Promise<number> {
+    const fp = this.readCache?.get("fingerprint", this.slug);
+    if (fp) return fp.value.openPrs;
     const out = await this.run([
       "pr",
       "list",
@@ -2056,7 +2099,36 @@ export class GithubForge implements GitForge {
   });
 
   async currentUser(): Promise<string | null> {
-    return this.resolveUser();
+    if (!this.readCache) return this.resolveUser();
+    const hit = this.readCache.get("viewer", "");
+    if (hit) {
+      if (this.readCache.expired(hit) && this.readCache.canRefresh()) void this.refreshUser();
+      return hit.value;
+    }
+    return this.refreshUser();
+  }
+
+  private userInflight: Promise<string | null> | null = null;
+  private userFailureUntil = 0;
+
+  private refreshUser(): Promise<string | null> {
+    if (this.now() < this.userFailureUntil) return Promise.resolve(null);
+    if (!this.userInflight) {
+      const p = this.currentUserRest()
+        .catch(() => null)
+        .then((rest) => rest ?? this.currentUserGraphql())
+        .catch(() => null)
+        .then((login) => {
+          if (login) this.readCache?.put("viewer", "", null, login);
+          else this.userFailureUntil = this.now() + ISSUES_FAILURE_BACKOFF_MS;
+          return login;
+        })
+        .finally(() => {
+          if (this.userInflight === p) this.userInflight = null;
+        });
+      this.userInflight = p;
+    }
+    return this.userInflight;
   }
 
   /** Whether the authenticated user can push. Returns a DEFINITIVE boolean only;
@@ -2149,6 +2221,8 @@ export class GithubForge implements GitForge {
             : "review_request_failed",
         { cause: error },
       );
+    } finally {
+      this.invalidatePrs();
     }
   }
 
@@ -2182,20 +2256,28 @@ export class GithubForge implements GitForge {
       const text = `${typeof stderr === "string" ? stderr : ""} ${err instanceof Error ? err.message : String(err)}`;
       if (isNoCommitsBetween(text)) throw new EmptyDiffError(o.head, o.base, err);
       throw err;
+    } finally {
+      this.invalidatePrs();
     }
     return this.prStatus(o.head);
   }
 
   async markReady(prNumber: number): Promise<void> {
-    await this.run(["pr", "ready", String(prNumber), "--repo", this.slug]);
+    await this.run(["pr", "ready", String(prNumber), "--repo", this.slug]).finally(() =>
+      this.invalidatePrs(),
+    );
   }
 
   async convertToDraft(prNumber: number): Promise<void> {
-    await this.run(["pr", "ready", String(prNumber), "--repo", this.slug, "--undo"]);
+    await this.run(["pr", "ready", String(prNumber), "--repo", this.slug, "--undo"]).finally(() =>
+      this.invalidatePrs(),
+    );
   }
 
   async closePr(prNumber: number): Promise<void> {
-    await this.run(["pr", "close", String(prNumber), "--repo", this.slug]);
+    await this.run(["pr", "close", String(prNumber), "--repo", this.slug]).finally(() =>
+      this.invalidatePrs(),
+    );
   }
 
   async createIssue(o: { title: string; body: string }): Promise<{ number: number; url: string }> {
@@ -2232,7 +2314,8 @@ export class GithubForge implements GitForge {
       await this.mergeAny(prNumber, o);
     } finally {
       // A merge into the default branch closes the issues it fixes — epic children among them.
-      this.invalidateEpicStructures();
+      this.invalidateIssues();
+      this.invalidatePrs();
     }
   }
 
@@ -2299,7 +2382,7 @@ export class GithubForge implements GitForge {
       "--jq",
       STACK_JQ,
       ...prNumbers.flatMap((n) => ["-F", `pull_requests[]=${n}`]),
-    ]);
+    ]).finally(() => this.invalidatePrs());
     const info = stackInfoFrom(JSON.parse(out || "null") as Partial<StackInfo> | null);
     if (!info) throw new Error(`create stack for #${prNumbers.join(", #")} returned no stack`);
     return { ...info, size: info.prNumbers.length };
@@ -2314,7 +2397,7 @@ export class GithubForge implements GitForge {
       `repos/${this.slug}/stacks/${stackNumber}/add`,
       "-F",
       `pull_requests[]=${prNumber}`,
-    ]);
+    ]).finally(() => this.invalidatePrs());
   }
 
   /** Dissolve a stack. Its unmerged pull requests are unlinked; merged or merge-queued ones stay
@@ -2322,7 +2405,12 @@ export class GithubForge implements GitForge {
    *  exists, so a stack that needs reshaping is unstacked and recreated. Mutation — errors
    *  propagate. */
   async unstack(stackNumber: number): Promise<void> {
-    await this.run(["api", "--method", "POST", `repos/${this.slug}/stacks/${stackNumber}/unstack`]);
+    await this.run([
+      "api",
+      "--method",
+      "POST",
+      `repos/${this.slug}/stacks/${stackNumber}/unstack`,
+    ]).finally(() => this.invalidatePrs());
   }
 
   /** Stack membership, head SHA and the stack's trunk in one REST call, narrowed with `--jq` so
@@ -2494,11 +2582,27 @@ export class GithubForge implements GitForge {
   }
 
   async commentIssue(issueNumber: number, body: string): Promise<void> {
-    await this.run(["issue", "comment", String(issueNumber), "--repo", this.slug, "--body", body]);
+    await this.run([
+      "issue",
+      "comment",
+      String(issueNumber),
+      "--repo",
+      this.slug,
+      "--body",
+      body,
+    ]).finally(() => this.invalidateIssues());
   }
 
   async comment(prNumber: number, body: string): Promise<void> {
-    await this.run(["pr", "comment", String(prNumber), "--repo", this.slug, "--body", body]);
+    await this.run([
+      "pr",
+      "comment",
+      String(prNumber),
+      "--repo",
+      this.slug,
+      "--body",
+      body,
+    ]).finally(() => this.invalidatePrs());
   }
 
   async editPr(prNumber: number, o: { title?: string; body?: string }): Promise<void> {
@@ -2506,7 +2610,7 @@ export class GithubForge implements GitForge {
     if (o.title !== undefined) args.push("--title", o.title);
     if (o.body !== undefined) args.push("--body", o.body);
     if (args.length === 5) return; // no title/body provided — nothing to edit
-    await this.run(args);
+    await this.run(args).finally(() => this.invalidatePrs());
   }
 
   async ensureIssueLink(prNumber: number, issueNumber: number): Promise<void> {
@@ -2529,7 +2633,15 @@ export class GithubForge implements GitForge {
     );
     if (pattern.test(body)) return;
     const newBody = body ? `${body}\n\nCloses #${issueNumber}` : `Closes #${issueNumber}`;
-    await this.run(["pr", "edit", String(prNumber), "--repo", this.slug, "--body", newBody]);
+    await this.run([
+      "pr",
+      "edit",
+      String(prNumber),
+      "--repo",
+      this.slug,
+      "--body",
+      newBody,
+    ]).finally(() => this.invalidatePrs());
   }
 
   async addIssueLabel(issueNumber: number, label: string): Promise<void> {
@@ -2590,7 +2702,9 @@ export class GithubForge implements GitForge {
   }
 
   async redeploy(o: RedeployInput): Promise<void> {
-    await this.run(["workflow", "run", o.workflow, "--repo", this.slug, "--ref", o.ref]);
+    await this.run(["workflow", "run", o.workflow, "--repo", this.slug, "--ref", o.ref]).finally(
+      () => this.invalidatePrs(),
+    );
   }
 
   async postReview(prNumber: number, o: PostReviewInput): Promise<{ url?: string }> {
@@ -2605,7 +2719,7 @@ export class GithubForge implements GitForge {
           "--request-changes",
           "--body",
           o.body,
-        ]);
+        ]).finally(() => this.invalidatePrs());
         return {}; // gh pr review prints no machine-readable URL
       } catch {
         // GitHub forbids request-changes on a PR you authored, and the agent +
@@ -2627,7 +2741,7 @@ export class GithubForge implements GitForge {
       "--comment",
       "--body",
       o.body,
-    ]);
+    ]).finally(() => this.invalidatePrs());
     return {}; // gh pr review prints no machine-readable URL
   }
 
@@ -2734,7 +2848,7 @@ export class GithubForge implements GitForge {
   /**
    * The epic's structure in ONE GraphQL query (#2807) instead of N + 2 calls. Cached per parent
    * like {@link listIssues}: while the repo fingerprint covers the slug, until its issue
-   * generation moves (closing a blocker moves it); otherwise for {@link EPIC_STRUCTURE_TTL_MS}.
+   * content key moves (closing a blocker moves it); otherwise for {@link EPIC_STRUCTURE_TTL_MS}.
    * This forge's own writes (claim labels, closes, merges, sub-issue and dependency links) clear
    * it, and concurrent callers share one read.
    *
@@ -2746,30 +2860,55 @@ export class GithubForge implements GitForge {
    * backing off while the failures persist.
    */
   async getEpicStructure(parentNumber: number): Promise<EpicStructure> {
-    const fpGen = issuesFreshness(this.slug);
-    const now = Date.now();
+    this.syncReadCache();
+    const fpKey = this.issueKey();
+    const now = this.now();
+    const persisted = this.readCache?.get("epic", this.slug, String(parentNumber));
+    if (persisted && !this.epicStructures.has(parentNumber))
+      this.epicStructures.set(parentNumber, {
+        at: persisted.at,
+        structure: persisted.value,
+        contentKey: persisted.contentKey,
+        complete: true,
+      });
     const hit = this.epicStructures.get(parentNumber);
     const fresh =
       hit !== undefined &&
       (hit.retryAt !== undefined
         ? now < hit.retryAt
-        : fpGen !== null
-          ? hit.fpGen === fpGen
+        : fpKey !== null
+          ? hit.contentKey === fpKey
           : now - hit.at < EPIC_STRUCTURE_TTL_MS);
-    if (fresh) return hit.structure;
+    if (fresh) {
+      if (
+        persisted &&
+        this.readCache?.expired(persisted) &&
+        this.readCache.canRefresh() &&
+        (hit.retryAt === undefined || now >= hit.retryAt)
+      )
+        void this.loadEpicStructure(parentNumber, fpKey).catch(() => {});
+      return hit.structure;
+    }
+    return this.loadEpicStructure(parentNumber, fpKey);
+  }
+
+  private loadEpicStructure(parentNumber: number, fpKey: string | null): Promise<EpicStructure> {
     const inflight = this.epicStructuresInflight.get(parentNumber);
     if (inflight) return inflight;
     const gen = this.epicStructuresGen;
+    const revision = this.readCache?.revision(this.slug);
     const p = this.fetchEpicStructure(parentNumber)
       .then(({ structure, complete }) => {
-        if (gen !== this.epicStructuresGen) return structure;
-        const at = Date.now();
+        if (gen !== this.epicStructuresGen || revision !== this.readCache?.revision(this.slug))
+          return structure;
+        const at = this.now();
         if (complete) {
-          this.epicStructures.set(parentNumber, { at, structure, fpGen, complete });
+          this.epicStructures.set(parentNumber, { at, structure, contentKey: fpKey, complete });
+          this.readCache?.put("epic", this.slug, fpKey, structure, String(parentNumber));
           return structure;
         }
         const prev = this.epicStructures.get(parentNumber);
-        const keep = prev?.complete ? prev : { at, structure, fpGen, complete };
+        const keep = prev?.complete ? prev : { at, structure, contentKey: fpKey, complete };
         const failures = (prev?.failures ?? 0) + 1;
         const wait = Math.min(EPIC_STRUCTURE_RETRY_MS * 2 ** (failures - 1), EPIC_STRUCTURE_TTL_MS);
         this.epicStructures.set(parentNumber, { ...keep, retryAt: at + wait, failures });
@@ -2949,7 +3088,39 @@ export class GithubForge implements GitForge {
   }
 
   async listOpenPrLinkedIssues(): Promise<Map<number, LinkedPr[]>> {
-    if (graphRateLimit.blocked()) return new Map();
+    this.syncReadCache();
+    const hit = this.readCache?.get("links", this.slug);
+    const fpKey = this.readCache?.contentKey("prs", this.slug) ?? null;
+    const fresh =
+      hit &&
+      (fpKey !== null ? hit.contentKey === fpKey : this.now() - hit.at < ISSUES_CACHE_TTL_MS);
+    let linked: Map<number, LinkedPr[]> | null;
+    if (fresh || graphRateLimit.blocked()) {
+      if (hit && fresh && this.readCache?.expired(hit) && this.readCache.canRefresh())
+        void this.loadPrLinks(fpKey);
+      linked = hit?.value ?? null;
+    } else linked = await this.loadPrLinks(fpKey);
+    return new Map([...(linked ?? [])].map(([n, prs]) => [n, prs.map((pr) => ({ ...pr }))]));
+  }
+
+  private loadPrLinks(fpKey: string | null): Promise<Map<number, LinkedPr[]> | null> {
+    if (!this.linksInflight) {
+      const revision = this.readCache?.revision(this.slug);
+      const p = this.fetchPrLinks()
+        .then((links) => {
+          if (links && revision === this.readCache?.revision(this.slug))
+            this.readCache?.put("links", this.slug, fpKey, links);
+          return links;
+        })
+        .finally(() => {
+          if (this.linksInflight === p) this.linksInflight = null;
+        });
+      this.linksInflight = p;
+    }
+    return this.linksInflight;
+  }
+
+  private async fetchPrLinks(): Promise<Map<number, LinkedPr[]> | null> {
     // Issues an open PR would close (UI-linked + `Closes #N` bodies), mapped to the PR's
     // number + author. Paginated like listSubIssueSummaries; capped to ~200 newest open PRs
     // (MAX_SUMMARY_PAGES) — a repo above that undercounts linked PRs. Best-effort — any
@@ -2978,8 +3149,8 @@ export class GithubForge implements GitForge {
         endCursor = pageInfo.endCursor;
       }
     } catch (err) {
-      if (isRateLimitError(err)) return new Map();
-      return new Map();
+      if (isRateLimitError(err)) return null;
+      return null;
     }
     return linked;
   }
@@ -2994,24 +3165,40 @@ export class GithubForge implements GitForge {
   /**
    * The repo's open-issue relations, cached like {@link listIssues} (#2808): Up Next, the epics
    * route and the issues route each read them for every view and recompute. While the repo
-   * fingerprint covers this slug an entry stays valid until the slug's issue generation moves;
+   * fingerprint covers this slug an entry stays valid until the slug's issue content key moves;
    * uncovered slugs keep the {@link ISSUES_CACHE_TTL_MS} expiry. Concurrent calls share one
    * fetch; a failure is not cached. While the GraphQL bucket is in backoff the last entry is
    * served even when stale, and null when there is none. Callers copy before handing out.
    */
   private issueRelations(): Promise<IssueRelations | null> {
-    const fpGen = issuesFreshness(this.slug);
-    const hit = this.relationsCache;
+    this.syncReadCache();
+    const fpKey = this.issueKey();
+    const hit = this.readCache ? this.readCache.get("relations", this.slug) : this.relationsCache;
     const fresh =
       hit !== null &&
-      (fpGen !== null ? hit.fpGen === fpGen : Date.now() - hit.at < ISSUES_CACHE_TTL_MS);
-    if (fresh || graphRateLimit.blocked()) return Promise.resolve(hit?.relations ?? null);
+      (fpKey !== null ? hit.contentKey === fpKey : this.now() - hit.at < ISSUES_CACHE_TTL_MS);
+    if (fresh || graphRateLimit.blocked()) {
+      if (hit && fresh && this.readCache?.expired(hit) && this.readCache.canRefresh())
+        void this.loadRelations(fpKey);
+      return Promise.resolve(hit?.value ?? null);
+    }
+    return this.loadRelations(fpKey);
+  }
+
+  private loadRelations(fpKey: string | null): Promise<IssueRelations | null> {
     if (!this.relationsInflight) {
       const gen = this.relationsGen;
+      const revision = this.readCache?.revision(this.slug);
       const p = this.fetchIssueRelations()
         .then((relations) => {
-          if (relations && gen === this.relationsGen)
-            this.relationsCache = { at: Date.now(), relations, fpGen };
+          if (
+            relations &&
+            gen === this.relationsGen &&
+            revision === this.readCache?.revision(this.slug)
+          ) {
+            this.relationsCache = { at: this.now(), value: relations, contentKey: fpKey };
+            this.readCache?.put("relations", this.slug, fpKey, relations);
+          }
           return relations;
         })
         .finally(() => {

@@ -3,6 +3,7 @@ import { GithubForge, type GhRunner } from "./github";
 import { GiteaForge } from "./gitea";
 import { parseRemote } from "./remote";
 import type { ForgeKind, ForgeMap, GitForge } from "./types";
+import type { GithubReadCache } from "../github-read-cache";
 
 /** Optional I/O clients a caller can supply to the constructed adapters — lets
  *  CountsService route its own `gh` runner / `fetch` (production: an untimed async
@@ -12,6 +13,7 @@ import type { ForgeKind, ForgeMap, GitForge } from "./types";
 export interface ForgeDeps {
   ghRunner?: GhRunner;
   fetchFn?: typeof fetch;
+  githubCache?: GithubReadCache;
 }
 
 /** Decide the forge kind for a host: explicit config wins, else github.com is github. */
@@ -42,7 +44,15 @@ export function forgeFor(remoteUrl: string, map: ForgeMap, deps?: ForgeDeps): Gi
   const kind = kindFor(parsed.host, map);
   if (!kind) return null;
   const cfg = map[parsed.host] ?? {};
-  if (kind === "github") return new GithubForge(parsed.slug, cfg, deps?.ghRunner);
+  if (kind === "github")
+    return new GithubForge(
+      parsed.slug,
+      cfg,
+      deps?.ghRunner,
+      undefined,
+      undefined,
+      deps?.githubCache,
+    );
   if (kind === "local") return null; // local repos have no remote forge
   return new GiteaForge(parsed.slug, cfg, deps?.fetchFn);
 }
@@ -95,7 +105,14 @@ export function detectForge(repoDir: string, map: ForgeMap, deps?: ForgeDeps): G
       kindFor(originParsed.host, map) === "github"
     ) {
       const cfg = map[upstreamParsed.host] ?? {};
-      return new GithubForge(upstreamParsed.slug, cfg, deps?.ghRunner, originParsed.slug);
+      return new GithubForge(
+        upstreamParsed.slug,
+        cfg,
+        deps?.ghRunner,
+        originParsed.slug,
+        undefined,
+        deps?.githubCache,
+      );
     }
   }
 

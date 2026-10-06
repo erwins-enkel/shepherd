@@ -41,6 +41,7 @@ export class BranchPruner {
      *  event-loop stall time. Raise to drain faster, lower to reduce API pressure;
      *  the backlog drains across subsequent hourly ticks regardless. */
     private maxChecksPerTick = 20,
+    private shouldSweep: () => boolean = () => true,
   ) {}
 
   /** Default ON: only an explicit "0" disables the sweep. */
@@ -148,7 +149,7 @@ export class BranchPruner {
   }
 
   async tick(): Promise<void> {
-    if (this.running || !this.enabled()) return;
+    if (this.running || !this.enabled() || !this.shouldSweep()) return;
     this.running = true;
     try {
       // Repos Shepherd has used (including archived sessions) unioned with the durable

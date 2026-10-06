@@ -66,6 +66,37 @@ const sessionOn = (repo: string, branch: string) => ({
   herdrAgentId: "term_a",
 });
 
+test("warm restart: branch scan waits for the fingerprint and reserve", async () => {
+  const repo = mkRepo();
+  try {
+    git(repo, "branch", "shepherd/old");
+    let ready = false;
+    let reads = 0;
+    const adapter = forge({ "shepherd/old": "merged" });
+    adapter.prStatus = async () => {
+      reads++;
+      return ST("merged");
+    };
+    const service = new BranchPruner(
+      new SessionStore(":memory:"),
+      () => adapter,
+      () => [repo],
+      undefined,
+      undefined,
+      () => ready,
+    );
+    await service.tick();
+    expect(reads).toBe(0);
+    expect(localBranches(repo)).toContain("shepherd/old");
+    ready = true;
+    await service.tick();
+    expect(reads).toBe(1);
+    expect(localBranches(repo)).not.toContain("shepherd/old");
+  } finally {
+    rmSync(repo, { recursive: true, force: true });
+  }
+});
+
 test("caps forge lookups per tick and drains the backlog across ticks", async () => {
   const repo = mkRepo();
   git(repo, "branch", "shepherd/a");

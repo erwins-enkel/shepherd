@@ -139,6 +139,7 @@ import { recommendPrompt, RECOMMEND_LABEL } from "./prompt-recommend";
 import { shapeTask, SHAPE_LABEL } from "./task-shape";
 import { CountsService } from "./backlog";
 import { OpenPrSnapshotService } from "./open-pr-snapshot";
+import { GithubReadCache } from "./github-read-cache";
 import { BacklogPoller, reposUsedSince } from "./backlog-poller";
 import { UpNextService, buildUpNextRepos } from "./up-next";
 import { ReadinessScorer } from "./up-next-readiness";
@@ -313,6 +314,17 @@ if (herdrVersion && !isHerdrVersionSupported(herdrVersion)) {
 mkdirSync(dirname(config.dbPath), { recursive: true });
 
 const store = new SessionStore(config.dbPath);
+const githubReadCache: GithubReadCache = new GithubReadCache(store, {
+  canRefresh: () => fingerprint.backgroundReady(),
+});
+const fingerprint = new RepoFingerprintService({
+  cache: githubReadCache,
+  listTargets: fingerprintTargets,
+  fetch: (slugs) => fetchRepoFingerprints(sharedGhRunner, slugs),
+  rateLimit: () => graphRateLimit.snapshot(),
+  onObserved: onFingerprintObserved,
+});
+setIssuesFreshness((slug) => fingerprint.issuesKey(slug));
 // One ProcessReaper for the service (detect/reap/stop), the poller refresh, the
 // tmp-sweep refresh, and the Diagnose `preview_probes` health read.
 //
@@ -754,7 +766,9 @@ const agentIngressState: { port: number | undefined } = { port: undefined };
 // get the memoized detectForge result (git shell-out). repoMode is read per call
 // (cheap PK lookup) so a runtime toggle takes effect without a restart. Defined before
 // the service so create() can pull an attached issue's comments at spawn (composePromptArg).
-const resolveForge = makeProductionForgeResolver(store, config.forges);
+const resolveForge = makeProductionForgeResolver(store, config.forges, {
+  githubCache: githubReadCache,
+});
 
 // Server-side plugin registry (issue #1124). Constructed before SessionService so the
 // spawn path can call its hook runner; plugins are actually loaded (register(ctx)) later,
@@ -1573,7 +1587,7 @@ function autonomousWorkInFlight(): boolean {
 }
 const warm = (): boolean => presence.hasClients() || autonomousWorkInFlight();
 
-const openPrSnapshot = new OpenPrSnapshotService();
+const openPrSnapshot = new OpenPrSnapshotService(undefined, undefined, githubReadCache);
 const prPoller = new PrPoller(
   store,
   resolveForge,
@@ -1592,6 +1606,13 @@ const prPoller = new PrPoller(
   undefined, // batchOpenRatio (default)
   undefined, // noneRecheckMs (default)
   openPrSnapshot, // shared per-repo open-PR snapshot cache (PRs tab reuses the poller's fetch)
+  (path) => {
+    const forge = resolveForge(path);
+    if (forge?.kind !== "github" || !forge.slug) return null;
+    const key = githubReadCache.contentKey("prs", forge.slug);
+    return key === null ? null : `${key}|${githubReadCache.revision(forge.slug)}`;
+  },
+  githubReadCache,
 );
 deferredStarts.push(() => {
   setTimeout(() => void prPoller.tick(), 3_000); // warm the cache shortly after boot
@@ -1721,11 +1742,16 @@ deferredStarts.push(() => {
 // whose archived sessions lived OUTSIDE repoRoot isn't covered here — once
 // housekeeping prunes its last row it leaves branch-pruner scope (acceptable; such
 // repos are outside the configured working area anyway).
-const branchPruner = new BranchPruner(store, resolveForge, () =>
-  listRepos(config.repoRoot).map((r) => r.path),
+const branchPruner = new BranchPruner(
+  store,
+  resolveForge,
+  () => listRepos(config.repoRoot).map((r) => r.path),
+  undefined,
+  undefined,
+  () => fingerprint.backgroundReady(),
 );
 deferredStarts.push(() => {
-  setTimeout(() => void branchPruner.tick(), 30_000); // first sweep shortly after boot
+  setTimeout(() => void branchPruner.tick(), 5 * 60_000); // leave the warm-restart window to the fingerprint
   branchPruner.start();
 });
 
@@ -3668,8 +3694,14 @@ setTimeout(() => void diagnosticsTick(), 4_000);
 // making the backlog load scale linearly with repo count). The forges' shared
 // runner, so the counts share its concurrency cap and rate-limit tracking (#2656).
 const ghRunnerAsync = sharedGhRunner;
-const backlog = new CountsService(config.forges, ghRunnerAsync, fetch, undefined, (dir) =>
-  store.getRepoConfig(dir),
+const backlog = new CountsService(
+  config.forges,
+  ghRunnerAsync,
+  fetch,
+  undefined,
+  (dir) => store.getRepoConfig(dir),
+  undefined,
+  githubReadCache,
 );
 
 // gentle "star us on GitHub?" nudge — surfaces once the operator has used Shepherd
@@ -3712,8 +3744,7 @@ function fingerprintTargets(): FingerprintTarget[] {
   }
   return [...bySlug].map(([slug, paths]) => ({ slug, paths }));
 }
-async function applyFingerprintChanges(o: FingerprintObservation, refresh: string[]) {
-  const issueSlugs = new Set(o.changed.filter((c) => c.issues).map((c) => c.slug));
+async function applyFingerprintChanges(issueSlugs: Set<string>, refresh: string[]) {
   if (issueSlugs.size > 0) {
     const reconcileDeps = { store, events, drain, resolveForge };
     for (const repo of completedEpicScopeRepos(store)) {
@@ -3728,21 +3759,30 @@ async function applyFingerprintChanges(o: FingerprintObservation, refresh: strin
 // The reconcile and count re-fetches run off the fingerprint's own run, so an operator view
 // awaiting a fresh fingerprint never waits for them; chained so two runs never overlap.
 let fingerprintFollowUp: Promise<void> = Promise.resolve();
+const pendingIssueSlugs = new Set<string>();
+const pendingCountRefresh = new Set<string>();
+let bootReadsStarted = false;
 function onFingerprintObserved(o: FingerprintObservation): void {
   const { refresh, touch } = countsPlan(o, (path) => backlog.peek(path) !== null);
   for (const path of touch) backlog.touch(path);
-  if (refresh.length === 0 && !o.changed.some((c) => c.issues)) return;
+  for (const path of refresh) pendingCountRefresh.add(path);
+  for (const c of o.changed) if (c.issues) pendingIssueSlugs.add(c.slug);
   fingerprintFollowUp = fingerprintFollowUp
-    .then(() => applyFingerprintChanges(o, refresh))
+    .then(async () => {
+      if (!fingerprint.backgroundReady()) return; // keep pending changes until the reserve returns
+      const refresh = [...pendingCountRefresh];
+      const issueSlugs = new Set(pendingIssueSlugs);
+      pendingCountRefresh.clear();
+      pendingIssueSlugs.clear();
+      await applyFingerprintChanges(issueSlugs, refresh);
+      if (!bootReadsStarted && fingerprint.backgroundReady()) {
+        bootReadsStarted = true;
+        void upNext.refresh().catch((err) => console.warn("[up-next] boot refresh:", err));
+        void backlogPoller.tick();
+      }
+    })
     .catch((err) => console.warn("[fingerprint] follow-up failed:", err));
 }
-const fingerprint = new RepoFingerprintService({
-  listTargets: fingerprintTargets,
-  fetch: (slugs) => fetchRepoFingerprints(sharedGhRunner, slugs),
-  rateLimit: () => graphRateLimit.snapshot(),
-  onObserved: onFingerprintObserved,
-});
-setIssuesFreshness((slug) => fingerprint.issuesGen(slug));
 const fingerprintCoversRepo = (repoPath: string): boolean => {
   const forge = resolveForge(repoPath);
   return forge?.kind === "github" && !!forge.slug && fingerprint.covered(forge.slug);
@@ -3773,9 +3813,8 @@ const backlogPoller = new BacklogPoller(
   (dir) => backlog.refresh(dir),
   90_000,
   broadcastBacklog,
-  // Warm the backlog only while a dashboard is open — REST fallbacks keep counts
-  // useful even while the GraphQL bucket is exhausted.
-  () => presence.hasClients(),
+  // Broad scans wait for the first fingerprint and the reserve; rehydrated counts stay readable.
+  () => presence.hasClients() && fingerprint.backgroundReady(),
   // Repos with a session in the last week every tick; the rest every 15 min (#2656).
   {
     hotRepos: () => reposUsedSince(store.lastUsedByRepo(), Date.now() - 7 * 86_400_000),
@@ -3793,6 +3832,7 @@ deferredStarts.push(() => {
 // by a 15-min background loop; reuses the drain's epic pipeline for ready-child gating and
 // pushes each fresh snapshot to clients over the WS (upnext:snapshot).
 const upNext = new UpNextService({
+  shouldRefresh: () => fingerprint.backgroundReady(),
   // Forge-backed, non-hidden repos only. buildUpNextRepos owns forge-kind filtering,
   // the realpath→raw reconcile, hidden-repo filtering, and the exact field mapping.
   listForgeRepos: () =>

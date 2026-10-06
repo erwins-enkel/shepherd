@@ -71,6 +71,8 @@ export interface UpNextDeps {
   now?: () => number;
   concurrency?: number;
   intervalMs?: number;
+  /** Broad reads wait for the first fingerprint and the background budget reserve. */
+  shouldRefresh?: () => boolean;
   /** Backoff (ms) between post-start recompute attempts; first is immediate. See
    *  `recomputeUntilCleared`. Injectable so tests can drive the loop with tiny delays. */
   postStartRetryDelaysMs?: number[];
@@ -146,6 +148,8 @@ export class UpNextService {
    *  the manual button) share one in-flight refresh rather than fanning out N times. */
   async refresh(): Promise<UpNextSnapshot> {
     if (this.inFlight) return this.inFlight;
+    if (this.deps.shouldRefresh && !this.deps.shouldRefresh())
+      return this.snap ?? buildSnapshot([], this.now());
     this.inFlight = this.compute().finally(() => {
       this.inFlight = null;
     });

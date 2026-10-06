@@ -1,21 +1,19 @@
 import type { GitForge, OpenPrSnapshot } from "./forge/types";
 import { graphRateLimit } from "./forge/rate-limit";
 import { Semaphore } from "./semaphore";
+import type { GithubCacheEntry, GithubReadCache } from "./github-read-cache";
 
 /** Matches the pr-poller's full-sweep cadence so a poller-warmed entry is reused
  *  by the PRs tab across a whole interval without re-fetching. */
 export const SNAPSHOT_TTL_MS = 120_000;
 
-interface CacheEntry {
-  at: number;
-  value: OpenPrSnapshot;
-}
+type CacheEntry = GithubCacheEntry<OpenPrSnapshot>;
 
 /**
  * Per-repo open-PR snapshot cache. Keyed by `forge.slug` (NOT repoPath) so
  * two worktrees of the same remote repo share one cached fetch. Two consumers
  * — the pr-poller batch and GET /api/prs — share a single `gh pr list` call
- * per TTL window.
+ * until its PR fingerprint changes (or per TTL window without fingerprint coverage).
  */
 export class OpenPrSnapshotService {
   /** TTL read-through cache: slug → {at, value}. */
@@ -24,24 +22,39 @@ export class OpenPrSnapshotService {
   private readonly inflight = new Map<string, Promise<OpenPrSnapshot>>();
   /** Bounds simultaneous fetches. */
   private readonly gate: Semaphore;
+  private readonly revisions = new Map<string, number>();
 
   constructor(
     private readonly now: () => number = Date.now,
     maxConcurrency = 6,
+    private readonly readCache?: GithubReadCache,
   ) {
     this.gate = new Semaphore(maxConcurrency);
   }
 
   /**
-   * Read-through: returns a cached entry fresher than SNAPSHOT_TTL_MS, else
-   * fetches (single-flight). Returns null when the forge can't supply a
+   * Read-through: serves an unchanged PR fingerprint, else applies SNAPSHOT_TTL_MS without
+   * coverage or fetches (single-flight). Returns null when the forge can't supply a
    * snapshot (null slug or no listOpenPrSnapshot method).
    */
   async get(forge: GitForge): Promise<OpenPrSnapshot | null> {
     if (!this.isCapable(forge)) return null;
     const slug = forge.slug!;
-    const entry = this.cache.get(slug);
-    if (entry && this.now() - entry.at < SNAPSHOT_TTL_MS) {
+    this.syncReadCache(slug);
+    const entry = this.entry(forge);
+    const fpKey = forge.kind === "github" ? this.readCache?.contentKey("prs", slug) : null;
+    if (
+      entry &&
+      this.readCache &&
+      forge.kind === "github" &&
+      fpKey != null &&
+      entry.contentKey === fpKey
+    ) {
+      if (this.readCache.expired(entry) && this.readCache.canRefresh())
+        void this.load(slug, forge, true);
+      return entry.value;
+    }
+    if (entry && fpKey == null && this.now() - entry.at < SNAPSHOT_TTL_MS) {
       if (!graphRateLimit.blocked() || entry.value.source === "rest") return entry.value;
     }
     return this.load(slug, forge, false);
@@ -54,6 +67,7 @@ export class OpenPrSnapshotService {
    */
   async refresh(forge: GitForge): Promise<OpenPrSnapshot | null> {
     if (!this.isCapable(forge)) return null;
+    this.syncReadCache(forge.slug!);
     return this.load(forge.slug!, forge, true);
   }
 
@@ -63,9 +77,19 @@ export class OpenPrSnapshotService {
    */
   peek(forge: GitForge, maxAgeMs?: number): OpenPrSnapshot | null {
     if (!this.isCapable(forge)) return null;
-    const entry = this.cache.get(forge.slug!);
+    const entry = this.entry(forge);
     if (!entry || (maxAgeMs !== undefined && this.now() - entry.at > maxAgeMs)) return null;
     return entry.value;
+  }
+
+  /** A preserved or superseded fetch must not certify session state under a newer key. */
+  isCurrent(forge: GitForge, snapshot: OpenPrSnapshot): boolean {
+    const entry = this.entry(forge);
+    const fpKey = forge.kind === "github" ? this.readCache?.contentKey("prs", forge.slug!) : null;
+    return (
+      entry?.value === snapshot &&
+      (fpKey != null ? entry.contentKey === fpKey : this.now() - entry.at < SNAPSHOT_TTL_MS)
+    );
   }
 
   /**
@@ -84,6 +108,20 @@ export class OpenPrSnapshotService {
     const slug = forge.slug!;
     this.cache.delete(slug);
     this.inflight.delete(slug);
+    if (forge.kind === "github") this.readCache?.invalidate(slug, ["prs", "session"]);
+  }
+
+  private entry(forge: GitForge): CacheEntry | null {
+    return this.readCache && forge.kind === "github"
+      ? this.readCache.get("prs", forge.slug!)
+      : (this.cache.get(forge.slug!) ?? null);
+  }
+
+  private syncReadCache(slug: string): void {
+    if (!this.readCache) return;
+    const revision = this.readCache.revision(slug);
+    if (revision !== (this.revisions.get(slug) ?? 0)) this.inflight.delete(slug);
+    this.revisions.set(slug, revision);
   }
 
   /** True when the forge can supply a snapshot (non-null slug + method present). */
@@ -98,6 +136,9 @@ export class OpenPrSnapshotService {
   ): Promise<OpenPrSnapshot | null> {
     let raw = this.inflight.get(slug);
     if (!raw) {
+      const revision = this.readCache?.revision(slug);
+      const fpKey =
+        forge.kind === "github" ? (this.readCache?.contentKey("prs", slug) ?? null) : null;
       // Shared raw fetch: writes to cache on success, clears inflight on
       // both branches, and re-throws on failure so each caller can apply
       // its OWN preserve-on-error policy below.
@@ -111,8 +152,9 @@ export class OpenPrSnapshotService {
         .run(() => forge.listOpenPrSnapshot!())
         .then(
           (v) => {
-            if (this.inflight.get(slug) === p) {
-              this.cache.set(slug, { at: this.now(), value: v });
+            if (this.inflight.get(slug) === p && revision === this.readCache?.revision(slug)) {
+              this.cache.set(slug, { at: this.now(), value: v, contentKey: fpKey });
+              if (forge.kind === "github") this.readCache?.put("prs", slug, fpKey, v);
               this.inflight.delete(slug);
             }
             return v;
@@ -134,7 +176,7 @@ export class OpenPrSnapshotService {
     return raw.then(
       (v) => v,
       () => {
-        const prev = this.cache.get(slug);
+        const prev = this.entry(forge);
         return preserveOnError && prev ? prev.value : null;
       },
     );

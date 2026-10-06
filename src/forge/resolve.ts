@@ -1,7 +1,7 @@
 import type { GitForge, ForgeMap } from "./types";
 import type { SessionStore } from "../store";
 import { LocalForge } from "./local";
-import { detectForge } from ".";
+import { detectForge, type ForgeDeps } from ".";
 
 /** Minimal store slice `makeProductionForgeResolver` needs — injectable for tests. */
 export type ForgeResolverStore = Pick<
@@ -109,10 +109,11 @@ export function makeForgeResolver(deps: ForgeResolverDeps): (dir: string) => Git
 export function makeProductionForgeResolver(
   store: ForgeResolverStore,
   forges: ForgeMap,
+  deps?: ForgeDeps,
 ): (dir: string) => GitForge | null {
   return makeForgeResolver({
     getRepoConfig: (dir) => store.getRepoConfig(dir),
-    detectForge: (dir) => detectForge(dir, forges),
+    detectForge: (dir) => detectForge(dir, forges, deps),
     makeLocalForge: (dir) =>
       new LocalForge(dir, {
         ensureLocalPr: store.ensureLocalPr.bind(store),

@@ -74,14 +74,14 @@ function harness(
   };
 }
 
-test("first observation bumps every slug's issue generation and reports it as a change", async () => {
+test("first observation supplies every slug's issue key and reports it as a change", async () => {
   const h = harness();
   const log = spyOn(console, "log").mockImplementation(() => {});
   try {
-    expect(h.svc.issuesGen("acme/web")).toBeNull();
+    expect(h.svc.issuesKey("acme/web")).toBeNull();
     await h.svc.tick();
     expect(h.fetches).toEqual([["acme/web", "acme/api"]]);
-    expect(h.svc.issuesGen("acme/web")).not.toBeNull();
+    expect(h.svc.issuesKey("acme/web")).not.toBeNull();
     const [obs] = h.observations;
     expect(obs!.changed.map((c) => [c.slug, c.first, c.issues, c.counts])).toEqual([
       ["acme/web", true, true, true],
@@ -94,15 +94,15 @@ test("first observation bumps every slug's issue generation and reports it as a 
   }
 });
 
-test("an unchanged fingerprint keeps the generation and reports the repo as unchanged", async () => {
+test("an unchanged fingerprint keeps the content key and reports the repo as unchanged", async () => {
   const h = harness();
   const log = spyOn(console, "log").mockImplementation(() => {});
   try {
     await h.svc.tick();
-    const gen = h.svc.issuesGen("acme/web");
+    const gen = h.svc.issuesKey("acme/web");
     h.advance(120_000);
     await h.svc.tick();
-    expect(h.svc.issuesGen("acme/web")).toBe(gen);
+    expect(h.svc.issuesKey("acme/web")).toBe(gen);
     expect(h.observations[1]!.changed).toEqual([]);
     expect(h.observations[1]!.unchanged.map((t) => t.slug)).toEqual(["acme/web", "acme/api"]);
   } finally {
@@ -110,19 +110,19 @@ test("an unchanged fingerprint keeps the generation and reports the repo as unch
   }
 });
 
-test("an issue change bumps only that slug; a CI-only change reports counts, not issues", async () => {
+test("an issue change moves only that slug; a CI-only change reports counts, not issues", async () => {
   const h = harness();
   const log = spyOn(console, "log").mockImplementation(() => {});
   try {
     await h.svc.tick();
-    const web = h.svc.issuesGen("acme/web");
-    const api = h.svc.issuesGen("acme/api");
+    const web = h.svc.issuesKey("acme/web");
+    const api = h.svc.issuesKey("acme/api");
     h.current.set("acme/web", { ...BASE, issuesUpdatedAt: "2026-10-03T00:00:00Z" });
     h.current.set("acme/api", { ...BASE, ciState: "FAILURE" });
     h.advance(120_000);
     await h.svc.tick();
-    expect(h.svc.issuesGen("acme/web")).not.toBe(web);
-    expect(h.svc.issuesGen("acme/api")).toBe(api);
+    expect(h.svc.issuesKey("acme/web")).not.toBe(web);
+    expect(h.svc.issuesKey("acme/api")).toBe(api);
     expect(h.observations[1]!.changed.map((c) => [c.slug, c.first, c.issues, c.counts])).toEqual([
       ["acme/web", false, true, false],
       ["acme/api", false, false, true],
@@ -132,7 +132,7 @@ test("an issue change bumps only that slug; a CI-only change reports counts, not
   }
 });
 
-test("an open-count change alone moves both the issue generation and the counts", async () => {
+test("an open-count change alone moves both the issue key and the counts", async () => {
   const h = harness();
   const log = spyOn(console, "log").mockImplementation(() => {});
   try {
@@ -158,7 +158,7 @@ test("an unreadable repo is not covered; the rest still are", async () => {
     await h.svc.tick();
     expect(h.svc.covered("acme/web")).toBe(true);
     expect(h.svc.covered("acme/api")).toBe(false);
-    expect(h.svc.issuesGen("acme/api")).toBeNull();
+    expect(h.svc.issuesKey("acme/api")).toBeNull();
   } finally {
     log.mockRestore();
   }
@@ -173,7 +173,7 @@ test("coverage lapses after three intervals without an observation", async () =>
     expect(h.svc.covered("acme/web")).toBe(true);
     h.advance(1);
     expect(h.svc.covered("acme/web")).toBe(false);
-    expect(h.svc.issuesGen("acme/web")).toBeNull();
+    expect(h.svc.issuesKey("acme/web")).toBeNull();
   } finally {
     log.mockRestore();
   }

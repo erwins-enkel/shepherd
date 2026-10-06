@@ -3,6 +3,7 @@ import type { Session } from "./types";
 import type { GitForge, GitState, PrStatus } from "./forge/types";
 import { annotateHandoff } from "./repo-roles";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
+import type { GithubReadCache } from "./github-read-cache";
 
 type PrPollerStore = Pick<
   SessionStore,
@@ -190,6 +191,8 @@ export class PrPoller implements PrCache {
   /** Tracks when each open PR entered (or re-entered via a new headSha) a transient
    *  state — used to time-bound how long `fastTick` keeps re-polling it. */
   private transientSince = new Map<string, { since: number; headSha?: string }>();
+  /** Content key under which this session was last checked, seeded from the warm snapshot. */
+  private readonly freshnessBySession = new Map<string, string>();
 
   /** True when an open PR can still move without a human action — i.e. it is worth
    *  fast-polling. A PR that is fully settled (CI green, mergeable, clean) is parked. */
@@ -265,8 +268,29 @@ export class PrPoller implements PrCache {
      *  from it (`refresh`, always-fresh) so the PRs tab reuses the poller's fetch; when absent
      *  (older test wiring), the batch falls back to the forge's direct `listOpenPrStatuses`. */
     private snapshotSvc?: OpenPrSnapshotService,
+    /** Current PR fingerprint content (plus own-write revision), or null without coverage. */
+    private repoFreshness?: (repoPath: string) => string | null,
+    private readCache?: GithubReadCache,
   ) {
     this.cache = new Map(Object.entries(this.store.listSessionGitCache()));
+    if (this.repoFreshness) {
+      for (const id of this.cache.keys()) {
+        const s = this.store.get(id);
+        const key = s ? this.repoFreshness(s.repoPath) : null;
+        const forge = s ? this.resolveForge(s.repoPath) : null;
+        if (!s || forge?.kind !== "github" || !forge.slug || !this.readCache) continue;
+        const saved = this.readCache.get("session", forge.slug, id);
+        if (
+          key != null &&
+          saved &&
+          saved.value === s.branch &&
+          saved.contentKey === this.readCache.contentKey("prs", forge.slug) &&
+          !this.readCache.expired(saved)
+        )
+          this.freshnessBySession.set(id, key);
+      }
+      if (this.cache.size > 0) this.lastNoneRecheckAt = Date.now();
+    }
   }
 
   /** Epoch-ms of the last full sweep that actually ran — gates the cold-path
@@ -288,12 +312,14 @@ export class PrPoller implements PrCache {
       const sessions = [...this.store.list({ activeOnly: true })];
       const recheckNone = Date.now() - this.lastNoneRecheckAt >= this.noneRecheckMs;
       if (recheckNone) this.lastNoneRecheckAt = Date.now();
+      const due = sessions.filter((s) => this.shouldPoll(s, recheckNone));
       const batches = graphqlLimited
         ? new Map<string, Map<string, PrStatus> | null>()
-        : await this.buildBatches(sessions);
+        : await this.buildBatches(due, !this.repoFreshness);
       const active = new Set<string>();
       for (const s of sessions) {
         active.add(s.id);
+        if (!due.includes(s)) continue;
         await this.withGh(() => this.refresh(s, this.batchFor(s, batches), recheckNone));
       }
       for (const id of [...this.cache.keys()]) {
@@ -306,6 +332,30 @@ export class PrPoller implements PrCache {
     }
   }
 
+  private shouldPoll(s: Session, recheckNone: boolean): boolean {
+    const prev = this.cache.get(s.id);
+    if (this.readCache && !this.readCache.canRefresh())
+      return s.mergingSince != null || (!!prev && this.isTransientOpen(prev));
+    const key = this.repoFreshness?.(s.repoPath);
+    return (
+      !prev ||
+      key == null ||
+      this.freshnessBySession.get(s.id) !== key ||
+      s.mergingSince != null ||
+      this.isTransientOpen(prev) ||
+      (prev.state === "none" && recheckNone) ||
+      this.sessionReadStale(s)
+    );
+  }
+
+  private sessionReadStale(s: Session): boolean {
+    if (!this.readCache) return false;
+    const forge = this.resolveForge(s.repoPath);
+    if (forge?.kind !== "github" || !forge.slug) return false;
+    const entry = this.readCache.get("session", forge.slug, s.id);
+    return !entry || entry.value !== s.branch || this.readCache.expired(entry);
+  }
+
   /** Fetch the batch status for one repo. Returns the open-PR map, or null when
    *  the repo should fall back to per-session polling (no batch methods, fork,
    *  count-gate trip, or a transient fetch failure). All `gh` calls under `withGh`.
@@ -315,6 +365,7 @@ export class PrPoller implements PrCache {
   private async batchForRepo(
     forge: GitForge,
     count: number,
+    fresh = true,
   ): Promise<Map<string, PrStatus> | null> {
     if (!forge.countOpenPrs || forge.isFork || count < 2) return null;
     if (!forge.listOpenPrSnapshot && !forge.listOpenPrStatuses) return null;
@@ -324,7 +375,10 @@ export class PrPoller implements PrCache {
         return null; // cap-hit (truncated batch) or count-gate → per-session
       }
       if (this.snapshotSvc && forge.listOpenPrSnapshot) {
-        const snap = await this.withGh(() => this.snapshotSvc!.refresh(forge));
+        const snap = await this.withGh(() =>
+          fresh ? this.snapshotSvc!.refresh(forge) : this.snapshotSvc!.get(forge),
+        );
+        if (snap && this.repoFreshness && !this.snapshotSvc.isCurrent(forge, snap)) return null;
         return snap?.statuses ?? null;
       }
       return await this.withGh(() => forge.listOpenPrStatuses!());
@@ -339,19 +393,24 @@ export class PrPoller implements PrCache {
    *  over ratio, or a transient fetch failure). All `gh` under `withGh`. */
   private async buildBatches(
     sessions: Session[],
+    fresh = true,
   ): Promise<Map<string, Map<string, PrStatus> | null>> {
     const out = new Map<string, Map<string, PrStatus> | null>();
-    const byKey = new Map<string, { forge: GitForge; count: number }>();
+    const byKey = new Map<string, { forge: GitForge; count: number; fresh: boolean }>();
     for (const s of sessions) {
       if (!s.branch) continue;
       const forge = this.resolveForge(s.repoPath);
       if (!forge || forge.slug == null) continue;
       const e = byKey.get(forge.slug);
-      if (e) e.count++;
-      else byKey.set(forge.slug, { forge, count: 1 });
+      const prev = this.cache.get(s.id);
+      const force = fresh || !prev || this.isTransientOpen(prev) || s.mergingSince != null;
+      if (e) {
+        e.count++;
+        e.fresh ||= force;
+      } else byKey.set(forge.slug, { forge, count: 1, fresh: force });
     }
-    for (const [key, { forge, count }] of byKey) {
-      out.set(key, await this.batchForRepo(forge, count));
+    for (const [key, { forge, count, fresh }] of byKey) {
+      out.set(key, await this.batchForRepo(forge, count, fresh));
     }
     return out;
   }
@@ -442,6 +501,10 @@ export class PrPoller implements PrCache {
     if (!forge || !s.branch) return; // no PR possible — leave uncached
     const me = (await forge.currentUser?.()) ?? null;
     const prev = this.cache.get(s.id);
+    const fpKey = this.repoFreshness?.(s.repoPath);
+    const revision = forge.slug ? this.readCache?.revision(forge.slug) : undefined;
+    const contentKey =
+      forge.kind === "github" && forge.slug ? this.readCache?.contentKey("prs", forge.slug) : null;
     const marked = s.mergingSince != null;
     const markedNumber = s.mergingPrNumber ?? null;
     const guard = (raw: GitState): GitState =>
@@ -460,6 +523,15 @@ export class PrPoller implements PrCache {
     this.trackTransient(s.id, git);
     if (gitStateChanged(prev, git) && this.set(s.id, git)) {
       this.onChange(s.id, git);
+    }
+    if (
+      fpKey != null &&
+      this.cache.has(s.id) &&
+      revision === (forge.slug ? this.readCache?.revision(forge.slug) : undefined)
+    ) {
+      this.freshnessBySession.set(s.id, fpKey);
+      if (forge.kind === "github" && forge.slug)
+        this.readCache?.put("session", forge.slug, contentKey ?? null, s.branch, s.id);
     }
   }
 
@@ -620,6 +692,7 @@ export class PrPoller implements PrCache {
     return this.cache.get(id);
   }
   set(id: string, git: GitState): boolean {
+    this.forgetFreshness(id);
     if (!this.store.putSessionGitCache(id, git)) {
       this.cache.delete(id);
       this.transientSince.delete(id);
@@ -629,9 +702,18 @@ export class PrPoller implements PrCache {
     return true;
   }
   drop(id: string): void {
+    this.forgetFreshness(id);
     this.store.deleteSessionGitCache(id);
     this.cache.delete(id);
     this.transientSince.delete(id);
+  }
+
+  private forgetFreshness(id: string): void {
+    this.freshnessBySession.delete(id);
+    if (!this.readCache) return;
+    const s = this.store.get(id);
+    const forge = s ? this.resolveForge(s.repoPath) : null;
+    if (forge?.kind === "github" && forge.slug) this.readCache.delete("session", forge.slug, id);
   }
 
   start(): void {

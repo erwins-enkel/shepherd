@@ -6,16 +6,14 @@ import type { GhRunner } from "./forge/github";
 import { EMPTY_BACKLOG_COUNTS } from "./forge/types";
 import type { ForgeMap, GitForge, RepoCounts } from "./forge/types";
 import { Semaphore } from "./semaphore";
+import type { GithubCacheEntry, GithubReadCache } from "./github-read-cache";
 
 // RepoCounts now lives with the GitForge seam (each adapter returns it); re-export
 // so existing importers (backlog-poller, server) keep their "./backlog" path. (CiStatus
 // is exported from forge/types.ts directly — backlog.ts no longer has a consumer for it.)
 export type { RepoCounts } from "./forge/types";
 
-interface CacheEntry {
-  at: number;
-  value: RepoCounts;
-}
+type CacheEntry = GithubCacheEntry<RepoCounts>;
 
 /** Read TTL. Must outlive BacklogPoller's cold cadence (15 min, #2656): a cold repo is
  *  re-warmed that rarely, and a shorter TTL would make every backlog broadcast and GET
@@ -66,6 +64,7 @@ export class CountsService {
   private readonly inflight = new Map<string, Promise<RepoCounts>>();
   /** Bounds simultaneous fetches across both the request path and the warmer. */
   private readonly gate: Semaphore;
+  private readonly revisions = new Map<string, number>();
 
   constructor(
     private readonly forges: ForgeMap,
@@ -79,13 +78,19 @@ export class CountsService {
     private readonly getRepoConfig?: (repoPath: string) => { repoMode: string },
     /** Optional clock-seam injection for the negative-forge re-probe TTL (tests only). */
     forgeMemoOpts?: { negativeTtlMs?: number; now?: () => number },
+    private readonly readCache?: GithubReadCache,
   ) {
     this.gate = new Semaphore(maxConcurrency);
     // Resolve adapters with OUR runner/fetch so the counts call (forge.listBacklogCounts)
     // uses them instead of the adapter's built-in defaults — load-bearing for both the
     // injected test fakes and production's untimed runner.
     this.resolveForgeCached = makeForgeMemo(
-      (dir) => detectForge(dir, this.forges, { ghRunner: this.run, fetchFn: this.fetchFn }),
+      (dir) =>
+        detectForge(dir, this.forges, {
+          ghRunner: this.run,
+          fetchFn: this.fetchFn,
+          githubCache: this.readCache,
+        }),
       forgeMemoOpts,
     );
   }
@@ -97,14 +102,38 @@ export class CountsService {
    * round-trip. The backlog poller keeps these warm.
    */
   peek(repoPath: string): RepoCounts | null {
-    return this.cache.get(repoPath)?.value ?? null;
+    return this.entry(repoPath)?.value ?? null;
   }
 
   /** Read-through: serve a TTL-fresh cached value, else load it. */
   async counts(repoPath: string): Promise<RepoCounts> {
-    const entry = this.cache.get(repoPath);
-    if (entry && Date.now() - entry.at < TTL_MS) return entry.value;
+    const entry = this.entry(repoPath);
+    const slug = this.githubSlug(repoPath);
+    const fpKey = slug ? this.readCache?.contentKey("counts", slug) : null;
+    if (entry && fpKey != null && entry.contentKey === fpKey) {
+      if (this.readCache?.expired(entry) && this.readCache.canRefresh())
+        void this.load(repoPath, true);
+      return entry.value;
+    }
+    if (entry && fpKey == null && this.now() - entry.at < TTL_MS) return entry.value;
     return this.load(repoPath);
+  }
+
+  private now(): number {
+    return this.readCache?.now() ?? Date.now();
+  }
+
+  private githubSlug(repoPath: string): string | null {
+    if (!this.readCache || this.getRepoConfig?.(repoPath)?.repoMode === "lightweight") return null;
+    const forge = this.resolveForgeCached(repoPath);
+    return forge?.kind === "github" ? forge.slug : null;
+  }
+
+  private entry(repoPath: string): CacheEntry | null {
+    const slug = this.githubSlug(repoPath);
+    return slug && this.readCache
+      ? this.readCache.get("counts", slug)
+      : (this.cache.get(repoPath) ?? null);
   }
 
   /**
@@ -113,8 +142,9 @@ export class CountsService {
    * when nothing is cached yet.
    */
   touch(repoPath: string): void {
+    if (this.githubSlug(repoPath)) return; // fetchedAt must keep the 24h safety bound
     const entry = this.cache.get(repoPath);
-    if (entry) entry.at = Date.now();
+    if (entry) entry.at = this.now();
   }
 
   /**
@@ -133,6 +163,13 @@ export class CountsService {
   }
 
   private load(repoPath: string, preserveOnError = false): Promise<RepoCounts> {
+    const slug = this.githubSlug(repoPath);
+    const revision = slug ? this.readCache?.revision(slug) : undefined;
+    if (slug) {
+      if (revision !== this.revisions.get(repoPath)) this.inflight.delete(repoPath);
+      this.revisions.set(repoPath, revision ?? 0);
+    }
+    const fpKey = slug ? (this.readCache?.contentKey("counts", slug) ?? null) : null;
     const existing = this.inflight.get(repoPath);
     if (existing) return existing;
 
@@ -140,15 +177,22 @@ export class CountsService {
       .run(() => this.fetch(repoPath))
       .then(
         (v) => {
-          this.cache.set(repoPath, { at: Date.now(), value: v });
-          this.inflight.delete(repoPath);
+          if (
+            this.inflight.get(repoPath) === promise &&
+            (!slug || revision === this.readCache?.revision(slug))
+          ) {
+            this.cache.set(repoPath, { at: this.now(), value: v, contentKey: fpKey });
+            if (slug) this.readCache?.put("counts", slug, fpKey, v);
+            this.inflight.delete(repoPath);
+          }
           return v;
         },
         () => {
-          this.inflight.delete(repoPath);
-          const prev = this.cache.get(repoPath);
+          if (this.inflight.get(repoPath) === promise) this.inflight.delete(repoPath);
+          const prev = this.entry(repoPath);
           if (preserveOnError && prev) return prev.value; // keep last-known-good
-          this.cache.set(repoPath, { at: Date.now(), value: NULL_COUNTS });
+          if (!slug)
+            this.cache.set(repoPath, { at: this.now(), value: NULL_COUNTS, contentKey: null });
           return NULL_COUNTS;
         },
       );

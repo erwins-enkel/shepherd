@@ -367,7 +367,7 @@ test("GithubForge.listIssues: a covered slug serves its cache until the issue ge
   const { run, calls } = fakeRunner({ "issue list": ISSUES_JSON });
   const forge = new GithubForge("o/r", {}, run);
   let gen = 1;
-  setIssuesFreshness((slug) => (slug === "o/r" ? gen : null));
+  setIssuesFreshness((slug) => (slug === "o/r" ? String(gen) : null));
   try {
     setSystemTime(new Date("2026-10-01T12:00:00Z"));
     await forge.listIssues();
@@ -395,7 +395,7 @@ test("GithubForge.listIssues: a generation bump during the fetch leaves the entr
     return ISSUES_JSON;
   };
   const forge = new GithubForge("o/r", {}, run);
-  setIssuesFreshness(() => gen);
+  setIssuesFreshness(() => String(gen));
   try {
     await forge.listIssues();
     await forge.listIssues(); // tagged with the pre-bump generation → re-listed
@@ -410,7 +410,7 @@ test("GithubForge.listIssues: an entry fetched before coverage began is re-liste
   const forge = new GithubForge("o/r", {}, run);
   try {
     await forge.listIssues(); // uncovered → TTL entry
-    setIssuesFreshness(() => 1);
+    setIssuesFreshness(() => "key-1");
     await forge.listIssues();
     await forge.listIssues();
     expect(calls.filter((c) => c[0] === "issue")).toHaveLength(2);
@@ -422,7 +422,7 @@ test("GithubForge.listIssues: an entry fetched before coverage began is re-liste
 test("GithubForge.listIssues: writes still invalidate a covered slug's cache", async () => {
   const { run, calls } = fakeRunner({ "issue list": ISSUES_JSON, "issue close": "" });
   const forge = new GithubForge("o/r", {}, run);
-  setIssuesFreshness(() => 1);
+  setIssuesFreshness(() => "key-1");
   try {
     await forge.listIssues();
     await forge.closeIssue(1);

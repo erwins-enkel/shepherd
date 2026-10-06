@@ -1,5 +1,6 @@
 import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
+import type { GithubCacheKind, GithubCacheRow } from "./github-read-cache";
 import { RELEVANCE_DROP_BELOW } from "./house-rules-relevance";
 import type {
   BlockJudgeLogRow,
@@ -1342,6 +1343,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       sessionId TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
       gitJson TEXT NOT NULL,
       updatedAt INTEGER NOT NULL)`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS github_read_cache (
+      slug TEXT NOT NULL, kind TEXT NOT NULL, entryKey TEXT NOT NULL,
+      version INTEGER NOT NULL, contentKey TEXT, fetchedAt INTEGER NOT NULL, dataJson TEXT NOT NULL,
+      PRIMARY KEY (slug, kind, entryKey))`);
     this.db.run(`CREATE TABLE IF NOT EXISTS task_seq (
       id INTEGER PRIMARY KEY CHECK (id = 1), next INTEGER NOT NULL)`);
     // Seed once from the high-water mark of existing desigs (TASK-NN) + 1, or 1 on a fresh DB.
@@ -3421,6 +3426,31 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         });
       this.deleteSessionGitCache(id);
     })();
+  }
+
+  listGithubReadCache(): GithubCacheRow[] {
+    return this.db.query(`SELECT * FROM github_read_cache`).all() as GithubCacheRow[];
+  }
+
+  putGithubReadCache(row: GithubCacheRow): void {
+    this.db.run(
+      `INSERT INTO github_read_cache (slug, kind, entryKey, version, contentKey, fetchedAt, dataJson)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(slug, kind, entryKey) DO UPDATE SET version = excluded.version,
+        contentKey = excluded.contentKey, fetchedAt = excluded.fetchedAt, dataJson = excluded.dataJson`,
+      [row.slug, row.kind, row.entryKey, row.version, row.contentKey, row.fetchedAt, row.dataJson],
+    );
+  }
+
+  deleteGithubReadCache(slug: string, kind: GithubCacheKind, entryKey?: string): void {
+    if (entryKey === undefined)
+      this.db.run(`DELETE FROM github_read_cache WHERE slug = ? AND kind = ?`, [slug, kind]);
+    else
+      this.db.run(`DELETE FROM github_read_cache WHERE slug = ? AND kind = ? AND entryKey = ?`, [
+        slug,
+        kind,
+        entryKey,
+      ]);
   }
 
   putSessionGitCache(sessionId: string, state: GitState): boolean {

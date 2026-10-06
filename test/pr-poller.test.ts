@@ -3,6 +3,8 @@ import { SessionStore } from "../src/store";
 import { PrPoller, trustsTerminal, gitStateChanged } from "../src/pr-poller";
 import type { GitForge, GitState, PrStatus } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
+import { GithubReadCache } from "../src/github-read-cache";
+import { OpenPrSnapshotService } from "../src/open-pr-snapshot";
 
 const openGit = (over: Partial<GitState> = {}): GitState => ({
   kind: "github",
@@ -71,6 +73,296 @@ const baseSession = {
   herdrSession: "default",
   herdrAgentId: "term_a",
 };
+
+test("warm restart: stable sessions skip unchanged PR keys while transient sessions still poll", async () => {
+  const store = new SessionStore(":memory:");
+  const stable = store.create({ ...baseSession, branch: "stable" });
+  const transient = store.create({ ...baseSession, herdrAgentId: "term_b", branch: "transient" });
+  const stableGit = openGit({ checks: "success", mergeable: true, mergeStateStatus: "clean" });
+  store.putSessionGitCache(stable.id, stableGit);
+  store.putSessionGitCache(transient.id, openGit());
+  const polls: string[] = [];
+  const forge = forgeReturning(() => stableGit);
+  forge.prStatus = async (branch) => {
+    polls.push(branch);
+    return branch === "stable" ? stableGit : openGit();
+  };
+  let key = "1|unchanged";
+  const cache = new GithubReadCache(store);
+  cache.put("fingerprint", "o/r", null, {
+    openIssues: 0,
+    issuesUpdatedAt: "",
+    openPrs: 1,
+    prsUpdatedAt: "unchanged",
+    ciState: "",
+  });
+  cache.put("session", "o/r", key, stable.branch!, stable.id);
+  cache.put("session", "o/r", key, transient.branch!, transient.id);
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => key,
+    cache,
+  );
+  await poller.tick();
+  expect(polls).toEqual(["transient"]);
+  key = "2|changed";
+  await poller.tick();
+  expect(polls).toEqual(["transient", "stable", "transient"]);
+});
+
+test("warm restart: cached none sessions do not trigger a boot confirmation wave", async () => {
+  const store = new SessionStore(":memory:");
+  const session = store.create(baseSession);
+  const none: GitState = { kind: "github", state: "none", checks: "none", deployConfigured: false };
+  store.putSessionGitCache(session.id, none);
+  let polls = 0;
+  const forge = forgeReturning(() => {
+    polls++;
+    return none;
+  });
+  const cache = new GithubReadCache(store);
+  cache.put("fingerprint", "o/r", null, {
+    openIssues: 0,
+    issuesUpdatedAt: "",
+    openPrs: 0,
+    prsUpdatedAt: "same",
+    ciState: "",
+  });
+  cache.put("session", "o/r", "0|same", session.branch!, session.id);
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => "0|same",
+    cache,
+  );
+  for (let i = 0; i < 5; i++) await poller.tick();
+  expect(polls).toBe(0);
+  expect(poller.get(session.id)?.state).toBe("none");
+});
+
+test("warm restart: a fingerprint saved after the session read never certifies that older read", async () => {
+  const store = new SessionStore(":memory:");
+  const session = store.create(baseSession);
+  store.putSessionGitCache(
+    session.id,
+    openGit({ checks: "success", mergeable: true, mergeStateStatus: "clean" }),
+  );
+  const cache = new GithubReadCache(store);
+  cache.put("fingerprint", "o/r", null, {
+    openIssues: 0,
+    issuesUpdatedAt: "",
+    openPrs: 0,
+    prsUpdatedAt: "closed",
+    ciState: "",
+  });
+  cache.put("session", "o/r", "1|open", session.branch!, session.id);
+  let reads = 0;
+  const forge = forgeReturning(() => {
+    reads++;
+    return { state: "closed", number: 1, checks: "none", deployConfigured: false };
+  });
+  const boot = () =>
+    new PrPoller(
+      store,
+      () => forge,
+      () => {},
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => "0|closed",
+      cache,
+    );
+  const poller = boot();
+  await poller.tick();
+  expect(reads).toBe(1);
+  expect(poller.get(session.id)?.state).toBe("closed");
+  await boot().tick();
+  expect(reads).toBe(1);
+});
+
+test("warm restart: a saved session read belongs to the branch it actually polled", async () => {
+  const store = new SessionStore(":memory:");
+  const session = store.create(baseSession);
+  const green = openGit({ checks: "success", mergeable: true, mergeStateStatus: "clean" });
+  store.putSessionGitCache(session.id, green);
+  const cache = new GithubReadCache(store);
+  cache.put("fingerprint", "o/r", null, {
+    openIssues: 0,
+    issuesUpdatedAt: "",
+    openPrs: 1,
+    prsUpdatedAt: "same",
+    ciState: "",
+  });
+  cache.put("session", "o/r", "1|same", session.branch!, session.id);
+  store.update(session.id, { branch: "renamed" });
+  const polls: string[] = [];
+  const forge = forgeReturning(() => green);
+  forge.prStatus = async (branch) => {
+    polls.push(branch);
+    return green;
+  };
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => "1|same",
+    cache,
+  );
+  await poller.tick();
+  expect(polls).toEqual(["renamed"]);
+});
+
+test("warm restart: a failed batch refresh cannot certify a snapshot from an older PR key", async () => {
+  const store = new SessionStore(":memory:");
+  const stable = store.create({ ...baseSession, branch: "stable" });
+  const transient = store.create({ ...baseSession, herdrAgentId: "term_b", branch: "transient" });
+  const green = openGit({ checks: "success", mergeable: true, mergeStateStatus: "clean" });
+  store.putSessionGitCache(stable.id, green);
+  store.putSessionGitCache(transient.id, openGit());
+  const cache = new GithubReadCache(store);
+  cache.put("fingerprint", "o/r", null, {
+    openIssues: 0,
+    issuesUpdatedAt: "",
+    openPrs: 0,
+    prsUpdatedAt: "closed",
+    ciState: "",
+  });
+  cache.put("prs", "o/r", "1|open", {
+    prs: [],
+    statuses: new Map([
+      ["stable", green],
+      ["transient", green],
+    ]),
+    capped: false,
+  });
+  let reads = 0;
+  const forge = forgeReturning(() => {
+    reads++;
+    return { state: "closed", number: 1, checks: "none", deployConfigured: false };
+  });
+  forge.countOpenPrs = async () => 0;
+  forge.listOpenPrSnapshot = async () => {
+    throw new Error("unavailable");
+  };
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    new OpenPrSnapshotService(undefined, undefined, cache),
+    () => "0|closed",
+    cache,
+  );
+  await poller.tick();
+  expect(reads).toBe(2);
+  expect(poller.get(stable.id)?.state).toBe("closed");
+});
+
+test("warm restart: old stable session reads wait for budget and then refresh after 24 hours", async () => {
+  const store = new SessionStore(":memory:");
+  const session = store.create(baseSession);
+  const green = openGit({ checks: "success", mergeable: true, mergeStateStatus: "clean" });
+  store.putSessionGitCache(session.id, green);
+  let now = Date.now();
+  let ready = false;
+  const cache = new GithubReadCache(store, { now: () => now, canRefresh: () => ready });
+  cache.put("fingerprint", "o/r", null, {
+    openIssues: 0,
+    issuesUpdatedAt: "",
+    openPrs: 1,
+    prsUpdatedAt: "same",
+    ciState: "",
+  });
+  cache.put("session", "o/r", "1|same", session.branch!, session.id);
+  let reads = 0;
+  const forge = forgeReturning(() => {
+    reads++;
+    return green;
+  });
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => "1|same",
+    cache,
+  );
+  now += 86_400_000;
+  await poller.tick();
+  expect(reads).toBe(0);
+  ready = true;
+  await poller.tick();
+  expect(reads).toBe(1);
+});
 
 function forgeReturning(status: () => PrStatus): GitForge {
   return {

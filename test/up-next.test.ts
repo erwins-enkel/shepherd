@@ -47,6 +47,30 @@ function svc(deps: Partial<UpNextDeps> = {}): UpNextService {
 }
 
 describe("UpNextService.refresh", () => {
+  test("warm restart: recompute waits for the fingerprint and budget, then publishes", async () => {
+    let ready = false;
+    let reads = 0;
+    const s = svc({
+      shouldRefresh: () => ready,
+      resolveForge: () => {
+        reads++;
+        return fakeForge({ issues: [issue(1)] });
+      },
+    });
+    s.start();
+    try {
+      await s.refresh();
+      expect(reads).toBe(0);
+      ready = true;
+      const snap = await s.refresh();
+      expect(snap.sections.find((x) => x.kind === "repo")?.items[0]?.number).toBe(1);
+      ready = false;
+      expect(await s.refresh()).toBe(snap);
+      expect(reads).toBe(1);
+    } finally {
+      s.stop();
+    }
+  });
   test("computes a snapshot from listIssues and emits onChange", async () => {
     let emitted = 0;
     const s = svc({ onChange: () => emitted++ });

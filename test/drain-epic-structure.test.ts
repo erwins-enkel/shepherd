@@ -133,7 +133,7 @@ describe("epic structure reads (#2807)", () => {
     const gh = ghRunner(closed);
     const { drain, run } = makeDrain(gh.run);
     let gen = 1;
-    setIssuesFreshness(() => gen);
+    setIssuesFreshness(() => String(gen));
 
     await buildEvery10s(() => drain.buildEpic(REPO, run), START, 10);
     expect(gh.structureQueries()).toBe(1);
@@ -152,7 +152,7 @@ describe("epic structure reads (#2807)", () => {
   test("with GraphQL in backoff the REST fallback runs once per cache window", async () => {
     const gh = ghRunner(new Set());
     const { drain, run } = makeDrain(gh.run);
-    setIssuesFreshness(() => 1);
+    setIssuesFreshness(() => "key-1");
     setSystemTime(new Date(START));
     graphRateLimit.noteLimitError(3_600);
     try {

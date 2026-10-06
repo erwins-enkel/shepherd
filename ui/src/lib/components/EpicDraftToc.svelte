@@ -11,6 +11,7 @@
     waves,
     seen,
     showOutcome,
+    newIssues,
     onjump,
   }: {
     sections: MarkdownSection[];
@@ -23,6 +24,8 @@
     seen: ReadonlySet<string>;
     /** Show what approving creates — only while the draft awaits review. */
     showOutcome: boolean;
+    /** Issues approving will create (a resumed draft skips the ones already created). */
+    newIssues: number;
     /** Scroll the draft to the element with this `data-anchor`. */
     onjump: (anchor: string) => void;
   } = $props();
@@ -72,7 +75,7 @@
     <dl class="outcome">
       <dt class="toc-label">{m.epicdraft_outcome_label()}</dt>
       <dd>
-        <span>{m.epicdraft_outcome_issues()}</span><span>{children.length + 1}</span>
+        <span>{m.epicdraft_outcome_issues()}</span><span>{newIssues}</span>
       </dd>
       <dd>
         <span>{m.epicdraft_outcome_deps()}</span><span>{dependencyCount}</span>

@@ -33,6 +33,12 @@
   // a table-of-contents entry, then render each part instead of printing raw `##`/`**`.
   const sections = $derived(splitMarkdownSections(draft?.parent.body ?? ""));
   const waves = $derived(childWaves(children));
+  // Issues approving will actually create: a failed materialize returns the draft to `draft` but
+  // keeps what it already created, and the retry skips those (approveEpicDraft's resume path).
+  const newIssues = $derived(
+    children.filter((c) => draft?.materializedChildren[c.key] == null).length +
+      (draft?.parentNumber == null ? 1 : 0),
+  );
 
   let bodyEl = $state<HTMLElement | null>(null);
   function jump(anchor: string) {
@@ -187,6 +193,7 @@
           {waves}
           {seen}
           showOutcome={awaiting}
+          {newIssues}
           onjump={jump}
         />
         <EpicDraftDocument {draft} {sections} {waves} {awaiting} onjump={jump} />
@@ -240,7 +247,7 @@
               <span class="approve-glyph" aria-hidden="true">▸</span>
               {approving
                 ? m.epicdraft_approving()
-                : m.epicdraft_approve_count({ count: children.length + 1 })}
+                : m.epicdraft_approve_count({ count: newIssues })}
             </button>
           </div>
         {:else if status === "materializing"}

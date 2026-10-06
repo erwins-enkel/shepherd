@@ -306,3 +306,38 @@ describe("EpicDraftModal — document view", () => {
     unmount();
   });
 });
+
+describe("EpicDraftModal — resumed draft", () => {
+  beforeEach(async () => {
+    await page.viewport(1280, 900);
+  });
+
+  // A failed materialize returns the draft to `draft` but keeps what it created; the retry skips
+  // those, so the counts must too.
+  it("counts only the issues approving will still create", async () => {
+    const sessionId = "epic-draft-modal-resume";
+    epicDrafts.upsert({
+      ...shapedDraft(sessionId),
+      materializedChildren: { c1: 101, c2: 102 },
+      parentNumber: 4242,
+      parentUrl: "https://example.invalid/issues/4242",
+    });
+    const { container, unmount } = await render(EpicDraftModal, {
+      sessionId,
+      sessionLive: true,
+      onclose: () => {},
+    });
+    container.querySelector<HTMLElement>(".card")!.style.width = "1100px";
+    await tick();
+
+    expect(container.querySelector(".approve")?.textContent).toContain(
+      m.epicdraft_approve_count({ count: 2 }),
+    );
+    const issuesRow = [...container.querySelectorAll(".outcome dd")].find((dd) =>
+      dd.textContent?.includes(m.epicdraft_outcome_issues()),
+    );
+    expect(issuesRow?.textContent).toContain("2");
+
+    unmount();
+  });
+});

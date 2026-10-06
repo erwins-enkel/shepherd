@@ -252,3 +252,42 @@ test("bootstrapAuth: supervised credential channel is private and never emits a 
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+for (const failure of ["missing", "unwritable"] as const) {
+  test(`bootstrapAuth: ${failure} credential channel leaves generation retryable`, async () => {
+    const directory = mkdtempSync(join(tmpdir(), "shepherd-auth-retry-"));
+    try {
+      // A directory is deterministically unwritable as a credential file, even as root.
+      const file = failure === "missing" ? join(directory, "missing") : directory;
+      const store = fakeStore();
+      const logs: string[] = [];
+      await expect(
+        bootstrapAuth({
+          store,
+          envPassword: null,
+          envCookieSecret: null,
+          generatedPasswordFile: file,
+          log: (line) => logs.push(line),
+        }),
+      ).rejects.toThrow();
+      expect(store.getSetting("passwordHash")).toBe(null);
+      expect(logs).toEqual([]);
+
+      const retryFile = join(directory, "retry");
+      writeFileSync(retryFile, "", { mode: 0o600 });
+      const retry = await bootstrapAuth({
+        store,
+        envPassword: null,
+        envCookieSecret: null,
+        generatedPasswordFile: retryFile,
+        log: (line) => logs.push(line),
+      });
+      expect(retry.generatedPassword).toBeTruthy();
+      expect(store.getSetting("passwordHash")).toBe(retry.passwordHash);
+      expect(await verifyPassword(readFileSync(retryFile, "utf8"), retry.passwordHash)).toBe(true);
+      expect(logs).toEqual([]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}

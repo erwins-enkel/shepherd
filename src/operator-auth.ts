@@ -179,7 +179,7 @@ const COOKIE_SECRET_KEY = "cookieSecret";
  * - Password hash:
  *   - `envPassword` set ⇒ authoritative: hash it and re-seed the persisted hash every boot.
  *   - else persisted hash ⇒ use as-is (an auto-generated one survives restarts).
- *   - else ⇒ generate a strong password, hash+persist it, and emit it ONCE via `log` with a loud
+ *   - else ⇒ generate a strong password, deliver it, then persist its hash. Emit it ONCE via `log` with a loud
  *     CHANGE-THIS banner. Returned in `generatedPassword` for callers/tests.
  *
  * Pure w.r.t. the injected store + log, so the fail-closed paths are unit-testable.
@@ -213,7 +213,6 @@ export async function bootstrapAuth(opts: {
     } else {
       generatedPassword = generatePassword();
       passwordHash = await hashPassword(generatedPassword);
-      store.setSetting(PASSWORD_HASH_KEY, passwordHash);
       if (opts.generatedPasswordFile) {
         // O_NOFOLLOW rejects a replaced symlink; the supervisor creates the file
         // before launch. Failure is fatal, never a fallback to persistent stdout.
@@ -234,6 +233,8 @@ export async function bootstrapAuth(opts: {
             "  └──────────────────────────────────────────────────────────────────────┘\n" +
             `  Operator password (shown ONCE): ${generatedPassword}\n`,
         );
+      // Failed delivery must leave generation retryable on the next boot.
+      store.setSetting(PASSWORD_HASH_KEY, passwordHash);
     }
   }
 

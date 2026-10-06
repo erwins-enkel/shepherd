@@ -4006,6 +4006,7 @@ const appDeps: AppDeps = {
     queue: (repoPath) => drain.queue(repoPath),
     retainClaim: (id) => drain.retainClaim(id),
     buildEpic: (repoPath, run) => drain.buildEpic(repoPath, run),
+    issueListingFailed: (repoPath) => drain.issueListingFailed(repoPath),
     diagnoseEpic: (repoPath, run) => drain.diagnoseEpic(repoPath, run),
     approveEpicNext: (repoPath) => drain.approveEpicNext(repoPath),
     resolveLandingConflict: (repoPath, parent) => drain.resolveLandingConflict(repoPath, parent),

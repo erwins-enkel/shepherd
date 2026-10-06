@@ -3379,6 +3379,8 @@
   "planpanel_review_at_cap_no_resume": "Re-reviewing at the rework cap. The reviewer can still approve the plan. If it requests changes instead, those findings will not be sent to the planning agent — “Resume with findings” then appears here to reset the budget and re-send them.",
   "drain_paused_epic_base": "Paused: can't create epic branch {branch}",
   "epic_hold_epic_base_unavailable": "Paused: the epic branch {branch} could not be created on the forge. Retrying — no child can be started until it exists.",
+  "drain_paused_epic_unreadable": "Paused: can't read the epic's issues from the forge",
+  "epic_hold_epic_unreadable": "Paused: the issue list could not be read from the forge (often a rate limit). Retrying — until it loads, no child is started or marked done.",
   "settings_role_model_distiller_title": "Learnings Distiller",
   "settings_role_model_distiller_hint": "Finds recurring lessons from repository signals.",
   "settings_distiller_interval_label": "Days between automatic runs",

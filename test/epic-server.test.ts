@@ -485,6 +485,27 @@ describe("PUT /api/epic", () => {
 // ── GET /api/epic ─────────────────────────────────────────────────────────────
 
 describe("GET /api/epic", () => {
+  test("503 epic_unreadable (not 404) while the forge's issue listing is failing", async () => {
+    const { app } = harness({
+      drainOverrides: { buildEpic: async () => null, issueListingFailed: () => true },
+    });
+    const res = await app.fetch(
+      new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=327`),
+    );
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ code: "epic_unreadable" });
+  });
+
+  test("404 when the epic is simply not there", async () => {
+    const { app } = harness({
+      drainOverrides: { buildEpic: async () => null, issueListingFailed: () => false },
+    });
+    const res = await app.fetch(
+      new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=327`),
+    );
+    expect(res.status).toBe(404);
+  });
+
   test("invalid repo → 400", async () => {
     const { app } = harness();
     const res = await app.fetch(new Request(`http://x/api/epic?repo=/nope/not/here&parent=327`));

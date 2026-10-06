@@ -4,6 +4,7 @@ import { SessionStore } from "../src/store";
 import type { EpicStructure, GitForge, Issue, PrStatus } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
+import type { DrainStatus } from "../src/drain";
 
 // A forge read that fails during a GitHub rate limit must never read as "every child closed":
 // that auto-completed a live epic and stopped its run. With no complete structure cached yet, the
@@ -61,6 +62,7 @@ function makeHarness(listIssues: () => Promise<Issue[]>) {
   };
   const store = new SessionStore(":memory:");
   store.setEpicRun({ repoPath: REPO, parentIssueNumber: PARENT, mode: "auto", status: "running" });
+  const statuses: DrainStatus[] = [];
   const drain = new DrainService({
     store,
     service: { create: async () => ({}), archive: () => 1 } as never,
@@ -68,13 +70,13 @@ function makeHarness(listIssues: () => Promise<Issue[]>) {
     prCache: { snapshot: () => ({}) },
     usage: { limits: (): UsageLimitsType => NO_USAGE },
     repos: () => [REPO],
-    emitStatus: () => {},
+    emitStatus: (s) => statuses.push(s),
     emitArchived: () => {},
     dropPrCache: () => {},
     emitEpic: () => {},
     rebaseCap: 5,
   });
-  return { store, drain };
+  return { store, drain, statuses };
 }
 
 describe("a failed forge read never auto-completes a running epic", () => {
@@ -88,6 +90,13 @@ describe("a failed forge read never auto-completes a running epic", () => {
 
     expect(h.store.listEpicCompleted(REPO)).toHaveLength(0);
     expect(h.store.getEpicRun(REPO)?.status).toBe("running");
+    // …and says so: a paused banner naming the cause, scoped to this epic.
+    expect(h.statuses.at(-1)).toMatchObject({
+      paused: true,
+      reason: "epic_unreadable",
+      epicParent: PARENT,
+    });
+    expect(h.drain.issueListingFailed(REPO)).toBe(true);
   });
 
   test("a successful listing still resolves members missing from it as closed", async () => {

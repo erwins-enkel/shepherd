@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { m } from "$lib/paraglide/messages";
 import {
   activeMergeTrain,
   chipHasTelemetry,
@@ -115,6 +116,12 @@ describe("pausedText", () => {
     expect(
       pausedText(drain({ paused: true, reason: "epic_base_unavailable", detail: "epic/9-x" })),
     ).toContain("epic/9-x");
+  });
+
+  it("maps epic_unreadable to its own copy, not the generic pause", () => {
+    expect(pausedText(drain({ paused: true, reason: "epic_unreadable" }))).toBe(
+      m.drain_paused_epic_unreadable(),
+    );
   });
 
   it("maps blocked with its designation", () => {

@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "../../../app.css";
 import EpicRunControl from "./EpicRunControl.svelte";
-import type { DrainRunSummary, DrainStatus, Epic, EpicChild } from "$lib/types";
+import type { DrainRunSummary, DrainStatus, Epic, EpicChild, EpicSummary } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
+import { formatReset } from "$lib/format";
 
 const api = vi.hoisted(() => ({
   updateEpic: vi.fn(async () => ({})),
@@ -161,6 +162,9 @@ describe("EpicRunControl — acceptance scenario (#2620)", () => {
       .element(page.getByText(m.epic_run_handover({ issue: 21, epic: B })))
       .toBeInTheDocument();
 
+    // The file's first click: the pointer still sits where the previous test file left it and
+    // may hover the state label open — whose explanation would cover the button.
+    await userEvent.keyboard("{Escape}");
     // B leads, so leading again supersedes B — asked first (#2623).
     await page.getByRole("button", { name: m.epic_run_rejoin() }).click();
     await expect
@@ -521,5 +525,134 @@ describe("EpicRunControl epic queue (#2624)", () => {
     await page.getByRole("button", { name: m.epic_start() }).click();
     await expect.element(page.getByRole("dialog")).toBeInTheDocument();
     expect(page.getByRole("radio").query()).toBeNull();
+  });
+});
+
+// Why an epic that stopped leading does not run — the calendar #67 case and its siblings.
+describe("EpicRunControl — why a stopped epic does not run", () => {
+  const AT = new Date(2026, 9, 4, 23, 41).getTime();
+  const noLeader = () =>
+    drain({
+      epicParent: null,
+      reason: null,
+      runSummary: summary({ leadingEpic: null, next: [], after: [] }),
+    });
+  const summaryOf = (parent: number): EpicSummary | undefined =>
+    parent === B
+      ? {
+          parentIssueNumber: B,
+          parentTitle: "Autotask",
+          total: 12,
+          merged: 5,
+          status: "running",
+          source: "native",
+        }
+      : undefined;
+
+  it("winding down with no leader: says it was ended and that nothing leads; restarts directly", async () => {
+    const a = {
+      ...epic(A, { status: "idle" }, [child(11, "running"), child(12, "ready")]),
+      runEnd: { cause: "ended" as const, successor: null, at: AT, via: "ci-bot" },
+    };
+    render(EpicRunControl, { repoPath: "/repo", parent: A, epic: a, drain: noLeader(), titleFor });
+
+    await expect
+      .element(page.getByText(m.epic_run_no_leader(), { exact: false }))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByText(m.epic_run_why_via({ name: "ci-bot" }), { exact: false }))
+      .toBeInTheDocument();
+    expect(page.getByRole("button", { name: m.epic_run_rejoin() }).query()).toBeNull();
+    await page.getByRole("button", { name: m.epic_run_restart() }).click();
+    expect(api.updateEpic).toHaveBeenCalledWith("/repo", A, { status: "running" });
+    expect(page.getByRole("dialog").query()).toBeNull();
+  });
+
+  it("winding down under a leader: names it and links it with its progress", async () => {
+    const onselectepic = vi.fn();
+    const a = {
+      ...epic(A, { status: "idle" }, [child(11, "running"), child(12, "ready")]),
+      runEnd: { cause: "superseded" as const, successor: B, at: AT, via: null },
+    };
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: A,
+      epic: a,
+      drain: drain(),
+      titleFor,
+      epicSummaryFor: summaryOf,
+      onselectepic,
+    });
+
+    const when = formatReset(AT, Date.now(), { withTime: true });
+    await expect
+      .element(page.getByText(m.epic_run_why_superseded_leads({ successor: B, when })))
+      .toBeInTheDocument();
+    const link = page.getByRole("button", {
+      name: `#${B} Autotask · ${m.epicflow_merged({ merged: 5, total: 12 })}`,
+    });
+    await link.click();
+    expect(onselectepic).toHaveBeenCalledWith(B);
+    await expect
+      .element(page.getByRole("button", { name: m.epic_run_rejoin() }))
+      .toBeInTheDocument();
+  });
+
+  it("superseded and idle: 'Superseded', what waits, and Start asks before replacing the leader", async () => {
+    const a = {
+      ...epic(A, { status: "idle" }, [child(12, "ready"), child(13, "blocked", [12])]),
+      runEnd: { cause: "superseded" as const, successor: B, at: AT, via: null },
+    };
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: A,
+      epic: a,
+      drain: drain({ runSummary: summary({ windingDown: [] }) }),
+      titleFor,
+    });
+
+    await expect
+      .element(page.getByText(m.epic_run_state_superseded(), { exact: true }))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByText(m.epic_run_idle_waiting({ count: 2 }), { exact: false }))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByText(m.epic_run_idle_waiting_hint({ leader: B }), { exact: false }))
+      .toBeInTheDocument();
+    // without a host route the leader still shows, just not as a link
+    expect(page.getByRole("button", { name: `#${B}`, exact: false }).query()).toBeNull();
+    await page.getByRole("button", { name: m.epic_start() }).click();
+    await expect
+      .element(page.getByRole("dialog", { name: m.epic_supersede_title({ epic: A }) }))
+      .toBeInTheDocument();
+    expect(api.updateEpic).not.toHaveBeenCalled();
+  });
+
+  it("ended and idle with nothing leading: 'Ended' and why nothing starts", async () => {
+    const a = {
+      ...epic(A, { status: "idle" }, [child(12, "ready")]),
+      runEnd: { cause: "ended" as const, successor: null, at: AT, via: null },
+    };
+    const idleRepo = drain({
+      epicParent: null,
+      reason: null,
+      runSummary: summary({
+        leadingEpic: null,
+        windingDown: [],
+        slots: { used: 0, max: 1, holders: [] },
+        next: [],
+        after: [],
+      }),
+    });
+    render(EpicRunControl, { repoPath: "/repo", parent: A, epic: a, drain: idleRepo, titleFor });
+
+    await expect
+      .element(page.getByText(m.epic_run_state_ended(), { exact: true }))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByText(m.epic_run_no_leader(), { exact: false }))
+      .toBeInTheDocument();
+    expect(page.getByText(m.epic_run_state_idle()).query()).toBeNull();
   });
 });

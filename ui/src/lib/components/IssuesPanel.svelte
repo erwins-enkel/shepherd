@@ -841,6 +841,7 @@
             onstart={startTask}
             {onquick}
             {titleFor}
+            epicSummaryFor={(parent) => epicByNumber.get(parent)}
             {onopensession}
             {onopenautomation}
             onselectchild={selectChild}

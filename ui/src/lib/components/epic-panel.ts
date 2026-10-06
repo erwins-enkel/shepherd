@@ -1,5 +1,13 @@
-import type { DrainRunSummary, DrainStatus, Epic, EpicChild, EpicChildState } from "$lib/types";
+import type {
+  DrainRunSummary,
+  DrainStatus,
+  Epic,
+  EpicChild,
+  EpicChildState,
+  EpicRunEnd,
+} from "$lib/types";
 import { m } from "$lib/paraglide/messages";
+import { formatReset } from "$lib/format";
 import { pausedText } from "./queue-strip";
 
 export type ChipTone = "done" | "review" | "running" | "ready" | "muted";
@@ -141,6 +149,8 @@ export type EpicRunKind =
   | "winding"
   | "queued"
   | "paused"
+  | "superseded"
+  | "ended"
   | "idle"
   | "waiting_slot"
   | "awaiting_approval"
@@ -178,7 +188,7 @@ const HALT_REASONS = new Set([
 /** The region's live state. `drain` is the REPO's status; its hold reason only counts while it
  *  belongs to this epic (`drain.epicParent === parent`), as for the former hold line. */
 export function epicRunState(
-  epic: Pick<Epic, "run" | "children">,
+  epic: Pick<Epic, "run" | "children" | "runEnd">,
   parent: number,
   drain: DrainStatus | null | undefined,
 ): EpicRunState {
@@ -190,7 +200,8 @@ export function epicRunState(
   if (position != null && epic.run.status === "idle")
     return { ...base, kind: "queued", tone: "quiet" };
   if (epic.run.status === "paused") return { ...base, kind: "paused", tone: "quiet" };
-  if (epic.run.status !== "running") return { ...base, kind: "idle", tone: "quiet" };
+  if (epic.run.status !== "running")
+    return { ...base, kind: stoppedKind(epic.runEnd), tone: "quiet" };
   const own = drain?.epicParent === parent ? drain : null;
   const reason = own?.reason ?? null;
   if (reason === "cap") return { ...base, kind: "waiting_slot", tone: "run" };
@@ -201,6 +212,12 @@ export function epicRunState(
   const inFlight = epic.children.some((c) => c.state === "running" || c.state === "in-review");
   if (reason === "empty" && !inFlight) return { ...base, kind: "nothing", tone: "quiet" };
   return { ...base, kind: "running", tone: "run" };
+}
+
+/** A run that was ended or superseded says so until it leads again, not "not started". */
+function stoppedKind(runEnd: EpicRunEnd | undefined): "ended" | "superseded" | "idle" {
+  const cause = runEnd?.cause;
+  return cause === "ended" || cause === "superseded" ? cause : "idle";
 }
 
 /** Localized label of the run state; `inflight` names the in-flight issues a winding-down
@@ -214,6 +231,8 @@ export function epicRunStateLabel(
     winding: () => m.epic_run_state_winding({ inflight }),
     queued: () => m.epic_run_state_queued({ position: position ?? 1 }),
     paused: m.epic_run_state_paused,
+    superseded: m.epic_run_state_superseded,
+    ended: m.epic_run_state_ended,
     idle: m.epic_run_state_idle,
     waiting_slot: m.epic_run_state_waiting_slot,
     awaiting_approval: m.epic_run_state_awaiting_approval,
@@ -222,6 +241,28 @@ export function epicRunStateLabel(
     running: m.epic_run_state_running,
   };
   return labels[kind]();
+}
+
+/** Why an epic that does not lead is not running: what stopped it (`runEnd`) and who leads now.
+ *  `leader` is the repo's leading epic when it is another one, else null — the host links it.
+ *  `now` only decides whether the time reads "23:41" (today) or "4.10. 23:41". */
+export function epicRunWhy(
+  runEnd: EpicRunEnd | undefined,
+  leader: number | null,
+  now: number,
+): string[] {
+  const leaderLine =
+    leader != null ? m.epic_run_winding_leader({ leader }) : m.epic_run_no_leader();
+  const when = runEnd ? formatReset(runEnd.at, now, { withTime: true }) : "";
+  const successor = runEnd?.cause === "superseded" ? runEnd.successor : null;
+  let lines: string[];
+  if (runEnd?.cause === "ended") lines = [m.epic_run_why_ended({ when }), leaderLine];
+  else if (successor == null)
+    return [leaderLine]; // nothing recorded, or completed
+  else if (successor === leader) lines = [m.epic_run_why_superseded_leads({ successor, when })];
+  else lines = [m.epic_run_why_superseded({ successor, when }), leaderLine];
+  if (runEnd?.via) lines.push(m.epic_run_why_via({ name: runEnd.via }));
+  return lines;
 }
 
 export type SlotHolder = DrainRunSummary["slots"]["holders"][number];

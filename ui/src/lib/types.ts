@@ -1067,6 +1067,17 @@ export interface Epic {
    *  dedicated translated legibility line on the epic panel (mirrors src/epic-core.ts). */
   noDependencyEdges?: boolean;
   run: EpicRun;
+  /** Why the epic last stopped leading; absent while it leads or when nothing was recorded. */
+  runEnd?: EpicRunEnd;
+}
+/** Why an epic stopped leading its repo (mirrors src/epic-core.ts). `via` names the access token
+ *  that made the request, null for the UI. */
+export interface EpicRunEnd {
+  cause: "ended" | "superseded" | "completed";
+  /** The epic started over this one (superseded only). */
+  successor: number | null;
+  at: number;
+  via: string | null;
 }
 export interface EpicSummary {
   parentIssueNumber: number;

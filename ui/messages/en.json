@@ -5316,5 +5316,19 @@
   "native_keychain_unavailable": "Cannot read the saved token from Keychain. Unlock it or allow access, then retry.",
   "prspanel_load_failed": "Couldn't load PRs.",
   "native_compose_paste_empty": "No image on the clipboard — copy an image first.",
-  "native_compose_paste_clipboard": "From clipboard"
+  "native_compose_paste_clipboard": "From clipboard",
+  "epic_run_state_superseded": "Superseded",
+  "epic_run_state_ended": "Ended",
+  "epic_run_why_superseded_leads": "Superseded by #{successor} ({when}) — it was started and has led since.",
+  "epic_run_why_superseded": "Superseded by #{successor} ({when}).",
+  "epic_run_why_ended": "Ended ({when}).",
+  "epic_run_why_via": "Triggered through the machine token “{name}”.",
+  "epic_run_no_leader": "No epic leads right now, so nothing starts.",
+  "epic_run_leader_open": "Open the leading epic #{leader}",
+  "epic_run_idle_waiting": "{count} unstarted task(s) waiting.",
+  "epic_run_idle_waiting_hint": "Let it lead again or queue it behind #{leader}.",
+  "epic_run_restart": "Start again",
+  "epic_run_restart_title": "Starts this epic again. No other epic leads right now.",
+  "feat_epic_run_why_title": "Epics: see why one isn't running",
+  "feat_epic_run_why_body": "An epic that stopped leading now says why in its run area: superseded by which epic and when — linked, with that epic's progress — or ended, and through which machine token if one did it. Settings you change on an epic that doesn't lead are remembered for it and no longer stop the epic that runs."
 }

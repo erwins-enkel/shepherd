@@ -25,7 +25,8 @@ struct KernelProcessIdentity: Codable, Sendable, Equatable {
       proc_listpids(UInt32(PROC_PGRP_ONLY), UInt32(group), $0.baseAddress, Int32($0.count))
     }
     return pids.prefix(max(0, Int(bytes)) / MemoryLayout<Int32>.size).compactMap { pid in
-      guard getpgid(pid) == group, let identity = read(pid) else { return nil }
+      guard let identity = read(pid), getpgid(pid) == group,
+            read(pid) == identity else { return nil }
       return (pid, identity)
     }
   }

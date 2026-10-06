@@ -3,10 +3,6 @@ import ShepherdKit
 import SwiftUI
 import UIKit
 
-extension ComposeSteer {
-    var chipTitle: String { [emoji, label].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " ") }
-}
-
 /// Favourite steers directly above the reply draft, plus the entry to the full panel.
 /// The swipe-left gesture opens the same panel; this row is the discoverable path.
 struct IOSSteerChips: View {

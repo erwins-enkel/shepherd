@@ -5303,5 +5303,11 @@
   "settings_engine_effort_save_failed": "Couldn't change the default effort for {engine}. Try again.",
   "settings_default_cli_failover_engine": "{engine} starts with its own default: {model} · {effort}.",
   "feat_engine_defaults_title": "Default model and effort per engine",
-  "feat_engine_defaults_body": "Set a default model and reasoning effort for Claude Code and Codex separately in Settings → Coding CLI. New task, drain and autopilot starts, and the automatic switch at the weekly limit use the chosen engine's default."
+  "feat_engine_defaults_body": "Set a default model and reasoning effort for Claude Code and Codex separately in Settings → Coding CLI. New task, drain and autopilot starts, and the automatic switch at the weekly limit use the chosen engine's default.",
+  "native_mac_steers_create": "Create steer",
+  "native_mac_steers_empty": "No steers in the steer bar yet.",
+  "native_mac_steers_hint": "Type directly in the terminal · ⌘1–9 send steer · ⌘J all steers · ⌘K commands",
+  "native_mac_steers_no_matches": "No matching steers.",
+  "native_mac_steers_retry": "Send again",
+  "native_mac_steers_search": "Search steers … Enter sends the first match"
 }

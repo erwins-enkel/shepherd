@@ -273,6 +273,15 @@ export const KEYS_IOS_TERMINAL: readonly string[] = [
   "viewport_resume_title",
 ];
 
+export const KEYS_MAC_STEERS: readonly string[] = [
+  "native_mac_steers_create",
+  "native_mac_steers_empty",
+  "native_mac_steers_hint",
+  "native_mac_steers_no_matches",
+  "native_mac_steers_retry",
+  "native_mac_steers_search",
+];
+
 export const KEYS_TERMINAL: readonly string[] = [
   "native_terminal_connecting",
   "native_terminal_ended_body",
@@ -1720,6 +1729,7 @@ export const KEYS_SETTINGS: readonly string[] = [
 export const KEYS: readonly string[] = [
   ...KEYS_CORE,
   ...KEYS_TERMINAL,
+  ...KEYS_MAC_STEERS,
   ...KEYS_IOS_CHROME,
   ...KEYS_IOS_TERMINAL,
   ...KEYS_IOS_STEERS,

@@ -12,6 +12,7 @@ import SwiftUI
 /// is the authority on size, never the model.
 struct TerminalHostView: NSViewRepresentable {
     let model: TerminalSessionModel
+    var focusRequest = 0
     /// Read so a light/dark switch re-runs `updateNSView`: SwiftTerm resolves
     /// `NSColor.textColor` into fixed RGB when it is assigned, so a dynamic
     /// colour alone would freeze the terminal in whatever theme it was born in.
@@ -20,7 +21,7 @@ struct TerminalHostView: NSViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator(model: model) }
 
     func makeNSView(context: Context) -> SwiftTerm.TerminalView {
-        let view = SwiftTerm.TerminalView(frame: .init(x: 0, y: 0, width: 640, height: 400))
+        let view = FocusedTerminalView(frame: .init(x: 0, y: 0, width: 640, height: 400))
         view.terminalDelegate = context.coordinator
         view.font = Self.monospacedFont()
         // Claude Code turns mouse tracking on, which swallows drag-selection.
@@ -39,6 +40,7 @@ struct TerminalHostView: NSViewRepresentable {
 
     func updateNSView(_ view: SwiftTerm.TerminalView, context: Context) {
         context.coordinator.bind(view)
+        context.coordinator.requestKeyboardFocus(view, sequence: focusRequest)
         // Follow the app appearance: a light-mode window with a black terminal
         // reads as broken, not as a theme. Resolving inside the view's own
         // drawing appearance is what turns the dynamic system colours into the
@@ -77,6 +79,7 @@ struct TerminalHostView: NSViewRepresentable {
         /// on layout passes that did not change the grid, and every forwarded
         /// call is a control frame on the wire.
         private var lastSize: (cols: Int, rows: Int)?
+        private var lastFocusRequest: Int?
 
         init(model: TerminalSessionModel) {
             self.model = model
@@ -104,12 +107,28 @@ struct TerminalHostView: NSViewRepresentable {
             model.attach(cols: terminal.cols, rows: terminal.rows)
         }
 
+        /// SwiftUI can retain the emulator while its tab is hidden. Each appearance
+        /// restores focus and an attachment dropped by the pane's `onDisappear`.
+        func requestKeyboardFocus(_ view: SwiftTerm.TerminalView, sequence: Int) {
+            guard lastFocusRequest != sequence else { return }
+            lastFocusRequest = sequence
+            if model.phase == .idle {
+                let terminal = view.getTerminal()
+                model.attach(cols: terminal.cols, rows: terminal.rows)
+            }
+            Task { @MainActor [weak view] in
+                guard let view, let window = view.window else { return }
+                window.makeFirstResponder(view)
+            }
+        }
+
         /// Drops both sides of the binding. Called from `dismantleNSView`.
         func unbind() {
             model.onOutput = nil
             model.onClear = nil
             view = nil
             lastSize = nil
+            lastFocusRequest = nil
         }
 
         // MARK: TerminalViewDelegate
@@ -147,5 +166,17 @@ struct TerminalHostView: NSViewRepresentable {
         func bell(source: SwiftTerm.TerminalView) {}
         func iTermContent(source: SwiftTerm.TerminalView, content: ArraySlice<UInt8>) {}
         func hostCurrentDirectoryUpdate(source: SwiftTerm.TerminalView, directory: String?) {}
+    }
+}
+
+/// Request first responder only when mounted, so footer popovers can retain focus.
+final class FocusedTerminalView: SwiftTerm.TerminalView {
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else { return }
+        Task { @MainActor [weak self] in
+            guard let self, let window = self.window else { return }
+            window.makeFirstResponder(self)
+        }
     }
 }

@@ -175,7 +175,7 @@ remain outside the terminal stream; session action swipes are described in
 ## Steers and swipe gestures
 
 Saved steers come from `GET /api/steers` and are filtered exactly like web's SteerBar:
-`inSteerBar`, then `IOSSteerScope` mirrors `ui/src/lib/steer-scope.ts` (an empty allowlist
+`inSteerBar`, then `SteerScope` (shared in `ShepherdAppCore`) mirrors `ui/src/lib/steer-scope.ts` (an empty allowlist
 is universal; a non-empty one with an unresolved repo name hides). Repo names come from
 `/api/repos` by `repoPath`. A steer is sent through the same `POST /api/sessions/{id}/reply`
 route as a typed reply (`IOSTerminalPresentation.sendSteer`), never touches the draft and,

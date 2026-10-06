@@ -13828,6 +13828,108 @@
         }
       }
     },
+    "native_mac_steers_create": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer anlegen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Create steer"
+          }
+        }
+      }
+    },
+    "native_mac_steers_empty": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch keine Steers in der Steer-Leiste."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No steers in the steer bar yet."
+          }
+        }
+      }
+    },
+    "native_mac_steers_hint": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tippen geht direkt ins Terminal · ⌘1–9 Steer senden · ⌘J alle Steers · ⌘K Befehle"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Type directly in the terminal · ⌘1–9 send steer · ⌘J all steers · ⌘K commands"
+          }
+        }
+      }
+    },
+    "native_mac_steers_no_matches": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine passenden Steers."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No matching steers."
+          }
+        }
+      }
+    },
+    "native_mac_steers_retry": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneut senden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send again"
+          }
+        }
+      }
+    },
+    "native_mac_steers_search": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer suchen … Eingabe sendet den ersten Treffer"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search steers … Enter sends the first match"
+          }
+        }
+      }
+    },
     "native_menu_session": {
       "extractionState": "manual",
       "localizations": {

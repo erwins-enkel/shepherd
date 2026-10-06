@@ -11,46 +11,8 @@ final class IOSSteersTests: XCTestCase {
             repos: repos, agentProviders: providers)
     }
 
-    func testScopeMatchesTheWebRule() {
-        let steers = [
-            steer("universal"),
-            steer("issues-only", bar: false),
-            steer("shepherd-only", repos: ["shepherd"]),
-            steer("other-repo", repos: ["other"]),
-            steer("codex-only", providers: [.codex]),
-            steer("empty-lists", repos: [], providers: []),
-        ]
-        let ids = { (repo: String?, provider: String?) in
-            IOSSteerScope.barSteers(steers, repoName: repo, provider: provider).map(\.id)
-        }
-        XCTAssertEqual(ids("shepherd", "claude"), ["universal", "shepherd-only", "empty-lists"])
-        XCTAssertEqual(ids("shepherd", "codex"), ["universal", "shepherd-only", "codex-only", "empty-lists"])
-        // An unknown repo name hides repo-scoped steers instead of treating them as universal.
-        XCTAssertEqual(ids(nil, "claude"), ["universal", "empty-lists"])
-        // No provider known: provider lists do not filter, like web's steerApplies.
-        XCTAssertEqual(ids("other", nil), ["universal", "other-repo", "codex-only", "empty-lists"])
-    }
-
-    func testLibraryResolvesTheSessionRepoByPath() async {
-        let library = IOSSteerLibrary()
-        await library.load(steers: { [self.steer("a", repos: ["shepherd"]), self.steer("b", repos: ["x"])] },
-            repos: { ["/w/shepherd": "shepherd"] })
-        XCTAssertEqual(IOSSteerScope.barSteers(library.steers, repoName: library.repoNames["/w/shepherd"],
-            provider: nil).map(\.id), ["a"])
-        XCTAssertNil(library.loadError)
-    }
-
-    func testLibraryReportsALoadFailureButKeepsRepos() async {
-        struct Boom: Error {}
-        let library = IOSSteerLibrary()
-        await library.load(steers: { throw Boom() }, repos: { ["/p": "p"] })
-        XCTAssertNotNil(library.loadError)
-        XCTAssertEqual(library.repoNames, ["/p": "p"])
-        XCTAssertTrue(library.loaded)
-    }
-
     func testUpsertAppliesTheEditToAFreshListSoOtherEditsSurvive() async {
-        let library = IOSSteerLibrary(steers: [steer("a")])
+        let library = SteerLibrary(steers: [steer("a")])
         var edited = steer("a"); edited.label = "renamed"
         var saved: [ComposeSteer] = []
         // "b" was added elsewhere after this library loaded.
@@ -67,7 +29,7 @@ final class IOSSteersTests: XCTestCase {
     }
 
     func testRemoveDropsOnlyThatSteer() async {
-        let library = IOSSteerLibrary(steers: [steer("a"), steer("b")])
+        let library = SteerLibrary(steers: [steer("a"), steer("b")])
         let ok = await library.remove(id: "a", fetch: { [self.steer("a"), self.steer("b")] }, save: { $0 })
         XCTAssertTrue(ok)
         XCTAssertEqual(library.steers.map(\.id), ["b"])
@@ -75,7 +37,7 @@ final class IOSSteersTests: XCTestCase {
 
     func testAFailedSaveKeepsTheListAndReportsWhy() async {
         struct Boom: Error {}
-        let library = IOSSteerLibrary(steers: [steer("a")])
+        let library = SteerLibrary(steers: [steer("a")])
         let ok = await library.upsert(steer("b"), fetch: { [self.steer("a")] }, save: { _ in throw Boom() })
         XCTAssertFalse(ok)
         XCTAssertNotNil(library.saveError)

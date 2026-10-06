@@ -11,7 +11,7 @@ struct SessionDetailView: View {
     @Environment(AppModel.self) private var app
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var latency: IOSLatencyMonitor?
-    @State private var steers = IOSSteerLibrary()
+    @State private var steers = SteerLibrary()
     @State private var gesture = IOSSteerGestureState()
     @State private var steerDraft: IOSSteerDraft?
 

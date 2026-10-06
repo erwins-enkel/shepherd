@@ -263,8 +263,8 @@ final class LiveSmokeUITests: XCTestCase {
         XCTAssertTrue([XCUIElement.ElementType.group, .other].contains(terminal.elementType),
             "the emulator must be a non-editable container (group on current macOS, other on older SDKs)")
         XCTAssertTrue(
-            pane.descendants(matching: .any)["terminal-prompt"].waitForExistence(timeout: 30),
-            "the prompt bar should render under the emulator")
+            pane.descendants(matching: .any)["terminal-steers-all"].waitForExistence(timeout: 30),
+            "the steer footer should render under the emulator")
 
         // The attach size follows the viewport; the socket must survive the change.
         if let window = app.windows.allElementsBoundByIndex.first {

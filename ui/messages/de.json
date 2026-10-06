@@ -5303,5 +5303,11 @@
   "settings_engine_effort_save_failed": "Standard-Aufwand für {engine} konnte nicht geändert werden. Erneut versuchen.",
   "settings_default_cli_failover_engine": "{engine} startet dabei mit seinem Standard: {model} · {effort}.",
   "feat_engine_defaults_title": "Standardmodell und Aufwand pro Engine",
-  "feat_engine_defaults_body": "Lege unter Einstellungen → Coding CLI für Claude Code und Codex getrennt ein Standardmodell und einen Denkaufwand fest. Neue Aufgabe, Drain- und Autopilot-Starts und der automatische Wechsel beim Wochenlimit nutzen den Standard der jeweiligen Engine."
+  "feat_engine_defaults_body": "Lege unter Einstellungen → Coding CLI für Claude Code und Codex getrennt ein Standardmodell und einen Denkaufwand fest. Neue Aufgabe, Drain- und Autopilot-Starts und der automatische Wechsel beim Wochenlimit nutzen den Standard der jeweiligen Engine.",
+  "native_mac_steers_create": "Steer anlegen",
+  "native_mac_steers_empty": "Noch keine Steers in der Steer-Leiste.",
+  "native_mac_steers_hint": "Tippen geht direkt ins Terminal · ⌘1–9 Steer senden · ⌘J alle Steers · ⌘K Befehle",
+  "native_mac_steers_no_matches": "Keine passenden Steers.",
+  "native_mac_steers_retry": "Erneut senden",
+  "native_mac_steers_search": "Steer suchen … Eingabe sendet den ersten Treffer"
 }

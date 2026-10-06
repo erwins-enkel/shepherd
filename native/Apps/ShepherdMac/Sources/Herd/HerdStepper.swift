@@ -15,23 +15,23 @@ struct HerdStepperView: View {
     var body: some View {
         let model = HerdStepper(info: info)
         if let terminal = model.terminal {
-            let tint: Color = terminal == .merged ? .green : .orange
+            let tint: Color = terminal == .merged ? ShepherdPalette.green : ShepherdPalette.amber
             Text(verbatim: model.accessibilityLabel)
                 .textCase(.uppercase)
-                .font(.caption2.weight(.semibold))
+                .font(.system(size: 10, weight: .semibold, design: .monospaced))
                 .padding(.horizontal, 5)
                 .padding(.vertical, 1)
                 .foregroundStyle(tint)
-                .background(tint.opacity(0.14), in: Capsule())
+                .overlay { RoundedRectangle(cornerRadius: 3).stroke(tint, lineWidth: 1) }
                 .accessibilityLabel(Text(verbatim: model.accessibilityLabel))
         } else {
             HStack(spacing: 4) {
                 ForEach(model.segments) { segment in
-                    Capsule()
-                        .fill(segment.isHollow ? .clear : segment.color)
+                    Rectangle()
+                        .fill(segment.isHollow ? .clear : ShepherdPalette.badgeTint(segment.color))
                         .frame(height: segment.height)
                         .overlay {
-                            Capsule().stroke(segment.color, lineWidth: segment.outlineWidth)
+                            Rectangle().stroke(ShepherdPalette.badgeTint(segment.color), lineWidth: segment.outlineWidth)
                                 .padding(segment.isHollow ? 0 : -1)
                         }
                         .help(segment.accessibilityLabel)

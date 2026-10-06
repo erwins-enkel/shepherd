@@ -7,24 +7,29 @@ struct SessionRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            // Like iOS: a parked (done = WARTET) session is a hollow ring, the rest a filled dot.
             Circle()
-                .fill(SessionStatusStyle.tint(session.status))
+                .fill(session.status.known == .done ? .clear : ShepherdPalette.statusTint(session.status))
+                .overlay { if session.status.known == .done { Circle().stroke(ShepherdPalette.slate, lineWidth: 2) } }
                 .frame(width: 8, height: 8)
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(verbatim: session.desig)
-                        .font(.caption.monospaced().weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .modifier(ShepherdMonoFont(label: true))
+                        .foregroundStyle(ShepherdPalette.faint)
                     Text(verbatim: session.name).lineLimit(1)
+                        .modifier(ShepherdMonoFont(weight: .bold))
+                        .foregroundStyle(ShepherdPalette.inkBright)
                 }
                 HStack(spacing: 6) {
                     Text(verbatim: SessionStatusStyle.label(session.status))
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(SessionStatusStyle.tint(session.status))
+                        .modifier(ShepherdMonoFont(label: true, weight: .bold))
+                        .foregroundStyle(ShepherdPalette.statusTint(session.status))
                     if let provider = SessionStatusStyle.providerLabel(session.agentProvider) {
-                        Text(verbatim: provider).font(.caption2).foregroundStyle(.secondary)
+                        Text(verbatim: provider).modifier(ShepherdMonoFont(label: true))
+                           .foregroundStyle(ShepherdPalette.muted)
                     }
                 }
             }

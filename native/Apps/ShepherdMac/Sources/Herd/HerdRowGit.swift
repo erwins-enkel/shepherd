@@ -47,14 +47,14 @@ struct HerdRowGit: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 4) {
                     if let number = model.number {
-                        Text(verbatim: number).font(.caption2).foregroundStyle(.secondary)
+                        Text(verbatim: number).modifier(ShepherdMonoFont(label: true)).foregroundStyle(ShepherdPalette.muted)
                     }
                     if let pr = model.pr { SessionBadgeStack(badges: [pr]) }
                 }
                 ForEach(model.blockers) { blocker in
                     Text(verbatim: blocker.text)
-                        .font(.caption2)
-                        .foregroundStyle(blocker.tint)
+                        .modifier(ShepherdMonoFont(label: true))
+                        .foregroundStyle(ShepherdPalette.badgeTint(blocker.tint))
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -71,19 +71,21 @@ struct HerdHeartbeatView: View {
         let cells = HerdHeartbeat.cells(activity, now: now)
         let stateLabel = cells.contains { $0.error } ? L.t("heartbeat_legend_error_label")
             : (cells.contains { $0.level > 0 } ? L.t("heartbeat_legend_active_label") : L.t("heartbeat_legend_idle_label"))
-        HStack(alignment: .bottom, spacing: 2) {
+        HStack(spacing: 2) {
             ForEach(cells) { cell in
                 // Error gets a notch/outline as well as red: colour is never the only cue.
-                RoundedRectangle(cornerRadius: 1)
-                    .fill(cell.tint.opacity(cell.level == 0 ? 0.15 : (cell.newest ? 1 : 0.65)))
-                    .frame(width: 4, height: cell.error ? 4 : CGFloat(2 + cell.level * 2))
+                Rectangle()
+                    .fill(cell.error ? ShepherdPalette.red : cell.level == 0 ? ShepherdPalette.line
+                        : ShepherdPalette.amber.opacity(Double(cell.level) / 4))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 6)
                     .overlay {
-                        if cell.error { RoundedRectangle(cornerRadius: 1).stroke(cell.tint, lineWidth: 1) }
+                        if cell.error { Rectangle().stroke(ShepherdPalette.inkBright, lineWidth: 1) }
                     }
                     .accessibilityLabel(Text(verbatim: cell.label))
             }
         }
-        .frame(height: 10, alignment: .bottom)
+        .frame(height: 6)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(verbatim: L.t("heartbeat_pop_intro") + " · " + stateLabel))
         .help(L.t("heartbeat_pop_intro"))

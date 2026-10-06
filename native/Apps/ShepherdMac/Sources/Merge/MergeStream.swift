@@ -17,6 +17,7 @@ struct MergeLauncher: View {
         if let store = app.store, let model = app.extension(MergeModel.self) {
             @Bindable var model = model
             Button(L.t("native_merge_overview")) { model.showOverview = true }
+                .buttonStyle(ShepherdSidebarButtonStyle())
                 .sheet(isPresented: $model.showOverview) {
                     MergeOverviewView(app: app, store: store, model: model)
                         .id(app.activationGeneration).frame(minWidth: 620, minHeight: 440)

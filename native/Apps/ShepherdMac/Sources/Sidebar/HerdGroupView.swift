@@ -32,7 +32,7 @@ struct HerdGroupView: View {
                         // the display-status upgrade belongs only to SessionRow.
                         if let plan = app.extension(PlanModel.self) {
                             HStack {
-                                PlanGateBadgeView(session: session, model: plan, allowView: false) {
+                                PlanGateBadgeView(session: session, model: plan, allowView: false, isSidebar: true) {
                                     app.selectedSessionID = session.id
                                     plan.openPlan(session.id)
                                 }
@@ -41,6 +41,7 @@ struct HerdGroupView: View {
                                         app.selectedSessionID = session.id
                                         plan.openPlan(session.id)
                                     }
+                                    .buttonStyle(ShepherdSidebarButtonStyle(primary: true))
                                     .help(L.t("hold_cta_answer_title"))
                                     .accessibilityIdentifier("plan-answer-\(session.id)")
                                 }
@@ -48,6 +49,16 @@ struct HerdGroupView: View {
                         }
                         HerdRowSignals(session: session, block: block(session.id), showCli: showCli)
                     }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(app.selectedSessionID == session.id ? ShepherdPalette.sel : ShepherdPalette.panel,
+                        in: RoundedRectangle(cornerRadius: 6))
+                    .overlay { RoundedRectangle(cornerRadius: 6)
+                        .stroke(app.selectedSessionID == session.id ? ShepherdPalette.lineBright : ShepherdPalette.line,
+                            lineWidth: 1) }
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 3, leading: 8, bottom: 3, trailing: 8))
                     .tag(session.id)
                 }
             }
@@ -59,6 +70,9 @@ struct HerdGroupView: View {
                             .font(.caption2)
                             .rotationEffect(.degrees(isCollapsed ? -90 : 0))
                         Text(verbatim: title)
+                            .modifier(ShepherdMonoFont(label: true))
+                            .tracking(1)
+                            .foregroundStyle(ShepherdPalette.muted)
                         Spacer(minLength: 0)
                     }
                 }

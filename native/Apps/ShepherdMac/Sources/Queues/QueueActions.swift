@@ -45,6 +45,7 @@ struct QueueActionsView: View {
                 Button(L.t("broadcast_title")) { sheet = TargetSheet(retry: false, sessions: sessions) }
                     .accessibilityIdentifier("queues-broadcast")
             }
+            .buttonStyle(ShepherdSidebarButtonStyle())
             QueueActionNotices(state: halt, retry: { Task { await runHalt(.halt) } }, showsNotices: false)
             if let result = model.haltDoneNotice {
                 NoticeBar(message: L.t("halt_done", String(result.halted)), tone: .success,
@@ -56,6 +57,7 @@ struct QueueActionsView: View {
                     Text(verbatim: message)
                     Button(L.t("toast_revive_all")) { Task { await runRevive(.revive) } }
                         .disabled(revive.gate.busy)
+                        .buttonStyle(ShepherdSidebarButtonStyle(primary: true))
                         .accessibilityIdentifier("queues-revive-all")
                 }
                 .accessibilityIdentifier("queues-stranded-banner")

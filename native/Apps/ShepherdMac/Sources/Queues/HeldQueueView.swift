@@ -19,6 +19,7 @@ struct HeldQueueView: View {
                 Button(HeldQueuePresentation.badgeLabel(model.heldCount), systemImage: "hourglass") {
                     isPresented.toggle()
                 }
+                .buttonStyle(ShepherdSidebarButtonStyle())
                 .accessibilityIdentifier("queues-held-badge")
                 .popover(isPresented: $isPresented, arrowEdge: .bottom) { panel }
             }

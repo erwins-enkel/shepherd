@@ -8,20 +8,20 @@ struct HerdTalliesView: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            tally("native_herd_counter_active", tallies.active, .green)
-            tally("native_herd_counter_idle", tallies.idle, .secondary)
-            tally("native_herd_counter_blocked", tallies.blocked, .orange)
-            tally("native_herd_counter_total", tallies.total, .primary)
+            tally("native_herd_counter_active", tallies.active, ShepherdPalette.green)
+            tally("native_herd_counter_idle", tallies.idle, ShepherdPalette.ink)
+            tally("native_herd_counter_blocked", tallies.blocked, ShepherdPalette.amber)
+            tally("native_herd_counter_total", tallies.total, ShepherdPalette.inkBright)
         }
-        .font(.caption2)
+        .modifier(ShepherdMonoFont(label: true))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("herd-tallies")
     }
 
     private func tally(_ key: StaticString, _ count: Int, _ tint: Color) -> some View {
         HStack(spacing: 3) {
-            Text(verbatim: "\(count)").font(.caption2.weight(.semibold)).foregroundStyle(tint)
-            Text(verbatim: L.t(key)).foregroundStyle(.secondary)
+            Text(verbatim: "\(count)").modifier(ShepherdMonoFont(label: true, weight: .semibold)).foregroundStyle(tint)
+            Text(verbatim: L.t(key)).foregroundStyle(ShepherdPalette.muted)
         }
         .accessibilityElement(children: .combine)
     }

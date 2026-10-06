@@ -86,6 +86,7 @@ struct MainWindow: View {
                     .accessibilityIdentifier("session-sidebar")
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(ShepherdPalette.panel)
         .navigationTitle(L.t("native_sidebar_title"))
     }

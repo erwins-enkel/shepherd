@@ -83,7 +83,11 @@ struct SidebarFooter: View {
         let content: @MainActor (AppModel) -> AnyView
         init(content: @escaping @MainActor (AppModel) -> AnyView) { self.content = content }
         func render(_ app: AppModel) -> AnyView {
-            AnyView(VStack(spacing: 0) { content(app); SidebarFooter(app: app) })
+            AnyView(VStack(spacing: 0) {
+                // Fill the column so the footer stays pinned even when the list is empty.
+                content(app).frame(maxHeight: .infinity, alignment: .top)
+                SidebarFooter(app: app)
+            })
         }
     }
     @MainActor private final class ActionComposition {

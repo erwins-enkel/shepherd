@@ -21,7 +21,7 @@ struct SettingsLocalConnectTests {
         local.acknowledgeExternalServer()
         #expect(local.externalAcknowledged)
         var presented = false
-        SettingsConnectionRouting.connectLocal(local, app: app) {
+        await SettingsConnectionRouting.connectLocal(local, app: app) {
             guard case .login(let profile) = app.sheet else {
                 Issue.record("Main scene presented before local login was routed")
                 return

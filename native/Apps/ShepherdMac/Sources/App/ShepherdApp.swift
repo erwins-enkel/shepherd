@@ -105,6 +105,11 @@ struct RootView: View {
         @Bindable var model = model
 
         return VStack(spacing: 0) {
+            if let warning = model.credentialAccessWarning {
+                NoticeBar(message: warning, actionTitle: L.t("common_retry"), onAction: {
+                    Task { await model.retryCredentialAccess() }
+                }) { model.credentialAccessWarning = nil }
+            }
             if let warning = model.signOutWarning {
                 NoticeBar(message: warning) { model.signOutWarning = nil }
             }

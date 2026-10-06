@@ -159,7 +159,7 @@ struct AppExtensionTests {
         #expect(FakeExtension.ledger.created == 1)
 
         let held = ProbeHold()
-        model.credentialProbe = { _, _ in await held.wait() }
+        model.credentialProbe = { _, _ in await held.wait(); return StoredCredential(token: "test", tokenId: "test") }
         let activation = Task { await model.activate(second) }
         // `activate(_:)` drops the old store before its only suspension point, so
         // this is the mid-probe state — and the first extension is already gone,
@@ -180,24 +180,24 @@ struct AppExtensionTests {
         #expect(FakeExtension.ledger.tornDown == 1)
     }
 
-    /// The other exit from the pre-flight: the Keychain never answers, the
-    /// activation asks for a fresh sign-in instead of connecting, and there is no
-    /// store — so there must be no extension either.
+    /// While Keychain access is pending there is no store or extension yet.
     @Test func aKeychainThatNeverAnswersBuildsNoExtension() async throws {
         let model = makeModel()
         model.register(FakeExtension.self)
         let profile = try remote(model, "seven")
         let held = ProbeHold()
-        model.credentialProbe = { _, _ in await held.wait() }
+        model.credentialProbe = { _, _ in await held.wait(); return StoredCredential(token: "test", tokenId: "test") }
         model.credentialTimeout = .milliseconds(20)
 
         await model.activate(profile)
 
         #expect(model.store == nil)
-        #expect(model.sheet == .login(profile))
+        #expect(model.sheet == nil)
+        #expect(model.credentialAccessWarning != nil)
         #expect(model.extension(FakeExtension.self) == nil)
         #expect(FakeExtension.ledger.created == 0)
         #expect(FakeExtension.ledger.tornDown == 0)
+        model.teardown()
         await held.open()
     }
 

@@ -25,7 +25,14 @@ struct IOSServerConnectionStatus: View {
     static func isFirstRun(_ state: ConnectionState) -> Bool { state == .firstRunPending }
     static func isConnecting(_ state: ConnectionState) -> Bool { state == .connecting || state == .idle }
     var body: some View {
-        if let store = app.store {
+        if let warning = app.credentialAccessWarning {
+            VStack(alignment: .leading) {
+                if let serverName { Text(verbatim: serverName).bold() }
+                Label(warning, systemImage: "lock")
+                Button(L.t("common_retry")) { Task { await app.retryCredentialAccess() } }
+            }.padding().frame(maxWidth: .infinity, alignment: .leading)
+                .background(.orange.opacity(0.12)).accessibilityIdentifier("connection-keychain")
+        } else if let store = app.store {
             if Self.isConnecting(store.connection) {
                 if showSpinner { ProgressView(serverName.map { "\($0): \(L.t("native_ios_connecting"))" } ?? L.t("native_ios_connecting")).padding().accessibilityIdentifier("connection-loading") }
                 else if let serverName {

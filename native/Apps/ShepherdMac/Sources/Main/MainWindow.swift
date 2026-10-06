@@ -12,6 +12,8 @@ import ShepherdKit
 struct NoticeBar: View {
     let message: String
     var tone: NoticeTone = .warning
+    var actionTitle: String? = nil
+    var onAction: (() -> Void)? = nil
     let onDismiss: () -> Void
 
     var body: some View {
@@ -23,6 +25,9 @@ struct NoticeBar: View {
                 .font(.callout)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
+            if let actionTitle, let onAction {
+                Button(actionTitle, action: onAction)
+            }
             Button(L.t("common_close"), systemImage: "xmark", action: onDismiss)
                 .labelStyle(.iconOnly)
                 .buttonStyle(.borderless)

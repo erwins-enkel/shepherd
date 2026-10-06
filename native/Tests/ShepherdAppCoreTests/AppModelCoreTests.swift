@@ -41,8 +41,10 @@ final class Gate {
 actor ProbeHold {
     private var continuation: CheckedContinuation<Void, Never>?
     private var opened = false
+    private(set) var waitCount = 0
 
     func wait() async {
+        waitCount += 1
         if opened { return }
         await withCheckedContinuation { continuation = $0 }
     }
@@ -1241,7 +1243,7 @@ struct AppModelTests {
         #expect(previousStore != nil)
 
         let held = ProbeHold()
-        model.credentialProbe = { _, _ in await held.wait() }
+        model.credentialProbe = { _, _ in await held.wait(); return StoredCredential(token: "test", tokenId: "test") }
         let activation = Task { await model.activate(b) }
         // `activeProfile` flips to `b` synchronously, before the pre-flight's
         // only suspension point, so observing it here is observing the
@@ -1260,24 +1262,147 @@ struct AppModelTests {
         model.teardown()
     }
 
-    /// The regression this file exists for: a Keychain read that never returns
-    /// used to leave the operator on a main window with an empty sidebar, no
-    /// banner and no sheet, for as long as they waited. `activate(_:)` now
-    /// bounds that read and asks for a fresh sign-in instead — which is also
-    /// what repairs the stored item.
-    @Test func aKeychainThatNeverAnswersAsksForAFreshSignInInsteadOfHanging() async throws {
+    /// A pending SecurityAgent decision must not become a second password prompt.
+    @Test func aKeychainThatNeverAnswersKeepsTheProfileWithoutAskingForSignIn() async throws {
         let model = makeModel()
         let profile = try remote(model, "studio")
         let held = ProbeHold()
-        model.credentialProbe = { _, _ in await held.wait() }
+        model.credentialProbe = { _, _ in await held.wait(); return StoredCredential(token: "test", tokenId: "test") }
         model.credentialTimeout = .milliseconds(20)
 
         await model.activate(profile)
 
         #expect(model.store == nil)
-        #expect(model.activeProfile == nil)
-        #expect(model.sheet == .login(profile))
+        #expect(model.activeProfile == profile)
+        #expect(model.sheet == nil)
+        #expect(model.credentialAccessWarning != nil)
         await held.open()
+        model.teardown()
+    }
+
+    @Test func aLateKeychainAnswerResumesWithoutAnotherRead() async throws {
+        let model = makeModel()
+        let profile = try remote(model, "studio")
+        let held = ProbeHold()
+        model.credentialProbe = { _, _ in await held.wait(); return StoredCredential(token: "test", tokenId: "test") }
+        model.credentialTimeout = .milliseconds(20)
+        await model.activate(profile)
+        await model.retryCredentialAccess()
+        #expect(await held.waitCount == 1)
+        #expect(model.sheet == nil)
+        await held.open()
+        #expect(await settle(until: { model.store != nil }))
+        #expect(model.activeProfile == profile)
+        #expect(model.credentialAccessWarning == nil)
+        #expect(await held.waitCount == 1)
+        model.teardown()
+    }
+
+    @Test func aLateKeychainAnswerCannotReplaceANewerActivation() async throws {
+        let model = makeModel()
+        let a = try remote(model, "alpha")
+        let b = try remote(model, "bravo")
+        let held = ProbeHold()
+        model.credentialProbe = { _, key in
+            if key == a.credentialKey { await held.wait() }
+            return StoredCredential(token: "test", tokenId: "test")
+        }
+        model.credentialTimeout = .milliseconds(20)
+        await model.activate(a)
+        await model.activate(b)
+        let current = model.store
+        await held.open()
+        _ = await settle(until: { false }, yields: 100)
+        #expect(model.activeProfile == b)
+        #expect(model.store === current)
+        #expect(model.credentialAccessWarning == nil)
+        model.teardown()
+    }
+
+    @Test func aLateKeychainAnswerCannotReactivateAfterTeardown() async throws {
+        let model = makeModel()
+        let profile = try remote(model, "studio")
+        let held = ProbeHold()
+        model.credentialProbe = { _, _ in await held.wait(); return StoredCredential(token: "test", tokenId: "test") }
+        model.credentialTimeout = .milliseconds(20)
+        await model.activate(profile)
+        model.teardown()
+        await held.open()
+        _ = await settle(until: { false }, yields: 100)
+        #expect(model.activeProfile == nil)
+        #expect(model.store == nil)
+        #expect(model.sheet == nil)
+        #expect(model.credentialAccessWarning == nil)
+    }
+
+    @Test func aLateKeychainAnswerCannotReactivateARemovedProfile() async throws {
+        let model = makeModel()
+        let profile = try remote(model, "studio")
+        let held = ProbeHold()
+        model.credentialProbe = { _, _ in
+            await held.wait()
+            return StoredCredential(token: "test", tokenId: "test")
+        }
+        model.credentialTimeout = .milliseconds(20)
+        model.logout = { _, _ in }
+        await model.activate(profile)
+        await model.remove(profile)
+        await held.open()
+        _ = await settle(until: { false }, yields: 100)
+        #expect(model.profiles.isEmpty)
+        #expect(model.activeProfile == nil)
+        #expect(model.store == nil)
+        #expect(model.sheet == nil)
+    }
+
+    @Test func choosingAnotherLoginSupersedesAPendingKeychainRead() async throws {
+        let model = makeModel()
+        let profile = try remote(model, "studio")
+        let held = ProbeHold()
+        model.credentialProbe = { _, _ in
+            await held.wait()
+            return StoredCredential(token: "test", tokenId: "test")
+        }
+        model.credentialTimeout = .milliseconds(20)
+        await model.activate(profile)
+        let chosen = try model.beginRemoteLogin(name: "Loft", address: "https://loft.example.ts.net")
+        await held.open()
+        #expect(!(await settle(until: { model.store != nil }, yields: 1000)))
+        #expect(model.sheet == .login(chosen))
+        model.teardown()
+    }
+
+    @Test func localConnectWithNoTokenRoutesExactlyOneLogin() async {
+        let model = makeModel()
+        await model.connectLocal(port: 7349)
+        let profile = model.addLocalProfile(port: 7349)
+        #expect(model.sheet == .login(profile))
+        #expect(model.store == nil)
+        #expect(model.profiles.count == 1)
+        await model.connectLocal(port: 7349)
+        #expect(model.sheet == .login(profile))
+        #expect(model.profiles.count == 1)
+        model.teardown()
+    }
+
+    @Test func aRefusedKeychainReadDoesNotRequestSignInAndCanRetry() async throws {
+        let credentials = InMemoryCredentialStore()
+        let model = makeModel(credentials: credentials)
+        let profile = try remote(model, "studio")
+        let credential = StoredCredential(token: "test-token", tokenId: "test-id")
+        try credentials.save(credential, for: profile.credentialKey)
+        model.credentialProbe = { _, _ in throw KeychainError.unexpectedStatus(-25308) }
+        await model.activate(profile)
+        #expect(model.activeProfile == profile)
+        #expect(model.store == nil)
+        #expect(model.sheet == nil)
+        #expect(model.credentialAccessWarning != nil)
+        #expect(try credentials.load(for: profile.credentialKey) == credential)
+        model.credentialProbe = { _, _ in StoredCredential(token: "test", tokenId: "test") }
+        await model.retryCredentialAccess()
+        #expect(model.store != nil)
+        #expect(model.credentialAccessWarning == nil)
+        model.teardown()
     }
 
     /// The same pre-flight must be invisible when the Keychain behaves: a store

@@ -33,6 +33,16 @@ done
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 APP="$(cd "$SCRIPT_DIR/../Apps/ShepherdMac" && pwd)/.build/Build/Products/Debug/Shepherd.app"
 
+# A rebuild must preserve the Keychain's trusted application identity.
+# shellcheck source=native/scripts/codesign-mode.sh
+. "$SCRIPT_DIR/codesign-mode.sh"
+shepherd_codesign_args
+if [[ "$SHEPHERD_CODESIGN_MODE" == adhoc || "${SHEPHERD_CODESIGN_IDENTITY:-}" == - ]]; then
+  echo 'error: mac-dev.sh requires a stable signing identity.' >&2
+  echo 'Run native/scripts/dev-signing-identity.sh once, then retry.' >&2
+  exit 1
+fi
+
 running() { pgrep -f "Shepherd.app/Contents/MacOS/Shepherd" >/dev/null 2>&1; }
 # lsof exits 1 when nothing listens; under pipefail that would end the script.
 listener() { { lsof -nP -iTCP:"$PORT" -sTCP:LISTEN 2>/dev/null || true; } | awk 'NR > 1 { print $1 " (pid " $2 ")"; exit }'; }
@@ -46,6 +56,21 @@ if ! "$SCRIPT_DIR/build-app.sh" Debug >"$LOG" 2>&1; then
   exit 1
 fi
 rm -f "$LOG"
+# Package resource bundles may change without Xcode re-sealing the outer app.
+# Sign the outer bundle last with the same identity and existing runtime/entitlements.
+SIGNING_ARGS=(--force --sign "${CODESIGN_ARGS[0]#CODE_SIGN_IDENTITY=}"   --preserve-metadata=identifier,entitlements,flags,runtime)
+if [[ "$SHEPHERD_CODESIGN_MODE" == dedicated ]]; then
+  SIGNING_ARGS+=(--keychain "$SHEPHERD_SIGNING_KEYCHAIN")
+fi
+codesign "${SIGNING_ARGS[@]}" "$APP"
+# Verify before quitting: an unusable build must not cost a running app.
+codesign --verify --deep --strict "$APP"
+REQUIREMENT="$(codesign -d -r- "$APP" 2>&1)"
+echo "$REQUIREMENT"
+if echo "$REQUIREMENT" | grep -q 'designated =>.*cdhash'; then
+  echo 'error: the built app has an unstable ad-hoc signing requirement.' >&2
+  exit 1
+fi
 echo "    $APP"
 [[ "$LAUNCH" == 1 ]] || exit 0
 
@@ -74,4 +99,4 @@ if [[ -n "$holder" ]]; then
 fi
 
 echo "==> Launching the dev build…"
-open "$APP"
+open -n "$APP"

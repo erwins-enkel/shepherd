@@ -326,7 +326,7 @@ struct LocalServerPanel: View {
                 .disabled(!panel.canOpenWeb)
                 .accessibilityIdentifier("local-open-web")
             Button(L.t("native_local_connect")) {
-                if let onConnect { onConnect() } else { model.connect(app) }
+                if let onConnect { onConnect() } else { Task { await model.connect(app) } }
             }
                 .buttonStyle(.borderedProminent)
                 .disabled(!panel.canConnect)

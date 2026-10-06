@@ -12744,6 +12744,40 @@
         }
       }
     },
+    "native_keychain_unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das gespeicherte Token ist im Schlüsselbund nicht zugänglich. Entsperre ihn oder erlaube den Zugriff und versuche es erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cannot read the saved token from Keychain. Unlock it or allow access, then retry."
+          }
+        }
+      }
+    },
+    "native_keychain_waiting": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Warte auf Schlüsselbund-Zugriff. Erlaube den Zugriff, um dich mit dem gespeicherten Token zu verbinden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Waiting for Keychain access. Allow access to reconnect with your saved token."
+          }
+        }
+      }
+    },
     "native_local_banner_not_installed": {
       "extractionState": "manual",
       "localizations": {
@@ -12973,13 +13007,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Anmelden"
+            "value": "Verbinden"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign in"
+            "value": "Connect"
           }
         }
       }

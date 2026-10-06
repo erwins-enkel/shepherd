@@ -266,6 +266,27 @@ final class IOSServerHubTests: XCTestCase {
         XCTAssertEqual(Array(receivedTokens.suffix(2)), ["0304", "0304"])
     }
 
+    func testCredentialAccessFailureRetriesWithoutRequestingAnotherLogin() async throws {
+        let launch = try IOSLaunchEnvironment(configuration: .init(isIsolated: true))
+        let catalogue = launch.makeModel(activeProfileKey: "catalogue")
+        let profile = try catalogue.addRemoteProfile(name: "Saved", address: "https://compose.fixture.invalid")
+        let hub = IOSServerHub(defaults: launch.defaults, catalogue: catalogue) { id in
+            let app = launch.makeModel(activeProfileKey: "active.\(id)", persistsProfileCatalogue: false)
+            app.credentialProbe = { _, _ in throw KeychainError.unexpectedStatus(-25308) }
+            return app
+        }
+        defer { stop(hub) }
+        await hub.connect(profile)
+        let app = try XCTUnwrap(hub.models[profile.id])
+        XCTAssertNotNil(app.credentialAccessWarning)
+        XCTAssertNil(app.sheet)
+        app.credentialProbe = { _, _ in StoredCredential(token: "test", tokenId: "test") }
+        await hub.connect(profile)
+        XCTAssertNil(app.sheet)
+        XCTAssertNotNil(app.store)
+        XCTAssertNil(app.credentialAccessWarning)
+    }
+
     func testLateConnectCompletionCannotReconnectParkedServer() async throws {
         let launch = try IOSLaunchEnvironment(configuration: .init(isIsolated: true))
         let catalogue = launch.makeModel(activeProfileKey: "catalogue")
@@ -273,7 +294,7 @@ final class IOSServerHubTests: XCTestCase {
         let latch = HubProbeLatch()
         let hub = IOSServerHub(defaults: launch.defaults, catalogue: catalogue) { id in
             let app = launch.makeModel(activeProfileKey: "active.\(id)", persistsProfileCatalogue: false)
-            app.credentialProbe = { _, _ in await latch.wait() }
+            app.credentialProbe = { _, _ in await latch.wait(); return StoredCredential(token: "test", tokenId: "test") }
             return app
         }
         let connection = Task { await hub.connect(profile) }
@@ -282,6 +303,8 @@ final class IOSServerHubTests: XCTestCase {
         let waiting = await latch.waiting
         XCTAssertTrue(waiting)
         let outgoing = try XCTUnwrap(hub.models[profile.id])
+        await hub.connect(profile)
+        XCTAssertNil(outgoing.sheet)
         hub.disconnect(profile.id)
         await latch.release()
         await connection.value
@@ -374,7 +397,7 @@ final class IOSServerHubTests: XCTestCase {
         let peer = try XCTUnwrap(hub.models[b.id])
         peer.sheet = nil
         let latch = HubProbeLatch()
-        peer.credentialProbe = { _, _ in await latch.wait() }
+        peer.credentialProbe = { _, _ in await latch.wait(); return StoredCredential(token: "test", tokenId: "test") }
         let activation = Task { await peer.activate(b) }
         while !(await latch.waiting), ContinuousClock.now < deadline { await Task.yield() }
         let registration = IOSPushRegistration()

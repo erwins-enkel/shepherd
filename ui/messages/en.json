@@ -4352,7 +4352,7 @@
   "native_herd_counter_idle": "Idle",
   "native_herd_counter_blocked": "Blocked",
   "native_herd_counter_total": "Total",
-  "native_local_connect": "Sign in",
+  "native_local_connect": "Connect",
   "native_local_error_bun_missing": "Bun was not found. Choose Install and start to provision it, then check the log if installation fails.",
   "native_local_bun_outdated_summary": "Shepherd needs Bun {required} or newer. This Mac has Bun {installed}.",
   "native_local_bun_outdated_title": "Bun needs an update",
@@ -5311,5 +5311,7 @@
   "settings_engine_effort_save_failed": "Couldn't change the default effort for {engine}. Try again.",
   "settings_default_cli_failover_engine": "{engine} starts with its own default: {model} · {effort}.",
   "feat_engine_defaults_title": "Default model and effort per engine",
-  "feat_engine_defaults_body": "Set a default model and reasoning effort for Claude Code and Codex separately in Settings → Coding CLI. New task, drain and autopilot starts, and the automatic switch at the weekly limit use the chosen engine's default."
+  "feat_engine_defaults_body": "Set a default model and reasoning effort for Claude Code and Codex separately in Settings → Coding CLI. New task, drain and autopilot starts, and the automatic switch at the weekly limit use the chosen engine's default.",
+  "native_keychain_waiting": "Waiting for Keychain access. Allow access to reconnect with your saved token.",
+  "native_keychain_unavailable": "Cannot read the saved token from Keychain. Unlock it or allow access, then retry."
 }

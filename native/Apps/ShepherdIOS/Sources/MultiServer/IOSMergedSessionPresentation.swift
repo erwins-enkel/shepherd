@@ -36,7 +36,16 @@ enum IOSMergedSessionPresentation {
         let heading: String?
         var id: HerdStage { stage }
     }
+    struct EpicGroup: Identifiable {
+        let id: String
+        let profile: ServerProfile
+        let repoPath: String
+        let parentNumber: Int
+        var rows: [Row]
+        var repoName: String { (repoPath as NSString).lastPathComponent }
+    }
     struct Snapshot {
+        let epicGroups: [EpicGroup]
         let groups: [Group]
         let finished: [Row]
         let owed: [OwedRow]
@@ -64,6 +73,7 @@ enum IOSMergedSessionPresentation {
             default: break
             }
         }
+        var epics: [String: EpicGroup] = [:]
         let groups = HerdStage.allCases.compactMap { stage -> Group? in
             var rows = sources.flatMap { source in
                 source.groups.filter { $0.stage == stage }.flatMap(\.sessions)
@@ -78,6 +88,18 @@ enum IOSMergedSessionPresentation {
                         : $0.element.session.createdAt < $1.element.session.createdAt
                 }.map(\.element)
             }
+            rows = rows.filter { row in
+                guard let parent = row.session.epicParent,
+                    row.session.issueNumber != parent else { return true }
+                let key = "\(row.profile.id):\(row.session.repoPath)#\(parent)"
+                if epics[key] == nil {
+                    epics[key] = EpicGroup(id: key, profile: row.profile,
+                        repoPath: row.session.repoPath, parentNumber: parent, rows: [])
+                }
+                epics[key]?.rows.append(row)
+                return false
+            }
+            guard !rows.isEmpty else { return nil }
             let names = rows.map { row in
                 sources.first { $0.profile.id == row.profile.id }?.git[row.session.id]?.handoffWho
             }.map { $0?.isEmpty == false ? $0 : nil }
@@ -106,7 +128,13 @@ enum IOSMergedSessionPresentation {
             let left = $0.element.record.createdAt, right = $1.element.record.createdAt
             return left == right ? $0.offset < $1.offset : left > right
         }.map(\.element)
-        return Snapshot(groups: groups, finished: finished, owed: owed,
+        let epicGroups = epics.values.sorted {
+            let byRepo = $0.repoName.localizedStandardCompare($1.repoName)
+            if byRepo != .orderedSame { return byRepo == .orderedAscending }
+            if $0.parentNumber != $1.parentNumber { return $0.parentNumber < $1.parentNumber }
+            return $0.id < $1.id
+        }
+        return Snapshot(epicGroups: epicGroups, groups: groups, finished: finished, owed: owed,
             chips: counts.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
                 .map { Chip(path: $0, count: counts[$0]!) }, repos: repos, tallies: tallies)
     }

@@ -259,6 +259,9 @@
 "effort_label_medium" = "Medium";
 "effort_label_ultra" = "Ultra";
 "effort_label_xhigh" = "X-High";
+"epic_badge" = "EPIC %1$@/%2$@";
+"epic_group_collapse_aria" = "Collapse epic #%1$@";
+"epic_group_expand_aria" = "Expand epic #%1$@";
 "experiment_continue_handoff_label" = "Handoff";
 "experiment_continue_mode_resume" = "Continue original task";
 "experiment_continue_mode_summarize" = "Summarize first";

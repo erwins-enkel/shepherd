@@ -259,6 +259,9 @@
 "effort_label_medium" = "Mittel";
 "effort_label_ultra" = "Ultra";
 "effort_label_xhigh" = "Sehr hoch";
+"epic_badge" = "EPIC %1$@/%2$@";
+"epic_group_collapse_aria" = "Epic #%1$@ einklappen";
+"epic_group_expand_aria" = "Epic #%1$@ aufklappen";
 "experiment_continue_handoff_label" = "Übergabe";
 "experiment_continue_mode_resume" = "Ursprünglichen Auftrag fortsetzen";
 "experiment_continue_mode_summarize" = "Erst zusammenfassen";

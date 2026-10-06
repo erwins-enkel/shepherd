@@ -8,6 +8,7 @@
 import { describe, it, expect, spyOn, beforeEach, afterEach } from "bun:test";
 import {
   BucketRateLimit,
+  ghCallSummary,
   isGraphqlBucketCall,
   isRestBucketCall,
   isRestReadCall,
@@ -215,6 +216,20 @@ describe("BucketRateLimit — logging", () => {
     expect(msg).toContain("engaged");
   });
 
+  it("appends the cause to the 'engaged' line, and logs the plain line without one (#2805)", () => {
+    let t = 0;
+    const rl = new BucketRateLimit({ now: () => t, label: "REST write" });
+    rl.noteLimitError(undefined, "gh run rerun: gh: API rate limit exceeded (HTTP 403)");
+    expect(String(warnSpy.mock.calls[0]?.[0])).toBe(
+      "[rate-limit] REST write backoff engaged until 1970-01-01T00:01:00.000Z — gh run rerun: gh: API rate limit exceeded (HTTP 403)",
+    );
+    t = 70_000; // natural expiry
+    rl.noteLimitError(30, undefined);
+    expect(String(warnSpy.mock.calls[1]?.[0])).toBe(
+      "[rate-limit] REST write backoff engaged until 1970-01-01T00:01:40.000Z",
+    );
+  });
+
   it("does NOT log 'cleared' when healthy note() arrives after natural expiry", () => {
     let t = 0;
     const rl = new BucketRateLimit({ now: () => t, defaultCooldownMs: 60_000 });
@@ -353,6 +368,43 @@ describe("isRestReadCall()", () => {
     expect(isRestReadCall(["run", "rerun", "1"])).toBe(false);
     expect(isRestReadCall(["api", "graphql", "-f", "query=..."])).toBe(false);
     expect(isRestReadCall(["issue", "list"])).toBe(false);
+  });
+});
+
+describe("ghCallSummary() (#2805)", () => {
+  it("names a gh api call by the method gh will send and its endpoint", () => {
+    expect(ghCallSummary(["api", "repos/o/r/git/ref/heads/main"])).toBe(
+      "gh api GET repos/o/r/git/ref/heads/main",
+    );
+    expect(ghCallSummary(["api", "--method", "GET", "repos/o/r/issues", "-f", "page=1"])).toBe(
+      "gh api GET repos/o/r/issues",
+    );
+    expect(ghCallSummary(["api", "repos/o/r/stacks", "-F", "pull_requests[]=9"])).toBe(
+      "gh api POST repos/o/r/stacks",
+    );
+    expect(ghCallSummary(["api", "-X", "patch", "repos/o/r/issues/1", "-f", "title=x"])).toBe(
+      "gh api PATCH repos/o/r/issues/1",
+    );
+  });
+
+  it("names any other call by subcommand and action", () => {
+    expect(ghCallSummary(["run", "rerun", "42", "--repo", "o/r", "--failed"])).toBe("gh run rerun");
+    expect(ghCallSummary(["workflow", "run", "deploy.yml", "--ref", "main"])).toBe(
+      "gh workflow run",
+    );
+    expect(ghCallSummary(["pr", "--repo", "o/r"])).toBe("gh pr");
+  });
+
+  it("never includes a flag value", () => {
+    const out = ghCallSummary([
+      "api",
+      "-H",
+      "X-Secret: s3cret",
+      "repos/o/r/issues",
+      "-f",
+      "body=hi",
+    ]);
+    expect(out).toBe("gh api POST repos/o/r/issues");
   });
 });
 

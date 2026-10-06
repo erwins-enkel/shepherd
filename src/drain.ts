@@ -336,6 +336,11 @@ export interface DrainDeps {
   /** #1838: push a notification (→ push.notify). Optional — absent in tests that don't assert it.
    *  Used by enterLandingConflict to surface a genuine-conflict landing pause to the operator. */
   notify?: (input: NotifyInput) => Promise<boolean> | void;
+  /** #2805: true while GitHub's REST write backoff is engaged (→ restWriteRateLimit.blocked()).
+   *  The periodic passes that exist to make REST writes — the landing CI re-run and the epic stack
+   *  composition — skip their GitHub work instead of spawning `gh` into another 403. Absent → never
+   *  blocked. */
+  restWritesBlocked?: () => boolean;
 }
 
 /** A forge that implements the whole stacked-PR surface (#2068). `unstack` is part of it because
@@ -948,6 +953,9 @@ export class DrainService {
       if (er?.status !== "running") return;
       const parent = er.parentIssueNumber;
       const forge = this.deps.resolveForge(repoPath);
+      // #2805: stack writes would 403 during a REST write backoff. Return BEFORE the TTL stamp so the
+      // first tick after the window composes; the wedge sweep waits the window out too.
+      if (forge?.kind === "github" && this.deps.restWritesBlocked?.()) return;
       const stackForge =
         this.deps.store.getRepoConfig(repoPath).epicStacksEnabled && forgeHasStacks(forge)
           ? forge
@@ -2551,6 +2559,9 @@ export class DrainService {
     if (!engaged) return;
     const forge = this.deps.resolveForge(repoPath);
     if (!forge || forge.kind !== "github") return;
+    // #2805: a REST write backoff → don't spend reads on a rerun that would 403. The budget-spent
+    // repair dispatch below waits out the window too.
+    if (this.deps.restWritesBlocked?.()) return;
     // Capability gate (both are optional on GitForge — GitHub-only). Capture locals so TS keeps the
     // non-undefined narrowing across the awaits below.
     const latestFailedRunForPr = forge.latestFailedRunForPr;

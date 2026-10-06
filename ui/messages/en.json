@@ -5289,5 +5289,6 @@
   "native_ios_steers_delete": "Delete steer",
   "native_ios_steers_save_failed": "Steers could not be saved: {reason}",
   "native_ios_steers_limit": "at most 40 steers",
-  "native_ios_steers_placement_required": "Turn on at least one place where it appears."
+  "native_ios_steers_placement_required": "Turn on at least one place where it appears.",
+  "github_lens_rest_write_backoff": "Background REST writes are paused after GitHub refused one for its rate limit — automatic CI re-runs and epic stack updates resume in ~{time}. Reads and actions you start still run."
 }

@@ -130,6 +130,8 @@ function makeHarness(opts: {
   /** When false, use a gitea forge (non-github). */
   github?: boolean;
   hasRerunCapability?: boolean;
+  /** #2805: the GitHub REST write backoff seam. */
+  restWritesBlocked?: () => boolean;
 }): Harness {
   const store = new SessionStore(":memory:");
   store.setRepoConfig(REPO, {
@@ -197,6 +199,7 @@ function makeHarness(opts: {
     emitEpicCompleted: (e) => completedEmits.push(e),
     rebaseCap: 5,
     rebaseLandingBranch: async () => ({ kind: "current" }),
+    restWritesBlocked: opts.restWritesBlocked,
   });
 
   return { store, drain, completedEmits, spy };
@@ -316,6 +319,28 @@ describe("rerunRedLandingCiForRepo (C)", () => {
     await callRerunPass(h);
 
     expect(h.spy.rerunCalls).toHaveLength(1);
+  });
+
+  test("#2805: REST write backoff → no forge call at all; the next pass after it reruns", async () => {
+    let writesBlocked = true;
+    const h = makeHarness({
+      autoMergeEnabled: true,
+      prStatus: async () => redPr(),
+      latestFailedRunForPr: async () => 42,
+      restWritesBlocked: () => writesBlocked,
+    });
+    seedOpenLanding(h);
+
+    await callRerunPass(h);
+
+    expect(h.spy.prStatusCalls).toHaveLength(0);
+    expect(h.spy.latestFailedRunCalls).toHaveLength(0);
+    expect(h.spy.rerunCalls).toHaveLength(0);
+
+    writesBlocked = false;
+    await callRerunPass(h);
+
+    expect(h.spy.rerunCalls).toEqual([{ runId: 42, failedOnly: true }]);
   });
 
   test("non-github forge (gitea) → NOT called, zero prStatus calls", async () => {

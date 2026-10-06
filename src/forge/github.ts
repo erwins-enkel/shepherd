@@ -21,6 +21,7 @@ import {
 } from "./gh-attempt";
 import {
   type BucketRateLimit,
+  ghCallSummary,
   graphRateLimit,
   isGraphqlBucketCall,
   isRateLimitError,
@@ -28,6 +29,7 @@ import {
   isRestReadCall,
   parseRetryAfter,
   restRateLimit,
+  restWriteRateLimit,
 } from "./rate-limit";
 import { issuesFreshness } from "./repo-freshness";
 import { readEpicStructureByParts } from "./epic-structure";
@@ -416,10 +418,14 @@ const execGh: GhRunner = async (args) => {
 /**
  * Build the `gh` runner every GitHub forge call goes through (#2656):
  *  - at most `maxConcurrent` subprocesses at once (FIFO queue);
- *  - rate-limit errors are recorded on the bucket the call drew on (GraphQL or REST), and a
- *    REST success clears the REST backoff;
- *  - while the REST backoff is engaged, REST READS fail fast with a rate-limit error instead
- *    of spawning `gh` into another 403. Writes and GraphQL calls always run.
+ *  - rate-limit errors are recorded on the bucket the call drew on — GraphQL, REST read or
+ *    REST write (#2805: GitHub limits REST writes on a counter of their own) — and a REST
+ *    success clears the backoff of its own kind only;
+ *  - while the REST read backoff is engaged, REST READS fail fast with a rate-limit error
+ *    instead of spawning `gh` into another 403. Writes and GraphQL calls always run: an
+ *    operator's write surfaces its own error, and background writers consult
+ *    {@link restWriteRateLimit} themselves.
+ * Each engagement logs the call and the first stderr line that tripped it.
  * Errors are always re-thrown, so callers' fallbacks and error handling are unchanged.
  * Everything is injectable for tests; production uses {@link sharedGhRunner}.
  */
@@ -429,34 +435,46 @@ export function makeGhRunner(
     maxConcurrent?: number;
     graph?: BucketRateLimit;
     rest?: BucketRateLimit;
+    restWrite?: BucketRateLimit;
   } = {},
 ): GhRunner {
   const exec = opts.exec ?? execGh;
   const graph = opts.graph ?? graphRateLimit;
   const rest = opts.rest ?? restRateLimit;
+  const restWrite = opts.restWrite ?? restWriteRateLimit;
   const gate = new Semaphore(opts.maxConcurrent ?? GH_MAX_CONCURRENCY);
   return (args) =>
     timedAsync(`gh ${args[0]}`, () =>
       gate.run(async () => {
+        const restRead = isRestReadCall(args);
         // Checked once a slot is ours, so a call queued before the backoff engaged
         // doesn't spawn into it either.
-        if (rest.blocked() && isRestReadCall(args)) throw restBackoffError(args, rest);
+        if (restRead && rest.blocked()) throw restBackoffError(args, rest);
+        const restBucket = restRead ? rest : isRestBucketCall(args) ? restWrite : null;
         try {
           const out = await exec(args);
-          if (isRestBucketCall(args)) rest.noteSuccess();
+          restBucket?.noteSuccess();
           return out;
         } catch (err) {
           if (isRateLimitError(err)) {
-            const retryAfter = parseRetryAfter(
-              String((err as Record<string, unknown>)?.stderr ?? ""),
-            );
-            if (isGraphqlBucketCall(args)) graph.noteLimitError(retryAfter);
-            else if (isRestBucketCall(args)) rest.noteLimitError(retryAfter);
+            const stderr = String((err as Record<string, unknown>)?.stderr ?? "");
+            const bucket = isGraphqlBucketCall(args) ? graph : restBucket;
+            bucket?.noteLimitError(parseRetryAfter(stderr), limitCause(args, stderr));
           }
           throw err;
         }
       }),
     );
+}
+
+/** What tripped a backoff, for its "engaged" log: the call (never its flag values) and the
+ *  first stderr line. Never `err.message` — that carries the full argv, field bodies included. */
+function limitCause(args: string[], stderr: string): string {
+  const line = stderr
+    .split("\n")
+    .map((l) => l.trim())
+    .find((l) => l !== "");
+  return line ? `${ghCallSummary(args)}: ${line.slice(0, 200)}` : ghCallSummary(args);
 }
 
 /** The error a skipped REST read throws. Carries "rate limit" in `stderr` like a real `gh`
@@ -477,7 +495,7 @@ function recordSkippedTransports(transports: GhTransport[], attempts: GhFetchAtt
   return err;
 }
 
-/** The process-wide runner: one concurrency cap and one pair of bucket trackers for every
+/** The process-wide runner: one concurrency cap and one set of bucket trackers for every
  *  GitHub call, whether from a forge or the backlog counts service. */
 export const sharedGhRunner: GhRunner = makeGhRunner();
 

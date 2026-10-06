@@ -153,6 +153,8 @@ function makeHarness(
     withPr?: number[];
     pin?: boolean;
     now?: () => number;
+    /** #2805: the GitHub REST write backoff seam. */
+    restWritesBlocked?: () => boolean;
   } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
@@ -249,6 +251,7 @@ function makeHarness(
     emitEpic: () => {},
     now: opts.now,
     rebaseCap: 5,
+    restWritesBlocked: opts.restWritesBlocked,
   });
   return { store, drain, rec, prCache, sessionOf };
 }
@@ -303,6 +306,23 @@ describe("composeEpicStacksForRepo (#2069)", () => {
       [MIDDLE, PR_OF[MIDDLE]!, 2],
       [UPPER, PR_OF[UPPER]!, 3],
     ]);
+  });
+
+  test("#2805: a REST write backoff skips the pass without spending its throttle", async () => {
+    let writesBlocked = true;
+    const h = makeHarness({ restWritesBlocked: () => writesBlocked });
+
+    await compose(h);
+
+    expect(h.rec.stackReads).toHaveLength(0);
+    expect(h.rec.reviewMetaCalls).toHaveLength(0);
+    expect(h.rec.created).toHaveLength(0);
+
+    // Same instant, window over: the pass composes at once — the skipped tick didn't stamp the TTL.
+    writesBlocked = false;
+    await compose(h);
+
+    expect(h.rec.created).toEqual([[PR_OF[LOWER]!, PR_OF[MIDDLE]!]]);
   });
 
   test("throttled: an immediate second pass makes no host calls", async () => {

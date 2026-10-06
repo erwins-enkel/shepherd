@@ -332,6 +332,7 @@ describe("IssuesPanel rate-limit notice", () => {
       backoff: free,
       restBackoff:
         restPausedUntil === null ? free : { ...free, pausedUntil: restPausedUntil, blocked: true },
+      restWriteBackoff: free,
     };
   }
   const at = (ts: number) => formatReset(ts, Date.now(), { withTime: true });

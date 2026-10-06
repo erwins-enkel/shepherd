@@ -1587,9 +1587,12 @@ export interface GithubRateLimit {
   /** Shepherd's GraphQL backoff state — explains a polling pause even before a
    *  bucket is fully empty. */
   backoff: GhBackoff;
-  /** Shepherd's REST backoff state — the only signal of a REST pause, since
+  /** Shepherd's REST read backoff state — the only signal of a REST pause, since
    *  `rest` can read full while every real REST call is refused. */
   restBackoff: GhBackoff;
+  /** Shepherd's REST write backoff state (#2805) — GitHub limits writes on a counter
+   *  of their own; while `blocked`, only background writes pause. */
+  restWriteBackoff: GhBackoff;
 }
 
 /** Raw token detail (authoring side). */

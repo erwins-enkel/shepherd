@@ -234,7 +234,7 @@ import { PROVIDER_FAILOVER_FROM_KEY, releaseProviderFailover } from "./provider-
 import { snapshotSessionUsage } from "./usage-snapshot";
 import { hasCommittedChanges } from "./diff";
 import { HoldReasonService } from "./hold-service";
-import { graphRateLimit } from "./forge/rate-limit";
+import { graphRateLimit, restWriteRateLimit } from "./forge/rate-limit";
 import { fetchGithubRateLimit } from "./forge/github-rate-limit";
 import { sharedGhRunner } from "./forge/github";
 import { fetchRepoFingerprints } from "./forge/github-fingerprint";
@@ -2628,6 +2628,8 @@ const drain = new DrainService({
   rebaseCap: config.autoMergeRebaseCap,
   // #1838: surface a genuine-conflict landing pause to the operator via push.
   notify: (input) => push.notify(input),
+  // #2805: periodic REST writes (landing CI re-run, stack composition) skip during a write backoff.
+  restWritesBlocked: () => restWriteRateLimit.blocked(),
 });
 
 // Drive the drain's archived/review handling off the poller events. `session:git`/`session:status`

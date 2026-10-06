@@ -307,7 +307,12 @@ final class LocalServerModel {
         await pullLog()
     }
 
-    func start() async { await act { await self.supervisor.start() } }
+    func start() async {
+        await act {
+            self.state = .starting
+            await self.supervisor.start()
+        }
+    }
     func stop() async { await act { await self.supervisor.stop() } }
     func restart() async { await act { await self.supervisor.restart() } }
 

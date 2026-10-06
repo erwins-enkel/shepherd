@@ -12467,6 +12467,74 @@
         }
       }
     },
+    "native_local_banner_not_installed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der lokale Server ist nicht installiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The local server is not installed."
+          }
+        }
+      }
+    },
+    "native_local_banner_settings": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Einstellungen öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open Settings"
+          }
+        }
+      }
+    },
+    "native_local_banner_starting": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lokaler Server startet …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The local server is starting…"
+          }
+        }
+      }
+    },
+    "native_local_banner_stopped": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der lokale Server läuft nicht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The local server isn't running."
+          }
+        }
+      }
+    },
     "native_local_bun_outdated_summary": {
       "comment": "%1$@ = required, %2$@ = installed",
       "extractionState": "manual",
@@ -13146,13 +13214,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Starten"
+            "value": "Server starten"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start"
+            "value": "Start server"
           }
         }
       }

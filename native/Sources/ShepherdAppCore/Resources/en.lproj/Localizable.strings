@@ -726,6 +726,10 @@
 "native_ios_terminal_superseded_body" = "Another device attached to this terminal. Taking over returns it to this iPhone or iPad and detaches the other device.";
 "native_ios_usage_warning" = "%1$@: %2$@%% used";
 "native_ios_welcome_subtitle" = "Connect to a Shepherd server to follow your sessions.";
+"native_local_banner_not_installed" = "The local server is not installed.";
+"native_local_banner_settings" = "Open Settings";
+"native_local_banner_starting" = "The local server is starting…";
+"native_local_banner_stopped" = "The local server isn't running.";
 "native_local_bun_outdated_summary" = "Shepherd needs Bun %1$@ or newer. This Mac has Bun %2$@.";
 "native_local_bun_outdated_title" = "Bun needs an update";
 "native_local_bun_outdated_what_body" = "It runs `bun upgrade` and then starts the server again. This usually takes under a minute. Your working folder, sessions and settings stay as they are.";
@@ -765,7 +769,7 @@
 "native_local_path_unknown" = "Unavailable — this server did not report its path";
 "native_local_recheck" = "Recheck";
 "native_local_restart" = "Restart";
-"native_local_start" = "Start";
+"native_local_start" = "Start server";
 "native_local_state_external" = "A server is already answering locally. Review it before connecting.";
 "native_local_state_installing" = "Installing…";
 "native_local_state_not_installed" = "Shepherd is not installed here yet. Download the official installer to set it up.";

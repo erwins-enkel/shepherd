@@ -7648,7 +7648,9 @@
         "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"startKeepsBusyTrueUntilHealthResolvesThenTransitionsToRunning() async throws\"]"
       ],
       "reason": "Mac view/adapter/host/live scenario retained in ShepherdTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: additionally assert the starting state while health is gated; all original lifecycle assertions retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"LocalServerPanelStateTests\",\"aFailedServerOffersStartAndInstallAgain()\"]",
@@ -12468,6 +12470,9 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/MultiServerPersistenceTests.swift\",\"CoreSeamTests.MultiServerPersistenceTests\",\"readonlyCatalogueCannotResurrectARemovedProfile()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/MultiServerSignalTests.swift\",\"CoreSeamTests.MultiServerSignalTests\",\"scopedCapacityReadsOwningSidebarAndDoesNotRewireLegacySignals() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/MultiServerSignalTests.swift\",\"CoreSeamTests.MultiServerSignalTests\",\"defaultModelRetainsLegacySignalAndInactiveDeactivationBehavior()\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ShepherdPaletteTests.swift\",\"ShepherdPaletteTests\",\"testAppearanceMatchesWebPalette()\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ShepherdPaletteTests.swift\",\"ShepherdPaletteTests\",\"testAppearanceMatchesWebPalette()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalConnectionBannerTests.swift\",\"LocalConnectionBannerTests\",\"offlineLocalStatesChooseCopyAndAction()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalConnectionBannerTests.swift\",\"LocalConnectionBannerTests\",\"unmanagedOrRunningServersKeepGenericBanner()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalConnectionBannerTests.swift\",\"LocalConnectionBannerTests\",\"otherConnectionBannersKeepTheirPriority()\"]"
   ]
 }

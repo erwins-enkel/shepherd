@@ -129,7 +129,7 @@ struct MainWindow: View {
             if let kind = bannerKind {
                 // The retry task belongs to the model, not to this view: a
                 // profile switch or a teardown has to be able to cancel it.
-                ConnectionBanner(kind: kind, isRetrying: model.retrying) { model.retry() }
+                LocalConnectionBanner(kind: kind)
             }
             if let message = command.message {
                 NoticeBar(message: message) { command.clear() }

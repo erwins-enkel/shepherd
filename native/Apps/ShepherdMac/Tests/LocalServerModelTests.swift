@@ -333,6 +333,7 @@ extension MacSeamTests {
         #expect(model.busy == false)
         let task = Task { await model.start() }
         #expect(await settle(until: { model.busy }))
+        #expect(model.state == .starting)
         #expect(model.canStart == false)  // every action is gated while busy
         #expect(model.canInstall == false)
 

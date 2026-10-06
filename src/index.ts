@@ -67,6 +67,7 @@ import {
   sessionTabScope,
 } from "./tab-reaper";
 import { reapTransientByLabel } from "./transient-tab-reaper";
+import { ensureHelperTmpRootTrusted } from "./transient-helper-lifecycle";
 import { scanClaudeAliveByWorktree } from "./process-reaper";
 import { serve, serveAgentIngress, buildBacklogPayload, type AppDeps } from "./server";
 import { PluginRegistry } from "./plugins/loader";
@@ -178,7 +179,7 @@ import { MaintainService } from "./maintain";
 import { PluginAgentService } from "./plugin-agents";
 import { FIRST_PASS_RANGE } from "./maintain-core";
 import { buildDeliveryMetrics } from "./delivery-metrics";
-import { ensureRepoRootTrusted } from "./claude-trust";
+import { claudeConfigPath, ensureRepoRootTrusted } from "./claude-trust";
 import { GitignoreAdopter } from "./gitignore-adopt";
 import { attachSignalCapture } from "./signals";
 import { HookIngest, toolUseSince } from "./hooks-ingest";
@@ -1068,12 +1069,22 @@ const agentTmp = agentTmpDir();
 const agentClaudeRoot = agentClaudeTmpRoot();
 if (agentTmp && agentClaudeRoot) {
   try {
-    mkdirSync(agentTmp, { recursive: true });
+    mkdirSync(agentTmp, { recursive: true, mode: 0o700 });
   } catch (err) {
     console.warn("[tmp-sweep] could not create agent tmp dir:", err);
   }
   process.env.CLAUDE_CODE_TMPDIR = agentClaudeRoot;
 }
+
+// Transient helpers (namer, autopilot classifier, verify-key, …) spawn in fresh mkdtemp dirs under
+// agentTmpDir() and would otherwise wedge on Claude's trust dialog. Seeded every boot so a reset
+// `.claude.json` heals on the next restart. Fire-and-forget: a failed seed must not block boot.
+void ensureHelperTmpRootTrusted(claudeConfigPath(process.env.HOME ?? "", config.claudeDir))
+  .then((seeded) => {
+    if (!seeded)
+      console.warn("[trust] helper tmp root not trusted (agent tmpdir disabled or not private)");
+  })
+  .catch((err) => console.warn("[trust] could not seed helper tmp root trust:", err));
 
 // Inode-guard sweep: drops the compile cache + stale scratch once /tmp inode pressure
 // crosses the threshold. Also unconditionally reaps stale fallow caches and prunes

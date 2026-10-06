@@ -1,4 +1,4 @@
-import { test, expect, beforeEach, afterEach } from "bun:test";
+import { test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { llmName, namingPrompt, NAME_FILE } from "../src/namer-llm";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
@@ -192,6 +192,30 @@ test("llmName: null on timeout (file never appears), still cleans up", async () 
   expect(await llmName("x", deps, "l")).toBeNull();
   expect(calls.stopped).toBe(true);
   expect(calls.cleaned).toBe(true);
+});
+
+test("llmName: timeout logs a [namer] warning naming the label", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    let t = 0;
+    const { deps } = makeDeps({ readName: () => null, now: () => (t += 11_000) });
+    expect(await llmName("x", deps, "name TASK-7")).toBeNull();
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]![0])).toContain("[namer] name TASK-7: no slug within 30000ms");
+  } finally {
+    warn.mockRestore();
+  }
+});
+
+test("llmName: success does not warn", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const { deps } = makeDeps({ readName: () => "diff-view" });
+    expect(await llmName("x", deps, "l")).toBe("diff-view");
+    expect(warn).not.toHaveBeenCalled();
+  } finally {
+    warn.mockRestore();
+  }
 });
 
 test("llmName: null when spawn throws (no claude / herdr down), still cleans", async () => {

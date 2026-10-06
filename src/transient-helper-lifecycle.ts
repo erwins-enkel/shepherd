@@ -1,7 +1,8 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { removeHelperScratch } from "./tmp-sweep";
+import { ensureRepoRootTrusted } from "./claude-trust";
+import { agentTmpDir, removeHelperScratch } from "./tmp-sweep";
 
 /**
  * Shared plumbing for the synchronous block-and-clean transient helpers (verify-key /
@@ -15,9 +16,59 @@ import { removeHelperScratch } from "./tmp-sweep";
 
 export const realSleep = (ms: number): Promise<void> => new Promise<void>((r) => setTimeout(r, ms));
 
-/** mkdtemp under the OS tmpdir with the helper's prefix (e.g. `"shepherd-namer-"`). */
+/**
+ * The root helper cwds are created under: the dedicated disk `agentTmpDir()` (created 0700 here;
+ * tightened + trusted by {@link ensureHelperTmpRootTrusted}). Falls back to `os.tmpdir()` when the
+ * agent tmpdir is disabled — that fallback is never chmodded or trusted. Both are in
+ * `helperTmpRootCandidates()`, so the #2304 scratch reclaim covers either.
+ */
+export function helperTmpRoot(): string {
+  return agentTmpDir() ?? tmpdir();
+}
+
+/** mkdtemp under {@link helperTmpRoot} with the helper's prefix (e.g. `"shepherd-namer-"`). */
 export function makeHelperTmpDir(prefix: string): string {
-  return mkdtempSync(join(tmpdir(), prefix));
+  const root = helperTmpRoot();
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  return mkdtempSync(join(root, prefix));
+}
+
+/** Only a real dir owned by us and writable by no one else may be trusted: Claude extends trust to
+ *  every descendant, so trusting a shared root (`/tmp`) would let anyone plant a dir there whose
+ *  `.claude/` settings or MCP config run unprompted. A dir we OWN that is merely group/other-writable
+ *  (a umask-002 mkdir) is tightened rather than refused; one owned by anyone else is never touched.
+ *  A sticky-bit dir is a shared tmp by construction (`/tmp` is ours when running as root) — refused
+ *  untouched, never chmodded. */
+function makePrivateDir(root: string): boolean {
+  try {
+    const st = lstatSync(root);
+    if (!st.isDirectory() || st.uid !== process.getuid?.() || (st.mode & 0o1000) !== 0) {
+      return false;
+    }
+    if ((st.mode & 0o022) !== 0) chmodSync(root, st.mode & 0o7755);
+    return (lstatSync(root).mode & 0o022) === 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Pre-accept Claude Code's workspace-trust dialog for the ROOT every {@link makeHelperTmpDir} cwd
+ * lives under. Claude inherits trust from an ancestor dir, so one entry covers every helper run —
+ * no per-run `.claude.json` entry. Without it a helper sits on "do you trust this folder?" in a
+ * pane no one watches until its timeout: the namer silently kept heuristic names after a
+ * `.claude.json` reset dropped the `/tmp` trust helpers had been relying on. Only the dedicated
+ * `agentTmpDir()` is ever trusted: refuses (false) when it is disabled (helpers then fall back to
+ * an untrusted `os.tmpdir()`), or a root we don't own, a sticky-bit dir or a symlink — the helpers
+ * then still time out, but nothing shared is trusted or chmodded.
+ */
+export async function ensureHelperTmpRootTrusted(
+  configPath: string,
+  root: string | null = agentTmpDir(),
+): Promise<boolean> {
+  if (!root || !makePrivateDir(root)) return false;
+  await ensureRepoRootTrusted(configPath, root);
+  return true;
 }
 
 /**

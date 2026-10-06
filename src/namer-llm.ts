@@ -160,7 +160,13 @@ export async function llmName(
       return null; // herdr/claude unavailable → fall back to heuristic
     }
     const raw = await pollForRaw(readName, cwd, { now, sleep, timeoutMs, pollMs });
-    return raw === null ? null : extractSlug(raw);
+    if (raw === null) {
+      // Loud on purpose: a wedged namer (e.g. on Claude's trust dialog) used to fail silently,
+      // leaving every session on its heuristic name with nothing in the log.
+      console.warn(`[namer] ${label}: no slug within ${timeoutMs}ms — keeping heuristic name`);
+      return null;
+    }
+    return extractSlug(raw);
   } finally {
     await reapHelperRun(deps.herdr, terminalId, cwd, cleanup);
   }

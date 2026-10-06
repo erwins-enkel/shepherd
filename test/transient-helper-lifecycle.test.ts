@@ -10,6 +10,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -147,7 +148,10 @@ describe("ensureHelperTmpRootTrusted", () => {
 
   test("refuses a sticky-bit dir we own without chmodding it", async () => {
     const root = privateRoot();
-    chmodSync(root, 0o1777);
+    // chmod(1), not chmodSync: Bun 1.3.10's fs.chmod drops the sticky bit (Node keeps it), which
+    // left a plain 0777 dir here and turned this into a test of the world-writable path.
+    execFileSync("chmod", ["1777", root]);
+    expect(statSync(root).mode & 0o7777).toBe(0o1777);
     const cfg = tmpConfig({ projects: {} });
     expect(await ensureHelperTmpRootTrusted(cfg, root)).toBe(false);
     expect(statSync(root).mode & 0o7777).toBe(0o1777);

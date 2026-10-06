@@ -8,6 +8,7 @@ import type {
   UpdateStatus,
   HerdrUpdateStatus,
   CodexUpdateStatus,
+  DiagnosticState,
   HeldTask,
 } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
@@ -3218,5 +3219,59 @@ describe("TopBar — narrow fold folds attention badges into the gear", () => {
     await expect
       .element(menu.getByRole("button", { name: m.diagnostics_pip_label() }))
       .not.toBeInTheDocument();
+  });
+});
+
+describe("TopBar — async diagnostics arrival re-measures the fold tier", () => {
+  // Diagnostics land with the WS snapshot AFTER first paint; the health pip they add
+  // widens the bar. That must re-measure, so the late pip folds the bar exactly as a
+  // fresh render with diagnostics already present would.
+  const base = {
+    nowMs: 1_700_000_000_000,
+    connected: true,
+    ...FLAGS["touch-desktop"],
+    ...sessionsProp(4),
+    limits: fullLimits,
+    heldCount: 1,
+    update: { behind: 4 } as UpdateStatus,
+    herdrUpdate: { updateAvailable: true } as HerdrUpdateStatus,
+    whatsNew: true,
+  };
+
+  async function foldedAt(width: number, diagnosticsOverall: DiagnosticState): Promise<boolean> {
+    await page.viewport(width, 900);
+    document.body.style.width = `${width}px`;
+    const { unmount } = await render(TopBar, { ...base, diagnosticsOverall });
+    const hud = document.querySelector<HTMLElement>(".hud")!;
+    await waitNoOverflow(hud);
+    await drainFrames(hud);
+    await nextFrame();
+    const folded = !hud.querySelector(".update-badge");
+    unmount();
+    return folded;
+  }
+
+  it("diagnostics flipping to warning after mount folds like a fresh render", async () => {
+    // Find a width where the pip alone tips the compact bar into the fold tier.
+    let width = 0;
+    for (let w = 1100; w >= 780 && !width; w -= 10) {
+      if (!(await foldedAt(w, "ok")) && (await foldedAt(w, "warning"))) width = w;
+    }
+    expect(width, "found a width where the pip alone triggers the fold").toBeGreaterThan(0);
+
+    await page.viewport(width, 900);
+    document.body.style.width = `${width}px`;
+    const { rerender } = await render(TopBar, { ...base, diagnosticsOverall: "ok" });
+    const hud = document.querySelector<HTMLElement>(".hud")!;
+    await waitNoOverflow(hud);
+    await drainFrames(hud);
+    expect(hud.querySelector(".update-badge"), "unfolded before diagnostics").not.toBeNull();
+
+    await rerender({ diagnosticsOverall: "warning" });
+    await vi.waitFor(() =>
+      expect(hud.querySelector(".update-badge"), "folded after diagnostics").toBeNull(),
+    );
+    assertNoOverflow(hud);
+    assertControlsHittable(hud);
   });
 });

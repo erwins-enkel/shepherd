@@ -290,6 +290,9 @@
     // neither this effect nor the ResizeObserver would re-fire — the bar would stay
     // un-compacted and overflow until an unrelated resize/badge change self-healed it.
     void gauges.length;
+    // The diagnostics health pip (TopBarBadges) also arrives async with the WS snapshot
+    // and widens the bar — re-measure on its appearance/disappearance.
+    void (diagnosticsOverall !== "ok");
     // Compact provider rotation changes top-bar content without changing `gauges.length`.
     // Remeasure when the provider set/rotation state changes, and when the active view moves
     // between width classes (e.g. two bars ↔ token total), but not for same-width provider ticks.

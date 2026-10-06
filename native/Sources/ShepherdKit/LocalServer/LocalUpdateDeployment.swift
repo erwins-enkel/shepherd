@@ -142,7 +142,15 @@ public struct LocalUpdateDeployment: Sendable {
     return "\(device):\(inode)"
   }
 
-  /// Run synchronously before constructing/starting the supervisor. Never scan
+  /// An unconfirmed promotion requires stopping the persisted app-owned server
+  /// before restoring files, even if a prior recovery already swapped them back.
+  public static func needsServerRestart(environment: LocalServerEnvironment) throws -> Bool {
+    let url = journalURL(environment)
+    guard FileManager.default.fileExists(atPath: url.path) else { return false }
+    return try JSONDecoder().decode(Journal.self, from: Data(contentsOf: url)).phase == .promoted
+  }
+
+  /// Run after ownership-aware teardown and before adoption or fresh startup. Never scan
   /// or delete arbitrary siblings: this journal owns exactly one staging path.
   /// Invalid or ambiguous recovery fails closed and preserves the backup.
   @discardableResult

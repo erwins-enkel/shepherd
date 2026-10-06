@@ -119,6 +119,7 @@ final class LocalServerModel {
     private var updateTask: Task<Void, Never>?
     private var deployment: LocalUpdateDeployment?
     private var recoveryFailed = false
+    private var launchRecoveryTask: Task<Bool, Never>?
     private var updateCheckTask: Task<Result<LocalUpdateStatus, LocalUpdateCheckFailure>, Never>?
     private let updateChecker: @Sendable (LocalServerEnvironment) async -> Result<LocalUpdateStatus, LocalUpdateCheckFailure>
     private let updater: @Sendable (LocalServerEnvironment, LogRing) async -> Result<Void, LocalServerFailure>
@@ -176,26 +177,48 @@ final class LocalServerModel {
         }
         self.updateNow = updateNow
         self.updateMonitorClock = updateMonitorClock
-        // Recovery precedes every supervisor operation, including automatic
-        // startup. Isolated app launches never access the operator's state.
-        if self.updatesAllowed {
-            do {
-                if let message = try LocalUpdateDeployment.recover(environment: environment) {
-                    Task { [log] in await log.append(message) }
-                }
-            } catch {
-                recoveryFailed = true
-                state = .failed(.updateFailed(exitCode: 1))
-                updateFailure = .updateFailed(exitCode: 1)
-                Task { [log] in await log.append("Backend launch recovery failed: \(error). Server startup is blocked.") }
-            }
-        }
         let ring = log
         self.supervisor = LocalServerSupervisor(
             environment: environment, log: ring,
             health: health,
             clock: clock, bunVersion: bunVersion,
             launch: launch ?? LocalServerSupervisor.defaultLaunch(environment))
+    }
+
+    /// Serialize launch recovery before discovery/adoption AND explicit actions.
+    /// Keep the journal until the unconfirmed process has safely stopped: a crash
+    /// between teardown and rollback must remain recoverable on the next launch.
+    private func ensureLaunchRecovery() async -> Bool {
+        guard updatesAllowed else { return true }
+        if let launchRecoveryTask { return await launchRecoveryTask.value }
+        let task = Task { @MainActor in
+            do {
+                var restart = false
+                if try LocalUpdateDeployment.needsServerRestart(environment: environment) {
+                    let external = await discoverExternal()
+                    restart = await supervisor.stopForDeploymentRecovery(
+                        healthyIdentity: external?.localInstall.map(LocalServerIdentity.init))
+                    guard external == nil || restart else {
+                        throw LocalServerFailure.updateFailed(exitCode: 1)
+                    }
+                }
+                if let message = try LocalUpdateDeployment.recover(environment: environment) {
+                    await log.append(message)
+                }
+                // Recovery never publishes the unconfirmed server as running.
+                // A replacement uses the detached launch + new ownership record.
+                if restart && !quittingUpdates { await supervisor.start() }
+                return !quittingUpdates
+            } catch {
+                recoveryFailed = true
+                state = .failed(.updateFailed(exitCode: 1))
+                updateFailure = .updateFailed(exitCode: 1)
+                await log.append("Backend launch recovery failed: \(error). Server startup and adoption are blocked.")
+                return false
+            }
+        }
+        launchRecoveryTask = task
+        return await task.value
     }
 
     /// The endpoint managed by this supervisor, also used to choose the login profile.
@@ -235,6 +258,7 @@ final class LocalServerModel {
     /// checkout/probe say with nothing in flight.
     func refresh() async {
         guard !busy else { return }
+        guard await ensureLaunchRecovery(), !busy else { await pullLog(); return }
         if recoveryFailed { await pullLog(); return }
         await resolveState()
         await checkForUpdate(force: false)
@@ -288,6 +312,7 @@ final class LocalServerModel {
     }
 
     func install() async {
+        guard await ensureLaunchRecovery() else { return }
         guard !busy, !recoveryFailed else { return }
         busy = true
         generation += 1
@@ -333,6 +358,7 @@ final class LocalServerModel {
     }
 
     func upgradeBun() async {
+        guard await ensureLaunchRecovery() else { return }
         guard !busy, !recoveryFailed else { return }
         busy = true
         generation += 1
@@ -423,6 +449,7 @@ final class LocalServerModel {
     }
 
     private func performUpdateCheck(force: Bool, allowBusy: Bool = false) async {
+        guard await ensureLaunchRecovery() else { return }
         guard (!busy || allowBusy), canManageUpdates, (force || automaticChecksAllowed), !isCheckingUpdate else { return }
         let now = updateNow()
         if !force, let lastUpdateCheckAttempt, now.timeIntervalSince(lastUpdateCheckAttempt) < 30 * 60 { return }
@@ -458,6 +485,7 @@ final class LocalServerModel {
     }
 
     func applyUpdate() async {
+        guard await ensureLaunchRecovery() else { return }
         guard !busy, canManageUpdates, !recoveryFailed, !quittingUpdates else { return }
         busy = true
         generation += 1
@@ -545,10 +573,11 @@ final class LocalServerModel {
         updateTask?.cancel()
         updateTask = nil
         updateCheckTask?.cancel()
-        // willTerminate cannot await the update task. Stop the owned child and
+        // willTerminate cannot await the update task. Stop the owned server and
         // restore the directory synchronously before the process exits.
         if deployment?.promoted == true {
-            terminateForQuit()
+            supervisor.terminateForQuit()
+            supervisor.terminateNow(gracePeriod: 5)
             do { try deployment?.rollback() }
             catch { Log.app.error("Could not restore backend on quit: \(String(describing: error))") }
         }
@@ -566,6 +595,7 @@ final class LocalServerModel {
     }
 
     func startRunner() async {
+        guard await ensureLaunchRecovery() else { return }
         guard !busy, !recoveryFailed else { return }
         busy = true
         runnerFailure = nil
@@ -609,6 +639,7 @@ final class LocalServerModel {
     nonisolated func terminateForQuit() { supervisor.terminateForQuit() }
 
     private func act(_ body: @MainActor () async -> Void) async {
+        guard await ensureLaunchRecovery() else { return }
         guard !busy, !recoveryFailed else { return }
         busy = true
         generation += 1

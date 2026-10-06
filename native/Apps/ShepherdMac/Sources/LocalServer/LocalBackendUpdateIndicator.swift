@@ -3,7 +3,7 @@ import ShepherdAppCore
 import ShepherdKit
 import SwiftUI
 
-/// Only the connected profile belonging to our supervised child gets a badge.
+/// Only the connected profile belonging to our app-supervised server (spawned or adopted) gets a badge.
 struct LocalBackendUpdateIndicatorState {
     static func count(profile: ServerProfile?, endpoint: URL, state: LocalServerState,
                       managesUpdates: Bool, behind: Int) -> Int? {

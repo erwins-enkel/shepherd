@@ -594,6 +594,14 @@ extension MacSeamTests {
     }
 
     @Test func quitDuringReadinessSynchronouslyRestoresPreviousDeployment() async throws {
+        try await exerciseQuitDuringReadiness(adopted: false)
+    }
+
+    @Test func quitDuringAdoptedServerPromotionStopsReplacementAndRestoresDeployment() async throws {
+        try await exerciseQuitDuringReadiness(adopted: true)
+    }
+
+    private func exerciseQuitDuringReadiness(adopted: Bool) async throws {
         let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
         let environment = try checkout(in: home)
         let code = environment.appDirectory.appendingPathComponent("code")
@@ -601,8 +609,19 @@ extension MacSeamTests {
         let launch = try fakeScript(in: home, emitPasswordOnce: false)
         let launches = Mutex(0)
         let gate = LocalServerGate()
+        var first: LocalServerSupervisor?
+        defer { first?.terminateNow(gracePeriod: 0) }
+        let discovered: Components.Schemas.Health?
+        if adopted {
+            let previous = LocalServerSupervisor(environment: environment, health: { true },
+                launch: { launches.withLock { $0 += 1 }; return launch })
+            first = previous
+            await previous.start()
+            previous.terminateForQuit()
+            discovered = try ownedHealth(in: home)
+        } else { discovered = nil }
         let model = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
-            probeExternal: { false }, health: {
+            discoverExternal: { discovered }, health: {
                 if launches.withLock({ $0 }) == 2 { await gate.wait() }
                 return true
             }, launch: { launches.withLock { $0 += 1 }; return launch },
@@ -610,7 +629,8 @@ extension MacSeamTests {
                 try! "replacement".write(to: staged.appDirectory.appendingPathComponent("code"), atomically: true, encoding: .utf8)
                 return .success(())
             })
-        await model.start()
+        if adopted { await model.refresh() }
+        else { await model.start() }
         let task = Task { await model.applyUpdate() }
         #expect(await waitForGate(gate))
         #expect(try String(contentsOf: code, encoding: .utf8) == "replacement")
@@ -1085,6 +1105,124 @@ extension MacSeamTests {
         #expect(profile.credentialKey != original.credentialKey)
         model.connect(app)
         #expect(app.sheet == .login(profile))
+    }
+
+    private func ownershipURL(in home: URL) throws -> URL {
+        try #require(FileManager.default.contentsOfDirectory(
+            at: home.appendingPathComponent(".shepherd/run"), includingPropertiesForKeys: nil)
+            .first { $0.lastPathComponent.hasPrefix("app-server-") && $0.pathExtension == "json" })
+    }
+
+    private func ownedHealth(in home: URL) throws -> Components.Schemas.Health {
+        let json = try #require(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: ownershipURL(in: home))) as? [String: Any])
+        let identity = try #require(json["identity"] as? [String: String])
+        return .init(ok: true, version: "test", localInstall: .init(
+            appDirectory: try #require(identity["appDirectory"]),
+            databasePath: try #require(identity["databasePath"]),
+            instanceID: try #require(identity["instanceID"])))
+    }
+
+    @Test func adoptedServerShowsUpdateIndicatorAndApplyReplacesOwnership() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let first = LocalServerSupervisor(environment: environment, health: { true }, launch: { launch })
+        defer { first.terminateNow(gracePeriod: 0) }
+        await first.start()
+        let pid = try #require(await first.state.pid)
+        first.terminateForQuit()
+        let health = try ownedHealth(in: home)
+        let next = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+            discoverExternal: { health }, health: { true }, launch: { launch },
+            updateChecker: { _ in .success(.init(behind: 2, current: "abc1234", latest: "def5678")) },
+            updater: { _, _ in .success(()) })
+        defer {
+            next.terminateForQuit()
+            if let pid = next.state.pid { killpg(pid, SIGKILL) }
+        }
+        await next.refresh()
+        #expect(next.state == .running(pid: pid))
+        #expect(next.canManageUpdates)
+        let profile = ServerProfile(name: "local", baseURL: next.baseURL, mode: .local)
+        #expect(LocalBackendUpdateIndicatorState.count(profile: profile, endpoint: next.baseURL,
+            state: next.state, managesUpdates: next.canManageUpdates, behind: next.updateStatus?.behind ?? 0) == 2)
+        await next.applyUpdate()
+        let replacement = try #require(next.state.pid)
+        #expect(replacement != pid && kill(pid, 0) != 0)
+        #expect(next.updateFailure == nil)
+        let record = try #require(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: ownershipURL(in: home))) as? [String: Any])
+        #expect((record["pid"] as? NSNumber)?.int32Value == replacement)
+        #expect((record["processGroup"] as? NSNumber)?.int32Value == replacement)
+        #expect(record["processStart"] != nil)
+        // Detachment and re-adoption prove the replacement took #2823's path.
+        next.terminateForQuit()
+        let replacementHealth = try ownedHealth(in: home)
+        let relaunched = LocalServerModel(environment: environment, discoverExternal: { replacementHealth },
+            health: { true }, launch: { launch })
+        await relaunched.refresh()
+        #expect(relaunched.state == .running(pid: replacement))
+        await relaunched.stop()
+    }
+
+    @Test func healthyLocalServerWithoutOwnershipNeverOffersUpdates() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        let calls = Mutex(0)
+        let health = Components.Schemas.Health(ok: true, version: "test", localInstall: .init(
+            appDirectory: environment.appDirectory.path, databasePath: environment.databasePath.path, instanceID: "external"))
+        let model = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+            discoverExternal: { health }, updateChecker: { _ in
+                calls.withLock { $0 += 1 }
+                return .success(.init(behind: 2, current: "abc1234", latest: "def5678"))
+            }, updater: { _, _ in calls.withLock { $0 += 1 }; return .success(()) })
+        await model.refresh()
+        await model.checkForUpdate()
+        await model.applyUpdate()
+        #expect(model.state == .externallyManaged && !model.canManageUpdates)
+        #expect(calls.withLock { $0 } == 0)
+        let profile = ServerProfile(name: "local", baseURL: model.baseURL, mode: .local)
+        #expect(LocalBackendUpdateIndicatorState.count(profile: profile, endpoint: model.baseURL,
+            state: model.state, managesUpdates: model.canManageUpdates, behind: 2) == nil)
+    }
+
+    @Test func unconfirmedDeploymentStopsHealthyOwnedServerBeforeRollbackAndAdoption() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        let code = environment.appDirectory.appendingPathComponent("code")
+        try "previous".write(to: code, atomically: true, encoding: .utf8)
+        var interrupted = try LocalUpdateDeployment(environment: environment)
+        try "replacement".write(to: interrupted.environment.appDirectory.appendingPathComponent("code"),
+            atomically: true, encoding: .utf8)
+        try interrupted.promote()
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let first = LocalServerSupervisor(environment: environment, health: { true }, launch: { launch })
+        defer { first.terminateNow(gracePeriod: 0) }
+        await first.start()
+        let pid = try #require(await first.state.pid)
+        first.terminateForQuit()
+        let health = try ownedHealth(in: home)
+        let versions = Mutex<[String]>([])
+        let next = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+            discoverExternal: { health }, health: { true }, launch: {
+                versions.withLock { $0.append((try? String(contentsOf: code, encoding: .utf8)) ?? "missing") }
+                return launch
+            }, updateChecker: { _ in .success(.init(behind: 0, current: "abc1234", latest: "abc1234")) })
+        defer {
+            next.terminateForQuit()
+            if let pid = next.state.pid { killpg(pid, SIGKILL) }
+        }
+        await next.refresh()
+        let replacement = try #require(next.state.pid)
+        #expect(replacement != pid && kill(pid, 0) != 0)
+        #expect(versions.withLock { $0 } == ["previous"])
+        #expect(try String(contentsOf: code, encoding: .utf8) == "previous")
+        #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent(".shepherd/run/backend-update.json").path))
+        let record = try #require(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: ownershipURL(in: home))) as? [String: Any])
+        #expect((record["pid"] as? NSNumber)?.int32Value == replacement)
+        await next.stop()
     }
 
     @Test func quittingPreservesTheServerAndNextModelAdoptsBeforeExternalAcknowledgment() async throws {

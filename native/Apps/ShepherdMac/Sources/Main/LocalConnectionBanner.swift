@@ -25,7 +25,7 @@ struct LocalConnectionBannerPolicy: Equatable {
         case .notInstalled: return .init(message: L.t("native_local_banner_not_installed"), action: .settings)
         case .starting: return .init(message: L.t("native_local_banner_starting"), action: nil)
         case .failed(let failure): return .init(message: LocalServerCopy.message(for: failure), action: .start)
-        case .installing, .upgradingBun: return .init(message: LocalServerCopy.label(for: state), action: nil)
+        case .installing, .upgradingBun, .updating: return .init(message: LocalServerCopy.label(for: state), action: nil)
         case .running, .externallyManaged: return nil
         }
     }

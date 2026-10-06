@@ -15,6 +15,7 @@ import ShepherdKit
             (.starting, L.t("native_local_banner_starting"), nil),
             (.installing, LocalServerCopy.label(for: .installing), nil),
             (.upgradingBun, LocalServerCopy.label(for: .upgradingBun), nil),
+            (.updating, LocalServerCopy.label(for: .updating), nil),
             (.failed(.healthTimeout), LocalServerCopy.message(for: .healthTimeout), .start),
             (.failed(.exited(code: 1)), LocalServerCopy.message(for: .exited(code: 1)), .start),
         ]

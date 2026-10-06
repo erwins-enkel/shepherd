@@ -12547,6 +12547,12 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"launchRecoveryRejectsUnownedPathsSymlinksAndReplacedDirectories() throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"launchRecoveryRestoresUnconfirmedPromotionAndOnlyDeletesItsOwnedSibling() throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"launchRecoveryPrecedesServerStartupAndFailureBlocksIt() async throws\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quitDuringReadinessSynchronouslyRestoresPreviousDeployment() async throws\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quitDuringReadinessSynchronouslyRestoresPreviousDeployment() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"adoptedMonitorCannotRelaunchWhileUpdateRecoveryIsSuspended() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"adoptedServerShowsUpdateIndicatorAndApplyReplacesOwnership() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"healthyLocalServerWithoutOwnershipNeverOffersUpdates() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"unconfirmedDeploymentStopsHealthyOwnedServerBeforeRollbackAndAdoption() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"deploymentRecoveryTeardownRequiresKernelOwnershipEvenWithoutHealth() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quitDuringAdoptedServerPromotionStopsReplacementAndRestoresDeployment() async throws\"]"
   ]
 }

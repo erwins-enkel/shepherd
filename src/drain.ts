@@ -273,6 +273,7 @@ export interface DrainDeps {
     | "recordEpicIntegrated"
     | "listEpicIntegratedDetails"
     | "recordEpicCompleted"
+    | "clearEpicCompletedOnRestart"
     | "listEpicCompleted"
     | "setEpicLandingPr"
     | "setEpicLandingRebaseState"
@@ -310,6 +311,8 @@ export interface DrainDeps {
   emitEpic?: (epic: Epic) => void;
   /** → events.emit("epic:completed", e). Optional — absent in tests that don't need it. */
   emitEpicCompleted?: (epic: CompletedEpic) => void;
+  /** → events.emit("epic:completed-cleared", key). Optional — absent in tests that don't need it. */
+  emitEpicCompletedCleared?: (key: { repoPath: string; parentIssueNumber: number }) => void;
   /** → events.emit("session:new", s). Optional — absent in tests that don't need it. */
   emitSessionNew?: (s: Session) => void;
   /** Anonymous product telemetry. `event()` no-ops unless consent is granted (src/telemetry.ts),
@@ -573,6 +576,10 @@ export class DrainService {
     let openIssuesTruncated = false;
     if (!native) {
       const open = await this.listIssues(repoPath);
+      // The markdown resolver reads a member missing from the open list as closed, so a failed
+      // listing ([]) would read as "every child done" and auto-complete a live epic. No open
+      // list, no epic this round (buildState surfaces it as the `epic_unreadable` hold).
+      if (this.issueListingFailed(repoPath)) return null;
       openIssues = open.map((i) => ({
         number: i.number,
         title: i.title,
@@ -895,6 +902,7 @@ export class DrainService {
     // status; otherwise fall back to the label-drain toggle. An idle/paused epic or no
     // epic row at all defers to autoDrainEnabled.
     const enabled = epicActive ? epicRun!.status === "running" : cfg.autoDrainEnabled;
+    const stall = this.epicStall(repoPath, epicActive, epicRun, builtEpic, epicParent);
 
     return {
       state: {
@@ -917,12 +925,13 @@ export class DrainService {
         spawnAgentProvider,
         epicAttended,
         epicApprovedNext: this.approvedNext.has(repoPath),
-        epicParent,
+        epicParent: stall.epicParent,
         epicIntegrationBranch,
         epicProviderSettings,
         epicStackBases,
         stackHeldSessions,
         epicBaseUnavailable: this.freshEpicBaseFailure(repoPath),
+        epicUnreadable: stall.epicUnreadable,
         runSummary: buildRunSummary({
           leadingEpic,
           autoSessions,
@@ -1343,6 +1352,27 @@ export class DrainService {
     return best?.epicBase ?? null;
   }
 
+  /** The epic the drain status names, and whether it is the `epic_unreadable` stall: an active
+   *  epic that could not be assembled because its issue listing failed still names its parent, so
+   *  its banner says why it stopped instead of reading as an empty backlog. Kept out of buildState,
+   *  which sits at its complexity cap. */
+  private epicStall(
+    repoPath: string,
+    epicActive: boolean,
+    run: EpicRun | null,
+    built: Epic | null,
+    epicParent: number | null,
+  ): { epicParent: number | null; epicUnreadable: boolean } {
+    if (!epicActive || !run || built || !this.issueListingFailed(repoPath))
+      return { epicParent, epicUnreadable: false };
+    return { epicParent: run.parentIssueNumber, epicUnreadable: true };
+  }
+
+  /** True while this repo's open-issue listing is failing (served as [] from the failure cache). */
+  issueListingFailed(repoPath: string): boolean {
+    return this.issuesCache.get(repoPath)?.failed === true;
+  }
+
   /** Short-TTL cache around the forge's listIssues (the pump may re-read state
    *  many times in one drain). A forge throw yields [] — never crashes the pump —
    *  and is cached for the same TTL, so a rate-limited forge is not re-listed on
@@ -1380,6 +1410,8 @@ export class DrainService {
         // #1757: the epic can't base its children — genuinely stuck until the forge recovers, so it
         // reads as a paused banner (amber), not a quiet idle state.
         "epic_base_unavailable",
+        // A running epic the forge can't be read for — stuck until the listing recovers.
+        "epic_unreadable",
       ].includes(hold.code);
     const queued = state.candidates.filter((c) => !state.mappedIssueNumbers.has(c.number)).length;
     return {
@@ -1477,6 +1509,10 @@ export class DrainService {
     if (!next) return;
     this.approvedNext.delete(repoPath);
     this.deps.store.setEpicRun({ ...queuedEpicRun(next), status: "running" });
+    // A re-queued epic that completed (or falsely completed) before is starting again — same
+    // reason as the PUT /api/epic start path (clearEpicCompletedOnRestart).
+    if (this.deps.store.clearEpicCompletedOnRestart(repoPath, next.parentIssueNumber))
+      this.deps.emitEpicCompletedCleared?.({ repoPath, parentIssueNumber: next.parentIssueNumber });
     console.info(`[drain] ${repoPath}: queued epic #${next.parentIssueNumber} starts`);
   }
 

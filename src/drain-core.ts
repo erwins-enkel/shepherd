@@ -39,6 +39,7 @@ export interface HoldReason {
     | "awaiting_signoff" // draftMode: a retireable PR is held at cap, awaiting its sign-off
     | "awaiting_approval" // epicAttended: next spawn held until operator approves
     | "epic_base_unavailable" // epic: the forge's ensureBranch threw — can't base the child on the integration branch (#1757)
+    | "epic_unreadable" // epic: the forge's open-issue listing failed (e.g. a rate limit) — no epic this round, retrying
     | "empty"; // no eligible backlog item
   /** A desig (trouble pauses) or a percentage (usage), for the operator banner. */
   detail?: string;
@@ -152,6 +153,10 @@ export interface DrainRepoState {
    *  that degrades to the default branch and the epic still progresses; it surfaces as an epic
    *  warning instead of a hold. */
   epicBaseUnavailable?: string | null;
+  /** True when a running epic could not be assembled because the forge's open-issue listing
+   *  failed (e.g. a GitHub rate limit). Its children's states are unknown, so nothing is spawned
+   *  or judged done; the listing is retried on the next pump. */
+  epicUnreadable?: boolean;
   /** #2070: sessions whose stacked epic-child PR may not merge yet — a layer BELOW it in the stack
    *  has not landed. Merging a stack layer lands every layer beneath it, so only the bottom-most
    *  unmerged layer may merge; the rest wait their turn.
@@ -318,6 +323,11 @@ export function computeNext(state: DrainRepoState): DrainDecision {
   // 2. Trouble → halt new spawns (in-flight agents keep running; retires above still pass).
   const trouble = troubleHold(state);
   if (trouble) return { kind: "hold", reason: trouble };
+
+  // 2a. Epic unreadable: the epic could not be assembled because the open-issue listing failed.
+  // Without this the stall reads as an empty backlog (`empty`) and the operator never learns why
+  // the epic stopped moving. A ready PR still retires above; the listing is retried next pump.
+  if (state.epicUnreadable) return { kind: "hold", reason: { code: "epic_unreadable" } };
 
   // 2b. Epic base unavailable (#1757): the forge's `ensureBranch` THREW for a child spawn, so the
   // integration branch could not be ensured. Basing the child on the default branch instead would

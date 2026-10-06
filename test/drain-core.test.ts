@@ -790,6 +790,27 @@ describe("epic attended gate", () => {
   });
 });
 
+// ── epic_unreadable hold ────────────────────────────────────────────────────────────────────────
+
+describe("computeNext: epic_unreadable", () => {
+  test("a running epic whose issue listing failed holds with a named reason, not `empty`", () => {
+    expect(computeNext(state({ candidates: [], epicUnreadable: true }))).toEqual({
+      kind: "hold",
+      reason: { code: "epic_unreadable" },
+    });
+  });
+  test("a ready PR still retires first", () => {
+    const d = computeNext(
+      state({
+        maxAuto: 2,
+        epicUnreadable: true,
+        autoSessions: [autoSession({ id: "sX", git: MERGEABLE, reviewDecision: null })],
+      }),
+    );
+    expect(d).toEqual({ kind: "retire", sessionId: "sX", prNumber: 7 });
+  });
+});
+
 // ── #1757: epic_base_unavailable hold ───────────────────────────────────────────────────────────
 
 describe("computeNext: epic_base_unavailable (#1757)", () => {

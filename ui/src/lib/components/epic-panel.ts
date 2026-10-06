@@ -74,6 +74,9 @@ export function epicHoldLine(
     // no child can be based on it. Self-heals when the forge recovers (cooldown → retry).
     case "epic_base_unavailable":
       return m.epic_hold_epic_base_unavailable({ branch: desig });
+    // The forge's open-issue listing failed (e.g. a rate limit) — self-heals on the next read.
+    case "epic_unreadable":
+      return m.epic_hold_epic_unreadable();
     case "awaiting_signoff":
       return m.epic_hold_awaiting_signoff({ desig });
     case "empty":
@@ -167,6 +170,7 @@ const HALT_REASONS = new Set([
   "usage",
   "credits",
   "epic_base_unavailable",
+  "epic_unreadable",
   "awaiting_signoff",
   "disabled",
 ]);

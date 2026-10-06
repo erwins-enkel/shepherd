@@ -140,6 +140,7 @@ interface Harness {
   archived: string[];
   dropped: string[];
   prCache: Record<string, GitState>;
+  completedCleared: { repoPath: string; parentIssueNumber: number }[];
   setReview: (id: string, decision: ReviewDecision, headSha?: string) => void;
 }
 
@@ -283,6 +284,7 @@ function makeHarness(
     archived,
     dropped,
     prCache,
+    completedCleared: [],
     setReview: (id, decision, headSha = "") => {
       reviews[id] = { decision, headSha };
     },
@@ -309,6 +311,7 @@ function makeHarness(
     },
     dropPrCache: (id) => dropped.push(id),
     emitEpic: (epic) => epics.push(epic),
+    emitEpicCompletedCleared: (key) => harness.completedCleared.push(key),
     emitSessionNew: (s) => sessionNews.push(s),
     readCodexAuthMode: () => opts.authMode ?? "unknown",
     rebaseCap: 5,
@@ -1867,6 +1870,32 @@ describe("drain epic mode", () => {
     expect(last.runSummary!.queued).toEqual([600]);
     // Attended: the promoted epic waits for approval, it does not spawn on its own.
     expect(h.creates).toHaveLength(0);
+  });
+
+  test("queue: promoting an epic clears its stale completion", async () => {
+    const { h, NEXT } = queueHarness(true);
+    // NEXT completed (falsely) before, was dismissed, and got re-queued behind the leader.
+    h.store.recordEpicCompleted({
+      repoPath: REPO,
+      parentIssueNumber: NEXT,
+      parentTitle: `Epic ${NEXT}`,
+      completedAt: 1,
+      childrenJson: "[]",
+    });
+    h.store.setEpicLandingPr(REPO, NEXT, {
+      state: "none",
+      prNumber: null,
+      prUrl: null,
+      attempts: 0,
+    });
+    h.store.dismissEpicCompleted(REPO, NEXT);
+    h.store.enqueueEpic({ repoPath: REPO, parentIssueNumber: NEXT, mode: "attended" });
+
+    await h.drain.pump(REPO);
+
+    expect(h.store.getEpicRun(REPO)?.parentIssueNumber).toBe(NEXT);
+    expect(h.store.hasEpicCompleted(REPO, NEXT)).toBe(false);
+    expect(h.completedCleared).toEqual([{ repoPath: REPO, parentIssueNumber: NEXT }]);
   });
 
   test("queue: an empty queue leaves the completed leader idle", async () => {

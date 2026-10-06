@@ -648,6 +648,8 @@ export interface AppDeps {
     retainClaim(id: string): void;
     /** Assemble the live Epic for a repo's running epic (server routes + pump). */
     buildEpic(repoPath: string, run: EpicRun): Promise<Epic | null>;
+    /** True while the repo's open-issue listing is failing — buildEpic then yields no epic. */
+    issueListingFailed?(repoPath: string): boolean;
     /** On-demand structural diagnosis for one epic parent (GET /api/epic/diagnose). */
     diagnoseEpic(repoPath: string, run: EpicRun): Promise<EpicDiagnosis | null>;
     /** Operator approves the next epic-attended spawn for the given repo. */
@@ -8403,6 +8405,14 @@ async function handleEpicGet({ req, parts, url, deps }: Ctx): Promise<Response |
     return json({ error: "parent must be a positive integer" }, 400);
   if (!deps.drain) return json({ error: "drain unavailable" }, 503);
   const epic = await deps.drain.buildEpic(dir, runForParent(deps.store, dir, parentNumber));
+  if (!epic && deps.drain.issueListingFailed?.(dir))
+    return json(
+      {
+        error: "epic unreadable: the forge's issue listing failed; retrying",
+        code: "epic_unreadable",
+      },
+      503,
+    );
   if (!epic) return json({ error: "not found" }, 404);
   return json(epic);
 }
@@ -8459,23 +8469,28 @@ function kickDrain(drain: NonNullable<AppDeps["drain"]>, why: string): void {
 
 // #2624: a queued epic's settings live on its queue row — editing them must not supersede the
 // leader. A status change leaves the queue and takes over the run, as for any other epic.
+// Returns true when a start cleared the epic's stale completion (the band must drop it).
 function saveEpicRunPatch(
   store: AppDeps["store"],
   drain: NonNullable<AppDeps["drain"]>,
   merged: EpicRun,
   patch: EpicRunPatch,
   queued: boolean,
-): void {
+): boolean {
   if (queued && patch.status === undefined) {
     store.updateEpicQueueSettings(merged);
-    return;
+    return false;
   }
   if (queued) {
     store.removeEpicQueueEntry(merged.repoPath, merged.parentIssueNumber);
     if (merged.status !== "running") kickDrain(drain, "dequeue");
   }
   store.setEpicRun(merged);
+  const cleared =
+    merged.status === "running" &&
+    store.clearEpicCompletedOnRestart(merged.repoPath, merged.parentIssueNumber);
   kickDrainOnEpicStart(drain, merged.status);
+  return cleared;
 }
 
 function isEpicPutRequest(req: Request, parts: string[]): boolean {
@@ -8512,7 +8527,8 @@ async function handleEpicPut({ req, parts, url, deps }: Ctx): Promise<Response |
     );
   const merged = mergeEpicRunPatch(base, patch);
   if (merged === null) return json({ error: "invalid epic run patch" }, 400);
-  saveEpicRunPatch(deps.store, deps.drain, merged, patch, queued);
+  if (saveEpicRunPatch(deps.store, deps.drain, merged, patch, queued))
+    deps.events?.emit("epic:completed-cleared", { repoPath: dir, parentIssueNumber: parentNumber });
   const epic = await deps.drain.buildEpic(dir, merged);
   if (epic) deps.events?.emit("epic:update", epic);
   return json(epic ?? { ok: true });

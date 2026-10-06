@@ -3379,6 +3379,8 @@
   "planpanel_review_at_cap_no_resume": "Erneute Prüfung am Überarbeitungslimit. Der Prüfer kann den Plan weiterhin freigeben. Verlangt er stattdessen Änderungen, werden diese Befunde nicht an den Planungs-Agenten gesendet – „Mit Befunden fortsetzen“ erscheint dann hier, um das Budget zurückzusetzen und sie erneut zu senden.",
   "drain_paused_epic_base": "Pausiert: Epic-Branch {branch} nicht erstellbar",
   "epic_hold_epic_base_unavailable": "Pausiert: Der Epic-Branch {branch} konnte auf der Forge nicht erstellt werden. Wird erneut versucht — bis dahin kann kein Child starten.",
+  "drain_paused_epic_unreadable": "Pausiert: Issues des Epics nicht von der Forge lesbar",
+  "epic_hold_epic_unreadable": "Pausiert: Die Issue-Liste konnte nicht von der Forge gelesen werden (oft ein Rate-Limit). Wird erneut versucht — bis sie lädt, startet kein Child und keins gilt als erledigt.",
   "settings_role_model_distiller_title": "Learnings-Distiller",
   "settings_role_model_distiller_hint": "Findet wiederkehrende Erkenntnisse aus Repository-Signalen.",
   "settings_distiller_interval_label": "Tage zwischen automatischen Läufen",

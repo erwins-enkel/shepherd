@@ -67,6 +67,12 @@ describe("epicHoldLine", () => {
     expect(line).toContain("epic/1757-critic");
   });
 
+  it("epic_unreadable explains the stall", () => {
+    expect(epicHoldLine(drain({ reason: "epic_unreadable" }), true, [...READY])).toBe(
+      m.epic_hold_epic_unreadable(),
+    );
+  });
+
   it("returns null when not running / no drain / actively spawning (reason null)", () => {
     expect(epicHoldLine(drain({ reason: "cap" }), false, [...READY])).toBeNull();
     expect(epicHoldLine(null, true, [...READY])).toBeNull();

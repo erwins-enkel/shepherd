@@ -567,16 +567,20 @@
       "destinations": [
         "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerSupervisorFix3Tests.swift\",\"LocalServerSupervisorFix3Tests\",\"aQuitBetweenRunAndThePidPublishStandsDownTheNewChild() async throws\"]"
       ],
-      "reason": "Retained unchanged in ShepherdKitTests.",
-      "assertionChanges": []
+      "reason": "Operator decision: quit preserves the server and cancels supervision; explicit Stop terminates it.",
+      "assertionChanges": [
+        "fixture: Operator-authorized lifecycle amendment replaces quit-time kill/relaunch expectations with survival or cancelled-backoff assertions; explicit-stop cleanup remains."
+      ]
     },
     {
       "oldID": "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerSupervisorFix3Tests.swift\",\"LocalServerSupervisorFix3Tests\",\"aQuitInsideARestartsWindowLeavesNoChildRunning() async throws\"]",
       "destinations": [
         "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerSupervisorFix3Tests.swift\",\"LocalServerSupervisorFix3Tests\",\"aQuitInsideARestartsWindowLeavesNoChildRunning() async throws\"]"
       ],
-      "reason": "Retained unchanged in ShepherdKitTests.",
-      "assertionChanges": []
+      "reason": "Operator decision: quit preserves the server and cancels supervision; explicit Stop terminates it.",
+      "assertionChanges": [
+        "fixture: Operator-authorized lifecycle amendment replaces quit-time kill/relaunch expectations with survival or cancelled-backoff assertions; explicit-stop cleanup remains."
+      ]
     },
     {
       "oldID": "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerSupervisorFix3Tests.swift\",\"LocalServerSupervisorFix3Tests\",\"chunksLostToTheBufferingPolicyAreMarkedInTheLog() async throws\"]",
@@ -727,8 +731,10 @@
       "destinations": [
         "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerSupervisorTests.swift\",\"LocalServerSupervisorFixTests\",\"terminateNowDuringTheCrashLoopWindowDoesNotBlockTheNextRestart() async throws\"]"
       ],
-      "reason": "Retained unchanged in ShepherdKitTests.",
-      "assertionChanges": []
+      "reason": "Operator decision: quit preserves the server and cancels supervision; explicit Stop terminates it.",
+      "assertionChanges": [
+        "fixture: Operator-authorized lifecycle amendment replaces quit-time kill/relaunch expectations with survival or cancelled-backoff assertions; explicit-stop cleanup remains."
+      ]
     },
     {
       "oldID": "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerSupervisorTests.swift\",\"LocalServerSupervisorProcessTests\",\"aLineSplitAcrossTwoChunksIsReassembledExactlyOnce() async throws\"]",
@@ -767,8 +773,10 @@
       "destinations": [
         "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerSupervisorTests.swift\",\"LocalServerSupervisorProcessTests\",\"terminateNowKillsAChildThatIgnoresSIGTERM() async throws\"]"
       ],
-      "reason": "Retained unchanged in ShepherdKitTests.",
-      "assertionChanges": []
+      "reason": "Operator decision: quit preserves the server and cancels supervision; explicit Stop terminates it.",
+      "assertionChanges": [
+        "fixture: Operator-authorized lifecycle amendment replaces quit-time kill/relaunch expectations with survival or cancelled-backoff assertions; explicit-stop cleanup remains."
+      ]
     },
     {
       "oldID": "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerSupervisorTests.swift\",\"LocalServerSupervisorProcessTests\",\"theGeneratedPasswordIsCapturedAndRedacted() async throws\"]",
@@ -12473,6 +12481,22 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ShepherdPaletteTests.swift\",\"ShepherdPaletteTests\",\"testAppearanceMatchesWebPalette()\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalConnectionBannerTests.swift\",\"LocalConnectionBannerTests\",\"offlineLocalStatesChooseCopyAndAction()\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalConnectionBannerTests.swift\",\"LocalConnectionBannerTests\",\"unmanagedOrRunningServersKeepGenericBanner()\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalConnectionBannerTests.swift\",\"LocalConnectionBannerTests\",\"otherConnectionBannersKeepTheirPriority()\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalConnectionBannerTests.swift\",\"LocalConnectionBannerTests\",\"otherConnectionBannersKeepTheirPriority()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"quitLeavesTheChildAndOwnershipRecordAlive() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"adoptionResumesLogsWithoutOfferingAPasswordAndStopRemovesTheRecord() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"aDeadPidRecordIsRemoved() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"anIdentityMismatchLeavesTheForeignServerUntouched() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"anAdoptedServerDeathRestartsThroughTheExistingPolicy() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"quittingDuringStartupStillAllowsHealthyAdoptionOnTheNextLaunch() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quittingPreservesTheServerAndNextModelAdoptsBeforeExternalAcknowledgment() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"kernelStartMismatchCannotAdoptOrSignalALivePid() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"everyStopPathRevalidatesTheAdoptedProcessBeforeSignalling() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"monitorTreatsAReusedPidAsAnExitAndNeverKillsItsReplacement() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"otherConfigurationsAndDatabaseChangesPreserveLiveOwnership() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"delayedPasswordAfterQuitNeverReachesTheLogOrANewPasswordOffer() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"adoptionAndContinuousAppendLoggingBoundDiskAndHandleTruncation() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"aRealParentExitPreservesStoppedAgentsThenAdoptsRecoversAndCleansUp() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerLogTests.swift\",\"PersistentServerLogTests\",\"tailRewindsAfterTruncationAndFollowsAReplacedFile() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerLogTests.swift\",\"PersistentServerLogTests\",\"copyTruncateKeepsAnAppendWriterUsableAndCapsThePreviousCopy() throws\"]"
   ]
 }

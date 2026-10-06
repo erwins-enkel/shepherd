@@ -4216,7 +4216,7 @@
   "native_welcome_title": "Mit Shepherd verbinden",
   "native_welcome_subtitle": "Shepherd für Mac spricht mit einem Shepherd-Server. Nutze einen, der auf diesem Mac schon läuft, oder verbinde dich mit einem entfernten.",
   "native_welcome_local_title": "Auf diesem Mac ausführen",
-  "native_welcome_local_body": "Den Shepherd-Server verwenden, der auf diesem Mac bereits läuft.",
+  "native_welcome_local_body": "Installiere oder nutze einen lokalen Shepherd-Server. Er läuft weiter, wenn du die App beendest oder neu startest. Steuere den Server mit „Stoppen“ oder „Neu starten“.",
   "native_welcome_local_detecting": "Suche nach lokalem Server…",
   "native_welcome_local_found": "Lokaler Server gefunden, Version {version}.",
   "native_welcome_local_missing": "Auf Port 7330 läuft kein lokaler Server. Starte einen und prüfe erneut.",

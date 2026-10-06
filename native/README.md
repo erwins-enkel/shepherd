@@ -29,6 +29,24 @@ Use a server on your Mac or connect to a remote one. If your agents run on a Lin
 Mac app gives you a native place to follow and steer that work. Your existing Shepherd sessions
 are there when you connect.
 
+A local server started by the app keeps running when you quit or restart the app, including
+automatic updates and dev rebuilds. The next launch resumes supervision. Use **Stop** or
+**Restart** in **Run on this Mac** to control the server. A dev rebuild retains the running
+server code; **Restart** explicitly loads the updated code.
+
+Ownership and private logs in `~/.shepherd/run/` are scoped by port and canonical installation
+and database paths. Adoption and every signal validate the kernel process start time, so a
+reused PID cannot grant ownership. Generated boot passwords use a separate 0600 one-shot file,
+read and removed by the app, and never enter the server log. If the app quits during boot, the
+next adoption removes that file without offering the old password again.
+
+Logs use append mode and copy-truncate at 10 MiB on spawn, adoption and while the app observes
+the server; the previous copy is capped at 10 MiB. The tail follows truncation and file
+replacement. While the app is closed, log growth is bounded only at the next app start.
+Continuous maintenance while closed would require an additional persistent logging service.
+Older running apps still stop their server on quit: the dev preflight retains its live-session
+checks unless the running app has a matching live ownership record.
+
 The app is a client for Shepherd: it needs a running Shepherd server. The server runs the agents;
 the app is where you see their progress, inspect results and make decisions.
 

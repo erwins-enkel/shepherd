@@ -24,7 +24,7 @@ public struct LocalServerIdentity: Codable, Sendable, Equatable {
       Self.canonical(databasePath) == Self.canonical(other.databasePath)
   }
 
-  private static func canonical(_ path: String) -> String {
+  static func canonical(_ path: String) -> String {
     URL(fileURLWithPath: path).standardizedFileURL.resolvingSymlinksInPath().path
   }
 }

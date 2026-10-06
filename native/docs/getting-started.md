@@ -72,11 +72,15 @@ Run commands from the repository root.
      a different port gets its own saved profile and credential. HOME remains your home
      directory; `SHEPHERD_REF` is preserved. These settings
      are resolved when the app's local supervisor is created, so relaunch after changing them.
-     A server already answering locally is shown with its reported install and database paths.
+     Quitting or restarting the app leaves its local server and sessions running, including
+     update relaunches and dev rebuilds. The next launch adopts the recorded server when its
+     live pid, process group and health identity match. **Stop** and **Restart** explicitly
+     stop the server; a generated password is offered only for a new boot in this app run.
+     A foreign server already answering locally is shown with its reported install and database paths.
      Older servers that do not report paths are explicitly marked unknown. Choose **Keep using
      this server** before connecting; a changed identity or a failed recheck clears that choice.
      To stop an external server, use the terminal or service manager that started it, then
-     **Recheck**. Only an app-owned child with matching launch identity gets Stop and Restart.
+     **Recheck**. Only an app-managed server with matching ownership and identity gets Stop and Restart.
      The native supervisor supplies ephemeral local-health metadata only on loopback; ordinary
      server health responses do not disclose install or database paths.
    - **A remote profile** — the server URL must be `https`, or `http` to loopback or a

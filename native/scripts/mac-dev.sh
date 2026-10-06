@@ -2,22 +2,15 @@
 # One-shot local Mac dev loop: quit whatever Shepherd.app is running, build the
 # Debug app from this checkout and open it. The Mac counterpart of ios-dev.sh.
 #
-# Quitting first is not optional: the installed app and every dev build share
-# the bundle id run.shepherd.mac, and a still-running instance keeps supervising
-# the local server on :7330. A dev build launched next to it would see that
-# server as "externally managed" and never run its own start path (e.g. the Bun
-# version check). A normal quit lets the app stop the server it supervises.
-#
-# Before quitting, mac-dev-preflight.py checks whether that server hosts live
-# sessions (Shepherd is developed with Shepherd) and stops with a report:
-#   exit 2  sessions would be interrupted (agents survive in herdr) -> --yes
-#   exit 3  sessions would be lost (herdr would die too)             -> --force
+# The installed app and dev builds share run.shepherd.mac. Quit the old app
+# before launching the new one. A detaching build keeps its server running; the
+# new app adopts the recorded local install and resumes supervision.
 #
 # Usage: native/scripts/mac-dev.sh [--build-only] [--keep-running] [--yes] [--force]
 #   --build-only    build, but neither quit nor launch anything
 #   --keep-running  build and launch without quitting the running app first
-#   --yes           accept interrupting live sessions
-#   --force         accept losing live sessions (implies --yes)
+#   --yes           accept interrupting sessions in an older app
+#   --force         accept losing sessions in an older app (implies --yes)
 set -euo pipefail
 
 BUNDLE_ID=run.shepherd.mac
@@ -56,20 +49,17 @@ rm -f "$LOG"
 echo "    $APP"
 [[ "$LAUNCH" == 1 ]] || exit 0
 
-SERVER_STOPPED=0
 if [[ "$QUIT" == 1 ]] && running; then
-  echo "==> Checking what the restart would interrupt…"
+  echo "==> Checking app relaunch…"
   verdict=0
   python3 "$SCRIPT_DIR/mac-dev-preflight.py" || verdict=$?
   case "$verdict" in
     0) ;;
-    2) [[ "$YES" == 1 ]] || { echo "Stopped before quitting; nothing was changed." >&2; exit 2; }
-       SERVER_STOPPED=1 ;;
-    3) [[ "$FORCE" == 1 ]] || { echo "Stopped before quitting; nothing was changed." >&2; exit 3; }
-       SERVER_STOPPED=1 ;;
+    2) [[ "$YES" == 1 ]] || { echo "Stopped before quitting; nothing was changed." >&2; exit 2; } ;;
+    3) [[ "$FORCE" == 1 ]] || { echo "Stopped before quitting; nothing was changed." >&2; exit 3; } ;;
     *) echo "Preflight failed; not quitting the running app." >&2; exit 1 ;;
   esac
-  echo "==> Quitting the running Shepherd (it stops the local server it supervises)…"
+  echo "==> Quitting the running Shepherd…"
   osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
   for _ in $(seq 1 75); do running || break; sleep 0.2; done
   if running; then
@@ -80,11 +70,8 @@ fi
 
 holder="$(listener)"
 if [[ -n "$holder" ]]; then
-  echo "Note: port $PORT is still served by $holder — the dev app will treat it as an externally managed server." >&2
+  echo "Note: port $PORT is still served by $holder — the dev app will adopt it if its ownership record and identity match." >&2
 fi
 
 echo "==> Launching the dev build…"
 open "$APP"
-if [[ "$SERVER_STOPPED" == 1 ]]; then
-  echo "The local server is stopped. Press Start in the dev app's \"Run on this Mac\" panel to re-attach the sessions."
-fi

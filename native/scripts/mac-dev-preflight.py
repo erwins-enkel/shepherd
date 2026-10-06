@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Says what quitting the running Shepherd.app would do to live work, before mac-dev.sh does it.
 
-Quitting the app stops the local server it supervises (its whole process group).
+Older apps stop the supervised server (its whole process group) on quit. A
+matching live ownership record positively identifies a detaching build; only
+that running app can skip these risk checks.
 Agents live in herdr panes, so they survive as long as herdr is not in that group
 and is not a child of the app; the next server boot re-matches them. If herdr dies
 too, that boot marks every session "done".
@@ -14,12 +16,14 @@ Exit codes: 0 safe to quit, 2 live sessions would be interrupted (needs --yes),
 """
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import sqlite3
 import subprocess
 import sys
 import urllib.request
+from pathlib import Path
 
 PORT = int(os.environ.get("SHEPHERD_PORT", "7330"))
 ACTIVE = ("running", "idle", "blocked")
@@ -36,6 +40,48 @@ def proc(pid: int) -> tuple[int, int] | None:
     """(ppid, pgid) of a live pid."""
     fields = run("ps", "-o", "ppid=,pgid=", "-p", str(pid)).split()
     return (int(fields[0]), int(fields[1])) if len(fields) == 2 else None
+
+
+class ProcBSDInfo(ctypes.Structure):
+    """Darwin sys/proc_info.h's proc_bsdinfo (the same ABI Swift uses)."""
+    _fields_ = [
+        (name, ctypes.c_uint32) for name in (
+            "pbi_flags", "pbi_status", "pbi_xstatus", "pbi_pid", "pbi_ppid",
+            "pbi_uid", "pbi_gid", "pbi_ruid", "pbi_rgid", "pbi_svuid",
+            "pbi_svgid", "rfu_1",
+        )
+    ] + [
+        ("pbi_comm", ctypes.c_char * 16),
+        ("pbi_name", ctypes.c_char * 32),
+    ] + [
+        (name, ctypes.c_uint32) for name in (
+            "pbi_nfiles", "pbi_pgid", "pbi_pjobc", "e_tdev", "e_tpgid",
+        )
+    ] + [
+        ("pbi_nice", ctypes.c_int32),
+        ("pbi_start_tvsec", ctypes.c_uint64),
+        ("pbi_start_tvusec", ctypes.c_uint64),
+    ]
+
+
+def process_start(pid: int) -> dict[str, int] | None:
+    """Exact kernel birth time, matching KernelProcessIdentity.read in Swift."""
+    if sys.platform != "darwin" or pid <= 1:
+        return None
+    try:
+        libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        probe = libproc.proc_pidinfo
+        probe.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_uint64,
+                          ctypes.c_void_p, ctypes.c_int]
+        probe.restype = ctypes.c_int
+        info = ProcBSDInfo()
+        size = ctypes.sizeof(info)
+        # PROC_PIDTBSDINFO = 3; SZOMB = 5. Short reads must never grant ownership.
+        if probe(pid, 3, 0, ctypes.byref(info), size) != size or info.pbi_status == 5:
+            return None
+        return {"seconds": info.pbi_start_tvsec, "microseconds": info.pbi_start_tvusec}
+    except (OSError, AttributeError, ctypes.ArgumentError):
+        return None
 
 
 def pids(pattern: str) -> list[int]:
@@ -80,11 +126,40 @@ def herdr_terminals() -> set[str] | None:
     return {agent.get("terminal_id") for agent in result.get("agents", [])}
 
 
+def detaches_on_quit(server: int, apps: list[int]) -> bool:
+    """Only a running detaching build writes ownership. Ignore unrelated records.
+
+    Require the listener to remain a child of a running app: an old app next to
+    a detached server must never inherit that server's capability claim.
+    """
+    info = proc(server)
+    if not info or info[0] not in apps:
+        return False
+    directory = Path.home() / ".shepherd/run"
+    for path in [directory / "app-server.json", *directory.glob("app-server-*.json")]:
+        try:
+            record = json.loads(path.read_text())
+            pid = record["pid"]
+            owner = proc(pid)
+            if (record["port"] == PORT and owner and owner[0] in apps
+                    and record["processGroup"] == owner[1]
+                    and (start := process_start(pid)) is not None
+                    and record["processStart"] == start
+                    and (pid == server or owner[1] == info[1])):
+                return True
+        except (OSError, ValueError, KeyError, TypeError):
+            continue
+    return False
+
+
 def main() -> int:
     apps = pids("Shepherd.app/Contents/MacOS/Shepherd")
     server = listener(PORT)
     if not apps:
         print("No Shepherd app is running; nothing to interrupt.")
+        return 0
+    if server and detaches_on_quit(server, apps):
+        print(f"Quitting the app leaves the server on :{PORT} (pid {server}) running; sessions continue.")
         return 0
     server_proc = proc(server) if server else None
     if not server or not server_proc or server_proc[0] not in apps:

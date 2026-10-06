@@ -1052,7 +1052,7 @@
 "native_url_error_insecure" = "Nutze https. Einfaches http ist nur für localhost und Tailscale-Namen (.ts.net) erlaubt.";
 "native_url_error_malformed" = "Das ist keine gültige Adresse. Nutze http(s)://host[:port].";
 "native_welcome_connect" = "Verbinden";
-"native_welcome_local_body" = "Den Shepherd-Server verwenden, der auf diesem Mac bereits läuft.";
+"native_welcome_local_body" = "Installiere oder nutze einen lokalen Shepherd-Server. Er läuft weiter, wenn du die App beendest oder neu startest. Steuere den Server mit „Stoppen“ oder „Neu starten“.";
 "native_welcome_local_detecting" = "Suche nach lokalem Server…";
 "native_welcome_local_found" = "Lokaler Server gefunden, Version %1$@.";
 "native_welcome_local_missing" = "Auf Port 7330 läuft kein lokaler Server. Starte einen und prüfe erneut.";

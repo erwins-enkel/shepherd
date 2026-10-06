@@ -49,6 +49,15 @@ before running it. Read it first:
 | **macOS** | Core-only / degraded | Installs prereqs, clones, builds the UI, prints a loud degraded banner. Dev-server detection and loopback previews work; stopping a preview from the UI works but is bounded (the `lsof` snapshot must be fresh enough and the process is re-checked live, otherwise the stop is refused rather than sent). Exposing a preview over the tailnet is unavailable (it needs the `tailscale` CLI). **No** sandbox, egress allowlist, auto-drain, systemd unit, or automated backups — run `bun run start` manually. |
 | **Windows** | Not supported | The installer refuses and routes you to **WSL2**. |
 
+### Local server in the Mac app
+
+**Run on this Mac** can install and manage a local server. That server keeps running when you
+quit or restart the app, including updates and dev rebuilds; sessions continue. On the next
+launch the app resumes supervision after checking its saved ownership record and the server's
+health identity. Use **Stop** or **Restart** in the local-server panel to stop the server.
+Servers started elsewhere remain externally managed. The generated password is offered only
+when this app run starts the server, never when adopting one already running.
+
 ### Installer environment knobs
 
 | Variable | Default | Purpose |

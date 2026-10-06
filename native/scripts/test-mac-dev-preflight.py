@@ -1,18 +1,28 @@
 import contextlib
 import importlib.util
 import io
+import ctypes
+import os
+import sys
 from pathlib import Path
 import unittest
+import tempfile
+import json
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location("mac_dev_preflight", Path(__file__).with_name("mac-dev-preflight.py"))
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
+DETACH_PROBE = module.detaches_on_quit
+START_PROBE = module.process_start
+
 SESSIONS = [("TASK-01", "running", "demo", "term_1")]
 
 
-def verdict(apps, server, procs, sessions=SESSIONS, terminals=frozenset({"term_1"}), herdr=(9,)):
+def verdict(apps, server, procs, sessions=SESSIONS, terminals=frozenset({"term_1"}), herdr=(9,), detaches=False):
     """Runs main() against a faked process table; returns (exit code, last output line)."""
+    module.detaches_on_quit = detaches if callable(detaches) else lambda server, apps: detaches
     module.pids = lambda pattern: list(apps) if "Shepherd" in pattern else list(herdr)
     module.listener = lambda port: server
     module.proc = lambda pid: procs.get(pid)
@@ -26,6 +36,73 @@ def verdict(apps, server, procs, sessions=SESSIONS, terminals=frozenset({"term_1
 
 
 class PreflightTests(unittest.TestCase):
+    def test_detaching_build_does_not_need_session_or_herdr_checks(self):
+        code, last = verdict([100], 200, {200: (100, 200)}, terminals=None, detaches=True)
+        self.assertEqual(code, 0)
+        self.assertIn("sessions continue", last)
+
+    @patch.object(module, "process_start", return_value={"seconds": 123, "microseconds": 456})
+    def test_capability_requires_a_live_record_for_the_running_listener(self, _probe):
+        with tempfile.TemporaryDirectory() as home, patch.object(Path, "home", return_value=Path(home)):
+            directory = Path(home) / ".shepherd/run"
+            directory.mkdir(parents=True)
+            record = directory / "app-server-7330-test.json"
+            module.proc = lambda pid: {200: (100, 200), 300: (100, 300)}.get(pid)
+            self.assertFalse(DETACH_PROBE(200, [100]))
+            record.write_text(json.dumps({"pid": 300, "processGroup": 300, "port": 7330}))
+            self.assertFalse(DETACH_PROBE(200, [100]))
+            record.write_text(json.dumps({"pid": 200, "processGroup": 200, "port": 7330,
+                                          "processStart": {"seconds": 123, "microseconds": 456}}))
+            self.assertTrue(DETACH_PROBE(200, [100]))
+            self.assertFalse(DETACH_PROBE(200, [999]))
+            module.proc = lambda pid: None
+            self.assertFalse(DETACH_PROBE(200, [100]))
+
+    def test_stale_or_unreadable_process_start_retains_live_session_checks(self):
+        with tempfile.TemporaryDirectory() as home, patch.object(Path, "home", return_value=Path(home)):
+            directory = Path(home) / ".shepherd/run"
+            directory.mkdir(parents=True)
+            record = directory / "app-server-7330-test.json"
+            start = {"seconds": 123, "microseconds": 456}
+            for recorded, live in [(start, {**start, "microseconds": 457}),
+                                   (start, {**start, "seconds": 124}),
+                                   (start, None), (None, start), (None, None)]:
+                with self.subTest(recorded=recorded, live=live), patch.object(
+                        module, "process_start", return_value=live, create=True):
+                    record.write_text(json.dumps({"pid": 200, "processGroup": 200,
+                                                  "port": 7330, "processStart": recorded}))
+                    code, last = verdict([100], 200, {200: (100, 200), 9: (1, 9)},
+                                         detaches=DETACH_PROBE)
+                    self.assertEqual(code, 2)
+                    self.assertIn("--yes", last)
+
+    def test_kernel_probe_preserves_microseconds_and_rejects_read_errors(self):
+        def read(pid, flavor, arg, pointer, size):
+            info = pointer._obj
+            info.pbi_status = 2
+            info.pbi_start_tvsec = 123
+            info.pbi_start_tvusec = 456789
+            return size
+
+        with patch.object(module.sys, "platform", "darwin"), patch.object(module.ctypes, "CDLL") as load:
+            probe = load.return_value.proc_pidinfo
+            probe.side_effect = read
+            self.assertEqual(START_PROBE(200), {"seconds": 123, "microseconds": 456789})
+            probe.side_effect = None
+            for result in (0, ctypes.sizeof(module.ProcBSDInfo) - 1):
+                probe.return_value = result
+                self.assertIsNone(START_PROBE(200))
+            load.side_effect = OSError("unreadable")
+            self.assertIsNone(START_PROBE(200))
+
+    @unittest.skipUnless(sys.platform == "darwin", "Darwin libproc ABI")
+    def test_kernel_probe_reads_this_process(self):
+        start = START_PROBE(os.getpid())
+        self.assertIsNotNone(start)
+        self.assertGreater(start["seconds"], 0)
+        self.assertLess(start["microseconds"], 1000000)
+        self.assertEqual(START_PROBE(os.getpid()), start)
+
     def test_nothing_running_is_safe(self):
         self.assertEqual(verdict([], None, {})[0], 0)
 

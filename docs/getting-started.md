@@ -6,6 +6,10 @@ Commands use the repository root as the working directory unless noted otherwise
 
 [Install](#install) · [Requirements](#requirements) · [Quick start](#quick-start)
 
+A local server started from the Mac app's **Run on this Mac** panel keeps running when the app
+quits or restarts. The next launch resumes supervision; **Stop**/**Restart** in the panel
+explicitly control the server. See the [Mac guide](../native/docs/getting-started.md).
+
 ## Install
 
 ```bash

@@ -1,5 +1,27 @@
 import { test, expect } from "bun:test";
 import {
+  closeSync,
+  fstatSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
+
+/** Mode and contents read through one descriptor (no stat/read race). */
+function readChannel(file: string): { mode: number; text: string } {
+  const fd = openSync(file, "r");
+  try {
+    return { mode: fstatSync(fd).mode & 0o777, text: readFileSync(fd, "utf8") };
+  } finally {
+    closeSync(fd);
+  }
+}
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
   hashPassword,
   verifyPassword,
   generatePassword,
@@ -202,3 +224,90 @@ test("bootstrapAuth: env cookie secret pins the signing secret (overrides persis
   });
   expect(r.cookieSecret).toBe("env-pinned");
 });
+
+test("bootstrapAuth: supervised credential channel is private and never emits a banner", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "shepherd-auth-channel-"));
+  try {
+    const file = join(directory, "password");
+    writeFileSync(file, "", { mode: 0o644 });
+    const logs: string[] = [];
+    const store = fakeStore();
+    const result = await bootstrapAuth({
+      store,
+      envPassword: null,
+      envCookieSecret: null,
+      generatedPasswordFile: file,
+      log: (line) => logs.push(line),
+    });
+    expect(logs).toEqual([]);
+    const channel = readChannel(file);
+    expect(channel.text).toBe(result.generatedPassword!);
+    expect(channel.mode).toBe(0o600);
+    expect(await verifyPassword(channel.text, result.passwordHash)).toBe(true);
+    // An existing password is retained and no credential is offered again.
+    writeFileSync(file, "");
+    const restart = await bootstrapAuth({
+      store,
+      envPassword: null,
+      envCookieSecret: null,
+      generatedPasswordFile: file,
+      log: (line) => logs.push(line),
+    });
+    expect(restart.passwordHash).toBe(result.passwordHash);
+    expect(readChannel(file).text).toBe("");
+    expect(logs).toEqual([]);
+    const link = join(directory, "link");
+    symlinkSync(file, link);
+    await expect(
+      bootstrapAuth({
+        store: fakeStore(),
+        envPassword: null,
+        envCookieSecret: null,
+        generatedPasswordFile: link,
+        log: (line) => logs.push(line),
+      }),
+    ).rejects.toThrow();
+    expect(logs).toEqual([]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+for (const failure of ["missing", "unwritable"] as const) {
+  test(`bootstrapAuth: ${failure} credential channel leaves generation retryable`, async () => {
+    const directory = mkdtempSync(join(tmpdir(), "shepherd-auth-retry-"));
+    try {
+      // A directory is deterministically unwritable as a credential file, even as root.
+      const file = failure === "missing" ? join(directory, "missing") : directory;
+      const store = fakeStore();
+      const logs: string[] = [];
+      await expect(
+        bootstrapAuth({
+          store,
+          envPassword: null,
+          envCookieSecret: null,
+          generatedPasswordFile: file,
+          log: (line) => logs.push(line),
+        }),
+      ).rejects.toThrow();
+      expect(store.getSetting("passwordHash")).toBe(null);
+      expect(logs).toEqual([]);
+
+      const retryFile = join(directory, "retry");
+      writeFileSync(retryFile, "", { mode: 0o600 });
+      const retry = await bootstrapAuth({
+        store,
+        envPassword: null,
+        envCookieSecret: null,
+        generatedPasswordFile: retryFile,
+        log: (line) => logs.push(line),
+      });
+      expect(retry.generatedPassword).toBeTruthy();
+      expect(store.getSetting("passwordHash")).toBe(retry.passwordHash);
+      expect(await verifyPassword(readFileSync(retryFile, "utf8"), retry.passwordHash)).toBe(true);
+      expect(logs).toEqual([]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+}

@@ -44,7 +44,12 @@ let package = Package(
     ),
     .testTarget(
       name: "ShepherdKitTests",
-      dependencies: ["ShepherdKit"]
+      dependencies: ["ShepherdKit", "LocalServerLifecycleHelper"]
+    ),
+    .executableTarget(
+      name: "LocalServerLifecycleHelper",
+      dependencies: ["ShepherdKit"],
+      path: "Tests/Helpers/LocalServerLifecycleHelper"
     ),
   ],
   swiftLanguageModes: [.v6]

@@ -534,6 +534,47 @@ extension MacSeamTests {
         #expect(app.sheet == .login(profile))
     }
 
+    @Test func quittingPreservesTheServerAndNextModelAdoptsBeforeExternalAcknowledgment() async throws {
+        let home = try tempHome()
+        var childPID: Int32?
+        defer {
+            if let childPID { killpg(childPID, SIGKILL) }
+            try? FileManager.default.removeItem(at: home)
+        }
+        let environment = try checkout(in: home)
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let first = LocalServerModel(environment: environment, probeExternal: { false },
+                                     health: { true }, launch: { launch })
+        await first.start()
+        let pid = try #require(first.state.pid)
+        childPID = pid
+        first.terminateForQuit()
+        let recordURL = try #require(FileManager.default.contentsOfDirectory(at: home.appendingPathComponent(".shepherd/run"), includingPropertiesForKeys: nil).first { $0.pathExtension == "json" })
+        #expect(kill(pid, 0) == 0)
+        let json = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: recordURL)) as? [String: Any])
+        let identity = try #require(json["identity"] as? [String: String])
+        let health = Components.Schemas.Health(ok: true, version: "test", localInstall: .init(
+            appDirectory: try #require(identity["appDirectory"]),
+            databasePath: try #require(identity["databasePath"]),
+            instanceID: try #require(identity["instanceID"])))
+        let next = LocalServerModel(environment: environment, discoverExternal: { health },
+                                    health: { true }, launch: { launch })
+        await next.refresh()
+        #expect(next.state == .running(pid: pid))
+        #expect(next.canStop && next.canRestart)
+        #expect(next.externalIdentity == nil)
+        #expect(next.capturedPassword == nil)
+        await next.restart()
+        let replacement = try #require(next.state.pid)
+        childPID = replacement
+        #expect(replacement != pid)
+        #expect(kill(pid, 0) != 0)
+        await next.stop()
+        childPID = nil
+        #expect(kill(replacement, 0) != 0)
+        #expect(!FileManager.default.fileExists(atPath: recordURL.path))
+    }
+
     @Test func externalAcknowledgmentIsResetWhenIdentityChangesOrDisappears() async throws {
         let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
         let reply = Mutex<Components.Schemas.Health?>(.init(ok: true, version: "1", localInstall: .init(

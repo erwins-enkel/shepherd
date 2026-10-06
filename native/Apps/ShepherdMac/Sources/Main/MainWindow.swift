@@ -50,6 +50,8 @@ struct MainWindow: View {
         }
         .navigationTitle(model.activeProfile?.name ?? "Shepherd")
         .toolbar { toolbarContent }
+        .toolbarBackground(ShepherdPalette.panel, for: .windowToolbar)
+        .toolbarBackground(.visible, for: .windowToolbar)
         .sheet(isPresented: $confirmingArchive) {
             if let session = selectedSession, let store = model.store {
                 ComposeActionSheet(mode: .close, session: session, store: store, app: model,

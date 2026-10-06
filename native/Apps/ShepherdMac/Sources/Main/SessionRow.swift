@@ -7,8 +7,10 @@ struct SessionRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
+            // Like iOS: a parked (done = WARTET) session is a hollow ring, the rest a filled dot.
             Circle()
-                .fill(ShepherdPalette.statusTint(session.status))
+                .fill(session.status.known == .done ? .clear : ShepherdPalette.statusTint(session.status))
+                .overlay { if session.status.known == .done { Circle().stroke(ShepherdPalette.slate, lineWidth: 2) } }
                 .frame(width: 8, height: 8)
                 .accessibilityHidden(true)
 

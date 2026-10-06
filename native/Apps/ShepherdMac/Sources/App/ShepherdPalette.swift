@@ -31,10 +31,10 @@ enum ShepherdPalette {
 
     static func statusTint(_ status: SessionStatus) -> Color {
         switch status.known {
-        case .running: green
-        case .idle: blue
-        case .blocked: amber
-        case .done, .archived: slate
+        // app.css --status-*: running amber, blocked red; done (WARTET), idle and archived slate.
+        case .running: amber
+        case .blocked: red
+        case .idle, .done, .archived: slate
         case nil: status.rawValue == "error" ? red : slate
         }
     }

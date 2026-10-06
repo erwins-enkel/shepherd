@@ -180,6 +180,23 @@ import Testing
     await first.stop(gracePeriod: 0.3)
   }
 
+  /// The exit watcher reads the probe every 100 ms. Each read must cost the same stack:
+  /// a closure stored directly in a Mutex was re-wrapped per read and overflowed the
+  /// cooperative thread's stack after ~8 minutes (#2823).
+  @Test func identityProbeReadsDoNotGrowTheStack() async throws {
+    let (launch, cleanup) = try fakeScript("sleep 30\n")
+    defer { cleanup() }
+    let probe = supervisor(launch)
+    await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+      let thread = Thread {
+        for _ in 0..<200_000 { _ = probe.currentIdentity(getpid()) }
+        done.resume()
+      }
+      thread.stackSize = 512 * 1024
+      thread.start()
+    }
+  }
+
   @Test func monitorTreatsAReusedPidAsAnExitAndNeverKillsItsReplacement() async throws {
     let (launch, cleanup) = try fakeScript("sleep 30\n")
     defer { cleanup() }

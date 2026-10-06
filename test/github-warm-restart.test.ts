@@ -451,6 +451,48 @@ describe("GitHub warm restart", () => {
     expect(store.rows).toEqual([]);
   });
 
+  test.each([
+    [
+      "relations",
+      { summaries: [], subIssueNumbers: [], childrenByParent: [[1, null]], blockedByOpen: [] },
+    ],
+    [
+      "relations",
+      {
+        summaries: [["bad", { total: 1, completed: 0 }]],
+        subIssueNumbers: [],
+        childrenByParent: [],
+        blockedByOpen: [],
+      },
+    ],
+    ["issues", [null]],
+    ["counts", { openIssues: "bad", openPRs: 0, ciStatus: null, prKinds: null }],
+    [
+      "prs",
+      {
+        prs: [],
+        statuses: [["a", { state: "open", checks: [], deployConfigured: false }]],
+        capped: false,
+      },
+    ],
+    ["links", [[1, [{ prNumber: 4, author: null }]]]],
+    ["epic", { parent: null, subIssues: [null], blockedBy: [[11, null]] }],
+  ] as const)("malformed nested %s data is deleted on rehydration", (kind, value) => {
+    const store = new MemoryStore();
+    store.putGithubReadCache({
+      slug: "o/r",
+      kind,
+      entryKey: "",
+      version: 1,
+      contentKey: "old",
+      fetchedAt: 1,
+      dataJson: JSON.stringify(value),
+    });
+    const cache = new GithubReadCache(store);
+    expect(cache.get(kind, "o/r")).toBeNull();
+    expect(store.rows).toEqual([]);
+  });
+
   test("a partially failed first fingerprint keeps coverage of rehydrated repositories it did not observe", async () => {
     const h = harness();
     const cold = h.boot();

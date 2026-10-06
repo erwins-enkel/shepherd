@@ -364,6 +364,160 @@ test("warm restart: old stable session reads wait for budget and then refresh af
   expect(reads).toBe(1);
 });
 
+test.each(["gitea", "local"] as const)(
+  "warm restart: GitHub backoff does not stop %s polls",
+  async (kind) => {
+    const store = new SessionStore(":memory:");
+    const session = store.create(baseSession);
+    const cache = new GithubReadCache(store, { canRefresh: () => false });
+    let reads = 0;
+    const forge = {
+      ...forgeReturning(() => {
+        reads++;
+        return NONE;
+      }),
+      kind,
+    };
+    const poller = new PrPoller(
+      store,
+      () => forge,
+      () => {},
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      () => null,
+      cache,
+    );
+    await poller.tick();
+    expect(reads).toBe(1);
+    expect(poller.get(session.id)?.kind).toBe(kind);
+  },
+);
+
+test.each(["fingerprint", "write"] as const)(
+  "warm restart: a %s during viewer resolution supersedes the earlier batch",
+  async (change) => {
+    const store = new SessionStore(":memory:");
+    const a = store.create({ ...baseSession, branch: "a" });
+    const b = store.create({ ...baseSession, herdrAgentId: "term_b", branch: "b" });
+    const green = openGit({ checks: "success", mergeable: true, mergeStateStatus: "clean" });
+    store.putSessionGitCache(a.id, green);
+    store.putSessionGitCache(b.id, green);
+    const cache = new GithubReadCache(store);
+    const fp = {
+      openIssues: 0,
+      issuesUpdatedAt: "",
+      openPrs: 1,
+      prsUpdatedAt: "open",
+      ciState: "",
+    };
+    cache.put("fingerprint", "o/r", null, fp);
+    cache.put("prs", "o/r", "1|open", {
+      prs: [],
+      statuses: new Map([
+        ["a", green],
+        ["b", green],
+      ]),
+      capped: false,
+    });
+    let entered!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    let release!: (v: string | null) => void;
+    const viewer = new Promise<string | null>((resolve) => {
+      release = resolve;
+    });
+    let reads = 0;
+    const forge = forgeReturning(() => {
+      reads++;
+      return { state: "closed", number: 1, checks: "none", deployConfigured: false };
+    });
+    forge.countOpenPrs = async () => 1;
+    forge.listOpenPrSnapshot = async () => {
+      throw new Error("cached snapshot should be reused");
+    };
+    forge.currentUser = () => {
+      entered();
+      return viewer;
+    };
+    const poller = new PrPoller(
+      store,
+      () => forge,
+      () => {},
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      new OpenPrSnapshotService(undefined, undefined, cache),
+      () => `${cache.contentKey("prs", "o/r")}|${cache.revision("o/r")}`,
+      cache,
+    );
+    const tick = poller.tick();
+    await waiting;
+    if (change === "fingerprint")
+      cache.put("fingerprint", "o/r", null, { ...fp, openPrs: 0, prsUpdatedAt: "closed" });
+    else cache.invalidate("o/r", ["prs", "session"]);
+    release(null);
+    await tick;
+    expect(reads).toBe(2);
+    expect(poller.get(a.id)?.state).toBe("closed");
+    expect(poller.get(b.id)?.state).toBe("closed");
+    expect(cache.get("session", "o/r", a.id)?.contentKey).toBe(cache.contentKey("prs", "o/r"));
+  },
+);
+
+test("warm restart: an own-write invalidation during the git event cannot recreate its certificate", async () => {
+  const store = new SessionStore(":memory:");
+  const session = store.create(baseSession);
+  const cache = new GithubReadCache(store);
+  cache.put("fingerprint", "o/r", null, {
+    openIssues: 0,
+    issuesUpdatedAt: "",
+    openPrs: 1,
+    prsUpdatedAt: "same",
+    ciState: "",
+  });
+  const forge = forgeReturning(() => openGit());
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => cache.invalidate("o/r", ["session"]),
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => `${cache.contentKey("prs", "o/r")}|${cache.revision("o/r")}`,
+    cache,
+  );
+  await poller.tick();
+  expect(cache.get("session", "o/r", session.id)).toBeNull();
+});
+
 function forgeReturning(status: () => PrStatus): GitForge {
   return {
     kind: "github",

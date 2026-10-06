@@ -44,7 +44,7 @@ export interface GithubCacheEntry<T> {
 }
 
 const VERSION = 1;
-export const GITHUB_CACHE_MAX_AGE_MS = 24 * 60 * 60_000;
+const GITHUB_CACHE_MAX_AGE_MS = 24 * 60 * 60_000;
 export const issuesKey = (f: RepoFingerprint) => `${f.openIssues}|${f.issuesUpdatedAt}`;
 export const countsKey = (f: RepoFingerprint) =>
   `${f.openIssues}|${f.openPrs}|${f.prsUpdatedAt}|${f.ciState}`;
@@ -181,20 +181,166 @@ function encode<K extends GithubCacheKind>(kind: K, value: CacheValues[K]): stri
   return JSON.stringify(value);
 }
 
+type ValueCheck = (value: unknown) => boolean;
+const string: ValueCheck = (v) => typeof v === "string";
+const nonempty: ValueCheck = (v) => typeof v === "string" && v.length > 0;
+const number: ValueCheck = (v) => typeof v === "number" && Number.isFinite(v);
+const boolean: ValueCheck = (v) => typeof v === "boolean";
+const array =
+  (check: ValueCheck): ValueCheck =>
+  (v) =>
+    Array.isArray(v) && v.every(check);
+const nullable =
+  (check: ValueCheck): ValueCheck =>
+  (v) =>
+    v === null || check(v);
+const oneOf =
+  (...values: string[]): ValueCheck =>
+  (v) =>
+    typeof v === "string" && values.includes(v);
+const object = (v: unknown): v is Record<string, unknown> =>
+  v !== null && typeof v === "object" && !Array.isArray(v);
+const record =
+  (check: ValueCheck): ValueCheck =>
+  (v) =>
+    object(v) && Object.values(v).every(check);
+const map = (key: ValueCheck, value: ValueCheck): ValueCheck =>
+  array((v) => Array.isArray(v) && v.length === 2 && key(v[0]) && value(v[1]));
+function shape(
+  required: Record<string, ValueCheck>,
+  optional: Record<string, ValueCheck> = {},
+): ValueCheck {
+  return (v) =>
+    object(v) &&
+    Object.entries(required).every(([k, check]) => check(v[k])) &&
+    Object.entries(optional).every(([k, check]) => v[k] === undefined || check(v[k]));
+}
+const reviewState = oneOf("approved", "changes_requested", "commented");
+const checks = oneOf("none", "pending", "success", "failure");
+const review = shape({ state: reviewState, author: string, submittedAt: number });
+const mergeState = oneOf(
+  "behind",
+  "blocked",
+  "clean",
+  "dirty",
+  "draft",
+  "has_hooks",
+  "unknown",
+  "unstable",
+);
+const issue = shape(
+  {
+    number,
+    title: string,
+    body: string,
+    url: string,
+    labels: array(string),
+    createdAt: number,
+    assignees: array(string),
+  },
+  {
+    updatedAt: number,
+    author: string,
+    authorAssociation: string,
+    labelColors: record(string),
+    blockedBy: array(number),
+    closed: boolean,
+  },
+);
+const prOptional = {
+  number,
+  url: string,
+  title: string,
+  createdAt: number,
+  mergeable: nullable(boolean),
+  runningChecks: array(string),
+  headSha: string,
+  latestReview: review,
+  reviewerStates: record(shape({ state: reviewState, latestAt: nullable(number) })),
+  requestedReviewers: array(string),
+  authorLogin: string,
+  isFork: boolean,
+  isDraft: boolean,
+  mergeStateStatus: mergeState,
+  baseRefName: string,
+  awaitingWorkflowApproval: boolean,
+};
+const prStatus = shape(
+  { state: oneOf("none", "open", "merged", "closed"), checks, deployConfigured: boolean },
+  prOptional,
+);
+const pull = shape(
+  {
+    number,
+    title: string,
+    url: string,
+    author: string,
+    kind: oneOf("regular", "release", "dependabot"),
+    createdAt: number,
+    isDraft: boolean,
+    mergeable: nullable(boolean),
+    checks,
+    jobs: array(shape({ name: string, state: checks }, { url: string, isDeploy: boolean })),
+  },
+  {
+    ...prOptional,
+    nonDefaultBase: string,
+    headRefName: string,
+    mergeMethod: oneOf("merge", "squash", "rebase"),
+  },
+);
+const validators: Record<GithubCacheKind, ValueCheck> = {
+  fingerprint: shape({
+    openIssues: number,
+    issuesUpdatedAt: string,
+    openPrs: number,
+    prsUpdatedAt: string,
+    ciState: string,
+  }),
+  issues: array(issue),
+  counts: shape({
+    openIssues: nullable(number),
+    openPRs: nullable(number),
+    ciStatus: nullable(oneOf("success", "failure", "pending")),
+    prKinds: nullable(shape({ release: number, dependabot: number, regular: number })),
+  }),
+  prs: shape(
+    { prs: array(pull), statuses: map(string, prStatus), capped: boolean },
+    { source: oneOf("graphql", "rest") },
+  ),
+  links: map(number, array(shape({ prNumber: number, author: string }))),
+  relations: shape({
+    summaries: map(number, shape({ total: number, completed: number })),
+    subIssueNumbers: array(number),
+    childrenByParent: map(number, array(number)),
+    blockedByOpen: map(number, array(number)),
+  }),
+  epic: shape({
+    parent: nullable(issue),
+    subIssues: array(
+      shape({
+        number,
+        title: string,
+        url: string,
+        body: string,
+        closed: boolean,
+        labels: array(string),
+      }),
+    ),
+    blockedBy: map(number, array(number)),
+  }),
+  viewer: nonempty,
+  session: nonempty,
+};
+
 function decode(kind: GithubCacheKind, json: string): unknown {
   const v = JSON.parse(json);
+  if (!Object.hasOwn(validators, kind) || !validators[kind](v))
+    throw new Error("invalid GitHub cache data");
   switch (kind) {
     case "prs":
-      if (!Array.isArray(v?.prs) || !Array.isArray(v?.statuses) || typeof v?.capped !== "boolean")
-        throw new Error("invalid PR snapshot");
       return { ...v, statuses: new Map(v.statuses) };
     case "relations":
-      if (
-        ![v?.summaries, v?.subIssueNumbers, v?.childrenByParent, v?.blockedByOpen].every(
-          Array.isArray,
-        )
-      )
-        throw new Error("invalid issue relations");
       return {
         summaries: new Map(v.summaries),
         subIssueNumbers: new Set(v.subIssueNumbers),
@@ -202,35 +348,10 @@ function decode(kind: GithubCacheKind, json: string): unknown {
         blockedByOpen: new Map(v.blockedByOpen),
       };
     case "epic":
-      if (!Array.isArray(v?.subIssues) || !Array.isArray(v?.blockedBy) || !("parent" in v))
-        throw new Error("invalid epic structure");
       return { ...v, blockedBy: new Map(v.blockedBy) };
     case "links":
-      if (!Array.isArray(v)) throw new Error("invalid PR links");
       return new Map(v);
-    case "fingerprint":
-      if (
-        typeof v?.openIssues !== "number" ||
-        typeof v?.issuesUpdatedAt !== "string" ||
-        typeof v?.openPrs !== "number" ||
-        typeof v?.prsUpdatedAt !== "string" ||
-        typeof v?.ciState !== "string"
-      )
-        throw new Error("invalid fingerprint");
-      return v;
-    case "issues":
-      if (!Array.isArray(v)) throw new Error("invalid issue list");
-      return v;
-    case "counts":
-      if (!v || typeof v !== "object") throw new Error("invalid counts");
-      return v;
-    case "viewer":
-      if (typeof v !== "string" || !v) throw new Error("invalid viewer");
-      return v;
-    case "session":
-      if (typeof v !== "string" || !v) throw new Error("invalid session cache key");
-      return v;
     default:
-      throw new Error("unknown GitHub cache kind");
+      return v;
   }
 }

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { GithubRateLimit, GhBackoff, GhRateBucket } from "$lib/types";
+  import type { GithubRateLimit, GhRateBucket } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { gaugeColor } from "$lib/components/usage-gauges";
   import { formatResetIn } from "$lib/format";
@@ -12,8 +12,8 @@
     bucket: GhRateBucket;
     label: string;
     desc: string;
-    /** Shepherd's backoff for this bucket (none for Search) — drives the "Paused" pill. */
-    backoff: GhBackoff | null;
+    /** Shepherd has backed this bucket off (never for Search) — drives the "Paused" pill. */
+    paused: boolean;
   };
 
   // Build only the buckets we actually received, in fixed order (REST, GraphQL, Search).
@@ -24,21 +24,22 @@
         bucket: d.rest,
         label: m.github_lens_rest_label(),
         desc: m.github_lens_rest_desc(),
-        backoff: d.restBackoff,
+        // Reads and writes back off apart (#2805); either one pauses work on this bucket.
+        paused: d.restBackoff.blocked || d.restWriteBackoff.blocked,
       });
     if (d.graphql)
       out.push({
         bucket: d.graphql,
         label: m.github_lens_graphql_label(),
         desc: m.github_lens_graphql_desc(),
-        backoff: d.backoff,
+        paused: d.backoff.blocked,
       });
     if (d.search)
       out.push({
         bucket: d.search,
         label: m.github_lens_search_label(),
         desc: m.github_lens_search_desc(),
-        backoff: null,
+        paused: false,
       });
     return out;
   }
@@ -58,6 +59,9 @@
   // can report a full REST budget while every real REST call is refused (#2662).
   const restExhausted = $derived(!!data.rest && data.rest.remaining <= 0);
   const restBackedOff = $derived(!restExhausted && data.restBackoff.blocked);
+  // GitHub limits REST writes on a counter of their own (#2805): a write backoff pauses only
+  // background writes, so it gets its own banner beside (not instead of) the read one.
+  const restWriteBackedOff = $derived(!restExhausted && data.restWriteBackoff.blocked);
 
   // When to resume GraphQL: the later of the bucket reset and any active backoff window.
   const graphqlResumeAt = $derived(
@@ -69,7 +73,7 @@
   // budget (a transient rate-limit error, not a drained quota); none otherwise.
   function pillLabel(row: Row): string | null {
     if (row.bucket.remaining <= 0) return m.github_lens_exhausted();
-    if (row.backoff?.blocked) return m.github_lens_paused();
+    if (row.paused) return m.github_lens_paused();
     return null;
   }
 </script>
@@ -94,6 +98,13 @@
     <div class="paused-banner" role="alert">
       {m.github_lens_rest_backoff({
         time: formatResetIn(data.restBackoff.pausedUntil ?? 0, nowMs),
+      })}
+    </div>
+  {/if}
+  {#if restWriteBackedOff}
+    <div class="paused-banner" role="alert">
+      {m.github_lens_rest_write_backoff({
+        time: formatResetIn(data.restWriteBackoff.pausedUntil ?? 0, nowMs),
       })}
     </div>
   {/if}

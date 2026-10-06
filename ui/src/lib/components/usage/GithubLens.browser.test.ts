@@ -17,6 +17,7 @@ function fixture(over: Partial<GithubRateLimit> = {}): GithubRateLimit {
     fetchedAt: BASE,
     backoff: { remaining: 0, resetAt: BASE + H, pausedUntil: BASE + H, blocked: true },
     restBackoff: { remaining: null, resetAt: null, pausedUntil: null, blocked: false },
+    restWriteBackoff: { remaining: null, resetAt: null, pausedUntil: null, blocked: false },
     ...over,
   };
 }
@@ -111,6 +112,69 @@ describe("GithubLens", () => {
       .toBeInTheDocument();
     expect(document.body.textContent).not.toContain("REST reads are paused");
     expect(document.body.textContent).not.toContain(m.github_lens_paused());
+  });
+
+  it("shows a separate write banner and the Paused pill for a REST write backoff (#2805)", async () => {
+    // GitHub limits REST writes on a counter of their own: writes back off while reads run.
+    const data = fixture({
+      graphql: { limit: 5000, used: 1000, remaining: 4000, resetAt: BASE + H },
+      backoff: { remaining: 4000, resetAt: BASE + H, pausedUntil: null, blocked: false },
+      restWriteBackoff: {
+        remaining: null,
+        resetAt: null,
+        pausedUntil: BASE + 5 * 60_000,
+        blocked: true,
+      },
+    });
+    render(GithubLens, { data });
+    await expect
+      .element(page.getByText("Background REST writes are paused", { exact: false }))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByText(m.github_lens_paused(), { exact: true }))
+      .toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("REST reads are paused");
+  });
+
+  it("shows the read and the write banner side by side when both back off (#2805)", async () => {
+    const paused = {
+      remaining: null,
+      resetAt: null,
+      pausedUntil: BASE + 5 * 60_000,
+      blocked: true,
+    };
+    const data = fixture({
+      graphql: { limit: 5000, used: 1000, remaining: 4000, resetAt: BASE + H },
+      backoff: { remaining: 4000, resetAt: BASE + H, pausedUntil: null, blocked: false },
+      restBackoff: paused,
+      restWriteBackoff: paused,
+    });
+    render(GithubLens, { data });
+    await expect
+      .element(page.getByText("REST reads are paused", { exact: false }))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByText("Background REST writes are paused", { exact: false }))
+      .toBeInTheDocument();
+  });
+
+  it("an exhausted REST bucket shows only its exhausted banner, not the write backoff", async () => {
+    const data = fixture({
+      rest: { limit: 5000, used: 5000, remaining: 0, resetAt: BASE + H },
+      graphql: { limit: 5000, used: 1000, remaining: 4000, resetAt: BASE + H },
+      backoff: { remaining: 4000, resetAt: BASE + H, pausedUntil: null, blocked: false },
+      restWriteBackoff: {
+        remaining: null,
+        resetAt: null,
+        pausedUntil: BASE + 5 * 60_000,
+        blocked: true,
+      },
+    });
+    render(GithubLens, { data });
+    await expect
+      .element(page.getByText("REST budget exhausted", { exact: false }))
+      .toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("Background REST writes are paused");
   });
 
   it("shows no pill when both buckets are healthy and backoff is clear", async () => {

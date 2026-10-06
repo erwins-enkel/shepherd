@@ -19,6 +19,7 @@ function gh(over: Partial<GithubRateLimit> = {}): GithubRateLimit {
     fetchedAt: NOW,
     backoff: backoff(),
     restBackoff: backoff(),
+    restWriteBackoff: backoff(),
     ...over,
   };
 }

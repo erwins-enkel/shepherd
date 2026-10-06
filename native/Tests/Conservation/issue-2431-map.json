@@ -12388,6 +12388,10 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/IsolatedCleanupTests.swift\",\"MacSeamTests.IsolatedCleanupTests\",\"suppliedTokenNeverAuthenticatesOrRevokesEvenOnFailure() async throws\"]"
   ],
   "featureAdded": [
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ActionRulesTests.swift\",\"CoreSeamTests.ActionRulesTests\",\"contextMenuFollowsTheWebRules()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ActionRulesTests.swift\",\"CoreSeamTests.ActionRulesTests\",\"contextMenuLabelsResolveAndOnlyDecommissionIsDestructive()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ActionBarTests.swift\",\"MacSeamTests.ActionBarTests\",\"contextMenuAsksBeforeEveryDestructiveOrCostlyActionAndRunsTheRestDirectly()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ActionBarTests.swift\",\"MacSeamTests.ActionBarTests\",\"contextMenuOnAnUnselectedCardTargetsThatCard() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/TerminalOwnerCopyTests.swift\",\"TerminalOwnerCopyTests\",\"ownerTitles()\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/EventStreamTests.swift\",\"EventStreamTests\",\"ownerInvalidationOrder() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/PTYConnectionTests.swift\",\"PTYConnectionTests\",\"clientMetadata()\"]",

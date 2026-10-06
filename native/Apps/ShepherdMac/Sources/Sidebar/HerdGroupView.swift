@@ -14,6 +14,7 @@ struct HerdGroupView: View {
     /// and the Ready lens, which both already go through `displayStatus`.
     let display: (Session) -> Session
     let block: (String) -> BlockReason?
+    let contextMenu: SessionContextController
     let onToggle: () -> Void
 
     static func heading(_ group: HerdGroup, git: [String: GitState]) -> String? {
@@ -56,6 +57,9 @@ struct HerdGroupView: View {
                     .overlay { RoundedRectangle(cornerRadius: 6)
                         .stroke(app.selectedSessionID == session.id ? ShepherdPalette.lineBright : ShepherdPalette.line,
                             lineWidth: 1) }
+                    // The closure's own `session` is the target — a right-click does not select the
+                    // card, so nothing here may read the selection.
+                    .contextMenu { SessionContextMenuItems(session: session, controller: contextMenu) }
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
                     .listRowInsets(EdgeInsets(top: 3, leading: 8, bottom: 3, trailing: 8))

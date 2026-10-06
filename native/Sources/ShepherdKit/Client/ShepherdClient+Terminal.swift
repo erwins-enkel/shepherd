@@ -33,4 +33,38 @@ extension ShepherdClient {
       }
     } catch { throw ShepherdError.from(error, route: "replySession") }
   }
+
+  /// `POST /api/sessions` with the clean-terminal arm — `{repoPath, terminal: true}` and nothing
+  /// else: a bare operator shell in the repo's main checkout. A second one for the same repo is a
+  /// 409 (`ShepherdError.conflict`), which callers resolve by focusing the live terminal.
+  ///
+  /// Hand-built because the contract's `CreateSessionRequest` models only the standard arm (its
+  /// `baseBranch` and `prompt` are required), so the generated client cannot spell this body. It
+  /// carries the same bearer, and a 401 maps like the generated routes — but unlike them it does
+  /// not clear the stored credential.
+  public func createTerminalSession(repoPath: String) async throws -> Session {
+    do {
+      var request = URLRequest(url: profile.baseURL.appendingPathComponent("api/sessions"))
+      request.httpMethod = "POST"
+      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      request.setValue("application/json", forHTTPHeaderField: "Accept")
+      if let token = currentToken() { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+      request.httpBody = try JSONEncoder().encode(TerminalCreateBody(repoPath: repoPath))
+      let (data, response) = try await longRunningURLSession.data(for: request)
+      guard let http = response as? HTTPURLResponse else {
+        throw ShepherdError.fromUndocumented(statusCode: 0, route: "createTerminalSession")
+      }
+      switch http.statusCode {
+      case 200, 201: return try JSONDecoder().decode(Session.self, from: data)
+      case 401: throw ShepherdError.unauthenticated
+      case 409: throw ShepherdError.fromConflict(try JSONDecoder().decode(Components.Schemas._Error.self, from: data))
+      default: throw ShepherdError.fromUndocumented(statusCode: http.statusCode, route: "createTerminalSession")
+      }
+    } catch { throw ShepherdError.from(error, route: "createTerminalSession") }
+  }
+}
+
+private struct TerminalCreateBody: Encodable {
+  let repoPath: String
+  let terminal = true
 }

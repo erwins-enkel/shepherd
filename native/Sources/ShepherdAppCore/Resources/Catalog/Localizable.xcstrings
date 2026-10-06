@@ -960,6 +960,23 @@
         }
       }
     },
+    "cardmenu_clean_terminal": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clean-Terminal im Main-Repo"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clean terminal in main repo"
+          }
+        }
+      }
+    },
     "cardmenu_decommission": {
       "extractionState": "manual",
       "localizations": {
@@ -1007,6 +1024,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Relaunch"
+          }
+        }
+      }
+    },
+    "cardmenu_relaunch_elsewhere": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In anderem Repo neu starten…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Relaunch in another repo…"
           }
         }
       }
@@ -25685,6 +25719,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ session(s) lost their agent after a herdr restart. Revive to bring them back."
+          }
+        }
+      }
+    },
+    "toast_terminal_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clean-Terminal konnte nicht geöffnet werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't open the clean terminal"
+          }
+        }
+      }
+    },
+    "toast_terminal_unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clean-Terminals brauchen ein neueres herdr — herdr aktualisieren und erneut versuchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clean terminals need a newer herdr — update herdr and retry"
           }
         }
       }

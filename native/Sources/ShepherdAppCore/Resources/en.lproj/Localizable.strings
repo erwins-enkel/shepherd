@@ -54,9 +54,11 @@
 "buildqueue_start_plan_steer" = "The build queue is approved for planning only. Create or continue the plan, then stop for review. Do not implement until the plan is approved and execution is explicitly authorized. If the plan is already awaiting review, wait for that approval.";
 "buildqueue_start_steer" = "The build queue is already approved. Continue with the next step now and keep queue progress updated.";
 "cardmenu_amend" = "Amend task…";
+"cardmenu_clean_terminal" = "Clean terminal in main repo";
 "cardmenu_decommission" = "Decommission";
 "cardmenu_label" = "Session actions";
 "cardmenu_relaunch" = "Relaunch";
+"cardmenu_relaunch_elsewhere" = "Relaunch in another repo…";
 "cardmenu_rename" = "Rename";
 "cardmenu_replace_with" = "Continue with…";
 "cardmenu_resume" = "Resume session";
@@ -1498,6 +1500,8 @@
 "toast_revive_all_failed" = "Couldn't revive the stranded sessions. Retry.";
 "toast_revive_all_result" = "Revived %1$@, %2$@ couldn't be revived.";
 "toast_sessions_stranded" = "%1$@ session(s) lost their agent after a herdr restart. Revive to bring them back.";
+"toast_terminal_failed" = "Couldn't open the clean terminal";
+"toast_terminal_unsupported" = "Clean terminals need a newer herdr — update herdr and retry";
 "topbar_held_badge" = "%1$@ held";
 "topbar_held_discard" = "Discard";
 "topbar_held_discard_failed" = "Couldn't discard the held task. Try again.";

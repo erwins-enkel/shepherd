@@ -179,6 +179,12 @@ public final class ActionsModel: AppExtension {
             now: now())
     }
 
+    /// The entries of the card's right-click menu — see `SessionContextAction`.
+    public func contextMenu(for session: Session) -> [SessionContextAction] {
+        ActionRules.contextMenu(
+            for: session, workingBlocked: workingBlocked(), gitMerged: gitMerged(session.id), now: now())
+    }
+
     /// Re-reads the recap snapshot. A failure is logged and dropped: the bar keeps the last
     /// snapshot rather than blanking, because a missing recap line reads as "nothing to do".
     ///

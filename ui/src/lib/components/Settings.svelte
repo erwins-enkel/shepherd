@@ -374,7 +374,6 @@
   );
   const searchRows = $derived(
     sectionSearchRows({
-      provider: defaultAgentProvider,
       session: {
         retentionDays: payload?.sessionRetentionDays,
         retentionKeep: payload?.sessionRetentionKeep,

@@ -16,10 +16,13 @@ import {
   putSessionHousekeeping,
   putRoleEffort,
   putDefaultEffort,
+  putEngineEffort,
   putUpNextReadiness,
 } from "$lib/api";
 import { toasts } from "$lib/toasts.svelte";
 import { roleTitle } from "$lib/settings-search";
+import { configuredModelLabel } from "$lib/model-label";
+import { effortLabel } from "$lib/effort-guidance";
 import { issueRef } from "$lib/issue-ref.svelte";
 
 // Mock the API so Settings never hits the network. The settings GET is seeded to
@@ -37,6 +40,7 @@ vi.mock("$lib/api", async (importOriginal) => {
     putRoleModel: vi.fn(async (key, value) => ({ [key]: value })),
     putRoleEffort: vi.fn(async (key, value) => ({ [key]: value })),
     putDefaultEffort: vi.fn(async (value) => ({ defaultEffort: value })),
+    putEngineEffort: vi.fn(async (key, value) => ({ [key]: value })),
     listDirs: vi.fn(async () => ({ path: "/repo", display: "/repo", parent: null, entries: [] })),
     getSteers: vi.fn(async () => []),
     getCommands: vi.fn(async () => ({ commands: [] })),
@@ -81,6 +85,7 @@ const mockFix = vi.mocked(fixDiagnostic);
 const mockPutTelemetry = vi.mocked(putTelemetryConsent);
 const mockPutHousekeeping = vi.mocked(putSessionHousekeeping);
 const mockPutUpNextReadiness = vi.mocked(putUpNextReadiness);
+const mockPutEngineEffort = vi.mocked(putEngineEffort);
 
 function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
   return {
@@ -94,6 +99,8 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
     defaultModel: "auto",
     defaultCodexModel: "gpt-5.5",
     defaultEffort: "default",
+    defaultClaudeEffort: "inherit",
+    defaultCodexEffort: "inherit",
     operatorLanguage: "en",
     criticCli: "inherit",
     criticModel: "default",
@@ -218,22 +225,15 @@ async function mountCodingAgents() {
   return render(Settings, { initialTab: "codingAgents", onclose: noop, onsaved: noop });
 }
 
+// The api-key block lives in the always-visible Claude Code engine card.
 async function mountClaudeApiKeySettings() {
   await mountCodingAgents();
-  const { disclosure, button } = requiredCodingSectionButton(m.settings_cli_claude_title());
-  if (button.getAttribute("aria-expanded") === "false") {
-    await disclosure.click();
-  }
 }
 
-// The redesigned Coding CLI section (handoff 5a): GLOBAL DEFAULTS is a static,
-// always-visible group; the per-CLI groups (Claude Code, Codex, Agent
-// environments) are collapsed rows that expand in place.
-const codingGroupNames = () => [
-  m.settings_cli_claude_title(),
-  m.settings_cli_codex_title(),
-  m.settings_role_models_title(),
-];
+// The Coding CLI section: GLOBAL DEFAULTS and DEFAULT PER ENGINE (one card per
+// CLI) are always visible; Agent environments is a collapsed row that expands
+// in place.
+const codingGroupNames = () => [m.settings_role_models_title()];
 
 function codingSectionButton(name: string) {
   return page.getByRole("button", { name, exact: true });
@@ -263,7 +263,7 @@ function expectInitialCodingSectionState() {
 }
 
 describe("Settings Coding CLI sections", () => {
-  it("renders GLOBAL DEFAULTS open with the three collapsed groups in order", async () => {
+  it("renders GLOBAL DEFAULTS and both engine cards open, Agent environments collapsed", async () => {
     await mountCodingAgents();
 
     // The GLOBAL DEFAULTS rows are always visible — no disclosure gate.
@@ -271,20 +271,23 @@ describe("Settings Coding CLI sections", () => {
       .element(page.getByRole("combobox", { name: m.settings_default_agent_provider_title() }))
       .toBeVisible();
     await expect
+      .element(page.getByRole("combobox", { name: m.settings_default_effort_title() }))
+      .toBeVisible();
+    await expect
       .element(page.getByRole("switch", { name: m.settings_upnext_skip_cli_picker_label() }))
       .toBeVisible();
 
-    const buttons: HTMLElement[] = [];
+    // Both engines are configurable whichever CLI is the default (the seed is Claude).
+    await expect.element(page.getByTestId("default-claude-model")).toBeVisible();
+    await expect.element(page.getByTestId("default-codex-model")).toBeVisible();
+    for (const engine of [m.settings_cli_claude(), m.settings_cli_codex()]) {
+      await expect
+        .element(page.getByRole("combobox", { name: m.settings_engine_effort_aria({ engine }) }))
+        .toBeVisible();
+    }
+
     for (const name of codingGroupNames()) {
-      buttons.push(requiredCodingSectionButton(name).button);
-    }
-    for (let index = 0; index < buttons.length - 1; index += 1) {
-      expect(
-        buttons[index].compareDocumentPosition(buttons[index + 1]) &
-          Node.DOCUMENT_POSITION_FOLLOWING,
-      ).toBeTruthy();
-    }
-    for (const button of buttons) {
+      const { button } = requiredCodingSectionButton(name);
       expect(button.getAttribute("aria-expanded")).toBe("false");
       expect(controlledSection(button).hidden).toBe(true);
     }
@@ -292,7 +295,7 @@ describe("Settings Coding CLI sections", () => {
 
   it("click toggles a collapsed group without replacing its controlled content", async () => {
     await mountCodingAgents();
-    const { disclosure, button } = requiredCodingSectionButton(m.settings_cli_claude_title());
+    const { disclosure, button } = requiredCodingSectionButton(m.settings_role_models_title());
     const content = controlledSection(button);
     expect(content.hidden).toBe(true);
 
@@ -301,29 +304,26 @@ describe("Settings Coding CLI sections", () => {
     expect(document.getElementById(content.id)).toBe(content);
     expect(content.hidden).toBe(false);
 
-    const defaultEffortSelect = page
-      .getByRole("combobox", { name: m.settings_default_effort_title() })
-      .element();
-    expect(content.contains(defaultEffortSelect)).toBe(true);
+    const roleName = { name: m.settings_role_cli_label({ role: roleTitle("critic") }) };
+    const roleCliSelect = page.getByRole("combobox", roleName).element();
+    expect(content.contains(roleCliSelect)).toBe(true);
 
     await disclosure.click();
     await expect.poll(() => button.getAttribute("aria-expanded")).toBe("false");
     expect(document.getElementById(content.id)).toBe(content);
     expect(content.hidden).toBe(true);
-    expect(content.contains(defaultEffortSelect)).toBe(true);
+    expect(content.contains(roleCliSelect)).toBe(true);
 
     await disclosure.click();
     await expect.poll(() => button.getAttribute("aria-expanded")).toBe("true");
     expect(document.getElementById(content.id)).toBe(content);
     expect(content.hidden).toBe(false);
-    expect(page.getByRole("combobox", { name: m.settings_default_effort_title() }).element()).toBe(
-      defaultEffortSelect,
-    );
+    expect(page.getByRole("combobox", roleName).element()).toBe(roleCliSelect);
   });
 
   it("native Enter and Space button interaction toggles a focused disclosure", async () => {
     await mountCodingAgents();
-    const { button } = requiredCodingSectionButton(m.settings_cli_codex_title());
+    const { button } = requiredCodingSectionButton(m.settings_role_models_title());
     button.focus();
     expect(document.activeElement).toBe(button);
 
@@ -350,7 +350,7 @@ describe("Settings Coding CLI sections", () => {
 
   it("resets to all groups collapsed after Settings is remounted", async () => {
     const first = await mountCodingAgents();
-    const { disclosure, button } = requiredCodingSectionButton(m.settings_cli_codex_title());
+    const { disclosure, button } = requiredCodingSectionButton(m.settings_role_models_title());
     await disclosure.click();
     await expect.poll(() => button.getAttribute("aria-expanded")).toBe("true");
 
@@ -380,17 +380,7 @@ describe("Settings default coding environment", () => {
       .toHaveValue("low");
   });
 
-  it("loads the saved model for the selected Codex CLI", async () => {
-    mockGetSettings.mockResolvedValue(
-      settings({ defaultAgentProvider: "codex", defaultCodexModel: "gpt-5.4" }),
-    );
-    await mountCodingAgents();
-
-    const model = page.getByTestId("default-environment-model");
-    await expect.element(model).toHaveValue("gpt-5.4");
-  });
-
-  it("switching CLI restores each CLI's saved model", async () => {
+  it("shows both engines' saved models whichever CLI is the default", async () => {
     mockGetSettings.mockResolvedValue(
       settings({
         defaultAgentProvider: "claude",
@@ -400,24 +390,24 @@ describe("Settings default coding environment", () => {
     );
     await mountCodingAgents();
 
-    const provider = page.getByRole("combobox", {
-      name: m.settings_default_agent_provider_title(),
-    });
-    const model = page.getByTestId("default-environment-model");
-    await expect.element(model).toHaveValue("opus");
-    await provider.selectOptions("codex");
-    await expect.element(model).toHaveValue("gpt-5.4");
-    await provider.selectOptions("claude");
-    await expect.element(model).toHaveValue("opus");
+    const claude = page.getByTestId("default-claude-model");
+    const codex = page.getByTestId("default-codex-model");
+    await expect.element(claude).toHaveValue("opus");
+    await expect.element(codex).toHaveValue("gpt-5.4");
+    await page
+      .getByRole("combobox", { name: m.settings_default_agent_provider_title() })
+      .selectOptions("codex");
+    await expect.element(claude).toHaveValue("opus");
+    await expect.element(codex).toHaveValue("gpt-5.4");
   });
 
-  it("saves Codex model changes through the Codex preference endpoint", async () => {
+  it("saves the Codex model while Claude Code is the default CLI", async () => {
     mockGetSettings.mockResolvedValue(
-      settings({ defaultAgentProvider: "codex", defaultCodexModel: "gpt-5.4" }),
+      settings({ defaultAgentProvider: "claude", defaultCodexModel: "gpt-5.4" }),
     );
     await mountCodingAgents();
 
-    const model = page.getByTestId("default-environment-model");
+    const model = page.getByTestId("default-codex-model");
     await model.selectOptions("gpt-5.6-luna");
 
     await vi.waitFor(() => expect(mockPutCodexModel).toHaveBeenCalledWith("gpt-5.6-luna"));
@@ -431,7 +421,7 @@ describe("Settings default coding environment", () => {
     mockPutCodexModel.mockRejectedValue(new Error("save failed"));
     await mountCodingAgents();
 
-    const model = page.getByTestId("default-environment-model");
+    const model = page.getByTestId("default-codex-model");
     await model.selectOptions("gpt-5.6-luna");
 
     await expect.element(model).toHaveValue("gpt-5.4");
@@ -440,6 +430,116 @@ describe("Settings default coding environment", () => {
         toasts.items.some((toast) => toast.text === m.settings_default_codex_model_save_failed()),
       ).toBe(true),
     );
+  });
+
+  const codexEffort = () =>
+    page.getByRole("combobox", {
+      name: m.settings_engine_effort_aria({ engine: m.settings_cli_codex() }),
+    });
+  const codexCard = () => page.getByRole("region", { name: m.settings_cli_codex() });
+  const codexStarts = (part: "value" | "source") =>
+    codexCard().element().querySelector(`.starts-${part}`)?.textContent?.trim();
+
+  it("saves an engine's own default effort and shows what the engine starts with", async () => {
+    mockPutEngineEffort.mockClear();
+    mockGetSettings.mockResolvedValue(
+      settings({
+        defaultCodexModel: "gpt-6.1-sol",
+        defaultEffort: "high",
+        defaultCodexEffort: "inherit",
+      }),
+    );
+    await mountCodingAgents();
+
+    await expect.element(codexEffort()).toHaveValue("inherit");
+    const model = configuredModelLabel("gpt-6.1-sol");
+    await expect.poll(() => codexStarts("value")).toBe(`${model} · ${effortLabel("high")}`);
+    await expect.poll(() => codexStarts("source")).toBe(m.settings_engine_effort_source_inherit());
+
+    await codexEffort().selectOptions("xhigh");
+    await vi.waitFor(() =>
+      expect(mockPutEngineEffort).toHaveBeenCalledWith("defaultCodexEffort", "xhigh"),
+    );
+    await expect.poll(() => codexStarts("value")).toBe(`${model} · ${effortLabel("xhigh")}`);
+    await expect.poll(() => codexStarts("source")).toBe(m.settings_engine_effort_source_own());
+  });
+
+  it("names the global effort in each engine's follow-global option", async () => {
+    mockGetSettings.mockResolvedValue(settings({ defaultEffort: "high" }));
+    await mountCodingAgents();
+
+    const inherit = (codexEffort().element() as HTMLSelectElement).options[0]!;
+    expect(inherit.value).toBe("inherit");
+    expect(inherit.textContent?.trim()).toBe(
+      m.settings_engine_effort_inherit({ effort: effortLabel("high") }),
+    );
+    await page
+      .getByRole("combobox", { name: m.settings_default_effort_title() })
+      .selectOptions("low");
+    await expect
+      .poll(() => (codexEffort().element() as HTMLSelectElement).options[0]!.textContent?.trim())
+      .toBe(m.settings_engine_effort_inherit({ effort: effortLabel("low") }));
+  });
+
+  it("offers Ultra for Codex but not for Claude Code", async () => {
+    mockGetSettings.mockResolvedValue(settings({ defaultCodexModel: "gpt-6.1-sol" }));
+    await mountCodingAgents();
+
+    const values = (engine: string) =>
+      [
+        ...(
+          page
+            .getByRole("combobox", { name: m.settings_engine_effort_aria({ engine }) })
+            .element() as HTMLSelectElement
+        ).options,
+      ].map((o) => o.value);
+    expect(values(m.settings_cli_codex())).toContain("ultra");
+    expect(values(m.settings_cli_claude())).not.toContain("ultra");
+  });
+
+  it("reverts an engine effort change when saving fails", async () => {
+    toasts.items = [];
+    mockGetSettings.mockResolvedValue(settings({ defaultCodexEffort: "inherit" }));
+    mockPutEngineEffort.mockRejectedValueOnce(new Error("save failed"));
+    await mountCodingAgents();
+
+    await codexEffort().selectOptions("high");
+
+    await expect.element(codexEffort()).toHaveValue("inherit");
+    await vi.waitFor(() =>
+      expect(
+        toasts.items.some(
+          (toast) =>
+            toast.text === m.settings_engine_effort_save_failed({ engine: m.settings_cli_codex() }),
+        ),
+      ).toBe(true),
+    );
+  });
+
+  it("names the substitute's own default in the failover note", async () => {
+    mockGetSettings.mockResolvedValue(
+      settings({
+        defaultAgentProvider: "codex",
+        defaultCodexModel: "gpt-6.1-sol",
+        defaultEffort: "high",
+        defaultCodexEffort: "xhigh",
+        providerFailover: { active: true, from: "claude", current: "codex" },
+      }),
+    );
+    await mountCodingAgents();
+
+    await expect
+      .element(
+        page.getByText(
+          m.settings_default_cli_failover_engine({
+            engine: m.settings_cli_codex(),
+            model: configuredModelLabel("gpt-6.1-sol"),
+            effort: effortLabel("xhigh"),
+          }),
+          { exact: false },
+        ),
+      )
+      .toBeVisible();
   });
 
   // The role "Effective:" line states what the role WILL run on, so it must use the
@@ -500,7 +600,7 @@ describe("Settings default coding environment", () => {
     const { disclosure, button } = requiredCodingSectionButton(m.settings_role_models_title());
     if (button.getAttribute("aria-expanded") === "false") await disclosure.click();
 
-    await page.getByTestId("default-environment-model").selectOptions("sonnet");
+    await page.getByTestId("default-claude-model").selectOptions("sonnet");
     await vi.waitFor(() => expect(mockPutModel).toHaveBeenCalledWith("sonnet"));
 
     const cli = page.getByRole("combobox", {
@@ -750,13 +850,13 @@ describe("Settings search", () => {
     await page.viewport(1280, 900);
     await mountCodingAgents();
 
-    // "mode" hits the Authentication mode row inside the collapsed Claude Code
-    // group (title) — and nothing outside groups — so both the badge and the
-    // auto-expand behavior are exercised. Expected counts come from the same
-    // index the app derives them from, so copy edits can't desync this test.
+    // "recap" hits the Recap role row inside the collapsed Agent environments
+    // group, so both the badge and the auto-expand behavior are exercised.
+    // Expected counts come from the same index the app derives them from, so
+    // copy edits can't desync this test.
     const { matchCount, sectionSearchRows } = await import("$lib/settings-search");
-    const query = "mode";
-    const expected = matchCount(sectionSearchRows({ provider: "claude" }).codingAgents, query);
+    const query = "recap";
+    const expected = matchCount(sectionSearchRows({}).codingAgents, query);
     expect(expected).toBeGreaterThan(0);
 
     await searchInput().fill(query);
@@ -779,7 +879,7 @@ describe("Settings search", () => {
       .toBeVisible();
 
     // The matching collapsed group auto-expanded and the substring is marked.
-    const { button } = requiredCodingSectionButton(m.settings_cli_claude_title());
+    const { button } = requiredCodingSectionButton(m.settings_role_models_title());
     await expect.poll(() => button.getAttribute("aria-expanded")).toBe("true");
     await expect.poll(() => document.querySelectorAll("mark").length).toBeGreaterThan(0);
   });
@@ -793,7 +893,7 @@ describe("Settings search", () => {
     // panels receive the query even though their internals weren't rebuilt.
     const { matchCount, sectionSearchRows } = await import("$lib/settings-search");
     const query = "contrast";
-    const expected = matchCount(sectionSearchRows({ provider: "claude" }).device, query);
+    const expected = matchCount(sectionSearchRows({}).device, query);
     expect(expected).toBeGreaterThan(0);
 
     await searchInput().fill(query);
@@ -815,7 +915,7 @@ describe("Settings search", () => {
 
     const { matchCount, sectionSearchRows } = await import("$lib/settings-search");
     const query = "saved";
-    const expected = matchCount(sectionSearchRows({ provider: "claude" }).steers, query);
+    const expected = matchCount(sectionSearchRows({}).steers, query);
     expect(expected).toBeGreaterThan(0);
 
     await searchInput().fill(query);
@@ -1004,7 +1104,7 @@ describe("Settings Codex reasoning", () => {
       name: m.settings_role_effort_label({ role: "Recap" }),
     });
     await expect.element(effort).toHaveValue("ultra");
-    await page.getByTestId("default-environment-model").selectOptions("gpt-5.5");
+    await page.getByTestId("default-codex-model").selectOptions("gpt-5.5");
     await expect.element(effort).toHaveValue("ultra");
     expect(putRoleEffort).not.toHaveBeenCalled();
   });
@@ -1012,7 +1112,6 @@ describe("Settings Codex reasoning", () => {
 
 it("saves ultra as the shared default effort", async () => {
   await mountCodingAgents();
-  await requiredCodingSectionButton(m.settings_cli_claude_title()).disclosure.click();
   const effort = page.getByRole("combobox", { name: m.settings_default_effort_title() });
   await effort.selectOptions("ultra");
   await vi.waitFor(() => expect(putDefaultEffort).toHaveBeenCalledWith("ultra"));

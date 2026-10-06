@@ -912,6 +912,14 @@ export const putDefaultCodexModel = (model: string): Promise<{ defaultCodexModel
 export const putDefaultEffort = (effort: string): Promise<{ defaultEffort: string }> =>
   patchSettings<{ defaultEffort: string }>({ defaultEffort: effort });
 
+// Per-engine default effort ("inherit" follows the global default effort).
+export type EngineEffortKey = "defaultClaudeEffort" | "defaultCodexEffort";
+export const putEngineEffort = (
+  key: EngineEffortKey,
+  effort: string,
+): Promise<Partial<Record<EngineEffortKey, string>>> =>
+  patchSettings<Partial<Record<EngineEffortKey, string>>>({ [key]: effort });
+
 // Persist the language spawned agents use to talk to the operator ("en" | "de").
 export const putOperatorLanguage = (lang: string): Promise<{ operatorLanguage: string }> =>
   patchSettings<{ operatorLanguage: string }>({ operatorLanguage: lang });

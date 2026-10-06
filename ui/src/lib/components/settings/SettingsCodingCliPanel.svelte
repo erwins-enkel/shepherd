@@ -7,10 +7,12 @@
     putDistillerIntervalDays,
     putUpnextSkipCliPicker,
     putDefaultEffort,
+    putEngineEffort,
     putOperatorLanguage,
     putAuthMode,
     putAnthropicApiKey,
     verifyApiKey,
+    type EngineEffortKey,
   } from "$lib/api";
   import { verifyFailureMessage } from "$lib/verify-key";
   import { configuredModelLabel } from "$lib/model-label";
@@ -23,7 +25,6 @@
   } from "$lib/effort-guidance";
   import {
     AGENT_PROVIDERS,
-    MODELS,
     EFFORTS,
     MODELS_BY_PROVIDER,
     PREMIUM_MODELS,
@@ -47,9 +48,9 @@
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
 
-  // The Coding CLI section rebuilt to the 5a/5b handoff: GLOBAL DEFAULTS as
-  // aligned label/control rows, then the per-CLI groups (Claude Code, Codex,
-  // Agent environments) as collapsed rows that expand in place. Owns all
+  // The Coding CLI section: GLOBAL DEFAULTS as aligned label/control rows, then
+  // DEFAULT PER ENGINE — one always-visible card per CLI (model, effort, auth) —
+  // then Agent environments as a collapsed row that expands in place. Owns all
   // CLI-scoped state EXCEPT the provider/model trio, which stays in
   // Settings.svelte (its save/revert handlers are the tested contract and the
   // mobile section list needs the provider for its summary). Everything else
@@ -90,12 +91,18 @@
   // failover server-side, and the note disappears with the same click rather than lingering
   // until the next settings fetch.
   const failover = $derived(payload?.providerFailover ?? null);
+  // It also names what the substitute starts with — its own engine default, not the
+  // effort meant for the engine it stands in for.
   const failoverNote = $derived(
     failover?.active && failover.from !== null && defaultAgentProvider === failover.current
-      ? m.settings_default_cli_desc_failover({
+      ? `${m.settings_default_cli_desc_failover({
           to: providerLabel(failover.current),
           from: providerLabel(failover.from),
-        })
+        })} ${m.settings_default_cli_failover_engine({
+          engine: providerLabel(failover.current),
+          model: engineModelLabel(failover.current),
+          effort: startsWithEffortLabel(failover.current),
+        })}`
       : null,
   );
 
@@ -103,6 +110,14 @@
   let defaultEffort = $state("default");
   let defaultEffortSaved = "default";
   let defaultEffortBusy = $state(false);
+  // Per-engine default effort: "inherit" follows the global defaultEffort above.
+  const ENGINE_EFFORT_KEY = {
+    claude: "defaultClaudeEffort",
+    codex: "defaultCodexEffort",
+  } as const satisfies Record<AgentProvider, EngineEffortKey>;
+  let engineEffort = $state<Record<AgentProvider, string>>({ claude: "inherit", codex: "inherit" });
+  let engineEffortSaved: Record<AgentProvider, string> = { claude: "inherit", codex: "inherit" };
+  let engineEffortBusy = $state<Record<AgentProvider, boolean>>({ claude: false, codex: false });
   let operatorLanguage = $state("en");
   let operatorLanguageSaved = "en";
   let operatorLanguageBusy = $state(false);
@@ -184,6 +199,11 @@
     untrack(() => {
       defaultEffort = s.defaultEffort ?? "default";
       defaultEffortSaved = defaultEffort;
+      engineEffort = {
+        claude: s.defaultClaudeEffort ?? "inherit",
+        codex: s.defaultCodexEffort ?? "inherit",
+      };
+      engineEffortSaved = { ...engineEffort };
       operatorLanguage = s.operatorLanguage ?? "en";
       operatorLanguageSaved = operatorLanguage;
       authMode = s.authMode;
@@ -212,33 +232,38 @@
   // ── Derivations ───────────────────────────────────────────────────────────
   const isPremiumModel = $derived(PREMIUM_MODELS.includes(defaultModel));
   const is1mModel = $derived(defaultModel.endsWith("[1m]"));
-  const modelRowTitle = $derived(
-    defaultAgentProvider === "claude"
-      ? m.settings_default_model_title()
-      : m.settings_default_codex_model_title(),
-  );
-  const modelRowDesc = $derived(
-    defaultAgentProvider === "claude"
-      ? m.settings_default_model_hint()
-      : m.settings_default_codex_model_hint(),
-  );
+  // Each engine card's model, as the guidance and effort tiers read it.
+  const engineModel = $derived<Record<AgentProvider, string>>({
+    claude: modelGuidanceAlias(defaultModel, fableAvailable),
+    codex: defaultCodexModel,
+  });
 
   // Group rows from the shared search index — counts ("N settings") and search
   // auto-expand both derive from it, so they can't drift from the copy.
-  const groupRows = $derived(codingCliRows(defaultAgentProvider));
-  let groupOpen = $state({ claude: false, codex: false, roles: false });
-  const claudeExpanded = $derived(
-    groupOpen.claude || (q !== "" && matchCount(groupRows.claude, q) > 0),
-  );
-  const codexExpanded = $derived(
-    groupOpen.codex || (q !== "" && matchCount(groupRows.codex, q) > 0),
-  );
-  const rolesExpanded = $derived(
-    groupOpen.roles || (q !== "" && matchCount(groupRows.roles, q) > 0),
-  );
+  const groupRows = codingCliRows();
+  let rolesOpen = $state(false);
+  const rolesExpanded = $derived(rolesOpen || (q !== "" && matchCount(groupRows.roles, q) > 0));
 
   function providerLabel(provider: string): string {
     return provider === "codex" ? m.settings_cli_codex() : m.settings_cli_claude();
+  }
+  /** The model an engine starts with, as the "Starts with" line names it. */
+  function engineModelLabel(provider: AgentProvider): string {
+    const token = provider === "codex" ? defaultCodexModel : defaultModel;
+    return token === "auto" || token === "default"
+      ? m.settings_role_model_effective_provider_default()
+      : configuredModelLabel(modelGuidanceAlias(token, fableAvailable));
+  }
+  /** The effort an engine starts with: its own default unless it follows the global one. */
+  function startsWithEffortLabel(provider: AgentProvider): string {
+    const own = engineEffort[provider];
+    const setting = own === "inherit" ? defaultEffort : own;
+    return setting === "default" ? m.settings_engine_effort_cli_default() : effortLabel(setting);
+  }
+  /** Tiers offered for an engine's current model; a stored tier it lacks stays selectable. */
+  function engineEffortTiers(provider: AgentProvider): readonly string[] {
+    const model = engineModel[provider];
+    return providerEfforts(provider, model === "default" || model === "auto" ? null : model);
   }
   function roleModelOptions(role: RoleBase): readonly string[] {
     const cli = roleCli[role];
@@ -418,6 +443,28 @@
     }
   }
 
+  async function saveEngineEffort(provider: AgentProvider) {
+    if (engineEffortBusy[provider]) return;
+    engineEffortBusy[provider] = true;
+    const key = ENGINE_EFFORT_KEY[provider];
+    try {
+      const r = await putEngineEffort(key, engineEffort[provider]);
+      const v = r[key];
+      if (typeof v === "string") {
+        engineEffort[provider] = v;
+        engineEffortSaved[provider] = v;
+      }
+    } catch {
+      engineEffort[provider] = engineEffortSaved[provider];
+      toasts.info(m.settings_engine_effort_save_failed({ engine: providerLabel(provider) }), {
+        key: `engine-effort-${provider}`,
+        alert: true,
+      });
+    } finally {
+      engineEffortBusy[provider] = false;
+    }
+  }
+
   async function saveOperatorLanguage() {
     if (operatorLanguageBusy) return;
     operatorLanguageBusy = true;
@@ -569,57 +616,47 @@
   {/snippet}
 </SettingRow>
 
-<SettingRow title={modelRowTitle} description={modelRowDesc} {query}>
+<SettingRow
+  title={m.settings_default_effort_title()}
+  description={m.settings_default_effort_hint()}
+  {query}
+>
   {#snippet control()}
     <span class="set-select">
-      {#if defaultAgentProvider === "claude"}
-        <select
-          data-testid="default-environment-model"
-          bind:value={defaultModel}
-          disabled={defaultModelBusy}
-          aria-label={m.settings_default_model_title()}
-          onchange={onClaudeModelChange}
-        >
-          <option value="auto">{m.settings_default_model_auto()}</option>
-          <option value="default">{m.newtask_model_default()}</option>
-          {#each MODELS as mdl (mdl)}
-            <option value={mdl}>{modelOptionLabel("claude", mdl)}</option>
-          {/each}
-        </select>
-      {:else}
-        <select
-          data-testid="default-environment-model"
-          bind:value={defaultCodexModel}
-          disabled={defaultCodexModelBusy}
-          aria-label={m.settings_default_codex_model_title()}
-          onchange={onCodexModelChange}
-        >
-          <option value="default">{m.newtask_model_default()}</option>
-          {#each MODELS_BY_PROVIDER.codex as mdl (mdl)}
-            <option value={mdl}>{modelOptionLabel("codex", mdl)}</option>
-          {/each}
-        </select>
-      {/if}
+      <select
+        bind:value={defaultEffort}
+        disabled={defaultEffortBusy}
+        aria-label={m.settings_default_effort_title()}
+        onchange={saveDefaultEffort}
+      >
+        <option value="default">{m.settings_default_effort_default()}</option>
+        {#each EFFORTS as tier (tier)}
+          <option value={tier}>{effortLabel(tier)}</option>
+        {/each}
+      </select>
       <span class="set-chev" aria-hidden="true">▾</span>
     </span>
   {/snippet}
-  {#snippet below()}
-    <div class="meta">
-      <ModelGuidance
-        metaChips
-        provider={defaultAgentProvider}
-        model={defaultAgentProvider === "claude"
-          ? modelGuidanceAlias(defaultModel, fableAvailable)
-          : defaultCodexModel}
-        context="default"
-      />
-      {#if defaultAgentProvider === "claude" && isPremiumModel}
-        <p class="premium-warn">{m.settings_default_model_premium_warning()}</p>
-      {/if}
-      {#if defaultAgentProvider === "claude" && is1mModel}
-        <p class="premium-warn">{m.settings_default_model_1m_note()}</p>
-      {/if}
-    </div>
+</SettingRow>
+
+<SettingRow
+  title={m.settings_operator_language_title()}
+  description={m.settings_operator_language_hint()}
+  {query}
+>
+  {#snippet control()}
+    <span class="set-select">
+      <select
+        bind:value={operatorLanguage}
+        disabled={operatorLanguageBusy}
+        aria-label={m.settings_operator_language_title()}
+        onchange={saveOperatorLanguage}
+      >
+        <option value="en">{m.lang_english()}</option>
+        <option value="de">{m.lang_german()}</option>
+      </select>
+      <span class="set-chev" aria-hidden="true">▾</span>
+    </span>
   {/snippet}
 </SettingRow>
 
@@ -640,67 +677,109 @@
   {/snippet}
 </SettingRow>
 
-<div class="group-lead"></div>
+<div class="glabel engines-label">
+  <HighlightText text={m.settings_engine_defaults_title()} query={q} />
+</div>
+<p class="rhint engines-hint">
+  <HighlightText text={m.settings_engine_defaults_hint()} query={q} />
+</p>
 
-<SettingsGroup
-  label={m.settings_cli_claude_title()}
-  count={groupRows.claude.length}
-  expanded={claudeExpanded}
-  ontoggle={() => (groupOpen.claude = !claudeExpanded)}
->
-  <SettingRow
-    title={m.settings_default_effort_title()}
-    description={m.settings_default_effort_hint()}
-    {query}
-  >
-    {#snippet control()}
+{#snippet engineHead(provider: AgentProvider)}
+  <div class="ehead">
+    <h4 class="ename"><HighlightText text={providerLabel(provider)} query={q} /></h4>
+    {#if defaultAgentProvider === provider}
+      <span class="badge">{m.settings_engine_default_cli_badge()}</span>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet modelOptions(provider: AgentProvider)}
+  {#each MODELS_BY_PROVIDER[provider] as mdl (mdl)}
+    <option value={mdl}>{modelOptionLabel(provider, mdl)}</option>
+  {/each}
+{/snippet}
+
+<!-- An effort select's tiers; a stored tier the CLI/model doesn't offer stays selectable. -->
+{#snippet tierOptions(value: string, tiers: readonly string[])}
+  {#if value !== "default" && value !== "inherit" && !tiers.includes(value)}
+    <option {value}>{effortLabel(value)}</option>
+  {/if}
+  {#each tiers as tier (tier)}
+    <option value={tier}>{effortLabel(tier)}</option>
+  {/each}
+{/snippet}
+
+{#snippet engineEffortField(provider: AgentProvider)}
+  <label class="efield">
+    <span class="elabel"><HighlightText text={m.settings_engine_effort_label()} query={q} /></span>
+    <span class="set-select">
+      <select
+        bind:value={engineEffort[provider]}
+        disabled={engineEffortBusy[provider]}
+        aria-label={m.settings_engine_effort_aria({ engine: providerLabel(provider) })}
+        onchange={() => saveEngineEffort(provider)}
+      >
+        <option value="inherit">
+          {m.settings_engine_effort_inherit({
+            effort: defaultEffort === "default" ? m.effort_default() : effortLabel(defaultEffort),
+          })}
+        </option>
+        <option value="default">{m.settings_engine_effort_cli_default()}</option>
+        {@render tierOptions(engineEffort[provider], engineEffortTiers(provider))}
+      </select>
+      <span class="set-chev" aria-hidden="true">▾</span>
+    </span>
+  </label>
+  <div class="starts">
+    <span class="starts-label">{m.settings_engine_starts_with()}</span>
+    <span class="starts-value"
+      >{engineModelLabel(provider)} · {startsWithEffortLabel(provider)}</span
+    >
+    <span class="starts-source">
+      {engineEffort[provider] === "inherit"
+        ? m.settings_engine_effort_source_inherit()
+        : m.settings_engine_effort_source_own()}
+    </span>
+  </div>
+{/snippet}
+
+<div class="engines">
+  <section class="engine" aria-label={providerLabel("claude")}>
+    {@render engineHead("claude")}
+    <label class="efield">
+      <span class="elabel"><HighlightText text={m.settings_engine_model_label()} query={q} /></span>
       <span class="set-select">
         <select
-          bind:value={defaultEffort}
-          disabled={defaultEffortBusy}
-          aria-label={m.settings_default_effort_title()}
-          onchange={saveDefaultEffort}
+          data-testid="default-claude-model"
+          bind:value={defaultModel}
+          disabled={defaultModelBusy}
+          aria-label={m.settings_default_model_title()}
+          onchange={onClaudeModelChange}
         >
-          <option value="default">{m.settings_default_effort_default()}</option>
-          {#each EFFORTS as tier (tier)}
-            <option value={tier}>{effortLabel(tier)}</option>
-          {/each}
+          <option value="auto">{m.settings_default_model_auto()}</option>
+          <option value="default">{m.newtask_model_default()}</option>
+          {@render modelOptions("claude")}
         </select>
         <span class="set-chev" aria-hidden="true">▾</span>
       </span>
-    {/snippet}
-  </SettingRow>
-  <SettingRow
-    title={m.settings_operator_language_title()}
-    description={m.settings_operator_language_hint()}
-    {query}
-  >
-    {#snippet control()}
-      <span class="set-select">
-        <select
-          bind:value={operatorLanguage}
-          disabled={operatorLanguageBusy}
-          aria-label={m.settings_operator_language_title()}
-          onchange={saveOperatorLanguage}
-        >
-          <option value="en">{m.lang_english()}</option>
-          <option value="de">{m.lang_german()}</option>
-        </select>
-        <span class="set-chev" aria-hidden="true">▾</span>
-      </span>
-    {/snippet}
-  </SettingRow>
-  <SettingRow
-    title={m.settings_auth_mode_title()}
-    description={m.settings_auth_mode_hint()}
-    {query}
-  >
-    {#snippet control()}
+    </label>
+    <div class="meta">
+      <ModelGuidance metaChips provider="claude" model={engineModel.claude} context="default" />
+      {#if isPremiumModel}
+        <p class="premium-warn">{m.settings_default_model_premium_warning()}</p>
+      {/if}
+      {#if is1mModel}
+        <p class="premium-warn">{m.settings_default_model_1m_note()}</p>
+      {/if}
+    </div>
+    {@render engineEffortField("claude")}
+    <label class="efield">
+      <span class="elabel"><HighlightText text={m.settings_auth_mode_title()} query={q} /></span>
       <span class="set-select">
         <select
           bind:value={authMode}
           disabled={authBusy}
-          aria-label={m.settings_auth_mode_title()}
+          aria-label={m.settings_engine_auth_aria({ engine: providerLabel("claude") })}
           onchange={saveAuthMode}
         >
           <option value="subscription">{m.settings_auth_mode_subscription()}</option>
@@ -708,85 +787,108 @@
         </select>
         <span class="set-chev" aria-hidden="true">▾</span>
       </span>
-    {/snippet}
-    {#snippet below()}
-      {#if authMode === "api-key"}
-        <div class="apikey">
-          {#if hasApiKey}
-            <p class="key-status">{m.settings_auth_key_saved()}</p>
-            <div class="key-actions">
-              <button type="button" class="set-gbtn" disabled={authBusy} onclick={clearApiKey}>
-                {m.settings_auth_key_clear()}
-              </button>
-              <button
-                type="button"
-                class="set-gbtn"
-                disabled={authBusy || verifyState === "verifying"}
-                onclick={verifyKey}
-              >
-                {m.settings_auth_key_verify()}
-              </button>
-            </div>
-            {#if verifyState === "verifying"}
-              <p class="verify-line verify-busy">{m.settings_auth_key_verifying()}</p>
-            {:else if verifyState === "ok"}
-              <p class="verify-line verify-ok">{m.settings_auth_key_verify_ok()}</p>
-            {:else if verifyState === "failed"}
-              <p class="verify-line verify-failed">
-                {m.settings_auth_key_verify_failed()}
-                {verifyMsg}
-              </p>
-            {/if}
-          {/if}
-          <div class="key-entry">
-            <input
-              type="password"
-              class="key-input"
-              bind:value={apiKeyInput}
-              disabled={authBusy}
-              placeholder={m.settings_auth_key_placeholder()}
-              aria-label={m.settings_auth_key_label()}
-              autocomplete="off"
-            />
+    </label>
+    <p class="rhint"><HighlightText text={m.settings_auth_mode_hint()} query={q} /></p>
+    {#if authMode === "api-key"}
+      <div class="apikey">
+        {#if hasApiKey}
+          <p class="key-status">{m.settings_auth_key_saved()}</p>
+          <div class="key-actions">
+            <button type="button" class="set-gbtn" disabled={authBusy} onclick={clearApiKey}>
+              {m.settings_auth_key_clear()}
+            </button>
             <button
               type="button"
               class="set-gbtn"
-              disabled={authBusy || apiKeyInput.trim() === ""}
-              onclick={saveApiKey}
+              disabled={authBusy || verifyState === "verifying"}
+              onclick={verifyKey}
             >
-              {m.settings_auth_key_save()}
+              {m.settings_auth_key_verify()}
             </button>
           </div>
-          {#if !hasApiKey}
-            <p class="premium-warn">{m.settings_auth_key_missing_warning()}</p>
+          {#if verifyState === "verifying"}
+            <p class="verify-line verify-busy">{m.settings_auth_key_verifying()}</p>
+          {:else if verifyState === "ok"}
+            <p class="verify-line verify-ok">{m.settings_auth_key_verify_ok()}</p>
+          {:else if verifyState === "failed"}
+            <p class="verify-line verify-failed">
+              {m.settings_auth_key_verify_failed()}
+              {verifyMsg}
+            </p>
           {/if}
+        {/if}
+        <div class="key-entry">
+          <input
+            type="password"
+            class="key-input"
+            bind:value={apiKeyInput}
+            disabled={authBusy}
+            placeholder={m.settings_auth_key_placeholder()}
+            aria-label={m.settings_auth_key_label()}
+            autocomplete="off"
+          />
+          <button
+            type="button"
+            class="set-gbtn"
+            disabled={authBusy || apiKeyInput.trim() === ""}
+            onclick={saveApiKey}
+          >
+            {m.settings_auth_key_save()}
+          </button>
         </div>
-      {/if}
-    {/snippet}
-  </SettingRow>
-</SettingsGroup>
+        {#if !hasApiKey}
+          <p class="premium-warn">{m.settings_auth_key_missing_warning()}</p>
+        {/if}
+      </div>
+    {/if}
+  </section>
 
-<SettingsGroup
-  label={m.settings_cli_codex_title()}
-  count={groupRows.codex.length}
-  expanded={codexExpanded}
-  ontoggle={() => (groupOpen.codex = !codexExpanded)}
->
-  <SettingRow
-    title={m.settings_cli_codex_auth_title()}
-    description={m.settings_cli_codex_auth_hint()}
-    {query}
-  >
-    {#snippet control()}
+  <section class="engine" aria-label={providerLabel("codex")}>
+    {@render engineHead("codex")}
+    <label class="efield">
+      <span class="elabel"><HighlightText text={m.settings_engine_model_label()} query={q} /></span>
       <span class="set-select">
-        <select value="local" disabled aria-label={m.settings_cli_codex_auth_title()}>
+        <select
+          data-testid="default-codex-model"
+          bind:value={defaultCodexModel}
+          disabled={defaultCodexModelBusy}
+          aria-label={m.settings_default_codex_model_title()}
+          onchange={onCodexModelChange}
+        >
+          <option value="default">{m.newtask_model_default()}</option>
+          {@render modelOptions("codex")}
+        </select>
+        <span class="set-chev" aria-hidden="true">▾</span>
+      </span>
+    </label>
+    <div class="meta">
+      <ModelGuidance metaChips provider="codex" model={engineModel.codex} context="default" />
+    </div>
+    {@render engineEffortField("codex")}
+    <label class="efield">
+      <span class="elabel"
+        ><HighlightText text={m.settings_cli_codex_auth_title()} query={q} /></span
+      >
+      <span class="set-select">
+        <select
+          value="local"
+          disabled
+          aria-label={m.settings_engine_auth_aria({ engine: providerLabel("codex") })}
+        >
           <option value="local">{m.settings_cli_codex_auth_local()}</option>
         </select>
         <span class="set-chev" aria-hidden="true">▾</span>
       </span>
-    {/snippet}
-  </SettingRow>
-</SettingsGroup>
+    </label>
+    <p class="rhint"><HighlightText text={m.settings_cli_codex_auth_hint()} query={q} /></p>
+  </section>
+</div>
+
+<p class="rhint engines-foot">
+  <HighlightText text={m.settings_engine_defaults_precedence()} query={q} />
+</p>
+
+<div class="group-lead"></div>
 
 {#snippet roleRow(role: RoleBase)}
   <div class="rrow">
@@ -831,12 +933,10 @@
           onchange={() => saveRoleEffort(role)}
         >
           <option value="default">{m.effort_default()}</option>
-          {#if !effortAvailableForProvider(roleGuidanceProvider(role), roleEffortV[role], roleGuidanceModel(role))}
-            <option value={roleEffortV[role]}>{effortLabel(roleEffortV[role])}</option>
-          {/if}
-          {#each providerEfforts(roleGuidanceProvider(role), roleGuidanceModel(role)) as tier (tier)}
-            <option value={tier}>{effortLabel(tier)}</option>
-          {/each}
+          {@render tierOptions(
+            roleEffortV[role],
+            providerEfforts(roleGuidanceProvider(role), roleGuidanceModel(role)),
+          )}
         </select>
         <span class="set-chev" aria-hidden="true">▾</span>
       </span>
@@ -881,7 +981,7 @@
   label={m.settings_role_models_title()}
   count={groupRows.roles.length}
   expanded={rolesExpanded}
-  ontoggle={() => (groupOpen.roles = !rolesExpanded)}
+  ontoggle={() => (rolesOpen = !rolesExpanded)}
 >
   <p class="rhint section-hint">{m.settings_role_models_hint()}</p>
   {#each ROLE_PRIMARY as role (role)}
@@ -904,10 +1004,94 @@
     color: var(--color-faint);
     padding: 10px 0 6px;
   }
-  /* The last GLOBAL DEFAULTS row carries only a top hairline; this closes the
-     group with a bottom one before the collapsed-group rows begin. */
+  /* The engine cards end the open part of the section; this hairline sits
+     above the collapsed Agent environments row. */
   .group-lead {
     border-top: 1px solid var(--color-line);
+  }
+  /* DEFAULT PER ENGINE: its label also closes the last GLOBAL DEFAULTS row,
+     which carries only a top hairline. */
+  .engines-label {
+    border-top: 1px solid var(--color-line);
+    margin-top: 6px;
+    padding-top: 16px;
+  }
+  .engines-hint {
+    padding-bottom: 12px;
+  }
+  .engines {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+  }
+  .engine {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+    padding: 14px;
+    background: var(--color-panel-2);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+  }
+  .ehead {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .ename {
+    margin: 0;
+    font-size: var(--fs-base);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    color: var(--color-ink-bright);
+  }
+  .badge {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+  }
+  .efield {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .elabel {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+  .starts {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 8px 10px;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+  }
+  .starts-label {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+  .starts-value {
+    font-size: var(--fs-base);
+    color: var(--color-ink-bright);
+  }
+  .starts-source {
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+  }
+  .engines-foot {
+    padding: 10px 0 14px;
   }
   .meta {
     display: flex;
@@ -1058,6 +1242,13 @@
     }
     .rhint {
       font-size: var(--fs-base);
+    }
+    .elabel,
+    .starts-label {
+      font-size: var(--fs-meta);
+    }
+    .engine :global(.set-select select) {
+      min-height: 44px;
     }
   }
 </style>

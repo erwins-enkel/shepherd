@@ -14,7 +14,7 @@ const PANEL = readFileSync(
   "utf8",
 );
 
-const sessionRows = (): string[][] => sectionSearchRows({ provider: "claude" }).session;
+const sessionRows = (): string[][] => sectionSearchRows({}).session;
 
 describe("the Session section's searchable rows mirror the panel", () => {
   it("registers exactly as many rows as the panel renders", () => {

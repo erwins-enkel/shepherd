@@ -140,6 +140,9 @@ export interface Settings {
   defaultCodexModel: string;
   /** Global default-effort setting ("default"|<tier>); "default" emits no effort flag. */
   defaultEffort: string;
+  /** Per-engine default effort ("inherit"|"default"|<tier>); "inherit" follows `defaultEffort`. */
+  defaultClaudeEffort: string;
+  defaultCodexEffort: string;
   /** Language spawned agents use to talk to the operator ("en" | "de"). Independent of the
    *  interface language — set only from the Settings page. */
   operatorLanguage: string;
@@ -350,6 +353,9 @@ export interface TaskRunDefaults {
   model?: string;
   codexModel?: string;
   effort?: string;
+  /** Per-engine default effort ("inherit" follows `effort`). */
+  claudeEffort?: string;
+  codexEffort?: string;
   fableAvailable?: boolean;
 }
 

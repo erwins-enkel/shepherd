@@ -30,6 +30,7 @@ schema and deliberately absent from this page.
 | `SHEPHERD_HOST` | `127.0.0.1` | Bind address; loopback-only by default (set `0.0.0.0` to expose all NICs) |
 | `SHEPHERD_LOCAL_SUPERVISION` | unset | Native supervisor opt-in (`1`) for local install metadata on `/api/health`; only honored on loopback. |
 | `SHEPHERD_LOCAL_INSTANCE_ID` | unset | Ephemeral per-launch marker supplied by the native supervisor; never persist it. Consistency evidence, not an authentication credential. |
+| `SHEPHERD_LOCAL_PASSWORD_FILE` | _(unset)_ | Private one-shot generated-password channel injected by the Mac app. Suppresses the stdout credential banner; the app reads and deletes the file. Do not set manually. |
 | `SHEPHERD_AGENT_INGRESS_PORT` | `SHEPHERD_PORT + 1` (e.g. `7331`) | Pinned loopback port for the auth-exempt agent-ingress listener (agent hook callbacks plus the agent control plane: the build-queue/epic-draft routes and the per-session MCP endpoint). Stable so the URL baked into a live agent's `--settings`/`--mcp-config` survives restarts/deploys; validated at startup against collisions with the main port, served port, or preview range. Set `0` for an ephemeral port (the pre-pinning behavior) |
 | `SHEPHERD_DB` | `~/.shepherd/shepherd.db` | SQLite session store path |
 | `SHEPHERD_BACKUP_DIR` | `~/.shepherd/backups` (next to the DB) | Destination dir for the automated hourly SQLite backups (Linux backup timer); see [Operating Shepherd](/operating/) |

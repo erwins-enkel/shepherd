@@ -29,6 +29,8 @@ final class IOSSteerLibrary {
     private(set) var repoNames: [String: String] = [:]
     private(set) var loadError: String?
     private(set) var loaded = false
+    private(set) var saving = false
+    private(set) var saveError: String?
 
     init(steers: [ComposeSteer] = [], repoNames: [String: String] = [:]) {
         self.steers = steers
@@ -48,6 +50,45 @@ final class IOSSteerLibrary {
         // its repo list has loaded. Universal steers still show.
         repoNames = (try? await fetchRepos()) ?? repoNames
         loaded = true
+    }
+
+    /// Inserts or replaces one steer. The server stores the whole list, so the change
+    /// is applied to a fresh copy: an edit made elsewhere since `load` survives.
+    func upsert(_ steer: ComposeSteer, fetch: () async throws -> [ComposeSteer],
+                save: ([ComposeSteer]) async throws -> [ComposeSteer]) async -> Bool {
+        await write(fetch: fetch, save: save) { steers in
+            if let index = steers.firstIndex(where: { $0.id == steer.id }) { steers[index] = steer }
+            else { steers.append(steer) }
+        }
+    }
+
+    func remove(id: String, fetch: () async throws -> [ComposeSteer],
+                save: ([ComposeSteer]) async throws -> [ComposeSteer]) async -> Bool {
+        await write(fetch: fetch, save: save) { $0.removeAll { $0.id == id } }
+    }
+
+    func clearSaveError() { saveError = nil }
+
+    private func write(fetch: () async throws -> [ComposeSteer],
+                       save: ([ComposeSteer]) async throws -> [ComposeSteer],
+                       change: (inout [ComposeSteer]) -> Void) async -> Bool {
+        guard !saving else { return false }
+        saving = true; saveError = nil
+        defer { saving = false }
+        do {
+            var next = try await fetch()
+            change(&next)
+            guard next.count <= ComposeActions.maxSteers else {
+                saveError = L.t("native_ios_steers_save_failed", L.t("native_ios_steers_limit"))
+                return false
+            }
+            steers = try await save(next)
+            loadError = nil
+            return true
+        } catch {
+            saveError = L.t("native_ios_steers_save_failed", ShepherdErrorCopy.message(error))
+            return false
+        }
     }
 
     func barSteers(for session: Session) -> [ComposeSteer] {

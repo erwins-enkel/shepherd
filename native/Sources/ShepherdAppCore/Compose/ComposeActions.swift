@@ -49,12 +49,14 @@ public final class ComposeActions {
               effort: effort == "default" ? nil : effort, handoffMode: handoff)
     }
     public var canSaveSteers: Bool {
-        steers.count <= 40 && steers.allSatisfy {
-            let label = $0.label.trimmingCharacters(in: .whitespacesAndNewlines)
-            let text = $0.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            return !label.isEmpty && label.utf16.count <= 60 && !text.isEmpty && text.utf16.count <= 4000
-                && ($0.inSteerBar || $0.onIssues)
-        }
+        steers.count <= Self.maxSteers && steers.allSatisfy(Self.isValidSteer)
+    }
+    public static let maxSteers = 40
+    public static func isValidSteer(_ steer: ComposeSteer) -> Bool {
+        let label = steer.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = steer.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !label.isEmpty && label.utf16.count <= 60 && !text.isEmpty && text.utf16.count <= 4000
+            && (steer.inSteerBar || steer.onIssues)
     }
 
     @discardableResult

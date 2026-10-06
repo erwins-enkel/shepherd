@@ -13,6 +13,7 @@ struct SessionDetailView: View {
     @State private var latency: IOSLatencyMonitor?
     @State private var steers = IOSSteerLibrary()
     @State private var gesture = IOSSteerGestureState()
+    @State private var steerDraft: IOSSteerDraft?
 
     init(session: Session, model: DetailModel, terminal: IOSTerminalPresentation, defaults: UserDefaults) {
         self.session = session
@@ -28,6 +29,7 @@ struct SessionDetailView: View {
                 .offset(x: gesture.swipe.offset)
             if gesture.steersOpen { steerPanel }
         }
+        .sheet(item: $steerDraft) { draft in steerEditor(draft) }
         .onAppear { configureGesture() }
         .onChange(of: sizeClass) { _, _ in configureGesture() }
         .task(id: session.id) {
@@ -129,7 +131,8 @@ struct SessionDetailView: View {
                 .accessibilityHidden(true)
                 .transition(.opacity)
             IOSSteerPanel(session: session, steers: steers.barSteers(for: session), loadError: steers.loadError,
-                terminal: terminal, decommission: decommission, close: { gesture.setSteersOpen(false) })
+                terminal: terminal, decommission: decommission, close: { gesture.setSteersOpen(false) },
+                edit: editSteer)
                 .containerRelativeFrame(.horizontal) { width, _ in min(width * 0.86, 420) }
                 .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { value in
                     if value.translation.width > 80, abs(value.translation.width) > abs(value.translation.height) {
@@ -137,6 +140,34 @@ struct SessionDetailView: View {
                     }
                 })
                 .transition(.move(edge: .trailing))
+        }
+    }
+
+    /// Nil until the saved steers loaded: saving writes the whole list back.
+    private var editSteer: ((ComposeSteer?) -> Void)? {
+        guard app.allowsTerminalInput, let client = app.store?.client, steers.loaded else { return nil }
+        return { [app, session] steer in
+            let draft = IOSSteerDraft(editing: steer)
+            if app.liveRequestAudit == nil {
+                draft.dictation = IOSDictationSession(client: client, defaults: app.composerDefaults,
+                    context: [session.repoPath, session.baseBranch],
+                    whisperStatus: app.extension(IOSTerminalController.self)?.whisperStatus,
+                    getText: { [weak draft] in draft?.steer.text ?? "" },
+                    setText: { [weak draft] in draft?.steer.text = $0 })
+            }
+            steerDraft = draft
+        }
+    }
+
+    @ViewBuilder private func steerEditor(_ draft: IOSSteerDraft) -> some View {
+        if let client = app.store?.client {
+            IOSSteerEditorSheet(draft: draft, library: steers,
+                save: { [steers] steer in
+                    await steers.upsert(steer, fetch: { try await client.steers() }, save: { try await client.saveSteers($0) })
+                },
+                delete: { [steers] id in
+                    await steers.remove(id: id, fetch: { try await client.steers() }, save: { try await client.saveSteers($0) })
+                })
         }
     }
 

@@ -12072,6 +12072,23 @@
         }
       }
     },
+    "native_ios_steers_add": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer Steer"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New steer"
+          }
+        }
+      }
+    },
     "native_ios_steers_all": {
       "extractionState": "manual",
       "localizations": {
@@ -12089,19 +12106,122 @@
         }
       }
     },
+    "native_ios_steers_delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer löschen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete steer"
+          }
+        }
+      }
+    },
+    "native_ios_steers_edit": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steers bearbeiten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit steers"
+          }
+        }
+      }
+    },
+    "native_ios_steers_edit_aria": {
+      "comment": "%1$@ = label",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ bearbeiten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit %1$@"
+          }
+        }
+      }
+    },
+    "native_ios_steers_edit_done": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fertig"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Done"
+          }
+        }
+      }
+    },
+    "native_ios_steers_edit_one": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bearbeiten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit"
+          }
+        }
+      }
+    },
+    "native_ios_steers_edit_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer bearbeiten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Edit steer"
+          }
+        }
+      }
+    },
     "native_ios_steers_empty": {
       "extractionState": "manual",
       "localizations": {
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Noch keine Steers in der Steer-Leiste. Lege sie in der Web- oder Mac-App an."
+            "value": "Noch keine Steers in der Steer-Leiste."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No steers in the steer bar yet. Create them in the web or Mac app."
+            "value": "No steers in the steer bar yet."
           }
         }
       }
@@ -12119,6 +12239,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Decommission · hold"
+          }
+        }
+      }
+    },
+    "native_ios_steers_limit": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "höchstens 40 Steers"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "at most 40 steers"
           }
         }
       }
@@ -12158,6 +12295,23 @@
         }
       }
     },
+    "native_ios_steers_placement_required": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mindestens einen Ort einschalten, an dem er erscheint."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Turn on at least one place where it appears."
+          }
+        }
+      }
+    },
     "native_ios_steers_release_back": {
       "extractionState": "manual",
       "localizations": {
@@ -12188,6 +12342,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Release to open"
+          }
+        }
+      }
+    },
+    "native_ios_steers_save_failed": {
+      "comment": "%1$@ = reason",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steers konnten nicht gespeichert werden: %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steers could not be saved: %1$@"
           }
         }
       }
@@ -24637,6 +24809,57 @@
         }
       }
     },
+    "steerseditor_field_name": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name"
+          }
+        }
+      }
+    },
+    "steerseditor_field_prompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt"
+          }
+        }
+      }
+    },
+    "steerseditor_field_show_in": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anzeigen in"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show in"
+          }
+        }
+      }
+    },
     "steerseditor_label_aria": {
       "extractionState": "manual",
       "localizations": {
@@ -24701,6 +24924,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Remove…"
+          }
+        }
+      }
+    },
+    "steerseditor_remove_confirm": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wirklich entfernen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Really remove?"
           }
         }
       }

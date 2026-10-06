@@ -49,6 +49,52 @@ final class IOSSteersTests: XCTestCase {
         XCTAssertTrue(library.loaded)
     }
 
+    func testUpsertAppliesTheEditToAFreshListSoOtherEditsSurvive() async {
+        let library = IOSSteerLibrary(steers: [steer("a")])
+        var edited = steer("a"); edited.label = "renamed"
+        var saved: [ComposeSteer] = []
+        // "b" was added elsewhere after this library loaded.
+        let ok = await library.upsert(edited, fetch: { [self.steer("a"), self.steer("b")] },
+            save: { saved = $0; return $0 })
+        XCTAssertTrue(ok)
+        XCTAssertEqual(saved.map(\.id), ["a", "b"])
+        XCTAssertEqual(saved.first?.label, "renamed")
+        XCTAssertEqual(library.steers.map(\.id), ["a", "b"])
+
+        let added = await library.upsert(steer("c"), fetch: { saved }, save: { saved = $0; return $0 })
+        XCTAssertTrue(added)
+        XCTAssertEqual(library.steers.map(\.id), ["a", "b", "c"])
+    }
+
+    func testRemoveDropsOnlyThatSteer() async {
+        let library = IOSSteerLibrary(steers: [steer("a"), steer("b")])
+        let ok = await library.remove(id: "a", fetch: { [self.steer("a"), self.steer("b")] }, save: { $0 })
+        XCTAssertTrue(ok)
+        XCTAssertEqual(library.steers.map(\.id), ["b"])
+    }
+
+    func testAFailedSaveKeepsTheListAndReportsWhy() async {
+        struct Boom: Error {}
+        let library = IOSSteerLibrary(steers: [steer("a")])
+        let ok = await library.upsert(steer("b"), fetch: { [self.steer("a")] }, save: { _ in throw Boom() })
+        XCTAssertFalse(ok)
+        XCTAssertNotNil(library.saveError)
+        XCTAssertFalse(library.saving)
+        XCTAssertEqual(library.steers.map(\.id), ["a"])
+    }
+
+    func testANewDraftNeedsANameAPromptAndAPlace() {
+        let draft = IOSSteerDraft(editing: nil)
+        XCTAssertTrue(draft.isNew)
+        XCTAssertTrue(draft.steer.inSteerBar)
+        XCTAssertFalse(draft.canSave)
+        draft.steer.label = "tests"; draft.steer.text = "run the tests"
+        XCTAssertTrue(draft.canSave)
+        draft.steer.inSteerBar = false
+        XCTAssertFalse(draft.canSave)
+        XCTAssertFalse(IOSSteerDraft(editing: steer("a")).isNew)
+    }
+
     func testSwipeCommitsOnlyPastTheThresholdOrOnAFlick() {
         var swipe = IOSSteerSwipe()
         XCTAssertEqual(swipe.update(.changed(-40), allowsBack: true, allowsSteers: true), .none)

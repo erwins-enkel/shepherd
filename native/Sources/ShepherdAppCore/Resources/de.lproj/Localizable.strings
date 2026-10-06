@@ -54,9 +54,11 @@
 "buildqueue_start_plan_steer" = "Die Build-Queue ist nur für die Planung freigegeben. Erstelle den Plan oder setze ihn fort und halte anschließend zur Prüfung an. Beginne keine Umsetzung, bevor der Plan freigegeben und die Ausführung ausdrücklich erlaubt wurde. Liegt der Plan bereits zur Prüfung vor, warte auf diese Freigabe.";
 "buildqueue_start_steer" = "Die Build-Queue ist bereits freigegeben. Fahre jetzt mit dem nächsten Schritt fort und halte den Queue-Fortschritt aktuell.";
 "cardmenu_amend" = "Aufgabe ergänzen…";
+"cardmenu_clean_terminal" = "Clean-Terminal im Main-Repo";
 "cardmenu_decommission" = "Stilllegen";
 "cardmenu_label" = "Sitzungs-Aktionen";
 "cardmenu_relaunch" = "Neu starten";
+"cardmenu_relaunch_elsewhere" = "In anderem Repo neu starten…";
 "cardmenu_rename" = "Umbenennen";
 "cardmenu_replace_with" = "Weiterführen mit…";
 "cardmenu_resume" = "Sitzung fortsetzen";
@@ -1498,6 +1500,8 @@
 "toast_revive_all_failed" = "Gestrandete Sessions konnten nicht wiederbelebt werden. Erneut versuchen.";
 "toast_revive_all_result" = "%1$@ wiederbelebt, %2$@ nicht wiederherstellbar.";
 "toast_sessions_stranded" = "%1$@ Session(s) haben nach einem herdr-Neustart ihren Agenten verloren. Wiederbeleben, um sie zurückzuholen.";
+"toast_terminal_failed" = "Clean-Terminal konnte nicht geöffnet werden";
+"toast_terminal_unsupported" = "Clean-Terminals brauchen ein neueres herdr — herdr aktualisieren und erneut versuchen";
 "topbar_held_badge" = "%1$@ zurückgehalten";
 "topbar_held_discard" = "Verwerfen";
 "topbar_held_discard_failed" = "Aufgabe konnte nicht verworfen werden. Bitte erneut versuchen.";

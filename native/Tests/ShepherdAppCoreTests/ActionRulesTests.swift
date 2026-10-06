@@ -147,5 +147,42 @@ struct ActionRulesTests {
             SessionAction.toggleReady.label(for: session(readyToMerge: false))
                 == L.t("native_actions_ready_off"))
     }
+
+    // CardMenu / UnitRow: the right-click menu's entries and their order.
+    @Test func contextMenuFollowsTheWebRules() {
+        func ids(_ s: Session, blocked: [String: Bool] = [:], merged: Bool = false) -> [String] {
+            ActionRules.contextMenu(for: s, workingBlocked: blocked, gitMerged: merged, now: now).map(\.id)
+        }
+        #expect(
+            ids(session(status: .running))
+                == ["stop", "rename", "amend", "relaunch", "relaunchElsewhere", "variant", "replace",
+                    "cleanTerminal", "decommission"])
+        #expect(
+            ids(session(status: .idle))
+                == ["resume", "rename", "amend", "relaunch", "relaunchElsewhere", "variant", "replace",
+                    "cleanTerminal", "decommission"])
+        // Relaunch, elsewhere, variant and replace share canRelaunch.
+        for s in [session(readyToMerge: true), session(autopilotComplete: true), session(mergingSince: now - 1000)] {
+            let list = ids(s)
+            #expect(Set(list).isDisjoint(with: ["relaunch", "relaunchElsewhere", "variant", "replace"]))
+            #expect(list.contains("decommission"))
+        }
+        #expect(!ids(session(), merged: true).contains("relaunch"))
+        // An experiment's comparison run keeps Relaunch but never offers variant/continue.
+        var comparison = session()
+        comparison.experimentRole = .init(known: .comparison)
+        let compared = ids(comparison)
+        #expect(compared.contains("relaunch") && !compared.contains("variant") && !compared.contains("replace"))
+        // A clean terminal is only renamed/amended/decommissioned: no agent verbs, and no second terminal.
+        #expect(ids(session(status: .running, terminal: true)) == ["rename", "amend", "decommission"])
+        #expect(ids(session(status: .archived)).isEmpty)
+    }
+
+    @Test func contextMenuLabelsResolveAndOnlyDecommissionIsDestructive() {
+        for action in SessionContextAction.allCases {
+            #expect(!action.label.contains("_"), "\(action.id) label did not resolve")
+        }
+        #expect(SessionContextAction.allCases.filter(\.isDestructive) == [.decommission])
+    }
 }
 }

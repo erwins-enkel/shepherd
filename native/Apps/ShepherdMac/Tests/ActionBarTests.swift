@@ -146,6 +146,41 @@ struct ActionBarTests {
             "a relaunch completion for a store the operator switched away from must be dropped")
     }
 
+    @Test func contextMenuAsksBeforeEveryDestructiveOrCostlyActionAndRunsTheRestDirectly() {
+        typealias Controller = SessionContextController
+        #expect(Controller.sheet(for: .decommission, sessionID: "s1") == .compose(.close, "s1"))
+        #expect(Controller.sheet(for: .relaunch, sessionID: "s1") == .relaunch("s1"))
+        #expect(Controller.sheet(for: .relaunchElsewhere, sessionID: "s1") == .relaunch("s1"))
+        #expect(Controller.sheet(for: .variant, sessionID: "s1") == .compose(.variant, "s1"))
+        #expect(Controller.sheet(for: .replace, sessionID: "s1") == .compose(.replace, "s1"))
+        #expect(Controller.sheet(for: .rename, sessionID: "s1") == .rename("s1"))
+        #expect(Controller.sheet(for: .amend, sessionID: "s1") == .amend("s1"))
+        for direct in [SessionContextAction.stop, .resume, .cleanTerminal] {
+            #expect(Controller.sheet(for: direct, sessionID: "s1") == nil)
+        }
+    }
+
+    @Test func contextMenuOnAnUnselectedCardTargetsThatCard() async throws {
+        let defaults = Self.scratchDefaults()
+        let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore(), notifications: MacTestSupport.environment(defaults: defaults))
+        let profile = try app.addRemoteProfile(
+            name: "context-menu", address: "https://context-menu.example.ts.net")
+        await app.activate(profile)
+        let store = try #require(app.store)
+        store.apply(.sessionNew(PreviewData.session(id: "s1")))
+        store.apply(.sessionNew(PreviewData.session(id: "s2")))
+        app.selectedSessionID = "s1"
+
+        let controller = SessionContextController()
+        controller.perform(.rename, sessionID: "s2", app: app)
+        #expect(app.selectedSessionID == "s2", "the sheets' isCurrent guards read the selection")
+        #expect(controller.sheet == .rename("s2"))
+
+        controller.sheet = nil
+        controller.perform(.decommission, sessionID: "gone", app: app)
+        #expect(controller.sheet == nil && app.selectedSessionID == "s2", "an unknown id touches nothing")
+    }
+
     /// A throwaway suite so the test never reads or writes the operator's own profiles. Pair it
     /// with `InMemoryCredentialStore()` at every call site: `AppModel.init` defaults `credentials`
     /// to `KeychainCredentialStore()`, and that is the unattended-run stall this plan's "No

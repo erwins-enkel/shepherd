@@ -8,6 +8,7 @@ import ShepherdKit
 struct SidebarView: View {
     @Environment(AppModel.self) private var app
     let model: SidebarModel
+    @State private var contextMenu = SessionContextController()
 
     var body: some View {
         // Deadlines are display inputs too: a final critic round or merge marker can expire
@@ -48,6 +49,7 @@ struct SidebarView: View {
                 list(groups, selection: $app.selectedSessionID)
             }
         }
+        .modifier(SessionContextHost(controller: contextMenu))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("herd-sidebar")
         .background(ShepherdPalette.panel)
@@ -138,6 +140,7 @@ struct SidebarView: View {
                         isCollapsed: model.collapsedStages.contains(group.stage),
                         display: { model.rendered($0) },
                         block: { model.block(for: $0) },
+                        contextMenu: contextMenu,
                         onToggle: { model.toggleCollapsed(group.stage) })
                 }
             }

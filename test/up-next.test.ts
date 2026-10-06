@@ -197,6 +197,7 @@ describe("UpNextService.refresh", () => {
 
   test("listBlockedByOpen attaches blockedBy → standalone issue with an open blocker excluded (#1622)", async () => {
     const s = svc({
+      lastUsedByRepo: () => ({ "/r/a": 1 }),
       resolveForge: () =>
         fakeForge({
           issues: [issue(1), issue(2)],
@@ -206,6 +207,59 @@ describe("UpNextService.refresh", () => {
     const snap = await s.refresh();
     const items = snap.sections.find((x) => x.kind === "repo")!.items;
     expect(items.map((i) => i.number)).toEqual([2]);
+  });
+
+  // #2808: the sub-issue and blocker scans run only for repos the operator works in.
+  describe("sub-issue and blocker scans", () => {
+    function scanningForge() {
+      const scans = { summaries: 0, blockers: 0 };
+      const forge = fakeForge({
+        issues: [issue(1), issue(2)],
+        listSubIssueSummaries: async () => {
+          scans.summaries++;
+          return { summaries: new Map(), subIssueNumbers: [] };
+        },
+        listBlockedByOpen: async () => {
+          scans.blockers++;
+          return new Map([[1, [42]]]);
+        },
+      });
+      return { forge, scans };
+    }
+
+    test("a repo without session or epic history is listed without them", async () => {
+      const { forge, scans } = scanningForge();
+      const snap = await svc({ resolveForge: () => forge }).refresh();
+      expect(scans).toEqual({ summaries: 0, blockers: 0 });
+      const items = snap.sections.find((x) => x.kind === "repo")!.items;
+      expect(items.map((i) => i.number)).toEqual([1, 2]); // no blocker gating without the scan
+    });
+
+    test("a repo with a session runs them", async () => {
+      const { forge, scans } = scanningForge();
+      await svc({ resolveForge: () => forge, lastUsedByRepo: () => ({ "/r/a": 1 }) }).refresh();
+      expect(scans).toEqual({ summaries: 1, blockers: 1 });
+    });
+
+    test("a stored epic run counts as history", async () => {
+      const { forge, scans } = scanningForge();
+      const run = { repoPath: "/r/a", parentIssueNumber: 9, mode: "auto", status: "idle" };
+      await svc({
+        resolveForge: () => forge,
+        getEpicRun: (p) => (p === "/r/a" ? (run as EpicRun) : null),
+      }).refresh();
+      expect(scans).toEqual({ summaries: 1, blockers: 1 });
+    });
+
+    test("history keyed by the realpath counts under a symlinked repoRoot", async () => {
+      const { forge, scans } = scanningForge();
+      await svc({
+        resolveForge: () => forge,
+        lastUsedByRepo: () => ({ "/real/a": 1 }),
+        realpath: (p) => (p === "/r/a" ? "/real/a" : p),
+      }).refresh();
+      expect(scans).toEqual({ summaries: 1, blockers: 1 });
+    });
   });
 
   test("forge without listBlockedByOpen (absent) fails open — excludes nothing", async () => {
@@ -243,6 +297,7 @@ describe("UpNextService.refresh", () => {
       ],
     };
     const s = svc({
+      lastUsedByRepo: () => ({ "/r/a": 1 }),
       resolveForge: () =>
         fakeForge({
           issues: [issue(1), issue(2), issue(100, { body: "```epic-dag\n#2\n```" })],

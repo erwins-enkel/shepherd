@@ -288,19 +288,31 @@ function mapGraphqlPrReviewState(state: string | null | undefined): PrReviewMeta
   return GRAPHQL_PR_REVIEW_STATES[(state ?? "").toUpperCase()] ?? "none";
 }
 
-/** Cap on summary pages for listSubIssueSummaries: 2 pages × 100 issues = ~200 issues,
+/** Cap on pages for the issue-relations scan and listOpenPrLinkedIssues: 2 pages × 100 = ~200,
  *  mirroring the listIssues() 200-open-issue cap. */
 const MAX_SUMMARY_PAGES = 2;
 
-/** Parse one page of the sub-issue-summary GraphQL response: record every node with
- *  total > 0 into `intoSummaries` (keyed by issue number), add every node with a non-null
- *  parent to `intoSubIssues` and into `intoChildrenByParent` (keyed by parent number), and
- *  return the page's cursor info. */
-function collectSubIssueSummaryPage(
+/** One repo's open-issue relations, from a single combined scan (#2808): native sub-issue
+ *  counts and parent links (served by `listSubIssueSummaries`) plus still-open blockers
+ *  (served by `listBlockedByOpen`). */
+interface IssueRelations {
+  /** Parent number → its sub-issue counts; only parents with total > 0. */
+  summaries: Map<number, { total: number; completed: number }>;
+  /** Open issues that have a native parent. */
+  subIssueNumbers: Set<number>;
+  childrenByParent: Map<number, number[]>;
+  /** Open issue → its still-OPEN blockers; only issues with at least one. */
+  blockedByOpen: Map<number, number[]>;
+}
+
+/** Parse one page of the issue-relations GraphQL response into `into`: every node with
+ *  total > 0 into `summaries`, every node with a non-null parent into `subIssueNumbers` and
+ *  `childrenByParent` (keyed by parent number), and every node with >=1 still-OPEN blocker
+ *  into `blockedByOpen` (issues without one are skipped, keeping the map small). Returns the
+ *  page's cursor info. */
+function collectIssueRelationsPage(
   out: string,
-  intoSummaries: Map<number, { total: number; completed: number }>,
-  intoSubIssues: Set<number>,
-  intoChildrenByParent: Map<number, number[]>,
+  into: IssueRelations,
 ): { hasNextPage: boolean; endCursor: string | null } {
   const json = JSON.parse(out) as {
     data?: {
@@ -311,6 +323,7 @@ function collectSubIssueSummaryPage(
             number: number;
             subIssuesSummary?: { total: number; completed: number };
             parent?: { number: number } | null;
+            blockedBy?: { nodes?: Array<{ number?: number; state?: string }> };
           } | null>;
         };
       };
@@ -321,14 +334,19 @@ function collectSubIssueSummaryPage(
     if (!node) continue;
     const s = node.subIssuesSummary;
     if (s && s.total > 0) {
-      intoSummaries.set(node.number, { total: s.total, completed: s.completed });
+      into.summaries.set(node.number, { total: s.total, completed: s.completed });
     }
     if (node.parent != null) {
-      intoSubIssues.add(node.number);
-      const siblings = intoChildrenByParent.get(node.parent.number) ?? [];
+      into.subIssueNumbers.add(node.number);
+      const siblings = into.childrenByParent.get(node.parent.number) ?? [];
       siblings.push(node.number);
-      intoChildrenByParent.set(node.parent.number, siblings);
+      into.childrenByParent.set(node.parent.number, siblings);
     }
+    const openBlockers = (node.blockedBy?.nodes ?? [])
+      .filter((b): b is { number: number; state?: string } => typeof b.number === "number")
+      .filter((b) => b.state === "OPEN")
+      .map((b) => b.number);
+    if (openBlockers.length > 0) into.blockedByOpen.set(node.number, openBlockers);
   }
   return {
     hasNextPage: issues?.pageInfo?.hasNextPage ?? false,
@@ -372,42 +390,6 @@ function collectLinkedIssuesPage(
   return {
     hasNextPage: prs?.pageInfo?.hasNextPage ?? false,
     endCursor: prs?.pageInfo?.endCursor ?? null,
-  };
-}
-
-/** Parse one page of the batched issue-dependency GraphQL response: for every OPEN issue node
- *  with >=1 still-OPEN blocker, record its open-blocker numbers into `into` (keyed by the
- *  blocked issue's number); issues with no open blockers are skipped, keeping the map small.
- *  Returns the page's cursor info. */
-function collectBlockedByOpenPage(
-  out: string,
-  into: Map<number, number[]>,
-): { hasNextPage: boolean; endCursor: string | null } {
-  const json = JSON.parse(out || "{}") as {
-    data?: {
-      repository?: {
-        issues?: {
-          pageInfo?: { hasNextPage?: boolean; endCursor?: string | null };
-          nodes?: Array<{
-            number: number;
-            blockedBy?: { nodes?: Array<{ number?: number; state?: string }> };
-          } | null>;
-        };
-      };
-    };
-  };
-  const issues = json.data?.repository?.issues;
-  for (const node of issues?.nodes ?? []) {
-    if (!node) continue;
-    const openBlockers = (node.blockedBy?.nodes ?? [])
-      .filter((b): b is { number: number; state?: string } => typeof b.number === "number")
-      .filter((b) => b.state === "OPEN")
-      .map((b) => b.number);
-    if (openBlockers.length > 0) into.set(node.number, openBlockers);
-  }
-  return {
-    hasNextPage: issues?.pageInfo?.hasNextPage ?? false,
-    endCursor: issues?.pageInfo?.endCursor ?? null,
   };
 }
 
@@ -751,6 +733,12 @@ export class GithubForge implements GitForge {
   >();
   private epicStructuresInflight = new Map<number, Promise<EpicStructure>>();
   private epicStructuresGen = 0;
+  /** {@link issueRelations} cache + in-flight share, validated like `issuesCache`. `relationsGen`
+   *  bumps on this forge's own writes that can move relations. */
+  private relationsCache: { at: number; relations: IssueRelations; fpGen: number | null } | null =
+    null;
+  private relationsInflight: Promise<IssueRelations | null> | null = null;
+  private relationsGen = 0;
   constructor(
     readonly slug: string,
     private readonly cfg: ForgeConfig,
@@ -1080,12 +1068,19 @@ export class GithubForge implements GitForge {
     this.issuesInflight = null;
     this.issuesFailure = null;
     this.invalidateEpicStructures();
+    this.invalidateRelations();
   }
 
   private invalidateEpicStructures(): void {
     this.epicStructuresGen++;
     this.epicStructures.clear();
     this.epicStructuresInflight.clear();
+  }
+
+  private invalidateRelations(): void {
+    this.relationsGen++;
+    this.relationsCache = null;
+    this.relationsInflight = null;
   }
 
   /** Open (or extend) the per-repo backoff after a failed listing (#2656): a repo that keeps
@@ -2890,6 +2885,7 @@ export class GithubForge implements GitForge {
       ]);
     } finally {
       this.invalidateEpicStructures();
+      this.invalidateRelations();
     }
   }
 
@@ -2908,6 +2904,7 @@ export class GithubForge implements GitForge {
       ]);
     } finally {
       this.invalidateEpicStructures();
+      this.invalidateRelations();
     }
   }
 
@@ -2916,48 +2913,14 @@ export class GithubForge implements GitForge {
     subIssueNumbers: number[];
     childrenByParent: Map<number, number[]>;
   }> {
-    if (graphRateLimit.blocked())
-      return { summaries: new Map(), subIssueNumbers: [], childrenByParent: new Map() };
-    // No this.apiVersion header: subIssuesSummary is GA on GraphQL (no preview header needed).
-    // Do NOT add the X-GitHub-Api-Version header here — it was required only for the
-    // REST sub_issues endpoints above.
-    const [owner, name] = this.slug.split("/");
-    // number + counts + parent selected: backlog renders badge on visible issue row;
-    // parent field identifies native sub-issues (child numbers collected here).
-    const query =
-      "query($owner:String!,$name:String!,$endCursor:String){repository(owner:$owner,name:$name){issues(states:OPEN,first:100,after:$endCursor,orderBy:{field:CREATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor}nodes{number subIssuesSummary{total completed} parent{number}}}}}";
-    const summaries = new Map<number, { total: number; completed: number }>();
-    const subIssueSet = new Set<number>();
-    const childrenByParent = new Map<number, number[]>();
-    try {
-      let endCursor: string | null = null;
-      for (let page = 0; page < MAX_SUMMARY_PAGES; page++) {
-        const args = [
-          "api",
-          "graphql",
-          "-f",
-          `owner=${owner}`,
-          "-f",
-          `name=${name}`,
-          "-f",
-          `query=${query}`,
-        ];
-        // Thread cursor explicitly; page 1 omits it so $endCursor defaults to null in GraphQL.
-        if (endCursor !== null) args.push("-f", `endCursor=${endCursor}`);
-        const pageInfo = collectSubIssueSummaryPage(
-          await this.run(args),
-          summaries,
-          subIssueSet,
-          childrenByParent,
-        );
-        if (!pageInfo.hasNextPage) break;
-        endCursor = pageInfo.endCursor;
-      }
-    } catch {
-      // Best-effort; degrade to markdown-only discovery rather than failing the route.
-      return { summaries: new Map(), subIssueNumbers: [], childrenByParent: new Map() };
-    }
-    return { summaries, subIssueNumbers: [...subIssueSet], childrenByParent };
+    // Best-effort: no relations degrades to markdown-only discovery rather than failing the route.
+    const r = await this.issueRelations();
+    if (!r) return { summaries: new Map(), subIssueNumbers: [], childrenByParent: new Map() };
+    return {
+      summaries: new Map([...r.summaries].map(([n, c]) => [n, { ...c }])),
+      subIssueNumbers: [...r.subIssueNumbers],
+      childrenByParent: new Map([...r.childrenByParent].map(([n, kids]) => [n, [...kids]])),
+    };
   }
 
   /** Numbers-only view of {@link listOpenPrLinkedIssues} for Up Next (#1169), which only needs
@@ -3004,18 +2967,62 @@ export class GithubForge implements GitForge {
   }
 
   async listBlockedByOpen(): Promise<Map<number, number[]>> {
-    if (graphRateLimit.blocked()) return new Map();
-    // One batched GraphQL query for every open issue's still-open blockers, so Up Next can
-    // hide dependency-blocked issues without an N+1 fan-out. Paginated like
-    // listSubIssueSummaries/listOpenPrClosingIssues; capped to ~200 open issues (matches
-    // listIssues' REST_LIST_CAP). Fail open: no REST fallback exists for this data, so any
-    // failure (rate limit, malformed JSON) yields an empty Map — degraded to no exclusion.
+    // Fail open: no REST fallback exists for this data, so no relations yields an empty Map —
+    // degraded to no exclusion.
+    const r = await this.issueRelations();
+    return new Map([...(r?.blockedByOpen ?? [])].map(([n, blockers]) => [n, [...blockers]]));
+  }
+
+  /**
+   * The repo's open-issue relations, cached like {@link listIssues} (#2808): Up Next, the epics
+   * route and the issues route each read them for every view and recompute. While the repo
+   * fingerprint covers this slug an entry stays valid until the slug's issue generation moves;
+   * uncovered slugs keep the {@link ISSUES_CACHE_TTL_MS} expiry. Concurrent calls share one
+   * fetch; a failure is not cached. While the GraphQL bucket is in backoff the last entry is
+   * served even when stale, and null when there is none. Callers copy before handing out.
+   */
+  private issueRelations(): Promise<IssueRelations | null> {
+    const fpGen = issuesFreshness(this.slug);
+    const hit = this.relationsCache;
+    const fresh =
+      hit !== null &&
+      (fpGen !== null ? hit.fpGen === fpGen : Date.now() - hit.at < ISSUES_CACHE_TTL_MS);
+    if (fresh || graphRateLimit.blocked()) return Promise.resolve(hit?.relations ?? null);
+    if (!this.relationsInflight) {
+      const gen = this.relationsGen;
+      const p = this.fetchIssueRelations()
+        .then((relations) => {
+          if (relations && gen === this.relationsGen)
+            this.relationsCache = { at: Date.now(), relations, fpGen };
+          return relations;
+        })
+        .finally(() => {
+          if (this.relationsInflight === p) this.relationsInflight = null;
+        });
+      this.relationsInflight = p;
+    }
+    return this.relationsInflight;
+  }
+
+  /** One paginated GraphQL scan for every open issue's sub-issue counts, parent and still-open
+   *  blockers, so callers can tell epics, sub-issues and dependency-blocked issues apart without
+   *  an N+1 fan-out. Capped to ~200 open issues (MAX_SUMMARY_PAGES, matching listIssues'
+   *  REST_LIST_CAP). Any failure (rate limit, malformed JSON) yields null. */
+  private async fetchIssueRelations(): Promise<IssueRelations | null> {
+    // No this.apiVersion header: subIssuesSummary and blockedBy are GA on GraphQL. Do NOT add
+    // the X-GitHub-Api-Version header here — it is required only by the REST sub_issues and
+    // dependencies endpoints above.
     const [owner, name] = this.slug.split("/");
     const query =
-      "query($owner:String!,$name:String!,$after:String){repository(owner:$owner,name:$name){issues(states:OPEN, first:100, after:$after, orderBy:{field:CREATED_AT,direction:DESC}){pageInfo{ hasNextPage endCursor }nodes{ number blockedBy(first:20){ nodes{ number state } } }}}}";
-    const result = new Map<number, number[]>();
+      "query($owner:String!,$name:String!,$endCursor:String){repository(owner:$owner,name:$name){issues(states:OPEN,first:100,after:$endCursor,orderBy:{field:CREATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor}nodes{number subIssuesSummary{total completed} parent{number} blockedBy(first:20){nodes{number state}}}}}}";
+    const relations: IssueRelations = {
+      summaries: new Map(),
+      subIssueNumbers: new Set(),
+      childrenByParent: new Map(),
+      blockedByOpen: new Map(),
+    };
     try {
-      let after: string | null = null;
+      let endCursor: string | null = null;
       for (let page = 0; page < MAX_SUMMARY_PAGES; page++) {
         const args = [
           "api",
@@ -3027,18 +3034,17 @@ export class GithubForge implements GitForge {
           "-f",
           `query=${query}`,
         ];
-        // Thread cursor as a raw string (-f): the opaque base64 cursor must not be type-coerced
-        // by gh. Page 1 omits it so $after defaults to null in GraphQL. Matches the sibling
-        // paginators (listSubIssueSummaries / listOpenPrClosingIssues).
-        if (after !== null) args.push("-f", `after=${after}`);
-        const pageInfo = collectBlockedByOpenPage(await this.run(args), result);
+        // Thread the cursor as a raw string (-f): the opaque base64 cursor must not be
+        // type-coerced by gh. Page 1 omits it so $endCursor defaults to null in GraphQL.
+        if (endCursor !== null) args.push("-f", `endCursor=${endCursor}`);
+        const pageInfo = collectIssueRelationsPage(await this.run(args), relations);
         if (!pageInfo.hasNextPage) break;
-        after = pageInfo.endCursor;
+        endCursor = pageInfo.endCursor;
       }
     } catch {
-      return new Map();
+      return null;
     }
-    return result;
+    return relations;
   }
 }
 

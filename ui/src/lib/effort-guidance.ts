@@ -8,6 +8,7 @@ export function providerEfforts(provider: AgentProvider, model?: string | null):
   if (provider === "claude" || model === "gpt-6-luna" || model === "gpt-5.6-luna")
     return EFFORTS.filter((e) => e !== "ultra");
   if (
+    model === "gpt-6.1-sol" ||
     model === "gpt-6-astra" ||
     model === "gpt-6-sol" ||
     model === "gpt-5.6-sol" ||

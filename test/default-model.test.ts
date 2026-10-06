@@ -66,6 +66,10 @@ describe("normalizeDefaultModelSetting", () => {
 });
 
 describe("normalizeDefaultCodexModelSetting", () => {
+  test("accepts GPT-6.1 Sol as a saved Codex default", () => {
+    expect(normalizeDefaultCodexModelSetting("gpt-6.1-sol")).toBe("gpt-6.1-sol");
+  });
+
   test("accepts 'default' and each curated Codex model", () => {
     expect(normalizeDefaultCodexModelSetting("default")).toBe("default");
     for (const model of CODEX_MODELS) {

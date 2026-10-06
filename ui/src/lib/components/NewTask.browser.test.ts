@@ -1873,9 +1873,10 @@ describe("NewTask Codex model picker", () => {
     await expect.poll(() => modelSelect().value).toBe("gpt-5.4");
     const options = Array.from(modelSelect().options).map((o) => o.value);
     expect(options).toContain("gpt-5.5");
-    expect(options.slice(0, 7)).toEqual([
+    expect(options.slice(0, 8)).toEqual([
       "default",
       "gpt-5.6-sol",
+      "gpt-6.1-sol",
       "gpt-6-astra",
       "gpt-6-sol",
       "gpt-6-luna",
@@ -1926,7 +1927,7 @@ describe("NewTask Codex model picker", () => {
     });
     const effort = () => document.querySelector<HTMLSelectElement>("#nt-effort")!;
     await expect.poll(() => effort().value).toBe("ultra");
-    for (const nextModel of ["gpt-6-sol", "gpt-5.6-sol", "gpt-5.6-terra"]) {
+    for (const nextModel of ["gpt-6.1-sol", "gpt-6-sol", "gpt-5.6-sol", "gpt-5.6-terra"]) {
       modelSelect().value = nextModel;
       modelSelect().dispatchEvent(new Event("change", { bubbles: true }));
       await expect.poll(() => effort().value).toBe("ultra");
@@ -1940,6 +1941,7 @@ describe("NewTask Codex model picker", () => {
   });
 
   it.each([
+    ["gpt-6.1-sol", "ultra"],
     ["gpt-6-astra", "ultra"],
     ["gpt-6-sol", "ultra"],
     ["gpt-6-luna", "max"],

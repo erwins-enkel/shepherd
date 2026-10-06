@@ -1230,6 +1230,7 @@ export const KEYS_COMPOSE: readonly string[] = [
   "model_guidance_codex_56_sol",
   "model_guidance_codex_56_terra",
   "model_guidance_codex_5_codex",
+  "model_guidance_codex_61_sol",
   "model_guidance_codex_6_astra",
   "model_guidance_codex_6_sol",
   "model_guidance_codex_6_luna",

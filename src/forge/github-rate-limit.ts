@@ -11,13 +11,19 @@
  * `gh api rate_limit` returns every bucket in one call and — crucially — does
  * **not** itself count against any bucket, so we can poll it for display even
  * while a bucket is at zero. We pair the live readings with Shepherd's own
- * GraphQL and REST backoff state ({@link graphRateLimit}, {@link restRateLimit})
- * so the UI can explain *why* polling is paused, not just that a budget is low —
- * and the REST one is the only signal there is when `rate_limit` reports a full
- * `core` bucket while real REST calls 403 (#2662).
+ * GraphQL, REST read and REST write backoff state ({@link graphRateLimit},
+ * {@link restRateLimit}, {@link restWriteRateLimit}) so the UI can explain *why*
+ * polling is paused, not just that a budget is low — and the REST ones are the
+ * only signal there is when `rate_limit` reports a full `core` bucket while real
+ * REST calls 403 (#2662), or REST writes 403 while reads go through (#2805).
  */
 
-import { graphRateLimit, restRateLimit, type RateLimitSnapshot } from "./rate-limit";
+import {
+  graphRateLimit,
+  restRateLimit,
+  restWriteRateLimit,
+  type RateLimitSnapshot,
+} from "./rate-limit";
 
 /** A single GitHub rate-limit bucket (REST core / GraphQL / search). */
 export interface GhRateBucket {
@@ -32,7 +38,7 @@ export interface GhRateBucket {
 }
 
 /** Snapshot of the GitHub rate-limit buckets relevant to Shepherd, plus the
- *  GraphQL and REST backoff state that gates background polling. */
+ *  GraphQL and REST read/write backoff state that gates background work. */
 export interface GithubRateLimitPayload {
   /** REST bucket (`resources.core`). Null if the response lacked it. */
   rest: GhRateBucket | null;
@@ -45,9 +51,12 @@ export interface GithubRateLimitPayload {
   /** Shepherd's GraphQL backoff state — non-null `pausedUntil`/`blocked`
    *  explains a polling pause even before a bucket is fully empty. */
   backoff: RateLimitSnapshot;
-  /** Shepherd's REST backoff state — while `blocked`, REST reads (CI status, run
+  /** Shepherd's REST read backoff state — while `blocked`, REST reads (CI status, run
    *  logs, REST issue lists) are skipped, whatever `rest` reports. */
   restBackoff: RateLimitSnapshot;
+  /** Shepherd's REST write backoff state (#2805) — while `blocked`, periodic background
+   *  writes (CI re-runs, epic stack updates) are skipped; reads and operator writes run. */
+  restWriteBackoff: RateLimitSnapshot;
 }
 
 type GhRun = (args: string[]) => Promise<string>;
@@ -92,6 +101,7 @@ export async function fetchGithubRateLimit(
       ...cache.payload,
       backoff: graphRateLimit.snapshot(),
       restBackoff: restRateLimit.snapshot(),
+      restWriteBackoff: restWriteRateLimit.snapshot(),
     };
   }
 
@@ -105,6 +115,7 @@ export async function fetchGithubRateLimit(
     fetchedAt: t,
     backoff: graphRateLimit.snapshot(),
     restBackoff: restRateLimit.snapshot(),
+    restWriteBackoff: restWriteRateLimit.snapshot(),
   };
   cache = { at: t, payload };
   return payload;

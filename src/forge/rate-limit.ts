@@ -2,9 +2,11 @@
  * Rate-limit tracking for Shepherd's GitHub integration.
  *
  * GitHub GraphQL has its own 5,000-points-per-hour bucket, separate from the
- * REST bucket used by `gh run` and `gh api <rest-path>`. This module tracks
- * each bucket ({@link graphRateLimit}, {@link restRateLimit}) and exposes a
- * shared backoff signal that pollers consult before issuing new requests.
+ * REST bucket used by `gh run` and `gh api <rest-path>` — and GitHub limits REST
+ * writes on a counter of their own, exhausted independently of REST reads (#2805).
+ * This module tracks each ({@link graphRateLimit}, {@link restRateLimit},
+ * {@link restWriteRateLimit}) and exposes a shared backoff signal that pollers
+ * consult before issuing new requests.
  *
  * Design goals:
  *  - Injectable `now` clock so tests are deterministic (no `Date.now()` calls
@@ -43,8 +45,8 @@ export interface RateLimitSnapshot {
  *
  *   const rl = new BucketRateLimit({ now: () => fakeTime });
  *
- * The module-level {@link graphRateLimit} and {@link restRateLimit} exports are
- * the singletons used in production.
+ * The module-level {@link graphRateLimit}, {@link restRateLimit} and
+ * {@link restWriteRateLimit} exports are the singletons used in production.
  */
 export class BucketRateLimit {
   private readonly _now: () => number;
@@ -127,10 +129,12 @@ export class BucketRateLimit {
    * in flight when the window opened do not escalate it.
    *
    * @param retryAfterSec Optional `Retry-After` header value in seconds.
+   * @param cause         What tripped it (the call and its stderr line), appended to the
+   *   "engaged" log so every engagement is explained (#2805).
    */
-  noteLimitError(retryAfterSec?: number): void {
+  noteLimitError(retryAfterSec?: number, cause?: string): void {
     if (retryAfterSec !== undefined) {
-      this._engage(this._now() + retryAfterSec * 1_000);
+      this._engage(this._now() + retryAfterSec * 1_000, cause);
       return;
     }
     if (!this.blocked()) this._strikes++;
@@ -138,7 +142,7 @@ export class BucketRateLimit {
       this._defaultCooldownMs * 2 ** Math.max(0, this._strikes - 1),
       this._maxCooldownMs,
     );
-    this._engage(this._now() + cooldownMs);
+    this._engage(this._now() + cooldownMs, cause);
   }
 
   /**
@@ -168,7 +172,7 @@ export class BucketRateLimit {
    * once on the unblocked→blocked edge, using the observable `blocked()` state
    * so a re-engagement after natural expiry also logs correctly.
    */
-  private _engage(until: number): void {
+  private _engage(until: number, cause?: string): void {
     const wasBlocked = this.blocked();
     const next = this._pausedUntil != null ? Math.max(this._pausedUntil, until) : until;
     this._pausedUntil = next;
@@ -178,7 +182,7 @@ export class BucketRateLimit {
     // edge trigger — no secondary `_notifiedBlocked` guard needed here.
     if (!wasBlocked) {
       console.warn(
-        `[rate-limit] ${this._label} backoff engaged until ${new Date(next).toISOString()}`,
+        `[rate-limit] ${this._label} backoff engaged until ${new Date(next).toISOString()}${cause ? ` — ${cause}` : ""}`,
       );
       this._notifiedBlocked = true;
     }
@@ -211,14 +215,28 @@ export class BucketRateLimit {
 export const graphRateLimit: BucketRateLimit = new BucketRateLimit();
 
 /**
- * The REST (`core`) bucket's tracker (#2656). REST calls carry no budget reading
- * Shepherd can parse, `gh` prints no reset time, and `gh api rate_limit` is no
- * health check (it is limit-exempt and was seen reporting 5000/5000 while every
- * real REST call 403'd) — so the window escalates from 60s to 15 min while
- * probes keep failing, and the first success clears it.
+ * The REST (`core`) bucket's READ tracker (#2656, #2805) — only REST reads
+ * ({@link isRestReadCall}) engage, clear or are gated by it. REST calls carry no
+ * budget reading Shepherd can parse, `gh` prints no reset time, and
+ * `gh api rate_limit` is no health check (it is limit-exempt and was seen
+ * reporting 5000/5000 while every real REST call 403'd) — so the window escalates
+ * from 60s to 15 min while probes keep failing, and the first success clears it.
  */
 export const restRateLimit: BucketRateLimit = new BucketRateLimit({
-  label: "REST",
+  label: "REST read",
+  maxCooldownMs: 15 * 60_000,
+});
+
+/**
+ * The REST WRITE tracker (#2805). GitHub limits REST writes on a counter of their
+ * own: a POST was seen 403ing at 5000/5000 while GETs on the same token read
+ * 34/5000. So a write's limit error engages only this tracker and never blocks
+ * reads. The runner doesn't gate writes on it (an operator's write runs and
+ * surfaces its error); periodic background writes skip while it is blocked.
+ * Escalates like {@link restRateLimit}.
+ */
+export const restWriteRateLimit: BucketRateLimit = new BucketRateLimit({
+  label: "REST write",
   maxCooldownMs: 15 * 60_000,
 });
 
@@ -289,11 +307,14 @@ export function isRestBucketCall(args: string[]): boolean {
   return endpoint !== undefined && endpoint !== "graphql" && endpoint !== "rate_limit";
 }
 
+/** `gh api` flags that make the request carry a body — and so default it to POST. */
+const API_BODY_FLAGS = ["-f", "--raw-field", "-F", "--field", "--input"];
+
 /**
  * Returns true iff the call is a REST-bucket READ: a `gh api` GET (explicit, or
  * implied — `gh api` defaults to POST once fields or `--input` are passed) or
  * `gh run list` / `gh run view`. Only these may be skipped during a REST backoff;
- * writes always go through.
+ * writes always go through, and are tracked apart ({@link restWriteRateLimit}).
  */
 export function isRestReadCall(args: string[]): boolean {
   if (!isRestBucketCall(args)) return false;
@@ -302,7 +323,27 @@ export function isRestReadCall(args: string[]): boolean {
   for (let i = 1; i < args.length; i++) {
     if (args[i] === "-X" || args[i] === "--method") return args[i + 1]?.toUpperCase() === "GET";
   }
-  return !args.some((a) => ["-f", "--raw-field", "-F", "--field", "--input"].includes(a));
+  return !args.some((a) => API_BODY_FLAGS.includes(a));
+}
+
+/**
+ * A short, log-safe name for a `gh` call (#2805): `gh api <METHOD> <endpoint>` for
+ * `gh api` (the method as `gh` will send it), otherwise `gh <sub> <action>`, e.g.
+ * `gh run rerun`. Never includes a flag value, so field bodies stay out of logs.
+ */
+export function ghCallSummary(args: string[]): string {
+  if (args[0] !== "api") {
+    const action = args[1] && !args[1].startsWith("-") ? ` ${args[1]}` : "";
+    return `gh ${args[0] ?? ""}${action}`;
+  }
+  const m = args.findIndex((a) => a === "-X" || a === "--method");
+  const method =
+    m >= 0
+      ? (args[m + 1]?.toUpperCase() ?? "?")
+      : args.some((a) => API_BODY_FLAGS.includes(a))
+        ? "POST"
+        : "GET";
+  return `gh api ${method} ${apiEndpoint(args) ?? "?"}`;
 }
 
 /**

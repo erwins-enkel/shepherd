@@ -1,7 +1,8 @@
 /**
  * Tests for makeGhRunner (src/forge/github.ts) — the shared `gh` runner every GitHub forge
- * call goes through (#2656): REST/GraphQL limit recording, the REST read gate, and the
- * concurrency cap. The exec seam and both bucket trackers are injected, with a fake clock.
+ * call goes through (#2656): GraphQL / REST read / REST write limit recording (#2805), the REST
+ * read gate, the engagement logs, and the concurrency cap. The exec seam and all bucket trackers
+ * are injected, with a fake clock.
  */
 import { describe, it, expect, spyOn, beforeEach, afterEach } from "bun:test";
 import { makeGhRunner } from "../../src/forge/github";
@@ -18,20 +19,22 @@ function harness(
   opts: { maxConcurrent?: number; exec?: (args: string[]) => Promise<string> } = {},
 ) {
   let t = 0;
-  const rest = new BucketRateLimit({
-    now: () => t,
-    label: "REST",
-    defaultCooldownMs: 60_000,
-    maxCooldownMs: 900_000,
-  });
+  const tracker = (label: string) =>
+    new BucketRateLimit({ now: () => t, label, defaultCooldownMs: 60_000, maxCooldownMs: 900_000 });
+  const rest = tracker("REST read");
+  const restWrite = tracker("REST write");
   const graph = new BucketRateLimit({ now: () => t });
   const execs: string[][] = [];
-  let restDown = true;
+  // GitHub limits REST reads and writes on separate counters (#2805): each can be down alone.
+  let readDown = true;
+  let writeDown = true;
   const exec =
     opts.exec ??
     (async (args: string[]) => {
       execs.push(args);
-      if (args[0] === "api" && args[1] !== "graphql" && restDown) throw ghError(REST_403);
+      const restCall = (args[0] === "api" && args[1] !== "graphql") || args[0] === "run";
+      const write = args.includes("POST") || args[1] === "rerun";
+      if (restCall && (write ? writeDown : readDown)) throw ghError(REST_403);
       return "{}";
     });
   const run = makeGhRunner({
@@ -40,16 +43,20 @@ function harness(
       return exec(args);
     },
     rest,
+    restWrite,
     graph,
     maxConcurrent: opts.maxConcurrent,
   });
   return {
     run,
     rest,
+    restWrite,
     graph,
     execs,
     advance: (ms: number) => (t += ms),
-    restUp: () => (restDown = false),
+    restUp: () => (readDown = writeDown = false),
+    readsUp: () => (readDown = false),
+    writesUp: () => (writeDown = false),
   };
 }
 
@@ -93,8 +100,8 @@ describe("makeGhRunner — REST backoff (#2656)", () => {
     h.restUp();
     await h.run(["api", "--method", "POST", "repos/o/r/git/refs", "-f", "ref=refs/heads/x"]);
     expect(h.execs).toHaveLength(2);
-    // …and the write's success is positive evidence the bucket answers again.
-    expect(h.rest.blocked()).toBe(false);
+    // …but a write's success says nothing about the read counter (#2805): reads stay gated.
+    expect(h.rest.blocked()).toBe(true);
 
     await h.run(["api", "graphql", "-f", "query=query{viewer{login}}"]);
     await h.run(["issue", "list", "--repo", "o/r"]);
@@ -130,6 +137,86 @@ describe("makeGhRunner — REST backoff (#2656)", () => {
     await h.run(["api", "repos/o/r"]).catch(() => {});
     expect(h.graph.blocked()).toBe(false);
     expect(h.rest.blocked()).toBe(false);
+  });
+});
+
+describe("makeGhRunner — separate REST read and write trackers (#2805)", () => {
+  let warnSpy: ReturnType<typeof spyOn>;
+  beforeEach(() => {
+    warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  const read = ["api", "repos/o/r/issues"];
+  const write = ["api", "--method", "POST", "repos/o/r/git/refs", "-f", "ref=refs/heads/secret-x"];
+
+  it("a rate-limited write does not make the next read fail fast — the read runs gh", async () => {
+    const h = harness();
+    h.readsUp();
+    await expect(h.run(write)).rejects.toThrow("API rate limit exceeded");
+    expect(h.restWrite.blocked()).toBe(true);
+    expect(h.rest.blocked()).toBe(false);
+
+    expect(await h.run(read)).toBe("{}");
+    expect(h.execs).toEqual([write, read]);
+    // A read's success says nothing about the write counter.
+    expect(h.restWrite.blocked()).toBe(true);
+  });
+
+  it("a rate-limited read still blocks later reads, and leaves the write tracker clear", async () => {
+    const h = harness();
+    await h.run(read).catch(() => {});
+    const skipped = await h.run(read).catch((e: unknown) => e);
+    expect(isRateLimitError(skipped)).toBe(true);
+    expect(h.execs).toHaveLength(1);
+    expect(h.rest.blocked()).toBe(true);
+    expect(h.restWrite.blocked()).toBe(false);
+  });
+
+  it("the runner never gates a write: during a write backoff it still runs, and its success clears it", async () => {
+    const h = harness();
+    await h.run(["run", "rerun", "7", "--repo", "o/r", "--failed"]).catch(() => {});
+    expect(h.restWrite.blocked()).toBe(true);
+
+    h.writesUp();
+    await h.run(write);
+    expect(h.execs).toHaveLength(2);
+    expect(h.restWrite.blocked()).toBe(false);
+  });
+
+  it("honours a Retry-After on the write tracker", async () => {
+    const h = harness({
+      exec: async () => {
+        throw ghError(`${REST_403}\nRetry-After: 120`);
+      },
+    });
+    await h.run(write).catch(() => {});
+    expect(h.restWrite.snapshot().pausedUntil).toBe(120_000);
+    expect(h.rest.blocked()).toBe(false);
+  });
+
+  it("logs each engagement once, naming the bucket, the call and the stderr line — never field values", async () => {
+    const h = harness({
+      exec: async () => {
+        throw ghError(`\n  ${REST_403}  \n{"message":"API rate limit exceeded"}`);
+      },
+    });
+    await h.run(write).catch(() => {});
+    await h.run(write).catch(() => {}); // inside the window: no second log
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    const msg = String(warnSpy.mock.calls[0]?.[0]);
+    expect(msg).toContain("[rate-limit] REST write backoff engaged until");
+    expect(msg).toContain(`— gh api POST repos/o/r/git/refs: ${REST_403}`);
+    expect(msg).not.toContain("secret-x");
+    expect(msg).not.toContain('{"message"');
+
+    await h.run(["run", "list", "--repo", "o/r"]).catch(() => {});
+    expect(warnSpy).toHaveBeenCalledTimes(2);
+    expect(String(warnSpy.mock.calls[1]?.[0])).toContain(
+      `[rate-limit] REST read backoff engaged until 1970-01-01T00:01:00.000Z — gh run list: ${REST_403}`,
+    );
   });
 });
 

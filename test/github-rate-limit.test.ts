@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { fetchGithubRateLimit, __resetGithubRateLimitCache } from "../src/forge/github-rate-limit";
-import { restRateLimit } from "../src/forge/rate-limit";
+import { restRateLimit, restWriteRateLimit } from "../src/forge/rate-limit";
 
 // A trimmed but realistic `gh api rate_limit` payload (epoch *seconds* for reset).
 const SAMPLE = JSON.stringify({
@@ -21,8 +21,11 @@ const SAMPLE = JSON.stringify({
 });
 
 beforeEach(() => __resetGithubRateLimitCache());
-// The REST tracker is a process singleton; clear any backoff a case engaged.
-afterEach(() => restRateLimit.noteSuccess());
+// The REST trackers are process singletons; clear any backoff a case engaged.
+afterEach(() => {
+  restRateLimit.noteSuccess();
+  restWriteRateLimit.noteSuccess();
+});
 
 describe("fetchGithubRateLimit — parsing", () => {
   it("extracts REST/core, GraphQL and search buckets with reset in epoch-ms", async () => {
@@ -55,6 +58,17 @@ describe("fetchGithubRateLimit — parsing", () => {
     );
     expect(out.restBackoff.blocked).toBe(true);
     expect(out.restBackoff.pausedUntil).toBeGreaterThan(Date.now());
+  });
+
+  it("carries the REST read and write backoffs apart (#2805)", async () => {
+    restWriteRateLimit.noteLimitError(120);
+    const out = await fetchGithubRateLimit(
+      async () => SAMPLE,
+      () => 1000,
+    );
+    expect(out.restWriteBackoff.blocked).toBe(true);
+    expect(out.restWriteBackoff.pausedUntil).toBeGreaterThan(Date.now());
+    expect(out.restBackoff.blocked).toBe(false);
   });
 
   it("returns null buckets when resources are absent", async () => {
@@ -91,6 +105,20 @@ describe("fetchGithubRateLimit — caching", () => {
       () => 1000 + 5_000,
     );
     expect(out.restBackoff.blocked).toBe(true);
+  });
+
+  it("refreshes the REST write backoff on a cached reading (#2805)", async () => {
+    await fetchGithubRateLimit(
+      async () => SAMPLE,
+      () => 1000,
+    );
+    restWriteRateLimit.noteLimitError(120);
+    const out = await fetchGithubRateLimit(
+      async () => SAMPLE,
+      () => 1000 + 5_000,
+    );
+    expect(out.restWriteBackoff.blocked).toBe(true);
+    expect(out.restBackoff.blocked).toBe(false);
   });
 
   it("re-fetches once the TTL has elapsed", async () => {

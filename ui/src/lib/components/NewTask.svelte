@@ -82,6 +82,7 @@
     normalizeRunConfig,
     modelForManualProviderChange,
     modelSettingFor as resolveModelSetting,
+    effortSettingFor as resolveEffortSetting,
   } from "./new-task/run-config";
   import { IssueData } from "./new-task/issue-data.svelte";
   import VideoBriefNotice from "./new-task/VideoBriefNotice.svelte";
@@ -116,6 +117,8 @@
     defaultModel,
     defaultCodexModel,
     defaultEffort,
+    defaultClaudeEffort,
+    defaultCodexEffort,
     relaunch = false,
     editHeld = false,
     initialBaseBranch,
@@ -175,6 +178,9 @@
     defaultModel?: string;
     defaultCodexModel?: string;
     defaultEffort?: string;
+    /** Per-engine default effort ("inherit" follows `defaultEffort`). */
+    defaultClaudeEffort?: string;
+    defaultCodexEffort?: string;
     relaunch?: boolean;
     editHeld?: boolean;
     initialBaseBranch?: string;
@@ -274,7 +280,9 @@
   let modelTouched = $state(draft?.modelTouched ?? false);
 
   // svelte-ignore state_referenced_locally
-  let effort = $state(draft?.effort ?? preselectEffort(initialEffort ?? defaultEffort));
+  let effort = $state(
+    draft?.effort ?? preselectEffort(initialEffort ?? effortSettingFor(agentProvider, "inherit")),
+  );
   let effortTouched = $state(draft?.effortTouched ?? false);
   // Relaunch + edit-held reuse this composer with a distinct title.
   const heading = $derived(
@@ -917,10 +925,16 @@
   }
   const effectiveModelSetting = $derived(modelSettingFor(agentProvider));
 
+  /** Effective effort SETTING for a provider: repo override → that engine's default → global. */
+  function effortSettingFor(provider: AgentProvider, repoOverride: string): string {
+    return resolveEffortSetting(provider, repoOverride, {
+      effort: defaultEffort,
+      claudeEffort: defaultClaudeEffort,
+      codexEffort: defaultCodexEffort,
+    });
+  }
   const repoEffortOverride = $derived(repoPath ? repoConfig.defaultEffortFor(repoPath) : "inherit");
-  const effectiveEffortSetting = $derived(
-    repoEffortOverride !== "inherit" ? repoEffortOverride : (defaultEffort ?? "default"),
-  );
+  const effectiveEffortSetting = $derived(effortSettingFor(agentProvider, repoEffortOverride));
 
   // Untouched-reseed: repo/provider change re-derives model+effort until pinned.
   $effect(() => {
@@ -955,10 +969,11 @@
     if (norm.effort !== effort) effort = norm.effort;
   });
 
-  /** Manual CLI-select change — today's semantics preserved: the model resets to the new
-   *  provider's default unconditionally (touched or not). */
+  /** Manual CLI-select change: model and effort reset to the new provider's defaults
+   *  unconditionally (touched or not) — each engine has its own default effort. */
   function providerChanged(p: AgentProvider) {
     agentProvider = p;
+    effort = preselectEffort(effortSettingFor(p, repoEffortOverride));
     model = modelForManualProviderChange(p, modelSettingFor(p), fableAvailable);
   }
 

@@ -421,6 +421,8 @@
   const newTaskFableAvailable = $derived(settings?.fableAvailable ?? true);
   // Hoisted out of the template (branch-free markup): the global default-effort seed.
   const newTaskDefaultEffort = $derived(settings?.defaultEffort);
+  const newTaskDefaultClaudeEffort = $derived(settings?.defaultClaudeEffort);
+  const newTaskDefaultCodexEffort = $derived(settings?.defaultCodexEffort);
   const newTaskDefaultCodexModel = $derived(settings?.defaultCodexModel);
   // Onboarding folder-picker inputs, hoisted out of the template so the markup stays branch-free.
   const onboardingRepoRoot = $derived(settings?.repoRoot ?? null);
@@ -440,6 +442,8 @@
     model: settings?.defaultModel,
     codexModel: newTaskDefaultCodexModel,
     effort: newTaskDefaultEffort,
+    claudeEffort: newTaskDefaultClaudeEffort,
+    codexEffort: newTaskDefaultCodexEffort,
     fableAvailable: newTaskFableAvailable,
   });
   // An epic child's session in the Repos dialog (#2622): the live session + its PR state.
@@ -623,6 +627,8 @@
         defaultModel={settings?.defaultModel}
         defaultCodexModel={newTaskDefaultCodexModel}
         defaultEffort={newTaskDefaultEffort}
+        defaultClaudeEffort={newTaskDefaultClaudeEffort}
+        defaultCodexEffort={newTaskDefaultCodexEffort}
         fableAvailable={newTaskFableAvailable}
         {holdLikely}
         onclose={onnewclose}

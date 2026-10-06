@@ -6,7 +6,8 @@
 // MEASUREMENT in TopBar.svelte (measureFull + decideFromCache), which this pure layer
 // can't do (it has no pixel widths). Mobile WRAPS instead, via the component's `mobile`
 // flag. This module therefore only derives the layout mode and the badge count the
-// measure-effect tracks as a content-change signal.
+// measure-effect tracks as a content-change signal. A second measured tier folds the
+// attention badges into the gear menu when even the icon-only bar overflows (narrow fold).
 
 export type Mode = "mobile" | "touch-desktop" | "desktop";
 

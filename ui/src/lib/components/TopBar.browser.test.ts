@@ -2,7 +2,14 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
-import type { Session, UsageLimits, UpdateStatus, HerdrUpdateStatus, HeldTask } from "$lib/types";
+import type {
+  Session,
+  UsageLimits,
+  UpdateStatus,
+  HerdrUpdateStatus,
+  CodexUpdateStatus,
+  HeldTask,
+} from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import { REPO_URL, DOCS_URL, version } from "$lib/build-info";
 import { formatTokenLabel } from "$lib/format";
@@ -3142,5 +3149,74 @@ describe("TopBar — every menu close path disarms the e-stop", () => {
       .toBeInTheDocument();
     await page.getByRole("button", { name: m.halt_all_aria({ count: 2 }) }).click();
     expect(onhalt).not.toHaveBeenCalled();
+  });
+});
+
+describe("TopBar — narrow fold folds attention badges into the gear", () => {
+  // The reported fold: held + app/herdr/codex updates + What's-New + diagnostics + usage +
+  // search + gear still overflow ~800px even icon-only. The second measured tier folds the
+  // attention badges into the gear menu (with a gear pip) so the bar fits.
+  const crowded = (onupdate = () => {}, ondiagnose = () => {}) => ({
+    nowMs: 1_700_000_000_000,
+    connected: true,
+    ...FLAGS["touch-desktop"],
+    ...sessionsProp(4),
+    limits: fullLimits,
+    heldCount: 1,
+    update: { behind: 4 } as UpdateStatus,
+    herdrUpdate: { updateAvailable: true } as HerdrUpdateStatus,
+    codexUpdate: { updateAvailable: true } as CodexUpdateStatus,
+    whatsNew: true,
+    diagnosticsOverall: "warning" as const,
+    onupdate,
+    ondiagnose,
+  });
+
+  async function renderAt(width: number, props: Record<string, unknown>) {
+    await page.viewport(width, 900);
+    document.body.style.width = `${width}px`;
+    render(TopBar, props);
+    const hud = document.querySelector<HTMLElement>(".hud");
+    expect(hud, "TopBar .hud mounted").not.toBeNull();
+    return hud!;
+  }
+
+  it("800px: fits, badges fold, gear pip shows, gear rows fire the actions", async () => {
+    const onupdate = vi.fn();
+    const ondiagnose = vi.fn();
+    const hud = await renderAt(800, crowded(onupdate, ondiagnose));
+    await waitNoOverflow(hud);
+    await vi.waitFor(() => expect(hud.querySelector(".update-badge")).toBeNull());
+    await drainFrames(hud);
+    assertNoOverflow(hud);
+    assertControlsHittable(hud);
+    expect(hud.querySelector(".gear-pip")?.getAttribute("data-tier")).toBe("yellow");
+
+    const gear = page.getByRole("button", { name: m.topbar_menu_aria() });
+    await gear.click();
+    const menu = page.getByRole("dialog", { name: m.topbar_menu_label() });
+    await menu
+      .getByRole("button", { name: new RegExp(m.topbar_update_badge()) })
+      .first()
+      .click();
+    expect(onupdate).toHaveBeenCalledOnce();
+    await expect.element(menu).not.toBeInTheDocument();
+
+    await gear.click();
+    await menu.getByRole("button", { name: m.diagnostics_pip_label() }).click();
+    expect(ondiagnose).toHaveBeenCalledOnce();
+  });
+
+  it("1366px: badges stay inline, no pip, gear menu has no attention rows", async () => {
+    const hud = await renderAt(1366, crowded());
+    await waitNoOverflow(hud);
+    await drainFrames(hud);
+    expect(hud.querySelector(".update-badge"), "update badge inline").not.toBeNull();
+    expect(hud.querySelector(".gear-pip")).toBeNull();
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    const menu = page.getByRole("dialog", { name: m.topbar_menu_label() });
+    await expect
+      .element(menu.getByRole("button", { name: m.diagnostics_pip_label() }))
+      .not.toBeInTheDocument();
   });
 });

@@ -52,7 +52,7 @@ struct MacCoreCompositionTests {
             #expect(rendered(owed(), as: IntegratedOwedPanel.self).count == 1)
             let sidebar = try #require(SidebarSlot.content?(app))
             let actions = try #require(ActionBarSlot.content?(session, store, app))
-            #expect(rendered(sidebar, as: MergeLauncher.self).count == 1)
+            #expect(rendered(sidebar, as: SidebarFooter.self).count == 1)
             #expect(rendered(actions, as: ComposeSessionActions.self).count == 1)
 
             // The real composition owns its predecessor; reset must release that owner.

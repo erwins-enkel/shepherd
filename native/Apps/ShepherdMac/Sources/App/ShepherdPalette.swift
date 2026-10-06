@@ -73,10 +73,15 @@ struct ShepherdMonoFont: ViewModifier {
 struct ShepherdSidebarButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     var primary = false
+    /// Footer size: fills its share of the row at a 30 pt control height.
+    var footer = false
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .modifier(ShepherdMonoFont(label: true, weight: .semibold))
-            .padding(.horizontal, 8).padding(.vertical, 5)
+            .lineLimit(1)
+            .padding(.horizontal, 8).padding(.vertical, footer ? 0 : 5)
+            .frame(maxWidth: footer ? .infinity : nil, minHeight: footer ? 30 : nil)
+            .contentShape(Rectangle())
             .foregroundStyle(primary ? ShepherdPalette.bg : ShepherdPalette.ink)
             .background(primary ? ShepherdPalette.amber : ShepherdPalette.panel2,
                 in: RoundedRectangle(cornerRadius: 4))

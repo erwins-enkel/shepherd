@@ -17,12 +17,33 @@ struct MergeLauncher: View {
         if let store = app.store, let model = app.extension(MergeModel.self) {
             @Bindable var model = model
             Button(L.t("native_merge_overview")) { model.showOverview = true }
-                .buttonStyle(ShepherdSidebarButtonStyle())
+                .buttonStyle(ShepherdSidebarButtonStyle(footer: true))
                 .sheet(isPresented: $model.showOverview) {
                     MergeOverviewView(app: app, store: store, model: model)
                         .id(app.activationGeneration).frame(minWidth: 620, minHeight: 440)
                 }
         }
+    }
+}
+/// The sidebar's bottom bar: the primary "new session" action next to the merge overview,
+/// on its own band so it never floats over the last card.
+struct SidebarFooter: View {
+    let app: AppModel
+    var body: some View {
+        HStack(spacing: 8) {
+            Button { MainWindow.openComposer(app) } label: {
+                Label(L.t("native_toolbar_new_session"), systemImage: "plus")
+            }
+            .buttonStyle(ShepherdSidebarButtonStyle(primary: true, footer: true))
+            .help(L.t("native_toolbar_new_session"))
+            .accessibilityIdentifier("sidebar-new-session")
+            MergeLauncher(app: app)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity)
+        .background(ShepherdPalette.panel)
+        .overlay(alignment: .top) { Rectangle().fill(ShepherdPalette.line).frame(height: 1) }
     }
 }
 @MainActor enum MergeStream {
@@ -62,7 +83,11 @@ struct MergeLauncher: View {
         let content: @MainActor (AppModel) -> AnyView
         init(content: @escaping @MainActor (AppModel) -> AnyView) { self.content = content }
         func render(_ app: AppModel) -> AnyView {
-            AnyView(VStack(spacing: 0) { content(app); MergeLauncher(app: app) })
+            AnyView(VStack(spacing: 0) {
+                // Fill the column so the footer stays pinned even when the list is empty.
+                content(app).frame(maxHeight: .infinity, alignment: .top)
+                SidebarFooter(app: app)
+            })
         }
     }
     @MainActor private final class ActionComposition {

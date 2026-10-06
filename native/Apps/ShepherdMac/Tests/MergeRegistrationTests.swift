@@ -83,7 +83,7 @@ extension MacSeamTests {
             MergeStream.install(app) // Also remain idempotent without predecessors.
             let sidebar = try #require(SidebarSlot.content?(app))
             let actions = try #require(ActionBarSlot.content?(session, store, app))
-            #expect(rendered(sidebar, as: MergeLauncher.self).count == 1)
+            #expect(rendered(sidebar, as: SidebarFooter.self).count == 1)
             #expect(rendered(actions, as: Label<Text, Image>.self).count == 1)
             #expect(rendered(actions, as: ComposeSessionActions.self).count == 1)
             #expect(NewSessionSlot.resolution == .slot)

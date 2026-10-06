@@ -47,29 +47,64 @@ function svc(deps: Partial<UpNextDeps> = {}): UpNextService {
 }
 
 describe("UpNextService.refresh", () => {
-  test("warm restart: recompute waits for the fingerprint and budget, then publishes", async () => {
+  test("warm restart: only boot and background recomputes wait for the fingerprint and budget", async () => {
     let ready = false;
     let reads = 0;
+    let issues = [issue(1)];
     const s = svc({
-      shouldRefresh: () => ready,
+      shouldBackgroundRefresh: () => ready,
+      intervalMs: 10,
       resolveForge: () => {
         reads++;
-        return fakeForge({ issues: [issue(1)] });
+        return fakeForge({ issues });
       },
     });
     s.start();
     try {
-      await s.refresh();
+      await new Promise((r) => setTimeout(r, 30));
       expect(reads).toBe(0);
-      ready = true;
       const snap = await s.refresh();
       expect(snap.sections.find((x) => x.kind === "repo")?.items[0]?.number).toBe(1);
-      ready = false;
-      expect(await s.refresh()).toBe(snap);
-      expect(reads).toBe(1);
+      issues = [issue(2)];
+      const refreshed = await s.refresh();
+      expect(refreshed.sections.find((x) => x.kind === "repo")?.items[0]?.number).toBe(2);
+      expect(reads).toBe(2);
+      ready = true;
+      await new Promise((r) => setTimeout(r, 30));
+      expect(reads).toBeGreaterThan(2);
     } finally {
       s.stop();
     }
+  });
+
+  test("warm restart: post-start recompute clears a claimed item below the background reserve", async () => {
+    let ready = true;
+    let issues = [issue(1)];
+    let reads = 0;
+    const s = svc({
+      shouldBackgroundRefresh: () => ready,
+      postStartRetryDelaysMs: [0],
+      realpath: (p) => p,
+      resolveForge: () =>
+        fakeForge({
+          listIssues: async () => {
+            reads++;
+            return issues;
+          },
+        }),
+    });
+    await s.refresh();
+    expect(
+      s
+        .snapshot()
+        ?.sections.flatMap((sec) => sec.items)
+        .map((it) => it.number),
+    ).toContain(1);
+    ready = false;
+    issues = [issue(1, { labels: ["shepherd:active"] })];
+    await s.recomputeUntilCleared([{ repoPath: "/r/a", issueNumber: 1 }]);
+    expect(s.snapshot()?.sections.flatMap((sec) => sec.items)).toEqual([]);
+    expect(reads).toBe(2);
   });
   test("computes a snapshot from listIssues and emits onChange", async () => {
     let emitted = 0;

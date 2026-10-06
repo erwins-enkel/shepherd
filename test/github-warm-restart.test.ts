@@ -9,6 +9,7 @@ import { RepoFingerprintService, type FingerprintObservation } from "../src/repo
 import { graphRateLimit } from "../src/forge/rate-limit";
 import { setIssuesFreshness } from "../src/forge/repo-freshness";
 import type { RepoFingerprint } from "../src/forge/github-fingerprint";
+import type { OpenPrSnapshot } from "../src/forge/types";
 import { OpenPrSnapshotService } from "../src/open-pr-snapshot";
 import { SessionStore } from "../src/store";
 import { CountsService } from "../src/backlog";
@@ -104,6 +105,7 @@ function harness(store: GithubCacheStore = new MemoryStore()) {
   let blocked = false;
   let remaining = 4_000;
   let current = { ...FP };
+  let unreadable = false;
   const calls: string[][] = [];
   const observations: FingerprintObservation[] = [];
   let fingerprintCalls = 0;
@@ -147,7 +149,10 @@ function harness(store: GithubCacheStore = new MemoryStore()) {
       listTargets: () => [{ slug: "o/r", paths: ["/r"] }],
       fetch: async () => {
         fingerprintCalls++;
-        return { fingerprints: new Map([["o/r", { ...current }]]), rateLimit: null };
+        return {
+          fingerprints: new Map([["o/r", unreadable ? null : { ...current }]]),
+          rateLimit: null,
+        };
       },
       rateLimit: () => ({ blocked, remaining, resetAt: now + 3_600_000, pausedUntil: null }),
       onObserved: (o) => {
@@ -183,10 +188,68 @@ function harness(store: GithubCacheStore = new MemoryStore()) {
     changePrs: () => {
       current = { ...current, prsUpdatedAt: "2026-10-06T12:00:00Z" };
     },
+    unreadable: () => {
+      unreadable = true;
+    },
   };
 }
 
 describe("GitHub warm restart", () => {
+  test.each([false, true])(
+    "repeated unreadable fingerprints preserve issue-list backoff (previously covered: %s)",
+    async (known) => {
+      const h = harness();
+      const boot = h.boot();
+      if (known) {
+        await boot.svc.tick();
+        h.advance(120_000);
+      }
+      h.unreadable();
+      await boot.svc.tick();
+      let attempts = 0;
+      const forge = new GithubForge(
+        "o/r",
+        {},
+        async () => {
+          attempts++;
+          throw new Error("unreachable");
+        },
+        undefined,
+        undefined,
+        boot.cache,
+      );
+      for (let i = 0; i < 5; i++) {
+        if (i > 0) {
+          h.advance(120_000);
+          await boot.svc.tick();
+        }
+        await expect(forge.listIssues()).rejects.toBeDefined();
+      }
+      // Four failed CLI + REST attempts reach a 240s backoff; the fifth read is still inside it.
+      expect(attempts).toBe(8);
+    },
+  );
+
+  test("repeated unreadable fingerprints do not discard a straddling PR snapshot", async () => {
+    const h = harness();
+    const boot = h.boot();
+    await boot.svc.tick();
+    h.unreadable();
+    h.advance(120_000);
+    await boot.svc.tick();
+    let resolve!: (value: OpenPrSnapshot) => void;
+    boot.forge.listOpenPrSnapshot = () =>
+      new Promise((r) => {
+        resolve = r;
+      });
+    const snapshots = new OpenPrSnapshotService(h.now, 6, boot.cache);
+    const pending = snapshots.refresh(boot.forge);
+    h.advance(120_000);
+    await boot.svc.tick();
+    resolve({ prs: [], statuses: new Map(), capped: false });
+    await pending;
+    expect(snapshots.peek(boot.forge)).toEqual({ prs: [], statuses: new Map(), capped: false });
+  });
   afterEach(() => {
     setIssuesFreshness(null);
     graphRateLimit.note({ remaining: 4_000, resetAt: Date.now() + 60_000 });
@@ -671,6 +734,92 @@ describe("GitHub warm restart", () => {
       await warm.forge.closeIssue(10);
       expect(rehydrated.peek(dir)).toBeNull();
       expect((await rehydrated.counts(dir)).openPRs).toBe(3);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("GitHub counts failures are cached briefly, then retry without poisoning persistence", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "shepherd-counts-failure-"));
+    try {
+      execFileSync("git", ["init", "-q", dir]);
+      execFileSync("git", ["-C", dir, "remote", "add", "origin", "https://github.com/o/r.git"]);
+      const h = harness();
+      const boot = h.boot();
+      await boot.svc.tick();
+      let attempts = 0;
+      let fail = true;
+      const counts = new CountsService(
+        {},
+        async () => {
+          attempts++;
+          if (fail) throw new Error("counts unavailable");
+          return JSON.stringify({
+            data: {
+              repository: {
+                issues: { totalCount: 2 },
+                pullRequests: { totalCount: 1, nodes: [] },
+              },
+            },
+          });
+        },
+        fetch,
+        undefined,
+        undefined,
+        undefined,
+        boot.cache,
+      );
+      expect((await counts.counts(dir)).openIssues).toBeNull();
+      expect(counts.peek(dir)?.openIssues).toBeNull();
+      expect((await counts.counts(dir)).openIssues).toBeNull();
+      h.advance(29_999);
+      expect((await counts.counts(dir)).openIssues).toBeNull();
+      expect(attempts).toBe(1);
+      expect(boot.cache.get("counts", "o/r")).toBeNull();
+      h.advance(1);
+      fail = false;
+      expect((await counts.counts(dir)).openIssues).toBe(2);
+      expect(attempts).toBe(2);
+      const good = boot.cache.get("counts", "o/r");
+      fail = true;
+      expect((await counts.refresh(dir)).openIssues).toBe(2);
+      expect((await counts.counts(dir)).openIssues).toBe(2);
+      expect(attempts).toBe(3);
+      expect(boot.cache.get("counts", "o/r")).toEqual(good);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("own writes bypass a cached GitHub counts failure immediately", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "shepherd-counts-write-"));
+    try {
+      execFileSync("git", ["init", "-q", dir]);
+      execFileSync("git", ["-C", dir, "remote", "add", "origin", "https://github.com/o/r.git"]);
+      const h = harness();
+      const boot = h.boot();
+      await boot.svc.tick();
+      let attempts = 0;
+      const counts = new CountsService(
+        {},
+        async () => {
+          if (++attempts === 1) throw new Error("counts unavailable");
+          return JSON.stringify({
+            data: { repository: { issues: { totalCount: 1 }, pullRequests: { totalCount: 1 } } },
+          });
+        },
+        fetch,
+        undefined,
+        undefined,
+        undefined,
+        boot.cache,
+      );
+      expect((await counts.counts(dir)).openIssues).toBeNull();
+      expect((await counts.counts(dir)).openIssues).toBeNull();
+      expect(attempts).toBe(1);
+      await boot.forge.closeIssue(10);
+      expect((await counts.counts(dir)).openIssues).toBe(1);
+      expect(attempts).toBe(2);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

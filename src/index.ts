@@ -3832,7 +3832,7 @@ deferredStarts.push(() => {
 // by a 15-min background loop; reuses the drain's epic pipeline for ready-child gating and
 // pushes each fresh snapshot to clients over the WS (upnext:snapshot).
 const upNext = new UpNextService({
-  shouldRefresh: () => fingerprint.backgroundReady(),
+  shouldBackgroundRefresh: () => fingerprint.backgroundReady(),
   // Forge-backed, non-hidden repos only. buildUpNextRepos owns forge-kind filtering,
   // the realpath→raw reconcile, hidden-repo filtering, and the exact field mapping.
   listForgeRepos: () =>

@@ -13,13 +13,14 @@ import type { GithubCacheEntry, GithubReadCache } from "./github-read-cache";
 // is exported from forge/types.ts directly — backlog.ts no longer has a consumer for it.)
 export type { RepoCounts } from "./forge/types";
 
-type CacheEntry = GithubCacheEntry<RepoCounts>;
+type CacheEntry = GithubCacheEntry<RepoCounts> & { negative?: boolean; revision?: number };
 
 /** Read TTL. Must outlive BacklogPoller's cold cadence (15 min, #2656): a cold repo is
  *  re-warmed that rarely, and a shorter TTL would make every backlog broadcast and GET
  *  re-fetch it on the request path anyway — undoing the tiering. Hot repos are rewritten
  *  every warm tick, so they never get near it. */
 const TTL_MS = 20 * 60_000;
+const FAILURE_TTL_MS = 30_000;
 
 /**
  * Cap on simultaneous count fetches. The async runner made the per-repo `gh`
@@ -131,9 +132,18 @@ export class CountsService {
 
   private entry(repoPath: string): CacheEntry | null {
     const slug = this.githubSlug(repoPath);
-    return slug && this.readCache
-      ? this.readCache.get("counts", slug)
-      : (this.cache.get(repoPath) ?? null);
+    const entry = this.cache.get(repoPath);
+    if (slug && this.readCache) {
+      if (
+        entry?.negative &&
+        this.now() - entry.at < FAILURE_TTL_MS &&
+        entry.revision === this.readCache.revision(slug) &&
+        entry.contentKey === this.readCache.contentKey("counts", slug)
+      )
+        return entry;
+      return this.readCache.get("counts", slug);
+    }
+    return entry ?? null;
   }
 
   /**
@@ -188,12 +198,21 @@ export class CountsService {
           return v;
         },
         () => {
+          const current =
+            this.inflight.get(repoPath) === promise &&
+            (!slug || revision === this.readCache?.revision(slug));
           if (this.inflight.get(repoPath) === promise) this.inflight.delete(repoPath);
           const prev = this.entry(repoPath);
-          if (preserveOnError && prev) return prev.value; // keep last-known-good
-          if (!slug)
-            this.cache.set(repoPath, { at: this.now(), value: NULL_COUNTS, contentKey: null });
-          return NULL_COUNTS;
+          if (preserveOnError && prev && !slug) return prev.value;
+          const value = preserveOnError && prev ? prev.value : NULL_COUNTS;
+          if (current)
+            this.cache.set(repoPath, {
+              at: this.now(),
+              value,
+              contentKey: fpKey,
+              ...(slug ? { negative: true, revision } : {}),
+            });
+          return value;
         },
       );
     this.inflight.set(repoPath, promise);

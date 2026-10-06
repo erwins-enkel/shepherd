@@ -71,8 +71,8 @@ export interface UpNextDeps {
   now?: () => number;
   concurrency?: number;
   intervalMs?: number;
-  /** Broad reads wait for the first fingerprint and the background budget reserve. */
-  shouldRefresh?: () => boolean;
+  /** Boot and periodic reads wait for the first fingerprint and the background reserve. */
+  shouldBackgroundRefresh?: () => boolean;
   /** Backoff (ms) between post-start recompute attempts; first is immediate. See
    *  `recomputeUntilCleared`. Injectable so tests can drive the loop with tiny delays. */
   postStartRetryDelaysMs?: number[];
@@ -148,8 +148,6 @@ export class UpNextService {
    *  the manual button) share one in-flight refresh rather than fanning out N times. */
   async refresh(): Promise<UpNextSnapshot> {
     if (this.inFlight) return this.inFlight;
-    if (this.deps.shouldRefresh && !this.deps.shouldRefresh())
-      return this.snap ?? buildSnapshot([], this.now());
     this.inFlight = this.compute().finally(() => {
       this.inFlight = null;
     });
@@ -401,14 +399,15 @@ export class UpNextService {
   /** Boot warm-up + interval refresh (mirrors BacklogPoller). Idempotent. */
   start(): void {
     if (this.timer) return;
-    void this.refresh().catch((err) => console.warn("[up-next] boot refresh:", err));
-    this.timer = setInterval(
-      () => void this.refresh().catch((err) => console.warn("[up-next] tick:", err)),
-      this.intervalMs,
-    );
+    this.refreshInBackground();
+    this.timer = setInterval(() => this.refreshInBackground(), this.intervalMs);
   }
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+  }
+  private refreshInBackground(): void {
+    if (this.deps.shouldBackgroundRefresh && !this.deps.shouldBackgroundRefresh()) return;
+    void this.refresh().catch((err) => console.warn("[up-next] background refresh:", err));
   }
 }

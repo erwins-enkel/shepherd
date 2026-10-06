@@ -238,8 +238,9 @@ export class RepoFingerprintService {
     into: FingerprintObservation,
   ): void {
     if (!fp) {
-      this.state.delete(target.slug); // unreadable now → uncovered, consumers keep a TTL
-      this.deps.cache?.invalidate(target.slug, ["fingerprint"]);
+      const hadState = this.state.delete(target.slug); // unreadable now → consumers keep a TTL
+      if (hadState || this.deps.cache?.get("fingerprint", target.slug))
+        this.deps.cache?.invalidate(target.slug, ["fingerprint"]);
       return;
     }
     const prev = this.state.get(target.slug);

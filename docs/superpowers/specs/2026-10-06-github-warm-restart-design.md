@@ -31,6 +31,9 @@ repopulating persistence. Incomplete epic fallback data is never persisted as co
 Boot's fingerprint runs before Up Next and broad background scans. Those scans run only
 after a successful fingerprint and with at least 1,000 GraphQL points remaining (or after
 the reading's reset). PR polls needed for transient sessions remain permitted.
+Operator-requested and post-start Up Next recomputes bypass this background gate so claimed
+items disappear immediately. Failed GitHub count reads have a 30-second process-local
+negative entry; own writes or a changed content key bypass it.
 
 Verify with injected clocks/stores and restart simulations: unchanged repositories make
 no issue-list, counts or relation calls for five minutes; restart in backoff produces no

@@ -6,6 +6,7 @@ import {
   normalizeRunConfig,
   modelForManualProviderChange,
   modelSettingFor,
+  effortSettingFor,
   type ReseedInput,
   type NormalizeInput,
 } from "./run-config";
@@ -188,5 +189,22 @@ describe("modelSettingFor", () => {
     expect(modelSettingFor("claude", "not-a-model", "opus", undefined)).toBe("opus");
     expect(modelSettingFor("claude", "inherit", undefined, undefined)).toBe("auto");
     expect(modelSettingFor("codex", "inherit", "opus", "gpt-x")).toBe("gpt-x");
+  });
+});
+
+describe("effortSettingFor", () => {
+  const defaults = { effort: "high", claudeEffort: "inherit", codexEffort: "xhigh" };
+  it("prefers the repo override, then the engine's own default, then the global default", () => {
+    expect(effortSettingFor("codex", "low", defaults)).toBe("low");
+    expect(effortSettingFor("codex", "inherit", defaults)).toBe("xhigh");
+    expect(effortSettingFor("claude", "inherit", defaults)).toBe("high");
+  });
+  it("treats the engine's 'default' (no flag) as its own choice", () => {
+    expect(effortSettingFor("codex", "inherit", { ...defaults, codexEffort: "default" })).toBe(
+      "default",
+    );
+  });
+  it("falls back to 'default' when nothing is configured", () => {
+    expect(effortSettingFor("claude", "inherit", {})).toBe("default");
   });
 });

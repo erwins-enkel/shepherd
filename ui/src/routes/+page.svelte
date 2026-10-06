@@ -785,6 +785,8 @@
     model: settings?.defaultModel,
     codexModel: settings?.defaultCodexModel,
     effort: settings?.defaultEffort,
+    claudeEffort: settings?.defaultClaudeEffort,
+    codexEffort: settings?.defaultCodexEffort,
     fableAvailable: settings?.fableAvailable ?? true,
   });
   const upNextLaunch = $derived({

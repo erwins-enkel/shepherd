@@ -26,6 +26,7 @@ let savedPrCap: number;
 let savedPlanCap: number;
 let savedDefaultModel: string;
 let savedDefaultCodexModel: string;
+let savedEngineEfforts: { claude: string; codex: string; global: string };
 const ROLE_BASES = [
   "critic",
   "planner",
@@ -65,6 +66,11 @@ beforeEach(() => {
   savedPlanCap = config.planReviewCyclesCap;
   savedDefaultModel = config.defaultModel;
   savedDefaultCodexModel = config.defaultCodexModel;
+  savedEngineEfforts = {
+    claude: config.defaultClaudeEffort,
+    codex: config.defaultCodexEffort,
+    global: config.defaultEffort,
+  };
   savedRoleEnvs = {};
   const cfg = config as unknown as Record<string, string>;
   for (const role of ROLE_BASES) {
@@ -102,6 +108,9 @@ afterEach(() => {
   config.planReviewCyclesCap = savedPlanCap;
   config.defaultModel = savedDefaultModel;
   config.defaultCodexModel = savedDefaultCodexModel;
+  config.defaultClaudeEffort = savedEngineEfforts.claude;
+  config.defaultCodexEffort = savedEngineEfforts.codex;
+  config.defaultEffort = savedEngineEfforts.global;
   const cfg = config as unknown as Record<string, string>;
   for (const role of ROLE_BASES) {
     cfg[`${role}Cli`] = savedRoleEnvs[`${role}Cli`]!;
@@ -777,6 +786,48 @@ test("GET and PUT resolve a ChatGPT-incompatible Codex model to provider default
   expect((await res.json()).defaultCodexModel).toBe("default");
   expect(config.defaultCodexModel).toBe("default");
   expect(store.getSetting("defaultCodexModel")).toBe("default");
+});
+
+// ── per-engine default effort ──
+test("GET /api/settings includes each engine's raw default effort", async () => {
+  config.defaultClaudeEffort = "inherit";
+  config.defaultCodexEffort = "xhigh";
+  const { app } = harness();
+  const body = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(body.defaultClaudeEffort).toBe("inherit");
+  expect(body.defaultCodexEffort).toBe("xhigh");
+});
+
+test.each([
+  ["defaultClaudeEffort", "high"],
+  ["defaultClaudeEffort", "default"],
+  ["defaultCodexEffort", "ultra"],
+  ["defaultCodexEffort", "inherit"],
+] as const)("PUT /api/settings persists %s = %s", async (key, value) => {
+  const { app, store } = harness();
+  config[key] = key === "defaultCodexEffort" && value === "inherit" ? "low" : "inherit";
+  const res = await put(app, { [key]: value });
+  expect(res.status).toBe(200);
+  expect((await res.json())[key]).toBe(value);
+  expect(config[key]).toBe(value);
+  expect(store.getSetting(key)).toBe(value);
+});
+
+test("PUT /api/settings rejects a tier the engine lacks and junk", async () => {
+  const { app, store } = harness();
+  config.defaultClaudeEffort = "inherit";
+  config.defaultCodexEffort = "inherit";
+  for (const [key, value] of [
+    ["defaultClaudeEffort", "ultra"],
+    ["defaultClaudeEffort", "auto"],
+    ["defaultCodexEffort", "minimal"],
+    ["defaultCodexEffort", 3],
+  ] as const) {
+    const res = await put(app, { [key]: value });
+    expect(res.status).toBe(400);
+    expect(config[key]).toBe("inherit");
+    expect(store.getSetting(key)).toBeNull();
+  }
 });
 
 // ── per-role environment settings (cli + model + effort) ──

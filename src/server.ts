@@ -277,8 +277,10 @@ import {
 import { readCodexAuthMode } from "./codex-auth";
 import {
   normalizeDefaultEffortSetting,
+  normalizeProviderDefaultEffortSetting,
   normalizeRepoDefaultEffortSetting,
   drainSpawnEffort,
+  engineDefaultEffortSetting,
   resolveDefaultEffortSetting,
   effortBelowHigh,
 } from "./default-effort";
@@ -1624,7 +1626,12 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
         effort:
           choice && "effort" in choice
             ? choice.effort
-            : drainSpawnEffort(resolveDefaultEffortSetting(rc.defaultEffort, config.defaultEffort)),
+            : drainSpawnEffort(
+                resolveDefaultEffortSetting(
+                  rc.defaultEffort,
+                  engineDefaultEffortSetting(provider, config),
+                ),
+              ),
         images: [],
         auto: false,
         issueRef: it.issueRef,
@@ -5971,6 +5978,9 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       defaultModel: config.defaultModel,
       defaultCodexModel: resolvedCodexSetting(config.defaultCodexModel, deps),
       defaultEffort: config.defaultEffort,
+      // per-engine default effort ("inherit" follows defaultEffort).
+      defaultClaudeEffort: config.defaultClaudeEffort,
+      defaultCodexEffort: config.defaultCodexEffort,
       // per-role ENVIRONMENT SETTINGs, a pair per role: `<role>Cli` ("inherit" | "claude" | "codex";
       // "inherit" follows defaultAgentProvider + defaultModel) and `<role>Model` ("default" | <alias>
       // for that CLI). The UI shows each role's effective resolved CLI · model alongside the pickers.
@@ -6092,6 +6102,8 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["defaultModel", putDefaultModel],
   ["defaultCodexModel", putDefaultCodexModel],
   ["defaultEffort", putDefaultEffort],
+  ["defaultClaudeEffort", makeEngineEffortPatch("claude")],
+  ["defaultCodexEffort", makeEngineEffortPatch("codex")],
   ["criticCli", makeRoleCliPatch("critic")],
   ["criticModel", makeRoleModelPatch("critic")],
   ["criticEffort", makeRoleEffortPatch("critic")],
@@ -6234,6 +6246,24 @@ function putDefaultEffort(value: unknown, deps: Ctx["deps"]): Response {
   config.defaultEffort = v; // live: next drain spawn picks it up
   deps.store.setSetting("defaultEffort", v); // persist across restarts
   return json({ defaultEffort: config.defaultEffort });
+}
+
+// Per-engine default effort: "inherit" (follow defaultEffort) | "default" | a tier the engine offers.
+function makeEngineEffortPatch(
+  provider: AgentProvider,
+): (value: unknown, deps: Ctx["deps"]) => Response {
+  const key = provider === "codex" ? "defaultCodexEffort" : "defaultClaudeEffort";
+  return (value, deps) => {
+    const v = normalizeProviderDefaultEffortSetting(provider, value);
+    if (v === null)
+      return json(
+        { error: `${key} must be "inherit", "default" or a ${provider} effort tier` },
+        400,
+      );
+    config[key] = v; // live: next spawn picks it up
+    deps.store.setSetting(key, v); // persist across restarts
+    return json({ [key]: config[key] });
+  };
 }
 
 // Per-role ENVIRONMENT patch handlers. Each role has `<role>Cli` ("inherit"|<provider>),

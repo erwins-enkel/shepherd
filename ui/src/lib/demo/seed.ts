@@ -1184,6 +1184,8 @@ function buildSettings(): Settings {
     defaultModel: "auto",
     defaultCodexModel: "gpt-5.6-sol",
     defaultEffort: "default",
+    defaultClaudeEffort: "inherit",
+    defaultCodexEffort: "inherit",
     operatorLanguage: "en",
     criticCli: "inherit",
     criticModel: "default",

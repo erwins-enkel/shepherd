@@ -106,31 +106,40 @@ export function roleHint(role: RoleBase): string {
   }
 }
 
-/** The Coding CLI section's rows by group. The panel derives its group counts
- *  ("N settings") and search auto-expand from this, and the shell's rail badge
- *  counts flatten it — one source, so copy edits can't drift the counts away
- *  from what actually highlights. Parameterized on the active default provider
- *  because only that provider's model row is rendered. */
-export function codingCliRows(provider: "claude" | "codex"): {
+/** The Coding CLI section's rows by group. The panel derives the Agent
+ *  environments group's count ("N settings") and search auto-expand from this,
+ *  and the shell's rail badge counts flatten it — one source, so copy edits
+ *  can't drift the counts away from what actually highlights. */
+export function codingCliRows(): {
   defaults: string[][];
-  claude: string[][];
-  codex: string[][];
+  engines: string[][];
   roles: string[][];
 } {
   return {
     defaults: [
       [m.settings_default_agent_provider_title(), m.settings_default_cli_desc()],
-      provider === "claude"
-        ? [m.settings_default_model_title(), m.settings_default_model_hint()]
-        : [m.settings_default_codex_model_title(), m.settings_default_codex_model_hint()],
-      [m.settings_upnext_skip_cli_picker_label(), m.settings_upnext_skip_cli_picker_hint()],
-    ],
-    claude: [
       [m.settings_default_effort_title(), m.settings_default_effort_hint()],
       [m.settings_operator_language_title(), m.settings_operator_language_hint()],
-      [m.settings_auth_mode_title(), m.settings_auth_mode_hint()],
+      [m.settings_upnext_skip_cli_picker_label(), m.settings_upnext_skip_cli_picker_hint()],
     ],
-    codex: [[m.settings_cli_codex_auth_title(), m.settings_cli_codex_auth_hint()]],
+    engines: [
+      [m.settings_engine_defaults_title(), m.settings_engine_defaults_hint()],
+      [
+        m.settings_cli_claude(),
+        m.settings_engine_model_label(),
+        m.settings_engine_effort_label(),
+        m.settings_auth_mode_title(),
+        m.settings_auth_mode_hint(),
+      ],
+      [
+        m.settings_cli_codex(),
+        m.settings_engine_model_label(),
+        m.settings_engine_effort_label(),
+        m.settings_cli_codex_auth_title(),
+        m.settings_cli_codex_auth_hint(),
+      ],
+      [m.settings_engine_defaults_precedence()],
+    ],
     roles: ROLE_BASES.map((r) => [roleTitle(r), roleHint(r)]),
   };
 }
@@ -220,23 +229,16 @@ function sessionRows(ctx: SessionRowsCtx): string[][] {
  *  plugins, device, diagnostics) contribute their primary labels only — a
  *  documented boundary of the label-level search there. */
 export function sectionSearchRows(ctx: {
-  provider: "claude" | "codex";
   session?: SessionRowsCtx;
 }): Record<SettingsSectionId, string[][]> {
-  const cli = codingCliRows(ctx.provider);
+  const cli = codingCliRows();
   return {
     workspace: [
       [m.settings_tab_workspace()],
       [m.settings_current_root_label()],
       [m.settings_use_folder()],
     ],
-    codingAgents: [
-      [m.settings_tab_coding_agents()],
-      ...cli.defaults,
-      ...cli.claude,
-      ...cli.codex,
-      ...cli.roles,
-    ],
+    codingAgents: [[m.settings_tab_coding_agents()], ...cli.defaults, ...cli.engines, ...cli.roles],
     steers: [[m.settings_tab_steers()], [m.steerseditor_title(), m.steerseditor_hint()]],
     plugins: [[m.settings_tab_plugins()], [m.plugins_check_updates()]],
     session: [[m.settings_tab_session()], ...sessionRows(ctx.session ?? {})],

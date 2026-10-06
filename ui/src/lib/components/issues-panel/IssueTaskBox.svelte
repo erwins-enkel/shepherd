@@ -12,7 +12,12 @@
   import { providerModels } from "$lib/provider-models";
   import { providerEfforts, effortLabel, effortAvailableForProvider } from "$lib/effort-guidance";
   import { modelOptionLabel } from "$lib/model-guidance";
-  import { modelSettingFor, preselectModel, preselectEffort } from "../new-task/run-config";
+  import {
+    effortSettingFor,
+    modelSettingFor,
+    preselectModel,
+    preselectEffort,
+  } from "../new-task/run-config";
   import { ACTIVE_LABEL } from "../issues-panel";
 
   // "Aufgabe" section of a single issue's reading detail (#2617): shows the task state, the
@@ -68,8 +73,15 @@
     ...providerEfforts(provider, model === "default" ? null : model),
   ]);
   const effort = $derived.by(() => {
-    const override = repoConfig.defaultEffortFor(repoPath);
-    const v = run.effort ?? preselectEffort(override !== "inherit" ? override : defaults?.effort);
+    const v =
+      run.effort ??
+      preselectEffort(
+        effortSettingFor(provider, repoConfig.defaultEffortFor(repoPath), {
+          effort: defaults?.effort,
+          claudeEffort: defaults?.claudeEffort,
+          codexEffort: defaults?.codexEffort,
+        }),
+      );
     return effortOptions.includes(v) ? v : "default";
   });
 

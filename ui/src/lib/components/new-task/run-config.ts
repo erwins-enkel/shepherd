@@ -39,6 +39,19 @@ export function modelSettingFor(
     : setting;
 }
 
+/** Effective effort SETTING for a provider: the repo override wins, else that engine's own
+ *  default, else the global default — "inherit" at either level falls through. Shared by NewTask
+ *  and the backlog task box so the box shows what the composer will preselect. */
+export function effortSettingFor(
+  provider: AgentProvider,
+  repoOverride: string,
+  defaults: { effort?: string; claudeEffort?: string; codexEffort?: string },
+): string {
+  if (repoOverride !== "inherit") return repoOverride;
+  const own = provider === "codex" ? defaults.codexEffort : defaults.claudeEffort;
+  return own && own !== "inherit" ? own : (defaults.effort ?? "default");
+}
+
 /** Effort SETTING ("default" | "inherit" | <tier>) → picker value. */
 export function preselectEffort(setting: string | undefined): string {
   return setting && setting !== "default" && setting !== "inherit" ? setting : "default";

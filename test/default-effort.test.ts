@@ -3,6 +3,8 @@ import {
   normalizeEffort,
   normalizeDefaultEffortSetting,
   normalizeRepoDefaultEffortSetting,
+  normalizeProviderDefaultEffortSetting,
+  engineDefaultEffortSetting,
   resolveDefaultEffortSetting,
   drainSpawnEffort,
   effortForSpawn,
@@ -42,6 +44,49 @@ describe("normalizeRepoDefaultEffortSetting", () => {
   test("rejects 'auto', junk, non-strings", () => {
     for (const v of ["auto", "minimal", "", null, undefined])
       expect(normalizeRepoDefaultEffortSetting(v)).toBeNull();
+  });
+});
+
+describe("normalizeProviderDefaultEffortSetting", () => {
+  test("accepts 'inherit', 'default' and every tier the engine offers", () => {
+    for (const v of ["inherit", "default", ...EFFORTS])
+      expect(normalizeProviderDefaultEffortSetting("codex", v)).toBe(v);
+    for (const v of ["inherit", "default", "low", "medium", "high", "xhigh", "max"])
+      expect(normalizeProviderDefaultEffortSetting("claude", v)).toBe(v);
+  });
+  test("rejects a tier the engine lacks, junk and non-strings", () => {
+    expect(normalizeProviderDefaultEffortSetting("claude", "ultra")).toBeNull();
+    for (const v of ["auto", "minimal", "", null, undefined, 1])
+      expect(normalizeProviderDefaultEffortSetting("codex", v)).toBeNull();
+  });
+});
+
+describe("engineDefaultEffortSetting", () => {
+  const settings = {
+    defaultEffort: "high",
+    defaultClaudeEffort: "inherit",
+    defaultCodexEffort: "xhigh",
+  };
+  test("an engine's own setting wins over the global default", () => {
+    expect(engineDefaultEffortSetting("codex", settings)).toBe("xhigh");
+  });
+  test("'inherit' follows the global default", () => {
+    expect(engineDefaultEffortSetting("claude", settings)).toBe("high");
+  });
+  test("'default' is an own value (no flag), not a fallthrough", () => {
+    expect(
+      engineDefaultEffortSetting("codex", { ...settings, defaultCodexEffort: "default" }),
+    ).toBe("default");
+  });
+  test("an invalid stored value falls back to the global default", () => {
+    expect(engineDefaultEffortSetting("codex", { ...settings, defaultCodexEffort: "bogus" })).toBe(
+      "high",
+    );
+  });
+  test("a repo override still wins over the engine default", () => {
+    expect(resolveDefaultEffortSetting("low", engineDefaultEffortSetting("codex", settings))).toBe(
+      "low",
+    );
   });
 });
 

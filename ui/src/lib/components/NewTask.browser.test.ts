@@ -1917,6 +1917,52 @@ describe("NewTask Codex model picker", () => {
     await expect.poll(() => modelSelect().value).toBe("opus");
   });
 
+  it("opens with the default engine's own effort", async () => {
+    render(NewTask, {
+      props: base({
+        defaultAgentProvider: "codex",
+        defaultCodexModel: "gpt-6.1-sol",
+        defaultEffort: "high",
+        defaultCodexEffort: "xhigh",
+      }),
+    });
+    const effort = () => document.querySelector<HTMLSelectElement>("#nt-effort")!;
+    await expect.poll(() => modelSelect().value).toBe("gpt-6.1-sol");
+    await expect.poll(() => effort().value).toBe("xhigh");
+  });
+
+  it("switching CLI preselects each engine's default effort, even after a manual pick", async () => {
+    render(NewTask, {
+      props: base({
+        defaultAgentProvider: "claude",
+        defaultModel: "opus",
+        defaultCodexModel: "gpt-6.1-sol",
+        defaultEffort: "high",
+        defaultClaudeEffort: "inherit",
+        defaultCodexEffort: "xhigh",
+      }),
+    });
+    const effort = () => document.querySelector<HTMLSelectElement>("#nt-effort")!;
+    const pickProvider = (p: string) => {
+      providerSelect().value = p;
+      providerSelect().dispatchEvent(new Event("change", { bubbles: true }));
+    };
+    // Claude follows the global effort; Codex has its own.
+    await expect.poll(() => effort().value).toBe("high");
+    pickProvider("codex");
+    await expect.poll(() => modelSelect().value).toBe("gpt-6.1-sol");
+    await expect.poll(() => effort().value).toBe("xhigh");
+
+    effort().value = "low";
+    effort().dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => effort().value).toBe("low");
+
+    pickProvider("claude");
+    await expect.poll(() => effort().value).toBe("high");
+    pickProvider("codex");
+    await expect.poll(() => effort().value).toBe("xhigh");
+  });
+
   it("preserves supported effort on model changes and resets only unsupported tiers", async () => {
     render(NewTask, {
       props: base({

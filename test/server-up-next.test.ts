@@ -16,6 +16,8 @@ const oldDefaultModel = config.defaultModel;
 const oldDefaultCodexModel = config.defaultCodexModel;
 const oldDefaultAgentProvider = config.defaultAgentProvider;
 const oldDefaultEffort = config.defaultEffort;
+const oldDefaultClaudeEffort = config.defaultClaudeEffort;
+const oldDefaultCodexEffort = config.defaultCodexEffort;
 
 beforeEach(() => {
   tmpRoot = mkdtempSync(join(config.repoRoot, "shepherd-upnext-test-"));
@@ -27,6 +29,8 @@ beforeEach(() => {
   config.defaultCodexModel = oldDefaultCodexModel;
   config.defaultAgentProvider = oldDefaultAgentProvider;
   config.defaultEffort = oldDefaultEffort;
+  config.defaultClaudeEffort = oldDefaultClaudeEffort;
+  config.defaultCodexEffort = oldDefaultCodexEffort;
 });
 afterEach(() => {
   config.usageHoldEnabled = oldUsageHoldEnabled;
@@ -35,6 +39,8 @@ afterEach(() => {
   config.defaultCodexModel = oldDefaultCodexModel;
   config.defaultAgentProvider = oldDefaultAgentProvider;
   config.defaultEffort = oldDefaultEffort;
+  config.defaultClaudeEffort = oldDefaultClaudeEffort;
+  config.defaultCodexEffort = oldDefaultCodexEffort;
   rmSync(tmpRoot, { recursive: true, force: true });
 });
 
@@ -227,6 +233,25 @@ test("POST /api/up-next/start preserves default model and effort for provider-on
   expect(createCalls[0]!.agentProvider).toBe("claude");
   expect(createCalls[0]!.model).toBe("sonnet");
   expect(createCalls[0]!.effort).toBe("high");
+});
+
+test("POST /api/up-next/start uses each engine's own default effort for a provider-only choice", async () => {
+  config.defaultEffort = "high";
+  config.defaultClaudeEffort = "inherit";
+  config.defaultCodexEffort = "xhigh";
+  const { app, createCalls } = harness();
+  for (const agentProvider of ["codex", "claude"] as const) {
+    const res = await app.fetch(
+      startReq([{ repoPath: repoDir, issueRef: { number: 7, url: "u", title: "t", body: "b" } }], {
+        agentProvider,
+      }),
+    );
+    expect(res.status).toBe(201);
+  }
+  expect(createCalls.map((c) => [c.agentProvider, c.effort])).toEqual([
+    ["codex", "xhigh"],
+    ["claude", "high"],
+  ]);
 });
 
 test("POST /api/up-next/start uses the saved Codex model for a provider-only choice", async () => {

@@ -1007,6 +1007,11 @@ export const config = {
   // Applies to the New Task picker and drain/autopilot auto-spawns. Env seeds a fresh DB;
   // absent/invalid → "default". Persisted + UI-configurable. No "auto" tier (effort has no promo).
   defaultEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_DEFAULT_EFFORT) ?? "default",
+  // Per-engine default effort ("inherit" | "default" | <tier>), persisted + UI-configurable.
+  // "inherit" follows defaultEffort above; anything else wins over it for that engine's spawns —
+  // New Task preselect, drain/autopilot and the capacity-failover substitute.
+  defaultClaudeEffort: "inherit",
+  defaultCodexEffort: "inherit",
   // Default interactive agent provider for newly spawned task sessions. Persisted +
   // UI-configurable; env seeds a fresh DB.
   defaultAgentProvider:

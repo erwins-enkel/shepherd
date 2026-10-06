@@ -58,6 +58,40 @@ export function drainSpawnEffort(setting: string): string | null {
 }
 
 /**
+ * Normalize a per-engine default-effort setting (`defaultClaudeEffort` / `defaultCodexEffort`) to a
+ * valid value, or null if unrecognised. Accepted: "inherit" (follow the global default effort),
+ * "default" (no effort flag) and each tier the provider offers — Claude has no "ultra".
+ */
+export function normalizeProviderDefaultEffortSetting(
+  provider: AgentProvider,
+  value: unknown,
+): string | null {
+  if (value === "inherit" || value === "default") return value;
+  return typeof value === "string" && effortsForProvider(provider).includes(value) ? value : null;
+}
+
+/** The three settings that decide an engine's default effort. `config` satisfies it. */
+export interface EngineEffortSettings {
+  defaultEffort: string;
+  defaultClaudeEffort: string;
+  defaultCodexEffort: string;
+}
+
+/**
+ * The effective default-effort SETTING for an engine: its own default unless that is "inherit"
+ * (or invalid), in which case the global default wins. The result is a global-space SETTING string
+ * ("default" | <tier>) — feed it to resolveDefaultEffortSetting as the fallback behind a repo
+ * override, or straight to drainSpawnEffort.
+ */
+export function engineDefaultEffortSetting(
+  provider: AgentProvider,
+  s: EngineEffortSettings,
+): string {
+  const own = provider === "codex" ? s.defaultCodexEffort : s.defaultClaudeEffort;
+  return own !== "inherit" && SETTING_VALUES.has(own) ? own : s.defaultEffort;
+}
+
+/**
  * Resolve the effective default-effort SETTING for a repo: the repo override unless it is
  * "inherit" (or unset/invalid), in which case the global setting wins. The result is a global-space
  * SETTING string ("default" | <tier>) — pass it through drainSpawnEffort to get a spawn value.

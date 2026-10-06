@@ -8466,8 +8466,9 @@ async function handleEpicDiagnose({ req, parts, url, deps }: Ctx): Promise<Respo
 
 // Kick the drain immediately when an epic's run changes. On Start the first sub-issue session
 // spawns at once and surfaces live in the (push-only) Herd via doSpawn's session:new emit —
-// without this it only appears on the next ~30s sweep. On End or Pause the tick re-emits the
-// repo's run picture (drain:status), so the panel stops showing the epic as leading at once.
+// without this it only appears on the next ~30s sweep. On End the tick re-emits the repo's run
+// picture (drain:status), so the panel stops showing the epic as leading at once; on Pause it does
+// while epic children still hold slots there (see DrainService.owesRunPicture).
 // Fire-and-forget, DELIBERATELY unlike approve-next which `await`s tick(): the EpicPanel discards
 // the PUT response and gets session:new + epic:update over the WS, so awaiting tick() (which pumps
 // ALL repos with forge I/O) would only add latency with no payoff. The .catch keeps a

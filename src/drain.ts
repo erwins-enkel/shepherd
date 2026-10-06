@@ -461,10 +461,11 @@ export class DrainService {
    *  membership-only check would latch the hold forever instead of letting it lapse and retry. */
   private spawnFailures = new Map<string, { at: number; epicBase?: string }>();
   private approvedNext = new Set<string>();
-  /** Repos whose last emitted status still showed a leading or winding-down epic. Once such a repo
-   *  is no longer pumped (its epic ended, drain off), the tick owes it read-only statuses until one
-   *  shows neither — else the panel freezes on the last pump's picture (see refreshRunPicture). */
-  private liveStatusRepos = new Set<string>();
+  /** What the clients last saw per repo: a leading or winding-down epic (`live`), an epic child
+   *  holding a slot (`child`). Once such a repo is no longer pumped (its epic ended or paused, drain
+   *  off), the tick owes it read-only statuses until one shows neither — else the panel freezes on
+   *  the last pump's picture (see refreshRunPicture). */
+  private shownRuns = new Map<string, { live: boolean; child: boolean }>();
   /** Extra-credit cost-guard baseline (account-wide, in-memory/ephemeral). The scraped paid-credit
    *  total is CUMULATIVE MONTHLY, but paid overage only accrues once a subscription window is
    *  exhausted — so a nonzero month-to-date total while the weekly window still has headroom is
@@ -4040,19 +4041,34 @@ export class DrainService {
     await this.pump(repoPath);
   }
 
-  /** Every drain:status goes out here, so {@link liveStatusRepos} tracks what the clients last saw. */
+  /** Every drain:status goes out here, so {@link shownRuns} tracks what the clients last saw. */
   private emitStatus(status: DrainStatus): void {
     const summary = status.runSummary;
-    if (summary && (summary.leadingEpic != null || summary.windingDown.length > 0))
-      this.liveStatusRepos.add(status.repoPath);
-    else this.liveStatusRepos.delete(status.repoPath);
+    const live = !!summary && (summary.leadingEpic != null || summary.windingDown.length > 0);
+    const child = !!summary && summary.slots.holders.some((h) => h.epicParent != null);
+    if (live || child) this.shownRuns.set(status.repoPath, { live, child });
+    else this.shownRuns.delete(status.repoPath);
     this.deps.emitStatus(status);
+  }
+
+  /** Does the tick owe an unpumped repo a fresh run picture? While an epic child is in flight there,
+   *  and until a status shows the clients nothing live any more. A paused leader alone does not
+   *  change, and assembling its epic costs a forge read per tick — so a paused repo is refreshed
+   *  only for epic children: its own or a superseded epic's, winding down. */
+  private owesRunPicture(
+    repoPath: string,
+    run: EpicRun | null,
+    epicChildRepos: ReadonlySet<string>,
+  ): boolean {
+    if (epicChildRepos.has(repoPath)) return true;
+    const shown = this.shownRuns.get(repoPath);
+    return run?.status === "paused" ? !!shown?.child : !!shown;
   }
 
   /** The run picture of a repo the tick does not pump (no running epic, drain off), built and
    *  emitted WITHOUT side effects — like {@link snapshot}. Without it a superseded or ended epic's
    *  panel freezes on the last pump's status: "#39 in Arbeit" long after #39 finished. No forge
-   *  call: with no active epic and the drain off, buildState reads only the store. */
+   *  call without an active epic; a paused one is assembled (a cached forge read). */
   private async refreshRunPicture(repoPath: string): Promise<void> {
     try {
       const { state } = await this.buildState(repoPath);
@@ -4106,10 +4122,7 @@ export class DrainService {
       const cfg = this.deps.store.getRepoConfig(repoPath);
       const er = this.deps.store.getEpicRun(repoPath);
       if (cfg.autoDrainEnabled || er?.status === "running") await this.pump(repoPath);
-      else if (
-        er?.status !== "paused" &&
-        (epicChildRepos.has(repoPath) || this.liveStatusRepos.has(repoPath))
-      )
+      else if (this.owesRunPicture(repoPath, er, epicChildRepos))
         await this.refreshRunPicture(repoPath);
     }
   }

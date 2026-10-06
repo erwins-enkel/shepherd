@@ -25,6 +25,7 @@ struct IOSComposeContent: View {
     let activation: Int
     private let fixtureCurrent: (() -> Bool)?
     private let serverPicker: AnyView?
+    private let repoCatalogue: IOSComposeRepoCatalogue?
     private let closeSheet: (() -> Void)?
     private let onCreated: ((String) -> Void)?
     private let promptChanged: ((String) -> Void)?
@@ -45,11 +46,12 @@ struct IOSComposeContent: View {
     @Environment(\.openURL) private var openURL
     @ScaledMetric(relativeTo: .body) private var promptHeight = 230
     enum Options: String, Identifiable { case branch, engine, issues, commands; var id: String { rawValue } }
-    init(app: AppModel, store: SessionStore, activation: Int, model: ComposeModel? = nil, voice: DictationController? = nil, fixtureCurrent: (() -> Bool)? = nil, serverPicker: AnyView? = nil, close: (() -> Void)? = nil, onCreated: ((String) -> Void)? = nil, initialPrompt: String = "", promptChanged: ((String) -> Void)? = nil) {
+    init(app: AppModel, store: SessionStore, activation: Int, model: ComposeModel? = nil, voice: DictationController? = nil, fixtureCurrent: (() -> Bool)? = nil, serverPicker: AnyView? = nil, repoCatalogue: IOSComposeRepoCatalogue? = nil, close: (() -> Void)? = nil, onCreated: ((String) -> Void)? = nil, initialPrompt: String = "", initialRepoPath: String = "", promptChanged: ((String) -> Void)? = nil) {
         self.app = app; self.store = store; self.activation = activation; self.fixtureCurrent = fixtureCurrent
-        self.serverPicker = serverPicker; self.closeSheet = close; self.onCreated = onCreated; self.promptChanged = promptChanged
+        self.serverPicker = serverPicker; self.repoCatalogue = repoCatalogue; self.closeSheet = close; self.onCreated = onCreated; self.promptChanged = promptChanged
         let model = model ?? ComposeModel(client: store.client, defaults: app.composerDefaults, runDefaults: ComposeRunConfig.defaults(from: store.settings))
         if !initialPrompt.isEmpty { model.prompt = initialPrompt }
+        if !initialRepoPath.isEmpty { model.repoPath = initialRepoPath }
         model.repoBranches.allowsStatusProbe = app.liveRequestAudit == nil
         model.attachments.keepAlive = { IOSBackgroundGrace.begin("shepherd.compose.upload") }
         _model = State(initialValue: model)
@@ -139,6 +141,7 @@ struct IOSComposeContent: View {
             }
             .onChange(of: store.settings) { _, settings in model.runDefaults = ComposeRunConfig.defaults(from: settings) }
             .onChange(of: store.repos) { _, _ in seedRepo() }
+            .onChange(of: model.repoPath, initial: true) { _, path in repoCatalogue?.repoChanged(path) }
             .onChange(of: model.attachments.inFlight) { _, inFlight in if inFlight { autoStart.clearAborted() } }
             .onAppear { seedRepo(); audioEngine?.probeWhisper() }
             .onDisappear { audioEngine?.stopWhisperProbe(); voice.teardown(); submission.teardown(); autoStart.teardown(); model.teardown() }
@@ -222,14 +225,29 @@ struct IOSComposeContent: View {
         let recent = RepoRecency.recent(repos, sessions: store.sessions)
         let stamps = RepoRecency.lastUsed(repos, sessions: store.sessions)
         if recent.isEmpty {
-            ForEach(RepoRecency.alphabetical(repos), id: \.path) { repoOption($0, age: nil) }
+            allRepoOptions
         } else {
             Section(L.t("native_compose_repo_recent")) {
                 ForEach(recent, id: \.path) { repo in repoOption(repo, age: stamps[repo.path].map { RepoRecency.age($0) }) }
             }
-            Menu(L.t("native_compose_repo_all")) {
-                ForEach(RepoRecency.alphabetical(repos), id: \.path) { repoOption($0, age: nil) }
+            Menu(L.t("native_compose_repo_all")) { allRepoOptions }
+        }
+    }
+    /// Several servers: one entry per repo, labelled with the servers that carry it.
+    @ViewBuilder private var allRepoOptions: some View {
+        if let repoCatalogue {
+            ForEach(repoCatalogue.choices) { choice in
+                Button {
+                    repoCatalogue.pick(choice)
+                    if let local = repos.first(where: { IOSComposeRepoChoice.key($0) == choice.key }) { model.repoPath = local.path }
+                } label: {
+                    Text(verbatim: choice.name)
+                    Text(verbatim: repoCatalogue.serverNames(choice))
+                    if choice.key == repoCatalogue.selectedKey { Image(systemName: "checkmark") }
+                }
             }
+        } else {
+            ForEach(RepoRecency.alphabetical(repos), id: \.path) { repoOption($0, age: nil) }
         }
     }
     private func repoOption(_ option: Repo, age: String?) -> some View {

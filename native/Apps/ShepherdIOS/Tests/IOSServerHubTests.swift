@@ -200,6 +200,42 @@ final class IOSServerHubTests: XCTestCase {
         XCTAssertEqual(store.client.profile.baseURL, a.baseURL)
     }
 
+    func testComposerRepoListMergesServersAndRoutesToTheServerCarryingIt() async throws {
+        let (_, hub, a, b) = try fixture()
+        defer { stop(hub) }
+        func repo(_ name: String, _ path: String, slug: String? = nil) -> String {
+            #"{"name":"\#(name)","path":"\#(path)","display":"\#(name)","realPath":"\#(path)","isFork":false,"hidden":false\#(slug.map { #","remoteSlug":"\#($0)""# } ?? "")}"#
+        }
+        IOSMultiServerFixtureTransport.setRepos("[\(repo("shepherd", "/studio/shepherd", slug: "kai/shepherd")),\(repo("site", "/studio/site"))]", for: a.baseURL)
+        IOSMultiServerFixtureTransport.setRepos("[\(repo("Shepherd", "/laptop/code/shepherd", slug: "Kai/Shepherd")),\(repo("notes", "/laptop/notes"))]", for: b.baseURL)
+        await hub.connect(a); await hub.connect(b)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while hub.connected.contains(where: { $0.store?.repos.isEmpty != false }), ContinuousClock.now < deadline {
+            for model in hub.connected { try? await model.store?.refresh() }
+            await Task.yield()
+        }
+        let choices = IOSComposeRepoChoice.choices(hub)
+        XCTAssertEqual(choices.map(\.name), ["notes", "shepherd", "site"])
+        let shared = try XCTUnwrap(choices.first { $0.name == "shepherd" })
+        XCTAssertEqual(shared.paths, [a.id: "/studio/shepherd", b.id: "/laptop/code/shepherd"])
+
+        let target = IOSComposeTarget(hub: hub)
+        XCTAssertEqual(target.profileID, a.id)
+        XCTAssertEqual(target.servers(in: hub), [a.id, b.id])
+        target.pick(try XCTUnwrap(choices.first { $0.name == "notes" }), hub: hub)
+        XCTAssertEqual(target.profileID, b.id, "a repo only the laptop has moves the task there")
+        XCTAssertEqual(target.servers(in: hub), [b.id])
+        XCTAssertEqual(target.repoPath(in: hub), "/laptop/notes")
+
+        target.pick(shared, hub: hub)
+        XCTAssertEqual(target.profileID, b.id, "a repo on both servers keeps the current one")
+        XCTAssertEqual(target.servers(in: hub), [a.id, b.id])
+        target.select(a.id, hub: hub)
+        XCTAssertEqual(target.repoPath(in: hub), "/studio/shepherd", "switching server keeps the repo")
+        target.repoChanged("/studio/site", hub: hub)
+        XCTAssertEqual(target.servers(in: hub), [a.id])
+    }
+
     func testPushTokenRegistersOnEveryStoreOnceAndAgainAfterReconnect() async throws {
         let (_, hub, a, b) = try fixture()
         defer { stop(hub) }

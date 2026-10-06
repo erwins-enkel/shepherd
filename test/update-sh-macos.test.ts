@@ -1,6 +1,16 @@
 import { test, expect } from "bun:test";
-import { readFileSync } from "node:fs";
-import { spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { execFileSync, spawnSync } from "node:child_process";
 
 // deploy/update.sh runs under `set -e`. On macOS / core-only there is no systemd
 // user manager, so a bare `systemctl --user restart` aborts the whole deploy after
@@ -80,4 +90,101 @@ test("update.sh retargets herdr.service's ExecStartPre to the checkout, leaving 
   expect(rendered.stdout.match(/^ExecStart=.*$/gm)).toEqual([
     "ExecStart=/usr/local/bin/herdr server",
   ]);
+});
+
+// Exercise the actual --pull script in a local git clone. Every child uses a
+// temporary HOME; dependency/build calls are recorded instead of contacting a
+// registry. The native supervisor verifies health only after it restarts.
+test("app-managed update pulls, installs and builds without units or premature health checks", () => {
+  const home = mkdtempSync(join(tmpdir(), "shepherd-mac-update-"));
+  try {
+    const origin = join(home, "origin");
+    const checkout = join(home, "checkout");
+    const bin = join(home, "bin");
+    for (const directory of [join(origin, "deploy"), join(origin, "ui"), bin]) {
+      mkdirSync(directory, { recursive: true });
+    }
+    writeFileSync(join(origin, "deploy/update.sh"), src);
+    copyFileSync(
+      new URL("../deploy/install-cli.sh", import.meta.url),
+      join(origin, "deploy/install-cli.sh"),
+    );
+    writeFileSync(join(origin, "ui/package.json"), "{}\n");
+    const log = join(home, "calls");
+    function stub(name: string, body: string): void {
+      const path = join(bin, name);
+      writeFileSync(
+        path,
+        `#!/bin/bash\nprintf '%s|%s\n' "$PWD" "${name} $*" >> "$UPDATE_TEST_LOG"\n${body}\n`,
+      );
+      chmodSync(path, 0o755);
+    }
+    stub("bun", "exit 0");
+    stub("systemctl", '[ "$UPDATE_TEST_MANAGER" = "available" ] && exit 0; exit 1');
+    stub("curl", "exit 99"); // No pre-restart probe may reach even a temporary listener.
+    const env = {
+      ...process.env,
+      HOME: home,
+      PATH: `${bin}:/usr/bin:/bin`,
+      SHEPHERD_NO_CLI: "1",
+      UPDATE_TEST_LOG: log,
+    };
+    function git(cwd: string, ...args: string[]): string {
+      return execFileSync(
+        "git",
+        [
+          "-c",
+          "core.hooksPath=/dev/null",
+          "-c",
+          "commit.gpgsign=false",
+          "-c",
+          "user.name=Test",
+          "-c",
+          "user.email=test@example.invalid",
+          ...args,
+        ],
+        { cwd, env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+      ).trim();
+    }
+    git(origin, "init", "-b", "main");
+    git(origin, "add", ".");
+    git(origin, "commit", "-m", "initial");
+    git(home, "clone", origin, checkout);
+    writeFileSync(join(origin, "new-fix"), "new backend fix\n");
+    git(origin, "add", ".");
+    git(origin, "commit", "-m", "backend fix");
+    for (const manager of ["available", "unavailable"]) {
+      writeFileSync(log, "");
+      const run = spawnSync("/bin/bash", [join(checkout, "deploy/update.sh"), "--pull"], {
+        env: {
+          ...env,
+          UPDATE_TEST_MANAGER: manager,
+          SHEPHERD_NO_SERVICE: manager === "available" ? "1" : "0",
+        },
+        encoding: "utf8",
+        timeout: 10_000,
+      });
+      expect(run.status).toBe(0);
+      expect(git(checkout, "rev-parse", "HEAD")).toBe(git(origin, "rev-parse", "HEAD"));
+      const calls = readFileSync(log, "utf8");
+      expect(calls).toContain(`${checkout}|bun install`);
+      expect(calls).toContain(`${checkout}/ui|bun install`);
+      expect(calls).toContain(`${checkout}/ui|bun run build`);
+      expect(calls).not.toContain("systemctl --user restart");
+      expect(calls).not.toContain("curl ");
+      if (manager === "available") expect(calls).not.toContain("systemctl ");
+    }
+    writeFileSync(join(checkout, "ui/package.json"), '{"dirty":true}\n');
+    writeFileSync(log, "");
+    const dirty = spawnSync("/bin/bash", [join(checkout, "deploy/update.sh"), "--pull"], {
+      env: { ...env, SHEPHERD_NO_SERVICE: "1" },
+      encoding: "utf8",
+      timeout: 10_000,
+    });
+    expect(dirty.status).not.toBe(0);
+    expect(readFileSync(join(checkout, "ui/package.json"), "utf8")).toContain("dirty");
+    expect(readFileSync(log, "utf8")).toBe("");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });

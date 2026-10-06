@@ -129,13 +129,16 @@ note "building UI"
 # binary (dev checkout, release still building) must never fail a deploy. No-op when current.
 bash "$REPO/deploy/install-cli.sh" || warn "shepherd CLI not refreshed (see above) — the deploy continues"
 
+# App-supervised deployments set SHEPHERD_NO_SERVICE=1: the app owns restart
+# and post-restart health verification, even if systemctl happens to be installed.
+
 # ── sync backup units (#1080) ─────────────────────────────────────────────────
 # update.sh historically only restarts; provision.ts installs units only on a fresh box. So an
 # existing live host would never pick up the hourly-backup timer. Re-sync it here, idempotently, so
 # every `bun run update` self-heals: template the .service (WorkingDirectory → this checkout), copy
 # the .timer verbatim, reload, enable --now, and (re)write the backup-expected marker. Soft-skip
 # where there's no systemd user manager (macOS / core-only) — those hosts get no backups by design.
-if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
+if [[ "${SHEPHERD_NO_SERVICE:-0}" != "1" ]] && command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
   note "syncing backup timer units"
   UNIT_DIR="$HOME/.config/systemd/user"
   mkdir -p "$UNIT_DIR"
@@ -270,7 +273,7 @@ fi
 # after the build already succeeded). Gate it on the same probe the backup block
 # uses; where there's no systemd, tell the operator to (re)start manually and exit
 # clean — the build + node-pty helper fix above have already been applied.
-if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
+if [[ "${SHEPHERD_NO_SERVICE:-0}" != "1" ]] && command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1; then
   note "restarting $UNIT"
   systemctl --user restart "$UNIT"
 else

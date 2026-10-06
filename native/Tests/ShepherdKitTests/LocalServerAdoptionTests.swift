@@ -134,6 +134,56 @@ import Testing
     #expect(!FileManager.default.fileExists(atPath: recordURL(launch).path))
   }
 
+  @Test func deploymentRecoveryTeardownRequiresKernelOwnershipEvenWithoutHealth() async throws {
+    let (launch, cleanup) = try fakeScript("sleep 30\n")
+    defer { cleanup() }
+    let first = supervisor(launch)
+    defer { first.terminateNow(gracePeriod: 0) }
+    await first.start()
+    let pid = try #require(await first.state.pid)
+    first.terminateForQuit()
+    let next = supervisor(launch)
+    defer { next.terminateNow(gracePeriod: 0) }
+    await next.setIdentityProbeForTesting { _ in KernelProcessIdentity(seconds: 0, microseconds: 0) }
+    let bytes = try Data(contentsOf: recordURL(launch))
+    #expect(await !next.stopForDeploymentRecovery(healthyIdentity: nil))
+    #expect(processIsAlive(pid))
+    // Put back this fixture's record; stale-record removal is intentional.
+    try bytes.write(to: recordURL(launch))
+    await next.setIdentityProbeForTesting { KernelProcessIdentity.read($0) }
+    #expect(await next.stopForDeploymentRecovery(healthyIdentity: nil))
+    #expect(!processIsAlive(pid))
+    #expect(await next.state == .stopped)
+    #expect(!FileManager.default.fileExists(atPath: recordURL(launch).path))
+  }
+
+  @Test func adoptedMonitorCannotRelaunchWhileUpdateRecoveryIsSuspended() async throws {
+    let (launch, cleanup) = try fakeScript("sleep 30\n")
+    defer { cleanup() }
+    let first = supervisor(launch)
+    defer { first.terminateNow(gracePeriod: 0) }
+    await first.start()
+    let pid = try #require(await first.state.pid)
+    first.terminateForQuit()
+    let record = try JSONDecoder().decode(LocalServerOwnership.self, from: Data(contentsOf: recordURL(launch)))
+    let clock = TestClock()
+    let next = supervisor(launch, clock: clock)
+    defer { next.terminateNow(gracePeriod: 0) }
+    #expect(await next.adopt(healthyIdentity: record.identity))
+    #expect(await next.suspendRecovery())
+    killpg(pid, SIGKILL)
+    try await waitUntil { if case .failed(.exited) = await next.state { return true }; return false }
+    try await Task.sleep(for: .milliseconds(250))
+    #expect(await next.state == .failed(.exited(code: -1)))
+    #expect(await clock.slept.isEmpty)
+    let unchanged = try JSONDecoder().decode(LocalServerOwnership.self, from: Data(contentsOf: recordURL(launch)))
+    #expect(unchanged.pid == pid)
+    await next.resumeRecovery(restartIfNeeded: true)
+    #expect(await next.state.isRunning)
+    #expect(await next.state.pid != pid)
+    await next.stop(gracePeriod: 0.3)
+  }
+
   @Test func kernelStartMismatchCannotAdoptOrSignalALivePid() async throws {
     let (launch, cleanup) = try fakeScript("sleep 30\n")
     defer { cleanup() }

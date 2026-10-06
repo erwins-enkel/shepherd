@@ -12240,7 +12240,7 @@
       ],
       "reason": "Retained in ShepherdUITests; repo fallback loop adapted to the NSMenu repo picker.",
       "assertionChanges": [
-        "fixture: the fallback that hunts for a repo with live issues steps through repos with ⌥] instead of clicking compose.repo.option.N popover rows, which the NSMenu repo picker no longer has; all assertions retained."
+        "fixture: the fallback that hunts for a repo with live issues steps through repos with \u2325] instead of clicking compose.repo.option.N popover rows, which the NSMenu repo picker no longer has; all assertions retained."
       ]
     },
     {
@@ -12272,8 +12272,10 @@
       "destinations": [
         "[\"ShepherdUITests\",\"native/Apps/ShepherdMac/UITests/SettingsSceneUITests.swift\",\"SettingsSceneUITests\",\"testSettingsUsesOneWindowAndRetiresLegacyMenu()\"]"
       ],
-      "reason": "Retained unchanged in ShepherdUITests.",
-      "assertionChanges": []
+      "reason": "Retained Settings window/menu coverage with bounded window creation waits and the new local-server pane.",
+      "assertionChanges": [
+        "current-module: Keep the one-main/one-Settings-window assertion with a bounded predicate wait; keep all six original toolbar pane assertions with bounded existence waits and add Local server after backend-update registration."
+      ]
     },
     {
       "oldID": "[\"ShepherdUITests\",\"native/Apps/ShepherdMac/UITests/WelcomeSmokeUITests.swift\",\"WelcomeSmokeUITests\",\"testIsolatedLaunchListsNoSavedServers()\"]",
@@ -12497,6 +12499,61 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"adoptionAndContinuousAppendLoggingBoundDiskAndHandleTruncation() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"aRealParentExitPreservesStoppedAgentsThenAdoptsRecoversAndCleansUp() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerLogTests.swift\",\"PersistentServerLogTests\",\"tailRewindsAfterTruncationAndFollowsAReplacedFile() async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerLogTests.swift\",\"PersistentServerLogTests\",\"copyTruncateKeepsAnAppendWriterUsableAndCapsThePreviousCopy() throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerLogTests.swift\",\"PersistentServerLogTests\",\"copyTruncateKeepsAnAppendWriterUsableAndCapsThePreviousCopy() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"applyCancellationBeforePIDPublicationStillKillsTheChild() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"applyCancellationReapsTheChildAndItsDescendants() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"applyReportsDirtyTreeFailureWithoutDiscarding() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"applyTimeoutKillsTheChildAndItsDescendants() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"applyUsesPullFlagEnvironmentWorkingDirectoryAndSharedLog() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"checkCancellationBeforePIDPublicationReapsItsGroup() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"checkFetchesMainFromALocalOrigin() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"checkReportsFailureInvalidOutputAndTimeout() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"checkUsesCheckoutEnvironmentAndParsesScriptOutput() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"parserKeepsCountSHAsDateAndBoundedSubjects() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"parserRejectsMalformedOrInconsistentOutput()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"applyingUpdateRestartsARunningServerAndRechecks() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"applyingUpdateToAStoppedServerDoesNotStartIt() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"everyBackendUpdateStateHasACatalogSentence()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"externalAndMissingServersNeverCheckOrApplyUpdates() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"failedCheckIsQuietAndAlsoThrottled() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"failedUpdateKeepsTheOldServerAndFailureVisibleAcrossRefresh() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quitCancelsTheKeptCheckTask() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quitCancelsTheKeptUpdateTask() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"refreshThrottlesChecksForThirtyMinutesButManualCheckForcesThem() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"staleCheckCannotLandAfterALifecycleAction() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"openWebIsPresentAndEnabledOnlyForRunningOrExternalServers()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"updateAndCheckControlsStayPresentButDisabledWhileUpdating()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"updatesAreAvailableOnlyForManagedCheckouts()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SettingsSceneTests.swift\",\"MacSeamTests.SettingsSceneTests\",\"localServerPaneIsReachableWithoutAnActiveConnection()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerEnvironmentTests.swift\",\"LocalServerEnvironmentTests\",\"childKeepsOperatorNoColorWithoutAgentMarkers() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerEnvironmentTests.swift\",\"LocalServerEnvironmentTests\",\"childrenStripParentAgentMarkersAfterEnvFileOverrides() throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"backgroundMonitorChecksAtLaunchOnTimerAndWakeWithoutAPanel() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quittingCancelsABackgroundCheckAndCannotPublishItsResult() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"mainWindowIndicatorOnlyShowsForTheSupervisedLocalProfile()\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"exitedShellStillBoundsAndCancelsDescendantOutput() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"stagingKeepsCodeDependenciesAndUIUntilPromotionAndCanRollback() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"stagingRefusesLinksThatCouldMutateFilesOutsideTheCopy() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"stagingRefusesToDiscardOperatorEditsAndSharedGitMetadata() throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"cancellationAfterPromotionRestoresPreviousDeploymentAndRunningChild() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"failedAndCancelledBuildsPreserveDeploymentAndDeferCrashRecovery() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"failedReplacementReadinessRollsBackAndRestartsThePreviousDeployment() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"isolatedModelRejectsEveryUpdateEntryPointWithoutExplicitTemporaryOptIn() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"lifecycleInvalidationReleasesTheAutomaticCheckThrottle() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"overlappingPanelRefreshRetainsTheSharedFetchResultAndThrottle() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"remoteProfileCancelsAutomaticFetchAndAllowsRetryOnReturnToLocal() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"remoteProfileSkipsMonitorTicksAndWakeChecks() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"launchRecoveryCleansCopyingBuildingAndConfirmedJournals() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"launchRecoveryHandlesSwapIntentAndAlreadyRolledBackPromotion() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"launchRecoveryRejectsUnownedPathsSymlinksAndReplacedDirectories() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalUpdateTests.swift\",\"LocalUpdateTests\",\"launchRecoveryRestoresUnconfirmedPromotionAndOnlyDeletesItsOwnedSibling() throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"launchRecoveryPrecedesServerStartupAndFailureBlocksIt() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quitDuringReadinessSynchronouslyRestoresPreviousDeployment() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"adoptedMonitorCannotRelaunchWhileUpdateRecoveryIsSuspended() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"adoptedServerShowsUpdateIndicatorAndApplyReplacesOwnership() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"healthyLocalServerWithoutOwnershipNeverOffersUpdates() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"unconfirmedDeploymentStopsHealthyOwnedServerBeforeRollbackAndAdoption() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"deploymentRecoveryTeardownRequiresKernelOwnershipEvenWithoutHealth() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quitDuringAdoptedServerPromotionStopsReplacementAndRestoresDeployment() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quitBetweenReplacementRunAndPublicationStopsChildAndRetainsRecoveryJournal() async throws\"]"
   ]
 }

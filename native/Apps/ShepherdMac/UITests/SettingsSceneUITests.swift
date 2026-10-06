@@ -19,9 +19,11 @@ final class SettingsSceneUITests: XCTestCase {
         for _ in 0..<3 { app.typeKey(",", modifierFlags: .command) }
         let panes = app.descendants(matching: .any)["settings-panes"]
         XCTAssertTrue(panes.waitForExistence(timeout: 5))
-        XCTAssertEqual(app.windows.count, 2, "one main window and one Settings window")
-        for title in ["General", "Notifications", "Workspace", "Coding CLIs", "Access", "Diagnose"] {
-            XCTAssertTrue(app.toolbars.buttons[title].exists, "pane registered before activation: \(title)")
+        let windows = XCTNSPredicateExpectation(predicate: NSPredicate(format: "count == 2"), object: app.windows)
+        XCTAssertEqual(XCTWaiter.wait(for: [windows], timeout: 5), .completed,
+            "one main window and one Settings window")
+        for title in ["General", "Local server", "Notifications", "Workspace", "Coding CLIs", "Access", "Diagnose"] {
+            XCTAssertTrue(app.toolbars.buttons[title].waitForExistence(timeout: 5), "pane registered before activation: \(title)")
         }
         app.menuBars.menuBarItems["Shepherd"].click()
         XCTAssertFalse(app.menuItems["Notifications…"].exists)

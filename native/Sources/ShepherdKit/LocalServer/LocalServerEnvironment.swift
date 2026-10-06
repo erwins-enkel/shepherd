@@ -12,6 +12,7 @@ public enum LocalServerFailure: Error, Equatable, Sendable {
   case bunMissing
   case bunOutdated(version: String)
   case bunUpgradeFailed(exitCode: Int32)
+  case updateFailed(exitCode: Int32)
   case notAShepherdCheckout(path: String)
   case installFailed(exitCode: Int32)
   case exited(code: Int32)
@@ -101,7 +102,7 @@ public struct LocalServerEnvironment: Sendable {
   }
 
   /// The installer's `SHEPHERD_DIR` default (`deploy/install.sh`).
-  public let appDirectory: URL
+  public private(set) var appDirectory: URL
   /// Sourced by `install.sh` with `set -a` and by the systemd units'
   /// `EnvironmentFile=-%h/.shepherd/env`.
   public let envFilePath: URL
@@ -145,6 +146,21 @@ public struct LocalServerEnvironment: Sendable {
     values["HERDR_SOCKET_PATH"] = URL(fileURLWithPath: socket, relativeTo: appDirectory)
       .standardizedFileURL.path
     self.resolvedValues = values
+  }
+
+  /// Retarget only deployment files, preserving the frozen state/DB/socket paths.
+  public func withAppDirectory(_ directory: URL) -> Self {
+    var copy = self
+    copy.appDirectory = directory
+    return copy
+  }
+
+  /// An isolated app may opt into update tests only inside an explicit temp home
+  /// AND checkout. Resolve links so a temp alias cannot grant real-checkout access.
+  public var isTemporaryUpdateEnvironment: Bool {
+    let root = URL(fileURLWithPath: NSTemporaryDirectory()).resolvingSymlinksInPath().path + "/"
+    return homeDirectory.resolvingSymlinksInPath().path.hasPrefix(root)
+      && appDirectory.resolvingSymlinksInPath().path.hasPrefix(root)
   }
 
   /// Always appended: a Finder-launched app inherits launchd's PATH, which
@@ -213,6 +229,20 @@ public struct LocalServerEnvironment: Sendable {
   /// HOME is explicit; changing SHEPHERD_DIR never changes the state directory.
   public func childEnvironment(prepending: [String] = []) -> [String: String] {
     var values = resolvedValues
+    // These describe the parent agent shell, never the supervised backend.
+    // Keep the explicit list in sync with src/agent-shell-env.ts; session-pattern
+    // filtering also covers new Claude session markers before the list catches up.
+    let markers: Set<String> = [
+      "CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_CHILD_SESSION",
+      "CLAUDE_CODE_SESSION_ID", "CLAUDE_CODE_SESSION_ATTENDED", "CLAUDE_CODE_EXECPATH",
+      "CLAUDE_CODE_MESSAGING_SOCKET", "CLAUDE_CODE_MESSAGING_TOKEN", "CLAUDE_PID",
+      "CLAUDE_EFFORT", "AI_AGENT", "CODEX_CI", "CODEX_THREAD_ID", "CODEX_SESSION_ID",
+    ]
+    let inherited = values.keys.filter {
+      markers.contains($0) || ($0.hasPrefix("CLAUDE_CODE_") && $0.contains("SESSION"))
+    }
+    for key in inherited { values.removeValue(forKey: key) }
+    if !inherited.isEmpty { values.removeValue(forKey: "NO_COLOR") }
     values["HOME"] = homeDirectory.path
     values["SHEPHERD_HOST"] = "127.0.0.1"
     values["SHEPHERD_DIR"] = appDirectory.path

@@ -34,6 +34,7 @@ struct ShepherdApp: App {
         // Before `body` is first evaluated — see StreamRegistrations.installScene().
         MacStreamHost.configure()
         StreamRegistrations.installScene()
+        SettingsPaneRegistry.register(LocalServerSettingsPane())
         SettingsPaneRegistry.register(AppUpdateSettingsPane(updater: appUpdater))
         Log.app.info("Shepherd for Mac starting — \(launch.logDescription, privacy: .public)")
     }
@@ -116,7 +117,10 @@ struct RootView: View {
                 if model.store == nil {
                     WelcomeView()
                 } else {
-                    MainWindow()
+                    VStack(spacing: 0) {
+                        MainWindow()
+                        LocalBackendUpdateIndicator(model: .shared, app: model)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

@@ -1,7 +1,7 @@
 import Foundation
 import Synchronization
 import Testing
-import ShepherdKit
+@testable import ShepherdKit
 @testable import Shepherd
 @testable import ShepherdAppCore
 
@@ -30,6 +30,25 @@ actor LocalServerGate {
     }
 }
 
+/// Cancellable ticks let the monitor run without wall-clock waits.
+actor LocalUpdateMonitorClock: SupervisorClock {
+    private let ticks = AsyncStream<Void>.makeStream()
+    private(set) var sleeps: [TimeInterval] = []
+    var now: Date { Date(timeIntervalSince1970: 0) }
+    func sleep(for seconds: TimeInterval) async throws {
+        sleeps.append(seconds)
+        var iterator = ticks.stream.makeAsyncIterator()
+        guard await iterator.next() != nil else { throw CancellationError() }
+        try Task.checkCancellation()
+    }
+    func tick() { ticks.continuation.yield(()) }
+}
+
+private struct ImmediateUpdateHealthClock: SupervisorClock {
+    var now: Date { Date() }
+    func sleep(for seconds: TimeInterval) async throws { await Task.yield() }
+}
+
 extension MacSeamTests {
 @Suite(.serialized) @MainActor struct LocalServerModelTests {
     private func tempHome() throws -> URL {
@@ -40,7 +59,7 @@ extension MacSeamTests {
     }
 
     private func checkout(in home: URL) throws -> LocalServerEnvironment {
-        let environment = LocalServerEnvironment(home: home)
+        let environment = LocalServerEnvironment(home: home, processEnvironment: [:])
         try FileManager.default.createDirectory(
             at: environment.appDirectory, withIntermediateDirectories: true)
         try #"{"name":"shepherd"}"#.write(
@@ -103,6 +122,15 @@ extension MacSeamTests {
         return LocalServerLaunch(
             executable: URL(fileURLWithPath: "/bin/sh"), arguments: [script.path],
             workingDirectory: dir, environment: ["PATH": "/usr/bin:/bin"])
+    }
+
+    private func waitForGate(_ gate: LocalServerGate) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(5)
+        while ContinuousClock.now < deadline {
+            if await gate.isWaiting { return true }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return false
     }
 
     /// Yields until `condition` holds or the budget runs out. Everything under
@@ -223,6 +251,596 @@ extension MacSeamTests {
         #expect(!model.state.isRunning)
     }
 
+    @Test func applyingUpdateRestartsARunningServerAndRechecks() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let launches = Mutex(0)
+        let checks = Mutex(0)
+        let gate = LocalServerGate()
+        let model = LocalServerModel(
+            environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false }, health: { true },
+            launch: { launches.withLock { $0 += 1 }; return launch },
+            updateChecker: { _ in
+                checks.withLock { $0 += 1 }
+                return .success(.init(behind: 0, current: "def5678", latest: "def5678"))
+            }, updater: { _, log in
+                await gate.wait()
+                await log.append("Backend rebuilt")
+                return .success(())
+            })
+        await model.start()
+        let oldPID = try #require(model.state.pid)
+        let task = Task { await model.applyUpdate() }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !(await gate.isWaiting), ContinuousClock.now < deadline { await Task.yield() }
+        #expect(model.state == .updating && model.busy)
+        await model.refresh()
+        #expect(model.state == .updating)
+        await gate.open()
+        await task.value
+        #expect(model.state.isRunning)
+        #expect(model.state.pid != oldPID)
+        #expect(launches.withLock { $0 } == 2)
+        #expect(checks.withLock { $0 } == 1)
+        #expect(model.updateStatus?.behind == 0)
+        #expect(model.logLines.contains("Backend rebuilt"))
+        #expect(!model.busy)
+        await model.stop()
+    }
+
+    @Test func applyingUpdateToAStoppedServerDoesNotStartIt() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let launches = Mutex(0)
+        let model = LocalServerModel(
+            environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false },
+            launch: { launches.withLock { $0 += 1 }; return nil },
+            updateChecker: { _ in .success(.init(behind: 0, current: "abcd123", latest: "abcd123")) },
+            updater: { _, _ in .success(()) })
+        await model.applyUpdate()
+        #expect(model.state == .stopped)
+        #expect(launches.withLock { $0 } == 0)
+        #expect(model.updateStatus?.behind == 0)
+    }
+
+    @Test func failedUpdateKeepsTheOldServerAndFailureVisibleAcrossRefresh() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let launches = Mutex(0)
+        let model = LocalServerModel(
+            environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false }, health: { true },
+            launch: { launches.withLock { $0 += 1 }; return launch },
+            updateChecker: { _ in .failure(.commandFailed(exitCode: 7)) },
+            updater: { _, log in
+                await log.append("--pull needs a clean tree")
+                return .failure(.updateFailed(exitCode: 1))
+            })
+        await model.start()
+        await model.applyUpdate()
+        #expect(model.state.isRunning)
+        #expect(model.updateFailure == .updateFailed(exitCode: 1))
+        await model.refresh()
+        #expect(model.state.isRunning)
+        #expect(model.updateFailure == .updateFailed(exitCode: 1))
+        #expect(launches.withLock { $0 } == 1)
+        #expect(model.logLines.contains("--pull needs a clean tree"))
+        #expect(!model.canInstall)
+        await model.stop()
+    }
+
+    @Test func refreshThrottlesChecksForThirtyMinutesButManualCheckForcesThem() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let checks = Mutex(0)
+        let now = Mutex(Date(timeIntervalSince1970: 1000))
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false },
+            updateChecker: { _ in
+                checks.withLock { $0 += 1 }
+                return .success(.init(behind: 2, current: "abc1234", latest: "def5678"))
+            }, updateNow: { now.withLock { $0 } })
+        await model.refresh()
+        await model.refresh()
+        #expect(checks.withLock { $0 } == 1)
+        now.withLock { $0 += 1799 }
+        await model.refresh()
+        #expect(checks.withLock { $0 } == 1)
+        now.withLock { $0 += 1 }
+        await model.refresh()
+        #expect(checks.withLock { $0 } == 2)
+        await model.checkForUpdate()
+        #expect(checks.withLock { $0 } == 3)
+    }
+
+    @Test func backgroundMonitorChecksAtLaunchOnTimerAndWakeWithoutAPanel() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let checks = Mutex(0)
+        let now = Mutex(Date(timeIntervalSince1970: 1000))
+        let clock = LocalUpdateMonitorClock()
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false },
+            updateChecker: { _ in
+                checks.withLock { $0 += 1 }
+                return .success(.init(behind: 9, current: "abc1234", latest: "def5678"))
+            }, updateNow: { now.withLock { $0 } }, updateMonitorClock: clock)
+        defer { model.cancelUpdateForQuit() }
+        model.startUpdateMonitoring()
+        model.startUpdateMonitoring() // Multiple windows must not double the timer.
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await clock.sleeps.count < 1, ContinuousClock.now < deadline { await Task.yield() }
+        #expect(await clock.sleeps == [1800])
+        #expect(checks.withLock { $0 } == 1)
+        #expect(model.updateStatus?.behind == 9)
+        await model.refresh() // Wake within the throttle window.
+        #expect(checks.withLock { $0 } == 1)
+        now.withLock { $0 += 1800 }
+        await clock.tick()
+        while await clock.sleeps.count < 2, ContinuousClock.now < deadline { await Task.yield() }
+        #expect(await clock.sleeps == [1800, 1800])
+        #expect(checks.withLock { $0 } == 2)
+        now.withLock { $0 += 1800 }
+        await model.refresh() // Wake after enough time elapsed.
+        #expect(checks.withLock { $0 } == 3)
+        model.cancelUpdateForQuit()
+        await clock.tick()
+        await Task.yield()
+        #expect(checks.withLock { $0 } == 3)
+    }
+
+    @Test func quittingCancelsABackgroundCheckAndCannotPublishItsResult() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let started = Mutex(false)
+        let cancelled = Mutex(false)
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false },
+            updateChecker: { _ in
+                started.withLock { $0 = true }
+                do { try await Task.sleep(for: .seconds(60)) }
+                catch { cancelled.withLock { $0 = true } }
+                return .success(.init(behind: 9, current: "abc1234", latest: "def5678"))
+            })
+        model.startUpdateMonitoring()
+        #expect(await settle { started.withLock { $0 } })
+        model.cancelUpdateForQuit()
+        #expect(await settle { cancelled.withLock { $0 } && !model.isCheckingUpdate })
+        #expect(model.updateStatus == nil)
+    }
+
+    @Test func failedCheckIsQuietAndAlsoThrottled() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let checks = Mutex(0)
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false },
+            updateChecker: { _ in checks.withLock { $0 += 1 }; return .failure(.commandFailed(exitCode: 7)) })
+        await model.refresh()
+        await model.refresh()
+        #expect(model.state == .stopped)
+        #expect(model.updateCheckFailure == .commandFailed(exitCode: 7))
+        #expect(checks.withLock { $0 } == 1)
+    }
+
+    @Test func externalAndMissingServersNeverCheckOrApplyUpdates() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let calls = Mutex(0)
+        for external in [false, true] {
+            let environment = external ? try checkout(in: home) : LocalServerEnvironment(home: home)
+            let model = LocalServerModel(environment: environment, probeExternal: { external },
+                updateChecker: { _ in calls.withLock { $0 += 1 }; return .failure(.invalidOutput) },
+                updater: { _, _ in calls.withLock { $0 += 1 }; return .success(()) })
+            await model.refresh()
+            await model.checkForUpdate()
+            await model.applyUpdate()
+            #expect(!model.canManageUpdates)
+        }
+        #expect(calls.withLock { $0 } == 0)
+    }
+
+    @Test func staleCheckCannotLandAfterALifecycleAction() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let gate = LocalServerGate()
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false },
+            updateChecker: { _ in
+                await gate.wait()
+                return .success(.init(behind: 2, current: "abc1234", latest: "def5678"))
+            })
+        let check = Task { await model.checkForUpdate() }
+        let deadline = ContinuousClock.now + .seconds(5)
+        while !(await gate.isWaiting), ContinuousClock.now < deadline { await Task.yield() }
+        await model.stop()
+        await gate.open()
+        await check.value
+        #expect(model.updateStatus == nil)
+        #expect(!model.isCheckingUpdate)
+    }
+
+    @Test func quitCancelsTheKeptUpdateTask() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let entered = Mutex(false)
+        let cancelled = Mutex(false)
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false },
+            updater: { _, _ in
+                await withTaskCancellationHandler {
+                    entered.withLock { $0 = true }
+                    do { try await Task.sleep(for: .seconds(30)) } catch {}
+                    return .failure(.updateFailed(exitCode: 130))
+                } onCancel: { cancelled.withLock { $0 = true } }
+            })
+        model.beginUpdate()
+        #expect(await settle { entered.withLock { $0 } })
+        model.cancelUpdateForQuit()
+        #expect(cancelled.withLock { $0 })
+        #expect(await settle { !model.busy })
+        #expect(!model.state.isRunning)
+    }
+
+    @Test func quitCancelsTheKeptCheckTask() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let entered = Mutex(false)
+        let cancelled = Mutex(false)
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true, probeExternal: { false },
+            updateChecker: { _ in
+                await withTaskCancellationHandler {
+                    entered.withLock { $0 = true }
+                    do { try await Task.sleep(for: .seconds(30)) } catch {}
+                    return .failure(.commandFailed(exitCode: 130))
+                } onCancel: { cancelled.withLock { $0 = true } }
+            })
+        let task = Task { await model.checkForUpdate() }
+        #expect(await settle { entered.withLock { $0 } })
+        model.cancelUpdateForQuit()
+        #expect(cancelled.withLock { $0 })
+        await task.value
+        #expect(model.updateCheckFailure == nil)
+        #expect(!model.isCheckingUpdate)
+    }
+
+    @Test func failedAndCancelledBuildsPreserveDeploymentAndDeferCrashRecovery() async throws {
+        for cancelling in [false, true] {
+            let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+            let environment = try checkout(in: home)
+            let ui = environment.appDirectory.appendingPathComponent("ui/build")
+            try FileManager.default.createDirectory(at: ui, withIntermediateDirectories: true)
+            try "working UI".write(to: ui.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
+            let code = environment.appDirectory.appendingPathComponent("code")
+            try "previous".write(to: code, atomically: true, encoding: .utf8)
+            let launch = try fakeScript(in: home, emitPasswordOnce: false)
+            let versions = Mutex<[String]>([])
+            let gate = LocalServerGate()
+            let model = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+                probeExternal: { false }, health: { true },
+                launch: {
+                    versions.withLock { $0.append((try? String(contentsOf: code, encoding: .utf8)) ?? "missing") }
+                    return launch
+                }, updater: { staged, _ in
+                    try! "broken".write(to: staged.appDirectory.appendingPathComponent("code"), atomically: true, encoding: .utf8)
+                    try! FileManager.default.removeItem(at: staged.appDirectory.appendingPathComponent("ui/build"))
+                    await gate.wait()
+                    return .failure(.updateFailed(exitCode: 7))
+                })
+            await model.start()
+            let pid = try #require(model.state.pid)
+            let task = Task { await model.applyUpdate() }
+            #expect(await waitForGate(gate))
+            kill(pid, SIGKILL) // Only the temporary fixture child we own.
+            try await Task.sleep(for: .milliseconds(200))
+            #expect(versions.withLock { $0 } == ["previous"])
+            #expect(try String(contentsOf: ui.appendingPathComponent("index.html"), encoding: .utf8) == "working UI")
+            if cancelling { task.cancel() }
+            await gate.open()
+            await task.value
+            #expect(model.state.isRunning)
+            #expect(model.updateFailure == .updateFailed(exitCode: cancelling ? 130 : 7))
+            #expect(versions.withLock { $0 } == ["previous", "previous"])
+            #expect(try String(contentsOf: code, encoding: .utf8) == "previous")
+            #expect(try String(contentsOf: ui.appendingPathComponent("index.html"), encoding: .utf8) == "working UI")
+            await model.stop()
+        }
+    }
+
+    @Test func cancellationAfterPromotionRestoresPreviousDeploymentAndRunningChild() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        let code = environment.appDirectory.appendingPathComponent("code")
+        try "previous".write(to: code, atomically: true, encoding: .utf8)
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let launches = Mutex(0)
+        let gate = LocalServerGate()
+        let model = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+            probeExternal: { false }, health: {
+                if launches.withLock({ $0 }) == 2 { await gate.wait() }
+                return true
+            }, launch: { launches.withLock { $0 += 1 }; return launch },
+            updater: { staged, _ in
+                try! "replacement".write(to: staged.appDirectory.appendingPathComponent("code"), atomically: true, encoding: .utf8)
+                return .success(())
+            })
+        await model.start()
+        let task = Task { await model.applyUpdate() }
+        #expect(await waitForGate(gate))
+        #expect(try String(contentsOf: code, encoding: .utf8) == "replacement")
+        task.cancel()
+        await gate.open()
+        await task.value
+        #expect(model.state.isRunning)
+        #expect(model.updateFailure == .updateFailed(exitCode: 130))
+        #expect(launches.withLock { $0 } == 3)
+        #expect(try String(contentsOf: code, encoding: .utf8) == "previous")
+        await model.stop()
+    }
+
+    @Test func launchRecoveryPrecedesServerStartupAndFailureBlocksIt() async throws {
+        for invalid in [false, true] {
+            let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+            let environment = try checkout(in: home)
+            let code = environment.appDirectory.appendingPathComponent("code")
+            try "previous".write(to: code, atomically: true, encoding: .utf8)
+            var interrupted = try LocalUpdateDeployment(environment: environment)
+            try "replacement".write(to: interrupted.environment.appDirectory.appendingPathComponent("code"),
+                atomically: true, encoding: .utf8)
+            try interrupted.promote()
+            if invalid {
+                try FileManager.default.removeItem(at: interrupted.environment.appDirectory)
+            }
+            let launch = try fakeScript(in: home, emitPasswordOnce: false)
+            let versions = Mutex<[String]>([])
+            let model = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+                probeExternal: { false }, health: { true }, launch: {
+                    versions.withLock { $0.append((try? String(contentsOf: code, encoding: .utf8)) ?? "missing") }
+                    return launch
+                })
+            await model.start()
+            #expect(versions.withLock { $0 } == (invalid ? [] : ["previous"]))
+            #expect(model.state.isRunning == !invalid)
+            if invalid {
+                #expect(model.state == .failed(.updateFailed(exitCode: 1)))
+                #expect(!model.canStart && !model.canInstall && !model.canManageUpdates)
+            }
+            await model.stop()
+        }
+    }
+
+    @Test func quitBetweenReplacementRunAndPublicationStopsChildAndRetainsRecoveryJournal() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        let code = environment.appDirectory.appendingPathComponent("code")
+        try "previous".write(to: code, atomically: true, encoding: .utf8)
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let model = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+            probeExternal: { false }, health: { true }, launch: { launch },
+            updater: { staged, _ in
+                try! "replacement".write(to: staged.appDirectory.appendingPathComponent("code"), atomically: true, encoding: .utf8)
+                return .success(())
+            })
+        let supervisor = model.testSupervisor
+        defer { supervisor.terminateNow(gracePeriod: 0) }
+        await model.start()
+        let pausedPID = Mutex<Int32?>(nil)
+        let release = DispatchSemaphore(value: 0)
+        await supervisor.setTestSeamAfterChildRunWithPID { pid in
+            pausedPID.withLock { $0 = pid }
+            release.wait()
+        }
+        let update = Task { await model.applyUpdate() }
+        for _ in 0..<500 where pausedPID.withLock({ $0 }) == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        defer { release.signal() }
+        let pid = try #require(pausedPID.withLock { $0 })
+        #expect(try String(contentsOf: code, encoding: .utf8) == "replacement")
+        #expect(kill(pid, 0) == 0)
+        // Release only AFTER quit has fenced future lifecycle work. This runs
+        // off the main actor, which synchronous quit teardown is allowed to block.
+        let releaser = Task.detached {
+            while !supervisor.testIsQuitting { await Task.yield() }
+            release.signal()
+        }
+        model.cancelUpdateForQuit()
+        #expect(kill(pid, 0) != 0)
+        #expect(try String(contentsOf: code, encoding: .utf8) == "previous")
+        #expect(try LocalUpdateDeployment.needsServerRestart(environment: environment))
+        update.cancel()
+        await releaser.value
+        await update.value
+        // The cancelled update continuation must not erase the recovery fence.
+        #expect(try LocalUpdateDeployment.needsServerRestart(environment: environment))
+        #expect(!FileManager.default.fileExists(atPath: supervisor.recordURL.path))
+        #expect(kill(pid, 0) != 0)
+        // Launch recovery recognizes the already-restored directory and cleans up.
+        try LocalUpdateDeployment.recover(environment: environment)
+        #expect(!(try LocalUpdateDeployment.needsServerRestart(environment: environment)))
+        #expect(try String(contentsOf: code, encoding: .utf8) == "previous")
+    }
+
+    @Test func quitDuringReadinessSynchronouslyRestoresPreviousDeployment() async throws {
+        try await exerciseQuitDuringReadiness(adopted: false)
+    }
+
+    @Test func quitDuringAdoptedServerPromotionStopsReplacementAndRestoresDeployment() async throws {
+        try await exerciseQuitDuringReadiness(adopted: true)
+    }
+
+    private func exerciseQuitDuringReadiness(adopted: Bool) async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        let code = environment.appDirectory.appendingPathComponent("code")
+        try "previous".write(to: code, atomically: true, encoding: .utf8)
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let launches = Mutex(0)
+        let gate = LocalServerGate()
+        var first: LocalServerSupervisor?
+        defer { first?.terminateNow(gracePeriod: 0) }
+        let discovered: Components.Schemas.Health?
+        if adopted {
+            let previous = LocalServerSupervisor(environment: environment, health: { true },
+                launch: { launches.withLock { $0 += 1 }; return launch })
+            first = previous
+            await previous.start()
+            previous.terminateForQuit()
+            discovered = try ownedHealth(in: home)
+        } else { discovered = nil }
+        let model = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+            discoverExternal: { discovered }, health: {
+                if launches.withLock({ $0 }) == 2 { await gate.wait() }
+                return true
+            }, launch: { launches.withLock { $0 += 1 }; return launch },
+            updater: { staged, _ in
+                try! "replacement".write(to: staged.appDirectory.appendingPathComponent("code"), atomically: true, encoding: .utf8)
+                return .success(())
+            })
+        if adopted { await model.refresh() }
+        else { await model.start() }
+        let task = Task { await model.applyUpdate() }
+        #expect(await waitForGate(gate))
+        #expect(try String(contentsOf: code, encoding: .utf8) == "replacement")
+        model.cancelUpdateForQuit()
+        // No await: the previous deployment must already be live at return.
+        #expect(try String(contentsOf: code, encoding: .utf8) == "previous")
+        task.cancel()
+        await gate.open()
+        await task.value
+        #expect(!model.state.isRunning)
+        #expect(model.updateFailure == .updateFailed(exitCode: 130))
+        #expect(launches.withLock { $0 } == 2)
+        #expect(try String(contentsOf: code, encoding: .utf8) == "previous")
+        await model.stop()
+    }
+
+    @Test func failedReplacementReadinessRollsBackAndRestartsThePreviousDeployment() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        let code = environment.appDirectory.appendingPathComponent("code")
+        try "previous".write(to: code, atomically: true, encoding: .utf8)
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let launches = Mutex(0)
+        let model = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+            probeExternal: { false }, health: { launches.withLock { $0 } != 2 },
+            launch: { launches.withLock { $0 += 1 }; return launch },
+            updater: { staged, _ in
+                try! "replacement".write(to: staged.appDirectory.appendingPathComponent("code"), atomically: true, encoding: .utf8)
+                return .success(())
+            }, clock: ImmediateUpdateHealthClock())
+        await model.start()
+        await model.applyUpdate()
+        #expect(model.state.isRunning)
+        #expect(model.updateFailure == .updateFailed(exitCode: 1))
+        #expect(launches.withLock { $0 } == 3)
+        #expect(try String(contentsOf: code, encoding: .utf8) == "previous")
+        await model.stop()
+    }
+
+    @Test func lifecycleInvalidationReleasesTheAutomaticCheckThrottle() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let gate = LocalServerGate()
+        let checks = Mutex(0)
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true,
+            probeExternal: { false }, updateChecker: { _ in
+                checks.withLock { $0 += 1 }
+                await gate.wait()
+                return .success(.init(behind: 2, current: "abc1234", latest: "def5678"))
+            })
+        let first = Task { await model.automaticRefresh() }
+        #expect(await waitForGate(gate))
+        await model.stop()
+        await gate.open()
+        await first.value
+        #expect(model.updateStatus == nil)
+        await model.automaticRefresh()
+        #expect(checks.withLock { $0 } == 2)
+        #expect(model.updateStatus?.behind == 2)
+    }
+
+    @Test func isolatedModelRejectsEveryUpdateEntryPointWithoutExplicitTemporaryOptIn() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let calls = Mutex(0)
+        let model = LocalServerModel(environment: try checkout(in: home), isolated: true,
+            probeExternal: { false },
+            updateChecker: { _ in calls.withLock { $0 += 1 }; return .failure(.invalidOutput) },
+            updater: { _, _ in calls.withLock { $0 += 1 }; return .success(()) })
+        await model.refresh()
+        await model.checkForUpdate()
+        await model.checkForUpdate(force: false)
+        await model.automaticRefresh()
+        await model.applyUpdate()
+        model.beginUpdate()
+        model.startUpdateMonitoring()
+        await Task.yield()
+        #expect(!model.canManageUpdates)
+        #expect(calls.withLock { $0 } == 0)
+        // This only constructs a value; never reads or writes the real checkout.
+        let real = LocalServerModel(environment: LocalServerEnvironment(home: home, processEnvironment: ["SHEPHERD_DIR": "/outside-temporary-home/app"]),
+            isolated: true, allowTemporaryUpdates: true, probeExternal: { false })
+        #expect(!real.canManageUpdates)
+    }
+
+    @Test func remoteProfileCancelsAutomaticFetchAndAllowsRetryOnReturnToLocal() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let gate = LocalServerGate()
+        let checks = Mutex(0)
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true,
+            probeExternal: { false }, updateChecker: { _ in
+                checks.withLock { $0 += 1 }
+                await gate.wait()
+                return .success(.init(behind: 2, current: "abc1234", latest: "def5678"))
+            })
+        let pending = Task { await model.automaticRefresh() }
+        #expect(await waitForGate(gate))
+        model.updateActiveProfile(ServerProfile(name: "Remote", baseURL: URL(string: "https://remote.invalid")!, mode: .remote))
+        await gate.open()
+        await pending.value
+        #expect(model.updateStatus == nil)
+        await model.refresh()
+        await model.automaticRefresh()
+        #expect(checks.withLock { $0 } == 1)
+        model.updateActiveProfile(nil)
+        await model.automaticRefresh()
+        #expect(checks.withLock { $0 } == 2)
+        #expect(model.updateStatus?.behind == 2)
+    }
+
+    @Test func remoteProfileSkipsMonitorTicksAndWakeChecks() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let remote = ServerProfile(name: "Remote", baseURL: URL(string: "https://remote.invalid")!, mode: .remote)
+        let selected = Mutex<ServerProfile?>(remote)
+        let checks = Mutex(0)
+        let clock = LocalUpdateMonitorClock()
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true,
+            probeExternal: { false }, updateChecker: { _ in
+                checks.withLock { $0 += 1 }
+                return .success(.init(behind: 2, current: "abc1234", latest: "def5678"))
+            }, updateMonitorClock: clock)
+        defer { model.cancelUpdateForQuit() }
+        model.bindAutomaticProfile { selected.withLock { $0 } }
+        model.startUpdateMonitoring()
+        let deadline = ContinuousClock.now + .seconds(5)
+        while await clock.sleeps.count < 1, ContinuousClock.now < deadline { await Task.yield() }
+        await clock.tick()
+        while await clock.sleeps.count < 2, ContinuousClock.now < deadline { await Task.yield() }
+        await model.automaticRefresh()
+        #expect(checks.withLock { $0 } == 0)
+        selected.withLock { $0 = nil }
+        await clock.tick()
+        while await clock.sleeps.count < 3, ContinuousClock.now < deadline { await Task.yield() }
+        #expect(checks.withLock { $0 } == 1)
+        // A profile change is gated immediately, even before its observer runs.
+        selected.withLock { $0 = remote }
+        await model.automaticRefresh()
+        #expect(checks.withLock { $0 } == 1)
+    }
+
+    @Test func overlappingPanelRefreshRetainsTheSharedFetchResultAndThrottle() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let gate = LocalServerGate()
+        let checks = Mutex(0)
+        let model = LocalServerModel(environment: try checkout(in: home), allowTemporaryUpdates: true,
+            probeExternal: { false }, updateChecker: { _ in
+                checks.withLock { $0 += 1 }
+                await gate.wait()
+                return .success(.init(behind: 2, current: "abc1234", latest: "def5678"))
+            })
+        let first = Task { await model.automaticRefresh() }
+        #expect(await waitForGate(gate))
+        await model.refresh()
+        await gate.open()
+        await first.value
+        await model.refresh()
+        #expect(model.updateStatus?.behind == 2)
+        #expect(checks.withLock { $0 } == 1)
+    }
+
     @Test func everyStateHasACatalogSentence() {
         let states: [LocalServerState] = [
             .notInstalled, .installing, .stopped, .starting, .running(pid: 42), .externallyManaged,
@@ -234,6 +852,13 @@ extension MacSeamTests {
             let text = LocalServerCopy.label(for: state)
             #expect(!text.isEmpty)
             #expect(text.hasPrefix("native_local_") == false)  // a leaked key = missing catalog entry
+        }
+    }
+
+    @Test func everyBackendUpdateStateHasACatalogSentence() {
+        for state in [LocalServerState.updating, .failed(.updateFailed(exitCode: 1))] {
+            let text = LocalServerCopy.label(for: state)
+            #expect(!text.isEmpty && !text.hasPrefix("native_local_"))
         }
     }
 
@@ -532,6 +1157,124 @@ extension MacSeamTests {
         #expect(profile.credentialKey != original.credentialKey)
         model.connect(app)
         #expect(app.sheet == .login(profile))
+    }
+
+    private func ownershipURL(in home: URL) throws -> URL {
+        try #require(FileManager.default.contentsOfDirectory(
+            at: home.appendingPathComponent(".shepherd/run"), includingPropertiesForKeys: nil)
+            .first { $0.lastPathComponent.hasPrefix("app-server-") && $0.pathExtension == "json" })
+    }
+
+    private func ownedHealth(in home: URL) throws -> Components.Schemas.Health {
+        let json = try #require(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: ownershipURL(in: home))) as? [String: Any])
+        let identity = try #require(json["identity"] as? [String: String])
+        return .init(ok: true, version: "test", localInstall: .init(
+            appDirectory: try #require(identity["appDirectory"]),
+            databasePath: try #require(identity["databasePath"]),
+            instanceID: try #require(identity["instanceID"])))
+    }
+
+    @Test func adoptedServerShowsUpdateIndicatorAndApplyReplacesOwnership() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let first = LocalServerSupervisor(environment: environment, health: { true }, launch: { launch })
+        defer { first.terminateNow(gracePeriod: 0) }
+        await first.start()
+        let pid = try #require(await first.state.pid)
+        first.terminateForQuit()
+        let health = try ownedHealth(in: home)
+        let next = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+            discoverExternal: { health }, health: { true }, launch: { launch },
+            updateChecker: { _ in .success(.init(behind: 2, current: "abc1234", latest: "def5678")) },
+            updater: { _, _ in .success(()) })
+        defer {
+            next.terminateForQuit()
+            if let pid = next.state.pid { killpg(pid, SIGKILL) }
+        }
+        await next.refresh()
+        #expect(next.state == .running(pid: pid))
+        #expect(next.canManageUpdates)
+        let profile = ServerProfile(name: "local", baseURL: next.baseURL, mode: .local)
+        #expect(LocalBackendUpdateIndicatorState.count(profile: profile, endpoint: next.baseURL,
+            state: next.state, managesUpdates: next.canManageUpdates, behind: next.updateStatus?.behind ?? 0) == 2)
+        await next.applyUpdate()
+        let replacement = try #require(next.state.pid)
+        #expect(replacement != pid && kill(pid, 0) != 0)
+        #expect(next.updateFailure == nil)
+        let record = try #require(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: ownershipURL(in: home))) as? [String: Any])
+        #expect((record["pid"] as? NSNumber)?.int32Value == replacement)
+        #expect((record["processGroup"] as? NSNumber)?.int32Value == replacement)
+        #expect(record["processStart"] != nil)
+        // Detachment and re-adoption prove the replacement took #2823's path.
+        next.terminateForQuit()
+        let replacementHealth = try ownedHealth(in: home)
+        let relaunched = LocalServerModel(environment: environment, discoverExternal: { replacementHealth },
+            health: { true }, launch: { launch })
+        await relaunched.refresh()
+        #expect(relaunched.state == .running(pid: replacement))
+        await relaunched.stop()
+    }
+
+    @Test func healthyLocalServerWithoutOwnershipNeverOffersUpdates() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        let calls = Mutex(0)
+        let health = Components.Schemas.Health(ok: true, version: "test", localInstall: .init(
+            appDirectory: environment.appDirectory.path, databasePath: environment.databasePath.path, instanceID: "external"))
+        let model = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+            discoverExternal: { health }, updateChecker: { _ in
+                calls.withLock { $0 += 1 }
+                return .success(.init(behind: 2, current: "abc1234", latest: "def5678"))
+            }, updater: { _, _ in calls.withLock { $0 += 1 }; return .success(()) })
+        await model.refresh()
+        await model.checkForUpdate()
+        await model.applyUpdate()
+        #expect(model.state == .externallyManaged && !model.canManageUpdates)
+        #expect(calls.withLock { $0 } == 0)
+        let profile = ServerProfile(name: "local", baseURL: model.baseURL, mode: .local)
+        #expect(LocalBackendUpdateIndicatorState.count(profile: profile, endpoint: model.baseURL,
+            state: model.state, managesUpdates: model.canManageUpdates, behind: 2) == nil)
+    }
+
+    @Test func unconfirmedDeploymentStopsHealthyOwnedServerBeforeRollbackAndAdoption() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        let code = environment.appDirectory.appendingPathComponent("code")
+        try "previous".write(to: code, atomically: true, encoding: .utf8)
+        var interrupted = try LocalUpdateDeployment(environment: environment)
+        try "replacement".write(to: interrupted.environment.appDirectory.appendingPathComponent("code"),
+            atomically: true, encoding: .utf8)
+        try interrupted.promote()
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let first = LocalServerSupervisor(environment: environment, health: { true }, launch: { launch })
+        defer { first.terminateNow(gracePeriod: 0) }
+        await first.start()
+        let pid = try #require(await first.state.pid)
+        first.terminateForQuit()
+        let health = try ownedHealth(in: home)
+        let versions = Mutex<[String]>([])
+        let next = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+            discoverExternal: { health }, health: { true }, launch: {
+                versions.withLock { $0.append((try? String(contentsOf: code, encoding: .utf8)) ?? "missing") }
+                return launch
+            }, updateChecker: { _ in .success(.init(behind: 0, current: "abc1234", latest: "abc1234")) })
+        defer {
+            next.terminateForQuit()
+            if let pid = next.state.pid { killpg(pid, SIGKILL) }
+        }
+        await next.refresh()
+        let replacement = try #require(next.state.pid)
+        #expect(replacement != pid && kill(pid, 0) != 0)
+        #expect(versions.withLock { $0 } == ["previous"])
+        #expect(try String(contentsOf: code, encoding: .utf8) == "previous")
+        #expect(!FileManager.default.fileExists(atPath: home.appendingPathComponent(".shepherd/run/backend-update.json").path))
+        let record = try #require(try JSONSerialization.jsonObject(
+            with: Data(contentsOf: ownershipURL(in: home))) as? [String: Any])
+        #expect((record["pid"] as? NSNumber)?.int32Value == replacement)
+        await next.stop()
     }
 
     @Test func quittingPreservesTheServerAndNextModelAdoptsBeforeExternalAcknowledgment() async throws {

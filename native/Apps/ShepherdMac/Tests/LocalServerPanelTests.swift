@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 import ShepherdKit
 @testable import Shepherd
@@ -25,6 +26,72 @@ extension MacSeamTests {
         #expect(!state.showsInstall)
         #expect(!state.canUpgradeBun && !state.canStart)
         #expect(state.isBusyState)
+    }
+
+    @Test func mainWindowIndicatorOnlyShowsForTheSupervisedLocalProfile() {
+        let endpoint = URL(string: "http://127.0.0.1:7330")!
+        func count(_ profile: ServerProfile?, _ state: LocalServerState = .running(pid: 42),
+                   manages: Bool = true, behind: Int = 9) -> Int? {
+            LocalBackendUpdateIndicatorState.count(profile: profile, endpoint: endpoint,
+                state: state, managesUpdates: manages, behind: behind)
+        }
+        let local = ServerProfile(name: "Mac", baseURL: endpoint, mode: .local)
+        #expect(count(local) == 9)
+        #expect(count(nil) == nil)
+        #expect(count(local, .externallyManaged) == nil)
+        #expect(count(local, .stopped) == nil)
+        #expect(count(local, .notInstalled) == nil)
+        #expect(count(local, manages: false) == nil)
+        #expect(count(local, behind: 0) == nil)
+        #expect(count(ServerProfile(name: "Remote", baseURL: endpoint, mode: .remote)) == nil)
+        for url in ["https://cloud.example.invalid", "http://127.0.0.1:7331", "http://localhost:7330/proxy"] {
+            #expect(count(ServerProfile(name: "Other", baseURL: URL(string: url)!, mode: .local)) == nil)
+        }
+        for host in ["localhost", "[::1]"] {
+            #expect(count(ServerProfile(name: "Mac", baseURL: URL(string: "http://\(host):7330/")!, mode: .local)) == 9)
+        }
+        #expect(!L.t("native_local_update_indicator", "9").hasPrefix("native_"))
+    }
+
+    @Test func updatesAreAvailableOnlyForManagedCheckouts() {
+        for state in [LocalServerState.stopped, .running(pid: 1)] {
+            let panel = LocalServerPanelState(state: state, busy: false, managesUpdates: true, updateBehind: 2)
+            #expect(panel.showsUpdate && panel.canUpdate)
+            #expect(panel.showsUpdateCheck && panel.canCheckUpdate)
+        }
+        for state in [LocalServerState.notInstalled, .installing, .externallyManaged] {
+            let panel = LocalServerPanelState(state: state, busy: false, managesUpdates: true, updateBehind: 2)
+            #expect(!panel.showsUpdate && !panel.canUpdate)
+            #expect(!panel.showsUpdateCheck && !panel.canCheckUpdate)
+        }
+        #expect(!LocalServerPanelState(state: .stopped, busy: false, updateBehind: 2).showsUpdate)
+        #expect(!LocalServerPanelState(state: .stopped, busy: false, managesUpdates: true).showsUpdate)
+    }
+
+    @Test func updateAndCheckControlsStayPresentButDisabledWhileUpdating() {
+        let panel = LocalServerPanelState(state: .updating, busy: true, managesUpdates: true, updateBehind: 2)
+        #expect(panel.showsUpdate && panel.showsUpdateCheck && panel.showsStart)
+        #expect(!panel.canUpdate && !panel.canCheckUpdate && !panel.canStart)
+        #expect(!panel.showsInstall)
+        #expect(panel.isBusyState)
+        let checking = LocalServerPanelState(state: .stopped, busy: false, managesUpdates: true, checkingUpdate: true)
+        #expect(checking.showsUpdateCheck && !checking.canCheckUpdate)
+        // The old server keeps running after a failed update: retry is offered
+        // next to the normal running controls, never instead of them.
+        let failed = LocalServerPanelState(state: .running(pid: 1), busy: false, managesUpdates: true, updateFailed: true)
+        #expect(failed.showsUpdate && failed.canUpdate && !failed.showsInstall)
+        #expect(failed.canStop && failed.canRestart && failed.canOpenWeb)
+    }
+
+    @Test func openWebIsPresentAndEnabledOnlyForRunningOrExternalServers() {
+        for state in [LocalServerState.running(pid: 1), .externallyManaged] {
+            let panel = LocalServerPanelState(state: state, busy: false)
+            #expect(panel.showsOpenWeb && panel.canOpenWeb)
+        }
+        for state in [LocalServerState.notInstalled, .installing, .updating, .stopped, .starting, .failed(.exited(code: 1))] {
+            let panel = LocalServerPanelState(state: state, busy: false)
+            #expect(panel.showsOpenWeb && !panel.canOpenWeb)
+        }
     }
 
     @Test func aMissingCheckoutOffersOnlyInstall() {

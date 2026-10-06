@@ -1,5 +1,6 @@
 import ShepherdAppCore
 import AppKit
+import Observation
 import SwiftUI
 
 /// The stream's single entry point. The integration lane calls this once from
@@ -21,13 +22,24 @@ enum LocalServerFeature {
         // also builds an instance immediately if a store is already active,
         // exactly like `StreamRegistrations` expects.
         app.register(LocalServerSessionExtension.self)
+        SettingsPaneRegistry.register(LocalServerSettingsPane())
         guard !installed else { return }
         installed = true
-        // Resume supervision even when saved profiles bypass the Welcome panel.
+        // Ownership recovery/adoption also runs with a remote active profile.
         Task { await LocalServerModel.shared.refresh() }
-        // The server survives quit and is adopted on the next launch. Only
-        // Stop/Restart signal it; quit cancels supervision and install/upgrade
-        // work without interrupting sessions.
+        // Automated launches must never fetch or mutate the operator's checkout.
+        if !LaunchEnvironment.configuration().isIsolated {
+            LocalServerModel.shared.bindAutomaticProfile { [weak app] in app?.activeProfile }
+            observeProfile(app)
+            LocalServerModel.shared.startUpdateMonitoring()
+            NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
+            ) { _ in
+                Task { @MainActor in await LocalServerModel.shared.automaticRefresh() }
+            }
+        }
+        // The server survives quit and is adopted on the next launch.
+        // Quit cancels supervision and update work; Stop/Restart signal it.
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in
@@ -37,9 +49,37 @@ enum LocalServerFeature {
                 // one thing `terminateForQuit()` cannot reach.
                 LocalServerModel.shared.cancelInstallForQuit()
                 LocalServerModel.shared.cancelBunUpgradeForQuit()
+                LocalServerModel.shared.cancelUpdateForQuit()
                 LocalServerModel.shared.terminateForQuit()
             }
         }
         Log.app.info("local server feature installed")
+    }
+
+    private static func observeProfile(_ app: AppModel) {
+        withObservationTracking {
+            LocalServerModel.shared.updateActiveProfile(app.activeProfile)
+        } onChange: { [weak app] in
+            // AppModel profile writes are main-actor isolated. Cancel before
+            // the write completes; re-observe afterwards to read the new value.
+            MainActor.assumeIsolated { LocalServerModel.shared.cancelAutomaticUpdateCheck() }
+            Task { @MainActor in
+                if let app { observeProfile(app) }
+            }
+        }
+    }
+}
+
+/// Available before and after connecting; local maintenance needs no server login.
+struct LocalServerSettingsPane: SettingsPane {
+    let id = "local-server"
+    var title: String { L.t("native_settings_local_server_title") }
+    let systemImage = "server.rack"
+    let order = 80
+    @MainActor func makeView(app: AppModel) -> AnyView {
+        AnyView(ScrollView {
+            LocalServerPanel(model: .shared, app: app)
+                .padding(24).frame(maxWidth: .infinity, alignment: .leading)
+        }.frame(minWidth: 640))
     }
 }

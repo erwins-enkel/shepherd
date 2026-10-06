@@ -9,6 +9,10 @@ struct LocalServerPanelState: Equatable {
     let state: LocalServerState
     let busy: Bool
     var externalAcknowledged = false
+    var managesUpdates = false
+    var updateBehind = 0
+    var checkingUpdate = false
+    var updateFailed = false
 
     var statusText: String { LocalServerCopy.label(for: state) }
     private var isFailed: Bool { if case .failed = state { return true }; return false }
@@ -30,11 +34,18 @@ struct LocalServerPanelState: Equatable {
         }
     }
     var showsInstall: Bool { !showsBunUpgrade && (state == .notInstalled || state == .installing || isFailed) }
-    var showsStart: Bool { state == .stopped || state == .starting || state == .upgradingBun || isFailed }
+    var showsStart: Bool { state == .stopped || state == .starting || state == .upgradingBun || state == .updating || isFailed }
     /// Never for `.externallyManaged`: we did not start that process and have no
     /// business killing it.
     var showsStop: Bool { state.isRunning }
     var showsRestart: Bool { state.isRunning }
+
+    var showsUpdateCheck: Bool { managesUpdates && state != .externallyManaged && state != .notInstalled && state != .installing }
+    var showsUpdate: Bool { showsUpdateCheck && (updateBehind > 0 || state == .updating || updateFailed) }
+    var canUpdate: Bool { !isBusyState && showsUpdate }
+    var canCheckUpdate: Bool { !isBusyState && !checkingUpdate && showsUpdateCheck }
+    var showsOpenWeb: Bool { true }
+    var canOpenWeb: Bool { state.isRunning || state == .externallyManaged }
 
     var canUpgradeBun: Bool { !isBusyState && showsBunUpgrade }
     var canInstall: Bool { !busy && showsInstall }
@@ -42,7 +53,7 @@ struct LocalServerPanelState: Equatable {
     var canStop: Bool { !busy && showsStop }
     var canRestart: Bool { !busy && showsRestart }
     var canConnect: Bool { !busy && (state.isRunning || (state == .externallyManaged && externalAcknowledged)) }
-    var isBusyState: Bool { busy || state == .installing || state == .starting || state == .upgradingBun }
+    var isBusyState: Bool { busy || state == .installing || state == .starting || state == .upgradingBun || state == .updating }
 }
 
 /// Fills `WelcomeSlots.localPanel`: status, the four lifecycle buttons, the
@@ -54,9 +65,12 @@ struct LocalServerPanel: View {
     var onConnect: (() -> Void)? = nil
 
     @State private var showingLog = false
+    @State private var confirmingUpdate = false
 
     private var panel: LocalServerPanelState {
-        LocalServerPanelState(state: model.state, busy: model.busy, externalAcknowledged: model.externalAcknowledged)
+        LocalServerPanelState(state: model.state, busy: model.busy, externalAcknowledged: model.externalAcknowledged,
+            managesUpdates: model.canManageUpdates, updateBehind: model.updateStatus?.behind ?? 0,
+            checkingUpdate: model.isCheckingUpdate, updateFailed: model.updateFailure != nil)
     }
 
     var body: some View {
@@ -68,12 +82,21 @@ struct LocalServerPanel: View {
             }
             if let password = model.capturedPassword { passwordNotice(password) }
             if panel.showsBunUpgrade { bunOutdatedNotice }
+            if panel.showsUpdate { updateNotice }
+            if panel.showsUpdateCheck { updateCheckControls }
             controls
             logDisclosure
         }
         .task { await model.refresh() }
         .accessibilityIdentifier("welcome-local-panel")
         .accessibilityElement(children: .contain)
+        .alert(L.t("native_local_update_confirm_title"), isPresented: $confirmingUpdate) {
+            Button(L.t("common_cancel"), role: .cancel) {}
+            Button(L.t("native_local_update_apply"), action: model.beginUpdate)
+                .disabled(!panel.canUpdate)
+        } message: {
+            Text(verbatim: L.t("native_local_update_confirm_body"))
+        }
     }
 
     private var statusLine: some View {
@@ -138,6 +161,68 @@ struct LocalServerPanel: View {
         .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
         .accessibilityIdentifier("local-bun-outdated-notice")
         .accessibilityElement(children: .contain)
+    }
+
+    private var updateNotice: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(verbatim: L.t("native_local_update_title")).font(.callout.weight(.semibold))
+            if let failure = model.updateFailure {
+                Text(verbatim: LocalServerCopy.message(for: failure)).font(.callout).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let status = model.updateStatus, status.behind > 0 {
+                Text(verbatim: L.t("native_local_update_summary", String(status.behind), status.current, status.latest))
+                    .font(.callout).fixedSize(horizontal: false, vertical: true)
+                if !status.commits.isEmpty {
+                    DisclosureGroup(L.t("native_local_update_commits")) {
+                        ForEach(Array(status.commits.enumerated()), id: \.offset) { _, commit in
+                            Text(verbatim: "\(commit.sha)  \(commit.subject)")
+                                .font(.caption).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+            }
+            Button { confirmingUpdate = true } label: {
+                HStack(spacing: 6) {
+                    if model.state == .updating { ProgressView().controlSize(.small) }
+                    Text(verbatim: L.t(model.state == .updating ? "native_local_update_updating" : "native_local_update_apply"))
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!panel.canUpdate)
+            .accessibilityIdentifier("local-update-apply")
+            DisclosureGroup(L.t("native_local_update_what_title")) {
+                Text(verbatim: L.t("native_local_update_what_body"))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(10)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityIdentifier("local-update-notice")
+        .accessibilityElement(children: .contain)
+    }
+
+    private var updateCheckControls: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                Button(L.t("native_local_update_check")) { Task { await model.checkForUpdate() } }
+                    .buttonStyle(.borderless).disabled(!panel.canCheckUpdate)
+                    .accessibilityIdentifier("local-update-check")
+                if model.isCheckingUpdate { ProgressView().controlSize(.small) }
+            }
+            if model.updateCheckFailure != nil {
+                Text(verbatim: L.t("native_local_update_check_failed"))
+                    .font(.caption).foregroundStyle(.secondary)
+            } else if let status = model.updateStatus {
+                Text(verbatim: L.t("native_local_update_checked", status.checkedAt.formatted(date: .abbreviated, time: .shortened)))
+                    .font(.caption).foregroundStyle(.secondary)
+                if status.behind == 0 {
+                    Text(verbatim: L.t("native_local_update_current"))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
     }
 
     private var externalNotice: some View {
@@ -237,6 +322,9 @@ struct LocalServerPanel: View {
                     .accessibilityIdentifier("local-restart")
             }
             Spacer(minLength: 8)
+            Button(L.t("native_local_open_web")) { NSWorkspace.shared.open(model.baseURL) }
+                .disabled(!panel.canOpenWeb)
+                .accessibilityIdentifier("local-open-web")
             Button(L.t("native_local_connect")) {
                 if let onConnect { onConnect() } else { model.connect(app) }
             }

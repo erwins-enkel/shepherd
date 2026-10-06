@@ -6,7 +6,7 @@ import os
 /// `externallyManaged` is a server we did not start and must not stop — the
 /// operator's own `bun run start` in a terminal, or a launchd job.
 public enum LocalServerState: Sendable, Equatable {
-  case notInstalled, installing, upgradingBun, stopped, starting
+  case notInstalled, installing, upgradingBun, updating, stopped, starting
   case running(pid: Int32)
   case externallyManaged
   case failed(LocalServerFailure)
@@ -99,6 +99,7 @@ public actor LocalServerSupervisor {
   private var exitWatcher: Task<Void, Never>?
   /// Pending backoff-then-relaunch, cancelled by explicit stop or detachment.
   private var supervision: Task<Void, Never>?
+  private var recoverySuspended = false
   private var crashTimes: [Date] = []
 
   /// Bumped on every `spawn()`, and the identity of one child for everything
@@ -140,6 +141,9 @@ public actor LocalServerSupervisor {
   /// synchronous explicit teardown can read it without an actor hop. A
   /// `Mutex<Process?>` would not compile — `Process` is not `Sendable`.
   private let livePID = Mutex<Int32?>(nil)
+  /// Synchronous teardown must wait for run() AND ownership publication before
+  /// reading livePID. Held without suspension; ordinary quit still preserves children.
+  private nonisolated let spawnPublication = NSLock()
 
   /// One child's exit, carrying the generation it belongs to. The code alone
   /// would be ambiguous: this one slot is written by every child's
@@ -306,29 +310,8 @@ public actor LocalServerSupervisor {
     defer { endLifecycle() }
     guard !quitting.withLock({ $0 }) else { return false }
     if state.isRunning || state == .starting { return state.isRunning }
-    guard let data = try? Data(contentsOf: recordURL) else { return false }
-    guard let record = try? JSONDecoder().decode(LocalServerOwnership.self, from: data),
-          record.pid > 1 else { return false }
-    guard record.port == environment.port,
-          LocalServerIdentity.canonical(record.appDirectory) == LocalServerIdentity.canonical(environment.appDirectory.path),
-          LocalServerIdentity.canonical(record.expectedIdentity.appDirectory) == LocalServerIdentity.canonical(environment.appDirectory.path),
-          LocalServerIdentity.canonical(record.expectedIdentity.databasePath) == LocalServerIdentity.canonical(environment.databasePath.path) else { return false }
-    // Only a dead process or a proven birth-identity mismatch makes a record
-    // stale. Older records without a kernel identity cannot authorize signals.
-    guard let current = currentIdentity(record.pid) else {
-      if kill(record.pid, 0) != 0 { try? FileManager.default.removeItem(at: recordURL) }
-      return false
-    }
-    guard let start = record.processStart else { return false }
-    guard current == start else {
-      try? FileManager.default.removeItem(at: recordURL)
-      return false
-    }
-    guard record.processGroup == ownedGroup(of: record.pid),
-          let actual = healthyIdentity,
-          LocalServerIdentity.canonical(actual.appDirectory) == LocalServerIdentity.canonical(environment.appDirectory.path),
-          LocalServerIdentity.canonical(actual.databasePath) == LocalServerIdentity.canonical(environment.databasePath.path),
-          (record.identity ?? record.expectedIdentity).matches(actual) else { return false }
+    guard let record = validatedOwnership(healthyIdentity: healthyIdentity),
+          let start = record.processStart, let actual = healthyIdentity else { return false }
     ownership = record
     ownership?.identity = actual
     do { try saveOwnership() } catch { return false }
@@ -355,6 +338,49 @@ public actor LocalServerSupervisor {
     }
     if let exitWatcher { track(exitWatcher) }
     return true
+  }
+
+  /// Reuse adoption's ownership proof for rollback teardown. Kernel identity
+  /// also authorizes teardown while health is unavailable during startup. This never
+  /// publishes `.running` or starts the adopted-process monitor.
+  public func stopForDeploymentRecovery(healthyIdentity: LocalServerIdentity?) async -> Bool {
+    await beginLifecycle()
+    defer { endLifecycle() }
+    guard !quitting.withLock({ $0 }),
+          let record = validatedOwnership(healthyIdentity: healthyIdentity, requireHealth: false),
+          let start = record.processStart else { return false }
+    ownership = record
+    liveStart.withLock { $0 = start }
+    livePID.withLock { $0 = record.pid }
+    await stopChild(gracePeriod: 5)
+    return true
+  }
+
+  private func validatedOwnership(healthyIdentity: LocalServerIdentity?, requireHealth: Bool = true) -> LocalServerOwnership? {
+    guard let data = try? Data(contentsOf: recordURL) else { return nil }
+    guard let record = try? JSONDecoder().decode(LocalServerOwnership.self, from: data),
+          record.pid > 1 else { return nil }
+    guard record.port == environment.port,
+          LocalServerIdentity.canonical(record.appDirectory) == LocalServerIdentity.canonical(environment.appDirectory.path),
+          LocalServerIdentity.canonical(record.expectedIdentity.appDirectory) == LocalServerIdentity.canonical(environment.appDirectory.path),
+          LocalServerIdentity.canonical(record.expectedIdentity.databasePath) == LocalServerIdentity.canonical(environment.databasePath.path) else { return nil }
+    // Only a dead process or a proven birth-identity mismatch makes a record
+    // stale. Older records without a kernel identity cannot authorize signals.
+    guard let current = currentIdentity(record.pid) else {
+      if kill(record.pid, 0) != 0 { try? FileManager.default.removeItem(at: recordURL) }
+      return nil
+    }
+    guard let start = record.processStart else { return nil }
+    guard current == start else {
+      try? FileManager.default.removeItem(at: recordURL)
+      return nil
+    }
+    guard record.processGroup == ownedGroup(of: record.pid),
+          let actual = healthyIdentity ?? (requireHealth ? nil : record.identity ?? record.expectedIdentity),
+          LocalServerIdentity.canonical(actual.appDirectory) == LocalServerIdentity.canonical(environment.appDirectory.path),
+          LocalServerIdentity.canonical(actual.databasePath) == LocalServerIdentity.canonical(environment.databasePath.path),
+          (record.identity ?? record.expectedIdentity).matches(actual) else { return nil }
+    return record
   }
 
   /// The production launch spec: `bun run src/index.ts` in the resolved install directory.
@@ -421,6 +447,25 @@ public actor LocalServerSupervisor {
     // crash loop.
     crashTimes.removeAll()
     await startChild(epoch: epoch)
+  }
+
+  /// Serialize with a recovery already entering its launch, then inhibit all
+  /// subsequent recovery until deployment promotion or rollback has completed.
+  public func suspendRecovery() async -> Bool {
+    await beginLifecycle()
+    defer { endLifecycle() }
+    recoverySuspended = true
+    supervision?.cancel()
+    supervision = nil
+    return state.isRunning || state == .starting
+  }
+
+  public func resumeRecovery(restartIfNeeded: Bool) async {
+    let epoch = terminationEpoch.withLock { $0 }
+    await beginLifecycle()
+    defer { endLifecycle() }
+    recoverySuspended = false
+    if restartIfNeeded { await startChild(epoch: epoch) }
   }
 
   /// A quit invalidates lifecycle work that was already queued. Once a
@@ -516,6 +561,8 @@ public actor LocalServerSupervisor {
   public nonisolated func terminateNow(gracePeriod: TimeInterval = 2) {
     terminationEpoch.withLock { $0 += 1 }
     stopFlag.withLock { $0 = true }  // deliberate: the exit is not a crash
+    spawnPublication.lock()
+    defer { spawnPublication.unlock() }
     guard let pid = livePID.withLock({ $0 }) else { return }
     // Before the first signal, for the same reason as in `stopChild()`.
     let members = ownedMembers(of: pid)
@@ -606,14 +653,20 @@ public actor LocalServerSupervisor {
   }
 
   /// Test-only quit race seam between run() and pid publication.
-  var testSeamAfterChildRun: (@Sendable () -> Void)?
+  var testSeamAfterChildRun: (@Sendable (Int32) -> Void)?
 
   /// Actor-isolated setter for `testSeamAfterChildRun`: mutating actor state
   /// from outside the actor needs an isolated method even under
   /// `@testable import`.
   func setTestSeamAfterChildRun(_ hook: @escaping @Sendable () -> Void) {
+    testSeamAfterChildRun = { _ in hook() }
+  }
+
+  func setTestSeamAfterChildRunWithPID(_ hook: @escaping @Sendable (Int32) -> Void) {
     testSeamAfterChildRun = hook
   }
+
+  nonisolated var testIsQuitting: Bool { quitting.withLock { $0 } }
 
   /// Returns the new child's generation, so its caller can carry that identity
   /// through every suspension point that follows.
@@ -689,11 +742,15 @@ public actor LocalServerSupervisor {
       exitSignal.yield(code)
       exitSignal.finish()
     }
+    spawnPublication.lock()
+    defer { spawnPublication.unlock() }
+    // Quit may have landed while preparing the launch or waiting for teardown.
+    guard !quitting.withLock({ $0 }) else { throw CancellationError() }
     do { try child.run() } catch {
       exitSignal.finish()
       throw error
     }
-    testSeamAfterChildRun?()
+    testSeamAfterChildRun?(child.processIdentifier)
 
     process = child
     let pid = child.processIdentifier
@@ -788,6 +845,7 @@ public actor LocalServerSupervisor {
     guard generation == spawnGeneration, !stopping else { return }
     livePID.withLock { $0 = nil }
     process = nil
+    state = .failed(.exited(code: code))
     Self.logger.error("local server exited with \(code, privacy: .public)")
     await handleCrash(exitCode: code, generation: generation)
   }
@@ -852,6 +910,10 @@ public actor LocalServerSupervisor {
   private func handleCrash(exitCode: Int32, generation: Int) async {
     let now = await clock.now
     guard generation == spawnGeneration, !stopping else { return }
+    guard !recoverySuspended else {
+      state = .failed(.exited(code: exitCode))
+      return
+    }
     crashTimes.append(now)
     crashTimes.removeAll { now.timeIntervalSince($0) > policy.window }
 
@@ -890,7 +952,7 @@ public actor LocalServerSupervisor {
     let epoch = terminationEpoch.withLock { $0 }
     await beginLifecycle()
     defer { endLifecycle() }
-    guard !Task.isCancelled, scheduled == spawnGeneration else { return }
+    guard !Task.isCancelled, !recoverySuspended, scheduled == spawnGeneration else { return }
     await startChild(epoch: epoch)
   }
 }

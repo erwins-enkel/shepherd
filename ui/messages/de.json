@@ -5262,5 +5262,22 @@
   "decommission_fail_retry_next": "Erneut versuchen. Scheitert es weiter, steht die Ursache im Server-Log (shepherd.log).",
   "model_guidance_codex_61_sol": "Nahe an Astra bei komplexem Coding und langlaufenden Aufgaben, zu niedrigeren Kosten als Astra.",
   "feat_codex_61_sol_title": "GPT-6.1 Sol in Codex",
-  "feat_codex_61_sol_body": "Wähle GPT-6.1 Sol für neue Aufgaben, Standards und Agentenrollen, mit Reasoning-Aufwand bis Ultra. Deine gespeicherten Modellwahlen bleiben erhalten."
+  "feat_codex_61_sol_body": "Wähle GPT-6.1 Sol für neue Aufgaben, Standards und Agentenrollen, mit Reasoning-Aufwand bis Ultra. Deine gespeicherten Modellwahlen bleiben erhalten.",
+  "native_local_open_web": "Web-Backend öffnen",
+  "native_local_update_title": "Backend-Update verfügbar",
+  "native_local_update_summary": "{count} neue Commits ({current} → {latest})",
+  "native_local_update_commits": "Änderungen ansehen (bis zu 10 Commits)",
+  "native_local_update_apply": "Jetzt aktualisieren",
+  "native_local_update_updating": "Backend wird aktualisiert…",
+  "native_local_update_check": "Nach Updates suchen",
+  "native_local_update_check_failed": "Backend-Updates konnten nicht geprüft werden. Später erneut versuchen.",
+  "native_local_update_failed": "Backend-Update fehlgeschlagen (Exit {code}). Protokoll prüfen und erneut versuchen.",
+  "native_local_update_checked": "Zuletzt geprüft {date}",
+  "native_local_update_current": "Backend ist aktuell.",
+  "native_local_update_what_title": "Was passiert beim Update?",
+  "native_local_update_what_body": "Lädt main herunter, installiert Abhängigkeiten und baut die Weboberfläche neu. Ein laufender lokaler Server startet mit dem neuen Code neu; ein gestoppter Server bleibt gestoppt. Laufende Agent-Sessions bleiben in herdr erhalten. Lokale Änderungen müssen vorher committet oder anderweitig gesichert werden; bei Fehlern das Protokoll prüfen.",
+  "native_settings_local_server_title": "Lokaler Server",
+  "native_local_update_indicator": "Backend-Update verfügbar ({count})",
+  "native_local_update_confirm_title": "Backend-Update installieren?",
+  "native_local_update_confirm_body": "Dies installiert den neuesten Backend-Code und baut die Weboberfläche neu. Ein laufender lokaler Server wird kurz neu gestartet. Nicht gespeicherte Git-Änderungen verhindern das Update und bleiben erhalten."
 }

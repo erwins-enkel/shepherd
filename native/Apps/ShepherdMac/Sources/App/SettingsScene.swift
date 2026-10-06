@@ -39,7 +39,9 @@ struct SettingsSceneView: View {
         }
         .onAppear { applyRequestedPane() }
         .onChange(of: SettingsPresentation.shared.openSettingsRequest) { applyRequestedPane() }
-        .frame(minWidth: 520, minHeight: 360)
+        // The local-server and app-update panes also exist before connection.
+        // Keep their toolbar tabs visible instead of overflowing at 520 points.
+        .frame(minWidth: 900, minHeight: 360)
     }
     private func applyRequestedPane() {
         guard let id = SettingsPresentation.shared.requestedPane,

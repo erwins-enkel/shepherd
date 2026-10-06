@@ -740,15 +740,20 @@ test("PUT /api/settings rejects an unknown defaultModel value", async () => {
   expect(config.defaultModel).toBe("auto"); // unchanged on failure
 });
 
-test("PUT /api/settings sets and persists defaultCodexModel", async () => {
-  const { app, store } = harness();
-  config.defaultCodexModel = "gpt-5.5";
-  const res = await put(app, { defaultCodexModel: "gpt-5.4" });
-  expect(res.status).toBe(200);
-  expect((await res.json()).defaultCodexModel).toBe("gpt-5.4");
-  expect(config.defaultCodexModel).toBe("gpt-5.4");
-  expect(store.getSetting("defaultCodexModel")).toBe("gpt-5.4");
-});
+test.each(["gpt-5.4", "gpt-6.1-sol"])(
+  "PUT /api/settings persists Codex default %s",
+  async (model) => {
+    const { app, store } = harness();
+    config.defaultCodexModel = "gpt-5.5";
+    const res = await put(app, { defaultCodexModel: model });
+    expect(res.status).toBe(200);
+    expect((await res.json()).defaultCodexModel).toBe(model);
+    expect(config.defaultCodexModel).toBe(model);
+    expect(store.getSetting("defaultCodexModel")).toBe(model);
+    const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
+    expect(got.defaultCodexModel).toBe(model);
+  },
+);
 
 test("PUT /api/settings accepts provider default and rejects invalid Codex models", async () => {
   const { app } = harness();

@@ -5259,5 +5259,8 @@
   "decommission_fail_merge_next": "Behebe, was die Servermeldung nennt (etwa einen Merge-Konflikt), dann erneut versuchen. Ist der Merge doch durchgegangen, wird er beim erneuten Versuch übersprungen und nur noch die Session abgebaut.",
   "decommission_fail_archive_reason": "Abbau fehlgeschlagen",
   "decommission_fail_archive_what": "Das Beenden des Agents oder das Entfernen seines Worktrees ist fehlgeschlagen, deshalb ist die Session noch da. Ein bereits erledigter PR-Schritt wird nicht wiederholt.",
-  "decommission_fail_retry_next": "Erneut versuchen. Scheitert es weiter, steht die Ursache im Server-Log (shepherd.log)."
+  "decommission_fail_retry_next": "Erneut versuchen. Scheitert es weiter, steht die Ursache im Server-Log (shepherd.log).",
+  "model_guidance_codex_61_sol": "Nahe an Astra bei komplexem Coding und langlaufenden Aufgaben, zu niedrigeren Kosten als Astra.",
+  "feat_codex_61_sol_title": "GPT-6.1 Sol in Codex",
+  "feat_codex_61_sol_body": "Wähle GPT-6.1 Sol für neue Aufgaben, Standards und Agentenrollen, mit Reasoning-Aufwand bis Ultra. Deine gespeicherten Modellwahlen bleiben erhalten."
 }

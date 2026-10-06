@@ -805,6 +805,12 @@
 "native_local_update_what_body" = "Downloads main, installs dependencies and rebuilds the web UI. A running local server restarts to load the new code; a stopped server stays stopped. Running agent sessions survive in herdr. Local changes must be committed or saved elsewhere first; see the log if the update fails.";
 "native_local_update_what_title" = "What happens during the update?";
 "native_login_sheet_title" = "Sign in to %1$@";
+"native_mac_steers_create" = "Create steer";
+"native_mac_steers_empty" = "No steers in the steer bar yet.";
+"native_mac_steers_hint" = "Type directly in the terminal · ⌘1–9 send steer · ⌘J all steers · ⌘K commands";
+"native_mac_steers_no_matches" = "No matching steers.";
+"native_mac_steers_retry" = "Send again";
+"native_mac_steers_search" = "Search steers … Enter sends the first match";
 "native_menu_session" = "Session";
 "native_merge_ack" = "I own the manual steps";
 "native_merge_action_failed" = "The action failed. Refresh and try again.";

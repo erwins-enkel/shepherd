@@ -28,7 +28,7 @@ final class IOSSteerDraft: Identifiable {
 /// scope stay as they are: they are rarely changed and the web/Mac editor owns them.
 struct IOSSteerEditorSheet: View {
     @Bindable var draft: IOSSteerDraft
-    let library: IOSSteerLibrary
+    let library: SteerLibrary
     let save: (ComposeSteer) async -> Bool
     let delete: (String) async -> Bool
     @Environment(\.dismiss) private var dismiss

@@ -5313,5 +5313,6 @@
   "feat_engine_defaults_title": "Standardmodell und Aufwand pro Engine",
   "feat_engine_defaults_body": "Lege unter Einstellungen → Coding CLI für Claude Code und Codex getrennt ein Standardmodell und einen Denkaufwand fest. Neue Aufgabe, Drain- und Autopilot-Starts und der automatische Wechsel beim Wochenlimit nutzen den Standard der jeweiligen Engine.",
   "native_keychain_waiting": "Warte auf Schlüsselbund-Zugriff. Erlaube den Zugriff, um dich mit dem gespeicherten Token zu verbinden.",
-  "native_keychain_unavailable": "Das gespeicherte Token ist im Schlüsselbund nicht zugänglich. Entsperre ihn oder erlaube den Zugriff und versuche es erneut."
+  "native_keychain_unavailable": "Das gespeicherte Token ist im Schlüsselbund nicht zugänglich. Entsperre ihn oder erlaube den Zugriff und versuche es erneut.",
+  "prspanel_load_failed": "PRs konnten nicht geladen werden."
 }

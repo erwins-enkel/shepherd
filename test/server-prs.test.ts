@@ -105,7 +105,14 @@ test("GET /api/prs with no forge → {slug:null, prs:[]}", async () => {
   expect(await res.json()).toEqual({ slug: null, webUrl: null, prs: [] });
 });
 
-test("GET /api/prs swallows forge errors → {slug, prs:[]}", async () => {
+test("GET /api/prs returns a genuine empty listing without an error", async () => {
+  const app = makeApp(makeDeps(() => fakeForge({ listPullRequests: async () => [] })));
+  const res = await app.fetch(getReq(repoDir));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ slug: "team/proj", webUrl: null, prs: [] });
+});
+
+test("GET /api/prs distinguishes a failed listing from an empty repo", async () => {
   const app = makeApp(
     makeDeps(() =>
       fakeForge({
@@ -116,7 +123,13 @@ test("GET /api/prs swallows forge errors → {slug, prs:[]}", async () => {
     ),
   );
   const res = await app.fetch(getReq(repoDir));
-  expect(await res.json()).toEqual({ slug: "team/proj", webUrl: null, prs: [] });
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({
+    slug: "team/proj",
+    webUrl: null,
+    prs: [],
+    error: "fetch_failed",
+  });
 });
 
 test("GET /api/prs includes forge webUrl in response", async () => {
@@ -337,7 +350,7 @@ test("GET /api/prs uses direct listPullRequests when no snapshot service wired",
   expect(listCalled).toBe(true);
 });
 
-test("GET /api/prs swallows snapshot service error → {slug, prs:[]}", async () => {
+test("GET /api/prs marks snapshot service errors as a failed listing", async () => {
   const forge = fakeForge();
   const deps = makeDeps(() => forge);
   deps.openPrSnapshot = {
@@ -348,7 +361,28 @@ test("GET /api/prs swallows snapshot service error → {slug, prs:[]}", async ()
   const app = makeApp(deps);
   const res = await app.fetch(getReq(repoDir));
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({ slug: "team/proj", webUrl: null, prs: [] });
+  expect(await res.json()).toEqual({
+    slug: "team/proj",
+    webUrl: null,
+    prs: [],
+    error: "fetch_failed",
+  });
+});
+
+test("GET /api/prs reports failure when both snapshot and direct listing fail", async () => {
+  const forge = fakeForge({
+    listOpenPrSnapshot: async () => {
+      throw new Error("snapshot fetch failed");
+    },
+    listPullRequests: async () => {
+      throw new Error("PR listing failed");
+    },
+  });
+  const deps = makeDeps(() => forge);
+  deps.openPrSnapshot = new OpenPrSnapshotService();
+  const res = await makeApp(deps).fetch(getReq(repoDir));
+  expect(res.status).toBe(200);
+  expect((await res.json()).error).toBe("fetch_failed");
 });
 
 // End-to-end against a REAL OpenPrSnapshotService (not a get-only stub) so the

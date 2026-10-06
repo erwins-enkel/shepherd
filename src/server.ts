@@ -7169,8 +7169,13 @@ async function handlePrsList({ req, parts, url, deps }: Ctx): Promise<Response |
       prs: await annotatePrRoles(prs, snap?.statuses ?? null, dir, forge, deps),
     });
   } catch {
-    // missing/un-authed CLI or network error → graceful empty (matches issues path)
-    return json({ slug: forge.slug, webUrl: forge.webUrl ?? null, prs: [] });
+    // Keep a failed fetch distinct from a successful empty listing, as in the issues path.
+    return json({
+      slug: forge.slug,
+      webUrl: forge.webUrl ?? null,
+      prs: [],
+      error: "fetch_failed",
+    });
   }
 }
 

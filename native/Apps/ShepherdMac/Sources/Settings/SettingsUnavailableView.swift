@@ -36,7 +36,7 @@ struct SettingsUnavailableView: View {
                 .accessibilityIdentifier("settings-unavailable-summary")
             if availability == .localOffline || availability == .localActive {
                 LocalServerPanel(model: local, app: app, onConnect: {
-                    SettingsConnectionRouting.connectLocal(local, app: app, presentMain: showMainWindow)
+                    Task { await SettingsConnectionRouting.connectLocal(local, app: app, presentMain: showMainWindow) }
                 })
             } else if availability == .remoteInactive {
                 Button(L.t("native_settings_connect")) { connectRemote() }
@@ -85,8 +85,8 @@ struct SettingsUnavailableView: View {
 /// Settings does not host login sheets: every connection route presents the main scene.
 @MainActor
 enum SettingsConnectionRouting {
-    static func connectLocal(_ local: LocalServerModel, app: AppModel, presentMain: () -> Void) {
-        local.connect(app)
+    static func connectLocal(_ local: LocalServerModel, app: AppModel, presentMain: () -> Void) async {
+        await local.connect(app)
         presentMain()
     }
 

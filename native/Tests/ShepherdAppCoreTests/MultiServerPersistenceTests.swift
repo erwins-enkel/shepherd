@@ -15,7 +15,7 @@ extension CoreSeamTests {
                 let model = AppModel(defaults: defaults, credentials: credentials,
                     notifications: CoreTestSupport.environment(defaults: defaults),
                     activeProfileKey: key, persistsProfileCatalogue: writer)
-                model.credentialProbe = { _, _ in }
+                model.credentialProbe = { _, _ in StoredCredential(token: "test", tokenId: "test") }
                 model.health = { _ in throw ShepherdError.transport("fixture") }
                 return model
             }

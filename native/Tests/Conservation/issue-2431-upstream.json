@@ -1695,7 +1695,7 @@
         "line": 443,
         "attributes": "@Suite(.serialized)\n@Suite(.serialized)\n@MainActor\n@Test",
         "condition": "",
-        "bodyHash": "5a938138b2ee7a4e797fb5b147f3191db75f15b0a068540a992c70d7b8329f06",
+        "bodyHash": "7321244690555b9507d35236b7c72acf37791e192b8c9bc85530b01ff3e44aa8",
         "assertionHashes": [
           "a30bbcc064a5aa34a4f839374089a4d448cb6d021901ffdcaa1b87f06355c519",
           "c80aad4be6a7819c9e46e6d9c41be2b9a50bf7f11ad890b05fa7507dcfd819a0",
@@ -1709,7 +1709,7 @@
           "7dcff62030166dbe085d7b5a5501cf2f9ccd7479fb96a31364aed9b241ad2e46"
         ]
       },
-      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner."
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner.; credential pre-flight fixture/async Connect adaptation, preserving all upstream assertions."
     },
     {
       "original": null,
@@ -2043,7 +2043,7 @@
         "line": 47,
         "attributes": "@Suite(.serialized)\n@testable\n@testable\n@Suite(.serialized)\n@MainActor\n@Test(arguments: [false, true])",
         "condition": "",
-        "bodyHash": "7add97e8ee7135312255bb841b091b1b8255c022356ac2506c50b98cfc0a9885",
+        "bodyHash": "da2d0c11a8b55a6726e755fe5e306f8d76a9a0bdbe222f1bee3eb71b452d1926",
         "assertionHashes": [
           "1f49534c22d5a920dda547a723c8c517a167332809f84efb47cdc954189dbdf2",
           "b19236c8fd097995ab1d3821391c628f54c07ee546b2e6b9b9a01623dceda3ce",
@@ -2069,7 +2069,7 @@
           "68fcf50d5e49a25ec11f1ee7e62329983dd6ad849bc1643cb2a978fa096075df"
         ]
       },
-      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner. Stage 1 injects MacTestSupport.environment(defaults:) into AppModel; no assertion changed."
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner. Stage 1 injects MacTestSupport.environment(defaults:) into AppModel; no assertion changed.; credential pre-flight fixture/async Connect adaptation, preserving all upstream assertions."
     },
     {
       "original": null,
@@ -2183,7 +2183,7 @@
         "line": 10,
         "attributes": "@Suite(.serialized)\n@testable\n@testable\n@Suite(.serialized)\n@MainActor\n@Test",
         "condition": "",
-        "bodyHash": "d630396a0b21cfcdc5d12ea527d32e76e9e2802c811812f97a25288ed767617a",
+        "bodyHash": "7a90daef0795a0fc215d4eb53037e522079b2a282747a7a70accc2155b5bd66e",
         "assertionHashes": [
           "a4d54e1b03dd9e9d94cd9d2814544e2364149b6a5fc3aea04bb33952acbc1307",
           "122fe0253695f7ada0fc90aed7144ee9716641d02f4d010cbc1cb0ae79e61d91",
@@ -2201,7 +2201,7 @@
           "f36a3d42fb8554c9f57e43e53c2682de7ad459755cf077ea4ffb65b03e9d1b60"
         ]
       },
-      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner. Stage 1 injects MacTestSupport.environment(defaults:) into AppModel; no assertion changed. Preserves inner serialized trait under MacSeamTests; @testable shared import keeps teardown internal."
+      "reason": "Pinned upstream test retained with identical assertion tokens and conditional context; target/import/serialization adaptation follows its semantic owner. Stage 1 injects MacTestSupport.environment(defaults:) into AppModel; no assertion changed. Preserves inner serialized trait under MacSeamTests; @testable shared import keeps teardown internal.; credential pre-flight fixture/async Connect adaptation, preserving all upstream assertions."
     },
     {
       "original": null,

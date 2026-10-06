@@ -75,6 +75,7 @@ final class LocalServerModel {
     private(set) var capturedPassword: String?
     /// Read once by the login sheet's prefill.
     private(set) var pendingPassword: String?
+    private var pendingPasswordProfileID: UUID?
 
     private let environment: LocalServerEnvironment
     private let log = LogRing(capacity: 500)
@@ -616,17 +617,38 @@ final class LocalServerModel {
     func stop() async { await act { await self.supervisor.stop() } }
     func restart() async { await act { await self.supervisor.restart() } }
 
-    /// Routes into the app's one sheet channel, consuming the captured password so
-    /// it can never be offered twice.
-    func connect(_ app: AppModel) {
+    /// Reuses a saved token, retaining the one-time password only for a needed login.
+    func connect(_ app: AppModel) async {
         guard state != .externallyManaged || externalAcknowledged else { return }
-        pendingPassword = capturedPassword
+        let profile = app.addLocalProfile(port: environment.port)
+        if let capturedPassword {
+            pendingPassword = capturedPassword
+            pendingPasswordProfileID = profile.id
+        }
         capturedPassword = nil
-        app.beginLocalLogin(port: environment.port)
+        await app.connectLocal(port: environment.port)
+        discardPasswordAfterTokenReuse(app, profileID: profile.id)
+    }
+
+    /// Keep the password until an authenticated snapshot arrives, including late recovery.
+    private func discardPasswordAfterTokenReuse(_ app: AppModel, profileID: UUID) {
+        guard pendingPassword != nil, pendingPasswordProfileID == profileID else { return }
+        withObservationTracking {
+            if app.activeProfile?.id != profileID || app.store?.hasLoadedSessions == true
+                || app.store?.connection == .firstRunPending {
+                pendingPassword = nil
+                pendingPasswordProfileID = nil
+            }
+        } onChange: {
+            Task { @MainActor [weak self, weak app] in
+                guard let self, let app else { return }
+                self.discardPasswordAfterTokenReuse(app, profileID: profileID)
+            }
+        }
     }
 
     func takePendingPassword() -> String? {
-        defer { pendingPassword = nil }
+        defer { pendingPassword = nil; pendingPasswordProfileID = nil }
         return pendingPassword
     }
 

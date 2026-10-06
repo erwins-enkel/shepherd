@@ -39,6 +39,18 @@ import {
 } from "../native/scripts/gen-strings";
 
 describe("gen-strings core resources", () => {
+  test("Keychain access notices reach both native locale resources", () => {
+    const outputs = buildOutputs();
+    for (const locale of ["en", "de"]) {
+      const path = Object.keys(outputs).find((path) =>
+        path.endsWith(`${locale}.lproj/Localizable.strings`),
+      );
+      expect(path).toBeDefined();
+      const resources = outputs[path!]!;
+      expect(resources).toContain('"native_keychain_waiting" = ');
+      expect(resources).toContain('"native_keychain_unavailable" = ');
+    }
+  });
   test("composer catalogs retain Mac dictation copy and accurately describe recording", () => {
     for (const [locale, deferred, recording, onRelease] of [
       [

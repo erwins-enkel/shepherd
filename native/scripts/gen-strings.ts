@@ -86,6 +86,8 @@ export const KEYS_CORE: readonly string[] = [
   "native_ios_first_run",
   "native_ios_remove_body",
   "native_ios_welcome_subtitle",
+  "native_keychain_unavailable",
+  "native_keychain_waiting",
   "native_login_sheet_title",
   "native_menu_session",
   "native_newsession_held",

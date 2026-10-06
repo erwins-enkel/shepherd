@@ -284,8 +284,10 @@ existing application entitlements.
 
 An ad-hoc signature carries no identity, so **every rebuild is a different signer** as far as
 the Keychain is concerned. The "Always Allow" you granted the last build does not apply to the
-next one, macOS asks again, and an unattended run stalls: the app gives up on its credential
-probe after 8 s and falls back to the login sheet. Signing every local build with one
+next one and macOS asks again. After 8 s, the app shows a Keychain-access notice while the
+original read keeps waiting. A later approval resumes the current connection; Retry reuses
+an outstanding read rather than opening another request. An unavailable Keychain never
+requests a new operator password. Signing every local build with one
 long-lived, self-signed identity gives that Keychain ACL something stable to point at — the
 bundle's designated requirement becomes `identifier "run.shepherd.mac" and certificate root =
 H"…"`, and that requirement is identical from one build to the next.
@@ -297,6 +299,15 @@ native/scripts/dev-signing-identity.sh
 ```
 
 It is idempotent: a second run says "Already present" and changes nothing.
+
+Use `native/scripts/mac-dev.sh` for subsequent builds and launches. It requires a stable
+signer, re-seals the outer app after package resources are copied, prints the selected
+mode and the built app's designated requirement, and verifies
+the bundle before quitting the running app. It launches that exact bundle as a new instance.
+`--build-only` performs the same signing checks without quitting or launching an app.
+Moving between a Developer ID release and a local development signer may require one new
+“Always Allow” grant; keep the local identity instead of recreating it between builds.
+Local Connect first reuses the endpoint's saved token and opens login only when needed.
 
 #### Why a keychain of its own
 

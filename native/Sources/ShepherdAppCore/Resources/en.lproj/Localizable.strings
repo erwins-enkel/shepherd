@@ -742,6 +742,8 @@
 "native_ios_terminal_superseded_body" = "Another device attached to this terminal. Taking over returns it to this iPhone or iPad and detaches the other device.";
 "native_ios_usage_warning" = "%1$@: %2$@%% used";
 "native_ios_welcome_subtitle" = "Connect to a Shepherd server to follow your sessions.";
+"native_keychain_unavailable" = "Cannot read the saved token from Keychain. Unlock it or allow access, then retry.";
+"native_keychain_waiting" = "Waiting for Keychain access. Allow access to reconnect with your saved token.";
 "native_local_banner_not_installed" = "The local server is not installed.";
 "native_local_banner_settings" = "Open Settings";
 "native_local_banner_starting" = "The local server is starting…";
@@ -755,7 +757,7 @@
 "native_local_bun_outdated_why_title" = "The cause";
 "native_local_bun_upgrade" = "Update Bun";
 "native_local_bun_upgrading" = "Updating Bun…";
-"native_local_connect" = "Sign in";
+"native_local_connect" = "Connect";
 "native_local_error_bun_missing" = "Bun was not found. Choose Install and start to provision it, then check the log if installation fails.";
 "native_local_error_bun_outdated" = "Bun %1$@ is too old for Shepherd.";
 "native_local_error_bun_upgrade_failed" = "Updating Bun failed (exit %1$@). Open the log for details, or run `bun upgrade` in Terminal and choose Start.";

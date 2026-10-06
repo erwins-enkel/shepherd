@@ -52,7 +52,9 @@ extension MacSeamTests {
         let app = AppModel(defaults: defaults, credentials: InMemoryCredentialStore(), notifications: MacTestSupport.environment(defaults: defaults))
         defer { app.teardown() }
         app.health = { _ in throw CancellationError() }
-        // No credential means SessionStore never opens a socket. Health is stubbed above.
+        // Test extension registration after a readable pre-flight without opening a socket.
+        // The backing store stays empty; health is stubbed above.
+        app.credentialProbe = { _, _ in StoredCredential(token: "test", tokenId: "test") }
         let local = app.addLocalProfile(port: 1)
         if registerFirst { SettingsFeature.install(app) }
         await app.activate(local)

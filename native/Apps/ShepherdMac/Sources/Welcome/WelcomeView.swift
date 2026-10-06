@@ -101,7 +101,7 @@ struct WelcomeView: View {
             // when a successful login swaps this screen for the main
             // window, and the `.firstRun` routed behind it would never be
             // presented.
-            Button(L.t("native_welcome_connect")) { model.beginLocalLogin() }
+            Button(L.t("native_welcome_connect")) { Task { await model.connectLocal() } }
                 .buttonStyle(.borderedProminent)
         case .absent:
             Label(L.t("native_welcome_local_missing"), systemImage: "exclamationmark.triangle")

@@ -5,6 +5,55 @@ import Testing
 @testable import Shepherd
 @testable import ShepherdAppCore
 
+/// Holds authenticated bootstrap responses until the test explicitly releases them.
+private final class LocalCredentialFixtureProtocol: URLProtocol, @unchecked Sendable {
+    // Foundation's URLProtocol has an unavailable Sendable conformance. This box
+    // permits handing its thread-safe client callbacks out of the fixture lock.
+    private struct WaitingRequest: @unchecked Sendable {
+        let request: LocalCredentialFixtureProtocol
+    }
+    private static let state = Mutex<(released: Bool, waiting: [WaitingRequest])>((false, []))
+    static var waitingCount: Int { state.withLock { $0.waiting.count } }
+    static func reset() { state.withLock { $0 = (false, []) } }
+    static func release() {
+        let waiting = state.withLock { value in
+            value.released = true
+            let waiting = value.waiting
+            value.waiting = []
+            return waiting
+        }
+        for value in waiting { value.request.respond() }
+    }
+    override class func canInit(with request: URLRequest) -> Bool {
+        request.url?.host == "127.0.0.1" && request.url?.port == 1
+    }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let released = Self.state.withLock { value in
+            if !value.released { value.waiting.append(WaitingRequest(request: self)) }
+            return value.released
+        }
+        if released { respond() }
+    }
+    private func respond() {
+        guard let url = request.url else { return }
+        let accepted = request.value(forHTTPHeaderField: "Authorization") == "Bearer test"
+        let body: String
+        switch url.path {
+        case "/api/sessions": body = "[]"
+        case "/api/settings": body = #"{"repoRoot":"/fixtures","repoRootDisplay":"/fixtures","firstRunPending":false,"defaultModel":"sonnet","defaultEffort":"medium","defaultAgentProvider":"claude","authMode":"subscription","operatorLanguage":"en"}"#
+        case "/api/repos": body = #"{"repos":[],"recentWindowDays":14}"#
+        default: body = #"{"ok":true,"version":"test"}"#
+        }
+        let response = HTTPURLResponse(url: url, statusCode: accepted ? 200 : 401,
+            httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: Data((accepted ? body : #"{"error":"unauthorized"}"#).utf8))
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
 /// `Sendable` gate for the model's injected seams (`probeExternal`, `health`),
 /// which are `@Sendable` closures and so cannot hold a main-actor `Gate`
 /// (pattern: AppModelTests.swift's `Gate`/`ProbeHold`, kept local to this file
@@ -71,11 +120,11 @@ extension MacSeamTests {
     /// `AppModel` takes `defaults:` + `credentials:`, not a built `ProfileStore`
     /// — a private suite keeps this test off the operator's real defaults, and
     /// the in-memory credential store keeps it out of the Keychain.
-    private func freshApp() -> AppModel {
+    private func freshApp(credentials: any CredentialStore = InMemoryCredentialStore()) -> AppModel {
         let suite = UUID().uuidString
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
-        return AppModel(defaults: defaults, credentials: InMemoryCredentialStore(), notifications: MacTestSupport.environment(defaults: defaults))
+        return AppModel(defaults: defaults, credentials: credentials, notifications: MacTestSupport.environment(defaults: defaults))
     }
 
     /// Writes a `/bin/sh` script under `dir` that sleeps, optionally printing
@@ -881,10 +930,101 @@ extension MacSeamTests {
             environment: LocalServerEnvironment(home: home), probeExternal: { false })
         model.setCapturedPasswordForTesting("Zx9_test-password-abcdefgh")
 
-        model.connect(app)
+        await model.connect(app)
         #expect(app.sheet == .login(app.addLocalProfile()))
         #expect(model.capturedPassword == nil)
         #expect(model.takePendingPassword() == "Zx9_test-password-abcdefgh")
+        #expect(model.takePendingPassword() == nil)
+    }
+
+    @Test func connectingReusesTheSavedLocalTokenWithoutRequestingAPassword() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let credentials = InMemoryCredentialStore()
+        let app = freshApp(credentials: credentials)
+        let profile = app.addLocalProfile()
+        try credentials.save(StoredCredential(token: "test-token", tokenId: "test-id"),
+            for: profile.credentialKey)
+        let model = LocalServerModel(
+            environment: LocalServerEnvironment(home: home), probeExternal: { false })
+
+        await model.connect(app)
+        #expect(app.sheet == nil)
+        #expect(app.activeProfile == profile)
+        #expect(app.store != nil)
+        app.deactivate(includingPendingActivation: true)
+    }
+
+    @Test func repeatedConnectKeepsTheOneTimePasswordWhileKeychainIsPending() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let app = freshApp()
+        defer { app.teardown() }
+        let gate = LocalServerGate()
+        app.credentialProbe = { _, _ in await gate.wait(); return nil }
+        app.credentialTimeout = .milliseconds(20)
+        let model = LocalServerModel(
+            environment: LocalServerEnvironment(home: home), probeExternal: { false })
+        model.setCapturedPasswordForTesting("first-run-fixture-password")
+        await model.connect(app)
+        await model.connect(app)
+        #expect(model.pendingPassword == "first-run-fixture-password")
+        await gate.open()
+        #expect(await settle(until: { app.sheet != nil }))
+        #expect(model.takePendingPassword() == "first-run-fixture-password")
+        #expect(model.takePendingPassword() == nil)
+    }
+
+    @Test func lateTokenRecoveryDiscardsThePasswordOnlyAfterAuthentication() async throws {
+        LocalCredentialFixtureProtocol.reset()
+        #expect(URLProtocol.registerClass(LocalCredentialFixtureProtocol.self))
+        defer { LocalCredentialFixtureProtocol.release(); URLProtocol.unregisterClass(LocalCredentialFixtureProtocol.self) }
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let credentials = InMemoryCredentialStore()
+        let app = freshApp(credentials: credentials)
+        let profile = app.addLocalProfile(port: 1)
+        try credentials.save(StoredCredential(token: "test", tokenId: "test"), for: profile.credentialKey)
+        defer { app.teardown() }
+        let gate = LocalServerGate()
+        app.credentialProbe = { _, _ in
+            await gate.wait()
+            return StoredCredential(token: "test", tokenId: "test")
+        }
+        app.credentialTimeout = .milliseconds(20)
+        let model = LocalServerModel(
+            environment: LocalServerEnvironment(home: home, processEnvironment: ["SHEPHERD_PORT": "1"]), probeExternal: { false })
+        model.setCapturedPasswordForTesting("first-run-fixture-password")
+        await model.connect(app)
+        #expect(model.pendingPassword != nil)
+        await gate.open()
+        #expect(await settle(until: { app.store != nil }))
+        #expect(await settle(until: { LocalCredentialFixtureProtocol.waitingCount >= 3 }))
+        #expect(!(await settle(until: { model.pendingPassword == nil })))
+        LocalCredentialFixtureProtocol.release()
+        #expect(await settle(until: { app.store?.hasLoadedSessions == true }))
+        #expect(await settle(until: { model.pendingPassword == nil }))
+        #expect(app.sheet == nil)
+    }
+
+    @Test func aRejectedSavedTokenKeepsTheNewServersOneTimePassword() async throws {
+        LocalCredentialFixtureProtocol.reset()
+        LocalCredentialFixtureProtocol.release()
+        #expect(URLProtocol.registerClass(LocalCredentialFixtureProtocol.self))
+        defer { URLProtocol.unregisterClass(LocalCredentialFixtureProtocol.self) }
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let credentials = InMemoryCredentialStore()
+        let app = freshApp(credentials: credentials)
+        defer { app.teardown() }
+        let profile = app.addLocalProfile(port: 1)
+        try credentials.save(StoredCredential(token: "expired", tokenId: "test"), for: profile.credentialKey)
+        let model = LocalServerModel(environment: LocalServerEnvironment(home: home,
+            processEnvironment: ["SHEPHERD_PORT": "1"]), probeExternal: { false })
+        model.setCapturedPasswordForTesting("new-server-fixture-password")
+        await model.connect(app)
+        let deadline = ContinuousClock.now + .seconds(5)
+        while app.sheet == nil, ContinuousClock.now < deadline {
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(app.sheet == .login(profile))
+        #expect(model.takePendingPassword() == "new-server-fixture-password")
         #expect(model.takePendingPassword() == nil)
     }
 
@@ -929,7 +1069,7 @@ extension MacSeamTests {
         await model.start()
         #expect(await refreshUntilPasswordCaptured(model))
 
-        model.connect(app)
+        await model.connect(app)
         #expect(model.capturedPassword == nil)
 
         await model.restart()
@@ -1151,11 +1291,11 @@ extension MacSeamTests {
             processEnvironment: ["SHEPHERD_PORT": "7349"]), probeExternal: { true })
         await model.refresh()
         model.acknowledgeExternalServer()
-        model.connect(app)
+        await model.connect(app)
         guard case .login(let profile) = app.sheet else { Issue.record("expected login"); return }
         #expect(profile.baseURL.absoluteString == "http://127.0.0.1:7349")
         #expect(profile.credentialKey != original.credentialKey)
-        model.connect(app)
+        await model.connect(app)
         #expect(app.sheet == .login(profile))
     }
 

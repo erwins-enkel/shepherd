@@ -104,7 +104,17 @@ final class IOSServerHub {
     func connect(_ profile: ServerProfile, login: Bool = false) async {
         guard !removing.contains(profile.id), profiles.contains(where: { $0.id == profile.id }) else { return }
         if let model = models[profile.id] {
-            if model.store == nil || model.store?.connection == .needsLogin { model.sheet = .login(profile) }
+            if login || model.store?.connection == .needsLogin {
+                model.sheet = .login(profile)
+            } else if !loadingIDs.contains(profile.id), model.store == nil, model.sheet == nil {
+                if model.activeProfile != nil {
+                    loadingIDs.insert(profile.id)
+                    defer { if models[profile.id] === model { loadingIDs.remove(profile.id) } }
+                    await model.retryCredentialAccess()
+                } else {
+                    model.sheet = .login(profile)
+                }
+            }
             return
         }
         let model = newModel(profile.id)

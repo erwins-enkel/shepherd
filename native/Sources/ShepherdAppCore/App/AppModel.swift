@@ -98,7 +98,7 @@ struct ConnectionSource {
     let abandon: () -> Void
 }
 
-/// A one-shot race between two tasks, for `AppModel.credentialAnswers(for:)`.
+/// A one-shot race between a credential read and its UI deadline.
 ///
 /// The loser is a task that cannot be cancelled — a blocking Keychain read —
 /// so the winner has to be able to answer without it, and the loser has to be
@@ -242,33 +242,31 @@ public final class AppModel {
     var refreshStore: @MainActor (SessionStore) async throws -> Void = { try await $0.refresh() }
 
     /// One read of a profile's stored credential, for `activate(_:)`'s
-    /// pre-flight. The value is thrown away — what the activation needs to know
-    /// is only whether the store *answers*. Behind the same seam as the two
-    /// above so a test can hold the read open without a Keychain.
+    /// pre-flight. Errors distinguish unavailable Keychain access from a missing token.
+    /// The seam lets tests hold the read open without a real Keychain.
     ///
     /// The default hops to a plain global-queue thread rather than staying on a
     /// Swift-concurrency executor: `KeychainCredentialStore.load` is a blocking
     /// `SecItemCopyMatching`, and blocking one of the cooperative pool's few
     /// threads is how a stalled Keychain becomes a stalled app.
     @ObservationIgnored
-    var credentialProbe: @Sendable (any CredentialStore, String) async -> Void = { store, key in
-        await withCheckedContinuation { continuation in
+    var credentialProbe: @Sendable (any CredentialStore, String) async throws -> StoredCredential? = { store, key in
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<StoredCredential?, any Error>) in
             DispatchQueue.global(qos: .userInitiated).async {
-                _ = try? store.load(for: key)
-                continuation.resume()
+                do {
+                    continuation.resume(returning: try store.load(for: key))
+                } catch {
+                    continuation.resume(throwing: error)
+                }
             }
         }
     }
 
-    /// How long `activate(_:)` gives the Keychain before it treats the saved
-    /// credential as unusable and asks for a fresh sign-in.
-    ///
-    /// Generous on purpose: the common reason for a slow read is a SecurityAgent
-    /// prompt, and an operator who answers it promptly should still get their
-    /// session rather than a login sheet. What this budget rules out is the
-    /// prompt that never arrives — queued behind another process's, or shown on
-    /// a display nobody is looking at — which has no other end.
+    /// Bounds the UI's wait, not the lifetime of the blocking Security read.
     @ObservationIgnored var credentialTimeout: Duration = .seconds(8)
+    @ObservationIgnored private var credentialReads: [String: (id: UUID, task: Task<Result<StoredCredential?, any Error>, Never>)] = [:]
+    @ObservationIgnored private var credentialRecovery: Task<Void, Never>?
+    public var credentialAccessWarning: String?
 
     @ObservationIgnored private let persistence: ProfileStore
     @ObservationIgnored private let credentials: any CredentialStore
@@ -420,8 +418,14 @@ public final class AppModel {
     @discardableResult
     public func beginLocalLogin(port: Int = 7330) -> ServerProfile {
         let profile = addLocalProfile(port: port)
+        if store == nil, activeProfile != nil { teardown() }
         sheet = .login(profile)
         return profile
+    }
+
+    /// Reuse the endpoint's token; the connection watcher requests login only if needed.
+    public func connectLocal(port: Int = 7330) async {
+        await activate(addLocalProfile(port: port))
     }
 
     /// The remote card's twin of `beginLocalLogin()`. Throws exactly what
@@ -430,6 +434,7 @@ public final class AppModel {
     @discardableResult
     public func beginRemoteLogin(name: String, address: String) throws -> ServerProfile {
         let profile = try addRemoteProfile(name: name, address: address)
+        if store == nil, activeProfile != nil { teardown() }
         sheet = .login(profile)
         return profile
     }
@@ -504,10 +509,8 @@ public final class AppModel {
     /// may be about to lose its credential, or already have lost it, so it
     /// must not be (re-)activated.
     ///
-    /// May suspend for up to `credentialTimeout` on the Keychain pre-flight
-    /// below, and may return having routed `sheet = .login(profile)` with no
-    /// store at all — a fresh sign-in instead of a connection, when the
-    /// Keychain did not answer in time.
+    /// May suspend for up to `credentialTimeout` on the Keychain pre-flight.
+    /// A late answer resumes the current activation without requesting a new login.
     public func activate(_ profile: ServerProfile) async {
         guard !removing.contains(profile.id), profiles.contains(where: { $0.id == profile.id })
         else {
@@ -518,6 +521,9 @@ public final class AppModel {
 
         activationGeneration &+= 1
         let generation = activationGeneration
+        credentialRecovery?.cancel()
+        credentialRecovery = nil
+        credentialAccessWarning = nil
 
         connectionWatcher?.cancel()
         connectionWatcher = nil
@@ -567,36 +573,44 @@ public final class AppModel {
         clearProfileBoundSheet()
         persist()
 
-        // Nothing below may start until the Keychain has answered *once*, under
-        // a deadline. See `credentialAnswers(for:)`: everything an activation
-        // starts — the socket's token, every request's Authorization header —
-        // reads the same item with a blocking call, and a read that never
-        // returns leaves the window empty with no banner and no sheet.
-        guard await credentialAnswers(for: profile) else {
-            Log.connect.error(
-                """
-                the Keychain did not answer for \(profile.name, privacy: .public) \
-                within \(String(describing: self.credentialTimeout), privacy: .public); \
-                asking for a fresh sign-in instead of connecting
-                """)
-            // A newer activation started while we waited; it owns the model now.
+        let read = credentialRead(for: profile)
+        guard await credentialAnswers(read) else {
             guard generation == activationGeneration else { return }
-            self.store = nil
-            activeProfile = nil
-            persist()
-            // Signing in again is not just the way out of this screen: it
-            // rewrites the Keychain item from *this* binary, which is what
-            // makes the next launch's read answer at once.
+            credentialAccessWarning = L.t("native_keychain_waiting")
+            // Keep the original read: a Retry must not queue another SecurityAgent dialog.
+            credentialRecovery = Task { @MainActor [weak self] in
+                let result = await read.value
+                guard !Task.isCancelled, let self,
+                      generation == self.activationGeneration else { return }
+                self.finishActivation(profile, generation: generation, credentialResult: result)
+            }
+            return
+        }
+        finishActivation(profile, generation: generation, credentialResult: await read.value)
+    }
+
+    public func retryCredentialAccess() async {
+        guard let profile = activeProfile else { return }
+        await activate(profile)
+    }
+
+    private func finishActivation(
+        _ profile: ServerProfile, generation: Int,
+        credentialResult: Result<StoredCredential?, any Error>
+    ) {
+        guard generation == activationGeneration else { return }
+        credentialReads[profile.credentialKey] = nil
+        if case .failure = credentialResult {
+            credentialAccessWarning = L.t("native_keychain_unavailable")
+            return
+        }
+        credentialAccessWarning = nil
+        // Local Connect has always offered login on an endpoint without a token.
+        // Remote activation retains its existing SessionStore login routing.
+        if profile.mode == .local, case .success(nil) = credentialResult {
             sheet = .login(profile)
             return
         }
-        // The read answered, but a profile switch or a teardown may have
-        // happened while it did.
-        guard generation == activationGeneration else {
-            Log.connect.debug("dropping an activation a newer one superseded")
-            return
-        }
-
         let store: SessionStore
         do {
             let client = try ShepherdClient(profile: profile, credentials: credentials,
@@ -938,33 +952,34 @@ public final class AppModel {
 
     // MARK: - Internals
 
-    /// Whether the Keychain answered for `profile` inside `credentialTimeout`.
-    ///
-    /// This is the pre-flight `activate(_:)` owes every activation. The token
-    /// this profile is signed in with is read synchronously — by the event
-    /// stream when it opens the socket, and by `AuthenticationMiddleware` on
-    /// every single request — and `SecItemCopyMatching` against the legacy
-    /// (file-based) Keychain **blocks until a SecurityAgent decision**. An
-    /// ad-hoc signature changes with every build, so a new build is exactly the
-    /// case where the item's ACL no longer names the app asking for it, and the
-    /// prompt that decides it can sit queued behind another process's, invisible.
-    /// What the operator saw was the whole of it: the store never got past
-    /// `.connecting`, which is the one connection state with no banner and no
-    /// sheet — a main window with an empty sidebar, for as long as they waited.
-    ///
-    /// The reader is deliberately *not* cancelled on the way out: a blocking
-    /// `SecItemCopyMatching` cannot be interrupted, and the timer losing the
-    /// race is the only thing this method can act on. It is one throwaway
-    /// global-queue thread, and it ends when the Keychain finally answers.
-    private func credentialAnswers(for profile: ServerProfile) async -> Bool {
-        let gate = ProbeGate()
+    /// One read per credential key, including a read still blocked on SecurityAgent.
+    private func credentialRead(for profile: ServerProfile) -> Task<Result<StoredCredential?, any Error>, Never> {
+        let key = profile.credentialKey
+        if let pending = credentialReads[key] { return pending.task }
         let probe = credentialProbe
         let credentials = self.credentials
-        let key = profile.credentialKey
-        let timeout = credentialTimeout
+        let id = UUID()
+        let read = Task.detached {
+            do {
+                return Result<StoredCredential?, any Error>.success(try await probe(credentials, key))
+            } catch {
+                return Result<StoredCredential?, any Error>.failure(error)
+            }
+        }
+        credentialReads[key] = (id, read)
+        Task { @MainActor [weak self] in
+            _ = await read.value
+            guard let self, self.credentialReads[key]?.id == id else { return }
+            self.credentialReads[key] = nil
+        }
+        return read
+    }
 
+    private func credentialAnswers(_ read: Task<Result<StoredCredential?, any Error>, Never>) async -> Bool {
+        let gate = ProbeGate()
+        let timeout = credentialTimeout
         Task.detached {
-            await probe(credentials, key)
+            _ = await read.value
             await gate.settle(true)
         }
         let timer = Task.detached {
@@ -1148,6 +1163,9 @@ public final class AppModel {
 
     /// Internal, not private: the unit tests end an activation directly.
     func teardown() {
+        credentialRecovery?.cancel()
+        credentialRecovery = nil
+        credentialAccessWarning = nil
         activationGeneration &+= 1
         connectionWatcher?.cancel()
         connectionWatcher = nil

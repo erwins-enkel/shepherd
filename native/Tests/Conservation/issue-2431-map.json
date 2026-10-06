@@ -3812,7 +3812,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AppExtensionTests.swift\",\"CoreSeamTests.AppExtensionTests\",\"aKeychainThatNeverAnswersBuildsNoExtension() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: bounded Keychain waiting retains the active profile and presents an access hint instead of requesting a fresh login; no store/extension is created until access succeeds."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/AppExtensionTests.swift\",\"AppExtensionTests\",\"anActivationSupersededOnTheCredentialProbeBuildsNoExtension() async throws\"]",
@@ -3820,7 +3822,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AppExtensionTests.swift\",\"CoreSeamTests.AppExtensionTests\",\"anActivationSupersededOnTheCredentialProbeBuildsNoExtension() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: await local token-reusing Connect and return a readable credential from injected pre-flight fixtures; original assertions retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/AppExtensionTests.swift\",\"AppExtensionTests\",\"aSecondTeardownTearsNothingDownTwice() async throws\"]",
@@ -3924,7 +3928,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AppModelCoreTests.swift\",\"CoreSeamTests.AppModelTests\",\"activatingDropsTheOldStoreBeforeTheCredentialProbeSettles() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: await local token-reusing Connect and return a readable credential from injected pre-flight fixtures; original assertions retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/AppModelTests.swift\",\"AppModelTests\",\"addingAnAddressThatIsAlreadySavedReusesThatRow() throws\"]",
@@ -4003,10 +4009,12 @@
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/AppModelTests.swift\",\"AppModelTests\",\"aKeychainThatNeverAnswersAsksForAFreshSignInInsteadOfHanging() async throws\"]",
       "destinations": [
-        "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AppModelCoreTests.swift\",\"CoreSeamTests.AppModelTests\",\"aKeychainThatNeverAnswersAsksForAFreshSignInInsteadOfHanging() async throws\"]"
+        "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AppModelCoreTests.swift\",\"CoreSeamTests.AppModelTests\",\"aKeychainThatNeverAnswersKeepsTheProfileWithoutAskingForSignIn() async throws\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: bounded Keychain waiting retains the active profile and presents an access hint instead of requesting a fresh login; no store/extension is created until access succeeds."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/AppModelTests.swift\",\"AppModelTests\",\"anAddressTheKitRejectsOpensNoSheet()\"]",
@@ -7582,7 +7590,9 @@
         "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"connectingHandsThePasswordToTheLoginSheetExactlyOnce() async throws\"]"
       ],
       "reason": "Mac view/adapter/host/live scenario retained in ShepherdTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: await local token-reusing Connect and return a readable credential from injected pre-flight fixtures; original assertions retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"LocalServerModelTests\",\"dismissingTheCapturedPasswordClearsItWithoutConsumingIt() async throws\"]",
@@ -7639,7 +7649,8 @@
       ],
       "reason": "Mac view/adapter/host/live scenario retained in ShepherdTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
       "assertionChanges": [
-        "fixture: 50ms health sleep dropped; post-start capture now polled via refreshUntilPasswordCaptured (#2493); connect/restart assertions retained."
+        "fixture: 50ms health sleep dropped; post-start capture now polled via refreshUntilPasswordCaptured (#2493); connect/restart assertions retained.",
+        "current-module: await local token-reusing Connect and return a readable credential from injected pre-flight fixtures; original assertions retained."
       ]
     },
     {
@@ -12240,7 +12251,7 @@
       ],
       "reason": "Retained in ShepherdUITests; repo fallback loop adapted to the NSMenu repo picker.",
       "assertionChanges": [
-        "fixture: the fallback that hunts for a repo with live issues steps through repos with \u2325] instead of clicking compose.repo.option.N popover rows, which the NSMenu repo picker no longer has; all assertions retained."
+        "fixture: the fallback that hunts for a repo with live issues steps through repos with ⌥] instead of clicking compose.repo.option.N popover rows, which the NSMenu repo picker no longer has; all assertions retained."
       ]
     },
     {
@@ -12576,6 +12587,17 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"unconfirmedDeploymentStopsHealthyOwnedServerBeforeRollbackAndAdoption() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"deploymentRecoveryTeardownRequiresKernelOwnershipEvenWithoutHealth() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quitDuringAdoptedServerPromotionStopsReplacementAndRestoresDeployment() async throws\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quitBetweenReplacementRunAndPublicationStopsChildAndRetainsRecoveryJournal() async throws\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quitBetweenReplacementRunAndPublicationStopsChildAndRetainsRecoveryJournal() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AppModelCoreTests.swift\",\"CoreSeamTests.AppModelTests\",\"aLateKeychainAnswerCannotReactivateAfterTeardown() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AppModelCoreTests.swift\",\"CoreSeamTests.AppModelTests\",\"aLateKeychainAnswerCannotReactivateARemovedProfile() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AppModelCoreTests.swift\",\"CoreSeamTests.AppModelTests\",\"aLateKeychainAnswerCannotReplaceANewerActivation() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AppModelCoreTests.swift\",\"CoreSeamTests.AppModelTests\",\"aLateKeychainAnswerResumesWithoutAnotherRead() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AppModelCoreTests.swift\",\"CoreSeamTests.AppModelTests\",\"aRefusedKeychainReadDoesNotRequestSignInAndCanRetry() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AppModelCoreTests.swift\",\"CoreSeamTests.AppModelTests\",\"choosingAnotherLoginSupersedesAPendingKeychainRead() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/AppModelCoreTests.swift\",\"CoreSeamTests.AppModelTests\",\"localConnectWithNoTokenRoutesExactlyOneLogin() async\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"aRejectedSavedTokenKeepsTheNewServersOneTimePassword() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"connectingReusesTheSavedLocalTokenWithoutRequestingAPassword() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"lateTokenRecoveryDiscardsThePasswordOnlyAfterAuthentication() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"repeatedConnectKeepsTheOneTimePasswordWhileKeychainIsPending() async throws\"]"
   ]
 }

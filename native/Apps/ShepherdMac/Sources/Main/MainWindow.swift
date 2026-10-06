@@ -42,9 +42,11 @@ struct MainWindow: View {
 
     var body: some View {
         NavigationSplitView {
-            sidebar.navigationSplitViewColumnWidth(min: 260, ideal: 300, max: 420)
+            sidebar.navigationSplitViewColumnWidth(min: 260, ideal: 360, max: 420)
         } detail: {
             detail
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(ShepherdPalette.bg)
         }
         .navigationTitle(model.activeProfile?.name ?? "Shepherd")
         .toolbar { toolbarContent }
@@ -82,6 +84,7 @@ struct MainWindow: View {
                     .accessibilityIdentifier("session-sidebar")
             }
         }
+        .background(ShepherdPalette.panel)
         .navigationTitle(L.t("native_sidebar_title"))
     }
 

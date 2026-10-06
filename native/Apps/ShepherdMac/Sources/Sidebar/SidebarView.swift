@@ -50,6 +50,7 @@ struct SidebarView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("herd-sidebar")
+        .background(ShepherdPalette.panel)
     }
 
     private var lensStrip: some View {
@@ -57,17 +58,21 @@ struct SidebarView: View {
             ForEach(HerdLens.allCases, id: \.self) { lens in
                 Button { model.lens = lens } label: {
                     VStack(spacing: 1) {
-                        Text(verbatim: lens.glyph).font(.caption)
-                        Text(verbatim: L.t(lens.labelKey)).font(.caption2)
+                        Text(verbatim: lens.glyph).modifier(ShepherdMonoFont(label: true))
+                        Text(verbatim: L.t(lens.labelKey)).modifier(ShepherdMonoFont(label: true))
                         if lens == .owed, let merge = app.extension(MergeModel.self) {
                             Text(verbatim: String(MergeRules.owed(merge.snapshot.owed, repos: model.activeRepos).count))
-                                .font(.caption2.monospacedDigit())
+                                .modifier(ShepherdMonoFont(label: true))
                                 .accessibilityIdentifier("herd-owed-count")
                         }
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 5)
-                    .background(model.lens == lens ? Color.orange.opacity(0.16) : .clear)
+                    .foregroundStyle(model.lens == lens ? ShepherdPalette.amber : ShepherdPalette.muted)
+                    .background(model.lens == lens ? ShepherdPalette.sel : .clear,
+                        in: RoundedRectangle(cornerRadius: 5))
+                    .overlay { RoundedRectangle(cornerRadius: 5)
+                        .stroke(model.lens == lens ? ShepherdPalette.lineBright : .clear, lineWidth: 1) }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -77,6 +82,10 @@ struct SidebarView: View {
                 .accessibilityIdentifier("herd-lens-\(lens.rawValue)")
             }
         }
+        .padding(3)
+        .background(ShepherdPalette.bg, in: RoundedRectangle(cornerRadius: 7))
+        .overlay { RoundedRectangle(cornerRadius: 7).stroke(ShepherdPalette.line, lineWidth: 1) }
+        .padding(.horizontal, 8)
         .accessibilityLabel(L.t("herd_lenses_label"))
     }
 
@@ -91,15 +100,14 @@ struct SidebarView: View {
                     } label: {
                         HStack(spacing: 4) {
                             Text(verbatim: chip.name).lineLimit(1)
-                            Text(verbatim: "\(chip.count)").foregroundStyle(.secondary)
+                            Text(verbatim: "\(chip.count)").foregroundStyle(selected ? ShepherdPalette.amber : ShepherdPalette.muted)
                         }
-                        .font(.caption)
+                        .modifier(ShepherdMonoFont(label: true))
                         .padding(.horizontal, 7)
                         .padding(.vertical, 3)
-                        .background(
-                            selected
-                                ? Color.accentColor.opacity(0.22) : Color.secondary.opacity(0.10),
-                            in: Capsule())
+                        .foregroundStyle(selected ? ShepherdPalette.amber : ShepherdPalette.ink)
+                        .overlay { RoundedRectangle(cornerRadius: 4)
+                            .stroke(selected ? ShepherdPalette.amber : ShepherdPalette.line, lineWidth: 1) }
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel(
@@ -133,6 +141,9 @@ struct SidebarView: View {
                         onToggle: { model.toggleCollapsed(group.stage) })
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(ShepherdPalette.panel)
+            .listStyle(.plain)
         }
     }
 }

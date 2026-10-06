@@ -12467,6 +12467,7 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/MultiServerPersistenceTests.swift\",\"CoreSeamTests.MultiServerPersistenceTests\",\"scopedActivationsNeverOverwriteTheSharedCatalogue() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/MultiServerPersistenceTests.swift\",\"CoreSeamTests.MultiServerPersistenceTests\",\"readonlyCatalogueCannotResurrectARemovedProfile()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/MultiServerSignalTests.swift\",\"CoreSeamTests.MultiServerSignalTests\",\"scopedCapacityReadsOwningSidebarAndDoesNotRewireLegacySignals() throws\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/MultiServerSignalTests.swift\",\"CoreSeamTests.MultiServerSignalTests\",\"defaultModelRetainsLegacySignalAndInactiveDeactivationBehavior()\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/MultiServerSignalTests.swift\",\"CoreSeamTests.MultiServerSignalTests\",\"defaultModelRetainsLegacySignalAndInactiveDeactivationBehavior()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ShepherdPaletteTests.swift\",\"ShepherdPaletteTests\",\"testAppearanceMatchesWebPalette()\"]"
   ]
 }

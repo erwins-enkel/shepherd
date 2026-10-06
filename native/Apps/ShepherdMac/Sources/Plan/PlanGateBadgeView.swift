@@ -7,6 +7,7 @@ struct PlanGateBadgeView: View {
     let session: Session
     let model: PlanModel
     var allowView = true
+    var isSidebar = false
     var onOpen: (() -> Void)?
 
     private var chip: PlanGateChip {
@@ -27,12 +28,15 @@ struct PlanGateBadgeView: View {
                     if let onOpen { onOpen() } else { model.openPlan(session.id) }
                 } label: {
                     Text(verbatim: label)
-                        .font(.caption2.weight(.semibold))
+                        .font(isSidebar ? .system(size: 10, weight: .semibold, design: .monospaced) : .caption2.weight(.semibold))
                         .padding(.horizontal, 6).padding(.vertical, 3)
-                        .foregroundStyle(stalled ? .red : chip.tint)
-                        .background(chip.tint.opacity(0.12), in: Capsule())
+                        .foregroundStyle(isSidebar ? (stalled ? ShepherdPalette.red : ShepherdPalette.badgeTint(chip.tint))
+                            : (stalled ? .red : chip.tint))
+                        .background(isSidebar ? .clear : chip.tint.opacity(0.12), in: Capsule())
+                        .overlay { if isSidebar { RoundedRectangle(cornerRadius: 3)
+                            .stroke(stalled ? ShepherdPalette.red : ShepherdPalette.badgeStroke(chip.tint), lineWidth: 1) } }
                 }
-                .overlay { if stalled { Capsule().stroke(.red, lineWidth: 1) } }
+                .overlay { if stalled && !isSidebar { Capsule().stroke(.red, lineWidth: 1) } }
                 .help(chip.statusNote(stalled: stalled) ?? label)
                 .buttonStyle(.plain)
                 .accessibilityLabel(L.t("plangate_menu_open_plan") + ": " + label)

@@ -22,21 +22,22 @@ struct SessionBadgeStack: View {
 
     private func chip(_ badge: SessionBadge) -> some View {
         HStack(spacing: 4) {
-            Text(verbatim: badge.text).foregroundStyle(badge.tint)
+            Text(verbatim: badge.text).foregroundStyle(ShepherdPalette.badgeTint(badge.tint))
             ForEach(badge.markers) { marker in
                 if let symbol = marker.symbol {
-                    Image(systemName: symbol).foregroundStyle(marker.tint)
+                    Image(systemName: symbol).foregroundStyle(ShepherdPalette.badgeTint(marker.tint))
                         .accessibilityLabel(Text(verbatim: marker.text))
                         .help(marker.text)
-                } else { Text(verbatim: marker.text).foregroundStyle(marker.tint) }
+                } else { Text(verbatim: marker.text).foregroundStyle(ShepherdPalette.badgeTint(marker.tint)) }
             }
         }
-        .font(.caption2.weight(.semibold))
+        .font(.system(size: 10, weight: .semibold, design: .monospaced))
         .lineLimit(1)
         .fixedSize()
         .padding(.horizontal, 5)
         .padding(.vertical, 2)
-        .background(badge.tint.opacity(0.14), in: Capsule())
+        .overlay { RoundedRectangle(cornerRadius: 3)
+            .stroke(ShepherdPalette.badgeStroke(badge.tint), lineWidth: 1) }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier("herd-badge-\(badge.id)")
     }

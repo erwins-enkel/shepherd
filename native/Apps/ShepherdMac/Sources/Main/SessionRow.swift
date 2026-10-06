@@ -8,23 +8,26 @@ struct SessionRow: View {
     var body: some View {
         HStack(spacing: 10) {
             Circle()
-                .fill(SessionStatusStyle.tint(session.status))
+                .fill(ShepherdPalette.statusTint(session.status))
                 .frame(width: 8, height: 8)
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(verbatim: session.desig)
-                        .font(.caption.monospaced().weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .modifier(ShepherdMonoFont(label: true))
+                        .foregroundStyle(ShepherdPalette.faint)
                     Text(verbatim: session.name).lineLimit(1)
+                        .modifier(ShepherdMonoFont(weight: .bold))
+                        .foregroundStyle(ShepherdPalette.inkBright)
                 }
                 HStack(spacing: 6) {
                     Text(verbatim: SessionStatusStyle.label(session.status))
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(SessionStatusStyle.tint(session.status))
+                        .modifier(ShepherdMonoFont(label: true, weight: .bold))
+                        .foregroundStyle(ShepherdPalette.statusTint(session.status))
                     if let provider = SessionStatusStyle.providerLabel(session.agentProvider) {
-                        Text(verbatim: provider).font(.caption2).foregroundStyle(.secondary)
+                        Text(verbatim: provider).modifier(ShepherdMonoFont(label: true))
+                           .foregroundStyle(ShepherdPalette.muted)
                     }
                 }
             }

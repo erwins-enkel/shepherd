@@ -376,7 +376,7 @@ keep the equivalent prompt notices resident.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SHEPHERD_TOOL_GUARD` | `1` (on) | Inject the `PreToolUse` Bash guard into Claude spawns. Set `0` to disable (kill switch) — turning it off puts both hazard notices back into the composed system prompt, so no guidance is lost |
+| `SHEPHERD_TOOL_GUARD` | `1` (on) | Inject the `PreToolUse` Bash guard into Claude spawns. Besides the bare `git stash` and tmpfs worktree/install hazards, it also denies a `bash -c` script Claude Code falsely flags as running rm ([anthropics/claude-code#99630](https://github.com/anthropics/claude-code/issues/99630)), which would otherwise stall an unattended session. Set `0` to disable (kill switch) — turning it off puts both hazard notices back into the composed system prompt, so no guidance is lost |
 
 ## Documentation automation (PR-gated doc agent)
 

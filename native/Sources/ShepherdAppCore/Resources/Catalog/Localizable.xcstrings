@@ -4471,6 +4471,60 @@
         }
       }
     },
+    "epic_badge": {
+      "comment": "%1$@ = merged, %2$@ = total",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EPIC %1$@/%2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "EPIC %1$@/%2$@"
+          }
+        }
+      }
+    },
+    "epic_group_collapse_aria": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic #%1$@ einklappen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Collapse epic #%1$@"
+          }
+        }
+      }
+    },
+    "epic_group_expand_aria": {
+      "comment": "%1$@ = number",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic #%1$@ aufklappen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Expand epic #%1$@"
+          }
+        }
+      }
+    },
     "experiment_continue_handoff_label": {
       "extractionState": "manual",
       "localizations": {

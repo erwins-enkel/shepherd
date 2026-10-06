@@ -592,6 +592,13 @@ export const KEYS_NOTIFICATIONS: readonly string[] = [
   "settings_push_cat_ci",
 ];
 
+/** iOS epic headings reuse the web copy; the short EPIC label is in KEYS_QUEUES. */
+export const KEYS_IOS_EPICS: readonly string[] = [
+  "epic_badge",
+  "epic_group_collapse_aria",
+  "epic_group_expand_aria",
+];
+
 /** S7 — the herd classifier: lifecycle group headings the sidebar already has live in
  *  KEYS_SIDEBAR; this array is for the stepper, the row badges and the CI/review banners. */
 export const KEYS_HERD: readonly string[] = [
@@ -1697,6 +1704,7 @@ export const KEYS: readonly string[] = [
   ...KEYS_LOCALSERVER,
   ...KEYS_NOTIFICATIONS,
   ...KEYS_HERD,
+  ...KEYS_IOS_EPICS,
   ...KEYS_PLAN,
   ...KEYS_IOS_PLAN,
   ...KEYS_MERGE,

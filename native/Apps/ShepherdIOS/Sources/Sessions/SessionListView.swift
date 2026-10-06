@@ -7,6 +7,8 @@ struct SessionListView: View {
     let select: (String) -> Void
     @Environment(AppModel.self) private var app
     @Environment(IOSServerHub.self) private var hub: IOSServerHub?
+    @State private var epicDirectory = IOSEpicDirectory()
+    @State private var collapsedEpics: Set<String> = []
     @State private var refreshError: String?
     @State private var showingRepos = false
     @State private var explainingStage: HerdStage?
@@ -50,6 +52,9 @@ struct SessionListView: View {
         .tint(SessionListStyle.amber)
         .preferredColorScheme(.dark)
         .accessibilityIdentifier("session-list")
+        .task(id: epicLoadIdentity) {
+            await epicDirectory.load(presentation.epicGroups, owners: hub?.models ?? [:], fallback: app)
+        }
         .onChange(of: selectionIDs) { _, _ in
             for owner in hub?.connected ?? [app] {
                 owner.reconcileSelection(against: (owner.store?.sessions.map(\.id) ?? []) + (owner.extension(QueuesModel.self)?.finishedSessions.map(\.id) ?? []))
@@ -57,6 +62,12 @@ struct SessionListView: View {
         }
     }
 
+    private var epicLoadIdentity: [String] {
+        presentation.epicGroups.map { group in
+            let owner = hub?.models[group.profile.id] ?? app
+            return "\(group.id):\(ObjectIdentifier(owner)):\(owner.activationGeneration)"
+        }
+    }
     private var lens: HerdLens { hub?.lens ?? model.lens }
     private var activeRepos: Set<String> { hub == nil ? model.activeRepos : presentation.repos }
     private var collapsedStages: Set<HerdStage> { hub?.collapsedStages ?? model.collapsedStages }
@@ -86,8 +97,9 @@ struct SessionListView: View {
 
     private func content(now: Int) -> some View {
         let chips = presentation.chips
-        let groups = presentation.groups
-        let showCli = SessionBadges.showsCli(for: groups.flatMap(\.rows).map(\.session))
+        let snapshot = presentation
+        let groups = snapshot.groups
+        let showCli = SessionBadges.showsCli(for: (snapshot.epicGroups.flatMap(\.rows) + groups.flatMap(\.rows)).map(\.session))
         return VStack(spacing: 0) {
             HStack(spacing: 10) { header; Spacer(minLength: 0); settingsMenu }
                 .padding(.horizontal, 12).padding(.vertical, 5)
@@ -117,8 +129,18 @@ struct SessionListView: View {
                 }
                 switch lens {
                 case .all, .ready:
-                    if groups.isEmpty, hub?.hasLoadedList ?? (app.store?.connection == .live) {
+                    if groups.isEmpty, snapshot.epicGroups.isEmpty, hub?.hasLoadedList ?? (app.store?.connection == .live) {
                         empty(SidebarCopy.empty(lens: lens, repos: activeRepos))
+                    }
+                    ForEach(snapshot.epicGroups) { group in
+                        IOSEpicGroupHeader(group: group,
+                            summary: epicDirectory.summary(group, owner: hub?.models[group.profile.id] ?? app),
+                            collapsed: collapsedEpics.contains(group.id)) {
+                                if !collapsedEpics.insert(group.id).inserted { collapsedEpics.remove(group.id) }
+                            }
+                        if !collapsedEpics.contains(group.id) {
+                            ForEach(group.rows) { row in card(row, showCli: showCli, now: now, leading: 22) }
+                        }
                     }
                     ForEach(groups) { group in
                         if let heading = group.heading {
@@ -351,7 +373,7 @@ struct SessionListView: View {
         .listRowBackground(SessionListStyle.background).listRowSeparator(.hidden)
     }
 
-    private func card(_ row: IOSMergedSessionPresentation.Row, showCli: Bool, now: Int) -> some View {
+    private func card(_ row: IOSMergedSessionPresentation.Row, showCli: Bool, now: Int, leading: CGFloat = 10) -> some View {
         let session = row.session
         let app = hub?.models[row.profile.id] ?? app
         let model = app.extension(SidebarModel.self) ?? model
@@ -368,7 +390,7 @@ struct SessionListView: View {
             rowID: (hub?.connected.count ?? 1) > 1 ? "\(row.profile.id)-\(session.id)" : nil) { selectRow(row.id) }
             .modifier(IOSSessionSwipeActions(session: session))
             .environment(app)
-            .listRowInsets(EdgeInsets(top: 0, leading: 10, bottom: 0, trailing: 10))
+            .listRowInsets(EdgeInsets(top: 0, leading: leading, bottom: 0, trailing: 10))
             .listRowBackground(SessionListStyle.background).listRowSeparator(.hidden)
     }
 
@@ -400,5 +422,6 @@ struct SessionListView: View {
             }
         }
         for task in tasks { if let error = await task.value { refreshError = error } }
+        await epicDirectory.load(presentation.epicGroups, owners: hub?.models ?? [:], fallback: app, force: true)
     }
 }

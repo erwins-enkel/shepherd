@@ -80,8 +80,12 @@ struct IOSSteerPanel: View {
     /// activation, archived).
     let decommission: (() -> Void)?
     let close: () -> Void
+    /// Opens the steer editor: an existing steer, or nil for a new one. Nil while the
+    /// steers cannot be written.
+    var edit: ((ComposeSteer?) -> Void)? = nil
     var rendersStaticFixture = false
     @State private var sendingID: String?
+    @State var editing = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -126,6 +130,18 @@ struct IOSSteerPanel: View {
                     .foregroundStyle(ComposePalette.muted).lineLimit(1)
             }
             Spacer()
+            if edit != nil {
+                Button { editing.toggle() } label: {
+                    Group {
+                        if editing { Text(L.t("native_ios_steers_edit_done")).font(.system(.callout).weight(.semibold)) }
+                        else { Image(systemName: "pencil") }
+                    }
+                    .frame(minWidth: 44, minHeight: 44)
+                }
+                .buttonStyle(.plain).foregroundStyle(editing ? ComposePalette.amber : ComposePalette.muted)
+                .accessibilityLabel(L.t(editing ? "native_ios_steers_edit_done" : "native_ios_steers_edit"))
+                .accessibilityIdentifier("steer-panel-edit")
+            }
             Button(action: close) { Image(systemName: "xmark").frame(width: 44, height: 44) }
                 .buttonStyle(.plain).foregroundStyle(ComposePalette.muted)
                 .accessibilityLabel(L.t("common_close"))
@@ -138,16 +154,31 @@ struct IOSSteerPanel: View {
             Text(verbatim: loadError ?? L.t("native_ios_steers_empty"))
                 .font(.system(.callout, design: .monospaced))
                 .foregroundStyle(loadError == nil ? ComposePalette.muted : ComposePalette.red)
-        } else {
+        }
+        if !steers.isEmpty || edit != nil {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8, alignment: .top),
                                 GridItem(.flexible(), spacing: 8, alignment: .top)], spacing: 8) {
                 ForEach(steers, id: \.id) { steer in tile(steer) }
+                if let edit, editing || steers.isEmpty { addTile(edit) }
             }
         }
     }
 
+    private func addTile(_ edit: @escaping (ComposeSteer?) -> Void) -> some View {
+        Button { edit(nil) } label: {
+            Label(L.t("native_ios_steers_add"), systemImage: "plus")
+                .font(.system(.callout).weight(.semibold))
+                .padding(12).frame(maxWidth: .infinity, minHeight: 66)
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(ComposePalette.line, style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
+                .contentShape(RoundedRectangle(cornerRadius: 14))
+        }
+        .buttonStyle(.plain).foregroundStyle(ComposePalette.muted)
+        .accessibilityIdentifier("steer-add")
+    }
+
     private func tile(_ steer: ComposeSteer) -> some View {
         Button {
+            if editing, let edit { edit(steer); return }
             sendingID = steer.id
             Task {
                 let sent = await terminal.sendSteer(steer.text)
@@ -163,20 +194,27 @@ struct IOSSteerPanel: View {
                     Text(verbatim: steer.chipTitle).font(.system(.callout).weight(.semibold))
                         .foregroundStyle(ComposePalette.bright).lineLimit(2)
                     Spacer(minLength: 0)
-                    if sendingID == steer.id { ProgressView().controlSize(.small) }
+                    if editing { Image(systemName: "pencil").foregroundStyle(ComposePalette.amber) }
+                    else if sendingID == steer.id { ProgressView().controlSize(.small) }
                 }
                 Text(verbatim: steer.text).font(.system(.caption2, design: .monospaced))
                     .foregroundStyle(ComposePalette.faint).lineLimit(1)
             }
             .padding(12).frame(maxWidth: .infinity, minHeight: 66, alignment: .topLeading)
             .background(ComposePalette.panel2, in: RoundedRectangle(cornerRadius: 14))
-            .overlay(RoundedRectangle(cornerRadius: 14).stroke(ComposePalette.line))
+            .overlay(RoundedRectangle(cornerRadius: 14).stroke(editing ? ComposePalette.amber.opacity(0.6) : ComposePalette.line))
             .contentShape(RoundedRectangle(cornerRadius: 14))
         }
         .buttonStyle(.plain)
-        .disabled(!terminal.canSendSteer)
-        .accessibilityLabel(L.t("steerbar_send_aria", steer.label))
+        .disabled(!editing && !terminal.canSendSteer)
+        .contextMenu {
+            if let edit {
+                Button { edit(steer) } label: { Label(L.t("native_ios_steers_edit_one"), systemImage: "pencil") }
+            }
+        }
+        .accessibilityLabel(editing ? L.t("native_ios_steers_edit_aria", steer.label) : L.t("steerbar_send_aria", steer.label))
         .accessibilityHint(steer.text)
+        .accessibilityAction(named: L.t("native_ios_steers_edit_one")) { edit?(steer) }
         .accessibilityIdentifier("steer-tile-\(steer.id)")
     }
 

@@ -5122,7 +5122,7 @@
   "feat_epicflow_pulse_body": "In an epic's flow, the step an agent is working on right now glows softly at its left edge and its dot breathes. It goes still as soon as the agent stops and waits for you.",
   "native_ios_steers_title": "Steers",
   "native_ios_steers_all": "All steers",
-  "native_ios_steers_empty": "No steers in the steer bar yet. Create them in the web or Mac app.",
+  "native_ios_steers_empty": "No steers in the steer bar yet.",
   "native_ios_steers_load_failed": "Steers could not be loaded: {reason}",
   "native_ios_steers_section_terminal": "Terminal",
   "native_ios_steers_section_session": "Session",
@@ -5279,5 +5279,15 @@
   "native_settings_local_server_title": "Local server",
   "native_local_update_indicator": "Backend update available ({count})",
   "native_local_update_confirm_title": "Apply backend update?",
-  "native_local_update_confirm_body": "This installs the latest backend code and rebuilds the web UI. A running local server will restart briefly. Uncommitted changes block the update and remain intact."
+  "native_local_update_confirm_body": "This installs the latest backend code and rebuilds the web UI. A running local server will restart briefly. Uncommitted changes block the update and remain intact.",
+  "native_ios_steers_edit": "Edit steers",
+  "native_ios_steers_edit_done": "Done",
+  "native_ios_steers_edit_one": "Edit",
+  "native_ios_steers_edit_aria": "Edit {label}",
+  "native_ios_steers_edit_title": "Edit steer",
+  "native_ios_steers_add": "New steer",
+  "native_ios_steers_delete": "Delete steer",
+  "native_ios_steers_save_failed": "Steers could not be saved: {reason}",
+  "native_ios_steers_limit": "at most 40 steers",
+  "native_ios_steers_placement_required": "Turn on at least one place where it appears."
 }

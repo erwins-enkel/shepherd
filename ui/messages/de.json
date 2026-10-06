@@ -5122,7 +5122,7 @@
   "feat_epicflow_pulse_body": "Im Ablauf eines Epics glüht der Schritt, an dem gerade ein Agent arbeitet, leicht an seiner linken Kante, und sein Punkt pulsiert. Sobald der Agent anhält und auf dich wartet, wird er wieder ruhig.",
   "native_ios_steers_title": "Steers",
   "native_ios_steers_all": "Alle Steers",
-  "native_ios_steers_empty": "Noch keine Steers in der Steer-Leiste. Lege sie in der Web- oder Mac-App an.",
+  "native_ios_steers_empty": "Noch keine Steers in der Steer-Leiste.",
   "native_ios_steers_load_failed": "Steers konnten nicht geladen werden: {reason}",
   "native_ios_steers_section_terminal": "Terminal",
   "native_ios_steers_section_session": "Sitzung",
@@ -5279,5 +5279,15 @@
   "native_settings_local_server_title": "Lokaler Server",
   "native_local_update_indicator": "Backend-Update verfügbar ({count})",
   "native_local_update_confirm_title": "Backend-Update installieren?",
-  "native_local_update_confirm_body": "Dies installiert den neuesten Backend-Code und baut die Weboberfläche neu. Ein laufender lokaler Server wird kurz neu gestartet. Nicht gespeicherte Git-Änderungen verhindern das Update und bleiben erhalten."
+  "native_local_update_confirm_body": "Dies installiert den neuesten Backend-Code und baut die Weboberfläche neu. Ein laufender lokaler Server wird kurz neu gestartet. Nicht gespeicherte Git-Änderungen verhindern das Update und bleiben erhalten.",
+  "native_ios_steers_edit": "Steers bearbeiten",
+  "native_ios_steers_edit_done": "Fertig",
+  "native_ios_steers_edit_one": "Bearbeiten",
+  "native_ios_steers_edit_aria": "{label} bearbeiten",
+  "native_ios_steers_edit_title": "Steer bearbeiten",
+  "native_ios_steers_add": "Neuer Steer",
+  "native_ios_steers_delete": "Steer löschen",
+  "native_ios_steers_save_failed": "Steers konnten nicht gespeichert werden: {reason}",
+  "native_ios_steers_limit": "höchstens 40 Steers",
+  "native_ios_steers_placement_required": "Mindestens einen Ort einschalten, an dem er erscheint."
 }

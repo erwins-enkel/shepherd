@@ -21,7 +21,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Getting started",
     path: "/getting-started/",
     keywords:
-      "install shepherd and sign in. install curl|bash trust note supported platforms installer environment knobs finish setup from-clone / development path requirements next steps",
+      "install shepherd and sign in. install curl|bash trust note supported platforms local server in the mac app installer environment knobs finish setup from-clone / development path requirements next steps",
   },
   {
     title: "Hands-off epics",

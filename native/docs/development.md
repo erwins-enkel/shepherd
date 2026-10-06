@@ -20,6 +20,27 @@ its committed 1x/2x PNGs and HiDPI TIFF with `native/scripts/render-dmg-backgrou
 Packaging uses [dmgbuild 1.6.7](https://dmgbuild.readthedocs.io/en/v1.6.7/) in a temporary
 Python venv; set `DMGBUILD` to an existing binary to reuse a local installation.
 
+## Local server lifecycle
+
+`native/scripts/mac-dev.sh` builds before quitting and reopening the app. Quitting leaves the
+local server and sessions running; `--yes` and `--force` remain accepted for compatibility.
+Only the local panel's **Stop**/**Restart** signal the server group. herdr remains independent.
+
+The supervisor redirects stdin to `/dev/null`, stdout/stderr to `~/.shepherd/run/server.log`
+(private permissions, rotated to `server.log.1` on each spawn), and tails bounded chunks for the
+log ring and boot-password scanner. Detachment cancels tail/exit/backoff tasks and fences health
+work; it never sends a signal. The password offer stays in memory; detected boot secrets are
+also scrubbed in place from the file without moving the child's write offset.
+
+`~/.shepherd/run/app-server.json` records pid, process group, port, spawn time, executable,
+install directory, expected launch identity and the healthy identity. The next app adopts a
+healthy server only when the live pid/group, port, install directory and health identity match.
+Stale or mismatched records are deleted; foreign servers keep their acknowledgement flow.
+An adopted process is watched with pid polling, using the same crash/backoff policy as a new
+child. Crash recovery runs while the app supervises; quitting does not install a launchd job.
+Explicit Stop removes the ownership record after graceful termination/escalation. Tests inject
+a temporary run directory and shell scripts without touching the operator's server.
+
 ## Contributor workflow
 
 First complete [setup, build and connection](getting-started.md).

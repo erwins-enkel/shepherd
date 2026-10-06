@@ -18049,13 +18049,13 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Den Shepherd-Server verwenden, der auf diesem Mac bereits läuft."
+            "value": "Installiere oder nutze einen lokalen Shepherd-Server. Er läuft weiter, wenn du die App beendest oder neu startest. Steuere den Server mit „Stoppen“ oder „Neu starten“."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Use the Shepherd server already running on this Mac."
+            "value": "Install or use a local Shepherd server. It keeps running when you quit or restart the app. Use Stop or Restart to control the server."
           }
         }
       }

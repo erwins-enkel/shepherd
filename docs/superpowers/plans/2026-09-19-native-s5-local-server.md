@@ -1,5 +1,10 @@
 # Stream S5 — Local server supervisor Implementation Plan
 
+> Lifecycle amendment (October 2026): quit now detaches supervision and leaves the server
+> running. The next launch adopts it from a validated ownership record. Only explicit
+> Stop/Restart terminate the server. The quit-kill code and test examples below describe
+> the original implementation and are superseded by `native/docs/development.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let Shepherd for Mac detect, install, start, supervise and stop the operator's own Shepherd server (the installer checkout in `~/.shepherd/app`) as a child process, and sign in to it from the Welcome screen's "Run on this Mac" card.

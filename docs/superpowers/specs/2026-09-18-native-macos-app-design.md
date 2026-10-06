@@ -189,11 +189,14 @@ missing login and links the docs. The app does not reimplement installer logic.
 `shepherd core on http://localhost:<port>` (ready), the one-time password banner (surfaced once in
 the UI and used for the first login), and exit codes. Restart policy: up to three automatic
 restarts within five minutes, then `.failed` with the tail of the log. Shutdown: SIGTERM, wait up
-to 10 s, then SIGKILL. The server lives as long as the app; "keep running after quit" is not in
-the MVP.
+to 5 s, then SIGKILL, only on explicit Stop/Restart. Operator decision (October 2026): the
+server survives app quit/relaunch. Output goes to a private file, the app records ownership,
+and the next launch adopts a live server with matching health identity. Crash supervision
+runs while the app is open; adoption offers no boot password.
 
 **External server detection.** Before spawning, `GET http://localhost:7330/api/health`. If it
-answers, the profile is marked `.local(externallyManaged)` and the app does not supervise it.
+answers and matches a live app ownership record, the app resumes supervision. Otherwise the
+profile is marked `.local(externallyManaged)` and the app does not supervise it.
 
 **Update.** A menu action runs the installer bridge's update step (`git pull` + UI build) and
 restarts the process. Never automatic.
@@ -266,4 +269,4 @@ versions differ" with both versions from `/api/health`.
 
 Epics, review queue, merge train, settings beyond repo root, uploads, previews, plugin
 management, Sparkle updates, code signing, the iOS app itself (only a compiling placeholder
-target), "keep server running after quit", multiple simultaneous local servers.
+target), multiple simultaneous local servers.

@@ -23,9 +23,11 @@ enum LocalServerFeature {
         app.register(LocalServerSessionExtension.self)
         guard !installed else { return }
         installed = true
-        // The child server lives exactly as long as the app (design spec: "keep
-        // running after quit" is out of scope). The observer lives in this
-        // stream's own file so no shared lifecycle file is touched.
+        // Resume supervision even when saved profiles bypass the Welcome panel.
+        Task { await LocalServerModel.shared.refresh() }
+        // The server survives quit and is adopted on the next launch. Only
+        // Stop/Restart signal it; quit cancels supervision and install/upgrade
+        // work without interrupting sessions.
         NotificationCenter.default.addObserver(
             forName: NSApplication.willTerminateNotification, object: nil, queue: .main
         ) { _ in

@@ -67,7 +67,14 @@ public actor LocalServerSupervisor {
 
   private let environment: LocalServerEnvironment
   private let log: LogRing
-  private let health: @Sendable (LocalServerIdentity) async -> Bool
+  private let health: @Sendable (LocalServerIdentity) async -> LocalServerIdentity?
+  private let runDirectory: URL
+  private var ownership: LocalServerOwnership?
+  private var captureBootPassword = true
+  private let quitting = Mutex<Bool>(false)
+  private let monitoringTasks = Mutex<[Task<Void, Never>]>([])
+  private var recordURL: URL { runDirectory.appendingPathComponent("app-server.json") }
+  private var logURL: URL { runDirectory.appendingPathComponent("server.log") }
   private let runner: LocalRunnerStart
   private var launchIdentity: LocalServerIdentity?
   private let clock: any SupervisorClock
@@ -77,29 +84,15 @@ public actor LocalServerSupervisor {
 
   public private(set) var state: LocalServerState = .stopped
   /// In memory only, for the one "sign in with the generated password" offer.
-  /// Never persisted, never logged (D4).
+  /// The offer is never persisted; the private file log is redacted on capture.
   public private(set) var capturedPassword: String?
 
   private var process: Process?
   private var pump: Task<Void, Never>?
-  /// One child's death watch, and the **only** thing that declares a child
-  /// dead. Its signal is `Process.terminationHandler`, not the output pipe:
-  /// EOF and exit are two unrelated notifications and neither implies the
-  /// other. A child can `exec 1>&- 2>&-` and keep serving — EOF without exit,
-  /// which used to clear `livePID`/`process` and spawn a replacement, leaving
-  /// the first one alive and invisible to `stop()` *and* `terminateNow()`. And
-  /// the real server hands the pipe's write end to every agent, git and bun
-  /// worker it spawns, so its own exit brings no EOF for as long as any of
-  /// them lives — exit without EOF, which defeated the whole crash/backoff/
-  /// crash-loop policy. `stopChild()` cancels this alongside `pump`.
+  /// Foundation exit notification for spawned children; pid polling for
+  /// adopted servers. File EOF never means the server exited.
   private var exitWatcher: Task<Void, Never>?
-  /// The crash loop's pending backoff-then-relaunch. `stopChild()` is its
-  /// only canceller — every deliberate teardown path reaches it either
-  /// directly (`stop()`) or by routing through it (`restart()`) — which is
-  /// what lets `relaunch()` tell a deliberately cancelled backoff apart from
-  /// a merely stale one with a bare `Task.isCancelled` check. A future
-  /// teardown path must keep that invariant rather than cancelling this task
-  /// itself.
+  /// Pending backoff-then-relaunch, cancelled by explicit stop or detachment.
   private var supervision: Task<Void, Never>?
   private var crashTimes: [Date] = []
 
@@ -122,37 +115,24 @@ public actor LocalServerSupervisor {
   /// `crashTimes` and walk the supervisor into a crash loop it never had.
   private var reportedExit: Int?
 
-  /// Set while the child is torn down on purpose, so the exit that follows is
-  /// not read as a crash and restarted. It lives in a `Mutex` rather than in
-  /// actor state because `terminateNow()` — the nonisolated quit path — has to
-  /// set it too: without that, killing the child at app quit looked exactly
-  /// like a crash and the supervisor spawned a replacement on the way out.
+  /// Deliberate stop and synchronous detachment suppress crash accounting.
+  /// The quit fence is permanent for this supervisor, while Stop is transient.
   ///
   /// It is transient, not a latch: every `startChild()` clears it, because a
   /// stop→start turn (`restart()`) sets it on the way through. That is exactly
   /// why it cannot also carry "the app is quitting" — see `terminationEpoch`.
   private let stopFlag = Mutex<Bool>(false)
   private var stopping: Bool {
-    get { stopFlag.withLock { $0 } }
+    get { stopFlag.withLock { $0 } || quitting.withLock { $0 } }
     set { stopFlag.withLock { $0 = newValue } }
   }
 
-  /// Raised by every `terminateNow()`. A lifecycle turn reads it when it is
-  /// called and `startChild()` refuses to spawn if it has moved since — the
-  /// quit landed inside that turn.
-  ///
-  /// A bare flag cannot express this. `stopFlag` is cleared by every
-  /// `startChild()`, so a quit that lands while `restart()` waits its old child
-  /// out is wiped out by the very spawn it was supposed to stop; and a flag
-  /// that is *not* cleared would wedge the crash loop's own relaunch for good,
-  /// which `terminateNow()` is explicitly allowed to be called into
-  /// speculatively. An epoch separates the two: a turn that had already decided
-  /// to spawn before the quit stands down, a turn that begins after one is a
-  /// fresh decision and proceeds.
+  /// Invalidates lifecycle turns already queued when quit/teardown lands.
+  /// `quitting` additionally fences every future spawn on this supervisor.
   private let terminationEpoch = Mutex<Int>(0)
 
   /// The live child's pid, readable without hopping onto the actor so
-  /// `terminateNow()` can run inside `applicationWillTerminate` (D2). A
+  /// synchronous explicit teardown can read it without an actor hop. A
   /// `Mutex<Process?>` would not compile — `Process` is not `Sendable`.
   private let livePID = Mutex<Int32?>(nil)
 
@@ -213,19 +193,122 @@ public actor LocalServerSupervisor {
     clock: any SupervisorClock = SystemSupervisorClock(),
     policy: RestartPolicy = RestartPolicy(),
     bunVersion: @escaping @Sendable (URL) async -> String? = { await LocalServerEnvironment.probeBunVersion($0) },
+    runDirectory: URL? = nil,
     launch: @escaping @Sendable () -> LocalServerLaunch?
   ) {
     self.environment = environment
     self.log = log
-    self.health = identityHealth ?? { expected in
-      if let health { return await health() }
-      return await LocalHealthCheck(port: environment.port)(expectedIdentity: expected)
+    self.runDirectory = runDirectory ?? environment.homeDirectory.appendingPathComponent(".shepherd/run")
+    self.health = { expected in
+      if let identityHealth { return await identityHealth(expected) ? expected : nil }
+      if let health { return await health() ? expected : nil }
+      guard let metadata = await LocalHealthCheck(port: environment.port).read()?.localInstall else { return nil }
+      let actual = LocalServerIdentity(metadata)
+      return expected.matches(actual) ? actual : nil
     }
     self.runner = LocalRunnerStart(environment: environment, log: log)
     self.clock = clock
     self.policy = policy
     self.makeLaunch = launch
     self.bunVersion = bunVersion
+  }
+
+  /// Synchronous quit fence. Cancels observation and pending relaunches, never
+  /// signals the server or removes its record. A later app instance adopts it.
+  public nonisolated func terminateForQuit() {
+    quitting.withLock { $0 = true }
+    terminationEpoch.withLock { $0 += 1 }
+    stopFlag.withLock { $0 = true }
+    monitoringTasks.withLock { tasks in
+      for task in tasks { task.cancel() }
+      tasks.removeAll()
+    }
+  }
+
+  private func track(_ task: Task<Void, Never>) {
+    monitoringTasks.withLock { tasks in
+      if quitting.withLock({ $0 }) { task.cancel() }
+      else { tasks.append(task) }
+    }
+  }
+
+  private func saveOwnership() throws {
+    guard let ownership else { return }
+    try JSONEncoder().encode(ownership).write(to: recordURL, options: .atomic)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: recordURL.path)
+  }
+
+  private func removeOwnership() {
+    // A stale supervisor must never delete the replacement's ownership.
+    if let stored = try? JSONDecoder().decode(LocalServerOwnership.self, from: Data(contentsOf: recordURL)),
+       stored.pid == ownership?.pid, stored.spawnedAt == ownership?.spawnedAt {
+      try? FileManager.default.removeItem(at: recordURL)
+    }
+    ownership = nil
+  }
+
+  private func startTail(generation: Int) {
+    pump?.cancel()
+    let url = logURL
+    pump = Task { [weak self] in
+      await LocalServerLogTail.run(url) { line in
+        await self?.ingestTail(line, generation: generation)
+      }
+    }
+    if let pump { track(pump) }
+  }
+
+  private func ingestTail(_ line: String, generation: Int) async {
+    guard generation == spawnGeneration, !stopping else { return }
+    await ingest(line)
+  }
+
+  /// The health response plus the private record establish continuity with an
+  /// app-managed install. A foreign listener remains externally managed.
+  public func adopt(healthyIdentity: LocalServerIdentity?) async -> Bool {
+    await beginLifecycle()
+    defer { endLifecycle() }
+    guard !quitting.withLock({ $0 }) else { return false }
+    if state.isRunning || state == .starting { return state.isRunning }
+    guard let data = try? Data(contentsOf: recordURL) else { return false }
+    guard let record = try? JSONDecoder().decode(LocalServerOwnership.self, from: data),
+          record.pid > 1, kill(record.pid, 0) == 0,
+          record.port == environment.port,
+          record.processGroup == ownedGroup(of: record.pid),
+          URL(fileURLWithPath: record.appDirectory).standardizedFileURL.resolvingSymlinksInPath().path == environment.appDirectory.standardizedFileURL.resolvingSymlinksInPath().path
+    else {
+      try? FileManager.default.removeItem(at: recordURL)
+      return false
+    }
+    guard let actual = healthyIdentity else { return false }
+    guard (record.identity ?? record.expectedIdentity).matches(actual) else {
+      try? FileManager.default.removeItem(at: recordURL)
+      return false
+    }
+    ownership = record
+    ownership?.identity = actual
+    do { try saveOwnership() } catch { return false }
+    launchIdentity = actual
+    spawnGeneration += 1
+    let generation = spawnGeneration
+    livePID.withLock { $0 = record.pid }
+    stopping = false
+    capturedPassword = nil
+    captureBootPassword = false
+    scanTail = ""
+    state = .running(pid: record.pid)
+    startTail(generation: generation)
+    exitWatcher = Task { [weak self] in
+      while !Task.isCancelled {
+        if kill(record.pid, 0) != 0 {
+          await self?.childExited(generation: generation, code: -1)
+          return
+        }
+        do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+      }
+    }
+    if let exitWatcher { track(exitWatcher) }
+    return true
   }
 
   /// The production launch spec: `bun run src/index.ts` in the resolved install directory.
@@ -285,6 +368,7 @@ public actor LocalServerSupervisor {
     let epoch = terminationEpoch.withLock { $0 }
     await beginLifecycle()
     defer { endLifecycle() }
+    guard !quitting.withLock({ $0 }), terminationEpoch.withLock({ $0 }) == epoch else { return }
     await stopChild(gracePeriod: gracePeriod)
     // An operator's own restart forgives the crashes before it, so a server
     // that dies now and then stays supervised instead of accumulating into a
@@ -293,16 +377,10 @@ public actor LocalServerSupervisor {
     await startChild(epoch: epoch)
   }
 
-  /// `epoch` is the caller's `terminationEpoch`, read before it took the
-  /// lifecycle gate. `terminateNow()` runs off the actor and lands wherever it
-  /// lands — while this turn was still queued on the gate, or while
-  /// `stopChild()` was waiting the old child out — and in both of those windows
-  /// there is no live pid for it to kill, so its own teardown is a no-op. The
-  /// epoch is how the quit reaches the spawn it has to stop; without it the
-  /// in-flight restart cleared `stopFlag` and left a server running after the
-  /// app had gone.
+  /// A quit invalidates lifecycle work that was already queued. Once a
+  /// child has spawned, quitting preserves it and fences further observation.
   private func startChild(epoch: Int) async {
-    guard terminationEpoch.withLock({ $0 }) == epoch else { return }
+    guard !quitting.withLock({ $0 }), terminationEpoch.withLock({ $0 }) == epoch else { return }
     // `.starting` with a live child is a start already in flight and this is a
     // no-op; `.starting` with none is the crash loop's backoff window, which
     // `relaunch()` is here to end.
@@ -314,7 +392,7 @@ public actor LocalServerSupervisor {
     if launch.executable.lastPathComponent == "bun",
        let version = await bunVersion(launch.executable),
        LocalServerEnvironment.bunTooOld(version) {
-      guard terminationEpoch.withLock({ $0 }) == epoch else { return }
+      guard !quitting.withLock({ $0 }), terminationEpoch.withLock({ $0 }) == epoch else { return }
       state = .failed(.bunOutdated(version: version))
       return
     }
@@ -327,19 +405,12 @@ public actor LocalServerSupervisor {
       state = .failed(.bunMissing)
       return
     }
-    // Re-checked synchronously, before any suspension: the guard above only
-    // protects the way *into* `spawn()`, and `spawn()`'s own body has no
-    // `await` between `child.run()` and publishing `livePID`. `terminateNow()`
-    // is `nonisolated` and can run on a genuinely different thread at the
-    // same real time, so it can execute its whole body in that couple-of-
-    // instructions window — including reading `livePID` while it is still
-    // `nil` — and return having done nothing. Without this, the child
-    // `spawn()` just started would outlive the app that asked it to quit.
-    guard terminationEpoch.withLock({ $0 }) == epoch else {
-      await stopChild(gracePeriod: 2)
-      return
-    }
-    await waitForHealth(generation: generation)
+    // Quit can land between run() and publishing the pid. Keep the child and
+    // its record, but do not begin health polling or crash supervision.
+    guard !quitting.withLock({ $0 }), terminationEpoch.withLock({ $0 }) == epoch else { return }
+    let healthTask = Task { await self.waitForHealth(generation: generation) }
+    track(healthTask)
+    await healthTask.value
   }
 
   /// Deliberately does not call the nonisolated `terminateNow()`: that one
@@ -353,6 +424,10 @@ public actor LocalServerSupervisor {
     // past its own `Task.isCancelled` check is about to call `relaunch()`,
     // which is the second, belt-and-suspenders line of defence against it.
     stopping = true
+    // The health task itself can request this teardown on timeout. Drop the
+    // registry here, then cancel the observer slots below; cancelling the
+    // current task would turn the graceful sleep into a busy wait.
+    monitoringTasks.withLock { $0.removeAll() }
     supervision?.cancel()
     supervision = nil
     if let pid = livePID.withLock({ $0 }) {
@@ -384,21 +459,12 @@ public actor LocalServerSupervisor {
     exitWatcher?.cancel()
     exitWatcher = nil
     process = nil
+    removeOwnership()
     if case .failed = state {} else { state = .stopped }
   }
 
-  /// Synchronous, actor-free child kill for `applicationWillTerminate`, which
-  /// gets no `await`. Safe to call when nothing is running — including
-  /// speculatively, e.g. mid crash-loop backoff: a relaunch that has not been
-  /// decided yet is a fresh decision and still goes ahead, so this can never
-  /// permanently wedge the crash loop's own recovery.
-  ///
-  /// What it must *not* be is silent. The pid guard below is the whole body of
-  /// the old bug: inside a `restart()`'s stop→start window there is no live
-  /// child to kill, so this returned having recorded nothing at all, and the
-  /// restart — one step from spawning — put a server on the machine that
-  /// outlived the app. Both flags are therefore set before the guard, not
-  /// after it.
+  /// Explicit synchronous teardown for callers that cannot await (test
+  /// cleanup). The app quit path uses `terminateForQuit()` instead.
   public nonisolated func terminateNow(gracePeriod: TimeInterval = 2) {
     terminationEpoch.withLock { $0 += 1 }
     stopFlag.withLock { $0 = true }  // deliberate: the exit is not a crash
@@ -430,9 +496,14 @@ public actor LocalServerSupervisor {
     // Unconditional, exactly as in `stopChild()`: the leader going quietly says
     // nothing about the agents, git and bun workers that shared its group and
     // ignored the SIGTERM. Returning early here is how they used to outlive the
-    // app they were quitting with.
+    // server an operator explicitly stopped.
     if let group { killpg(group, SIGKILL) }
     livePID.withLock { if $0 == pid { $0 = nil } }
+    let url = runDirectory.appendingPathComponent("app-server.json")
+    if let record = try? JSONDecoder().decode(LocalServerOwnership.self, from: Data(contentsOf: url)),
+       record.pid == pid {
+      try? FileManager.default.removeItem(at: url)
+    }
   }
 
   /// Async counterpart of the reap loop in `terminateNow()`, for `stopChild()`'s
@@ -447,9 +518,8 @@ public actor LocalServerSupervisor {
 
   /// Signals the child's whole process group when it leads one — `Process` puts
   /// every child in a group of its own — so the server's own children (agents,
-  /// git, bun workers) die with it instead of being reparented to launchd and
-  /// outliving the app. Falls back to the bare pid, and never signals the group
-  /// this app itself is in.
+  /// git, bun workers) die with it instead of surviving an explicit Stop.
+  /// Falls back to the bare pid, never the app's own process group.
   private nonisolated func deliver(_ signalNumber: Int32, to pid: Int32) {
     if let group = ownedGroup(of: pid) {
       killpg(group, signalNumber)
@@ -471,19 +541,7 @@ public actor LocalServerSupervisor {
     return group
   }
 
-  /// A child that logs far faster than the actor can drain it (a runaway loop,
-  /// say) must not grow the pump's buffer without limit. 4096 chunks is
-  /// generous for a log pump; past that, the oldest unread chunks are dropped
-  /// so memory stays bounded instead of the operator's log.
-  private static let chunkBufferCapacity = 4096
-
-  /// Test-only seam: called synchronously inside `spawn()`, right after
-  /// `child.run()` and before `livePID` is published. That gap is the exact
-  /// window a concurrent, `nonisolated` `terminateNow()` can land in and find
-  /// no pid yet to kill (see the re-check right after `spawn()` returns in
-  /// `startChild(epoch:)`). Production never sets this — it exists so a test
-  /// can reproduce that window deterministically instead of racing real
-  /// threads for a gap a couple of instructions wide.
+  /// Test-only quit race seam between run() and pid publication.
   var testSeamAfterChildRun: (@Sendable () -> Void)?
 
   /// Actor-isolated setter for `testSeamAfterChildRun`: mutating actor state
@@ -496,7 +554,20 @@ public actor LocalServerSupervisor {
   /// Returns the new child's generation, so its caller can carry that identity
   /// through every suspension point that follows.
   private func spawn(_ launch: LocalServerLaunch) throws -> Int {
-    let pipe = Pipe()
+    try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true,
+      attributes: [.posixPermissions: 0o700])
+    // Rotate and open with private permissions before launching. The child
+    // inherits these files, never an app-owned pipe or terminal.
+    let previous = runDirectory.appendingPathComponent("server.log.1")
+    if FileManager.default.fileExists(atPath: logURL.path) {
+      try? FileManager.default.removeItem(at: previous)
+      try FileManager.default.moveItem(at: logURL, to: previous)
+    }
+    let fd = open(logURL.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+    guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
+    let output = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
+    let input = try FileHandle(forReadingFrom: URL(fileURLWithPath: "/dev/null"))
+    defer { try? output.close(); try? input.close() }
     let child = Process()
     child.executableURL = launch.executable
     child.arguments = launch.arguments
@@ -509,10 +580,9 @@ public actor LocalServerSupervisor {
     childEnvironment["SHEPHERD_LOCAL_SUPERVISION"] = "1"
     childEnvironment["SHEPHERD_LOCAL_INSTANCE_ID"] = identity.instanceID
     child.environment = childEnvironment
-    // One pipe for both streams: the operator reads a single interleaved log,
-    // and two pipes would need two pumps and could deadlock on a full buffer.
-    child.standardOutput = pipe
-    child.standardError = pipe
+    child.standardInput = input
+    child.standardOutput = output
+    child.standardError = output
     // Bumped before `run()` so the termination handler can tag its exit code
     // with the generation it belongs to. A spawn that throws still burns a
     // generation, which is harmless: it only invalidates reports about a child
@@ -520,6 +590,8 @@ public actor LocalServerSupervisor {
     spawnGeneration += 1
     let generation = spawnGeneration
     scanTail = ""
+    captureBootPassword = true
+    capturedPassword = nil
     // The one-shot death signal this child's watcher parks on. Foundation
     // invokes `terminationHandler` off any thread and only once
     // `terminationStatus` is valid, so a `Sendable` stream continuation is what
@@ -546,16 +618,20 @@ public actor LocalServerSupervisor {
     state = .starting
     Self.logger.info("local server started, pid \(pid, privacy: .public)")
 
-    let handle = pipe.fileHandleForReading
-    pump = Task { [weak self] in
-      await ProcessOutputPump.pump(
-        handle, bufferingPolicy: .bufferingNewest(Self.chunkBufferCapacity)
-      ) { line in
-        await self?.ingest(line)
-      }
-      // EOF and nothing else: the pump flushes what it has and ends. Whether
-      // the child is still there is `exitWatcher`'s question, not this one's.
+    guard let group = ownedGroup(of: pid) else {
+      kill(pid, SIGKILL)
+      throw CocoaError(.executableLoad)
     }
+    ownership = LocalServerOwnership(pid: pid, processGroup: group, port: environment.port,
+      spawnedAt: Date(), executable: launch.executable.path,
+      appDirectory: environment.appDirectory.path, expectedIdentity: identity, identity: nil)
+    do { try saveOwnership() } catch {
+      killpg(group, SIGKILL)
+      livePID.withLock { $0 = nil }
+      process = nil
+      throw error
+    }
+    startTail(generation: generation)
     exitWatcher?.cancel()
     exitWatcher = Task { [weak self] in
       for await code in exits {
@@ -563,6 +639,7 @@ public actor LocalServerSupervisor {
         return
       }
     }
+    if let exitWatcher { track(exitWatcher) }
     return generation
   }
 
@@ -586,8 +663,9 @@ public actor LocalServerSupervisor {
   private func ingest(_ line: String) async {
     let joined = scanTail + line
     if let password = BootLineScanner.generatedPassword(in: joined) {
-      capturedPassword = password
+      if captureBootPassword { capturedPassword = password }
       await log.redact(password)
+      LocalServerLogTail.redact(password, in: logURL)
       // Consumed. A banner left in the carry-over makes the *next* line read as
       // a continuation of the same secret — the scanner stops at the first
       // character outside `[A-Za-z0-9_-]`, so the password would come back with
@@ -610,6 +688,9 @@ public actor LocalServerSupervisor {
     guard generation == spawnGeneration, !stopping else { return }
     guard reportedExit != generation else { return }
     reportedExit = generation
+    pump?.cancel()
+    await pump?.value
+    guard generation == spawnGeneration, !stopping else { return }
     livePID.withLock { $0 = nil }
     process = nil
     Self.logger.error("local server exited with \(code, privacy: .public)")
@@ -623,10 +704,16 @@ public actor LocalServerSupervisor {
     for _ in 0..<60 {
       if Task.isCancelled || stopping { return }
       guard let identity = launchIdentity else { return }
-      if await health(identity) {
+      if let actual = await health(identity) {
         // The health answer is about the child that was live when it was
         // asked; a stop or the next spawn can land in that await.
         guard generation == spawnGeneration, !stopping else { return }
+        ownership?.identity = actual
+        do { try saveOwnership() } catch {
+          await stopChild(gracePeriod: 5)
+          state = .failed(.bootstrapWrite)
+          return
+        }
         if let pid = livePID.withLock({ $0 }) { state = .running(pid: pid) }
         return
       }
@@ -689,6 +776,7 @@ public actor LocalServerSupervisor {
       guard !Task.isCancelled else { return }
       await self?.relaunch(scheduled: scheduled)
     }
+    if let supervision { track(supervision) }
   }
 
   /// Takes the lifecycle gate like every other spawn/teardown path: a backoff

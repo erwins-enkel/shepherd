@@ -48,7 +48,14 @@ enum LocalServerCopy {
 @Observable
 @MainActor
 final class LocalServerModel {
-    static let shared = LocalServerModel()
+    static let shared: LocalServerModel = {
+        guard LaunchEnvironment.configuration().isIsolated else { return LocalServerModel() }
+        // Isolated app hosts must never adopt or supervise the operator's server.
+        let home = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("shepherd-isolated-local-\(UUID().uuidString)")
+        return LocalServerModel(environment: LocalServerEnvironment(home: home, processEnvironment: [:]),
+                                discoverExternal: { nil }, launch: { nil })
+    }()
 
     private(set) var state: LocalServerState = .stopped
     private(set) var logLines: [String] = []
@@ -188,8 +195,17 @@ final class LocalServerModel {
         }
         let external = await discoverExternal()
         guard generation == expected else { return }
+        let identity = external?.localInstall.map(LocalServerIdentity.init)
+        let adopted = await supervisor.adopt(healthyIdentity: identity)
+        guard generation == expected else { return }
+        if adopted {
+            clearExternalObservation()
+            state = await supervisor.state
+            guard generation == expected else { return }
+            await pullLog()
+            return
+        }
         if let external {
-            let identity = external.localInstall.map(LocalServerIdentity.init)
             if externalIdentity != identity || externalVersion != external.version {
                 externalAcknowledged = false
             }
@@ -336,11 +352,9 @@ final class LocalServerModel {
     /// login sheet.
     func dismissCapturedPassword() { capturedPassword = nil }
 
-    /// The quit path, and the **only** caller of `terminateNow()` anywhere in the
-    /// app. Synchronous by design — `applicationWillTerminate` gets no await — and
-    /// it blocks the calling thread for up to the grace period, which is why no UI
-    /// action may route here: `stop()` is the interactive path.
-    nonisolated func terminateForQuit() { supervisor.terminateNow(gracePeriod: 5) }
+    /// Quitting detaches supervision; only Stop/Restart signal the server.
+    /// Synchronous because `applicationWillTerminate` gets no await.
+    nonisolated func terminateForQuit() { supervisor.terminateForQuit() }
 
     private func act(_ body: @MainActor () async -> Void) async {
         guard !busy else { return }

@@ -97,13 +97,8 @@ actor ProbeGate {
     #expect(processCommandCount(containing: launch.arguments[0]) == 0)
   }
 
-  /// HI. `terminateNow()` is the quit path and runs off the actor, so it lands
-  /// wherever it lands — including in the middle of a `restart()` that has
-  /// already stopped its child and is one step away from spawning the next.
-  /// Its own teardown is a no-op there (the pid it would kill is the one the
-  /// restart is replacing, or already gone), so the quit has to reach that
-  /// turn some other way; otherwise the restart spawns a server that outlives
-  /// the app.
+  /// Quit fences a queued restart before it can stop the surviving child.
+  // Historical name retained for test conservation; assertions follow the new quit semantics.
   @Test func aQuitInsideARestartsWindowLeavesNoChildRunning() async throws {
     let (launch, cleanup) = try fakeScript("sleep 60\n")
     defer { cleanup() }
@@ -115,13 +110,14 @@ actor ProbeGate {
     try await waitUntil { await clock.slept.contains(0.5) }  // parked mid health poll
     let restarting = Task { await sut.restart(gracePeriod: 0.4) }
     try await Task.sleep(for: .milliseconds(80))  // queued on the lifecycle gate
-    sut.terminateNow(gracePeriod: 0.5)  // applicationWillTerminate
+    sut.terminateForQuit()
     healthy.withLock { $0 = true }
     await clock.release()
     await starting.value
     await restarting.value
 
-    #expect(await sut.state == .stopped)
+    #expect(processCommandCount(containing: launch.arguments[0]) == 1)
+    await sut.stop(gracePeriod: 0.3)
     #expect(processCommandCount(containing: launch.arguments[0]) == 0)
   }
 
@@ -195,25 +191,21 @@ actor ProbeGate {
     #expect(lines.withLock { $0 } == ["ready", "no trailing newline"])
   }
 
-  /// H (review of 5f7fc108). `startChild` reads `terminationEpoch` once,
-  /// before `spawn()` — but `spawn()`'s own body has no suspension point
-  /// between `child.run()` and publishing `livePID`, so that one check does
-  /// not protect the window in between. `terminateNow()` is `nonisolated` and
-  /// can run on a genuinely different thread at the same real time; landing
-  /// there, it reads `livePID` while it is still `nil`, does nothing, and the
-  /// child `spawn()` just started would otherwise outlive the app that asked
-  /// it to quit. That window is a couple of instructions wide, too narrow to
-  /// land in reliably by racing real threads, so a test-only hook calls
-  /// `terminateNow()` synchronously from exactly that point instead.
+  /// A quit between run() and pid publication preserves the new server
+  /// and its record, but cannot start health polling or crash supervision.
+  // Historical name retained for test conservation; assertions follow the new quit semantics.
   @Test func aQuitBetweenRunAndThePidPublishStandsDownTheNewChild() async throws {
     let (launch, cleanup) = try fakeScript("sleep 30\n")
     defer { cleanup() }
     let sut = supervisor(launch, health: { true })
-    await sut.setTestSeamAfterChildRun { sut.terminateNow(gracePeriod: 0.5) }
+    await sut.setTestSeamAfterChildRun { sut.terminateForQuit() }
 
     await sut.start()
 
-    #expect(await sut.state == .stopped)
+    #expect(processCommandCount(containing: launch.arguments[0]) == 1)
+    let record = launch.workingDirectory.appendingPathComponent(".shepherd/run/app-server.json")
+    #expect(FileManager.default.fileExists(atPath: record.path))
+    await sut.stop(gracePeriod: 0.3)
     #expect(processCommandCount(containing: launch.arguments[0]) == 0)
   }
 

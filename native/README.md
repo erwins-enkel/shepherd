@@ -29,6 +29,10 @@ Use a server on your Mac or connect to a remote one. If your agents run on a Lin
 Mac app gives you a native place to follow and steer that work. Your existing Shepherd sessions
 are there when you connect.
 
+A local server started by the app keeps running when you quit or restart the app, including
+automatic updates and dev rebuilds. The next launch resumes supervision. Use **Stop** or
+**Restart** in **Run on this Mac** to control the server.
+
 The app is a client for Shepherd: it needs a running Shepherd server. The server runs the agents;
 the app is where you see their progress, inspect results and make decisions.
 

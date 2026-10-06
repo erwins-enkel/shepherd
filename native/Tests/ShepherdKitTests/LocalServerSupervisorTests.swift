@@ -185,9 +185,9 @@ func processesInGroup(_ group: Int32) -> [Int32] {
     #expect(processesInGroup(group).isEmpty)  // nor is its `sleep` grandchild
   }
 
-  /// The quit path: synchronous, no await, reachable from
-  /// applicationWillTerminate. The script ignores SIGTERM, so only the SIGKILL
-  /// fallback can end it.
+  /// Quit preserves even a SIGTERM-ignoring child; explicit Stop still
+  /// escalates to SIGKILL and clears the whole process group.
+  // Historical name retained for test conservation; assertions follow the new quit semantics.
   @Test func terminateNowKillsAChildThatIgnoresSIGTERM() async throws {
     let (launch, cleanup) = try fakeScript("trap '' TERM\nsleep 60\n")
     defer { cleanup() }
@@ -195,13 +195,15 @@ func processesInGroup(_ group: Int32) -> [Int32] {
     await sut.start()
     let pid = await sut.state.pid
     let group = getpgid(pid!)
-    sut.terminateNow(gracePeriod: 0.3)  // nonisolated — no await
+    sut.terminateForQuit()  // nonisolated — no await
+    #expect(kill(pid!, 0) == 0)
+    #expect(processIsAlive(pid!))
+    await sut.stop(gracePeriod: 0.3)
     #expect(kill(pid!, 0) != 0)
     #expect(!processIsAlive(pid!))
     #expect(processesInGroup(group).isEmpty)
     await sut.stop()
-    // A kill we asked for is not a crash: nothing may be respawned on the way
-    // out, or the app would leave a server behind every time it quits.
+    // The explicit Stop is not a crash and must not respawn anything.
     #expect(await sut.state.pid == nil)
     #expect(processesInGroup(group).isEmpty)
   }
@@ -301,11 +303,9 @@ func anyProcessCommand(contains needle: String) -> Bool {
     #expect(await sut.state == .stopped)
   }
 
-  /// `terminateNow()` must be a true no-op when nothing is running — including
-  /// a speculative call mid crash-loop backoff, when there is momentarily no
-  /// live child. Before the fix it marked `stopping` unconditionally, and
-  /// unlike `start()`, `relaunch()` never clears that flag — so a single such
-  /// call permanently wedged the crash loop's own recovery.
+  /// Quit during backoff cancels relaunch. The app cannot supervise crashes
+  /// after it exits; the next launch can explicitly start an offline server.
+  // Historical name retained for test conservation; assertions follow the new quit semantics.
   @Test func terminateNowDuringTheCrashLoopWindowDoesNotBlockTheNextRestart() async throws {
     let (launch, cleanup) = try fakeScript("exit 1\n")
     defer { cleanup() }
@@ -319,9 +319,12 @@ func anyProcessCommand(contains needle: String) -> Bool {
     // child.
     try await waitUntil { await clock.slept.contains(1) }
     #expect(await sut.state.pid == nil)
-    sut.terminateNow()  // as `applicationWillTerminate` might call it speculatively
+    sut.terminateForQuit()
     await clock.release()
-    try await waitUntil(timeout: 10) { await sut.state == .failed(.crashLoop(restarts: 3)) }
+    try await Task.sleep(for: .milliseconds(250))
+    #expect(processCommandCount(containing: launch.arguments[0]) == 0)
+    #expect(await clock.slept.filter { $0 == 1 }.count == 1)
+    await sut.stop()
   }
 
   /// `stop()` must not block the actor for its whole grace period: a `state`

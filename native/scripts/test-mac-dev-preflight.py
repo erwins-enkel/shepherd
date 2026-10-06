@@ -12,13 +12,11 @@ SESSIONS = [("TASK-01", "running", "demo", "term_1")]
 
 
 def verdict(apps, server, procs, sessions=SESSIONS, terminals=frozenset({"term_1"}), herdr=(9,)):
-    """Runs main() against a faked process table; returns (exit code, last output line)."""
+    """Historical session/group fixtures now all permit an app relaunch."""
     module.pids = lambda pattern: list(apps) if "Shepherd" in pattern else list(herdr)
     module.listener = lambda port: server
-    module.proc = lambda pid: procs.get(pid)
-    module.database_path = lambda: "/unused.db"
-    module.active_sessions = lambda db: sessions
-    module.herdr_terminals = lambda: None if terminals is None else set(terminals)
+    # Relaunch no longer needs process ancestry, SQLite or herdr access.
+    module.run = lambda *argv: (_ for _ in ()).throw(AssertionError("unexpected process probe"))
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
         code = module.main()
@@ -35,21 +33,21 @@ class PreflightTests(unittest.TestCase):
     def test_supervised_server_without_sessions_is_safe(self):
         self.assertEqual(verdict([100], 200, {200: (100, 200)}, sessions=[])[0], 0)
 
-    def test_independent_herdr_means_interruption(self):
+    def test_independent_herdr_continues_on_quit(self):
         code, last = verdict([100], 200, {200: (100, 200), 9: (1, 9)})
-        self.assertEqual(code, 2)
-        self.assertIn("--yes", last)
+        self.assertEqual(code, 0)
+        self.assertIn("sessions continue", last)
 
-    def test_herdr_in_the_server_group_means_loss(self):
-        self.assertEqual(verdict([100], 200, {200: (100, 200), 9: (200, 200)})[0], 3)
+    def test_server_group_is_not_signalled_on_quit(self):
+        self.assertEqual(verdict([100], 200, {200: (100, 200), 9: (200, 200)})[0], 0)
 
-    def test_herdr_started_by_the_app_means_loss(self):
-        self.assertEqual(verdict([100], 200, {200: (100, 200), 9: (100, 9)})[0], 3)
+    def test_quit_does_not_signal_app_children(self):
+        self.assertEqual(verdict([100], 200, {200: (100, 200), 9: (100, 9)})[0], 0)
 
-    def test_unanswering_herdr_is_treated_as_loss(self):
+    def test_relaunch_does_not_require_a_herdr_probe(self):
         code, last = verdict([100], 200, {200: (100, 200), 9: (1, 9)}, terminals=None)
-        self.assertEqual(code, 3)
-        self.assertIn("--force", last)
+        self.assertEqual(code, 0)
+        self.assertIn("sessions continue", last)
 
 
 if __name__ == "__main__":

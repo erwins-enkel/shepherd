@@ -12256,8 +12256,10 @@
       "destinations": [
         "[\"ShepherdUITests\",\"native/Apps/ShepherdMac/UITests/LiveSmokeUITests.swift\",\"LiveSmokeUITests\",\"testTheTerminalAttachesAndRendersItsPane()\"]"
       ],
-      "reason": "Retained unchanged in ShepherdUITests.",
-      "assertionChanges": []
+      "reason": "Retained in ShepherdUITests.",
+      "assertionChanges": [
+        "current-module: The Mac terminal tab no longer renders a separate prompt bar, so the prompt-bar existence assertion now asserts its absence; all emulator, resize and liveness assertions are preserved."
+      ]
     },
     {
       "oldID": "[\"ShepherdUITests\",\"native/Apps/ShepherdMac/UITests/SettingsSceneUITests.swift\",\"SettingsSceneUITests\",\"testPaletteSearchReturnEscapeAndDisabledCommand()\"]",

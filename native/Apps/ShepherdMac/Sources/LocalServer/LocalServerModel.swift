@@ -541,7 +541,9 @@ final class LocalServerModel {
                 return
             }
         }
-        deployment?.finish()
+        // Quit retains promotion intent even after rollback: the next launch
+        // must recover before it can adopt any persisted server.
+        if !quittingUpdates { deployment?.finish() }
         deployment = nil
         updateFailure = failure
         // Cancellation must not cancel rollback recovery. Quit is the explicit
@@ -705,6 +707,7 @@ final class LocalServerSessionExtension: AppExtension {
 
 #if DEBUG
 extension LocalServerModel {
+    nonisolated var testSupervisor: LocalServerSupervisor { supervisor }
     /// Test seam (M-4): `capturedPassword` is production-write-only —
     /// `drainCapturedPassword()` is the one path that sets it from a real
     /// boot line. Tests use this to exercise `connect()`/`dismissCapturedPassword()`

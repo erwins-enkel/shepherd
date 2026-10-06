@@ -141,6 +141,9 @@ public actor LocalServerSupervisor {
   /// synchronous explicit teardown can read it without an actor hop. A
   /// `Mutex<Process?>` would not compile — `Process` is not `Sendable`.
   private let livePID = Mutex<Int32?>(nil)
+  /// Synchronous teardown must wait for run() AND ownership publication before
+  /// reading livePID. Held without suspension; ordinary quit still preserves children.
+  private nonisolated let spawnPublication = NSLock()
 
   /// One child's exit, carrying the generation it belongs to. The code alone
   /// would be ambiguous: this one slot is written by every child's
@@ -558,6 +561,8 @@ public actor LocalServerSupervisor {
   public nonisolated func terminateNow(gracePeriod: TimeInterval = 2) {
     terminationEpoch.withLock { $0 += 1 }
     stopFlag.withLock { $0 = true }  // deliberate: the exit is not a crash
+    spawnPublication.lock()
+    defer { spawnPublication.unlock() }
     guard let pid = livePID.withLock({ $0 }) else { return }
     // Before the first signal, for the same reason as in `stopChild()`.
     let members = ownedMembers(of: pid)
@@ -648,14 +653,20 @@ public actor LocalServerSupervisor {
   }
 
   /// Test-only quit race seam between run() and pid publication.
-  var testSeamAfterChildRun: (@Sendable () -> Void)?
+  var testSeamAfterChildRun: (@Sendable (Int32) -> Void)?
 
   /// Actor-isolated setter for `testSeamAfterChildRun`: mutating actor state
   /// from outside the actor needs an isolated method even under
   /// `@testable import`.
   func setTestSeamAfterChildRun(_ hook: @escaping @Sendable () -> Void) {
+    testSeamAfterChildRun = { _ in hook() }
+  }
+
+  func setTestSeamAfterChildRunWithPID(_ hook: @escaping @Sendable (Int32) -> Void) {
     testSeamAfterChildRun = hook
   }
+
+  nonisolated var testIsQuitting: Bool { quitting.withLock { $0 } }
 
   /// Returns the new child's generation, so its caller can carry that identity
   /// through every suspension point that follows.
@@ -731,11 +742,15 @@ public actor LocalServerSupervisor {
       exitSignal.yield(code)
       exitSignal.finish()
     }
+    spawnPublication.lock()
+    defer { spawnPublication.unlock() }
+    // Quit may have landed while preparing the launch or waiting for teardown.
+    guard !quitting.withLock({ $0 }) else { throw CancellationError() }
     do { try child.run() } catch {
       exitSignal.finish()
       throw error
     }
-    testSeamAfterChildRun?()
+    testSeamAfterChildRun?(child.processIdentifier)
 
     process = child
     let pid = child.processIdentifier

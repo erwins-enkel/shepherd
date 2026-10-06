@@ -1,7 +1,7 @@
 import Foundation
 import Synchronization
 import Testing
-import ShepherdKit
+@testable import ShepherdKit
 @testable import Shepherd
 @testable import ShepherdAppCore
 
@@ -591,6 +591,58 @@ extension MacSeamTests {
             }
             await model.stop()
         }
+    }
+
+    @Test func quitBetweenReplacementRunAndPublicationStopsChildAndRetainsRecoveryJournal() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = try checkout(in: home)
+        let code = environment.appDirectory.appendingPathComponent("code")
+        try "previous".write(to: code, atomically: true, encoding: .utf8)
+        let launch = try fakeScript(in: home, emitPasswordOnce: false)
+        let model = LocalServerModel(environment: environment, allowTemporaryUpdates: true,
+            probeExternal: { false }, health: { true }, launch: { launch },
+            updater: { staged, _ in
+                try! "replacement".write(to: staged.appDirectory.appendingPathComponent("code"), atomically: true, encoding: .utf8)
+                return .success(())
+            })
+        let supervisor = model.testSupervisor
+        defer { supervisor.terminateNow(gracePeriod: 0) }
+        await model.start()
+        let pausedPID = Mutex<Int32?>(nil)
+        let release = DispatchSemaphore(value: 0)
+        await supervisor.setTestSeamAfterChildRunWithPID { pid in
+            pausedPID.withLock { $0 = pid }
+            release.wait()
+        }
+        let update = Task { await model.applyUpdate() }
+        for _ in 0..<500 where pausedPID.withLock({ $0 }) == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        defer { release.signal() }
+        let pid = try #require(pausedPID.withLock { $0 })
+        #expect(try String(contentsOf: code, encoding: .utf8) == "replacement")
+        #expect(kill(pid, 0) == 0)
+        // Release only AFTER quit has fenced future lifecycle work. This runs
+        // off the main actor, which synchronous quit teardown is allowed to block.
+        let releaser = Task.detached {
+            while !supervisor.testIsQuitting { await Task.yield() }
+            release.signal()
+        }
+        model.cancelUpdateForQuit()
+        #expect(kill(pid, 0) != 0)
+        #expect(try String(contentsOf: code, encoding: .utf8) == "previous")
+        #expect(try LocalUpdateDeployment.needsServerRestart(environment: environment))
+        update.cancel()
+        await releaser.value
+        await update.value
+        // The cancelled update continuation must not erase the recovery fence.
+        #expect(try LocalUpdateDeployment.needsServerRestart(environment: environment))
+        #expect(!FileManager.default.fileExists(atPath: supervisor.recordURL.path))
+        #expect(kill(pid, 0) != 0)
+        // Launch recovery recognizes the already-restored directory and cleans up.
+        try LocalUpdateDeployment.recover(environment: environment)
+        #expect(!(try LocalUpdateDeployment.needsServerRestart(environment: environment)))
+        #expect(try String(contentsOf: code, encoding: .utf8) == "previous")
     }
 
     @Test func quitDuringReadinessSynchronouslyRestoresPreviousDeployment() async throws {

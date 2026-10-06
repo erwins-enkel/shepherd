@@ -12553,6 +12553,7 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"healthyLocalServerWithoutOwnershipNeverOffersUpdates() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"unconfirmedDeploymentStopsHealthyOwnedServerBeforeRollbackAndAdoption() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"deploymentRecoveryTeardownRequiresKernelOwnershipEvenWithoutHealth() async throws\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quitDuringAdoptedServerPromotionStopsReplacementAndRestoresDeployment() async throws\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quitDuringAdoptedServerPromotionStopsReplacementAndRestoresDeployment() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quitBetweenReplacementRunAndPublicationStopsChildAndRetainsRecoveryJournal() async throws\"]"
   ]
 }

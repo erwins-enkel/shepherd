@@ -87,8 +87,8 @@ public struct LocalUpdateDeployment: Sendable {
     guard promoted else { return }
     try exchange()
     promoted = false
-    journal.phase = .building
-    try Self.write(journal, to: journalURL)
+    // Keep persisted promotion intent until finish(), so a quit/crash after
+    // restoring files still requires ownership-aware teardown before adoption.
   }
 
   /// Persist readiness before the previous deployment can be discarded.

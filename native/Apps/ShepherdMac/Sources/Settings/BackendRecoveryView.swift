@@ -71,13 +71,22 @@ struct BackendRecoveryPanel: View {
         }
     }
     private func runLocal(runner: Bool) {
-        guard canStartLocal else { return }
+        BackendRecoveryLocalAction.run(app: app, local: local, runner: runner)
+    }
+}
+
+/// Shared by recovery panels and the offline banner. Recheck activation and
+/// ownership inside the task before starting, and discard obsolete diagnostics.
+@MainActor enum BackendRecoveryLocalAction {
+    static func run(app: AppModel, local: LocalServerModel, runner: Bool) {
+        guard BackendRecovery.canManageLocal(profile: app.activeProfile, endpoint: local.baseURL) else { return }
         let activation = app.activationGeneration
         Task {
-            guard canStartLocal, app.activationGeneration == activation else { return }
+            guard BackendRecovery.canManageLocal(profile: app.activeProfile, endpoint: local.baseURL),
+                  app.activationGeneration == activation else { return }
             if runner { await local.startRunner() } else { await local.start() }
             guard app.activationGeneration == activation else { return }
-            await recovery?.refresh()
+            await app.extension(BackendRecoveryModel.self)?.refresh()
         }
     }
 }

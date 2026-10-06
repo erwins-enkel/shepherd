@@ -507,6 +507,10 @@ export const KEYS_IOS_ACTIONS: readonly string[] = [
 
 /** S5 — local server detection, install, start/stop/restart and the log tail. */
 export const KEYS_LOCALSERVER: readonly string[] = [
+  "native_local_banner_not_installed",
+  "native_local_banner_settings",
+  "native_local_banner_starting",
+  "native_local_banner_stopped",
   "native_local_bun_outdated_summary",
   "native_local_bun_outdated_title",
   "native_local_bun_outdated_what_body",

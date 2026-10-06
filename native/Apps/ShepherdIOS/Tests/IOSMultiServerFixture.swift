@@ -6,7 +6,10 @@ import ShepherdKit
 /// Per-origin snapshots prevent background reconnection from erasing rendered fixture rows.
 final class IOSMultiServerFixtureTransport: URLProtocol, @unchecked Sendable {
     private static let snapshots = Mutex<[String: [Session]]>([:])
+    private static let repos = Mutex<[String: String]>([:])
     static func set(_ sessions: [Session], for url: URL) { snapshots.withLock { $0[url.host() ?? ""] = sessions } }
+    /// Raw `repos` array JSON for one origin; others serve the single `shepherd` repo.
+    static func setRepos(_ json: String, for url: URL) { repos.withLock { $0[url.host() ?? ""] = json } }
     override class func canInit(with request: URLRequest) -> Bool { request.url?.host?.hasSuffix(".multi.fixture.invalid") == true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -21,7 +24,9 @@ final class IOSMultiServerFixtureTransport: URLProtocol, @unchecked Sendable {
             }
         case "/api/sessions": body = (try? JSONEncoder().encode(Self.snapshots.withLock { $0[url.host() ?? ""] ?? [] })) ?? Data("[]".utf8)
         case "/api/settings": body = Data(#"{"repoRoot":"/fixtures","repoRootDisplay":"/fixtures","firstRunPending":false,"defaultModel":"sonnet","defaultEffort":"medium","defaultAgentProvider":"claude","authMode":"subscription","operatorLanguage":"de"}"#.utf8)
-        case "/api/repos": body = Data(#"{"repos":[{"name":"shepherd","path":"/fixtures/shepherd","display":"shepherd","realPath":"/fixtures/shepherd","isFork":false,"hidden":false}],"recentWindowDays":14}"#.utf8)
+        case "/api/repos":
+            let list = Self.repos.withLock { $0[url.host() ?? ""] } ?? #"[{"name":"shepherd","path":"/fixtures/shepherd","display":"shepherd","realPath":"/fixtures/shepherd","isFork":false,"hidden":false}]"#
+            body = Data(#"{"repos":\#(list),"recentWindowDays":14}"#.utf8)
         default: status = 404; body = Data(#"{"error":"not found"}"#.utf8)
         }
         let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!

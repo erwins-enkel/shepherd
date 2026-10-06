@@ -203,7 +203,7 @@ actor ProbeGate {
     await sut.start()
 
     #expect(processCommandCount(containing: launch.arguments[0]) == 1)
-    let record = launch.workingDirectory.appendingPathComponent(".shepherd/run/app-server.json")
+    let record = launch.workingDirectory.appendingPathComponent(".shepherd/run/" + LocalServerOwnership.configurationName(LocalServerEnvironment(home: launch.workingDirectory)) + ".json")
     #expect(FileManager.default.fileExists(atPath: record.path))
     await sut.stop(gracePeriod: 0.3)
     #expect(processCommandCount(containing: launch.arguments[0]) == 0)

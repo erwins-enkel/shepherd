@@ -73,8 +73,12 @@ public actor LocalServerSupervisor {
   private var captureBootPassword = true
   private let quitting = Mutex<Bool>(false)
   private let monitoringTasks = Mutex<[Task<Void, Never>]>([])
-  private var recordURL: URL { runDirectory.appendingPathComponent("app-server.json") }
-  private var logURL: URL { runDirectory.appendingPathComponent("server.log") }
+  nonisolated private let configurationName: String
+  nonisolated var recordURL: URL { runDirectory.appendingPathComponent(configurationName + ".json") }
+  private var logURL: URL { runDirectory.appendingPathComponent(configurationName + ".log") }
+  private var passwordURL: URL { runDirectory.appendingPathComponent(configurationName + ".password") }
+  private let liveStart = Mutex<KernelProcessIdentity?>(nil)
+  private let identityProbe = Mutex<@Sendable (Int32) -> KernelProcessIdentity?>({ KernelProcessIdentity.read($0) })
   private let runner: LocalRunnerStart
   private var launchIdentity: LocalServerIdentity?
   private let clock: any SupervisorClock
@@ -83,12 +87,13 @@ public actor LocalServerSupervisor {
   private let policy: RestartPolicy
 
   public private(set) var state: LocalServerState = .stopped
-  /// In memory only, for the one "sign in with the generated password" offer.
-  /// The offer is never persisted; the private file log is redacted on capture.
+  /// The one-time sign-in offer lives in memory after consuming and deleting
+  /// the private credential channel. Generated credentials never enter the log.
   public private(set) var capturedPassword: String?
 
   private var process: Process?
   private var pump: Task<Void, Never>?
+  private var logMaintenance: Task<Void, Never>?
   /// Foundation exit notification for spawned children; pid polling for
   /// adopted servers. File EOF never means the server exited.
   private var exitWatcher: Task<Void, Never>?
@@ -198,6 +203,7 @@ public actor LocalServerSupervisor {
   ) {
     self.environment = environment
     self.log = log
+    self.configurationName = LocalServerOwnership.configurationName(environment)
     self.runDirectory = runDirectory ?? environment.homeDirectory.appendingPathComponent(".shepherd/run")
     self.health = { expected in
       if let identityHealth { return await identityHealth(expected) ? expected : nil }
@@ -250,12 +256,42 @@ public actor LocalServerSupervisor {
   private func startTail(generation: Int) {
     pump?.cancel()
     let url = logURL
+    LocalServerLogTail.maintain(url)
     pump = Task { [weak self] in
       await LocalServerLogTail.run(url) { line in
         await self?.ingestTail(line, generation: generation)
       }
     }
     if let pump { track(pump) }
+    logMaintenance?.cancel()
+    let maintenance = Task { [weak self] in
+      while !Task.isCancelled {
+        LocalServerLogTail.maintain(url)
+        await self?.consumePassword()
+        do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+      }
+    }
+    logMaintenance = maintenance
+    track(maintenance)
+  }
+
+  private func consumePassword() {
+    guard let bytes = try? Data(contentsOf: passwordURL), !bytes.isEmpty else { return }
+    if captureBootPassword && !stopping { capturedPassword = String(decoding: bytes, as: UTF8.self) }
+    try? FileManager.default.removeItem(at: passwordURL)
+  }
+
+  func setIdentityProbeForTesting(_ probe: @escaping @Sendable (Int32) -> KernelProcessIdentity?) {
+    identityProbe.withLock { $0 = probe }
+  }
+
+  private nonisolated func currentIdentity(_ pid: Int32) -> KernelProcessIdentity? {
+    identityProbe.withLock { $0 }(pid)
+  }
+
+  private nonisolated func stillOwns(_ pid: Int32) -> Bool {
+    guard let expected = liveStart.withLock({ $0 }) else { return false }
+    return currentIdentity(pid) == expected
   }
 
   private func ingestTail(_ line: String, generation: Int) async {
@@ -272,35 +308,45 @@ public actor LocalServerSupervisor {
     if state.isRunning || state == .starting { return state.isRunning }
     guard let data = try? Data(contentsOf: recordURL) else { return false }
     guard let record = try? JSONDecoder().decode(LocalServerOwnership.self, from: data),
-          record.pid > 1, kill(record.pid, 0) == 0,
-          record.port == environment.port,
-          record.processGroup == ownedGroup(of: record.pid),
-          URL(fileURLWithPath: record.appDirectory).standardizedFileURL.resolvingSymlinksInPath().path == environment.appDirectory.standardizedFileURL.resolvingSymlinksInPath().path
-    else {
+          record.pid > 1 else { return false }
+    guard record.port == environment.port,
+          LocalServerIdentity.canonical(record.appDirectory) == LocalServerIdentity.canonical(environment.appDirectory.path),
+          LocalServerIdentity.canonical(record.expectedIdentity.appDirectory) == LocalServerIdentity.canonical(environment.appDirectory.path),
+          LocalServerIdentity.canonical(record.expectedIdentity.databasePath) == LocalServerIdentity.canonical(environment.databasePath.path) else { return false }
+    // Only a dead process or a proven birth-identity mismatch makes a record
+    // stale. Older records without a kernel identity cannot authorize signals.
+    guard let current = currentIdentity(record.pid) else {
+      if kill(record.pid, 0) != 0 { try? FileManager.default.removeItem(at: recordURL) }
+      return false
+    }
+    guard let start = record.processStart else { return false }
+    guard current == start else {
       try? FileManager.default.removeItem(at: recordURL)
       return false
     }
-    guard let actual = healthyIdentity else { return false }
-    guard (record.identity ?? record.expectedIdentity).matches(actual) else {
-      try? FileManager.default.removeItem(at: recordURL)
-      return false
-    }
+    guard record.processGroup == ownedGroup(of: record.pid),
+          let actual = healthyIdentity,
+          LocalServerIdentity.canonical(actual.appDirectory) == LocalServerIdentity.canonical(environment.appDirectory.path),
+          LocalServerIdentity.canonical(actual.databasePath) == LocalServerIdentity.canonical(environment.databasePath.path),
+          (record.identity ?? record.expectedIdentity).matches(actual) else { return false }
     ownership = record
     ownership?.identity = actual
     do { try saveOwnership() } catch { return false }
     launchIdentity = actual
     spawnGeneration += 1
     let generation = spawnGeneration
+    liveStart.withLock { $0 = start }
     livePID.withLock { $0 = record.pid }
     stopping = false
     capturedPassword = nil
     captureBootPassword = false
+    consumePassword()
     scanTail = ""
     state = .running(pid: record.pid)
     startTail(generation: generation)
     exitWatcher = Task { [weak self] in
       while !Task.isCancelled {
-        if kill(record.pid, 0) != 0 {
+        if self?.stillOwns(record.pid) != true {
           await self?.childExited(generation: generation, code: -1)
           return
         }
@@ -433,13 +479,13 @@ public actor LocalServerSupervisor {
     if let pid = livePID.withLock({ $0 }) {
       // Read *before* the first signal: once the leader is reaped `getpgid`
       // can no longer answer, and the group is what has to die.
-      let group = ownedGroup(of: pid)
+      let members = ownedMembers(of: pid)
       deliver(SIGTERM, to: pid)
       let deadline = Date().addingTimeInterval(gracePeriod)
-      while Date() < deadline, kill(pid, 0) == 0 {
+      while Date() < deadline, stillOwns(pid) {
         try? await Task.sleep(for: .milliseconds(20))
       }
-      if kill(pid, 0) == 0 {
+      if stillOwns(pid) {
         deliver(SIGKILL, to: pid)
         await reap(pid)
       }
@@ -448,7 +494,7 @@ public actor LocalServerSupervisor {
       // ends the moment the leader goes, which used to mean `kill(pid, 0) != 0`
       // and no SIGKILL for anyone. Escalate against the group regardless of
       // what the leader did.
-      if let group { killpg(group, SIGKILL) }
+      killSurvivingMembers(members)
       // Only if it is still the pid this call set out to stop. Nothing else
       // may spawn a child while the lifecycle gate is held, so in practice it
       // always is; the guard keeps that a local fact rather than a global one.
@@ -456,6 +502,8 @@ public actor LocalServerSupervisor {
     }
     pump?.cancel()
     pump = nil
+    logMaintenance?.cancel()
+    logMaintenance = nil
     exitWatcher?.cancel()
     exitWatcher = nil
     process = nil
@@ -470,12 +518,12 @@ public actor LocalServerSupervisor {
     stopFlag.withLock { $0 = true }  // deliberate: the exit is not a crash
     guard let pid = livePID.withLock({ $0 }) else { return }
     // Before the first signal, for the same reason as in `stopChild()`.
-    let group = ownedGroup(of: pid)
+    let members = ownedMembers(of: pid)
     deliver(SIGTERM, to: pid)
     let deadline = Date().addingTimeInterval(gracePeriod)
     var leaderIsGone = false
     while Date() < deadline {
-      if kill(pid, 0) != 0 {
+      if !stillOwns(pid) {
         leaderIsGone = true
         break
       }
@@ -497,11 +545,11 @@ public actor LocalServerSupervisor {
     // nothing about the agents, git and bun workers that shared its group and
     // ignored the SIGTERM. Returning early here is how they used to outlive the
     // server an operator explicitly stopped.
-    if let group { killpg(group, SIGKILL) }
+    killSurvivingMembers(members)
     livePID.withLock { if $0 == pid { $0 = nil } }
-    let url = runDirectory.appendingPathComponent("app-server.json")
+    let url = recordURL
     if let record = try? JSONDecoder().decode(LocalServerOwnership.self, from: Data(contentsOf: url)),
-       record.pid == pid {
+       record.pid == pid, record.processStart == liveStart.withLock({ $0 }) {
       try? FileManager.default.removeItem(at: url)
     }
   }
@@ -521,10 +569,26 @@ public actor LocalServerSupervisor {
   /// git, bun workers) die with it instead of surviving an explicit Stop.
   /// Falls back to the bare pid, never the app's own process group.
   private nonisolated func deliver(_ signalNumber: Int32, to pid: Int32) {
+    guard stillOwns(pid) else { return }
     if let group = ownedGroup(of: pid) {
+      guard stillOwns(pid) else { return }
       killpg(group, signalNumber)
     } else {
+      guard stillOwns(pid) else { return }
       kill(pid, signalNumber)
+    }
+  }
+
+  private nonisolated func ownedMembers(of pid: Int32) -> [(Int32, KernelProcessIdentity)] {
+    guard stillOwns(pid), let group = ownedGroup(of: pid) else { return [] }
+    return KernelProcessIdentity.groupMembers(group)
+  }
+
+  /// After the leader exits its group ID is no longer ownership evidence.
+  /// Escalate only against members captured before TERM, validating each birth.
+  private nonisolated func killSurvivingMembers(_ members: [(Int32, KernelProcessIdentity)]) {
+    for (pid, identity) in members where currentIdentity(pid) == identity {
+      kill(pid, SIGKILL)
     }
   }
 
@@ -554,23 +618,37 @@ public actor LocalServerSupervisor {
   /// Returns the new child's generation, so its caller can carry that identity
   /// through every suspension point that follows.
   private func spawn(_ launch: LocalServerLaunch) throws -> Int {
+    // The shell wrapper would otherwise turn a missing executable into a
+    // short-lived successful spawn instead of the existing bunMissing failure.
+    guard FileManager.default.isExecutableFile(atPath: launch.executable.path) else {
+      throw CocoaError(.executableNotLoadable)
+    }
     try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true,
       attributes: [.posixPermissions: 0o700])
     // Rotate and open with private permissions before launching. The child
     // inherits these files, never an app-owned pipe or terminal.
-    let previous = runDirectory.appendingPathComponent("server.log.1")
+    let previous = URL(fileURLWithPath: logURL.path + ".1")
+    LocalServerLogTail.maintain(logURL)
     if FileManager.default.fileExists(atPath: logURL.path) {
-      try? FileManager.default.removeItem(at: previous)
-      try FileManager.default.moveItem(at: logURL, to: previous)
+      let size = (try? FileManager.default.attributesOfItem(atPath: logURL.path)[.size] as? NSNumber)?.uint64Value ?? 0
+      if size > 0 {
+        try? FileManager.default.removeItem(at: previous)
+        try FileManager.default.moveItem(at: logURL, to: previous)
+      } else {
+        // maintain() already saved the capped previous copy before truncating.
+        try FileManager.default.removeItem(at: logURL)
+      }
     }
-    let fd = open(logURL.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+    let fd = open(logURL.path, O_WRONLY | O_APPEND | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
     guard fd >= 0 else { throw CocoaError(.fileWriteUnknown) }
     let output = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
     let input = try FileHandle(forReadingFrom: URL(fileURLWithPath: "/dev/null"))
     defer { try? output.close(); try? input.close() }
     let child = Process()
-    child.executableURL = launch.executable
-    child.arguments = launch.arguments
+    // Ignore HUP across exec, including the Darwin orphaned-group notification
+    // when a descendant is stopped as the app exits. No terminal is inherited.
+    child.executableURL = URL(fileURLWithPath: "/bin/sh")
+    child.arguments = ["-c", "trap '' HUP; exec \"$@\"", "shepherd-server", launch.executable.path] + launch.arguments
     child.currentDirectoryURL = launch.workingDirectory
     let identity = LocalServerIdentity(appDirectory: environment.appDirectory.path,
                                        databasePath: environment.databasePath.path,
@@ -579,6 +657,14 @@ public actor LocalServerSupervisor {
     var childEnvironment = launch.environment
     childEnvironment["SHEPHERD_LOCAL_SUPERVISION"] = "1"
     childEnvironment["SHEPHERD_LOCAL_INSTANCE_ID"] = identity.instanceID
+    // A one-shot private channel keeps the generated credential off stdout
+    // even when boot finishes after the app exits. Never set SHEPHERD_PASSWORD:
+    // that would overwrite an operator's persisted password on every restart.
+    try? FileManager.default.removeItem(at: passwordURL)
+    let passwordFD = open(passwordURL.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
+    guard passwordFD >= 0 else { throw CocoaError(.fileWriteUnknown) }
+    close(passwordFD)
+    childEnvironment["SHEPHERD_LOCAL_PASSWORD_FILE"] = passwordURL.path
     child.environment = childEnvironment
     child.standardInput = input
     child.standardOutput = output
@@ -618,15 +704,24 @@ public actor LocalServerSupervisor {
     state = .starting
     Self.logger.info("local server started, pid \(pid, privacy: .public)")
 
+    guard let start = KernelProcessIdentity.read(pid, requireRunning: false) else {
+      // No birth identity means no authority to signal even during setup.
+      livePID.withLock { $0 = nil }
+      process = nil
+      throw CocoaError(.executableLoad)
+    }
+    liveStart.withLock { $0 = start }
     guard let group = ownedGroup(of: pid) else {
-      kill(pid, SIGKILL)
+      deliver(SIGKILL, to: pid)
+      livePID.withLock { $0 = nil }
+      process = nil
       throw CocoaError(.executableLoad)
     }
     ownership = LocalServerOwnership(pid: pid, processGroup: group, port: environment.port,
-      spawnedAt: Date(), executable: launch.executable.path,
+      spawnedAt: Date(), processStart: start, executable: launch.executable.path,
       appDirectory: environment.appDirectory.path, expectedIdentity: identity, identity: nil)
     do { try saveOwnership() } catch {
-      killpg(group, SIGKILL)
+      deliver(SIGKILL, to: pid)
       livePID.withLock { $0 = nil }
       process = nil
       throw error

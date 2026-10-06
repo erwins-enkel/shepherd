@@ -12,6 +12,7 @@
  * the signing secret invalidates every outstanding cookie (the all-sessions kill-switch).
  */
 import { createHmac, timingSafeEqual, randomBytes } from "node:crypto";
+import { constants, openSync, closeSync, fchmodSync, ftruncateSync, writeFileSync } from "node:fs";
 
 /** Session cookie name. Same-origin; browsers attach it to fetch + WS upgrades automatically. */
 export const SESSION_COOKIE = "shepherd_session";
@@ -188,6 +189,8 @@ export async function bootstrapAuth(opts: {
   envPassword: string | null;
   envCookieSecret: string | null;
   log?: (msg: string) => void;
+  /** Precreated private one-shot channel for the Mac app; never also log the credential. */
+  generatedPasswordFile?: string;
 }): Promise<{ passwordHash: string; cookieSecret: string; generatedPassword: string | null }> {
   const { store, envPassword, envCookieSecret } = opts;
   const log = opts.log ?? (() => {});
@@ -211,14 +214,26 @@ export async function bootstrapAuth(opts: {
       generatedPassword = generatePassword();
       passwordHash = await hashPassword(generatedPassword);
       store.setSetting(PASSWORD_HASH_KEY, passwordHash);
-      log(
-        "\n" +
-          "  ┌──────────────────────────────────────────────────────────────────────┐\n" +
-          "  │  SHEPHERD: no password configured — generated a random one (below).    │\n" +
-          "  │  CHANGE THIS: set SHEPHERD_PASSWORD in ~/.shepherd/env and restart.     │\n" +
-          "  └──────────────────────────────────────────────────────────────────────┘\n" +
-          `  Operator password (shown ONCE): ${generatedPassword}\n`,
-      );
+      if (opts.generatedPasswordFile) {
+        // O_NOFOLLOW rejects a replaced symlink; the supervisor creates the file
+        // before launch. Failure is fatal, never a fallback to persistent stdout.
+        const fd = openSync(opts.generatedPasswordFile, constants.O_WRONLY | constants.O_NOFOLLOW);
+        try {
+          fchmodSync(fd, 0o600);
+          ftruncateSync(fd, 0);
+          writeFileSync(fd, generatedPassword);
+        } finally {
+          closeSync(fd);
+        }
+      } else
+        log(
+          "\n" +
+            "  ┌──────────────────────────────────────────────────────────────────────┐\n" +
+            "  │  SHEPHERD: no password configured — generated a random one (below).    │\n" +
+            "  │  CHANGE THIS: set SHEPHERD_PASSWORD in ~/.shepherd/env and restart.     │\n" +
+            "  └──────────────────────────────────────────────────────────────────────┘\n" +
+            `  Operator password (shown ONCE): ${generatedPassword}\n`,
+        );
     }
   }
 

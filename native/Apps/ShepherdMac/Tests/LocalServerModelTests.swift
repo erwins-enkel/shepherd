@@ -549,7 +549,7 @@ extension MacSeamTests {
         let pid = try #require(first.state.pid)
         childPID = pid
         first.terminateForQuit()
-        let recordURL = home.appendingPathComponent(".shepherd/run/app-server.json")
+        let recordURL = try #require(FileManager.default.contentsOfDirectory(at: home.appendingPathComponent(".shepherd/run"), includingPropertiesForKeys: nil).first { $0.pathExtension == "json" })
         #expect(kill(pid, 0) == 0)
         let json = try #require(try JSONSerialization.jsonObject(with: Data(contentsOf: recordURL)) as? [String: Any])
         let identity = try #require(json["identity"] as? [String: String])

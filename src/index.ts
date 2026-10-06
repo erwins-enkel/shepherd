@@ -566,6 +566,10 @@ let credentialBanner: string | null = null;
     store,
     envPassword: config.password,
     envCookieSecret: config.cookieSecret,
+    generatedPasswordFile:
+      process.env.SHEPHERD_LOCAL_SUPERVISION === "1"
+        ? process.env.SHEPHERD_LOCAL_PASSWORD_FILE
+        : undefined,
     log: (m) => {
       credentialBanner = m;
     },

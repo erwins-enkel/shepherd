@@ -12488,6 +12488,15 @@
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"anIdentityMismatchLeavesTheForeignServerUntouched() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"anAdoptedServerDeathRestartsThroughTheExistingPolicy() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"quittingDuringStartupStillAllowsHealthyAdoptionOnTheNextLaunch() async throws\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quittingPreservesTheServerAndNextModelAdoptsBeforeExternalAcknowledgment() async throws\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"quittingPreservesTheServerAndNextModelAdoptsBeforeExternalAcknowledgment() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"kernelStartMismatchCannotAdoptOrSignalALivePid() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"everyStopPathRevalidatesTheAdoptedProcessBeforeSignalling() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"monitorTreatsAReusedPidAsAnExitAndNeverKillsItsReplacement() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"otherConfigurationsAndDatabaseChangesPreserveLiveOwnership() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"delayedPasswordAfterQuitNeverReachesTheLogOrANewPasswordOffer() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"adoptionAndContinuousAppendLoggingBoundDiskAndHandleTruncation() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerAdoptionTests.swift\",\"LocalServerAdoptionTests\",\"aRealParentExitPreservesStoppedAgentsThenAdoptsRecoversAndCleansUp() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerLogTests.swift\",\"PersistentServerLogTests\",\"tailRewindsAfterTruncationAndFollowsAReplacedFile() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/LocalServerLogTests.swift\",\"PersistentServerLogTests\",\"copyTruncateKeepsAnAppendWriterUsableAndCapsThePreviousCopy() throws\"]"
   ]
 }

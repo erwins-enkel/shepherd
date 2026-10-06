@@ -1,4 +1,7 @@
 import { test, expect } from "bun:test";
+import { mkdtempSync, writeFileSync, readFileSync, statSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   hashPassword,
   verifyPassword,
@@ -201,4 +204,51 @@ test("bootstrapAuth: env cookie secret pins the signing secret (overrides persis
     log: () => {},
   });
   expect(r.cookieSecret).toBe("env-pinned");
+});
+
+test("bootstrapAuth: supervised credential channel is private and never emits a banner", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "shepherd-auth-channel-"));
+  try {
+    const file = join(directory, "password");
+    writeFileSync(file, "", { mode: 0o644 });
+    const logs: string[] = [];
+    const store = fakeStore();
+    const result = await bootstrapAuth({
+      store,
+      envPassword: null,
+      envCookieSecret: null,
+      generatedPasswordFile: file,
+      log: (line) => logs.push(line),
+    });
+    expect(logs).toEqual([]);
+    expect(readFileSync(file, "utf8")).toBe(result.generatedPassword!);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    expect(await verifyPassword(readFileSync(file, "utf8"), result.passwordHash)).toBe(true);
+    // An existing password is retained and no credential is offered again.
+    writeFileSync(file, "");
+    const restart = await bootstrapAuth({
+      store,
+      envPassword: null,
+      envCookieSecret: null,
+      generatedPasswordFile: file,
+      log: (line) => logs.push(line),
+    });
+    expect(restart.passwordHash).toBe(result.passwordHash);
+    expect(readFileSync(file, "utf8")).toBe("");
+    expect(logs).toEqual([]);
+    const link = join(directory, "link");
+    symlinkSync(file, link);
+    await expect(
+      bootstrapAuth({
+        store: fakeStore(),
+        envPassword: null,
+        envCookieSecret: null,
+        generatedPasswordFile: link,
+        log: (line) => logs.push(line),
+      }),
+    ).rejects.toThrow();
+    expect(logs).toEqual([]);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

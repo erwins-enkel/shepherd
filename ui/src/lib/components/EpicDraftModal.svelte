@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { dialog } from "$lib/a11yDialog";
   import { epicDrafts } from "$lib/epic-draft.svelte";
@@ -55,7 +56,8 @@
   $effect(() => {
     const root = bodyEl;
     void children;
-    seen.clear();
+    // Untracked: the effect must re-run only for a new body/draft, never for the marks it adds.
+    untrack(() => seen.clear());
     if (!root) return;
     // eslint-disable-next-line svelte/prefer-svelte-reactivity -- timer bookkeeping, never rendered
     const pending = new Map<string, ReturnType<typeof setTimeout>>();

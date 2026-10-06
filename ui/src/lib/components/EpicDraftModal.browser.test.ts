@@ -341,3 +341,43 @@ describe("EpicDraftModal — resumed draft", () => {
     unmount();
   });
 });
+
+describe("EpicDraftModal — seen marks", () => {
+  beforeEach(async () => {
+    await page.viewport(1280, 900);
+  });
+
+  it("keeps seen marks while the review scrolls on and adds new ones", async () => {
+    const sessionId = "epic-draft-modal-seen";
+    epicDrafts.upsert(longDraft(sessionId));
+    const { container, unmount } = await render(EpicDraftModal, {
+      sessionId,
+      sessionLive: true,
+      onclose: () => {},
+    });
+    container.querySelector<HTMLElement>(".card")!.style.width = "1100px";
+    const body = container.querySelector<HTMLElement>(".body")!;
+    const ticks = () => container.querySelectorAll(".toc-seen").length;
+    const firstChildTicked = () =>
+      container.querySelector(".toc-children li:first-child .toc-seen") !== null;
+
+    container
+      .querySelector<HTMLElement>('[data-child-key="child-1"]')!
+      .scrollIntoView({ block: "start" });
+    await vi.waitFor(() => expect(firstChildTicked()).toBe(true), { timeout: 3000 });
+    const firstBatch = ticks();
+
+    // Further dwell timers must not wipe what is already marked.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(ticks(), "marks survive later dwell timers").toBe(firstBatch);
+
+    body.scrollTop = body.scrollHeight;
+    await vi.waitFor(() => expect(ticks()).toBeGreaterThan(firstBatch), { timeout: 3000 });
+    expect(firstChildTicked(), "earlier marks stay after scrolling on").toBe(true);
+    expect(container.querySelector(".seen-progress")?.textContent).toBe(
+      m.epicdraft_seen_progress({ seen: ticks(), total: 12 }),
+    );
+
+    unmount();
+  });
+});

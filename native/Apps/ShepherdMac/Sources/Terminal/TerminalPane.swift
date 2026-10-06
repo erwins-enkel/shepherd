@@ -2,24 +2,20 @@ import ShepherdAppCore
 import ShepherdKit
 import SwiftUI
 
-/// The terminal tab's body: the emulator, a state overlay, and the prompt bar.
+/// The terminal tab's body: the emulator and a state overlay. The Mac has no separate prompt
+/// bar — the operator types straight into the terminal (iOS keeps its own reply bar).
 struct TerminalPane: View {
     @Bindable var model: TerminalSessionModel
     let store: SessionStore
     let sessionID: String
-    @FocusState private var promptFocused: Bool
     /// Debounces the `.connecting` card; see its own doc comment.
     @State private var connectingOverlay = ConnectingOverlayDebouncer()
 
     var body: some View {
-        VStack(spacing: 0) {
-            ZStack {
-                TerminalHostView(model: model)
-                    .accessibilityLabel(L.t("native_terminal_tab_title"))
-                overlay
-            }
-            Divider()
-            promptBar
+        ZStack {
+            TerminalHostView(model: model)
+                .accessibilityLabel(L.t("native_terminal_tab_title"))
+            overlay
         }
         // The tab-body identifier every other detail tab carries (`detail-tab-activity`,
         // `-diff`, `-files`, `-git`, `-prompt`). The tab BUTTONS carry no accessibility name on
@@ -29,9 +25,6 @@ struct TerminalPane: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("detail-tab-terminal")
         .onDisappear { model.detach() }
-        // Autofocus the prompt when the tab appears — the operator switching
-        // to (or back to) a session almost always wants to type immediately.
-        .onAppear { promptFocused = true }
         .onChange(of: model.phase, initial: true) { _, phase in
             connectingOverlay.phaseChanged(toConnecting: phase == .connecting)
         }
@@ -118,31 +111,5 @@ struct TerminalPane: View {
         .padding(24)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
         .shadow(radius: 8)
-    }
-
-    private var promptBar: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                TextField(L.t("native_terminal_prompt_placeholder"), text: $model.promptText)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($promptFocused)
-                    .onSubmit { Task { await model.submitPrompt() } }
-                    .disabled(model.promptBusy)
-                    .accessibilityIdentifier("terminal-prompt")
-                Button(L.t("native_terminal_prompt_send")) {
-                    Task { await model.submitPrompt() }
-                }
-                .disabled(model.promptBusy || trimmedPrompt.isEmpty)
-                .accessibilityIdentifier("terminal-send")
-            }
-            if let error = model.promptError {
-                Text(verbatim: error).font(.caption).foregroundStyle(.red)
-            }
-        }
-        .padding(8)
-    }
-
-    private var trimmedPrompt: String {
-        model.promptText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

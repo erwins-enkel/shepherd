@@ -34,6 +34,9 @@ struct TerminalHostView: NSViewRepresentable {
         view.setAccessibilityLabel(L.t("native_terminal_tab_title"))
         view.setAccessibilityIdentifier("terminal-view")
         context.coordinator.bind(view)
+        // The terminal is the Mac's only input: focus it when the tab appears,
+        // once the view has a window to become first responder in.
+        DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
         return view
     }
 

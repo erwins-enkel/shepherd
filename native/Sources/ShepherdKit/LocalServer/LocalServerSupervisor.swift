@@ -78,7 +78,10 @@ public actor LocalServerSupervisor {
   private var logURL: URL { runDirectory.appendingPathComponent(configurationName + ".log") }
   private var passwordURL: URL { runDirectory.appendingPathComponent(configurationName + ".password") }
   private let liveStart = Mutex<KernelProcessIdentity?>(nil)
-  private let identityProbe = Mutex<@Sendable (Int32) -> KernelProcessIdentity?>({ KernelProcessIdentity.read($0) })
+  /// Boxed: a bare closure in a Mutex is re-wrapped in a reabstraction thunk on
+  /// every `withLock` read, so the 100 ms exit watcher overflowed the stack.
+  private struct IdentityProbe: Sendable { let read: @Sendable (Int32) -> KernelProcessIdentity? }
+  private let identityProbe = Mutex(IdentityProbe(read: { KernelProcessIdentity.read($0) }))
   private let runner: LocalRunnerStart
   private var launchIdentity: LocalServerIdentity?
   private let clock: any SupervisorClock
@@ -286,11 +289,11 @@ public actor LocalServerSupervisor {
   }
 
   func setIdentityProbeForTesting(_ probe: @escaping @Sendable (Int32) -> KernelProcessIdentity?) {
-    identityProbe.withLock { $0 = probe }
+    identityProbe.withLock { $0 = IdentityProbe(read: probe) }
   }
 
-  private nonisolated func currentIdentity(_ pid: Int32) -> KernelProcessIdentity? {
-    identityProbe.withLock { $0 }(pid)
+  nonisolated func currentIdentity(_ pid: Int32) -> KernelProcessIdentity? {
+    identityProbe.withLock { $0 }.read(pid)
   }
 
   private nonisolated func stillOwns(_ pid: Int32) -> Bool {

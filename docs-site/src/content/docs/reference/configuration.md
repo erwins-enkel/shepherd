@@ -122,6 +122,40 @@ seeds a fresh DB and an absent or invalid value falls back to the default shown.
 | `SHEPHERD_DEFAULT_EFFORT` | `default` | Default reasoning effort. `default` emits no effort flag; the tiers are `low`, `medium`, `high`, `xhigh`, `max`, `ultra`. There is no `auto` tier — unlike the model setting, effort has no promo fallback to defer to |
 | `SHEPHERD_FABLE_AVAILABLE` | `true` | Kill switch for Fable. When off, a spawn asking for `--model fable` is transparently rerouted to `opus[1m]` at argv-assembly time **without** rewriting the stored session model, so cost accounting and replay still record the operator's actual intent. Turn it off while Fable is unavailable to your account rather than editing sessions |
 
+Each engine also has its **own default effort**, set in **Settings → Coding CLI → Default per
+engine** next to that engine's model. It has no environment variable: a fresh DB starts both
+engines on **Follows global**, which uses `SHEPHERD_DEFAULT_EFFORT` above. Pick a tier there
+(or **CLI default**, which emits no effort flag) and that engine starts with it instead —
+for example Codex on `gpt-6.1-sol` at `xhigh` while Claude Code keeps following the global
+effort. Both engine cards stay editable whichever CLI is the default.
+
+### Where a new session's model and effort come from
+
+Shepherd walks this list top to bottom and takes the first level that has a value:
+
+1. **This task** — a model or effort picked by hand in **New task** (or passed with an Up Next
+   start). It applies to that one task only and never changes a default.
+2. **Epic, repo or agent environment** — an epic's own engine settings, a repo's
+   default-model/effort override, or a role's own CLI/model/effort in the agent environments.
+3. **The engine's default** — the model and effort of the engine that is about to start.
+4. **The global reasoning effort** — effort only, for an engine on **Follows global**. There is
+   no global model: each engine has its own model setting.
+5. **The CLI's own default** — `default` emits no `--model` or effort flag.
+
+The engine's default is what you get in these places:
+
+- **New task** preselects the chosen engine's model and effort when it opens and again on every
+  engine switch, even after you changed the effort by hand. A dialog reopened within two
+  minutes restores what you had picked.
+- **Drain and autopilot starts** use the default engine's values.
+- **Automatic switch at the weekly limit.** When the default CLI drops below 30% weekly capacity
+  and you accept the switch, the substitute becomes the default CLI until the original has room
+  again. Everything started in that window runs on the substitute's **own** default — not on the
+  effort you meant for the engine it stands in for. Settings names it in the note under
+  **Default coding CLI**.
+- **Role agents** on CLI `inherit` with effort `default` (distiller, optimizer, merge suggester)
+  follow the effort of the engine they run on.
+
 ## Role agents
 
 Shepherd's background roles are ordinary agent spawns, each with its own **CLI / model /

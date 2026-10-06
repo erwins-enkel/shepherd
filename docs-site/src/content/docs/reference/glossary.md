@@ -175,8 +175,8 @@ for deeper reasoning, lower is faster and cheaper. `max` allows deeper
 reasoning; `ultra` also uses automatic subagents. Which levels are on offer
 depends on the CLI and the model: Claude stops at `max`, and among the curated
 Codex models only the newest ones reach `ultra`. Selectable per session in the New Task
-picker — and when spawning a variant, comparison, or replacement — with a per-repo
-or global default in Settings, plus a per-role override for each satellite pass
+picker — and when spawning a variant, comparison, or replacement — with a per-repo,
+per-engine or global default in Settings, plus a per-role override for each satellite pass
 (critic, planner, recap, doc-agent, distiller, optimizer, merge-suggester, namer,
 autopilot) in the Settings agent matrix;
 leave it at **default** to use the CLI's own effort. Shepherd passes it to the

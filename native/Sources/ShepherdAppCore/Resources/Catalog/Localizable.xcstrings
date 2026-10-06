@@ -8299,6 +8299,23 @@
         }
       }
     },
+    "model_guidance_codex_61_sol": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nahe an Astra bei komplexem Coding und langlaufenden Aufgaben, zu niedrigeren Kosten als Astra."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Near-Astra capability for complex coding and long-running work, with lower costs than Astra."
+          }
+        }
+      }
+    },
     "model_guidance_codex_6_astra": {
       "extractionState": "manual",
       "localizations": {

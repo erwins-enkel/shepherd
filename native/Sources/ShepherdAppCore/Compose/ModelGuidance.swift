@@ -71,6 +71,7 @@ public struct ModelGuidance {
         } else {
             switch model {
             case "gpt-6-astra": return .init(costTier: .premium, tag: .max, detailKey: "model_guidance_codex_6_astra")
+            case "gpt-6.1-sol": return .init(costTier: .high, tag: .strong, detailKey: "model_guidance_codex_61_sol")
             case "gpt-6-sol": return .init(costTier: .high, tag: .strong, detailKey: "model_guidance_codex_6_sol")
             case "gpt-6-luna": return .init(costTier: .low, tag: .budget, detailKey: "model_guidance_codex_6_luna")
             case "gpt-5.5": return .init(costTier: .premium, tag: .max, detailKey: "model_guidance_codex_55")

@@ -5259,5 +5259,8 @@
   "decommission_fail_merge_next": "Resolve what the server message names (such as a merge conflict), then retry. If the merge went through after all, the retry skips it and only tears the session down.",
   "decommission_fail_archive_reason": "Teardown failed",
   "decommission_fail_archive_what": "Stopping the agent or removing its worktree failed, so the session is still listed. A PR step that already went through is not repeated.",
-  "decommission_fail_retry_next": "Retry. If it keeps failing, the server log (shepherd.log) shows the cause."
+  "decommission_fail_retry_next": "Retry. If it keeps failing, the server log (shepherd.log) shows the cause.",
+  "model_guidance_codex_61_sol": "Near-Astra capability for complex coding and long-running work, with lower costs than Astra.",
+  "feat_codex_61_sol_title": "GPT-6.1 Sol in Codex",
+  "feat_codex_61_sol_body": "Choose GPT-6.1 Sol for new tasks, defaults, and agent roles, with reasoning effort up to Ultra. Your saved model choices stay as they are."
 }

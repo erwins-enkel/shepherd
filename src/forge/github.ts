@@ -1008,24 +1008,40 @@ export class GithubForge implements GitForge {
     };
   }
 
+  /** Size nested GraphQL connections from existing counts (#2845). Counts are advisory:
+   *  a full result grows to the next tier, up to the existing 200-item list cap. */
+  private async listOpenCli<T>(kind: "pr" | "issue", fields: string): Promise<T[]> {
+    const fp = this.readCache?.get("fingerprint", this.slug)?.value;
+    const counts = this.readCache?.get("counts", this.slug)?.value;
+    const count =
+      kind === "pr" ? (fp?.openPrs ?? counts?.openPRs) : (fp?.openIssues ?? counts?.openIssues);
+    const limits = kind === "pr" ? [20, 30, 50, 100, 200] : [50, 100, 200];
+    // Five spare slots avoid an extra query at the known count's boundary.
+    let tier = count == null ? -1 : limits.findIndex((limit) => limit >= count + 5);
+    if (tier === -1) tier = limits.length - 1;
+    for (;;) {
+      const limit = limits[tier]!;
+      const out = await this.run([
+        kind,
+        "list",
+        "--repo",
+        this.slug,
+        "--state",
+        "open",
+        "--json",
+        fields,
+        "--limit",
+        String(limit),
+      ]);
+      const rows = JSON.parse(out || "[]") as T[];
+      if (rows.length < limit || tier === limits.length - 1) return rows;
+      tier++;
+    }
+  }
+
   /** `gh issue list` — the GraphQL-bucket transport for {@link listIssues}. */
   private async listIssuesCli(): Promise<Issue[]> {
-    const out = await this.run([
-      "issue",
-      "list",
-      "--repo",
-      this.slug,
-      "--state",
-      "open",
-      "--json",
-      "number,title,body,url,labels,createdAt,updatedAt,assignees,author",
-      // Cap matches listPullRequests; the count source (GraphQL totalCount) is
-      // unbounded, so a repo with >200 open issues lists a truncated set under a
-      // larger count. Raise this or paginate if such repos appear.
-      "--limit",
-      "200",
-    ]);
-    const raw = JSON.parse(out || "[]") as Array<{
+    const raw = await this.listOpenCli<{
       number: number;
       title: string;
       body?: string;
@@ -1035,7 +1051,7 @@ export class GithubForge implements GitForge {
       updatedAt?: string;
       assignees?: Array<{ login: string }>;
       author?: { login?: string } | null;
-    }>;
+    }>("issue", "number,title,body,url,labels,createdAt,updatedAt,assignees,author");
     return raw.map((i) => {
       const ts = Date.parse(i.createdAt ?? "");
       const labelColors = labelColorsFrom(i.labels ?? []);
@@ -1917,20 +1933,14 @@ export class GithubForge implements GitForge {
   async listOpenPrSnapshot(): Promise<OpenPrSnapshot> {
     const deployConfigured = Boolean(this.cfg.deployWorkflow);
     if (graphRateLimit.blocked()) return this.listOpenPrSnapshotRest(deployConfigured);
-    let out: string;
+    let prs: Array<
+      GhPr & { author?: { login?: string } | null; labels?: Array<{ name?: string }> }
+    >;
     try {
-      out = await this.run([
+      prs = await this.listOpenCli(
         "pr",
-        "list",
-        "--repo",
-        this.slug,
-        "--state",
-        "open",
-        "--json",
         "number,url,title,state,author,createdAt,isDraft,mergeable,mergeStateStatus,statusCheckRollup,reviews,reviewRequests,headRefName,headRefOid,baseRefName,labels,headRepositoryOwner",
-        "--limit",
-        "200",
-      ]);
+      );
     } catch (err) {
       if (isRateLimitError(err)) return this.listOpenPrSnapshotRest(deployConfigured);
       throw err;
@@ -1943,10 +1953,6 @@ export class GithubForge implements GitForge {
       this.defaultBranch().catch(() => null),
       this.awaitingApprovalShas(),
     ]);
-
-    const prs = JSON.parse(out || "[]") as Array<
-      GhPr & { author?: { login?: string } | null; labels?: Array<{ name?: string }> }
-    >;
 
     if (prs.length >= 200 && !this.openPrCapLogged) {
       this.openPrCapLogged = true;
@@ -1984,7 +1990,7 @@ export class GithubForge implements GitForge {
   }
 
   /** Open PRs for this repo as full poll-grade PrStatus objects keyed by head
-   *  branch name, fetched in ONE `gh pr list --state open` call — the per-repo
+   *  branch name, fetched in a `gh pr list --state open` batch — the per-repo
    *  batch the PrPoller matches sessions against locally (collapsing N× per-branch
    *  prStatus to O(repos)). When two open PRs share a headRefName (e.g. an
    *  internal-branch PR and a fork PR for the same name) the entry owned by

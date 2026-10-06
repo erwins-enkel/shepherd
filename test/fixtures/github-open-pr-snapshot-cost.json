@@ -1,0 +1,20 @@
+{
+  "capturedAt": "2026-10-06T21:33:02.252377+00:00",
+  "ghVersion": "2.93.0",
+  "fields": "number,url,title,state,author,createdAt,isDraft,mergeable,mergeStateStatus,statusCheckRollup,reviews,reviewRequests,headRefName,headRefOid,baseRefName,labels,headRepositoryOwner",
+  "request": {
+    "query": "fragment pr on PullRequest{number,url,title,state,author{login,...on User{id,name}},createdAt,isDraft,mergeable,mergeStateStatus,statusCheckRollup: commits(last: 1) {nodes {commit {statusCheckRollup {contexts(first:100) {nodes {__typename...on StatusContext {context,state,targetUrl,createdAt,description},...on CheckRun {name,checkSuite{workflowRun{workflow{name}}},status,conclusion,startedAt,completedAt,detailsUrl}},pageInfo{hasNextPage,endCursor}}}}}},reviews(first: 100) {nodes {id,author{login},authorAssociation,submittedAt,body,state,commit{oid},reactionGroups{content,users{totalCount}}}pageInfo{hasNextPage,endCursor}totalCount},reviewRequests(first: 100) {nodes {requestedReviewer {__typename,...on User{login,name},...on Bot{login},...on Team{organization{login}name,slug}}}},headRefName,headRefOid,baseRefName,labels(first:100){nodes{id,name,description,color},totalCount},headRepositoryOwner{id,login,...on User{name}}}\n    query PullRequestList(\n      $owner: String!,\n      $repo: String!,\n      $limit: Int!,\n      $endCursor: String,\n      $baseBranch: String,\n      $headBranch: String,\n      $state: [PullRequestState!] = OPEN\n    ) {\n      repository(owner: $owner, name: $repo) {\n        pullRequests(\n          states: $state,\n          baseRefName: $baseBranch,\n          headRefName: $headBranch,\n          first: $limit,\n          after: $endCursor,\n          orderBy: {field: CREATED_AT, direction: DESC}\n        ) {\n          totalCount\n          nodes {\n            ...pr\n          }\n          pageInfo {\n            hasNextPage\n            endCursor\n          }\n        }\n      }\n     rateLimit(dryRun:true){cost} }",
+    "variables": {
+      "limit": 20,
+      "owner": "erwins-enkel",
+      "repo": "shepherd",
+      "state": ["OPEN"]
+    }
+  },
+  "costByLimit": {
+    "20": 1,
+    "30": 2,
+    "50": 3,
+    "100": 5
+  }
+}

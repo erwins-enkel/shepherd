@@ -3,25 +3,28 @@
 # Debug app from this checkout and open it. The Mac counterpart of ios-dev.sh.
 #
 # The installed app and dev builds share run.shepherd.mac. Quit the old app
-# before launching the new one. Its server and sessions continue running; the
+# before launching the new one. A detaching build keeps its server running; the
 # new app adopts the recorded local install and resumes supervision.
 #
 # Usage: native/scripts/mac-dev.sh [--build-only] [--keep-running] [--yes] [--force]
 #   --build-only    build, but neither quit nor launch anything
 #   --keep-running  build and launch without quitting the running app first
-#   --yes, --force  accepted for compatibility; relaunch needs neither
+#   --yes           accept interrupting sessions in an older app
+#   --force         accept losing sessions in an older app (implies --yes)
 set -euo pipefail
 
 BUNDLE_ID=run.shepherd.mac
 PORT="${SHEPHERD_PORT:-7330}"
 QUIT=1
 LAUNCH=1
+YES=0
+FORCE=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --build-only) QUIT=0; LAUNCH=0; shift ;;
     --keep-running) QUIT=0; shift ;;
-    --yes) shift ;;
-    --force) shift ;;
+    --yes) YES=1; shift ;;
+    --force) YES=1; FORCE=1; shift ;;
     -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; exit 1 ;;
   esac
@@ -48,8 +51,15 @@ echo "    $APP"
 
 if [[ "$QUIT" == 1 ]] && running; then
   echo "==> Checking app relaunch…"
-  python3 "$SCRIPT_DIR/mac-dev-preflight.py"
-  echo "==> Quitting the running Shepherd (the local server keeps running)…"
+  verdict=0
+  python3 "$SCRIPT_DIR/mac-dev-preflight.py" || verdict=$?
+  case "$verdict" in
+    0) ;;
+    2) [[ "$YES" == 1 ]] || { echo "Stopped before quitting; nothing was changed." >&2; exit 2; } ;;
+    3) [[ "$FORCE" == 1 ]] || { echo "Stopped before quitting; nothing was changed." >&2; exit 3; } ;;
+    *) echo "Preflight failed; not quitting the running app." >&2; exit 1 ;;
+  esac
+  echo "==> Quitting the running Shepherd…"
   osascript -e "tell application id \"$BUNDLE_ID\" to quit" >/dev/null 2>&1 || true
   for _ in $(seq 1 75); do running || break; sleep 0.2; done
   if running; then

@@ -193,7 +193,11 @@ import {
   type CodexAuthMode,
 } from "./default-model";
 import { readCodexAuthMode } from "./codex-auth";
-import { drainSpawnEffort, resolveDefaultEffortSetting } from "./default-effort";
+import {
+  drainSpawnEffort,
+  engineDefaultEffortSetting,
+  resolveDefaultEffortSetting,
+} from "./default-effort";
 import { homedir } from "node:os";
 import {
   resolveProfile,
@@ -2719,7 +2723,10 @@ export class DrainService {
       config.defaultAgentProvider,
     );
     const cfgEffort = drainSpawnEffort(
-      resolveDefaultEffortSetting(cfg.defaultEffort, config.defaultEffort),
+      resolveDefaultEffortSetting(
+        cfg.defaultEffort,
+        engineDefaultEffortSetting(config.defaultAgentProvider, config),
+      ),
     );
     if (
       this.deps.capacity &&
@@ -3731,7 +3738,12 @@ export class DrainService {
         model: this.resolvedSpawnModel(decision, rc.defaultModel),
         effort: epicSettings
           ? epicSettings.effort
-          : drainSpawnEffort(resolveDefaultEffortSetting(rc.defaultEffort, config.defaultEffort)),
+          : drainSpawnEffort(
+              resolveDefaultEffortSetting(
+                rc.defaultEffort,
+                engineDefaultEffortSetting(config.defaultAgentProvider, config),
+              ),
+            ),
         images: [],
         auto: true,
         issueRef: { number, url, title, body },

@@ -212,7 +212,11 @@ import {
   type RoleEnvironment,
 } from "./default-model";
 import { readCodexAuthMode } from "./codex-auth";
-import { normalizeDefaultEffortSetting } from "./default-effort";
+import {
+  engineDefaultEffortSetting,
+  normalizeDefaultEffortSetting,
+  normalizeProviderDefaultEffortSetting,
+} from "./default-effort";
 import { shouldDowngrade } from "./usage-downgrade";
 import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeAuthModeSetting } from "./auth-mode";
@@ -404,6 +408,13 @@ const savedDe = store.getSetting("defaultEffort");
 if (savedDe !== null) {
   const v = normalizeDefaultEffortSetting(savedDe);
   if (v !== null) config.defaultEffort = v;
+}
+for (const [key, provider] of [
+  ["defaultClaudeEffort", "claude"],
+  ["defaultCodexEffort", "codex"],
+] as const) {
+  const v = normalizeProviderDefaultEffortSetting(provider, store.getSetting(key));
+  if (v !== null) config[key] = v;
 }
 // Per-role ENVIRONMENT settings (persisted) override the env/seed defaults; corrupt/unknown values
 // are ignored (keep the seed rather than clobber). Each role is a PAIR: a `<role>Cli`
@@ -847,7 +858,7 @@ function roleEnv(cli: string, model: string, effort: string): RoleEnvironment {
 function distillerEnv(): RoleEnvironment {
   const effort =
     config.distillerCli === "inherit" && config.distillerEffort === "default"
-      ? config.defaultEffort
+      ? engineDefaultEffortSetting(config.defaultAgentProvider, config)
       : config.distillerEffort;
   return roleEnv(config.distillerCli, config.distillerModel, effort);
 }
@@ -855,7 +866,7 @@ function distillerEnv(): RoleEnvironment {
 function optimizerEnv(): RoleEnvironment {
   const effort =
     config.optimizerCli === "inherit" && config.optimizerEffort === "default"
-      ? config.defaultEffort
+      ? engineDefaultEffortSetting(config.defaultAgentProvider, config)
       : config.optimizerEffort;
   return roleEnv(config.optimizerCli, config.optimizerModel, effort);
 }
@@ -863,7 +874,7 @@ function optimizerEnv(): RoleEnvironment {
 function mergeSuggestEnv(): RoleEnvironment {
   const effort =
     config.mergeSuggestCli === "inherit" && config.mergeSuggestEffort === "default"
-      ? config.defaultEffort
+      ? engineDefaultEffortSetting(config.defaultAgentProvider, config)
       : config.mergeSuggestEffort;
   return roleEnv(config.mergeSuggestCli, config.mergeSuggestModel, effort);
 }

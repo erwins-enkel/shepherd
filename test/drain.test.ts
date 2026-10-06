@@ -371,6 +371,34 @@ test("ChatGPT auth clamps a blocked Codex global default before drain create", a
   }
 });
 
+test("drain spawns with the active engine's own default effort (e.g. during a Codex failover)", async () => {
+  const saved = {
+    provider: config.defaultAgentProvider,
+    global: config.defaultEffort,
+    claude: config.defaultClaudeEffort,
+    codex: config.defaultCodexEffort,
+  };
+  config.defaultEffort = "high";
+  config.defaultClaudeEffort = "inherit";
+  config.defaultCodexEffort = "xhigh";
+  try {
+    config.defaultAgentProvider = "codex";
+    const codex = makeHarness({ issues: [issue(1)], maxAuto: 1 });
+    await codex.drain.pump(REPO);
+    expect(codex.creates[0]?.effort).toBe("xhigh");
+
+    config.defaultAgentProvider = "claude";
+    const claude = makeHarness({ issues: [issue(1)], maxAuto: 1 });
+    await claude.drain.pump(REPO);
+    expect(claude.creates[0]?.effort).toBe("high");
+  } finally {
+    config.defaultAgentProvider = saved.provider;
+    config.defaultEffort = saved.global;
+    config.defaultClaudeEffort = saved.claude;
+    config.defaultCodexEffort = saved.codex;
+  }
+});
+
 test("spawn emits session:new for the created session (UI session list is push-only)", async () => {
   const h = makeHarness({ maxAuto: 1, issues: [issue(1)] });
   await h.drain.pump(REPO);

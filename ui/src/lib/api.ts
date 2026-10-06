@@ -1513,9 +1513,12 @@ export async function getRepoWeb(repoPath: string): Promise<{
   return r.json();
 }
 
-export async function listPullRequests(
-  repoPath: string,
-): Promise<{ slug: string | null; webUrl: string | null; prs: PullRequest[] }> {
+export async function listPullRequests(repoPath: string): Promise<{
+  slug: string | null;
+  webUrl: string | null;
+  prs: PullRequest[];
+  error?: "fetch_failed";
+}> {
   const r = await fetch(`/api/prs?repo=${encodeURIComponent(repoPath)}`);
   if (!r.ok) throw await failed(r, "prs");
   return r.json();

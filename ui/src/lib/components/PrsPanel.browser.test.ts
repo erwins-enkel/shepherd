@@ -77,6 +77,73 @@ const launchBtn = () => page.getByRole("button", { name: m.prspanel_launch_train
 const checkbox = (n: number) =>
   page.getByRole("checkbox", { name: m.prspanel_select_pr({ number: n }) });
 
+describe("PrsPanel load failures", () => {
+  const retry = () => page.getByRole("button", { name: m.common_retry() });
+
+  it("only shows no open PRs after a successful empty listing", async () => {
+    seed([]);
+    render(PrsPanel, { repoPath: "/repo", onreview: noop });
+
+    await expect.element(page.getByText(m.prspanel_no_open())).toBeInTheDocument();
+    await expect.element(retry()).not.toBeInTheDocument();
+  });
+
+  it("offers retry when the server reports a failed listing", async () => {
+    mockList.mockResolvedValue({
+      slug: "acme/repo",
+      webUrl: null,
+      prs: [],
+      error: "fetch_failed",
+    });
+    render(PrsPanel, { repoPath: "/repo", onreview: noop });
+
+    await expect.element(page.getByText(m.prspanel_load_failed())).toBeInTheDocument();
+    await expect.element(retry()).toBeInTheDocument();
+    await expect.element(page.getByText(m.prspanel_no_open())).not.toBeInTheDocument();
+    await expect.element(page.getByText(m.issuespanel_no_host())).not.toBeInTheDocument();
+
+    seed([pr(1)]);
+    await retry().click();
+    await expect.element(checkbox(1)).toBeInTheDocument();
+    await expect.element(retry()).not.toBeInTheDocument();
+    expect(mockList).toHaveBeenCalledTimes(2);
+    expect(mockList).toHaveBeenLastCalledWith("/repo");
+  });
+
+  it("offers retry for a rejected request instead of claiming no git host", async () => {
+    mockList.mockRejectedValue(new Error("network unavailable"));
+    render(PrsPanel, { repoPath: "/repo", onreview: noop });
+
+    await expect.element(page.getByText(m.prspanel_load_failed())).toBeInTheDocument();
+    await expect.element(retry()).toBeInTheDocument();
+    await expect.element(page.getByText(m.issuespanel_no_host())).not.toBeInTheDocument();
+    await expect.element(page.getByText(m.prspanel_no_open())).not.toBeInTheDocument();
+
+    seed([]);
+    await retry().click();
+    await expect.element(page.getByText(m.prspanel_no_open())).toBeInTheDocument();
+    await expect.element(retry()).not.toBeInTheDocument();
+  });
+
+  it("clears the previous repo's rows and error when changing repositories", async () => {
+    seed([pr(1)], "acme/first");
+    const { rerender } = await render(PrsPanel, { repoPath: "/first", onreview: noop });
+    await expect.element(checkbox(1)).toBeInTheDocument();
+
+    mockList.mockRejectedValue(new Error("network unavailable"));
+    await rerender({ repoPath: "/second" });
+    await expect.element(retry()).toBeInTheDocument();
+    await expect.element(checkbox(1)).not.toBeInTheDocument();
+    expect(document.querySelector(".prs-header")?.textContent).not.toContain("acme/first");
+    await expect.element(launchBtn()).not.toBeInTheDocument();
+
+    seed([pr(2)], "acme/third");
+    await rerender({ repoPath: "/third" });
+    await expect.element(checkbox(2)).toBeInTheDocument();
+    await expect.element(retry()).not.toBeInTheDocument();
+  });
+});
+
 describe("PrsPanel repo slug link", () => {
   it("renders an <a> linking to webUrl when provided", async () => {
     seed([], "owner/repo", "https://github.com/owner/repo");

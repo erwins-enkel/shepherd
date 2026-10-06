@@ -39,6 +39,7 @@
   let slug = $state<string | null>(null);
   let repoUrl = $state<string | null>(null);
   let loading = $state(true);
+  let loadError = $state(false);
 
   // Repo-scoped author filter. Selection is local (not the global prsFilter store)
   // because the option set is repo-specific; reset on repo change and pruned on refresh
@@ -83,16 +84,19 @@
   // after a merge so the optimistic row removal stays visible while we reconcile.
   function load(rp: string, silent = false) {
     if (!silent) loading = true;
+    loadError = false;
     listPullRequests(rp)
       .then((r) => {
         if (rp !== repoPath) return;
         slug = r.slug;
         repoUrl = r.webUrl;
         prs = r.prs;
+        loadError = r.error != null;
         loading = false;
       })
       .catch(() => {
         if (rp !== repoPath) return; // a stale failure must not clear the current repo's spinner
+        loadError = true;
         loading = false;
       });
   }
@@ -106,6 +110,9 @@
       // Selection + author filter must never leak across repos — reset whenever the repo flips.
       selected.clear();
       selectedAuthor = null;
+      prs = [];
+      slug = null;
+      repoUrl = null;
       load(rp);
     });
   });
@@ -135,7 +142,7 @@
     {m.prspanel_title()}<RepoLink {slug} webUrl={repoUrl} />
   </div>
 
-  {#if prs.length > 0}
+  {#if !loading && !loadError && prs.length > 0}
     <div class="prs-toolbar">
       <PrFilterPopover
         authors={availableAuthors}
@@ -160,6 +167,12 @@
   <div class="prs-list">
     {#if loading}
       <div class="muted">{m.common_loading()}</div>
+    {:else if loadError}
+      <div class="muted" role="status">
+        {m.prspanel_load_failed()}
+        <button type="button" class="gbtn" onclick={() => load(repoPath)}>{m.common_retry()}</button
+        >
+      </div>
     {:else if slug === null}
       <div class="muted">{m.issuespanel_no_host()}</div>
     {:else if prs.length === 0}

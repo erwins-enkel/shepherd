@@ -872,6 +872,26 @@ test("DELETE /api/sessions/:id archives", async () => {
   expect(del.status).toBe(200);
 });
 
+test("DELETE /api/sessions/:id logs a failed archive and answers its message", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const deps = makeDeps();
+    deps.service = {
+      archive: async () => {
+        throw new Error("herdr: tab list failed");
+      },
+    } as any;
+    const res = await makeApp(deps).fetch(
+      new Request("http://x/api/sessions/s-gone", { method: "DELETE" }),
+    );
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toBe("herdr: tab list failed");
+    expect(warn).toHaveBeenCalledWith("[archive] session s-gone failed: herdr: tab list failed");
+  } finally {
+    warn.mockRestore();
+  }
+});
+
 // Build an app whose service is backed by a stub reaper, so we can drive the
 // /leftovers + reap-on-DELETE paths without touching real /proc.
 function harnessWithReaper(reaper: {

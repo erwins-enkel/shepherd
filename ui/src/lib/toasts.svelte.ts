@@ -10,6 +10,14 @@
 
 type ToastTone = "info" | "undo";
 
+/** Why a failure toast failed, for the operator to act on: a one-line reason shown under the
+ *  message, plus labelled sections behind a "Details" disclosure. `mono` sections hold raw text
+ *  passed through verbatim (e.g. a server message). */
+export interface ToastDetail {
+  reason: string;
+  sections: { label: string; text: string; mono?: boolean }[];
+}
+
 interface Toast {
   id: number;
   tone: ToastTone;
@@ -33,6 +41,8 @@ interface Toast {
   actionLabel?: string;
   /** Assertive announcement (role="alert") for failures; default polite. */
   alert?: boolean;
+  /** Reason + explanation for a failure (info only). */
+  detail?: ToastDetail;
 }
 
 interface InfoOpts {
@@ -53,6 +63,8 @@ interface InfoOpts {
   /** Dedupe key: a repeated info with the same key refreshes the existing toast
    *  instead of stacking another (e.g. repeated failures to one target). */
   key?: string;
+  /** Why it failed and what to do — rendered as a reason line + "Details" disclosure. */
+  detail?: ToastDetail;
 }
 
 interface UndoOpts {
@@ -132,6 +144,7 @@ class ToastStore {
               text,
               actionLabel: opts.action?.label,
               alert: opts.alert,
+              detail: opts.detail,
               durationMs,
               armSeq: (t.armSeq ?? 0) + 1,
             }
@@ -149,6 +162,7 @@ class ToastStore {
         text,
         actionLabel: opts.action?.label,
         alert: opts.alert,
+        detail: opts.detail,
         key: opts.key,
         durationMs,
         armSeq: 0,

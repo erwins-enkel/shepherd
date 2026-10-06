@@ -3121,7 +3121,15 @@ async function handleSessionDelete({ req, parts, deps }: Ctx): Promise<Response 
   const reap = Array.isArray(body?.reap)
     ? (body!.reap as unknown[]).filter((x): x is string => typeof x === "string")
     : undefined;
-  await deps.service.archive(parts[2], reap);
+  try {
+    await deps.service.archive(parts[2], reap);
+  } catch (err) {
+    // The dispatch seam still answers the JSON 500; this line is what survives the toast.
+    console.warn(
+      `[archive] session ${parts[2]} failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    throw err;
+  }
   deps.prCache?.drop(parts[2]);
   deps.events.emit("session:archived", { id: parts[2] });
   return json({ ok: true });
@@ -4592,6 +4600,15 @@ function manualMergeFailure(err: unknown): Response | null {
   return null;
 }
 
+/** Why a merge/close found no open PR, as a stable `code`. A decommission retry reads it to tell
+ *  "the step already took effect" (a merge that landed but answered an error) from "this PR can no
+ *  longer land" — without it, the retry replays the merge into this 409 forever. */
+function notOpenPrCode(state: PrStatus["state"]): string {
+  if (state === "merged") return "pr_already_merged";
+  if (state === "closed") return "pr_already_closed";
+  return "pr_not_found";
+}
+
 async function forgeMerge(
   forge: GitForge,
   session: Session,
@@ -4606,7 +4623,7 @@ async function forgeMerge(
   };
   const cur = await forge.prStatus(head);
   if (cur.state !== "open" || !cur.number) {
-    return json({ error: "no open PR to merge" }, 409);
+    return json({ error: "no open PR to merge", code: notOpenPrCode(cur.state) }, 409);
   }
   const confirm = parseMergeConfirm(body.confirm);
   const refusal = mergeGateRefusal(
@@ -4750,7 +4767,7 @@ async function forgeSetDraftState(
 async function forgeClosePr(forge: GitForge, session: Session, deps: AppDeps): Promise<Response> {
   const cur = await forge.prStatus(session.branch ?? "");
   if (cur.state !== "open" || !cur.number) {
-    return json({ error: "no open PR" }, 409);
+    return json({ error: "no open PR", code: notOpenPrCode(cur.state) }, 409);
   }
   if (!forge.closePr) {
     return json({ error: "forge does not support closing PRs" }, 400);
@@ -4963,6 +4980,13 @@ async function handleSessionGit(ctx: Ctx): Promise<Response | null> {
   try {
     return await dispatchForgeAction(forge, session, ctx);
   } catch (e) {
+    // Mutations only: a failed merge/close is an operator action worth tracing, while the GET
+    // state reads fail routinely under a rate limit and would flood the log.
+    if (ctx.req.method === "POST") {
+      console.warn(
+        `[git] ${parts[4]} for session ${session.id} failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
     return json({ error: e instanceof Error ? e.message : "forge error" }, 502);
   }
 }

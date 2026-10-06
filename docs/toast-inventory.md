@@ -25,6 +25,11 @@ success/archive). Everything else that fails is a plain `alert` (12s); dead-end 
 the operator can only read (e.g. "branch merged — relaunch instead") no longer sit on
 screen forever.
 
+A failure toast can also carry a `detail`: a reason line under the message plus labelled
+sections ("What happened", "What you can do", the server's own message) behind a Details
+disclosure. The decommission failure uses it, and only offers Retry — and only persists —
+when replaying the same commit can succeed (`ui/src/lib/decommission-failure.ts`).
+
 ## Reconciliation
 
 `grep -rn "toasts.info(" ui/src` → 184 hits; **167 excluding `*.test.*`** (the rest are

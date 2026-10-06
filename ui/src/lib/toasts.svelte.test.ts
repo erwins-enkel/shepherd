@@ -185,3 +185,17 @@ test("keyed refresh while held doesn't re-arm under the pointer", async () => {
   await vi.advanceTimersByTimeAsync(1);
   expect(toasts.items.some((t) => t.id === id)).toBe(false); // refreshed duration applies
 });
+
+test("info carries an optional detail; a keyed refresh replaces or clears it", () => {
+  const detail = { reason: "Reason: rate limit", sections: [{ label: "Next", text: "Wait" }] };
+  toasts.info("failed", { key: "d1", sticky: true, detail });
+  expect(toasts.items[0]?.detail).toEqual(detail);
+
+  const next = { reason: "Reason: offline", sections: [] };
+  toasts.info("failed", { key: "d1", sticky: true, detail: next });
+  expect(toasts.items).toHaveLength(1);
+  expect(toasts.items[0]?.detail).toEqual(next);
+
+  toasts.info("failed", { key: "d1", sticky: true });
+  expect(toasts.items[0]?.detail).toBeUndefined();
+});

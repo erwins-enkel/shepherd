@@ -1976,6 +1976,8 @@
   "topbar_held_badge": "{count} zurückgehalten",
   "topbar_held_resets": "· Reset {time}",
   "topbar_held_title": "Zurückgehaltene Aufgaben",
+  "topbar_held_show_full_prompt": "Ganzen Prompt anzeigen",
+  "topbar_held_show_less": "Weniger anzeigen",
   "topbar_held_edit": "Bearbeiten",
   "topbar_held_spawn_now": "Jetzt starten",
   "topbar_held_spawn_cli_label": "Starten mit",

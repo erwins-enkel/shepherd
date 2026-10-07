@@ -51,6 +51,18 @@ public enum SessionBadges {
         if let autopilot = autopilot(session, reviewing: reviewing, repoDefault: repoAutopilotDefault) {
             items.append(autopilot)
         }
+        if session.sandboxDegraded == true {
+            items.append(.init(id: "sandbox", text: L.t("session_sandbox_degraded_label"), tint: .orange))
+        } else if session.sandboxApplied == .autonomous {
+            let degraded = session.additionalProperties.value["egressDegraded"] as? Bool == true
+            items.append(.init(id: "sandbox", text: degraded
+                ? L.t("session_sandbox_egress_degraded_label") : L.t("session_sandbox_autonomous_label"),
+                tint: degraded ? .orange : .secondary))
+        } else if session.sandboxApplied == .standard {
+            items.append(.init(id: "sandbox", text: L.t("session_sandbox_standard_label"), tint: .secondary))
+        } else if session.sandboxApplied == .trusted, session.auto {
+            items.append(.init(id: "sandbox", text: L.t("session_sandbox_unconfined_label"), tint: .orange))
+        }
         if let status = status(session, git: git, reviewing: reviewing, now: now) { items.append(status) }
         if !session.manualSteps.isEmpty {
             items.append(.init(id: "manual-steps", text: L.t("unitrow_manual_steps", "\(session.manualSteps.count)"), tint: .yellow))

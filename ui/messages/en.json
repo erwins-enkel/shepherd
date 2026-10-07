@@ -5413,5 +5413,6 @@
   "native_close_confirm_title": "Close the Shepherd window?",
   "native_quit_confirm_title": "Quit Shepherd?",
   "native_quit_confirm_action": "Quit app",
-  "native_close_confirm_body": "The Shepherd server keeps running in the background. Running sessions and agents continue working, including on remote servers.\n\nTo stop the local server, cancel and choose Stop in “Run on this Mac”. Open Shepherd again to follow your sessions."
+  "native_close_confirm_body": "The Shepherd server keeps running in the background. Running sessions and agents continue working, including on remote servers.\n\nTo stop the local server, cancel and choose Stop in “Run on this Mac”. Open Shepherd again to follow your sessions.",
+  "native_session_details_title": "Session details"
 }

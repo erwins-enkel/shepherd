@@ -14,12 +14,12 @@ struct SidebarView: View {
         // Deadlines are display inputs too: a final critic round or merge marker can expire
         // without another server frame. The row's own timeline cannot invalidate its parent
         // partition, so sample the groups and Ready lens here at the same cadence as the row.
-        TimelineView(.periodic(from: .now, by: 20)) { _ in
-            content
+        TimelineView(.periodic(from: .now, by: 20)) { timeline in
+            content(now: Int(timeline.date.timeIntervalSince1970 * 1_000))
         }
     }
 
-    private var content: some View {
+    private func content(now: Int) -> some View {
         @Bindable var app = app
         // Read each derived collection once per render: both recompute the whole partition
         // (`HerdPartition.stageOf` per session), and the old code read `model.chips` and
@@ -46,7 +46,7 @@ struct SidebarView: View {
             if let panel = QueuesPanels.panel(for: model.lens) {
                 panel().id(model.lens)
             } else {
-                list(groups, selection: $app.selectedSessionID)
+                list(groups, selection: $app.selectedSessionID, now: now)
             }
         }
         .modifier(SessionContextHost(controller: contextMenu))
@@ -127,7 +127,7 @@ struct SidebarView: View {
     }
 
     @ViewBuilder
-    private func list(_ groups: [HerdGroup], selection: Binding<String?>) -> some View {
+    private func list(_ groups: [HerdGroup], selection: Binding<String?>, now: Int) -> some View {
         if groups.isEmpty {
             ContentUnavailableView(
                 SidebarCopy.empty(lens: model.lens, repos: model.activeRepos),
@@ -138,6 +138,7 @@ struct SidebarView: View {
                     HerdGroupView(
                         group: group,
                         isCollapsed: model.collapsedStages.contains(group.stage),
+                        now: now,
                         display: { model.rendered($0) },
                         block: { model.block(for: $0) },
                         contextMenu: contextMenu,

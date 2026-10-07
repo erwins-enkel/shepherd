@@ -463,29 +463,9 @@ export class CdpPipe {
       );
       return;
     }
-    const violation = cdpPolicyViolation(msg.method, msg.params);
-    if (violation) {
-      client.sink.send(
-        JSON.stringify({
-          id,
-          error: { code: BLOCKED_BY_POLICY, message: violation },
-          ...(sessionId === undefined ? {} : { sessionId }),
-        }),
-      );
-      return;
-    }
-    const confined = this.#confinedViolation(client, msg, sessionId);
-    if (confined) {
-      client.sink.send(
-        JSON.stringify({
-          id,
-          error: { code: BLOCKED_BY_POLICY, message: confined },
-          ...(sessionId === undefined ? {} : { sessionId }),
-        }),
-      );
-      return;
-    }
-    const attach = this.#attachRequest(client, msg, sessionId);
+    const violation =
+      cdpPolicyViolation(msg.method, msg.params) ?? this.#confinedViolation(client, msg, sessionId);
+    const attach = violation ?? this.#attachRequest(client, msg, sessionId);
     if (typeof attach === "string") {
       client.sink.send(
         JSON.stringify({
@@ -682,25 +662,7 @@ export class CdpPipe {
     }
     const client = this.#owners.get(sessionId);
     if (!client) return;
-    const child = stringField(msg.params, "sessionId");
-    if (child && msg.method === "Target.attachedToTarget") {
-      const info = (msg.params as Json).targetInfo as Json | undefined;
-      if (!isWebTargetUrl(info?.url) || this.#foreignTarget(client, info)) {
-        // Auto-attach reached a devtools:// / chrome:// target, or (confined) another context's
-        // target: never hand it to the client.
-        this.#detachChild(child, sessionId);
-        return;
-      }
-      this.#own(client, child);
-      const targetId = stringField(info, "targetId");
-      if (targetId) this.#childTargets.set(child, { targetId, parent: sessionId });
-    }
-    if (child && msg.method === "Target.detachedFromTarget") {
-      this.#disown(client, child);
-      this.#childTargets.delete(child);
-      if (this.#suppressed.delete(child)) return;
-    }
-    if (!this.#confinedEvent(client, msg)) return;
+    if (!this.#trackChild(client, msg, sessionId) || !this.#confinedEvent(client, msg)) return;
     if (sessionId === client.browserSession) {
       const out: Json = { ...msg };
       delete out.sessionId;
@@ -708,6 +670,30 @@ export class CdpPipe {
     } else {
       client.sink.send(JSON.stringify(msg));
     }
+  }
+
+  /** Child attach/detach bookkeeping for a client event; false → the event is not shown. */
+  #trackChild(client: ClientState, msg: Json, sessionId: string): boolean {
+    const child = stringField(msg.params, "sessionId");
+    if (!child) return true;
+    if (msg.method === "Target.attachedToTarget") {
+      const info = (msg.params as Json).targetInfo as Json | undefined;
+      if (!isWebTargetUrl(info?.url) || this.#foreignTarget(client, info)) {
+        // Auto-attach reached a devtools:// / chrome:// target, or (confined) another context's
+        // target: never hand it to the client.
+        this.#detachChild(child, sessionId);
+        return false;
+      }
+      this.#own(client, child);
+      const targetId = stringField(info, "targetId");
+      if (targetId) this.#childTargets.set(child, { targetId, parent: sessionId });
+    }
+    if (msg.method === "Target.detachedFromTarget") {
+      this.#disown(client, child);
+      this.#childTargets.delete(child);
+      if (this.#suppressed.delete(child)) return false;
+    }
+    return true;
   }
 
   #own(client: ClientState, sessionId: string): void {

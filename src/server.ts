@@ -1991,19 +1991,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
   } = scalars;
   const present =
     REPO_CFG_BOOL_FIELDS.some((k) => body[k] !== undefined) ||
-    maxAuto !== undefined ||
-    autoLabel !== undefined ||
-    usageCeilingPct !== undefined ||
-    signoffAuthority !== undefined ||
-    sandboxProfile !== undefined ||
-    defaultModel !== undefined ||
-    defaultEffort !== undefined ||
-    egressExtraHosts !== undefined ||
-    browserAllowedHosts !== undefined ||
-    repoMode !== undefined ||
-    previewStartScript !== undefined ||
-    previewStartCommand !== undefined ||
-    previewOpenMode !== undefined ||
+    Object.values(scalars).some((v) => v !== undefined) ||
     body.automationConfirmed !== undefined;
   if (!present) {
     return json(

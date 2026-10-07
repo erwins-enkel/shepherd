@@ -442,10 +442,13 @@ final class IsolatedLaunch {
     }
 }
 
-/// SwiftUI keeps its own delegate; the adaptor supplies only the isolated termination decision.
+/// Confirms app termination and preserves isolated-launch cleanup.
 @MainActor
 final class IsolatedTerminationDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        if IsolatedLaunch.current == nil, !CloseConfirmation.confirm(quitting: true) {
+            return .terminateCancel
+        }
         guard let launch = IsolatedLaunch.current, launch.needsDeferredTermination else { return .terminateNow }
         Task {
             _ = await launch.shutdown()

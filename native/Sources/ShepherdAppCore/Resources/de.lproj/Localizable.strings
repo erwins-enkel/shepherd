@@ -527,6 +527,8 @@
 "native_banner_needs_login" = "Deine Sitzung ist abgelaufen. Melde dich erneut an.";
 "native_banner_offline" = "%1$@ nicht erreichbar. Neuer Versuch läuft.";
 "native_banner_unhealthy" = "%1$@ antwortet, meldet aber ein Problem. Neuer Versuch.";
+"native_close_confirm_body" = "Der Shepherd-Server läuft im Hintergrund weiter. Laufende Sessions und Agents arbeiten weiter, auch auf entfernten Servern.\n\nUm den lokalen Server zu stoppen, wähle Abbrechen und dann Stop unter „Auf diesem Mac ausführen“. Öffne Shepherd erneut, um deine Sessions zu verfolgen.";
+"native_close_confirm_title" = "Shepherd-Fenster schließen?";
 "native_compose_attach" = "Anhang hinzufügen";
 "native_compose_autostart_aborted" = "Automatischer Start abgebrochen: Ein Anhang wurde nicht hochgeladen.";
 "native_compose_autostart_armed_button" = "Startet danach";
@@ -876,6 +878,8 @@
 "native_notify_usage_body" = "Limit fast erreicht.";
 "native_notify_usage_body_reset" = "Limit fast erreicht — Reset um %1$@.";
 "native_notify_usage_title" = "5-Stunden-Limit bei %1$@ %%";
+"native_quit_confirm_action" = "App beenden";
+"native_quit_confirm_title" = "Shepherd beenden?";
 "native_recovery_reopen" = "Terminal erneut öffnen";
 "native_recovery_runner_body" = "Der Server ist erreichbar, aber sein Sitzungsdienst ist offline oder fehlt. Diagnose zeigt den nötigen nächsten Schritt.";
 "native_recovery_runner_title" = "Sitzungsdienst nicht verfügbar";

@@ -527,6 +527,8 @@
 "native_banner_needs_login" = "Your session expired. Sign in again.";
 "native_banner_offline" = "Cannot reach %1$@. Retrying.";
 "native_banner_unhealthy" = "%1$@ answered but reports a problem. Retrying.";
+"native_close_confirm_body" = "The Shepherd server keeps running in the background. Running sessions and agents continue working, including on remote servers.\n\nTo stop the local server, cancel and choose Stop in “Run on this Mac”. Open Shepherd again to follow your sessions.";
+"native_close_confirm_title" = "Close the Shepherd window?";
 "native_compose_attach" = "Add attachment";
 "native_compose_autostart_aborted" = "Automatic start cancelled: an attachment didn't upload.";
 "native_compose_autostart_armed_button" = "Starts after upload";
@@ -876,6 +878,8 @@
 "native_notify_usage_body" = "Approaching the usage cap.";
 "native_notify_usage_body_reset" = "Approaching the usage cap — resets at %1$@.";
 "native_notify_usage_title" = "5-hour limit at %1$@%%";
+"native_quit_confirm_action" = "Quit app";
+"native_quit_confirm_title" = "Quit Shepherd?";
 "native_recovery_reopen" = "Reopen terminal";
 "native_recovery_runner_body" = "The server is reachable, but its session runner is offline or missing. Diagnose shows the required next step.";
 "native_recovery_runner_title" = "Session runner unavailable";

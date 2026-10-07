@@ -9075,6 +9075,40 @@
         }
       }
     },
+    "native_close_confirm_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Shepherd-Server läuft im Hintergrund weiter. Laufende Sessions und Agents arbeiten weiter, auch auf entfernten Servern.\n\nUm den lokalen Server zu stoppen, wähle Abbrechen und dann Stop unter „Auf diesem Mac ausführen“. Öffne Shepherd erneut, um deine Sessions zu verfolgen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The Shepherd server keeps running in the background. Running sessions and agents continue working, including on remote servers.\n\nTo stop the local server, cancel and choose Stop in “Run on this Mac”. Open Shepherd again to follow your sessions."
+          }
+        }
+      }
+    },
+    "native_close_confirm_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd-Fenster schließen?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close the Shepherd window?"
+          }
+        }
+      }
+    },
     "native_compose_attach": {
       "extractionState": "manual",
       "localizations": {
@@ -15045,6 +15079,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "5-hour limit at %1$@%%"
+          }
+        }
+      }
+    },
+    "native_quit_confirm_action": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "App beenden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit app"
+          }
+        }
+      }
+    },
+    "native_quit_confirm_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd beenden?"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quit Shepherd?"
           }
         }
       }

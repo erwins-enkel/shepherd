@@ -72,6 +72,7 @@ import {
   type CodexAuthMode,
 } from "./default-model";
 import { readCodexAuthMode } from "./codex-auth";
+import { codexNoDaemonArgs } from "./codex-cli-capabilities";
 import { effortForSpawn } from "./default-effort";
 import {
   isApiKeyMode,
@@ -334,6 +335,8 @@ export interface ServiceDeps {
   judgeSpend?: () => Pick<JudgeSpendLedger, "allow" | "record"> | null;
   /** Live Codex auth mode. Read per resolution/spawn because login mode can change at runtime. */
   readCodexAuthMode?: () => CodexAuthMode;
+  /** On-path Codex help output; tests can substitute an older CLI. */
+  readCodexHelp?: () => string;
   /** Per-session DNS-drop watcher; absent in tests that don't care → no-op. */
   egressWatcher?: Pick<EgressWatcher, "start" | "stop">;
   /** Best-effort pre-teardown hook (recap generation) — runs while the worktree still
@@ -3442,7 +3445,13 @@ export class SessionService {
   }): string[] {
     const { input, sessionId, launchId, promptArg, planGateOn, isolated, baseUrl } = args;
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
-    const argv = ["codex", "--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox"];
+    // A shared daemon can block PTY startup on a feature compatibility dialog.
+    const argv = [
+      "codex",
+      "--no-alt-screen",
+      "--dangerously-bypass-approvals-and-sandbox",
+      ...codexNoDaemonArgs(this.deps.readCodexHelp),
+    ];
     const model = clampCodexModelForAuth(input.model, "codex", this.codexAuthMode());
     if (model) argv.push("--model", model);
     this.pushEffortFlag(argv, input.effort, "codex");
@@ -3484,6 +3493,7 @@ export class SessionService {
       sessionId,
       "--no-alt-screen",
       "--dangerously-bypass-approvals-and-sandbox",
+      ...codexNoDaemonArgs(this.deps.readCodexHelp),
     ];
     const spawnModel = clampCodexModelForAuth(model, "codex", this.codexAuthMode());
     if (model !== null && spawnModel === null)

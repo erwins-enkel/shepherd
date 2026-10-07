@@ -17,6 +17,7 @@ import {
 } from "./spawn-auth";
 import { UNTRUSTED_CONTENT_DIRECTIVE, fenceUntrusted } from "./untrusted";
 import type { OperatorLanguage } from "./operator-language";
+import { codexNoDaemonArgs } from "./codex-cli-capabilities";
 
 /** The file the recommender agent writes its suggestion JSON to, in its temp cwd. */
 export const RECOMMEND_FILE = ".shepherd-recommend.json";
@@ -41,6 +42,7 @@ export interface RecommendDeps {
   sleep?: (ms: number) => Promise<void>;
   timeoutMs?: number;
   pollMs?: number;
+  readCodexHelp?: () => string;
 }
 
 export interface RecommendArgs {
@@ -157,11 +159,16 @@ function claudeRecommenderArgv(model: string, prompt: string): string[] {
  * alt-screen so the temp PTY stays line-buffered, bypass approvals/sandbox so the agent
  * can write the suggestion file in its temp cwd, then the positional prompt.
  */
-function codexRecommenderArgv(model: string, prompt: string): string[] {
+function codexRecommenderArgv(
+  model: string,
+  prompt: string,
+  readCodexHelp?: () => string,
+): string[] {
   return [
     "codex",
     "--no-alt-screen",
     "--dangerously-bypass-approvals-and-sandbox",
+    ...codexNoDaemonArgs(readCodexHelp),
     "--model",
     model,
     prompt,
@@ -231,7 +238,7 @@ export async function recommendPrompt(
     const prompt = recommenderPrompt(args.tail, args.taskPrompt, args.operatorLanguage ?? "en");
     const argv =
       args.provider === "codex"
-        ? codexRecommenderArgv(args.model, prompt)
+        ? codexRecommenderArgv(args.model, prompt, deps.readCodexHelp)
         : claudeRecommenderArgv(args.model, prompt);
     // claude needs the api-key passthrough env in key mode; codex uses its own login.
     const env = args.provider === "claude" ? apiKeyPassthroughEnv(false) : undefined;

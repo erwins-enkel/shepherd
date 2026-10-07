@@ -48,6 +48,7 @@ function makeDeps(over: Partial<import("../src/prompt-recommend").RecommendDeps>
     sleep: async () => {},
     timeoutMs: 30_000,
     pollMs: 1_000,
+    readCodexHelp: () => "      --no-daemon\n",
     ...over,
   };
   return { deps: base as any, calls };
@@ -107,9 +108,19 @@ test("recommendPrompt: codex path uses codex argv, gpt-5.5, no env, bypass sandb
   const r = await recommendPrompt(args({ provider: "codex", model: "gpt-5.5" }), deps);
   expect(r).toEqual({ prompt: "Try the other approach." });
   expect(calls.started.argv[0]).toBe("codex");
+  expect(calls.started.argv).toContain("--no-daemon");
   expect(calls.started.argv).toContain("--dangerously-bypass-approvals-and-sandbox");
   expect(calls.started.argv).toContain("gpt-5.5");
   expect(calls.started.env).toBeUndefined();
+});
+
+test("recommendPrompt: older codex without --no-daemon still starts", async () => {
+  const { deps, calls } = makeDeps({
+    readSuggestion: () => ({ prompt: "Try the other approach." }),
+    readCodexHelp: () => "      --no-alt-screen\n",
+  });
+  await recommendPrompt(args({ provider: "codex", model: "gpt-5.5" }), deps);
+  expect(calls.started.argv).not.toContain("--no-daemon");
 });
 
 test("recommendPrompt: empty history short-circuits with no spawn", async () => {

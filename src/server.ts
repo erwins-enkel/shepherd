@@ -151,6 +151,7 @@ import { buildUsageTimeline } from "./usage-timeline";
 import { isApiKeyMode } from "./spawn-auth";
 import { detectDevCommand } from "./preview";
 import { SharedBrowserError } from "./shared-browser";
+import { gateBrowserView, openBrowserView, type BrowserViewSession } from "./browser-view";
 import {
   gateBrowserAttach,
   isBrowserAttachPath,
@@ -851,7 +852,8 @@ function isPublicRequest(req: Request): boolean {
     // onboarding harness can hit BEFORE login. Exempt it ahead of the /api reject below.
     if (path === "/api/health") return true;
     if (path.startsWith("/api")) return false;
-    if (path === "/events" || path.startsWith("/pty/")) return false;
+    if (path === "/events" || path.startsWith("/pty/") || path.startsWith("/browser-view/"))
+      return false;
     return true; // static SPA shell
   }
   return false;
@@ -9610,6 +9612,7 @@ function parseTerminalClient(params: URLSearchParams) {
 
 type WsData = (
   | { kind: "events"; unsub?: () => void }
+  | { kind: "browser-view"; id: string; repoPath: string; view?: BrowserViewSession }
   | {
       kind: "pty";
       client: ReturnType<typeof parseTerminalClient>;
@@ -9627,6 +9630,16 @@ type WsData = (
   expiryTimer?: ReturnType<typeof setTimeout>;
   authClosed?: boolean;
 };
+
+/** The token-scope path a socket is authorized against (one per WS kind). */
+function wsAuthPath(data: WsData): string {
+  if (data.kind === "events") return "/events";
+  if (data.kind === "browser-view") return `/browser-view/${data.id}`;
+  return `/pty/${data.id}`;
+}
+
+/** Browser View send-buffer cap; a client this far behind is closed with 1009. */
+const BROWSER_VIEW_MAX_BUFFERED_BYTES = 8 * 1024 * 1024;
 
 // A pty WS closed with this code means "a newer client took over this terminal".
 // The client parks (shows a take-over prompt) instead of reconnecting — without
@@ -9803,11 +9816,7 @@ export function serve(deps: AppDeps, port: number) {
     const token = accessTokens(deps).current(ws.data.tokenId);
     const allowed =
       token &&
-      scopeAllows(
-        token.scope,
-        "GET",
-        ws.data.kind === "events" ? "/events" : `/pty/${ws.data.id}`,
-      ) &&
+      scopeAllows(token.scope, "GET", wsAuthPath(ws.data)) &&
       (ws.data.kind === "events" || tokenSessionAllowed(token, deps, ws.data.id));
     if (!allowed) closeTokenSocket(ws);
     return !!allowed;
@@ -9841,6 +9850,30 @@ export function serve(deps: AppDeps, port: number) {
         return;
     }
     ws.send(JSON.stringify({ event, data }));
+  }
+  // Browser View (#2881): one CdpPipe client per operator socket, attached to the repo's browser.
+  function openBrowserViewSocket(ws: ServerWebSocket<WsData & { kind: "browser-view" }>): void {
+    const manager = deps.sharedBrowser;
+    if (!manager) {
+      ws.close(1011, "shared browser unavailable");
+      return;
+    }
+    let closed = false;
+    const sink = {
+      send: (text: string) => {
+        if (closed || !socketAuthorized(ws)) return;
+        ws.send(text);
+        // Frames are ack-paced, so a backlog means the client stopped reading.
+        if (ws.getBufferedAmount() > BROWSER_VIEW_MAX_BUFFERED_BYTES)
+          sink.close(1009, "client not reading");
+      },
+      close: (code?: number, reason?: string) => {
+        if (closed) return;
+        closed = true;
+        ws.close(code, reason?.slice(0, 100));
+      },
+    };
+    ws.data.view = openBrowserView(manager, ws.data.repoPath, ws.data.id, sink);
   }
   // last time the operator typed into each session's live PTY (issue #1022 seam).
   // In-memory + throttled; pruned in the pty close() handler. Consumed by nothing
@@ -9917,6 +9950,25 @@ export function serve(deps: AppDeps, port: number) {
           ? undefined
           : new Response("upgrade failed", { status: 500 });
       }
+      const bv = url.pathname.match(/^\/browser-view\/([^/]+)$/);
+      if (bv) {
+        const origin = req.headers.get("Origin");
+        if (
+          !originAllowed(origin, config.allowedOriginHosts, {
+            base: config.previewPortBase,
+            count: config.previewPortCount,
+          })
+        ) {
+          return new Response("forbidden: origin not allowed", { status: 403 });
+        }
+        const gate = gateBrowserView(deps, bv[1]!);
+        if (!gate.ok) return gate.response;
+        return server.upgrade(req, {
+          data: { kind: "browser-view", tokenId, id: bv[1]!, repoPath: gate.repoPath },
+        })
+          ? undefined
+          : new Response("upgrade failed", { status: 500 });
+      }
       // Lift Bun's 10s idle timeout for the known-slow routes (see slowRequestTimeoutSec) so a long
       // handler can't have its connection reset out from under it. Other endpoints unchanged.
       const slowSec = slowRequestTimeoutSec(req, url);
@@ -9939,6 +9991,8 @@ export function serve(deps: AppDeps, port: number) {
           // A live /events socket = a dashboard is open (regardless of focus), so
           // background pollers should run warm. `close` drops it again.
           deps.presence?.connect(ws);
+        } else if (ws.data.kind === "browser-view") {
+          openBrowserViewSocket(ws as ServerWebSocket<WsData & { kind: "browser-view" }>);
         } else {
           // Don't attach a terminal whose herdr agent is gone: attaching would make
           // herdr reply agent_not_found and the client would reconnect-loop on it.
@@ -10053,6 +10107,11 @@ export function serve(deps: AppDeps, port: number) {
           }
           return;
         }
+        if (ws.data.kind === "browser-view") {
+          if (typeof msg !== "string") ws.close(1003, "binary frames not supported");
+          else ws.data.view?.handle(msg);
+          return;
+        }
         markPtyEvent("in");
         const frame = typeof msg === "string" ? msg : msg.toString();
         // Stamp the operator-activity seam only for genuine keystrokes — the same
@@ -10068,6 +10127,8 @@ export function serve(deps: AppDeps, port: number) {
         if (ws.data.kind === "events") {
           ws.data.unsub?.();
           deps.presence?.drop(ws);
+        } else if (ws.data.kind === "browser-view") {
+          ws.data.view?.close();
         } else {
           // only drop ownership if we're still the owner (a newer client may have
           // already claimed this terminal before our close fired)

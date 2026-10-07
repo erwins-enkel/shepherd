@@ -109,6 +109,7 @@ test("repo boundary: direct, task, socket, query and global routes cannot reach 
     `/api/tasks/${other.desig}/export`,
     `/api/tasks/${other.id}/transcript`,
     `/pty/${other.id}`,
+    `/browser-view/${other.id}`,
   ]) {
     expect((await request(token, path)).status).toBe(404);
   }

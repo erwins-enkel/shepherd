@@ -300,6 +300,18 @@ process to reach.
   boundary**: sessions on one repo never reach another repo's logins, but every
   agent on a repo sees all of its logins. Operators should log in there only with
   accounts they are willing to share with that repo's agents.
+- **Host-reaching CDP is refused.** The broker drops methods that reach the host
+  outside the page sandbox (download behavior, file inputs and drops, browser
+  process control, tracing) and non-web URLs. Only flat sessions are allowed:
+  `Target.sendMessageToTarget` is blocked and `Target.attachToTarget` /
+  `Target.setAutoAttach` need `flatten: true`, so no command can hide inside a
+  nested message the broker never parses.
+- **Downloads stay in the profile.** Shepherd pins the profile's download and
+  save-as directory to `<profile>/Downloads` before every launch, so a
+  page-triggered download never lands in the operator's `~/Downloads`. Profiles
+  live under `~/.shepherd/browser-profiles/`, which the sandbox membrane does
+  not bind (`$HOME` is a tmpfs inside it), so sandboxed agents cannot read
+  downloaded files either.
 - **Autonomous sessions are refused** until a per-repo browser origin allowlist
   exists to bound where an unattended agent can drive the operator's logins.
 

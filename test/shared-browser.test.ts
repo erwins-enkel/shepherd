@@ -9,7 +9,7 @@ import {
   SharedBrowserManager,
   browserProfileDir,
   chromiumEnv,
-  pinSessionRestore,
+  pinProfilePrefs,
   reapOrphanBrowsers,
   type SharedBrowserDeps,
 } from "../src/shared-browser";
@@ -369,20 +369,38 @@ test("shared browser: chromium env keeps display plumbing and drops server secre
   });
 });
 
-test("shared browser: profile startup pref pinned to session restore, other prefs kept", async () => {
+test("shared browser: profile prefs pin session restore + in-profile downloads, others kept", async () => {
   const dir = await mkdtemp(join(tmpdir(), "sb-prefs-"));
+  const downloads = join(dir, "Downloads");
   try {
-    await pinSessionRestore(dir);
+    await pinProfilePrefs(dir);
     const file = join(dir, "Default", "Preferences");
-    expect(JSON.parse(await Bun.file(file).text())).toEqual({ session: { restore_on_startup: 1 } });
+    expect(JSON.parse(await Bun.file(file).text())).toEqual({
+      session: { restore_on_startup: 1 },
+      download: { default_directory: downloads, prompt_for_download: false },
+      savefile: { default_directory: downloads },
+    });
+    expect((await stat(downloads)).isDirectory()).toBe(true);
+    expect((await stat(downloads)).mode & 0o777).toBe(0o700);
     await writeFile(
       file,
-      JSON.stringify({ homepage: "x", session: { restore_on_startup: 5, keep: 1 } }),
+      JSON.stringify({
+        homepage: "x",
+        session: { restore_on_startup: 5, keep: 1 },
+        download: { default_directory: "/home/u/Downloads", directory_upgrade: true },
+        savefile: "garbage",
+      }),
     );
-    await pinSessionRestore(dir);
+    await pinProfilePrefs(dir);
     expect(JSON.parse(await Bun.file(file).text())).toEqual({
       homepage: "x",
       session: { restore_on_startup: 1, keep: 1 },
+      download: {
+        default_directory: downloads,
+        directory_upgrade: true,
+        prompt_for_download: false,
+      },
+      savefile: { default_directory: downloads },
     });
   } finally {
     await rm(dir, { recursive: true, force: true });

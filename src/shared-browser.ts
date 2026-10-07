@@ -147,25 +147,66 @@ export function chromiumEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 /** Chromium's "Continue where you left off" startup pref value. */
 const RESTORE_LAST_SESSION = 1;
 
-/**
- * Pin the profile's startup pref to "continue where you left off": Chromium keeps session
- * cookies (no Max-Age, e.g. express-session's default) across restarts only then, and a
- * Handoff Login must survive the idle stop. Chromium rewrites Preferences itself, so merge.
- */
-export async function pinSessionRestore(profileDir: string): Promise<void> {
-  const dir = join(profileDir, "Default");
-  const file = join(dir, "Preferences");
-  let prefs: Record<string, unknown> = {};
+type Prefs = Record<string, unknown>;
+
+/** Pref groups pinned on every launch: `group → { key: value }`. */
+function pinnedPrefs(downloadDir: string): Record<string, Prefs> {
+  return {
+    // Session cookies (no Max-Age) survive a restart only with "continue where you left off",
+    // and a Handoff Login must survive the idle stop.
+    session: { restore_on_startup: RESTORE_LAST_SESSION },
+    // Page-triggered downloads land in the profile, never the operator's ~/Downloads.
+    download: { default_directory: downloadDir, prompt_for_download: false },
+    savefile: { default_directory: downloadDir },
+  };
+}
+
+async function readPrefs(file: string): Promise<Prefs> {
   try {
     const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
-      prefs = parsed as Record<string, unknown>;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed as Prefs;
   } catch {
     // missing or unreadable: start from an empty pref set
   }
-  const session = (prefs.session ?? {}) as Record<string, unknown>;
-  if (session.restore_on_startup === RESTORE_LAST_SESSION) return;
-  prefs.session = { ...session, restore_on_startup: RESTORE_LAST_SESSION };
+  return {};
+}
+
+/** Merges `pinned` into `prefs` in place; true when anything changed. */
+function mergePinned(prefs: Prefs, pinned: Record<string, Prefs>): boolean {
+  let changed = false;
+  for (const [group, values] of Object.entries(pinned)) {
+    const current = prefs[group];
+    const merged: Prefs =
+      current && typeof current === "object" && !Array.isArray(current)
+        ? { ...(current as Prefs) }
+        : {};
+    for (const [key, value] of Object.entries(values)) {
+      if (merged[key] === value) continue;
+      merged[key] = value;
+      changed = true;
+    }
+    prefs[group] = merged;
+  }
+  return changed;
+}
+
+/** Where a profile's page-triggered downloads land (inside the profile dir). */
+export function browserDownloadDir(profileDir: string): string {
+  return join(profileDir, "Downloads");
+}
+
+/**
+ * Pin the profile prefs Shepherd depends on before launch: session restore (logins survive
+ * the idle stop) and a download dir inside the profile (agents can't drop files into the
+ * operator's ~/Downloads). Chromium rewrites Preferences itself, so merge, never replace.
+ */
+export async function pinProfilePrefs(profileDir: string): Promise<void> {
+  const downloadDir = browserDownloadDir(profileDir);
+  await mkdir(downloadDir, { recursive: true, mode: 0o700 });
+  const dir = join(profileDir, "Default");
+  const file = join(dir, "Preferences");
+  const prefs = await readPrefs(file);
+  if (!mergePinned(prefs, pinnedPrefs(downloadDir))) return;
   await mkdir(dir, { recursive: true, mode: 0o700 });
   await writeFile(file, JSON.stringify(prefs), { mode: 0o600 });
 }
@@ -384,7 +425,7 @@ export class SharedBrowserManager {
     const bin = await this.#resolveBinary();
     const profileDir = browserProfileDir(this.#profileRoot, repoPath);
     await mkdir(profileDir, { recursive: true, mode: 0o700 });
-    await pinSessionRestore(profileDir);
+    await pinProfilePrefs(profileDir);
     if (starting.cancelled || this.#disposed)
       throw new SharedBrowserError("launch-failed", "browser stopped while launching");
     let child: ChildProcess;

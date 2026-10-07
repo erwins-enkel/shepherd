@@ -457,6 +457,17 @@ test("cdp pipe: policy-blocked methods are refused and never forwarded", async (
       },
     },
     { method: "Fetch.continueRequest", params: { requestId: "r1", url: "file:///etc/passwd" } },
+    {
+      method: "Target.sendMessageToTarget",
+      params: {
+        sessionId: "C9",
+        message: JSON.stringify({ id: 1, method: "DOM.setFileInputFiles", params: {} }),
+      },
+    },
+    { method: "Target.attachToTarget", params: { targetId: "T1", flatten: false } },
+    { method: "Target.attachToTarget", params: { targetId: "T1" } },
+    { method: "Target.setAutoAttach", params: { autoAttach: true, flatten: false } },
+    { method: "Target.setAutoAttach", params: { autoAttach: true, waitForDebuggerOnStart: false } },
   ];
   let id = 100;
   for (const msg of blocked) {
@@ -476,6 +487,8 @@ test("cdp pipe: web navigation and ordinary methods pass the policy", () => {
   expect(cdpPolicyViolation("Target.createBrowserContext", {})).toBeNull();
   expect(cdpPolicyViolation("Runtime.evaluate", { expression: "1" })).toBeNull();
   expect(cdpPolicyViolation("Target.setAutoAttach", { flatten: true })).toBeNull();
+  expect(cdpPolicyViolation("Target.attachToTarget", { targetId: "T1", flatten: true })).toBeNull();
+  expect(cdpPolicyViolation("Target.attachToBrowserTarget", {})).toBeNull();
   expect(cdpPolicyViolation("Fetch.continueRequest", { requestId: "r1" })).toBeNull();
   expect(
     cdpPolicyViolation("Input.dispatchDragEvent", {
@@ -483,4 +496,19 @@ test("cdp pipe: web navigation and ordinary methods pass the policy", () => {
       data: { items: [{ mimeType: "text/plain", data: "x" }], dragOperationsMask: 1 },
     }),
   ).toBeNull();
+});
+
+test("cdp pipe: non-flat session tunnelling is refused per method", () => {
+  expect(
+    cdpPolicyViolation("Target.sendMessageToTarget", { sessionId: "C1", message: "{}" }),
+  ).toMatch(/blocked/);
+  expect(cdpPolicyViolation("Target.attachToTarget", { targetId: "T1", flatten: false })).toMatch(
+    /flatten/,
+  );
+  expect(cdpPolicyViolation("Target.attachToTarget", { targetId: "T1" })).toMatch(/flatten/);
+  expect(cdpPolicyViolation("Target.setAutoAttach", { autoAttach: true })).toMatch(/flatten/);
+  expect(cdpPolicyViolation("Target.setAutoAttach", { autoAttach: true, flatten: "true" })).toMatch(
+    /flatten/,
+  );
+  expect(cdpPolicyViolation("Target.setAutoAttach", undefined)).toMatch(/flatten/);
 });

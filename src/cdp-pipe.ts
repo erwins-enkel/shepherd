@@ -99,7 +99,14 @@ const BLOCKED_METHODS = new Set([
   "Page.handleFileChooser",
   "Target.exposeDevToolsProtocol",
   "Target.setRemoteLocations",
+  // Tunnels a nested command to a non-flat session; the policy cannot see inside it.
+  "Target.sendMessageToTarget",
 ]);
+/**
+ * Session-creating methods allowed only in flat mode: a non-flat session is driven through
+ * `Target.sendMessageToTarget`, whose nested command the broker never parses.
+ */
+const FLAT_ONLY_METHODS = new Set(["Target.attachToTarget", "Target.setAutoAttach"]);
 const BLOCKED_DOMAINS = ["Tracing.", "SystemInfo."];
 /** Methods whose `params.url` must stay on the web (no file:, chrome:, devtools:, …). */
 const URL_METHODS = new Set([
@@ -120,23 +127,49 @@ function isWebUrl(url: unknown): boolean {
   }
 }
 
+const blockedBy = (what: string) => `${what} is blocked by the Shepherd browser broker`;
+const webOnly = (method: string) =>
+  `${method} is limited to http(s) URLs by the Shepherd browser broker`;
+
+/** One policy check: why `method` with `params` is refused, or null. */
+type PolicyRule = (method: string, params: Json) => string | null;
+
+const POLICY_RULES: PolicyRule[] = [
+  (method) =>
+    BLOCKED_METHODS.has(method) || BLOCKED_DOMAINS.some((d) => method.startsWith(d))
+      ? blockedBy(method)
+      : null,
+  (method, params) =>
+    FLAT_ONLY_METHODS.has(method) && params.flatten !== true
+      ? `${method} requires flatten: true on the Shepherd browser broker`
+      : null,
+  (method, params) => (URL_METHODS.has(method) && !isWebUrl(params.url) ? webOnly(method) : null),
+  // Optional URL rewrite of an intercepted request: only to another web URL.
+  (method, params) =>
+    method === "Fetch.continueRequest" && params.url !== undefined && !isWebUrl(params.url)
+      ? webOnly(method)
+      : null,
+  // A synthetic drop carrying host file paths is a file upload by another name.
+  (method, params) => {
+    const files = (params.data as Json | undefined)?.files;
+    return method === "Input.dispatchDragEvent" && Array.isArray(files) && files.length > 0
+      ? "file drops are blocked by the Shepherd browser broker"
+      : null;
+  },
+  (method, params) =>
+    method === "Target.createBrowserContext" && params.proxyServer
+      ? `${method} proxy overrides are blocked by the Shepherd browser broker`
+      : null,
+];
+
 /** Why the broker refuses this client message, or null when it may be forwarded. */
 export function cdpPolicyViolation(method: unknown, params: unknown): string | null {
   if (typeof method !== "string") return null;
-  if (BLOCKED_METHODS.has(method) || BLOCKED_DOMAINS.some((d) => method.startsWith(d)))
-    return `${method} is blocked by the Shepherd browser broker`;
-  if (URL_METHODS.has(method) && !isWebUrl((params as Json | undefined)?.url))
-    return `${method} is limited to http(s) URLs by the Shepherd browser broker`;
-  // Optional URL rewrite of an intercepted request: only to another web URL.
-  const url = (params as Json | undefined)?.url;
-  if (method === "Fetch.continueRequest" && url !== undefined && !isWebUrl(url))
-    return `${method} is limited to http(s) URLs by the Shepherd browser broker`;
-  // A synthetic drop carrying host file paths is a file upload by another name.
-  const files = ((params as Json | undefined)?.data as Json | undefined)?.files;
-  if (method === "Input.dispatchDragEvent" && Array.isArray(files) && files.length > 0)
-    return "file drops are blocked by the Shepherd browser broker";
-  if (method === "Target.createBrowserContext" && (params as Json | undefined)?.proxyServer)
-    return "Target.createBrowserContext proxy overrides are blocked by the Shepherd browser broker";
+  const p = params && typeof params === "object" ? (params as Json) : {};
+  for (const rule of POLICY_RULES) {
+    const violation = rule(method, p);
+    if (violation) return violation;
+  }
   return null;
 }
 

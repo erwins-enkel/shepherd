@@ -4682,7 +4682,8 @@ async function handleSessionMcp({ req, parts, deps }: Ctx): Promise<Response | n
   const spawning = row ? null : deps.service.spawningAgentCapabilities(id);
   if (!row && !spawning) return json({ error: "session not found" }, 404);
 
-  const outcome = handleMcpRequest(deps, id, await req.json().catch(() => null), spawning);
+  const body = await req.json().catch(() => null);
+  const outcome = await handleMcpRequest(deps, id, body, spawning, req.signal);
   if (outcome.body === null) return new Response(null, { status: outcome.status });
   return json(outcome.body, outcome.status);
 }

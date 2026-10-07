@@ -10,6 +10,7 @@ import { detectedHerdrVersion, herdrPaneControlSupported } from "./herdr-capabil
 import type { EventHub } from "./events";
 import {
   agentMcpConfigArg,
+  browserLoginAllowed,
   hasAgentTools,
   isNonCodeMode,
   sessionCapabilities,
@@ -3462,6 +3463,7 @@ export class SessionService {
     trim: Awaited<ReturnType<typeof trimDecision>>,
     baseUrl: string,
     judgedOutIds: ReadonlySet<string> | null,
+    profile: SandboxProfile,
   ): string[] {
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
     // `--add-dir` (#2002) rides FIRST, where the next token is always a flag: it is variadic and
@@ -3489,6 +3491,7 @@ export class SessionService {
       buildQueue: repoConfig.buildQueueEnabled && !isNonCodeMode(input),
       epicDraft: Boolean(input.epicAuthoring),
       sessionRead: !input.plain,
+      browserLogin: browserLoginAllowed(repoConfig.sharedBrowserEnabled, input.plain, profile),
     };
     this.pushAgentMcpFlag(argv, sessionId, baseUrl, caps);
     // Serve the endpoint until the row exists; `create` clears this however the spawn ends.
@@ -4014,6 +4017,11 @@ export class SessionService {
             trim,
             baseUrl,
             judgedOutIds,
+            resolveProfile(
+              profileOverride,
+              repoConfig.sandboxProfile,
+              config.sandboxDefaultProfile,
+            ),
           );
     return {
       launchIdentity:

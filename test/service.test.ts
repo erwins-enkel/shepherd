@@ -270,7 +270,11 @@ test("createSession: session_created props map each to its own source (distinct-
 
 // Build a SessionService whose worktree.create yields the given `isolated`, capturing the
 // spawned argv. Used by the codex-autopilot directive tests below.
-function codexHarness(isolated: boolean, authMode: "chatgpt" | "apikey" | "unknown" = "unknown") {
+function codexHarness(
+  isolated: boolean,
+  authMode: "chatgpt" | "apikey" | "unknown" = "unknown",
+  readCodexHelp = () => "      --no-daemon\n",
+) {
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const service = new SessionService({
@@ -302,6 +306,7 @@ function codexHarness(isolated: boolean, authMode: "chatgpt" | "apikey" | "unkno
       list: () => [],
     } as any,
     readCodexAuthMode: () => authMode,
+    readCodexHelp,
   });
   return { store, service, calls };
 }
@@ -342,6 +347,37 @@ const hasManualNotice = (argv: string[]) => argv.some((a) => a.includes("<manual
 // task text with the inline `<shepherd-directives>` block appended (TASK-413). Helpers below read it.
 const codexPrompt = (argv: string[]) => argv[argv.length - 1]!;
 
+test.each([true, false])(
+  "createSession: codex skips the shared background server (isolated=%s)",
+  async (isolated) => {
+    const { service, calls } = codexHarness(isolated);
+    await service.create({
+      repoPath: isolated ? "/repo" : "/another-repo",
+      baseBranch: "main",
+      prompt: "flatten it",
+      agentProvider: "codex",
+      model: null,
+      images: [],
+    });
+
+    expect(calls.start.argv).toContain("--no-daemon");
+  },
+);
+
+test("createSession: older codex without --no-daemon still starts", async () => {
+  const { service, calls } = codexHarness(true, "unknown", () => "      --no-alt-screen\n");
+  await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "flatten it",
+    agentProvider: "codex",
+    model: null,
+    images: [],
+  });
+
+  expect(calls.start.argv).not.toContain("--no-daemon");
+});
+
 test("createSession: codex provider starts interactive codex; spawn argv carries the inline directives block", async () => {
   const { store, service, calls } = codexHarness(true);
 
@@ -356,10 +392,11 @@ test("createSession: codex provider starts interactive codex; spawn argv carries
   });
 
   const argv: string[] = calls.start.argv;
-  expect(argv.slice(0, 5)).toEqual([
+  expect(argv.slice(0, 6)).toEqual([
     "codex",
     "--no-alt-screen",
     "--dangerously-bypass-approvals-and-sandbox",
+    "--no-daemon",
     "--model",
     "gpt-5.5",
   ]);
@@ -3106,10 +3143,15 @@ test("resume re-passes the full directive set, operator-language included, in on
 });
 
 /** Resume `s` through a minimal service and return the argv herdr was started with. */
-async function resumeArgv(store: SessionStore, id: string): Promise<string[]> {
+async function resumeArgv(
+  store: SessionStore,
+  id: string,
+  readCodexHelp = () => "      --no-daemon\n",
+): Promise<string[]> {
   let argv: string[] = [];
   const svc = new SessionService({
     transcriptExists: () => true, // Fixture conversation is persisted.
+    readCodexHelp,
     store,
     namer: async () => "x",
     worktree: {
@@ -3162,6 +3204,7 @@ test("resume uses the exact pinned conversation for codex sessions", async () =>
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const svc = new SessionService({
+    readCodexHelp: () => "      --no-daemon\n",
     transcriptExists: () => true, // Fixture conversation is persisted.
     store,
     namer: async () => "x",
@@ -3192,15 +3235,25 @@ test("resume uses the exact pinned conversation for codex sessions", async () =>
   expect(out?.herdrAgentId).toBe("term_codex_new");
   expect(out?.status).toBe("running");
   expect(calls.start.cwd).toBe("/wt/x");
+  expect(calls.start.argv).toContain("--no-daemon");
   expect(calls.start.argv).toEqual([
     "codex",
     "resume",
     "codex-pinned",
     "--no-alt-screen",
     "--dangerously-bypass-approvals-and-sandbox",
+    "--no-daemon",
     "--model",
     "gpt-5.5",
   ]);
+});
+
+test("resume: older codex without --no-daemon keeps the pinned conversation", async () => {
+  const store = new SessionStore(":memory:");
+  const s = resumable(store, { agentProvider: "codex", claudeSessionId: "", model: null });
+  const argv = await resumeArgv(store, s.id, () => "      --no-alt-screen\n");
+  expect(argv.slice(0, 3)).toEqual(["codex", "resume", "codex-pinned"]);
+  expect(argv).not.toContain("--no-daemon");
 });
 
 test("resume: ChatGPT auth omits a blocked legacy Codex model without changing stored intent", async () => {
@@ -3283,6 +3336,7 @@ test.each(["xhigh", "max", "ultra"])("resume re-emits Codex %s unchanged", async
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const svc = new SessionService({
+    readCodexHelp: () => "      --no-daemon\n",
     transcriptExists: () => true, // Fixture conversation is persisted.
     store,
     namer: async () => "x",
@@ -3315,6 +3369,7 @@ test.each(["xhigh", "max", "ultra"])("resume re-emits Codex %s unchanged", async
     "codex-pinned",
     "--no-alt-screen",
     "--dangerously-bypass-approvals-and-sandbox",
+    "--no-daemon",
     "--model",
     "gpt-6-astra",
     "-c",
@@ -7013,6 +7068,7 @@ function relaunchHarness(
         copiedPath: `${worktreePath}/.shepherd-uploads/${i.split("/").pop()}`,
       })),
     readCodexAuthMode: () => authMode,
+    readCodexHelp: () => "      --no-daemon\n",
   });
   return { service, calls, emitted, breakOverride, breakStart };
 }
@@ -7271,10 +7327,11 @@ test("replaceAgent swaps provider in the same session and worktree", async () =>
   expect(calls.order).toEqual(["start", "stop:term_orig"]);
   expect(calls.started).toHaveLength(1);
   expect(calls.started[0]).toMatchObject({ name: orig.name, cwd: "/wt/orig" });
-  expect(calls.started[0]!.argv.slice(0, 5)).toEqual([
+  expect(calls.started[0]!.argv.slice(0, 6)).toEqual([
     "codex",
     "--no-alt-screen",
     "--dangerously-bypass-approvals-and-sandbox",
+    "--no-daemon",
     "--model",
     "gpt-5.5",
   ]);

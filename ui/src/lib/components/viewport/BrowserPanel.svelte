@@ -79,7 +79,10 @@
         },
         onFrame(frame) {
           pageSize = { width: frame.width, height: frame.height };
-          frameSrc = `data:image/jpeg;base64,${frame.data}`;
+          const src = `data:image/jpeg;base64,${frame.data}`;
+          // An identical frame leaves src unchanged, so no load event would ack it.
+          if (src === frameSrc) onFrameSettled();
+          else frameSrc = src;
         },
         onError(message) {
           error = message;
@@ -103,7 +106,8 @@
 
   // Ack only once the frame is painted: the server sends the next one after the ack, so a slow
   // link backs off instead of queueing frames.
-  function onFrameLoad() {
+  // A frame that fails to decode is acked too: a missing ack stalls the screencast.
+  function onFrameSettled() {
     send({ type: "frameAck" });
   }
 
@@ -327,7 +331,8 @@
         alt=""
         draggable="false"
         bind:this={imgEl}
-        onload={onFrameLoad}
+        onload={onFrameSettled}
+        onerror={onFrameSettled}
         onpointerdown={onPointerDown}
         onpointerup={(e) => mouse(e, "up")}
         onpointermove={onPointerMove}

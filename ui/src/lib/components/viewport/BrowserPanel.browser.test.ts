@@ -75,6 +75,19 @@ describe("BrowserPanel", () => {
       .toHaveValue("http://localhost:5173/");
   });
 
+  it("acks an identical repeat frame and an undecodable one, so the stream never stalls", async () => {
+    render(BrowserPanel, { session, makeWs });
+    const ws = FakeWs.last;
+    ws.push(targets());
+    const data = jpeg();
+    ws.push({ type: "frame", data, width: 1280, height: 720 });
+    await vi.waitFor(() => expect(ws.sentOf("frameAck")).toHaveLength(1));
+    ws.push({ type: "frame", data, width: 1280, height: 720 });
+    await vi.waitFor(() => expect(ws.sentOf("frameAck")).toHaveLength(2));
+    ws.push({ type: "frame", data: "bm90LWEtanBlZw==", width: 1280, height: 720 });
+    await vi.waitFor(() => expect(ws.sentOf("frameAck")).toHaveLength(3));
+  });
+
   it("sends pasted text and clears the field", async () => {
     render(BrowserPanel, { session, makeWs });
     const ws = FakeWs.last;

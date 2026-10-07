@@ -252,7 +252,7 @@ function applySelfStatus(deps: AgentControlDeps, sessionId: string): ApplyResult
 
 /** One call's wait window. Claude Code's HTTP MCP transport aborts a call at a hard 60s
  *  (ignoring MCP_TOOL_TIMEOUT), so stay under it and let the agent call again. */
-export const LOGIN_WAIT_MS = 50_000;
+const LOGIN_WAIT_MS = 50_000;
 const MAX_LOGIN_URL_CHARS = 2048;
 const MAX_LOGIN_REASON_CHARS = 500;
 

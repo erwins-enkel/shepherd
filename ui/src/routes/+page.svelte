@@ -3138,7 +3138,7 @@
             previewServeFailed={store.previewServe[selected.id] === "failed"}
             {openPreviewTick}
             {openBrowserTick}
-            loginRequest={store.loginRequests[selected.id] ?? null}
+            loginRequest={store.loginRequests[selected.id]}
             {renameRequest}
             buildQueue={store.buildQueues[selected.id] ?? null}
             onSeedBuildQueue={(q) => store.setBuildQueue(q)}
@@ -3319,7 +3319,7 @@
             previewServeFailed={store.previewServe[selected.id] === "failed"}
             {openPreviewTick}
             {openBrowserTick}
-            loginRequest={store.loginRequests[selected.id] ?? null}
+            loginRequest={store.loginRequests[selected.id]}
             {renameRequest}
             buildQueue={store.buildQueues[selected.id] ?? null}
             onSeedBuildQueue={(q) => store.setBuildQueue(q)}

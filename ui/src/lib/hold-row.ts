@@ -50,6 +50,12 @@ function isRetryableCiRed(h: HoldReason | undefined): boolean {
   return h?.code === "ci-red" && h.params?.pr != null;
 }
 
+/** True when the agent is waiting on a Handoff Login (#2882) — offered in ANY phase, since the
+ *  agent is blocked on the operator either way. */
+function isLoginRequest(h: HoldReason | undefined): boolean {
+  return h?.code === "login-request";
+}
+
 /** One ordered classifier, first match wins. Reads only `session` (synchronous with the
  *  row) + `gate`/`serverHold` (both async — a missing `gate` degrades to passthrough/none,
  *  never a wrong line). Exported so tests can assert the branch taken. */
@@ -66,8 +72,7 @@ export function rowState(
   const parked = session.status === "idle" || session.status === "done";
   const atCap = chip.kind === "changes" && chip.round >= chip.cap;
 
-  // R0 — the agent is waiting on a Handoff Login (#2882), in any phase → Open browser CTA.
-  if (serverHold?.code === "login-request") return "login";
+  if (isLoginRequest(serverHold)) return "login"; // R0 — any phase → Open browser CTA (#2882)
   if (session.planPhase !== "planning") {
     if (isRetryableCiRed(serverHold)) return "ci-retry"; // R1b — ci-red with a PR → Retry CI CTA
     if (serverHold && ANSWERABLE.has(serverHold.code)) return "server-answer"; // R1a

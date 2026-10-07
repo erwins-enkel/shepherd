@@ -3,6 +3,7 @@ public enum SettingsDiagnosticCopy {
     public static func label(_ id: String) -> String {
         switch id {
         case "bun": L.t("diagnostics_label_bun")
+        case "chromium": L.t("diagnostics_label_chromium")
         case "claude": L.t("diagnostics_label_claude")
         case "claude_install": L.t("diagnostics_label_claude_install")
         case "claude_trust": L.t("diagnostics_label_claude_trust")
@@ -41,6 +42,7 @@ public enum SettingsDiagnosticCopy {
         case "diagnostics_hint_tailscale_missing": URL(string: "https://tailscale.com/kb/1347/installation")
         case "diagnostics_hint_tailscale_not_serving": URL(string: "https://tailscale.com/kb/1242/tailscale-serve")
         case "diagnostics_hint_tailscale_serve_denied": URL(string: "https://tailscale.com/kb/1080/cli#set")
+        case "diagnostics_hint_chromium_missing": URL(string: "https://www.chromium.org/getting-involved/download-chromium/")
         case "diagnostics_hint_host_capacity_unbounded": URL(string: "https://docs.shepherd.run/operating/#host-tuning--resource-guardrails")
         case "diagnostics_hint_host_capacity_herdr_unbounded": URL(string: "https://docs.shepherd.run/operating/#host-tuning--resource-guardrails")
         case "diagnostics_hint_host_capacity_pressure": URL(string: "https://docs.shepherd.run/operating/#host-tuning--resource-guardrails")
@@ -80,6 +82,9 @@ public enum SettingsDiagnosticCopy {
         case "diagnostics_hint_bun_missing": return L.t("diagnostics_hint_bun_missing")
         case "diagnostics_hint_bun_ok": return L.t("diagnostics_hint_bun_ok")
         case "diagnostics_hint_bun_outdated": return L.t("diagnostics_hint_bun_outdated")
+        case "diagnostics_hint_chromium_missing": return L.t("diagnostics_hint_chromium_missing")
+        case "diagnostics_hint_chromium_ok": return L.t("diagnostics_hint_chromium_ok")
+        case "diagnostics_hint_chromium_optional": return L.t("diagnostics_hint_chromium_optional")
         case "diagnostics_hint_claude_install_diverged": return L.t("diagnostics_hint_claude_install_diverged", params["running"] ?? "—", params["managed"] ?? "—")
         case "diagnostics_hint_claude_install_native_on_path": return L.t("diagnostics_hint_claude_install_native_on_path", params["running"] ?? "—")
         case "diagnostics_hint_claude_install_native_residue": return L.t("diagnostics_hint_claude_install_native_residue", params["count"] ?? "—", params["size"] ?? "—")
@@ -144,6 +149,7 @@ public enum SettingsDiagnosticCopy {
         case "diagnostics_hint_tmp_inodes_ok": return L.t("diagnostics_hint_tmp_inodes_ok")
         case "diagnostics_hint_tmp_inodes_uninspectable": return L.t("diagnostics_hint_tmp_inodes_uninspectable")
         case "diagnostics_label_bun": return L.t("diagnostics_label_bun")
+        case "diagnostics_label_chromium": return L.t("diagnostics_label_chromium")
         case "diagnostics_label_claude": return L.t("diagnostics_label_claude")
         case "diagnostics_label_claude_install": return L.t("diagnostics_label_claude_install")
         case "diagnostics_label_claude_trust": return L.t("diagnostics_label_claude_trust")

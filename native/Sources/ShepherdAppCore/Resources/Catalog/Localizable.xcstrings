@@ -2539,6 +2539,57 @@
         }
       }
     },
+    "diagnostics_hint_chromium_missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Repo hat den geteilten Browser aktiviert, aber es wurde kein Chromium gefunden, daher lässt er sich nicht öffnen. Installiere chromium über den Paketmanager deiner Distribution oder setze SHEPHERD_CHROMIUM_BIN auf das Browser-Binary."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A repo has the shared browser enabled, but no Chromium was found, so it can't open. Install chromium via your distro's package manager, or set SHEPHERD_CHROMIUM_BIN to the browser binary."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_chromium_ok": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Für den geteilten Browser ist ein Chromium verfügbar."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A Chromium binary is available for the shared browser."
+          }
+        }
+      }
+    },
+    "diagnostics_hint_chromium_optional": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Chromium gefunden. Nur nötig, wenn du den geteilten Browser für ein Repo aktivierst — installiere chromium oder Google Chrome oder setze SHEPHERD_CHROMIUM_BIN."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No Chromium found. Only needed if you enable the shared browser for a repo — install chromium or Google Chrome, or set SHEPHERD_CHROMIUM_BIN."
+          }
+        }
+      }
+    },
     "diagnostics_hint_claude_install_diverged": {
       "comment": "%1$@ = running, %2$@ = managed",
       "extractionState": "manual",
@@ -3627,6 +3678,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "bun"
+          }
+        }
+      }
+    },
+    "diagnostics_label_chromium": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium (geteilter Browser)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chromium (shared browser)"
           }
         }
       }
@@ -18310,6 +18378,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sandbox profile"
+          }
+        }
+      }
+    },
+    "native_settings_repo_sharedbrowserenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geteilter Browser"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shared browser"
           }
         }
       }

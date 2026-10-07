@@ -184,6 +184,7 @@ function makeHarness(
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     epicStacksEnabled: opts.epicStacks ?? true,
+    sharedBrowserEnabled: false,
     hidden: false,
   });
   store.setEpicRun({

@@ -283,6 +283,57 @@ dontAsk` can otherwise read nothing but the files Shepherd itself wrote into
   delivers a **report PR or GitHub issue only, never a code PR**
   (`RESEARCH_PROCEED_STEER`, `src/autopilot.ts`). The residual is **accepted**.
 
+## Shared browser
+
+The per-repo **Shared Browser** (a headful Chromium on the Shepherd host with a
+persistent per-repo profile the operator logs in to; opt-in per repo via
+`sharedBrowserEnabled`) is reachable by agents only through a Shepherd-brokered
+CDP WebSocket on the **agent-ingress listener**. Chromium runs with
+`--remote-debugging-pipe`, so there is **no TCP debug port** for any other local
+process to reach.
+
+- **Credential.** Each session gets its own HMAC-signed attach token, delivered
+  in a per-session config file `~/.shepherd/browser-attach/<session>.json`
+  (`{"cdp": "<ws url>"}`, mode 0600 in a 0700 dir, written atomically at spawn,
+  deleted on archive). Only the file's path rides the env
+  (`SHEPHERD_BROWSER_CONFIG`): the spawn env reaches argv (bwrap `--setenv`,
+  herdr's env shim), which any local user can read from `/proc/<pid>/cmdline`.
+  A sandboxed session gets exactly its own file through a single-file read-only
+  bind; `~/.shepherd` is otherwise not bound, so no session can read another
+  session's token, and autonomous sessions get no file at all. **Residual:**
+  processes running as the operator's own uid outside the sandbox can read the
+  file (they can read the broker key too); other local users cannot.
+- **Attach is browser-level.** An attached agent can read every login in that
+  repo's profile, not just its own tab. The **per-repo profile is the isolation
+  boundary**: sessions on one repo never reach another repo's logins, but every
+  agent on a repo sees all of its logins. Operators should log in there only with
+  accounts they are willing to share with that repo's agents.
+- **CDP is allowlisted.** The broker forwards only domains page automation needs
+  (`Target`, `Page`, `Runtime`, `DOM`, `Network`, `Input`, `Emulation`,
+  `Accessibility` and their in-page siblings) plus a few `Browser` window/version
+  reads. Everything else is refused by default, including `PWA` (file handlers
+  would read host files), `Extensions`, `Tracing`, `SystemInfo` and browser
+  process control. Inside allowed domains it also refuses host-reaching methods
+  (download behavior, file inputs, file chooser and file drops) and non-web URLs.
+  Agents attach only to web targets (`http(s)`, `about:`, `data:`, `blob:`):
+  `Target.openDevTools` is refused, attaching or auto-attaching to a `devtools://`,
+  `chrome://` or other non-web target is refused, and a tab that navigates off the
+  web loses its agent sessions.
+  Only flat sessions are allowed:
+  `Target.sendMessageToTarget` is blocked and `Target.attachToTarget` /
+  `Target.setAutoAttach` need `flatten: true`, so no command can hide inside a
+  nested message the broker never parses.
+- **Downloads stay in the profile.** Shepherd pins the profile's download and
+  save-as directory to `<profile>/Downloads` before every launch, so a
+  page-triggered download never lands in the operator's `~/Downloads`. Profiles
+  live under `~/.shepherd/browser-profiles/`, which the sandbox membrane does
+  not bind (`$HOME` is a tmpfs inside it), so sandboxed agents cannot read
+  downloaded files either.
+- **Autonomous sessions are refused** until a per-repo browser origin allowlist
+  exists to bound where an unattended agent can drive the operator's logins.
+
+Rationale and alternatives: [ADR 0001](adr/0001-brokered-cdp-for-shared-browser.md).
+
 ## See also
 
 - `src/egress.ts`, `src/sandbox.ts`, `src/service.ts`, `src/autopilot.ts`,

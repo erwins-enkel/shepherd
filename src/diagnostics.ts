@@ -48,6 +48,7 @@ import {
   type TmpPressureSignal,
 } from "./tmp-sweep";
 import { SHELLS } from "./json-tolerant";
+import { BINARY_CANDIDATES, whichAsync } from "./shared-browser";
 import type { SessionStore } from "./store";
 import type { DiagnosticCheck, DiagnosticsSnapshot, DiagnosticState } from "./types";
 import type { MembraneLaunchFacts } from "./membrane-launch";
@@ -217,6 +218,14 @@ export interface DiagnosticsDeps {
    *  refresh timeouts; this second input catches that. Default `() => "fresh"`
    *  (linux/unwired); wired in `index.ts` to the shared `reaper.health().state`. */
   probeHealth?: () => { state: "none" | "stale" | "fresh"; driven: boolean };
+  /** Resolve the Shared Browser's Chromium for the `chromium` row: its path, or null when none
+   *  resolves. Default {@link resolveChromiumBinary} (async `access` only — never a sync exec/fs).
+   *  Injected in tests so the row never depends on the test host's browsers. */
+  resolveChromium?: () => Promise<string | null>;
+  /** True when at least one configured repo has `sharedBrowserEnabled` — a missing Chromium is then
+   *  a `warning`, else `optional`. Default `() => false`; wire in `index.ts` alongside
+   *  `anyForgeRepo` once the repo setting exists. */
+  anySharedBrowserEnabled?: () => boolean;
 }
 
 /**
@@ -1051,6 +1060,40 @@ function resolveTmpSweepDeps(deps: DiagnosticsDeps): {
   };
 }
 
+/** Resolve the Shared Browser's Chromium the way the launcher does: a set `SHEPHERD_CHROMIUM_BIN`
+ *  must itself resolve (no PATH fallback — a broken override is a broken launch), else the first
+ *  {@link BINARY_CANDIDATES} entry on PATH. Null ⇒ nothing launchable. */
+export async function resolveChromiumBinary(
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string | null> {
+  const override = env.SHEPHERD_CHROMIUM_BIN;
+  if (override) return whichAsync(override, env.PATH);
+  for (const bin of BINARY_CANDIDATES) {
+    const found = await whichAsync(bin, env.PATH);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Resolve both `chromium` row inputs, keeping the constructor flat (same idiom as above). */
+function resolveChromiumDeps(deps: DiagnosticsDeps): {
+  resolveChromium: () => Promise<string | null>;
+  anySharedBrowserEnabled: () => boolean;
+} {
+  return {
+    resolveChromium: deps.resolveChromium ?? (() => resolveChromiumBinary()),
+    anySharedBrowserEnabled: deps.anySharedBrowserEnabled ?? (() => false),
+  };
+}
+
+/** The `chromium` row when no binary resolves: a `warning` once some repo relies on the Shared
+ *  Browser (opening it will fail), else `optional` — nothing needs it yet. */
+function chromiumMissingCheck(sharedBrowserEnabled: boolean): DiagnosticCheck {
+  return sharedBrowserEnabled
+    ? { id: "chromium", state: "warning", hintKey: "diagnostics_hint_chromium_missing" }
+    : { id: "chromium", state: "optional", hintKey: "diagnostics_hint_chromium_optional" };
+}
+
 /** Default `readHerdrFleet`: reconcile active sessions against the herdr fleet and count unclaimed,
  *  non-helper panes by foreground-process liveness. `listAsync` rejects when herdr is unreachable →
  *  the probe's `onTimeout` uninspectable fallback. A pane adopted by a live session (`matchAgents`)
@@ -1161,6 +1204,8 @@ export class DiagnosticsService {
   ) => Promise<void>;
   private runPreviewProbe: () => Promise<"ok" | "unavailable" | "unsupported">;
   private probeHealth: () => { state: "none" | "stale" | "fresh"; driven: boolean };
+  private resolveChromium: () => Promise<string | null>;
+  private anySharedBrowserEnabled: () => boolean;
   private last: DiagnosticsSnapshot | null = null;
   private lastAt = 0;
 
@@ -1228,6 +1273,9 @@ export class DiagnosticsService {
     const previewProbes = resolvePreviewProbeDeps(deps);
     this.runPreviewProbe = previewProbes.runPreviewProbe;
     this.probeHealth = previewProbes.probeHealth;
+    const chromium = resolveChromiumDeps(deps);
+    this.resolveChromium = chromium.resolveChromium;
+    this.anySharedBrowserEnabled = chromium.anySharedBrowserEnabled;
   }
 
   /**
@@ -1562,6 +1610,14 @@ export class DiagnosticsService {
     return { id: "tailscale", state: "ok", hintKey: "diagnostics_hint_tailscale_ok" };
   };
 
+  /** chromium: the Shared Browser's binary (`SHEPHERD_CHROMIUM_BIN`, else the first candidate on
+   *  PATH) ⇒ ok; missing ⇒ `warning` when some repo has the Shared Browser enabled, else `optional`.
+   *  Presence only — never launches the browser. */
+  private chromiumProbe = async (): Promise<DiagnosticCheck> =>
+    (await this.resolveChromium())
+      ? { id: "chromium", state: "ok", hintKey: "diagnostics_hint_chromium_ok" }
+      : chromiumMissingCheck(this.anySharedBrowserEnabled());
+
   /** host_capacity (#1732): classify injected/read host-resource facts. Any read failure resolves
    *  to the probe's `onTimeout` (optional/uninspectable) via the `check()` wrapper. */
   private hostCapacityProbe = async (): Promise<DiagnosticCheck> =>
@@ -1675,6 +1731,11 @@ export class DiagnosticsService {
           state: "optional",
           hintKey: "diagnostics_hint_preview_probes_uninspectable",
         },
+      },
+      {
+        run: this.chromiumProbe,
+        // A failed lookup = can't confirm a launchable browser ⇒ the same missing verdict.
+        onTimeout: chromiumMissingCheck(this.anySharedBrowserEnabled()),
       },
     ];
     if (this.anyLightweightRepo()) {

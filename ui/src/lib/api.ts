@@ -2556,6 +2556,26 @@ export async function getRepoConfig(repoPath: string): Promise<RepoConfigRespons
   return getJson(`/api/repo-config?repo=${encodeURIComponent(repoPath)}`, "repo-config");
 }
 
+/** Operator "Open shared browser" (ADR 0001): launch the repo's Shared Browser if needed and open
+ *  a tab — at the session's dev origin when `sessionId` has a dev server, else about:blank. A
+ *  refusal throws an {@link ApiError} whose `code` is `missing-binary`, `cap` or `launch-failed`
+ *  (503); a disabled repo is a 409. */
+export async function openRepoBrowser(
+  repoPath: string,
+  sessionId?: string,
+): Promise<{ ok: true; url: string }> {
+  const r = await fetch("/api/repo-browser/open", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ repo: repoPath, ...(sessionId ? { sessionId } : {}) }),
+  });
+  if (!r.ok) {
+    flagIfUnauthorized(r.status);
+    throw await failed(r, "repo-browser open");
+  }
+  return r.json();
+}
+
 export async function putRepoConfig(
   repoPath: string,
   patch: Partial<
@@ -2581,6 +2601,7 @@ export async function putRepoConfig(
       | "manualStepsIssueEnabled"
       | "preWarmEpicLandingCi"
       | "epicStacksEnabled"
+      | "sharedBrowserEnabled"
       | "hidden"
       | "previewStartScript"
       | "previewStartCommand"

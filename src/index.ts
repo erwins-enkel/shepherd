@@ -1,4 +1,6 @@
 import { CodexAccountClient } from "./codex-account";
+import { SharedBrowserManager, reapOrphanBrowsers } from "./shared-browser";
+import { BrowserTokenSigner, loadOrCreateBrowserBrokerKey } from "./browser-token";
 import { CodexResetCoordinator } from "./codex-reset";
 import {
   CodexCapacityGate,
@@ -918,6 +920,20 @@ const telemetry = new TelemetryService({
 
 config.codexResetAutoEnabled = store.getSetting("codexResetAutoEnabled") === "true";
 const codexAccount = new CodexAccountClient();
+// Shared Browser (ADR 0001): per-repo Chromium launched on demand; stopped sync on exit below.
+const sharedBrowser = new SharedBrowserManager({
+  profileRoot: config.browserProfileRoot,
+  chromiumBin: config.chromiumBin,
+});
+// Browser Attach token signer. A broken key file disables Browser Attach (no env injected, every
+// attach refused) instead of failing boot — regenerating it would revoke live agents' URLs.
+const browserToken = await loadOrCreateBrowserBrokerKey(config.browserBrokerKeyPath).then(
+  (key) => new BrowserTokenSigner(key),
+  (err: unknown) => {
+    console.error("[shared-browser] broker key unavailable; Browser Attach disabled:", err);
+    return undefined;
+  },
+);
 const codexReset = new CodexResetCoordinator({
   store,
   enabled: () => config.codexResetAutoEnabled,
@@ -978,6 +994,7 @@ const service = new SessionService({
   // Plugin onSpawn hooks fire from prepareSpawn (create + resume); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   agentIngressPort: () => agentIngressState.port,
+  browserToken,
   // Usage-aware model downgrade (#825 companion): once live usage crosses the (lower) downgrade
   // threshold, every spawn that flows through pushModelFlag — Claude main task agents (here) and the
   // role agents (via roleEnv) — runs on the cheap usageDowngradeModel instead of its configured
@@ -1275,6 +1292,12 @@ const sweepRunawayOrphans = (ids?: Set<string>) => {
 };
 
 deferredStarts.push(() => {
+  // Shared Browser orphans: Chromium a crashed/SIGKILLed server left on one of our profiles.
+  void reapOrphanBrowsers(config.browserProfileRoot)
+    .then((n) => {
+      if (n > 0) console.warn(`[shared-browser] reaped ${n} orphaned browser(s)`);
+    })
+    .catch((err) => console.warn("[shared-browser] orphan reap failed:", err));
   // Deferred off the synchronous boot path (same as the #1133 orphan reap above): the sweep is a
   // host-wide /proc enumeration — a readdir plus a comm + stat read per pid, and an fd-table walk
   // for every hot, old survivor — and it runs on Bun's single loop. Nothing about it is urgent at
@@ -3623,6 +3646,8 @@ const diagnostics = new DiagnosticsService({
     listRepos(config.repoRoot).some((r) => store.getRepoConfig(r.path).repoMode === "forge"),
   anyLightweightRepo: () =>
     listRepos(config.repoRoot).some((r) => store.getRepoConfig(r.path).repoMode === "lightweight"),
+  anySharedBrowserEnabled: () =>
+    listRepos(config.repoRoot).some((r) => store.getRepoConfig(r.path).sharedBrowserEnabled),
   configuredCodexModels: () => [
     ...(config.defaultAgentProvider === "codex"
       ? listRepos(config.repoRoot).map((r) => {
@@ -3881,6 +3906,8 @@ deferredStarts.push(() => {
 
 const appDeps: AppDeps = {
   store,
+  sharedBrowser,
+  browserToken,
   service,
   fingerprint: { ensureFresh: () => fingerprint.ensureFresh(), coversRepo: fingerprintCoversRepo },
   readCodexAuthMode,
@@ -3921,7 +3948,10 @@ const appDeps: AppDeps = {
   claudeAlive: { snapshot: () => poller.claudeAliveSnapshot() },
   stranded: { ids: () => poller.strandedIds() },
   workingBlocked: { snapshot: () => poller.workingBlockedSnapshot() },
-  preview: { snapshot: () => previewService.snapshot() },
+  preview: {
+    snapshot: () => previewService.snapshot(),
+    devPortFor: (id) => previewService.devPortFor(id),
+  },
   previewServe: { snapshot: () => tailscaleServe.snapshot() },
   push,
   apnsSettings,
@@ -4115,6 +4145,7 @@ else startBackground();
 // Best-effort teardown of preview listeners and tailscale mappings on process exit / SIGTERM.
 process.on("exit", () => {
   codexAccount.close();
+  sharedBrowser.stopAll();
   previewService.stopAll();
   tailscaleServe.stopAll();
   standaloneCritic.stopAll();
@@ -4125,6 +4156,7 @@ process.on("exit", () => {
 // stop-timeout SIGKILL. Tear down, then exit (the `exit` handler's second stopAll is a
 // no-op since stopAll is idempotent).
 process.on("SIGTERM", () => {
+  sharedBrowser.stopAll();
   previewService.stopAll();
   tailscaleServe.stopAll();
   standaloneCritic.stopAll();

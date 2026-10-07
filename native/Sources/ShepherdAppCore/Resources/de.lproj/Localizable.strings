@@ -703,6 +703,12 @@
 "native_ios_open_session_hint" = "Öffnet die Session-Details.";
 "native_ios_plan_open_hint" = "Öffnet den Plan und seine Fragen.";
 "native_ios_plan_readonly" = "Planaktionen sind bei schreibgeschützter Ansicht, offline oder im Hintergrund nicht verfügbar.";
+"native_ios_push_denied" = "In der iOS-Einstellungen-App für Shepherd ausgeschaltet";
+"native_ios_push_failed" = "Registrierung fehlgeschlagen: %1$@";
+"native_ios_push_pending" = "Wird bei diesem Server registriert…";
+"native_ios_push_registered" = "Für diesen Server aktiv";
+"native_ios_push_title" = "Benachrichtigungen";
+"native_ios_push_unavailable" = "Auf diesem Server nicht eingerichtet — auf dem Server unter Einstellungen → Benachrichtigungen einrichten";
 "native_ios_remove_body" = "Die gespeicherte Anmeldung wird von diesem Gerät entfernt. Der serverseitige Widerruf ist nicht bestätigt.";
 "native_ios_reply_draft" = "Entwurf gespeichert";
 "native_ios_server_connected" = "Verbunden";

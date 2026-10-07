@@ -206,7 +206,12 @@
       // (lines ~552-580), plus its amber `.primary` / `aria-pressed` state, which other
       // copies carry too. No other duplicated content in this file, so ignoring the file
       // is equivalent to ignoring just that block (#2638).
-      "**/ui/src/lib/components/issues-panel/RepoOverview.svelte"
+      "**/ui/src/lib/components/issues-panel/RepoOverview.svelte",
+      // settings-controls.css is the Settings panels' SHARED recipe sheet: hoisting the `.run`
+      // button and the label/text-input recipes here (#2696) is what lets a new panel stop
+      // copying them, so it necessarily matches the inline copies the older panels (Access,
+      // Diagnose, Workspace) still carry. Those copies are the duplication; this file is the cure.
+      "**/ui/src/lib/components/settings/settings-controls.css"
     ]
   },
 

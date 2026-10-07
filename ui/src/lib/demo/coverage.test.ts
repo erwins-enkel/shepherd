@@ -208,6 +208,8 @@ const INVENTORY: readonly Entry[] = [
   // Settings dialog (#1821)
   get("/api/fs/dirs", "/api/fs/dirs?path=/demo/acme"),
   get("/api/access-tokens"),
+  get("/api/push/apns/config"),
+  get("/api/push/devices"),
 
   // repo-scoped lenses (#2295)
   get("/api/prs", `/api/prs?repo=${r}`),
@@ -391,6 +393,8 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
   // in INVENTORY; installing a plugin or applying an update has nothing to act on here.
   "settings, plugin + update actions": [
     "/api/access-tokens/:p",
+    "/api/push/devices/:p",
+    "/api/push/devices/:p/test",
     "/api/settings/verify-key",
     "/api/plugins/manage/install",
     "/api/plugins/manage/activate",

@@ -86,6 +86,11 @@ import type {
   UpNextSnapshot,
   UpNextItem,
   AccessToken,
+  ApnsConfigError,
+  ApnsField,
+  ApnsStatus,
+  PushDevice,
+  PushTestResult,
   TokenScope,
 } from "./types";
 import type { MergeConfirmPayload } from "$lib/components/merge-confirm";
@@ -878,6 +883,65 @@ export async function revokeAccessToken(id: string): Promise<void> {
   const r = await fetch(`/api/access-tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!r.ok) throw await failed(r, "revoke access token");
 }
+
+// ── push administration (#2696) ────────────────────────────────────────────
+// Settings → Notifications. Like the access tokens, every route needs the session cookie; a
+// bearer token is refused with 403.
+
+export async function getApnsConfig(): Promise<ApnsStatus> {
+  const r = await fetch("/api/push/apns/config");
+  if (!r.ok) throw await failed(r, "push config");
+  return r.json();
+}
+
+/** Store APNs credentials. A refusal the operator can fix (409 env-locked, 422 invalid) comes
+ *  back as a value naming the field, not as a throw. */
+export async function putApnsConfig(
+  body: Partial<Record<ApnsField, string>>,
+): Promise<ApnsStatus | ApnsConfigError> {
+  const r = await fetch("/api/push/apns/config", {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
+  if (r.status === 409 || r.status === 422) return (await r.json()) as ApnsConfigError;
+  if (!r.ok) throw await failed(r, "save push config");
+  return r.json();
+}
+
+export async function deleteApnsConfig(): Promise<ApnsStatus> {
+  const r = await fetch("/api/push/apns/config", { method: "DELETE" });
+  if (!r.ok) throw await failed(r, "remove push config");
+  return r.json();
+}
+
+export async function listPushDevices(): Promise<{ devices: PushDevice[] }> {
+  const r = await fetch("/api/push/devices");
+  if (!r.ok) throw await failed(r, "push devices");
+  return r.json();
+}
+
+export async function updatePushDevice(
+  id: string,
+  categories: PushDevice["categories"],
+): Promise<PushDevice> {
+  const r = await fetch(`/api/push/devices/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ categories }),
+  });
+  if (!r.ok) throw await failed(r, "update push device");
+  return r.json();
+}
+
+export async function deletePushDevice(id: string): Promise<void> {
+  const r = await fetch(`/api/push/devices/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!r.ok) throw await failed(r, "remove push device");
+}
+
+/** Send one test push to a device, past presence, cooldown and categories. */
+export const testPushDevice = (id: string): Promise<PushTestResult> =>
+  postJson(`/api/push/devices/${encodeURIComponent(id)}/test`, {}, "test push");
 
 // Force-resume every currently-stranded session ("revive all"). Returns per-batch counts.
 export async function reviveStranded(): Promise<{ revived: number; failed: number }> {

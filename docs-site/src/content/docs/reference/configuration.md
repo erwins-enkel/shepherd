@@ -98,16 +98,27 @@ keypair invalidates every existing browser subscription, which then has to re-su
 The native iOS app receives pushes straight from Apple's push service while the shared push
 relay is being built ([#2665](https://github.com/erwins-enkel/shepherd/issues/2665)). This needs
 the publisher's APNs auth key, so it is for the publisher's own servers only — a self-hoster
-leaves these unset and keeps browser Web Push. Native pushes pass the same gates as Web Push
+leaves it unset and keeps browser Web Push. Native pushes pass the same gates as Web Push
 (presence, cooldown, reduced mode, per-device categories). Until the relay lands, the title and
 body travel in plain text through Apple.
 
+Set it up in **Settings → Notifications** (operator login only, not with an access token):
+upload the `.p8` file or paste its text, enter the key and team IDs, and save. The server checks
+the key (it must be Apple's EC P-256 key) and both IDs right away and takes the change without a
+restart. The key is stored in `apns.json` beside the database at mode `0600`, and no route ever
+returns it — the dialog only shows that a key is on file, since when, and the last APNs error.
+The same section lists every registered device (iPhone and browser) with its categories, a test
+send that bypasses presence and cooldown, and removal.
+
+The variables below still work for deployments and override the stored value field by field; a
+field set this way is shown read-only in the dialog.
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `SHEPHERD_APNS_KEY` | _(unset: native push off)_ | APNs auth key, as a path to the `.p8` file or its PEM text |
-| `SHEPHERD_APNS_KEY_ID` | _(unset)_ | The key's 10-character ID from Apple's developer portal |
-| `SHEPHERD_APNS_TEAM_ID` | _(unset)_ | Apple Developer team that owns the key and the app |
-| `SHEPHERD_APNS_TOPIC` | `run.shepherd.ios` | The iOS app's bundle identifier, sent as `apns-topic` |
+| `SHEPHERD_APNS_KEY` | _(unset: the stored key, if any)_ | APNs auth key, as a path to the `.p8` file or its PEM text |
+| `SHEPHERD_APNS_KEY_ID` | _(unset: the stored ID)_ | The key's 10-character ID from Apple's developer portal |
+| `SHEPHERD_APNS_TEAM_ID` | _(unset: the stored ID)_ | Apple Developer team that owns the key and the app |
+| `SHEPHERD_APNS_TOPIC` | _(stored topic, else `run.shepherd.ios`)_ | The iOS app's bundle identifier, sent as `apns-topic` |
 
 ## Model, effort and provider defaults
 

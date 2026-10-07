@@ -1,14 +1,4 @@
 <script lang="ts">
-  import { onMount } from "svelte";
-  import {
-    pushState,
-    enablePush,
-    disablePush,
-    getPushCategories,
-    setPushCategories,
-    type PushStatus,
-    type PushCategories,
-  } from "$lib/push";
   import { theme, type ThemePref, type MotionPref } from "$lib/theme.svelte";
   import { tabTicker } from "$lib/tab-ticker.svelte";
   import { infoTips } from "$lib/info-tips.svelte";
@@ -21,16 +11,10 @@
 
   let {
     onwhatsnew,
-    reducedPushMode = false,
-    reducedPushBusy = false,
-    onToggleReducedPush,
     onfeedback,
     query = "",
   }: {
     onwhatsnew?: () => void;
-    reducedPushMode?: boolean;
-    reducedPushBusy?: boolean;
-    onToggleReducedPush?: () => void;
     onfeedback?: (kind: FeedbackKind) => void;
     /** Active settings-search query — highlights this panel's indexed labels
      *  (the texts sectionSearchRows lists for "device") so the rail badge and
@@ -67,45 +51,6 @@
         })
       : m.settings_motion_hint(),
   );
-
-  let push = $state<PushStatus>({ supported: false, permission: "unsupported", subscribed: false });
-  let pushBusy = $state(false);
-  let categories = $state<PushCategories>({ agent: true, reviews: true, ci: true });
-
-  // Category metadata drives the checkbox list; keys index into `categories`.
-  const categoryRows: { key: keyof PushCategories; label: () => string }[] = [
-    { key: "agent", label: () => m.settings_push_cat_agent() },
-    { key: "reviews", label: () => m.settings_push_cat_reviews() },
-    { key: "ci", label: () => m.settings_push_cat_ci() },
-  ];
-
-  async function refreshPush() {
-    push = await pushState();
-    if (push.subscribed) categories = await getPushCategories();
-  }
-
-  async function toggleCategory(key: keyof PushCategories) {
-    const prev = categories;
-    const next = { ...categories, [key]: !categories[key] };
-    categories = next; // optimistic; server is authoritative at send time
-    if (!(await setPushCategories(next))) categories = prev; // persist failed → revert
-  }
-
-  async function togglePush() {
-    if (pushBusy) return;
-    pushBusy = true;
-    try {
-      if (push.subscribed) await disablePush();
-      else await enablePush();
-      await refreshPush();
-    } finally {
-      pushBusy = false;
-    }
-  }
-
-  onMount(async () => {
-    await refreshPush();
-  });
 </script>
 
 <div class="theme-row">
@@ -218,55 +163,6 @@
     >
   </button>
 </div>
-<div class="push">
-  <span class="micro"><HighlightText text={m.settings_push_title()} {query} /></span>
-  <div class="reduced-row">
-    <span class="micro sub"><HighlightText text={m.settings_reduced_push_title()} {query} /></span>
-    <p class="hint"><HighlightText text={m.settings_reduced_push_hint()} {query} /></p>
-    <button
-      type="button"
-      class="toggle"
-      role="switch"
-      aria-label={m.settings_reduced_push_title()}
-      aria-checked={reducedPushMode}
-      disabled={reducedPushBusy}
-      onclick={() => onToggleReducedPush?.()}
-    >
-      <span class="track" class:on={reducedPushMode}><span class="knob"></span></span>
-      <span class="state"
-        >{reducedPushMode ? m.settings_reduced_push_on() : m.settings_reduced_push_off()}</span
-      >
-    </button>
-  </div>
-  {#if !push.supported}
-    <p class="hint">{m.settings_push_unsupported()}</p>
-  {:else if push.permission === "denied"}
-    <p class="hint">{m.settings_push_denied()}</p>
-  {:else}
-    <button type="button" class="run" disabled={pushBusy} onclick={togglePush}>
-      {#if pushBusy}…{:else if push.subscribed}{m.settings_push_disable()}{:else}{m.settings_push_enable()}{/if}
-    </button>
-    {#if push.subscribed}
-      <fieldset class="cats">
-        <legend class="micro sub">{m.settings_push_cat_title()}</legend>
-        {#if reducedPushMode}
-          <p class="hint">{m.settings_reduced_push_disabled_note()}</p>
-        {/if}
-        {#each categoryRows as row (row.key)}
-          <label class="cat">
-            <input
-              type="checkbox"
-              checked={categories[row.key]}
-              disabled={reducedPushMode}
-              onchange={() => toggleCategory(row.key)}
-            />
-            <span>{row.label()}</span>
-          </label>
-        {/each}
-      </fieldset>
-    {/if}
-  {/if}
-</div>
 <div class="feedback">
   <span class="micro"><HighlightText text={m.settings_feedback_title()} {query} /></span>
   <p class="hint"><HighlightText text={m.settings_feedback_blurb()} {query} /></p>
@@ -332,34 +228,8 @@
     text-transform: uppercase;
     color: var(--color-muted);
   }
-  /* Nested sub-section headings (REDUCED NOTIFICATIONS, NOTIFY ME ABOUT) sit one
-     level below the PUSH NOTIFICATIONS section label. Demote via size + tracking
-     only — colour stays --color-muted (the AA-safe label colour, ≥4.5:1) so the
-     sub-heading reads brighter than its --color-faint hint and never regresses
-     contrast. No font-weight axis (the design system defines no weight token). */
-  .micro.sub {
-    font-size: var(--fs-micro);
-    letter-spacing: 0.12em;
-  }
-  .run {
-    border: 1px solid var(--color-amber);
-    color: var(--color-amber);
-    background: transparent;
-    padding: 9px 14px;
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
-    font: inherit;
-    font-size: var(--fs-meta);
-    cursor: pointer;
-    box-shadow: inset 0 0 18px -10px var(--color-amber);
-  }
-  .run:disabled {
-    opacity: 0.5;
-    cursor: default;
-    box-shadow: none;
-  }
-  /* Secondary/outline button — same shape as .run but uses the panel's neutral
-     line colour rather than amber, so it reads as a lower-priority action. */
+  /* Secondary/outline button — same shape as the amber .run buttons elsewhere in Settings but
+     in the panel's neutral line colour, so it reads as a lower-priority action. */
   .clone-trigger {
     border: 1px solid var(--color-line-bright);
     color: var(--color-ink);
@@ -379,48 +249,6 @@
     padding: 4px 8px;
     vertical-align: middle;
     margin-left: 6px;
-  }
-  .reduced-row {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .reduced-row .hint {
-    color: var(--color-faint);
-    font-size: var(--fs-meta);
-    margin: 0;
-  }
-  .push {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-  .push .hint {
-    color: var(--color-faint);
-    font-size: var(--fs-meta);
-    margin: 0;
-  }
-  .cats {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    border: 0;
-    margin: 2px 0 0;
-    padding: 0;
-  }
-  .cats legend {
-    padding: 0;
-    margin-bottom: 4px;
-  }
-  .cat {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: var(--fs-base);
-    cursor: pointer;
-  }
-  .cat input {
-    cursor: pointer;
   }
   .rc {
     display: flex;
@@ -443,10 +271,6 @@
     cursor: pointer;
     font: inherit;
     min-height: 44px;
-  }
-  .toggle:disabled {
-    opacity: 0.5;
-    cursor: default;
   }
   .track {
     position: relative;
@@ -623,12 +447,6 @@
     }
     /* feedback trio + the What's-New opener share the .clone-trigger recipe */
     .clone-trigger {
-      min-height: 44px;
-    }
-  }
-
-  @media (max-width: 768px) {
-    .run {
       min-height: 44px;
     }
   }

@@ -116,6 +116,7 @@ import {
 import { ReadyNotifier } from "./ready-notify";
 import { Presence } from "./presence";
 import { ApnsSender } from "./apns";
+import { ApnsSettings } from "./apns-settings";
 import { ReviewService, isTerminalPr } from "./review";
 import { StandalonePrCriticService } from "./standalone-critic";
 import { createIssueLogger } from "./issue-log";
@@ -1544,18 +1545,27 @@ const presence = new Presence(() => {
     void backlogPoller.tick();
   }, 1_500);
 });
+// Native iOS push (#2665): credentials from Settings → Notifications, each field overridable by
+// SHEPHERD_APNS_* (#2696). The settings reload the sender in place, so a save needs no restart.
+const apnsSender = new ApnsSender({ key: null, keyId: null, teamId: null, topic: "" });
+const apnsSettings = new ApnsSettings(
+  config.apnsStorePath,
+  {
+    key: config.apnsKey,
+    keyId: config.apnsKeyId,
+    teamId: config.apnsTeamId,
+    topic: config.apnsTopic,
+  },
+  apnsSender,
+);
+apnsSettings.load();
 const push = new PushService(
   store,
   undefined,
   undefined,
   undefined,
   () => presence.isActive(),
-  new ApnsSender({
-    key: config.apnsKey,
-    keyId: config.apnsKeyId,
-    teamId: config.apnsTeamId,
-    topic: config.apnsTopic,
-  }),
+  apnsSender,
 );
 attachPush(events, store, push);
 
@@ -3912,6 +3922,7 @@ const appDeps: AppDeps = {
   preview: { snapshot: () => previewService.snapshot() },
   previewServe: { snapshot: () => tailscaleServe.snapshot() },
   push,
+  apnsSettings,
   presence,
   poller,
   hooks: hookIngest,

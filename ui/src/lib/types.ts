@@ -93,6 +93,46 @@ export interface RepoEntry {
   realPath: string;
 }
 
+/** Native iOS push setup (Settings → Notifications, #2696). Mirrors ApnsStatus in
+ *  src/apns-settings.ts; never carries the key itself. */
+export type ApnsField = "key" | "keyId" | "teamId" | "topic";
+export interface ApnsStatus {
+  state: "unconfigured" | "configured" | "error";
+  hasKey: boolean;
+  keyId: string | null;
+  teamId: string | null;
+  topic: string;
+  /** When the stored key was saved; null when none is stored or the environment supplies it. */
+  keySavedAt: number | null;
+  /** Fields SHEPHERD_APNS_* sets — shown read-only. */
+  env: Record<ApnsField, boolean>;
+  keyError: "unreadable" | "invalid" | "not_p256" | null;
+  lastError: { status: number; reason: string | null; at: number } | null;
+  lastDeliveredAt: number | null;
+}
+/** Why a save was refused; `field` names the input to point at. */
+export interface ApnsConfigError {
+  error: string;
+  field: ApnsField;
+}
+/** One registered push device in the settings list (opaque id, never the endpoint). */
+export interface PushDevice {
+  id: string;
+  kind: "ios" | "web";
+  environment: "sandbox" | "production" | null;
+  userAgent: string;
+  locale: string;
+  createdAt: number;
+  registeredAt: number;
+  categories: { agent: boolean; reviews: boolean; ci: boolean };
+}
+/** What one test push came to, in the push service's own words. */
+export interface PushTestResult {
+  delivered: boolean;
+  status: number | null;
+  reason: string | null;
+}
+
 /** A minted machine access token as the server reports it (#2082) — never the plaintext value,
  *  which exists exactly once, in the response to the mint request. */
 export interface AccessToken {

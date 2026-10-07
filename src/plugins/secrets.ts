@@ -125,7 +125,7 @@ export class PluginSecretStore {
 
 /** Atomic 0600 write: temp file (created 0600, then chmod'd in case a stale temp survived
  *  with a looser mode) → rename → chmod the target, so a pre-existing looser file is fixed. */
-async function writeSecretsFile(path: string, contents: string): Promise<void> {
+export async function writeSecretsFile(path: string, contents: string): Promise<void> {
   const tmp = `${path}.tmp`;
   try {
     await writeFile(tmp, contents, { encoding: "utf8", mode: 0o600 });

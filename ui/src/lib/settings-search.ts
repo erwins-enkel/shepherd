@@ -6,6 +6,7 @@ export const SETTINGS_SECTION_IDS = [
   "steers",
   "plugins",
   "session",
+  "notifications",
   "device",
   "access",
   "diagnose",
@@ -19,6 +20,8 @@ export const SECTION_GLYPHS: Record<SettingsSectionId, string> = {
   steers: "⇥",
   plugins: "✦",
   session: "⌖",
+  // Same Geometric Shapes block as ▦/◫/◈, so it shares their font coverage.
+  notifications: "◎",
   device: "◫",
   // NOT ⚿ (U+26BF SQUARED KEY), the obvious pick: it lives only in Noto Sans Symbols 2, which
   // macOS and Windows don't ship — it would render as tofu, or from a different family than its
@@ -251,11 +254,16 @@ export function sectionSearchRows(ctx: {
       [m.settings_tab_ticker_title(), m.settings_tab_ticker_hint()],
       [m.settings_card_issue_ref_title(), m.settings_card_issue_ref_hint()],
       [m.settings_hide_info_tips_title(), m.settings_hide_info_tips_hint()],
-      [m.settings_push_title()],
-      [m.settings_reduced_push_title(), m.settings_reduced_push_hint()],
       [m.settings_feedback_title(), m.settings_feedback_blurb()],
       [m.settings_extension_title(), m.settings_extension_blurb()],
       [m.settings_about_title(), m.settings_about_blurb()],
+    ],
+    notifications: [
+      [m.settings_tab_notifications(), m.settings_push_title()],
+      [m.settings_notify_ios_title(), m.settings_notify_ios_hint()],
+      [m.settings_notify_devices_title(), m.settings_notify_devices_hint()],
+      [m.settings_notify_browser_title()],
+      [m.settings_reduced_push_title(), m.settings_reduced_push_hint()],
     ],
     access: [
       [m.settings_tab_access()],

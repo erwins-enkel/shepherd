@@ -327,9 +327,12 @@ manager and composer fixtures through `ImageRenderer`.
 ## Push notifications (interim direct APNs)
 
 Until the push relay exists ([#2665](https://github.com/erwins-enkel/shepherd/issues/2665)),
-a server that has `SHEPHERD_APNS_KEY`, `SHEPHERD_APNS_KEY_ID` and `SHEPHERD_APNS_TEAM_ID` set
-sends straight to Apple. That key belongs to the publisher, so this only works on the publisher's
-own servers; everyone else keeps browser Web Push. `IOSPushRegistration` asks for permission once
+a server with an APNs key — set up in the web UI under Settings → Notifications, or through
+`SHEPHERD_APNS_KEY`, `SHEPHERD_APNS_KEY_ID` and `SHEPHERD_APNS_TEAM_ID` — sends straight to
+Apple. That key belongs to the publisher, so this only works on the publisher's own servers;
+everyone else keeps browser Web Push. The gear menu shows whether push is active for the current
+server profile; a server without a key answers `503`, and the menu points at Settings →
+Notifications. `IOSPushRegistration` asks for permission once
 a server profile is active, then posts the device token to `POST /api/push/apns` on every new
 store (launch, login, profile switch). Debug builds register for the APNs sandbox, Release builds
 (TestFlight) for production — the `aps-environment` entitlement follows the same split through

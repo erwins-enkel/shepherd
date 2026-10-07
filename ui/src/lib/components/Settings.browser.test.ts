@@ -55,12 +55,24 @@ vi.mock("$lib/api", async (importOriginal) => {
     putTelemetryConsent: vi.fn(async (consent) => ({ telemetryConsent: consent })),
     putSessionHousekeeping: vi.fn(async (enabled) => ({ sessionHousekeepingEnabled: enabled })),
     putUpNextReadiness: vi.fn(async (enabled) => ({ upNextReadiness: enabled })),
+    getApnsConfig: vi.fn(async () => ({
+      state: "unconfigured",
+      hasKey: false,
+      keyId: null,
+      teamId: null,
+      topic: "run.shepherd.ios",
+      keySavedAt: null,
+      env: { key: false, keyId: false, teamId: false, topic: false },
+      keyError: null,
+      lastError: null,
+      lastDeliveredAt: null,
+    })),
+    listPushDevices: vi.fn(async () => ({ devices: [] })),
   };
 });
 
-// `onMount` awaits refreshPush() before loading settings; a throwing push probe
-// would abort the load and never render the api-key block. Stub it to a quiet,
-// unsupported, unsubscribed state.
+// The Notifications panel probes this browser's push state on mount; stub it to a quiet,
+// unsupported, unsubscribed state so no test touches navigator.serviceWorker.
 vi.mock("$lib/push", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/push")>();
   return {
@@ -70,7 +82,6 @@ vi.mock("$lib/push", async (importOriginal) => {
       permission: "unsupported" as const,
       subscribed: false,
     })),
-    getPushCategories: vi.fn(async () => ({ agent: true, reviews: true, ci: true })),
   };
 });
 

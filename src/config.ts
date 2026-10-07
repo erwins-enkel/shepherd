@@ -43,6 +43,9 @@ const pluginsDir = process.env.SHEPHERD_PLUGINS_DIR ?? join(dirname(dbPath), "pl
 // served by any route. SHEPHERD_PLUGIN_SECRETS overrides.
 const pluginSecretsPath =
   process.env.SHEPHERD_PLUGIN_SECRETS ?? join(dirname(dbPath), "plugin-secrets.json");
+// APNs credentials entered in Settings → Notifications (#2696): one 0600 JSON file beside the db,
+// never served by any route.
+const apnsStorePath = join(dirname(dbPath), "apns.json");
 
 // herdr session id ("default" for a single-session install; a named daemon otherwise) and
 // the Unix-socket path for herdr's native JSON-RPC API (issue #1529). Resolved via the shared
@@ -693,11 +696,13 @@ export const config = {
   vapidPublic: process.env.SHEPHERD_VAPID_PUBLIC ?? null,
   vapidPrivate: process.env.SHEPHERD_VAPID_PRIVATE ?? null,
   // Native iOS push, interim direct-to-APNs transport (#2665) until the relay exists.
-  // Enabled only when key, key id and team id are all set; the key is a `.p8` path or PEM.
+  // Each of these overrides what Settings → Notifications stored in `apnsStorePath` (#2696); the
+  // key is a `.p8` path or PEM. Topic unset falls back to the stored one, then run.shepherd.ios.
   apnsKey: process.env.SHEPHERD_APNS_KEY || null,
   apnsKeyId: process.env.SHEPHERD_APNS_KEY_ID || null,
   apnsTeamId: process.env.SHEPHERD_APNS_TEAM_ID || null,
-  apnsTopic: process.env.SHEPHERD_APNS_TOPIC || "run.shepherd.ios",
+  apnsTopic: process.env.SHEPHERD_APNS_TOPIC || null,
+  apnsStorePath,
   // ── anonymous usage telemetry (Aptabase) ────────────────────────────────
   // The App-Key is the master enable. It defaults to Shepherd's public Aptabase
   // Cloud (EU) ingestion key — an Aptabase App-Key is write-only and safe to ship

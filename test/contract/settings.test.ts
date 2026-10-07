@@ -19,8 +19,11 @@ import { config } from "../../src/config";
 import { firstRun } from "../../src/first-run";
 import { diagnostic } from "./settings-fixtures";
 import { generateKeyPairSync } from "node:crypto";
-import { PushService } from "../../src/push";
-import { ApnsSender } from "../../src/apns";
+import { PushService, pushDeviceId } from "../../src/push";
+import { ApnsSender, apnsEndpoint } from "../../src/apns";
+import { ApnsSettings } from "../../src/apns-settings";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
 let s: ContractServer, token: string, cookie: string;
 const OPS = operationsForStream("settings"),
   EVENTS = eventsForStream("settings");
@@ -304,6 +307,114 @@ test("native iOS registration: 503 without an APNs key, 400 on a bad token, 200 
     expect(ok.endpoint).toBe(`apns:production:${device.token}`);
   } finally {
     s.deps.push = saved;
+  }
+});
+test("push administration is cookie-admin only and never returns the key", async () => {
+  const admin = { cookie };
+  const p256 = () =>
+    generateKeyPairSync("ec", { namedCurve: "P-256" })
+      .privateKey.export({ type: "pkcs8", format: "pem" })
+      .toString();
+  const noEnv = { key: null, keyId: null, teamId: null, topic: null };
+  const dir = mkdtempSync(join(tmpdir(), "contract-apns-"));
+  const sender = new ApnsSender({ key: null, keyId: null, teamId: null, topic: "" }, async () => ({
+    status: 400,
+    reason: "BadDeviceToken",
+  }));
+  const settings = new ApnsSettings(join(dir, "apns.json"), noEnv, sender);
+  settings.load();
+  const savedPush = s.deps.push,
+    savedSettings = s.deps.apnsSettings;
+  const ios = apnsEndpoint("production", "ef".repeat(32));
+  const devicePath = `/api/push/devices/${pushDeviceId(ios)}`;
+  try {
+    s.deps.apnsSettings = undefined;
+    s.deps.push = undefined;
+    await request("GET", "/api/push/apns/config", 503, undefined, undefined, admin);
+    await request("PUT", "/api/push/apns/config", 503, {}, undefined, admin);
+    await request("DELETE", "/api/push/apns/config", 503, undefined, undefined, admin);
+    s.deps.store.putPushSub({ endpoint: ios, keys: { p256dh: "", auth: "" }, locale: "de" }, "iOS");
+    await request(
+      "POST",
+      "/api/push/devices/{id}/test",
+      503,
+      undefined,
+      devicePath + "/test",
+      admin,
+    );
+
+    s.deps.apnsSettings = settings;
+    s.deps.push = new PushService(
+      s.deps.store,
+      async () => ({ statusCode: 201 }),
+      () => ({ publicKey: "PUB", privateKey: "PRIV" }),
+      undefined,
+      undefined,
+      sender,
+    );
+    const key = p256();
+    for (const [method, body] of [
+      ["GET", undefined],
+      ["PUT", { keyId: "KEY1234567" }],
+      ["DELETE", undefined],
+    ] as const) {
+      await request(method, "/api/push/apns/config", 403, body);
+    }
+    await request("PUT", "/api/push/apns/config", 400, { keyId: 1 }, undefined, admin);
+    await request("PUT", "/api/push/apns/config", 422, { key: "x" }, undefined, admin);
+    const saved = (await request(
+      "PUT",
+      "/api/push/apns/config",
+      200,
+      { key, keyId: "KEY1234567", teamId: "TEAM123456" },
+      undefined,
+      admin,
+    )) as { state: string };
+    expect(saved.state).toBe("configured");
+    const res = await fetch(s.baseUrl + "/api/push/apns/config", { headers: admin });
+    expect(await res.text()).not.toContain(key.split("\n")[1]!);
+    await request("GET", "/api/push/apns/config", 200, undefined, undefined, admin);
+
+    s.deps.apnsSettings = new ApnsSettings(join(dir, "env.json"), { ...noEnv, key }, sender);
+    await request("PUT", "/api/push/apns/config", 409, { key }, undefined, admin);
+    s.deps.apnsSettings = settings;
+
+    await request("GET", "/api/push/devices", 403);
+    const list = (await request("GET", "/api/push/devices", 200, undefined, undefined, admin)) as {
+      devices: { kind: string }[];
+    };
+    expect(list.devices.some((d) => d.kind === "ios")).toBe(true);
+    const cats = { categories: { agent: true, reviews: false, ci: true } };
+    await request("PATCH", "/api/push/devices/{id}", 403, cats, devicePath);
+    await request("PATCH", "/api/push/devices/{id}", 400, {}, devicePath, admin);
+    await request("PATCH", "/api/push/devices/{id}", 200, cats, devicePath, admin);
+    await request("PATCH", "/api/push/devices/{id}", 404, cats, "/api/push/devices/none", admin);
+    await request("POST", "/api/push/devices/{id}/test", 403, undefined, devicePath + "/test");
+    const tested = (await request(
+      "POST",
+      "/api/push/devices/{id}/test",
+      200,
+      undefined,
+      devicePath + "/test",
+      admin,
+    )) as { delivered: boolean; reason: string };
+    expect(tested).toMatchObject({ delivered: false, reason: "BadDeviceToken" });
+    await request("DELETE", "/api/push/devices/{id}", 403, undefined, devicePath);
+    await request("DELETE", "/api/push/devices/{id}", 200, undefined, devicePath, admin);
+    await request("DELETE", "/api/push/devices/{id}", 404, undefined, devicePath, admin);
+    await request(
+      "POST",
+      "/api/push/devices/{id}/test",
+      404,
+      undefined,
+      devicePath + "/test",
+      admin,
+    );
+    await request("DELETE", "/api/push/apns/config", 200, undefined, undefined, admin);
+  } finally {
+    s.deps.push = savedPush;
+    s.deps.apnsSettings = savedSettings;
+    s.deps.store.deletePushSub(ios);
   }
 });
 test("existing token contract is cookie-admin only", async () => {

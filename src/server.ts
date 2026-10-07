@@ -1,6 +1,6 @@
 import { localHealthIdentity } from "./local-health";
 import { isHerdrProtocolMismatch } from "./herdr-runtime";
-import type { RepoConfig, SessionStore } from "./store";
+import type { RepoConfig, SessionStore, StoredPushSub } from "./store";
 import type { PluginRegistry } from "./plugins/loader";
 import type { PluginInfo } from "./plugins/types";
 import type { SessionService } from "./service";
@@ -219,7 +219,7 @@ import {
   validateMergeConfirm,
   type MergeConfirm,
 } from "./merge-gate";
-import type { PushService } from "./push";
+import { pushDeviceId, type PushService } from "./push";
 import type { Presence } from "./presence";
 import type { StatusPoller } from "./poller";
 import type { SessionActivity } from "./activity-signal";
@@ -312,7 +312,8 @@ import { PluginSpawnAborted } from "./plugins/types";
 import { signedOff, type SignoffView } from "./signoff";
 import { scanInstalled, installPlugin, uninstallPlugin } from "./plugins/manage";
 import { randomUUID } from "node:crypto";
-import { apnsEndpoint, isApnsToken } from "./apns";
+import { apnsEndpoint, isApnsToken, parseApnsEndpoint } from "./apns";
+import { APNS_FIELDS, type ApnsSaveInput, type ApnsSettings } from "./apns-settings";
 
 const UI_DIR = join(import.meta.dir, "..", "ui", "build");
 
@@ -468,7 +469,9 @@ export interface AppDeps {
    *  disabled or tailscale is unavailable. Merged into /api/preview responses. */
   previewServe?: { snapshot(): Record<string, "ok" | "failed"> };
   /** Web Push delivery; absent in tests that don't exercise notifications. */
-  push?: Pick<PushService, "publicKey" | "subscribe" | "unsubscribe" | "apnsEnabled">;
+  push?: Pick<PushService, "publicKey" | "subscribe" | "unsubscribe" | "apnsEnabled" | "testSend">;
+  /** APNs credentials behind Settings → Notifications (#2696); absent in tests that skip them. */
+  apnsSettings?: Pick<ApnsSettings, "status" | "save" | "remove">;
   /** Active-window tracker fed by /events presence frames; gates push suppression. */
   presence?: Pick<Presence, "set" | "drop" | "connect">;
   /** Status poller; used to manually dismiss a stall flag (`acknowledgeStall`) and, when
@@ -2500,6 +2503,138 @@ async function pushPrefsWrite(req: Request, deps: AppDeps): Promise<Response> {
   return ok ? json({ ok: true }) : json({ error: "no subscription for endpoint" }, 404);
 }
 
+// ── push administration: Settings → Notifications (#2696) ─────────────────
+// APNs setup and the device list. Every route requires an INTERACTIVE operator session, like the
+// access-token routes: a bearer token neither installs the push key nor reads who gets pushes.
+
+/** One registered device as the settings list shows it — never its endpoint or keys. */
+function pushDeviceView(row: StoredPushSub) {
+  const apns = parseApnsEndpoint(row.endpoint);
+  return {
+    id: pushDeviceId(row.endpoint),
+    kind: apns ? ("ios" as const) : ("web" as const),
+    environment: apns?.environment ?? null,
+    userAgent: row.ua,
+    locale: row.locale,
+    createdAt: row.createdAt,
+    registeredAt: row.registeredAt,
+    categories: row.cats,
+  };
+}
+
+function findPushDevice(deps: AppDeps, id: string): StoredPushSub | null {
+  return deps.store.listPushSubs().find((row) => pushDeviceId(row.endpoint) === id) ?? null;
+}
+
+/** PUT /api/push/apns/config — store APNs credentials. Each field is an optional string; a field
+ *  left out keeps its stored value, `key` is the `.p8` PEM text. */
+async function putApnsConfig(req: Request, settings: Pick<ApnsSettings, "save">) {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return json({ error: "body must be an object" }, 400);
+  }
+  const input: ApnsSaveInput = {};
+  for (const field of APNS_FIELDS) {
+    const value = body[field];
+    if (value === undefined) continue;
+    if (typeof value !== "string") return json({ error: `${field} must be a string` }, 400);
+    input[field] = value;
+  }
+  const result = await settings.save(input);
+  if ("error" in result) return json(result, result.error === "env_locked" ? 409 : 422);
+  return json(result);
+}
+
+async function pushDevicePatch(req: Request, deps: AppDeps, row: StoredPushSub) {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const body = (await req.json().catch(() => null)) as {
+    categories?: { agent?: unknown; reviews?: unknown; ci?: unknown };
+  } | null;
+  const c = body?.categories;
+  if (
+    !c ||
+    typeof c.agent !== "boolean" ||
+    typeof c.reviews !== "boolean" ||
+    typeof c.ci !== "boolean"
+  ) {
+    return json({ error: "body must be {categories:{agent,reviews,ci}}" }, 400);
+  }
+  const cats = { agent: c.agent, reviews: c.reviews, ci: c.ci };
+  deps.store.setPushPrefs(row.endpoint, cats);
+  return json(pushDeviceView({ ...row, cats }));
+}
+
+type PushAdminRoute = "config" | "devices" | "device" | "deviceTest";
+
+// Table-driven like PUSH_ROUTES below; `match` sees the path after `/api/push/`.
+const PUSH_ADMIN_ROUTES: {
+  route: PushAdminRoute;
+  methods: string[];
+  match: (rest: string[]) => boolean;
+}[] = [
+  {
+    route: "config",
+    methods: ["GET", "PUT", "DELETE"],
+    match: ([a, b, c]) => a === "apns" && b === "config" && !c,
+  },
+  { route: "devices", methods: ["GET"], match: ([a, b]) => a === "devices" && !b },
+  {
+    route: "device",
+    methods: ["PATCH", "DELETE"],
+    match: ([a, b, c]) => a === "devices" && !!b && !c,
+  },
+  {
+    route: "deviceTest",
+    methods: ["POST"],
+    match: ([a, b, c, d]) => a === "devices" && !!b && c === "test" && !d,
+  },
+];
+
+/** Which push-admin route a request names, or null to fall through (an unmatched method included,
+ *  so it 404s at the tail instead of revealing the route with a 403). */
+function pushAdminRoute(method: string, parts: string[]): PushAdminRoute | null {
+  if (parts[0] !== "api" || parts[1] !== "push") return null;
+  const rest = parts.slice(2);
+  return PUSH_ADMIN_ROUTES.find((r) => r.methods.includes(method) && r.match(rest))?.route ?? null;
+}
+
+async function apnsConfigRoute({ req, deps }: Ctx): Promise<Response> {
+  const settings = deps.apnsSettings;
+  if (!settings) return json({ error: "native iOS push is not available" }, 503);
+  if (req.method === "GET") return json(settings.status());
+  if (req.method === "PUT") return putApnsConfig(req, settings);
+  return json(await settings.remove());
+}
+
+async function pushDeviceRoute(
+  { req, parts, deps }: Ctx,
+  route: "device" | "deviceTest",
+): Promise<Response> {
+  const row = findPushDevice(deps, parts[3]!);
+  if (!row) return json({ error: "not found" }, 404);
+  if (route === "deviceTest") {
+    if (!deps.push) return json({ error: "push is not available" }, 503);
+    return json(await deps.push.testSend(row));
+  }
+  if (req.method === "PATCH") return pushDevicePatch(req, deps, row);
+  deps.store.deletePushSub(row.endpoint);
+  return json({ ok: true });
+}
+
+async function handlePushAdmin(ctx: Ctx): Promise<Response | null> {
+  const route = pushAdminRoute(ctx.req.method, ctx.parts);
+  if (!route) return null;
+  const sessErr = requireOperatorSession(ctx.req);
+  if (sessErr) return sessErr;
+  if (route === "config") return apnsConfigRoute(ctx);
+  if (route === "devices")
+    return json({ devices: ctx.deps.store.listPushSubs().map(pushDeviceView) });
+  return pushDeviceRoute(ctx, route);
+}
+
 // Table-driven so adding a push route doesn't grow handlePush's branch count.
 const PUSH_ROUTES: {
   method: string;
@@ -2521,6 +2656,7 @@ const PUSH_ROUTES: {
 async function handlePush(ctx: Ctx): Promise<Response | null> {
   const { req, parts } = ctx;
   if (parts[0] !== "api" || parts[1] !== "push") return null;
+  if (parts[3]) return null; // every route here is one segment; deeper paths are someone else's
   const route = PUSH_ROUTES.find((r) => r.method === req.method && r.seg === parts[2]);
   return route ? route.run(ctx) : null;
 }
@@ -9122,6 +9258,7 @@ const ROUTE_HANDLERS = [
   handleLearnings,
   handleDocAgent,
   handleDocAgentRuns,
+  handlePushAdmin,
   handlePush,
   handleSessionHooks,
   handleSessionMcp,

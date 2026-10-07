@@ -21,6 +21,8 @@ interface CacheValues {
   viewer: string;
   /** The session_git_cache row was actually read under this content key. */
   session: string;
+  /** First transient observation is `at`; unrelated PR reads/writes must not renew it. */
+  transient: { number?: number; headSha?: string };
 }
 export type GithubCacheKind = keyof CacheValues;
 export interface GithubCacheRow {
@@ -331,6 +333,7 @@ const validators: Record<GithubCacheKind, ValueCheck> = {
   }),
   viewer: nonempty,
   session: nonempty,
+  transient: shape({}, { number, headSha: string }),
 };
 
 function decode(kind: GithubCacheKind, json: string): unknown {

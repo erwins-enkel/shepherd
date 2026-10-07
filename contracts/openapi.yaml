@@ -4446,6 +4446,27 @@ components:
             - "null"
         pushError:
           type: string
+    RepoBrowserOpenRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - repo
+      properties:
+        repo:
+          type: string
+        sessionId:
+          type: string
+    RepoBrowserOpenResult:
+      type: object
+      additionalProperties: true
+      required:
+        - ok
+        - url
+      properties:
+        ok:
+          type: boolean
+        url:
+          type: string
     RepoRolesPatch:
       type: object
       additionalProperties: false
@@ -7649,6 +7670,52 @@ paths:
                 $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/repo-browser/open:
+    post:
+      operationId: openRepoBrowser
+      description: >-
+        Operator "Open shared browser": launch the repo's Shared Browser if needed and open a tab
+        at the session's dev origin (`http://localhost:<devPort>`) or `about:blank`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepoBrowserOpenRequest"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoBrowserOpenResult"
+        "400":
+          description: Invalid repo, or the session belongs to another repo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The Shared Browser is disabled for this repo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: >-
+            Browser could not be opened; `error` is `missing-binary`, `cap` or `launch-failed`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/repo-roles:
     get:
       operationId: getRepoRoles

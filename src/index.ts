@@ -3946,7 +3946,10 @@ const appDeps: AppDeps = {
   claudeAlive: { snapshot: () => poller.claudeAliveSnapshot() },
   stranded: { ids: () => poller.strandedIds() },
   workingBlocked: { snapshot: () => poller.workingBlockedSnapshot() },
-  preview: { snapshot: () => previewService.snapshot() },
+  preview: {
+    snapshot: () => previewService.snapshot(),
+    devPortFor: (id) => previewService.devPortFor(id),
+  },
   previewServe: { snapshot: () => tailscaleServe.snapshot() },
   push,
   apnsSettings,

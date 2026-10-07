@@ -150,6 +150,7 @@ import { buildDeliveryMetrics } from "./delivery-metrics";
 import { buildUsageTimeline } from "./usage-timeline";
 import { isApiKeyMode } from "./spawn-auth";
 import { detectDevCommand } from "./preview";
+import { SharedBrowserError } from "./shared-browser";
 import {
   gateBrowserAttach,
   isBrowserAttachPath,
@@ -466,6 +467,8 @@ export interface AppDeps {
   preview?: {
     snapshot(): Record<string, SessionPreviewState>;
     ensure?(sessionId: string, devPort: number): number | null;
+    /** The session's live dev-server port, or null when no preview listener is bound. */
+    devPortFor?(sessionId: string): number | null;
   };
   /** Local preview launcher. Defaults to `.git/shepherd/preview-start.sh` scripts;
    *  injectable so route tests never spawn real dev servers. */
@@ -2049,9 +2052,56 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
       return json({ error: "previewStartScript must use the canonical repo-local path" }, 400);
     }
   }
+  const browserWasOn = deps.store.getRepoConfig(dir).sharedBrowserEnabled;
   const r = repoConfigSvc(deps).patch(dir, cfgPatch, { automationConfirmed });
   if (!r.ok) return json({ error: r.error }, 400);
+  // Turning the Shared Browser off revokes it now: stop the repo's Chromium, which closes every
+  // attached agent socket. Later attaches are refused by the broker's opt-in check.
+  if (browserWasOn && !r.config.sharedBrowserEnabled) deps.sharedBrowser?.stop(dir);
   return json(r.config);
+}
+
+/** The tab URL for the operator "Open": the session's real dev origin when it has a dev server
+ *  (never the preview slot — cookies must be set for the origin agents drive), else about:blank. */
+async function sharedBrowserOpenUrl(
+  deps: AppDeps,
+  dir: string,
+  sessionId: unknown,
+): Promise<string | Response> {
+  if (sessionId === undefined || sessionId === null) return "about:blank";
+  if (typeof sessionId !== "string") return json({ error: "sessionId must be a string" }, 400);
+  const s = deps.store.get(sessionId);
+  if (!s) return json({ error: "session not found" }, 404);
+  if (safeRepoDir(s.repoPath, config.repoRoot) !== dir)
+    return json({ error: "session belongs to another repo" }, 400);
+  const devPort =
+    deps.preview?.devPortFor?.(s.id) ??
+    (await previewLauncher(deps).findDevPort(s.worktreePath, s.id));
+  return devPort === null ? "about:blank" : `http://localhost:${devPort}`;
+}
+
+// POST /api/repo-browser/open {repo, sessionId?} — operator "Open shared browser" (ADR 0001):
+// launch the repo's Shared Browser if needed and open a tab, so the operator can log in there.
+// Operator-auth app only; never on the agent ingress.
+async function handleRepoBrowserOpen({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "repo-browser" && parts[2] === "open" && !parts[3]))
+    return null;
+  if (req.method !== "POST") return null;
+  const body = (await req.json().catch(() => ({}))) as { repo?: unknown; sessionId?: unknown };
+  const dir = safeRepoDir(typeof body.repo === "string" ? body.repo : "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  if (!deps.store.getRepoConfig(dir).sharedBrowserEnabled)
+    return json({ error: "shared browser disabled for this repo" }, 409);
+  if (!deps.sharedBrowser) return json({ error: "launch-failed", code: "launch-failed" }, 503);
+  const url = await sharedBrowserOpenUrl(deps, dir, body.sessionId);
+  if (url instanceof Response) return url;
+  try {
+    await deps.sharedBrowser.open(dir, url);
+  } catch (e) {
+    if (e instanceof SharedBrowserError) return json({ error: e.code, code: e.code }, 503);
+    throw e;
+  }
+  return json({ ok: true, url });
 }
 
 // /api/repo-roles?repo=<path> — read (GET) / set (PUT) the committed reviewer +
@@ -9282,6 +9332,7 @@ const ROUTE_HANDLERS = [
   handleEpicPut,
   handleEpicQueue,
   handleRepoConfig,
+  handleRepoBrowserOpen,
   handleRepoRoles,
   handleRepoCollaborators,
   handleLearnings,

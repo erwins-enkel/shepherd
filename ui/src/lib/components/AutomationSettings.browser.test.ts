@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import { tick } from "svelte";
@@ -6,6 +6,8 @@ import "../../app.css";
 import AutomationSettings from "./AutomationSettings.svelte";
 import { infoTips } from "$lib/info-tips.svelte";
 import { m } from "$lib/paraglide/messages";
+import { repoConfig } from "$lib/reviews.svelte";
+import { toasts } from "$lib/toasts.svelte";
 
 afterEach(() => infoTips.set(false));
 
@@ -95,5 +97,61 @@ describe("AutomationSettings — hide-info-tips preference", () => {
 
     expect(document.querySelectorAll("button.info").length).toBeGreaterThan(0);
     expect(sandboxDetail()).not.toBeNull();
+  });
+});
+
+describe("AutomationSettings — Open shared browser", () => {
+  const REPO = "/tmp/repo";
+  const openButton = () => page.getByRole("button", { name: m.automation_shared_browser_open() });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    repoConfig.sharedBrowser = {};
+    for (const t of toasts.items) toasts.close(t.id);
+  });
+
+  // Only the open endpoint is faked; every other request the panel makes keeps its real path.
+  const realFetch = globalThis.fetch;
+  function stubFetch(open: () => Response) {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input) === "/api/repo-browser/open" ? open() : realFetch(input, init),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  it("is shown only while the toggle is on", async () => {
+    stubFetch(() => Response.json({ ok: true, url: "about:blank" }));
+    repoConfig.sharedBrowser = { [REPO]: false };
+    await mount();
+    expect(openButton().query()).toBeNull();
+    repoConfig.sharedBrowser = { [REPO]: true };
+    await expect.element(openButton()).toBeVisible();
+  });
+
+  it("calls the open endpoint with the repo and session", async () => {
+    const fetchMock = stubFetch(() => Response.json({ ok: true, url: "about:blank" }));
+    repoConfig.sharedBrowser = { [REPO]: true };
+    render(AutomationSettings, { repoPath: REPO, sessionId: "sess-1" });
+    await expect.element(openButton()).toBeVisible();
+    (openButton().element() as HTMLButtonElement).click();
+    await vi.waitFor(() =>
+      expect(fetchMock.mock.calls.some(([u]) => String(u) === "/api/repo-browser/open")).toBe(true),
+    );
+    const call = fetchMock.mock.calls.find(([u]) => String(u) === "/api/repo-browser/open")!;
+    const init = (call as unknown as [string, RequestInit])[1];
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(String(init.body))).toEqual({ repo: REPO, sessionId: "sess-1" });
+    expect(toasts.items).toEqual([]);
+  });
+
+  it("maps a refusal code to a toast", async () => {
+    stubFetch(() => Response.json({ error: "cap", code: "cap" }, { status: 503 }));
+    repoConfig.sharedBrowser = { [REPO]: true };
+    await mount();
+    (openButton().element() as HTMLButtonElement).click();
+    await vi.waitFor(() =>
+      expect(toasts.items.map((t) => t.text)).toEqual([m.automation_shared_browser_open_cap()]),
+    );
   });
 });

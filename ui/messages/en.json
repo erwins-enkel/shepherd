@@ -5571,5 +5571,9 @@
   "pulse_next_needs_you": "Answer in the session's terminal",
   "pulse_next_working": "After the push, CI starts",
   "feat_session_pulse_title": "Session cards say whether work is moving",
-  "feat_session_pulse_body": "Every active card now carries a now-line: working, waiting on CI with minutes against the job's usual time, CI overdue, CI red, going in circles, or needs you. Hover the wall clock for the full status: each check with its time, the history of Shepherd's steers, a loop check and what happens next."
+  "feat_session_pulse_body": "Every active card now carries a now-line: working, waiting on CI with minutes against the job's usual time, CI overdue, CI red, going in circles, or needs you. Hover the wall clock for the full status: each check with its time, the history of Shepherd's steers, a loop check and what happens next.",
+  "diagnostics_label_chromium": "Chromium (shared browser)",
+  "diagnostics_hint_chromium_ok": "A Chromium binary is available for the shared browser.",
+  "diagnostics_hint_chromium_optional": "No Chromium found. Only needed if you enable the shared browser for a repo — install chromium or Google Chrome, or set SHEPHERD_CHROMIUM_BIN.",
+  "diagnostics_hint_chromium_missing": "A repo has the shared browser enabled, but no Chromium was found, so it can't open. Install chromium via your distro's package manager, or set SHEPHERD_CHROMIUM_BIN to the browser binary."
 }

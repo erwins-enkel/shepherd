@@ -12,6 +12,8 @@ export const DOC_LINKS: Record<string, string> = {
   // The --operator flag (the fix for a denied serve config) is documented on the
   // `tailscale set` CLI page, not the serve page.
   diagnostics_hint_tailscale_serve_denied: "https://tailscale.com/kb/1080/cli#set",
+  // Guidance-only (a privileged distro install, or a SHEPHERD_CHROMIUM_BIN override).
+  diagnostics_hint_chromium_missing: "https://www.chromium.org/getting-involved/download-chromium/",
   // Shepherd's own operating guide (resource-guardrails section) carries a
   // copy-paste `set-property` remedy — far more actionable than the raw systemd
   // man page. Both host_capacity non-ok states point here. Anchor slug is coupled

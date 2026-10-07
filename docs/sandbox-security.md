@@ -283,6 +283,28 @@ dontAsk` can otherwise read nothing but the files Shepherd itself wrote into
   delivers a **report PR or GitHub issue only, never a code PR**
   (`RESEARCH_PROCEED_STEER`, `src/autopilot.ts`). The residual is **accepted**.
 
+## Shared browser
+
+The per-repo **Shared Browser** (a headful Chromium on the Shepherd host with a
+persistent per-repo profile the operator logs in to; opt-in per repo via
+`sharedBrowserEnabled`) is reachable by agents only through a Shepherd-brokered
+CDP WebSocket on the **agent-ingress listener**. Chromium runs with
+`--remote-debugging-pipe`, so there is **no TCP debug port** for any other local
+process to reach.
+
+- **Credential.** Each session gets its own HMAC-signed attach token, delivered
+  in the env as part of `SHEPHERD_BROWSER_CDP_URL` — never on argv, where any
+  local user could read it from the process list.
+- **Attach is browser-level.** An attached agent can read every login in that
+  repo's profile, not just its own tab. The **per-repo profile is the isolation
+  boundary**: sessions on one repo never reach another repo's logins, but every
+  agent on a repo sees all of its logins. Operators should log in there only with
+  accounts they are willing to share with that repo's agents.
+- **Autonomous sessions are refused** until a per-repo browser origin allowlist
+  exists to bound where an unattended agent can drive the operator's logins.
+
+Rationale and alternatives: [ADR 0001](adr/0001-brokered-cdp-for-shared-browser.md).
+
 ## See also
 
 - `src/egress.ts`, `src/sandbox.ts`, `src/service.ts`, `src/autopilot.ts`,

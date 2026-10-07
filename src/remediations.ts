@@ -139,6 +139,16 @@ const GIT_INSTALL =
   "pacman-key --init && pacman-key --populate archlinux && " +
   "pacman -Sy --needed --noconfirm archlinux-keyring); pacman -Sy --noconfirm git)";
 
+// The Shared Browser's Chromium is a distro system package, so same cross-distro chain shape as
+// GIT_INSTALL (minus the Arch keyring refresh git already pays for). Ubuntu ships `chromium` only as
+// a snap; there the operator installs it by hand or sets SHEPHERD_CHROMIUM_BIN, which is why this
+// hint is GUIDANCE_ONLY below. Keyed on the `missing` hint only: the `optional` row (no repo uses
+// the Shared Browser) carries no command, so the onboarding harness never installs a browser.
+const CHROMIUM_INSTALL =
+  "command -v chromium >/dev/null 2>&1 || " +
+  "(apt-get update && apt-get install -y chromium) || apk add --no-cache chromium || " +
+  "dnf install -y chromium || pacman -Sy --noconfirm chromium";
+
 export const REMEDIATIONS: Record<string, string> = {
   diagnostics_hint_bun_missing: "curl -fsSL https://bun.sh/install | bash",
   diagnostics_hint_node_missing: NODE_INSTALL,
@@ -174,6 +184,7 @@ export const REMEDIATIONS: Record<string, string> = {
   diagnostics_hint_codex_optional: agentCliInstall("codex", CODEX_INSTALL),
   diagnostics_hint_tailscale_missing: "curl -fsSL https://tailscale.com/install.sh | sh",
   diagnostics_hint_git_missing: GIT_INSTALL,
+  diagnostics_hint_chromium_missing: CHROMIUM_INSTALL,
 };
 
 /** Hints that have a verbatim REMEDIATIONS command but that the in-app Fix surface
@@ -181,7 +192,7 @@ export const REMEDIATIONS: Record<string, string> = {
  *  qualify a hint:
  *   - running the command never clears the check unattended — tailscale: installing
  *     the binary leaves `resolveNodeHost` null until an interactive tailnet login;
- *   - the fix is a privileged system-package install — git: an apt/apk/dnf/pacman
+ *   - the fix is a privileged system-package install — git, chromium: an apt/apk/dnf/pacman
  *     install that needs root/sudo we can't assume for the Shepherd service user,
  *     even though it DOES clear the check when run with privilege.
  *  This is the in-app analogue of the harness `detectionOnly` split in scenarios.ts.
@@ -190,6 +201,7 @@ export const REMEDIATIONS: Record<string, string> = {
 export const GUIDANCE_ONLY: ReadonlySet<string> = new Set([
   "diagnostics_hint_tailscale_missing",
   "diagnostics_hint_git_missing",
+  "diagnostics_hint_chromium_missing",
 ]);
 
 /** One verbatim remediation resolved for a non-ok check. `optional` mirrors the

@@ -146,6 +146,9 @@
 "diagnostics_hint_bun_missing" = "bun not found in PATH — install it from bun.sh.";
 "diagnostics_hint_bun_ok" = "bun is up to date.";
 "diagnostics_hint_bun_outdated" = "Your bun version is below the supported floor — run bun upgrade.";
+"diagnostics_hint_chromium_missing" = "A repo has the shared browser enabled, but no Chromium was found, so it can't open. Install chromium via your distro's package manager, or set SHEPHERD_CHROMIUM_BIN to the browser binary.";
+"diagnostics_hint_chromium_ok" = "A Chromium binary is available for the shared browser.";
+"diagnostics_hint_chromium_optional" = "No Chromium found. Only needed if you enable the shared browser for a repo — install chromium or Google Chrome, or set SHEPHERD_CHROMIUM_BIN.";
 "diagnostics_hint_claude_install_diverged" = "Shepherd spawns Claude Code %1$@, but mise manages %2$@ — two installs that have drifted apart. Claude Code's auto-updater writes a native copy to ~/.local/bin/claude that shadows the mise one, so mise upgrade claude moves only the install nothing runs. Remove the native copy so mise's is back on PATH.";
 "diagnostics_hint_claude_install_native_on_path" = "Shepherd spawns Claude Code from a native install, not the one mise manages. Both report %1$@ today, but they will drift as soon as either side updates, and mise upgrade claude will move only the copy nothing runs. Remove the native copy from ~/.local/bin so mise's is back on PATH.";
 "diagnostics_hint_claude_install_native_residue" = "mise manages the Claude Code that Shepherd spawns, but a leftover native install is still on disk: %1$@ build(s), %2$@. Claude Code's auto-updater put it there before mise took over; nothing runs it and it is safe to delete.";
@@ -210,6 +213,7 @@
 "diagnostics_hint_tmp_inodes_ok" = "The temporary filesystem has plenty of [[inode|inodes]] free.";
 "diagnostics_hint_tmp_inodes_uninspectable" = "Shepherd can't read [[inode|inode]] usage for the temporary filesystem on this deployment.";
 "diagnostics_label_bun" = "bun";
+"diagnostics_label_chromium" = "Chromium (shared browser)";
 "diagnostics_label_claude" = "claude";
 "diagnostics_label_claude_install" = "claude install";
 "diagnostics_label_claude_trust" = "claude folder trust";

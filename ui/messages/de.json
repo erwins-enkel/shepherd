@@ -5571,5 +5571,9 @@
   "pulse_next_needs_you": "Antworte im Terminal der Sitzung",
   "pulse_next_working": "Nach dem Push startet die CI",
   "feat_session_pulse_title": "Sitzungskarten zeigen, ob es vorangeht",
-  "feat_session_pulse_body": "Jede aktive Karte trägt jetzt eine Jetzt-Zeile: arbeitet, wartet auf CI mit Minuten gegen die übliche Laufzeit des Jobs, CI überfällig, CI rot, dreht sich im Kreis oder braucht dich. Fahr über die Uhr für den ganzen Status: jeder Check mit seiner Zeit, der Verlauf von Shepherds Hinweisen, ein Schleifencheck und was als Nächstes passiert."
+  "feat_session_pulse_body": "Jede aktive Karte trägt jetzt eine Jetzt-Zeile: arbeitet, wartet auf CI mit Minuten gegen die übliche Laufzeit des Jobs, CI überfällig, CI rot, dreht sich im Kreis oder braucht dich. Fahr über die Uhr für den ganzen Status: jeder Check mit seiner Zeit, der Verlauf von Shepherds Hinweisen, ein Schleifencheck und was als Nächstes passiert.",
+  "diagnostics_label_chromium": "Chromium (geteilter Browser)",
+  "diagnostics_hint_chromium_ok": "Für den geteilten Browser ist ein Chromium verfügbar.",
+  "diagnostics_hint_chromium_optional": "Kein Chromium gefunden. Nur nötig, wenn du den geteilten Browser für ein Repo aktivierst — installiere chromium oder Google Chrome oder setze SHEPHERD_CHROMIUM_BIN.",
+  "diagnostics_hint_chromium_missing": "Ein Repo hat den geteilten Browser aktiviert, aber es wurde kein Chromium gefunden, daher lässt er sich nicht öffnen. Installiere chromium über den Paketmanager deiner Distribution oder setze SHEPHERD_CHROMIUM_BIN auf das Browser-Binary."
 }

@@ -12598,6 +12598,9 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"aRejectedSavedTokenKeepsTheNewServersOneTimePassword() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"connectingReusesTheSavedLocalTokenWithoutRequestingAPassword() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"lateTokenRecoveryDiscardsThePasswordOnlyAfterAuthentication() async throws\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"repeatedConnectKeepsTheOneTimePasswordWhileKeychainIsPending() async throws\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"repeatedConnectKeepsTheOneTimePasswordWhileKeychainIsPending() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/CloseConfirmationTests.swift\",\"MacSeamTests.CloseConfirmationTests\",\"hostInstallsCloseInterceptorOnItsWindow()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/CloseConfirmationTests.swift\",\"MacSeamTests.CloseConfirmationTests\",\"cancellationKeepsWindowOpenWithoutCallingOriginal()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/CloseConfirmationTests.swift\",\"MacSeamTests.CloseConfirmationTests\",\"confirmationPreservesOriginalCloseDecisionAndCallbacks()\"]"
   ]
 }

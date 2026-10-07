@@ -418,7 +418,8 @@ A server without the drain answers `503`, so these exit `8`.
 needs no quotes. The CLI checks the key and the value's type before sending anything; an unknown
 key or a value of the wrong type exits `2`. The validated value is sent as written, so `null` and
 `[]` reach the server, which reads them as "clear": `repo-config set egressExtraHosts '[]'`
-removes every extra egress host.
+removes every extra egress host. `repo-config set browserAllowedHosts '["accounts.example.com"]'`
+sets the Browser Origin Allowlist an autonomous session's Shared Browser attach may reach.
 
 `anthropicApiKey` is only read from stdin, so the key stays out of your shell history and the
 process list. A value on the command line exits `2`, and so does empty stdin, because the server

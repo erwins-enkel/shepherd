@@ -856,28 +856,37 @@ function validateSandboxProfile(value: unknown): Field<SandboxProfile | null | u
 }
 
 /**
- * egressExtraHosts — per-repo extra allowlisted hosts for the autonomous egress firewall.
- * Absent → default []. Each entry is validated AND normalized with the SAME gate the
- * allowlist builder uses (`normalizeHost` from egress.ts), so a host that validates is
- * exactly a host that will make the allowlist — and the stored value is the normalized
+ * A per-repo hostname list. Absent → default []. Each entry is validated AND normalized with the
+ * SAME gate the egress allowlist builder uses (`normalizeHost` from egress.ts), so a host that
+ * validates is exactly a host that will be enforced — and the stored value is the normalized
  * form, eliminating the "persisted but silently dropped at spawn" skew.
  */
-export function validateEgressExtraHosts(value: unknown): Field<string[]> {
+function validateHostList(name: string, value: unknown): Field<string[]> {
   if (value === undefined || value === null) return field([]);
-  if (!Array.isArray(value)) return err("egressExtraHosts must be an array of hostname strings");
+  if (!Array.isArray(value)) return err(`${name} must be an array of hostname strings`);
   const normalized: string[] = [];
   for (let i = 0; i < value.length; i++) {
     const h = value[i];
-    if (typeof h !== "string") return err(`egressExtraHosts[${i}]: must be a string`);
+    if (typeof h !== "string") return err(`${name}[${i}]: must be a string`);
     const n = normalizeHost(h);
     if (n === null)
       return err(
-        `egressExtraHosts[${i}]: "${h}" is not a valid hostname (≥2 dot-separated labels, ` +
+        `${name}[${i}]: "${h}" is not a valid hostname (≥2 dot-separated labels, ` +
           `lowercase alphanum/hyphen, no leading/trailing hyphen or empty label)`,
       );
     normalized.push(n);
   }
   return field(normalized);
+}
+
+/** egressExtraHosts — per-repo extra allowlisted hosts for the autonomous egress firewall. */
+export function validateEgressExtraHosts(value: unknown): Field<string[]> {
+  return validateHostList("egressExtraHosts", value);
+}
+
+/** browserAllowedHosts — per-repo hosts an autonomous Browser Attach may reach (#2883). */
+export function validateBrowserAllowedHosts(value: unknown): Field<string[]> {
+  return validateHostList("browserAllowedHosts", value);
 }
 
 /**

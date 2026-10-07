@@ -5572,7 +5572,7 @@
   "tooltip_shared_browser_cost": "Was Agenten sehen",
   "tooltip_shared_browser_cost_body": "Jeder Agent dieses Repos kann jede Anmeldung in diesem Profil lesen. Melde dich nur mit Konten an, die du mit ihnen teilen willst.",
   "tooltip_shared_browser_needs": "Voraussetzung",
-  "tooltip_shared_browser_needs_body": "Chromium muss auf dem Shepherd-Host installiert sein. Autonome Sessions können ihn noch nicht nutzen.",
+  "tooltip_shared_browser_needs_body": "Chromium muss auf dem Shepherd-Host installiert sein. Autonome Sessions bekommen ein eigenes Fenster. Es erreicht nur die browserAllowedHosts des Repos und die eigene Vorschau und braucht dort vorher einen Login.",
   "native_settings_repo_sharedbrowserenabled": "Geteilter Browser",
   "diagnostics_label_chromium": "Chromium (geteilter Browser)",
   "diagnostics_hint_chromium_ok": "Für den geteilten Browser ist ein Chromium verfügbar.",

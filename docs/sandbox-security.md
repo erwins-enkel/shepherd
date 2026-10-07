@@ -300,7 +300,8 @@ process to reach.
   herdr's env shim), which any local user can read from `/proc/<pid>/cmdline`.
   A sandboxed session gets exactly its own file through a single-file read-only
   bind; `~/.shepherd` is otherwise not bound, so no session can read another
-  session's token, and autonomous sessions get no file at all. **Residual:**
+  session's token. An autonomous session gets a file only when it reaches
+  Shepherd through the slirp ingress gateway (`10.0.2.2`). **Residual:**
   processes running as the operator's own uid outside the sandbox can read the
   file (they can read the broker key too); other local users cannot.
 - **Attach is browser-level.** An attached agent can read every login in that
@@ -338,8 +339,38 @@ process to reach.
   typed set (tab select, frame ack, mouse, key, paste text, http(s) navigate,
   reload) into `Page`/`Input`/`Target` commands. Pasted text is typed into the
   page and never stored or logged.
-- **Autonomous sessions are refused** until a per-repo browser origin allowlist
-  exists to bound where an unattended agent can drive the operator's logins.
+- **Autonomous sessions attach confined** (#2883). The broker gives an
+  autonomous attach its **own browser context** whose `proxyServer` is a
+  per-attach SOCKS5 proxy Shepherd runs on `127.0.0.1` (`src/browser-egress-proxy.ts`),
+  with the implicit loopback bypass removed (`<-loopback>`). Every connection
+  the context makes goes through it: navigations, redirects, subresources,
+  WebSockets, workers and popups. The proxy, not the browser, resolves DNS, and
+  it connects to the address it vetted. The **browser origin allowlist**
+  (`src/browser-origin-policy.ts`) allows:
+  - hosts in the repo's `browserAllowedHosts` (exact match, ports 80/443),
+    only when every resolved address is public;
+  - the session's own **Preview port** on loopback, only inside the
+    `SHEPHERD_PREVIEW_PORT_BASE` range, never Shepherd's main or agent-ingress
+    port, and only while the dev port it relays to is neither of those.
+
+  Everything else is refused: other loopback ports, IP literals, and names that
+  resolve into loopback, RFC 1918, CGNAT/Tailscale (`100.64/10`), link-local,
+  ULA, IPv4-mapped or other special ranges. At attach the broker copies only the
+  default context's cookies for allowed hosts (and `localhost` when a Preview
+  origin exists, minus Shepherd's own `shepherd_session`) into the confined
+  context. When there are none, the attach
+  closes with `1008 no-login`: an autonomous session cannot wait for a Handoff
+  Login. The confined client sees and drives only its own context: other
+  contexts' targets are hidden from discovery and auto-attach, refused for
+  attach/activate/close, and `Target.createTarget` and cookie calls are forced
+  into its context. New contexts, other browser sessions and browser-level
+  `Fetch`/`Network`/`Storage` are refused. Operator and trusted/standard
+  attaches are unaffected. **Residuals:** WebRTC UDP (STUN/TURN) does not go
+  through a SOCKS proxy, so it remains an exfiltration channel. Cookies the
+  confined context rotates are not written back, so a rotated session cookie
+  can log the operator's default context out. The proxy port is open to any
+  local process but grants only the allowlist. A dev server an agent runs
+  inside its own network namespace (not via Preview) is unreachable.
 
 Rationale and alternatives: [ADR 0001](adr/0001-brokered-cdp-for-shared-browser.md).
 

@@ -266,6 +266,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
@@ -297,6 +298,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
@@ -328,6 +330,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
@@ -359,6 +362,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
@@ -390,6 +394,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
@@ -418,17 +423,32 @@ test("repo_config: epicStacksEnabled defaults off, round-trips through set/getRe
   expect(store.getRepoConfig("/repo/stacks").epicStacksEnabled).toBe(true);
 });
 
+test("repo_config: browserAllowedHosts defaults to [], round-trips through set/getRepoConfig", () => {
+  const store = new SessionStore(":memory:");
+  expect(store.getRepoConfig("/repo/browser").browserAllowedHosts).toEqual([]);
+  store.setRepoConfig("/repo/browser", {
+    ...store.getRepoConfig("/repo/browser"),
+    browserAllowedHosts: ["accounts.example.com", "api.example.com"],
+  });
+  expect(store.getRepoConfig("/repo/browser").browserAllowedHosts).toEqual([
+    "accounts.example.com",
+    "api.example.com",
+  ]);
+});
+
 test("repo_config: sharedBrowserEnabled defaults off, round-trips through set/getRepoConfig", () => {
   const store = new SessionStore(":memory:");
   expect(store.getRepoConfig("/repo/browser").sharedBrowserEnabled).toBe(false);
   store.setRepoConfig("/repo/browser", {
     ...store.getRepoConfig("/repo/browser"),
     sharedBrowserEnabled: true,
+    browserAllowedHosts: [],
   });
   expect(store.getRepoConfig("/repo/browser").sharedBrowserEnabled).toBe(true);
   store.setRepoConfig("/repo/browser", {
     ...store.getRepoConfig("/repo/browser"),
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
   });
   expect(store.getRepoConfig("/repo/browser").sharedBrowserEnabled).toBe(false);
 });
@@ -565,6 +585,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,

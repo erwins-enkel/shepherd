@@ -141,6 +141,7 @@ function makeHarness(
     preWarmEpicLandingCi: opts.preWarm ?? false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
   });
 

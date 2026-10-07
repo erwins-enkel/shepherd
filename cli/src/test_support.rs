@@ -22,7 +22,8 @@ pub fn repo_config_json() -> Value {
     let mut v = json!({
         "signoffAuthority": "operator", "maxAuto": 2, "autoLabel": "shepherd",
         "usageCeilingPct": 90, "sandboxProfile": "standard", "defaultModel": "",
-        "defaultEffort": "", "egressExtraHosts": [], "repoMode": "forge",
+        "defaultEffort": "", "egressExtraHosts": [], "browserAllowedHosts": [],
+        "repoMode": "forge",
         "previewOpenMode": "tab"
     });
     for flag in [

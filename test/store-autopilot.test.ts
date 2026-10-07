@@ -150,6 +150,7 @@ test("repo config autopilotEnabled defaults off and round-trips", () => {
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
   });
   expect(store.getRepoConfig("/repo").autopilotEnabled).toBe(true);

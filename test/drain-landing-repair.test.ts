@@ -165,6 +165,7 @@ function makeHarness(opts: {
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
   });
   const spy = fakeForge({ prStatus: opts.prStatus });

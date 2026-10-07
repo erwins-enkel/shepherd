@@ -592,6 +592,8 @@ export interface RepoConfig {
    *  profile the operator logs in to and this repo's agents drive via brokered CDP. Default OFF —
    *  agents attached to this repo can read every login in its profile. */
   sharedBrowserEnabled: boolean;
+  /** Hosts an autonomous Browser Attach may reach (#2883). Normalized hostnames; default []. */
+  browserAllowedHosts: string[];
   /** Hidden from the Backlog repos panel (list-only declutter; never affects sessions/drain).
    *  Default OFF. */
   hidden: boolean;
@@ -979,6 +981,7 @@ type RepoCfgRow = {
   preWarmEpicLandingCi: number;
   epicStacksEnabled: number;
   sharedBrowserEnabled: number;
+  browserAllowedHosts: string | null;
   hidden: number;
   previewStartScript: string | null;
   previewStartCommand: string | null;
@@ -1124,8 +1127,8 @@ function hydratePostMergeSteps(r: PostMergeStepsRow): PostMergeSteps {
   };
 }
 
-/** Tolerantly parse the persisted egressExtraHosts JSON back to string[] (never throws). */
-function parseEgressExtraHostsJson(raw: string | null | undefined): string[] {
+/** Tolerantly parse a persisted host-list JSON column (egressExtraHosts, browserAllowedHosts) back to string[] (never throws). */
+function parseHostListJson(raw: string | null | undefined): string[] {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
@@ -1173,6 +1176,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       preWarmEpicLandingCi: false,
       epicStacksEnabled: false,
       sharedBrowserEnabled: false,
+      browserAllowedHosts: [],
       hidden: false,
       previewStartScript: null,
       previewStartCommand: null,
@@ -1198,13 +1202,14 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     sandboxProfile: isSandboxProfile(r.sandboxProfile) ? r.sandboxProfile : "trusted",
     defaultModel: normalizeRepoDefaultModelSetting(r.defaultModel) ?? "inherit",
     defaultEffort: normalizeRepoDefaultEffortSetting(r.defaultEffort) ?? "inherit",
-    egressExtraHosts: parseEgressExtraHostsJson(r.egressExtraHosts),
+    egressExtraHosts: parseHostListJson(r.egressExtraHosts),
     repoMode: r.repoMode === "lightweight" ? "lightweight" : "forge",
     autoOptimizeFlagged: !!r.autoOptimizeFlagged,
     manualStepsIssueEnabled: !!r.manualStepsIssueEnabled,
     preWarmEpicLandingCi: !!r.preWarmEpicLandingCi,
     epicStacksEnabled: !!r.epicStacksEnabled,
     sharedBrowserEnabled: !!r.sharedBrowserEnabled,
+    browserAllowedHosts: parseHostListJson(r.browserAllowedHosts),
     hidden: !!r.hidden,
     previewStartScript: r.previewStartScript ?? null,
     previewStartCommand: r.previewStartCommand ?? null,
@@ -1240,6 +1245,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     Number(Boolean(cfg.preWarmEpicLandingCi)),
     Number(Boolean(cfg.epicStacksEnabled)),
     Number(Boolean(cfg.sharedBrowserEnabled)),
+    JSON.stringify(cfg.browserAllowedHosts ?? []),
     Number(Boolean(cfg.hidden)),
     cfg.previewStartScript ?? null,
     cfg.previewStartCommand ?? null,
@@ -2095,7 +2101,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-                autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, epicStacksEnabled, sharedBrowserEnabled, hidden, previewStartScript, previewStartCommand, previewOpenMode
+                autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, hidden, previewStartScript, previewStartCommand, previewOpenMode
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
@@ -2108,8 +2114,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-          autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, epicStacksEnabled, sharedBrowserEnabled, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, epicStacksEnabled, sharedBrowserEnabled, browserAllowedHosts, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
@@ -2135,6 +2141,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          preWarmEpicLandingCi = excluded.preWarmEpicLandingCi,
          epicStacksEnabled = excluded.epicStacksEnabled,
          sharedBrowserEnabled = excluded.sharedBrowserEnabled,
+         browserAllowedHosts = excluded.browserAllowedHosts,
          hidden = excluded.hidden,
          previewStartScript = excluded.previewStartScript,
          previewStartCommand = excluded.previewStartCommand,
@@ -5752,6 +5759,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("epicStacksEnabled", `epicStacksEnabled INTEGER NOT NULL DEFAULT 0`);
     // default OFF — opt-in; per-repo Shared Browser (agents can read every login in its profile)
     add("sharedBrowserEnabled", `sharedBrowserEnabled INTEGER NOT NULL DEFAULT 0`);
+    // #2883: hosts an autonomous Browser Attach may reach; JSON string array (nullable, default []).
+    add("browserAllowedHosts", `browserAllowedHosts TEXT`);
     // Hidden from the Backlog repos panel (list-only declutter). Default OFF.
     add("hidden", `hidden INTEGER NOT NULL DEFAULT 0`);
     // Local preview launcher metadata. Nullable: absent until first successful script setup.

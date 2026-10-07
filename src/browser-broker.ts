@@ -9,16 +9,27 @@
  */
 import type { ServerWebSocket } from "bun";
 import type { BrowserTokenSigner } from "./browser-token";
+import { resolvePreviewPort, type OriginPolicy } from "./browser-origin-policy";
 import type { CdpPipeClient } from "./cdp-pipe";
 import { config } from "./config";
 import { resolveProfile } from "./sandbox";
-import { SharedBrowserError, type SharedBrowserManager } from "./shared-browser";
+import {
+  SharedBrowserError,
+  type BrowserConfinement,
+  type SharedBrowserManager,
+} from "./shared-browser";
 import type { SessionStore } from "./store";
+import type { SessionPreviewState } from "./types";
 
 export interface BrowserBrokerDeps {
   store: Pick<SessionStore, "get" | "getRepoConfig">;
   browserToken?: Pick<BrowserTokenSigner, "verify">;
   sharedBrowser?: Pick<SharedBrowserManager, "attach">;
+  /** Session Preview listeners: an autonomous attach's one loopback origin. */
+  preview?: {
+    snapshot(): Record<string, SessionPreviewState>;
+    devPortFor?(sessionId: string): number | null;
+  };
 }
 
 /** Per-socket state, attached via `server.upgrade(req, { data })`. */
@@ -26,6 +37,8 @@ export interface BrowserWsData {
   sessionId: string;
   repoPath: string;
   client: CdpPipeClient | null;
+  /** Autonomous sessions (#2883): attach confined to a proxied context under this policy. */
+  confine: BrowserConfinement | null;
   /** client→browser messages held until `attach` resolves. */
   pending: string[];
   pendingBytes: number;
@@ -37,6 +50,7 @@ const MAX_PENDING_BYTES = 1024 * 1024;
 const MAX_BUFFERED_SEND_BYTES = 8 * 1024 * 1024;
 
 const CLOSE_UNSUPPORTED = 1003;
+const CLOSE_POLICY = 1008;
 const CLOSE_TOO_BIG = 1009;
 const CLOSE_INTERNAL = 1011;
 const CLOSE_TRY_AGAIN = 1013;
@@ -55,10 +69,33 @@ export function isBrowserAttachPath(parts: string[]): boolean {
 }
 
 /**
- * Pre-upgrade gate, in order: token → live session → repo opt-in → non-autonomous profile →
- * manager wired. 401 never says which check failed, so a token cannot be probed against ids.
- * Autonomous is refused until its origin allowlist exists (slice 4): attach would hand an
- * egress-confined agent a browser with open network.
+ * The browser origin allowlist for an autonomous session (#2883), read live per connection: the
+ * repo's `browserAllowedHosts` plus the session's own validated Preview port. Shepherd's main and
+ * agent-ingress ports are never a Preview origin, nor the target its listener relays to.
+ */
+export function autonomousOriginPolicy(
+  deps: Pick<BrowserBrokerDeps, "store" | "preview">,
+  sessionId: string,
+  repoPath: string,
+): OriginPolicy {
+  return {
+    allowedHosts: () => deps.store.getRepoConfig(repoPath).browserAllowedHosts,
+    previewPort: () =>
+      resolvePreviewPort({
+        previewPort: deps.preview?.snapshot()[sessionId]?.previewPort,
+        devPort: deps.preview?.devPortFor?.(sessionId),
+        rangeBase: config.previewPortBase,
+        rangeCount: config.previewPortCount,
+        denyPorts: [config.port, config.agentIngressPort],
+      }),
+  };
+}
+
+/**
+ * Pre-upgrade gate, in order: token → live session → repo opt-in → manager wired. 401 never says
+ * which check failed, so a token cannot be probed against ids. An autonomous session's attach is
+ * confined (#2883): its own browser context behind an egress proxy enforcing the origin allowlist,
+ * seeded only with logins for allowed hosts (none → the attach closes with 1008 `no-login`).
  */
 export function gateBrowserAttach(
   deps: BrowserBrokerDeps,
@@ -75,15 +112,18 @@ export function gateBrowserAttach(
     repoCfg.sandboxProfile,
     config.sandboxDefaultProfile,
   );
-  if (profile === "autonomous")
-    return refuse(403, "shared browser is not available to autonomous sessions");
   if (!deps.sharedBrowser) return refuse(503, "shared browser unavailable");
+  const confine =
+    profile === "autonomous"
+      ? { policy: autonomousOriginPolicy(deps, sessionId, s.repoPath) }
+      : null;
   return {
     ok: true,
     data: {
       sessionId,
       repoPath: s.repoPath,
       client: null,
+      confine,
       pending: [],
       pendingBytes: 0,
       closed: false,
@@ -114,6 +154,11 @@ function boundedSend(ws: ServerWebSocket<BrowserWsData>, text: string): void {
 
 function attachFailure(err: unknown): { code: number; reason: string } {
   if (err instanceof SharedBrowserError) {
+    if (err.code === "no-login")
+      return {
+        code: CLOSE_POLICY,
+        reason: "no-login: ask the operator to log in to an allowlisted host",
+      };
     return { code: err.code === "cap" ? CLOSE_TRY_AGAIN : CLOSE_INTERNAL, reason: err.code };
   }
   return { code: CLOSE_INTERNAL, reason: "attach failed" };
@@ -134,7 +179,7 @@ export function makeBrowserBrokerHandlers(
         send: (text: string) => boundedSend(ws, text),
         close: (code?: number, reason?: string) => safeClose(ws, code, reason),
       };
-      m.attach(ws.data.repoPath, sink).then(
+      m.attach(ws.data.repoPath, sink, ws.data.confine ?? undefined).then(
         (client) => {
           const st = ws.data;
           if (st.closed) {

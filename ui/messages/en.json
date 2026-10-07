@@ -5572,7 +5572,7 @@
   "tooltip_shared_browser_cost": "What agents can see",
   "tooltip_shared_browser_cost_body": "Every agent on this repo can read every login in this profile. Only log in with accounts you are fine sharing with them.",
   "tooltip_shared_browser_needs": "Requires",
-  "tooltip_shared_browser_needs_body": "Chromium installed on the Shepherd host. Autonomous sessions can't use it yet.",
+  "tooltip_shared_browser_needs_body": "Chromium installed on the Shepherd host. Autonomous sessions get their own window. It reaches only the repo's browserAllowedHosts and its own preview, and needs a login there first.",
   "native_settings_repo_sharedbrowserenabled": "Shared browser",
   "diagnostics_label_chromium": "Chromium (shared browser)",
   "diagnostics_hint_chromium_ok": "A Chromium binary is available for the shared browser.",

@@ -600,6 +600,7 @@ function defaultRepoConfig() {
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
   };
 }

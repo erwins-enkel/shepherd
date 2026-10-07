@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { handleApi } from "./router";
 import { demoState } from "./state";
 import { bus } from "./bus";
-import type { DrainStatus } from "../types";
+import { deriveIntegratedEpicStatus } from "../integrated-epic-status";
+import type { CompletedEpic, DrainStatus } from "../types";
 
 const REPO = "/demo/acme/storefront";
 const u = (path: string) => new URL(path, "http://localhost");
@@ -1384,4 +1385,13 @@ describe("lens fixtures agree with the herd they describe (#2295)", () => {
       expect(repoRow.authoringUnits).toBe(tasks);
     }
   });
+});
+
+it("completed epic demo includes ready, failing CI and checking landings", async () => {
+  const { body } = await get("/api/epics/completed");
+  const situations = (body as CompletedEpic[]).map(
+    (epic) => deriveIntegratedEpicStatus(epic).situation,
+  );
+  expect(situations).toEqual(expect.arrayContaining(["ready", "ci-failed", "checking"]));
+  expect((body as CompletedEpic[]).every((epic) => !!epic.integrationBranch)).toBe(true);
 });

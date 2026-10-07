@@ -2,6 +2,8 @@ import {
   planGateExplanation,
   autopilotExplanation,
   agentSlotExplanation,
+  landingPrExplanation,
+  integrationBranchExplanation,
 } from "$lib/tooltips/explanations";
 import type { TooltipExplanation } from "$lib/tooltips/content";
 
@@ -24,6 +26,20 @@ type GlossaryTerm = {
 };
 
 const glossary: readonly GlossaryTerm[] = [
+  {
+    id: "landing-pr",
+    kind: "internal",
+    termKey: "gloss_landing_pr_term",
+    bodyKey: "gloss_landing_pr_def",
+    explanation: landingPrExplanation,
+  },
+  {
+    id: "integration-branch",
+    kind: "internal",
+    termKey: "gloss_integration_branch_term",
+    bodyKey: "gloss_integration_branch_def",
+    explanation: integrationBranchExplanation,
+  },
   {
     id: "epic",
     kind: "internal",

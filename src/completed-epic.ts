@@ -24,6 +24,8 @@ export interface CompletedEpic {
   parentTitle: string;
   completedAt: number;
   children: CompletedEpicChild[];
+  /** Pinned integration branch; absent on older payloads, null when no branch was recorded. */
+  integrationBranch?: string | null;
   // Stage B (#635) landing-PR carried on the band; null/'pending' until the aggregate PR opens.
   landingPrNumber: number | null;
   landingPrUrl: string | null;

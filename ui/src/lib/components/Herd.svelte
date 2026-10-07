@@ -20,6 +20,7 @@
   import HerdDoneList from "./herd/HerdDoneList.svelte";
   import HerdEmptyState from "./herd/HerdEmptyState.svelte";
   import IntegratedEpicsBand from "./IntegratedEpicsBand.svelte";
+  import { deriveIntegratedEpicStatus } from "$lib/integrated-epic-status";
   import PostMergeStepsPanel from "./PostMergeStepsPanel.svelte";
   import UpNextPanel from "./UpNextPanel.svelte";
   import {
@@ -461,6 +462,11 @@
     action?: { class: string; title: string; label: string; onclick: () => void } | null;
     withPreview?: boolean;
   };
+  let epicsBandCollapsed = $state<boolean | null>(null);
+  const epicNeedsOperator = $derived(
+    completedEpics.some((epic) => deriveIntegratedEpicStatus(epic).needsOperator),
+  );
+
   const partitionGroups = $derived<PartitionGroupEntry[]>(
     [
       partition.active.length > 0 && {
@@ -665,6 +671,20 @@
   });
 </script>
 
+{#snippet integratedEpics()}
+  {#if filter !== "done" && filter !== "owed"}
+    <IntegratedEpicsBand
+      epics={completedEpics}
+      bind:collapsed={epicsBandCollapsed}
+      ondismiss={ondismissepic ?? (() => {})}
+      onackmigrations={onackmigrationsepic ?? (() => {})}
+      onland={onlandepic ?? (() => {})}
+      onresolveconflicts={onresolveconflictsepic ?? (() => {})}
+      {nowMs}
+    />
+  {/if}
+{/snippet}
+
 <div class="panel bracket" class:flow>
   {#if flow}
     <!-- mobile flow: the .phead title is hidden by CSS. The lens control is NOT here — it moved
@@ -686,6 +706,7 @@
     />
   {/if}
   <div class="units" class:flow>
+    {#if epicNeedsOperator}{@render integratedEpics()}{/if}
     {#if filter === "next"}
       <!-- Up Next lens (#1169): cross-repo ranked queue of un-started work, no session list. -->
       <UpNextPanel {onbacklog} {repoFilter} {filteredRepo} launchContext={upNextLaunch} {flow} />
@@ -759,16 +780,7 @@
         />
       {/each}
     {/if}
-    {#if filter !== "done" && filter !== "owed"}
-      <IntegratedEpicsBand
-        epics={completedEpics}
-        ondismiss={ondismissepic ?? (() => {})}
-        onackmigrations={onackmigrationsepic ?? (() => {})}
-        onland={onlandepic ?? (() => {})}
-        onresolveconflicts={onresolveconflictsepic ?? (() => {})}
-        {nowMs}
-      />
-    {/if}
+    {#if !epicNeedsOperator}{@render integratedEpics()}{/if}
   </div>
 </div>
 

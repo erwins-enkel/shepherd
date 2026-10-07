@@ -1368,12 +1368,14 @@ describe("GET /api/epics/completed", () => {
         },
       ]),
     });
+    store.getOrInitEpicIntegrationBranch(repoDir, 42, "epic/42-original-title");
     const res = await app.fetch(new Request(`http://x/api/epics/completed`));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toHaveLength(1);
     expect(body[0].parentIssueNumber).toBe(42);
     expect(body[0].parentTitle).toBe("Epic Done");
+    expect(body[0].integrationBranch).toBe("epic/42-original-title");
     expect(body[0].childrenJson).toBeUndefined();
     expect(body[0].children).toEqual([
       {
@@ -1415,6 +1417,7 @@ describe("GET /api/epics/completed", () => {
     expect("landingRebaseCount" in row).toBe(false);
     expect("landingRebaseDriverMisses" in row).toBe(false);
     expect("landingRebasePauseReason" in row).toBe(true);
+    expect(row.integrationBranch).toBeNull();
     expect(row.landingRebasePauseReason).toBe(null); // not paused
   });
 

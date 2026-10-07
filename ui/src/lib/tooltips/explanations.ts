@@ -185,3 +185,39 @@ export function githubRateLimitRaiseExplanation(resumeTime: string | null): Tool
     ],
   };
 }
+
+/** What remains between completed sub-tasks and an epic landing in main. */
+export function epicsToLandExplanation(): TooltipExplanation {
+  return {
+    title: m.integrated_epics_help_title(),
+    summary: m.integrated_epics_help_summary(),
+    sections: [
+      { label: m.integrated_epics_help_landing_label(), text: m.integrated_epics_help_landing() },
+      { label: m.integrated_epics_help_you_label(), text: m.integrated_epics_help_you() },
+      { label: m.integrated_epics_dismiss(), text: m.integrated_epics_help_remove() },
+      { label: m.integrated_epics_help_excluded_label(), text: m.integrated_epics_help_excluded() },
+    ],
+  };
+}
+
+export function landingPrExplanation(): TooltipExplanation {
+  return {
+    title: m.gloss_landing_pr_term(),
+    summary: m.gloss_landing_pr_def(),
+    sections: [
+      { label: m.tooltip_process(), text: m.integrated_epics_help_landing() },
+      { label: m.integrated_epics_help_you_label(), text: m.integrated_epics_help_you() },
+    ],
+  };
+}
+
+export function integrationBranchExplanation(): TooltipExplanation {
+  return {
+    title: m.gloss_integration_branch_term(),
+    summary: m.gloss_integration_branch_def(),
+    sections: [
+      { label: m.integrated_epics_help_landing_label(), text: m.integrated_epics_help_landing() },
+      { label: m.integrated_epics_help_excluded_label(), text: m.integrated_epics_help_excluded() },
+    ],
+  };
+}

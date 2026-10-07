@@ -4,6 +4,10 @@
    whole UI re-themes by swapping the underscored source vars on :root /
    [data-theme="light"] — utilities and component `var(--color-*)` reads follow. */
 @theme {
+  --color-action-ready: var(--action-ready);
+  --color-action-quiet: var(--action-quiet);
+  --color-on-action: var(--on-action);
+  --color-on-quiet-action: var(--on-quiet-action);
   --color-bg: var(--bg);
   --color-glow: var(--glow);
   --color-panel: var(--panel);
@@ -169,6 +173,12 @@
   --status-warn: var(--color-warn);
   --status-idle: var(--color-slate);
 
+  /* Filled epic actions: contrasting labels, separate from the default ghost button. */
+  --action-ready: var(--color-green);
+  --action-quiet: var(--status-done);
+  --on-action: var(--color-bg);
+  --on-quiet-action: var(--color-ink-bright);
+
   /* Elevation for floating popovers/tooltips (anchored, non-modal). Single source
      for the shared drop shadow used by InfoTip/GlossaryTerm/Coachmark and the
      Stepper legend, so the raw value lives here in the semantic layer, not inline. */
@@ -207,6 +217,10 @@
    --muted #5a6862 ~5.5:1 on the panel surface — both clear WCAG AA. Accents
    darkened so they stay legible on near-white. */
 [data-theme="light"] {
+  --action-ready: color-mix(in srgb, var(--color-green) 85%, var(--color-ink));
+  --action-quiet: color-mix(in srgb, var(--status-done) 85%, var(--color-ink));
+  --on-action: var(--color-panel);
+  --on-quiet-action: var(--color-panel);
   color-scheme: light;
 
   --bg: #e7ebe9;
@@ -278,6 +292,7 @@
    they beat the base :root / [data-theme="light"] blocks (0,1,0) regardless of
    source order — the theme JS always sets data-theme to the resolved value. */
 [data-theme="dark"][data-contrast="high"] {
+  --on-quiet-action: var(--color-bg);
   --line: #3a4744;
   --line-bright: #586a64;
 

@@ -160,6 +160,7 @@ describe("epic auto-complete → record before idle flip (#635)", () => {
   test("all children merged: records epic_completed + emits BEFORE flipping run to idle", async () => {
     const h = makeHarness({ subIssues: [sub(320, true), sub(321, true)] });
 
+    h.store.getOrInitEpicIntegrationBranch(REPO, PARENT, "epic/327-original-title");
     await h.drain.pump(REPO);
 
     const rows = h.store.listEpicCompleted(REPO);
@@ -179,6 +180,8 @@ describe("epic auto-complete → record before idle flip (#635)", () => {
     expect(h.completedEmits.length).toBeGreaterThanOrEqual(1);
     const emit = h.completedEmits[0]!;
     expect(emit.parentIssueNumber).toBe(PARENT);
+    expect(emit.integrationBranch).toBe("epic/327-original-title");
+    expect(h.completedEmits.at(-1)!.integrationBranch).toBe("epic/327-original-title");
     expect(emit.children.map((c) => c.number).sort()).toEqual([320, 321]);
     // Last emit carries the resolved landing state (no integrated children → 'none').
     expect(h.completedEmits.at(-1)!.landingState).toBe("none");

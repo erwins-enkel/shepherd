@@ -14,7 +14,7 @@ import SwiftUI
 @Observable
 final class SessionContextController {
     enum Sheet: Identifiable, Equatable {
-        case rename(String), amend(String), relaunch(String), compose(ComposeActions.Action, String)
+        case rename(String), amend(String), relaunch(String), compose(ComposeActions.Action, String), manualSteps(String)
 
         var id: String {
             switch self {
@@ -22,12 +22,13 @@ final class SessionContextController {
             case .amend(let id): "amend-\(id)"
             case .relaunch(let id): "relaunch-\(id)"
             case .compose(let mode, let id): "\(mode.rawValue)-\(id)"
+            case .manualSteps(let id): "manual-steps-\(id)"
             }
         }
 
         var sessionID: String {
             switch self {
-            case .rename(let id), .amend(let id), .relaunch(let id), .compose(_, let id): id
+            case .rename(let id), .amend(let id), .relaunch(let id), .compose(_, let id), .manualSteps(let id): id
             }
         }
     }
@@ -218,6 +219,19 @@ struct SessionContextHost: ViewModifier {
             case .compose(let mode, _):
                 ComposeActionSheet(mode: mode, session: session, store: store, app: app,
                     activation: app.activationGeneration)
+            case .manualSteps:
+                if let model = app.extension(MergeModel.self) {
+                    VStack(alignment: .trailing, spacing: 0) {
+                        Button(L.t("common_close")) { controller.sheet = nil }
+                            .keyboardShortcut(.cancelAction)
+                            .padding()
+                        ScrollView {
+                            MergeSessionView(app: app, session: session, store: store, model: model)
+                        }
+                    }
+                    .frame(width: 560, height: 600)
+                    .accessibilityIdentifier("session-manual-steps-\(session.id)")
+                }
             }
         }
     }

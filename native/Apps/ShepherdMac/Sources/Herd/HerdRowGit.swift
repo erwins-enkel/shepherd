@@ -99,6 +99,8 @@ struct HerdRowSignals: View {
     let session: Session
     let block: BlockReason?
     let showCli: Bool
+    let contextMenu: SessionContextController
+    @State private var showsReview = false
 
     struct Presentation {
         let git: GitState?
@@ -130,7 +132,13 @@ struct HerdRowSignals: View {
             VStack(alignment: .leading, spacing: 3) {
                 HerdRowGit(git: model.git)
                 // The PR and its sub-markers are rendered once, on the inline rail above.
-                SessionBadgeStack(badges: model.badges.filter { $0.id != "pr" })
+                SessionBadgeStack(badges: model.badges.filter { $0.id != "pr" }) { id in
+                    app.selectedSessionID = session.id
+                    if id == "manual-steps" {
+                        if model.git?.state.known == .merged { app.extension(SidebarModel.self)?.lens = .owed }
+                        else { contextMenu.sheet = .manualSteps(session.id) }
+                    } else { showsReview = true }
+                }
                 // The terminal PR state already appears on the rail; avoid a second chip.
                 let status = HerdPartition.displayStatus(session, workingBlocked: SessionSignals.workingBlocked()).known
                 if [.running, .blocked, .done].contains(status), !session.readyToMerge,
@@ -138,6 +146,28 @@ struct HerdRowSignals: View {
                 if status == .running, let activity = herd?.activity[session.id] {
                     HerdHeartbeatView(activity: activity, now: now)
                 }
+            }
+            .popover(isPresented: $showsReview) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(verbatim: L.t("criticbadge_title")).font(.headline)
+                        Text(verbatim: session.desig + " · " + session.name).font(.subheadline)
+                        if herd?.isReviewing(session.id) == true {
+                            Text(verbatim: L.t("criticbadge_reviewing"))
+                        } else if let verdict = herd?.verdicts[session.id] {
+                            Text(verbatim: verdict.summary)
+                            PlanMarkdownView(source: verdict.body)
+                        } else { Text(verbatim: L.t("criticbadge_reviewing")) }
+                        if let url = SessionBadges.safeURL(model.git?.url) {
+                            Link(L.t("criticbadge_open_pr"), destination: url)
+                        }
+                    }
+                    .textSelection(.enabled)
+                    .padding(16)
+                }
+                .frame(width: 380)
+                .frame(maxHeight: 480)
+                .accessibilityIdentifier("session-review-\(session.id)")
             }
         }
     }

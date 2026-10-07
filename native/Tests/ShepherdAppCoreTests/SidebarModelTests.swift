@@ -236,6 +236,21 @@ struct SidebarModelTests {
         _ = app
     }
 
+    @Test func holdChangesAndClearsReachTheCardThroughTheExistingSnapshot() async throws {
+        let (model, store, app, ledger) = try live()
+        defer { model.teardown(); app.teardown() }
+        #expect(await settle(until: { await ledger.count >= 1 }))
+        var reads = counting(ledger)
+        reads.holds = { ["s1": HoldReason(code: .init(known: .ciRed))] }
+        model.reads = reads
+        store.apply(.unknown(name: "session:hold", payload: nil))
+        #expect(await settle(until: { model.hold(for: "s1")?.code.known == .ciRed }))
+        reads.holds = { [:] }
+        model.reads = reads
+        store.apply(.unknown(name: "session:hold", payload: nil))
+        #expect(await settle(until: { model.hold(for: "s1") == nil }))
+    }
+
     @Test func teardownStopsTheReReads() async throws {
         let (model, store, app, ledger) = try live()
         #expect(await settle(until: { await ledger.count >= 1 }))

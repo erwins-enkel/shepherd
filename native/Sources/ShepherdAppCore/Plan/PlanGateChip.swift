@@ -102,7 +102,7 @@ public enum PlanGateChip: Equatable, Sendable {
     }
 
     /// Mirrors `tab-signal.svelte.ts`: question IDs are scoped to their form block.
-    static func questionsUnanswered(_ gate: PlanGate?) -> Bool {
+    public static func questionsUnanswered(_ gate: PlanGate?) -> Bool {
         guard let blocks = gate?.blocks else { return false }
         let answered = gate?.answeredQuestionKeys ?? []
         for block in blocks {

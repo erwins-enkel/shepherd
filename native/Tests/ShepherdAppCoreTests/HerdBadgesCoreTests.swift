@@ -8,6 +8,25 @@ import Testing
 extension CoreSeamTests {
 @MainActor
 struct HerdBadgesTests {
+    @Test func sandboxBadgeNamesTheAppliedProtectionAndDegradation() throws {
+        var row = PreviewData.session()
+        func badge() -> SessionBadge? { SessionBadges.items(for: row, block: nil).first { $0.id == "sandbox" } }
+        #expect(badge() == nil)
+        row.sandboxApplied = .standard
+        #expect(badge()?.text == L.t("session_sandbox_standard_label"))
+        row.sandboxApplied = .autonomous
+        #expect(badge()?.text == L.t("session_sandbox_autonomous_label"))
+        row.additionalProperties = try .init(unvalidatedValue: ["egressDegraded": true])
+        #expect(badge()?.text == L.t("session_sandbox_egress_degraded_label"))
+        row.sandboxDegraded = true
+        #expect(badge()?.text == L.t("session_sandbox_degraded_label"))
+        row.sandboxDegraded = false
+        row.sandboxApplied = .trusted
+        #expect(badge() == nil)
+        row.auto = true
+        #expect(badge()?.text == L.t("session_sandbox_unconfined_label"))
+    }
+
     private func session(_ provider: AgentProvider? = .claude) -> Session {
         PreviewData.session(status: .init(known: .idle), agentProvider: provider)
     }

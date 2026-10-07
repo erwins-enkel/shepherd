@@ -12601,6 +12601,19 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"repeatedConnectKeepsTheOneTimePasswordWhileKeychainIsPending() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/CloseConfirmationTests.swift\",\"MacSeamTests.CloseConfirmationTests\",\"hostInstallsCloseInterceptorOnItsWindow()\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/CloseConfirmationTests.swift\",\"MacSeamTests.CloseConfirmationTests\",\"cancellationKeepsWindowOpenWithoutCallingOriginal()\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/CloseConfirmationTests.swift\",\"MacSeamTests.CloseConfirmationTests\",\"confirmationPreservesOriginalCloseDecisionAndCallbacks()\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/CloseConfirmationTests.swift\",\"MacSeamTests.CloseConfirmationTests\",\"confirmationPreservesOriginalCloseDecisionAndCallbacks()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/HerdBadgesCoreTests.swift\",\"CoreSeamTests.HerdBadgesTests\",\"sandboxBadgeNamesTheAppliedProtectionAndDegradation() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/SidebarModelTests.swift\",\"CoreSeamTests.SidebarModelTests\",\"holdChangesAndClearsReachTheCardThroughTheExistingSnapshot() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SessionCardRenderingTests.swift\",\"MacSeamTests.SessionCardRenderingTests\",\"allBadgesRemainVisibleAtNarrowAndWideWidthsAndActionsAreSeparate() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SessionCardRenderingTests.swift\",\"MacSeamTests.SessionCardRenderingTests\",\"cardShowsTaskEnvironmentAndUsableRepositoryAndDetailsControls() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SessionCardRenderingTests.swift\",\"MacSeamTests.SessionCardRenderingTests\",\"productionSidebarRendersRichCardsAtBothWidths() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SessionRowContentTests.swift\",\"MacSeamTests.SessionRowContentTests\",\"coldResumeRequiresParkedStateExpiredCacheAndMaterialCost() throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SessionRowContentTests.swift\",\"MacSeamTests.SessionRowContentTests\",\"elapsedMatchesTheWebAtMinuteHourAndDayBoundaries()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SessionRowContentTests.swift\",\"MacSeamTests.SessionRowContentTests\",\"futureModelAndEffortValuesRemainVisible()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SessionRowContentTests.swift\",\"MacSeamTests.SessionRowContentTests\",\"holdNotesKeepParametersAndQuestionText()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SessionRowContentTests.swift\",\"MacSeamTests.SessionRowContentTests\",\"parkedRowsExplainTheirHoldBeforeShowingRecapOrActivity()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SessionRowContentTests.swift\",\"MacSeamTests.SessionRowContentTests\",\"persistedRuntimeSurvivesParkingAndFloatingAliasesStayHistorical()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SessionRowContentTests.swift\",\"MacSeamTests.SessionRowContentTests\",\"planNotesFollowReviewReworkCapAndApproval()\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SessionRowContentTests.swift\",\"MacSeamTests.SessionRowContentTests\",\"runtimeTelemetryWinsIndependentlyForModelAndEffort()\"]"
   ]
 }

@@ -214,6 +214,8 @@ public final class SidebarModel: AppExtension {
     /// a block clear, so nothing would ever re-read it away.
     public func block(for id: String) -> BlockReason? { store?.blocks[id] ?? blocks[id] }
 
+    public func hold(for id: String) -> HoldReason? { holds[id] }
+
     // MARK: - Commands
 
     /// `nextRepoFilter` (`queue-strip.ts:80-82`): a plain click replaces the selection, or clears
@@ -339,7 +341,7 @@ public final class SidebarModel: AppExtension {
                 guard let self else { return }
                 switch event {
                 case .unknown(let name, _)
-                where name == "held:changed" || name == "session:working-blocked":
+                where name == "held:changed" || name == "session:working-blocked" || name == "session:hold":
                     self.requestRefresh()
                 // Mirrored, not re-read: `block(for:)` falls back to this model's own `blocks` map
                 // when the store has no entry, and a block CLEAR is exactly "the store has no

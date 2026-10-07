@@ -54,7 +54,9 @@ the app is where you see their progress, inspect results and make decisions.
 
 The app is an **early preview**, already usable day to day. Available today:
 
-- **Sessions:** the herd sidebar with lifecycle stages, repo and state filters and usage meters.
+- **Sessions:** the herd sidebar with task descriptions, runtime model and effort, lifecycle
+  stages, repo and state filters and usage meters. Cards open task details, review results and
+  session actions, and flag costly resumes after the prompt cache expires.
 - **Session detail:** activity, diff, files, git and the live terminal.
 - **Review and merge:** plan gates, pull-request actions, review requests and merge automation.
 - **Starting work:** a new-task composer that starts from an issue, plus held tasks, Up Next and

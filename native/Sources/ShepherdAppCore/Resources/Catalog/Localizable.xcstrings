@@ -1323,6 +1323,42 @@
         }
       }
     },
+    "coldresume_chip": {
+      "comment": "%1$@ = units",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kalt · ≈%1$@ Einheiten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cold · ≈%1$@ units"
+          }
+        }
+      }
+    },
+    "coldresume_title": {
+      "comment": "%1$@ = context, %2$@ = units",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt-Cache abgelaufen — diese Session war länger untätig als ihre Cache-Lebensdauer. Ihre %1$@ Kontext müssen zum Cache-Schreibtarif erneut gesendet werden, daher kostet der nächste Zug etwa %2$@ gewichtete Einheiten statt eines kleinen Bruchteils davon."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prompt cache expired — this session has been idle longer than its cache lifetime. Its %1$@ of context must be re-sent at the cache-write rate, so the next turn costs about %2$@ weighted units instead of a small fraction of that."
+          }
+        }
+      }
+    },
     "common_cancel": {
       "extractionState": "manual",
       "localizations": {
@@ -5156,6 +5192,23 @@
         }
       }
     },
+    "gloss_cold_cache_term": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "kalter Cache"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cold cache"
+          }
+        }
+      }
+    },
     "halt_all_aria": {
       "comment": "%1$@ = count",
       "extractionState": "manual",
@@ -6184,6 +6237,58 @@
         }
       }
     },
+    "hold_autopilot_paused": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot wartet auf Ihre Eingabe."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot paused for your input."
+          }
+        }
+      }
+    },
+    "hold_awaiting_merge": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereit und an einen Merger übergeben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready and handed to a merger."
+          }
+        }
+      }
+    },
+    "hold_awaiting_rereview": {
+      "comment": "%1$@ = round, %2$@ = cap",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planänderungen angefordert — wartet auf erneute Prüfung (%1$@/%2$@)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan changes requested — awaiting re-review (%1$@/%2$@)."
+          }
+        }
+      }
+    },
     "hold_blocked_awaiting_input": {
       "extractionState": "manual",
       "localizations": {
@@ -6269,6 +6374,41 @@
         }
       }
     },
+    "hold_ci_red": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI schlägt fehl — ein Fix ist erforderlich."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CI is failing — needs a fix."
+          }
+        }
+      }
+    },
+    "hold_critic_rework": {
+      "comment": "%1$@ = findings",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kritiker hat Änderungen angefordert (%1$@ offen) — an den Agenten weitergeleitet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Critic requested changes (%1$@ open) — steered back to the agent."
+          }
+        }
+      }
+    },
     "hold_cta_answer": {
       "extractionState": "manual",
       "localizations": {
@@ -6299,6 +6439,180 @@
           "stringUnit": {
             "state": "translated",
             "value": "Open the plan to answer its open questions"
+          }
+        }
+      }
+    },
+    "hold_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan-Review fehlgeschlagen — erneut versuchen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan review errored — retry."
+          }
+        }
+      }
+    },
+    "hold_halted_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bei einem Fehler angehalten — Ihre Eingabe erforderlich."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Halted on an error — needs you."
+          }
+        }
+      }
+    },
+    "hold_halted_usage": {
+      "comment": "%1$@ = time",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Am Nutzungslimit pausiert — setzt um %1$@ Uhr fort."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused at the usage limit — resumes at %1$@."
+          }
+        }
+      }
+    },
+    "hold_halted_usage_pending": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Am Nutzungslimit pausiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Paused at the usage limit."
+          }
+        }
+      }
+    },
+    "hold_manual_steps": {
+      "comment": "%1$@ = steps",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ manuelle(r) Schritt(e) vor dem Mergen — bestätigen zum Fortfahren."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ manual step(s) to do before merge — ack to proceed."
+          }
+        }
+      }
+    },
+    "hold_merge_rebasing": {
+      "comment": "%1$@ = rebaseCount",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebase im Merge-Train (Versuch %1$@)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rebasing in the merge train (attempt %1$@)."
+          }
+        }
+      }
+    },
+    "hold_merging": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Merge-Train."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In the merge train."
+          }
+        }
+      }
+    },
+    "hold_plan_question": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Plan hat Fragen, die auf deine Antwort warten."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The plan has questions waiting on your answer."
+          }
+        }
+      }
+    },
+    "hold_plan_rework": {
+      "comment": "%1$@ = round, %2$@ = cap",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan-Review fordert Änderungen (Runde %1$@/%2$@) — Ihre Entscheidung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan review wants changes (round %1$@/%2$@) — your call."
+          }
+        }
+      }
+    },
+    "hold_pr_conflict": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der PR hat Merge-Konflikte — CI kann bis zum Rebase nicht laufen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The PR has merge conflicts — CI can't run until it's rebased."
           }
         }
       }
@@ -6367,6 +6681,161 @@
           "stringUnit": {
             "state": "translated",
             "value": "Auto-fix hit its limit — open findings still need you."
+          }
+        }
+      }
+    },
+    "hold_ready": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan freigegeben — bereit zur Ausführung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan approved — ready to execute."
+          }
+        }
+      }
+    },
+    "hold_ready_merge": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereit zum Mergen — wartet auf Sie."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready to merge — waiting on you."
+          }
+        }
+      }
+    },
+    "hold_recap_attention": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recap hat dies für Ihre Aufmerksamkeit markiert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recap flagged this for your attention."
+          }
+        }
+      }
+    },
+    "hold_reviewing_findings": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan wird erneut geprüft (%1$@ Punkte aus der letzten Runde)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Re-reviewing the plan (%1$@ findings from the last round)."
+          }
+        }
+      }
+    },
+    "hold_reviewing_plain": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan wird geprüft."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan under review."
+          }
+        }
+      }
+    },
+    "hold_revising": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent überarbeitet den Plan."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent is revising the plan."
+          }
+        }
+      }
+    },
+    "hold_revising_round": {
+      "comment": "%1$@ = round, %2$@ = cap",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent überarbeitet den Plan (%1$@/%2$@)."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent is revising the plan (%1$@/%2$@)."
+          }
+        }
+      }
+    },
+    "hold_stalled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruhig — keine aktuelle Aktivität; möglicherweise hängt der Prozess."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quiet — no recent activity; may be stuck."
+          }
+        }
+      }
+    },
+    "hold_train_error": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge-Train hat einen Fehler — Ihre Eingabe erforderlich."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Merge train hit an error — needs you."
           }
         }
       }
@@ -8536,6 +9005,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Fable 5.1"
+          }
+        }
+      }
+    },
+    "model_label_opus_1m": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus (1 Mio. Kontext)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opus (1M context)"
           }
         }
       }
@@ -15249,6 +15735,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Connection needs checking"
+          }
+        }
+      }
+    },
+    "native_session_details_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sitzungsdetails"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Session details"
           }
         }
       }
@@ -24451,6 +24954,78 @@
         }
       }
     },
+    "session_env_effort_configured": {
+      "comment": "%1$@ = effort",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufwand: %1$@ — die konfigurierte Einstellung, nicht beobachtet. Für diesen Lauf wurde kein Laufzeitwert verzeichnet, die CLI kann also einen anderen Aufwand genutzt haben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effort: %1$@ — the configured setting, not observed. No runtime value was recorded for this run, so the CLI may have used another effort."
+          }
+        }
+      }
+    },
+    "session_env_effort_observed": {
+      "comment": "%1$@ = effort",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufwand: %1$@ — was dieser Lauf tatsächlich genutzt hat, aus dem Laufzeitprotokoll des Agenten gelesen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Effort: %1$@ — what this run actually used, read from the agent's own runtime log."
+          }
+        }
+      }
+    },
+    "session_env_model_configured": {
+      "comment": "%1$@ = model",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modell: %1$@ — die konfigurierte Einstellung, nicht beobachtet. Für diesen Lauf wurde kein Laufzeitwert verzeichnet, die CLI kann also ein anderes Modell genutzt haben."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model: %1$@ — the configured setting, not observed. No runtime value was recorded for this run, so the CLI may have used another model."
+          }
+        }
+      }
+    },
+    "session_env_model_observed": {
+      "comment": "%1$@ = model",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modell: %1$@ — was dieser Lauf tatsächlich genutzt hat, aus dem Laufzeitprotokoll des Agenten gelesen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Model: %1$@ — what this run actually used, read from the agent's own runtime log."
+          }
+        }
+      }
+    },
     "session_resume_transcript_missing": {
       "extractionState": "manual",
       "localizations": {
@@ -24464,6 +25039,91 @@
           "stringUnit": {
             "state": "translated",
             "value": "Conversation history was not saved – this session cannot be resumed."
+          }
+        }
+      }
+    },
+    "session_sandbox_autonomous_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autonom"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autonomous"
+          }
+        }
+      }
+    },
+    "session_sandbox_degraded_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox aus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox off"
+          }
+        }
+      }
+    },
+    "session_sandbox_egress_degraded_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Netzwerk offen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Network open"
+          }
+        }
+      }
+    },
+    "session_sandbox_standard_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandboxed"
+          }
+        }
+      }
+    },
+    "session_sandbox_unconfined_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ungeschützt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unconfined"
           }
         }
       }
@@ -25767,6 +26427,24 @@
         }
       }
     },
+    "timetip_clock": {
+      "comment": "%1$@ = elapsed, %2$@ = start",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⏱ %1$@ auf der Uhr, tickt seit %2$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "⏱ %1$@ on the clock, ticking since %2$@"
+          }
+        }
+      }
+    },
     "toast_auto_revived": {
       "comment": "%1$@ = revived, %2$@ = failed",
       "extractionState": "manual",
@@ -26354,6 +27032,42 @@
           "stringUnit": {
             "state": "translated",
             "value": "Rework cap"
+          }
+        }
+      }
+    },
+    "unitrow_repo_filter_aria": {
+      "comment": "%1$@ = repo",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nur Sessions von %1$@ anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show only %1$@ sessions"
+          }
+        }
+      }
+    },
+    "unitrow_repo_filter_clear_aria": {
+      "comment": "%1$@ = repo",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@-Filter aufheben, alle Sessions anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clear the %1$@ filter, show all sessions"
           }
         }
       }

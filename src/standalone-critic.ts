@@ -299,9 +299,7 @@ export class StandalonePrCriticService {
     );
     // CI transitions don't change the PR fingerprint. Derive a watch-list AFTER the other
     // eligibility gates; copy live rollups onto candidate rows without mutating the shared cache.
-    const watchedHeads = new Set(
-      candidates.filter((pr) => pr.checks !== "none" || !noCi).map((pr) => pr.headSha!),
-    );
+    const watchedHeads = new Set(candidates.map((pr) => pr.headSha!));
     if (watchedHeads.size > 0 && forge.listCommitChecks) {
       let checks = new Map<string, PullRequest["checks"]>();
       try {
@@ -318,6 +316,8 @@ export class StandalonePrCriticService {
     candidates = candidates.filter((pr) => checksCleared(pr.checks, noCi));
     let deferred = 0;
     for (const pr of candidates) {
+      // Another sweep can claim or finish this head while the live CI probe is awaiting.
+      if (!this.eligible(repoPath, pr, managed, criticEnabled, criticAllPrs)) continue;
       if (!this.underCap()) {
         deferred++;
         continue;

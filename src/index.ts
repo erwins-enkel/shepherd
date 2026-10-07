@@ -1964,7 +1964,6 @@ const maintainService = new MaintainService({
   // Deliberately never a managed repo — no auto-filed issues land in someone else's backlog.
   selfRepoPath: SERVER_INSTALL_ROOT,
   resolveForge,
-  openPrSnapshot,
   // Per-repo first-pass rates over the 30d window. Fresh per sweep (never cached) so a repo that
   // appeared or went quiet between sweeps is reflected immediately.
   repoDelivery: () =>

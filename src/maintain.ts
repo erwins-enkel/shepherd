@@ -33,7 +33,6 @@ import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import { EmptyDiffError, type GitForge } from "./forge/types";
-import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { createIssueWithLabels, issueForgeGap } from "./issue-create";
 import type { BandReading, MaintainOutcome, MaintainRun, SignalKind } from "./types";
 import type { RoleEnvironment } from "./default-model";
@@ -250,7 +249,6 @@ export interface MaintainDeps extends MembraneSeams {
   /** Shepherd's OWN checkout — the repo the diagnosis reads and the issue is filed against. */
   selfRepoPath: string;
   resolveForge: (repoPath: string) => GitForge | null;
-  openPrSnapshot: Pick<OpenPrSnapshotService, "get">;
   /** Per-repo delivery rows over the 30d range, for the `first_pass_collapse` band. Injected as a
    *  thunk so this service never imports the metrics builder's store wiring. */
   repoDelivery: () => BandInput["repos"];
@@ -556,10 +554,10 @@ export class MaintainService {
     const forge = this.deps.resolveForge(this.deps.selfRepoPath);
     if (!forge) return false;
     try {
-      const snapshot = await this.deps.openPrSnapshot.get(forge);
-      if (!snapshot && forge.listOpenPrSnapshot) throw new Error("open-PR snapshot unavailable");
-      const prs = snapshot?.prs ?? (await forge.listPullRequests());
-      return prs.some((p) => p.number === prNumber);
+      // Only one published PR needs checking; a live number-keyed read avoids both a full
+      // listing and stale suppression after an external merge/close.
+      if (forge.prReviewMeta) return (await forge.prReviewMeta(prNumber))?.state === "open";
+      return (await forge.listPullRequests()).some((p) => p.number === prNumber);
     } catch (err) {
       this.log(`[maintain] could not check PR #${prNumber}: ${String(err)}`);
       return false;

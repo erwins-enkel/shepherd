@@ -204,7 +204,6 @@ function harness(over: Partial<MaintainDeps> = {}): Harness {
     store,
     selfRepoPath: SELF,
     resolveForge: () => (forgeAvailable.current ? forge : null),
-    openPrSnapshot: { get: async () => null },
     repoDelivery: () => [],
     // Membrane seams: no host state, no bwrap.
     detectBackend: () => null,
@@ -1067,14 +1066,13 @@ describe("tier 3 — openPr failure", () => {
 });
 
 describe("tier 3 — suppression", () => {
-  it("#2854 suppresses an open maintenance PR through the shared snapshot", async () => {
-    let reads = 0;
+  it("#2854 suppresses an open maintenance PR with a live number-keyed read", async () => {
+    const viewed: number[] = [];
     const h = drifting({ cooldownMs: 0 });
-    (h.svc as any).deps.openPrSnapshot = {
-      get: async () => {
-        reads++;
-        return { prs: [{ number: 500 }], statuses: new Map(), capped: false };
-      },
+    const forge = (h.svc as any).deps.resolveForge(SELF);
+    forge.prReviewMeta = async (number: number) => {
+      viewed.push(number);
+      return { state: "open" };
     };
     await h.svc.sweep();
     let directCalls = 0;
@@ -1086,8 +1084,26 @@ describe("tier 3 — suppression", () => {
     h.clock.now += 25 * 60 * 60 * 1000;
     await h.svc.sweep();
     expect(h.openedPrs).toHaveLength(1);
-    expect(reads).toBe(1);
+    expect(viewed).toEqual([500]);
     expect(directCalls).toBe(0);
+  });
+
+  it("#2854 a closed maintenance PR cannot be suppressed by stale listing data", async () => {
+    const h = drifting({ cooldownMs: 0 });
+    const forge = (h.svc as any).deps.resolveForge(SELF);
+    const viewed: number[] = [];
+    forge.prReviewMeta = async (number: number) => {
+      viewed.push(number);
+      return { state: "closed" };
+    };
+    await h.svc.sweep();
+    // The old PR still appears in the listing, as it could in a warmed snapshot.
+    expect(h.openPrNumbers).toEqual([500]);
+    h.deadCode.worktree = [report(4, 2), CLEAN_REPORT];
+    h.clock.now += 25 * 60 * 60 * 1000;
+    await h.svc.sweep();
+    expect(h.openedPrs).toHaveLength(2);
+    expect(viewed).toEqual([500]);
   });
 
   it("will not open a second PR while the first is still open", async () => {

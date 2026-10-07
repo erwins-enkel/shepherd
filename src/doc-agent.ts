@@ -1182,25 +1182,35 @@ export class DocAgentService {
     excludeBranch: string,
   ): Promise<{ number: number; headBranch: string; url: string | null } | null> {
     let prs;
+    let cached: boolean;
     try {
       const snapshot = await this.deps.openPrSnapshot.get(forge);
       if (!snapshot && forge.listOpenPrSnapshot) throw new Error("open-PR snapshot unavailable");
+      cached = snapshot != null;
       prs = snapshot?.prs ?? (await forge.listPullRequests());
     } catch (err) {
       console.warn(`[doc-agent] roll-up: open-PR listing failed — opening fresh:`, err);
       return null;
     }
     const prefix = `shepherd/${DOC_BRANCH_PREFIX}`;
-    const matches = prs.filter(
-      (p) =>
-        !!p.headRefName &&
-        p.headRefName.startsWith(prefix) &&
-        p.headRefName !== excludeBranch &&
-        BRANCH_RE.test(p.headRefName),
-    );
-    if (matches.length === 0) return null;
-    const chosen = matches.reduce((a, b) => (b.number < a.number ? b : a));
-    return { number: chosen.number, headBranch: chosen.headRefName!, url: chosen.url ?? null };
+    const matches = prs
+      .filter(
+        (p) =>
+          !!p.headRefName &&
+          p.headRefName.startsWith(prefix) &&
+          p.headRefName !== excludeBranch &&
+          BRANCH_RE.test(p.headRefName),
+      )
+      .sort((a, b) => a.number - b.number);
+    for (const chosen of matches) {
+      // A cached discovery may predate an external merge/close. Never force-push a closed PR.
+      if (cached && forge.prReviewMeta) {
+        const live = await forge.prReviewMeta(chosen.number).catch(() => null);
+        if (live?.state !== "open") continue;
+      }
+      return { number: chosen.number, headBranch: chosen.headRefName!, url: chosen.url ?? null };
+    }
+    return null;
   }
 
   /**

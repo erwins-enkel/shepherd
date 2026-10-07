@@ -484,6 +484,62 @@ test("#2854 a failed cached snapshot does not fall back to another GitHub listin
   expect(h.spies.started).toHaveLength(0);
 });
 
+test("#2854 cached none checks still probe external CI on a repo without workflows", async () => {
+  const h = cachedCritic([pr({ checks: "none" })]);
+  let checks: PullRequest["checks"] = "pending";
+  h.forge.listCommitChecks = async () => new Map([["abc123", checks]]);
+  const svc = new StandalonePrCriticService(h.deps as any);
+  await svc.sweep();
+  expect(h.spies.started).toHaveLength(0);
+  checks = "failure";
+  await svc.sweep();
+  expect(h.spies.started).toHaveLength(0);
+  checks = "none"; // a genuinely check-free live head still clears the existing no-CI gate
+  await svc.sweep();
+  expect(h.spies.started).toHaveLength(1);
+});
+
+test("#2854 overlapping CI probes launch only one critic for the same PR", async () => {
+  const h = cachedCritic([pr({ checks: "pending" })]);
+  const bothStarted = Promise.withResolvers<void>();
+  const result = Promise.withResolvers<Map<string, PullRequest["checks"]>>();
+  let probes = 0;
+  h.forge.listCommitChecks = async () => {
+    if (++probes === 2) bothStarted.resolve();
+    return result.promise;
+  };
+  const svc = new StandalonePrCriticService(h.deps as any);
+  const sweeps = [svc.sweep(), svc.sweep()];
+  await bothStarted.promise;
+  result.resolve(new Map([["abc123", "success"]]));
+  await Promise.all(sweeps);
+  expect(h.spies.started).toHaveLength(1);
+  expect(h.spies.created).toHaveLength(1);
+});
+
+test("#2854 a late CI probe does not re-review a head completed by another sweep", async () => {
+  const h = cachedCritic([pr({ checks: "pending" })]);
+  const firstStarted = Promise.withResolvers<void>();
+  const firstResult = Promise.withResolvers<Map<string, PullRequest["checks"]>>();
+  let probes = 0;
+  h.forge.listCommitChecks = async () => {
+    if (++probes === 1) {
+      firstStarted.resolve();
+      return firstResult.promise;
+    }
+    return new Map([["abc123", "success"]]);
+  };
+  const svc = new StandalonePrCriticService(h.deps as any);
+  const first = svc.sweep();
+  await firstStarted.promise;
+  await svc.sweep();
+  await svc.tick();
+  firstResult.resolve(new Map([["abc123", "success"]]));
+  await first;
+  expect(h.spies.started).toHaveLength(1);
+  expect(h.spies.created).toHaveLength(1);
+});
+
 // ── 1. filter ────────────────────────────────────────────────────────────────
 
 test("reviews a fresh open green regular session-less PR", async () => {

@@ -1834,6 +1834,57 @@ test("#2854 docs roll-up reads the shared PR snapshot without a direct listing",
   expect(h.editPrCalls[0]?.prNumber).toBe(5);
 });
 
+test("#2854 cached docs PRs that closed or merged publish a fresh PR", async () => {
+  for (const state of ["merged", "closed"] as const) {
+    const h = mkHarness({ act: true, listPullRequestsThrows: true });
+    const deps = (h.svc as any).deps;
+    deps.openPrSnapshot = {
+      get: async () => ({
+        prs: [
+          { number: 5, headRefName: "shepherd/docs-update-old00001", url: "https://forge/pr/5" },
+        ],
+        statuses: new Map(),
+        capped: false,
+      }),
+    };
+    const viewed: number[] = [];
+    deps.resolveForge("/repo").prReviewMeta = async (number: number) => {
+      viewed.push(number);
+      return { state };
+    };
+    await h.svc.consider("/repo");
+    await h.svc.tick();
+    expect(viewed).toEqual([5]);
+    expect(h.openPrInputs).toHaveLength(1);
+    expect(h.editPrCalls).toHaveLength(0);
+    expect(
+      h.gitCalls.some((c) => c.args.includes("HEAD:refs/heads/shepherd/docs-update-old00001")),
+    ).toBe(false);
+  }
+});
+
+test("#2854 docs roll-up selects the lowest still-open cached PR", async () => {
+  const h = mkHarness({ act: true, listPullRequestsThrows: true });
+  const deps = (h.svc as any).deps;
+  deps.openPrSnapshot = {
+    get: async () => ({
+      prs: [
+        { number: 6, headRefName: "shepherd/docs-update-old00002", url: "https://forge/pr/6" },
+        { number: 5, headRefName: "shepherd/docs-update-old00001", url: "https://forge/pr/5" },
+      ],
+      statuses: new Map(),
+      capped: false,
+    }),
+  };
+  deps.resolveForge("/repo").prReviewMeta = async (number: number) => ({
+    state: number === 5 ? "merged" : "open",
+  });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+  expect(h.openPrInputs).toHaveLength(0);
+  expect(h.editPrCalls[0]?.prNumber).toBe(6);
+});
+
 test("roll-up: one existing docs PR → rolls up, no openPr, body refreshed", async () => {
   const h = mkHarness({
     act: true,

@@ -305,18 +305,6 @@ export interface PrStatus {
   mergeMethod?: MergeMethod;
 }
 
-/** An open PR can still settle without a new push or a human action. UNSTABLE alone
- *  is settled; failed CI stays transient only while other checks are still running. */
-export function isTransientOpenPr(pr: PrStatus): boolean {
-  return (
-    pr.state === "open" &&
-    (pr.checks === "pending" ||
-      (pr.runningChecks?.length ?? 0) > 0 ||
-      pr.mergeable == null ||
-      pr.mergeStateStatus === "unknown")
-  );
-}
-
 /** A session's forge kind plus its current PR status — the GET /api/sessions/:id/git
  *  payload and the value cached/pushed for the list overview. */
 export interface GitState extends PrStatus {

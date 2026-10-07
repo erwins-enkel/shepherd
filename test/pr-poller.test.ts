@@ -5,6 +5,7 @@ import type { GitForge, GitState, PrStatus } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import { GithubReadCache } from "../src/github-read-cache";
 import { OpenPrSnapshotService } from "../src/open-pr-snapshot";
+import { GithubForge } from "../src/forge/github";
 
 const openGit = (over: Partial<GitState> = {}): GitState => ({
   kind: "github",
@@ -1944,7 +1945,7 @@ function clockedPoller(store: SessionStore, forge: GitForge, cache: GithubReadCa
     () => forge,
     () => {},
     undefined,
-    undefined,
+    0,
     undefined,
     undefined,
     undefined,
@@ -2114,6 +2115,79 @@ test("#2851: session-git updates reopen a transient window after a new push", as
   await poller.fastTick();
   expect(polls).toBe(1);
 });
+
+test.each(["done", "idle"] as const)(
+  "#2851: targeted %s poll observes an agent push despite a freshly settled snapshot",
+  async (sessionStatus) => {
+    const store = new SessionStore(":memory:");
+    const s = store.create(baseSession);
+    store.update(s.id, { status: sessionStatus });
+    const settled = openGit({
+      checks: "success",
+      mergeable: true,
+      mergeStateStatus: "clean",
+      headSha: "old-head",
+    });
+    store.putSessionGitCache(s.id, settled);
+    const cache = new GithubReadCache(store);
+    cache.put("fingerprint", "o/r", null, {
+      openIssues: 0,
+      issuesUpdatedAt: "",
+      openPrs: 1,
+      prsUpdatedAt: "unchanged",
+      ciState: "",
+    });
+    const key = cache.contentKey("prs", "o/r");
+    cache.put("session", "o/r", key, s.branch!, s.id);
+    cache.put("prs", "o/r", key, {
+      prs: [],
+      statuses: new Map([[s.branch!, settled]]),
+      capped: false,
+    });
+    let completed = false;
+    const heads: string[] = [];
+    const forge = new GithubForge(
+      "o/r",
+      {},
+      async (args) => {
+        if (args[0] === "api" && args[1] === "user") return "alice";
+        if (args[0] !== "pr" || !args.includes("--head"))
+          throw new Error(`unexpected gh call: ${args}`);
+        heads.push(args[args.indexOf("--head") + 1]!);
+        return JSON.stringify([
+          {
+            number: 1,
+            state: "OPEN",
+            headRefOid: "new-head",
+            baseRefName: "main",
+            mergeable: "MERGEABLE",
+            mergeStateStatus: "CLEAN",
+            statusCheckRollup: [
+              {
+                name: "ci",
+                status: completed ? "COMPLETED" : "IN_PROGRESS",
+                conclusion: completed ? "SUCCESS" : null,
+              },
+            ],
+          },
+        ]);
+      },
+      undefined,
+      undefined,
+      cache,
+    );
+    const poller = clockedPoller(store, forge, cache);
+    await poller.tick(); // Settled periodic polling still parks this unchanged PR.
+    expect(heads).toHaveLength(0);
+    poller.pollSession(s.id); // Agent finished its push; fingerprint and snapshot have not moved.
+    await tick();
+    expect(poller.get(s.id)).toMatchObject({ headSha: "new-head", checks: "pending" });
+    completed = true;
+    await poller.fastTick();
+    expect(poller.get(s.id)).toMatchObject({ headSha: "new-head", checks: "success" });
+    expect(heads).toEqual([s.branch!, s.branch!]);
+  },
+);
 
 test("#2851: settled done sessions need at most one per-head read in ten minutes after restart", async () => {
   const store = new SessionStore(":memory:");

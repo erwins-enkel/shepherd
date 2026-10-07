@@ -34,14 +34,12 @@ import {
 import { issuesFreshness } from "./repo-freshness";
 import { readEpicStructureByParts } from "./epic-structure";
 import { Semaphore } from "../semaphore";
-import { SNAPSHOT_TTL_MS } from "../open-pr-snapshot";
 import type { GithubCacheEntry, GithubReadCache, IssueRelations } from "../github-read-cache";
 import {
   CRITIC_REVIEW_MARKER,
   EmptyDiffError,
   issueStateField,
   issueUpdatedAtField,
-  isTransientOpenPr,
   MergeEnqueuedError,
   MergePendingError,
   StackedMergeRefusedError,
@@ -1885,8 +1883,6 @@ export class GithubForge implements GitForge {
   }
 
   async prStatus(headBranch: string): Promise<PrStatus> {
-    const cached = this.cachedOpenPrStatus(headBranch);
-    if (cached) return cached;
     const deployConfigured = Boolean(this.cfg.deployWorkflow);
     if (graphRateLimit.blocked()) {
       return this.prStatusRest(headBranch, deployConfigured);
@@ -1930,21 +1926,6 @@ export class GithubForge implements GitForge {
       : prs[0];
     if (!pr) return { state: "none", checks: "none", deployConfigured };
     return this.mapGhPr(pr, deployConfigured);
-  }
-
-  /** Share open-head hits with every caller (poller, landing PRs, epic reconcile).
-   *  A PR fingerprint does not cover CI progress, so transient hits expire at the
-   *  fast cadence even with an unchanged key. Missing heads still need --state all. */
-  private cachedOpenPrStatus(headBranch: string): PrStatus | null {
-    if (!this.readCache || this.isFork) return null;
-    const entry = this.readCache.get("prs", this.slug);
-    const hit = entry?.value.statuses.get(headBranch);
-    if (!entry || !hit || hit.state !== "open" || this.readCache.expired(entry)) return null;
-    const key = this.readCache.contentKey("prs", this.slug);
-    const age = this.now() - entry.at;
-    if (key != null ? entry.contentKey !== key : age >= SNAPSHOT_TTL_MS) return null;
-    if (isTransientOpenPr(hit) && age >= 15_000) return null;
-    return structuredClone(hit);
   }
 
   /** One per-repo open-PR fetch (`gh pr list --state open`) mapped into every shape its

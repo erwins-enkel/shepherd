@@ -1,7 +1,6 @@
 import type { SessionStore } from "./store";
 import type { Session } from "./types";
 import type { GitForge, GitState, PrStatus } from "./forge/types";
-import { isTransientOpenPr } from "./forge/types";
 import { annotateHandoff } from "./repo-roles";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import type { GithubReadCache } from "./github-read-cache";
@@ -211,9 +210,20 @@ export class PrPoller implements PrCache {
 
   /** True when an open PR can still move without a human action — i.e. it is worth
    *  fast-polling. A PR that is fully settled (CI green, mergeable, clean) is parked. */
+  private isTransientOpen(git: GitState): boolean {
+    return (
+      git.state === "open" &&
+      (git.checks === "pending" ||
+        (git.runningChecks?.length ?? 0) > 0 ||
+        git.mergeable == null ||
+        git.mergeStateStatus === "unknown")
+    );
+  }
+
+  /** Finished/idle sessions need running CI to stay on the fast cadence. */
   private isTransientSession(s: Session, git: GitState): boolean {
     return (
-      isTransientOpenPr(git) &&
+      this.isTransientOpen(git) &&
       ((s.status !== "done" && s.status !== "idle") ||
         git.checks === "pending" ||
         (git.runningChecks?.length ?? 0) > 0)
@@ -294,7 +304,7 @@ export class PrPoller implements PrCache {
   private hydrateTransientWindows(): void {
     if (!this.readCache) return;
     for (const [id, git] of this.cache) {
-      if (!isTransientOpenPr(git)) continue;
+      if (!this.isTransientOpen(git)) continue;
       const s = this.store.get(id);
       const forge = s ? this.resolveForge(s.repoPath) : null;
       if (!s || forge?.kind !== "github" || !forge.slug) continue;
@@ -734,7 +744,7 @@ export class PrPoller implements PrCache {
    *  transient observation. Extracted from `refresh` to keep that method's branch
    *  count under the complexity gate. */
   private trackTransient(id: string, git: GitState): void {
-    if (!isTransientOpenPr(git)) {
+    if (!this.isTransientOpen(git)) {
       if (this.transientSince.delete(id)) this.persistTransient(id);
       return;
     }

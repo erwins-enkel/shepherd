@@ -586,110 +586,69 @@ describe("GitHub warm restart", () => {
     expect(warm.svc.backgroundReady()).toBe(false);
   });
 
-  test("#2851: prStatus serves settled open heads from a rehydrated fingerprint-current snapshot", async () => {
-    const h = harness();
-    const cold = h.boot();
-    await cold.svc.tick();
-    const status: PrStatus = {
-      state: "open",
-      number: 4,
-      checks: "failure",
-      mergeable: true,
-      mergeStateStatus: "unstable",
-      headSha: "head",
-      deployConfigured: false,
-    };
-    cold.forge.listOpenPrSnapshot = async () => ({
-      prs: [],
-      statuses: new Map([["topic", status]]),
-      capped: true,
-    });
-    await new OpenPrSnapshotService(h.now, 6, cold.cache).get(cold.forge);
-    h.advance(600_000);
-    const warm = h.boot();
-    expect(await warm.forge.prStatus("topic")).toEqual(status);
-    expect(h.calls.filter((args) => args.includes("--head"))).toHaveLength(0);
-    expect(await warm.forge.prStatus("merged-head")).toEqual({
-      state: "none",
-      checks: "none",
-      deployConfigured: false,
-    });
-    expect(h.calls.filter((args) => args.includes("--head"))).toHaveLength(1);
-  });
-
-  test.each(["fingerprint", "expired", "write", "fork", "ttl"] as const)(
-    "#2851: prStatus falls back when a snapshot is invalid for %s",
-    async (reason) => {
+  test.each([
+    ["push", { headRefOid: "new-head" }, { headSha: "new-head" }],
+    [
+      "rerun",
+      { statusCheckRollup: [{ name: "ci", status: "IN_PROGRESS" }] },
+      { checks: "pending", runningChecks: ["ci"] },
+    ],
+    [
+      "base move",
+      { mergeable: "CONFLICTING", mergeStateStatus: "BEHIND" },
+      { mergeable: false, mergeStateStatus: "behind" },
+    ],
+    ["merge", { state: "MERGED" }, { state: "merged" }],
+  ] as const)(
+    "#2851: live prStatus observes %s while the PR fingerprint is paused",
+    async (_change, remote, expected) => {
       const h = harness();
       const cold = h.boot();
       await cold.svc.tick();
+      const settled: PrStatus = {
+        state: "open",
+        number: 4,
+        headSha: "old-head",
+        checks: "success",
+        mergeable: true,
+        mergeStateStatus: "clean",
+        deployConfigured: false,
+      };
       cold.cache.put("prs", "o/r", cold.cache.contentKey("prs", "o/r"), {
         prs: [],
+        statuses: new Map([["topic", settled]]),
         capped: false,
-        statuses: new Map([
-          [
-            "topic",
-            {
-              state: "open",
-              number: 4,
-              checks: "success",
-              mergeable: true,
-              deployConfigured: false,
-            },
-          ],
-        ]),
       });
-      if (reason === "fingerprint") {
-        h.changePrs();
-        h.advance(60_000);
-        await cold.svc.tick();
-      } else if (reason === "expired") h.advance(86_400_000);
-      else if (reason === "write") await cold.forge.closePr(4);
-      else if (reason === "ttl") {
-        setIssuesFreshness(() => null);
-        h.advance(120_000);
-      }
-      const forge =
-        reason === "fork"
-          ? new GithubForge(
-              "o/r",
-              {},
-              async (args) => {
-                h.calls.push(args);
-                return "[]";
-              },
-              "other/r",
-              undefined,
-              cold.cache,
-            )
-          : cold.forge;
-      expect((await forge.prStatus("topic")).state).toBe("none");
-      expect(h.calls.filter((args) => args.includes("--head"))).toHaveLength(1);
+      h.block(true);
+      h.advance(600_000);
+      await cold.svc.tick();
+      const calls: string[][] = [];
+      const forge = new GithubForge(
+        "o/r",
+        {},
+        async (args) => {
+          calls.push(args);
+          return JSON.stringify([
+            {
+              number: 4,
+              state: "OPEN",
+              headRefOid: "old-head",
+              baseRefName: "main",
+              mergeable: "MERGEABLE",
+              mergeStateStatus: "CLEAN",
+              statusCheckRollup: [{ name: "ci", status: "COMPLETED", conclusion: "SUCCESS" }],
+              ...remote,
+            },
+          ]);
+        },
+        undefined,
+        undefined,
+        cold.cache,
+      );
+      expect(await forge.prStatus("topic")).toMatchObject(expected);
+      expect(calls.filter((args) => args.includes("--head"))).toHaveLength(1);
     },
   );
-
-  test("#2851: a snapshot never hides a transient PR's next 15-second CI poll", async () => {
-    const h = harness();
-    const cold = h.boot();
-    await cold.svc.tick();
-    const pending: PrStatus = {
-      state: "open",
-      number: 4,
-      checks: "pending",
-      mergeable: true,
-      deployConfigured: false,
-    };
-    cold.cache.put("prs", "o/r", cold.cache.contentKey("prs", "o/r"), {
-      prs: [],
-      statuses: new Map([["topic", pending]]),
-      capped: false,
-    });
-    expect(await cold.forge.prStatus("topic")).toEqual(pending);
-    expect(h.calls.filter((args) => args.includes("--head"))).toHaveLength(0);
-    h.advance(15_000);
-    expect((await cold.forge.prStatus("topic")).state).toBe("none");
-    expect(h.calls.filter((args) => args.includes("--head"))).toHaveLength(1);
-  });
 
   test("open PR snapshots and their branch Maps are reused across restart and invalidated on writes", async () => {
     const h = harness();

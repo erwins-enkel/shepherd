@@ -160,12 +160,18 @@ export function isPasteChord(e: KeyLike): boolean {
   return (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v";
 }
 
+/** Cmd/Ctrl+K stays the HUD's command bar, as it does from the terminal. */
+function isCommandBarChord(e: KeyLike): boolean {
+  return (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k";
+}
+
 /**
  * A DOM key event → the `key` message. Printable keys (and Enter) carry `text` on keydown so the
- * page receives the character; everything else is a raw key. Null for the paste chord.
+ * page receives the character; everything else is a raw key. Null for chords the view leaves to
+ * the HUD (paste, command bar).
  */
 export function keyMessage(e: KeyLike, action: "down" | "up"): BrowserViewMessage | null {
-  if (isPasteChord(e)) return null;
+  if (isPasteChord(e) || isCommandBarChord(e)) return null;
   const msg: BrowserViewMessage = {
     type: "key",
     action,

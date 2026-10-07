@@ -7,7 +7,6 @@
   import { toasts } from "$lib/toasts.svelte";
   import {
     connectBrowserView,
-    isPasteChord,
     keyMessage,
     modifiersOf,
     mouseButton,
@@ -185,10 +184,12 @@
   });
 
   function onKey(e: KeyboardEvent, action: "down" | "up") {
-    if (isPasteChord(e)) return; // the `paste` event below carries the text
+    // Null: paste (the `paste` event below carries the text) or the HUD's command bar.
     const msg = keyMessage(e, action);
     if (!msg) return;
+    // Keys belong to the page: keep them from the HUD's global shortcuts (n, r, j/k, …).
     e.preventDefault();
+    e.stopPropagation();
     send(msg);
   }
 

@@ -60,6 +60,8 @@ describe("browserView", () => {
   it("keyMessage leaves the paste chord to the paste event", () => {
     expect(keyMessage(key("v", { ctrlKey: true }), "down")).toBeNull();
     expect(keyMessage(key("V", { metaKey: true }), "down")).toBeNull();
+    expect(keyMessage(key("k", { metaKey: true }), "down")).toBeNull(); // command bar
+    expect(keyMessage(key("k"), "down")).toMatchObject({ text: "k" });
   });
 
   it("navigableUrl accepts http(s), adds https to bare hosts, refuses other schemes", () => {

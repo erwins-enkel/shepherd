@@ -186,6 +186,8 @@ export class BrowserViewSession {
   #generation = 0;
   /** The screencast frame awaiting the UI's `frameAck`. */
   #pendingAck: number | null = null;
+  /** The initial `getTargets` listing is in; until then discovery events only update the map. */
+  #listed = false;
 
   /** Pass to `SharedBrowserManager.attach`: the browser's messages for this view. */
   readonly cdp: CdpClient;
@@ -213,6 +215,7 @@ export class BrowserViewSession {
     this.#command("Target.getTargets", {}, undefined, (reply) => {
       const infos = obj(reply.result)?.targetInfos;
       for (const info of Array.isArray(infos) ? infos : []) this.#upsert(obj(info));
+      this.#listed = true;
       const preferred = this.#preferred();
       const first = preferred && this.#targets.has(preferred) ? preferred : this.#firstTarget();
       if (first) this.#select(first);
@@ -332,6 +335,11 @@ export class BrowserViewSession {
   #onTargetInfo(info: Json | null, created: boolean): void {
     const id = typeof info?.targetId === "string" ? info.targetId : null;
     if (!id) return;
+    if (!this.#listed) {
+      // Discovery replays existing tabs before the initial listing: record, don't select yet.
+      if (!this.#upsert(info)) this.#targets.delete(id);
+      return;
+    }
     if (!this.#upsert(info)) {
       if (!this.#targets.delete(id)) return;
       if (id === this.#selected) this.#deselect();

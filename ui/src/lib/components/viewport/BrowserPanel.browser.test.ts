@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "../../../app.css";
 import type { Session } from "$lib/types";
 
@@ -84,6 +84,25 @@ describe("BrowserPanel", () => {
     await page.getByRole("button", { name: /send/i }).click();
     expect(ws.sentOf("text")).toEqual([{ type: "text", text: "hunter2" }]);
     await expect.element(field).toHaveValue("");
+  });
+
+  it("keys typed into the view go to the page, not the HUD's shortcuts", async () => {
+    render(BrowserPanel, { session, makeWs });
+    const ws = FakeWs.last;
+    ws.push(targets());
+    const onWindowKey = vi.fn();
+    window.addEventListener("keydown", onWindowKey);
+    try {
+      const surface = page.getByRole("application");
+      await surface.click();
+      await userEvent.keyboard("n");
+      expect(ws.sentOf("key")).toEqual(
+        expect.arrayContaining([expect.objectContaining({ action: "down", key: "n", text: "n" })]),
+      );
+      expect(onWindowKey).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("keydown", onWindowKey);
+    }
   });
 
   it("switches tabs from the picker", async () => {

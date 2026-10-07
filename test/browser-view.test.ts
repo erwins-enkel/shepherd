@@ -120,6 +120,18 @@ test("start: lists web page tabs only, selects the first, then screencasts it", 
   expect(h.sent("Page.startScreencast")[0]!.params.format).toBe("jpeg");
 });
 
+test("start: discovery events before the initial listing neither select nor broadcast", () => {
+  const h = harness({ preferred: "T2" });
+  h.view.start(h.client);
+  h.event("Target.targetCreated", { targetInfo: page("T1") });
+  h.event("Target.targetCreated", { targetInfo: page("T2") });
+  expect(h.toUi).toHaveLength(0);
+  expect(h.sent("Target.attachToTarget")).toHaveLength(0);
+  h.reply("Target.getTargets", { targetInfos: [page("T1"), page("T2")] });
+  expect(h.lastTargets()!.selected).toBe("T2");
+  expect(h.sent("Target.attachToTarget")).toHaveLength(1);
+});
+
 test("start: prefers the session's own tab when it is still open", () => {
   const h = harness({ preferred: "T2" });
   h.view.start(h.client);

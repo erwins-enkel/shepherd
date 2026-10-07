@@ -70,9 +70,20 @@ This is the operator's real browser, shared with every session on this repo. Tre
 
 ## Login wall
 
-When a page needs a login, stop and ask the operator to log in: from anywhere through your
-session's **Browser** tab in Shepherd, or at the Shepherd host via **Open shared browser** in the
-repo settings. Name the tab or URL to sign in on. Once they confirm, reload your tab and continue.
+When a page needs a login, ask the operator for it with the `shepherd` MCP tool
+`browser_request_login(url, reason)`: `url` is the page to sign in on, `reason` one line on what you
+need it for. Shepherd opens that page in the Shared Browser and shows the operator a needs-you
+item. Each call waits up to about 50 seconds and returns a `status`:
+
+- `pending`: the operator has not finished yet. Call it again with the same `url`; this keeps
+  waiting on the same request.
+- `done`: reload your `mine` tab and continue.
+- `cancelled`: the operator declined. Do not ask again for that page; report that the task needs a
+  login you could not get.
+
+If the tool is not available, stop and ask the operator to log in instead: from anywhere through
+your session's **Browser** tab in Shepherd, or at the Shepherd host via **Open shared browser** in
+the repo settings. Name the URL to sign in on, and reload your tab once they confirm.
 
 ## The config file is a secret
 

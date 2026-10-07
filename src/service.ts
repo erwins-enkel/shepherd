@@ -2810,10 +2810,10 @@ export class SessionService {
   }
 
   /** The path of this spawn's freshly written 0600 Browser Attach config file when it may attach
-   *  to its repo's Shared Browser, else null. Autonomous is excluded until its origin allowlist
-   *  exists (slice 4) — the broker refuses it too, so the two can never disagree into a URL that
-   *  only 403s — and gets no file at all. A failed write degrades to no browser, never a failed
-   *  spawn. */
+   *  to its repo's Shared Browser, else null. An autonomous session (confined attach, #2883) gets
+   *  one only when it reaches Shepherd through the slirp ingress gateway — otherwise its netns
+   *  cannot reach the broker, and a URL it can never open would only mislead the agent. A failed
+   *  write degrades to no browser, never a failed spawn. */
   private async writeBrowserAttachConfig(
     sessionId: string,
     agentApiUrl: string,
@@ -2821,7 +2821,9 @@ export class SessionService {
     enabled: boolean,
   ): Promise<string | null> {
     const signer = this.deps.browserToken;
-    if (!enabled || profile === "autonomous" || !signer) return null;
+    if (!enabled || !signer) return null;
+    if (profile === "autonomous" && new URL(agentApiUrl).hostname !== SLIRP_HOST_GATEWAY)
+      return null;
     try {
       const path = this.browserConfigFile(sessionId);
       const token = signer.sign(sessionId);

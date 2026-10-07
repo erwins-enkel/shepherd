@@ -199,7 +199,7 @@
     {
       label: m.integrated_epics_path_landed(),
       value: "",
-      detail: status.situation === "landed" ? "" : m.integrated_epics_path_not_landed(),
+      detail: "",
       marker: status.situation === "landed" ? "done" : "open",
       href: null,
     },

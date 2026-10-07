@@ -97,6 +97,7 @@ describe("IntegratedEpicLanding next step", () => {
     const { rerender } = await render(IntegratedEpicLanding, props(epic({ landingState: "none" })));
     await expect.element(page.getByText("There is no open landing PR.")).toBeInTheDocument();
     await expect.element(page.getByText("No open landing PR", { exact: true })).toBeInTheDocument();
+    expect(document.querySelector(".landing-path li:last-child .step-detail")).toBeNull();
     await expect
       .element(page.getByRole("link", { name: "Open epic issue ↗" }))
       .toHaveAttribute("href", "https://github.com/o/r/issues/327");

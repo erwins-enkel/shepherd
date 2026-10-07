@@ -5432,7 +5432,6 @@
   "integrated_epics_path_landing": "Landing-PR #{number} → main",
   "integrated_epics_path_landing_nonum": "Landing-PR → main",
   "integrated_epics_path_landed": "In main gelandet",
-  "integrated_epics_path_not_landed": "Noch nicht in main",
   "integrated_epics_status_preparing": "Wird vorbereitet",
   "integrated_epics_status_checking": "Checks laufen",
   "integrated_epics_status_unknown": "Status wird geprüft",

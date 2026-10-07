@@ -5409,5 +5409,9 @@
   "epicdraft_seen_progress": "{seen}/{total} seen",
   "epicdraft_approve_count": "Approve & create {count} issues",
   "feat_epic_draft_document_title": "Epic drafts read like a document",
-  "feat_epic_draft_document_body": "Reviewing an [[epic|epic]] draft now shows formatted text instead of raw Markdown and opens wide on desktop, with a table of contents beside the draft. Each child issue shows its wave — children in the same wave can run in parallel — and clicking a blocker jumps to it. Before you approve you see how many issues will be created and which can start right away; a tick in the contents marks the child issues you have already seen."
+  "feat_epic_draft_document_body": "Reviewing an [[epic|epic]] draft now shows formatted text instead of raw Markdown and opens wide on desktop, with a table of contents beside the draft. Each child issue shows its wave — children in the same wave can run in parallel — and clicking a blocker jumps to it. Before you approve you see how many issues will be created and which can start right away; a tick in the contents marks the child issues you have already seen.",
+  "native_close_confirm_title": "Close the Shepherd window?",
+  "native_quit_confirm_title": "Quit Shepherd?",
+  "native_quit_confirm_action": "Quit app",
+  "native_close_confirm_body": "The Shepherd server keeps running in the background. Running sessions and agents continue working, including on remote servers.\n\nTo stop the local server, cancel and choose Stop in “Run on this Mac”. Open Shepherd again to follow your sessions."
 }

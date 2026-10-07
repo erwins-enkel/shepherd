@@ -50,6 +50,7 @@ struct ShepherdApp: App {
                 .environment(model)
                 .modifier(SettingsRootModifier(app: model))
                 .frame(minWidth: 900, minHeight: 600)
+                .background(CloseConfirmationHost())
         }
         .defaultSize(width: 1100, height: 720)
         .windowResizability(.contentMinSize)

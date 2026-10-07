@@ -96,6 +96,7 @@ const BLOCKED_METHODS = new Set([
   "Browser.crashGpuProcess",
   "Browser.executeBrowserCommand",
   "DOM.setFileInputFiles",
+  "Page.handleFileChooser",
   "Target.exposeDevToolsProtocol",
   "Target.setRemoteLocations",
 ]);
@@ -126,6 +127,14 @@ export function cdpPolicyViolation(method: unknown, params: unknown): string | n
     return `${method} is blocked by the Shepherd browser broker`;
   if (URL_METHODS.has(method) && !isWebUrl((params as Json | undefined)?.url))
     return `${method} is limited to http(s) URLs by the Shepherd browser broker`;
+  // Optional URL rewrite of an intercepted request: only to another web URL.
+  const url = (params as Json | undefined)?.url;
+  if (method === "Fetch.continueRequest" && url !== undefined && !isWebUrl(url))
+    return `${method} is limited to http(s) URLs by the Shepherd browser broker`;
+  // A synthetic drop carrying host file paths is a file upload by another name.
+  const files = ((params as Json | undefined)?.data as Json | undefined)?.files;
+  if (method === "Input.dispatchDragEvent" && Array.isArray(files) && files.length > 0)
+    return "file drops are blocked by the Shepherd browser broker";
   if (method === "Target.createBrowserContext" && (params as Json | undefined)?.proxyServer)
     return "Target.createBrowserContext proxy overrides are blocked by the Shepherd browser broker";
   return null;

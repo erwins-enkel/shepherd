@@ -446,6 +446,17 @@ test("cdp pipe: policy-blocked methods are refused and never forwarded", async (
     { method: "Target.createTarget", params: { url: "chrome://settings" } },
     { method: "Network.loadNetworkResource", params: { url: "file:///etc/passwd" } },
     { method: "Target.createBrowserContext", params: { proxyServer: "http://evil:8080" } },
+    { method: "Page.handleFileChooser", params: { action: "accept", files: ["/etc/shadow"] } },
+    {
+      method: "Input.dispatchDragEvent",
+      params: {
+        type: "drop",
+        x: 1,
+        y: 1,
+        data: { items: [], files: ["/etc/passwd"], dragOperationsMask: 1 },
+      },
+    },
+    { method: "Fetch.continueRequest", params: { requestId: "r1", url: "file:///etc/passwd" } },
   ];
   let id = 100;
   for (const msg of blocked) {
@@ -465,4 +476,11 @@ test("cdp pipe: web navigation and ordinary methods pass the policy", () => {
   expect(cdpPolicyViolation("Target.createBrowserContext", {})).toBeNull();
   expect(cdpPolicyViolation("Runtime.evaluate", { expression: "1" })).toBeNull();
   expect(cdpPolicyViolation("Target.setAutoAttach", { flatten: true })).toBeNull();
+  expect(cdpPolicyViolation("Fetch.continueRequest", { requestId: "r1" })).toBeNull();
+  expect(
+    cdpPolicyViolation("Input.dispatchDragEvent", {
+      type: "drop",
+      data: { items: [{ mimeType: "text/plain", data: "x" }], dragOperationsMask: 1 },
+    }),
+  ).toBeNull();
 });

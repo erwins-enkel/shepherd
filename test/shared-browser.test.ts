@@ -9,6 +9,7 @@ import {
   SharedBrowserManager,
   browserProfileDir,
   chromiumEnv,
+  pinSessionRestore,
   reapOrphanBrowsers,
   type SharedBrowserDeps,
 } from "../src/shared-browser";
@@ -365,4 +366,24 @@ test("shared browser: chromium env keeps display plumbing and drops server secre
     XDG_RUNTIME_DIR: "/run/user/1000",
     LC_ALL: "de_DE.UTF-8",
   });
+});
+
+test("shared browser: profile startup pref pinned to session restore, other prefs kept", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "sb-prefs-"));
+  try {
+    await pinSessionRestore(dir);
+    const file = join(dir, "Default", "Preferences");
+    expect(JSON.parse(await Bun.file(file).text())).toEqual({ session: { restore_on_startup: 1 } });
+    await writeFile(
+      file,
+      JSON.stringify({ homepage: "x", session: { restore_on_startup: 5, keep: 1 } }),
+    );
+    await pinSessionRestore(dir);
+    expect(JSON.parse(await Bun.file(file).text())).toEqual({
+      homepage: "x",
+      session: { restore_on_startup: 1, keep: 1 },
+    });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });

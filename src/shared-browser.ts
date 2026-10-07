@@ -14,7 +14,7 @@
 import { spawn as nodeSpawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { access, mkdir, readFile, readdir } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, delimiter, isAbsolute, join } from "node:path";
 import type { Readable, Writable } from "node:stream";
 import { CdpPipe, type CdpClient, type CdpPipeClient } from "./cdp-pipe";
@@ -135,6 +135,32 @@ export function chromiumEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   for (const [k, v] of Object.entries(env))
     if (v !== undefined && (CHROMIUM_ENV_KEYS.includes(k) || k.startsWith("LC_"))) out[k] = v;
   return out;
+}
+
+/** Chromium's "Continue where you left off" startup pref value. */
+const RESTORE_LAST_SESSION = 1;
+
+/**
+ * Pin the profile's startup pref to "continue where you left off": Chromium keeps session
+ * cookies (no Max-Age, e.g. express-session's default) across restarts only then, and a
+ * Handoff Login must survive the idle stop. Chromium rewrites Preferences itself, so merge.
+ */
+export async function pinSessionRestore(profileDir: string): Promise<void> {
+  const dir = join(profileDir, "Default");
+  const file = join(dir, "Preferences");
+  let prefs: Record<string, unknown> = {};
+  try {
+    const parsed: unknown = JSON.parse(await readFile(file, "utf8"));
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed))
+      prefs = parsed as Record<string, unknown>;
+  } catch {
+    // missing or unreadable: start from an empty pref set
+  }
+  const session = (prefs.session ?? {}) as Record<string, unknown>;
+  if (session.restore_on_startup === RESTORE_LAST_SESSION) return;
+  prefs.session = { ...session, restore_on_startup: RESTORE_LAST_SESSION };
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  await writeFile(file, JSON.stringify(prefs), { mode: 0o600 });
 }
 
 interface Entry {
@@ -337,6 +363,7 @@ export class SharedBrowserManager {
     const bin = await this.#resolveBinary();
     const profileDir = browserProfileDir(this.#profileRoot, repoPath);
     await mkdir(profileDir, { recursive: true, mode: 0o700 });
+    await pinSessionRestore(profileDir);
     if (starting.cancelled || this.#disposed)
       throw new SharedBrowserError("launch-failed", "browser stopped while launching");
     let child: ChildProcess;

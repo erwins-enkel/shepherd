@@ -172,7 +172,7 @@ function isWebUrl(url: unknown): boolean {
  * page-sandbox policy above assumes away. Empty URL = a target still being created.
  */
 const WEB_TARGET_SCHEMES = new Set(["http:", "https:", "about:", "data:", "blob:"]);
-function isWebTargetUrl(url: unknown): boolean {
+export function isWebTargetUrl(url: unknown): boolean {
   if (url === "") return true;
   if (typeof url !== "string") return false;
   try {

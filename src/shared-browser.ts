@@ -226,6 +226,8 @@ interface Entry {
   idleTimer: unknown;
   stopping: boolean;
   stderrTail: string;
+  /** Session id → the tab the operator "Open" created for it (Browser View's default tab). */
+  readonly sessionTabs: Map<string, string>;
 }
 
 interface Starting {
@@ -312,17 +314,27 @@ export class SharedBrowserManager {
     };
   }
 
-  /** Operator "Open": a new tab at `url`. Counts as activity, not as an attach. */
-  async open(repoPath: string, url: string): Promise<void> {
+  /**
+   * Operator "Open": a new tab at `url`; returns its target id. With `sessionId`, the tab is
+   * remembered as that session's (see `sessionTab`). Counts as activity, not as an attach.
+   */
+  async open(repoPath: string, url: string, opts: { sessionId?: string } = {}): Promise<string> {
     const entry = await this.#ensure(repoPath);
     entry.lastActivity = this.#now();
     this.#cancelIdle(entry);
     try {
-      await this.#createTarget(entry, url);
+      const targetId = await this.#createTarget(entry, url);
+      if (opts.sessionId) entry.sessionTabs.set(opts.sessionId, targetId);
+      return targetId;
     } finally {
       entry.lastActivity = this.#now();
       if (this.#entries.get(repoPath) === entry && entry.attached.size === 0) this.#armIdle(entry);
     }
+  }
+
+  /** The tab last opened for `sessionId` in the repo's running browser, if any (may be closed). */
+  sessionTab(repoPath: string, sessionId: string): string | null {
+    return this.#entries.get(repoPath)?.sessionTabs.get(sessionId) ?? null;
   }
 
   /**
@@ -484,6 +496,7 @@ export class SharedBrowserManager {
       idleTimer: null,
       stopping: false,
       stderrTail: "",
+      sessionTabs: new Map(),
     };
     input.on("error", () => {});
     output.on("error", () => {});
@@ -550,12 +563,12 @@ export class SharedBrowserManager {
   }
 
   /** `Target.createTarget` through a short-lived internal client (never counted as attached). */
-  async #createTarget(entry: Entry, url: string): Promise<void> {
-    let settle!: { resolve: () => void; reject: (err: Error) => void };
-    const done = new Promise<void>((resolve, reject) => (settle = { resolve, reject }));
+  async #createTarget(entry: Entry, url: string): Promise<string> {
+    let settle!: { resolve: (targetId: string) => void; reject: (err: Error) => void };
+    const done = new Promise<string>((resolve, reject) => (settle = { resolve, reject }));
     const client = entry.pipe.addClient({
       send: (text) => {
-        let msg: { id?: unknown; error?: { message?: unknown } };
+        let msg: { id?: unknown; error?: { message?: unknown }; result?: { targetId?: unknown } };
         try {
           msg = JSON.parse(text) as typeof msg;
         } catch {
@@ -563,7 +576,8 @@ export class SharedBrowserManager {
         }
         if (msg.id !== 1) return;
         if (msg.error) settle.reject(new Error(`Target.createTarget failed: ${msg.error.message}`));
-        else settle.resolve();
+        else if (typeof msg.result?.targetId === "string") settle.resolve(msg.result.targetId);
+        else settle.reject(new Error("Target.createTarget returned no targetId"));
       },
       close: (_code, reason) => settle.reject(new Error(reason ?? "browser closed")),
     });
@@ -573,7 +587,7 @@ export class SharedBrowserManager {
     );
     try {
       client.receive(JSON.stringify({ id: 1, method: "Target.createTarget", params: { url } }));
-      await done;
+      return await done;
     } finally {
       this.#clearTimeout(timer);
       client.detach();

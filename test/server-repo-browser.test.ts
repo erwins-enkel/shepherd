@@ -39,7 +39,9 @@ function makeDeps(calls: Calls, devPorts: Record<string, number> = {}): AppDeps 
       open: async (repoPath: string, url: string) => {
         if (calls.fail) throw calls.fail;
         calls.opened.push({ repo: repoPath, url });
+        return "T1";
       },
+      sessionTab: () => null,
       stop: (repoPath: string) => {
         calls.stopped.push(repoPath);
       },

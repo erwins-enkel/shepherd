@@ -112,7 +112,9 @@ test("repo browser open: refusals, launch failure and success", async () => {
       attach: () => Promise.reject(new Error("unused")),
       open: async (_repo: string, url: string) => {
         opened.push(url);
+        return "T1";
       },
+      sessionTab: () => null,
       stop: () => {},
     };
     await request("POST", path, 404, { repo, sessionId: "missing" });

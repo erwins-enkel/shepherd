@@ -1,6 +1,7 @@
 import type { SessionStore } from "./store";
 import type { Session } from "./types";
 import type { GitForge, GitState, PrStatus } from "./forge/types";
+import { isTransientOpenPr } from "./forge/types";
 import { annotateHandoff } from "./repo-roles";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import type { GithubReadCache } from "./github-read-cache";
@@ -17,6 +18,11 @@ interface ReadProvenance {
 interface PrBatch extends ReadProvenance {
   statuses: Map<string, PrStatus>;
   at: number;
+}
+interface TransientWindow {
+  since: number;
+  number?: number;
+  headSha?: string;
 }
 
 /** Read/write handle the HTTP layer uses to serve snapshots and apply instant
@@ -199,23 +205,18 @@ export class PrPoller implements PrCache {
   private sweeping = false;
   /** Tracks when each open PR entered (or re-entered via a new headSha) a transient
    *  state — used to time-bound how long `fastTick` keeps re-polling it. */
-  private transientSince = new Map<string, { since: number; headSha?: string }>();
+  private transientSince = new Map<string, TransientWindow>();
   /** Content key under which this session was last checked, seeded from the warm snapshot. */
   private readonly freshnessBySession = new Map<string, string>();
 
   /** True when an open PR can still move without a human action — i.e. it is worth
    *  fast-polling. A PR that is fully settled (CI green, mergeable, clean) is parked. */
-  private isTransientOpen(git: GitState): boolean {
+  private isTransientSession(s: Session, git: GitState): boolean {
     return (
-      git.state === "open" &&
-      (git.checks === "pending" ||
-        // Jobs can still be running after the worst-of rollup already flipped to
-        // "failure" (one check failed, others in flight). Keep fast-polling so the
-        // terminal CI banner clears/updates live instead of lagging the slow sweep.
-        (git.runningChecks?.length ?? 0) > 0 ||
-        git.mergeable == null ||
-        git.mergeStateStatus === "unknown" ||
-        git.mergeStateStatus === "unstable")
+      isTransientOpenPr(git) &&
+      ((s.status !== "done" && s.status !== "idle") ||
+        git.checks === "pending" ||
+        (git.runningChecks?.length ?? 0) > 0)
     );
   }
 
@@ -260,7 +261,7 @@ export class PrPoller implements PrCache {
      *  outright, so this is the only PR refresh path when nobody's watching. */
     private idleIntervalMs = 300_000,
     /** How long a PR can remain transient (checks pending / mergeable unknown / merge
-     *  state unstable) before `fastTick` parks it and stops fast-polling it. A new
+     *  state unknown) before `fastTick` parks it and stops fast-polling it. A new
      *  headSha resets the clock. Default: 5 minutes. */
     private transientMaxMs = 300_000,
     /** Batch the full sweep for a non-fork repo only while its open-PR count
@@ -282,7 +283,59 @@ export class PrPoller implements PrCache {
     private readCache?: GithubReadCache,
   ) {
     this.cache = new Map(Object.entries(this.store.listSessionGitCache()));
+    this.hydrateTransientWindows();
     this.hydrateSessionFreshness();
+  }
+
+  private now(): number {
+    return this.readCache?.now() ?? Date.now();
+  }
+
+  private hydrateTransientWindows(): void {
+    if (!this.readCache) return;
+    for (const [id, git] of this.cache) {
+      if (!isTransientOpenPr(git)) continue;
+      const s = this.store.get(id);
+      const forge = s ? this.resolveForge(s.repoPath) : null;
+      if (!s || forge?.kind !== "github" || !forge.slug) continue;
+      this.transientSince.set(id, this.cachedTransientWindow(s, git, forge.slug));
+    }
+  }
+
+  private cachedTransientWindow(s: Session, git: GitState, slug: string): TransientWindow {
+    const identity = { number: git.number, headSha: git.headSha };
+    const saved = this.readCache!.get("transient", slug, s.id);
+    if (saved && saved.value.number === git.number && saved.value.headSha === git.headSha)
+      return { since: saved.at, ...identity };
+    const sessionRead = this.readCache!.get("session", slug, s.id);
+    const snapshot = this.readCache!.get("prs", slug);
+    const head = snapshot?.value.statuses.get(s.branch ?? "");
+    // Older warm caches lack a dedicated stamp: seed from a matching observation.
+    // With no provenance, park the rehydrated PR until a new head/state transition.
+    let since = this.now() - this.transientMaxMs;
+    if (sessionRead?.value === s.branch) since = sessionRead.at;
+    else if (head && head.number === git.number && head.headSha === git.headSha)
+      since = snapshot!.at;
+    const entry = { since, ...identity };
+    this.persistTransient(s.id, entry);
+    return entry;
+  }
+
+  private persistTransient(id: string, entry?: TransientWindow): void {
+    if (!this.readCache) return;
+    const s = this.store.get(id);
+    const forge = s ? this.resolveForge(s.repoPath) : null;
+    if (forge?.kind !== "github" || !forge.slug) return;
+    if (entry)
+      this.readCache.put(
+        "transient",
+        forge.slug,
+        null,
+        { number: entry.number, headSha: entry.headSha },
+        id,
+        entry.since,
+      );
+    else this.readCache.delete("transient", forge.slug, id);
   }
 
   private hydrateSessionFreshness(): void {
@@ -302,7 +355,7 @@ export class PrPoller implements PrCache {
       )
         this.freshnessBySession.set(id, key);
     }
-    if (this.cache.size > 0) this.lastNoneRecheckAt = Date.now();
+    if (this.cache.size > 0) this.lastNoneRecheckAt = this.now();
   }
 
   /** Epoch-ms of the last full sweep that actually ran — gates the cold-path
@@ -316,14 +369,14 @@ export class PrPoller implements PrCache {
     const graphqlLimited = this.rateLimited();
     // Cold path: nobody's watching and no autonomous merge work — throttle the full
     // sweep to the coarse idle cadence instead of every `intervalMs`.
-    if (!this.warm() && Date.now() - this.lastFullSweepAt < this.idleIntervalMs) return;
+    if (!this.warm() && this.now() - this.lastFullSweepAt < this.idleIntervalMs) return;
     if (this.sweeping) return; // a fast tick is mid-flight — it'll be re-covered here next interval
-    this.lastFullSweepAt = Date.now();
+    this.lastFullSweepAt = this.now();
     this.sweeping = true;
     try {
       const sessions = [...this.store.list({ activeOnly: true })];
-      const recheckNone = Date.now() - this.lastNoneRecheckAt >= this.noneRecheckMs;
-      if (recheckNone) this.lastNoneRecheckAt = Date.now();
+      const recheckNone = this.now() - this.lastNoneRecheckAt >= this.noneRecheckMs;
+      if (recheckNone) this.lastNoneRecheckAt = this.now();
       const due = sessions.filter((s) => this.shouldPoll(s, recheckNone));
       const batches = graphqlLimited
         ? new Map<string, PrBatch | null>()
@@ -351,14 +404,14 @@ export class PrPoller implements PrCache {
       !this.readCache.canRefresh() &&
       this.resolveForge(s.repoPath)?.kind === "github"
     )
-      return s.mergingSince != null || (!!prev && this.isTransientOpen(prev));
+      return s.mergingSince != null || (!!prev && this.isTransientSession(s, prev));
     const key = this.repoFreshness?.(s.repoPath);
     return (
       !prev ||
       key == null ||
       this.freshnessBySession.get(s.id) !== key ||
       s.mergingSince != null ||
-      this.isTransientOpen(prev) ||
+      this.isTransientSession(s, prev) ||
       (prev.state === "none" && recheckNone) ||
       this.sessionReadStale(s)
     );
@@ -437,7 +490,7 @@ export class PrPoller implements PrCache {
       if (!forge || forge.slug == null) continue;
       const e = byKey.get(forge.slug);
       const prev = this.cache.get(s.id);
-      const force = fresh || !prev || this.isTransientOpen(prev) || s.mergingSince != null;
+      const force = fresh || !prev || this.isTransientSession(s, prev) || s.mergingSince != null;
       if (e) {
         e.count++;
         e.fresh ||= force;
@@ -474,14 +527,14 @@ export class PrPoller implements PrCache {
     const open = [...this.cache.entries()].filter(([, g]) => g.state === "open").map(([id]) => id);
     if (open.length === 0) return;
     // Activity-aware filter: only re-poll PRs that are still transient AND within
-    // the time-bounded window. Stamp-missing (shouldn't happen normally) → eligible.
-    const now = Date.now();
+    // the time-bounded window. A missing stamp never opens a new restart window.
+    const now = this.now();
     const eligible = open.filter((id) => {
       const git = this.cache.get(id)!;
-      if (!this.isTransientOpen(git)) return false;
+      const s = this.store.get(id);
+      if (!s || !this.isTransientSession(s, git)) return false;
       const entry = this.transientSince.get(id);
-      const since = entry?.since ?? now;
-      return now - since < this.transientMaxMs;
+      return !!entry && now - entry.since < this.transientMaxMs;
     });
     if (eligible.length === 0) return;
     // Resolve to live sessions (an archived/gone session is pruned by the next full
@@ -681,13 +734,15 @@ export class PrPoller implements PrCache {
    *  transient observation. Extracted from `refresh` to keep that method's branch
    *  count under the complexity gate. */
   private trackTransient(id: string, git: GitState): void {
-    if (!this.isTransientOpen(git)) {
-      this.transientSince.delete(id);
+    if (!isTransientOpenPr(git)) {
+      if (this.transientSince.delete(id)) this.persistTransient(id);
       return;
     }
     const entry = this.transientSince.get(id);
-    if (!entry || entry.headSha !== git.headSha) {
-      this.transientSince.set(id, { since: Date.now(), headSha: git.headSha });
+    if (!entry || entry.headSha !== git.headSha || entry.number !== git.number) {
+      const next = { since: this.now(), number: git.number, headSha: git.headSha };
+      this.transientSince.set(id, next);
+      this.persistTransient(id, next);
     }
   }
 
@@ -753,9 +808,11 @@ export class PrPoller implements PrCache {
     if (!this.store.putSessionGitCache(id, git)) {
       this.cache.delete(id);
       this.transientSince.delete(id);
+      this.persistTransient(id);
       return false;
     }
     this.cache.set(id, git);
+    this.trackTransient(id, git);
     return true;
   }
   drop(id: string): void {
@@ -763,6 +820,7 @@ export class PrPoller implements PrCache {
     this.store.deleteSessionGitCache(id);
     this.cache.delete(id);
     this.transientSince.delete(id);
+    this.persistTransient(id);
   }
 
   private forgetFreshness(id: string): void {

@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, spyOn } from "bun:test";
 import { SessionStore } from "../src/store";
 import { PrPoller, trustsTerminal, gitStateChanged } from "../src/pr-poller";
 import type { GitForge, GitState, PrStatus } from "../src/forge/types";
@@ -1937,6 +1937,227 @@ const OPEN_STABLE: PrStatus = {
   mergeStateStatus: "clean",
   deployConfigured: false,
 };
+
+function clockedPoller(store: SessionStore, forge: GitForge, cache: GithubReadCache): PrPoller {
+  return new PrPoller(
+    store,
+    () => forge,
+    () => {},
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    () => `${cache.contentKey("prs", forge.slug!)}|${cache.revision(forge.slug!)}`,
+    cache,
+  );
+}
+
+test("#2851: UNSTABLE without running checks is settled on the fast cadence", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  let polls = 0;
+  const forge = forgeReturning(() => {
+    polls++;
+    return { ...OPEN_STABLE, checks: "failure", mergeStateStatus: "unstable" };
+  });
+  const poller = new PrPoller(
+    store,
+    () => forge,
+    () => {},
+  );
+  await poller.tick();
+  polls = 0;
+  await poller.fastTick();
+  expect(polls).toBe(0);
+});
+
+test("#2851: restart preserves an expired transient window even after unchanged slow reads", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  let now = 1_800_000_000_000;
+  let polls = 0;
+  const forge = forgeReturning(() => {
+    polls++;
+    return { ...OPEN_PENDING, headSha: "same-head" };
+  });
+  const cache = new GithubReadCache(store, { now: () => now });
+  const before = clockedPoller(store, forge, cache);
+  await before.tick();
+  now += 300_000;
+  await before.tick(); // An unchanged read must not renew the first-observation stamp.
+  const after = clockedPoller(store, forge, new GithubReadCache(store, { now: () => now }));
+  polls = 0;
+  await after.fastTick();
+  expect(polls).toBe(0);
+  await after.tick();
+  polls = 0;
+  await after.fastTick();
+  expect(polls).toBe(0);
+});
+
+test("#2851: restart continues only the remainder of a transient window", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  let now = 1_800_000_000_000;
+  let polls = 0;
+  const forge = forgeReturning(() => {
+    polls++;
+    return { ...OPEN_PENDING, headSha: "same-head" };
+  });
+  const before = clockedPoller(store, forge, new GithubReadCache(store, { now: () => now }));
+  await before.tick();
+  now += 200_000;
+  const after = clockedPoller(store, forge, new GithubReadCache(store, { now: () => now }));
+  polls = 0;
+  await after.fastTick();
+  expect(polls).toBe(1);
+  now += 100_000;
+  await after.fastTick();
+  expect(polls).toBe(1);
+});
+
+test.each(["session", "snapshot", "missing"] as const)(
+  "#2851: a legacy warm cache seeds an expired window from %s provenance",
+  async (provenance) => {
+    const store = new SessionStore(":memory:");
+    const s = store.create(baseSession);
+    let now = 1_800_000_000_000;
+    const cached = openGit({ headSha: "same-head" });
+    store.putSessionGitCache(s.id, cached);
+    const cache = new GithubReadCache(store, { now: () => now });
+    if (provenance === "session") cache.put("session", "o/r", null, s.branch!, s.id);
+    if (provenance === "snapshot")
+      cache.put("prs", "o/r", null, {
+        prs: [],
+        statuses: new Map([[s.branch!, cached]]),
+        capped: false,
+      });
+    now += 400_000;
+    let polls = 0;
+    const forge = forgeReturning(() => {
+      polls++;
+      return cached;
+    });
+    const after = clockedPoller(store, forge, new GithubReadCache(store, { now: () => now }));
+    await after.fastTick();
+    expect(polls).toBe(0);
+    await after.tick();
+    polls = 0;
+    await after.fastTick();
+    expect(polls).toBe(0);
+  },
+);
+
+test("#2851: dropping a session deletes its persisted transient stamp", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  const forge = forgeReturning(() => OPEN_PENDING);
+  const poller = clockedPoller(store, forge, new GithubReadCache(store));
+  await poller.tick();
+  expect(new GithubReadCache(store).get("transient", "o/r", s.id)).not.toBeNull();
+  poller.drop(s.id);
+  expect(new GithubReadCache(store).get("transient", "o/r", s.id)).toBeNull();
+});
+
+test.each(["done", "idle"] as const)(
+  "#2851: %s sessions park unknown merge state but still follow running CI",
+  async (sessionStatus) => {
+    const store = new SessionStore(":memory:");
+    const s = store.create(baseSession);
+    store.update(s.id, { status: sessionStatus });
+    let current: PrStatus = { ...OPEN_STABLE, mergeable: null, mergeStateStatus: "unknown" };
+    let polls = 0;
+    const forge = forgeReturning(() => {
+      polls++;
+      return current;
+    });
+    const poller = new PrPoller(
+      store,
+      () => forge,
+      () => {},
+    );
+    await poller.tick();
+    polls = 0;
+    await poller.fastTick();
+    expect(polls).toBe(0);
+    current = { ...current, checks: "failure", runningChecks: ["ci"] };
+    await poller.pollNow(s.id);
+    polls = 0;
+    await poller.fastTick();
+    expect(polls).toBe(1);
+  },
+);
+
+test("#2851: session-git updates reopen a transient window after a new push", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  let now = 1_800_000_000_000;
+  let polls = 0;
+  const forge = forgeReturning(() => {
+    polls++;
+    return { ...OPEN_PENDING, headSha: "new-head" };
+  });
+  const poller = clockedPoller(store, forge, new GithubReadCache(store, { now: () => now }));
+  poller.set(s.id, openGit({ headSha: "old-head" }));
+  now += 300_000;
+  await poller.fastTick();
+  expect(polls).toBe(0);
+  poller.set(s.id, openGit({ headSha: "new-head" }));
+  await poller.fastTick();
+  expect(polls).toBe(1);
+});
+
+test("#2851: settled done sessions need at most one per-head read in ten minutes after restart", async () => {
+  const store = new SessionStore(":memory:");
+  const byBranch: Record<string, PrStatus> = {
+    unstable: { ...OPEN_STABLE, checks: "failure", mergeStateStatus: "unstable" },
+    unknown: { ...OPEN_STABLE, mergeable: null, mergeStateStatus: "unknown" },
+    clean: OPEN_STABLE,
+  };
+  for (const branch of Object.keys(byBranch)) {
+    const s = store.create({ ...baseSession, branch });
+    store.update(s.id, { status: "done" });
+  }
+  let now = 1_800_000_000_000;
+  const cache = new GithubReadCache(store, { now: () => now });
+  cache.put("fingerprint", "o/r", null, {
+    openIssues: 0,
+    issuesUpdatedAt: "",
+    openPrs: 3,
+    prsUpdatedAt: "unchanged",
+    ciState: "",
+  });
+  const polls: Record<string, number> = {};
+  const forge = forgeByBranch(byBranch);
+  forge.prStatus = async (head) => {
+    polls[head] = (polls[head] ?? 0) + 1;
+    return byBranch[head]!;
+  };
+  const clock = spyOn(Date, "now").mockImplementation(() => now);
+  try {
+    await clockedPoller(store, forge, cache).tick();
+    now += 600_000;
+    const after = clockedPoller(store, forge, new GithubReadCache(store, { now: () => now }));
+    for (const branch of Object.keys(byBranch)) polls[branch] = 0;
+    await after.tick();
+    for (let elapsed = 15_000; elapsed <= 600_000; elapsed += 15_000) {
+      now += 15_000;
+      await after.fastTick();
+      if (elapsed % 120_000 === 0) await after.tick();
+    }
+    expect(polls).toEqual({ unstable: 0, unknown: 0, clean: 0 });
+  } finally {
+    clock.mockRestore();
+  }
+});
 
 test("fastTick skips a stable-green open PR (not transient — parked)", async () => {
   const store = new SessionStore(":memory:");

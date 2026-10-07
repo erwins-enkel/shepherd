@@ -1,5 +1,6 @@
 import XCTest
 import SwiftUI
+import UIKit
 import AVFoundation
 import ShepherdAppCore
 import ShepherdKit
@@ -40,6 +41,54 @@ final class IOSComposeTests: XCTestCase {
         let voice = DictationController(engine: FakeDictationEngine(), getText: { "" }, setText: { _ in })
         return IOSComposeContent(app: app, store: store, activation: app.activationGeneration, voice: voice,
             initialPrompt: "Add tests", initialRepoPath: "/fixtures/shepherd")
+    }
+    func testLateSettingsReconcileOnlyUntouchedFreshComposers() async throws {
+        for (manual, expectedProvider, expectedModel) in [(false, AgentProvider.codex, "gpt-6-astra"), (true, .claude, "sonnet")] {
+            let launch = try IOSLaunchEnvironment(configuration: .init(isIsolated: true))
+            let app = launch.makeModel()
+            let profile = ServerProfile(name: "Late settings", baseURL: URL(string: "https://late-\(UUID().uuidString.lowercased()).multi.fixture.invalid")!, mode: .remote)
+            IOSMultiServerFixtureTransport.setSettings(#"{"repoRoot":"/fixtures","repoRootDisplay":"/fixtures","firstRunPending":false,"defaultModel":"sonnet","defaultCodexModel":"gpt-6-astra","defaultEffort":"high","defaultAgentProvider":"codex","authMode":"subscription","operatorLanguage":"de"}"#, for: profile.baseURL)
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [IOSMultiServerFixtureTransport.self]
+            let transport = URLSession(configuration: configuration)
+            defer { transport.invalidateAndCancel() }
+            let client = try ShepherdClient(profile: profile, credentials: launch.credentials, urlSession: transport)
+            let store = SessionStore(client: client)
+            defer { store.stop(); app.teardown() }
+            XCTAssertNil(store.settings)
+            let content = freshContent(app: app, store: store)
+            let model = content.model
+            defer { model.teardown(); content.voice.teardown() }
+            XCTAssertEqual(model.provider, .claude)
+            if manual { model.selectProviderManually(.claude) }
+            let appeared = expectation(description: "Composer settings observer mounted")
+            let host = UIHostingController(rootView: content.environment(app).onAppear { appeared.fulfill() })
+            let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+            window.rootViewController = host
+            window.makeKeyAndVisible()
+            host.view.frame = window.bounds
+            defer { window.isHidden = true; window.rootViewController = nil }
+            host.view.layoutIfNeeded()
+            await fulfillment(of: [appeared], timeout: 10)
+            try await store.bootstrap()
+            let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+            while model.model != expectedModel, ContinuousClock.now < deadline {
+                host.view.setNeedsLayout(); host.view.layoutIfNeeded()
+                await Task.yield()
+            }
+            XCTAssertEqual(store.settings?.defaultAgentProvider, .codex)
+            XCTAssertEqual(model.provider, expectedProvider)
+            XCTAssertEqual(model.model, expectedModel)
+            let submission = ComposeSubmission()
+            defer { submission.teardown() }
+            let session = await submission.submit(model: model, repoResolved: true, holdLikely: false,
+                create: { request, spawnID in
+                    XCTAssertEqual(request.agentProvider, expectedProvider)
+                    XCTAssertEqual(request.model, expectedModel)
+                    return try await client.createSession(request, spawnID: spawnID)
+                }, isCurrent: { true })
+            XCTAssertEqual(session?.id, "compose-created")
+        }
     }
     func testFreshComposerSubmitsCapacitySelectedProviderWithoutOpeningEnginePicker() async throws {
         let (app, store) = try await activeFixture()

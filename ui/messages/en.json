@@ -5314,5 +5314,7 @@
   "feat_engine_defaults_body": "Set a default model and reasoning effort for Claude Code and Codex separately in Settings → Coding CLI. New task, drain and autopilot starts, and the automatic switch at the weekly limit use the chosen engine's default.",
   "native_keychain_waiting": "Waiting for Keychain access. Allow access to reconnect with your saved token.",
   "native_keychain_unavailable": "Cannot read the saved token from Keychain. Unlock it or allow access, then retry.",
-  "prspanel_load_failed": "Couldn't load PRs."
+  "prspanel_load_failed": "Couldn't load PRs.",
+  "native_compose_paste_empty": "No image on the clipboard — copy an image first.",
+  "native_compose_paste_clipboard": "From clipboard"
 }

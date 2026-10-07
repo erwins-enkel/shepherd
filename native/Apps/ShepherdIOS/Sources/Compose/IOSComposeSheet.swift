@@ -298,9 +298,7 @@ struct IOSComposeContent: View {
         else { Menu {
             Button { photos = true } label: { Label(L.t("native_compose_photos"), systemImage: "photo") }
             Button { files = true } label: { Label(L.t("native_compose_files"), systemImage: "doc") }
-            Button {
-                if let bytes = UIPasteboard.general.image?.pngData() { model.attachments.addFiles([.init(name: "paste.png", data: bytes)]) }
-            } label: { Label(L.t("native_compose_paste"), systemImage: "doc.on.clipboard") }
+            Button { pasteImage() } label: { Label(L.t("native_compose_paste_clipboard"), systemImage: "doc.on.clipboard") }
             Button { options = .commands } label: { Label(L.t("promptsources_commands_tab"), systemImage: "command") }
         } label: { attachmentLabel }
             .accessibilityLabel(L.t("native_compose_attach")).accessibilityIdentifier("compose.attach").disabled(voice.active || autoStart.armed) }
@@ -437,5 +435,12 @@ struct IOSComposeContent: View {
             } catch { model.attachments.finishImport(nil, error: ShepherdErrorCopy.message(error), generation: stamp) }
             self.photo = nil
         }
+    }
+    /// `hasImages` reads no contents, so an empty clipboard is reported without iOS's paste prompt; a denied prompt stays a no-op.
+    private func pasteImage() {
+        guard UIPasteboard.general.hasImages else { model.attachments.importError = L.t("native_compose_paste_empty"); return }
+        guard let bytes = UIPasteboard.general.image?.pngData() else { return }
+        model.attachments.importError = nil
+        model.attachments.addFiles([.init(name: "paste.png", data: bytes)])
     }
 }

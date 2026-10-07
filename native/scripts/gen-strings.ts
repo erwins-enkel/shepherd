@@ -1113,6 +1113,8 @@ export const KEYS_COMPOSE: readonly string[] = [
   "native_compose_photos",
   "native_compose_files",
   "native_compose_paste",
+  "native_compose_paste_clipboard",
+  "native_compose_paste_empty",
   "native_compose_attach",
   "native_compose_plan_on",
   "native_compose_plan_off",

@@ -9,6 +9,7 @@ import type {
   IssueFetchAttempt,
   PullRequest,
   ActivityEntry,
+  SteerLogEntry,
   SessionUsage,
   UsageLimits,
   UsageLimitsResponse,
@@ -1197,6 +1198,13 @@ export async function getSessionUsage(id: string): Promise<SessionUsage> {
 export async function getActivity(id: string): Promise<ActivityEntry[]> {
   const r = await fetch(`/api/sessions/${id}/activity`);
   if (!r.ok) throw await failed(r, "activity");
+  return r.json();
+}
+
+/** Who typed into the session and when — Shepherd's steers vs the operator, kinds only. */
+export async function getSteerLog(id: string): Promise<SteerLogEntry[]> {
+  const r = await fetch(`/api/sessions/${id}/steer-log`);
+  if (!r.ok) throw await failed(r, "steer-log");
   return r.json();
 }
 

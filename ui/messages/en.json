@@ -5498,5 +5498,17 @@
   "integrated_epics_short_ci_failed": "CI red on landing PR #{number}",
   "integrated_epics_help_title": "Epics to land",
   "feat_epics_to_land_title": "See what your epics need to land",
-  "feat_epics_to_land_body": "“Epics to land” shows the path from completed sub-tasks through the [[integration-branch|integration branch]] and [[landing-pr|landing PR]] into main. Ready epics and problems that need you move to the top, with a visible next step. Removing a row only hides it."
+  "feat_epics_to_land_body": "“Epics to land” shows the path from completed sub-tasks through the [[integration-branch|integration branch]] and [[landing-pr|landing PR]] into main. Ready epics and problems that need you move to the top, with a visible next step. Removing a row only hides it.",
+  "pulse_state_needs_you": "Needs you",
+  "pulse_state_looping": "Going in circles",
+  "pulse_state_ci_failed": "CI red",
+  "pulse_state_ci_overdue": "CI overdue",
+  "pulse_state_waiting_ci": "Waiting on CI",
+  "pulse_state_working": "Working",
+  "pulse_minutes_of": "{elapsed} / ~{typical} min",
+  "pulse_minutes": "{elapsed} min",
+  "pulse_step_of": "Step {index}/{total}",
+  "pulse_green_of": "{green}/{total} green",
+  "pulse_ci_fix_count": "{count}× CI fix",
+  "pulse_ci_fix_no_loop": "{count}× CI fix · no loop"
 }

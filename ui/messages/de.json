@@ -5498,5 +5498,17 @@
   "integrated_epics_short_ci_failed": "CI rot am Landing-PR #{number}",
   "integrated_epics_help_title": "Epics zum Landen",
   "feat_epics_to_land_title": "Erkenne, was deine Epics zum Landen brauchen",
-  "feat_epics_to_land_body": "„Epics zum Landen“ zeigt den Weg von fertigen Teilaufgaben über [[integration-branch|Integrationszweig]] und [[landing-pr|Landing-PR]] nach main. Landebereite Epics und Probleme, die dich brauchen, stehen oben mit sichtbarem nächsten Schritt. Entfernen blendet nur die Zeile aus."
+  "feat_epics_to_land_body": "„Epics zum Landen“ zeigt den Weg von fertigen Teilaufgaben über [[integration-branch|Integrationszweig]] und [[landing-pr|Landing-PR]] nach main. Landebereite Epics und Probleme, die dich brauchen, stehen oben mit sichtbarem nächsten Schritt. Entfernen blendet nur die Zeile aus.",
+  "pulse_state_needs_you": "Braucht dich",
+  "pulse_state_looping": "Dreht sich im Kreis",
+  "pulse_state_ci_failed": "CI rot",
+  "pulse_state_ci_overdue": "CI überfällig",
+  "pulse_state_waiting_ci": "Wartet auf CI",
+  "pulse_state_working": "Arbeitet",
+  "pulse_minutes_of": "{elapsed} / ~{typical} min",
+  "pulse_minutes": "{elapsed} min",
+  "pulse_step_of": "Schritt {index}/{total}",
+  "pulse_green_of": "{green}/{total} grün",
+  "pulse_ci_fix_count": "{count}× CI-Fix",
+  "pulse_ci_fix_no_loop": "{count}× CI-Fix · kein Loop"
 }

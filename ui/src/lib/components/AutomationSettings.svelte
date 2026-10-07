@@ -3,9 +3,12 @@
   import { reviews, repoConfig, planGates } from "$lib/reviews.svelte";
   import { infoTips } from "$lib/info-tips.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import { getSettings } from "$lib/api";
+  import { ApiError, getSettings, openRepoBrowser } from "$lib/api";
+  import { toasts } from "$lib/toasts.svelte";
   import { DOCS_URL } from "$lib/build-info";
   import AutomationInfoTip from "./automation-settings/AutomationInfoTip.svelte";
+  import InfoTip from "./InfoTip.svelte";
+  import { sharedBrowserExplanation } from "$lib/tooltips/explanations";
   import AutomationDetail from "./automation-settings/AutomationDetail.svelte";
   import AutomationRepoFields from "./automation-settings/AutomationRepoFields.svelte";
   import AutomationDrainFields from "./automation-settings/AutomationDrainFields.svelte";
@@ -64,6 +67,26 @@
   const reviewing = $derived(sessionId ? reviews.isReviewing(sessionId) : false);
   const planReviewing = $derived(sessionId ? planGates.isReviewing(sessionId) : false);
   let fableAvailable = $state(true);
+  let openingBrowser = $state(false);
+
+  /** Toast copy for a failed "Open shared browser", keyed by the server's refusal code. */
+  function sharedBrowserOpenError(e: unknown): string {
+    const code = e instanceof ApiError ? e.code : undefined;
+    if (code === "missing-binary") return m.automation_shared_browser_open_missing_binary();
+    if (code === "cap") return m.automation_shared_browser_open_cap();
+    return m.automation_shared_browser_open_failed();
+  }
+
+  async function openSharedBrowser() {
+    openingBrowser = true;
+    try {
+      await openRepoBrowser(repoPath, sessionId);
+    } catch (e) {
+      toasts.info(sharedBrowserOpenError(e), { alert: true });
+    } finally {
+      openingBrowser = false;
+    }
+  }
 
   onMount(async () => {
     try {
@@ -517,6 +540,33 @@
     <span class="knob"></span>
   </button>
 </div>
+<div class="auto-row">
+  <div class="auto-meta">
+    <div class="auto-name">
+      ◫ {m.automation_shared_browser_name()}
+      <InfoTip text={sharedBrowserExplanation()} label={m.tooltip_shared_browser_title()} />
+    </div>
+    <div class="auto-desc">{m.automation_shared_browser_desc()}</div>
+    {#if repoConfig.sharedBrowserOn(repoPath)}
+      <button
+        class="gbtn browser-open"
+        type="button"
+        disabled={openingBrowser}
+        onclick={openSharedBrowser}>{m.automation_shared_browser_open()}</button
+      >
+    {/if}
+  </div>
+  <button
+    class={["sw", { on: repoConfig.sharedBrowserOn(repoPath) }]}
+    type="button"
+    role="switch"
+    aria-checked={repoConfig.sharedBrowserOn(repoPath)}
+    aria-label={m.automation_shared_browser_name()}
+    onclick={() => repoConfig.toggleSharedBrowser(repoPath)}
+  >
+    <span class="knob"></span>
+  </button>
+</div>
 <div class={["auto-row", { disabled: flags.draftMode }]}>
   <div class="auto-meta">
     <div class="auto-name">
@@ -792,6 +842,36 @@
     50% {
       opacity: 1;
     }
+  }
+  /* Canonical action-button recipe from /design-system (app.css defines no global .gbtn). */
+  .gbtn {
+    background: transparent;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
+    padding: 2px 8px;
+    cursor: pointer;
+    transition:
+      border-color 0.12s,
+      color 0.12s;
+  }
+  .gbtn:hover:not(:disabled) {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+  .gbtn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  .gbtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .browser-open {
+    margin-top: 6px;
   }
   /* .drain-fields / .drain-field / .drain-label / .afield-num come from
      ./automation-settings/automation-fields.css (imported in <script>). */

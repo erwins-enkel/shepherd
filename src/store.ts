@@ -588,6 +588,10 @@ export interface RepoConfig {
    *  OFF — an autonomous retire cannot merge a stacked PR until #2070 lands, so enabling this
    *  before then stalls the epic. */
   epicStacksEnabled: boolean;
+  /** Per-repo Shared Browser: a headful Chromium on the Shepherd host with a persistent per-repo
+   *  profile the operator logs in to and this repo's agents drive via brokered CDP. Default OFF —
+   *  agents attached to this repo can read every login in its profile. */
+  sharedBrowserEnabled: boolean;
   /** Hidden from the Backlog repos panel (list-only declutter; never affects sessions/drain).
    *  Default OFF. */
   hidden: boolean;
@@ -974,6 +978,7 @@ type RepoCfgRow = {
   manualStepsIssueEnabled: number;
   preWarmEpicLandingCi: number;
   epicStacksEnabled: number;
+  sharedBrowserEnabled: number;
   hidden: number;
   previewStartScript: string | null;
   previewStartCommand: string | null;
@@ -1167,6 +1172,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       manualStepsIssueEnabled: false,
       preWarmEpicLandingCi: false,
       epicStacksEnabled: false,
+      sharedBrowserEnabled: false,
       hidden: false,
       previewStartScript: null,
       previewStartCommand: null,
@@ -1198,6 +1204,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     manualStepsIssueEnabled: !!r.manualStepsIssueEnabled,
     preWarmEpicLandingCi: !!r.preWarmEpicLandingCi,
     epicStacksEnabled: !!r.epicStacksEnabled,
+    sharedBrowserEnabled: !!r.sharedBrowserEnabled,
     hidden: !!r.hidden,
     previewStartScript: r.previewStartScript ?? null,
     previewStartCommand: r.previewStartCommand ?? null,
@@ -1232,6 +1239,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     Number(Boolean(cfg.manualStepsIssueEnabled)),
     Number(Boolean(cfg.preWarmEpicLandingCi)),
     Number(Boolean(cfg.epicStacksEnabled)),
+    Number(Boolean(cfg.sharedBrowserEnabled)),
     Number(Boolean(cfg.hidden)),
     cfg.previewStartScript ?? null,
     cfg.previewStartCommand ?? null,
@@ -2087,7 +2095,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-                autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, epicStacksEnabled, hidden, previewStartScript, previewStartCommand, previewOpenMode
+                autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, epicStacksEnabled, sharedBrowserEnabled, hidden, previewStartScript, previewStartCommand, previewOpenMode
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
@@ -2100,8 +2108,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-          autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, epicStacksEnabled, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, epicStacksEnabled, sharedBrowserEnabled, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          criticSmellLensEnabled = excluded.criticSmellLensEnabled,
@@ -2126,6 +2134,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          manualStepsIssueEnabled = excluded.manualStepsIssueEnabled,
          preWarmEpicLandingCi = excluded.preWarmEpicLandingCi,
          epicStacksEnabled = excluded.epicStacksEnabled,
+         sharedBrowserEnabled = excluded.sharedBrowserEnabled,
          hidden = excluded.hidden,
          previewStartScript = excluded.previewStartScript,
          previewStartCommand = excluded.previewStartCommand,
@@ -5741,6 +5750,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("preWarmEpicLandingCi", `preWarmEpicLandingCi INTEGER NOT NULL DEFAULT 0`);
     // default OFF — opt-in; stack epic children onto their predecessor's PR branch (#2069)
     add("epicStacksEnabled", `epicStacksEnabled INTEGER NOT NULL DEFAULT 0`);
+    // default OFF — opt-in; per-repo Shared Browser (agents can read every login in its profile)
+    add("sharedBrowserEnabled", `sharedBrowserEnabled INTEGER NOT NULL DEFAULT 0`);
     // Hidden from the Backlog repos panel (list-only declutter). Default OFF.
     add("hidden", `hidden INTEGER NOT NULL DEFAULT 0`);
     // Local preview launcher metadata. Nullable: absent until first successful script setup.

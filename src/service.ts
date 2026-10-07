@@ -83,6 +83,12 @@ import {
 } from "./spawn-auth";
 import type { Leftover, ProcessReaper } from "./process-reaper";
 import { SESSION_MARKER_ENV } from "./process-reaper";
+import type { BrowserTokenSigner } from "./browser-token";
+import {
+  browserConfigPath,
+  removeBrowserConfig,
+  writeBrowserConfig,
+} from "./browser-attach-config";
 import type { PreviewService } from "./preview";
 import type { TelemetryService } from "./telemetry";
 import {
@@ -316,6 +322,12 @@ export interface ServiceDeps {
    *  service is constructed; see src/index.ts). Returns undefined when not wired (tests) or not
    *  yet started; resolveSpawnBaseUrl/prepareSpawn fall back to the loopback main port then. */
   agentIngressPort?: () => number | undefined;
+  /** Browser Attach token signer (ADR 0001). Absent (tests / broken key) → no
+   *  SHEPHERD_BROWSER_CONFIG is ever injected. */
+  browserToken?: Pick<BrowserTokenSigner, "sign">;
+  /** Dir holding per-session Browser Attach config files (seam); default
+   *  `config.browserAttachDir`. */
+  browserAttachDir?: string;
   /** slirp host-loopback capability probe seam (tests inject `() => true` / `() => false`); defaults
    *  to the cached real version probe in egress.ts. Gates reaching Shepherd via 10.0.2.2. */
   detectEgressHostLoopback?: () => boolean;
@@ -2110,6 +2122,24 @@ function agentLoopbackIngressBaseUrl(ingressPort: number): string {
 const AGENT_API_URL_ENV = "SHEPHERD_AGENT_API_URL";
 
 /**
+ * Env var carrying the PATH of a session's Browser Attach config file (ADR 0001,
+ * src/browser-attach-config.ts): a 0600 JSON `{"cdp": "<ws url>"}` holding the token-gated CDP
+ * WebSocket on the agent ingress (`ws://…/api/sessions/<id>/browser?token=<hmac>`). Set only when
+ * the repo opted in to the Shared Browser and the session is not autonomous.
+ *
+ * Only the (non-secret) path rides the env: the spawn env reaches argv — bwrap `--setenv` and
+ * herdr's env shim — where any local user can read it from `/proc/<pid>/cmdline`. The token itself
+ * stays in the file, readable only by the operator's uid.
+ */
+export const BROWSER_CONFIG_ENV = "SHEPHERD_BROWSER_CONFIG";
+
+/** The Browser Attach URL for a session: the agent API base with its scheme switched to ws(s). */
+export function browserCdpUrl(agentApiUrl: string, sessionId: string, token: string): string {
+  const base = agentApiUrl.replace(/^http(s?):/, "ws$1:");
+  return `${base}/api/sessions/${sessionId}/browser?token=${token}`;
+}
+
+/**
  * Pick an override value over an original: an `undefined` override inherits the original;
  * any present value (including explicit `null`) replaces it. Mirrors the relaunch override
  * semantics where absent means "keep the original" and present means "use this".
@@ -2779,6 +2809,44 @@ export class SessionService {
     return { patchEnv, finalInnerArgv: finalArgv };
   }
 
+  /** The path of this spawn's freshly written 0600 Browser Attach config file when it may attach
+   *  to its repo's Shared Browser, else null. Autonomous is excluded until its origin allowlist
+   *  exists (slice 4) — the broker refuses it too, so the two can never disagree into a URL that
+   *  only 403s — and gets no file at all. A failed write degrades to no browser, never a failed
+   *  spawn. */
+  private async writeBrowserAttachConfig(
+    sessionId: string,
+    agentApiUrl: string,
+    profile: SandboxProfile,
+    enabled: boolean,
+  ): Promise<string | null> {
+    const signer = this.deps.browserToken;
+    if (!enabled || profile === "autonomous" || !signer) return null;
+    try {
+      const path = this.browserConfigFile(sessionId);
+      const token = signer.sign(sessionId);
+      await writeBrowserConfig(path, browserCdpUrl(agentApiUrl, sessionId, token));
+      return path;
+    } catch (err) {
+      console.warn(`[shared-browser] attach config for ${sessionId} not written:`, err);
+      return null;
+    }
+  }
+
+  private browserConfigFile(sessionId: string): string {
+    return browserConfigPath(this.deps.browserAttachDir ?? config.browserAttachDir, sessionId);
+  }
+
+  /** Archive: drop the session's Browser Attach config file. Best-effort — the broker's
+   *  archived-status check is what actually revokes the token. */
+  private async removeBrowserAttachConfig(sessionId: string): Promise<void> {
+    try {
+      await removeBrowserConfig(this.browserConfigFile(sessionId));
+    } catch (err) {
+      console.warn(`[shared-browser] attach config for ${sessionId} not removed:`, err);
+    }
+  }
+
   private async prepareSpawn(
     innerArgv: string[],
     ctx: {
@@ -2824,6 +2892,16 @@ export class SessionService {
     // four callers (create / resume / relaunch / replaceAgent) because only this seam is common to
     // all of them — and only Claude's path computes a base URL of its own.
     const agentApiUrl = this.resolveSpawnBaseUrl(ctx.profileOverride, ctx.repoPath);
+    const browserConfigFile = await this.writeBrowserAttachConfig(
+      ctx.sessionId,
+      agentApiUrl,
+      profile,
+      repoConfig.sharedBrowserEnabled,
+    );
+    // Only the (non-secret) path rides the env; the token stays in the 0600 file.
+    const browserEnv: Record<string, string> = browserConfigFile
+      ? { [BROWSER_CONFIG_ENV]: browserConfigFile }
+      : {};
 
     // Renderer env for the MAIN session ONLY (satellites call herdr.start directly and keep the
     // classic pin). Applied via BOTH the membrane --setenv (sandboxed; the outer env shim is wiped
@@ -2869,6 +2947,7 @@ export class SessionService {
             ...patchEnv,
             [SESSION_MARKER_ENV]: ctx.sessionId,
             [AGENT_API_URL_ENV]: agentApiUrl,
+            ...browserEnv,
           },
           // api-key mode: bind the helper RO + mask the OAuth credential in place
           // (the operator's ~/.claude customizations stay bound). Subscription: null/false.
@@ -2877,6 +2956,8 @@ export class SessionService {
           // notices it replaces are dropped host-side, so a missing bind would leave a sandboxed
           // session with neither. Empty when the guard is off.
           agentSupportPaths: [...toolGuardMembranePaths(), ...agentSkillsMembranePaths()],
+          // This session's Browser Attach config only (single-file RO bind); null otherwise.
+          browserConfigFile,
         }
       : ({} as MembraneInputs);
 
@@ -2909,6 +2990,7 @@ export class SessionService {
       ...patchEnv,
       [SESSION_MARKER_ENV]: ctx.sessionId,
       [AGENT_API_URL_ENV]: agentApiUrl,
+      ...browserEnv,
     };
     const agent = await this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped, spawnEnv, {
       signal: ctx.signal,
@@ -6507,6 +6589,7 @@ export class SessionService {
     // Best-effort: drop this session's egress config dir (incl. dns.log). The agent is
     // stopped above, so nothing still tails it. No-op when the session never had egress on.
     removeEgressTmp(id);
+    await this.removeBrowserAttachConfig(s.id);
     this.attributeLearningReward(s);
     this.deps.store.archive(id, reason);
     // AFTER store.archive, so the reaper's terminality gate sees `archived`. While a batch is

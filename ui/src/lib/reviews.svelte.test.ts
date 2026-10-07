@@ -45,6 +45,7 @@ const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
   manualStepsIssueEnabled: false,
   preWarmEpicLandingCi: false,
   epicStacksEnabled: false,
+  sharedBrowserEnabled: false,
   hidden: false,
   previewStartScript: null,
   previewStartCommand: null,
@@ -438,6 +439,25 @@ test("repoConfig.toggleAllPrs reverts on error", async () => {
   repoConfig.allPrs = { "/repo": true };
   await repoConfig.toggleAllPrs("/repo");
   expect(repoConfig.isAllPrsEnabled("/repo")).toBe(true); // reverted to prev
+});
+
+test("repoConfig.sharedBrowserOn defaults to false for unknown repo", () => {
+  expect(repoConfig.sharedBrowserOn("/unknown")).toBe(false);
+});
+
+test("repoConfig.toggleSharedBrowser flips the flag and sends only that field", async () => {
+  vi.mocked(putRepoConfig).mockResolvedValue(rc({ sharedBrowserEnabled: true }));
+  repoConfig.sharedBrowser = { "/repo": false };
+  await repoConfig.toggleSharedBrowser("/repo");
+  expect(putRepoConfig).toHaveBeenCalledWith("/repo", { sharedBrowserEnabled: true });
+  expect(repoConfig.sharedBrowserOn("/repo")).toBe(true);
+});
+
+test("repoConfig.toggleSharedBrowser reverts on error", async () => {
+  vi.mocked(putRepoConfig).mockRejectedValueOnce(new Error("boom"));
+  repoConfig.sharedBrowser = { "/repo": true };
+  await repoConfig.toggleSharedBrowser("/repo");
+  expect(repoConfig.sharedBrowserOn("/repo")).toBe(true); // reverted to prev
 });
 
 test("repoConfig.isAutoAddressEnabled defaults to false for unknown repo", () => {

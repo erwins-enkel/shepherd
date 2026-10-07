@@ -66,6 +66,20 @@ describe("remediations catalog", () => {
     expect(autoFixCommandFor("diagnostics_hint_git_missing")).toBeUndefined();
   });
 
+  it("chromium has a cross-distro install on the missing hint only, gated guidance-only", () => {
+    const cmd = REMEDIATIONS.diagnostics_hint_chromium_missing;
+    expect(cmd).toBeDefined();
+    expect(cmd).toContain("apt-get install -y chromium");
+    expect(cmd).toContain("apk add --no-cache chromium");
+    expect(cmd).toContain("dnf install -y chromium");
+    expect(cmd).toContain("pacman -Sy --noconfirm chromium");
+    expect(cmd).not.toContain("sudo");
+    expect(GUIDANCE_ONLY.has("diagnostics_hint_chromium_missing")).toBe(true);
+    expect(autoFixCommandFor("diagnostics_hint_chromium_missing")).toBeUndefined();
+    // No repo uses the Shared Browser ⇒ `optional` row ⇒ nothing for the harness to install.
+    expect(REMEDIATIONS.diagnostics_hint_chromium_optional).toBeUndefined();
+  });
+
   it("remediationEntriesFor tags each entry's optional state (optional ⇒ non-fatal in the apply)", () => {
     const snap: DiagnosticsSnapshot = {
       checks: [

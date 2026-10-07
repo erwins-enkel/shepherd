@@ -383,6 +383,17 @@ describe("Viewport preview tab", () => {
       .toHaveClass(/active/);
   });
 
+  it("offers the Browser tab only while the repo has the shared browser enabled", async () => {
+    const browserTab = () => page.getByRole("tab", { name: "Browser", exact: true });
+    repoConfig.sharedBrowser = {};
+    await render(Viewport, { session: session({ id: "bv1" }) });
+    await expect.element(browserTab()).not.toBeInTheDocument();
+    repoConfig.sharedBrowser = { "/repo/a": true };
+    await expect.element(browserTab()).toBeVisible();
+    repoConfig.sharedBrowser = {};
+    await expect.element(browserTab()).not.toBeInTheDocument();
+  });
+
   it("does not re-open Preview on a later null→port flip without a fresh tick bump", async () => {
     // open via the initial tick, then the operator navigates away to another tab
     const { rerender } = await render(Viewport, {

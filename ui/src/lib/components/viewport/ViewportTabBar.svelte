@@ -7,7 +7,7 @@
   import { SvelteMap } from "svelte/reactivity";
   import type { Session } from "$lib/types";
 
-  type Tab = "term" | "todo" | "activity" | "diff" | "files" | "preview";
+  type Tab = "term" | "todo" | "activity" | "diff" | "files" | "preview" | "browser";
 
   let {
     tab = $bindable(),
@@ -16,6 +16,7 @@
     todoExists,
     hasFiles,
     hasPreview,
+    hasBrowser,
     compact,
     headerFolded,
     vpBodyId,
@@ -28,6 +29,8 @@
     todoExists: boolean;
     hasFiles: boolean;
     hasPreview: boolean;
+    /** The repo has the Shared Browser enabled → the live Browser View tab. */
+    hasBrowser: boolean;
     compact: boolean;
     headerFolded: boolean;
     vpBodyId: string;
@@ -266,6 +269,18 @@
         aria-controls={vpBodyId}
         use:coachTarget={"files-tab"}
         onclick={() => (tab = "files")}>{m.viewport_files_tab()}</button
+      >
+    {/if}
+    {#if hasBrowser}
+      <!-- the repo's Shared Browser, live (Browser View) — sits last, next to Preview -->
+      <button
+        class="tab-btn"
+        class:active={tab === "browser"}
+        role="tab"
+        id={tabId("browser")}
+        aria-selected={tab === "browser"}
+        aria-controls={vpBodyId}
+        onclick={() => (tab = "browser")}>{m.viewport_browser_tab()}</button
       >
     {/if}
   </div>

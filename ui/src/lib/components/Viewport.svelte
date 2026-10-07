@@ -94,6 +94,7 @@
   import { ciBannerState } from "$lib/ci-banner";
   import ViewportTermControls from "./viewport/ViewportTermControls.svelte";
   import ViewportTabBar from "./viewport/ViewportTabBar.svelte";
+  import BrowserPanel from "./viewport/BrowserPanel.svelte";
   import ViewportHeaderActions from "./viewport/ViewportHeaderActions.svelte";
   import ClipboardPill from "./viewport/ClipboardPill.svelte";
   import { handleOsc52 } from "$lib/osc52";
@@ -253,7 +254,7 @@
   let viewportEl: HTMLDivElement | undefined = $state();
   let swipeX = $state(0);
   let swiping = $state(false);
-  let tab = $state<"term" | "todo" | "activity" | "diff" | "files" | "preview">("term");
+  let tab = $state<"term" | "todo" | "activity" | "diff" | "files" | "preview" | "browser">("term");
   // desktop only: reveals the git rail (PR / merge / critic / ready / verdict) as a
   // second header row, so the primary strip stays uncrowded until the operator asks
   let gitOpen = $state(false);
@@ -980,6 +981,16 @@
   // terminal rather than stranding a dead iframe.
   $effect(() => {
     if (!hasPreview && tab === "preview") tab = "term";
+  });
+  // Browser View (#2881): offered while the repo has the Shared Browser enabled; the repo
+  // config is fetched lazily, so make sure it is loaded for this session's repo.
+  $effect(() => {
+    const repoPath = session.repoPath;
+    untrack(() => void repoConfig.ensure(repoPath));
+  });
+  const hasBrowser = $derived(repoConfig.sharedBrowserOn(session.repoPath) && !session.archivedAt);
+  $effect(() => {
+    if (!hasBrowser && tab === "browser") tab = "term";
   });
   $effect(() => () => clearTimeout(armTimer));
   async function confirmDecommission(id: string) {
@@ -2806,6 +2817,7 @@
       todoExists={!!todoExists}
       {hasFiles}
       {hasPreview}
+      {hasBrowser}
       {compact}
       {headerFolded}
       {vpBodyId}
@@ -3157,6 +3169,11 @@
     {#if tab === "files"}
       <div class="panel-wrap">
         <FilesPanel sessionId={session.id} />
+      </div>
+    {/if}
+    {#if tab === "browser" && hasBrowser}
+      <div class="panel-wrap">
+        <BrowserPanel {session} />
       </div>
     {/if}
     {#if tab === "preview" && previewUrl}

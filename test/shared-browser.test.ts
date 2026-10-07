@@ -31,7 +31,11 @@ fs.createReadStream(null, { fd: 3 }).on("data", (chunk) => {
     if (m.method === "Target.attachToBrowserTarget") result = { sessionId: "B" + ++n };
     else if (m.method === "Target.createTarget") result = { targetId: "T:" + m.params.url };
     else if (m.method === "Target.getTargets") result = { targetInfos: [] };
+    else if (m.method === "Target.createBrowserContext") result = { browserContextId: "CTX" };
+    else if (m.method === "Storage.getCookies")
+      result = { cookies: m.params && m.params.browserContextId ? [] : JSON.parse(process.env.FAKE_COOKIES || "[]") };
     else if (m.method === "Browser.close") process.exit(0);
+    if (process.env.FAKE_LOG) fs.appendFileSync(process.env.FAKE_LOG, JSON.stringify(m) + "\\n");
     out.write(JSON.stringify({ id: m.id, result, ...(m.sessionId ? { sessionId: m.sessionId } : {}) }) + "\\0");
   }
 });
@@ -529,4 +533,124 @@ test("relaunch: the wait is capped when the old Chromium will not die", async ()
   expect(spawned).toHaveLength(2);
   expect(logs.some((l) => l.includes("launching anyway"))).toBe(true);
   await roundTrip(client, s);
+});
+
+// ── confined attach (#2883) ──────────────────────────────────────────────────
+
+interface ProxyRecord {
+  url: string;
+  closed: boolean;
+}
+
+async function confinedSetup(cookies: Record<string, unknown>[]) {
+  const log = join(root, "cdp.log");
+  process.env.FAKE_LOG = log;
+  process.env.FAKE_COOKIES = JSON.stringify(cookies);
+  const proxies: ProxyRecord[] = [];
+  const m = manager({
+    idleMs: 60_000,
+    startProxy: async () => {
+      const p: ProxyRecord = {
+        url: `socks5://127.0.0.1:${9000 + proxies.length}`,
+        closed: false,
+      };
+      proxies.push(p);
+      return {
+        url: p.url,
+        close: () => {
+          p.closed = true;
+        },
+      };
+    },
+  });
+  const sent = async (): Promise<Record<string, any>[]> => {
+    await new Promise((r) => setTimeout(r, 20));
+    const text = await Bun.file(log)
+      .text()
+      .catch(() => "");
+    return text
+      .split("\n")
+      .filter(Boolean)
+      .map((l) => JSON.parse(l) as Record<string, any>);
+  };
+  return { m, proxies, sent };
+}
+
+afterEach(() => {
+  delete process.env.FAKE_LOG;
+  delete process.env.FAKE_COOKIES;
+});
+
+const policy = (hosts: string[], previewPort: number | null = null) => ({
+  allowedHosts: () => hosts,
+  previewPort: () => previewPort,
+});
+
+test("confined attach: proxied context seeded with allowlisted cookies only", async () => {
+  const { m, proxies, sent } = await confinedSetup([
+    { name: "sid", value: "1", domain: ".example.com", path: "/" },
+    { name: "other", value: "2", domain: "other.org", path: "/" },
+    { name: "dev", value: "3", domain: "localhost", path: "/" },
+  ]);
+  const s = sink();
+  const client = await m.attach("/r/a", s, { policy: policy(["app.example.com"]) });
+  await client.ready;
+  const msgs = await sent();
+  const ctx = msgs.find((x) => x.method === "Target.createBrowserContext")!;
+  expect(ctx.params).toEqual({ proxyServer: proxies[0]!.url, proxyBypassList: "<-loopback>" });
+  const set = msgs.find((x) => x.method === "Storage.setCookies")!;
+  expect(set.params.browserContextId).toBe("CTX");
+  expect(set.params.cookies.map((c: { name: string }) => c.name)).toEqual(["sid"]);
+  const tab = msgs.find((x) => x.method === "Target.createTarget")!;
+  expect(tab.params).toEqual({ url: "about:blank", browserContextId: "CTX" });
+  expect(liveTimers(60_000)).toHaveLength(0);
+
+  client.detach();
+  expect(proxies[0]!.closed).toBe(true);
+  const after = await sent();
+  expect(after.find((x) => x.method === "Target.disposeBrowserContext")!.params).toEqual({
+    browserContextId: "CTX",
+  });
+  expect(liveTimers(60_000)).toHaveLength(1);
+});
+
+test("confined attach: localhost cookies only with a Preview origin", async () => {
+  const { m, sent } = await confinedSetup([{ name: "dev", value: "3", domain: "localhost" }]);
+  await (
+    await m.attach("/r/a", sink(), { policy: policy([], 7400) })
+  ).ready;
+  const set = (await sent()).find((x) => x.method === "Storage.setCookies")!;
+  expect(set.params.cookies.map((c: { name: string }) => c.name)).toEqual(["dev"]);
+});
+
+test("confined attach: no login for an allowed host → no-login, everything undone", async () => {
+  const { m, proxies, sent } = await confinedSetup([
+    { name: "dev", value: "3", domain: "localhost" },
+    { name: "other", value: "2", domain: "other.org" },
+  ]);
+  const err = await m
+    .attach("/r/a", sink(), { policy: policy(["app.example.com"]) })
+    .catch((e: unknown) => e);
+  expect(err).toBeInstanceOf(SharedBrowserError);
+  expect((err as SharedBrowserError).code).toBe("no-login");
+  expect(proxies[0]!.closed).toBe(true);
+  const msgs = await sent();
+  expect(msgs.some((x) => x.method === "Storage.setCookies")).toBe(false);
+  expect(msgs.some((x) => x.method === "Target.disposeBrowserContext")).toBe(true);
+  expect(liveTimers(60_000)).toHaveLength(1); // released: idle stop armed again
+});
+
+test("confined attach: browser exit closes the client and the proxy", async () => {
+  const { m, proxies } = await confinedSetup([
+    { name: "sid", value: "1", domain: "a.example.com" },
+  ]);
+  const s = sink();
+  await (
+    await m.attach("/r/a", s, { policy: policy(["a.example.com"]) })
+  ).ready;
+  spawned[0]!.child.kill("SIGKILL");
+  await exited(spawned[0]!.child);
+  await new Promise((r) => setTimeout(r, 10));
+  expect(s.closed?.code).toBe(1011);
+  expect(proxies[0]!.closed).toBe(true);
 });

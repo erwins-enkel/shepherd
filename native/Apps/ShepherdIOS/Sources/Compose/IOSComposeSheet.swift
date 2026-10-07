@@ -49,7 +49,11 @@ struct IOSComposeContent: View {
     init(app: AppModel, store: SessionStore, activation: Int, model: ComposeModel? = nil, voice: DictationController? = nil, fixtureCurrent: (() -> Bool)? = nil, serverPicker: AnyView? = nil, repoCatalogue: IOSComposeRepoCatalogue? = nil, close: (() -> Void)? = nil, onCreated: ((String) -> Void)? = nil, initialPrompt: String = "", initialRepoPath: String = "", promptChanged: ((String) -> Void)? = nil) {
         self.app = app; self.store = store; self.activation = activation; self.fixtureCurrent = fixtureCurrent
         self.serverPicker = serverPicker; self.repoCatalogue = repoCatalogue; self.closeSheet = close; self.onCreated = onCreated; self.promptChanged = promptChanged
-        let model = model ?? ComposeModel(client: store.client, defaults: app.composerDefaults, runDefaults: ComposeRunConfig.defaults(from: store.settings))
+        let model = model ?? ComposeModel(client: store.client, defaults: app.composerDefaults,
+            runDefaults: ComposeRunConfig.defaults(from: store.settings),
+            initialProvider: ComposeRunConfig.capacitySuggestedProvider(defaultProvider: store.settings?.defaultAgentProvider ?? .claude,
+                diagnostics: app.extension(BackendRecoveryModel.self)?.diagnostics,
+                holdLikely: ComposeReadiness.holdLikely(limits: SessionSignals.usageLimits(for: app), settings: store.settings)))
         if !initialPrompt.isEmpty { model.prompt = initialPrompt }
         if !initialRepoPath.isEmpty { model.repoPath = initialRepoPath }
         model.repoBranches.allowsStatusProbe = app.liveRequestAudit == nil

@@ -4,6 +4,17 @@ import SwiftUI
 
 /// Model validity and preselection from new-task/run-config.ts. No view lifecycle dependency.
 public enum ComposeRunConfig {
+    /// Web AppOverlays marks only Claude held; both coding CLIs must be ready to substitute Codex.
+    public static func capacitySuggestedProvider(defaultProvider: AgentProvider,
+                                                 diagnostics: DiagnosticsSnapshot?, holdLikely: Bool) -> AgentProvider {
+        guard defaultProvider == .claude, holdLikely,
+              let diagnostics,
+              [AgentProvider.claude, .codex].allSatisfy({ provider in
+                  diagnostics.checks.contains { $0.id == provider.rawValue && $0.state.rawValue == "ok" }
+              }) else { return defaultProvider }
+        return .codex
+    }
+
     public struct Defaults {
         public init(provider: AgentProvider = .claude, claudeModel: String = "auto",
                     codexModel: String = "gpt-5.6-sol", effort: String = "default", fableAvailable: Bool = true) {

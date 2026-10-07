@@ -43,6 +43,7 @@ final class IOSCompositionTests: XCTestCase {
         XCTAssertNotNil(app.extension(ReadOnlySidebarRecovery.self))
         XCTAssertNotNil(app.extension(ActionsModel.self)) // recap reads
         XCTAssertNotNil(app.extension(IOSTerminalController.self))
+        XCTAssertNotNil(app.extension(BackendRecoveryModel.self))
         XCTAssertNil(app.extension(NotificationsModel.self))
     }
 

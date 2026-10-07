@@ -236,6 +236,61 @@ final class IOSServerHubTests: XCTestCase {
         XCTAssertEqual(target.servers(in: hub), [a.id])
     }
 
+    func testComposerCapacityUsesEachTargetServersSettingsUsageAndDiagnostics() async throws {
+        let (_, hub, a, b) = try fixture()
+        defer { stop(hub) }
+        let settings = #"{"repoRoot":"/fixtures","repoRootDisplay":"/fixtures","firstRunPending":false,"defaultModel":"sonnet","defaultCodexModel":"gpt-6-astra","defaultEffort":"high","defaultAgentProvider":"claude","authMode":"subscription","operatorLanguage":"de","usageHoldEnabled":true,"usageHoldPct":80}"#
+        IOSMultiServerFixtureTransport.setSettings(settings, for: a.baseURL)
+        IOSMultiServerFixtureTransport.setSettings(settings.replacingOccurrences(of: "\"usageHoldPct\":80", with: "\"usageHoldPct\":90"), for: b.baseURL)
+        await hub.connect(a); await hub.connect(b)
+        let appA = try XCTUnwrap(hub.models[a.id]), appB = try XCTUnwrap(hub.models[b.id])
+        let storeA = try XCTUnwrap(appA.store), storeB = try XCTUnwrap(appB.store)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while (!storeA.hasLoadedSessions || !storeB.hasLoadedSessions), ContinuousClock.now < deadline { await Task.yield() }
+        XCTAssertTrue(storeA.hasLoadedSessions && storeB.hasLoadedSessions)
+        let recoveryA = try XCTUnwrap(appA.extension(BackendRecoveryModel.self))
+        let recoveryB = try XCTUnwrap(appB.extension(BackendRecoveryModel.self))
+        await recoveryA.refresh(); await recoveryB.refresh()
+        let limits = UsageLimits(session5h: .init(pct: 85, resetAt: 0), week: nil,
+            perModelWeek: [], credits: nil, stale: false, calibratedAt: nil, subscriptionOnly: false)
+        storeA.apply(.usageLimits(limits)); storeB.apply(.usageLimits(limits))
+        hub.focus(a.id)
+        let target = IOSComposeTarget(hub: hub)
+        target.prompt = "Keep this prompt"
+        func compose() throws -> IOSComposeContent {
+            let app = try XCTUnwrap(target.model(in: hub)), store = try XCTUnwrap(app.store)
+            let voice = DictationController(engine: FakeDictationEngine(), getText: { "" }, setText: { _ in })
+            return IOSComposeContent(app: app, store: store, activation: app.activationGeneration, voice: voice,
+                initialPrompt: target.prompt, initialRepoPath: "/fixtures/shepherd")
+        }
+        let first = try compose()
+        defer { first.model.teardown(); first.voice.teardown() }
+        XCTAssertEqual(first.model.provider, .codex)
+        target.select(b.id, hub: hub)
+        let second = try compose()
+        defer { second.model.teardown(); second.voice.teardown() }
+        XCTAssertEqual(second.model.provider, .claude)
+        XCTAssertEqual(second.model.prompt, "Keep this prompt")
+        var high = limits; high.session5h = .init(pct: 95, resetAt: 0)
+        storeB.apply(.usageLimits(high))
+        IOSMultiServerFixtureTransport.setDiagnostics(#"{"checks":[{"id":"claude","state":"ok","hintKey":"fixture"},{"id":"codex","state":"optional","hintKey":"fixture"}],"generatedAt":1,"overall":"ok"}"#, for: b.baseURL)
+        await recoveryB.refresh()
+        let unavailable = try compose()
+        defer { unavailable.model.teardown(); unavailable.voice.teardown() }
+        XCTAssertEqual(unavailable.model.provider, .claude)
+        XCTAssertTrue(unavailable.readiness.dualCTA)
+        target.select(a.id, hub: hub)
+        let back = try compose()
+        defer { back.model.teardown(); back.voice.teardown() }
+        XCTAssertEqual(back.model.provider, .codex)
+        target.select(b.id, hub: hub)
+        hub.disconnect(a.id)
+        recoveryA.replaceDiagnostics(try JSONDecoder().decode(DiagnosticsSnapshot.self,
+            from: Data(IOSMultiServerFixtureTransport.readyDiagnostics.utf8)))
+        XCTAssertNil(recoveryA.diagnostics)
+        XCTAssertEqual(recoveryB.diagnostics?.checks.first { $0.id == "codex" }?.state.rawValue, "optional")
+    }
+
     /// The settings menu reports push for the focused server, not whichever server answered last
     /// (#2696): one server has an APNs key, the other answers 503.
     func testPushStatusIsPerServer() async throws {

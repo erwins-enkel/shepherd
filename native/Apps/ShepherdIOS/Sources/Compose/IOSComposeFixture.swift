@@ -88,6 +88,8 @@ final class IOSComposeFixtureTransport: URLProtocol, @unchecked Sendable {
         switch path {
         case "/api/sessions" where request.httpMethod == "POST": json = Self.sessionJSON
         case "/api/sessions": json = "[]"
+        case "/api/health": json = #"{"ok":true,"version":"2.1.0"}"#
+        case "/api/diagnostics": json = #"{"checks":[{"id":"claude","state":"ok","hintKey":"fixture"},{"id":"codex","state":"ok","hintKey":"fixture"}],"generatedAt":0,"overall":"ok"}"#
         case "/api/settings": json = #"{"repoRoot":"/fixtures","repoRootDisplay":"/fixtures","firstRunPending":false,"defaultModel":"sonnet","defaultEffort":"medium","defaultAgentProvider":"claude","authMode":"subscription","operatorLanguage":"de"}"#
         case "/api/repos": json = #"{"repos":[{"name":"shepherd","path":"/fixtures/shepherd","display":"shepherd","realPath":"/fixtures/shepherd","isFork":false,"hidden":false}],"recentWindowDays":14}"#
         case "/api/branches": json = #"{"branches":["main"],"current":"main","default":"main"}"#

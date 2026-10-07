@@ -123,6 +123,7 @@ function makeRepoConfig(o: Partial<RepoConfig> = {}): RepoConfig {
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
     ...o,
   };

@@ -72,6 +72,7 @@ import {
   validateEpicRunPatch,
   type EpicRunPatch,
   validateEgressExtraHosts,
+  validateBrowserAllowedHosts,
 } from "./validate";
 import {
   parseCookie,
@@ -1837,6 +1838,7 @@ type RepoCfgBody = {
   defaultModel?: unknown;
   defaultEffort?: unknown;
   egressExtraHosts?: unknown;
+  browserAllowedHosts?: unknown;
   maxAuto?: unknown;
   autoLabel?: unknown;
   usageCeilingPct?: unknown;
@@ -1864,6 +1866,7 @@ type RepoCfgScalars = {
   defaultModel?: string;
   defaultEffort?: string;
   egressExtraHosts?: string[];
+  browserAllowedHosts?: string[];
   repoMode?: "forge" | "lightweight";
   previewStartScript?: string | null;
   previewStartCommand?: string | null;
@@ -1874,6 +1877,11 @@ type RepoCfgScalars = {
  *  return the validated host array, or a { error } object the loop turns into a 400. */
 function parseRepoEgressExtraHosts(v: unknown): unknown {
   const r = validateEgressExtraHosts(v);
+  return r.ok ? r.value : { error: r.error };
+}
+
+function parseRepoBrowserAllowedHosts(v: unknown): unknown {
+  const r = validateBrowserAllowedHosts(v);
   return r.ok ? r.value : { error: r.error };
 }
 
@@ -1895,6 +1903,7 @@ const REPO_CFG_SCALAR_PARSERS: readonly [keyof RepoCfgScalars, (v: unknown) => u
   ["defaultModel", parseRepoDefaultModel],
   ["defaultEffort", parseRepoDefaultEffort],
   ["egressExtraHosts", parseRepoEgressExtraHosts],
+  ["browserAllowedHosts", parseRepoBrowserAllowedHosts],
   ["repoMode", parseRepoMode],
   ["previewStartScript", parseNullableString],
   ["previewStartCommand", parseNullableString],
@@ -1939,6 +1948,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       defaultModel?: string;
       defaultEffort?: string;
       egressExtraHosts?: string[];
+      browserAllowedHosts?: string[];
       maxAuto?: number;
       autoLabel?: string;
       usageCeilingPct?: number;
@@ -1973,6 +1983,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     defaultModel,
     defaultEffort,
     egressExtraHosts,
+    browserAllowedHosts,
     repoMode,
     previewStartScript,
     previewStartCommand,
@@ -1988,6 +1999,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     defaultModel !== undefined ||
     defaultEffort !== undefined ||
     egressExtraHosts !== undefined ||
+    browserAllowedHosts !== undefined ||
     repoMode !== undefined ||
     previewStartScript !== undefined ||
     previewStartCommand !== undefined ||
@@ -1997,7 +2009,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, autoOptimizeFlagged, sharedBrowserEnabled, hidden, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, autoOptimizeFlagged, sharedBrowserEnabled, hidden, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, browserAllowedHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
       },
       400,
     );
@@ -2025,6 +2037,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     defaultModel,
     defaultEffort,
     egressExtraHosts,
+    browserAllowedHosts,
     maxAuto,
     autoLabel,
     usageCeilingPct,

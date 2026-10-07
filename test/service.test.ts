@@ -4889,6 +4889,7 @@ test("create omits house rules when learnings disabled for the repo", async () =
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
   });
   const captured: { argv?: string[] } = {};
@@ -4952,6 +4953,7 @@ test("create seeds the autopilot directive when the repo has autopilot on", asyn
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
   });
   const captured: { argv?: string[] } = {};
@@ -5931,6 +5933,7 @@ function buildQueueDeps(
       preWarmEpicLandingCi: false,
       epicStacksEnabled: false,
       sharedBrowserEnabled: false,
+      browserAllowedHosts: [],
       hidden: false,
       ...repoConfig,
     });
@@ -8246,6 +8249,7 @@ test("create research under autonomous: downgrades to standard (sandboxApplied=s
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
   });
   const captured: { argv?: string[] } = {};
@@ -8295,6 +8299,7 @@ test("create NON-research under autonomous: stays autonomous (no downgrade)", as
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
   });
   const captured: { argv?: string[] } = {};
@@ -8744,6 +8749,7 @@ function browserStore(enabled: boolean, sandboxProfile: SandboxProfile = "truste
   store.setRepoConfig("/repo", {
     ...store.getRepoConfig("/repo"),
     sharedBrowserEnabled: enabled,
+    browserAllowedHosts: [],
     sandboxProfile,
   });
   return store;

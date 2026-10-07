@@ -123,6 +123,7 @@ function makeHarness(
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
   });
   let pr = conflictingPr();

@@ -5502,6 +5502,7 @@ components:
         - defaultModel
         - defaultEffort
         - egressExtraHosts
+        - browserAllowedHosts
         - repoMode
         - previewOpenMode
       properties:
@@ -5558,6 +5559,11 @@ components:
           type: array
           items:
             type: string
+        browserAllowedHosts:
+          type: array
+          items:
+            type: string
+          description: Hostnames an autonomous session's Browser Attach may reach (ports 80/443, public addresses only), besides its own Preview port. Only cookies for these hosts are copied into the autonomous session's isolated browser context.
         repoMode:
           type: string
         previewStartScript:
@@ -5629,6 +5635,11 @@ components:
           type: array
           items:
             type: string
+        browserAllowedHosts:
+          type: array
+          items:
+            type: string
+          description: Hostnames an autonomous session's Browser Attach may reach (ports 80/443, public addresses only), besides its own Preview port. Only cookies for these hosts are copied into the autonomous session's isolated browser context.
         repoMode:
           type: string
         previewStartScript:

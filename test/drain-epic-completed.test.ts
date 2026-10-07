@@ -114,6 +114,7 @@ function makeHarness(opts: HarnessOpts): Harness {
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
   });
   store.setEpicRun({

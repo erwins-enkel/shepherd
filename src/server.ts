@@ -414,6 +414,8 @@ export interface AppDeps {
   restart?: Pick<RestartService, "apply">;
   /** environment-readiness diagnostics (issue #623); absent in tests that don't wire it. */
   diagnostics?: Pick<DiagnosticsService, "current" | "check" | "fix">;
+  /** Shared Browser lifecycle (ADR 0001); absent in tests that don't exercise Browser Attach. */
+  sharedBrowser?: import("./shared-browser").SharedBrowserManager;
   /** GitHub-star nudge: tracks first-use + the operator's choice, stars the repo
    *  via gh. Absent in tests that don't exercise it. */
   starPrompt?: {

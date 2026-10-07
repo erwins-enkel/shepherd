@@ -46,6 +46,10 @@ const pluginSecretsPath =
 // APNs credentials entered in Settings → Notifications (#2696): one 0600 JSON file beside the db,
 // never served by any route.
 const apnsStorePath = join(dirname(dbPath), "apns.json");
+// Shared Browser (ADR 0001): persistent per-repo Chromium profiles, and the HMAC key signing
+// Browser Attach tokens. Both beside the db — never under /tmp, which tmp-sweep reclaims.
+const browserProfileRoot = join(dirname(dbPath), "browser-profiles");
+const browserBrokerKeyPath = join(dirname(dbPath), "browser-broker.key");
 
 // herdr session id ("default" for a single-session install; a named daemon otherwise) and
 // the Unix-socket path for herdr's native JSON-RPC API (issue #1529). Resolved via the shared
@@ -641,6 +645,10 @@ export const config = {
   // with the main port, served port, or preview range).
   agentIngressPort: Number(process.env.SHEPHERD_AGENT_INGRESS_PORT ?? mainPort + 1),
   dbPath,
+  browserProfileRoot,
+  browserBrokerKeyPath,
+  // Shared Browser binary override; null → PATH lookup in src/shared-browser.ts.
+  chromiumBin: process.env.SHEPHERD_CHROMIUM_BIN || null,
   pluginsDir,
   pluginSecretsPath,
   herdrBin: process.env.HERDR_BIN ?? "herdr",

@@ -1,4 +1,5 @@
 import { CodexAccountClient } from "./codex-account";
+import { SharedBrowserManager, reapOrphanBrowsers } from "./shared-browser";
 import { CodexResetCoordinator } from "./codex-reset";
 import {
   CodexCapacityGate,
@@ -918,6 +919,11 @@ const telemetry = new TelemetryService({
 
 config.codexResetAutoEnabled = store.getSetting("codexResetAutoEnabled") === "true";
 const codexAccount = new CodexAccountClient();
+// Shared Browser (ADR 0001): per-repo Chromium launched on demand; stopped sync on exit below.
+const sharedBrowser = new SharedBrowserManager({
+  profileRoot: config.browserProfileRoot,
+  chromiumBin: config.chromiumBin,
+});
 const codexReset = new CodexResetCoordinator({
   store,
   enabled: () => config.codexResetAutoEnabled,
@@ -1275,6 +1281,12 @@ const sweepRunawayOrphans = (ids?: Set<string>) => {
 };
 
 deferredStarts.push(() => {
+  // Shared Browser orphans: Chromium a crashed/SIGKILLed server left on one of our profiles.
+  void reapOrphanBrowsers(config.browserProfileRoot)
+    .then((n) => {
+      if (n > 0) console.warn(`[shared-browser] reaped ${n} orphaned browser(s)`);
+    })
+    .catch((err) => console.warn("[shared-browser] orphan reap failed:", err));
   // Deferred off the synchronous boot path (same as the #1133 orphan reap above): the sweep is a
   // host-wide /proc enumeration — a readdir plus a comm + stat read per pid, and an fd-table walk
   // for every hot, old survivor — and it runs on Bun's single loop. Nothing about it is urgent at
@@ -3881,6 +3893,7 @@ deferredStarts.push(() => {
 
 const appDeps: AppDeps = {
   store,
+  sharedBrowser,
   service,
   fingerprint: { ensureFresh: () => fingerprint.ensureFresh(), coversRepo: fingerprintCoversRepo },
   readCodexAuthMode,
@@ -4115,6 +4128,7 @@ else startBackground();
 // Best-effort teardown of preview listeners and tailscale mappings on process exit / SIGTERM.
 process.on("exit", () => {
   codexAccount.close();
+  sharedBrowser.stopAll();
   previewService.stopAll();
   tailscaleServe.stopAll();
   standaloneCritic.stopAll();
@@ -4125,6 +4139,7 @@ process.on("exit", () => {
 // stop-timeout SIGKILL. Tear down, then exit (the `exit` handler's second stopAll is a
 // no-op since stopAll is idempotent).
 process.on("SIGTERM", () => {
+  sharedBrowser.stopAll();
   previewService.stopAll();
   tailscaleServe.stopAll();
   standaloneCritic.stopAll();

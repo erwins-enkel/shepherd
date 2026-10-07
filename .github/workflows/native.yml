@@ -13,6 +13,9 @@ name: native
 # The three jobs run in parallel: each checks out, installs and builds on its
 # own, and none consumes another's output. That costs up to 3 macOS slots per
 # run (Team plan: 5), so overlapping native runs may queue.
+#
+# Per-platform split: the iOS app, its `*ios*` scripts and docs/markdown are
+# excluded (native-ios.yml covers the iOS app). Negations must stay last.
 on:
   pull_request:
     branches: [main, "epic/**"]
@@ -21,6 +24,10 @@ on:
       - "contracts/**"
       - "scripts/gen-contract-swift.ts"
       - ".github/workflows/native.yml"
+      - "!native/Apps/ShepherdIOS/**"
+      - "!native/scripts/*ios*"
+      - "!native/docs/**"
+      - "!native/**/*.md"
   push:
     branches: [main]
     paths:
@@ -28,6 +35,10 @@ on:
       - "contracts/**"
       - "scripts/gen-contract-swift.ts"
       - ".github/workflows/native.yml"
+      - "!native/Apps/ShepherdIOS/**"
+      - "!native/scripts/*ios*"
+      - "!native/docs/**"
+      - "!native/**/*.md"
 
 permissions:
   contents: read

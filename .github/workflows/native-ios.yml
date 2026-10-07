@@ -8,6 +8,10 @@ name: native-ios
 # workflow anyway; any other message edit leaves the iOS build's input
 # unchanged. The in-job copy below still catches `native/**` edits to the key
 # lists.
+#
+# Per-platform split: the Mac app, package tests (`native/Tests/**`, never run
+# here), Mac-only scripts and docs/markdown are excluded (native.yml covers
+# them). Negations must stay last.
 on:
   pull_request:
     branches: [main, "epic/**"]
@@ -18,6 +22,25 @@ on:
       - "test/native-ios-*.test.ts"
       - "test/fixtures/native-ios-*.json"
       - ".github/workflows/native-ios.yml"
+      - "!native/Apps/ShepherdMac/**"
+      - "!native/Tests/**"
+      - "!native/docs/**"
+      - "!native/**/*.md"
+      - "!native/scripts/*mac*"
+      - "!native/scripts/*dmg*"
+      - "!native/scripts/dmg-assets/**"
+      - "!native/scripts/build-app.sh"
+      - "!native/scripts/test-app.sh"
+      - "!native/scripts/*update*"
+      - "!native/scripts/*appcast*"
+      - "!native/scripts/*sign*"
+      - "!native/scripts/notarize.sh"
+      - "!native/scripts/render-*"
+      - "!native/scripts/keychain-secret.sh"
+      - "!native/scripts/codesign-mode.sh"
+      - "!native/scripts/check-core-results.py"
+      - "!native/scripts/select-core-simulator.py"
+      - "!native/scripts/test-conservation.ts"
   push:
     branches: [main]
     paths:
@@ -27,6 +50,25 @@ on:
       - "test/native-ios-*.test.ts"
       - "test/fixtures/native-ios-*.json"
       - ".github/workflows/native-ios.yml"
+      - "!native/Apps/ShepherdMac/**"
+      - "!native/Tests/**"
+      - "!native/docs/**"
+      - "!native/**/*.md"
+      - "!native/scripts/*mac*"
+      - "!native/scripts/*dmg*"
+      - "!native/scripts/dmg-assets/**"
+      - "!native/scripts/build-app.sh"
+      - "!native/scripts/test-app.sh"
+      - "!native/scripts/*update*"
+      - "!native/scripts/*appcast*"
+      - "!native/scripts/*sign*"
+      - "!native/scripts/notarize.sh"
+      - "!native/scripts/render-*"
+      - "!native/scripts/keychain-secret.sh"
+      - "!native/scripts/codesign-mode.sh"
+      - "!native/scripts/check-core-results.py"
+      - "!native/scripts/select-core-simulator.py"
+      - "!native/scripts/test-conservation.ts"
 
 permissions:
   contents: read

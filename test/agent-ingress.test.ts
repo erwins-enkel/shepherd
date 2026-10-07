@@ -9,6 +9,9 @@ import {
   type AppDeps,
 } from "../src/server";
 import { config } from "../src/config";
+import { BrowserTokenSigner } from "../src/browser-token";
+import type { CdpClient, CdpPipeClient } from "../src/cdp-pipe";
+import { SharedBrowserError } from "../src/shared-browser";
 
 // A representative per-session UUID — the de-facto capability segment the agent only knows
 // for its own session.
@@ -34,6 +37,8 @@ test("isAgentIngressRoute: ALLOWS exactly the agent→server routes", () => {
   // retitle its own session. SELF only — the id segment is the capability.
   expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}`))).toBe(true);
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/rename`))).toBe(true);
+  // Browser Attach (ADR 0001): a GET WebSocket upgrade, token-gated in serveAgentIngress.
+  expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/browser`))).toBe(true);
 });
 
 test("isAgentIngressRoute: DENIES everything else (containment property)", () => {
@@ -64,6 +69,10 @@ test("isAgentIngressRoute: DENIES everything else (containment property)", () =>
   expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}x`))).toBe(false);
   // An unknown sub-segment under a real session id is not a route.
   expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/x`))).toBe(false);
+  // Browser Attach is GET-only (the upgrade), exact-path.
+  expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/browser`))).toBe(false);
+  expect(isAgentIngressRoute("PUT", parts(`/api/sessions/${ID}/browser`))).toBe(false);
+  expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/browser/x`))).toBe(false);
   // Rename is POST-only, exact-path.
   expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/rename`))).toBe(false);
   expect(isAgentIngressRoute("PUT", parts(`/api/sessions/${ID}/rename`))).toBe(false);
@@ -578,4 +587,181 @@ test("serveAgentIngress: rebinds the SAME port after a real server-closed connec
 test("Codex reset routes are inaccessible to agent ingress", () => {
   expect(isAgentIngressRoute("POST", parts("/api/usage/codex/reset"))).toBe(false);
   expect(isAgentIngressRoute("PUT", parts("/api/usage/codex/automation"))).toBe(false);
+});
+
+// ── Browser Attach broker (ADR 0001) ────────────────────────────────────────────
+
+const signer = new BrowserTokenSigner(Buffer.alloc(32, 7));
+
+interface FakeAttach {
+  repos: string[];
+  received: string[];
+  detached: number;
+  fail?: Error;
+}
+
+function fakeSharedBrowser(state: FakeAttach) {
+  return {
+    attach: async (repoPath: string, sink: CdpClient): Promise<CdpPipeClient> => {
+      state.repos.push(repoPath);
+      // Resolve on a later tick so messages sent right after `open` exercise the pre-attach buffer.
+      await new Promise((r) => setTimeout(r, 20));
+      if (state.fail) throw state.fail;
+      return {
+        receive: (text) => {
+          state.received.push(text);
+          sink.send(`echo:${text}`);
+        },
+        detach: () => {
+          state.detached++;
+        },
+        ready: Promise.resolve(),
+      };
+    },
+    open: async () => {},
+    stop: () => {},
+  };
+}
+
+async function brokerFixture(opts: { enabled?: boolean; fail?: Error } = {}) {
+  const deps = makeDeps();
+  const state: FakeAttach = { repos: [], received: [], detached: 0, fail: opts.fail };
+  deps.sharedBrowser = fakeSharedBrowser(state);
+  deps.browserToken = signer;
+  const s = await deps.service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+  });
+  deps.store.setRepoConfig("/repo", {
+    ...deps.store.getRepoConfig("/repo"),
+    sharedBrowserEnabled: opts.enabled ?? true,
+  });
+  const server = serveAgentIngress(deps, 0);
+  const url = (id: string, token: string | null) =>
+    `ws://127.0.0.1:${server.port}/api/sessions/${id}/browser${token === null ? "" : `?token=${token}`}`;
+  const httpStatus = async (id: string, token: string | null) => {
+    const res = await fetch(url(id, token).replace(/^ws/, "http"), {
+      headers: { upgrade: "websocket", connection: "Upgrade" },
+    });
+    await res.text();
+    return res.status;
+  };
+  return { deps, state, s, server, url, httpStatus };
+}
+
+function openSocket(url: string): Promise<WebSocket> {
+  return new Promise((resolve, reject) => {
+    const ws = new WebSocket(url);
+    ws.onopen = () => resolve(ws);
+    ws.onerror = () => reject(new Error("ws error"));
+  });
+}
+
+async function until(cond: () => boolean, ms = 2000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!cond()) {
+    if (Date.now() > deadline) throw new Error("timed out");
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
+test("browser broker: 401 for a missing, wrong or other session's token", async () => {
+  const f = await brokerFixture();
+  try {
+    expect(await f.httpStatus(f.s.id, null)).toBe(401);
+    expect(await f.httpStatus(f.s.id, "00".repeat(32))).toBe(401);
+    expect(await f.httpStatus(f.s.id, signer.sign(ID))).toBe(401);
+    expect(f.state.repos).toEqual([]);
+  } finally {
+    await f.server.stop(true);
+  }
+});
+
+test("browser broker: 401 for an archived session, even with its valid token", async () => {
+  const f = await brokerFixture();
+  try {
+    f.deps.store.archive(f.s.id);
+    expect(await f.httpStatus(f.s.id, signer.sign(f.s.id))).toBe(401);
+  } finally {
+    await f.server.stop(true);
+  }
+});
+
+test("browser broker: 403 when the repo has not opted in", async () => {
+  const f = await brokerFixture({ enabled: false });
+  try {
+    expect(await f.httpStatus(f.s.id, signer.sign(f.s.id))).toBe(403);
+    expect(f.state.repos).toEqual([]);
+  } finally {
+    await f.server.stop(true);
+  }
+});
+
+test("browser broker: 403 for an autonomous session (no attach before its egress guard exists)", async () => {
+  const f = await brokerFixture();
+  try {
+    f.deps.store.setSandboxState(f.s.id, { applied: "autonomous" });
+    expect(await f.httpStatus(f.s.id, signer.sign(f.s.id))).toBe(403);
+  } finally {
+    await f.server.stop(true);
+  }
+});
+
+test("browser broker: 503 when no shared-browser manager is wired", async () => {
+  const f = await brokerFixture();
+  try {
+    f.deps.sharedBrowser = undefined;
+    expect(await f.httpStatus(f.s.id, signer.sign(f.s.id))).toBe(503);
+  } finally {
+    await f.server.stop(true);
+  }
+});
+
+test("browser broker: upgrades, round-trips messages (incl. pre-attach ones) and detaches on close", async () => {
+  const f = await brokerFixture();
+  try {
+    const ws = await openSocket(f.url(f.s.id, signer.sign(f.s.id)));
+    const got: string[] = [];
+    ws.onmessage = (e) => got.push(String(e.data));
+    // Sent before the (deliberately slow) attach resolves: buffered, then replayed in order.
+    ws.send('{"id":1,"method":"Browser.getVersion"}');
+    ws.send('{"id":2,"method":"Target.getTargets"}');
+    await until(() => got.length === 2);
+    expect(f.state.repos).toEqual(["/repo"]);
+    expect(got).toEqual([
+      'echo:{"id":1,"method":"Browser.getVersion"}',
+      'echo:{"id":2,"method":"Target.getTargets"}',
+    ]);
+    ws.close();
+    await until(() => f.state.detached === 1);
+  } finally {
+    await f.server.stop(true);
+  }
+});
+
+test("browser broker: an attach refused for the cap closes the socket with 1013", async () => {
+  const f = await brokerFixture({ fail: new SharedBrowserError("cap", "full") });
+  try {
+    const ws = await openSocket(f.url(f.s.id, signer.sign(f.s.id)));
+    const closed = await new Promise<CloseEvent>((r) => (ws.onclose = r));
+    expect(closed.code).toBe(1013);
+    expect(closed.reason).toBe("cap");
+  } finally {
+    await f.server.stop(true);
+  }
+});
+
+test("browser broker: a binary frame closes the socket with 1003", async () => {
+  const f = await brokerFixture();
+  try {
+    const ws = await openSocket(f.url(f.s.id, signer.sign(f.s.id)));
+    const closed = new Promise<CloseEvent>((r) => (ws.onclose = r));
+    ws.send(new Uint8Array([1, 2, 3]));
+    expect((await closed).code).toBe(1003);
+  } finally {
+    await f.server.stop(true);
+  }
 });

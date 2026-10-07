@@ -151,6 +151,12 @@ import { buildUsageTimeline } from "./usage-timeline";
 import { isApiKeyMode } from "./spawn-auth";
 import { detectDevCommand } from "./preview";
 import {
+  gateBrowserAttach,
+  isBrowserAttachPath,
+  makeBrowserBrokerHandlers,
+  type BrowserWsData,
+} from "./browser-broker";
+import {
   ensurePreviewStartScript,
   findPreviewDevPort,
   previewScriptExists,
@@ -415,7 +421,9 @@ export interface AppDeps {
   /** environment-readiness diagnostics (issue #623); absent in tests that don't wire it. */
   diagnostics?: Pick<DiagnosticsService, "current" | "check" | "fix">;
   /** Shared Browser lifecycle (ADR 0001); absent in tests that don't exercise Browser Attach. */
-  sharedBrowser?: import("./shared-browser").SharedBrowserManager;
+  sharedBrowser?: Pick<import("./shared-browser").SharedBrowserManager, "attach" | "open" | "stop">;
+  /** Browser Attach token signer (ADR 0001); absent → the broker refuses every attach. */
+  browserToken?: Pick<import("./browser-token").BrowserTokenSigner, "verify">;
   /** GitHub-star nudge: tracks first-use + the operator's choice, stars the repo
    *  via gh. Absent in tests that don't exercise it. */
   starPrompt?: {
@@ -9438,6 +9446,7 @@ const AGENT_LEAF_ROUTES = new Map<string, readonly string[]>([
   ["queue", ["PUT", "GET"]],
   ["epic-draft", ["PUT", "GET"]],
   ["rename", ["POST"]],
+  ["browser", ["GET"]],
 ]);
 
 /**
@@ -9500,7 +9509,25 @@ export function makeAgentIngressApp(deps: AppDeps) {
  *  (fail-fast). Returns the Bun server (read `.port` — the actually-bound port). */
 export function serveAgentIngress(deps: AppDeps, port = 0) {
   const app = makeAgentIngressApp(deps);
-  return Bun.serve({ port, hostname: "127.0.0.1", fetch: (req) => app.fetch(req) });
+  return Bun.serve<BrowserWsData>({
+    port,
+    hostname: "127.0.0.1",
+    fetch(req, server) {
+      const url = new URL(req.url);
+      const parts = url.pathname.split("/").filter(Boolean);
+      if (req.method === "GET" && isBrowserAttachPath(parts)) {
+        const gate = gateBrowserAttach(deps, parts[2]!, url.searchParams.get("token"));
+        if (!gate.ok) return gate.response;
+        if (req.headers.get("upgrade")?.toLowerCase() !== "websocket")
+          return json({ error: "websocket upgrade required" }, 426);
+        return server.upgrade(req, { data: gate.data })
+          ? undefined
+          : json({ error: "upgrade failed" }, 500);
+      }
+      return app.fetch(req);
+    },
+    websocket: makeBrowserBrokerHandlers(() => deps.sharedBrowser),
+  });
 }
 
 const terminalClientKinds = ["mac-app", "pwa", "browser", "unknown"] as const;

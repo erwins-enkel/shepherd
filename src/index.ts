@@ -1,5 +1,6 @@
 import { CodexAccountClient } from "./codex-account";
 import { SharedBrowserManager, reapOrphanBrowsers } from "./shared-browser";
+import { BrowserTokenSigner, loadOrCreateBrowserBrokerKey } from "./browser-token";
 import { CodexResetCoordinator } from "./codex-reset";
 import {
   CodexCapacityGate,
@@ -924,6 +925,15 @@ const sharedBrowser = new SharedBrowserManager({
   profileRoot: config.browserProfileRoot,
   chromiumBin: config.chromiumBin,
 });
+// Browser Attach token signer. A broken key file disables Browser Attach (no env injected, every
+// attach refused) instead of failing boot — regenerating it would revoke live agents' URLs.
+const browserToken = await loadOrCreateBrowserBrokerKey(config.browserBrokerKeyPath).then(
+  (key) => new BrowserTokenSigner(key),
+  (err: unknown) => {
+    console.error("[shared-browser] broker key unavailable; Browser Attach disabled:", err);
+    return undefined;
+  },
+);
 const codexReset = new CodexResetCoordinator({
   store,
   enabled: () => config.codexResetAutoEnabled,
@@ -3894,6 +3904,7 @@ deferredStarts.push(() => {
 const appDeps: AppDeps = {
   store,
   sharedBrowser,
+  browserToken,
   service,
   fingerprint: { ensureFresh: () => fingerprint.ensureFresh(), coversRepo: fingerprintCoversRepo },
   readCodexAuthMode,

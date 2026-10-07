@@ -5593,5 +5593,7 @@
   "viewport_browser_closed_cap": "Auf dem Host laufen zu viele geteilte Browser. Schließe einen und verbinde neu.",
   "viewport_browser_closed_stopped": "Der geteilte Browser wurde beendet.",
   "viewport_browser_reconnect": "Neu verbinden",
-  "viewport_browser_url_invalid": "Nur http(s)-Adressen können geöffnet werden."
+  "viewport_browser_url_invalid": "Nur http(s)-Adressen können geöffnet werden.",
+  "hold_login_request": "Bittet dich, dich bei {host} anzumelden.",
+  "hold_login_request_generic": "Bittet dich, dich im Shared Browser anzumelden."
 }

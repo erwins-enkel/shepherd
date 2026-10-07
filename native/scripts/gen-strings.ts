@@ -725,6 +725,8 @@ export const KEYS_HERD: readonly string[] = [
   "hold_halted_error",
   "hold_halted_usage",
   "hold_halted_usage_pending",
+  "hold_login_request",
+  "hold_login_request_generic",
   "hold_manual_steps",
   "hold_merge_rebasing",
   "hold_merging",

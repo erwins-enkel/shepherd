@@ -5593,5 +5593,7 @@
   "viewport_browser_closed_cap": "Too many shared browsers are running on the host. Close one, then reconnect.",
   "viewport_browser_closed_stopped": "The shared browser stopped.",
   "viewport_browser_reconnect": "Reconnect",
-  "viewport_browser_url_invalid": "Only http(s) addresses can be opened."
+  "viewport_browser_url_invalid": "Only http(s) addresses can be opened.",
+  "hold_login_request": "Wants you to log in at {host}.",
+  "hold_login_request_generic": "Wants you to log in in the Shared Browser."
 }

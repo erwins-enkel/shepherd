@@ -31,6 +31,7 @@ export interface PushPayload {
     | "onboarding_stale"
     | "landing_conflict"
     | "judge_ceiling"
+    | "login_request"
     // Settings → Notifications "send test message" (#2696); never produced by notify().
     | "test";
   tag: string;
@@ -63,6 +64,8 @@ const KIND_CATEGORY: Record<NotifyInput["kind"], PushCategory> = {
   landing_conflict: "ci",
   // Host-global spend alert (#2369); rides the "agent" toggle like usage_limit/extra_credits.
   judge_ceiling: "agent",
+  // An agent waiting on the operator's Handoff Login (#2882) — a needs-you, like blocked.
+  login_request: "agent",
 };
 
 /** A notification described by intent, not text — localized per device at send time. */
@@ -85,7 +88,8 @@ export interface NotifyInput {
     | "backup_stale"
     | "onboarding_stale"
     | "landing_conflict"
-    | "judge_ceiling";
+    | "judge_ceiling"
+    | "login_request";
   sessionId: string;
   tag: string;
   name: string;
@@ -127,6 +131,9 @@ export interface NotifyInput {
   /** For kind "judge_ceiling": USD spent today, and the ceiling that stopped further calls. */
   judgeSpentUsd?: number;
   judgeCeilingUsd?: number;
+  /** For kind "login_request": host of the page to log in on, and the agent's one-line reason. */
+  loginHost?: string;
+  loginReason?: string;
   /** Overrides the cooldown key (default `${kind}:${sessionId}`). */
   cooldownKey?: string;
 }
@@ -213,6 +220,11 @@ const NOTIFY_TEXT = {
     judgeCeilingTitle: "Judge daily limit reached",
     judgeCeilingBody: (spent: string, ceiling: string) =>
       `The stop classifier spent ${spent} of its ${ceiling} daily limit and is back on the agent spawn. Nothing is blocked.`,
+    loginRequestTitle: (name: string) => `${name} — log in for it`,
+    loginRequestBody: (host: string, reason: string) =>
+      host
+        ? `Log in at ${host} in the Shared Browser: ${reason}`
+        : `Log in in the Shared Browser: ${reason}`,
     testTitle: "Shepherd test message",
     testBody: "Push notifications reach this device.",
   },
@@ -279,6 +291,11 @@ const NOTIFY_TEXT = {
     judgeCeilingTitle: "Judge-Tageslimit erreicht",
     judgeCeilingBody: (spent: string, ceiling: string) =>
       `Der Stop-Klassifikator hat ${spent} von ${ceiling} Tagesbudget verbraucht und läuft wieder über den Agent-Spawn. Es ist nichts blockiert.`,
+    loginRequestTitle: (name: string) => `${name} — Anmeldung nötig`,
+    loginRequestBody: (host: string, reason: string) =>
+      host
+        ? `Melde dich im Shared Browser bei ${host} an: ${reason}`
+        : `Melde dich im Shared Browser an: ${reason}`,
     testTitle: "Shepherd-Testnachricht",
     testBody: "Push-Benachrichtigungen erreichen dieses Gerät.",
   },
@@ -400,6 +417,10 @@ const PARTS_BY_KIND: Partial<
   onboarding_stale: stalenessParts,
   landing_conflict: landingConflictParts,
   judge_ceiling: judgeCeilingParts,
+  login_request: (t, input) => ({
+    title: t.loginRequestTitle(input.name),
+    body: t.loginRequestBody(input.loginHost ?? "", input.loginReason ?? ""),
+  }),
 };
 
 /** Build the device-facing payload for a notification in the subscriber's locale. */
@@ -722,6 +743,9 @@ export function notifySessionDone(
   return push.notify({ kind: "done", sessionId: id, tag: id, name });
 }
 
+/** Push bodies get truncated by the OS anyway; keep the agent's reason to one line's worth. */
+const LOGIN_REASON_PUSH_CHARS = 160;
+
 /** Bridge F3 state events to push notifications. Both events are already edge-triggered. */
 export function attachPush(events: EventHub, store: SessionStore, push: PushService): void {
   events.subscribe((event, data) => {
@@ -734,6 +758,22 @@ export function attachPush(events: EventHub, store: SessionStore, push: PushServ
       if (!block) return;
       const name = store.get(id)?.name ?? id;
       void push.notify({ kind: "blocked", sessionId: id, tag: id, name, reason: block });
+    } else if (event === "session:login-request") {
+      const { id, request } = data as {
+        id: string;
+        request: { id: string; url: string; reason: string } | null;
+      };
+      if (!request) return;
+      void push.notify({
+        kind: "login_request",
+        sessionId: id,
+        tag: id,
+        name: store.get(id)?.name ?? id,
+        loginHost: URL.canParse(request.url) ? new URL(request.url).host : "",
+        loginReason: request.reason.slice(0, LOGIN_REASON_PUSH_CHARS),
+        // Per request: a fresh ask is never swallowed by the previous one's cooldown.
+        cooldownKey: `login_request:${request.id}`,
+      });
     }
   });
 }

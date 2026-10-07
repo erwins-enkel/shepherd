@@ -268,3 +268,17 @@ describe("param interpolation", () => {
     expect(result).toContain("12");
   });
 });
+
+describe("login-request copy (#2882)", () => {
+  it("names the host, with a fallback", () => {
+    expect(renderHold({ code: "login-request", params: { host: "a.example" } }, "en")).toBe(
+      "Wants you to log in at a.example.",
+    );
+    expect(renderHold({ code: "login-request" }, "en")).toBe(
+      "Wants you to log in in the Shared Browser.",
+    );
+    expect(renderHold({ code: "login-request", params: { host: "a.example" } }, "de")).toBe(
+      "Bittet dich, dich bei a.example anzumelden.",
+    );
+  });
+});

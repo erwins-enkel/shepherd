@@ -122,3 +122,10 @@ it("opens a structured explanation with a readable hover bridge and Escape dismi
   await vi.waitFor(() => expect(tip.matches(":popover-open")).toBe(true));
   expect(trigger.getAttribute("title")).toBeNull();
 });
+
+it("announces the actionable count when focusing the band disclosure", async () => {
+  await render(IntegratedEpicsBand, { ...handlers, epics: [epic(1, { landingState: "none" })] });
+  await expect
+    .element(page.getByRole("button", { name: "Epics to land (1)", exact: true }))
+    .toHaveAccessibleDescription("1 waiting on you");
+});

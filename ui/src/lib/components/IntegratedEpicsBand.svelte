@@ -22,6 +22,7 @@
     onland: (repoPath: string, parent: number) => void;
     onresolveconflicts?: (repoPath: string, parent: number) => void;
   } = $props();
+  const waitingCountId = $props.id();
   const ranked = $derived(
     epics
       .map((epic) => ({ epic, status: deriveIntegratedEpicStatus(epic) }))
@@ -39,11 +40,12 @@
       class="band-head"
       aria-label={m.integrated_epics_band_title({ count })}
       aria-expanded={!closed}
+      aria-describedby={waiting > 0 ? waitingCountId : undefined}
       onclick={() => (collapsed = !closed)}
     >
       <span class="chev" class:collapsed={closed} aria-hidden="true">▾</span>
       <span class="label">{m.integrated_epics_band_title({ count })}</span>
-      {#if waiting > 0}<span class="waiting-count"
+      {#if waiting > 0}<span class="waiting-count" id={waitingCountId}
           >{m.integrated_epics_waiting_on_you({ count: waiting })}</span
         >{/if}
     </button>

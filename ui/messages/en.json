@@ -5440,7 +5440,7 @@
   "integrated_epics_status_ci_failed": "CI failed",
   "integrated_epics_status_conflicts": "Conflicts",
   "integrated_epics_status_paused": "Rebase paused",
-  "integrated_epics_status_none": "No landing PR",
+  "integrated_epics_status_none": "No open landing PR",
   "integrated_epics_status_ready": "Merge-ready",
   "integrated_epics_status_merged": "Merged",
   "integrated_epics_status_error": "Opening failed",

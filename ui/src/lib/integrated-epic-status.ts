@@ -24,25 +24,45 @@ export interface IntegratedEpicStatus {
   repairKind: "conflicts" | "ci" | null;
 }
 
+const NON_OPEN_SITUATION = {
+  pending: "preparing",
+  none: "nothing-to-land",
+  merged: "landed",
+  error: "error",
+} as const;
+
+const SITUATION_TURN: Record<IntegratedEpicSituation, IntegratedEpicStatus["turn"]> = {
+  preparing: "nothing-to-do",
+  checking: "nothing-to-do",
+  repairing: "nothing-to-do",
+  "ci-failed": "your-turn",
+  conflicts: "your-turn",
+  "nothing-to-land": "your-turn",
+  error: "your-turn",
+  "not-ready": "your-turn",
+  ready: "ready",
+  confirming: "ready",
+  landed: "done",
+};
+const TURN_POLICY: Record<
+  IntegratedEpicStatus["turn"],
+  Pick<IntegratedEpicStatus, "tone" | "sortOrder" | "needsOperator" | "canLand">
+> = {
+  "nothing-to-do": { tone: "quiet", sortOrder: 2, needsOperator: false, canLand: false },
+  "your-turn": { tone: "warn", sortOrder: 1, needsOperator: true, canLand: false },
+  ready: { tone: "ready", sortOrder: 0, needsOperator: true, canLand: true },
+  done: { tone: "quiet", sortOrder: 3, needsOperator: false, canLand: false },
+};
+
 function landingSituation(epic: CompletedEpic, confirming: boolean): IntegratedEpicSituation {
-  switch (epic.landingState) {
-    case "pending":
-      return "preparing";
-    case "none":
-      return "nothing-to-land";
-    case "merged":
-      return "landed";
-    case "error":
-      return "error";
-    case "open":
-      if (epic.landingRepairing) return "repairing";
-      if (epic.landingRebasePauseReason || epic.landingMergeable === false) return "conflicts";
-      if (epic.landingChecks === "failure") return "ci-failed";
-      if (epic.landingReady === true && epic.landingPrNumber != null)
-        return confirming ? "confirming" : "ready";
-      if (epic.landingChecks === "success" && epic.landingMergeable === true) return "not-ready";
-      return "checking";
-  }
+  if (epic.landingState !== "open") return NON_OPEN_SITUATION[epic.landingState];
+  if (epic.landingRepairing) return "repairing";
+  if (epic.landingRebasePauseReason || epic.landingMergeable === false) return "conflicts";
+  if (epic.landingChecks === "failure") return "ci-failed";
+  if (epic.landingReady === true && epic.landingPrNumber != null)
+    return confirming ? "confirming" : "ready";
+  if (epic.landingChecks === "success" && epic.landingMergeable === true) return "not-ready";
+  return "checking";
 }
 
 /** Shared display decision for the card, band order and Herd placement. The server owns merge readiness. */
@@ -51,16 +71,11 @@ export function deriveIntegratedEpicStatus(
   confirming = false,
 ): IntegratedEpicStatus {
   const situation = landingSituation(epic, confirming);
-  const ready = situation === "ready" || situation === "confirming";
-  const done = situation === "landed";
-  const quiet = situation === "preparing" || situation === "checking" || situation === "repairing";
+  const turn = SITUATION_TURN[situation];
   return {
     situation,
-    turn: ready ? "ready" : done ? "done" : quiet ? "nothing-to-do" : "your-turn",
-    tone: ready ? "ready" : done || quiet ? "quiet" : "warn",
-    sortOrder: ready ? 0 : done ? 3 : quiet ? 2 : 1,
-    needsOperator: ready || (!done && !quiet),
-    canLand: ready,
+    turn,
+    ...TURN_POLICY[turn],
     canResolveConflicts:
       epic.landingState === "open" &&
       !epic.landingRepairing &&

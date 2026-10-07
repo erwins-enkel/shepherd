@@ -55,120 +55,108 @@
   });
   const copy = $derived.by(() => {
     const number = epic.landingPrNumber;
-    switch (status.situation) {
-      case "preparing":
-        return {
-          heading: m.integrated_epics_heading_preparing(),
-          body: m.integrated_epics_body_preparing(),
-          label: m.integrated_epics_status_preparing(),
-          reason: "",
-        };
-      case "checking":
-        return {
-          heading:
-            checking && number != null
-              ? m.integrated_epics_heading_checking({ number })
-              : m.integrated_epics_heading_unknown(),
-          body: checking ? m.integrated_epics_body_checking() : m.integrated_epics_body_unknown(),
-          label: checking
-            ? m.integrated_epics_status_checking()
-            : m.integrated_epics_status_unknown(),
-          reason: checking
-            ? m.integrated_epics_land_not_ready_computing()
-            : m.integrated_epics_land_not_ready_generic(),
-        };
-      case "repairing":
-        return {
-          heading:
-            status.repairKind === "conflicts"
-              ? m.integrated_epics_heading_repairing_conflicts()
-              : m.integrated_epics_heading_repairing_ci(),
-          body:
-            status.repairKind === "conflicts"
-              ? m.integrated_epics_body_repairing_conflicts()
-              : m.integrated_epics_body_repairing_ci(),
-          label: m.integrated_epics_status_repairing(),
-          reason: m.integrated_epics_land_not_ready_repairing(),
-        };
-      case "ci-failed":
-        return {
-          heading:
-            number != null
-              ? m.integrated_epics_heading_ci_failed({ number })
-              : m.integrated_epics_heading_ci_failed_nonum(),
-          body: m.integrated_epics_body_ci_failed(),
-          label: m.integrated_epics_status_ci_failed(),
-          reason: m.integrated_epics_land_not_ready_ci_failing(),
-        };
-      case "conflicts":
-        return {
-          heading:
-            paused ??
-            (number != null
-              ? m.integrated_epics_heading_conflicts({ number })
-              : m.integrated_epics_heading_conflicts_nonum()),
-          body: status.canResolveConflicts
-            ? m.integrated_epics_body_conflicts()
-            : m.integrated_epics_body_paused(),
-          label: paused
-            ? m.integrated_epics_status_paused()
-            : m.integrated_epics_status_conflicts(),
-          reason: status.canResolveConflicts
-            ? m.integrated_epics_land_not_ready_conflicts()
-            : m.integrated_epics_land_not_ready_generic(),
-        };
-      case "nothing-to-land":
-        return {
-          heading: m.integrated_epics_heading_none(),
-          body:
-            included === 0
-              ? m.integrated_epics_body_nothing_merged({ number: epic.parentIssueNumber })
-              : m.integrated_epics_body_nothing_left(),
-          label: m.integrated_epics_status_none(),
-          reason: "",
-        };
-      case "ready":
-        return {
-          heading: m.integrated_epics_heading_ready(),
-          body: m.integrated_epics_body_ready({ pr: number!, number: epic.parentIssueNumber }),
-          label: m.integrated_epics_status_ready(),
-          reason: "",
-        };
-      case "confirming":
-        return {
-          heading: m.integrated_epics_land_confirm_prompt({ number: number! }),
-          body: m.integrated_epics_land_confirm_body({
-            count: included,
-            number: epic.parentIssueNumber,
-          }),
-          label: m.integrated_epics_status_ready(),
-          reason: "",
-        };
-      case "landed":
-        return {
-          heading: m.integrated_epics_path_landed(),
-          body:
-            number != null
-              ? m.integrated_epics_body_landed({ pr: number, number: epic.parentIssueNumber })
-              : m.integrated_epics_body_landed_nonum(),
-          label: m.integrated_epics_status_merged(),
-          reason: "",
-        };
-      case "error":
-        return {
-          heading: m.integrated_epics_landing_failed(),
-          body: m.integrated_epics_body_error(),
-          label: m.integrated_epics_status_error(),
-          reason: "",
-        };
-      case "not-ready":
-        return {
-          heading: m.integrated_epics_heading_not_ready(),
-          body: m.integrated_epics_body_not_ready(),
-          label: m.integrated_epics_status_not_ready(),
-          reason: m.integrated_epics_land_not_ready_generic(),
-        };
-    }
+    const bySituation = {
+      preparing: () => ({
+        heading: m.integrated_epics_heading_preparing(),
+        body: m.integrated_epics_body_preparing(),
+        label: m.integrated_epics_status_preparing(),
+        reason: "",
+      }),
+      checking: () => ({
+        heading:
+          checking && number != null
+            ? m.integrated_epics_heading_checking({ number })
+            : m.integrated_epics_heading_unknown(),
+        body: checking ? m.integrated_epics_body_checking() : m.integrated_epics_body_unknown(),
+        label: checking
+          ? m.integrated_epics_status_checking()
+          : m.integrated_epics_status_unknown(),
+        reason: checking
+          ? m.integrated_epics_land_not_ready_computing()
+          : m.integrated_epics_land_not_ready_generic(),
+      }),
+      repairing: () => ({
+        heading:
+          status.repairKind === "conflicts"
+            ? m.integrated_epics_heading_repairing_conflicts()
+            : m.integrated_epics_heading_repairing_ci(),
+        body:
+          status.repairKind === "conflicts"
+            ? m.integrated_epics_body_repairing_conflicts()
+            : m.integrated_epics_body_repairing_ci(),
+        label: m.integrated_epics_status_repairing(),
+        reason: m.integrated_epics_land_not_ready_repairing(),
+      }),
+      "ci-failed": () => ({
+        heading:
+          number != null
+            ? m.integrated_epics_heading_ci_failed({ number })
+            : m.integrated_epics_heading_ci_failed_nonum(),
+        body: m.integrated_epics_body_ci_failed(),
+        label: m.integrated_epics_status_ci_failed(),
+        reason: m.integrated_epics_land_not_ready_ci_failing(),
+      }),
+      conflicts: () => ({
+        heading:
+          paused ??
+          (number != null
+            ? m.integrated_epics_heading_conflicts({ number })
+            : m.integrated_epics_heading_conflicts_nonum()),
+        body: status.canResolveConflicts
+          ? m.integrated_epics_body_conflicts()
+          : m.integrated_epics_body_paused(),
+        label: paused ? m.integrated_epics_status_paused() : m.integrated_epics_status_conflicts(),
+        reason: status.canResolveConflicts
+          ? m.integrated_epics_land_not_ready_conflicts()
+          : m.integrated_epics_land_not_ready_generic(),
+      }),
+      "nothing-to-land": () => ({
+        heading: m.integrated_epics_heading_none(),
+        body:
+          included === 0
+            ? m.integrated_epics_body_nothing_merged({ number: epic.parentIssueNumber })
+            : m.integrated_epics_body_nothing_left(),
+        label: m.integrated_epics_status_none(),
+        reason: "",
+      }),
+      ready: () => ({
+        heading: m.integrated_epics_heading_ready(),
+        body: m.integrated_epics_body_ready({ pr: number!, number: epic.parentIssueNumber }),
+        label: m.integrated_epics_status_ready(),
+        reason: "",
+      }),
+      confirming: () => ({
+        heading: m.integrated_epics_land_confirm_prompt({ number: number! }),
+        body: m.integrated_epics_land_confirm_body({
+          count: included,
+          number: epic.parentIssueNumber,
+        }),
+        label: m.integrated_epics_status_ready(),
+        reason: "",
+      }),
+      landed: () => ({
+        heading: m.integrated_epics_path_landed(),
+        body:
+          number != null
+            ? m.integrated_epics_body_landed({ pr: number, number: epic.parentIssueNumber })
+            : m.integrated_epics_body_landed_nonum(),
+        label: m.integrated_epics_status_merged(),
+        reason: "",
+      }),
+      error: () => ({
+        heading: m.integrated_epics_landing_failed(),
+        body: m.integrated_epics_body_error(),
+        label: m.integrated_epics_status_error(),
+        reason: "",
+      }),
+      "not-ready": () => ({
+        heading: m.integrated_epics_heading_not_ready(),
+        body: m.integrated_epics_body_not_ready(),
+        label: m.integrated_epics_status_not_ready(),
+        reason: m.integrated_epics_land_not_ready_generic(),
+      }),
+    };
+    return bySituation[status.situation]();
   });
   const landingMarker = $derived(
     status.canLand

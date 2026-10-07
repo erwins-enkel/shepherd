@@ -11,7 +11,8 @@ import {
 import { config } from "../src/config";
 import { BrowserTokenSigner } from "../src/browser-token";
 import type { CdpClient, CdpPipeClient } from "../src/cdp-pipe";
-import { SharedBrowserError } from "../src/shared-browser";
+import { SharedBrowserError, type BrowserConfinement } from "../src/shared-browser";
+import { autonomousOriginPolicy } from "../src/browser-broker";
 
 // A representative per-session UUID — the de-facto capability segment the agent only knows
 // for its own session.
@@ -598,12 +599,18 @@ interface FakeAttach {
   received: string[];
   detached: number;
   fail?: Error;
+  confines: (BrowserConfinement | undefined)[];
 }
 
 function fakeSharedBrowser(state: FakeAttach) {
   return {
-    attach: async (repoPath: string, sink: CdpClient): Promise<CdpPipeClient> => {
+    attach: async (
+      repoPath: string,
+      sink: CdpClient,
+      confine?: BrowserConfinement,
+    ): Promise<CdpPipeClient> => {
       state.repos.push(repoPath);
+      state.confines.push(confine);
       // Resolve on a later tick so messages sent right after `open` exercise the pre-attach buffer.
       await new Promise((r) => setTimeout(r, 20));
       if (state.fail) throw state.fail;
@@ -626,7 +633,13 @@ function fakeSharedBrowser(state: FakeAttach) {
 
 async function brokerFixture(opts: { enabled?: boolean; fail?: Error } = {}) {
   const deps = makeDeps();
-  const state: FakeAttach = { repos: [], received: [], detached: 0, fail: opts.fail };
+  const state: FakeAttach = {
+    repos: [],
+    received: [],
+    detached: 0,
+    fail: opts.fail,
+    confines: [],
+  };
   deps.sharedBrowser = fakeSharedBrowser(state);
   deps.browserToken = signer;
   const s = await deps.service.create({
@@ -701,11 +714,45 @@ test("browser broker: 403 when the repo has not opted in", async () => {
   }
 });
 
-test("browser broker: 403 for an autonomous session (no attach before its egress guard exists)", async () => {
+test("browser broker: an autonomous session attaches confined to the repo's origin allowlist", async () => {
   const f = await brokerFixture();
   try {
     f.deps.store.setSandboxState(f.s.id, { applied: "autonomous" });
-    expect(await f.httpStatus(f.s.id, signer.sign(f.s.id))).toBe(403);
+    f.deps.store.setRepoConfig("/repo", {
+      ...f.deps.store.getRepoConfig("/repo"),
+      browserAllowedHosts: ["app.example.com"],
+    });
+    const ws = await openSocket(f.url(f.s.id, signer.sign(f.s.id)));
+    await until(() => f.state.confines.length === 1);
+    const policy = f.state.confines[0]!.policy;
+    expect(policy.allowedHosts()).toEqual(["app.example.com"]);
+    expect(policy.previewPort()).toBeNull();
+    ws.close();
+  } finally {
+    await f.server.stop(true);
+  }
+});
+
+test("browser broker: trusted/standard attaches are never confined", async () => {
+  const f = await brokerFixture();
+  try {
+    const ws = await openSocket(f.url(f.s.id, signer.sign(f.s.id)));
+    await until(() => f.state.confines.length === 1);
+    expect(f.state.confines[0]).toBeUndefined();
+    ws.close();
+  } finally {
+    await f.server.stop(true);
+  }
+});
+
+test("browser broker: a confined attach without a login closes with 1008 no-login", async () => {
+  const f = await brokerFixture({ fail: new SharedBrowserError("no-login", "none") });
+  try {
+    f.deps.store.setSandboxState(f.s.id, { applied: "autonomous" });
+    const ws = await openSocket(f.url(f.s.id, signer.sign(f.s.id)));
+    const closed = await new Promise<CloseEvent>((r) => (ws.onclose = r));
+    expect(closed.code).toBe(1008);
+    expect(closed.reason).toStartWith("no-login");
   } finally {
     await f.server.stop(true);
   }
@@ -765,4 +812,25 @@ test("browser broker: a binary frame closes the socket with 1003", async () => {
   } finally {
     await f.server.stop(true);
   }
+});
+
+test("autonomousOriginPolicy: the session's in-range Preview port, never a Shepherd relay", () => {
+  const store = {
+    getRepoConfig: () => ({ browserAllowedHosts: ["a.example.com"] }),
+  } as unknown as Parameters<typeof autonomousOriginPolicy>[0]["store"];
+  let devPort: number | null = 5173;
+  const previewPort = config.previewPortBase;
+  const preview = {
+    snapshot: () => ({ s1: { previewPort }, s2: { previewPort: previewPort + 1 } }),
+    devPortFor: () => devPort,
+  };
+  const p = autonomousOriginPolicy({ store, preview }, "s1", "/repo");
+  expect(p.allowedHosts()).toEqual(["a.example.com"]);
+  expect(p.previewPort()).toBe(previewPort);
+  devPort = config.port;
+  expect(p.previewPort()).toBeNull();
+  devPort = config.agentIngressPort;
+  expect(p.previewPort()).toBeNull();
+  expect(autonomousOriginPolicy({ store, preview }, "s3", "/repo").previewPort()).toBeNull();
+  expect(autonomousOriginPolicy({ store }, "s1", "/repo").previewPort()).toBeNull();
 });

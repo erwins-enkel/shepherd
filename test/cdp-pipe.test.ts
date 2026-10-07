@@ -636,3 +636,136 @@ test("cdp pipe: a tab navigating to chrome:// loses its agent sessions", async (
   expect(fake.received).toHaveLength(before);
   expect(a.sink.byId(2)!.error.code).toBe(-32001);
 });
+
+// ── confined clients (#2883) ─────────────────────────────────────────────────
+
+/** A browser with two default-context tabs (T1, T2) and one tab (O1) in context "CTX". */
+function confinedBrowser(): FakeBrowser {
+  const fake = new FakeBrowser();
+  for (const t of fake.targets) Object.assign(t, { browserContextId: "DEFAULT" });
+  fake.targets.push({
+    targetId: "O1",
+    type: "page",
+    url: "about:blank",
+    browserContextId: "CTX",
+  } as (typeof fake.targets)[number]);
+  // Root discovery already ran in the constructor: replay it with the contexts set.
+  for (const t of fake.targets) fake.emit(undefined, "Target.targetInfoChanged", { targetInfo: t });
+  fake.flush();
+  return fake;
+}
+
+async function confined(fake: FakeBrowser) {
+  const sink = new FakeClient();
+  const handle = fake.pipe.addClient(sink, { contextId: "CTX" });
+  fake.flush();
+  await handle.ready;
+  const send = (msg: Msg) => {
+    handle.receive(JSON.stringify(msg));
+    fake.flush();
+  };
+  return { sink, handle, send };
+}
+
+test("cdp pipe confined: getTargets lists only the client's own context", async () => {
+  const fake = confinedBrowser();
+  const c = await confined(fake);
+  c.send({ id: 1, method: "Target.getTargets" });
+  expect(c.sink.byId(1)!.result.targetInfos.map((t: Msg) => t.targetId)).toEqual(["O1"]);
+  const u = await attached(fake);
+  u.send({ id: 1, method: "Target.getTargets" });
+  expect(u.sink.byId(1)!.result.targetInfos).toHaveLength(3);
+});
+
+test("cdp pipe confined: createTarget and cookie calls are forced into the own context", async () => {
+  const fake = confinedBrowser();
+  const c = await confined(fake);
+  c.send({ id: 1, method: "Target.createTarget", params: { url: "about:blank" } });
+  c.send({
+    id: 2,
+    method: "Target.createTarget",
+    params: { url: "about:blank", browserContextId: "DEFAULT" },
+  });
+  c.send({ id: 3, method: "Storage.getCookies", params: {} });
+  c.send({ id: 4, method: "Storage.setCookies", params: { cookies: [], browserContextId: "X" } });
+  const sent = fake.received.filter((m) =>
+    ["Target.createTarget", "Storage.getCookies", "Storage.setCookies"].includes(m.method),
+  );
+  expect(sent).toHaveLength(4);
+  for (const m of sent) expect(m.params.browserContextId).toBe("CTX");
+});
+
+test("cdp pipe confined: foreign targets cannot be attached, activated or closed", async () => {
+  const fake = confinedBrowser();
+  const c = await confined(fake);
+  let id = 0;
+  for (const method of ["Target.attachToTarget", "Target.activateTarget", "Target.closeTarget"]) {
+    const before = fake.received.length;
+    c.send({ id: ++id, method, params: { targetId: "T1", flatten: true } });
+    expect(fake.received).toHaveLength(before);
+    expect(c.sink.byId(id)!.error.code).toBe(-32000);
+  }
+  c.send({ id: 9, method: "Target.attachToTarget", params: { targetId: "O1", flatten: true } });
+  expect(c.sink.byId(9)!.result.sessionId).toBeString();
+});
+
+test("cdp pipe confined: context escapes and browser-wide domains are refused", async () => {
+  const fake = confinedBrowser();
+  const c = await confined(fake);
+  const refused = [
+    { method: "Target.createBrowserContext", params: {} },
+    { method: "Target.disposeBrowserContext", params: { browserContextId: "DEFAULT" } },
+    { method: "Target.attachToBrowserTarget", params: {} },
+    { method: "Fetch.enable", params: { patterns: [{ urlPattern: "*" }] } },
+    { method: "Storage.clearDataForOrigin", params: { origin: "http://localhost:7330" } },
+    { method: "Network.enable", params: {} },
+  ];
+  let id = 0;
+  for (const m of refused) {
+    const before = fake.received.length;
+    c.send({ id: ++id, ...m });
+    expect(fake.received).toHaveLength(before);
+    expect(c.sink.byId(id)!.error.code).toBe(-32000);
+  }
+  // Page-level domains still work on an own child session.
+  c.send({ id: 20, method: "Target.attachToTarget", params: { targetId: "O1", flatten: true } });
+  const child = c.sink.byId(20)!.result.sessionId as string;
+  c.send({ id: 21, method: "Fetch.enable", params: {}, sessionId: child });
+  expect(c.sink.byId(21)!.result).toBeDefined();
+});
+
+test("cdp pipe confined: auto-attach and discovery hide other contexts", async () => {
+  const fake = confinedBrowser();
+  const c = await confined(fake);
+  c.send({ id: 1, method: "Target.setAutoAttach", params: { autoAttach: true, flatten: true } });
+  fake.flush();
+  const shown = c.sink.events("Target.attachedToTarget").map((e) => e.params.targetInfo.targetId);
+  expect(shown).toEqual(["O1"]);
+  expect(c.sink.events("Target.detachedFromTarget")).toHaveLength(0);
+  expect(
+    [...fake.sessions.values()].filter((s) => s.kind === "page").map((s) => s.targetId),
+  ).toEqual(["O1"]);
+  const browserSession = fake.received.find((m) => m.method === "Target.setAutoAttach")!.sessionId;
+  fake.emit(browserSession, "Target.targetCreated", { targetInfo: fake.targets[0] });
+  fake.emit(browserSession, "Target.targetCreated", { targetInfo: fake.targets[2] });
+  fake.emit(browserSession, "Target.targetDestroyed", { targetId: "T1" });
+  fake.emit(browserSession, "Target.targetDestroyed", { targetId: "O1" });
+  fake.flush();
+  expect(c.sink.events("Target.targetCreated").map((e) => e.params.targetInfo.targetId)).toEqual([
+    "O1",
+  ]);
+  expect(c.sink.events("Target.targetDestroyed").map((e) => e.params.targetId)).toEqual(["O1"]);
+});
+
+test("cdp pipe: call() resolves results, rejects errors and rejects on close", async () => {
+  const fake = new FakeBrowser();
+  const ok = fake.pipe.call("Target.attachToBrowserTarget");
+  const bad = fake.pipe.call("Browser.close");
+  fake.flush();
+  expect((await ok).sessionId).toBeString();
+  expect(bad).rejects.toThrow("not allowed on root");
+  const pending = fake.pipe.call("Target.setDiscoverTargets", { discover: true });
+  fake.pipe.close("gone");
+  expect(pending).rejects.toThrow("gone");
+  expect(fake.pipe.call("Target.getTargets")).rejects.toThrow("browser closed");
+});

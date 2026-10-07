@@ -45,6 +45,21 @@ Point the tab at the app's **real dev origin**, `http://localhost:<port>`: the p
 `.shepherd-preview` or the one your dev server printed. OAuth callbacks are registered for that
 port, so the Shepherd preview slot URL breaks login flows.
 
+## Autonomous sessions
+
+An autonomous session gets a **confined** attach: its own browser window, separate from the
+operator's tabs, which it cannot see. That window reaches only:
+
+- the hosts in this repo's `browserAllowedHosts` (ports 80/443);
+- this session's own Shepherd Preview, at `http://localhost:<previewPort>`. Use the preview port,
+  not the raw dev port, which is refused.
+
+Everything else fails with `net::ERR_SOCKS_CONNECTION_FAILED`. Do not retry it; tell the operator
+which host you needed.
+
+The window starts with only the operator's logins for those hosts. Logins you create there are
+dropped when you disconnect.
+
 ## Etiquette
 
 This is the operator's real browser, shared with every session on this repo. Treat it as a guest:
@@ -69,5 +84,8 @@ contents out of output, logs, files and PR text.
 
 - Connection closed with code `1013` or a "cap" reason: too many Shared Browsers are open on the
   host. Tell the operator; retry after they close one.
+- Connection closed with code `1008` and reason `no-login` (autonomous only): the profile holds
+  no login for an allowlisted host. You cannot wait for one. Stop and tell the operator to log in
+  via **Open shared browser** and, if needed, add the host to `browserAllowedHosts`.
 - HTTP `403`: the Shared Browser is disabled for this repo. Tell the operator; they can enable it
   in the repo settings.

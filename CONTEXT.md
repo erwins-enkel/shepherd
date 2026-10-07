@@ -26,6 +26,14 @@ _Avoid_: auth prompt, login steer
 A session's scoped, revocable right to drive its repo's Shared Browser, granted and brokered by Shepherd.
 _Avoid_: CDP connection, debug port
 
+**Browser Origin Allowlist**:
+The per-repo hosts an autonomous session's Browser Attach may reach, plus that session's own Preview origin; everything else is refused.
+_Avoid_: browser egress list, allowed origins
+
+**Confined Attach**:
+An autonomous session's Browser Attach, limited to its own browser context behind the Browser Origin Allowlist and seeded only with logins for allowed hosts.
+_Avoid_: sandboxed browser, restricted attach
+
 **Browser View**:
 The operator's live, interactive picture of the Shared Browser inside the HUD.
 _Avoid_: screencast, remote desktop, VNC

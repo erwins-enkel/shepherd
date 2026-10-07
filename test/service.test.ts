@@ -4889,6 +4889,7 @@ test("create omits house rules when learnings disabled for the repo", async () =
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
   });
   const captured: { argv?: string[] } = {};
@@ -4952,6 +4953,7 @@ test("create seeds the autopilot directive when the repo has autopilot on", asyn
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
   });
   const captured: { argv?: string[] } = {};
@@ -5931,6 +5933,7 @@ function buildQueueDeps(
       preWarmEpicLandingCi: false,
       epicStacksEnabled: false,
       sharedBrowserEnabled: false,
+      browserAllowedHosts: [],
       hidden: false,
       ...repoConfig,
     });
@@ -8246,6 +8249,7 @@ test("create research under autonomous: downgrades to standard (sandboxApplied=s
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
   });
   const captured: { argv?: string[] } = {};
@@ -8295,6 +8299,7 @@ test("create NON-research under autonomous: stays autonomous (no downgrade)", as
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
   });
   const captured: { argv?: string[] } = {};
@@ -8744,6 +8749,7 @@ function browserStore(enabled: boolean, sandboxProfile: SandboxProfile = "truste
   store.setRepoConfig("/repo", {
     ...store.getRepoConfig("/repo"),
     sharedBrowserEnabled: enabled,
+    browserAllowedHosts: [],
     sandboxProfile,
   });
   return store;
@@ -8882,12 +8888,35 @@ test("browser attach env: absent when the repo has not opted in", async () => {
   }
 });
 
-test("browser attach env: autonomous on an enabled repo gets no file, env or bind", async () => {
+test("browser attach env: autonomous → confined attach URL via the slirp ingress gateway", async () => {
   const record: { argv?: string[]; env?: Record<string, string> } = {};
   const { service, root, dir } = browserService(browserStore(true, "autonomous"), record, {
     detectBackend: () => "bwrap",
     detectEgressBackend: () => "slirp4netns",
     detectEgressHostLoopback: () => true,
+  });
+  try {
+    const s = await createInRepo(service);
+    const path = join(dir, `${s.id}.json`);
+    expect(setenvValue(record.argv, BROWSER_CONFIG_ENV)).toBe(path);
+    expect(bindsInto(record.argv, dir)).toEqual([["--ro-bind", path, path]]);
+    const cfg = JSON.parse(await readFileAsync(path, "utf8")) as { cdp: string };
+    const url = new URL(cfg.cdp);
+    expect(`${url.origin}${url.pathname}`).toBe(`ws://10.0.2.2:7331/api/sessions/${s.id}/browser`);
+    expect(browserSigner.verify(s.id, url.searchParams.get("token"))).toBe(true);
+    expect(visibleArgv(record)).not.toContain(url.searchParams.get("token")!);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(shepherdRuntimeDir("egress"), { recursive: true, force: true });
+  }
+});
+
+test("browser attach env: autonomous without a reachable ingress gets no file, env or bind", async () => {
+  const record: { argv?: string[]; env?: Record<string, string> } = {};
+  const { service, root, dir } = browserService(browserStore(true, "autonomous"), record, {
+    detectBackend: () => "bwrap",
+    detectEgressBackend: () => "slirp4netns",
+    detectEgressHostLoopback: () => false,
   });
   try {
     await createInRepo(service);

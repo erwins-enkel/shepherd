@@ -17,9 +17,12 @@ import { constants } from "node:fs";
 import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { basename, delimiter, isAbsolute, join } from "node:path";
 import type { Readable, Writable } from "node:stream";
-import { CdpPipe, type CdpClient, type CdpPipeClient } from "./cdp-pipe";
+import { BrowserEgressProxy } from "./browser-egress-proxy";
+import { cookieMatchesHosts, type OriginPolicy } from "./browser-origin-policy";
+import { CdpPipe, type CdpClient, type CdpClientOptions, type CdpPipeClient } from "./cdp-pipe";
+import { SESSION_COOKIE } from "./operator-auth";
 
-export type SharedBrowserErrorCode = "missing-binary" | "cap" | "launch-failed";
+export type SharedBrowserErrorCode = "missing-binary" | "cap" | "launch-failed" | "no-login";
 
 export class SharedBrowserError extends Error {
   readonly code: SharedBrowserErrorCode;
@@ -54,6 +57,24 @@ export interface SharedBrowserDeps {
   setTimeout?: (fn: () => void, ms: number) => unknown;
   clearTimeout?: (handle: unknown) => void;
   log?: (msg: string) => void;
+  /** Starts a confined attach's egress proxy (seam); default `BrowserEgressProxy.start`. */
+  startProxy?: (policy: OriginPolicy) => Promise<EgressProxy>;
+}
+
+/** What a confined attach needs from its egress proxy. */
+export interface EgressProxy {
+  /** `proxyServer` for `Target.createBrowserContext`. */
+  readonly url: string;
+  close(): void;
+}
+
+/**
+ * A confined Browser Attach (#2883, autonomous sessions): the client gets its own browser context
+ * whose every connection goes through an egress proxy enforcing `policy`, seeded with only the
+ * default context's cookies for allowed hosts.
+ */
+export interface BrowserConfinement {
+  policy: OriginPolicy;
 }
 
 const DEFAULT_IDLE_MS = 15 * 60 * 1000;
@@ -247,6 +268,7 @@ export class SharedBrowserManager {
   readonly #setTimeout: (fn: () => void, ms: number) => unknown;
   readonly #clearTimeout: (handle: unknown) => void;
   readonly #log: (msg: string) => void;
+  readonly #startProxy: (policy: OriginPolicy) => Promise<EgressProxy>;
   readonly #entries = new Map<string, Entry>();
   readonly #starting = new Map<string, Starting>();
   /**
@@ -270,6 +292,7 @@ export class SharedBrowserManager {
     this.#clearTimeout =
       deps.clearTimeout ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
     this.#log = deps.log ?? ((msg) => console.warn(`[shared-browser] ${msg}`));
+    this.#startProxy = deps.startProxy ?? ((policy) => BrowserEgressProxy.start(policy));
   }
 
   get runningCount(): number {
@@ -280,30 +303,53 @@ export class SharedBrowserManager {
     return this.#entries.has(repoPath);
   }
 
-  /** Browser Attach: launch the repo's browser if needed and multiplex `sink` onto it. */
-  async attach(repoPath: string, sink: CdpClient): Promise<CdpPipeClient> {
+  /**
+   * Browser Attach: launch the repo's browser if needed and multiplex `sink` onto it. With
+   * `confine`, the client is limited to a fresh proxied browser context (see `BrowserConfinement`);
+   * that rejects with `no-login` when the profile holds no cookie for an allowed host.
+   */
+  async attach(
+    repoPath: string,
+    sink: CdpClient,
+    confine?: BrowserConfinement,
+  ): Promise<CdpPipeClient> {
     const entry = await this.#ensure(repoPath);
+    // Counted as attached from here, so the idle stop cannot fire during confined setup.
     const token = {};
+    entry.attached.add(token);
+    entry.lastActivity = this.#now();
+    this.#cancelIdle(entry);
     let done = false;
+    let teardown = () => {};
     const release = () => {
       if (done) return;
       done = true;
+      teardown();
       entry.attached.delete(token);
       entry.lastActivity = this.#now();
       if (entry.attached.size === 0) this.#armIdle(entry);
     };
-    const inner = entry.pipe.addClient({
-      send: (text) => sink.send(text),
-      close: (code, reason) => {
+    let opts: CdpClientOptions = {};
+    if (confine) {
+      try {
+        const confined = await this.#confine(entry, confine.policy);
+        teardown = confined.teardown;
+        opts = { contextId: confined.contextId };
+      } catch (err) {
         release();
-        sink.close(code, reason);
-      },
-    });
-    if (!done) {
-      entry.attached.add(token);
-      entry.lastActivity = this.#now();
-      this.#cancelIdle(entry);
+        throw err;
+      }
     }
+    const inner = entry.pipe.addClient(
+      {
+        send: (text) => sink.send(text),
+        close: (code, reason) => {
+          release();
+          sink.close(code, reason);
+        },
+      },
+      opts,
+    );
     return {
       receive: (text) => inner.receive(text),
       detach: () => {
@@ -312,6 +358,60 @@ export class SharedBrowserManager {
       },
       ready: inner.ready,
     };
+  }
+
+  /**
+   * Confined setup: egress proxy → proxied browser context → copy the default context's cookies
+   * for allowed hosts (none → `no-login`) → one blank tab. On failure everything is undone.
+   */
+  async #confine(
+    entry: Entry,
+    policy: OriginPolicy,
+  ): Promise<{ contextId: string; teardown: () => void }> {
+    const proxy = await this.#startProxy(policy);
+    let contextId: string | null = null;
+    const teardown = () => {
+      if (contextId !== null)
+        entry.pipe
+          .call("Target.disposeBrowserContext", { browserContextId: contextId })
+          .catch(() => {});
+      proxy.close();
+    };
+    try {
+      const ctx = await entry.pipe.call("Target.createBrowserContext", {
+        proxyServer: proxy.url,
+        // Chromium bypasses proxies for loopback by default; the policy must see those too.
+        proxyBypassList: "<-loopback>",
+      });
+      if (typeof ctx.browserContextId !== "string")
+        throw new SharedBrowserError("launch-failed", "no browser context created");
+      contextId = ctx.browserContextId;
+      const { cookies } = await entry.pipe.call("Storage.getCookies");
+      const hosts = policy.allowedHosts();
+      const withPreview = policy.previewPort() !== null;
+      const login = (Array.isArray(cookies) ? (cookies as Record<string, unknown>[]) : []).filter(
+        (c) =>
+          typeof c.domain === "string" &&
+          cookieMatchesHosts(c.domain, hosts, withPreview) &&
+          // localhost cookies ignore ports: never hand over the operator's own Shepherd session.
+          c.name !== SESSION_COOKIE,
+      );
+      if (login.length === 0)
+        throw new SharedBrowserError(
+          "no-login",
+          "the browser profile holds no login for an allowlisted host",
+        );
+      await entry.pipe.call("Storage.setCookies", { cookies: login, browserContextId: contextId });
+      await entry.pipe.call("Target.createTarget", {
+        url: "about:blank",
+        browserContextId: contextId,
+      });
+      return { contextId, teardown };
+    } catch (err) {
+      teardown();
+      if (err instanceof SharedBrowserError) throw err;
+      throw new SharedBrowserError("launch-failed", `confined attach failed: ${String(err)}`);
+    }
   }
 
   /**

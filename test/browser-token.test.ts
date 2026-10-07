@@ -1,7 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { BrowserTokenSigner, loadOrCreateBrowserBrokerKey } from "../src/browser-token";
 
 const dirs: string[] = [];
@@ -29,6 +29,7 @@ test("browser token: concurrent creators agree on one key", async () => {
     Array.from({ length: 8 }, () => loadOrCreateBrowserBrokerKey(path)),
   );
   for (const key of keys) expect(key.equals(keys[0]!)).toBe(true);
+  expect(readdirSync(dirname(path))).toEqual(["browser-broker.key"]);
 });
 
 test("browser token: wrong-length key file is rejected, not regenerated", async () => {

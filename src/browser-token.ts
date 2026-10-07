@@ -1,5 +1,5 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { link, readFile, unlink, writeFile } from "node:fs/promises";
 
 /** Length in bytes of the persisted Browser Attach signing key. */
 const KEY_BYTES = 32;
@@ -17,7 +17,9 @@ function isCode(err: unknown, code: string): boolean {
 
 /**
  * Reads the Browser Attach signing key, creating it (owner-only) on first use.
- * Race safe: a concurrent creator wins via `wx`, the loser re-reads its key.
+ * Race and crash safe: the key is written in full to a private temp file, then hard-linked into
+ * place — `link` publishes complete content atomically and fails EEXIST for a concurrent loser,
+ * which re-reads the winner's key. Never observable empty or half-written.
  * A key file of the wrong length is an error, never silently regenerated —
  * regenerating would revoke every live agent's baked-in attach URL.
  */
@@ -28,12 +30,16 @@ export async function loadOrCreateBrowserBrokerKey(path: string): Promise<Buffer
     if (!isCode(err, "ENOENT")) throw err;
   }
   const key = randomBytes(KEY_BYTES);
+  const tmp = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+  await writeFile(tmp, key, { mode: 0o600, flag: "wx" });
   try {
-    await writeFile(path, key, { mode: 0o600, flag: "wx" });
+    await link(tmp, path);
     return key;
   } catch (err) {
     if (!isCode(err, "EEXIST")) throw err;
     return readKey(path);
+  } finally {
+    await unlink(tmp).catch(() => {});
   }
 }
 

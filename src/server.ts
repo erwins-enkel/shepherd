@@ -422,7 +422,10 @@ export interface AppDeps {
   /** environment-readiness diagnostics (issue #623); absent in tests that don't wire it. */
   diagnostics?: Pick<DiagnosticsService, "current" | "check" | "fix">;
   /** Shared Browser lifecycle (ADR 0001); absent in tests that don't exercise Browser Attach. */
-  sharedBrowser?: Pick<import("./shared-browser").SharedBrowserManager, "attach" | "open" | "stop">;
+  sharedBrowser?: Pick<
+    import("./shared-browser").SharedBrowserManager,
+    "attach" | "open" | "stop" | "sessionTab"
+  >;
   /** Browser Attach token signer (ADR 0001); absent → the broker refuses every attach. */
   browserToken?: Pick<import("./browser-token").BrowserTokenSigner, "verify">;
   /** GitHub-star nudge: tracks first-use + the operator's choice, stars the repo

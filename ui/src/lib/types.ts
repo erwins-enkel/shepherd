@@ -29,6 +29,25 @@ export interface BuildStep {
   position: number;
 }
 
+/** Channel of one message typed into a session (mirrors server src/steer-log.ts). Unknown
+ *  values from a newer server read as "operator". */
+export type SteerKind =
+  | "go"
+  | "plan_review"
+  | "ci_fix"
+  | "rebase"
+  | "open_pr"
+  | "nudge"
+  | "review"
+  | "queue"
+  | "operator";
+
+/** One entry of GET /api/sessions/:id/steer-log — when, and which channel; never the text. */
+export interface SteerLogEntry {
+  ts: number;
+  kind: SteerKind;
+}
+
 export interface BuildQueue {
   sessionId: string;
   steps: BuildStep[];

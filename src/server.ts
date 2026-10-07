@@ -2096,7 +2096,11 @@ async function handleRepoBrowserOpen({ req, parts, deps }: Ctx): Promise<Respons
   const url = await sharedBrowserOpenUrl(deps, dir, body.sessionId);
   if (url instanceof Response) return url;
   try {
-    await deps.sharedBrowser.open(dir, url);
+    await deps.sharedBrowser.open(
+      dir,
+      url,
+      typeof body.sessionId === "string" ? { sessionId: body.sessionId } : {},
+    );
   } catch (e) {
     if (e instanceof SharedBrowserError) return json({ error: e.code, code: e.code }, 503);
     throw e;

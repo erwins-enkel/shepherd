@@ -285,6 +285,18 @@ test("open: creates a target, counts as activity but not as an attach", async ()
   expect(s.closed).toBeNull();
 });
 
+test("open: returns the target id and remembers it as the session's tab", async () => {
+  const m = manager();
+  expect(await m.open("/r/a", "http://localhost:5173/", { sessionId: "s1" })).toBe(
+    "T:http://localhost:5173/",
+  );
+  await m.open("/r/a", "about:blank");
+  expect(m.sessionTab("/r/a", "s1")).toBe("T:http://localhost:5173/");
+  expect(m.sessionTab("/r/a", "s2")).toBeNull();
+  m.stop("/r/a");
+  expect(m.sessionTab("/r/a", "s1")).toBeNull(); // dies with the browser
+});
+
 test("child crash: clients closed, entry removed, next attach relaunches", async () => {
   const m = manager();
   const s = sink();

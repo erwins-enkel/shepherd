@@ -25,6 +25,16 @@ export interface CdpPipeClient {
   readonly ready: Promise<void>;
 }
 
+/** `addClient` options. */
+export interface CdpClientOptions {
+  /**
+   * Confine the client to one browser context (#2883, autonomous attach): it may create, see,
+   * attach to and drive only that context's targets and cookies, and gets no browser-wide
+   * interception. Absent → the unconfined slice-1 client.
+   */
+  contextId?: string;
+}
+
 export interface CdpPipeOptions {
   /** Writes raw bytes to Chromium's fd3. Must not throw. */
   write: (data: string) => void;
@@ -43,6 +53,10 @@ type Json = Record<string, unknown>;
 
 interface ClientState {
   readonly sink: CdpClient;
+  /** Confined clients only: the browser context they are limited to. */
+  readonly contextId: string | null;
+  /** Confined clients only: own-context targets this client has been shown. */
+  readonly shownTargets: Set<string>;
   browserSession: string | null;
   readonly sessions: Set<string>;
   readonly pendingIds: Set<number>;
@@ -54,7 +68,7 @@ interface ClientState {
 }
 
 type Pending =
-  | { kind: "internal"; onReply: (msg: Json) => void }
+  | { kind: "internal"; onReply: (msg: Json) => void; onAbort?: (reason: string) => void }
   | {
       kind: "client";
       client: ClientState;
@@ -225,6 +239,25 @@ export function cdpPolicyViolation(method: unknown, params: unknown): string | n
   return null;
 }
 
+/**
+ * Confined clients (#2883): on their browser-level session only these domains/methods. Browser-wide
+ * `Fetch`/`Network` would see every context's traffic; other `Storage` methods act on the default
+ * partition. Page-level work happens on child sessions, which all live in the client's context.
+ */
+const CONFINED_BROWSER_LEVEL_DOMAINS = new Set(["Target", "Browser"]);
+const CONFINED_COOKIE_METHODS = new Set([
+  "Storage.getCookies",
+  "Storage.setCookies",
+  "Storage.clearCookies",
+]);
+/** Methods that would escape the context: a new (unproxied) context, another browser session. */
+const CONFINED_BLOCKED_METHODS = new Set([
+  "Target.createBrowserContext",
+  "Target.disposeBrowserContext",
+  "Target.attachToBrowserTarget",
+]);
+const outsideContext = "target is outside this attach's browser context";
+
 function stringField(obj: unknown, key: string): string | null {
   if (!obj || typeof obj !== "object") return null;
   const value = (obj as Json)[key];
@@ -240,6 +273,8 @@ export class CdpPipe {
   readonly #pending = new Map<number, Pending>();
   /** Every target's current URL, from root-session discovery (broker-only). */
   readonly #targetUrls = new Map<string, string>();
+  /** Every target's browser context, from root-session discovery (confined clients). */
+  readonly #targetContexts = new Map<string, string>();
   /** Child session → its target and the session that attached it (for broker-side detach). */
   readonly #childTargets = new Map<string, { targetId: string; parent: string }>();
   /** Child sessions the broker detached itself: their detach event is not echoed to clients. */
@@ -280,7 +315,7 @@ export class CdpPipe {
     if (start < bytes.length) this.#partial.push(bytes.slice(start));
   }
 
-  addClient(sink: CdpClient): CdpPipeClient {
+  addClient(sink: CdpClient, opts: CdpClientOptions = {}): CdpPipeClient {
     let resolveReady!: () => void;
     let rejectReady!: (err: Error) => void;
     const ready = new Promise<void>((resolve, reject) => {
@@ -291,6 +326,8 @@ export class CdpPipe {
     ready.catch(() => {});
     const client: ClientState = {
       sink,
+      contextId: opts.contextId ?? null,
+      shownTargets: new Set(),
       browserSession: null,
       sessions: new Set(),
       pendingIds: new Set(),
@@ -319,6 +356,25 @@ export class CdpPipe {
   }
 
   /**
+   * A broker-internal command on the root session (never visible to clients). Resolves with the
+   * result; rejects on a CDP error or when the browser closes first.
+   */
+  call(method: string, params: Json = {}): Promise<Json> {
+    if (this.#closed) return Promise.reject(new Error("browser closed"));
+    return new Promise((resolve, reject) => {
+      this.#sendInternal(
+        { method, params },
+        (msg) => {
+          const error = msg.error as { message?: unknown } | undefined;
+          if (error) reject(new Error(`${method} failed: ${String(error.message)}`));
+          else resolve((msg.result as Json | undefined) ?? {});
+        },
+        (reason) => reject(new Error(reason)),
+      );
+    });
+  }
+
+  /**
    * Ask Chromium to shut down gracefully (broker-internal; clients may not send Browser.close).
    * Only a graceful exit flushes the cookie store, so a recent login survives the restart.
    */
@@ -332,9 +388,11 @@ export class CdpPipe {
     if (this.#closed) return;
     this.#closed = true;
     const clients = [...this.#clients];
+    const pending = [...this.#pending.values()];
     this.#clients.clear();
     this.#owners.clear();
     this.#pending.clear();
+    for (const p of pending) if (p.kind === "internal") p.onAbort?.(reason);
     this.#partial = [];
     for (const client of clients) {
       client.detached = true;
@@ -416,6 +474,17 @@ export class CdpPipe {
       );
       return;
     }
+    const confined = this.#confinedViolation(client, msg, sessionId);
+    if (confined) {
+      client.sink.send(
+        JSON.stringify({
+          id,
+          error: { code: BLOCKED_BY_POLICY, message: confined },
+          ...(sessionId === undefined ? {} : { sessionId }),
+        }),
+      );
+      return;
+    }
     const attach = this.#attachRequest(client, msg, sessionId);
     if (typeof attach === "string") {
       client.sink.send(
@@ -440,6 +509,77 @@ export class CdpPipe {
     this.#write(
       `${JSON.stringify({ ...msg, id: pipeId, sessionId: sessionId ?? client.browserSession })}\0`,
     );
+  }
+
+  /**
+   * Confined clients: why `msg` is refused, or null. Rewrites in place what must target the
+   * client's own context (`Target.createTarget`, cookie reads/writes).
+   */
+  #confinedViolation(client: ClientState, msg: Json, sessionId: string | undefined): string | null {
+    const contextId = client.contextId;
+    if (contextId === null) return null;
+    const method = msg.method as string;
+    if (CONFINED_BLOCKED_METHODS.has(method))
+      return `${method} is blocked for confined attaches by the Shepherd browser broker`;
+    const browserLevel = sessionId === undefined || sessionId === client.browserSession;
+    const domain = method.slice(0, method.indexOf("."));
+    if (
+      browserLevel &&
+      !CONFINED_BROWSER_LEVEL_DOMAINS.has(domain) &&
+      !CONFINED_COOKIE_METHODS.has(method)
+    )
+      return `${method} is not available at browser level on a confined attach`;
+    const params: Json =
+      msg.params && typeof msg.params === "object" ? { ...(msg.params as Json) } : {};
+    const targetId = stringField(params, "targetId");
+    if (targetId !== null && this.#targetContexts.get(targetId) !== contextId)
+      return outsideContext;
+    if (method === "Target.createTarget" || CONFINED_COOKIE_METHODS.has(method)) {
+      params.browserContextId = contextId;
+      msg.params = params;
+    }
+    return null;
+  }
+
+  /** Confined clients: true when an event or listed target belongs to another context. */
+  #foreignTarget(client: ClientState, info: Json | undefined): boolean {
+    if (client.contextId === null) return false;
+    const targetId = stringField(info, "targetId");
+    const own = stringField(info, "browserContextId") === client.contextId;
+    if (own && targetId) client.shownTargets.add(targetId);
+    return !own;
+  }
+
+  /** Confined clients: drop target events and listings of other contexts. False → drop event. */
+  #confinedEvent(client: ClientState, msg: Json): boolean {
+    if (client.contextId === null) return true;
+    const params = msg.params as Json | undefined;
+    switch (msg.method) {
+      case "Target.targetCreated":
+      case "Target.targetInfoChanged":
+        return !this.#foreignTarget(client, params?.targetInfo as Json | undefined);
+      case "Target.targetDestroyed":
+      case "Target.targetCrashed": {
+        const targetId = stringField(params, "targetId");
+        if (!targetId || !client.shownTargets.has(targetId)) return false;
+        if (msg.method === "Target.targetDestroyed") client.shownTargets.delete(targetId);
+        return true;
+      }
+      default:
+        return true;
+    }
+  }
+
+  /** Confined clients: strip other contexts' targets from a `Target.getTargets` result. */
+  #confinedResponse(client: ClientState, method: unknown, msg: Json): void {
+    if (client.contextId === null || method !== "Target.getTargets") return;
+    const result = msg.result as Json | undefined;
+    const infos = result?.targetInfos;
+    if (!Array.isArray(infos)) return;
+    msg.result = {
+      ...result,
+      targetInfos: infos.filter((info) => !this.#foreignTarget(client, info as Json)),
+    };
   }
 
   /** For `Target.attachToTarget`: the attach record, or why it is refused (non-web target). */
@@ -473,11 +613,14 @@ export class CdpPipe {
     if (!targetId) return;
     if (msg.method === "Target.targetDestroyed") {
       this.#targetUrls.delete(targetId);
+      this.#targetContexts.delete(targetId);
       return;
     }
     if (msg.method !== "Target.targetCreated" && msg.method !== "Target.targetInfoChanged") return;
     const url = typeof info?.url === "string" ? info.url : "";
     this.#targetUrls.set(targetId, url);
+    const contextId = stringField(info, "browserContextId");
+    if (contextId) this.#targetContexts.set(targetId, contextId);
     if (isWebTargetUrl(url)) return;
     for (const [child, rec] of this.#childTargets) {
       if (rec.targetId === targetId && this.#owners.has(child)) {
@@ -494,9 +637,9 @@ export class CdpPipe {
     }
   }
 
-  #sendInternal(msg: Json, onReply: (msg: Json) => void): void {
+  #sendInternal(msg: Json, onReply: (msg: Json) => void, onAbort?: (reason: string) => void): void {
     const id = ++this.#nextId;
-    this.#pending.set(id, { kind: "internal", onReply });
+    this.#pending.set(id, { kind: "internal", onReply, ...(onAbort ? { onAbort } : {}) });
     this.#write(`${JSON.stringify({ ...msg, id })}\0`);
   }
 
@@ -527,6 +670,7 @@ export class CdpPipe {
     }
     const out: Json = { ...msg, id: pending.originalId };
     if (pending.stripSessionId) delete out.sessionId;
+    this.#confinedResponse(client, pending.method, out);
     client.sink.send(JSON.stringify(out));
   }
 
@@ -541,8 +685,9 @@ export class CdpPipe {
     const child = stringField(msg.params, "sessionId");
     if (child && msg.method === "Target.attachedToTarget") {
       const info = (msg.params as Json).targetInfo as Json | undefined;
-      if (!isWebTargetUrl(info?.url)) {
-        // Auto-attach reached a devtools:// / chrome:// target: never hand it to the client.
+      if (!isWebTargetUrl(info?.url) || this.#foreignTarget(client, info)) {
+        // Auto-attach reached a devtools:// / chrome:// target, or (confined) another context's
+        // target: never hand it to the client.
         this.#detachChild(child, sessionId);
         return;
       }
@@ -555,6 +700,7 @@ export class CdpPipe {
       this.#childTargets.delete(child);
       if (this.#suppressed.delete(child)) return;
     }
+    if (!this.#confinedEvent(client, msg)) return;
     if (sessionId === client.browserSession) {
       const out: Json = { ...msg };
       delete out.sessionId;

@@ -161,6 +161,21 @@ test("approve materializes children+parent, wires links, registers the run, emit
   expect(store.getEpicDraft(s.id)?.status).toBe("approved");
 });
 
+test("approve keeps a leading epic running instead of registering over it", async () => {
+  const fk = fakeForge();
+  const { app, store, emitted } = harness(fk.forge);
+  store.setEpicRun({ repoPath: repoDir, parentIssueNumber: 7, mode: "auto", status: "running" });
+  const s = makeSession(store);
+  await putDraft(app, s.id);
+  const res = await approve(app, s.id);
+  expect(res.status).toBe(200);
+  expect((await res.json()).parentNumber).toBe(102);
+  expect(store.getEpicRun(repoDir)).toMatchObject({ parentIssueNumber: 7, status: "running" });
+  // still recognized: the new epic is assembled and emitted from its default (idle) run
+  const update = emitted.find((e) => e.event === "epic:update");
+  expect(update?.data).toMatchObject({ run: { parentIssueNumber: 102, status: "idle" } });
+});
+
 test("approve is idempotent — a repeat returns the stored result, no new issues", async () => {
   const fk = fakeForge();
   const { app, store } = harness(fk.forge);

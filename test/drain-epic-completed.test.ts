@@ -168,8 +168,11 @@ describe("epic auto-complete → record before idle flip (#635)", () => {
     expect(row.parentIssueNumber).toBe(PARENT);
     expect(row.parentTitle).toBe("EFI cluster");
 
-    // Run flipped to idle.
+    // Run flipped to idle, recorded as completed (not ended) — and the epic carries why.
     expect(h.store.getEpicRun(REPO)?.status).toBe("idle");
+    expect(h.store.getEpicRunEnd(REPO, PARENT)).toMatchObject({ cause: "completed" });
+    const built = await h.drain.buildEpic(REPO, h.store.getEpicRun(REPO)!);
+    expect(built?.runEnd).toMatchObject({ cause: "completed", successor: null, via: null });
 
     // Two emits: the completion record, then the Stage B (#635) landing-PR resolution. Both
     // children are issue-closed (no epic_integrated rows) so the landing resolves to 'none'.

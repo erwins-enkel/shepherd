@@ -47,6 +47,7 @@
     onstart,
     onquick = undefined,
     titleFor,
+    epicSummaryFor = undefined,
     onopensession = undefined,
     onopenautomation = undefined,
     onselectchild = undefined,
@@ -71,6 +72,8 @@
     onquick?: (issue: Issue, action: Steer) => void;
     /** Issue title by number (loaded epic children, open issues) for the run area's steps. */
     titleFor: (issue: number) => string | null;
+    /** Any epic's list entry by number — the leading epic a stopped one waits for. */
+    epicSummaryFor?: (parent: number) => EpicSummary | undefined;
     onopensession?: (sessionId: string) => void;
     onopenautomation?: () => void;
     /** Select an epic child in the list (a click on the flow graph). */
@@ -180,6 +183,8 @@
         {drain}
         {othersFlag}
         {titleFor}
+        {epicSummaryFor}
+        {onselectepic}
         {onopensession}
         {onopenautomation}
       />

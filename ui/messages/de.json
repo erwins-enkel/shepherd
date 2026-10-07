@@ -5316,5 +5316,19 @@
   "native_keychain_unavailable": "Das gespeicherte Token ist im Schlüsselbund nicht zugänglich. Entsperre ihn oder erlaube den Zugriff und versuche es erneut.",
   "prspanel_load_failed": "PRs konnten nicht geladen werden.",
   "native_compose_paste_empty": "Kein Bild in der Zwischenablage — kopiere zuerst ein Bild.",
-  "native_compose_paste_clipboard": "Aus Zwischenablage"
+  "native_compose_paste_clipboard": "Aus Zwischenablage",
+  "epic_run_state_superseded": "Abgelöst",
+  "epic_run_state_ended": "Beendet",
+  "epic_run_why_superseded_leads": "Abgelöst durch #{successor} ({when}) – es wurde gestartet und führt seitdem.",
+  "epic_run_why_superseded": "Abgelöst durch #{successor} ({when}).",
+  "epic_run_why_ended": "Beendet ({when}).",
+  "epic_run_why_via": "Ausgelöst über das Maschinen-Token „{name}“.",
+  "epic_run_no_leader": "Kein Epic führt gerade – deshalb startet nichts.",
+  "epic_run_leader_open": "Führendes Epic #{leader} öffnen",
+  "epic_run_idle_waiting": "{count} unbegonnene Aufgabe(n) warten.",
+  "epic_run_idle_waiting_hint": "Lass es wieder führen oder reihe es hinter #{leader} ein.",
+  "epic_run_restart": "Wieder starten",
+  "epic_run_restart_title": "Startet dieses Epic wieder. Gerade führt kein anderes Epic.",
+  "feat_epic_run_why_title": "Epics: sehen, warum eines nicht läuft",
+  "feat_epic_run_why_body": "Ein Epic, das nicht mehr führt, sagt jetzt in seiner Abarbeitung, warum: abgelöst durch welches Epic und wann – verlinkt, mit dessen Fortschritt – oder beendet, und über welches Maschinen-Token, falls eines das getan hat. Einstellungen, die du an einem nicht führenden Epic änderst, werden für dieses Epic gemerkt und stoppen das laufende Epic nicht mehr."
 }

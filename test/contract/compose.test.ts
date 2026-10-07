@@ -268,7 +268,7 @@ describe("epic", () => {
       )) as Epic;
       expect(next.run.mode).toBe("attended");
       expect(approved).toEqual([s.validRepo]);
-      expect(ticks).toBe(1);
+      expect(ticks).toBe(2); // the paused PUT kicks one, approve-next awaits one
 
       found = false;
       await call("GET", "/api/epic", `/api/epic${q()}`, 404);
@@ -278,6 +278,52 @@ describe("epic", () => {
       expect(
         await call("POST", "/api/epic/approve-next", `/api/epic/approve-next${q()}`, 200),
       ).toEqual({ ok: true });
+    } finally {
+      s.deps.drain = previousDrain;
+      s.deps.store.setEpicRun({
+        repoPath: s.validRepo,
+        parentIssueNumber: 412,
+        mode: "auto",
+        status: "idle",
+      });
+    }
+  });
+
+  test("patch refuses to stop or pause an epic that does not lead; a start records why the leader stopped", async () => {
+    const previousDrain = s.deps.drain;
+    s.deps.drain = {
+      buildEpic: async (dir: string, run: EpicRun) => {
+        const runEnd = s.deps.store.getEpicRunEnd(dir, run.parentIssueNumber);
+        return runEnd ? { ...fx.epic(run), runEnd } : fx.epic(run);
+      },
+      tick: async () => {},
+    } as unknown as NonNullable<typeof s.deps.drain>;
+    const other = `/api/epic?repo=${encodeURIComponent(s.validRepo)}&parent=413`;
+    try {
+      s.deps.store.setEpicRun({
+        repoPath: s.validRepo,
+        parentIssueNumber: 412,
+        mode: "auto",
+        status: "running",
+      });
+      for (const status of ["idle", "paused"]) {
+        expect(await call("PUT", "/api/epic", other, 409, { status })).toEqual({
+          error: "another epic leads",
+        });
+      }
+      expect(s.deps.store.getEpicRun(s.validRepo)).toMatchObject({
+        parentIssueNumber: 412,
+        status: "running",
+      });
+
+      await call("PUT", "/api/epic", other, 200, { status: "running" });
+      const superseded = (await call("GET", "/api/epic", `/api/epic${q()}`, 200)) as Epic;
+      // The start came through the minted bearer token, so the record names it.
+      expect(superseded.runEnd).toMatchObject({
+        cause: "superseded",
+        successor: 413,
+        via: "compose contract test",
+      });
     } finally {
       s.deps.drain = previousDrain;
       s.deps.store.setEpicRun({

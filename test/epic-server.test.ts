@@ -250,7 +250,7 @@ describe("PUT /api/epic", () => {
     expect(stored!.status).toBe("idle"); // preserved
   });
 
-  test("valid provider patch persists future-spawn settings", async () => {
+  test("valid provider patch remembers future-spawn settings off the run row", async () => {
     const { app, store } = harness();
     const res = await app.fetch(
       new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=327`, {
@@ -260,7 +260,8 @@ describe("PUT /api/epic", () => {
       }),
     );
     expect(res.status).toBe(200);
-    expect(store.getEpicRun(repoDir)).toMatchObject({
+    expect(store.getEpicRun(repoDir)).toBeNull();
+    expect(store.getEpicSettings(repoDir, 327)).toMatchObject({
       agentProvider: "codex",
       model: "gpt-6-astra",
       effort: "ultra",
@@ -376,7 +377,7 @@ describe("PUT /api/epic", () => {
     expect(tickCalled).toBe(true);
   });
 
-  test("non-running status does not kick drain.tick()", async () => {
+  test("non-running status also kicks drain.tick() (the run picture refreshes at once)", async () => {
     // seed a running run so the patch transitions OUT of running
     let tickCalled = false;
     const { app, store } = harness({
@@ -400,7 +401,7 @@ describe("PUT /api/epic", () => {
       }),
     );
     expect(res.status).toBe(200);
-    expect(tickCalled).toBe(false);
+    expect(tickCalled).toBe(true);
   });
 
   describe("restarting clears a stale completion", () => {
@@ -2230,5 +2231,156 @@ describe("POST|DELETE /api/epic/queue", () => {
       model: "opus",
     });
     expect(queuedParents(store)).toEqual([]);
+  });
+});
+
+// ── settings of an epic that does not lead: remembered, never superseding ────
+
+describe("PUT /api/epic for an epic that does not lead", () => {
+  const put = (parent: number, body: unknown) =>
+    new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=${parent}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  const lead = (store: SessionStore, status: "running" | "paused" = "running") =>
+    store.setEpicRun({
+      repoPath: repoDir,
+      parentIssueNumber: 100,
+      mode: "auto",
+      status,
+      agentProvider: "claude",
+      model: "opus",
+      effort: "high",
+    });
+
+  test("a settings-only patch is remembered and leaves the leading run alone", async () => {
+    const { app, store, emitted } = harness();
+    lead(store);
+    const res = await app.fetch(put(200, { mode: "attended", agentProvider: "codex" }));
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as Epic).run).toMatchObject({
+      parentIssueNumber: 200,
+      status: "idle",
+      mode: "attended",
+      agentProvider: "codex",
+    });
+    expect(store.getEpicRun(repoDir)).toMatchObject({ parentIssueNumber: 100, status: "running" });
+    expect(store.getEpicSettings(repoDir, 200)).toMatchObject({
+      mode: "attended",
+      agentProvider: "codex",
+    });
+    expect(emitted).toHaveLength(1);
+
+    const got = await app.fetch(
+      new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=200`),
+    );
+    expect(((await got.json()) as Epic).run).toMatchObject({
+      mode: "attended",
+      agentProvider: "codex",
+    });
+  });
+
+  test("starting it later runs with the remembered settings", async () => {
+    const { app, store } = harness();
+    lead(store);
+    await app.fetch(put(200, { mode: "attended", agentProvider: "codex", effort: "high" }));
+    expect((await app.fetch(put(200, { status: "running" }))).status).toBe(200);
+    expect(store.getEpicRun(repoDir)).toMatchObject({
+      parentIssueNumber: 200,
+      status: "running",
+      mode: "attended",
+      agentProvider: "codex",
+      effort: "high",
+    });
+    expect(store.getEpicSettings(repoDir, 200)).toBeNull();
+  });
+
+  test("the superseded leader keeps its settings and gets them back when it leads again", async () => {
+    const { app, store } = harness();
+    lead(store);
+    await app.fetch(put(200, { status: "running" }));
+    expect(store.getEpicSettings(repoDir, 100)).toMatchObject({
+      agentProvider: "claude",
+      model: "opus",
+      effort: "high",
+    });
+    await app.fetch(put(100, { status: "running" }));
+    expect(store.getEpicRun(repoDir)).toMatchObject({
+      parentIssueNumber: 100,
+      status: "running",
+      agentProvider: "claude",
+      model: "opus",
+      effort: "high",
+    });
+  });
+
+  test("a start over the leader records why it stopped and re-emits it", async () => {
+    const { app, store, emitted } = harness();
+    lead(store);
+    expect((await app.fetch(put(200, { status: "running" }))).status).toBe(200);
+    expect(store.getEpicRunEnd(repoDir, 100)).toMatchObject({
+      cause: "superseded",
+      successor: 200,
+      via: null,
+    });
+    expect((emitted as Epic[]).map((e) => [e.parentIssueNumber, e.run.status])).toEqual([
+      [200, "running"],
+      [100, "idle"],
+    ]);
+  });
+
+  test("ending the leader records it as ended", async () => {
+    const { app, store } = harness();
+    lead(store);
+    await app.fetch(put(100, { status: "idle" }));
+    expect(store.getEpicRunEnd(repoDir, 100)).toMatchObject({ cause: "ended", successor: null });
+  });
+
+  for (const leaderStatus of ["running", "paused"] as const) {
+    for (const status of ["idle", "paused"] as const) {
+      test(`{status:'${status}'} while another epic is ${leaderStatus} → 409, nothing changes`, async () => {
+        const { app, store, emitted } = harness();
+        lead(store, leaderStatus);
+        const res = await app.fetch(put(200, { status }));
+        expect(res.status).toBe(409);
+        expect(await res.json()).toEqual({ error: "another epic leads" });
+        expect(store.getEpicRun(repoDir)).toMatchObject({
+          parentIssueNumber: 100,
+          status: leaderStatus,
+        });
+        expect(store.getEpicSettings(repoDir, 200)).toBeNull();
+        expect(emitted).toHaveLength(0);
+      });
+    }
+  }
+
+  test("{status:'idle'} on the leader itself still ends it", async () => {
+    const { app, store } = harness();
+    lead(store);
+    expect((await app.fetch(put(100, { status: "idle" }))).status).toBe(200);
+    expect(store.getEpicRun(repoDir)).toMatchObject({ parentIssueNumber: 100, status: "idle" });
+  });
+
+  test("POST /api/epic/queue carries the remembered settings; DELETE keeps them remembered", async () => {
+    const { app, store } = harness();
+    lead(store);
+    await app.fetch(put(200, { mode: "attended", agentProvider: "codex", model: "gpt-5.5" }));
+    const queueReq = (method: "POST" | "DELETE") =>
+      new Request(`http://x/api/epic/queue?repo=${encRepo(repoDir)}&parent=200`, { method });
+    expect((await app.fetch(queueReq("POST"))).status).toBe(200);
+    expect(store.getEpicQueueEntry(repoDir, 200)).toMatchObject({
+      mode: "attended",
+      agentProvider: "codex",
+      model: "gpt-5.5",
+    });
+    expect(store.getEpicSettings(repoDir, 200)).toBeNull();
+    expect((await app.fetch(queueReq("DELETE"))).status).toBe(200);
+    expect(store.getEpicQueueEntry(repoDir, 200)).toBeNull();
+    expect(store.getEpicSettings(repoDir, 200)).toMatchObject({
+      mode: "attended",
+      agentProvider: "codex",
+      model: "gpt-5.5",
+    });
   });
 });

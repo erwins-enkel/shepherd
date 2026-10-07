@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { DrainRunSummary, DrainStatus, Epic, EpicRunStatus } from "$lib/types";
+  import type { DrainRunSummary, DrainStatus, Epic, EpicRunStatus, EpicSummary } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { updateEpic, approveEpicNext, queueEpic, unqueueEpic } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
@@ -9,6 +9,7 @@
     epicRunState,
     epicRunStateLabel,
     epicRunSteps,
+    epicRunWhy,
     queuedBehind,
     queuePosition,
   } from "../epic-panel";
@@ -29,6 +30,8 @@
     drain = null,
     othersFlag = null,
     titleFor,
+    epicSummaryFor = undefined,
+    onselectepic = undefined,
     onopensession = undefined,
     onopenautomation = undefined,
   }: {
@@ -40,6 +43,10 @@
     /** "Someone else is already working / owns this epic" (#1616) — a soft notice near Start. */
     othersFlag?: EpicOthersFlag | null;
     titleFor: (issue: number) => string | null;
+    /** The repo's epic list entry for an epic — the leading epic's title and progress. */
+    epicSummaryFor?: (parent: number) => EpicSummary | undefined;
+    /** Opens another epic's detail — the leading one this epic waits for. */
+    onselectepic?: (parent: number) => void;
     onopensession?: (sessionId: string) => void;
     onopenautomation?: () => void;
   } = $props();
@@ -60,23 +67,50 @@
 
   const stateLabel = $derived(epicRunStateLabel(runState.kind, inFlightText, runState.position));
 
-  // A winding-down epic explains itself: who leads now, what still finishes, what stays behind.
-  // A queued one names the epic it waits for.
+  // The repo's leading epic when it is another one — what a winding, superseded or ended epic
+  // waits for.
+  const otherLeader = $derived.by(() => {
+    const leader = drain?.runSummary?.leadingEpic ?? null;
+    return leader === parent ? null : leader;
+  });
+  const stopped = $derived(
+    runState.kind === "winding" || runState.kind === "superseded" || runState.kind === "ended",
+  );
+  // Why it does not run: what stopped it, when and through what, and who leads now.
+  const why = $derived(stopped ? epicRunWhy(epic.runEnd, otherLeader, Date.now()) : []);
+
+  const leaderLink = $derived.by(() => {
+    if (!stopped || otherLeader == null) return null;
+    const summary = epicSummaryFor?.(otherLeader);
+    const title = summary?.parentTitle ?? titleFor(otherLeader);
+    const progress = summary
+      ? m.epicflow_merged({ merged: summary.merged, total: summary.total })
+      : null;
+    return (
+      [`#${otherLeader}`, title].filter(Boolean).join(" ") + (progress ? ` · ${progress}` : "")
+    );
+  });
+
+  // A winding-down epic says what still finishes and what stays behind; a superseded or ended one
+  // what waits. A queued one names the epic it waits for.
   const note = $derived.by(() => {
     if (runState.kind === "queued") {
       const after = drain?.runSummary ? queuedBehind(drain.runSummary, parent) : null;
       return after == null ? null : m.epic_run_queued_note({ after });
     }
-    if (runState.kind !== "winding") return runState.note;
+    if (runState.kind === "winding") {
+      const parts = [m.epic_run_winding_note({ inflight: inFlightText })];
+      if (steps?.kind === "winding" && steps.leftBehind > 0) {
+        parts.push(m.epic_run_left_behind({ count: steps.leftBehind }));
+      }
+      return parts.join(" ");
+    }
+    if (runState.kind !== "superseded" && runState.kind !== "ended") return runState.note;
+    const waiting = epic.children.filter((c) => c.state === "ready" || c.state === "blocked");
     const parts = [];
-    if (steps?.kind === "winding" && steps.leader != null) {
-      parts.push(m.epic_run_winding_leader({ leader: steps.leader }));
-    }
-    parts.push(m.epic_run_winding_note({ inflight: inFlightText }));
-    if (steps?.kind === "winding" && steps.leftBehind > 0) {
-      parts.push(m.epic_run_left_behind({ count: steps.leftBehind }));
-    }
-    return parts.join(" ");
+    if (waiting.length) parts.push(m.epic_run_idle_waiting({ count: waiting.length }));
+    if (otherLeader != null) parts.push(m.epic_run_idle_waiting_hint({ leader: otherLeader }));
+    return parts.join(" ") || null;
   });
 
   const othersNotice = $derived.by(() => {
@@ -190,6 +224,10 @@
         title={m.epic_pause_title()}
         onclick={() => setStatus("paused")}>{m.epic_pause()}</button
       >
+    {:else if role === "winding" && otherLeader == null}
+      <button class="gbtn" type="button" title={m.epic_run_restart_title()} onclick={start}
+        >{m.epic_run_restart()}</button
+      >
     {:else if role === "winding"}
       <button class="gbtn" type="button" title={m.epic_run_rejoin_title()} onclick={start}
         >{m.epic_run_rejoin()}</button
@@ -212,6 +250,24 @@
       >
     {/if}
   {/snippet}
+
+  {#if why.length}
+    <p class="why">{why.join(" ")}</p>
+  {/if}
+
+  {#if leaderLink && otherLeader != null}
+    {#if onselectepic}
+      <button
+        class="leader-link"
+        type="button"
+        title={m.epic_run_leader_open({ leader: otherLeader })}
+        onclick={() => onselectepic(otherLeader)}
+        ><span aria-hidden="true">→</span> {leaderLink}</button
+      >
+    {:else}
+      <p class="leader-link"><span aria-hidden="true">→</span> {leaderLink}</p>
+    {/if}
+  {/if}
 
   {#if note}
     <p class="note" class:alert={runState.tone === "halt"}>{note}</p>
@@ -268,6 +324,33 @@
     font-size: var(--fs-micro);
   }
   .note.alert {
+    color: var(--color-amber);
+  }
+
+  /* Why the epic does not run — the answer the operator came for, so it reads as body text. */
+  .why {
+    margin: 0;
+    color: var(--color-ink);
+    font-size: var(--fs-micro);
+  }
+  .leader-link {
+    align-self: flex-start;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    text-align: left;
+  }
+  button.leader-link {
+    text-decoration: underline;
+    cursor: pointer;
+  }
+  button.leader-link:hover,
+  button.leader-link:focus-visible {
+    outline: none;
     color: var(--color-amber);
   }
 

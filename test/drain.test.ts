@@ -1734,6 +1734,67 @@ describe("drain epic mode", () => {
     expect(await h2.drain.snapshot()).toEqual([]);
   });
 
+  test("tick refreshes an unpumped repo's run picture while an epic child winds down, then once more", async () => {
+    const h = makeHarness({ autoDrainEnabled: false });
+    const kid = seedAuto(h, 5, { epicParent: 4 });
+    await h.drain.tick();
+    expect(h.statuses).toHaveLength(1);
+    expect(h.statuses[0]!.runSummary!.windingDown).toEqual([{ epic: 4, inFlight: [5] }]);
+    h.store.archive(kid.id);
+    await h.drain.tick();
+    expect(h.statuses).toHaveLength(2);
+    expect(h.statuses[1]!.runSummary).toMatchObject({ leadingEpic: null, windingDown: [] });
+    await h.drain.tick(); // nothing live any more → no further status
+    expect(h.statuses).toHaveLength(2);
+    expect(h.forgeRec.listIssuesCalls).toBe(0);
+  });
+
+  test("tick sends a final run picture once the leading epic is ended", async () => {
+    const h = makeHarness({ autoDrainEnabled: false });
+    const run = { repoPath: REPO, parentIssueNumber: 4, mode: "auto" as const };
+    h.store.setEpicRun({ ...run, status: "running" });
+    await h.drain.tick();
+    expect(h.statuses.at(-1)!.runSummary!.leadingEpic).toBe(4);
+    h.store.setEpicRun({ ...run, status: "idle" });
+    const before = h.statuses.length;
+    await h.drain.tick();
+    expect(h.statuses).toHaveLength(before + 1);
+    expect(h.statuses.at(-1)!.runSummary).toMatchObject({ leadingEpic: null, windingDown: [] });
+    await h.drain.tick();
+    expect(h.statuses).toHaveLength(before + 1);
+  });
+
+  test("tick refreshes a paused leader's repo while a superseded epic's child winds down", async () => {
+    // A (#3) was superseded by B (#4), then B was paused: with the drain off nothing pumps the repo.
+    const h = makeHarness({ autoDrainEnabled: false });
+    h.store.setEpicRun({ repoPath: REPO, parentIssueNumber: 4, mode: "auto", status: "paused" });
+    const kid = seedAuto(h, 5, { epicParent: 3 });
+    await h.drain.tick();
+    expect(h.statuses).toHaveLength(1);
+    expect(h.statuses[0]!.runSummary).toMatchObject({
+      leadingEpic: 4,
+      windingDown: [{ epic: 3, inFlight: [5] }],
+    });
+    h.store.archive(kid.id);
+    await h.drain.tick();
+    expect(h.statuses).toHaveLength(2);
+    expect(h.statuses[1]!.runSummary).toMatchObject({ leadingEpic: 4, windingDown: [] });
+    await h.drain.tick(); // a paused leader alone does not change → no further status
+    expect(h.statuses).toHaveLength(2);
+  });
+
+  test("tick leaves a paused leader with no epic child in flight to its last picture", async () => {
+    const h = makeHarness({ autoDrainEnabled: false });
+    const run = { repoPath: REPO, parentIssueNumber: 4, mode: "auto" as const };
+    h.store.setEpicRun({ ...run, status: "running" });
+    await h.drain.tick();
+    const before = h.statuses.length;
+    expect(h.statuses.at(-1)!.runSummary!.leadingEpic).toBe(4);
+    h.store.setEpicRun({ ...run, status: "paused" });
+    await h.drain.tick();
+    expect(h.statuses).toHaveLength(before);
+  });
+
   test("emitEpic fires once per change, not once per pump iteration", async () => {
     const h = epicHarness("running", "auto");
     await h.drain.pump(REPO);

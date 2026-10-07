@@ -6,6 +6,7 @@ import {
   epicRunState,
   epicRunStateLabel,
   epicRunSteps,
+  epicRunWhy,
   progress,
   queuedBehind,
   queuePosition,
@@ -14,7 +15,14 @@ import {
   supersedeImpact,
 } from "./epic-panel";
 import { m } from "$lib/paraglide/messages";
-import type { DrainRunSummary, DrainStatus, EpicChild, EpicRunStatus } from "$lib/types";
+import type {
+  DrainRunSummary,
+  DrainStatus,
+  EpicChild,
+  EpicRunEnd,
+  EpicRunStatus,
+} from "$lib/types";
+import { formatReset } from "$lib/format";
 
 function drain(over: Partial<DrainStatus>): DrainStatus {
   return {
@@ -290,6 +298,68 @@ describe("epicRunStateLabel", () => {
     expect(epicRunStateLabel("running", "")).toBe(m.epic_run_state_running());
     expect(epicRunStateLabel("idle", "")).toBe(m.epic_run_state_idle());
     expect(epicRunStateLabel("winding", "#7")).toBe(m.epic_run_state_winding({ inflight: "#7" }));
+    expect(epicRunStateLabel("superseded", "")).toBe(m.epic_run_state_superseded());
+    expect(epicRunStateLabel("ended", "")).toBe(m.epic_run_state_ended());
+  });
+});
+
+// Why an epic that stopped leading does not run (runEnd, recorded by the server).
+describe("stopped epics", () => {
+  const AT = new Date(2026, 9, 4, 23, 41).getTime();
+  const NOW = new Date(2026, 9, 5, 8, 30).getTime();
+  const when = formatReset(AT, NOW, { withTime: true });
+  const end = (over: Partial<EpicRunEnd>): EpicRunEnd => ({
+    cause: "ended",
+    successor: null,
+    at: AT,
+    via: null,
+    ...over,
+  });
+  const idle = (runEnd?: EpicRunEnd) => ({ ...epicB("idle"), runEnd });
+
+  it("an idle epic that was superseded or ended says so; completed or unrecorded stays idle", () => {
+    expect(epicRunState(idle(end({ cause: "superseded", successor: 5 })), 99, null)).toMatchObject({
+      kind: "superseded",
+      tone: "quiet",
+    });
+    expect(epicRunState(idle(end({})), 99, null).kind).toBe("ended");
+    expect(epicRunState(idle(end({ cause: "completed" })), 99, null).kind).toBe("idle");
+    expect(epicRunState(idle(), 99, null).kind).toBe("idle");
+  });
+
+  it("winding down wins over the recorded reason", () => {
+    const a = { ...epicA(), runEnd: end({ cause: "superseded", successor: B }) };
+    expect(epicRunState(a, A, capDrain()).kind).toBe("winding");
+  });
+
+  it("superseded by the epic that still leads: one line naming it", () => {
+    expect(epicRunWhy(end({ cause: "superseded", successor: B }), B, NOW)).toEqual([
+      m.epic_run_why_superseded_leads({ successor: B, when }),
+    ]);
+  });
+
+  it("superseded by an epic that no longer leads: names both, or that none leads", () => {
+    expect(epicRunWhy(end({ cause: "superseded", successor: 5 }), B, NOW)).toEqual([
+      m.epic_run_why_superseded({ successor: 5, when }),
+      m.epic_run_winding_leader({ leader: B }),
+    ]);
+    expect(epicRunWhy(end({ cause: "superseded", successor: 5 }), null, NOW)).toEqual([
+      m.epic_run_why_superseded({ successor: 5, when }),
+      m.epic_run_no_leader(),
+    ]);
+  });
+
+  it("ended: when, who leads now, and the machine token behind it", () => {
+    expect(epicRunWhy(end({ via: "ci-bot" }), null, NOW)).toEqual([
+      m.epic_run_why_ended({ when }),
+      m.epic_run_no_leader(),
+      m.epic_run_why_via({ name: "ci-bot" }),
+    ]);
+  });
+
+  it("nothing recorded (or completed): only who leads now", () => {
+    expect(epicRunWhy(undefined, B, NOW)).toEqual([m.epic_run_winding_leader({ leader: B })]);
+    expect(epicRunWhy(end({ cause: "completed" }), null, NOW)).toEqual([m.epic_run_no_leader()]);
   });
 });
 

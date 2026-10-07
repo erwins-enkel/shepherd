@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
+import type { ComponentProps } from "svelte";
+import { getLocale, setLocale } from "$lib/paraglide/runtime";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import type {
@@ -1152,6 +1154,325 @@ describe("TopBarHeldBadge — mobile held-task dialog", () => {
     expect(onEditHeld).toHaveBeenCalledTimes(1);
     expect(onEditHeld.mock.calls[0]![0]).toEqual(task);
   });
+});
+
+describe("TopBarHeldBadge — readable prompts and action bars", () => {
+  const issuePrompt =
+    "Bearbeite Issue #2871 (https://github.com/erwins-enkel/shepherd/issues/2871): Landing-PR-Titel länger als 100 Zeichen vollständig anzeigen";
+  const longPrompt = `${issuePrompt} ${"https://example.com/" + "long-path/".repeat(60)} Weitere Hinweise zur Aufgabe.`;
+  const task: HeldTask = {
+    id: "held-layout",
+    repoPath: "/work/shepherd",
+    createdAt: 1_700_000_000_000,
+    input: {
+      repoPath: "/work/shepherd",
+      baseBranch: "main",
+      prompt: issuePrompt,
+      agentProvider: "codex",
+      model: null,
+    },
+  };
+  const props = (
+    overrides: Partial<ComponentProps<typeof TopBarHeldBadge>> = {},
+  ): ComponentProps<typeof TopBarHeldBadge> => ({
+    heldCount: 1,
+    mobile: false,
+    compactBadges: false,
+    hotter: null,
+    nowMs: 1_700_000_000_000,
+    heldPopFlipUp: false,
+    heldItems: [task],
+    heldLoading: false,
+    heldAutoRelease: true,
+    heldAutoReleaseBusy: false,
+    toggleHeldAutoRelease: vi.fn(),
+    heldPopOpen: true,
+    heldBadgeBtn: null,
+    heldPopEl: null,
+    toggleHeldPop: vi.fn(),
+    closeHeldPop: vi.fn(),
+    doSpawnHeld: vi.fn(),
+    doDiscardHeld: vi.fn(),
+    onEditHeld: vi.fn(),
+    ...overrides,
+  });
+  const promptTask = (prompt: string) => ({ ...task, input: { ...task.input, prompt } });
+  let locale: ReturnType<typeof getLocale>;
+  beforeEach(() => {
+    locale = getLocale();
+    setLocale("en", { reload: false });
+  });
+  afterEach(() => {
+    setLocale(locale, { reload: false });
+    document.documentElement.style.removeProperty("--ui-scale");
+  });
+
+  it.each(["en", "de"] as const)(
+    "shows the issue title without a click in a compact desktop row in %s",
+    async (language) => {
+      setLocale(language, { reload: false });
+      await page.viewport(1280, 900);
+      document.body.style.width = "1280px";
+      render(TopBarHeldBadge, props());
+      await nextFrame();
+      const prompt = document.querySelector<HTMLElement>(".held-row-prompt")!;
+      expect(prompt.scrollWidth).toBeLessThanOrEqual(prompt.clientWidth);
+      expect(prompt.scrollHeight).toBeLessThanOrEqual(prompt.clientHeight);
+      expect(
+        document.querySelector(".held-row")!.getBoundingClientRect().height,
+      ).toBeLessThanOrEqual(150);
+      await expect
+        .element(page.getByRole("button", { name: m.topbar_held_show_full_prompt() }))
+        .not.toBeInTheDocument();
+      const spawn = page
+        .getByRole("button", { name: m.topbar_held_spawn_now() })
+        .element()
+        .getBoundingClientRect();
+      const edit = page
+        .getByRole("button", { name: m.topbar_held_edit() })
+        .element()
+        .getBoundingClientRect();
+      expect(spawn.top).toBe(edit.top);
+      expect(spawn.left).toBeLessThan(edit.left);
+    },
+  );
+
+  it.each([
+    { mobile: false, width: 1280, lines: 3 },
+    { mobile: true, width: 390, lines: 4 },
+  ])(
+    "clamps long prompts to $lines lines and expands them in place",
+    async ({ mobile, width, lines }) => {
+      await page.viewport(width, 900);
+      document.body.style.width = `${width}px`;
+      render(
+        TopBarHeldBadge,
+        props({
+          mobile,
+          heldItems: [
+            promptTask(longPrompt),
+            { ...task, id: "short", input: { ...task.input, prompt: "Short task" } },
+          ],
+          heldCount: 2,
+        }),
+      );
+      const toggle = page.getByRole("button", { name: "Show full prompt" });
+      await expect.element(toggle).toBeVisible();
+      const prompt = document.querySelector<HTMLElement>(".held-row-prompt")!;
+      const height = prompt.getBoundingClientRect().height;
+      expect(
+        Math.abs(height - parseFloat(getComputedStyle(prompt).lineHeight) * lines),
+      ).toBeLessThan(1);
+      expect(prompt.scrollWidth).toBeLessThanOrEqual(prompt.clientWidth);
+      expect(prompt.scrollHeight).toBeGreaterThan(prompt.clientHeight);
+      await expect.element(toggle).toHaveAttribute("aria-expanded", "false");
+      await toggle.click();
+      expect(prompt.scrollHeight).toBeLessThanOrEqual(prompt.clientHeight);
+      const less = page.getByRole("button", { name: "Show less" });
+      await expect.element(less).toHaveAttribute("aria-expanded", "true");
+      const short = document.querySelectorAll<HTMLElement>(".held-row-prompt")[1]!;
+      expect(short.getBoundingClientRect().height).toBeLessThan(height);
+      await less.click();
+      await expect.element(toggle).toBeVisible();
+      expect(prompt.getBoundingClientRect().height).toBe(height);
+    },
+  );
+
+  it("remeasures clipping after resizing and editing a prompt", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const { rerender } = await render(TopBarHeldBadge, props());
+    await expect
+      .element(page.getByRole("button", { name: "Show full prompt" }))
+      .not.toBeInTheDocument();
+    await page.viewport(360, 900);
+    document.body.style.width = "360px";
+    await expect.element(page.getByRole("button", { name: "Show full prompt" })).toBeVisible();
+    await rerender(props({ heldItems: [promptTask("Short task")] }));
+    await expect
+      .element(page.getByRole("button", { name: "Show full prompt" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("keeps the row keyboard order and focus trap, and restores focus on Escape", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const closeHeldPop = vi.fn();
+    const initial = props({
+      heldItems: [promptTask(longPrompt)],
+      heldPopOpen: false,
+      closeHeldPop,
+    });
+    const { rerender } = await render(TopBarHeldBadge, initial);
+    const badge = page.getByRole("button", { name: m.topbar_held_badge({ count: 1 }) });
+    (badge.element() as HTMLElement).focus();
+    await rerender({ ...initial, heldPopOpen: true });
+    const toggle = page.getByRole("button", { name: "Show full prompt" });
+    await expect.element(toggle).toBeVisible();
+    (toggle.element() as HTMLElement).focus();
+    for (const control of [
+      page.getByRole("button", { name: m.topbar_held_spawn_now() }),
+      page.getByRole("combobox", { name: m.topbar_held_spawn_cli_label() }),
+      page.getByRole("button", { name: m.topbar_held_edit() }),
+      page.getByRole("button", { name: m.topbar_held_discard() }),
+      page.getByRole("checkbox"),
+    ]) {
+      await userEvent.keyboard("{Tab}");
+      await expect.element(control).toHaveFocus();
+      if (control.element().tagName === "SELECT") {
+        expect(getComputedStyle(control.element().closest(".held-cli")!).boxShadow).not.toBe(
+          "none",
+        );
+      }
+    }
+    await userEvent.keyboard("{Shift>}{Tab}{/Shift}");
+    await expect.element(page.getByRole("button", { name: m.topbar_held_discard() })).toHaveFocus();
+    await userEvent.keyboard("{Escape}");
+    expect(closeHeldPop).toHaveBeenCalledWith(true);
+    await rerender(initial);
+    await expect.element(badge).toHaveFocus();
+  });
+
+  it("starts on the original provider or the operator's selection", async () => {
+    await page.viewport(1280, 900);
+    const doSpawnHeld = vi.fn();
+    render(TopBarHeldBadge, props({ doSpawnHeld }));
+    const select = page.getByRole("combobox", { name: m.topbar_held_spawn_cli_label() });
+    await expect.element(select).toHaveValue("codex");
+    await page.getByRole("button", { name: m.topbar_held_spawn_now() }).click();
+    expect(doSpawnHeld).toHaveBeenLastCalledWith(task.id, "codex");
+    await select.selectOptions("claude");
+    expect(document.querySelector(".held-cli-value")!.textContent).toBe(m.agent_provider_claude());
+    await page.getByRole("button", { name: m.topbar_held_spawn_now() }).click();
+    expect(doSpawnHeld).toHaveBeenLastCalledWith(task.id, "claude");
+  });
+
+  it.each(["spawn", "discard"] as const)(
+    "keeps all actions disabled while %s is pending",
+    async (pending) => {
+      await page.viewport(1280, 900);
+      render(TopBarHeldBadge, props({ heldPending: { [task.id]: pending } }));
+      const busy = page.getByRole("button", {
+        name: pending === "spawn" ? m.topbar_held_spawning() : m.topbar_held_discarding(),
+      });
+      await expect.element(busy).toHaveAttribute("aria-busy", "true");
+      for (const control of document.querySelectorAll<HTMLButtonElement | HTMLSelectElement>(
+        ".held-row-actions button, .held-row-actions select",
+      )) {
+        expect(control.disabled).toBe(true);
+      }
+    },
+  );
+
+  // Composite actual backgrounds, including the recessed select and head surface.
+  function contrast(element: HTMLElement): number {
+    const ctx = document.createElement("canvas").getContext("2d")!;
+    ctx.canvas.width = ctx.canvas.height = 1;
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--bg");
+    ctx.fillRect(0, 0, 1, 1);
+    const ancestors: HTMLElement[] = [];
+    for (let node: HTMLElement | null = element; node; node = node.parentElement)
+      ancestors.unshift(node);
+    for (const node of ancestors) {
+      ctx.fillStyle = getComputedStyle(node).backgroundColor;
+      ctx.fillRect(0, 0, 1, 1);
+    }
+    const luminance = () => {
+      const rgb = [...ctx.getImageData(0, 0, 1, 1).data].slice(0, 3).map((v) => {
+        const n = v / 255;
+        return n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4;
+      });
+      return rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722;
+    };
+    const bg = luminance();
+    ctx.fillStyle = getComputedStyle(element).color;
+    ctx.fillRect(0, 0, 1, 1);
+    const fg = luminance();
+    return (Math.max(bg, fg) + 0.05) / (Math.min(bg, fg) + 0.05);
+  }
+
+  it.each(["dark", "light"])("keeps dialog text at AA contrast in the %s theme", async (theme) => {
+    const previousTheme = document.documentElement.getAttribute("data-theme");
+    document.documentElement.setAttribute("data-theme", theme);
+    try {
+      await page.viewport(1280, 900);
+      render(
+        TopBarHeldBadge,
+        props({
+          heldItems: [promptTask(longPrompt)],
+          heldPending: { [task.id]: "spawn" },
+          heldErrors: { [task.id]: { kind: "spawn", detail: "Worktree name already in use" } },
+        }),
+      );
+      await expect.element(page.getByRole("button", { name: "Show full prompt" })).toBeVisible();
+      const text = document.querySelectorAll<HTMLElement>(
+        ".held-pop-head, .held-pop-count, .held-pop-why, .held-autostart, .held-row-prompt, .held-row-repo, .held-prompt-toggle, .held-action, .held-cli, .held-row-error, .held-row-error-detail",
+      );
+      for (const element of text) {
+        expect(contrast(element), element.className).toBeGreaterThanOrEqual(4.5);
+        expect(getComputedStyle(element).opacity, element.className).toBe("1");
+      }
+      const error = page.getByRole("alert").element().getBoundingClientRect();
+      const actions = document.querySelector(".held-row-actions")!.getBoundingClientRect();
+      expect(error.top).toBeGreaterThanOrEqual(actions.bottom);
+    } finally {
+      if (previousTheme === null) document.documentElement.removeAttribute("data-theme");
+      else document.documentElement.setAttribute("data-theme", previousTheme);
+    }
+  });
+
+  it.each(["en", "de"] as const)(
+    "uses two mobile action rows in %s and wraps enlarged labels",
+    async (language) => {
+      setLocale(language, { reload: false });
+      await page.viewport(390, 844);
+      document.body.style.width = "390px";
+      render(
+        TopBarHeldBadge,
+        props({
+          mobile: true,
+          heldItems: [{ ...task, input: { ...task.input, agentProvider: "claude" } }],
+        }),
+      );
+      await nextFrame();
+      const spawn = page
+        .getByRole("button", { name: m.topbar_held_spawn_now() })
+        .element() as HTMLElement;
+      const edit = page
+        .getByRole("button", { name: m.topbar_held_edit() })
+        .element() as HTMLElement;
+      const discard = page
+        .getByRole("button", { name: m.topbar_held_discard() })
+        .element() as HTMLElement;
+      const select = page
+        .getByRole("combobox", { name: m.topbar_held_spawn_cli_label() })
+        .element() as HTMLElement;
+      expect(select.closest(".held-cli")!.getBoundingClientRect().top).toBe(
+        spawn.getBoundingClientRect().top,
+      );
+      expect(edit.getBoundingClientRect().top).toBe(discard.getBoundingClientRect().top);
+      expect(edit.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+        spawn.getBoundingClientRect().bottom,
+      );
+      document.documentElement.style.setProperty("--ui-scale", "1.5");
+      await page.viewport(320, 844);
+      document.body.style.width = "320px";
+      await nextFrame();
+      expect(spawn.getBoundingClientRect().height).toBeLessThanOrEqual(96);
+      const providerLabel = document.querySelector<HTMLElement>(".held-cli-value")!;
+      expect(providerLabel.scrollWidth).toBeLessThanOrEqual(providerLabel.clientWidth);
+      if (language === "de") {
+        expect(discard.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+          edit.getBoundingClientRect().bottom,
+        );
+      }
+      for (const control of [spawn, select, edit, discard]) {
+        expectMinPx(control.getBoundingClientRect().height, 44, "action touch target");
+        expect(control.scrollWidth).toBeLessThanOrEqual(control.clientWidth);
+        expect(control.getBoundingClientRect().right).toBeLessThanOrEqual(320);
+      }
+    },
+  );
 });
 
 describe("TopBar — working-while-blocked counts in the working tally, not blocked", () => {

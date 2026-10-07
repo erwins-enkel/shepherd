@@ -9,6 +9,24 @@
   const fallbackProvider: AgentProvider = "claude";
 
   let spawnProviders = $state<Record<string, AgentProvider>>({});
+  let expandedPrompts = $state<Record<string, boolean>>({});
+  let clippedPrompts = $state<Record<string, boolean>>({});
+
+  function measurePrompt(node: HTMLElement, getTask: () => HeldTask) {
+    $effect(() => {
+      const task = getTask();
+      // Remeasure edited text as well as resize; keep the disclosure while expanded.
+      void task.input.prompt;
+      if (expandedPrompts[task.id]) return;
+      const measure = () => {
+        clippedPrompts[task.id] = node.scrollHeight > node.clientHeight;
+      };
+      const observer = new ResizeObserver(measure);
+      observer.observe(node);
+      measure();
+      return () => observer.disconnect();
+    });
+  }
 
   function providerFor(task: HeldTask): AgentProvider {
     return task.input.agentProvider ?? fallbackProvider;
@@ -93,6 +111,29 @@
   </label>
 {/snippet}
 
+{#snippet heldPrompt(task: HeldTask)}
+  {@const expanded = !!expandedPrompts[task.id]}
+  {@const toggleLabel = expanded ? m.topbar_held_show_less() : m.topbar_held_show_full_prompt()}
+  <span
+    id={`held-prompt-${task.id}`}
+    class="held-row-prompt"
+    class:expanded
+    use:measurePrompt={() => task}>{task.input.prompt}</span
+  >
+  <div class="held-row-meta">
+    <span class="held-row-repo">{task.repoPath.split("/").at(-1) ?? task.repoPath}</span>
+    {#if clippedPrompts[task.id]}
+      <button
+        type="button"
+        class="held-prompt-toggle"
+        aria-expanded={expanded}
+        aria-controls={`held-prompt-${task.id}`}
+        onclick={() => (expandedPrompts[task.id] = !expandedPrompts[task.id])}>{toggleLabel}</button
+      >
+    {/if}
+  </div>
+{/snippet}
+
 {#snippet heldRows()}
   {#if heldLoading}
     <div class="held-pop-empty">{m.common_loading()}</div>
@@ -100,43 +141,54 @@
     <div class="held-pop-empty">{m.topbar_held_empty()}</div>
   {:else}
     {#each heldItems as task (task.id)}
-      {@const originalProvider = providerFor(task)}
       {@const spawnProvider = selectedProvider(task)}
       {@const pending = heldPending[task.id]}
       <div class="held-row">
-        <div class="held-row-info">
-          <span class="held-row-prompt">{task.input.prompt}</span>
-          <span class="held-row-repo">{task.repoPath.split("/").at(-1) ?? task.repoPath}</span>
-          <span class="held-row-cli">
-            {m.topbar_held_original_cli({ cli: providerLabel(originalProvider) })}
-          </span>
-        </div>
+        {@render heldPrompt(task)}
         <div class="held-row-actions">
-          <label class="held-cli">
-            <span>{m.topbar_held_spawn_cli_label()}</span>
-            <select
-              value={spawnProvider}
+          <div class="held-start">
+            <button
+              type="button"
+              class="held-action held-spawn"
               disabled={!!pending}
-              onchange={(e) => setSpawnProvider(task.id, e.currentTarget.value)}
+              aria-busy={pending === "spawn"}
+              onclick={() => doSpawnHeld(task.id, spawnProvider)}
             >
-              {#each AGENT_PROVIDERS as provider (provider)}
-                <option value={provider}>{providerLabel(provider)}</option>
-              {/each}
-            </select>
-          </label>
+              <svg viewBox="0 0 12 12" fill="currentColor" aria-hidden="true">
+                <path d="m3 1 8 5-8 5z" />
+              </svg>
+              <span
+                >{pending === "spawn" ? m.topbar_held_spawning() : m.topbar_held_spawn_now()}</span
+              >
+            </button>
+            <label class="held-cli">
+              <span class="held-cli-value" aria-hidden="true">{providerLabel(spawnProvider)}</span>
+              <svg
+                viewBox="0 0 12 12"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                aria-hidden="true"
+              >
+                <path d="m2 4 4 4 4-4" />
+              </svg>
+              <select
+                aria-label={m.topbar_held_spawn_cli_label()}
+                value={spawnProvider}
+                disabled={!!pending}
+                onchange={(e) => setSpawnProvider(task.id, e.currentTarget.value)}
+              >
+                {#each AGENT_PROVIDERS as provider (provider)}
+                  <option value={provider}>{providerLabel(provider)}</option>
+                {/each}
+              </select>
+            </label>
+          </div>
           <button
             type="button"
             class="held-action held-edit"
             disabled={!!pending}
             onclick={() => onEditHeld(task)}>{m.topbar_held_edit()}</button
-          >
-          <button
-            type="button"
-            class="held-action held-spawn"
-            disabled={!!pending}
-            aria-busy={pending === "spawn"}
-            onclick={() => doSpawnHeld(task.id, spawnProvider)}
-            >{pending === "spawn" ? m.topbar_held_spawning() : m.topbar_held_spawn_now()}</button
           >
           <button
             type="button"
@@ -146,16 +198,16 @@
             onclick={() => doDiscardHeld(task.id)}
             >{pending === "discard" ? m.topbar_held_discarding() : m.topbar_held_discard()}</button
           >
-          {#if heldErrors[task.id]}
-            {@const err = heldErrors[task.id]}
-            <p class="held-row-error" role="alert">
-              {err.kind === "spawn" ? m.topbar_held_spawn_failed() : m.topbar_held_discard_failed()}
-              {#if err.detail}
-                <span class="held-row-error-detail">{err.detail}</span>
-              {/if}
-            </p>
-          {/if}
         </div>
+        {#if heldErrors[task.id]}
+          {@const err = heldErrors[task.id]}
+          <p class="held-row-error" role="alert">
+            {err.kind === "spawn" ? m.topbar_held_spawn_failed() : m.topbar_held_discard_failed()}
+            {#if err.detail}
+              <span class="held-row-error-detail">{err.detail}</span>
+            {/if}
+          </p>
+        {/if}
       </div>
     {/each}
   {/if}
@@ -213,30 +265,32 @@
           tabindex="-1"
           use:dialog={{ onclose: () => closeHeldPop(true) }}
         >
-          <div class="held-dialog-head">
-            <span id="held-dialog-title" class="held-pop-head">{m.topbar_held_title()}</span>
-            <button
-              type="button"
-              class="held-close icon-btn compact"
-              onclick={() => closeHeldPop(true)}
-              aria-label={m.common_close()}
-            >
-              <svg
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                aria-hidden="true"
+          <div class="held-header">
+            <div class="held-dialog-head">
+              <span id="held-dialog-title" class="held-pop-head">{m.topbar_held_title()}</span>
+              <button
+                type="button"
+                class="held-close icon-btn compact"
+                onclick={() => closeHeldPop(true)}
+                aria-label={m.common_close()}
               >
-                <path d="M18 6 6 18" />
-                <path d="M6 6l12 12" />
-              </svg>
-            </button>
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M18 6 6 18" />
+                  <path d="M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            {@render heldWhy()}
           </div>
           <div class="held-dialog-body">
-            {@render heldWhy()}
             {@render heldRows()}
           </div>
         </div>
@@ -261,8 +315,13 @@
         tabindex="-1"
         use:dialog={{ onclose: () => closeHeldPop(true) }}
       >
-        <div class="held-pop-head">{m.topbar_held_title()}</div>
-        {@render heldWhy()}
+        <div class="held-header">
+          <div class="held-headline">
+            <span class="held-pop-head">{m.topbar_held_title()}</span>
+            <span class="held-pop-count">{m.topbar_held_badge({ count: heldCount })}</span>
+          </div>
+          {@render heldWhy()}
+        </div>
         {@render heldRows()}
       </div>
     {/if}
@@ -336,13 +395,14 @@
   }
   /* Anchored popover — mirrors .auto-pop from AutomationPanel */
   .held-pop {
+    --held-amber-ink: var(--color-amber);
     position: absolute;
     top: 100%;
     right: 0;
     z-index: 20;
     margin-top: 4px;
-    width: 390px;
-    max-width: 90vw;
+    width: 560px;
+    max-width: 92vw;
     background: var(--color-inset);
     border: 1px solid var(--color-line);
     border-radius: 2px;
@@ -350,6 +410,10 @@
     color: var(--color-ink);
     max-height: 85vh;
     overflow-y: auto;
+  }
+  /* Light-theme amber needs darker ink to clear AA on the head and inset surfaces. */
+  :global([data-theme="light"]) .held-pop {
+    --held-amber-ink: color-mix(in srgb, var(--color-amber) 80%, var(--color-ink));
   }
   .held-pop.flip-up {
     top: auto;
@@ -394,10 +458,6 @@
     min-height: calc(var(--mobile-actionbar-hit) + env(safe-area-inset-top));
     padding: env(safe-area-inset-top) 10px 0 16px;
     background: var(--color-head);
-    border-bottom: 1px solid var(--color-line);
-  }
-  .held-dialog-head .held-pop-head {
-    padding: 0;
   }
   .held-close {
     color: var(--color-ink);
@@ -410,13 +470,10 @@
     -webkit-overflow-scrolling: touch;
   }
   @media (pointer: coarse) {
-    .held-pop:not(.held-fullscreen) {
-      width: min(360px, 92vw);
-    }
     /* Touch floor for the anchored popover's controls (wide coarse-pointer
        viewports get the anchored variant, not the mobile fullscreen one). */
     .held-pop:not(.held-fullscreen) .held-action,
-    .held-pop:not(.held-fullscreen) .held-cli select {
+    .held-pop:not(.held-fullscreen) .held-cli {
       min-height: 44px;
     }
     .held-badge {
@@ -424,18 +481,33 @@
       min-width: 44px;
     }
   }
+  .held-header {
+    flex-shrink: 0;
+    background: var(--color-head);
+    border-bottom: 1px solid var(--color-line);
+  }
+  .held-headline {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px 8px;
+  }
+  .held-pop-count {
+    color: var(--held-amber-ink);
+    font-size: var(--fs-meta);
+  }
   .held-pop-head {
     font-size: var(--fs-meta);
     letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--color-muted);
-    padding: 12px 14px 4px;
   }
   .held-pop-why {
     margin: 0;
     font-size: var(--fs-meta);
     line-height: 1.45;
-    color: var(--color-faint);
+    color: var(--color-muted);
     padding: 0 14px 10px;
   }
   .held-autostart {
@@ -448,7 +520,7 @@
     cursor: pointer;
   }
   .held-autostart input {
-    accent-color: var(--color-amber);
+    accent-color: var(--held-amber-ink);
     cursor: pointer;
   }
   .held-autostart input:disabled {
@@ -456,80 +528,111 @@
   }
   .held-pop-empty {
     font-size: var(--fs-base);
-    color: var(--color-faint);
+    color: var(--color-muted);
     padding: 8px 14px 12px;
   }
   .held-row {
     display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 8px 14px;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 14px;
+  }
+  .held-row + .held-row {
     border-top: 1px solid var(--color-line);
   }
-  .held-row-info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    flex: 1;
-  }
   .held-row-prompt {
-    font-size: var(--fs-base);
-    color: var(--color-ink-bright);
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 26ch;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    font-size: var(--fs-base);
+    line-height: 1.35;
+    color: var(--color-ink-bright);
+  }
+  .held-row-prompt.expanded {
+    display: block;
+  }
+  .held-row-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: var(--fs-meta);
   }
   .held-row-repo {
-    font-size: var(--fs-meta);
+    min-width: 0;
     color: var(--color-muted);
     letter-spacing: 0.04em;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .held-row-cli {
-    font-size: var(--fs-micro);
-    color: var(--color-faint);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .held-prompt-toggle {
+    flex-shrink: 0;
+    border: 0;
+    padding: 0;
+    background: transparent;
+    color: var(--color-muted);
+    font: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    cursor: pointer;
+  }
+  .held-prompt-toggle:hover {
+    color: var(--color-ink-bright);
   }
   .held-row-actions {
     display: flex;
-    flex-direction: column;
+    flex-wrap: wrap;
+    align-items: stretch;
     gap: 6px;
-    width: 124px;
-    flex-shrink: 0;
+  }
+  .held-start {
+    display: flex;
+    margin-right: auto;
   }
   .held-cli {
+    position: relative;
     display: flex;
-    flex-direction: column;
-    gap: 2px;
-    color: var(--color-faint);
-    font-size: var(--fs-micro);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-  }
-  .held-cli select {
-    width: 100%;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    flex: 0 0 auto;
     min-height: 34px;
     background: var(--color-inset);
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    color: var(--color-ink-bright);
+    border: 1px solid var(--color-amber);
+    border-left: 0;
+    border-radius: 0 2px 2px 0;
+    color: var(--held-amber-ink);
     font: inherit;
     font-size: var(--fs-meta);
     letter-spacing: 0.04em;
     padding: 4px 8px;
-    text-transform: none;
     cursor: pointer;
   }
-  .held-cli select:focus-visible {
+  .held-cli-value {
+    min-width: 0;
+  }
+  .held-cli svg {
+    width: 0.65em;
+    height: 0.65em;
+    flex-shrink: 0;
+  }
+  /* Keep the native picker and keyboard semantics while its visible value can wrap. */
+  .held-cli select {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: 0;
+    cursor: pointer;
+  }
+  .held-cli:focus-within,
+  .held-action:focus-visible,
+  .held-prompt-toggle:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
@@ -537,11 +640,9 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    /* Roomier tap target — the prior 3px padding rendered ~24px-tall buttons that
-       were too small to comfortably hit (coarse pointers floor to 44px below). */
     min-height: 34px;
     background: transparent;
-    border: 1px solid var(--color-line-bright);
+    border: 1px solid var(--color-line);
     border-radius: 2px;
     font: inherit;
     font-size: var(--fs-meta);
@@ -549,19 +650,17 @@
     padding: 4px 10px;
     cursor: pointer;
     white-space: nowrap;
-    color: var(--color-ink);
-    width: 100%;
+    color: var(--color-muted);
   }
   .held-action:hover:not(:disabled) {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
+    border-color: var(--held-amber-ink);
+    color: var(--held-amber-ink);
   }
   /* In-flight: spawn runs server-side worktree + agent launch (seconds). Keep the row's
      controls inert and signal progress so the button never reads as dead mid-request. */
   .held-action:disabled,
   .held-cli select:disabled {
     cursor: progress;
-    opacity: 0.6;
   }
   .held-row-error {
     margin: 0;
@@ -570,7 +669,7 @@
     line-height: 1.35;
   }
   /* The server's verbatim cause (pass-through data, not app chrome → exempt from i18n).
-     Muted + word-broken so a long technical message wraps inside the narrow column. */
+     Muted + word-broken so a long technical message wraps inside the row. */
   .held-row-error-detail {
     display: block;
     margin-top: 2px;
@@ -578,8 +677,15 @@
     overflow-wrap: anywhere;
   }
   .held-spawn {
-    color: var(--color-amber);
-    border-color: var(--color-amber);
+    gap: 6px;
+    border-radius: 2px 0 0 2px;
+    color: var(--held-amber-ink);
+    border-color: var(--held-amber-ink);
+  }
+  .held-spawn svg {
+    width: 0.85em;
+    height: 0.85em;
+    flex-shrink: 0;
   }
   .held-spawn:hover:not(:disabled) {
     background: color-mix(in srgb, var(--color-amber) 10%, transparent);
@@ -597,55 +703,99 @@
     padding: 14px 16px;
   }
   .held-fullscreen .held-row {
-    flex-direction: column;
-    gap: 10px;
+    gap: 8px;
     padding: 14px 16px;
   }
-  .held-fullscreen .held-row-info {
-    gap: 4px;
-  }
   .held-fullscreen .held-row-prompt {
-    max-width: none;
-    overflow: visible;
-    text-overflow: clip;
-    white-space: normal;
-    line-height: 1.35;
-    /* Match the select, which the iOS zoom-guard (app.css) floors to
-       max(16px, var(--fs-lg)) on mobile — keep title/buttons on the same
-       expression so the fullscreen popover reads as one size at every scale. */
+    -webkit-line-clamp: 4;
+    line-clamp: 4;
+    /* Match the iOS-floored select at every Dynamic Type scale. */
     font-size: max(16px, var(--fs-lg));
   }
-  /* Single full-width column: at enlarged iOS Dynamic Type (--ui-scale up to
-     1.5 → 24px) a 16px label like the German "Jetzt starten" truncates inside a
-     2-up grid at 320px; full-width buttons render every locale's labels in full. */
-  .held-fullscreen .held-row-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    width: 100%;
+  .held-fullscreen .held-start {
+    flex: 1 1 100%;
+    min-width: 0;
+    margin-right: 0;
   }
-  .held-fullscreen .held-cli {
-    gap: 4px;
+  /* The joined start action gets its own row; secondary actions wrap separately
+     when Dynamic Type needs more room instead of clipping their labels. */
+  .held-fullscreen .held-edit,
+  .held-fullscreen .held-discard {
+    flex: 1 1 140px;
   }
   .held-fullscreen .held-row-error {
     font-size: var(--fs-meta);
   }
-  .held-fullscreen .held-cli select,
+  .held-fullscreen .held-cli,
   .held-fullscreen .held-action {
     min-height: var(--mobile-actionbar-hit);
-    padding: 0 12px;
-  }
-  .held-fullscreen .held-action {
-    /* Same expression as the iOS-floored select (see .held-row-prompt above). */
+    padding: 6px 8px;
     font-size: max(16px, var(--fs-lg));
     letter-spacing: 0.04em;
   }
-  @media (max-width: 420px) {
-    .held-pop:not(.held-fullscreen) .held-row {
-      flex-direction: column;
+  .held-fullscreen .held-cli {
+    flex: 1;
+    min-width: 0;
+    gap: 3px;
+  }
+  .held-fullscreen .held-spawn {
+    gap: 3px;
+    flex: 1;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .held-fullscreen .held-spawn svg {
+    width: 0.6em;
+    height: 0.6em;
+  }
+  .held-fullscreen .held-spawn span {
+    min-width: 0;
+  }
+  .held-fullscreen .held-prompt-toggle {
+    min-height: 44px;
+  }
+  @media (pointer: coarse) {
+    .held-prompt-toggle {
+      min-height: 44px;
     }
-    .held-pop:not(.held-fullscreen) .held-row-actions {
-      width: 100%;
+  }
+  @media (max-width: 420px) {
+    .held-pop:not(.held-fullscreen) .held-row-prompt {
+      -webkit-line-clamp: 4;
+      line-clamp: 4;
+      font-size: max(16px, var(--fs-lg));
+    }
+    .held-pop:not(.held-fullscreen) .held-start {
+      flex: 1 1 100%;
+      min-width: 0;
+      margin-right: 0;
+    }
+    .held-pop:not(.held-fullscreen) .held-edit,
+    .held-pop:not(.held-fullscreen) .held-discard {
+      flex: 1 1 140px;
+    }
+    .held-pop:not(.held-fullscreen) .held-cli,
+    .held-pop:not(.held-fullscreen) .held-action {
+      min-height: 44px;
+      white-space: normal;
+    }
+    .held-pop:not(.held-fullscreen) .held-cli {
+      flex: 1;
+      min-width: 0;
+      gap: 3px;
+    }
+    .held-pop:not(.held-fullscreen) .held-spawn {
+      gap: 3px;
+      flex: 1;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+    .held-pop:not(.held-fullscreen) .held-spawn span {
+      min-width: 0;
+    }
+    .held-pop:not(.held-fullscreen) .held-prompt-toggle {
+      min-height: 44px;
     }
   }
 </style>

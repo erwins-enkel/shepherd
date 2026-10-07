@@ -254,6 +254,10 @@ final class IOSServerHubTests: XCTestCase {
         let limits = UsageLimits(session5h: .init(pct: 85, resetAt: 0), week: nil,
             perModelWeek: [], credits: nil, stale: false, calibratedAt: nil, subscriptionOnly: false)
         storeA.apply(.usageLimits(limits)); storeB.apply(.usageLimits(limits))
+        let usageDeadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while (SessionSignals.usageLimits(for: appA)?.session5h?.pct != 85 || SessionSignals.usageLimits(for: appB)?.session5h?.pct != 85), ContinuousClock.now < usageDeadline { await Task.yield() }
+        XCTAssertEqual(SessionSignals.usageLimits(for: appA)?.session5h?.pct, 85)
+        XCTAssertEqual(SessionSignals.usageLimits(for: appB)?.session5h?.pct, 85)
         hub.focus(a.id)
         let target = IOSComposeTarget(hub: hub)
         target.prompt = "Keep this prompt"

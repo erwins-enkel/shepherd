@@ -31,6 +31,9 @@ final class IOSComposeTests: XCTestCase {
         await recovery.refresh()
         store.apply(.usageLimits(.init(session5h: .init(pct: 80, resetAt: 0), week: nil,
             perModelWeek: [], credits: nil, stale: false, calibratedAt: nil, subscriptionOnly: false)))
+        let usageDeadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while SessionSignals.usageLimits(for: app)?.session5h?.pct != 80, ContinuousClock.now < usageDeadline { await Task.yield() }
+        XCTAssertEqual(SessionSignals.usageLimits(for: app)?.session5h?.pct, 80)
         return (app, store)
     }
     private func freshContent(app: AppModel, store: SessionStore) -> IOSComposeContent {

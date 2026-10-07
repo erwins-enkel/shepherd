@@ -12616,6 +12616,9 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SessionRowContentTests.swift\",\"MacSeamTests.SessionRowContentTests\",\"parkedRowsExplainTheirHoldBeforeShowingRecapOrActivity()\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SessionRowContentTests.swift\",\"MacSeamTests.SessionRowContentTests\",\"persistedRuntimeSurvivesParkingAndFloatingAliasesStayHistorical()\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SessionRowContentTests.swift\",\"MacSeamTests.SessionRowContentTests\",\"planNotesFollowReviewReworkCapAndApproval()\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SessionRowContentTests.swift\",\"MacSeamTests.SessionRowContentTests\",\"runtimeTelemetryWinsIndependentlyForModelAndEffort()\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SessionRowContentTests.swift\",\"MacSeamTests.SessionRowContentTests\",\"runtimeTelemetryWinsIndependentlyForModelAndEffort()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"capacityPreselectionMatchesTheWebDialog() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"capacityPreselectionUsesTheWebHoldThresholdAndRawWindows() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"initialProviderSeedsItsModelAndSurvivesSettingsReconciliation() throws\"]"
   ]
 }

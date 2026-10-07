@@ -5303,8 +5303,6 @@
   "slotstepper_more": "Einen Agenten-Platz mehr",
   "feat_slot_stepper_title": "Agenten-Plätze mit − / + ändern",
   "feat_slot_stepper_body": "Unter Repos → Issues ändern − und + neben der Zahl der Agenten-Plätze — im Listenkopf und im Schritt „Jetzt“ der Abarbeitung — das Limit des Repos direkt, ohne Umweg über Automatisierung → Limit. Ein zusätzlicher Platz wird beim nächsten Durchlauf genutzt, spätestens nach etwa 30 Sekunden.",
-  "feat_shared_browser_title": "Einmal anmelden, Agenten testen in deinem Namen",
-  "feat_shared_browser_body": "Aktiviere „Geteilter Browser“ in den Automatisierungs-Einstellungen eines Repos und klicke auf „Geteilten Browser öffnen“: Auf dem Shepherd-Host öffnet sich ein echtes Chromium-Fenster. Melde dich dort bei deiner App oder einem anderen Dienst an – die Agenten dieses Repos arbeiten im selben angemeldeten Browser weiter, um ihre Arbeit zu testen und zu bestätigen. Agenten des Repos können jede Anmeldung in diesem Browser nutzen, melde dich also nur mit Konten an, die du mit ihnen teilen möchtest.",
   "session_resume_transcript_missing": "Verlauf wurde nicht gespeichert – diese Sitzung kann nicht fortgesetzt werden.",
   "session_resume_transcript_missing_next": "Starte über „Weiterführen mit…“ im Sitzungsmenü einen neuen Agenten in diesem Worktree.",
   "newtask_readiness_upload_failed": "Upload fehlgeschlagen – erneut versuchen oder Anhang entfernen",

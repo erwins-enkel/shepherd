@@ -9,4 +9,5 @@ The per-repo Shared Browser runs with `--remote-debugging-pipe` (no TCP debug po
 ## Consequences
 
 - Attach is browser-level: an attached agent can read every login in that repo's Browser Profile. The isolation boundary is the per-repo profile, not the tab.
+- An autonomous attach is enforced as its own browser context behind a Shepherd SOCKS5 proxy, not page-level CDP `Fetch` interception: `Fetch` misses WebSockets and workers, while a context proxy sees every connection the agent's tabs make and leaves the operator's default context untouched.
 - Tools that insist on spawning their own Chrome or on `--remote-debugging-port` must be pointed at the broker URL instead. That URL carries the session's token, so it never rides env or argv (both reach `/proc/<pid>/cmdline`): it lives in a per-session 0600 config file outside every working tree, whose path is in `SHEPHERD_BROWSER_CONFIG` and which a sandboxed session sees through a single-file read-only bind.

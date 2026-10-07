@@ -557,6 +557,7 @@
   );
   // A bare "working" without a queue step says nothing the status pip doesn't — no line then.
   const showPulseLine = $derived(!!pulse && (pulse.state !== "working" || !!pulse.step));
+  const linePulse = $derived(showPulseLine ? pulse : null);
   // The steer log has no push: re-read it whenever a steer is likely to have just happened —
   // the session's status, its CI rollup or its PR head moved. Keyed on a primitive so a fresh
   // session object with the same values doesn't refetch. Finished sessions need none.
@@ -1007,9 +1008,7 @@
           <span class="car" aria-hidden="true">▏</span>
         {/if}
       </div>
-      {#if pulse && showPulseLine}
-        <PulseLine {pulse} id="u-pulse-{session.id}" />
-      {/if}
+      <PulseLine pulse={linePulse} id="u-pulse-{session.id}" />
       {@render holdSubline()}
     </div>
 

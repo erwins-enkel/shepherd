@@ -21,7 +21,7 @@ export type PulseState =
 /** A running job counts as overdue past this multiple of its usual duration. */
 export const OVERDUE_FACTOR = 1.5;
 /** This many CI-fix steers in a row, with CI still not green, reads as going in circles. */
-export const LOOP_RUN = 3;
+const LOOP_RUN = 3;
 
 export interface PulseJob {
   name: string;
@@ -102,40 +102,49 @@ function runningFocus(
   return { job: last, overdue: false };
 }
 
+type PulseBase = Pick<Pulse, "green" | "total" | "ciFixRun">;
+
+function withJob(
+  state: PulseState,
+  base: PulseBase,
+  job: WorkflowJob | undefined,
+  nowMs: number,
+): Pulse {
+  return { state, ...base, ...(job ? { job: pulseJob(job, nowMs) } : {}) };
+}
+
+/** The CI half of the verdict for an open PR, or null when CI gives nothing to report. */
+function ciPulse(
+  checks: ChecksState,
+  jobs: WorkflowJob[],
+  base: PulseBase,
+  nowMs: number,
+): Pulse | null {
+  const red = jobs.find((j) => j.state === "failure");
+  if (checks !== "success" && base.ciFixRun >= LOOP_RUN)
+    return withJob("looping", base, red, nowMs);
+  if (checks === "failure") return withJob("ci_failed", base, red, nowMs);
+  if (checks !== "pending") return null;
+  const focus = runningFocus(jobs, nowMs);
+  if (!focus) return { state: "waiting_ci", ...base };
+  const { job, overdue } = focus;
+  const eta = job.typicalMs ? { etaMs: job.startedAt! + job.typicalMs } : {};
+  return { ...withJob(overdue ? "ci_overdue" : "waiting_ci", base, job, nowMs), ...eta };
+}
+
 export function sessionPulse({ session, git, queue, steers, nowMs }: PulseInput): Pulse | null {
   const jobs = git?.state === "open" ? (git.jobs ?? []) : [];
-  const base = {
+  const base: PulseBase = {
     green: jobs.filter((j) => j.state === "success").length,
     total: jobs.length,
     ciFixRun: trailingCiFixes(steers),
   };
-  const prOpen = git?.state === "open";
-  const notGreen = prOpen && git.checks !== "success";
   if (session.status === "blocked") return { state: "needs_you", ...base };
-  if (notGreen && base.ciFixRun >= LOOP_RUN) {
-    const red = jobs.find((j) => j.state === "failure");
-    return { state: "looping", ...base, ...(red ? { job: pulseJob(red, nowMs) } : {}) };
-  }
-  if (prOpen && git.checks === "failure") {
-    const red = jobs.find((j) => j.state === "failure");
-    return { state: "ci_failed", ...base, ...(red ? { job: pulseJob(red, nowMs) } : {}) };
-  }
-  if (prOpen && git.checks === "pending") {
-    const focus = runningFocus(jobs, nowMs);
-    if (!focus) return { state: "waiting_ci", ...base };
-    const { job, overdue } = focus;
-    return {
-      state: overdue ? "ci_overdue" : "waiting_ci",
-      ...base,
-      job: pulseJob(job, nowMs),
-      ...(job.typicalMs ? { etaMs: job.startedAt! + job.typicalMs } : {}),
-    };
-  }
-  if (session.status === "running") {
-    const step = activeStep(queue);
-    return { state: "working", ...base, ...(step ? { step } : {}) };
-  }
-  return null;
+  const ci = git?.state === "open" ? ciPulse(git.checks, jobs, base, nowMs) : null;
+  if (ci) return ci;
+  if (session.status !== "running") return null;
+  const step = activeStep(queue);
+  return { state: "working", ...base, ...(step ? { step } : {}) };
 }
 
 export interface CiRow {

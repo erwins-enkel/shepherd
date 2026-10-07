@@ -102,5 +102,7 @@ describe("TimePopover status panel", () => {
     await expect.element(page.getByText("CI / Release-Gate")).toBeInTheDocument();
     await expect.element(page.getByText(m.pulse_loop_none())).toBeInTheDocument();
     await expect.element(page.getByText("/repo/fork")).toBeInTheDocument();
+    // The panel uses the wide tooltip layout (sections flow into columns where there is room).
+    expect(document.querySelector(".tooltip-body.wide .tooltip-sections")).not.toBeNull();
   });
 });

@@ -2998,7 +2998,7 @@ function doneSessionsWithIssueUrl(deps: AppDeps): Array<Session & { issueUrl?: s
   });
 }
 
-// GET reads on /api/sessions[/:id[/usage|/activity|/steer-log|/messages|/diff|/leftovers]].
+// GET reads on /api/sessions[/:id[/usage|/activity|/messages|/diff|/leftovers]].
 /** Literal `GET /api/sessions/<name>` lists. Neither is in the read-scope allowlist (`full`-only). */
 const SESSION_LISTS = new Map<string, (deps: AppDeps) => unknown>([
   // "Done" lens: sessions archived within the last DONE_LENS_WINDOW_MS, newest-first.
@@ -3006,6 +3006,14 @@ const SESSION_LISTS = new Map<string, (deps: AppDeps) => unknown>([
   // Every archived session, newest-first (`shepherd sessions list --all`, #2590).
   ["archived", (deps) => deps.store.listArchivedSessions()],
 ]);
+
+/** GET /api/sessions/:id/steer-log — who typed into the session and when (Shepherd's steers vs
+ *  the operator), as channel kinds only, never the text. */
+async function handleSessionSteerLog({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "GET" || parts[3] !== "steer-log" || parts[4] !== undefined) return null;
+  if (!deps.store.get(parts[2]!)) return json({ error: "not found" }, 404);
+  return json(steerLog(deps.store.listSessionSteers(parts[2]!)));
+}
 
 async function handleSessionReads({ req, parts, url, deps, token }: Ctx): Promise<Response | null> {
   if (req.method !== "GET") return null;
@@ -3022,11 +3030,6 @@ async function handleSessionReads({ req, parts, url, deps, token }: Ctx): Promis
   if (list) return json(list(deps));
   if (parts[3] === "usage") return sessionUsageRead(parts[2], deps);
   if (parts[3] === "activity") return sessionActivityRead(parts[2], deps);
-  // Who typed into the session and when (Shepherd's steers vs the operator) — kinds only, no text.
-  if (parts[3] === "steer-log") {
-    if (!deps.store.get(parts[2])) return json({ error: "not found" }, 404);
-    return json(steerLog(deps.store.listSessionSteers(parts[2])));
-  }
   if (parts[3] === "messages") return sessionMessagesRead(parts[2], url, deps);
   // What this spawn's assembled system prompt cost, block by block (issue #1999). 404 when the
   // session predates the instrument or its spawn recorded nothing.
@@ -4619,6 +4622,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
   for (const sub of [
     handleSessionsClearMerged,
     handleSessionCreate,
+    handleSessionSteerLog,
     handleSessionReads,
     handleSessionScratchpad,
     handleSessionScratchpadUpload,

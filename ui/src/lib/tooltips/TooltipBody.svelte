@@ -10,7 +10,7 @@
 
 <!-- Phrasing elements keep this valid inside GlossaryTerm's inline disclosure,
      including when its trigger sits inside a paragraph. Never render raw HTML. -->
-<span class="tooltip-body" class:wide>
+<span class={wide ? "tooltip-body wide" : "tooltip-body"}>
   {#if typeof content === "string"}
     {content}
   {:else}

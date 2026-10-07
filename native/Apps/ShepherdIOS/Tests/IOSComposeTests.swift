@@ -54,7 +54,7 @@ final class IOSComposeTests: XCTestCase {
             defer { transport.invalidateAndCancel() }
             let client = try ShepherdClient(profile: profile, credentials: launch.credentials, urlSession: transport)
             let store = SessionStore(client: client)
-            defer { store.stop(); app.teardown() }
+            defer { store.stop(); app.deactivate() }
             XCTAssertNil(store.settings)
             let content = freshContent(app: app, store: store)
             let model = content.model

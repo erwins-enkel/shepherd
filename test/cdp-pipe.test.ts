@@ -115,6 +115,10 @@ class FakeBrowser {
   }
 
   #handleRoot(msg: Msg): void {
+    if (msg.method === "Target.setDiscoverTargets") {
+      for (const t of this.targets) this.emit(undefined, "Target.targetCreated", { targetInfo: t });
+      return this.#reply(msg, { result: {} });
+    }
     if (msg.method === "Target.attachToBrowserTarget") {
       const id = this.#newSession("browser", null, null);
       return this.#reply(msg, { result: { sessionId: id } });
@@ -174,10 +178,10 @@ test("cdp pipe: messages before ready are queued and flushed in order", async ()
   const handle = fake.pipe.addClient(sink);
   handle.receive(JSON.stringify({ id: 1, method: "Browser.getVersion" }));
   handle.receive(JSON.stringify({ id: 2, method: "Target.getTargets" }));
-  expect(fake.received).toHaveLength(1); // only the attach handshake so far
+  expect(fake.received).toHaveLength(2); // only root discovery + the attach handshake so far
   fake.flush();
   await handle.ready;
-  expect(fake.received.slice(1).map((m) => m.method)).toEqual([
+  expect(fake.received.slice(2).map((m) => m.method)).toEqual([
     "Browser.getVersion",
     "Target.getTargets",
   ]);
@@ -340,7 +344,11 @@ test("cdp pipe: detach before attach resolves releases the browser session after
   fake.flush();
   await expect(handle.ready).rejects.toThrow();
   const methods = fake.received.map((m) => m.method);
-  expect(methods).toEqual(["Target.attachToBrowserTarget", "Target.detachFromTarget"]);
+  expect(methods).toEqual([
+    "Target.setDiscoverTargets",
+    "Target.attachToBrowserTarget",
+    "Target.detachFromTarget",
+  ]);
   expect(fake.sessions.size).toBe(0);
   expect(sink.messages).toHaveLength(0);
   expect(fake.pipe.clientCount).toBe(0);
@@ -351,7 +359,7 @@ test("cdp pipe: failed attach closes the client with 1011", async () => {
   const writes: string[] = [];
   const pipe = new CdpPipe({ write: (d) => writes.push(d) });
   const handle = pipe.addClient(sink);
-  const { id } = JSON.parse(writes[0]!.slice(0, -1)) as Msg;
+  const { id } = JSON.parse(writes[1]!.slice(0, -1)) as Msg; // [0] = root discovery
   pipe.feed(`${JSON.stringify({ id, error: { code: -32000, message: "nope" } })}\0`);
   await expect(handle.ready).rejects.toThrow();
   expect(sink.closed?.code).toBe(1011);
@@ -378,6 +386,7 @@ test("cdp pipe: oversized pre-ready queue closes with 1009", () => {
   expect(sink.closed?.code).toBe(1009);
   fake.flush();
   expect(fake.received.map((m) => m.method)).toEqual([
+    "Target.setDiscoverTargets",
     "Target.attachToBrowserTarget",
     "Target.detachFromTarget",
   ]);
@@ -388,11 +397,11 @@ test("cdp pipe: partial frames and split multi-byte UTF-8 are reassembled", asyn
   const pipe = new CdpPipe({ write: (d) => writes.push(d) });
   const sink = new FakeClient();
   const handle = pipe.addClient(sink);
-  const attachId = (JSON.parse(writes[0]!.slice(0, -1)) as Msg).id;
+  const attachId = (JSON.parse(writes[1]!.slice(0, -1)) as Msg).id; // [0] = root discovery
   pipe.feed(`${JSON.stringify({ id: attachId, result: { sessionId: "B1" } })}\0`);
   await handle.ready;
   handle.receive(JSON.stringify({ id: 1, method: "Runtime.evaluate" }));
-  const wireId = (JSON.parse(writes[1]!.slice(0, -1)) as Msg).id;
+  const wireId = (JSON.parse(writes[2]!.slice(0, -1)) as Msg).id;
   const text = "Grüße 🐑 – ok";
   const bytes = new TextEncoder().encode(
     `${JSON.stringify({ id: wireId, result: { value: text }, sessionId: "B1" })}\0${JSON.stringify({ method: "Page.frameNavigated", params: { url: "ü" }, sessionId: "B1" })}\0`,
@@ -567,4 +576,63 @@ test("cdp policy: every method agent-browser 0.32 uses is allowed", () => {
   ).toBeNull();
   expect(cdpPolicyViolation("Target.attachToTarget", { targetId: "T", flatten: true })).toBeNull();
   expect(cdpPolicyViolation("Target.createTarget", { url: "about:blank" })).toBeNull();
+});
+
+test("cdp pipe: Target.openDevTools is refused", async () => {
+  const fake = new FakeBrowser();
+  const a = await attached(fake);
+  const before = fake.received.length;
+  a.send({ id: 1, method: "Target.openDevTools", params: { targetId: "T1" } });
+  expect(fake.received).toHaveLength(before);
+  expect(a.sink.byId(1)!.error.code).toBe(-32000);
+});
+
+test("cdp pipe: attach to devtools:// / chrome:// / unknown targets is refused", async () => {
+  const fake = new FakeBrowser();
+  fake.targets.push(
+    { targetId: "DT", type: "page", url: "devtools://devtools/bundled/devtools_app.html" },
+    { targetId: "CS", type: "page", url: "chrome://settings/" },
+  );
+  const a = await attached(fake);
+  let id = 0;
+  for (const targetId of ["DT", "CS", "NOPE"]) {
+    const before = fake.received.length;
+    a.send({ id: ++id, method: "Target.attachToTarget", params: { targetId, flatten: true } });
+    expect(fake.received).toHaveLength(before);
+    expect(a.sink.byId(id)!.error.code).toBe(-32000);
+  }
+  a.send({ id: 9, method: "Target.attachToTarget", params: { targetId: "T1", flatten: true } });
+  expect(a.sink.byId(9)!.result.sessionId).toBeString();
+});
+
+test("cdp pipe: auto-attach to a non-web target is detached and never shown", async () => {
+  const fake = new FakeBrowser();
+  fake.targets.push({ targetId: "DT", type: "page", url: "devtools://devtools/x.html" });
+  const a = await attached(fake);
+  a.send({ id: 1, method: "Target.setAutoAttach", params: { autoAttach: true, flatten: true } });
+  fake.flush();
+  const shown = a.sink.events("Target.attachedToTarget").map((e) => e.params.targetInfo.targetId);
+  expect(shown).toEqual(["T1", "T2"]);
+  expect(a.sink.events("Target.detachedFromTarget")).toHaveLength(0);
+  const dtSessions = [...fake.sessions.values()].filter((s) => s.targetId === "DT");
+  expect(dtSessions).toHaveLength(0);
+});
+
+test("cdp pipe: a tab navigating to chrome:// loses its agent sessions", async () => {
+  const fake = new FakeBrowser();
+  const a = await attached(fake);
+  a.send({ id: 1, method: "Target.attachToTarget", params: { targetId: "T1", flatten: true } });
+  const child = a.sink.byId(1)!.result.sessionId as string;
+  fake.emit(undefined, "Target.targetInfoChanged", {
+    targetInfo: { targetId: "T1", type: "page", url: "chrome://settings/" },
+  });
+  fake.flush();
+  expect(fake.sessions.has(child)).toBe(false);
+  expect(a.sink.events("Target.detachedFromTarget").map((e) => e.params.sessionId)).toEqual([
+    child,
+  ]);
+  const before = fake.received.length;
+  a.send({ id: 2, method: "Runtime.evaluate", params: { expression: "1" }, sessionId: child });
+  expect(fake.received).toHaveLength(before);
+  expect(a.sink.byId(2)!.error.code).toBe(-32001);
 });

@@ -315,6 +315,10 @@ process to reach.
   would read host files), `Extensions`, `Tracing`, `SystemInfo` and browser
   process control. Inside allowed domains it also refuses host-reaching methods
   (download behavior, file inputs, file chooser and file drops) and non-web URLs.
+  Agents attach only to web targets (`http(s)`, `about:`, `data:`, `blob:`):
+  `Target.openDevTools` is refused, attaching or auto-attaching to a `devtools://`,
+  `chrome://` or other non-web target is refused, and a tab that navigates off the
+  web loses its agent sessions.
   Only flat sessions are allowed:
   `Target.sendMessageToTarget` is blocked and `Target.attachToTarget` /
   `Target.setAutoAttach` need `flatten: true`, so no command can hide inside a

@@ -61,6 +61,8 @@ type Pending =
       originalId: number;
       stripSessionId: boolean;
       method: unknown;
+      /** `Target.attachToTarget` only: the target and the session it was sent on. */
+      attach?: { targetId: string; parent: string };
     };
 
 function parseObject(text: string): Json | null {
@@ -128,6 +130,8 @@ const BLOCKED_METHODS = new Set([
   "DOM.setFileInputFiles",
   "Page.handleFileChooser",
   "Target.exposeDevToolsProtocol",
+  // Opens a devtools:// frontend target whose embedder bindings sit outside the page sandbox.
+  "Target.openDevTools",
   "Target.setRemoteLocations",
   // Tunnels a nested command to a non-flat session; the policy cannot see inside it.
   "Target.sendMessageToTarget",
@@ -157,6 +161,22 @@ function isWebUrl(url: unknown): boolean {
   try {
     const { protocol } = new URL(url);
     return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Targets an agent may attach to: web content only. devtools://, chrome://, chrome-extension://
+ * and file:// targets carry privileged bindings (DevTools embedder, WebUI `chrome.send`) the
+ * page-sandbox policy above assumes away. Empty URL = a target still being created.
+ */
+const WEB_TARGET_SCHEMES = new Set(["http:", "https:", "about:", "data:", "blob:"]);
+function isWebTargetUrl(url: unknown): boolean {
+  if (url === "") return true;
+  if (typeof url !== "string") return false;
+  try {
+    return WEB_TARGET_SCHEMES.has(new URL(url).protocol);
   } catch {
     return false;
   }
@@ -218,12 +238,23 @@ export class CdpPipe {
   /** Every attached session (browser-level and child) → the client that owns it. */
   readonly #owners = new Map<string, ClientState>();
   readonly #pending = new Map<number, Pending>();
+  /** Every target's current URL, from root-session discovery (broker-only). */
+  readonly #targetUrls = new Map<string, string>();
+  /** Child session → its target and the session that attached it (for broker-side detach). */
+  readonly #childTargets = new Map<string, { targetId: string; parent: string }>();
+  /** Child sessions the broker detached itself: their detach event is not echoed to clients. */
+  readonly #suppressed = new Set<string>();
   #partial: Uint8Array[] = [];
   #nextId = 0;
   #closed = false;
 
   constructor(opts: CdpPipeOptions) {
     this.#write = opts.write;
+    // Root-session discovery feeds #targetUrls, so attaches can be gated on the target's URL.
+    this.#sendInternal(
+      { method: "Target.setDiscoverTargets", params: { discover: true } },
+      () => {},
+    );
   }
 
   get clientCount(): number {
@@ -385,6 +416,17 @@ export class CdpPipe {
       );
       return;
     }
+    const attach = this.#attachRequest(client, msg, sessionId);
+    if (typeof attach === "string") {
+      client.sink.send(
+        JSON.stringify({
+          id,
+          error: { code: BLOCKED_BY_POLICY, message: attach },
+          ...(sessionId === undefined ? {} : { sessionId }),
+        }),
+      );
+      return;
+    }
     const pipeId = ++this.#nextId;
     this.#pending.set(pipeId, {
       kind: "client",
@@ -392,11 +434,64 @@ export class CdpPipe {
       originalId: id,
       stripSessionId: sessionId === undefined,
       method: msg.method,
+      ...(attach ? { attach } : {}),
     });
     client.pendingIds.add(pipeId);
     this.#write(
       `${JSON.stringify({ ...msg, id: pipeId, sessionId: sessionId ?? client.browserSession })}\0`,
     );
+  }
+
+  /** For `Target.attachToTarget`: the attach record, or why it is refused (non-web target). */
+  #attachRequest(
+    client: ClientState,
+    msg: Json,
+    sessionId: string | undefined,
+  ): { targetId: string; parent: string } | string | null {
+    if (msg.method !== "Target.attachToTarget") return null;
+    const targetId = stringField(msg.params, "targetId");
+    const url = targetId === null ? undefined : this.#targetUrls.get(targetId);
+    if (targetId === null || url === undefined) return "unknown target";
+    if (!isWebTargetUrl(url))
+      return "attaching to non-web targets is blocked by the Shepherd browser broker";
+    return { targetId, parent: sessionId ?? client.browserSession! };
+  }
+
+  /** Broker-side detach of a child session the client must not drive. */
+  #detachChild(child: string, parent: string): void {
+    this.#suppressed.add(child);
+    this.#sendInternal(
+      { method: "Target.detachFromTarget", params: { sessionId: child }, sessionId: parent },
+      () => {},
+    );
+  }
+
+  /** Root discovery events: track URLs; a target that navigated off the web loses its agents. */
+  #onRootEvent(msg: Json): void {
+    const info = (msg.params as Json | undefined)?.targetInfo as Json | undefined;
+    const targetId = stringField(info, "targetId") ?? stringField(msg.params, "targetId");
+    if (!targetId) return;
+    if (msg.method === "Target.targetDestroyed") {
+      this.#targetUrls.delete(targetId);
+      return;
+    }
+    if (msg.method !== "Target.targetCreated" && msg.method !== "Target.targetInfoChanged") return;
+    const url = typeof info?.url === "string" ? info.url : "";
+    this.#targetUrls.set(targetId, url);
+    if (isWebTargetUrl(url)) return;
+    for (const [child, rec] of this.#childTargets) {
+      if (rec.targetId === targetId && this.#owners.has(child)) {
+        // Unlike #detachChild the client saw this session: let its detach event through.
+        this.#sendInternal(
+          {
+            method: "Target.detachFromTarget",
+            params: { sessionId: child },
+            sessionId: rec.parent,
+          },
+          () => {},
+        );
+      }
+    }
   }
 
   #sendInternal(msg: Json, onReply: (msg: Json) => void): void {
@@ -425,7 +520,10 @@ export class CdpPipe {
     if (client.detached) return;
     if (pending.method === "Target.attachToTarget") {
       const child = stringField(msg.result, "sessionId");
-      if (child) this.#own(client, child);
+      if (child) {
+        this.#own(client, child);
+        if (pending.attach) this.#childTargets.set(child, pending.attach);
+      }
     }
     const out: Json = { ...msg, id: pending.originalId };
     if (pending.stripSessionId) delete out.sessionId;
@@ -434,12 +532,29 @@ export class CdpPipe {
 
   #onEvent(msg: Json): void {
     const sessionId = msg.sessionId;
-    if (typeof sessionId !== "string") return; // root-session events are broker-only
+    if (typeof sessionId !== "string") {
+      this.#onRootEvent(msg); // root-session events are broker-only
+      return;
+    }
     const client = this.#owners.get(sessionId);
     if (!client) return;
     const child = stringField(msg.params, "sessionId");
-    if (child && msg.method === "Target.attachedToTarget") this.#own(client, child);
-    if (child && msg.method === "Target.detachedFromTarget") this.#disown(client, child);
+    if (child && msg.method === "Target.attachedToTarget") {
+      const info = (msg.params as Json).targetInfo as Json | undefined;
+      if (!isWebTargetUrl(info?.url)) {
+        // Auto-attach reached a devtools:// / chrome:// target: never hand it to the client.
+        this.#detachChild(child, sessionId);
+        return;
+      }
+      this.#own(client, child);
+      const targetId = stringField(info, "targetId");
+      if (targetId) this.#childTargets.set(child, { targetId, parent: sessionId });
+    }
+    if (child && msg.method === "Target.detachedFromTarget") {
+      this.#disown(client, child);
+      this.#childTargets.delete(child);
+      if (this.#suppressed.delete(child)) return;
+    }
     if (sessionId === client.browserSession) {
       const out: Json = { ...msg };
       delete out.sessionId;
@@ -475,7 +590,10 @@ export class CdpPipe {
     this.#clients.delete(client);
     for (const id of client.pendingIds) this.#pending.delete(id);
     client.pendingIds.clear();
-    for (const sessionId of client.sessions) this.#owners.delete(sessionId);
+    for (const sessionId of client.sessions) {
+      this.#owners.delete(sessionId);
+      this.#childTargets.delete(sessionId);
+    }
     client.sessions.clear();
     const browserSession = client.browserSession;
     if (!browserSession) return; // the pending attach releases its session when it resolves

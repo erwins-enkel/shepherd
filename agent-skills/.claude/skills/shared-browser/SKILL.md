@@ -55,8 +55,9 @@ This is the operator's real browser, shared with every session on this repo. Tre
 
 ## Login wall
 
-When a page needs a login, stop and ask the operator to log in via **Open shared browser** in
-Shepherd's repo settings. Once they confirm, reload your tab and continue.
+When a page needs a login, stop and ask the operator to log in: from anywhere through your
+session's **Browser** tab in Shepherd, or at the Shepherd host via **Open shared browser** in the
+repo settings. Name the tab or URL to sign in on. Once they confirm, reload your tab and continue.
 
 ## The config file is a secret
 

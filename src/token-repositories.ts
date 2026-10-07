@@ -133,7 +133,7 @@ function sessionRoutePolicy(method: string, id: string, leaf: string): Repositor
 }
 
 function resourceRoutePolicy(method: string, parts: string[]): RepositoryRoute | null {
-  if (method === "GET" && parts[0] === "pty" && parts.length === 2)
+  if (method === "GET" && (parts[0] === "pty" || parts[0] === "browser-view") && parts.length === 2)
     return { kind: "session", id: parts[1]! };
   if (parts[0] !== "api" || !parts[2]) return null;
   const id = parts[2],

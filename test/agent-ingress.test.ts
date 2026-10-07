@@ -618,7 +618,8 @@ function fakeSharedBrowser(state: FakeAttach) {
         ready: Promise.resolve(),
       };
     },
-    open: async () => {},
+    open: async () => "T1",
+    sessionTab: () => null,
     stop: () => {},
   };
 }

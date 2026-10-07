@@ -1,11 +1,12 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { tick } from "svelte";
 import { render } from "vitest-browser-svelte";
-import { userEvent } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import type { EpicDraft } from "$lib/types";
 import { epicDrafts } from "$lib/epic-draft.svelte";
 import { expectMinPx } from "$lib/test-support/geometry";
+import { m } from "$lib/paraglide/messages";
 import EpicDraftModal from "./EpicDraftModal.svelte";
 
 function longDraft(sessionId: string): EpicDraft {
@@ -189,6 +190,193 @@ describe("EpicDraftModal — dialog behavior", () => {
     expect(container.querySelector(".card"), "dialog stays open once created").not.toBeNull();
     expect(link, "the created epic's parent link must be reachable").not.toBeNull();
     expect(link!.href).toBe("https://example.invalid/issues/4242");
+
+    unmount();
+  });
+});
+
+function shapedDraft(sessionId: string): EpicDraft {
+  return {
+    sessionId,
+    parent: {
+      title: "Distribute tasks across Shepherd hosts",
+      body: "Intro paragraph.\n\n## Goal\n\nRun each task on the **right** host.\n\n## Decisions\n\n- **Roles:** Linux coordinates.",
+      acceptanceCriteria: ["An iOS task starts on the MacBook."],
+      nonGoals: ["Live migration"],
+    },
+    children: [
+      { key: "c1", title: "Pair hosts", body: "", acceptanceCriteria: [], blockedBy: [] },
+      { key: "c2", title: "Derive needs", body: "", acceptanceCriteria: [], blockedBy: [] },
+      { key: "c3", title: "Report abilities", body: "", acceptanceCriteria: [], blockedBy: ["c1"] },
+      {
+        key: "c4",
+        title: "Pick the host",
+        body: "Uses the **preference order**.",
+        acceptanceCriteria: ["Starts without asking."],
+        blockedBy: ["c2", "c3"],
+      },
+    ],
+    status: "draft",
+    materializedChildren: {},
+    parentNumber: null,
+    parentUrl: null,
+  };
+}
+
+describe("EpicDraftModal — document view", () => {
+  beforeEach(async () => {
+    await page.viewport(1280, 900);
+  });
+
+  it("renders the Markdown body in sections with a table of contents on a wide card", async () => {
+    const sessionId = "epic-draft-modal-document";
+    epicDrafts.upsert(shapedDraft(sessionId));
+    const { container, unmount } = await render(EpicDraftModal, {
+      sessionId,
+      sessionLive: true,
+      onclose: () => {},
+    });
+    const card = container.querySelector<HTMLElement>(".card")!;
+    card.style.width = "1100px";
+
+    await vi.waitFor(() => expect(container.querySelector(".parent-body strong")).not.toBeNull());
+    const doc = container.querySelector<HTMLElement>(".doc")!;
+    expect(doc.textContent).not.toContain("**");
+    expect(doc.textContent).not.toContain("## ");
+    expect([...container.querySelectorAll(".part-title")].map((h) => h.textContent)).toEqual(
+      expect.arrayContaining(["Goal", "Decisions"]),
+    );
+
+    const toc = container.querySelector<HTMLElement>(".toc")!;
+    expect(getComputedStyle(toc).display).not.toBe("none");
+    expect([...toc.querySelectorAll(".toc-item")].map((b) => b.textContent?.trim())).toEqual([
+      m.epicdraft_toc_overview(),
+      "Goal",
+      "Decisions",
+      m.epicdraft_acceptance_label(),
+      m.epicdraft_nongoals_label(),
+      m.epicdraft_children_label({ count: 4 }),
+    ]);
+    expect(container.querySelector(".outcome")?.textContent).toContain("1, 2");
+
+    card.style.width = "390px";
+    await tick();
+    expect(getComputedStyle(toc).display, "no table of contents on a narrow card").toBe("none");
+
+    unmount();
+  });
+
+  it("labels each child with its wave and jumps to a blocker", async () => {
+    const sessionId = "epic-draft-modal-waves";
+    epicDrafts.upsert(longDraft(sessionId));
+    const { container, unmount } = await render(EpicDraftModal, {
+      sessionId,
+      sessionLive: true,
+      onclose: () => {},
+    });
+    container.querySelector<HTMLElement>(".card")!.style.width = "1100px";
+
+    const waves = [...container.querySelectorAll(".edp-wave")].map((w) => w.textContent);
+    expect(waves.slice(0, 3)).toEqual([1, 2, 3].map((n) => m.epicdraft_wave({ n })));
+    expect(container.querySelector(".approve")?.textContent).toContain(
+      m.epicdraft_approve_count({ count: 13 }),
+    );
+
+    const body = container.querySelector<HTMLElement>(".body")!;
+    const secondRow = container.querySelector<HTMLElement>('[data-child-key="child-2"]')!;
+    secondRow.querySelector<HTMLButtonElement>(".edp-dep")!.click();
+    await tick();
+
+    const target = container.querySelector<HTMLElement>('[data-child-key="child-1"]')!;
+    const offset = target.getBoundingClientRect().top - body.getBoundingClientRect().top;
+    expect(Math.abs(offset), "the blocker row lands at the top of the draft").toBeLessThan(16);
+
+    // Rows on screen count as seen after a short dwell, not on first paint.
+    expect(container.querySelector(".seen-progress")?.textContent).toBe(
+      m.epicdraft_seen_progress({ seen: 0, total: 12 }),
+    );
+    await vi.waitFor(
+      () =>
+        expect(container.querySelector(".seen-progress")?.textContent).not.toBe(
+          m.epicdraft_seen_progress({ seen: 0, total: 12 }),
+        ),
+      { timeout: 3000 },
+    );
+
+    unmount();
+  });
+});
+
+describe("EpicDraftModal — resumed draft", () => {
+  beforeEach(async () => {
+    await page.viewport(1280, 900);
+  });
+
+  // A failed materialize returns the draft to `draft` but keeps what it created; the retry skips
+  // those, so the counts must too.
+  it("counts only the issues approving will still create", async () => {
+    const sessionId = "epic-draft-modal-resume";
+    epicDrafts.upsert({
+      ...shapedDraft(sessionId),
+      materializedChildren: { c1: 101, c2: 102 },
+      parentNumber: 4242,
+      parentUrl: "https://example.invalid/issues/4242",
+    });
+    const { container, unmount } = await render(EpicDraftModal, {
+      sessionId,
+      sessionLive: true,
+      onclose: () => {},
+    });
+    container.querySelector<HTMLElement>(".card")!.style.width = "1100px";
+    await tick();
+
+    expect(container.querySelector(".approve")?.textContent).toContain(
+      m.epicdraft_approve_count({ count: 2 }),
+    );
+    const issuesRow = [...container.querySelectorAll(".outcome dd")].find((dd) =>
+      dd.textContent?.includes(m.epicdraft_outcome_issues()),
+    );
+    expect(issuesRow?.textContent).toContain("2");
+
+    unmount();
+  });
+});
+
+describe("EpicDraftModal — seen marks", () => {
+  beforeEach(async () => {
+    await page.viewport(1280, 900);
+  });
+
+  it("keeps seen marks while the review scrolls on and adds new ones", async () => {
+    const sessionId = "epic-draft-modal-seen";
+    epicDrafts.upsert(longDraft(sessionId));
+    const { container, unmount } = await render(EpicDraftModal, {
+      sessionId,
+      sessionLive: true,
+      onclose: () => {},
+    });
+    container.querySelector<HTMLElement>(".card")!.style.width = "1100px";
+    const body = container.querySelector<HTMLElement>(".body")!;
+    const ticks = () => container.querySelectorAll(".toc-seen").length;
+    const firstChildTicked = () =>
+      container.querySelector(".toc-children li:first-child .toc-seen") !== null;
+
+    container
+      .querySelector<HTMLElement>('[data-child-key="child-1"]')!
+      .scrollIntoView({ block: "start" });
+    await vi.waitFor(() => expect(firstChildTicked()).toBe(true), { timeout: 3000 });
+    const firstBatch = ticks();
+
+    // Further dwell timers must not wipe what is already marked.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    expect(ticks(), "marks survive later dwell timers").toBe(firstBatch);
+
+    body.scrollTop = body.scrollHeight;
+    await vi.waitFor(() => expect(ticks()).toBeGreaterThan(firstBatch), { timeout: 3000 });
+    expect(firstChildTicked(), "earlier marks stay after scrolling on").toBe(true);
+    expect(container.querySelector(".seen-progress")?.textContent).toBe(
+      m.epicdraft_seen_progress({ seen: ticks(), total: 12 }),
+    );
 
     unmount();
   });

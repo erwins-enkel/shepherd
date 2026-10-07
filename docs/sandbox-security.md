@@ -329,6 +329,15 @@ process to reach.
   live under `~/.shepherd/browser-profiles/`, which the sandbox membrane does
   not bind (`$HOME` is a tmpfs inside it), so sandboxed agents cannot read
   downloaded files either.
+- **Browser View is operator-only.** The live view in a session's **Browser**
+  tab is a WebSocket on the operator app (`/browser-view/<session>`), never on
+  agent ingress, behind the same auth and origin checks as `/pty`: read/submit
+  tokens are refused, a repo-restricted token reaches only its own repos'
+  sessions. It attaches as one more broker client, so the CDP allowlist above
+  applies to it too. The UI never sends raw CDP: the server translates a small
+  typed set (tab select, frame ack, mouse, key, paste text, http(s) navigate,
+  reload) into `Page`/`Input`/`Target` commands. Pasted text is typed into the
+  page and never stored or logged.
 - **Autonomous sessions are refused** until a per-repo browser origin allowlist
   exists to bound where an unattended agent can drive the operator's logins.
 

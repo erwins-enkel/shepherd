@@ -198,6 +198,10 @@ export interface MembraneInputs {
    *  membrane leaves that session with neither the notice nor the mechanism. Absent/empty → no
    *  flags, keeping the output byte-identical to a pre-#2002 spawn. */
   agentSupportPaths?: string[];
+  /** This session's Browser Attach config file (ADR 0001), bound RO at the same path. It lives
+   *  under `~/.shepherd/browser-attach/`, which nothing else binds, so each membrane sees only
+   *  its own session's token file. Absent → no flag (autonomous / Shared Browser off). */
+  browserConfigFile?: string | null;
   /** api-key mode: present <claudeDir>/.credentials.json as GENUINELY ABSENT
    *  inside the sandbox (not an empty /dev/null overlay) by binding every child
    *  of claudeDir individually EXCEPT the credential file — matching the
@@ -401,6 +405,15 @@ function nodeToolchainFlags(inputs: MembraneInputs, exists: (p: string) => boole
   }
   add(binDir);
   return flags;
+}
+
+/**
+ * This session's Browser Attach config file, bound RO at the same path — this session's only, and
+ * after `--tmpfs $HOME` so it is not masked. Not `-try`: the spawn just wrote it, and a missing
+ * token file must fail loudly rather than silently. Empty when absent.
+ */
+function browserConfigFlags(file: string | null | undefined): string[] {
+  return typeof file === "string" && file.length > 0 ? ["--ro-bind", file, file] : [];
 }
 
 /**
@@ -617,6 +630,9 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
 
   // ── Shepherd-injected agent capabilities (issue #2002) ───────────────────
   f.push(...agentSupportFlags(inputs.agentSupportPaths));
+
+  // ── Browser Attach config (ADR 0001) ─────────────────────────────────────
+  f.push(...browserConfigFlags(inputs.browserConfigFile));
 
   // ── worktree / git store ─────────────────────────────────────────────────
   if (inputs.isolated) {

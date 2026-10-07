@@ -14,10 +14,11 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { shepherdRuntimeDir } from "../src/runtime-dir";
 import { SessionStore } from "../src/store";
-import { sanitizeHerdrAgentName } from "../src/herdr";
+import { buildWrappedArgv, sanitizeHerdrAgentName } from "../src/herdr";
+import { readFile as readFileAsync, stat as statAsync } from "node:fs/promises";
 import {
   SessionService,
-  BROWSER_CDP_URL_ENV,
+  BROWSER_CONFIG_ENV,
   browserCdpUrl,
   RestoreError,
   spawnSettingsOverlay,
@@ -8440,6 +8441,7 @@ function baseUrlService(opts: {
   detectEgressHostLoopback?: () => boolean;
   agentIngressPort?: () => number | undefined;
   browserToken?: BrowserTokenSigner;
+  browserAttachDir?: string;
 }) {
   return new SessionService({
     transcriptExists: () => true, // Fixture conversation is persisted.
@@ -8467,6 +8469,7 @@ function baseUrlService(opts: {
     detectEgressHostLoopback: opts.detectEgressHostLoopback,
     agentIngressPort: opts.agentIngressPort,
     browserToken: opts.browserToken,
+    browserAttachDir: opts.browserAttachDir,
   });
 }
 
@@ -8731,7 +8734,7 @@ test("agent coordinates: the sandboxed membrane carries them past bwrap --cleare
   expect(setenv("SHEPHERD_SESSION_ID")).toBe(s.id);
 });
 
-// ── Shared Browser (ADR 0001): SHEPHERD_BROWSER_CDP_URL in the spawn env ─────────
+// ── Shared Browser (ADR 0001): SHEPHERD_BROWSER_CONFIG in the spawn env ──────────
 
 const browserSigner = new BrowserTokenSigner(Buffer.alloc(32, 3));
 
@@ -8756,64 +8759,146 @@ function setenvValue(argv: string[] | undefined, name: string): string | undefin
   return i < 0 ? undefined : a[i + 1];
 }
 
-test("browser attach env: enabled + trusted → SHEPHERD_BROWSER_CDP_URL on the trusted spawn env", async () => {
-  const record: { argv?: string[]; env?: Record<string, string> } = {};
+/** A browser-attach service whose attach-config dir is a fresh temp dir (`<root>/attach`). */
+function browserService(
+  store: SessionStore,
+  record: { argv?: string[]; env?: Record<string, string> },
+  extra: Partial<Parameters<typeof baseUrlService>[0]> = {},
+) {
+  const root = mkdtempSync(join(tmpdir(), "sb-attach-"));
+  const dir = join(root, "attach");
   const service = baseUrlService({
-    store: browserStore(true),
+    store,
     record,
     agentIngressPort: () => 7331,
     browserToken: browserSigner,
+    browserAttachDir: dir,
+    ...extra,
   });
-  const s = await createInRepo(service);
-  const url = new URL(record.env?.[BROWSER_CDP_URL_ENV] ?? "");
-  expect(`${url.origin}${url.pathname}`).toBe(`ws://127.0.0.1:7331/api/sessions/${s.id}/browser`);
-  expect(browserSigner.verify(s.id, url.searchParams.get("token"))).toBe(true);
-  // Never on the agent's argv (visible in `ps`) for the trusted path.
-  expect((record.argv ?? []).some((a) => a.includes("/browser?token="))).toBe(false);
+  return { service, root, dir };
+}
+
+/** Parses the config file and asserts it carries `sessionId`'s verified attach URL. */
+async function expectAttachConfig(path: string, sessionId: string) {
+  const cfg = JSON.parse(await readFileAsync(path, "utf8")) as { cdp: string };
+  expect(Object.keys(cfg)).toEqual(["cdp"]);
+  const url = new URL(cfg.cdp);
+  expect(`${url.origin}${url.pathname}`).toBe(
+    `ws://127.0.0.1:7331/api/sessions/${sessionId}/browser`,
+  );
+  expect(browserSigner.verify(sessionId, url.searchParams.get("token"))).toBe(true);
+  expect((await statAsync(path)).mode & 0o777).toBe(0o600);
+  return url.searchParams.get("token")!;
+}
+
+/** Every argv token a local user could read: the agent argv plus herdr's env shim around it. */
+function visibleArgv(record: { argv?: string[]; env?: Record<string, string> }): string {
+  return buildWrappedArgv(record.argv ?? [], record.env).join("\0");
+}
+
+/** Sources of every bwrap bind in `argv` that point into `dir`. */
+function bindsInto(argv: string[] | undefined, dir: string): string[][] {
+  const a = argv ?? [];
+  const out: string[][] = [];
+  a.forEach((v, i) => {
+    if (/^--(ro-)?bind(-try)?$/.test(v) && (a[i + 1] ?? "").startsWith(dir))
+      out.push([v, a[i + 1]!, a[i + 2]!]);
+  });
+  return out;
+}
+
+test("browser attach env: enabled + trusted → config file path on the spawn env, token only in the 0600 file", async () => {
+  const record: { argv?: string[]; env?: Record<string, string> } = {};
+  const { service, root, dir } = browserService(browserStore(true), record);
+  try {
+    const s = await createInRepo(service);
+    const path = record.env?.[BROWSER_CONFIG_ENV];
+    expect(path).toBe(join(dir, `${s.id}.json`));
+    const token = await expectAttachConfig(path!, s.id);
+    expect((await statAsync(dir)).mode & 0o777).toBe(0o700);
+    // Neither the agent argv nor herdr's env shim (both in /proc/<pid>/cmdline) carry the token.
+    expect(visibleArgv(record)).not.toContain(token);
+    expect(visibleArgv(record)).not.toContain("/browser?token=");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
-test("browser attach env: enabled + standard → carried past bwrap --clearenv via --setenv", async () => {
+test("browser attach env: standard → path past --clearenv + RO bind of only this session's file", async () => {
   const record: { argv?: string[]; env?: Record<string, string> } = {};
-  const service = baseUrlService({
-    store: browserStore(true, "standard"),
-    record,
+  const { service, root, dir } = browserService(browserStore(true, "standard"), record, {
     detectBackend: () => "bwrap",
-    agentIngressPort: () => 7331,
-    browserToken: browserSigner,
   });
-  const s = await createInRepo(service);
-  const value = setenvValue(record.argv, BROWSER_CDP_URL_ENV);
-  expect(value).toBe(browserCdpUrl("http://127.0.0.1:7331", s.id, browserSigner.sign(s.id)));
+  try {
+    // herdr.start overwrites `record` per spawn: snapshot each session's capture.
+    const a = await createInRepo(service);
+    const recordA = { ...record };
+    const b = await createInRepo(service);
+    const recordB = { ...record };
+    for (const [s, rec] of [
+      [a, recordA],
+      [b, recordB],
+    ] as const) {
+      const path = join(dir, `${s.id}.json`);
+      expect(rec.argv?.[0]).toBe("bwrap");
+      expect(setenvValue(rec.argv, BROWSER_CONFIG_ENV)).toBe(path);
+      // Exactly one bind into the attach dir: this session's own file, read-only.
+      expect(bindsInto(rec.argv, dir)).toEqual([["--ro-bind", path, path]]);
+      const token = await expectAttachConfig(path, s.id);
+      expect(visibleArgv(rec)).not.toContain(token);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("browser attach env: archive removes the config file", async () => {
+  const record: { argv?: string[]; env?: Record<string, string> } = {};
+  const { service, root } = browserService(browserStore(true), record);
+  try {
+    const s = await createInRepo(service);
+    const path = record.env![BROWSER_CONFIG_ENV]!;
+    expect(existsSync(path)).toBe(true);
+    await service.archive(s.id);
+    expect(existsSync(path)).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("browser attach env: absent when the repo has not opted in", async () => {
   const record: { argv?: string[]; env?: Record<string, string> } = {};
-  const service = baseUrlService({
-    store: browserStore(false, "standard"),
-    record,
+  const { service, root, dir } = browserService(browserStore(false, "standard"), record, {
     detectBackend: () => "bwrap",
-    agentIngressPort: () => 7331,
-    browserToken: browserSigner,
   });
-  await createInRepo(service);
-  expect(record.env?.[BROWSER_CDP_URL_ENV]).toBeUndefined();
-  expect(setenvValue(record.argv, BROWSER_CDP_URL_ENV)).toBeUndefined();
+  try {
+    await createInRepo(service);
+    expect(record.env?.[BROWSER_CONFIG_ENV]).toBeUndefined();
+    expect(setenvValue(record.argv, BROWSER_CONFIG_ENV)).toBeUndefined();
+    expect(bindsInto(record.argv, dir)).toEqual([]);
+    expect(existsSync(dir)).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
-test("browser attach env: absent for an autonomous session even on an enabled repo", async () => {
+test("browser attach env: autonomous on an enabled repo gets no file, env or bind", async () => {
   const record: { argv?: string[]; env?: Record<string, string> } = {};
-  const service = baseUrlService({
-    store: browserStore(true, "autonomous"),
-    record,
+  const { service, root, dir } = browserService(browserStore(true, "autonomous"), record, {
     detectBackend: () => "bwrap",
     detectEgressBackend: () => "slirp4netns",
     detectEgressHostLoopback: () => true,
-    agentIngressPort: () => 7331,
-    browserToken: browserSigner,
   });
-  await createInRepo(service);
-  expect(record.env?.[BROWSER_CDP_URL_ENV]).toBeUndefined();
-  expect((record.argv ?? []).some((a) => a.includes(BROWSER_CDP_URL_ENV))).toBe(false);
+  try {
+    await createInRepo(service);
+    expect(record.env?.[BROWSER_CONFIG_ENV]).toBeUndefined();
+    expect((record.argv ?? []).some((a) => a.includes(BROWSER_CONFIG_ENV))).toBe(false);
+    expect((record.argv ?? []).some((a) => a.startsWith(dir))).toBe(false);
+    expect(existsSync(dir)).toBe(false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(shepherdRuntimeDir("egress"), { recursive: true, force: true });
+  }
 });
 
 test("browserCdpUrl: switches http→ws and https→wss", () => {

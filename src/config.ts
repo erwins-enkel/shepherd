@@ -50,6 +50,8 @@ const apnsStorePath = join(dirname(dbPath), "apns.json");
 // Browser Attach tokens. Both beside the db — never under /tmp, which tmp-sweep reclaims.
 const browserProfileRoot = join(dirname(dbPath), "browser-profiles");
 const browserBrokerKeyPath = join(dirname(dbPath), "browser-broker.key");
+/** Per-session Browser Attach config files (0600; see src/browser-attach-config.ts). */
+const browserAttachDir = join(dirname(dbPath), "browser-attach");
 
 // herdr session id ("default" for a single-session install; a named daemon otherwise) and
 // the Unix-socket path for herdr's native JSON-RPC API (issue #1529). Resolved via the shared
@@ -647,6 +649,7 @@ export const config = {
   dbPath,
   browserProfileRoot,
   browserBrokerKeyPath,
+  browserAttachDir,
   // Shared Browser binary override; null → PATH lookup in src/shared-browser.ts.
   chromiumBin: process.env.SHEPHERD_CHROMIUM_BIN || null,
   pluginsDir,

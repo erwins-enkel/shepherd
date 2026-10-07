@@ -1,27 +1,28 @@
 ---
 name: shared-browser
-description: How to drive the operator's logged-in Shared Browser for this repo over `agent-browser`. Applies only when `$SHEPHERD_BROWSER_CDP_URL` is set. Load when you need a logged-in browser, need to test the app in a real browser, or hit a login wall.
+description: How to drive the operator's logged-in Shared Browser for this repo over `agent-browser`. Applies only when `$SHEPHERD_BROWSER_CONFIG` is set. Load when you need a logged-in browser, need to test the app in a real browser, or hit a login wall.
 ---
 
 # Shared Browser
 
 Shepherd runs one real Chromium per repo on its host, with a persistent profile the operator logs
-in to. Sessions on this repo can drive it through a Shepherd-brokered CDP WebSocket whose URL is in
-`$SHEPHERD_BROWSER_CDP_URL`.
+in to. Sessions on this repo can drive it through a Shepherd-brokered CDP WebSocket. Its URL sits in
+an `agent-browser` config file whose path is in `$SHEPHERD_BROWSER_CONFIG`.
 
 ## 1. Check it is available
 
 ```bash
-[ -n "$SHEPHERD_BROWSER_CDP_URL" ] && echo available || echo unavailable
+[ -n "$SHEPHERD_BROWSER_CONFIG" ] && [ -r "$SHEPHERD_BROWSER_CONFIG" ] && echo available || echo unavailable
 ```
 
 Unavailable means this session has no Shared Browser. The operator's logins live only in that
 profile, so a Chrome you launch yourself starts logged out: use one for logged-out work, and ask
 the operator when a task needs their logins.
 
-## 2. Connect and open your own tab
+## 2. Open your own tab
 
-Pick one `agent-browser` session name and pass it on every command (shell state does not carry
+Pick one `agent-browser` session name and pass it, together with
+`--config "$SHEPHERD_BROWSER_CONFIG"`, on every command (shell state does not carry
 between commands, so write it out each time). Get a stable one with:
 
 ```bash
@@ -31,13 +32,13 @@ agent-browser session id --scope worktree --prefix shared-browser
 Then, with `<session>` being that name:
 
 ```bash
-agent-browser --session <session> connect "$SHEPHERD_BROWSER_CDP_URL"
-agent-browser --session <session> tab new --label mine http://localhost:<devPort>
+agent-browser --session <session> --config "$SHEPHERD_BROWSER_CONFIG" tab new --label mine http://localhost:<devPort>
 ```
 
-Quote the URL: it carries a `?token=` query. Work in your `mine` tab (`snapshot`, `click`, `open`,
-…, all with the same `--session`). When you are done, close only that tab:
-`agent-browser --session <session> tab close mine`. Leave the browser itself running, so skip
+The config makes `agent-browser` attach to the Shared Browser itself, so no `connect` step is
+needed. Work in your `mine` tab (`snapshot`, `click`, `open`, …, all with the same `--session` and
+`--config`). When you are done, close only that tab:
+`agent-browser --session <session> --config "$SHEPHERD_BROWSER_CONFIG" tab close mine`. Leave the browser itself running, so skip
 `agent-browser close` here.
 
 Point the tab at the app's **real dev origin**, `http://localhost:<port>`: the port from
@@ -57,10 +58,11 @@ This is the operator's real browser, shared with every session on this repo. Tre
 When a page needs a login, stop and ask the operator to log in via **Open shared browser** in
 Shepherd's repo settings. Once they confirm, reload your tab and continue.
 
-## The URL is a secret
+## The config file is a secret
 
-`$SHEPHERD_BROWSER_CDP_URL` grants control of every login in the profile. Reference it only as the
-variable: keep it out of output, logs, commits, files and PR text.
+The file at `$SHEPHERD_BROWSER_CONFIG` holds a token that grants control of every login in the
+profile. Pass it only by path to `--config`: never `cat`, print, copy or commit it, and keep its
+contents out of output, logs, files and PR text.
 
 ## Errors
 

@@ -480,6 +480,7 @@ function mkHarness(opts?: {
     herdr: herdr as any,
     worktree: worktree as any,
     resolveForge: () => forge,
+    openPrSnapshot: { get: async () => null },
     repos: () => o.repos,
     store: store as any,
     nightlyHour: o.nightlyHour,
@@ -1810,6 +1811,28 @@ test("onArchived: frees the readyDebounce entry so a re-archive session is treat
 });
 
 // ── roll-up: never >1 open standalone docs PR ─────────────────────────────────
+
+test("#2854 docs roll-up reads the shared PR snapshot without a direct listing", async () => {
+  const h = mkHarness({ act: true, listPullRequestsThrows: true });
+  let reads = 0;
+  (h.svc as any).deps.openPrSnapshot = {
+    get: async () => {
+      reads++;
+      return {
+        prs: [
+          { number: 5, headRefName: "shepherd/docs-update-old00001", url: "https://forge/pr/5" },
+        ],
+        statuses: new Map(),
+        capped: false,
+      };
+    },
+  };
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+  expect(reads).toBe(1);
+  expect(h.openPrInputs).toHaveLength(0);
+  expect(h.editPrCalls[0]?.prNumber).toBe(5);
+});
 
 test("roll-up: one existing docs PR → rolls up, no openPr, body refreshed", async () => {
   const h = mkHarness({

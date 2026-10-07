@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { EmptyDiffError } from "./forge/types";
 import type { GitForge, GitState } from "./forge/types";
+import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { isSettledIdle } from "./recap-core";
 import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError, tabLabelMap } from "./herdr";
@@ -278,6 +279,7 @@ export interface DocAgentDeps extends MembraneSeams {
   herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "tabs" | "closeTab">;
   worktree: Pick<WorktreeMgr, "create" | "remove" | "gitCommonDir" | "ensureBaseRef">;
   resolveForge: (repoPath: string) => GitForge | null;
+  openPrSnapshot: Pick<OpenPrSnapshotService, "get">;
   /** Repos to enumerate in the boot orphan-sweep (herdr-independent worktree prune) and the nightly
    *  cadence sweep. */
   repos: () => string[];
@@ -1171,7 +1173,7 @@ export class DocAgentService {
    * Keeps open PRs whose head branch is a `shepherd/docs-update-*` branch (BRANCH_RE-valid, so the
    * branch name can't smuggle a flag into the force-push refspec) other than our own in-flight
    * branch, and returns the LOWEST-numbered one (a stable survivor so repeated runs converge on the
-   * same PR). On a listPullRequests failure it returns null (fail-open: the caller opens a fresh PR)
+   * same PR). On a listing failure it returns null (fail-open: the caller opens a fresh PR)
    * and warns — a transient list failure could momentarily allow a duplicate, which is manually
    * recoverable; failing closed would silently skip a run.
    */
@@ -1181,9 +1183,11 @@ export class DocAgentService {
   ): Promise<{ number: number; headBranch: string; url: string | null } | null> {
     let prs;
     try {
-      prs = await forge.listPullRequests();
+      const snapshot = await this.deps.openPrSnapshot.get(forge);
+      if (!snapshot && forge.listOpenPrSnapshot) throw new Error("open-PR snapshot unavailable");
+      prs = snapshot?.prs ?? (await forge.listPullRequests());
     } catch (err) {
-      console.warn(`[doc-agent] roll-up: listPullRequests failed — opening fresh:`, err);
+      console.warn(`[doc-agent] roll-up: open-PR listing failed — opening fresh:`, err);
       return null;
     }
     const prefix = `shepherd/${DOC_BRANCH_PREFIX}`;

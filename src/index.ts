@@ -1774,6 +1774,7 @@ const docAgent = new DocAgentService({
   herdr,
   worktree,
   resolveForge,
+  openPrSnapshot,
   // Plugin onSpawn hooks fire for the doc-agent spawn too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   trustDir: trustAuxDir,
@@ -1871,6 +1872,7 @@ const standaloneCritic = new StandalonePrCriticService({
   herdr,
   worktree,
   resolveForge,
+  openPrSnapshot,
   // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   trustDir: trustAuxDir,
@@ -1962,6 +1964,7 @@ const maintainService = new MaintainService({
   // Deliberately never a managed repo — no auto-filed issues land in someone else's backlog.
   selfRepoPath: SERVER_INSTALL_ROOT,
   resolveForge,
+  openPrSnapshot,
   // Per-repo first-pass rates over the 30d window. Fresh per sweep (never cached) so a repo that
   // appeared or went quiet between sweeps is reflected immediately.
   repoDelivery: () =>

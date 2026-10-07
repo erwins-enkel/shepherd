@@ -7,7 +7,24 @@
 export interface TooltipExplanation {
   title: string;
   summary: string;
-  sections: readonly { label: string; text: string }[];
+  sections: readonly TooltipSection[];
+}
+
+/** One labelled section: one idea. `rows` lists genuinely parallel items under it (checks,
+ *  events, outcomes) — each a short line with an optional right-aligned aside (a time, a
+ *  duration) and a status mark. `text` may be empty when the rows say it all. */
+export interface TooltipSection {
+  label: string;
+  text: string;
+  rows?: readonly TooltipRow[];
+}
+
+/** `tone` picks the row's mark: ok ✓, run ◷, fail ✕, warn !, idle ·. The text carries the
+ *  meaning; the mark only reinforces it. */
+export interface TooltipRow {
+  text: string;
+  aside?: string;
+  tone?: "ok" | "run" | "fail" | "warn" | "idle";
 }
 
 export type TooltipContent = string | TooltipExplanation;
@@ -17,6 +34,11 @@ export function tooltipText(content: TooltipContent): string {
   return [
     content.title,
     content.summary,
-    ...content.sections.map(({ label, text }) => `${label}: ${text}`),
+    ...content.sections.map(({ label, text, rows }) =>
+      [
+        text ? `${label}: ${text}` : `${label}:`,
+        ...(rows ?? []).map((r) => `- ${r.text}${r.aside ? ` (${r.aside})` : ""}`),
+      ].join("\n"),
+    ),
   ].join("\n\n");
 }

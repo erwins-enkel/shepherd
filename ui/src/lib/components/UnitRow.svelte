@@ -1150,7 +1150,16 @@
 {/if}
 
 {#if tipRect && !menu}
-  <TimePopover {session} {git} {activity} {nowMs} anchorRect={tipRect} onclose={tipHide} />
+  <TimePopover
+    {session}
+    {git}
+    {activity}
+    {pulse}
+    steers={steerLogs.map[session.id]}
+    {nowMs}
+    anchorRect={tipRect}
+    onclose={tipHide}
+  />
 {/if}
 
 {#if previewChoice && previewPort != null}

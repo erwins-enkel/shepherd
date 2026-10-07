@@ -21,6 +21,7 @@
   import IssueLabelChips from "$lib/components/IssueLabelChips.svelte";
   import { statusTip } from "$lib/tooltips/statusTip.svelte";
   import { coldResumeExplanation } from "$lib/tooltips/explanations";
+  import type { TooltipExplanation } from "$lib/tooltips/content";
   import GlossaryText from "$lib/components/GlossaryText.svelte";
   import { labelChipStyle } from "$lib/label-color";
   // Graphical plugin-UI widgets (issue #1189). Unlike the static meter demo, these
@@ -483,13 +484,43 @@ import type { TooltipExplanation } from "$lib/tooltips/content";
 const explanation: TooltipExplanation = {
   title: m.my_tooltip_title(),
   summary: m.my_tooltip_summary(),
-  sections: [{ label: m.my_tooltip_label(), text: m.my_tooltip_detail() }],
+  sections: [
+    { label: m.my_tooltip_label(), text: m.my_tooltip_detail() },
+    // Genuinely parallel items (checks, events, outcomes) go in rows: short text, an optional
+    // right-aligned aside, and a tone mark (ok ✓ · run ◷ · fail ✕ · warn ! · idle ·).
+    { label: m.my_rows_label(), text: "", rows: [{ text: m.my_row(), aside: "2:59", tone: "ok" }] },
+  ],
 };
 // Structure automatically selects the readable width; content is escaped text.
 <button use:statusTip={{ text: explanation }}>…</button>
 // Glossary registry entries can supply explanation: () => TooltipExplanation.
-// For existing disclosure/popover shells:
-<TooltipBody content={explanation} />`;
+// For existing disclosure/popover shells (wide: sections flow into columns when there is room):
+<TooltipBody content={explanation} wide />`;
+
+  // Live rows example (the session status panel's shape). Exempt from i18n like the page.
+  const rowsExplanation: TooltipExplanation = {
+    title: "Making progress — waiting on CI",
+    summary: "6 of 7 checks green. Release gate has run 9 of a usual ~43 min — done around 09:05.",
+    sections: [
+      {
+        label: "CI · 6/7 green",
+        text: "",
+        rows: [
+          { text: "CI / Release gate", aside: "9 / ~43 min", tone: "run" },
+          { text: "CI / Unit tests", aside: "2:59", tone: "ok" },
+          { text: "5 more green", tone: "ok" },
+        ],
+      },
+      {
+        label: "Next",
+        text: "",
+        rows: [
+          { text: "Green: the PR moves on to review", tone: "ok" },
+          { text: "Red: autopilot sends a CI-fix steer", tone: "fail" },
+        ],
+      },
+    ],
+  };
 
   const glossMarkup = `<!-- In a message value, wrap a term with [[id|Label]]: -->
 <!-- "Shepherd groups sessions under an [[epic|epic]]." -->
@@ -1278,6 +1309,7 @@ const explanation: TooltipExplanation = {
         >⚠ Cold cache · ~1.2 units</button
       >
       <GlossaryText text="[[plan-gate|Plan gate]] · [[autopilot|Autopilot]]" />
+      <button class="gbtn" use:statusTip={{ text: rowsExplanation }}>◷ Waiting on CI</button>
     </div>
     <pre><code>{tooltipMarkup}</code></pre>
   </section>

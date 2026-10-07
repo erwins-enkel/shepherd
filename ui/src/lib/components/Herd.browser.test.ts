@@ -10,7 +10,15 @@ import { reviews, planGates } from "$lib/reviews.svelte";
 import { postMergeSteps } from "$lib/post-merge-steps.svelte";
 import { expectMinPx } from "$lib/test-support/geometry";
 import { m } from "$lib/paraglide/messages";
-import type { Session, GitState, Epic, EpicChild, PostMergeSteps, ReviewVerdict } from "$lib/types";
+import type {
+  CompletedEpic,
+  Session,
+  GitState,
+  Epic,
+  EpicChild,
+  PostMergeSteps,
+  ReviewVerdict,
+} from "$lib/types";
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -1266,5 +1274,66 @@ describe("Herd CLI chip", () => {
         el.textContent!.replace(/\s+/g, " ").trim(),
       ),
     ).toEqual(["TASK-01 · Opus 5", "TASK-02 · Fable 5.1"]);
+  });
+});
+
+describe("Herd epics to land", () => {
+  const completed = (over: Partial<CompletedEpic> = {}): CompletedEpic => ({
+    repoPath: "/repo/a",
+    parentIssueNumber: 327,
+    parentTitle: "Completed epic",
+    completedAt: 0,
+    children: [],
+    landingState: "pending",
+    landingPrNumber: null,
+    landingPrUrl: null,
+    migrationPaths: [],
+    migrationsAckedAt: null,
+    landingConflictReworkCount: 0,
+    ...over,
+  });
+  const p = {
+    ...base,
+    sessions: [session({ id: "ready", readyToMerge: true })],
+    git: { ready: openPr },
+  };
+  afterEach(() => {
+    document.body.innerHTML = "";
+  });
+  it("positions actionable epics before partitions and preserves collapse while moving", async () => {
+    const { rerender } = await render(Herd, {
+      ...p,
+      completedEpics: [completed({ landingState: "none" })],
+    });
+    const head = document.querySelector<HTMLButtonElement>(".band-head")!;
+    expect(head.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      head.compareDocumentPosition(document.querySelector(".ready-head")!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    await page.getByRole("button", { name: "Epics to land (1)", exact: true }).click();
+    await rerender({ completedEpics: [completed()] });
+    const band = document.querySelector(".band")!;
+    expect(
+      document.querySelector(".ready-head")!.compareDocumentPosition(band) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(document.querySelector(".band-head")!.getAttribute("aria-expanded")).toBe("false");
+    await rerender({ completedEpics: [completed({ landingState: "none" })] });
+    expect(document.querySelector(".band-head")!.getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelectorAll(".band")).toHaveLength(1);
+  });
+  it("renders actionable epics even without live sessions", async () => {
+    await render(Herd, {
+      ...base,
+      sessions: [],
+      git: {},
+      completedEpics: [completed({ landingState: "none" })],
+    });
+    await expect.element(page.getByText("Completed epic", { exact: true })).toBeInTheDocument();
+  });
+  it.each(["done", "owed"] as const)("keeps epics hidden in the %s lens", async (filter) => {
+    await render(Herd, { ...p, filter, completedEpics: [completed({ landingState: "none" })] });
+    expect(document.querySelector(".band")).toBeNull();
   });
 });

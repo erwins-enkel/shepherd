@@ -326,6 +326,7 @@ describe("POST /api/epics/completed/land", () => {
     const emitted = epicCompletedEmitted[0] as any;
     expect(emitted.landingState).toBe("merged");
     expect(emitted.parentIssueNumber).toBe(42);
+    expect(emitted.integrationBranch).toBe("epic/42-my-epic");
   });
 });
 

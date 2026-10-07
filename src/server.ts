@@ -8955,7 +8955,11 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
     void landingRebaseCount;
     void landingRebaseDriverMisses;
     void landingConflictEscalatedAt;
-    return { ...rest, children: JSON.parse(childrenJson) as CompletedEpic["children"] };
+    return {
+      ...rest,
+      integrationBranch: deps.store.getEpicIntegrationBranch(row.repoPath, row.parentIssueNumber),
+      children: JSON.parse(childrenJson) as CompletedEpic["children"],
+    };
   });
 
   // Enrich open-landing rows with live gate signals (best-effort, fail-safe — forge/network
@@ -9143,6 +9147,7 @@ async function handleEpicsCompletedLand({ req, parts, deps }: Ctx): Promise<Resp
         parentTitle: updatedRow.parentTitle,
         completedAt: updatedRow.completedAt,
         children,
+        integrationBranch: deps.store.getEpicIntegrationBranch(dir, parent),
         landingPrNumber: updatedRow.landingPrNumber,
         landingPrUrl: updatedRow.landingPrUrl,
         landingState: updatedRow.landingState,

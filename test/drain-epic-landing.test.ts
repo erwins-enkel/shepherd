@@ -292,6 +292,7 @@ describe("ensureLandingPr — open + track the epic→default landing PR (#635)"
 
     const emit = h.completedEmits.at(-1)!;
     expect(emit.landingState).toBe("open");
+    expect(emit.integrationBranch).toBe(INTEGRATION_BRANCH);
     expect(emit.landingPrNumber).toBe(555);
     expect(emit.landingPrUrl).toBe("https://github.com/o/r/pull/555");
   });

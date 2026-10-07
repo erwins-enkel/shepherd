@@ -1468,6 +1468,10 @@ export class DrainService {
           parentTitle: epic.parentTitle,
           completedAt: this.now(),
           children: rollup,
+          integrationBranch: this.deps.store.getEpicIntegrationBranch(
+            repoPath,
+            epicRun.parentIssueNumber,
+          ),
           // Recorded as pending — its final state here; ensureLandingPr (driven by the
           // autonomous tick) opens the landing PR and transitions landingState/landingPrNumber.
           landingPrNumber: null,
@@ -1556,6 +1560,7 @@ export class DrainService {
       parentTitle: row.parentTitle,
       completedAt: row.completedAt,
       children,
+      integrationBranch: this.deps.store.getEpicIntegrationBranch(repoPath, parentIssueNumber),
       landingPrNumber: row.landingPrNumber,
       landingPrUrl: row.landingPrUrl,
       landingState: row.landingState,

@@ -27,7 +27,94 @@
   // widgets compute SVG geometry from props — a static copy would drift. Import the
   // real components via PluginUIRenderer so the showcase exercises the actual dispatch path.
   import PluginUIRenderer from "$lib/plugin-ui/PluginUIRenderer.svelte";
+  import IntegratedEpicRow from "$lib/components/IntegratedEpicRow.svelte";
+  import type { CompletedEpic } from "$lib/types";
   import type { PluginUINode } from "$lib/types";
+
+  const epicExample: CompletedEpic = {
+    repoPath: "/demo/checkout",
+    parentIssueNumber: 42,
+    parentTitle: "Complete the checkout flow",
+    completedAt: Date.now() - 7 * 60 * 60_000,
+    integrationBranch: "epic/42-checkout",
+    children: [
+      {
+        number: 43,
+        title: "Implement checkout",
+        url: "https://example.test/issues/43",
+        prNumber: 101,
+        prUrl: "https://example.test/pull/101",
+        mergedAt: Date.now() - 8 * 60 * 60_000,
+        integrated: true,
+      },
+      {
+        number: 44,
+        title: "Retire the earlier prototype",
+        url: "https://example.test/issues/44",
+        prNumber: null,
+        prUrl: null,
+        mergedAt: null,
+        integrated: false,
+      },
+    ],
+    landingPrNumber: 102,
+    landingPrUrl: "https://example.test/pull/102",
+    landingState: "open",
+    landingChecks: "success",
+    landingMergeable: true,
+    landingReady: true,
+    landingStranded: true,
+    migrationPaths: [],
+    migrationsAckedAt: null,
+    landingConflictReworkCount: 0,
+  };
+  const epicActionMarkup = `<!-- One filled primary action in the card's semantic tone. Secondary actions stay .gbtn. -->
+<button class="gbtn primary">Land epic</button>
+<button class="gbtn" disabled aria-describedby="landing-reason">Land epic</button>
+<span id="landing-reason">green CI required</span>
+
+/* Inside IntegratedEpicLanding: quiet = slate; warn = caution; ready = green. */
+.gbtn.primary {
+  background: var(--epic-fill);
+  border-color: var(--epic-fill);
+  color: var(--epic-button-ink);
+  font-weight: 600;
+}
+/* Ready */
+.landing.ready { --epic-fill: var(--color-action-ready); --epic-button-ink: var(--color-on-action); }
+/* Operator action */
+.landing.warn { --epic-fill: var(--status-warn); --epic-button-ink: var(--color-on-action); }
+/* Already landed */
+.landing { --epic-fill: var(--color-action-quiet); --epic-button-ink: var(--color-on-quiet-action); }`;
+  const epicTurnMarkup = `<span class="turn-chip">READY TO LAND</span>
+<span class="waiting-chip">Waiting for 6d</span>
+/* Turn label always carries meaning; slate = nothing to do / done, warn = your turn. */
+.turn-chip {
+  border: 1px solid var(--epic-tone);
+  background: color-mix(in srgb, var(--epic-tone) 12%, transparent);
+  color: var(--color-ink);
+  border-radius: var(--radius-chip);
+  font-size: var(--fs-micro);
+}
+/* Green is only for ready to land, never for already landed. */`;
+  const epicPathMarkup = `<!-- Expanded IntegratedEpicRow composes these in order: -->
+<ol class="landing-path">
+  <li>Sub-tasks completed · 2/2 <small>1 with PR · 1 without PR</small></li>
+  <li>Collected on the integration branch · 1 PR <small>epic/42-checkout</small></li>
+  <li>Landing PR #102 → main · Merge-ready</li>
+  <li>Landed in main</li>
+</ol>
+<!-- Then: Next step → included sub-task disclosure → Remove from list footer. -->
+/* Markers: slate check = done; amber = running; red = CI failed;
+   warn = conflict; green = merge-ready; empty ring = not reached. */
+.landing-path { list-style: none; padding: 0; }
+.landing-path li { display: flex; gap: 8px; padding-bottom: 12px; }
+.marker { width: 15px; height: 15px; border: 1px solid var(--color-line-bright); border-radius: 50%; }
+.marker.done { color: var(--status-done); border-color: var(--status-done); }
+.marker.running { background: var(--color-amber); }
+.marker.failure { background: var(--color-red); }
+.marker.warn { background: var(--status-warn); }
+.marker.ready { background: var(--color-green); }`;
 
   // Force the (i) / glossary affordances to render here regardless of the operator's
   // "hide info tooltips" preference (Settings → Device). This page is the canonical
@@ -672,6 +759,56 @@ const explanation: TooltipExplanation = {
         </li>
       {/each}
     </ul>
+  </section>
+
+  <section class="panel">
+    <h2>Epics to land · filled primary action</h2>
+    <p class="when">
+      <strong>When:</strong> the one next action for an epic, where a ghost button was too easy to overlook.
+      This is a scoped exception to the default button recipe. Warn for operator action, green only for
+      merge-ready, slate for removing a landed epic. Use the theme-aware foreground tokens. A locked action
+      always has its reason beside it and an accessible description.
+    </p>
+    <pre><code>{epicActionMarkup}</code></pre>
+  </section>
+  <section class="panel">
+    <h2>Epics to land · whose turn</h2>
+    <p class="when">
+      <strong>When:</strong> identifying who acts next. NOTHING TO DO is quiet, YOUR TURN is warn, READY
+      TO LAND is green, DONE is slate. The additional waiting chip reports elapsed time from completion.
+      Neither replaces the next-step explanation.
+    </p>
+    <pre><code>{epicTurnMarkup}</code></pre>
+  </section>
+  <section class="panel">
+    <h2>Epics to land · vertical path</h2>
+    <p class="when">
+      <strong>When:</strong> distinguishing task completion from work reaching main. The first count is
+      all finished tasks; PR inclusion is separate. Click these live cards to see the path, next action,
+      lock reason, confirmation and child disclosure at sidebar width.
+    </p>
+    <div style="max-width: 340px">
+      <IntegratedEpicRow
+        epic={epicExample}
+        onland={() => {}}
+        ondismiss={() => {}}
+        onackmigrations={() => {}}
+      />
+      <IntegratedEpicRow
+        epic={{
+          ...epicExample,
+          parentIssueNumber: 45,
+          parentTitle: "Landing checks failed",
+          landingChecks: "failure",
+          landingReady: false,
+          landingStranded: false,
+        }}
+        onland={() => {}}
+        ondismiss={() => {}}
+        onackmigrations={() => {}}
+      />
+    </div>
+    <pre><code>{epicPathMarkup}</code></pre>
   </section>
 
   <!-- ── Component recipes ────────────────────────────────────────────── -->

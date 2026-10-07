@@ -85,7 +85,7 @@ import {
 import type { EpicLandingState } from "./completed-epic";
 import { normalizeRule } from "./learning-rule";
 import { trimRuleToLimit } from "./learning-shape";
-import type { GitState } from "./forge/types";
+import type { GitState, WorkflowJob } from "./forge/types";
 
 /** One cached Up Next readiness score (#2535). `hash` is `readinessHash(model, item)`. */
 export interface ReadinessRow {
@@ -171,6 +171,25 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
+function isOptionalFiniteNumber(value: unknown): boolean {
+  return value === undefined || isFiniteNumber(value);
+}
+
+function isWorkflowJobArray(value: unknown): value is WorkflowJob[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (job) =>
+        isRecord(job) &&
+        typeof job.name === "string" &&
+        PERSISTED_CHECK_STATES.has(job.state) &&
+        (job.url === undefined || typeof job.url === "string") &&
+        isOptionalFiniteNumber(job.startedAt) &&
+        isOptionalFiniteNumber(job.completedAt),
+    )
+  );
+}
+
 function isWebUrl(value: unknown): value is string {
   if (typeof value !== "string") return false;
   try {
@@ -187,6 +206,7 @@ const FLAT_OPTIONAL_GIT_FIELDS = {
   createdAt: isFiniteNumber,
   mergeable: (value: unknown) => value === null || typeof value === "boolean",
   runningChecks: isStringArray,
+  jobs: isWorkflowJobArray,
   headSha: (value: unknown) => typeof value === "string",
   requestedReviewers: isStringArray,
   isDraft: (value: unknown) => typeof value === "boolean",

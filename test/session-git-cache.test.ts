@@ -93,6 +93,7 @@ test("session git cache validates every optional GitState field before hydration
       ["createdAt", "now"],
       ["mergeable", "yes"],
       ["runningChecks", ["verify", 7]],
+      ["jobs", [{ name: "verify", state: "pending", startedAt: "now" }]],
       ["headSha", 7],
       ["latestReview", { state: "approved", author: "scoop", submittedAt: "now" }],
       ["reviewerStates", { scoop: { state: "approved", latestAt: "now" } }],
@@ -151,6 +152,10 @@ test("session git cache preserves valid optional fields and strips unknown field
       mergeable: null,
       checks: "pending",
       runningChecks: ["verify"],
+      jobs: [
+        { name: "CI / lint", state: "success", startedAt: 1, completedAt: 2 },
+        { name: "verify", state: "pending", url: "https://github.com/acme/repo/runs/1" },
+      ],
       headSha: "abc123",
       latestReview: { state: "approved", author: "scoop", submittedAt: 2 },
       reviewerStates: { scoop: { state: "changes_requested", latestAt: null } },

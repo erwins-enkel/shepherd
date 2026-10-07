@@ -1,6 +1,6 @@
 import type { SessionStore } from "./store";
 import type { Session } from "./types";
-import type { GitForge, GitState, PrStatus } from "./forge/types";
+import type { GitForge, GitState, PrStatus, WorkflowJob } from "./forge/types";
 import { annotateHandoff } from "./repo-roles";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import type { GithubReadCache } from "./github-read-cache";
@@ -118,6 +118,16 @@ function sameSet(a: string[] | undefined, b: string[] | undefined): boolean {
   return as.every((v, i) => v === bs[i]);
 }
 
+/** Order-independent identity of the per-check list: name, state and start/end times. A job
+ *  starting or finishing must reach the UI (the status panel shows how long it has run), but
+ *  `jobsFromRollup`'s order isn't stable, so a pure reorder must not count as a change. */
+function jobsKey(jobs: WorkflowJob[] | undefined): string {
+  return (jobs ?? [])
+    .map((j) => `${j.name}\u0000${j.state}\u0000${j.startedAt ?? ""}\u0000${j.completedAt ?? ""}`)
+    .sort()
+    .join("\u0001");
+}
+
 function stableJson(v: unknown): string {
   if (!v || typeof v !== "object") return JSON.stringify(v ?? null);
   return JSON.stringify(
@@ -155,6 +165,7 @@ export function gitStateChanged(prev: GitState | undefined, git: GitState): bool
     prev.number !== git.number ||
     prev.checks !== git.checks ||
     !sameSet(prev.runningChecks, git.runningChecks) ||
+    jobsKey(prev.jobs) !== jobsKey(git.jobs) ||
     prev.mergeable !== git.mergeable ||
     prev.mergeStateStatus !== git.mergeStateStatus ||
     prev.isDraft !== git.isDraft ||

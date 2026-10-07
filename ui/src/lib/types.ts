@@ -534,6 +534,9 @@ export interface PrStatus {
    *  REST fallback / Gitea and absent (not `[]`) when nothing runs. Drives the
    *  terminal CI-running banner. Order isn't stable — compare as a set. */
   runningChecks?: string[];
+  /** Per-check breakdown with start/end times (same availability as `runningChecks`).
+   *  Drives the session status panel. */
+  jobs?: WorkflowJob[];
   /** GitHub's precise merge-state signal; absent for Gitea (mirrors server PrStatus). */
   mergeStateStatus?: MergeStateStatus;
   deployConfigured: boolean;
@@ -618,6 +621,9 @@ export interface WorkflowJob {
   name: string;
   state: ChecksState;
   url?: string;
+  /** Epoch ms the job started / completed (GitHub CheckRuns only). */
+  startedAt?: number;
+  completedAt?: number;
 }
 
 /** Latest run of one workflow on the default branch (mirrors server `WorkflowRun`). */

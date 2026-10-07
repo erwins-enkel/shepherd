@@ -249,6 +249,10 @@ const issue = shape(
     closed: boolean,
   },
 );
+const job = shape(
+  { name: string, state: checks },
+  { url: string, isDeploy: boolean, startedAt: number, completedAt: number },
+);
 const prOptional = {
   number,
   url: string,
@@ -269,7 +273,7 @@ const prOptional = {
 };
 const prStatus = shape(
   { state: oneOf("none", "open", "merged", "closed"), checks, deployConfigured: boolean },
-  prOptional,
+  { ...prOptional, jobs: array(job) },
 );
 const pull = shape(
   {
@@ -282,7 +286,7 @@ const pull = shape(
     isDraft: boolean,
     mergeable: nullable(boolean),
     checks,
-    jobs: array(shape({ name: string, state: checks }, { url: string, isDeploy: boolean })),
+    jobs: array(job),
   },
   {
     ...prOptional,

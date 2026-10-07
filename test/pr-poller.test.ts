@@ -37,6 +37,19 @@ test("gitStateChanged: false when running-checks only reorders (set-equal)", () 
   ).toBe(false);
 });
 
+test("gitStateChanged: true when a job's state or timing moves, false on a pure reorder", () => {
+  const lint = { name: "CI / lint", state: "success" as const, startedAt: 1, completedAt: 2 };
+  const queued = { name: "CI / gate", state: "pending" as const };
+  const started = { ...queued, startedAt: 3 };
+  expect(
+    gitStateChanged(openGit({ jobs: [lint, queued] }), openGit({ jobs: [lint, started] })),
+  ).toBe(true);
+  expect(
+    gitStateChanged(openGit({ jobs: [lint, queued] }), openGit({ jobs: [queued, lint] })),
+  ).toBe(false);
+  expect(gitStateChanged(openGit({ jobs: undefined }), openGit({ jobs: [] }))).toBe(false);
+});
+
 test("gitStateChanged: true when reviewerStates or reviewBlock changes", () => {
   const prev = openGit({
     checks: "success",

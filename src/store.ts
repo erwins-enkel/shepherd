@@ -5232,6 +5232,20 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   // ── learning signals ─────────────────────────────────────────────────────────
+  /** Every message typed into `sessionId` since it was created (the `reply` signals sendSteerTo
+   *  records), oldest first. Scoped by the session's repo so the (repoPath, ts) index serves it. */
+  listSessionSteers(sessionId: string): { ts: number; payload: string }[] {
+    const s = this.get(sessionId);
+    if (!s) return [];
+    return this.db
+      .query<{ ts: number; payload: string }, [string, string, number]>(
+        `SELECT ts, payload FROM signals
+         WHERE repoPath = ? AND sessionId = ? AND kind = 'reply' AND ts >= ?
+         ORDER BY ts, rowid`,
+      )
+      .all(s.repoPath, sessionId, s.createdAt);
+  }
+
   addSignal(input: {
     repoPath: string;
     sessionId: string | null;

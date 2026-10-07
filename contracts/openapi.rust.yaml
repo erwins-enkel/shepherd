@@ -1565,6 +1565,25 @@ components:
       description: Oldest first, capped server-side (30 by default).
       items:
         $ref: "#/components/schemas/ActivityEntry"
+    SteerLogEntry:
+      type: object
+      additionalProperties: true
+      description: One message typed into the session (src/steer-log.ts) — when, and which channel.
+      required:
+        - ts
+        - kind
+      properties:
+        ts:
+          type: integer
+          description: Epoch ms the message was sent.
+        kind:
+          type: string
+          description: The channel, read off Shepherd's fixed steer wording — go, plan_review, ci_fix, rebase, open_pr, nudge, review, queue, or operator. Treat an unknown value as operator.
+    SteerLogList:
+      type: array
+      description: Oldest first, since the session was created.
+      items:
+        $ref: "#/components/schemas/SteerLogEntry"
     AgentMessage:
       type: object
       additionalProperties: true
@@ -6636,6 +6655,31 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ActivityList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/sessions/{id}/steer-log:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      operationId: getSessionSteerLog
+      description: Every message typed into the session since it started — Shepherd's own steers and the operator's replies — as time and channel only, never the text.
+      responses:
+        "200":
+          description: Steer log, oldest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SteerLogList"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":

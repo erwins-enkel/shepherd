@@ -57,6 +57,7 @@ const COLLECTION_READS = new Set([
 const SESSION_READS = new Set([
   "usage",
   "activity",
+  "steer-log",
   "diff",
   "diff/annotations",
   "prompt-budget",

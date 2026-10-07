@@ -87,6 +87,25 @@ describe("detail: reads", () => {
     expect(missing.status).toBe(404);
   });
 
+  test("GET /steer-log answers time and channel per message; an unknown id is 404", async () => {
+    const session = s.deps.store.get(ok)!;
+    s.deps.store.addSignal({
+      repoPath: session.repoPath,
+      sessionId: ok,
+      kind: "reply",
+      payload: "You're in autopilot and CI is failing on your open pull request.",
+    });
+    const res = await get(`/api/sessions/${ok}/steer-log`);
+    const body = (await validateResponse("GET", "/api/sessions/{id}/steer-log", res)) as {
+      ts: number;
+      kind: string;
+    }[];
+    expect(body.map((e) => e.kind)).toEqual(["ci_fix"]);
+    const missing = await get(`/api/sessions/nope/steer-log`);
+    await validateResponse("GET", "/api/sessions/{id}/steer-log", missing);
+    expect(missing.status).toBe(404);
+  });
+
   test("GET /messages answers the flags and messages; an unknown id is 404", async () => {
     const res = await get(`/api/sessions/${ok}/messages?limit=3&includeUser=1`);
     const body = (await validateResponse("GET", "/api/sessions/{id}/messages", res)) as {

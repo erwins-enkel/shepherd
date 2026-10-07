@@ -37,6 +37,7 @@
     workingBlockedStates,
     blockStates,
     holdStates,
+    loginRequestStates,
     subagentStates,
     previewStates,
     getBacklog,
@@ -236,6 +237,8 @@
   // Viewport so it switches to its Preview tab. A counter (not a boolean) so a
   // repeat click on the already-selected session still re-triggers the open.
   let openPreviewTick = $state(0);
+  // Same idiom for a row's Login Request "Open browser" CTA (#2882) → the Browser tab.
+  let openBrowserTick = $state(0);
   let renameRequest = $state<{ id: string; tick: number } | null>(null);
   let renameRequestSeq = 0;
   // Flatten the /api/preview snapshot ({ id: { previewPort, serve? } }) into the
@@ -274,6 +277,10 @@
     }
     selectUnit(id);
     openPreviewTick++;
+  }
+  function openBrowser(id: string) {
+    selectUnit(id);
+    openBrowserTick++;
   }
   // #2225: select the row first (so the operator sees which task they are amending), then open.
   function openAmend(id: string) {
@@ -955,6 +962,9 @@
       .catch(() => {});
     holdStates()
       .then((m) => store.setHolds(m))
+      .catch(() => {});
+    loginRequestStates()
+      .then((m) => store.setLoginRequests(m))
       .catch(() => {});
     subagentStates()
       .then((m) => store.setSubagents(m))
@@ -1858,6 +1868,9 @@
       .catch(() => {});
     holdStates()
       .then((m) => store.setHolds(m))
+      .catch(() => {});
+    loginRequestStates()
+      .then((m) => store.setLoginRequests(m))
       .catch(() => {});
     subagentStates()
       .then((m) => store.setSubagents(m))
@@ -3009,6 +3022,7 @@
             preview={store.preview}
             previewServe={store.previewServe}
             onpreview={openPreview}
+            onopenbrowser={openBrowser}
             onrename={openRename}
             onamend={openAmend}
             epics={store.epics}
@@ -3123,6 +3137,8 @@
             previewHost={settings?.previewHost ?? null}
             previewServeFailed={store.previewServe[selected.id] === "failed"}
             {openPreviewTick}
+            {openBrowserTick}
+            loginRequest={store.loginRequests[selected.id] ?? null}
             {renameRequest}
             buildQueue={store.buildQueues[selected.id] ?? null}
             onSeedBuildQueue={(q) => store.setBuildQueue(q)}
@@ -3180,6 +3196,7 @@
               preview={store.preview}
               previewServe={store.previewServe}
               onpreview={openPreview}
+              onopenbrowser={openBrowser}
               onrename={openRename}
               onamend={openAmend}
               epics={store.epics}
@@ -3301,6 +3318,8 @@
             previewHost={settings?.previewHost ?? null}
             previewServeFailed={store.previewServe[selected.id] === "failed"}
             {openPreviewTick}
+            {openBrowserTick}
+            loginRequest={store.loginRequests[selected.id] ?? null}
             {renameRequest}
             buildQueue={store.buildQueues[selected.id] ?? null}
             onSeedBuildQueue={(q) => store.setBuildQueue(q)}

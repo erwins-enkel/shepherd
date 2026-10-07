@@ -5595,5 +5595,11 @@
   "viewport_browser_reconnect": "Neu verbinden",
   "viewport_browser_url_invalid": "Nur http(s)-Adressen können geöffnet werden.",
   "hold_login_request": "Bittet dich, dich bei {host} anzumelden.",
-  "hold_login_request_generic": "Bittet dich, dich im Shared Browser anzumelden."
+  "hold_login_request_generic": "Bittet dich, dich im Shared Browser anzumelden.",
+  "hold_cta_open_browser": "Browser öffnen",
+  "hold_cta_open_browser_title": "Den Browser-Tab dieser Sitzung öffnen, um dich für den Agenten anzumelden",
+  "viewport_browser_login_title": "Der Agent bittet dich, dich hier anzumelden",
+  "viewport_browser_login_done": "Erledigt",
+  "viewport_browser_login_cancel": "Abbrechen",
+  "viewport_browser_login_answer_failed": "Deine Antwort konnte nicht an den Agenten gesendet werden — versuch es erneut."
 }

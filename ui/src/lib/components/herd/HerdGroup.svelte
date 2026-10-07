@@ -15,6 +15,7 @@
     preview: Record<string, number | null>;
     previewServe: Record<string, "ok" | "failed">;
     onpreview?: (id: string, target?: "inline" | "tab") => void;
+    onopenbrowser?: (id: string) => void;
     ondecommission?: (id: string) => void;
     onrename?: (id: string) => void;
     onamend?: (id: string) => void;
@@ -137,6 +138,7 @@
       previewPort={withPreview ? (ctx.preview[session.id] ?? null) : null}
       previewServeFailed={withPreview ? ctx.previewServe[session.id] === "failed" : false}
       onpreview={withPreview ? ctx.onpreview : undefined}
+      onopenbrowser={ctx.onopenbrowser}
       ondecommission={ctx.ondecommission}
       onrename={ctx.onrename}
       onamend={ctx.onamend}

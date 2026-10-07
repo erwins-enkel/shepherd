@@ -3,7 +3,7 @@
   // /browser-view/<id>; pointer, keys and pasted text go back as typed messages the server
   // turns into CDP input. Works over Tailscale, so a remote operator can do a Handoff Login.
   import { m } from "$lib/paraglide/messages";
-  import { ApiError, openRepoBrowser } from "$lib/api";
+  import { ApiError, openRepoBrowser, resolveLoginRequest } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
   import {
     connectBrowserView,
@@ -16,14 +16,17 @@
     type BrowserViewMessage,
     type BrowserViewTarget,
   } from "$lib/browserView";
-  import type { Session } from "$lib/types";
+  import type { LoginRequest, Session } from "$lib/types";
   import { untrack } from "svelte";
 
   let {
     session,
+    loginRequest = null,
     makeWs,
   }: {
     session: Session;
+    /** The session's open Login Request (#2882): shows the reason and the Done / Cancel answer. */
+    loginRequest?: LoginRequest | null;
     /** Test seam: the socket factory (defaults to the real `/browser-view/<id>` socket). */
     makeWs?: (path: string) => WebSocket;
   } = $props();
@@ -228,6 +231,18 @@
     if (id) send({ type: "select", targetId: id });
   }
 
+  let answering = $state(false);
+  async function answerLogin(outcome: "done" | "cancelled") {
+    answering = true;
+    try {
+      await resolveLoginRequest(session.id, outcome);
+    } catch {
+      toasts.info(m.viewport_browser_login_answer_failed(), { alert: true });
+    } finally {
+      answering = false;
+    }
+  }
+
   async function openTab() {
     opening = true;
     try {
@@ -249,6 +264,28 @@
 </script>
 
 <div class="bv">
+  {#if loginRequest}
+    <!-- Agent text (reason, url) is rendered as plain text only. -->
+    <div class="bv-login" role="status">
+      <div class="bv-login-text">
+        <strong>{m.viewport_browser_login_title()}</strong>
+        <span class="bv-login-reason">{loginRequest.reason}</span>
+        <span class="bv-login-url">{loginRequest.url}</span>
+      </div>
+      <button
+        class="gbtn primary"
+        type="button"
+        disabled={answering}
+        onclick={() => answerLogin("done")}>{m.viewport_browser_login_done()}</button
+      >
+      <button
+        class="gbtn"
+        type="button"
+        disabled={answering}
+        onclick={() => answerLogin("cancelled")}>{m.viewport_browser_login_cancel()}</button
+      >
+    </div>
+  {/if}
   <div class="bv-bar">
     {#if targets.length > 0}
       <select
@@ -388,6 +425,33 @@
   }
   .bv-bar {
     border-bottom: 1px solid var(--color-line);
+  }
+  .bv-login {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 6px 12px;
+    background: var(--color-head);
+    border-bottom: 1px solid var(--color-line);
+    border-left: 3px solid var(--color-amber);
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+  }
+  .bv-login-text {
+    flex: 1 1 240px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .bv-login-text strong {
+    color: var(--color-ink-bright);
+  }
+  .bv-login-reason,
+  .bv-login-url {
+    overflow-wrap: anywhere;
   }
   .bv-paste {
     border-top: 1px solid var(--color-line);

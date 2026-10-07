@@ -82,6 +82,7 @@
     previewPort = null,
     previewServeFailed = false,
     onpreview,
+    onopenbrowser,
     ondecommission,
     onrename,
     onamend,
@@ -117,6 +118,8 @@
     previewServeFailed?: boolean;
     // Preview badge clicked → select this session + open its Viewport preview pane
     onpreview?: (id: string, target?: "inline" | "tab") => void;
+    // Login Request (#2882) "Open browser" CTA → select this session + open its Browser tab
+    onopenbrowser?: (id: string) => void;
     // when provided, the row gains a decommission affordance — coarse pointers get
     // the left-swipe gesture, fine pointers a hover-revealed ✕ button, and the
     // right-click / long-press CardMenu offers it on both
@@ -447,6 +450,7 @@
     else if (a.kind === "resume") void doResume();
     else if (a.kind === "answer") openPlanPanel();
     else if (a.kind === "reply") onselect(session.id);
+    else if (a.kind === "browser") (onopenbrowser ?? onselect)(session.id);
   }
 
   async function doGo() {

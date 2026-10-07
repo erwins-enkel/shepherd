@@ -98,7 +98,7 @@
   import ViewportHeaderActions from "./viewport/ViewportHeaderActions.svelte";
   import ClipboardPill from "./viewport/ClipboardPill.svelte";
   import { handleOsc52 } from "$lib/osc52";
-  import type { BuildQueue } from "$lib/types";
+  import type { BuildQueue, LoginRequest } from "$lib/types";
   import AttachmentChip from "./new-task/AttachmentChip.svelte";
   import { ATTACHMENTS_DIR, computeHasFiles } from "$lib/session-files";
   import { m } from "$lib/paraglide/messages";
@@ -133,6 +133,8 @@
     previewServeFailed = false,
     previewMap = {},
     openPreviewTick = 0,
+    openBrowserTick = 0,
+    loginRequest = null,
     renameRequest = null,
     buildQueue = null,
     onSeedBuildQueue,
@@ -187,6 +189,10 @@
     previewMap?: Record<string, number | null>;
     /** Monotonic tick bumped by a row's Preview-badge click → switch to the Preview tab. */
     openPreviewTick?: number;
+    /** Bumped by a row's Login Request "Open browser" CTA (#2882) → switch to the Browser tab. */
+    openBrowserTick?: number;
+    /** This session's open Login Request (#2882), shown on the Browser tab. */
+    loginRequest?: LoginRequest | null;
     /** Targeted request from a card context-menu Rename action. */
     renameRequest?: { id: string; tick: number } | null;
     /** Current build queue for this session; updated live by WS queue:update events. */
@@ -991,6 +997,16 @@
   const hasBrowser = $derived(repoConfig.sharedBrowserOn(session.repoPath) && !session.archivedAt);
   $effect(() => {
     if (!hasBrowser && tab === "browser") tab = "term";
+  });
+  // A row's "Open browser" CTA was clicked (tick bumped) → the Browser tab; the openPreviewTick
+  // idiom above. Placed after the unit-switch reset, so a click that also selects wins the flush.
+  // The tick is consumed only once the tab exists: the repo config loads lazily, so a click that
+  // lands first still opens the tab when `hasBrowser` turns true.
+  let lastBrowserTick = 0;
+  $effect(() => {
+    if (openBrowserTick === lastBrowserTick || !hasBrowser) return;
+    lastBrowserTick = openBrowserTick;
+    tab = "browser";
   });
   $effect(() => () => clearTimeout(armTimer));
   async function confirmDecommission(id: string) {
@@ -3173,7 +3189,7 @@
     {/if}
     {#if tab === "browser" && hasBrowser}
       <div class="panel-wrap">
-        <BrowserPanel {session} />
+        <BrowserPanel {session} {loginRequest} />
       </div>
     {/if}
     {#if tab === "preview" && previewUrl}

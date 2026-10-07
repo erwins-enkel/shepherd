@@ -4,7 +4,7 @@ import { planGateChip, type PlanGateChip } from "$lib/components/plan-gate-badge
 import { planQuestionsUnanswered } from "$lib/tab-signal.svelte";
 import type { HoldReason, PlanGate, Session } from "$lib/types";
 
-/** The twelve mutually-exclusive presentations a plan-gate row can take. One classifier
+/** The thirteen mutually-exclusive presentations a plan-gate row can take. One classifier
  *  decides the state; LINE and ACTION are total maps over it, so the subline can never
  *  contradict the button beside it. */
 export type RowState =
@@ -19,10 +19,11 @@ export type RowState =
   | "ready"
   | "none"
   | "server-answer"
-  | "ci-retry";
+  | "ci-retry"
+  | "login";
 
 export interface HoldAction {
-  kind: "go" | "rereview" | "resume" | "answer" | "reply" | "retry-ci";
+  kind: "go" | "rereview" | "resume" | "answer" | "reply" | "retry-ci" | "browser";
   label: string;
   title: string;
 }
@@ -65,6 +66,8 @@ export function rowState(
   const parked = session.status === "idle" || session.status === "done";
   const atCap = chip.kind === "changes" && chip.round >= chip.cap;
 
+  // R0 — the agent is waiting on a Handoff Login (#2882), in any phase → Open browser CTA.
+  if (serverHold?.code === "login-request") return "login";
   if (session.planPhase !== "planning") {
     if (isRetryableCiRed(serverHold)) return "ci-retry"; // R1b — ci-red with a PR → Retry CI CTA
     if (serverHold && ANSWERABLE.has(serverHold.code)) return "server-answer"; // R1a
@@ -110,6 +113,7 @@ const LINE: Record<RowState, (ctx: Ctx) => string | null> = {
   none: serverLine,
   "server-answer": serverLine,
   "ci-retry": serverLine,
+  login: serverLine,
   reviewing: ({ gate }) => {
     const n = gate?.findings?.length ?? 0;
     return n > 0 ? m.hold_reviewing_findings({ count: n }) : m.hold_reviewing_plain();
@@ -156,6 +160,12 @@ const retryCi = (): HoldAction => ({
   title: m.hold_cta_retry_ci_title(),
 });
 
+const openBrowser = (): HoldAction => ({
+  kind: "browser",
+  label: m.hold_cta_open_browser(),
+  title: m.hold_cta_open_browser_title(),
+});
+
 const ACTION: Record<RowState, () => HoldAction | null> = {
   passthrough: () => null,
   dismissed: () => null,
@@ -169,6 +179,7 @@ const ACTION: Record<RowState, () => HoldAction | null> = {
   ready: go,
   "server-answer": reply,
   "ci-retry": retryCi,
+  login: openBrowser,
 };
 
 /** Classify the row, then read its line and action off the two total maps. */

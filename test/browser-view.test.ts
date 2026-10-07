@@ -245,6 +245,8 @@ test("inputCommand: validates and clamps, never passes raw CDP", () => {
   expect(inputCommand({ type: "navigate", url: "javascript:alert(1)" })).toBeNull();
   expect(inputCommand({ type: "raw", method: "Browser.close" })).toBeNull();
   expect(inputCommand({ type: "Runtime.evaluate" })).toBeNull();
+  expect(inputCommand({ type: "constructor" })).toBeNull();
+  expect(inputCommand({ type: "toString" })).toBeNull();
 });
 
 test("select: switches tabs, detaching the old session; unknown ids ignored", () => {

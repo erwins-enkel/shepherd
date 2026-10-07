@@ -156,7 +156,7 @@ type KeyLike = {
 };
 
 /** True for the paste chord: left to the browser so the view's `paste` event fires instead. */
-export function isPasteChord(e: KeyLike): boolean {
+function isPasteChord(e: KeyLike): boolean {
   return (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "v";
 }
 

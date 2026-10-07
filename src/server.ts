@@ -265,7 +265,7 @@ import { SNAPSHOT_TTL_MS, type OpenPrSnapshotService } from "./open-pr-snapshot"
 import { join, normalize, basename } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import type { ServerWebSocket } from "bun";
+import type { Server, ServerWebSocket } from "bun";
 import { execFileSync, markPtyEvent } from "./instrument";
 import { opStart } from "./loop-watchdog";
 import { startLoopLagMonitor, withServerTiming } from "./server-timing";
@@ -9851,6 +9851,70 @@ export function serve(deps: AppDeps, port: number) {
     }
     ws.send(JSON.stringify({ event, data }));
   }
+  // ── WebSocket upgrades: /events, /pty/<id>, /browser-view/<id> ──────────────
+  // Each returns the upgrade outcome (undefined = upgraded, a Response = refused); upgradeSocket
+  // returns null for any other path, which falls through to the HTTP app.
+  type Upgrader = Server<WsData>;
+  const wsOriginRefusal = (req: Request): Response | null =>
+    originAllowed(req.headers.get("Origin"), config.allowedOriginHosts, {
+      base: config.previewPortBase,
+      count: config.previewPortCount,
+    })
+      ? null
+      : new Response("forbidden: origin not allowed", { status: 403 });
+  const upgradeWith = (req: Request, server: Upgrader, data: WsData): Response | undefined =>
+    server.upgrade(req, { data }) ? undefined : new Response("upgrade failed", { status: 500 });
+  function upgradePty(
+    req: Request,
+    url: URL,
+    server: Upgrader,
+    tokenId: string | undefined,
+    id: string,
+  ): Response | undefined {
+    const s = deps.store.get(id);
+    if (!s) return new Response("no session", { status: 404 });
+    // attach at the client's actual terminal size so the very first paint
+    // matches; otherwise herdr renders the pane at the default 100×30 and the
+    // view stays mis-sized until a follow-up resize forces a TUI repaint.
+    const { cols, rows } = parseTermDims(
+      url.searchParams.get("cols"),
+      url.searchParams.get("rows"),
+    );
+    return upgradeWith(req, server, {
+      kind: "pty",
+      tokenId,
+      id: s.id,
+      terminalId: s.herdrAgentId,
+      cols,
+      rows,
+      client: parseTerminalClient(url.searchParams),
+    });
+  }
+  function upgradeBrowserView(
+    req: Request,
+    server: Upgrader,
+    tokenId: string | undefined,
+    id: string,
+  ): Response | undefined {
+    const gate = gateBrowserView(deps, id);
+    if (!gate.ok) return gate.response;
+    return upgradeWith(req, server, { kind: "browser-view", tokenId, id, repoPath: gate.repoPath });
+  }
+  function upgradeSocket(
+    req: Request,
+    url: URL,
+    server: Upgrader,
+    tokenId: string | undefined,
+  ): Response | undefined | null {
+    const pty = url.pathname.match(/^\/pty\/([^/]+)$/);
+    const view = url.pathname.match(/^\/browser-view\/([^/]+)$/);
+    if (url.pathname !== "/events" && !pty && !view) return null;
+    const refused = wsOriginRefusal(req);
+    if (refused) return refused;
+    if (pty) return upgradePty(req, url, server, tokenId, pty[1]!);
+    if (view) return upgradeBrowserView(req, server, tokenId, view[1]!);
+    return upgradeWith(req, server, { kind: "events", tokenId });
+  }
   // Browser View (#2881): one CdpPipe client per operator socket, attached to the repo's browser.
   function openBrowserViewSocket(ws: ServerWebSocket<WsData & { kind: "browser-view" }>): void {
     const manager = deps.sharedBrowser;
@@ -9882,6 +9946,123 @@ export function serve(deps: AppDeps, port: number) {
   // terminals that recently fell off the socket path — memo so a reconnect within the
   // TTL retries node-pty directly instead of re-attempting (and re-failing) the socket.
   const socketTerminalFailures = new Map<string, number>();
+  function openPtySocket(ws: ServerWebSocket<WsData & { kind: "pty" }>): void {
+    // Don't attach a terminal whose herdr agent is gone: attaching would make
+    // herdr reply agent_not_found and the client would reconnect-loop on it.
+    // A "done" status only means the agent finished its turn (idle at the
+    // prompt) — its herdr pane may still be alive and attachable. So gate on
+    // herdr LIVENESS, not on status: block only when the session is missing,
+    // archived, or its herdr agent is no longer listed by `herdr agent list`.
+    const cur = deps.store.get(ws.data.id);
+    if (!cur || cur.status === "archived") {
+      ws.close(PTY_GONE_CODE, "ended");
+      return;
+    }
+    // Resolve the live agent by STABLE key (cwd), not the id captured at upgrade:
+    // a herdr restart reassigns terminalIds, so the stored one can be briefly stale.
+    const attach = livePtyAttach(cur, deps.herdr);
+    if (attach === null) {
+      ws.close(PTY_GONE_CODE, "ended");
+      return;
+    }
+    const tid = attach.terminalId;
+    ws.data.terminalId = tid; // keep close()'s ptyOwners cleanup keyed on the same id
+    // single owner per terminal: claim it, then bump the previous owner
+    // with a "superseded" close so it parks instead of fighting back.
+    const prev = ptyOwners.get(tid);
+    ptyOwners.set(tid, ws);
+    deps.events.emit("terminal:owners", terminalOwners());
+    if (prev && prev !== ws) prev.close(PTY_SUPERSEDED_CODE, "superseded");
+    const sock = {
+      send: (d: string | Uint8Array) => (socketAuthorized(ws) ? ws.send(d) : 0),
+      close: () => ws.close(),
+    };
+    const kind = pickTerminalBridgeKind({
+      herdrSocketTerminal: config.herdrSocketTerminal,
+      herdrSocketActive: deps.herdrSocketActive,
+      paneTarget: attach.paneTarget,
+      recentlyFailed: recentlyFailed(socketTerminalFailures, tid, Date.now()),
+      terminalSession: !!cur.terminal,
+    });
+    // Narrowed alias: the hook closures below run asynchronously, after which TS can no
+    // longer see that `ws.data.kind === "pty"` still holds (it never changes, but control
+    // flow narrowing doesn't survive a closure boundary) — `data` keeps them type-checked.
+    const data = ws.data as Extract<WsData, { kind: "pty" }>;
+    // node-pty attach (and its socket→node-pty fallback) target the pane_id on 0.7.5; the
+    // socket bridge already targets paneTarget. See nodePtyAttachTarget.
+    const ptyTarget = nodePtyAttachTarget(attach, tid);
+    if (kind === "node-pty") {
+      const b = new PtyBridge(ptyTarget, sock);
+      data.bridge = b;
+      b.open(data.cols, data.rows);
+    } else {
+      data.awaitingFirstFrame = true;
+      data.pendingInput = [];
+      const flushPending = (b: PtyBridge | SocketPtyBridge) => {
+        if (!socketAuthorized(ws)) {
+          data.pendingInput = [];
+          return;
+        }
+        for (const f of data.pendingInput ?? []) b.write(f);
+        data.pendingInput = [];
+      };
+      const sb = new SocketPtyBridge(attach.paneTarget!, sock, {
+        onFirstFrame: () => {
+          recordSocketAttach();
+          console.info(`[herdr] socket terminal attached ${tid}`);
+          data.awaitingFirstFrame = false;
+          flushPending(data.bridge!);
+        },
+        onFallback: () => {
+          if (!socketAuthorized(ws)) return;
+          // A clean-terminal pane has no node-pty fallback (agent attach refuses it) —
+          // surface "ended" instead of a guaranteed agent_not_found reconnect loop.
+          if (cur.terminal) {
+            ws.close(PTY_GONE_CODE, "ended");
+            return;
+          }
+          recordFallback();
+          console.info(`[herdr] socket terminal → node-pty fallback ${tid}`);
+          socketTerminalFailures.set(tid, Date.now());
+          const nb = new PtyBridge(ptyTarget, sock);
+          data.bridge = nb;
+          data.awaitingFirstFrame = false;
+          nb.open(data.cols, data.rows);
+          flushPending(nb);
+        },
+        onGone: () => {
+          ws.close(PTY_GONE_CODE, "ended");
+        },
+        onAbnormalExit: () => {
+          // The failure memo only exists to steer AGENT terminals back to node-pty; a
+          // clean terminal has no such fallback, so don't stamp it.
+          if (!cur.terminal) socketTerminalFailures.set(tid, Date.now());
+        },
+      });
+      data.bridge = sb;
+      sb.open(data.cols, data.rows);
+    }
+  }
+  // Presence frame: the page reports focus+visibility so push delivery
+  // can suppress OS banners while a window is actively in use.
+  function onEventsMessage(ws: ServerWebSocket<WsData>, msg: string | Buffer): void {
+    try {
+      const m = JSON.parse(typeof msg === "string" ? msg : msg.toString());
+      if (m?.type === "presence") {
+        deps.presence?.set(ws, !!m.active);
+        if (m.active === true) sendTerminalOwners(ws);
+      }
+    } catch {
+      /* ignore malformed frames */
+    }
+  }
+  function onBrowserViewMessage(
+    ws: ServerWebSocket<WsData & { kind: "browser-view" }>,
+    msg: string | Buffer,
+  ): void {
+    if (typeof msg !== "string") ws.close(1003, "binary frames not supported");
+    else ws.data.view?.handle(msg);
+  }
   return Bun.serve<WsData>({
     port,
     hostname: config.host,
@@ -9902,73 +10083,8 @@ export function serve(deps: AppDeps, port: number) {
         token: authErr,
       });
       if (boundaryErr) return boundaryErr;
-      if (url.pathname === "/events") {
-        const origin = req.headers.get("Origin");
-        if (
-          !originAllowed(origin, config.allowedOriginHosts, {
-            base: config.previewPortBase,
-            count: config.previewPortCount,
-          })
-        ) {
-          return new Response("forbidden: origin not allowed", { status: 403 });
-        }
-        return server.upgrade(req, { data: { kind: "events", tokenId } })
-          ? undefined
-          : new Response("upgrade failed", { status: 500 });
-      }
-      const m = url.pathname.match(/^\/pty\/([^/]+)$/);
-      if (m) {
-        const origin = req.headers.get("Origin");
-        if (
-          !originAllowed(origin, config.allowedOriginHosts, {
-            base: config.previewPortBase,
-            count: config.previewPortCount,
-          })
-        ) {
-          return new Response("forbidden: origin not allowed", { status: 403 });
-        }
-        const s = deps.store.get(m[1]!);
-        if (!s) return new Response("no session", { status: 404 });
-        // attach at the client's actual terminal size so the very first paint
-        // matches; otherwise herdr renders the pane at the default 100×30 and the
-        // view stays mis-sized until a follow-up resize forces a TUI repaint.
-        const { cols, rows } = parseTermDims(
-          url.searchParams.get("cols"),
-          url.searchParams.get("rows"),
-        );
-        return server.upgrade(req, {
-          data: {
-            kind: "pty",
-            tokenId,
-            id: s.id,
-            terminalId: s.herdrAgentId,
-            cols,
-            rows,
-            client: parseTerminalClient(url.searchParams),
-          },
-        })
-          ? undefined
-          : new Response("upgrade failed", { status: 500 });
-      }
-      const bv = url.pathname.match(/^\/browser-view\/([^/]+)$/);
-      if (bv) {
-        const origin = req.headers.get("Origin");
-        if (
-          !originAllowed(origin, config.allowedOriginHosts, {
-            base: config.previewPortBase,
-            count: config.previewPortCount,
-          })
-        ) {
-          return new Response("forbidden: origin not allowed", { status: 403 });
-        }
-        const gate = gateBrowserView(deps, bv[1]!);
-        if (!gate.ok) return gate.response;
-        return server.upgrade(req, {
-          data: { kind: "browser-view", tokenId, id: bv[1]!, repoPath: gate.repoPath },
-        })
-          ? undefined
-          : new Response("upgrade failed", { status: 500 });
-      }
+      const upgraded = upgradeSocket(req, url, server, tokenId);
+      if (upgraded !== null) return upgraded;
       // Lift Bun's 10s idle timeout for the known-slow routes (see slowRequestTimeoutSec) so a long
       // handler can't have its connection reset out from under it. Other endpoints unchanged.
       const slowSec = slowRequestTimeoutSec(req, url);
@@ -9994,124 +10110,17 @@ export function serve(deps: AppDeps, port: number) {
         } else if (ws.data.kind === "browser-view") {
           openBrowserViewSocket(ws as ServerWebSocket<WsData & { kind: "browser-view" }>);
         } else {
-          // Don't attach a terminal whose herdr agent is gone: attaching would make
-          // herdr reply agent_not_found and the client would reconnect-loop on it.
-          // A "done" status only means the agent finished its turn (idle at the
-          // prompt) — its herdr pane may still be alive and attachable. So gate on
-          // herdr LIVENESS, not on status: block only when the session is missing,
-          // archived, or its herdr agent is no longer listed by `herdr agent list`.
-          const cur = deps.store.get(ws.data.id);
-          if (!cur || cur.status === "archived") {
-            ws.close(PTY_GONE_CODE, "ended");
-            return;
-          }
-          // Resolve the live agent by STABLE key (cwd), not the id captured at upgrade:
-          // a herdr restart reassigns terminalIds, so the stored one can be briefly stale.
-          const attach = livePtyAttach(cur, deps.herdr);
-          if (attach === null) {
-            ws.close(PTY_GONE_CODE, "ended");
-            return;
-          }
-          const tid = attach.terminalId;
-          ws.data.terminalId = tid; // keep close()'s ptyOwners cleanup keyed on the same id
-          // single owner per terminal: claim it, then bump the previous owner
-          // with a "superseded" close so it parks instead of fighting back.
-          const prev = ptyOwners.get(tid);
-          ptyOwners.set(tid, ws);
-          deps.events.emit("terminal:owners", terminalOwners());
-          if (prev && prev !== ws) prev.close(PTY_SUPERSEDED_CODE, "superseded");
-          const sock = {
-            send: (d: string | Uint8Array) => (socketAuthorized(ws) ? ws.send(d) : 0),
-            close: () => ws.close(),
-          };
-          const kind = pickTerminalBridgeKind({
-            herdrSocketTerminal: config.herdrSocketTerminal,
-            herdrSocketActive: deps.herdrSocketActive,
-            paneTarget: attach.paneTarget,
-            recentlyFailed: recentlyFailed(socketTerminalFailures, tid, Date.now()),
-            terminalSession: !!cur.terminal,
-          });
-          // Narrowed alias: the hook closures below run asynchronously, after which TS can no
-          // longer see that `ws.data.kind === "pty"` still holds (it never changes, but control
-          // flow narrowing doesn't survive a closure boundary) — `data` keeps them type-checked.
-          const data = ws.data as Extract<WsData, { kind: "pty" }>;
-          // node-pty attach (and its socket→node-pty fallback) target the pane_id on 0.7.5; the
-          // socket bridge already targets paneTarget. See nodePtyAttachTarget.
-          const ptyTarget = nodePtyAttachTarget(attach, tid);
-          if (kind === "node-pty") {
-            const b = new PtyBridge(ptyTarget, sock);
-            data.bridge = b;
-            b.open(data.cols, data.rows);
-          } else {
-            data.awaitingFirstFrame = true;
-            data.pendingInput = [];
-            const flushPending = (b: PtyBridge | SocketPtyBridge) => {
-              if (!socketAuthorized(ws)) {
-                data.pendingInput = [];
-                return;
-              }
-              for (const f of data.pendingInput ?? []) b.write(f);
-              data.pendingInput = [];
-            };
-            const sb = new SocketPtyBridge(attach.paneTarget!, sock, {
-              onFirstFrame: () => {
-                recordSocketAttach();
-                console.info(`[herdr] socket terminal attached ${tid}`);
-                data.awaitingFirstFrame = false;
-                flushPending(data.bridge!);
-              },
-              onFallback: () => {
-                if (!socketAuthorized(ws)) return;
-                // A clean-terminal pane has no node-pty fallback (agent attach refuses it) —
-                // surface "ended" instead of a guaranteed agent_not_found reconnect loop.
-                if (cur.terminal) {
-                  ws.close(PTY_GONE_CODE, "ended");
-                  return;
-                }
-                recordFallback();
-                console.info(`[herdr] socket terminal → node-pty fallback ${tid}`);
-                socketTerminalFailures.set(tid, Date.now());
-                const nb = new PtyBridge(ptyTarget, sock);
-                data.bridge = nb;
-                data.awaitingFirstFrame = false;
-                nb.open(data.cols, data.rows);
-                flushPending(nb);
-              },
-              onGone: () => {
-                ws.close(PTY_GONE_CODE, "ended");
-              },
-              onAbnormalExit: () => {
-                // The failure memo only exists to steer AGENT terminals back to node-pty; a
-                // clean terminal has no such fallback, so don't stamp it.
-                if (!cur.terminal) socketTerminalFailures.set(tid, Date.now());
-              },
-            });
-            data.bridge = sb;
-            sb.open(data.cols, data.rows);
-          }
+          openPtySocket(ws as ServerWebSocket<WsData & { kind: "pty" }>);
         }
       },
       message(ws, msg) {
         if (!socketAuthorized(ws)) return;
-        if (ws.data.kind === "events") {
-          // Presence frame: the page reports focus+visibility so push delivery
-          // can suppress OS banners while a window is actively in use.
-          try {
-            const m = JSON.parse(typeof msg === "string" ? msg : msg.toString());
-            if (m?.type === "presence") {
-              deps.presence?.set(ws, !!m.active);
-              if (m.active === true) sendTerminalOwners(ws);
-            }
-          } catch {
-            /* ignore malformed frames */
-          }
-          return;
-        }
-        if (ws.data.kind === "browser-view") {
-          if (typeof msg !== "string") ws.close(1003, "binary frames not supported");
-          else ws.data.view?.handle(msg);
-          return;
-        }
+        if (ws.data.kind === "events") return onEventsMessage(ws, msg);
+        if (ws.data.kind === "browser-view")
+          return onBrowserViewMessage(
+            ws as ServerWebSocket<WsData & { kind: "browser-view" }>,
+            msg,
+          );
         markPtyEvent("in");
         const frame = typeof msg === "string" ? msg : msg.toString();
         // Stamp the operator-activity seam only for genuine keystrokes — the same

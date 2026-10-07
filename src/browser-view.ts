@@ -50,7 +50,7 @@ export interface ViewSink {
   close(code?: number, reason?: string): void;
 }
 
-export interface ViewTarget {
+interface ViewTarget {
   id: string;
   title: string;
   url: string;
@@ -109,59 +109,72 @@ function viewTarget(info: Json | null): ViewTarget | null {
   return { id, title: typeof info.title === "string" ? info.title : "", url };
 }
 
-/** Translates one validated UI input message into its CDP command, or null when invalid. */
-export function inputCommand(msg: Json): { method: string; params: Json } | null {
-  switch (msg.type) {
-    case "mouse": {
-      const type = typeof msg.action === "string" ? MOUSE_TYPES[msg.action] : undefined;
-      if (!type) return null;
-      const button =
-        typeof msg.button === "string" && MOUSE_BUTTONS.has(msg.button) ? msg.button : "none";
-      const params: Json = {
-        type,
-        x: num(msg.x, 0, MAX_COORD),
-        y: num(msg.y, 0, MAX_COORD),
-        button,
-        clickCount: int(msg.clickCount, 0, 3),
-        modifiers: int(msg.modifiers, 0, 15),
-      };
-      if (type === "mouseWheel") {
-        params.deltaX = num(msg.deltaX, -MAX_DELTA, MAX_DELTA);
-        params.deltaY = num(msg.deltaY, -MAX_DELTA, MAX_DELTA);
-      }
-      return { method: "Input.dispatchMouseEvent", params };
-    }
-    case "key": {
-      if (msg.action !== "down" && msg.action !== "up") return null;
-      const key = str(msg.key, MAX_KEY_CHARS);
-      if (key === null) return null;
-      const text = msg.action === "down" ? str(msg.text, MAX_KEY_TEXT_CHARS) : null;
-      const params: Json = {
-        type: msg.action === "up" ? "keyUp" : text ? "keyDown" : "rawKeyDown",
-        key,
-        code: str(msg.code, MAX_KEY_CHARS) ?? "",
-        windowsVirtualKeyCode: int(msg.keyCode, 0, 255),
-        modifiers: int(msg.modifiers, 0, 15),
-      };
-      if (text) {
-        params.text = text;
-        params.unmodifiedText = text;
-      }
-      return { method: "Input.dispatchKeyEvent", params };
-    }
-    case "text": {
-      const text = str(msg.text, MAX_TEXT_CHARS);
-      return text ? { method: "Input.insertText", params: { text } } : null;
-    }
-    case "navigate": {
-      const url = str(msg.url, MAX_URL_CHARS);
-      return url && isHttpUrl(url) ? { method: "Page.navigate", params: { url } } : null;
-    }
-    case "reload":
-      return { method: "Page.reload", params: {} };
-    default:
-      return null;
+type Command = { method: string; params: Json } | null;
+
+function mouseCommand(msg: Json): Command {
+  const type = typeof msg.action === "string" ? MOUSE_TYPES[msg.action] : undefined;
+  if (!type) return null;
+  const button =
+    typeof msg.button === "string" && MOUSE_BUTTONS.has(msg.button) ? msg.button : "none";
+  const params: Json = {
+    type,
+    x: num(msg.x, 0, MAX_COORD),
+    y: num(msg.y, 0, MAX_COORD),
+    button,
+    clickCount: int(msg.clickCount, 0, 3),
+    modifiers: int(msg.modifiers, 0, 15),
+  };
+  if (type === "mouseWheel") {
+    params.deltaX = num(msg.deltaX, -MAX_DELTA, MAX_DELTA);
+    params.deltaY = num(msg.deltaY, -MAX_DELTA, MAX_DELTA);
   }
+  return { method: "Input.dispatchMouseEvent", params };
+}
+
+function keyCommand(msg: Json): Command {
+  if (msg.action !== "down" && msg.action !== "up") return null;
+  const key = str(msg.key, MAX_KEY_CHARS);
+  if (key === null) return null;
+  const text = msg.action === "down" ? str(msg.text, MAX_KEY_TEXT_CHARS) : null;
+  const params: Json = {
+    type: msg.action === "up" ? "keyUp" : text ? "keyDown" : "rawKeyDown",
+    key,
+    code: str(msg.code, MAX_KEY_CHARS) ?? "",
+    windowsVirtualKeyCode: int(msg.keyCode, 0, 255),
+    modifiers: int(msg.modifiers, 0, 15),
+  };
+  if (text) {
+    params.text = text;
+    params.unmodifiedText = text;
+  }
+  return { method: "Input.dispatchKeyEvent", params };
+}
+
+function textCommand(msg: Json): Command {
+  const text = str(msg.text, MAX_TEXT_CHARS);
+  return text ? { method: "Input.insertText", params: { text } } : null;
+}
+
+function navigateCommand(msg: Json): Command {
+  const url = str(msg.url, MAX_URL_CHARS);
+  return url && isHttpUrl(url) ? { method: "Page.navigate", params: { url } } : null;
+}
+
+const INPUT_COMMANDS: Record<string, (msg: Json) => Command> = {
+  mouse: mouseCommand,
+  key: keyCommand,
+  text: textCommand,
+  navigate: navigateCommand,
+  reload: () => ({ method: "Page.reload", params: {} }),
+};
+
+/** Translates one validated UI input message into its CDP command, or null when invalid. */
+export function inputCommand(msg: Json): Command {
+  const build =
+    typeof msg.type === "string" && Object.hasOwn(INPUT_COMMANDS, msg.type)
+      ? INPUT_COMMANDS[msg.type]
+      : undefined;
+  return build ? build(msg) : null;
 }
 
 export interface BrowserViewDeps {

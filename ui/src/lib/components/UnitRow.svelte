@@ -53,8 +53,12 @@
   import { sessionEnvironment } from "$lib/session-env";
   import { coldResumeExplanation } from "$lib/tooltips/explanations";
   import { statusTip } from "$lib/tooltips/statusTip.svelte";
-  import { onDestroy } from "svelte";
+  import { onDestroy, untrack } from "svelte";
   import UnitRowRight from "./unit-row/UnitRowRight.svelte";
+  import PulseLine from "./PulseLine.svelte";
+  import { sessionPulse } from "$lib/session-pulse";
+  import { buildQueues } from "$lib/buildQueues.svelte";
+  import { steerLogs } from "$lib/steerLogs.svelte";
   import { rowHold } from "$lib/hold-row";
   import { holdAwaitsOperator } from "$lib/hold";
   import { checksCleared } from "$lib/checks-cleared";
@@ -541,6 +545,31 @@
     openPanelTick++;
   }
 
+  // Progress verdict for the card's now-line and the status panel (session-pulse.ts).
+  const pulse = $derived(
+    sessionPulse({
+      session,
+      git,
+      queue: buildQueues.map[session.id],
+      steers: steerLogs.map[session.id],
+      nowMs,
+    }),
+  );
+  // A bare "working" without a queue step says nothing the status pip doesn't — no line then.
+  const showPulseLine = $derived(!!pulse && (pulse.state !== "working" || !!pulse.step));
+  const linePulse = $derived(showPulseLine ? pulse : null);
+  // The steer log has no push: re-read it whenever a steer is likely to have just happened —
+  // the session's status, its CI rollup or its PR head moved. Keyed on a primitive so a fresh
+  // session object with the same values doesn't refetch. Finished sessions need none.
+  const steerLogKey = $derived(
+    session.status === "done" || session.status === "archived"
+      ? null
+      : `${session.id}|${session.status}|${git?.checks ?? ""}|${git?.headSha ?? ""}`,
+  );
+  $effect(() => {
+    if (steerLogKey) void steerLogs.refresh(untrack(() => session.id));
+  });
+
   // The status slot renders only for merging / ready; every other state (incl.
   // running — the left StatusPip carries that) shows nothing, so only then does
   // #u-status-{id} exist. Build the overlay's aria-describedby so it omits that id
@@ -549,6 +578,7 @@
     [
       `u-repo-${session.id}`,
       `u-sub-${session.id}`,
+      showPulseLine ? `u-pulse-${session.id}` : null,
       changesRequested ||
       branchProtectionBlocked ||
       isMerging(session, nowMs) ||
@@ -978,6 +1008,7 @@
           <span class="car" aria-hidden="true">▏</span>
         {/if}
       </div>
+      <PulseLine pulse={linePulse} id="u-pulse-{session.id}" />
       {@render holdSubline()}
     </div>
 
@@ -1124,7 +1155,16 @@
 {/if}
 
 {#if tipRect && !menu}
-  <TimePopover {session} {git} {activity} {nowMs} anchorRect={tipRect} onclose={tipHide} />
+  <TimePopover
+    {session}
+    {git}
+    {activity}
+    {pulse}
+    steers={steerLogs.map[session.id]}
+    {nowMs}
+    anchorRect={tipRect}
+    onclose={tipHide}
+  />
 {/if}
 
 {#if previewChoice && previewPort != null}

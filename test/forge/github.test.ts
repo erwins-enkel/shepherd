@@ -2546,6 +2546,7 @@ const EXPECTED_STATUSES: Map<string, PrStatus> = new Map([
       isDraft: false,
       checks: "success",
       runningChecks: undefined,
+      jobs: [{ name: "CI / ci", state: "success", url: "https://gh/job/ci" }],
       headSha: "aaa111",
       baseRefName: "main",
       latestReview: {
@@ -2576,6 +2577,7 @@ const EXPECTED_STATUSES: Map<string, PrStatus> = new Map([
       isDraft: true,
       checks: "none",
       runningChecks: undefined,
+      jobs: undefined,
       headSha: "bbb222",
       baseRefName: "main",
       latestReview: undefined,

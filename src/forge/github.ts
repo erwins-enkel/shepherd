@@ -1694,6 +1694,7 @@ export class GithubForge implements GitForge {
     const state = pr.state.toLowerCase() as PrStatus["state"];
     const createdAt = Date.parse(pr.createdAt ?? "");
     const running = runningCheckNames(pr.statusCheckRollup ?? []);
+    const jobs = jobsFromRollup(pr.statusCheckRollup ?? []);
     return {
       state: state === "open" || state === "merged" || state === "closed" ? state : "none",
       number: pr.number,
@@ -1707,6 +1708,7 @@ export class GithubForge implements GitForge {
       isDraft: pr.isDraft ?? false,
       checks: rollupChecks(pr.statusCheckRollup ?? []),
       runningChecks: running.length ? running : undefined,
+      jobs: jobs.length ? jobs : undefined,
       headSha: pr.headRefOid,
       baseRefName: pr.baseRefName,
       latestReview: latestHumanReview(pr.reviews),

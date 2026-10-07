@@ -244,6 +244,7 @@ const INVENTORY: readonly Entry[] = [
   // session-detail tabs
   get("/api/sessions/:p/git", `/api/sessions/${PROBE}/git`),
   get("/api/sessions/:p/activity", `/api/sessions/${PROBE}/activity`),
+  get("/api/sessions/:p/steer-log", `/api/sessions/${PROBE}/steer-log`),
   get("/api/sessions/:p/diff", `/api/sessions/${PROBE}/diff`),
   get("/api/sessions/:p/scratchpad", `/api/sessions/${PROBE}/scratchpad`),
   get("/api/sessions/:p/worktree", `/api/sessions/${PROBE}/worktree`),

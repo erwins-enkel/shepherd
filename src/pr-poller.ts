@@ -1,13 +1,19 @@
 import type { SessionStore } from "./store";
 import type { Session } from "./types";
-import type { GitForge, GitState, PrStatus } from "./forge/types";
+import type { GitForge, GitState, PrStatus, WorkflowJob } from "./forge/types";
 import { annotateHandoff } from "./repo-roles";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import type { GithubReadCache } from "./github-read-cache";
 
 type PrPollerStore = Pick<
   SessionStore,
-  "list" | "get" | "listSessionGitCache" | "putSessionGitCache" | "deleteSessionGitCache"
+  | "list"
+  | "get"
+  | "listSessionGitCache"
+  | "putSessionGitCache"
+  | "deleteSessionGitCache"
+  | "recordCiJobDurations"
+  | "typicalCiJobDurations"
 >;
 
 interface ReadProvenance {
@@ -118,6 +124,28 @@ function sameSet(a: string[] | undefined, b: string[] | undefined): boolean {
   return as.every((v, i) => v === bs[i]);
 }
 
+/** Order-independent identity of the per-check list: name, state and start/end times. A job
+ *  starting or finishing must reach the UI (the status panel shows how long it has run), but
+ *  `jobsFromRollup`'s order isn't stable, so a pure reorder must not count as a change. */
+function jobsKey(jobs: WorkflowJob[] | undefined): string {
+  return (jobs ?? [])
+    .map((j) => `${j.name}\u0000${j.state}\u0000${j.startedAt ?? ""}\u0000${j.completedAt ?? ""}`)
+    .sort()
+    .join("\u0001");
+}
+
+/** `git` with each job's typical duration stamped from `typical` (job name → ms). */
+function withTypicalDurations(git: GitState, typical: Map<string, number>): GitState {
+  if (!git.jobs?.length || typical.size === 0) return git;
+  return {
+    ...git,
+    jobs: git.jobs.map((j) => {
+      const typicalMs = typical.get(j.name);
+      return typicalMs == null ? j : { ...j, typicalMs };
+    }),
+  };
+}
+
 function stableJson(v: unknown): string {
   if (!v || typeof v !== "object") return JSON.stringify(v ?? null);
   return JSON.stringify(
@@ -155,6 +183,7 @@ export function gitStateChanged(prev: GitState | undefined, git: GitState): bool
     prev.number !== git.number ||
     prev.checks !== git.checks ||
     !sameSet(prev.runningChecks, git.runningChecks) ||
+    jobsKey(prev.jobs) !== jobsKey(git.jobs) ||
     prev.mergeable !== git.mergeable ||
     prev.mergeStateStatus !== git.mergeStateStatus ||
     prev.isDraft !== git.isDraft ||
@@ -618,9 +647,13 @@ export class PrPoller implements PrCache {
     if (raw === null) return; // transient gh failure → keep last cached value
     if (provenance.revision !== this.readProvenance(forge).revision) return;
 
+    // Learn how long each green job usually takes on this repo, then stamp that on every job so
+    // the status panel can tell "still within the usual time" from "unusually long".
+    this.store.recordCiJobDurations(s.repoPath, raw.jobs);
+    const typed = withTypicalDurations(raw, this.store.typicalCiJobDurations(s.repoPath));
     // Who's up (open+green): computed from .shepherd/roles.json + the operator's
     // login, so the herd can show "waiting on scoop" instead of "your turn".
-    const git = annotateHandoff(raw, s.repoPath, me, prev);
+    const git = annotateHandoff(typed, s.repoPath, me, prev);
     this.trackTransient(s.id, git);
     if (gitStateChanged(prev, git) && this.set(s.id, git)) {
       this.onChange(s.id, git);

@@ -269,6 +269,10 @@ export interface PrStatus {
    *  absent (rather than `[]`) when nothing is running. Drives the terminal
    *  "CI running: <names>" banner. Order isn't stable — compare as a set. */
   runningChecks?: string[];
+  /** Per-check breakdown of the head commit with start/end times, from the same rollup as
+   *  `checks`. Same availability as `runningChecks` (absent on the REST fallback and Gitea).
+   *  Drives the session status panel. Order isn't stable — compare order-independently. */
+  jobs?: WorkflowJob[];
   /** Head commit SHA of the PR branch; undefined when there is no PR. Drives
    *  "review this head once" dedup and per-push re-review. */
   headSha?: string;
@@ -339,6 +343,13 @@ export interface WorkflowJob {
   state: ChecksState;
   /** Link to the job on the host, when provided. */
   url?: string;
+  /** Epoch ms the job started / completed, when the host reports it (GitHub CheckRuns only).
+   *  Drives the session status panel's "running for N min" and per-check durations. */
+  startedAt?: number;
+  completedAt?: number;
+  /** Median duration (ms) of this job's recent green runs on the same repo, as observed by
+   *  Shepherd's own PR polls; absent until one has been seen. Stamped by the PR poller. */
+  typicalMs?: number;
 }
 
 /** The latest run of one workflow on a repo's default branch, broken into its

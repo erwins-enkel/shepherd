@@ -161,6 +161,59 @@ test("jobsFromRollup: CheckRun entries are qualified with their workflow name", 
   ]);
 });
 
+test("jobsFromRollup: CheckRun start/end times ride along as epoch ms", () => {
+  expect(
+    jobsFromRollup([
+      {
+        __typename: "CheckRun",
+        name: "readme",
+        workflowName: "CI",
+        status: "in_progress",
+        conclusion: null,
+        startedAt: "2026-10-07T06:21:34Z",
+        completedAt: null,
+      },
+      {
+        __typename: "CheckRun",
+        name: "lint",
+        workflowName: "CI",
+        status: "completed",
+        conclusion: "success",
+        startedAt: "2026-10-07T06:00:11Z",
+        completedAt: "2026-10-07T06:01:40Z",
+      },
+    ]),
+  ).toEqual([
+    {
+      name: "CI / readme",
+      state: "pending",
+      url: undefined,
+      startedAt: Date.parse("2026-10-07T06:21:34Z"),
+    },
+    {
+      name: "CI / lint",
+      state: "success",
+      url: undefined,
+      startedAt: Date.parse("2026-10-07T06:00:11Z"),
+      completedAt: Date.parse("2026-10-07T06:01:40Z"),
+    },
+  ]);
+});
+
+test("jobsFromRollup: GitHub's zero-date placeholder and junk timestamps are dropped", () => {
+  const [job] = jobsFromRollup([
+    {
+      __typename: "CheckRun",
+      name: "queued",
+      status: "queued",
+      startedAt: "0001-01-01T00:00:00Z",
+      completedAt: "not-a-date",
+    },
+  ]);
+  expect(job?.startedAt).toBeUndefined();
+  expect(job?.completedAt).toBeUndefined();
+});
+
 test("jobsFromRollup: legacy StatusContext entries map context + state + targetUrl", () => {
   expect(
     jobsFromRollup([
@@ -323,7 +376,15 @@ test("jobsFromRollup: same-name re-run collapses to one job (the latest)", () =>
         detailsUrl: "https://gh/new",
       },
     ]),
-  ).toEqual([{ name: "PR title / pr title", state: "success", url: "https://gh/new" }]);
+  ).toEqual([
+    {
+      name: "PR title / pr title",
+      state: "success",
+      url: "https://gh/new",
+      startedAt: Date.parse("2026-07-03T16:30:05Z"),
+      completedAt: Date.parse("2026-07-03T16:30:24Z"),
+    },
+  ]);
 });
 
 test("jobsFromRollup: same job name under different workflows is NOT collapsed", () => {
@@ -347,8 +408,18 @@ test("jobsFromRollup: same job name under different workflows is NOT collapsed",
       },
     ]),
   ).toEqual([
-    { name: "CI / test", state: "failure", url: undefined },
-    { name: "Nightly / test", state: "success", url: undefined },
+    {
+      name: "CI / test",
+      state: "failure",
+      url: undefined,
+      completedAt: Date.parse("2026-07-03T16:29:31Z"),
+    },
+    {
+      name: "Nightly / test",
+      state: "success",
+      url: undefined,
+      completedAt: Date.parse("2026-07-03T16:30:24Z"),
+    },
   ]);
 });
 

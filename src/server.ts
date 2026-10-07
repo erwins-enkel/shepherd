@@ -158,6 +158,7 @@ import {
   startPreviewScript,
 } from "./preview-launch";
 import { sessionActivity } from "./activity";
+import { steerLog } from "./steer-log";
 import { sessionMessages } from "./agent-messages";
 import { firstRun } from "./first-run";
 import { handleUpload, parseUploadFile, MAX_UPLOAD_BYTES, MAX_REQUEST_BODY_BYTES } from "./uploads";
@@ -3006,6 +3007,14 @@ const SESSION_LISTS = new Map<string, (deps: AppDeps) => unknown>([
   ["archived", (deps) => deps.store.listArchivedSessions()],
 ]);
 
+/** GET /api/sessions/:id/steer-log — who typed into the session and when (Shepherd's steers vs
+ *  the operator), as channel kinds only, never the text. */
+async function handleSessionSteerLog({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "GET" || parts[3] !== "steer-log" || parts[4] !== undefined) return null;
+  if (!deps.store.get(parts[2]!)) return json({ error: "not found" }, 404);
+  return json(steerLog(deps.store.listSessionSteers(parts[2]!)));
+}
+
 async function handleSessionReads({ req, parts, url, deps, token }: Ctx): Promise<Response | null> {
   if (req.method !== "GET") return null;
   if (!parts[2])
@@ -4613,6 +4622,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
   for (const sub of [
     handleSessionsClearMerged,
     handleSessionCreate,
+    handleSessionSteerLog,
     handleSessionReads,
     handleSessionScratchpad,
     handleSessionScratchpadUpload,

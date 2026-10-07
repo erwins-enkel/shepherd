@@ -29,6 +29,25 @@ export interface BuildStep {
   position: number;
 }
 
+/** Channel of one message typed into a session (mirrors server src/steer-log.ts). Unknown
+ *  values from a newer server read as "operator". */
+export type SteerKind =
+  | "go"
+  | "plan_review"
+  | "ci_fix"
+  | "rebase"
+  | "open_pr"
+  | "nudge"
+  | "review"
+  | "queue"
+  | "operator";
+
+/** One entry of GET /api/sessions/:id/steer-log — when, and which channel; never the text. */
+export interface SteerLogEntry {
+  ts: number;
+  kind: SteerKind;
+}
+
 export interface BuildQueue {
   sessionId: string;
   steps: BuildStep[];
@@ -534,6 +553,9 @@ export interface PrStatus {
    *  REST fallback / Gitea and absent (not `[]`) when nothing runs. Drives the
    *  terminal CI-running banner. Order isn't stable — compare as a set. */
   runningChecks?: string[];
+  /** Per-check breakdown with start/end times (same availability as `runningChecks`).
+   *  Drives the session status panel. */
+  jobs?: WorkflowJob[];
   /** GitHub's precise merge-state signal; absent for Gitea (mirrors server PrStatus). */
   mergeStateStatus?: MergeStateStatus;
   deployConfigured: boolean;
@@ -618,6 +640,11 @@ export interface WorkflowJob {
   name: string;
   state: ChecksState;
   url?: string;
+  /** Epoch ms the job started / completed (GitHub CheckRuns only). */
+  startedAt?: number;
+  completedAt?: number;
+  /** Median duration (ms) of this job's recent green runs on the same repo. */
+  typicalMs?: number;
 }
 
 /** Latest run of one workflow on the default branch (mirrors server `WorkflowRun`). */

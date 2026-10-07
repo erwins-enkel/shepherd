@@ -302,6 +302,8 @@ function handleSessionDetailGet(path: string, url: URL): Response | null {
   if (/^\/api\/sessions\/[^/]+\/activity$/.test(path)) {
     return json(demoState.activityEntries(seg(path, 3)));
   }
+  // No demo session was ever steered: an empty log keeps every card's verdict honest.
+  if (/^\/api\/sessions\/[^/]+\/steer-log$/.test(path)) return json([]);
   if (/^\/api\/sessions\/[^/]+\/diff$/.test(path)) {
     return json(demoState.diff(seg(path, 3)));
   }

@@ -1,13 +1,20 @@
 <script lang="ts">
-  import type { Session, GitState, SessionActivity } from "$lib/types";
+  import { onMount } from "svelte";
+  import type { Session, GitState, SessionActivity, SteerLogEntry } from "$lib/types";
   import { elapsed, formatAgo, waitTier } from "$lib/format";
   import { checksCleared } from "$lib/checks-cleared";
   import { m } from "$lib/paraglide/messages";
+  import type { Pulse } from "$lib/session-pulse";
+  import { pulseExplanation } from "$lib/pulse-text";
+  import { steerLogs } from "$lib/steerLogs.svelte";
+  import TooltipBody from "$lib/tooltips/TooltipBody.svelte";
 
   let {
     session,
     git,
     activity,
+    pulse = null,
+    steers,
     nowMs,
     anchorRect,
     onclose,
@@ -15,6 +22,10 @@
     session: Session;
     git?: GitState;
     activity?: SessionActivity;
+    /** The session's progress verdict; when present the popover leads with the full status
+     *  panel (verdict, CI, history, loop check, next) and the time lines become its footer. */
+    pulse?: Pulse | null;
+    steers?: SteerLogEntry[];
     nowMs: number;
     /** The wall-clock element's getBoundingClientRect() at show time — the popover is
      *  position:fixed (the cards clip: .tile / .swipe-wrap are overflow:hidden). */
@@ -26,11 +37,22 @@
   // leave less room than above. Rather than measure the popover, compare the
   // free space on each side — the content is a handful of one-liners, so the
   // roomier side always fits it.
+  // With the status panel the content is a few sections tall, so it goes to whichever side has
+  // more room and is capped to it (it is pointer-transparent, so it cannot scroll).
+  const roomBelow = $derived(window.innerHeight - anchorRect.bottom - 12);
+  const roomAbove = $derived(anchorRect.top - 12);
   const placeAbove = $derived(
-    window.innerHeight - anchorRect.bottom < anchorRect.top &&
-      window.innerHeight - anchorRect.bottom < 220,
+    pulse
+      ? roomAbove > roomBelow
+      : roomBelow < anchorRect.top && window.innerHeight - anchorRect.bottom < 220,
   );
-  const left = $derived(Math.max(8, Math.min(anchorRect.left, window.innerWidth - 328)));
+  const width = $derived(pulse ? Math.min(560, window.innerWidth - 16) : 320);
+  const left = $derived(Math.max(8, Math.min(anchorRect.left, window.innerWidth - width - 8)));
+  const explanation = $derived(
+    pulse ? pulseExplanation({ pulse, session, git, steers, nowMs }) : null,
+  );
+  // Opening the panel is a good moment to re-read who steered the session.
+  onMount(() => void steerLogs.refresh(session.id));
 
   // The popover is hover-ephemeral; on any scroll/resize its fixed coordinates
   // go stale, so close instead of repositioning. Capture-phase catches the
@@ -124,11 +146,16 @@
 
 <div
   class="time-pop"
+  class:has-pulse={!!explanation}
   role="tooltip"
   style:left="{left}px"
   style:top={placeAbove ? "auto" : `${anchorRect.bottom + 4}px`}
   style:bottom={placeAbove ? `${window.innerHeight - anchorRect.top + 4}px` : "auto"}
+  style:max-height={explanation ? `${Math.max(roomAbove, roomBelow)}px` : undefined}
 >
+  {#if explanation}
+    <div class="tp-status"><TooltipBody content={explanation} wide /></div>
+  {/if}
   <div class="tp-repo">{session.repoPath}</div>
   <div class="tp-line">
     {m.timetip_clock({ elapsed: elapsed(session.createdAt, nowMs), start: startLabel })}
@@ -190,6 +217,17 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
+  }
+  .time-pop.has-pulse {
+    width: min(560px, calc(100vw - 16px));
+    max-width: none;
+    overflow: hidden;
+    padding: 12px 14px 10px;
+  }
+  .tp-status {
+    padding-bottom: 10px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid var(--color-line);
   }
   .tp-repo {
     font-size: var(--fs-micro);

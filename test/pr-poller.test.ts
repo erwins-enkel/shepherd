@@ -37,6 +37,19 @@ test("gitStateChanged: false when running-checks only reorders (set-equal)", () 
   ).toBe(false);
 });
 
+test("gitStateChanged: true when a job's state or timing moves, false on a pure reorder", () => {
+  const lint = { name: "CI / lint", state: "success" as const, startedAt: 1, completedAt: 2 };
+  const queued = { name: "CI / gate", state: "pending" as const };
+  const started = { ...queued, startedAt: 3 };
+  expect(
+    gitStateChanged(openGit({ jobs: [lint, queued] }), openGit({ jobs: [lint, started] })),
+  ).toBe(true);
+  expect(
+    gitStateChanged(openGit({ jobs: [lint, queued] }), openGit({ jobs: [queued, lint] })),
+  ).toBe(false);
+  expect(gitStateChanged(openGit({ jobs: undefined }), openGit({ jobs: [] }))).toBe(false);
+});
+
 test("gitStateChanged: true when reviewerStates or reviewBlock changes", () => {
   const prev = openGit({
     checks: "success",
@@ -565,6 +578,43 @@ test("emits session git state on first poll and only again on change", async () 
   await poller.tick();
   expect(emitted.length).toBe(2);
   expect(emitted[1]!.git.state).toBe("merged");
+});
+
+test("records green job durations and stamps the typical duration on every job", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const emitted: GitState[] = [];
+  let cur: PrStatus = {
+    ...OPEN,
+    headSha: "a",
+    jobs: [{ name: "CI / gate", state: "success", startedAt: 1_000, completedAt: 61_000 }],
+  };
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => cur),
+    (_id, git) => emitted.push(git),
+  );
+
+  await poller.tick();
+  expect(emitted[0]!.jobs).toEqual([
+    {
+      name: "CI / gate",
+      state: "success",
+      startedAt: 1_000,
+      completedAt: 61_000,
+      typicalMs: 60_000,
+    },
+  ]);
+
+  cur = {
+    ...OPEN,
+    headSha: "b",
+    jobs: [{ name: "CI / gate", state: "pending", startedAt: 90_000 }],
+  };
+  await poller.tick();
+  expect(emitted[1]!.jobs).toEqual([
+    { name: "CI / gate", state: "pending", startedAt: 90_000, typicalMs: 60_000 },
+  ]);
 });
 
 test("skips sessions with no branch or no forge", async () => {

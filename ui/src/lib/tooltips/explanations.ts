@@ -221,3 +221,17 @@ export function integrationBranchExplanation(): TooltipExplanation {
     ],
   };
 }
+
+/** Automation → "Shared browser": what the per-repo logged-in Chromium is for, who can read its
+ *  logins, and what it needs. */
+export function sharedBrowserExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_shared_browser_title(),
+    summary: m.tooltip_shared_browser_summary(),
+    sections: [
+      { label: m.tooltip_shared_browser_for(), text: m.tooltip_shared_browser_for_body() },
+      { label: m.tooltip_shared_browser_cost(), text: m.tooltip_shared_browser_cost_body() },
+      { label: m.tooltip_shared_browser_needs(), text: m.tooltip_shared_browser_needs_body() },
+    ],
+  };
+}

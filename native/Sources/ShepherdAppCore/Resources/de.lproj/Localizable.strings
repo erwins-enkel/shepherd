@@ -1067,6 +1067,7 @@
 "native_settings_repo_prewarmepiclandingci" = "Epic-Landing-CI vorwärmen";
 "native_settings_repo_repomode" = "Repository-Modus";
 "native_settings_repo_sandboxprofile" = "Sandbox-Profil";
+"native_settings_repo_sharedbrowserenabled" = "Geteilter Browser";
 "native_settings_repo_signoffauthority" = "Freigabeinstanz";
 "native_settings_repo_usageceilingpct" = "Nutzungslimit in Prozent";
 "native_settings_retention" = "Aufbewahrung: %1$@ Tage, mindestens %2$@ Sitzungen";

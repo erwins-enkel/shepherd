@@ -407,6 +407,7 @@ class RepoConfigStore {
   manualStepsIssue = $state<Record<string, boolean>>({}); // GitHub tracking issue on merge (default off, #1061)
   preWarmEpicLandingCi = $state<Record<string, boolean>>({}); // pre-warm epic landing CI via early draft PR (default off, #1664)
   epicStacks = $state<Record<string, boolean>>({}); // stack epic children on their predecessor's PR branch (default off, #2069)
+  sharedBrowser = $state<Record<string, boolean>>({}); // per-repo Shared Browser (default off; agents can read its logins)
   hidden = $state<Record<string, boolean>>({}); // hidden from the Backlog repos panel (optimistic overlay over payload; default off)
   planGate = $state<Record<string, boolean>>({}); // pre-execution plan gate (default off)
   draftMode = $state<Record<string, boolean>>({}); // open PRs as drafts (default off; mutually exclusive with autoMerge)
@@ -448,6 +449,7 @@ class RepoConfigStore {
       [repoPath]: c.preWarmEpicLandingCi,
     };
     this.epicStacks = { ...this.epicStacks, [repoPath]: c.epicStacksEnabled };
+    this.sharedBrowser = { ...this.sharedBrowser, [repoPath]: c.sharedBrowserEnabled };
     this.hidden = { ...this.hidden, [repoPath]: c.hidden };
     this.planGate = { ...this.planGate, [repoPath]: c.planGateEnabled };
     this.draftMode = { ...this.draftMode, [repoPath]: c.draftMode };
@@ -539,6 +541,7 @@ class RepoConfigStore {
         | "manualStepsIssueEnabled"
         | "preWarmEpicLandingCi"
         | "epicStacksEnabled"
+        | "sharedBrowserEnabled"
         | "hidden"
         | "planGateEnabled"
         | "draftMode"
@@ -801,6 +804,15 @@ class RepoConfigStore {
     });
   }
 
+  async toggleSharedBrowser(repoPath: string) {
+    const prev = this.sharedBrowser[repoPath];
+    const next = !this.sharedBrowserOn(repoPath);
+    this.sharedBrowser = { ...this.sharedBrowser, [repoPath]: next }; // optimistic
+    await this.apply(repoPath, { sharedBrowserEnabled: next }, () => {
+      this.sharedBrowser = { ...this.sharedBrowser, [repoPath]: prev };
+    });
+  }
+
   async togglePlanGate(repoPath: string) {
     const prev = this.planGate[repoPath];
     const next = !this.isPlanGateEnabled(repoPath);
@@ -880,6 +892,10 @@ class RepoConfigStore {
 
   epicStacksOn(repoPath: string): boolean {
     return this.epicStacks[repoPath] ?? false;
+  }
+
+  sharedBrowserOn(repoPath: string): boolean {
+    return this.sharedBrowser[repoPath] ?? false;
   }
 
   autoOptimizeOn(repoPath: string): boolean {

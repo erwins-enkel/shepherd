@@ -1746,6 +1746,7 @@ export const KEYS_SETTINGS: readonly string[] = [
   "native_settings_repo_prewarmepiclandingci",
   "native_settings_repo_repomode",
   "native_settings_repo_sandboxprofile",
+  "native_settings_repo_sharedbrowserenabled",
   "native_settings_repo_signoffauthority",
   "native_settings_repo_usageceilingpct",
   "native_settings_retention",

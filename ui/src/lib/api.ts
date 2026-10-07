@@ -2581,6 +2581,7 @@ export async function putRepoConfig(
       | "manualStepsIssueEnabled"
       | "preWarmEpicLandingCi"
       | "epicStacksEnabled"
+      | "sharedBrowserEnabled"
       | "hidden"
       | "previewStartScript"
       | "previewStartCommand"

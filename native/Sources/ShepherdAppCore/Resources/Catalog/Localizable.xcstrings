@@ -18314,6 +18314,23 @@
         }
       }
     },
+    "native_settings_repo_sharedbrowserenabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geteilter Browser"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shared browser"
+          }
+        }
+      }
+    },
     "native_settings_repo_signoffauthority": {
       "extractionState": "manual",
       "localizations": {

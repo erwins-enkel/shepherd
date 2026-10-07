@@ -1794,6 +1794,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "manualStepsIssueEnabled",
   "preWarmEpicLandingCi",
   "epicStacksEnabled",
+  "sharedBrowserEnabled",
   "hidden",
 ] as const;
 
@@ -1813,6 +1814,7 @@ type RepoCfgBody = {
   manualStepsIssueEnabled?: unknown;
   preWarmEpicLandingCi?: unknown;
   epicStacksEnabled?: unknown;
+  sharedBrowserEnabled?: unknown;
   hidden?: unknown;
   signoffAuthority?: unknown;
   sandboxProfile?: unknown;
@@ -1914,6 +1916,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       manualStepsIssueEnabled?: boolean;
       preWarmEpicLandingCi?: boolean;
       epicStacksEnabled?: boolean;
+      sharedBrowserEnabled?: boolean;
       hidden?: boolean;
       signoffAuthority?: "human" | "critic" | "either";
       sandboxProfile?: SandboxProfile;
@@ -1936,7 +1939,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "boolean fields (criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled/buildQueueEnabled/draftMode/autoOptimizeFlagged/hidden) must be booleans",
+          "boolean fields (criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled/buildQueueEnabled/draftMode/autoOptimizeFlagged/sharedBrowserEnabled/hidden) must be booleans",
       },
       400,
     );
@@ -1978,7 +1981,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, autoOptimizeFlagged, hidden, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, autoOptimizeFlagged, sharedBrowserEnabled, hidden, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
       },
       400,
     );
@@ -1999,6 +2002,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     manualStepsIssueEnabled: body.manualStepsIssueEnabled as boolean | undefined,
     preWarmEpicLandingCi: body.preWarmEpicLandingCi as boolean | undefined,
     epicStacksEnabled: body.epicStacksEnabled as boolean | undefined,
+    sharedBrowserEnabled: body.sharedBrowserEnabled as boolean | undefined,
     hidden: body.hidden as boolean | undefined,
     signoffAuthority,
     sandboxProfile,

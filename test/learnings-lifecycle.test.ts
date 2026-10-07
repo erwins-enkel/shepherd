@@ -122,6 +122,7 @@ function makeRepoConfig(o: Partial<RepoConfig> = {}): RepoConfig {
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
+    sharedBrowserEnabled: false,
     hidden: false,
     ...o,
   };

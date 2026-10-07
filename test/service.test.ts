@@ -4883,6 +4883,7 @@ test("create omits house rules when learnings disabled for the repo", async () =
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
+    sharedBrowserEnabled: false,
     hidden: false,
   });
   const captured: { argv?: string[] } = {};
@@ -4945,6 +4946,7 @@ test("create seeds the autopilot directive when the repo has autopilot on", asyn
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
+    sharedBrowserEnabled: false,
     hidden: false,
   });
   const captured: { argv?: string[] } = {};
@@ -5923,6 +5925,7 @@ function buildQueueDeps(
       manualStepsIssueEnabled: false,
       preWarmEpicLandingCi: false,
       epicStacksEnabled: false,
+      sharedBrowserEnabled: false,
       hidden: false,
       ...repoConfig,
     });
@@ -8237,6 +8240,7 @@ test("create research under autonomous: downgrades to standard (sandboxApplied=s
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
+    sharedBrowserEnabled: false,
     hidden: false,
   });
   const captured: { argv?: string[] } = {};
@@ -8285,6 +8289,7 @@ test("create NON-research under autonomous: stays autonomous (no downgrade)", as
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
+    sharedBrowserEnabled: false,
     hidden: false,
   });
   const captured: { argv?: string[] } = {};

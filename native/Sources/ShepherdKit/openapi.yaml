@@ -6127,6 +6127,7 @@ components:
         - manualStepsIssueEnabled
         - preWarmEpicLandingCi
         - epicStacksEnabled
+        - sharedBrowserEnabled
         - hidden
         - signoffAuthority
         - maxAuto
@@ -6169,6 +6170,9 @@ components:
           type: boolean
         epicStacksEnabled:
           type: boolean
+        sharedBrowserEnabled:
+          type: boolean
+          description: "Per-repo Shared Browser: a headful Chromium on the Shepherd host with a persistent per-repo profile that the operator logs in to and this repo's agents drive via brokered CDP. Agents attached to this repo can read every login in its profile."
         hidden:
           type: boolean
         signoffAuthority:
@@ -6239,6 +6243,9 @@ components:
           type: boolean
         epicStacksEnabled:
           type: boolean
+        sharedBrowserEnabled:
+          type: boolean
+          description: "Per-repo Shared Browser: a headful Chromium on the Shepherd host with a persistent per-repo profile that the operator logs in to and this repo's agents drive via brokered CDP. Agents attached to this repo can read every login in its profile."
         hidden:
           type: boolean
         signoffAuthority:

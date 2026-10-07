@@ -6,6 +6,8 @@
   import { getSettings } from "$lib/api";
   import { DOCS_URL } from "$lib/build-info";
   import AutomationInfoTip from "./automation-settings/AutomationInfoTip.svelte";
+  import InfoTip from "./InfoTip.svelte";
+  import { sharedBrowserExplanation } from "$lib/tooltips/explanations";
   import AutomationDetail from "./automation-settings/AutomationDetail.svelte";
   import AutomationRepoFields from "./automation-settings/AutomationRepoFields.svelte";
   import AutomationDrainFields from "./automation-settings/AutomationDrainFields.svelte";
@@ -513,6 +515,26 @@
     title={lightweightTip}
     aria-label={m.automation_epic_stacks_name()}
     onclick={() => repoConfig.toggleEpicStacks(repoPath)}
+  >
+    <span class="knob"></span>
+  </button>
+</div>
+<div class="auto-row">
+  <div class="auto-meta">
+    <div class="auto-name">
+      ◫ {m.automation_shared_browser_name()}
+      <InfoTip text={sharedBrowserExplanation()} label={m.tooltip_shared_browser_title()} />
+    </div>
+    <div class="auto-desc">{m.automation_shared_browser_desc()}</div>
+    <!-- Reserved: the "Open shared browser" action lands here once the browser broker ships. -->
+  </div>
+  <button
+    class={["sw", { on: repoConfig.sharedBrowserOn(repoPath) }]}
+    type="button"
+    role="switch"
+    aria-checked={repoConfig.sharedBrowserOn(repoPath)}
+    aria-label={m.automation_shared_browser_name()}
+    onclick={() => repoConfig.toggleSharedBrowser(repoPath)}
   >
     <span class="knob"></span>
   </button>

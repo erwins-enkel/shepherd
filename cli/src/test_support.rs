@@ -41,6 +41,7 @@ pub fn repo_config_json() -> Value {
         "manualStepsIssueEnabled",
         "preWarmEpicLandingCi",
         "epicStacksEnabled",
+        "sharedBrowserEnabled",
         "hidden",
     ] {
         v[flag] = json!(false);

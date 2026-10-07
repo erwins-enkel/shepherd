@@ -62,6 +62,12 @@ const KILL_GRACE_MS = 5000;
 /** How long a graceful `Browser.close` gets before falling back to SIGTERM. */
 const GRACEFUL_CLOSE_MS = 5000;
 const OPEN_TIMEOUT_MS = 10_000;
+/**
+ * Upper bound on waiting for a stopped browser to exit before relaunching on its profile. The
+ * SIGKILL fallback already bounds the exit (graceful close + SIGTERM grace); the slack covers
+ * the kernel reaping it. Past this we launch anyway rather than hang the attach.
+ */
+const PRIOR_EXIT_WAIT_MS = GRACEFUL_CLOSE_MS + KILL_GRACE_MS + 2000;
 const STDERR_TAIL_BYTES = 8 * 1024;
 const STDERR_TAIL_LINES = 20;
 export const BINARY_CANDIDATES = [
@@ -191,7 +197,7 @@ function mergePinned(prefs: Prefs, pinned: Record<string, Prefs>): boolean {
 }
 
 /** Where a profile's page-triggered downloads land (inside the profile dir). */
-export function browserDownloadDir(profileDir: string): string {
+function browserDownloadDir(profileDir: string): string {
   return join(profileDir, "Downloads");
 }
 
@@ -241,6 +247,12 @@ export class SharedBrowserManager {
   readonly #log: (msg: string) => void;
   readonly #entries = new Map<string, Entry>();
   readonly #starting = new Map<string, Starting>();
+  /**
+   * Stopped browsers that have not exited yet, per repo. A dying Chromium still holds the
+   * profile's SingletonLock; a relaunch on the same `--user-data-dir` meanwhile would hand off
+   * to it and exit, closing the new client with 1011. `#launch` waits on this first.
+   */
+  readonly #exiting = new Map<string, Promise<void>>();
   #disposed = false;
 
   constructor(deps: SharedBrowserDeps) {
@@ -350,11 +362,16 @@ export class SharedBrowserManager {
       signal("SIGTERM");
       later(KILL_GRACE_MS, () => signal("SIGKILL"));
     };
+    const gone = new Promise<void>((resolve) =>
+      child.once("exit", () => {
+        for (const t of timers) this.#clearTimeout(t);
+        if (this.#exiting.get(repoPath) === gone) this.#exiting.delete(repoPath);
+        resolve();
+      }),
+    );
+    this.#exiting.set(repoPath, gone);
     if (graceful) later(GRACEFUL_CLOSE_MS, terminate);
     else terminate();
-    child.once("exit", () => {
-      for (const t of timers) this.#clearTimeout(t);
-    });
   }
 
   /** Synchronous teardown for process exit / SIGTERM. Idempotent; refuses later launches. */
@@ -423,6 +440,8 @@ export class SharedBrowserManager {
 
   async #launch(repoPath: string, starting: Starting): Promise<Entry> {
     const bin = await this.#resolveBinary();
+    // Before touching the profile: the old Chromium rewrites Preferences as it shuts down.
+    await this.#awaitPriorExit(repoPath);
     const profileDir = browserProfileDir(this.#profileRoot, repoPath);
     await mkdir(profileDir, { recursive: true, mode: 0o700 });
     await pinProfilePrefs(profileDir);
@@ -478,6 +497,27 @@ export class SharedBrowserManager {
     this.#entries.set(repoPath, entry);
     this.#log(`launched ${bin} (pid ${child.pid}) for ${repoPath}`);
     return entry;
+  }
+
+  /** Waits (capped) for this repo's stopped browser, if any, to release its profile. */
+  async #awaitPriorExit(repoPath: string): Promise<void> {
+    const prior = this.#exiting.get(repoPath);
+    if (!prior) return;
+    let timer: unknown = null;
+    let timedOut = false;
+    const cap = new Promise<void>((resolve) => {
+      timer = this.#setTimeout(() => {
+        timedOut = true;
+        resolve();
+      }, PRIOR_EXIT_WAIT_MS);
+      (timer as { unref?: () => void } | null)?.unref?.();
+    });
+    try {
+      await Promise.race([prior, cap]);
+    } finally {
+      this.#clearTimeout(timer);
+    }
+    if (timedOut) this.#log(`previous browser for ${repoPath} still running; launching anyway`);
   }
 
   #onGone(entry: Entry, why: string): void {

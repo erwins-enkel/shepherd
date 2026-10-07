@@ -427,3 +427,94 @@ test("stop: graceful falls back to SIGTERM when Browser.close is ignored", async
   grace[0]!.fn();
   expect(await exited(spawned[0]!.child)).toBe("SIGTERM");
 });
+
+/** A manager whose fake Chromium ignores `Browser.close` (and SIGTERM when `ignoreTerm`). */
+function stubbornManager(opts: { ignoreTerm?: boolean } = {}) {
+  let script = FAKE_CHROMIUM.replace("process.exit(0)", "result = {}");
+  if (opts.ignoreTerm) script = `process.on("SIGTERM", () => {});\n${script}`;
+  const exitedAtSpawn: boolean[] = [];
+  const m = manager({
+    spawn: (command, args, options) => {
+      exitedAtSpawn.push(
+        spawned.every((x) => x.child.exitCode !== null || x.child.signalCode !== null),
+      );
+      const child = spawn(process.execPath, ["-e", script], {
+        stdio: options.stdio,
+        env: process.env,
+      });
+      spawned.push({ command, args, options, child });
+      return child;
+    },
+  });
+  return { m, exitedAtSpawn };
+}
+
+const tick = (ms = 150) => new Promise((r) => setTimeout(r, ms));
+
+async function roundTrip(client: Awaited<ReturnType<SharedBrowserManager["attach"]>>, s: Sink) {
+  await client.ready;
+  client.receive(JSON.stringify({ id: 9, method: "Target.getTargets" }));
+  expect(await s.next()).toEqual({ id: 9, result: { targetInfos: [] } });
+}
+
+test("relaunch: stop then attach waits for the dying Chromium before spawning", async () => {
+  const { m, exitedAtSpawn } = stubbornManager();
+  await (
+    await m.attach("/r/a", sink())
+  ).ready;
+  m.stop("/r/a");
+  const s = sink();
+  const pending = m.attach("/r/a", s);
+  await tick();
+  // Old child still holds the profile lock: no second Chromium yet.
+  expect(spawned).toHaveLength(1);
+  liveTimers(5000)[0]!.fn(); // graceful window elapses → SIGTERM
+  expect(await exited(spawned[0]!.child)).toBe("SIGTERM");
+  const client = await pending;
+  expect(spawned).toHaveLength(2);
+  expect(exitedAtSpawn).toEqual([true, true]);
+  await roundTrip(client, s);
+  expect(s.closed).toBeNull();
+});
+
+test("relaunch: disable → enable → open sequence opens on a fresh Chromium", async () => {
+  const m = manager();
+  await m.open("/r/a", "about:blank");
+  const first = spawned[0]!.child;
+  m.stop("/r/a"); // disable: graceful Browser.close
+  await m.open("/r/a", "http://localhost:5173/"); // enable + Open right away
+  expect(first.exitCode).toBe(0);
+  expect(spawned).toHaveLength(2);
+  expect(m.isRunning("/r/a")).toBe(true);
+  const s = sink();
+  await roundTrip(await m.attach("/r/a", s), s);
+});
+
+test("relaunch: other repos never wait on a dying browser", async () => {
+  const { m } = stubbornManager({ ignoreTerm: true });
+  await (
+    await m.attach("/r/a", sink())
+  ).ready;
+  m.stop("/r/a");
+  await (
+    await m.attach("/r/b", sink())
+  ).ready;
+  expect(spawned).toHaveLength(2);
+});
+
+test("relaunch: the wait is capped when the old Chromium will not die", async () => {
+  const { m } = stubbornManager({ ignoreTerm: true });
+  await (
+    await m.attach("/r/a", sink())
+  ).ready;
+  m.stop("/r/a");
+  const s = sink();
+  const pending = m.attach("/r/a", s);
+  await tick();
+  expect(spawned).toHaveLength(1);
+  liveTimers(12_000)[0]!.fn();
+  const client = await pending;
+  expect(spawned).toHaveLength(2);
+  expect(logs.some((l) => l.includes("launching anyway"))).toBe(true);
+  await roundTrip(client, s);
+});

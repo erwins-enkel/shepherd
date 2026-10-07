@@ -554,6 +554,9 @@ export class MaintainService {
     const forge = this.deps.resolveForge(this.deps.selfRepoPath);
     if (!forge) return false;
     try {
+      // Only one published PR needs checking; a live number-keyed read avoids both a full
+      // listing and stale suppression after an external merge/close.
+      if (forge.prReviewMeta) return (await forge.prReviewMeta(prNumber))?.state === "open";
       return (await forge.listPullRequests()).some((p) => p.number === prNumber);
     } catch (err) {
       this.log(`[maintain] could not check PR #${prNumber}: ${String(err)}`);

@@ -1388,6 +1388,55 @@ export class GithubForge implements GitForge {
     return (await this.listOpenPrSnapshot()).prs;
   }
 
+  async listCommitChecks(headShas: string[]): Promise<Map<string, ChecksState>> {
+    const heads = [...new Set(headShas)];
+    if (heads.length === 0) return new Map();
+    const rest = async () =>
+      new Map(
+        await mapBounded(
+          heads,
+          6,
+          async (sha) => [sha, await this.restChecksForHead(sha)] as const,
+        ),
+      );
+    if (graphRateLimit.blocked()) return rest();
+
+    const [owner, name] = this.slug.split("/");
+    const vars = ["$owner:String!", "$name:String!"];
+    const fields: string[] = [];
+    const args = ["api", "graphql", "-f", `owner=${owner}`, "-f", `name=${name}`];
+    heads.forEach((sha, i) => {
+      vars.push(`$h${i}:GitObjectID!`);
+      fields.push(`c${i}:object(oid:$h${i}){... on Commit{statusCheckRollup{state}}}`);
+      args.push("-f", `h${i}=${sha}`);
+    });
+    args.push(
+      "-f",
+      `query=query(${vars.join(",")}){repository(owner:$owner,name:$name){${fields.join(" ")}}}`,
+    );
+    let out: string;
+    try {
+      out = await this.run(args);
+    } catch (err) {
+      if (isRateLimitError(err)) return rest();
+      throw err;
+    }
+    const raw = JSON.parse(out || "{}") as {
+      data?: {
+        repository?: Record<
+          string,
+          { statusCheckRollup?: { state?: string } | null } | null
+        > | null;
+      };
+    };
+    const checks = new Map<string, ChecksState>();
+    heads.forEach((sha, i) => {
+      const commit = raw.data?.repository?.[`c${i}`];
+      if (commit) checks.set(sha, mapStatusState(commit.statusCheckRollup?.state));
+    });
+    return checks;
+  }
+
   async listWorkflowRuns(): Promise<WorkflowRun[]> {
     // Resolve the default branch; CI health is read from its runs, not PR branches.
     // A lookup failure degrades to [] (fail-quiet, matching the other forge readers).

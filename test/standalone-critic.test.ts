@@ -9,6 +9,8 @@ import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 import type { GitForge, PrReviewMeta, PullRequest } from "../src/forge/types";
 import type { PrReview, Learning } from "../src/types";
 import { CODEX_ROLE_OUTPUT_SCHEMAS } from "../src/codex-role-output-schema";
+import { OpenPrSnapshotService } from "../src/open-pr-snapshot";
+import { GithubReadCache } from "../src/github-read-cache";
 
 beforeEach(() => {
   __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
@@ -212,6 +214,7 @@ function makeDeps(
       gitCommonDir = () => "/fake-git-common";
     })(),
     resolveForge: opts.forge ?? (() => makeForge(spies)),
+    openPrSnapshot: new OpenPrSnapshotService(),
     repos: () => opts.repos ?? ["/r"],
     managedBranches: opts.managed ?? (() => new Set<string>()),
     concurrency: opts.concurrency,
@@ -249,6 +252,293 @@ function makeDeps(
   };
   return { deps, spies, reviews };
 }
+
+function cachedCritic(prs: PullRequest[] = [], opts: Parameters<typeof makeDeps>[1] = {}) {
+  const state = { prs, now: 1000, snapshotCalls: 0, listCalls: 0 };
+  const { deps, spies } = makeDeps({}, opts);
+  const readCache = new GithubReadCache(
+    {
+      listGithubReadCache: () => [],
+      putGithubReadCache: () => {},
+      deleteGithubReadCache: () => {},
+    },
+    { now: () => state.now },
+  );
+  const fingerprint = (updatedAt = "initial") =>
+    readCache.put("fingerprint", "o/r", null, {
+      openIssues: 0,
+      issuesUpdatedAt: "",
+      openPrs: state.prs.length,
+      prsUpdatedAt: updatedAt,
+      ciState: "",
+    });
+  fingerprint();
+  const openPrSnapshot = new OpenPrSnapshotService(() => state.now, 6, readCache);
+  const forge = makeForge(spies);
+  forge.listPullRequests = async () => {
+    state.listCalls++;
+    return state.prs;
+  };
+  forge.listOpenPrSnapshot = async () => {
+    state.snapshotCalls++;
+    return { prs: state.prs, statuses: new Map(), capped: false };
+  };
+  deps.resolveForge = () => forge;
+  deps.openPrSnapshot = openPrSnapshot;
+  deps.now = () => state.now;
+  deps.computePatchId = async () => ({
+    patchId: `patch-${spies.created.length}`,
+    baseSha: null,
+    files: [],
+  });
+  return { state, deps, spies, forge, openPrSnapshot, fingerprint };
+}
+
+test("#2854 unchanged fingerprints cause no listings in ten minutes of critic sweeps", async () => {
+  const h = cachedCritic();
+  await h.openPrSnapshot.get(h.forge); // warmed by another consumer
+  let checkCalls = 0;
+  h.forge.listCommitChecks = async () => {
+    checkCalls++;
+    return new Map();
+  };
+  const svc = new StandalonePrCriticService(h.deps as any);
+  for (let i = 0; i < 10; i++) {
+    h.state.now += 60_000;
+    await svc.sweep();
+  }
+  expect(h.state.listCalls).toBe(0);
+  expect(h.state.snapshotCalls).toBe(1);
+  expect(checkCalls).toBe(0);
+});
+
+test("#2854 a new PR is reviewed in the sweep after its fingerprint changes", async () => {
+  const h = cachedCritic();
+  const svc = new StandalonePrCriticService(h.deps as any);
+  await svc.sweep();
+  h.state.prs = [pr()];
+  h.fingerprint("new");
+  await svc.sweep();
+  expect(h.spies.started).toHaveLength(1);
+  expect(h.state.snapshotCalls).toBe(2);
+  expect(h.state.listCalls).toBe(0);
+});
+
+test("#2854 a pushed PR is reviewed again in the sweep after its fingerprint changes", async () => {
+  const h = cachedCritic([pr()]);
+  const svc = new StandalonePrCriticService(h.deps as any);
+  await svc.sweep();
+  await svc.tick();
+  h.state.prs = [pr({ headSha: "new-head" })];
+  h.fingerprint("push");
+  await svc.sweep();
+  expect(h.spies.started).toHaveLength(2);
+  expect(h.spies.created[1]?.sha).toBe("new-head");
+  expect(h.state.snapshotCalls).toBe(2);
+  expect(h.state.listCalls).toBe(0);
+});
+
+test("#2854 CI completion is found through candidate heads without refreshing the snapshot", async () => {
+  const h = cachedCritic(
+    [
+      pr({ headSha: "waiting", checks: "pending" }),
+      pr({ number: 8, headSha: "draft", checks: "pending", isDraft: true }),
+      pr({ number: 9, headSha: "bot", checks: "pending", kind: "dependabot" }),
+      pr({ number: 10, headSha: "managed", headRefName: "managed", checks: "pending" }),
+    ],
+    { managed: () => new Set(["managed"]) },
+  );
+  const checked: string[][] = [];
+  let checks: PullRequest["checks"] = "pending";
+  h.forge.listCommitChecks = async (heads: string[]) => {
+    checked.push(heads);
+    return new Map([["waiting", checks]]);
+  };
+  const svc = new StandalonePrCriticService(h.deps as any);
+  await svc.sweep();
+  expect(h.spies.started).toHaveLength(0);
+  checks = "success";
+  await svc.sweep();
+  expect(h.spies.started).toHaveLength(1);
+  await svc.tick();
+  await svc.sweep();
+  expect(checked).toEqual([["waiting"], ["waiting"]]);
+  expect(h.state.snapshotCalls).toBe(1);
+  expect(h.state.listCalls).toBe(0);
+  expect(h.state.prs[0]?.checks).toBe("pending"); // shared cache stays immutable
+});
+
+test("#2854 a push replaces the head watched for CI", async () => {
+  const h = cachedCritic([pr({ headSha: "old", checks: "pending" })]);
+  const checked: string[][] = [];
+  const svc = new StandalonePrCriticService(h.deps as any);
+  // First observation is pending; the push happens before its next CI probe.
+  h.forge.listCommitChecks = async (heads: string[]) => {
+    checked.push(heads);
+    return new Map([
+      ["old", "pending"],
+      ["new", "pending"],
+    ]);
+  };
+  await svc.sweep();
+  h.state.prs = [pr({ headSha: "new", checks: "pending" })];
+  h.fingerprint("push");
+  await svc.sweep();
+  expect(checked).toEqual([["old"], ["new"]]);
+  expect(h.spies.started).toHaveLength(0);
+});
+
+test("#2854 cached green candidates wait if their live checks are running again", async () => {
+  const h = cachedCritic([pr()]);
+  let checks: PullRequest["checks"] = "pending";
+  const checked: string[][] = [];
+  h.forge.listCommitChecks = async (heads) => {
+    checked.push(heads);
+    return new Map([["abc123", checks]]);
+  };
+  const svc = new StandalonePrCriticService(h.deps as any);
+  await svc.sweep();
+  expect(h.spies.started).toHaveLength(0);
+  checks = "success";
+  await svc.sweep();
+  expect(h.spies.started).toHaveLength(1);
+  expect(checked).toEqual([["abc123"], ["abc123"]]);
+  expect(h.state.snapshotCalls).toBe(1);
+});
+
+test("#2854 all candidate heads share one CI probe per repo", async () => {
+  const h = cachedCritic([
+    pr({ headSha: "a", checks: "pending" }),
+    pr({ number: 8, headSha: "b", checks: "failure" }),
+  ]);
+  const checked: string[][] = [];
+  h.forge.listCommitChecks = async (heads) => {
+    checked.push(heads);
+    return new Map([
+      ["a", "success"],
+      ["b", "success"],
+    ]);
+  };
+  await new StandalonePrCriticService(h.deps as any).sweep();
+  expect(h.spies.started).toHaveLength(2);
+  expect(checked).toEqual([["a", "b"]]);
+});
+
+test("#2854 failed or incomplete CI probes wait and retry on the next sweep", async () => {
+  for (const checks of ["pending", "success"] as const) {
+    const h = cachedCritic([pr({ checks })]);
+    let attempt = 0;
+    h.forge.listCommitChecks = async () => {
+      attempt++;
+      if (attempt === 1) throw new Error("network down");
+      if (attempt === 2) return new Map();
+      return new Map([["abc123", "success"]]);
+    };
+    const svc = new StandalonePrCriticService(h.deps as any);
+    await svc.sweep();
+    await svc.sweep();
+    expect(h.spies.started).toHaveLength(0);
+    await svc.sweep();
+    expect(h.spies.started).toHaveLength(1);
+    expect(attempt).toBe(3);
+    expect(h.state.snapshotCalls).toBe(1);
+  }
+});
+
+test("#2854 reviewed heads produce neither CI probes nor listings for ten minutes", async () => {
+  const h = cachedCritic([pr()]);
+  const svc = new StandalonePrCriticService(h.deps as any);
+  await svc.sweep();
+  await svc.tick();
+  let checkCalls = 0;
+  h.forge.listCommitChecks = async () => {
+    checkCalls++;
+    return new Map();
+  };
+  for (let i = 0; i < 10; i++) {
+    h.state.now += 60_000;
+    await svc.sweep();
+  }
+  expect(h.state.snapshotCalls).toBe(1);
+  expect(h.state.listCalls).toBe(0);
+  expect(checkCalls).toBe(0);
+});
+
+test("#2854 criticAllPrs off with no landing PR skips the repo before listing", async () => {
+  for (const epicCompleted of [
+    [],
+    [{ repoPath: "/r", landingPrNumber: null, landingState: "open" }],
+  ]) {
+    const h = cachedCritic([], { criticAllPrs: false, epicCompleted });
+    await new StandalonePrCriticService(h.deps as any).sweep();
+    expect(h.state.snapshotCalls).toBe(0);
+    expect(h.state.listCalls).toBe(0);
+  }
+});
+
+test("#2854 a failed cached snapshot does not fall back to another GitHub listing", async () => {
+  const h = cachedCritic();
+  (h.deps as any).openPrSnapshot = { get: async () => null };
+  await new StandalonePrCriticService(h.deps as any).sweep();
+  expect(h.state.listCalls).toBe(0);
+  expect(h.spies.started).toHaveLength(0);
+});
+
+test("#2854 cached none checks still probe external CI on a repo without workflows", async () => {
+  const h = cachedCritic([pr({ checks: "none" })]);
+  let checks: PullRequest["checks"] = "pending";
+  h.forge.listCommitChecks = async () => new Map([["abc123", checks]]);
+  const svc = new StandalonePrCriticService(h.deps as any);
+  await svc.sweep();
+  expect(h.spies.started).toHaveLength(0);
+  checks = "failure";
+  await svc.sweep();
+  expect(h.spies.started).toHaveLength(0);
+  checks = "none"; // a genuinely check-free live head still clears the existing no-CI gate
+  await svc.sweep();
+  expect(h.spies.started).toHaveLength(1);
+});
+
+test("#2854 overlapping CI probes launch only one critic for the same PR", async () => {
+  const h = cachedCritic([pr({ checks: "pending" })]);
+  const bothStarted = Promise.withResolvers<void>();
+  const result = Promise.withResolvers<Map<string, PullRequest["checks"]>>();
+  let probes = 0;
+  h.forge.listCommitChecks = async () => {
+    if (++probes === 2) bothStarted.resolve();
+    return result.promise;
+  };
+  const svc = new StandalonePrCriticService(h.deps as any);
+  const sweeps = [svc.sweep(), svc.sweep()];
+  await bothStarted.promise;
+  result.resolve(new Map([["abc123", "success"]]));
+  await Promise.all(sweeps);
+  expect(h.spies.started).toHaveLength(1);
+  expect(h.spies.created).toHaveLength(1);
+});
+
+test("#2854 a late CI probe does not re-review a head completed by another sweep", async () => {
+  const h = cachedCritic([pr({ checks: "pending" })]);
+  const firstStarted = Promise.withResolvers<void>();
+  const firstResult = Promise.withResolvers<Map<string, PullRequest["checks"]>>();
+  let probes = 0;
+  h.forge.listCommitChecks = async () => {
+    if (++probes === 1) {
+      firstStarted.resolve();
+      return firstResult.promise;
+    }
+    return new Map([["abc123", "success"]]);
+  };
+  const svc = new StandalonePrCriticService(h.deps as any);
+  const first = svc.sweep();
+  await firstStarted.promise;
+  await svc.sweep();
+  await svc.tick();
+  firstResult.resolve(new Map([["abc123", "success"]]));
+  await first;
+  expect(h.spies.started).toHaveLength(1);
+  expect(h.spies.created).toHaveLength(1);
+});
 
 // ── 1. filter ────────────────────────────────────────────────────────────────
 

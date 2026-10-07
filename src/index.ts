@@ -1774,6 +1774,7 @@ const docAgent = new DocAgentService({
   herdr,
   worktree,
   resolveForge,
+  openPrSnapshot,
   // Plugin onSpawn hooks fire for the doc-agent spawn too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   trustDir: trustAuxDir,
@@ -1871,6 +1872,7 @@ const standaloneCritic = new StandalonePrCriticService({
   herdr,
   worktree,
   resolveForge,
+  openPrSnapshot,
   // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   trustDir: trustAuxDir,

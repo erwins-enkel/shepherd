@@ -23,6 +23,7 @@ import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import type { GitForge, PrReviewMeta, PullRequest } from "./forge/types";
+import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { CRITIC_REVIEW_MARKER } from "./forge/types";
 import { randomUUID } from "node:crypto";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
@@ -101,6 +102,7 @@ export interface StandalonePrCriticDeps extends MembraneSeams {
   herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "tabsAsync" | "closeTab">;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
   resolveForge: (repoPath: string) => GitForge | null;
+  openPrSnapshot: Pick<OpenPrSnapshotService, "get">;
   /** Candidate repos to consider each sweep. The sweep itself filters to those with
    *  `criticAllPrs` ON (read live, so a toggle takes effect on the next sweep). */
   repos: () => string[];
@@ -235,7 +237,7 @@ export class StandalonePrCriticService {
     // set is small (one row per in-flight epic) so scanning it each sweep is cheap.
     const epicRepos = this.deps.store
       .listEpicCompleted()
-      .filter((r) => r.landingState === "open")
+      .filter((r) => r.landingState === "open" && r.landingPrNumber != null)
       .map((r) => r.repoPath);
     const enabled = [...new Set([...flagged, ...epicRepos])];
     if (enabled.length === 0) return;
@@ -284,17 +286,38 @@ export class StandalonePrCriticService {
 
     let prs: PullRequest[];
     try {
-      prs = await forge.listPullRequests();
+      const snapshot = await this.deps.openPrSnapshot.get(forge);
+      if (!snapshot && forge.listOpenPrSnapshot) throw new Error("open-PR snapshot unavailable");
+      prs = snapshot?.prs ?? (await forge.listPullRequests());
     } catch (err) {
-      this.log(`[pr-critic] listPullRequests failed for ${repoPath}: ${String(err)}`);
+      this.log(`[pr-critic] open-PR listing failed for ${repoPath}: ${String(err)}`);
       return;
     }
 
-    const candidates = prs.filter((pr) =>
-      this.eligible(repoPath, pr, managed, criticEnabled, criticAllPrs, noCi),
+    let candidates = prs.filter((pr) =>
+      this.eligible(repoPath, pr, managed, criticEnabled, criticAllPrs),
     );
+    // CI transitions don't change the PR fingerprint. Derive a watch-list AFTER the other
+    // eligibility gates; copy live rollups onto candidate rows without mutating the shared cache.
+    const watchedHeads = new Set(candidates.map((pr) => pr.headSha!));
+    if (watchedHeads.size > 0 && forge.listCommitChecks) {
+      let checks = new Map<string, PullRequest["checks"]>();
+      try {
+        checks = await forge.listCommitChecks([...watchedHeads]);
+      } catch (err) {
+        this.log(`[pr-critic] CI watch failed for ${repoPath}: ${String(err)}`);
+      }
+      candidates = candidates.map((pr) =>
+        watchedHeads.has(pr.headSha!)
+          ? { ...pr, checks: checks.get(pr.headSha!) ?? "pending" }
+          : pr,
+      );
+    }
+    candidates = candidates.filter((pr) => checksCleared(pr.checks, noCi));
     let deferred = 0;
     for (const pr of candidates) {
+      // Another sweep can claim or finish this head while the live CI probe is awaiting.
+      if (!this.eligible(repoPath, pr, managed, criticEnabled, criticAllPrs)) continue;
       if (!this.underCap()) {
         deferred++;
         continue;
@@ -307,9 +330,9 @@ export class StandalonePrCriticService {
     }
   }
 
-  /** Whether an enumerated PR is a session-less, CI-green, never-yet-reviewed-at-this-head PR the
-   *  standalone critic should review. Drops (silently — these are the expected exclusions) drafts,
-   *  non-green PRs, bots, session-owned PRs (when the session critic is on), in-flight/mid-spawn
+  /** Whether an enumerated PR is a session-less, never-yet-reviewed-at-this-head candidate.
+   *  The live CI gate runs after this filter. Drops drafts,
+   *  bots, session-owned PRs (when the session critic is on), in-flight/mid-spawn
    *  runs, and already-reviewed heads. A host that didn't supply headSha/headRefName is skipped +
    *  logged (we can't dedup or detach without them). */
   private eligible(
@@ -318,13 +341,8 @@ export class StandalonePrCriticService {
     managed: Set<string>,
     criticEnabled: boolean,
     criticAllPrs: boolean,
-    noCi: boolean,
   ): boolean {
     if (pr.isDraft) return false;
-    // Best-effort TOCTOU gate: the rollup can change between enumeration and spawn, but a green
-    // (or no-CI terminal) read here is the right cheap filter (a finalize-time live-state recheck
-    // backstops the rest).
-    if (!checksCleared(pr.checks, noCi)) return false;
     if (pr.kind !== "regular") return false; // Dependabot / release-please bots — not for the critic
     if (!pr.headSha || !pr.headRefName) {
       this.log(`[pr-critic] ${repoPath}#${pr.number} missing headSha/headRefName — skipping`);

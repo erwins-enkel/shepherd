@@ -781,6 +781,9 @@ export interface GitForge {
    *  rows + headRefName-keyed poll statuses). Optional: only GitHub implements it;
    *  Gitea/Local omit it and callers fall back to listPullRequests / per-session prStatus. */
   listOpenPrSnapshot?(): Promise<OpenPrSnapshot>;
+  /** Live CI rollups for candidate head commits, keyed by SHA. GitHub batches these into one
+   *  aliased query; missing commits are omitted. Other hosts use their fresh PR listings. */
+  listCommitChecks?(headShas: string[]): Promise<Map<string, ChecksState>>;
   // Stacked pull requests (#2068). GitHub only, and a public PREVIEW there — Gitea and Local omit
   // these entirely, so callers must branch on the method's presence, never on `kind`.
   //

@@ -357,7 +357,8 @@ process to reach.
   resolve into loopback, RFC 1918, CGNAT/Tailscale (`100.64/10`), link-local,
   ULA, IPv4-mapped or other special ranges. At attach the broker copies only the
   default context's cookies for allowed hosts (and `localhost` when a Preview
-  origin exists) into the confined context. When there are none, the attach
+  origin exists, minus Shepherd's own `shepherd_session`) into the confined
+  context. When there are none, the attach
   closes with `1008 no-login`: an autonomous session cannot wait for a Handoff
   Login. The confined client sees and drives only its own context: other
   contexts' targets are hidden from discovery and auto-attach, refused for

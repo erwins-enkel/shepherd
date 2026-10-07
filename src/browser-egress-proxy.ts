@@ -184,10 +184,13 @@ export class BrowserEgressProxy {
     const upstream = netConnect({ host: verdict.address, port: verdict.port });
     this.#track(upstream);
     upstream.setTimeout(CONNECT_TIMEOUT_MS, () => upstream.destroy());
+    let connected = false;
     upstream.once("error", () => {
-      if (!client.destroyed) client.end(reply(REP_HOST_UNREACHABLE));
+      // Before the tunnel exists the client still expects a SOCKS reply; after, `close` tears down.
+      if (!connected && !client.destroyed) client.end(reply(REP_HOST_UNREACHABLE));
     });
     upstream.once("connect", () => {
+      connected = true;
       upstream.setTimeout(0);
       client.setTimeout(0);
       if (client.destroyed) {

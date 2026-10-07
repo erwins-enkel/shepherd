@@ -614,8 +614,11 @@ test("confined attach: proxied context seeded with allowlisted cookies only", as
   expect(liveTimers(60_000)).toHaveLength(1);
 });
 
-test("confined attach: localhost cookies only with a Preview origin", async () => {
-  const { m, sent } = await confinedSetup([{ name: "dev", value: "3", domain: "localhost" }]);
+test("confined attach: localhost cookies only with a Preview origin, never the Shepherd session", async () => {
+  const { m, sent } = await confinedSetup([
+    { name: "dev", value: "3", domain: "localhost" },
+    { name: "shepherd_session", value: "op", domain: "localhost" },
+  ]);
   await (
     await m.attach("/r/a", sink(), { policy: policy([], 7400) })
   ).ready;

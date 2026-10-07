@@ -20,6 +20,7 @@ import type { Readable, Writable } from "node:stream";
 import { BrowserEgressProxy } from "./browser-egress-proxy";
 import { cookieMatchesHosts, type OriginPolicy } from "./browser-origin-policy";
 import { CdpPipe, type CdpClient, type CdpClientOptions, type CdpPipeClient } from "./cdp-pipe";
+import { SESSION_COOKIE } from "./operator-auth";
 
 export type SharedBrowserErrorCode = "missing-binary" | "cap" | "launch-failed" | "no-login";
 
@@ -389,7 +390,11 @@ export class SharedBrowserManager {
       const hosts = policy.allowedHosts();
       const withPreview = policy.previewPort() !== null;
       const login = (Array.isArray(cookies) ? (cookies as Record<string, unknown>[]) : []).filter(
-        (c) => typeof c.domain === "string" && cookieMatchesHosts(c.domain, hosts, withPreview),
+        (c) =>
+          typeof c.domain === "string" &&
+          cookieMatchesHosts(c.domain, hosts, withPreview) &&
+          // localhost cookies ignore ports: never hand over the operator's own Shepherd session.
+          c.name !== SESSION_COOKIE,
       );
       if (login.length === 0)
         throw new SharedBrowserError(

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { CdpPipe, type CdpClient } from "../src/cdp-pipe";
+import { CdpPipe, cdpPolicyViolation, type CdpClient } from "../src/cdp-pipe";
 
 type Msg = Record<string, any>;
 
@@ -430,4 +430,39 @@ test("cdp pipe: close() closes every client and rejects pending readiness", asyn
   const late = new FakeClient();
   fake.pipe.addClient(late);
   expect(late.closed?.code).toBe(1011);
+});
+
+test("cdp pipe: policy-blocked methods are refused and never forwarded", async () => {
+  const fake = new FakeBrowser();
+  const a = await attached(fake);
+  const blocked: Msg[] = [
+    { method: "Browser.setDownloadBehavior", params: { behavior: "allow", downloadPath: "/" } },
+    { method: "Page.setDownloadBehavior", params: { behavior: "allow", downloadPath: "/" } },
+    { method: "DOM.setFileInputFiles", params: { files: ["/home/u/.ssh/id_ed25519"] } },
+    { method: "Tracing.start" },
+    { method: "SystemInfo.getProcessInfo" },
+    { method: "Browser.close" },
+    { method: "Page.navigate", params: { url: "file:///etc/passwd" } },
+    { method: "Target.createTarget", params: { url: "chrome://settings" } },
+    { method: "Network.loadNetworkResource", params: { url: "file:///etc/passwd" } },
+    { method: "Target.createBrowserContext", params: { proxyServer: "http://evil:8080" } },
+  ];
+  let id = 100;
+  for (const msg of blocked) {
+    const before = fake.received.length;
+    a.send({ id: ++id, ...msg });
+    expect(fake.received).toHaveLength(before);
+    expect(a.sink.byId(id)!.error.code).toBe(-32000);
+  }
+});
+
+test("cdp pipe: web navigation and ordinary methods pass the policy", () => {
+  expect(cdpPolicyViolation("Page.navigate", { url: "http://localhost:5173/login" })).toBeNull();
+  expect(
+    cdpPolicyViolation("Target.createTarget", { url: "https://accounts.example.com" }),
+  ).toBeNull();
+  expect(cdpPolicyViolation("Target.createTarget", { url: "about:blank" })).toBeNull();
+  expect(cdpPolicyViolation("Target.createBrowserContext", {})).toBeNull();
+  expect(cdpPolicyViolation("Runtime.evaluate", { expression: "1" })).toBeNull();
+  expect(cdpPolicyViolation("Target.setAutoAttach", { flatten: true })).toBeNull();
 });

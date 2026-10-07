@@ -83,6 +83,54 @@ function concatBytes(parts: Uint8Array[]): Uint8Array {
   return out;
 }
 
+/**
+ * Methods an agent may never send: they reach the host outside the page sandbox (download
+ * paths, host files fed to file inputs, browser-process control, tracing/system info).
+ * Without this a membrane-sandboxed agent could write or read host files through Chromium.
+ */
+const BLOCKED_METHODS = new Set([
+  "Browser.setDownloadBehavior",
+  "Page.setDownloadBehavior",
+  "Browser.close",
+  "Browser.crash",
+  "Browser.crashGpuProcess",
+  "Browser.executeBrowserCommand",
+  "DOM.setFileInputFiles",
+  "Target.exposeDevToolsProtocol",
+  "Target.setRemoteLocations",
+]);
+const BLOCKED_DOMAINS = ["Tracing.", "SystemInfo."];
+/** Methods whose `params.url` must stay on the web (no file:, chrome:, devtools:, …). */
+const URL_METHODS = new Set([
+  "Page.navigate",
+  "Target.createTarget",
+  "Network.loadNetworkResource",
+]);
+const BLOCKED_BY_POLICY = -32000;
+
+function isWebUrl(url: unknown): boolean {
+  if (url === "about:blank") return true;
+  if (typeof url !== "string") return false;
+  try {
+    const { protocol } = new URL(url);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** Why the broker refuses this client message, or null when it may be forwarded. */
+export function cdpPolicyViolation(method: unknown, params: unknown): string | null {
+  if (typeof method !== "string") return null;
+  if (BLOCKED_METHODS.has(method) || BLOCKED_DOMAINS.some((d) => method.startsWith(d)))
+    return `${method} is blocked by the Shepherd browser broker`;
+  if (URL_METHODS.has(method) && !isWebUrl((params as Json | undefined)?.url))
+    return `${method} is limited to http(s) URLs by the Shepherd browser broker`;
+  if (method === "Target.createBrowserContext" && (params as Json | undefined)?.proxyServer)
+    return "Target.createBrowserContext proxy overrides are blocked by the Shepherd browser broker";
+  return null;
+}
+
 function stringField(obj: unknown, key: string): string | null {
   if (!obj || typeof obj !== "object") return null;
   const value = (obj as Json)[key];
@@ -239,6 +287,17 @@ export class CdpPipe {
           id,
           error: { code: SESSION_NOT_OWNED, message: "Session not owned by this client" },
           sessionId,
+        }),
+      );
+      return;
+    }
+    const violation = cdpPolicyViolation(msg.method, msg.params);
+    if (violation) {
+      client.sink.send(
+        JSON.stringify({
+          id,
+          error: { code: BLOCKED_BY_POLICY, message: violation },
+          ...(sessionId === undefined ? {} : { sessionId }),
         }),
       );
       return;

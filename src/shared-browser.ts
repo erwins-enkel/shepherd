@@ -110,6 +110,33 @@ function chromiumArgs(profileDir: string, env: NodeJS.ProcessEnv): string[] {
   ];
 }
 
+/**
+ * The child's environment: display/session plumbing only. The server env carries operator
+ * secrets (auth token, plugin keys) that a browser agents can drive has no business holding.
+ */
+const CHROMIUM_ENV_KEYS = [
+  "PATH",
+  "HOME",
+  "USER",
+  "LANG",
+  "LANGUAGE",
+  "TZ",
+  "DISPLAY",
+  "WAYLAND_DISPLAY",
+  "XDG_RUNTIME_DIR",
+  "XDG_SESSION_TYPE",
+  "XDG_CURRENT_DESKTOP",
+  "DBUS_SESSION_BUS_ADDRESS",
+  "XAUTHORITY",
+];
+
+export function chromiumEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = {};
+  for (const [k, v] of Object.entries(env))
+    if (v !== undefined && (CHROMIUM_ENV_KEYS.includes(k) || k.startsWith("LC_"))) out[k] = v;
+  return out;
+}
+
 interface Entry {
   readonly repoPath: string;
   readonly child: ChildProcess;
@@ -317,7 +344,7 @@ export class SharedBrowserManager {
       child = this.#spawn(bin, chromiumArgs(profileDir, this.#env), {
         stdio: ["ignore", "ignore", "pipe", "pipe", "pipe"],
         detached: false,
-        env: this.#env,
+        env: chromiumEnv(this.#env),
       });
     } catch (err) {
       throw new SharedBrowserError("launch-failed", `spawn ${bin} failed: ${String(err)}`);

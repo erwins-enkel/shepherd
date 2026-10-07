@@ -8,6 +8,7 @@ import {
   SharedBrowserError,
   SharedBrowserManager,
   browserProfileDir,
+  chromiumEnv,
   reapOrphanBrowsers,
   type SharedBrowserDeps,
 } from "../src/shared-browser";
@@ -346,4 +347,22 @@ test("reapOrphanBrowsers: SIGTERMs foreign browser roots on our profiles only", 
   expect(n).toBe(1);
   expect(killed).toEqual([[100, "SIGTERM"]]);
   expect(await reapOrphanBrowsers(profiles, { platform: "darwin" })).toBe(0);
+});
+
+test("shared browser: chromium env keeps display plumbing and drops server secrets", () => {
+  const env = chromiumEnv({
+    PATH: "/usr/bin",
+    WAYLAND_DISPLAY: "wayland-1",
+    XDG_RUNTIME_DIR: "/run/user/1000",
+    LC_ALL: "de_DE.UTF-8",
+    SHEPHERD_TOKEN: "secret",
+    BUZZ_PRIVATE_KEY: "secret",
+    ANTHROPIC_API_KEY: "secret",
+  });
+  expect(env).toEqual({
+    PATH: "/usr/bin",
+    WAYLAND_DISPLAY: "wayland-1",
+    XDG_RUNTIME_DIR: "/run/user/1000",
+    LC_ALL: "de_DE.UTF-8",
+  });
 });

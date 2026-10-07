@@ -7,7 +7,13 @@ import type { GithubReadCache } from "./github-read-cache";
 
 type PrPollerStore = Pick<
   SessionStore,
-  "list" | "get" | "listSessionGitCache" | "putSessionGitCache" | "deleteSessionGitCache"
+  | "list"
+  | "get"
+  | "listSessionGitCache"
+  | "putSessionGitCache"
+  | "deleteSessionGitCache"
+  | "recordCiJobDurations"
+  | "typicalCiJobDurations"
 >;
 
 interface ReadProvenance {
@@ -126,6 +132,18 @@ function jobsKey(jobs: WorkflowJob[] | undefined): string {
     .map((j) => `${j.name}\u0000${j.state}\u0000${j.startedAt ?? ""}\u0000${j.completedAt ?? ""}`)
     .sort()
     .join("\u0001");
+}
+
+/** `git` with each job's typical duration stamped from `typical` (job name → ms). */
+function withTypicalDurations(git: GitState, typical: Map<string, number>): GitState {
+  if (!git.jobs?.length || typical.size === 0) return git;
+  return {
+    ...git,
+    jobs: git.jobs.map((j) => {
+      const typicalMs = typical.get(j.name);
+      return typicalMs == null ? j : { ...j, typicalMs };
+    }),
+  };
 }
 
 function stableJson(v: unknown): string {
@@ -629,9 +647,13 @@ export class PrPoller implements PrCache {
     if (raw === null) return; // transient gh failure → keep last cached value
     if (provenance.revision !== this.readProvenance(forge).revision) return;
 
+    // Learn how long each green job usually takes on this repo, then stamp that on every job so
+    // the status panel can tell "still within the usual time" from "unusually long".
+    this.store.recordCiJobDurations(s.repoPath, raw.jobs);
+    const typed = withTypicalDurations(raw, this.store.typicalCiJobDurations(s.repoPath));
     // Who's up (open+green): computed from .shepherd/roles.json + the operator's
     // login, so the herd can show "waiting on scoop" instead of "your turn".
-    const git = annotateHandoff(raw, s.repoPath, me, prev);
+    const git = annotateHandoff(typed, s.repoPath, me, prev);
     this.trackTransient(s.id, git);
     if (gitStateChanged(prev, git) && this.set(s.id, git)) {
       this.onChange(s.id, git);

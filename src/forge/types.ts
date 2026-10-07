@@ -347,6 +347,9 @@ export interface WorkflowJob {
    *  Drives the session status panel's "running for N min" and per-check durations. */
   startedAt?: number;
   completedAt?: number;
+  /** Median duration (ms) of this job's recent green runs on the same repo, as observed by
+   *  Shepherd's own PR polls; absent until one has been seen. Stamped by the PR poller. */
+  typicalMs?: number;
 }
 
 /** The latest run of one workflow on a repo's default branch, broken into its

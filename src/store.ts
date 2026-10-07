@@ -171,6 +171,10 @@ function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string");
 }
 
+/** Runs kept per (repo, job) in `ci_job_durations`, and how many of the newest feed the median. */
+const CI_JOB_DURATIONS_KEPT = 20;
+const CI_JOB_DURATIONS_MEDIAN_OF = 10;
+
 function isOptionalFiniteNumber(value: unknown): boolean {
   return value === undefined || isFiniteNumber(value);
 }
@@ -185,7 +189,8 @@ function isWorkflowJobArray(value: unknown): value is WorkflowJob[] {
         PERSISTED_CHECK_STATES.has(job.state) &&
         (job.url === undefined || typeof job.url === "string") &&
         isOptionalFiniteNumber(job.startedAt) &&
-        isOptionalFiniteNumber(job.completedAt),
+        isOptionalFiniteNumber(job.completedAt) &&
+        isOptionalFiniteNumber(job.typicalMs),
     )
   );
 }
@@ -1371,6 +1376,12 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       sessionId TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
       gitJson TEXT NOT NULL,
       updatedAt INTEGER NOT NULL)`);
+    // Observed durations of finished green CI jobs, per repo and job name — the "usual" run time
+    // the session status panel compares a running job against. Fed from the PR polls Shepherd
+    // already makes (no extra forge calls); bounded per job by recordCiJobDurations.
+    this.db.run(`CREATE TABLE IF NOT EXISTS ci_job_durations (
+      repoPath TEXT NOT NULL, name TEXT NOT NULL, startedAt INTEGER NOT NULL,
+      durationMs INTEGER NOT NULL, PRIMARY KEY (repoPath, name, startedAt))`);
     this.db.run(`CREATE TABLE IF NOT EXISTS github_read_cache (
       slug TEXT NOT NULL, kind TEXT NOT NULL, entryKey TEXT NOT NULL,
       version INTEGER NOT NULL, contentKey TEXT, fetchedAt INTEGER NOT NULL, dataJson TEXT NOT NULL,
@@ -3592,6 +3603,63 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
        ON CONFLICT(sessionId) DO UPDATE SET gitJson=excluded.gitJson, updatedAt=excluded.updatedAt`,
         [sessionId, JSON.stringify(state), Date.now(), sessionId],
       ).changes > 0
+    );
+  }
+
+  /** Record the duration of every finished green job in `jobs` (a re-polled run is a no-op:
+   *  one row per start time), keeping the newest {@link CI_JOB_DURATIONS_KEPT} per job. */
+  recordCiJobDurations(repoPath: string, jobs: readonly WorkflowJob[] | undefined): void {
+    for (const job of jobs ?? []) {
+      if (job.state !== "success" || job.startedAt == null || job.completedAt == null) continue;
+      const durationMs = job.completedAt - job.startedAt;
+      if (!(durationMs >= 0)) continue;
+      const inserted = this.db.run(
+        `INSERT OR IGNORE INTO ci_job_durations (repoPath, name, startedAt, durationMs)
+         VALUES (?, ?, ?, ?)`,
+        [repoPath, job.name, job.startedAt, durationMs],
+      ).changes;
+      if (inserted === 0) continue;
+      this.db.run(
+        `DELETE FROM ci_job_durations WHERE repoPath = ? AND name = ? AND startedAt NOT IN (
+           SELECT startedAt FROM ci_job_durations WHERE repoPath = ? AND name = ?
+           ORDER BY startedAt DESC LIMIT ?)`,
+        [repoPath, job.name, repoPath, job.name, CI_JOB_DURATIONS_KEPT],
+      );
+    }
+  }
+
+  /** Typical duration per job name for `repoPath`: the median of its newest
+   *  {@link CI_JOB_DURATIONS_MEDIAN_OF} recorded green runs. Jobs never seen green are absent. */
+  typicalCiJobDurations(repoPath: string): Map<string, number> {
+    const rows = this.db
+      .query<{ name: string; durationMs: number }, [string]>(
+        `SELECT name, durationMs FROM ci_job_durations WHERE repoPath = ?
+         ORDER BY name, startedAt DESC`,
+      )
+      .all(repoPath);
+    const byName = new Map<string, number[]>();
+    for (const { name, durationMs } of rows) {
+      const list = byName.get(name) ?? [];
+      if (list.length < CI_JOB_DURATIONS_MEDIAN_OF) list.push(durationMs);
+      byName.set(name, list);
+    }
+    const typical = new Map<string, number>();
+    for (const [name, list] of byName) {
+      const sorted = list.toSorted((a, b) => a - b);
+      const mid = sorted.length >> 1;
+      typical.set(name, sorted.length % 2 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2);
+    }
+    return typical;
+  }
+
+  /** Number of recorded runs for one job (test seam for the retention bound). */
+  ciJobDurationCount(repoPath: string, name: string): number {
+    return (
+      this.db
+        .query<{ n: number }, [string, string]>(
+          `SELECT COUNT(*) AS n FROM ci_job_durations WHERE repoPath = ? AND name = ?`,
+        )
+        .get(repoPath, name)?.n ?? 0
     );
   }
 

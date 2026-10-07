@@ -251,7 +251,7 @@ const issue = shape(
 );
 const job = shape(
   { name: string, state: checks },
-  { url: string, isDeploy: boolean, startedAt: number, completedAt: number },
+  { url: string, isDeploy: boolean, startedAt: number, completedAt: number, typicalMs: number },
 );
 const prOptional = {
   number,

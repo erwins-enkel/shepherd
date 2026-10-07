@@ -624,6 +624,8 @@ export interface WorkflowJob {
   /** Epoch ms the job started / completed (GitHub CheckRuns only). */
   startedAt?: number;
   completedAt?: number;
+  /** Median duration (ms) of this job's recent green runs on the same repo. */
+  typicalMs?: number;
 }
 
 /** Latest run of one workflow on the default branch (mirrors server `WorkflowRun`). */

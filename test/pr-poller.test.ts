@@ -580,6 +580,43 @@ test("emits session git state on first poll and only again on change", async () 
   expect(emitted[1]!.git.state).toBe("merged");
 });
 
+test("records green job durations and stamps the typical duration on every job", async () => {
+  const store = new SessionStore(":memory:");
+  store.create(baseSession);
+  const emitted: GitState[] = [];
+  let cur: PrStatus = {
+    ...OPEN,
+    headSha: "a",
+    jobs: [{ name: "CI / gate", state: "success", startedAt: 1_000, completedAt: 61_000 }],
+  };
+  const poller = new PrPoller(
+    store,
+    () => forgeReturning(() => cur),
+    (_id, git) => emitted.push(git),
+  );
+
+  await poller.tick();
+  expect(emitted[0]!.jobs).toEqual([
+    {
+      name: "CI / gate",
+      state: "success",
+      startedAt: 1_000,
+      completedAt: 61_000,
+      typicalMs: 60_000,
+    },
+  ]);
+
+  cur = {
+    ...OPEN,
+    headSha: "b",
+    jobs: [{ name: "CI / gate", state: "pending", startedAt: 90_000 }],
+  };
+  await poller.tick();
+  expect(emitted[1]!.jobs).toEqual([
+    { name: "CI / gate", state: "pending", startedAt: 90_000, typicalMs: 60_000 },
+  ]);
+});
+
 test("skips sessions with no branch or no forge", async () => {
   const store = new SessionStore(":memory:");
   store.create({ ...baseSession, branch: null }); // no branch

@@ -81,9 +81,10 @@ item. Each call waits up to about 50 seconds and returns a `status`:
 - `cancelled`: the operator declined. Do not ask again for that page; report that the task needs a
   login you could not get.
 
-If the tool is not available, stop and ask the operator to log in instead: from anywhere through
-your session's **Browser** tab in Shepherd, or at the Shepherd host via **Open shared browser** in
-the repo settings. Name the URL to sign in on, and reload your tab once they confirm.
+If the tool is not available (autonomous sessions do not get it), stop and tell the operator to
+log in instead: from anywhere through your session's **Browser** tab in Shepherd, or at the
+Shepherd host via **Open shared browser** in the repo settings. Name the URL to sign in on, and
+reload your tab once they confirm.
 
 ## The config file is a secret
 

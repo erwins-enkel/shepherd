@@ -133,7 +133,7 @@
     previewServeFailed = false,
     previewMap = {},
     openPreviewTick = 0,
-    openBrowserTick = 0,
+    browserRequest = null,
     loginRequest = null,
     renameRequest = null,
     buildQueue = null,
@@ -189,8 +189,8 @@
     previewMap?: Record<string, number | null>;
     /** Monotonic tick bumped by a row's Preview-badge click → switch to the Preview tab. */
     openPreviewTick?: number;
-    /** Bumped by a row's Login Request "Open browser" CTA (#2882) → switch to the Browser tab. */
-    openBrowserTick?: number;
+    /** A row's Login Request "Open browser" CTA (#2882) for session `id` → its Browser tab. */
+    browserRequest?: { id: string; tick: number } | null;
     /** This session's open Login Request (#2882), shown on the Browser tab. */
     loginRequest?: LoginRequest | null;
     /** Targeted request from a card context-menu Rename action. */
@@ -998,14 +998,15 @@
   $effect(() => {
     if (!hasBrowser && tab === "browser") tab = "term";
   });
-  // A row's "Open browser" CTA was clicked (tick bumped) → the Browser tab; the openPreviewTick
-  // idiom above. Placed after the unit-switch reset, so a click that also selects wins the flush.
-  // The tick is consumed only once the tab exists: the repo config loads lazily, so a click that
-  // lands first still opens the tab when `hasBrowser` turns true.
-  let lastBrowserTick = 0;
+  // A row's "Open browser" CTA for THIS session → the Browser tab (the renameRequest idiom: only
+  // the targeted session reacts, so another session's later mount stays on the terminal). Placed
+  // after the unit-switch reset, so a click that also selects wins the flush. Consumed only once
+  // the tab exists: the repo config loads lazily, so a click that lands first still opens it.
+  let lastBrowserRequestTick = -1;
   $effect(() => {
-    if (openBrowserTick === lastBrowserTick || !hasBrowser) return;
-    lastBrowserTick = openBrowserTick;
+    const req = browserRequest;
+    if (!req || req.id !== session.id || req.tick === lastBrowserRequestTick || !hasBrowser) return;
+    lastBrowserRequestTick = req.tick;
     tab = "browser";
   });
   $effect(() => () => clearTimeout(armTimer));

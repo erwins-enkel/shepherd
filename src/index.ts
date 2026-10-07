@@ -994,6 +994,7 @@ const service = new SessionService({
   // Plugin onSpawn hooks fire from prepareSpawn (create + resume); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   agentIngressPort: () => agentIngressState.port,
+  browserToken,
   // Usage-aware model downgrade (#825 companion): once live usage crosses the (lower) downgrade
   // threshold, every spawn that flows through pushModelFlag — Claude main task agents (here) and the
   // role agents (via roleEnv) — runs on the cheap usageDowngradeModel instead of its configured

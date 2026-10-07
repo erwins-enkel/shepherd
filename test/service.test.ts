@@ -17,6 +17,8 @@ import { SessionStore } from "../src/store";
 import { sanitizeHerdrAgentName } from "../src/herdr";
 import {
   SessionService,
+  BROWSER_CDP_URL_ENV,
+  browserCdpUrl,
   RestoreError,
   spawnSettingsOverlay,
   buildHooksFragment,
@@ -39,6 +41,8 @@ import {
   detectEpicIntent,
   UntrustedIssueAuthorError,
 } from "../src/service";
+import { BrowserTokenSigner } from "../src/browser-token";
+import type { SandboxProfile } from "../src/sandbox";
 import { agentMcpConfigArg, agentTools } from "../src/agent-control";
 import { operatorLanguageBlock } from "../src/operator-language";
 import { agentSkillsArgs } from "../src/agent-skills";
@@ -8435,6 +8439,7 @@ function baseUrlService(opts: {
   detectEgressBackend?: () => "slirp4netns" | null;
   detectEgressHostLoopback?: () => boolean;
   agentIngressPort?: () => number | undefined;
+  browserToken?: BrowserTokenSigner;
 }) {
   return new SessionService({
     transcriptExists: () => true, // Fixture conversation is persisted.
@@ -8461,6 +8466,7 @@ function baseUrlService(opts: {
     detectEgressBackend: opts.detectEgressBackend,
     detectEgressHostLoopback: opts.detectEgressHostLoopback,
     agentIngressPort: opts.agentIngressPort,
+    browserToken: opts.browserToken,
   });
 }
 
@@ -8723,6 +8729,100 @@ test("agent coordinates: the sandboxed membrane carries them past bwrap --cleare
   };
   expect(setenv("SHEPHERD_AGENT_API_URL")).toBe(INGRESS_BASE);
   expect(setenv("SHEPHERD_SESSION_ID")).toBe(s.id);
+});
+
+// ── Shared Browser (ADR 0001): SHEPHERD_BROWSER_CDP_URL in the spawn env ─────────
+
+const browserSigner = new BrowserTokenSigner(Buffer.alloc(32, 3));
+
+/** Store with the repo's Shared Browser toggle + sandbox profile set. */
+function browserStore(enabled: boolean, sandboxProfile: SandboxProfile = "trusted") {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", {
+    ...store.getRepoConfig("/repo"),
+    sharedBrowserEnabled: enabled,
+    sandboxProfile,
+  });
+  return store;
+}
+
+const createInRepo = (service: SessionService) =>
+  service.create({ repoPath: "/repo", baseBranch: "main", prompt: "go", model: null, images: [] });
+
+/** The value of a bwrap `--setenv NAME VALUE` triple in a captured argv. */
+function setenvValue(argv: string[] | undefined, name: string): string | undefined {
+  const a = argv ?? [];
+  const i = a.findIndex((v, idx) => v === name && a[idx - 1] === "--setenv");
+  return i < 0 ? undefined : a[i + 1];
+}
+
+test("browser attach env: enabled + trusted → SHEPHERD_BROWSER_CDP_URL on the trusted spawn env", async () => {
+  const record: { argv?: string[]; env?: Record<string, string> } = {};
+  const service = baseUrlService({
+    store: browserStore(true),
+    record,
+    agentIngressPort: () => 7331,
+    browserToken: browserSigner,
+  });
+  const s = await createInRepo(service);
+  const url = new URL(record.env?.[BROWSER_CDP_URL_ENV] ?? "");
+  expect(`${url.origin}${url.pathname}`).toBe(`ws://127.0.0.1:7331/api/sessions/${s.id}/browser`);
+  expect(browserSigner.verify(s.id, url.searchParams.get("token"))).toBe(true);
+  // Never on the agent's argv (visible in `ps`) for the trusted path.
+  expect((record.argv ?? []).some((a) => a.includes("/browser?token="))).toBe(false);
+});
+
+test("browser attach env: enabled + standard → carried past bwrap --clearenv via --setenv", async () => {
+  const record: { argv?: string[]; env?: Record<string, string> } = {};
+  const service = baseUrlService({
+    store: browserStore(true, "standard"),
+    record,
+    detectBackend: () => "bwrap",
+    agentIngressPort: () => 7331,
+    browserToken: browserSigner,
+  });
+  const s = await createInRepo(service);
+  const value = setenvValue(record.argv, BROWSER_CDP_URL_ENV);
+  expect(value).toBe(browserCdpUrl("http://127.0.0.1:7331", s.id, browserSigner.sign(s.id)));
+});
+
+test("browser attach env: absent when the repo has not opted in", async () => {
+  const record: { argv?: string[]; env?: Record<string, string> } = {};
+  const service = baseUrlService({
+    store: browserStore(false, "standard"),
+    record,
+    detectBackend: () => "bwrap",
+    agentIngressPort: () => 7331,
+    browserToken: browserSigner,
+  });
+  await createInRepo(service);
+  expect(record.env?.[BROWSER_CDP_URL_ENV]).toBeUndefined();
+  expect(setenvValue(record.argv, BROWSER_CDP_URL_ENV)).toBeUndefined();
+});
+
+test("browser attach env: absent for an autonomous session even on an enabled repo", async () => {
+  const record: { argv?: string[]; env?: Record<string, string> } = {};
+  const service = baseUrlService({
+    store: browserStore(true, "autonomous"),
+    record,
+    detectBackend: () => "bwrap",
+    detectEgressBackend: () => "slirp4netns",
+    detectEgressHostLoopback: () => true,
+    agentIngressPort: () => 7331,
+    browserToken: browserSigner,
+  });
+  await createInRepo(service);
+  expect(record.env?.[BROWSER_CDP_URL_ENV]).toBeUndefined();
+  expect((record.argv ?? []).some((a) => a.includes(BROWSER_CDP_URL_ENV))).toBe(false);
+});
+
+test("browserCdpUrl: switches http→ws and https→wss", () => {
+  expect(browserCdpUrl("http://127.0.0.1:1", "id", "t")).toBe(
+    "ws://127.0.0.1:1/api/sessions/id/browser?token=t",
+  );
+  expect(browserCdpUrl("https://h.example", "id", "t")).toBe(
+    "wss://h.example/api/sessions/id/browser?token=t",
+  );
 });
 
 // Regression guard: when fable is globally unavailable (config.fableAvailable = false),

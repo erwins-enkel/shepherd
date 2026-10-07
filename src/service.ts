@@ -83,6 +83,7 @@ import {
 } from "./spawn-auth";
 import type { Leftover, ProcessReaper } from "./process-reaper";
 import { SESSION_MARKER_ENV } from "./process-reaper";
+import type { BrowserTokenSigner } from "./browser-token";
 import type { PreviewService } from "./preview";
 import type { TelemetryService } from "./telemetry";
 import {
@@ -316,6 +317,9 @@ export interface ServiceDeps {
    *  service is constructed; see src/index.ts). Returns undefined when not wired (tests) or not
    *  yet started; resolveSpawnBaseUrl/prepareSpawn fall back to the loopback main port then. */
   agentIngressPort?: () => number | undefined;
+  /** Browser Attach token signer (ADR 0001). Absent (tests / broken key) → no
+   *  SHEPHERD_BROWSER_CDP_URL is ever injected. */
+  browserToken?: Pick<BrowserTokenSigner, "sign">;
   /** slirp host-loopback capability probe seam (tests inject `() => true` / `() => false`); defaults
    *  to the cached real version probe in egress.ts. Gates reaching Shepherd via 10.0.2.2. */
   detectEgressHostLoopback?: () => boolean;
@@ -2110,6 +2114,21 @@ function agentLoopbackIngressBaseUrl(ingressPort: number): string {
 const AGENT_API_URL_ENV = "SHEPHERD_AGENT_API_URL";
 
 /**
+ * Env var carrying a session's Browser Attach URL (ADR 0001): the token-gated CDP WebSocket on the
+ * agent ingress (`ws://…/api/sessions/<id>/browser?token=<hmac>`). Set only when the repo opted in
+ * to the Shared Browser and the session is not autonomous. Like AGENT_API_URL_ENV it rides the plain
+ * spawn env + the membrane's `--setenv` loop — never argv (visible in `ps`), never
+ * SANDBOX_ENV_PASSTHROUGH.
+ */
+export const BROWSER_CDP_URL_ENV = "SHEPHERD_BROWSER_CDP_URL";
+
+/** The Browser Attach URL for a session: the agent API base with its scheme switched to ws(s). */
+export function browserCdpUrl(agentApiUrl: string, sessionId: string, token: string): string {
+  const base = agentApiUrl.replace(/^http(s?):/, "ws$1:");
+  return `${base}/api/sessions/${sessionId}/browser?token=${token}`;
+}
+
+/**
  * Pick an override value over an original: an `undefined` override inherits the original;
  * any present value (including explicit `null`) replaces it. Mirrors the relaunch override
  * semantics where absent means "keep the original" and present means "use this".
@@ -2779,6 +2798,20 @@ export class SessionService {
     return { patchEnv, finalInnerArgv: finalArgv };
   }
 
+  /** `{SHEPHERD_BROWSER_CDP_URL}` when this spawn may attach to its repo's Shared Browser, else
+   *  `{}`. Autonomous is excluded until its origin allowlist exists (slice 4) — the broker refuses
+   *  it too, so the two can never disagree into a URL that only 403s. */
+  private browserAttachEnv(
+    sessionId: string,
+    agentApiUrl: string,
+    profile: SandboxProfile,
+    enabled: boolean,
+  ): Record<string, string> {
+    const signer = this.deps.browserToken;
+    if (!enabled || profile === "autonomous" || !signer) return {};
+    return { [BROWSER_CDP_URL_ENV]: browserCdpUrl(agentApiUrl, sessionId, signer.sign(sessionId)) };
+  }
+
   private async prepareSpawn(
     innerArgv: string[],
     ctx: {
@@ -2824,6 +2857,12 @@ export class SessionService {
     // four callers (create / resume / relaunch / replaceAgent) because only this seam is common to
     // all of them — and only Claude's path computes a base URL of its own.
     const agentApiUrl = this.resolveSpawnBaseUrl(ctx.profileOverride, ctx.repoPath);
+    const browserEnv = this.browserAttachEnv(
+      ctx.sessionId,
+      agentApiUrl,
+      profile,
+      repoConfig.sharedBrowserEnabled,
+    );
 
     // Renderer env for the MAIN session ONLY (satellites call herdr.start directly and keep the
     // classic pin). Applied via BOTH the membrane --setenv (sandboxed; the outer env shim is wiped
@@ -2869,6 +2908,7 @@ export class SessionService {
             ...patchEnv,
             [SESSION_MARKER_ENV]: ctx.sessionId,
             [AGENT_API_URL_ENV]: agentApiUrl,
+            ...browserEnv,
           },
           // api-key mode: bind the helper RO + mask the OAuth credential in place
           // (the operator's ~/.claude customizations stay bound). Subscription: null/false.
@@ -2909,6 +2949,7 @@ export class SessionService {
       ...patchEnv,
       [SESSION_MARKER_ENV]: ctx.sessionId,
       [AGENT_API_URL_ENV]: agentApiUrl,
+      ...browserEnv,
     };
     const agent = await this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped, spawnEnv, {
       signal: ctx.signal,

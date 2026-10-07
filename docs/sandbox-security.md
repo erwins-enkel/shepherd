@@ -308,9 +308,14 @@ process to reach.
   boundary**: sessions on one repo never reach another repo's logins, but every
   agent on a repo sees all of its logins. Operators should log in there only with
   accounts they are willing to share with that repo's agents.
-- **Host-reaching CDP is refused.** The broker drops methods that reach the host
-  outside the page sandbox (download behavior, file inputs and drops, browser
-  process control, tracing) and non-web URLs. Only flat sessions are allowed:
+- **CDP is allowlisted.** The broker forwards only domains page automation needs
+  (`Target`, `Page`, `Runtime`, `DOM`, `Network`, `Input`, `Emulation`,
+  `Accessibility` and their in-page siblings) plus a few `Browser` window/version
+  reads. Everything else is refused by default, including `PWA` (file handlers
+  would read host files), `Extensions`, `Tracing`, `SystemInfo` and browser
+  process control. Inside allowed domains it also refuses host-reaching methods
+  (download behavior, file inputs, file chooser and file drops) and non-web URLs.
+  Only flat sessions are allowed:
   `Target.sendMessageToTarget` is blocked and `Target.attachToTarget` /
   `Target.setAutoAttach` need `flatten: true`, so no command can hide inside a
   nested message the broker never parses.

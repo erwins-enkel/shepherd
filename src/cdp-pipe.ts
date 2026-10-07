@@ -84,17 +84,47 @@ function concatBytes(parts: Uint8Array[]): Uint8Array {
 }
 
 /**
- * Methods an agent may never send: they reach the host outside the page sandbox (download
- * paths, host files fed to file inputs, browser-process control, tracing/system info).
- * Without this a membrane-sandboxed agent could write or read host files through Chromium.
+ * CDP domains an agent may use at all — an ALLOWLIST, so a domain Chromium adds or that we
+ * overlooked (PWA.launchFilesInApp, Extensions.loadUnpacked, Tracing, SystemInfo, …) is refused by
+ * default instead of becoming a host-file read. Sized to what page automation needs (measured
+ * against agent-browser 0.32: Target, Page, Runtime, DOM, Network, Input, Emulation,
+ * Accessibility, Browser) plus their read-only/in-page siblings.
+ */
+const ALLOWED_DOMAINS = new Set([
+  "Accessibility",
+  "Animation",
+  "CSS",
+  "DOM",
+  "DOMSnapshot",
+  "Emulation",
+  "Fetch",
+  "IO",
+  "Input",
+  "Inspector",
+  "Log",
+  "Network",
+  "Overlay",
+  "Page",
+  "Performance",
+  "Runtime",
+  "Security",
+  "Storage",
+  "Target",
+]);
+/** The Browser domain drives the shared browser process itself: only these window/version reads. */
+const ALLOWED_BROWSER_METHODS = new Set([
+  "Browser.getVersion",
+  "Browser.getWindowForTarget",
+  "Browser.getWindowBounds",
+  "Browser.setWindowBounds",
+  "Browser.setContentsSize",
+]);
+/**
+ * Methods inside allowed domains an agent may never send: they reach the host outside the page
+ * sandbox (download paths, host files fed to file inputs) or tunnel past this policy.
  */
 const BLOCKED_METHODS = new Set([
-  "Browser.setDownloadBehavior",
   "Page.setDownloadBehavior",
-  "Browser.close",
-  "Browser.crash",
-  "Browser.crashGpuProcess",
-  "Browser.executeBrowserCommand",
   "DOM.setFileInputFiles",
   "Page.handleFileChooser",
   "Target.exposeDevToolsProtocol",
@@ -107,7 +137,12 @@ const BLOCKED_METHODS = new Set([
  * `Target.sendMessageToTarget`, whose nested command the broker never parses.
  */
 const FLAT_ONLY_METHODS = new Set(["Target.attachToTarget", "Target.setAutoAttach"]);
-const BLOCKED_DOMAINS = ["Tracing.", "SystemInfo."];
+
+function isAllowedMethod(method: string): boolean {
+  const domain = method.slice(0, method.indexOf("."));
+  if (domain === "Browser") return ALLOWED_BROWSER_METHODS.has(method);
+  return ALLOWED_DOMAINS.has(domain) && !BLOCKED_METHODS.has(method);
+}
 /** Methods whose `params.url` must stay on the web (no file:, chrome:, devtools:, …). */
 const URL_METHODS = new Set([
   "Page.navigate",
@@ -135,10 +170,7 @@ const webOnly = (method: string) =>
 type PolicyRule = (method: string, params: Json) => string | null;
 
 const POLICY_RULES: PolicyRule[] = [
-  (method) =>
-    BLOCKED_METHODS.has(method) || BLOCKED_DOMAINS.some((d) => method.startsWith(d))
-      ? blockedBy(method)
-      : null,
+  (method) => (isAllowedMethod(method) ? null : blockedBy(method)),
   (method, params) =>
     FLAT_ONLY_METHODS.has(method) && params.flatten !== true
       ? `${method} requires flatten: true on the Shepherd browser broker`
@@ -164,7 +196,7 @@ const POLICY_RULES: PolicyRule[] = [
 
 /** Why the broker refuses this client message, or null when it may be forwarded. */
 export function cdpPolicyViolation(method: unknown, params: unknown): string | null {
-  if (typeof method !== "string") return null;
+  if (typeof method !== "string") return "a CDP command needs a method name";
   const p = params && typeof params === "object" ? (params as Json) : {};
   for (const rule of POLICY_RULES) {
     const violation = rule(method, p);

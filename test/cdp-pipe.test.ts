@@ -512,3 +512,59 @@ test("cdp pipe: non-flat session tunnelling is refused per method", () => {
   );
   expect(cdpPolicyViolation("Target.setAutoAttach", undefined)).toMatch(/flatten/);
 });
+
+test("cdp policy: allowlist refuses unlisted domains (PWA file handlers, extensions, …)", () => {
+  for (const method of [
+    "PWA.install",
+    "PWA.launchFilesInApp",
+    "PWA.openCurrentPageInApp",
+    "Extensions.loadUnpacked",
+    "Tracing.start",
+    "SystemInfo.getProcessInfo",
+    "HeapProfiler.takeHeapSnapshot",
+    "Browser.close",
+    "Browser.grantPermissions",
+    "Browser.setDownloadBehavior",
+    "Browser.getBrowserCommandLine",
+    "SomeFutureDomain.doThing",
+    "nodot",
+  ])
+    expect(cdpPolicyViolation(method, {})).toMatch(/blocked/);
+  expect(cdpPolicyViolation(undefined, {})).toMatch(/method name/);
+});
+
+test("cdp policy: every method agent-browser 0.32 uses is allowed", () => {
+  // Recorded through the real broker while driving tab new/snapshot/fill/click/select/eval/
+  // screenshot/scroll/hover/press/cookies/network/viewport/pdf/reload/tab close.
+  for (const method of [
+    "Browser.getVersion",
+    "Browser.setContentsSize",
+    "Browser.getWindowForTarget",
+    "Runtime.evaluate",
+    "Runtime.runIfWaitingForDebugger",
+    "Runtime.enable",
+    "Runtime.callFunctionOn",
+    "Page.enable",
+    "Page.reload",
+    "Page.printToPDF",
+    "Page.captureScreenshot",
+    "Network.enable",
+    "Network.getCookies",
+    "Input.dispatchMouseEvent",
+    "Input.dispatchKeyEvent",
+    "Input.insertText",
+    "Target.setDiscoverTargets",
+    "Target.getTargets",
+    "Target.closeTarget",
+    "Emulation.setDeviceMetricsOverride",
+    "DOM.enable",
+    "Accessibility.getFullAXTree",
+    "Accessibility.enable",
+  ])
+    expect(cdpPolicyViolation(method, {})).toBeNull();
+  expect(
+    cdpPolicyViolation("Target.setAutoAttach", { autoAttach: true, flatten: true }),
+  ).toBeNull();
+  expect(cdpPolicyViolation("Target.attachToTarget", { targetId: "T", flatten: true })).toBeNull();
+  expect(cdpPolicyViolation("Target.createTarget", { url: "about:blank" })).toBeNull();
+});

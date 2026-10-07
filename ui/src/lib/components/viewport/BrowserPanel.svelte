@@ -236,8 +236,10 @@
     answering = true;
     try {
       await resolveLoginRequest(session.id, outcome);
-    } catch {
-      toasts.info(m.viewport_browser_login_answer_failed(), { alert: true });
+    } catch (e) {
+      // 404: already answered (another client, or the session ended) — the banner clears itself.
+      if (!(e instanceof ApiError && e.status === 404))
+        toasts.info(m.viewport_browser_login_answer_failed(), { alert: true });
     } finally {
       answering = false;
     }

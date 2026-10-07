@@ -669,6 +669,8 @@ test("browser_request_login rejects a non-web url or a missing reason as isError
   for (const args of [
     { url: "file:///etc/passwd", reason: "x" },
     { url: "chrome://settings", reason: "x" },
+    { url: "data:text/html,<h1>Sign in</h1>", reason: "x" },
+    { url: "about:blank", reason: "x" },
     { url: "not a url", reason: "x" },
     { url: LOGIN_ARGS.url, reason: "  " },
   ]) {

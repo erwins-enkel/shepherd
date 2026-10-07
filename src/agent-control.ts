@@ -40,7 +40,6 @@
  * chrome), so no i18n — same precedent as the spawn directives in src/service.ts.
  */
 import { basename } from "node:path";
-import { isWebTargetUrl } from "./cdp-pipe";
 import { validateEpicDraft } from "./epic-author";
 import type { GitState } from "./forge/types";
 import type { LoginRequestService } from "./login-request";
@@ -62,7 +61,7 @@ export interface AgentControlDeps {
   events?: { emit(event: string, data: unknown): void };
   /** PR/CI state for the read tools; absent ⇒ every `pr` block reads null. */
   prCache?: Pick<PrCache, "get">;
-  /** Login Requests (#2882); absent ⇒ no session gets `browser_request_login`. */
+  /** Login Requests (#2882); absent ⇒ `browser_request_login` answers "unavailable". */
   loginRequests?: Pick<LoginRequestService, "request" | "wait" | "wouldCreate">;
   /** Open `url` as the session's tab in the repo's Shared Browser, so Browser View preselects
    *  it. Throws (e.g. `SharedBrowserError`) when the browser can't be reached. */
@@ -262,7 +261,8 @@ const LOGIN_PENDING_NEXT =
 /** Validated `{url, reason}`, or the error the agent should correct. */
 function loginArgs(args: Record<string, unknown>): { url: string; reason: string } | string {
   const url = typeof args.url === "string" ? args.url.trim() : "";
-  if (!url || url.length > MAX_LOGIN_URL_CHARS || !isWebTargetUrl(url) || !URL.canParse(url))
+  const protocol = URL.canParse(url) ? new URL(url).protocol : "";
+  if (url.length > MAX_LOGIN_URL_CHARS || (protocol !== "http:" && protocol !== "https:"))
     return "url must be an absolute http(s) URL";
   const reason = typeof args.reason === "string" ? args.reason.trim() : "";
   if (!reason) return "reason is required";

@@ -31,6 +31,7 @@ fs.createReadStream(null, { fd: 3 }).on("data", (chunk) => {
     if (m.method === "Target.attachToBrowserTarget") result = { sessionId: "B" + ++n };
     else if (m.method === "Target.createTarget") result = { targetId: "T:" + m.params.url };
     else if (m.method === "Target.getTargets") result = { targetInfos: [] };
+    else if (m.method === "Browser.close") process.exit(0);
     out.write(JSON.stringify({ id: m.id, result, ...(m.sessionId ? { sessionId: m.sessionId } : {}) }) + "\\0");
   }
 });
@@ -238,7 +239,7 @@ test("cap: launching a 4th evicts the longest-idle unattached browser", async ()
   expect(m.runningCount).toBe(3);
   expect(m.isRunning("/r/b")).toBe(false);
   expect(m.isRunning("/r/a")).toBe(true);
-  expect(await exited(spawned[1]!.child)).toBe("SIGTERM");
+  expect(await exited(spawned[1]!.child)).toBeNull(); // graceful Browser.close, no signal needed
 });
 
 test("cap: refused when every running browser is attached", async () => {
@@ -266,7 +267,7 @@ test("idle: stops idleMs after the last detach; a re-attach cancels it", async (
   const [second] = liveTimers(60_000);
   second!.fn();
   expect(m.isRunning("/r/a")).toBe(false);
-  expect(await exited(spawned[0]!.child)).toBe("SIGTERM");
+  expect(await exited(spawned[0]!.child)).toBeNull(); // graceful Browser.close, no signal needed
 });
 
 test("open: creates a target, counts as activity but not as an attach", async () => {
@@ -386,4 +387,25 @@ test("shared browser: profile startup pref pinned to session restore, other pref
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
+});
+
+test("stop: graceful falls back to SIGTERM when Browser.close is ignored", async () => {
+  const stubborn = FAKE_CHROMIUM.replace("process.exit(0)", "result = {}");
+  const m = manager({
+    spawn: (command, args, options) => {
+      const child = spawn(process.execPath, ["-e", stubborn], {
+        stdio: options.stdio,
+        env: process.env,
+      });
+      spawned.push({ command, args, options, child });
+      return child;
+    },
+  });
+  const c = await m.attach("/r/a", sink());
+  c.detach();
+  m.stop("/r/a");
+  const grace = liveTimers(5000);
+  expect(grace).toHaveLength(1);
+  grace[0]!.fn();
+  expect(await exited(spawned[0]!.child)).toBe("SIGTERM");
 });

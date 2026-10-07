@@ -1,10 +1,8 @@
 import { maintenance } from "./maintenance";
 import { probeHerdrRuntime } from "./herdr-runtime";
 import { execFile, spawn } from "node:child_process";
-import { constants as fsConstants } from "node:fs";
-import { access, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { cpus } from "node:os";
-import { delimiter, isAbsolute, join } from "node:path";
 import { promisify } from "node:util";
 import {
   BUN_MIN_VERSION,
@@ -50,6 +48,7 @@ import {
   type TmpPressureSignal,
 } from "./tmp-sweep";
 import { SHELLS } from "./json-tolerant";
+import { BINARY_CANDIDATES, whichAsync } from "./shared-browser";
 import type { SessionStore } from "./store";
 import type { DiagnosticCheck, DiagnosticsSnapshot, DiagnosticState } from "./types";
 import type { MembraneLaunchFacts } from "./membrane-launch";
@@ -1061,41 +1060,16 @@ function resolveTmpSweepDeps(deps: DiagnosticsDeps): {
   };
 }
 
-/** Binaries the Shared Browser launcher tries, in order, when `SHEPHERD_CHROMIUM_BIN` is unset.
- *  Mirrors the launcher's own list so this row and an actual launch agree on "found". */
-const CHROMIUM_CANDIDATES = [
-  "chromium",
-  "google-chrome-stable",
-  "google-chrome",
-  "chromium-browser",
-] as const;
-
-const isExecutable = (p: string): Promise<boolean> =>
-  access(p, fsConstants.X_OK).then(
-    () => true,
-    () => false,
-  );
-
-/** Async PATH lookup (or executable check for an absolute path). Never sync — the diagnostics
- *  batch runs on the server loop that also pumps the web terminal. */
-async function whichExecutable(bin: string, pathEnv: string | undefined): Promise<string | null> {
-  if (bin.includes("/")) return isAbsolute(bin) && (await isExecutable(bin)) ? bin : null;
-  for (const dir of (pathEnv ?? "").split(delimiter)) {
-    if (dir && (await isExecutable(join(dir, bin)))) return join(dir, bin);
-  }
-  return null;
-}
-
 /** Resolve the Shared Browser's Chromium the way the launcher does: a set `SHEPHERD_CHROMIUM_BIN`
  *  must itself resolve (no PATH fallback — a broken override is a broken launch), else the first
- *  {@link CHROMIUM_CANDIDATES} entry on PATH. Null ⇒ nothing launchable. */
+ *  {@link BINARY_CANDIDATES} entry on PATH. Null ⇒ nothing launchable. */
 export async function resolveChromiumBinary(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<string | null> {
   const override = env.SHEPHERD_CHROMIUM_BIN;
-  if (override) return whichExecutable(override, env.PATH);
-  for (const bin of CHROMIUM_CANDIDATES) {
-    const found = await whichExecutable(bin, env.PATH);
+  if (override) return whichAsync(override, env.PATH);
+  for (const bin of BINARY_CANDIDATES) {
+    const found = await whichAsync(bin, env.PATH);
     if (found) return found;
   }
   return null;

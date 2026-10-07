@@ -59,13 +59,20 @@ export interface SharedBrowserDeps {
 const DEFAULT_IDLE_MS = 15 * 60 * 1000;
 const DEFAULT_MAX_BROWSERS = 3;
 const KILL_GRACE_MS = 5000;
+/** How long a graceful `Browser.close` gets before falling back to SIGTERM. */
+const GRACEFUL_CLOSE_MS = 5000;
 const OPEN_TIMEOUT_MS = 10_000;
 const STDERR_TAIL_BYTES = 8 * 1024;
 const STDERR_TAIL_LINES = 20;
-const BINARY_CANDIDATES = ["chromium", "google-chrome-stable", "google-chrome", "chromium-browser"];
+export const BINARY_CANDIDATES = [
+  "chromium",
+  "google-chrome-stable",
+  "google-chrome",
+  "chromium-browser",
+];
 
 /** Async PATH lookup (or executable check for a path). Never sync — it runs on the server loop. */
-async function whichAsync(
+export async function whichAsync(
   bin: string,
   pathEnv: string | undefined = process.env.PATH,
 ): Promise<string | null> {
@@ -265,8 +272,12 @@ export class SharedBrowserManager {
     }
   }
 
-  /** Synchronous: SIGTERM now, SIGKILL after a grace period; closes every attached client. */
-  stop(repoPath: string): void {
+  /**
+   * Synchronous; closes every attached client. Graceful (default): `Browser.close` over the pipe
+   * so Chromium flushes cookies, SIGTERM only if it is still up after a grace period. Not
+   * graceful (process exit): SIGTERM now. SIGKILL follows SIGTERM after another grace period.
+   */
+  stop(repoPath: string, opts: { graceful?: boolean } = {}): void {
     const starting = this.#starting.get(repoPath);
     if (starting) starting.cancelled = true;
     const entry = this.#entries.get(repoPath);
@@ -274,32 +285,42 @@ export class SharedBrowserManager {
     this.#entries.delete(repoPath);
     this.#cancelIdle(entry);
     entry.stopping = true;
+    const graceful = opts.graceful ?? true;
+    if (graceful) entry.pipe.closeBrowser();
     entry.pipe.close("browser stopped");
     const { child } = entry;
     if (child.exitCode !== null || child.signalCode !== null) return;
-    try {
-      child.kill("SIGTERM");
-    } catch {
-      // already gone
-    }
-    const timer = this.#setTimeout(() => {
-      if (child.exitCode === null && child.signalCode === null) {
-        try {
-          child.kill("SIGKILL");
-        } catch {
-          // already gone
-        }
+    const alive = () => child.exitCode === null && child.signalCode === null;
+    const signal = (sig: NodeJS.Signals) => {
+      if (!alive()) return;
+      try {
+        child.kill(sig);
+      } catch {
+        // already gone
       }
-    }, KILL_GRACE_MS);
-    (timer as { unref?: () => void } | null)?.unref?.();
-    child.once("exit", () => this.#clearTimeout(timer));
+    };
+    const timers: unknown[] = [];
+    const later = (ms: number, fn: () => void) => {
+      const t = this.#setTimeout(fn, ms);
+      (t as { unref?: () => void } | null)?.unref?.();
+      timers.push(t);
+    };
+    const terminate = () => {
+      signal("SIGTERM");
+      later(KILL_GRACE_MS, () => signal("SIGKILL"));
+    };
+    if (graceful) later(GRACEFUL_CLOSE_MS, terminate);
+    else terminate();
+    child.once("exit", () => {
+      for (const t of timers) this.#clearTimeout(t);
+    });
   }
 
   /** Synchronous teardown for process exit / SIGTERM. Idempotent; refuses later launches. */
   stopAll(): void {
     this.#disposed = true;
     for (const starting of this.#starting.values()) starting.cancelled = true;
-    for (const repoPath of [...this.#entries.keys()]) this.stop(repoPath);
+    for (const repoPath of [...this.#entries.keys()]) this.stop(repoPath, { graceful: false });
   }
 
   #ensure(repoPath: string): Promise<Entry> {

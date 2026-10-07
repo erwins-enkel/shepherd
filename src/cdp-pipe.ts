@@ -222,6 +222,15 @@ export class CdpPipe {
     return handle;
   }
 
+  /**
+   * Ask Chromium to shut down gracefully (broker-internal; clients may not send Browser.close).
+   * Only a graceful exit flushes the cookie store, so a recent login survives the restart.
+   */
+  closeBrowser(): void {
+    if (this.#closed) return;
+    this.#sendInternal({ method: "Browser.close" }, () => {});
+  }
+
   /** The browser is gone: close every client and forget all routing state. */
   close(reason = "browser closed"): void {
     if (this.#closed) return;

@@ -3646,6 +3646,8 @@ const diagnostics = new DiagnosticsService({
     listRepos(config.repoRoot).some((r) => store.getRepoConfig(r.path).repoMode === "forge"),
   anyLightweightRepo: () =>
     listRepos(config.repoRoot).some((r) => store.getRepoConfig(r.path).repoMode === "lightweight"),
+  anySharedBrowserEnabled: () =>
+    listRepos(config.repoRoot).some((r) => store.getRepoConfig(r.path).sharedBrowserEnabled),
   configuredCodexModels: () => [
     ...(config.defaultAgentProvider === "codex"
       ? listRepos(config.repoRoot).map((r) => {

@@ -128,7 +128,7 @@ struct IOSComposeContent: View {
                 }
             }
             // A PhotosPicker view inside the + Menu never presents: dismissing the menu tears it down.
-            .photosPicker(isPresented: $photos, selection: $photo, matching: .images)
+            .photosPicker(isPresented: $photos, selection: $photo, matching: .any(of: [.images, .videos]))
             .onChange(of: photo) { _, photo in importPhoto(photo) }
             .onChange(of: scenePhase) { _, phase in
                 if phase != .active { if voice.capturing { voice.finalize() } else if voice.state == .arming { voice.cancel() } }
@@ -429,9 +429,14 @@ struct IOSComposeContent: View {
         guard let photo, let stamp = model.attachments.beginImport() else { return }
         Task {
             do {
-                let bytes = try await photo.loadTransferable(type: Data.self)
-                let ext = photo.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
-                model.attachments.finishImport(bytes.map { .init(name: "photo.\(ext)", data: $0) }, error: nil, generation: stamp)
+                if photo.isMovie {
+                    let movie = try await photo.loadTransferable(type: IOSPickedMovie.self)
+                    model.attachments.finishImport(movie.map { .init(url: $0.url) }, error: nil, generation: stamp)
+                } else {
+                    let bytes = try await photo.loadTransferable(type: Data.self)
+                    let ext = photo.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
+                    model.attachments.finishImport(bytes.map { .init(name: "photo.\(ext)", data: $0) }, error: nil, generation: stamp)
+                }
             } catch { model.attachments.finishImport(nil, error: ShepherdErrorCopy.message(error), generation: stamp) }
             self.photo = nil
         }

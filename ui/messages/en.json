@@ -5102,7 +5102,7 @@
   "native_compose_voice_speech_usage": "Speech recognition provides live text and fallback dictation. Audio is processed on this device where supported; Apple processing requires your consent.",
   "native_compose_issue_choose": "# Choose issue",
   "native_compose_prompt_label": "Prompt",
-  "native_compose_photos": "Photos",
+  "native_compose_photos": "Photos & Videos",
   "native_compose_files": "Files",
   "native_compose_paste": "Paste image",
   "native_compose_attach": "Add attachment",

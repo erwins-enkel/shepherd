@@ -5603,5 +5603,11 @@
   "viewport_browser_login_title": "The agent asks you to log in here",
   "viewport_browser_login_done": "Done",
   "viewport_browser_login_cancel": "Cancel",
-  "viewport_browser_login_answer_failed": "Couldn't send your answer to the agent — try again."
+  "viewport_browser_login_answer_failed": "Couldn't send your answer to the agent — try again.",
+  "gloss_shared_browser_term": "shared browser",
+  "gloss_shared_browser_def": "A real Chromium window on the Shepherd host, one per repo, with a saved login profile. You log in there once and that repo's agents continue in the same logged-in browser. Every agent on the repo can read every login in that profile.",
+  "gloss_handoff_login_term": "handoff login",
+  "gloss_handoff_login_def": "You signing in to a service inside a repo's shared browser — at the host or remotely in a session's Browser tab — so an agent can continue as that logged-in user. An agent can ask you for one with a login request.",
+  "feat_shared_browser_title": "Shared browser: log in once, agents continue",
+  "feat_shared_browser_body": "Turn on the shared browser in a repo's automation settings and log in to your app once — at the host, or remotely from a session's Browser tab. That repo's agents then test in the same logged-in browser, and can ask you to log in when they hit a login wall. Every agent on the repo can read every login in it, so only use accounts you're fine sharing."
 }

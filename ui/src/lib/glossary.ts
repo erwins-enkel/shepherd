@@ -225,6 +225,18 @@ const glossary: readonly GlossaryTerm[] = [
     bodyKey: "gloss_sandbox_membrane_def",
   },
   {
+    id: "shared-browser",
+    kind: "internal",
+    termKey: "gloss_shared_browser_term",
+    bodyKey: "gloss_shared_browser_def",
+  },
+  {
+    id: "handoff-login",
+    kind: "internal",
+    termKey: "gloss_handoff_login_term",
+    bodyKey: "gloss_handoff_login_def",
+  },
+  {
     id: "inode",
     kind: "external",
     termKey: "gloss_inode_term",

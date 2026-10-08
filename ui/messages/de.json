@@ -5603,5 +5603,11 @@
   "viewport_browser_login_title": "Der Agent bittet dich, dich hier anzumelden",
   "viewport_browser_login_done": "Erledigt",
   "viewport_browser_login_cancel": "Abbrechen",
-  "viewport_browser_login_answer_failed": "Deine Antwort konnte nicht an den Agenten gesendet werden — versuch es erneut."
+  "viewport_browser_login_answer_failed": "Deine Antwort konnte nicht an den Agenten gesendet werden — versuch es erneut.",
+  "gloss_shared_browser_term": "Geteilter Browser",
+  "gloss_shared_browser_def": "Ein echtes Chromium-Fenster auf dem Shepherd-Host, eines pro Repo, mit gespeichertem Anmeldeprofil. Du meldest dich dort einmal an, und die Agenten dieses Repos arbeiten im selben angemeldeten Browser weiter. Jeder Agent des Repos kann jede Anmeldung in diesem Profil lesen.",
+  "gloss_handoff_login_term": "Übergabe-Anmeldung",
+  "gloss_handoff_login_def": "Deine Anmeldung bei einem Dienst im geteilten Browser eines Repos — am Host oder aus der Ferne im Browser-Tab einer Session —, damit ein Agent als dieser angemeldete Nutzer weiterarbeiten kann. Ein Agent kann dich mit einer Anmeldeanfrage darum bitten.",
+  "feat_shared_browser_title": "Geteilter Browser: einmal anmelden, Agenten machen weiter",
+  "feat_shared_browser_body": "Schalte den geteilten Browser in den Automatisierungseinstellungen eines Repos ein und melde dich einmal bei deiner App an — am Host oder aus der Ferne im Browser-Tab einer Session. Die Agenten dieses Repos testen dann im selben angemeldeten Browser und können dich um eine Anmeldung bitten, wenn sie auf eine Login-Seite stoßen. Jeder Agent des Repos kann jede Anmeldung darin lesen, nutze also nur Konten, die du teilen willst."
 }

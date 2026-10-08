@@ -4455,6 +4455,31 @@ test("refine updates display name only (no branch rename) once commits exist", a
   expect(renamedBranches).toHaveLength(0);
 });
 
+// Worktrees are cut from origin/<base> (or the local base when it diverged), so an uncommitted
+// branch is level with ONE of the two refs — a stale local base must not read as "committed".
+for (const [label, counts] of [
+  ["stale local base", { "origin/main": 0, main: 19 }],
+  ["no origin ref", { "origin/main": Number.MAX_SAFE_INTEGER, main: 0 }],
+  ["diverged base cut from local", { "origin/main": 3, main: 0 }],
+] as const) {
+  test(`refine renames the branch too: ${label}`, async () => {
+    const { store, renamedBranches, deps } = svcDeps();
+    deps.worktree.commitsAhead = (_r: string, base: string) =>
+      (counts as Record<string, number>)[base];
+    const svc = new SessionService(deps);
+    const s = await svc.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "p",
+      model: null,
+      images: [],
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(store.get(s.id)?.branch).toBe("shepherd/session-naming");
+    expect(renamedBranches).toEqual(["shepherd/session-naming"]);
+  });
+}
+
 test("refine renames display only when the target branch already exists", async () => {
   const { store, renamedBranches, events, deps } = svcDeps();
   // a leftover/archived branch already occupies shepherd/session-naming

@@ -1731,6 +1731,7 @@ export const KEYS_SETTINGS: readonly string[] = [
   "native_settings_repo_automergeenabled",
   "native_settings_repo_autooptimizeflagged",
   "native_settings_repo_autopilotenabled",
+  "native_settings_repo_browserallowedhosts",
   "native_settings_repo_buildqueueenabled",
   "native_settings_repo_confirm",
   "native_settings_repo_criticallprs",

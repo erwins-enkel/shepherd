@@ -12,6 +12,7 @@
   import AutomationDetail from "./automation-settings/AutomationDetail.svelte";
   import AutomationRepoFields from "./automation-settings/AutomationRepoFields.svelte";
   import AutomationDrainFields from "./automation-settings/AutomationDrainFields.svelte";
+  import BrowserAllowedHosts from "./automation-settings/BrowserAllowedHosts.svelte";
   import "./automation-settings/automation-fields.css";
   import { onMount } from "svelte";
   import type { Session, SandboxProfile, DrainStatus } from "$lib/types";
@@ -567,6 +568,7 @@
     <span class="knob"></span>
   </button>
 </div>
+<BrowserAllowedHosts {repoPath} />
 <div class={["auto-row", { disabled: flags.draftMode }]}>
   <div class="auto-meta">
     <div class="auto-name">

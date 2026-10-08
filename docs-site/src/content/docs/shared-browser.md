@@ -118,7 +118,9 @@ Everything else is refused: other local ports, private and Tailscale
 addresses, IP literals. An allowlisted host that resolves to a private address
 is refused too, so a self-hosted app on your tailnet (a `*.ts.net` name) is out
 of reach for autonomous sessions even when it's on the list. Set the allowlist
-with:
+in the repo's automation settings: with **Shared browser** on, add hosts under
+**Browser allowed hosts** (scheme, port, wildcard and IP entries are rejected as
+you add them). Or use the CLI:
 
 ```bash
 shepherd repo-config set browserAllowedHosts '["accounts.example.com"]'

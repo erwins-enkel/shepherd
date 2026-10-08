@@ -65,6 +65,7 @@ function cfg(): RepoConfig & { automationConfirmed: boolean; automationRowExists
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,

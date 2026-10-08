@@ -2626,6 +2626,7 @@ export async function putRepoConfig(
       | "preWarmEpicLandingCi"
       | "epicStacksEnabled"
       | "sharedBrowserEnabled"
+      | "browserAllowedHosts"
       | "hidden"
       | "previewStartScript"
       | "previewStartCommand"

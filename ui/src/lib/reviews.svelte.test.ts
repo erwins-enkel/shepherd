@@ -46,6 +46,7 @@ const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
   preWarmEpicLandingCi: false,
   epicStacksEnabled: false,
   sharedBrowserEnabled: false,
+  browserAllowedHosts: [],
   hidden: false,
   previewStartScript: null,
   previewStartCommand: null,

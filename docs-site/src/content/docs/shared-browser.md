@@ -78,12 +78,19 @@ use the address bar, reload, or open a new tab. For passwords, use the
 **Paste** field: the text is typed into the page's focused field and never
 stored.
 
+For more room, press **Pop out**. The same view opens full-window in a new
+browser tab, with the same controls, and it works remotely too. Only one view of
+a session streams at a time: the newest takes over, and the other shows that the
+view is open elsewhere, with **View here** to take it back. Closing the tab
+releases its connection to the Shared Browser.
+
 ### When an agent asks
 
 An agent that hits a login wall can ask you for a **Login Request**. It
 opens the login page in the Shared Browser and waits. The session shows up as
 needing you (_"Wants you to log in at …"_) with an **Open browser** button that
-takes you straight to its Browser tab. Log in, then press **Done**, or
+takes you straight to its Browser tab, and a **Pop out** button that opens it
+in its own browser tab. Log in, then press **Done**, or
 **Cancel** if you won't. Only you can answer a Login Request; an agent cannot
 mark its own request done. Autonomous sessions can't make one.
 

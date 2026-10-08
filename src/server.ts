@@ -9692,6 +9692,8 @@ function wsAuthPath(data: WsData): string {
 
 /** Browser View send-buffer cap; a client this far behind is closed with 1009. */
 const BROWSER_VIEW_MAX_BUFFERED_BYTES = 8 * 1024 * 1024;
+/** Close code for a Browser View replaced by a newer one on the same session (#2896). */
+const BROWSER_VIEW_TAKEN_OVER = 4000;
 
 // A pty WS closed with this code means "a newer client took over this terminal".
 // The client parks (shows a take-over prompt) instead of reconnecting — without
@@ -9839,6 +9841,8 @@ export function serve(deps: AppDeps, port: number) {
   startLoopLagMonitor();
   // current owning socket per terminal — a single owner avoids the takeover war
   const ptyOwners = new Map<string, ServerWebSocket<WsData>>();
+  // current Browser View socket per session (#2896): the newer view takes over, the older closes
+  const browserViewOwners = new Map<string, ServerWebSocket<WsData>>();
   const terminalOwners = () => ({
     owners: Object.fromEntries(
       [...ptyOwners.values()].flatMap(({ data }) =>
@@ -9976,6 +9980,9 @@ export function serve(deps: AppDeps, port: number) {
       ws.close(1011, "shared browser unavailable");
       return;
     }
+    const prev = browserViewOwners.get(ws.data.id);
+    browserViewOwners.set(ws.data.id, ws);
+    if (prev && prev !== ws) prev.close(BROWSER_VIEW_TAKEN_OVER, "taken over");
     let closed = false;
     const sink = {
       send: (text: string) => {
@@ -10191,6 +10198,8 @@ export function serve(deps: AppDeps, port: number) {
           ws.data.unsub?.();
           deps.presence?.drop(ws);
         } else if (ws.data.kind === "browser-view") {
+          // only drop ownership if still the owner (a newer view may have taken over)
+          if (browserViewOwners.get(ws.data.id) === ws) browserViewOwners.delete(ws.data.id);
           ws.data.view?.close();
         } else {
           // only drop ownership if we're still the owner (a newer client may have

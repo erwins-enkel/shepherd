@@ -60,6 +60,19 @@ export interface BrowserViewConn {
   close(): void;
 }
 
+/** Server close code: a newer view of this session (e.g. a pop-out) took over (#2896). */
+export const BROWSER_VIEW_TAKEN_OVER = 4000;
+
+/** The full-window pop-out page for a session's Browser View (#2896). */
+function browserPopoutPath(sessionId: string): string {
+  return `/browser/${encodeURIComponent(sessionId)}`;
+}
+
+/** Opens the pop-out in a new tab; noopener so it can't reach back via window.opener. */
+export function openBrowserPopout(sessionId: string): void {
+  window.open(browserPopoutPath(sessionId), "_blank", "noopener,noreferrer");
+}
+
 export function connectBrowserView(
   sessionId: string,
   handlers: BrowserViewHandlers,

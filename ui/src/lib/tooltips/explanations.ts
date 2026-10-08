@@ -235,3 +235,21 @@ export function sharedBrowserExplanation(): TooltipExplanation {
     ],
   };
 }
+
+/** Browser View "Pop out" (#2896): where it opens and what happens to the other view. */
+export function browserPopoutExplanation(): TooltipExplanation {
+  return {
+    title: m.viewport_browser_popout_tip_title(),
+    summary: m.viewport_browser_popout_tip_summary(),
+    sections: [
+      {
+        label: m.viewport_browser_popout_tip_one(),
+        text: m.viewport_browser_popout_tip_one_body(),
+      },
+      {
+        label: m.viewport_browser_popout_tip_close(),
+        text: m.viewport_browser_popout_tip_close_body(),
+      },
+    ],
+  };
+}

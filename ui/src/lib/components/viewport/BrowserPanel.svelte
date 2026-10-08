@@ -5,8 +5,13 @@
   import { m } from "$lib/paraglide/messages";
   import { ApiError, openRepoBrowser, resolveLoginRequest } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
+  import { statusTip } from "$lib/tooltips/statusTip.svelte";
+  import { browserPopoutExplanation } from "$lib/tooltips/explanations";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import {
+    BROWSER_VIEW_TAKEN_OVER,
     connectBrowserView,
+    openBrowserPopout,
     keyMessage,
     modifiersOf,
     mouseButton,
@@ -22,11 +27,14 @@
   let {
     session,
     loginRequest = null,
+    popout = false,
     makeWs,
   }: {
     session: Session;
     /** The session's open Login Request (#2882): shows the reason and the Done / Cancel answer. */
     loginRequest?: LoginRequest | null;
+    /** Rendered as the full-window pop-out page (#2896): hides the Pop out button. */
+    popout?: boolean;
     /** Test seam: the socket factory (defaults to the real `/browser-view/<id>` socket). */
     makeWs?: (path: string) => WebSocket;
   } = $props();
@@ -41,7 +49,7 @@
   let frameSrc = $state<string | null>(null);
   /** Last frame's page viewport (CSS px) — the coordinate space input is sent in. */
   let pageSize = { width: 0, height: 0 };
-  let closed = $state<"cap" | "stopped" | "other" | null>(null);
+  let closed = $state<"cap" | "stopped" | "elsewhere" | "other" | null>(null);
   let attempt = $state(0);
   let urlDraft = $state("");
   let urlFocused = $state(false);
@@ -91,7 +99,8 @@
           error = message;
         },
         onClose(code, reason) {
-          if (code === CLOSE_TRY_AGAIN || reason === "cap") closed = "cap";
+          if (code === BROWSER_VIEW_TAKEN_OVER) closed = "elsewhere";
+          else if (code === CLOSE_TRY_AGAIN || reason === "cap") closed = "cap";
           else if (reason === "browser stopped" || reason === "browser exited") closed = "stopped";
           else closed = "other";
         },
@@ -326,6 +335,15 @@
     <button class="gbtn" type="button" disabled={opening || closed !== null} onclick={openTab}
       >{m.viewport_browser_open_tab()}</button
     >
+    {#if !popout}
+      <button
+        class="gbtn"
+        type="button"
+        use:coachTarget={"browser-popout"}
+        use:statusTip={{ text: browserPopoutExplanation(), stopClickPropagation: false }}
+        onclick={() => openBrowserPopout(session.id)}>{m.viewport_browser_popout()}</button
+      >
+    {/if}
   </div>
 
   <!-- A remote page surface (like a terminal): it takes focus and keys itself, so the
@@ -348,10 +366,14 @@
             ? m.viewport_browser_closed_cap()
             : closed === "stopped"
               ? m.viewport_browser_closed_stopped()
-              : m.viewport_browser_closed()}</span
+              : closed === "elsewhere"
+                ? m.viewport_browser_closed_elsewhere()
+                : m.viewport_browser_closed()}</span
         >
         <button class="gbtn primary" type="button" onclick={() => attempt++}
-          >{m.viewport_browser_reconnect()}</button
+          >{closed === "elsewhere"
+            ? m.viewport_browser_view_here()
+            : m.viewport_browser_reconnect()}</button
         >
       </div>
     {:else if !listed}

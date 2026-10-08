@@ -3118,6 +3118,9 @@
       {resumable}
       {stranded}
       {authUrl}
+      sessionId={session.id}
+      {loginRequest}
+      openBrowser={hasBrowser ? () => (tab = "browser") : null}
       {scrollToTop}
       {scrollToBottom}
       {takeover}

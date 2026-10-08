@@ -59,9 +59,11 @@ First complete [setup, build and connection](getting-started.md).
    ```
 
    Runs the unit bundle plus the XCUITest smoke bundle (`ShepherdUITests`). This needs a real,
-   logged-in GUI session — a window flashes on screen while it runs — and, the first time
-   XCUITest drives the app on a fresh machine, macOS shows an "Enable UI Automation"
-   authorization prompt that has to be approved before the run can proceed.
+   logged-in GUI session — a window flashes on screen while it runs. Until the Mac is set up
+   once, macOS also asks to "Enable UI Automation" with Touch ID or a password, and asks again
+   whenever its cached authentication (about 8 hours) has run out. `test-app.sh` then stops
+   before the build instead of waiting for that dialog. See
+   [UI Automation Mode](#ui-automation-mode) for the one-time setup.
 
    ```
    swift test --package-path native
@@ -173,10 +175,58 @@ Scope a run to just the UI smoke suite the same way:
 native/scripts/test-app.sh -only-testing:ShepherdUITests
 ```
 
-For unattended UI runs, the macOS Automation Mode tool is optional administrator-managed host
-setup. Read its status only from a normal logged-in macOS host context, not from a sandbox. The
+Unattended UI runs need a Mac set up once for [UI Automation Mode](#ui-automation-mode). The
 isolated detail-tab smoke test normalizes its window to safe fixed tab geometry before traversal
 when the display has room.
+
+### UI Automation Mode
+
+Before XCUITest drives the app, macOS asks to "Enable UI Automation" with Touch ID or a password.
+It caches that authentication for only about 8 hours, so on a Mac that is not set up the dialog
+keeps coming back, and an unattended run has nobody to answer it. GitHub's macOS runners are set up
+once so that it never appears, and your Mac can be too.
+
+**Status:** run `automationmodetool` without arguments; it only reads. On a Mac that is set up, its
+output contains `DOES NOT REQUIRE` (user authentication to enable Automation Mode). Read it from a
+normal, logged-in Terminal, not from a sandbox, which can report a wrong status or none.
+
+**Setup, once per Mac:** in the Terminal of an administrator account, run
+
+```
+automationmodetool enable-automationmode-without-authentication
+```
+
+It asks for the administrator's password. Run `automationmodetool` again afterwards and check for
+`DOES NOT REQUIRE`.
+
+**Revert:**
+
+```
+automationmodetool disable-automationmode-without-authentication
+```
+
+**Scope:** the setting is Mac-wide and applies to every UI automation, not just Shepherd's tests.
+It takes one administrator authentication, not one per build or worktree. It does not replace a
+logged-in GUI session, and it does not grant the Accessibility or other privacy permissions a tool
+may still need. No script in this repository runs the setup or the revert command; both stay an
+operator decision.
+
+**After a macOS or Xcode update**, run `automationmodetool` again, and repeat the setup if the output
+no longer contains `DOES NOT REQUIRE`.
+
+**Preflight:** when a `test-app.sh` run includes UI tests (no `-only-testing:` filter, or any
+`-only-testing:ShepherdUITests…`), the script reads the status before it unlocks the signing
+keychain or runs XCodeGen and `xcodebuild`:
+
+- `DOES NOT REQUIRE`: the run starts as usual, with no extra output.
+- Any other output: the run stops with a non-zero exit. An `UNMET:` line on stderr names the setup
+  command, the unit-only run (`-only-testing:ShepherdTests`) and the override.
+- No status (the tool is missing, fails or prints nothing): a warning, then the run starts.
+
+A run without UI tests (`-only-testing:ShepherdTests` or `-skip-testing:ShepherdUITests`) never
+reads the status. For a supervised run on a Mac that is not set up, or when a sandbox misreports the
+status, set `SHEPHERD_ALLOW_AUTOMATION_PROMPT=1`: the preflight warns instead of stopping, and macOS
+shows the dialog as before. `test/native-automation-preflight.test.ts` covers these cases.
 
 ### Isolated launches
 

@@ -734,7 +734,11 @@
   // no parent callback is threaded — the row calls it and toasts the outcome itself.
   // A clean-terminal session's status never advances (no agent to reconcile), so it would
   // read "running" forever — and its pane must never receive the stop ESC anyway.
-  const stoppable = $derived(dStatus === "running" && !session.terminal);
+  // The background-busy upgrade is deliberately left out: that agent sits idle at its prompt, so
+  // the ESC has no turn to cut short and does not stop the background shell.
+  const stoppable = $derived(
+    displayStatus(session, workingBlocked) === "running" && !session.terminal,
+  );
   // Resolved here rather than as a ternary in the <CardMenu> tag: UnitRow's template sits at its
   // grandfathered complexity cap (#855), and every inline conditional in the markup counts against
   // it. undefined is what hides the menu item.

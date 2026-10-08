@@ -1,3 +1,6 @@
+// DRIFT: keep in sync with src/ready-stage.ts (isReadyForNotify ≙ shownSessions "ready";
+// stageOf/terminalStage; both display flags — workingBlocked + backgroundBusy — fold in via
+// displayStatus). Intentional delta: the server also excludes `merged` from notify.
 import type { Session, GitState } from "$lib/types";
 import { displayStatus } from "$lib/display-status";
 import { checksCleared } from "$lib/checks-cleared";
@@ -86,7 +89,8 @@ const NOT_YOUR_TURN: ReadonlySet<Stage> = new Set([
  *  Herd.svelte's list and herd-keynav's
  *  rail order, so keyboard navigation can never land on a row the rail isn't showing. Goes
  *  through `displayStatus` (a working-while-blocked session is actually mid-turn, so it is
- *  NOT awaiting the operator). `git`/`now` drive the stage check for the not-your-turn
+ *  NOT awaiting the operator), and so is a background-busy one (resting but its claude still
+ *  runs a non-server background shell, e.g. a `git push` in its pre-push gates). `git`/`now` drive the stage check for the not-your-turn
  *  exclusion; both default empty/now so legacy 4-arg callers keep today's behavior (no git
  *  → no CI checks, no handoff, `mergingSince: null` → no session resolves to an excluded
  *  stage). */
@@ -97,11 +101,12 @@ export function shownSessions(
   workingBlocked: Record<string, boolean> = {},
   git: Record<string, GitState> = {},
   now: number = Date.now(),
+  backgroundBusy: Record<string, boolean> = {},
 ): Session[] {
   if (filter === "ready")
     return sessions.filter(
       (s) =>
-        displayStatus(s, workingBlocked) !== "running" &&
+        displayStatus(s, workingBlocked, backgroundBusy) !== "running" &&
         !inReview(s.id) &&
         !NOT_YOUR_TURN.has(stageOf(s, git[s.id], inReview, () => false, now)),
     );
@@ -172,8 +177,10 @@ function stageOf(
   const terminal = terminalStage(s, g, isReviewing, isReworkRunning, now);
   if (terminal) return terminal;
   // Raw status by design: a working-while-blocked session (display "running") is raw
-  // "blocked" — both are excluded from greenIdle, so the display flag can't change
-  // the partition and doesn't need threading through here.
+  // "blocked" — both are excluded from greenIdle, so that flag can't change the partition.
+  // A background-busy session is raw idle/done and CAN land in a handoff stage here; the
+  // Ready lens rejects it via displayStatus in shownSessions before the stage matters (same
+  // as the server's isReadyForNotify), so neither flag needs threading through.
   const greenIdle =
     g?.state === "open" &&
     checksCleared(g.checks, g.noCi) &&

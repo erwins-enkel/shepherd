@@ -5629,5 +5629,7 @@
   "viewport_login_bar_title": "Der Agent möchte, dass du dich anmeldest",
   "viewport_login_bar_open": "Browser öffnen",
   "feat_login_request_bar_title": "Anmeldeanfragen erscheinen im Terminal",
-  "feat_login_request_bar_body": "Bittet ein Agent dich um eine Anmeldung, erscheint oben in seinem Terminal eine Leiste. Antworte dort direkt mit Erledigt oder Abbrechen, oder spring in den Browser-Tab, um dich anzumelden."
+  "feat_login_request_bar_body": "Bittet ein Agent dich um eine Anmeldung, erscheint oben in seinem Terminal eine Leiste. Antworte dort direkt mit Erledigt oder Abbrechen, oder spring in den Browser-Tab, um dich anzumelden.",
+  "feat_ready_lens_background_shells_title": "Bereit wartet auf Hintergrundarbeit",
+  "feat_ready_lens_background_shells_body": "Sitzungen, deren Agent noch eine Hintergrund-Shell ausführt – etwa ein git push mit Pre-Push-Prüfungen –, erscheinen erst unter Bereit, wenn sie fertig ist. Dev-Server zählen nicht, und nach 30 Minuten endet die Sperre."
 }

@@ -95,6 +95,7 @@
     repoFilter = undefined,
     onrepofilter,
     workingBlocked = {},
+    backgroundBusy = {},
     liveness = undefined,
     quotaKind = null,
     hold = undefined,
@@ -150,6 +151,8 @@
     onrepofilter?: (repoPath: string, additive: boolean) => void;
     // working-while-blocked display flags (whole store map); feeds displayStatus only
     workingBlocked?: Record<string, boolean>;
+    // background-busy display flags (store map) — upgrades a resting session to "running"
+    backgroundBusy?: Record<string, boolean>;
     // this session's agent liveness; "stranded" triggers the distinct "agent died — revive" framing (#1630)
     liveness?: LivenessState;
     // quota block kind for this session; non-null surfaces the quota badge
@@ -174,7 +177,7 @@
   // Every status-driven DISPLAY branch below reads this, not session.status: a
   // working-while-blocked session gets the full working treatment. Behavioral
   // reads (canResume) stay on the raw status.
-  const dStatus = $derived(displayStatus(session, workingBlocked));
+  const dStatus = $derived(displayStatus(session, workingBlocked, backgroundBusy));
 
   // The agent has stopped and awaits a DIRECT operator action → a subordinate red
   // card wash (--wash-attention). See holdAwaitsOperator for the (deliberately

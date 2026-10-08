@@ -1807,6 +1807,16 @@ export async function workingBlockedStates(): Promise<Record<string, boolean>> {
   return r.json();
 }
 
+/** Snapshot of the background-busy display flags, keyed by session id (client bootstrap;
+ *  mirror of /api/working-blocked). `true` = the session rests (idle/done) but its claude
+ *  still runs a non-server background shell (e.g. `git push` running pre-push gates) —
+ *  feeds `displayStatus`, which keeps it out of the Ready lens. Cleared after 30 min. */
+export async function backgroundBusyStates(): Promise<Record<string, boolean>> {
+  const r = await fetch("/api/background-busy");
+  if (!r.ok) throw await failed(r, "background-busy states");
+  return r.json();
+}
+
 /** Snapshot of the last-emitted block reason per session, keyed by session id (client
  *  bootstrap). Blocks are otherwise edge-emitted via `session:block`, so a fresh page load
  *  / push-then-open needs this to surface a live block (incl. an MCP-auth `authUrl`). */

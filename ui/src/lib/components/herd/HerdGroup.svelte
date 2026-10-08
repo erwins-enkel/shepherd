@@ -27,6 +27,7 @@
     repoFilter: ReadonlySet<string>;
     onrepofilter?: (repoPath: string, additive: boolean) => void;
     workingBlocked: Record<string, boolean>;
+    backgroundBusy: Record<string, boolean>;
     liveness: Record<string, LivenessState>;
     quotaKindFor: (id: string) => "rework" | "review" | "error" | "plan" | null;
     // returns the hold reason for a session, or undefined if none
@@ -150,6 +151,7 @@
       repoFilter={ctx.repoFilter}
       onrepofilter={ctx.onrepofilter}
       workingBlocked={ctx.workingBlocked}
+      backgroundBusy={ctx.backgroundBusy}
       liveness={ctx.liveness[session.id]}
       quotaKind={ctx.quotaKindFor(session.id)}
       hold={ctx.holdFor(session.id)}

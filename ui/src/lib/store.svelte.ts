@@ -124,6 +124,12 @@ export class HerdStore {
    *  dialog). Used ONLY to derive the display status (see display-status.ts) —
    *  never behavioral. Entries drop on working=false and on archive. */
   workingBlocked = $state<Record<string, boolean>>({});
+  /** Display-only flag (sessionId → true), pushed by the server's
+   *  `session:background-busy` event: this resting (idle/done) session's claude still runs
+   *  a non-server background shell (e.g. a `git push` running pre-push gates). Used ONLY to
+   *  derive the display status (see display-status.ts), which keeps it out of Ready.
+   *  Entries drop on busy=false and on archive. */
+  backgroundBusy = $state<Record<string, boolean>>({});
   /** Live per-session hold reasons (sessionId → HoldReason), pushed by the
    *  server's `session:hold` event; bootstrapped via GET /api/holds.
    *  Absent = no hold active for that session. */
@@ -217,6 +223,10 @@ export class HerdStore {
   /** Seed (or replace) the working-while-blocked flag map after a bootstrap GET. */
   setWorkingBlocked(map: Record<string, boolean>) {
     this.workingBlocked = map;
+  }
+  /** Seed (or replace) the background-busy flag map after a bootstrap GET. */
+  setBackgroundBusy(map: Record<string, boolean>) {
+    this.backgroundBusy = map;
   }
   /** Seed the per-session block map after a bootstrap GET /api/blocks. Blocks are
    *  edge-emitted via `session:block`, so a fresh load / push-then-open would otherwise
@@ -405,6 +415,12 @@ export class HerdStore {
     else this.workingBlocked = dropKey(this.workingBlocked, id);
   }
 
+  /** Set or clear a session's background-busy display flag (false drops the entry). */
+  private setBackgroundBusyFlag(id: string, busy: boolean) {
+    if (busy) this.backgroundBusy = setKey(this.backgroundBusy, id, true);
+    else this.backgroundBusy = dropKey(this.backgroundBusy, id);
+  }
+
   /** Patch a session's name + branch, then surface the rename (esp. the async
    *  namer's auto-rename, which lands while the agent is already working) so the
    *  row changing under the user is explained. Toasts only when the visible name
@@ -500,6 +516,7 @@ export class HerdStore {
         this.claudeAlive = dropKey(this.claudeAlive, ev.data.id);
         this.clearStrandedToastIfEmpty(); // archiving the last stranded session → drop the banner
         this.workingBlocked = dropKey(this.workingBlocked, ev.data.id);
+        this.backgroundBusy = dropKey(this.backgroundBusy, ev.data.id);
         this.holds = dropKey(this.holds, ev.data.id);
         this.loginRequests = dropKey(this.loginRequests, ev.data.id);
         this.preview = dropKey(this.preview, ev.data.id);
@@ -642,6 +659,9 @@ export class HerdStore {
         return true;
       case "session:subagents":
         this.subagents = setKey(this.subagents, ev.data.id, ev.data.subagents);
+        return true;
+      case "session:background-busy":
+        this.setBackgroundBusyFlag(ev.data.id, ev.data.busy);
         return true;
       case "session:claude-alive":
         // Prefer the folded 3-state; fall back to the boolean when an old server omits `liveness`.

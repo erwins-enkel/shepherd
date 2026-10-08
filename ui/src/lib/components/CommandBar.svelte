@@ -19,6 +19,7 @@
   let {
     sessions,
     workingBlocked,
+    backgroundBusy = {},
     blocks = {},
     commands,
     onselectsession,
@@ -32,6 +33,7 @@
   }: {
     sessions: Session[];
     workingBlocked: Record<string, boolean>;
+    backgroundBusy?: Record<string, boolean>;
     blocks?: Record<string, BlockState>;
     commands: Command[];
     onselectsession: (id: string) => void;
@@ -198,7 +200,7 @@
         repoName,
         status: s.autopilotPaused
           ? autopilotPausedLabel
-          : statusLabel(displayStatus(s, workingBlocked)),
+          : statusLabel(displayStatus(s, workingBlocked, backgroundBusy)),
         hl: match?.source === "title" ? match.positions : [],
         designationHl: match?.source === "designation" ? match.positions : [],
         repoHl: match?.source === "session-repo" ? match.positions : [],

@@ -22,3 +22,17 @@ test("a stale flag on a non-blocked session is inert", () => {
 test("an explicit false flag reads the same as absent", () => {
   expect(displayStatus(s("s1", "blocked"), { s1: false })).toBe("blocked");
 });
+
+test("idle/done + background-busy flag upgrades to running", () => {
+  expect(displayStatus(s("s1", "idle"), {}, { s1: true })).toBe("running");
+  expect(displayStatus(s("s1", "done"), {}, { s1: true })).toBe("running");
+});
+
+test("background-busy flag is inert on blocked/running/archived (and when false)", () => {
+  for (const status of ["blocked", "running", "archived"] as const) {
+    expect(displayStatus(s("s1", status), {}, { s1: true })).toBe(status);
+  }
+  expect(displayStatus(s("s1", "idle"), {}, { s1: false })).toBe("idle");
+  // backgroundBusy doesn't leak into the blocked upgrade, and vice versa
+  expect(displayStatus(s("s1", "idle"), { s1: true }, {})).toBe("idle");
+});

@@ -166,12 +166,13 @@ export function pickRepoSwitchTarget(
   blocks: Record<string, BlockState>,
   workingBlocked: Record<string, boolean>,
   selected: Session | null,
+  backgroundBusy: Record<string, boolean> = {},
 ): string | null {
   if (selected && selected.repoPath === repoFilter) return null;
   const inRepo = sessions.filter((s) => s.repoPath === repoFilter);
   if (inRepo.length === 0) return null;
   const waiting = sortBlocked(inRepo, blocks).find((e) => !workingBlocked[e.session.id])?.session;
-  const active = inRepo.find((s) => displayStatus(s, workingBlocked) === "running");
+  const active = inRepo.find((s) => displayStatus(s, workingBlocked, backgroundBusy) === "running");
   const next = waiting ?? active ?? inRepo[0];
   return next.id !== selected?.id ? next.id : null;
 }

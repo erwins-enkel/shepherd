@@ -18,8 +18,9 @@ export function isReworkRunning(
   signals: ReworkRunningSignals,
   workingBlocked: Record<string, boolean>,
   now: number,
+  backgroundBusy: Record<string, boolean> = {},
 ): boolean {
-  if (displayStatus(session, workingBlocked) !== "running") return false;
+  if (displayStatus(session, workingBlocked, backgroundBusy) !== "running") return false;
   const { planGate, review } = signals;
   const planRework =
     session.planPhase === "planning" &&

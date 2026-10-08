@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  connectBrowserView,
   containRect,
   keyMessage,
   modifiersOf,
@@ -20,6 +21,24 @@ const key = (k: string, extra: Partial<Record<string, unknown>> = {}) => ({
 });
 
 describe("browserView", () => {
+  it("connectBrowserView calls onOpen when the socket opens", () => {
+    const ws = {} as WebSocket;
+    let opened = 0;
+    connectBrowserView(
+      "s1",
+      {
+        onTargets() {},
+        onFrame() {},
+        onError() {},
+        onClose() {},
+        onOpen: () => opened++,
+      },
+      () => ws,
+    );
+    ws.onopen?.(new Event("open"));
+    expect(opened).toBe(1);
+  });
+
   it("containRect letterboxes a wide image in a tall box", () => {
     expect(containRect(100, 200, 200, 100)).toEqual({ x: 0, y: 75, w: 100, h: 50 });
     expect(containRect(0, 10, 10, 10)).toEqual({ x: 0, y: 0, w: 0, h: 0 });

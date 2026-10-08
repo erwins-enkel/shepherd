@@ -11,7 +11,11 @@
  *                  `{type:"frame", data, width, height}` (base64 jpeg; CSS px of the page),
  *                  `{type:"error", message}`.
  * client → server: `select{targetId}`, `frameAck`, `mouse{…}`, `key{…}`, `text{text}`,
- *                  `navigate{url}`, `reload`.
+ *                  `navigate{url}`, `reload`, `viewport{width,height,dpr}`.
+ *
+ * `viewport` is the panel's CSS size: the selected tab is laid out at it via
+ * `Emulation.setDeviceMetricsOverride` (last writer wins against an agent's own override), so the
+ * page renders ~1:1 whatever the host window's size. Cleared when the view leaves the tab.
  */
 import type { CdpClient, CdpPipeClient } from "./cdp-pipe";
 import { isWebTargetUrl } from "./cdp-pipe";
@@ -66,6 +70,10 @@ const MAX_KEY_TEXT_CHARS = 4;
 const MAX_COORD = 100_000;
 const MAX_DELTA = 10_000;
 const CLOSE_UNSUPPORTED = 1003;
+const MIN_VIEWPORT = 100;
+const MAX_VIEWPORT = 10_000;
+const MIN_DPR = 0.5;
+const MAX_DPR = 4;
 
 const MOUSE_TYPES: Record<string, string> = {
   down: "mousePressed",
@@ -77,6 +85,14 @@ const MOUSE_BUTTONS = new Set(["none", "left", "middle", "right", "back", "forwa
 
 function obj(value: unknown): Json | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Json) : null;
+}
+
+function parseJson(text: string): Json | null {
+  try {
+    return obj(JSON.parse(text));
+  } catch {
+    return null;
+  }
 }
 
 function str(value: unknown, max: number): string | null {
@@ -177,6 +193,29 @@ export function inputCommand(msg: Json): Command {
   return build ? build(msg) : null;
 }
 
+const inRange = (value: unknown, lo: number, hi: number): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value >= lo && value <= hi;
+
+/**
+ * A `viewport` message → `Emulation.setDeviceMetricsOverride` params, or null when out of range.
+ * Not clamped: a hidden panel reports 0×0, which must be ignored rather than applied.
+ */
+export function viewportOverride(msg: Json): Json | null {
+  const { width, height, dpr } = msg;
+  if (
+    !inRange(width, MIN_VIEWPORT, MAX_VIEWPORT) ||
+    !inRange(height, MIN_VIEWPORT, MAX_VIEWPORT) ||
+    !inRange(dpr, MIN_DPR, MAX_DPR)
+  )
+    return null;
+  return {
+    width: Math.round(width),
+    height: Math.round(height),
+    deviceScaleFactor: dpr,
+    mobile: false,
+  };
+}
+
 export interface BrowserViewDeps {
   sink: ViewSink;
   /** The session's own tab (from the operator "Open"), preferred as the initial selection. */
@@ -201,6 +240,8 @@ export class BrowserViewSession {
   #pendingAck: number | null = null;
   /** The initial `getTargets` listing is in; until then discovery events only update the map. */
   #listed = false;
+  /** The panel's last valid `viewport`, applied to every tab the view attaches. */
+  #viewport: Json | null = null;
 
   /** Pass to `SharedBrowserManager.attach`: the browser's messages for this view. */
   readonly cdp: CdpClient;
@@ -239,15 +280,14 @@ export class BrowserViewSession {
   /** One text frame from the operator's socket. */
   handle(text: string): void {
     if (this.#closed) return;
-    let msg: Json | null;
-    try {
-      msg = obj(JSON.parse(text));
-    } catch {
-      msg = null;
-    }
+    const msg = parseJson(text);
     if (!msg) {
       this.close();
       this.#sink.close(CLOSE_UNSUPPORTED, "invalid message");
+      return;
+    }
+    if (msg.type === "viewport") {
+      this.#setViewport(msg);
       return;
     }
     if (!this.#client) return; // not attached yet: the UI waits for `targets` first
@@ -275,6 +315,7 @@ export class BrowserViewSession {
   close(): void {
     if (this.#closed && !this.#client) return;
     this.#closed = true;
+    if (this.#child) this.#command("Emulation.clearDeviceMetricsOverride", {}, this.#child);
     const client = this.#client;
     this.#client = null;
     this.#replies.clear();
@@ -377,6 +418,19 @@ export class BrowserViewSession {
     });
   }
 
+  /** Kept even before attach: the panel sends its size as soon as the socket opens. */
+  #setViewport(msg: Json): void {
+    const viewport = viewportOverride(msg);
+    if (!viewport) return;
+    this.#viewport = viewport;
+    this.#applyViewport();
+  }
+
+  #applyViewport(): void {
+    if (this.#viewport && this.#child)
+      this.#command("Emulation.setDeviceMetricsOverride", { ...this.#viewport }, this.#child);
+  }
+
   #ack(): void {
     if (this.#pendingAck === null || !this.#child) return;
     const sessionId = this.#pendingAck;
@@ -410,7 +464,10 @@ export class BrowserViewSession {
   #select(targetId: string): void {
     const old = this.#child;
     this.#deselect();
-    if (old) this.#command("Target.detachFromTarget", { sessionId: old });
+    if (old) {
+      this.#command("Emulation.clearDeviceMetricsOverride", {}, old);
+      this.#command("Target.detachFromTarget", { sessionId: old });
+    }
     this.#selected = targetId;
     this.#broadcastTargets();
     const generation = this.#generation;
@@ -428,6 +485,7 @@ export class BrowserViewSession {
       // A hidden headful tab does not paint, so it would never produce a frame.
       this.#command("Target.activateTarget", { targetId });
       this.#command("Page.enable", {}, child);
+      this.#applyViewport();
       this.#command("Page.startScreencast", { ...SCREENCAST }, child);
     });
   }

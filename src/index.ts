@@ -1474,6 +1474,11 @@ const poller = new StatusPoller(
   // gone sweeps) — archive so focus-existing never lands on a dead terminal. Fire-and-forget;
   // archive() already tolerates a concurrently-archived row.
   (id) => void service.archive(id).catch((err) => console.warn("[poller] terminal archive:", err)),
+  undefined, // codexTranscripts — use default
+  undefined, // readResumeSignal — use default
+  // background-shell busy flag: a resting claude still runs a non-server background shell
+  // (e.g. `git push` with pre-push gates) — the UI and ready/steer gates keep it out of Ready.
+  { onChange: (id, busy) => events.emit("session:background-busy", { id, busy }) },
 );
 
 // Proactively re-drive a herdr-restored plugin/account pane (herdr's bare `claude --resume` lost the
@@ -3957,6 +3962,7 @@ const appDeps: AppDeps = {
   claudeAlive: { snapshot: () => poller.claudeAliveSnapshot() },
   stranded: { ids: () => poller.strandedIds() },
   workingBlocked: { snapshot: () => poller.workingBlockedSnapshot() },
+  backgroundBusy: { snapshot: () => poller.backgroundBusySnapshot() },
   preview: {
     snapshot: () => previewService.snapshot(),
     devPortFor: (id) => previewService.devPortFor(id),

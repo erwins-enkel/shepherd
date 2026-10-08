@@ -10,6 +10,10 @@ export const workingBlockedEvent: { id: string; working: boolean } = {
   id: "sess_fixture",
   working: true,
 };
+export const backgroundBusyEvent: { id: string; busy: boolean } = {
+  id: "sess_fixture",
+  busy: true,
+};
 export const hold: HoldReason = { code: "quota-rework", params: { round: 2, cap: 5 } };
 export const block: BlockReason = {
   shape: "quota",

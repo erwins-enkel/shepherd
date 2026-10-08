@@ -1576,23 +1576,34 @@ export function scanBackgroundShellsByWorktree(
   if (worktreePaths.length === 0) return result;
   const roots = worktreePaths.map((p) => normRoot(p, probes));
   let inodeMap: Map<number, number> | null | undefined; // built lazily, once per scan
+  const lazyInodeMap = (): Map<number, number> | null =>
+    (inodeMap ??=
+      typeof probes.inodeToPortMap === "function" && typeof probes.socketInodesForPid === "function"
+        ? probes.inodeToPortMap()
+        : null);
   for (const proc of probes.scanProcs()) {
     if (proc.comm !== "claude") continue;
     const path = matchWorktreePath(proc.cwd, roots, worktreePaths);
     if (path === null) continue;
-    for (const child of probes.childrenOf(proc.pid)) {
-      const cmdline = probes.cmdlineOf(child);
-      if (cmdline === null || !cmdline.includes(SNAPSHOT_SHELL_MARKER)) continue;
-      inodeMap ??=
-        typeof probes.inodeToPortMap === "function" &&
-        typeof probes.socketInodesForPid === "function"
-          ? probes.inodeToPortMap()
-          : null;
-      if (treeListens(child, inodeMap, probes)) continue;
-      result.get(path)!.push(snapshotShellCommand(cmdline));
-    }
+    result.get(path)!.push(...backgroundShellCommands(proc.pid, lazyInodeMap, probes));
   }
   return result;
+}
+
+/** Commands of one `claude` pid's non-listening snapshot-shell children. */
+function backgroundShellCommands(
+  claudePid: number,
+  inodeMap: () => Map<number, number> | null,
+  probes: ReaperProbes,
+): string[] {
+  const out: string[] = [];
+  for (const child of probes.childrenOf!(claudePid)) {
+    const cmdline = probes.cmdlineOf!(child);
+    if (cmdline === null || !cmdline.includes(SNAPSHOT_SHELL_MARKER)) continue;
+    if (treeListens(child, inodeMap(), probes)) continue;
+    out.push(snapshotShellCommand(cmdline));
+  }
+  return out;
 }
 
 /** Everything one sweep needs to attribute a single process; built once per scan. */

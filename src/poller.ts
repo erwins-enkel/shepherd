@@ -42,6 +42,7 @@ import { maintenance } from "./maintenance";
 import {
   scanListeningPortsByWorktree,
   scanClaudeAliveByWorktree,
+  scanBackgroundShellsByWorktree,
   type ListenerScanTarget,
   type WorktreeListeners,
 } from "./process-reaper";
@@ -153,6 +154,19 @@ export interface LivenessWiring {
   onChange: (id: string, alive: boolean, liveness: LivenessState) => void;
 }
 
+/** How long one rest episode may stay background-busy before the flag gives up and the
+ *  session becomes Ready anyway (a never-exiting watcher must not hide it forever). */
+export const BACKGROUND_BUSY_CAP_MS = 30 * 60_000;
+
+export interface BackgroundBusyWiring {
+  /** Commands of non-listening Claude background Bash shells per worktree. `null` = the probe
+   *  can't tell (non-linux, stale snapshot) → state is left untouched, never coerced to "none". */
+  scan: (worktrees: string[]) => Map<string, string[]> | null;
+  sweepMs: number;
+  /** Emitted when a resting session's background-busy flag flips. */
+  onChange: (id: string, busy: boolean) => void;
+}
+
 /** The push-hook signal pipeline (activity / notification / session-start) must be active whenever
  *  herdr can't advance `agent_status` for us. On the 0.7.5 external-registration path it never does
  *  (sandboxed agents it can't observe; trusted agents defer to the client-pinned state), AND claude's
@@ -165,6 +179,17 @@ export interface LivenessWiring {
  *  `config.hooksSignals` directly: the raw flag misses the ≥0.7.5 override, which used to leave the
  *  feature half-on (events ingested, but the #713 stop-window measurement and the probe's
  *  redundant-emit suppression silently inert). */
+/** Fill a partial background-shell wiring with the real defaults (/proc scan, preview cadence). */
+function resolveBackgroundBusyWiring(
+  partial: Partial<BackgroundBusyWiring> | undefined,
+): BackgroundBusyWiring {
+  return {
+    scan: partial?.scan ?? ((worktrees) => scanBackgroundShellsByWorktree(worktrees)),
+    sweepMs: partial?.sweepMs ?? config.previewSweepMs,
+    onChange: partial?.onChange ?? (() => {}),
+  };
+}
+
 function hookSignalsActive(): boolean {
   return config.hooksSignals || herdrUsesExternalRegistrationSpawn();
 }
@@ -469,6 +494,17 @@ export class StatusPoller {
   private reviveOutcome = { revived: 0, failed: 0 };
   /** The resolved liveness wiring (with real defaults filled in). */
   private readonly livenessWiring: LivenessWiring;
+  /** The resolved background-shell wiring (with real defaults filled in). */
+  private readonly bgWiring: BackgroundBusyWiring;
+  /** Resting (idle/done) sessions whose claude still runs a non-server background Bash shell
+   *  (e.g. `git push` with pre-push gates) → epoch ms the flag was set this rest episode. Display +
+   *  ready/steer gating only; `Session.status` is untouched. */
+  private backgroundBusy = new Map<string, number>();
+  /** Sessions whose background-busy flag hit {@link BACKGROUND_BUSY_CAP_MS} this rest episode:
+   *  never re-flagged until the session goes running/blocked again. */
+  private bgCapped = new Set<string>();
+  /** Throttle stamp for the background-shell sweep (0 = never). */
+  private lastBackgroundSweepAt = 0;
   /** Emitted when a session's halt state changes: a usage-limit halt is detected
    *  (non-null reason), or the flag is cleared when the session resumes work (null). */
   private readonly onHaltCb: (
@@ -580,6 +616,11 @@ export class StatusPoller {
      * to a bounded tail read + `resumeSignalFrom`.
      */
     private readResumeSignal: (s: Session) => ResumeSignal | null = readParkedResumeSignal,
+    /**
+     * Background-shell wiring: injectable for tests; defaults to the real /proc scan on the
+     * preview sweep cadence with a no-op onChange. Drives `session:background-busy`.
+     */
+    backgroundBusy?: Partial<BackgroundBusyWiring>,
   ) {
     this.probe =
       probe ??
@@ -617,6 +658,7 @@ export class StatusPoller {
       sweepMs: liveness?.sweepMs ?? config.previewSweepMs,
       onChange: liveness?.onChange ?? (() => {}),
     };
+    this.bgWiring = resolveBackgroundBusyWiring(backgroundBusy);
     this.onHaltCb = onHalt ?? (() => {});
     this.usageLimitsSvc = usageLimits ?? {
       limits: () => ({
@@ -760,6 +802,8 @@ export class StatusPoller {
       this.maybeRunPreviewSweep(sessions);
       // claude-liveness sweep: throttled; synchronous (one cheap /proc pass)
       this.maybeRunLivenessSweep(sessions);
+      // background-shell sweep: throttled; synchronous (children of resting claude pids only)
+      this.maybeRunBackgroundSweep();
       // Clean-terminal pane liveness: throttled, async, fail-closed. Deliberately fire-and-
       // forget — awaiting it would extend tick()'s awaited critical section by a socket
       // round-trip and shift the microtask timing the classify paths' floating promises ride
@@ -1028,6 +1072,96 @@ export class StatusPoller {
     return Object.fromEntries([...this.workingWhileBlocked].map((id) => [id, true]));
   }
 
+  /** Resting sessions still running a non-server background shell, for client bootstrap. */
+  backgroundBusySnapshot(): Record<string, boolean> {
+    return Object.fromEntries([...this.backgroundBusy.keys()].map((id) => [id, true]));
+  }
+
+  /** True while `id` rests (idle/done) with a non-server background shell still running. */
+  isBackgroundBusy(id: string): boolean {
+    return this.backgroundBusy.has(id);
+  }
+
+  /** Eligible for the background-shell probe: resting, non-terminal, has a worktree. */
+  private bgEligible(s: Session, status: Session["status"] = s.status): boolean {
+    return (status === "idle" || status === "done") && !s.terminal && !!s.worktreePath;
+  }
+
+  private setBackgroundBusy(id: string, t: number): void {
+    if (this.backgroundBusy.has(id)) return;
+    this.backgroundBusy.set(id, t);
+    this.bgWiring.onChange(id, true);
+  }
+
+  private clearBackgroundBusy(id: string): void {
+    if (this.backgroundBusy.delete(id)) this.bgWiring.onChange(id, false);
+  }
+
+  /** The injected scan, never throwing: tick() runs on a bare setInterval. A throw reads as
+   *  `null` (unknown → leave state alone). */
+  private scanBackground(worktrees: string[]): Map<string, string[]> | null {
+    try {
+      return this.bgWiring.scan(worktrees);
+    } catch (err) {
+      console.warn("[poller] background-shell scan failed:", err);
+      return null;
+    }
+  }
+
+  /** Fold one session's scan verdict into the flag: set on first sighting, clear when the shells
+   *  are gone, and give up (cap) once the episode has been busy for {@link BACKGROUND_BUSY_CAP_MS}. */
+  private applyBackgroundVerdict(id: string, commands: string[], t: number): void {
+    if (this.bgCapped.has(id)) return;
+    if (commands.length === 0) return this.clearBackgroundBusy(id);
+    const since = this.backgroundBusy.get(id);
+    if (since === undefined) return this.setBackgroundBusy(id, t);
+    if (t - since < BACKGROUND_BUSY_CAP_MS) return;
+    this.clearBackgroundBusy(id);
+    this.bgCapped.add(id);
+  }
+
+  /**
+   * Throttled sweep over resting sessions: does their claude still run a non-server background
+   * shell? Reads the store afresh — this tick's `reconcileAgent` may have moved a session to
+   * running, and a stale snapshot would re-flag it. Flags of sessions that left the eligible set
+   * are cleared; a `null` scan leaves every flag as it is.
+   */
+  private maybeRunBackgroundSweep(): void {
+    const t = this.now();
+    if (t - this.lastBackgroundSweepAt < this.bgWiring.sweepMs) return;
+    this.lastBackgroundSweepAt = t;
+    const eligible = this.store.list({ activeOnly: true }).filter((s) => this.bgEligible(s));
+    const eligibleIds = new Set(eligible.map((s) => s.id));
+    for (const id of [...this.backgroundBusy.keys()]) {
+      if (!eligibleIds.has(id)) this.clearBackgroundBusy(id);
+    }
+    if (eligible.length === 0) return;
+    const byWorktree = this.scanBackground(eligible.map((s) => s.worktreePath));
+    if (byWorktree === null) return;
+    for (const s of eligible) {
+      this.applyBackgroundVerdict(s.id, byWorktree.get(s.worktreePath) ?? [], t);
+    }
+  }
+
+  /**
+   * Background-shell flag at the status edge, called from `reconcileAgent` BEFORE the status
+   * `onChange`. running/blocked → drop the flag and the cap. running/blocked → idle/done → probe
+   * this one worktree synchronously, so the flag reaches clients (and autopilot) before the
+   * resting status does — never a one-tick "ready" flash.
+   */
+  private reconcileBackgroundBusy(s: Session, status: Session["status"]): void {
+    if (status === "running" || status === "blocked") {
+      this.clearBackgroundBusy(s.id);
+      this.bgCapped.delete(s.id);
+      return;
+    }
+    const wasActive = s.status === "running" || s.status === "blocked";
+    if (!wasActive || !this.bgEligible(s, status)) return;
+    const byWorktree = this.scanBackground([s.worktreePath]);
+    if (byWorktree === null) return;
+    this.applyBackgroundVerdict(s.id, byWorktree.get(s.worktreePath) ?? [], this.now());
+  }
+
   /**
    * The herdr agent is gone (claude exited / user ctrl-c'd the session).
    * Mirror reconcile()'s startup behavior, but live — otherwise the session
@@ -1036,6 +1170,8 @@ export class StatusPoller {
    */
   private reapGone(s: Session): void {
     if (this.workingWhileBlocked.delete(s.id)) this.onWorkingBlocked(s.id, false);
+    this.clearBackgroundBusy(s.id);
+    this.bgCapped.delete(s.id);
     this.clearBlock(s.id);
     // Observe-only Stop↔herdr-done markers (issue #713): the agent's gone — drop both
     // without an emit (a reap is not a measurable done-flip pairing).
@@ -1075,6 +1211,8 @@ export class StatusPoller {
       this.livenessUnknown.has(s.id) ? undefined : this.lastClaudeAlive.get(s.id),
     );
     const status = mapState(agent.agentStatus);
+    // Before the status write + onChange below: the edge probe's flag must lead the status.
+    this.reconcileBackgroundBusy(s, status);
     const idChanged = agent.terminalId !== s.herdrAgentId;
     if (idChanged || status !== s.status || agent.agentStatus !== s.lastState) {
       this.store.update(s.id, {
@@ -1306,6 +1444,8 @@ export class StatusPoller {
       ...this.strandedSweeps.keys(),
       ...this.reviveInFlight,
       ...this.reviveGaveUp,
+      ...this.backgroundBusy.keys(),
+      ...this.bgCapped,
     ]);
     for (const id of tracked) {
       if (!activeIds.has(id)) {
@@ -1349,6 +1489,9 @@ export class StatusPoller {
         this.reviveGaveUp.delete(id);
         // Blocked-pane backstop (#2375): episode + re-ask stamp for a session nobody tracks.
         this.blockBackstop?.forget(id);
+        // Background-shell flag: emit the clear so a client holding it doesn't keep it forever.
+        this.clearBackgroundBusy(id);
+        this.bgCapped.delete(id);
       }
     }
     // Phase-1 (issue #704): drop the HookIngest ring buffers for dead sessions too

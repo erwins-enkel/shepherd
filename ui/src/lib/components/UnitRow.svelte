@@ -46,6 +46,7 @@
   import { reviews, planGates } from "$lib/reviews.svelte";
   import { toasts } from "$lib/toasts.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
+  import { openBrowserPopout } from "$lib/browserView";
   import { m } from "$lib/paraglide/messages";
   import { formatTokens } from "$lib/format";
   import { formatUnits } from "$lib/components/usage/format";
@@ -623,28 +624,54 @@
   // Gets a distinct inline "agent died — revive" affordance instead of the quiet CardMenu Resume.
   const stranded = $derived(isStrandedLiveness(liveness));
   // One view-model for the inline subline so the template renders a single snippet (no stranded-vs-hold
-  // branch in the row markup): stranded wins, else the parked "why" line + its one-click CTA.
+  // branch in the row markup): stranded wins, else the parked "why" line + its one-click CTA. A Login
+  // Request also gets a Pop out CTA (#2896), opening its Browser View in a new browser tab.
+  type SublineAction = {
+    cls: string;
+    title: string;
+    label: string;
+    run: (e: MouseEvent) => void;
+    disabled: boolean;
+  };
+  const popoutAction = (): SublineAction => ({
+    cls: "hold-cta--popout",
+    title: m.hold_cta_popout_browser_title(),
+    label: m.hold_cta_popout_browser(),
+    run: (e) => {
+      e.stopPropagation();
+      openBrowserPopout(session.id);
+    },
+    disabled: false,
+  });
+  const holdActions = (): SublineAction[] => {
+    const a = holdRow.action;
+    if (!a) return [];
+    const primary: SublineAction = {
+      cls: `hold-cta--${a.kind}`,
+      title: a.title,
+      label: ctaLabel,
+      run: onHoldCta,
+      disabled: ctaBusy,
+    };
+    return a.kind === "browser" ? [primary, popoutAction()] : [primary];
+  };
   const sublineView = $derived(
     stranded
       ? {
           line: m.stranded_agent_died(),
-          cls: "hold-cta--resume",
-          title: m.stranded_revive_title(),
-          label: m.stranded_revive(),
-          run: reviveStrandedRow,
-          hasAction: true,
+          actions: [
+            {
+              cls: "hold-cta--resume",
+              title: m.stranded_revive_title(),
+              label: m.stranded_revive(),
+              run: reviveStrandedRow,
+              disabled: ctaBusy,
+            },
+          ],
           stranded: true,
         }
       : holdRow.line
-        ? {
-            line: holdRow.line,
-            cls: holdRow.action ? `hold-cta--${holdRow.action.kind}` : "",
-            title: holdRow.action?.title ?? "",
-            label: ctaLabel,
-            run: onHoldCta,
-            hasAction: !!holdRow.action,
-            stranded: false,
-          }
+        ? { line: holdRow.line, actions: holdActions(), stranded: false }
         : null,
   );
   // Cold-resume marker (#2042). The Herd is where the operator PICKS which session to resume, so
@@ -892,15 +919,15 @@
   {#if sublineView}
     <div class="u-hold" class:u-stranded={sublineView.stranded}>
       <span class="u-hold-text">{sublineView.line}</span>
-      {#if sublineView.hasAction}
+      {#each sublineView.actions as a (a.cls)}
         <button
           type="button"
-          class="hold-cta {sublineView.cls}"
-          title={sublineView.title}
-          disabled={ctaBusy}
-          onclick={sublineView.run}>{sublineView.label}</button
+          class="hold-cta {a.cls}"
+          title={a.title}
+          disabled={a.disabled}
+          onclick={a.run}>{a.label}</button
         >
-      {/if}
+      {/each}
     </div>
   {/if}
 {/snippet}

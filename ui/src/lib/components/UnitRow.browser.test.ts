@@ -1266,6 +1266,36 @@ describe("UnitRow open-browser CTA (login request, #2882)", () => {
     expect(opened).toBe("lr1");
     expect(selects).toBe(0);
   });
+
+  it("offers Pop out beside Open browser, opening the pop-out tab (#2896)", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    let selects = 0;
+    try {
+      render(UnitRow, {
+        session: session({ id: "lr2", planPhase: "executing", status: "running" }),
+        selected: false,
+        nowMs: Date.now(),
+        onselect: () => selects++,
+        hold: { code: "login-request", params: { host: "a.example" } },
+      });
+      await page.getByTitle(m.hold_cta_popout_browser_title()).click();
+      expect(open).toHaveBeenCalledWith("/browser/lr2", "_blank", "noopener,noreferrer");
+      expect(selects).toBe(0);
+    } finally {
+      open.mockRestore();
+    }
+  });
+
+  it("shows no Pop out for other holds", async () => {
+    render(UnitRow, {
+      session: session({ id: "lr3", planPhase: "executing", status: "running" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      hold: { code: "ci-red", params: { pr: 9 } },
+    });
+    expect(page.getByTitle(m.hold_cta_popout_browser_title()).elements()).toHaveLength(0);
+  });
 });
 
 describe("UnitRow manual-steps chip", () => {

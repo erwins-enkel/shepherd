@@ -159,3 +159,47 @@ test("browser view: attaches to the repo's browser and relays the typed protocol
     server.stop(true);
   }
 });
+
+test("browser view: a newer view on the same session takes over; closing releases it", async () => {
+  const server = serve(deps, 0);
+  const headers = bearer("full", [repo]);
+  const open = () =>
+    new WebSocket(`ws://127.0.0.1:${server.port}/browser-view/${sessionId}`, {
+      headers,
+    } as never);
+  const until = async (pred: () => boolean) => {
+    for (let i = 0; i < 200 && !pred(); i++) await Bun.sleep(5);
+    expect(pred()).toBe(true);
+  };
+  const first = open();
+  let second: WebSocket | null = null;
+  let third: WebSocket | null = null;
+  try {
+    await new Promise((r) => first.addEventListener("open", r, { once: true }));
+    await until(() => attaches.length === 1);
+    const firstClosed = new Promise<{ code: number; reason: string }>((r) =>
+      first.addEventListener("close", (e) => r({ code: e.code, reason: e.reason })),
+    );
+    second = open();
+    expect(await firstClosed).toEqual({ code: 4000, reason: "taken over" });
+    await until(() => attaches.length === 2 && attaches[0]!.detached === 1);
+    expect(attaches[1]!.detached).toBe(0);
+
+    // The first view's late close must not evict the second: a third still takes over from it.
+    const secondClosed = new Promise<number>((r) =>
+      second!.addEventListener("close", (e) => r(e.code)),
+    );
+    third = open();
+    expect(await secondClosed).toBe(4000);
+    await until(() => attaches.length === 3 && attaches[1]!.detached === 1);
+
+    // Closing the remaining view (e.g. the pop-out tab) releases its browser session.
+    third.close();
+    await until(() => attaches[2]!.detached === 1);
+  } finally {
+    first.close();
+    second?.close();
+    third?.close();
+    server.stop(true);
+  }
+});

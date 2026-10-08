@@ -168,6 +168,36 @@ describe("BrowserPanel", () => {
     await expect.element(page.getByText(/connecting/i)).toBeVisible();
   });
 
+  it("taken over by a newer view: says so and View here reconnects (#2896)", async () => {
+    render(BrowserPanel, { session, makeWs });
+    const first = FakeWs.last;
+    first.push(targets());
+    first.onclose?.({ code: 4000, reason: "taken over" });
+    await expect.element(page.getByText(/open in another tab or window/i)).toBeVisible();
+    await page.getByRole("button", { name: /view here/i }).click();
+    expect(FakeWs.last).not.toBe(first);
+    expect(FakeWs.last.path).toBe("/browser-view/s1");
+  });
+
+  it("Pop out opens the session's pop-out page in a new tab without an opener (#2896)", async () => {
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    try {
+      render(BrowserPanel, { session, makeWs });
+      FakeWs.last.push(targets());
+      await page.getByRole("button", { name: /pop out/i }).click();
+      expect(open).toHaveBeenCalledWith("/browser/s1", "_blank", "noopener,noreferrer");
+    } finally {
+      open.mockRestore();
+    }
+  });
+
+  it("as the pop-out page itself, hides Pop out (#2896)", async () => {
+    render(BrowserPanel, { session, makeWs, popout: true });
+    FakeWs.last.push(targets());
+    await expect.element(page.getByRole("button", { name: /reload/i })).toBeVisible();
+    expect(page.getByRole("button", { name: /pop out/i }).elements()).toHaveLength(0);
+  });
+
   it("shows an open login request as plain text and sends Done / Cancel (#2882)", async () => {
     const loginRequest = {
       id: "r1",

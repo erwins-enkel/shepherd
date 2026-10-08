@@ -126,6 +126,8 @@ function harness(opts: {
   prRecheckTimeoutMs?: number;
   /** Tool-use evidence since the last nudge (the toolUseSince dep); omit to leave the dep unset. */
   toolUseSince?: () => boolean | null;
+  /** The isBackgroundBusy dep (resting with a background shell still running); omit = unset. */
+  backgroundBusy?: () => boolean;
 }) {
   let cur = opts.session;
   let prOpen = opts.openPr ?? false;
@@ -234,6 +236,7 @@ function harness(opts: {
     onState: (id) => events.push({ state: id }),
     stepCap: 10,
     toolUseSince: opts.toolUseSince,
+    isBackgroundBusy: opts.backgroundBusy,
     rebaseCap: opts.rebaseCap ?? 5,
     now: () => opts.now ?? 0,
   });
@@ -457,6 +460,28 @@ test("complete verdict with empty summary → COMPLETE_MESSAGE fallback", async 
   const ev = h.events.find((e) => "complete" in e);
   expect(ev.summary).toContain("task complete");
   expect(h.state().autopilotComplete).toBe(true);
+});
+
+test("onDone while background-busy → refreshPr kicked, no classify, no steer", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    verdict: { kind: "finished", summary: "done" },
+    backgroundBusy: () => true,
+  });
+  await h.svc.onDone("s1");
+  expect(h.classifyCount()).toBe(0);
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.events).toContainEqual({ refreshPr: "s1" });
+});
+
+test("onDone once the background shell is gone → classifies as usual", async () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    verdict: { kind: "finished", summary: "done" },
+    backgroundBusy: () => false,
+  });
+  await h.svc.onDone("s1");
+  expect(h.classifyCount()).toBe(1);
 });
 
 test("already complete → no re-classify (terminal)", async () => {
@@ -1026,6 +1051,19 @@ test("real-trigger regression: repeated tick() re-engages an idle red PR, then c
 
 test("idle gate: tick() does not steer a running session", () => {
   const h = stuckRed({ status: "running" });
+  h.svc.tick();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.state().autopilotStepCount).toBe(0);
+});
+
+test("idle gate: tick() does not steer a background-busy resting session", () => {
+  const h = harness({
+    session: sess({ status: "done" }),
+    repoEnabled: true,
+    fullAuto: true,
+    prGit: git(),
+    backgroundBusy: () => true,
+  });
   h.svc.tick();
   expect(h.events.some((e) => "steer" in e)).toBe(false);
   expect(h.state().autopilotStepCount).toBe(0);
@@ -2378,6 +2416,26 @@ test("fast path: a running session is not steered", async () => {
   h.svc.onGit("s1", dirtyGit());
   await flush();
   expect(h.events.some((e) => "steer" in e)).toBe(false);
+});
+
+test("fast path: a background-busy resting session is not steered", async () => {
+  const h = fastPath({ backgroundBusy: () => true });
+  h.svc.onGit("s1", dirtyGit());
+  await flush();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+});
+
+test("fast path: turning background-busy inside the capacity wait → no steer, head released", async () => {
+  let bg = false;
+  const h = fastPath({ capacity: async () => true, backgroundBusy: () => bg });
+  h.svc.onGit("s1", dirtyGit());
+  bg = true; // a background `git push` started before capacity resolved
+  await flush();
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  bg = false;
+  h.svc.onGit("s1", dirtyGit()); // same head steers once the shell is gone
+  await flush();
+  expect(CONFLICT_STEER(h)).toBe(true);
 });
 
 test("fast path: a full-auto session is not steered (the train owns it)", async () => {

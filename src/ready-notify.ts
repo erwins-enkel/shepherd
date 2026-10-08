@@ -40,6 +40,7 @@ export const READY_WARMUP_MS = 15000;
 export interface ReadyNotifierDeps {
   listSessions: () => Session[]; // store.list({ activeOnly: true })
   workingBlocked: () => Record<string, boolean>; // poller.workingBlockedSnapshot()
+  backgroundBusy: () => Record<string, boolean>; // poller.backgroundBusySnapshot()
   gitSnapshot: () => Record<string, GitState>; // prPoller.snapshot()
   reviewingIds: () => string[]; // critic UNION plan-gate ids
   notify: (input: NotifyInput) => Promise<boolean>; // push.notify
@@ -53,8 +54,15 @@ export interface ReadyNotifierDeps {
     git: GitState | undefined,
     isReviewing: (id: string) => boolean,
     workingBlocked: Record<string, boolean>,
+    backgroundBusy: Record<string, boolean>,
     now: number,
   ) => boolean; // default isReadyForNotify
+}
+
+/** One tick's display-status flag snapshots (working-while-blocked, background-busy). */
+interface DisplayFlags {
+  wb: Record<string, boolean>;
+  bg: Record<string, boolean>;
 }
 
 interface DwellEntry {
@@ -104,7 +112,10 @@ export class ReadyNotifier {
 
       const now = this.now();
       const sessions = this.deps.listSessions();
-      const wb = this.deps.workingBlocked();
+      const flags: DisplayFlags = {
+        wb: this.deps.workingBlocked(),
+        bg: this.deps.backgroundBusy(),
+      };
       const git = this.deps.gitSnapshot();
       const reviewing = new Set(this.deps.reviewingIds());
       const isReviewing = (id: string) => reviewing.has(id);
@@ -114,14 +125,14 @@ export class ReadyNotifier {
       // Seed on arm (off→on transition / first armed tick): mark currently-ready
       // sessions as already-notified and fire nothing this tick.
       if (!this.armed) {
-        this.seedOnArm(sessions, git, isReviewing, wb, now);
+        this.seedOnArm(sessions, git, isReviewing, flags, now);
         return;
       }
 
       // Normal evaluation. Sequential awaits (no Promise.all) so `ticking` genuinely
       // serializes I/O; fine for the session counts involved.
       for (const s of sessions) {
-        await this.evaluateSession(s, git, isReviewing, wb, now);
+        await this.evaluateSession(s, git, isReviewing, flags, now);
       }
     } finally {
       this.ticking = false;
@@ -149,12 +160,12 @@ export class ReadyNotifier {
     sessions: Session[],
     git: Record<string, GitState>,
     isReviewing: (id: string) => boolean,
-    wb: Record<string, boolean>,
+    flags: DisplayFlags,
     now: number,
   ): void {
     this.armed = true;
     for (const s of sessions) {
-      if (this.isReady(s, git[s.id], isReviewing, wb, now)) {
+      if (this.isReady(s, git[s.id], isReviewing, flags.wb, flags.bg, now)) {
         this.dwell.set(s.id, { since: now, notified: true });
       }
     }
@@ -165,10 +176,10 @@ export class ReadyNotifier {
     s: Session,
     git: Record<string, GitState>,
     isReviewing: (id: string) => boolean,
-    wb: Record<string, boolean>,
+    flags: DisplayFlags,
     now: number,
   ): Promise<void> {
-    const ready = this.isReady(s, git[s.id], isReviewing, wb, now);
+    const ready = this.isReady(s, git[s.id], isReviewing, flags.wb, flags.bg, now);
     const entry = this.dwell.get(s.id);
     if (!ready) {
       if (entry) this.dwell.delete(s.id); // resets dwell + notified

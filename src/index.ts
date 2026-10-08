@@ -2220,6 +2220,7 @@ attachMergePush(events, push);
 const readyNotifier = new ReadyNotifier({
   listSessions: () => store.list({ activeOnly: true }),
   workingBlocked: () => poller.workingBlockedSnapshot(),
+  backgroundBusy: () => poller.backgroundBusySnapshot(),
   gitSnapshot: () => prPoller.snapshot(),
   reviewingIds: () => [...reviewService.reviewingIds(), ...planGate.reviewingIds()],
   notify: (input) => push.notify(input),
@@ -2326,6 +2327,7 @@ const turnEndBackstop = new TurnEndBackstopService({
   // Same helper attachPush() uses on the real edge, so the recovered push is the one the operator
   // missed (same kind/tag/cooldown key) rather than a second, separate notification.
   notifyDone: (id) => notifySessionDone(push, store, id),
+  isBackgroundBusy: (id) => poller.isBackgroundBusy(id),
 });
 // Fast path for the plan gate's first review: herdr's `done` edge no longer arrives in practice (every
 // review was waiting on the backstop above), but Claude's `Stop` hook does. A short quiet dwell,
@@ -2629,6 +2631,7 @@ const autopilot = new AutopilotService({
     return !!s && isFullAuto(s, store.getRepoConfig(s.repoPath));
   },
   getReview: (id) => store.getReview(id),
+  isBackgroundBusy: (id) => poller.isBackgroundBusy(id),
   refreshPr: (id) => prPoller.pollSession(id),
   pollPrNow: (id) => prPoller.pollNow(id),
   onPause: (id, question) => {

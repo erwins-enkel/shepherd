@@ -224,6 +224,11 @@ export interface AutopilotDeps {
   /** The latest critic verdict for a session, or null (store.getReview). Read by the post-PR
    *  rebase re-engagement to gate on a clean critic sign-off before steering a rebase. */
   getReview: (id: string) => ReviewVerdict | null;
+  /** True while the session rests (idle/done) but its claude still runs a non-server background
+   *  shell (e.g. `git push` running pre-push gates) — StatusPoller.isBackgroundBusy. Every steer
+   *  path treats it like running: the agent will resume on its own when the shell exits.
+   *  Omitted → never busy. */
+  isBackgroundBusy?: (id: string) => boolean;
   /** Kick a fresh PR-status poll (best-effort, fire-and-forget). Called when a session settles
    *  so the `hasPr` snapshot — which otherwise lags on a ~120s cadence — catches a PR the
    *  agent just opened before autopilot redundantly steers it to open one. */
@@ -309,6 +314,7 @@ export class AutopilotService {
   private rebaseCap: number;
   private prRecheckTimeoutMs: number;
   private now: () => number;
+  private isBackgroundBusy: (id: string) => boolean;
 
   constructor(private deps: AutopilotDeps) {
     this.stepCap = deps.stepCap ?? DEFAULT_STEP_CAP;
@@ -316,6 +322,13 @@ export class AutopilotService {
     this.rebaseCap = deps.rebaseCap ?? DEFAULT_REBASE_CAP;
     this.prRecheckTimeoutMs = deps.prRecheckTimeoutMs ?? PR_RECHECK_TIMEOUT_MS;
     this.now = deps.now ?? Date.now;
+    this.isBackgroundBusy = deps.isBackgroundBusy ?? (() => false);
+  }
+
+  /** The agent is working — never steer it: running/blocked, or resting with a background shell
+   *  still running (it re-engages itself when the shell exits). */
+  private working(s: Pick<Session, "id" | "status">): boolean {
+    return s.status === "running" || s.status === "blocked" || this.isBackgroundBusy(s.id);
   }
 
   /** Resolve a session's effective autopilot opt-in: override wins; null inherits the repo. */
@@ -605,6 +618,11 @@ export class AutopilotService {
     // Not load-bearing: the judge classifier can beat this debounced poll, so the open-a-PR
     // steer itself awaits a fresh poll first (handleFinished → recheckNoPr).
     this.deps.refreshPr?.(id);
+    // A background shell (e.g. `git push` running pre-push gates) is still running: the turn
+    // isn't really over — claude re-engages when it exits, producing a fresh done edge. Don't
+    // classify or steer a stop that hasn't happened. After the refreshPr kick (harmless, and a PR
+    // opened earlier in the turn should still land in the snapshot).
+    if (this.isBackgroundBusy(id)) return;
     // Stuck-red full-auto: re-engage the CI-fix loop and stand down BEFORE classifying. The LLM
     // classifier could otherwise mark this idle red session complete/finished (silencing it AND
     // making the tick skip it, since complete/paused sessions are ineligible). Lower latency than
@@ -752,7 +770,7 @@ export class AutopilotService {
    *  head stays recorded only when it actually acted, so a declined head can still steer later. */
   private nudgeConflict(s: Session, git: GitState): void {
     if (!isDefiniteConflict(git) || !git.headSha) return;
-    if (s.status === "running" || s.status === "blocked") return;
+    if (this.working(s)) return;
     if (this.conflictNudged.get(s.id) === git.headSha) return;
     // Eligibility BEFORE capacity, like tick()'s hasReengagementWork: the codex capacity gate
     // records demand + a resumable intent, so a paused / complete / full-auto / declined session
@@ -764,7 +782,7 @@ export class AutopilotService {
     this.conflictNudged.set(s.id, head);
     const act = () => {
       const cur = this.deps.store.get(s.id);
-      const busy = !cur || cur.status === "running" || cur.status === "blocked";
+      const busy = !cur || this.working(cur);
       if (busy || !this.reEngageRebase(s.id)) this.conflictNudged.delete(s.id);
     };
     if (!this.deps.capacity) act();
@@ -909,7 +927,7 @@ export class AutopilotService {
     }
     // Count the attempt toward the cap regardless of whether the steer lands, so a
     // dead/unresumable pane still marches to the cap → guaranteed clean hand-back.
-    // The only "agent is working" guard is the caller's status filter (tick's running/blocked
+    // The only "agent is working" guard is the caller's status filter (tick's working()
     // skip). A steer takes a moment to flip the agent to "running", so a tick (or an onDone
     // racing a just-fired considerCi steer) inside that gap can re-bump the same idle head: the
     // step budget can burn slightly faster than one attempt per idle episode. That's harmless
@@ -1033,8 +1051,8 @@ export class AutopilotService {
    *  timestamp self-releases instead — the train refreshes it on every re-steer while it stays
    *  eligible, and it goes stale the moment the train stops.
    *
-   *  The `busy` arm covers the gap in between: the train's own busy gate silences it for the whole
-   *  resolution, which can outlast OWNERSHIP_TTL_MS, and considerCi (event-driven) has no busy
+   *  The working arm (running/blocked/background-busy) covers the gap in between: the train's own
+   *  busy gate silences it for the whole resolution, which can outlast OWNERSHIP_TTL_MS, and considerCi (event-driven) has no busy
    *  gate of its own. Without it a long resolution takes a CI_FIX_STEER mid-work. */
   private ownedByRebaser(s: Session, git: GitState): boolean {
     const conflict = isDefiniteConflict(git);
@@ -1042,8 +1060,7 @@ export class AutopilotService {
     const at = s.autoMergeRebaseSteeredAt;
     const trainSteeredHead = trainSteeredThisHead(s, git) && at != null;
     if (!conflict && !trainSteeredHead) return false;
-    const busy = s.status === "running" || s.status === "blocked";
-    if (busy) return true;
+    if (this.working(s)) return true;
     return at != null && this.now() - at < OWNERSHIP_TTL_MS;
   }
 
@@ -1117,7 +1134,7 @@ export class AutopilotService {
    *  non-mergeable PR (reEngageRebase). A timer fires regardless of events, so it is the one
    *  trigger that reliably re-fires while an agent idles on an UNCHANGED head — the case
    *  onGit/considerCi provably cannot reach. Only the idle filter lives here (status done/idle,
-   *  i.e. NOT running/blocked — mirrors the active grouping at poller.ts:314); all
+   *  i.e. NOT working() — mirrors the active grouping at poller.ts:314); all
    *  eligibility/red/full-auto checks live inside the re-engage helpers. The two are disjoint by
    *  the full-auto gate (reEngageCi acts only on full-auto, reEngageRebase only on non-full-auto),
    *  so the guard just avoids a redundant second call when the first already owned the session. */
@@ -1144,7 +1161,7 @@ export class AutopilotService {
   async tick(): Promise<void> {
     for (const s of this.deps.store.list()) {
       if (s.status === "archived") continue;
-      if (s.status === "running" || s.status === "blocked") continue; // working — don't interrupt
+      if (this.working(s)) continue; // working (incl. a background shell) — don't interrupt
       if (this.deps.capacity && this.hasReengagementWork(s) && !(await this.deps.capacity(s)))
         continue;
       if (!this.reEngageCi(s.id)) this.reEngageRebase(s.id);

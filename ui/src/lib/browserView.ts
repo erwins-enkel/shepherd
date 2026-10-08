@@ -2,7 +2,7 @@
  * Browser View client (#2881): the socket to `/browser-view/<sessionId>` plus the pure input
  * mapping the panel uses. The server owns CDP — this side only speaks its small typed protocol
  * (see src/browser-view.ts): `targets` / `frame` / `error` in; `select`, `frameAck`, `mouse`,
- * `key`, `text`, `navigate`, `reload` out.
+ * `key`, `text`, `navigate`, `reload`, `viewport` out.
  */
 import { wsUrl } from "./store.svelte";
 
@@ -45,12 +45,16 @@ export type BrowserViewMessage =
     }
   | { type: "text"; text: string }
   | { type: "navigate"; url: string }
-  | { type: "reload" };
+  | { type: "reload" }
+  /** The panel's CSS size + DPR: the server lays the page out at it, so frames render ~1:1. */
+  | { type: "viewport"; width: number; height: number; dpr: number };
 
 export interface BrowserViewHandlers {
   onTargets(targets: BrowserViewTarget[], selected: string | null): void;
   onFrame(frame: BrowserViewFrame): void;
   onError(message: string): void;
+  /** The socket opened: messages sent before this were dropped, so resend state (viewport). */
+  onOpen?(): void;
   /** The socket closed (any reason); the panel offers a manual reconnect. */
   onClose(code: number, reason: string): void;
 }
@@ -67,6 +71,7 @@ export function connectBrowserView(
 ): BrowserViewConn {
   const ws = makeWs(`/browser-view/${encodeURIComponent(sessionId)}`);
   let closed = false;
+  ws.onopen = () => handlers.onOpen?.();
   ws.onmessage = (e) => {
     let msg: Record<string, unknown>;
     try {

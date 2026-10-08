@@ -33,6 +33,7 @@
 
   const CLOSE_TRY_AGAIN = 1013;
   const DOUBLE_CLICK_MS = 500;
+  const VIEWPORT_DEBOUNCE_MS = 150;
 
   let conn: BrowserViewConn | null = null;
   let targets = $state<BrowserViewTarget[]>([]);
@@ -90,6 +91,9 @@
         onError(message) {
           error = message;
         },
+        onOpen() {
+          if (lastViewport) c.send({ type: "viewport", ...lastViewport });
+        },
         onClose(code, reason) {
           if (code === CLOSE_TRY_AGAIN || reason === "cap") closed = "cap";
           else if (reason === "browser stopped" || reason === "browser exited") closed = "stopped";
@@ -106,6 +110,40 @@
   });
 
   const send = (msg: BrowserViewMessage) => conn?.send(msg);
+
+  // The page is laid out at the surface's CSS size (#2895), so frames render ~1:1 instead of a
+  // small host window blown up to fill the panel. Sent on settle, and again on every (re)connect.
+  let lastViewport: { width: number; height: number; dpr: number } | null = null;
+  $effect(() => {
+    const el = surfaceEl;
+    if (!el) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const ro = new ResizeObserver(([entry]) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        const next = {
+          width: Math.round(entry.contentRect.width),
+          height: Math.round(entry.contentRect.height),
+          dpr: window.devicePixelRatio || 1,
+        };
+        const prev = lastViewport;
+        if (
+          prev &&
+          prev.width === next.width &&
+          prev.height === next.height &&
+          prev.dpr === next.dpr
+        )
+          return;
+        lastViewport = next;
+        send({ type: "viewport", ...next });
+      }, VIEWPORT_DEBOUNCE_MS);
+    });
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      clearTimeout(timer);
+    };
+  });
 
   // Ack only once the frame is painted: the server sends the next one after the ack, so a slow
   // link backs off instead of queueing frames.

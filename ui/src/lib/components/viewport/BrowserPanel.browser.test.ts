@@ -25,6 +25,7 @@ class FakeWs {
   static last: FakeWs;
   readyState = 1;
   sent: Record<string, unknown>[] = [];
+  onopen: (() => void) | null = null;
   onmessage: ((e: { data: string }) => void) | null = null;
   onclose: ((e: { code: number; reason: string }) => void) | null = null;
   constructor(public path: string) {
@@ -181,6 +182,34 @@ describe("BrowserPanel", () => {
     expect(resolveLoginRequest).toHaveBeenCalledWith("s1", "done");
     await userEvent.click(page.getByRole("button", { name: /^cancel$/i }));
     expect(resolveLoginRequest).toHaveBeenLastCalledWith("s1", "cancelled");
+  });
+
+  it("sends the surface's CSS size + DPR once settled, debounced across a resize burst (#2895)", async () => {
+    render(BrowserPanel, { session, makeWs });
+    const ws = FakeWs.last;
+    const host = document.querySelector(".bv")!.parentElement!;
+    host.style.cssText = "position: relative; width: 640px; height: 480px";
+    const surface = document.querySelector<HTMLElement>(".bv-surface")!;
+    const size = () => ({
+      type: "viewport",
+      width: Math.round(surface.getBoundingClientRect().width),
+      height: Math.round(surface.getBoundingClientRect().height),
+      dpr: window.devicePixelRatio,
+    });
+    await vi.waitFor(() => expect(ws.sentOf("viewport").at(-1)).toEqual(size()));
+    expect(size().width).toBe(640);
+    const before = ws.sentOf("viewport").length;
+    for (const w of [500, 520, 540]) {
+      host.style.width = `${w}px`;
+      await new Promise((r) => requestAnimationFrame(r));
+    }
+    await vi.waitFor(() => expect(ws.sentOf("viewport")).toHaveLength(before + 1));
+    expect(ws.sentOf("viewport").at(-1)).toEqual(size());
+    expect(size().width).toBe(540);
+    // A reconnecting socket gets the last size again (sends before open are dropped).
+    ws.onopen?.();
+    expect(ws.sentOf("viewport")).toHaveLength(before + 2);
+    expect(ws.sentOf("viewport").at(-1)).toEqual(size());
   });
 
   it("shows no login banner without a request", async () => {

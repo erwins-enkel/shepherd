@@ -5,6 +5,7 @@ import {
   gateBrowserView,
   inputCommand,
   openBrowserView,
+  viewportOverride,
 } from "../src/browser-view";
 
 type Json = Record<string, any>;
@@ -297,6 +298,82 @@ test("broker detaching the child (tab left the web) deselects", () => {
   const h = attached();
   h.event("Target.detachedFromTarget", { sessionId: "C1" });
   expect(h.lastTargets()!.selected).toBeNull();
+});
+
+const VIEWPORT = { type: "viewport", width: 800.4, height: 600, dpr: 2 };
+const OVERRIDE = { width: 800, height: 600, deviceScaleFactor: 2, mobile: false };
+
+test("viewportOverride: rounds sizes, rejects out-of-range or non-numeric values", () => {
+  expect(viewportOverride(VIEWPORT)).toEqual(OVERRIDE);
+  for (const bad of [
+    { width: 0, height: 0, dpr: 1 },
+    { width: 800, height: 99, dpr: 1 },
+    { width: 10_001, height: 600, dpr: 1 },
+    { width: 800, height: 600, dpr: 10 },
+    { width: 800, height: 600, dpr: 0.1 },
+    { width: Number.NaN, height: 600, dpr: 1 },
+    { width: "800", height: 600, dpr: 1 },
+    { width: 800, height: 600 },
+  ])
+    expect(viewportOverride(bad)).toBeNull();
+});
+
+test("viewport sent before attach is applied on attach, before the screencast starts", () => {
+  const h = harness();
+  h.ui(VIEWPORT); // the socket opened before the pipe client resolved
+  h.view.start(h.client);
+  h.reply("Target.getTargets", { targetInfos: [page("T1")] });
+  expect(h.sent("Emulation.setDeviceMetricsOverride")).toEqual([]);
+  h.reply("Target.attachToTarget", { sessionId: "C1" });
+  const methods = h.toCdp.filter((m) => m.sessionId === "C1").map((m) => m.method);
+  expect(methods).toEqual([
+    "Page.enable",
+    "Emulation.setDeviceMetricsOverride",
+    "Page.startScreencast",
+  ]);
+  expect(h.sent("Emulation.setDeviceMetricsOverride")[0]!.params).toEqual(OVERRIDE);
+});
+
+test("viewport while attached applies immediately; invalid sizes send nothing", () => {
+  const h = attached();
+  h.ui({ type: "viewport", width: 0, height: 0, dpr: 1 }); // hidden panel
+  expect(h.sent("Emulation.setDeviceMetricsOverride")).toEqual([]);
+  h.ui(VIEWPORT);
+  const [o] = h.sent("Emulation.setDeviceMetricsOverride");
+  expect(o).toMatchObject({ sessionId: "C1", params: OVERRIDE });
+});
+
+test("viewport with no tab attached is kept, not sent", () => {
+  const h = harness();
+  h.view.start(h.client);
+  h.reply("Target.getTargets", { targetInfos: [] });
+  h.ui(VIEWPORT);
+  expect(h.sent("Emulation.setDeviceMetricsOverride")).toEqual([]);
+});
+
+test("switching tabs clears the old tab's override before detaching, then reapplies", () => {
+  const h = attached();
+  h.ui(VIEWPORT);
+  h.ui({ type: "select", targetId: "T2" });
+  const clear = h.toCdp.findIndex((m) => m.method === "Emulation.clearDeviceMetricsOverride");
+  const detach = h.toCdp.findIndex((m) => m.method === "Target.detachFromTarget");
+  expect(h.toCdp[clear]!.sessionId).toBe("C1");
+  expect(clear).toBeLessThan(detach);
+  h.reply("Target.attachToTarget", { sessionId: "C2" }, 1);
+  expect(h.sent("Emulation.setDeviceMetricsOverride").at(-1)).toMatchObject({
+    sessionId: "C2",
+    params: OVERRIDE,
+  });
+});
+
+test("close() clears the override on the attached tab before detaching", () => {
+  const h = attached();
+  h.ui(VIEWPORT);
+  h.view.close();
+  expect(h.sent("Emulation.clearDeviceMetricsOverride")).toEqual([
+    expect.objectContaining({ sessionId: "C1" }),
+  ]);
+  expect(h.detached()).toBe(1);
 });
 
 test("invalid JSON closes the view with 1003; close() detaches once", () => {

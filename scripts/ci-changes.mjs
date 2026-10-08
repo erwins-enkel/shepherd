@@ -10,7 +10,8 @@
 // package lines. Pushes to main always run everything — with `strict: false` that run is
 // the only check on the merged tree, and it catches a wrong rule minutes after merge.
 //
-// Plain .mjs so the job needs only the runner's node, no Bun setup or install.
+// Plain .mjs so the job needs only the runner's node, no Bun setup or install. The pre-push
+// hook (scripts/pre-push.ts) imports it too, so a docs-only push skips the same lanes locally.
 
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
@@ -79,6 +80,16 @@ export function formatOutputs(r) {
   return ["test", "site", "cli", "docs_site"].map((k) => `${k}=${r[k]}\n`).join("");
 }
 
+/** Every path HEAD changes since its merge base with `base` — the list `classify` reads. */
+export function changedPaths(base) {
+  // --no-renames lists a move as delete + add, so a src/ → docs/ move still runs tests;
+  // -z keeps non-ASCII paths unquoted.
+  const out = execFileSync("git", ["diff", "--name-only", "--no-renames", "-z", `${base}...HEAD`], {
+    encoding: "utf8",
+  });
+  return out.split("\0").filter(Boolean);
+}
+
 // CLI: EVENT_NAME + BASE_REF from the workflow; needs a full-history checkout.
 if (import.meta.url === `file://${process.argv[1]}`) {
   const event = process.env.EVENT_NAME ?? "";
@@ -86,14 +97,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   if (event === "pull_request") {
     const base = process.env.BASE_REF;
     if (!base) throw new Error("BASE_REF is required on pull_request");
-    // --no-renames lists a move as delete + add, so a src/ → docs/ move still runs tests;
-    // -z keeps non-ASCII paths unquoted.
-    const out = execFileSync(
-      "git",
-      ["diff", "--name-only", "--no-renames", "-z", `origin/${base}...HEAD`],
-      { encoding: "utf8" },
-    );
-    files = out.split("\0").filter(Boolean);
+    files = changedPaths(`origin/${base}`);
   }
   const result = classify(files, { event });
   process.stdout.write(

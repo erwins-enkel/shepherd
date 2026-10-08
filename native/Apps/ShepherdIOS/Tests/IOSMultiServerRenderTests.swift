@@ -34,10 +34,7 @@ final class IOSMultiServerRenderTests: XCTestCase {
             fixtureSessions[profile.id] = sessions
             IOSMultiServerFixtureTransport.set(sessions, for: profile.baseURL)
             await hub.connect(profile)
-            try await hub.models[profile.id]?.store?.bootstrap()
-            let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-            while hub.models[profile.id]?.store?.sessions.count != sessions.count, ContinuousClock.now < deadline { await Task.yield() }
-            XCTAssertEqual(hub.models[profile.id]?.store?.sessions.count, sessions.count)
+            try await loadFixtures(hub, profile, expecting: sessions.count)
         }
         let app = try XCTUnwrap(hub.models[studio.id])
         let sidebar = try XCTUnwrap(app.extension(SidebarModel.self))
@@ -72,6 +69,24 @@ final class IOSMultiServerRenderTests: XCTestCase {
             .environment(\.horizontalSizeClass, .compact).preferredColorScheme(.dark), name: "sessions-one-server")
         try await saveHosted(NavigationStack { ServerListView().environment(hub.catalogue).environment(hub) }
             .preferredColorScheme(.dark), name: "servers-connected-disconnected")
+    }
+
+    /// The store's own runner also bootstraps, and a newer refresh makes an older one return
+    /// without installing its snapshot — so re-drive refresh until the fixture rows land.
+    private func loadFixtures(_ hub: IOSServerHub, _ profile: ServerProfile, expecting count: Int) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(60))
+        while ContinuousClock.now < deadline {
+            if let store = hub.models[profile.id]?.store {
+                try? await store.refresh()
+                if store.hasLoadedSessions, store.sessions.count == count { return }
+            }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        let store = hub.models[profile.id]?.store
+        XCTAssertEqual(store?.sessions.count, count, """
+            \(profile.name): store=\(store == nil ? "nil" : "present") \
+            connection=\(String(describing: store?.connection)) lastError=\(String(describing: store?.lastError))
+            """)
     }
 
     /// List is UIKit-backed. Capture the production hierarchy in a private test window,

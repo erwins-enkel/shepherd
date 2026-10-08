@@ -7,6 +7,74 @@ import Testing
 extension CoreSeamTests {
 @MainActor @Suite struct ComposeModelTests {
 
+    private static func providerDiagnostics(claude: String = "ok", codex: String? = "ok") throws -> DiagnosticsSnapshot {
+        var checks = [["id": "claude", "state": claude, "hintKey": "fixture"]]
+        if let codex { checks.append(["id": "codex", "state": codex, "hintKey": "fixture"]) }
+        let data = try JSONSerialization.data(withJSONObject: ["checks": checks, "generatedAt": 0, "overall": "ok"])
+        return try JSONDecoder().decode(DiagnosticsSnapshot.self, from: data)
+    }
+
+    @Test func capacityPreselectionMatchesTheWebDialog() throws {
+        let ready = try Self.providerDiagnostics()
+        #expect(ComposeRunConfig.capacitySuggestedProvider(defaultProvider: .claude, diagnostics: ready, holdLikely: true) == .codex)
+        #expect(ComposeRunConfig.capacitySuggestedProvider(defaultProvider: .claude, diagnostics: ready, holdLikely: false) == .claude)
+        #expect(ComposeRunConfig.capacitySuggestedProvider(defaultProvider: .codex, diagnostics: ready, holdLikely: true) == .codex)
+        #expect(ComposeRunConfig.capacitySuggestedProvider(defaultProvider: .codex, diagnostics: nil, holdLikely: false) == .codex)
+        #expect(ComposeRunConfig.capacitySuggestedProvider(defaultProvider: .claude, diagnostics: nil, holdLikely: true) == .claude)
+        #expect(ComposeRunConfig.capacitySuggestedProvider(defaultProvider: .claude,
+            diagnostics: try Self.providerDiagnostics(codex: nil), holdLikely: true) == .claude)
+        for state in ["optional", "installed", "warning", "error"] {
+            #expect(ComposeRunConfig.capacitySuggestedProvider(defaultProvider: .claude,
+                diagnostics: try Self.providerDiagnostics(claude: state), holdLikely: true) == .claude)
+            #expect(ComposeRunConfig.capacitySuggestedProvider(defaultProvider: .claude,
+                diagnostics: try Self.providerDiagnostics(codex: state), holdLikely: true) == .claude)
+        }
+    }
+
+    @Test func capacityPreselectionUsesTheWebHoldThresholdAndRawWindows() throws {
+        var settings = ShepherdKit.Settings(repoRoot: "/repo", repoRootDisplay: "repo", firstRunPending: false,
+            defaultModel: "opus", defaultEffort: "default", defaultAgentProvider: .claude,
+            authMode: .subscription, operatorLanguage: .en)
+        let ready = try Self.providerDiagnostics()
+        let cases: [(Double?, Double?, Bool, Double, AgentProvider)] = [
+            (79.9, 20, true, 80, .claude), (80, 20, true, 80, .codex), (80.1, 20, true, 80, .codex),
+            (20, 80, true, 80, .codex), (90, 90, false, 80, .claude),
+            (85, 20, true, 90, .claude), (90, 20, true, 90, .codex), (nil, nil, true, 80, .claude)
+        ]
+        for (session, week, enabled, threshold, expected) in cases {
+            settings.usageHoldEnabled = enabled; settings.usageHoldPct = threshold
+            let limits = UsageLimits(session5h: session.map { .init(pct: $0, resetAt: 0) },
+                week: week.map { .init(pct: $0, resetAt: 0) }, perModelWeek: [], credits: nil,
+                stale: true, calibratedAt: nil, subscriptionOnly: false)
+            #expect(ComposeRunConfig.capacitySuggestedProvider(defaultProvider: .claude, diagnostics: ready,
+                holdLikely: ComposeReadiness.holdLikely(limits: limits, settings: settings)) == expected)
+        }
+        settings.usageHoldEnabled = true; settings.usageHoldPct = nil
+        #expect(ComposeReadiness.holdLikely(limits: nil, settings: settings) == false)
+        let observedOnly = try JSONDecoder().decode(UsageLimits.self, from: Data(#"{"session5h":null,"week":null,"perModelWeek":[],"credits":null,"stale":false,"calibratedAt":null,"subscriptionOnly":false,"observed":{"session5h":null,"week":{"pct":100,"resetAt":0,"scrapedAt":0}}}"#.utf8))
+        #expect(ComposeReadiness.holdLikely(limits: observedOnly, settings: settings) == false)
+    }
+
+    @Test func initialProviderSeedsItsModelAndSurvivesSettingsReconciliation() throws {
+        let model = Self.composer(runDefaults: .init(provider: .claude, claudeModel: "opus", codexModel: "gpt-5.5", effort: "max"),
+                                  initialProvider: .codex)
+        defer { model.teardown() }
+        model.repoPath = "/repo"; model.prompt = "Add tests"
+        let request = try #require(model.createRequest(baseBranch: "main"))
+        #expect(request.agentProvider == .codex)
+        #expect(request.model == "gpt-5.5")
+        #expect(request.effort == nil)
+        model.runDefaults = .init(provider: .claude, claudeModel: "sonnet", codexModel: "gpt-6-astra", effort: "ultra")
+        #expect(model.provider == .codex)
+        #expect(model.model == "gpt-6-astra")
+        #expect(model.effort == "ultra")
+        model.selectProviderManually(.claude); model.model = "sonnet"; model.effort = "high"
+        model.runDefaults = .init(provider: .codex, claudeModel: "opus", codexModel: "gpt-5.5")
+        #expect(model.provider == .claude)
+        #expect(model.model == "sonnet")
+        #expect(model.effort == "high")
+    }
+
     @Test func bootstrapDefaultsUpdateUntouchedRunPickers() {
         let model = Self.composer()
         defer { model.teardown() }
@@ -160,14 +228,16 @@ extension CoreSeamTests {
         #expect(model.issueQuery.isEmpty)
     }
 
-    static func composer(attachments: AttachmentModel? = nil, shaping: ShapeRoundModel? = nil) -> ComposeModel {
+    static func composer(attachments: AttachmentModel? = nil, shaping: ShapeRoundModel? = nil,
+                         runDefaults: ComposeRunConfig.Defaults = .init(), initialProvider: AgentProvider? = nil) -> ComposeModel {
         ComposeModel(defaults: UserDefaults(suiteName: "ComposeModeTests.\(UUID())")!,
                      repoBranches: RepoBranchModel(
                         loadBranches: { _ in .init(branches: []) },
                         loadStatus: { _, _ in .init(behind: 0, ahead: 0, diverged: false, hasUpstream: false, localExists: false) },
                         repair: { _, branch in .init(branch: branch) }),
                      loadIssues: { _ in .init(issues: []) }, loadCommands: { _, _ in .init(commands: []) },
-                     loadEpics: { _ in .init(epics: [], subIssues: []) }, attachments: attachments, shaping: shaping)
+                     loadEpics: { _ in .init(epics: [], subIssues: []) }, attachments: attachments, shaping: shaping,
+                     runDefaults: runDefaults, initialProvider: initialProvider)
     }
 
     @Test func uploadReportsPartialBytesAndResetsForANewBatch() async throws {

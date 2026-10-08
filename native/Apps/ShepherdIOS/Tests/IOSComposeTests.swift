@@ -1,5 +1,6 @@
 import XCTest
 import SwiftUI
+import UIKit
 import AVFoundation
 import ShepherdAppCore
 import ShepherdKit
@@ -12,6 +13,134 @@ final class IOSComposeTests: XCTestCase {
         let app = launch.makeModel()
         let (store, model, _, _) = try IOSComposeFixture.make(app: app)
         return (app, store, model)
+    }
+    private func activeFixture(diagnostics: String = IOSMultiServerFixtureTransport.readyDiagnostics) async throws -> (AppModel, SessionStore) {
+        let launch = try IOSLaunchEnvironment(configuration: .init(isIsolated: true))
+        let app = launch.makeModel()
+        app.liveRequestAudit = nil
+        let profile = try app.addRemoteProfile(name: "Composer", address: "https://compose-\(UUID().uuidString).multi.fixture.invalid")
+        URLProtocol.registerClass(IOSMultiServerFixtureTransport.self)
+        IOSMultiServerFixtureTransport.setSettings(#"{"repoRoot":"/fixtures","repoRootDisplay":"/fixtures","firstRunPending":false,"defaultModel":"sonnet","defaultCodexModel":"gpt-6-astra","defaultEffort":"high","defaultAgentProvider":"claude","authMode":"subscription","operatorLanguage":"de","usageHoldEnabled":true,"usageHoldPct":80}"#, for: profile.baseURL)
+        IOSMultiServerFixtureTransport.setDiagnostics(diagnostics, for: profile.baseURL)
+        try launch.credentials.save(.init(token: "fixture-token", tokenId: "fixture"), for: profile.credentialKey)
+        await app.activate(profile)
+        let store = try XCTUnwrap(app.store)
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while !store.hasLoadedSessions, ContinuousClock.now < deadline { await Task.yield() }
+        XCTAssertTrue(store.hasLoadedSessions)
+        let recovery = try XCTUnwrap(app.extension(BackendRecoveryModel.self))
+        await recovery.refresh()
+        store.apply(.usageLimits(.init(session5h: .init(pct: 80, resetAt: 0), week: nil,
+            perModelWeek: [], credits: nil, stale: false, calibratedAt: nil, subscriptionOnly: false)))
+        let usageDeadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while SessionSignals.usageLimits(for: app)?.session5h?.pct != 80, ContinuousClock.now < usageDeadline { await Task.yield() }
+        XCTAssertEqual(SessionSignals.usageLimits(for: app)?.session5h?.pct, 80)
+        return (app, store)
+    }
+    private func freshContent(app: AppModel, store: SessionStore) -> IOSComposeContent {
+        let voice = DictationController(engine: FakeDictationEngine(), getText: { "" }, setText: { _ in })
+        return IOSComposeContent(app: app, store: store, activation: app.activationGeneration, voice: voice,
+            initialPrompt: "Add tests", initialRepoPath: "/fixtures/shepherd")
+    }
+    func testLateSettingsReconcileOnlyUntouchedFreshComposers() async throws {
+        for (manual, expectedProvider, expectedModel) in [(false, AgentProvider.codex, "gpt-6-astra"), (true, .claude, "sonnet")] {
+            let launch = try IOSLaunchEnvironment(configuration: .init(isIsolated: true))
+            let app = launch.makeModel()
+            let profile = ServerProfile(name: "Late settings", baseURL: URL(string: "https://late-\(UUID().uuidString.lowercased()).multi.fixture.invalid")!, mode: .remote)
+            IOSMultiServerFixtureTransport.setSettings(#"{"repoRoot":"/fixtures","repoRootDisplay":"/fixtures","firstRunPending":false,"defaultModel":"sonnet","defaultCodexModel":"gpt-6-astra","defaultEffort":"high","defaultAgentProvider":"codex","authMode":"subscription","operatorLanguage":"de"}"#, for: profile.baseURL)
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.protocolClasses = [IOSMultiServerFixtureTransport.self]
+            let transport = URLSession(configuration: configuration)
+            defer { transport.invalidateAndCancel() }
+            let client = try ShepherdClient(profile: profile, credentials: launch.credentials, urlSession: transport)
+            let store = SessionStore(client: client)
+            defer { store.stop(); app.deactivate() }
+            XCTAssertNil(store.settings)
+            let content = freshContent(app: app, store: store)
+            let model = content.model
+            defer { model.teardown(); content.voice.teardown() }
+            XCTAssertEqual(model.provider, .claude)
+            if manual { model.selectProviderManually(.claude) }
+            let appeared = expectation(description: "Composer settings observer mounted")
+            let host = UIHostingController(rootView: content.environment(app).onAppear { appeared.fulfill() })
+            let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+            window.rootViewController = host
+            window.makeKeyAndVisible()
+            host.view.frame = window.bounds
+            defer { window.isHidden = true; window.rootViewController = nil }
+            host.view.layoutIfNeeded()
+            await fulfillment(of: [appeared], timeout: 10)
+            try await store.bootstrap()
+            let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+            while model.model != expectedModel, ContinuousClock.now < deadline {
+                host.view.setNeedsLayout(); host.view.layoutIfNeeded()
+                await Task.yield()
+            }
+            XCTAssertEqual(store.settings?.defaultAgentProvider, .codex)
+            XCTAssertEqual(model.provider, expectedProvider)
+            XCTAssertEqual(model.model, expectedModel)
+            let submission = ComposeSubmission()
+            defer { submission.teardown() }
+            let session = await submission.submit(model: model, repoResolved: true, holdLikely: false,
+                create: { request, spawnID in
+                    XCTAssertEqual(request.agentProvider, expectedProvider)
+                    XCTAssertEqual(request.model, expectedModel)
+                    return try await client.createSession(request, spawnID: spawnID)
+                }, isCurrent: { true })
+            XCTAssertEqual(session?.id, "compose-created")
+        }
+    }
+    func testFreshComposerSubmitsCapacitySelectedProviderWithoutOpeningEnginePicker() async throws {
+        let (app, store) = try await activeFixture()
+        defer { app.deactivate() }
+        let content = freshContent(app: app, store: store)
+        defer { content.model.teardown(); content.voice.teardown() }
+        XCTAssertEqual(content.model.provider, .codex)
+        XCTAssertEqual(content.model.model, "gpt-6-astra")
+        XCTAssertFalse(content.readiness.dualCTA)
+        let submission = ComposeSubmission()
+        defer { submission.teardown() }
+        let session = await submission.submit(model: content.model, repoResolved: true, holdLikely: true,
+            create: { request, spawnID in
+                XCTAssertEqual(request.agentProvider, .codex)
+                XCTAssertEqual(request.model, "gpt-6-astra")
+                XCTAssertEqual(request.effort?.rawValue, "high")
+                return try await store.client.createSession(request, spawnID: spawnID)
+            }, isCurrent: { true })
+        XCTAssertEqual(session?.id, "compose-created")
+        content.model.selectProviderManually(.claude)
+        XCTAssertTrue(content.readiness.dualCTA)
+        store.apply(.usageLimits(.init(session5h: .init(pct: 95, resetAt: 0), week: nil,
+            perModelWeek: [], credits: nil, stale: false, calibratedAt: nil, subscriptionOnly: false)))
+        content.model.runDefaults = ComposeRunConfig.defaults(from: store.settings)
+        XCTAssertEqual(content.model.provider, .claude)
+        content.model.pickCommand(.init(name: "review", description: "Review", scope: .init(known: .project), providers: [.codex]))
+        content.model.runDefaults = ComposeRunConfig.defaults(from: store.settings)
+        XCTAssertEqual(content.model.provider, .codex)
+    }
+    func testLateDiagnosticsOnlyAffectTheNextFreshComposer() async throws {
+        let (app, store) = try await activeFixture(diagnostics: #"{"checks":[],"generatedAt":0,"overall":"ok"}"#)
+        defer { app.deactivate() }
+        let content = freshContent(app: app, store: store)
+        defer { content.model.teardown(); content.voice.teardown() }
+        XCTAssertEqual(content.model.provider, .claude)
+        XCTAssertTrue(content.readiness.dualCTA)
+        store.apply(.unknown(name: "diagnostics:status", payload: Data(IOSMultiServerFixtureTransport.readyDiagnostics.utf8)))
+        let recovery = try XCTUnwrap(app.extension(BackendRecoveryModel.self))
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while recovery.diagnostics?.checks.count != 2, ContinuousClock.now < deadline { await Task.yield() }
+        XCTAssertEqual(recovery.diagnostics?.checks.count, 2)
+        content.model.runDefaults = ComposeRunConfig.defaults(from: store.settings)
+        XCTAssertEqual(content.model.provider, .claude)
+        let reopened = freshContent(app: app, store: store)
+        defer { reopened.model.teardown(); reopened.voice.teardown() }
+        XCTAssertEqual(reopened.model.provider, .codex)
+        let supplied = IOSComposeContent(app: app, store: store, activation: app.activationGeneration,
+            model: content.model, voice: content.voice)
+        XCTAssertTrue(supplied.model === content.model)
+        XCTAssertEqual(supplied.model.provider, .claude)
+        app.deactivate()
+        XCTAssertNil(recovery.diagnostics)
     }
     func testReadinessVoiceBlockingAndModeGuards() throws {
         let (_, _, model) = try fixture()

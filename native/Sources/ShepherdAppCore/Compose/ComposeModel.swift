@@ -105,18 +105,19 @@ public final class ComposeModel {
 
     public convenience init(client: ShepherdClient, defaults: UserDefaults = .standard,
                      runDefaults: ComposeRunConfig.Defaults = .init(),
-                     initialModel: String? = nil, initialEffort: String? = nil) {
+                     initialModel: String? = nil, initialEffort: String? = nil, initialProvider: AgentProvider? = nil) {
         self.init(defaults: defaults, repoBranches: RepoBranchModel(client: client), loadIssues: { try await client.issues(repoPath: $0) },
                   loadCommands: { try await client.commands(repoPath: $0, provider: $1) },
                   loadEpics: { try await client.epics(repoPath: $0) }, attachments: AttachmentModel(client: client), shaping: ShapeRoundModel(client: client),
-                  runDefaults: runDefaults, initialModel: initialModel, initialEffort: initialEffort)
+                  runDefaults: runDefaults, initialModel: initialModel, initialEffort: initialEffort, initialProvider: initialProvider)
     }
 
     init(defaults: UserDefaults, repoBranches: RepoBranchModel, loadIssues: @escaping (String) async throws -> IssueListing,
          loadCommands: @escaping (String, AgentProvider) async throws -> CommandListing,
          loadEpics: @escaping (String) async throws -> EpicListing, attachments: AttachmentModel? = nil,
          shaping: ShapeRoundModel? = nil,
-         runDefaults: ComposeRunConfig.Defaults = .init(), initialModel: String? = nil, initialEffort: String? = nil) {
+         runDefaults: ComposeRunConfig.Defaults = .init(), initialModel: String? = nil, initialEffort: String? = nil,
+         initialProvider: AgentProvider? = nil) {
         self.shaping = shaping ?? ShapeRoundModel(shape: { _ in throw ShepherdError.cancelled },
                                                  brief: { _ in throw ShepherdError.cancelled })
         self.runDefaults = runDefaults
@@ -129,7 +130,7 @@ public final class ComposeModel {
             hideActive: defaults.bool(forKey: "shepherd:issues-hide-active"),
             hideSubIssues: defaults.object(forKey: "shepherd:issues-hide-subissues") as? Bool ?? true,
             hideBlocked: defaults.object(forKey: "shepherd:issues-hide-blocked") as? Bool ?? true)
-        provider = runDefaults.provider
+        provider = initialProvider ?? runDefaults.provider
         let safeInitial = initialModel.map {
             ComposeRunConfig.isFable($0) && !runDefaults.fableAvailable ? "default" : $0
         }
@@ -138,7 +139,7 @@ public final class ComposeModel {
         effort = initialEffort ?? ComposeRunConfig.preselectEffort(runDefaults.effort)
         normalizeRunConfig()
         modelTouched = initialModel != nil
-        providerTouched = initialModel != nil
+        providerTouched = initialProvider != nil || initialModel != nil
         effortTouched = initialEffort != nil
     }
 

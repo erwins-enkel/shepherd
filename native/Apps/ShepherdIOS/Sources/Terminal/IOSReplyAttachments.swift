@@ -63,6 +63,23 @@ struct IOSImagePasteControl: UIViewRepresentable {
     }
 }
 
+/// Picked videos land in a temp file, so a long screen recording is not held in memory before upload.
+struct IOSPickedMovie: Transferable {
+    let url: URL
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(importedContentType: .movie) { received in
+            let ext = received.file.pathExtension.isEmpty ? "mov" : received.file.pathExtension
+            let copy = FileManager.default.temporaryDirectory.appendingPathComponent("video-\(UUID().uuidString).\(ext)")
+            try FileManager.default.copyItem(at: received.file, to: copy)
+            return Self(url: copy)
+        }
+    }
+}
+
+extension PhotosPickerItem {
+    var isMovie: Bool { supportedContentTypes.contains { $0.conforms(to: .movie) } }
+}
+
 struct IOSReplyCamera: UIViewControllerRepresentable {
     let receive: (UIImage?) -> Void
     func makeCoordinator() -> Coordinator { Coordinator(receive: receive) }
@@ -94,6 +111,11 @@ final class IOSReplyImports {
         model.openWriting(focus: false)
         Task {
             do {
+                if photo.isMovie {
+                    let movie = try await photo.loadTransferable(type: IOSPickedMovie.self)
+                    attachments.finishImport(movie.map { .init(url: $0.url) }, error: movie == nil ? L.t("native_ios_attachment_invalid") : nil, generation: stamp)
+                    return
+                }
                 let data = try await photo.loadTransferable(type: Data.self)
                 let ext = photo.supportedContentTypes.first?.preferredFilenameExtension ?? "jpg"
                 finish(data, name: "photo-\(UUID().uuidString).\(ext)", attachments: attachments, stamp: stamp)

@@ -577,7 +577,7 @@
 "native_compose_paste" = "Bild einfügen";
 "native_compose_paste_clipboard" = "Aus Zwischenablage";
 "native_compose_paste_empty" = "Kein Bild in der Zwischenablage — kopiere zuerst ein Bild.";
-"native_compose_photos" = "Fotos";
+"native_compose_photos" = "Fotos & Videos";
 "native_compose_plan_off" = "Plan aus";
 "native_compose_plan_on" = "Plan an";
 "native_compose_probes_unavailable" = "Shepherd kann laufende Prozesse auf diesem Host nicht erkennen. Hintergrundprozesse können nach dem Schließen dieser Sitzung weiterlaufen.";

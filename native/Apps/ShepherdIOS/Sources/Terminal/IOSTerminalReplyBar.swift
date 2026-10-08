@@ -129,7 +129,7 @@ struct IOSTerminalReplyBar: View {
             }
         }
         // Picker lives outside Menu, whose content is destroyed on dismissal.
-        .photosPicker(isPresented: $photos, selection: $photo, matching: .images)
+        .photosPicker(isPresented: $photos, selection: $photo, matching: .any(of: [.images, .videos]))
         .onChange(of: model.attachments?.rows.map(\.id)) { _, _ in imports?.pruneThumbnails() }
         .onChange(of: photo) { _, item in if let item { imports?.photo(item); photo = nil } }
         .sheet(isPresented: $camera) {

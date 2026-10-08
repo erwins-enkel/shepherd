@@ -12,6 +12,7 @@
  * delegates to these functions.
  */
 import { describe, it, expect } from "vitest";
+import { newtask_pr_review_template } from "$lib/paraglide/messages";
 import {
   formatCount,
   isPinned,
@@ -448,8 +449,7 @@ describe("BacklogView display logic — integration of helpers", () => {
    * Spawning a review task seeds the New Task prompt with this template, which
    * must interpolate the PR number and carry its URL on a second line.
    */
-  it("newtask_pr_review_template interpolates the PR number and url", async () => {
-    const { newtask_pr_review_template } = await import("$lib/paraglide/messages");
+  it("newtask_pr_review_template interpolates the PR number and url", () => {
     const text = newtask_pr_review_template({ number: 142, url: "https://example/pr/142" });
     expect(text).toContain("142");
     expect(text).toContain("https://example/pr/142");

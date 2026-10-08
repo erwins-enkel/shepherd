@@ -381,6 +381,8 @@
 "hold_halted_error" = "Halted on an error — needs you.";
 "hold_halted_usage" = "Paused at the usage limit — resumes at %1$@.";
 "hold_halted_usage_pending" = "Paused at the usage limit.";
+"hold_login_request" = "Wants you to log in at %1$@.";
+"hold_login_request_generic" = "Wants you to log in in the Shared Browser.";
 "hold_manual_steps" = "%1$@ manual step(s) to do before merge — ack to proceed.";
 "hold_merge_rebasing" = "Rebasing in the merge train (attempt %1$@).";
 "hold_merging" = "In the merge train.";

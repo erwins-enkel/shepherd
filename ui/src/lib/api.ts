@@ -83,6 +83,7 @@ import type {
   ShapeRound,
   DocAgentRun,
   HoldReason,
+  LoginRequest,
   AgentProvider,
   UpNextSnapshot,
   UpNextItem,
@@ -1820,6 +1821,29 @@ export async function holdStates(): Promise<Record<string, HoldReason>> {
   const r = await fetch("/api/holds");
   if (!r.ok) throw await failed(r, "hold reasons");
   return r.json();
+}
+
+/** Snapshot of the open Login Requests keyed by session id (client bootstrap, #2882). */
+export async function loginRequestStates(): Promise<Record<string, LoginRequest>> {
+  const r = await fetch("/api/login-requests");
+  if (!r.ok) throw await failed(r, "login requests");
+  return r.json();
+}
+
+/** Answer a session's Login Request; the waiting agent gets `outcome` back. */
+export async function resolveLoginRequest(
+  sessionId: string,
+  outcome: "done" | "cancelled",
+): Promise<void> {
+  const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/login-request`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ outcome }),
+  });
+  if (!r.ok) {
+    flagIfUnauthorized(r.status);
+    throw await failed(r, "login request");
+  }
 }
 
 /** Snapshot of the per-session sub-agent roster, keyed by session id (for client

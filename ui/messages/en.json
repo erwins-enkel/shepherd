@@ -5593,5 +5593,13 @@
   "viewport_browser_closed_cap": "Too many shared browsers are running on the host. Close one, then reconnect.",
   "viewport_browser_closed_stopped": "The shared browser stopped.",
   "viewport_browser_reconnect": "Reconnect",
-  "viewport_browser_url_invalid": "Only http(s) addresses can be opened."
+  "viewport_browser_url_invalid": "Only http(s) addresses can be opened.",
+  "hold_login_request": "Wants you to log in at {host}.",
+  "hold_login_request_generic": "Wants you to log in in the Shared Browser.",
+  "hold_cta_open_browser": "Open browser",
+  "hold_cta_open_browser_title": "Open this session's Browser tab to log in for the agent",
+  "viewport_browser_login_title": "The agent asks you to log in here",
+  "viewport_browser_login_done": "Done",
+  "viewport_browser_login_cancel": "Cancel",
+  "viewport_browser_login_answer_failed": "Couldn't send your answer to the agent — try again."
 }

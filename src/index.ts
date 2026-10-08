@@ -1,5 +1,6 @@
 import { CodexAccountClient } from "./codex-account";
 import { SharedBrowserManager, reapOrphanBrowsers } from "./shared-browser";
+import { LoginRequestService } from "./login-request";
 import { BrowserTokenSigner, loadOrCreateBrowserBrokerKey } from "./browser-token";
 import { CodexResetCoordinator } from "./codex-reset";
 import {
@@ -925,6 +926,8 @@ const sharedBrowser = new SharedBrowserManager({
   profileRoot: config.browserProfileRoot,
   chromiumBin: config.chromiumBin,
 });
+// Login Requests (#2882): an agent's ask for a Handoff Login, held until the operator answers.
+const loginRequests = new LoginRequestService({ events });
 // Browser Attach token signer. A broken key file disables Browser Attach (no env injected, every
 // attach refused) instead of failing boot — regenerating it would revoke live agents' URLs.
 const browserToken = await loadOrCreateBrowserBrokerKey(config.browserBrokerKeyPath).then(
@@ -3907,6 +3910,7 @@ deferredStarts.push(() => {
 const appDeps: AppDeps = {
   store,
   sharedBrowser,
+  loginRequests,
   browserToken,
   service,
   fingerprint: { ensureFresh: () => fingerprint.ensureFresh(), coversRepo: fingerprintCoversRepo },

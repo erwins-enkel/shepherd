@@ -339,6 +339,12 @@ process to reach.
   typed set (tab select, frame ack, mouse, key, paste text, http(s) navigate,
   reload) into `Page`/`Input`/`Target` commands. Pasted text is typed into the
   page and never stored or logged.
+- **Only the operator answers a Login Request.** An agent asks for a login with
+  the `browser_request_login` MCP tool, which opens the URL (http(s) only) in
+  the Shared Browser and waits. Marking it done or cancelled is
+  `POST /api/sessions/<session>/login-request` on the operator app, absent from
+  agent ingress, so an agent cannot answer its own request. The agent's reason
+  and URL are shown as plain text. Autonomous sessions do not get the tool.
 - **Autonomous sessions attach confined** (#2883). The broker gives an
   autonomous attach its **own browser context** whose `proxyServer` is a
   per-attach SOCKS5 proxy Shepherd runs on `127.0.0.1` (`src/browser-egress-proxy.ts`),

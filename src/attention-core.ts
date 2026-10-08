@@ -31,6 +31,7 @@ export type SignalCode =
   | "halted-error"
   | "halted-usage"
   | "blocked-decision"
+  | "login-request"
   | "plan-rework"
   | "plan-question"
   | "critic-rework"
@@ -51,6 +52,7 @@ export type SignalCode =
 const SIGNAL_TIER: Record<SignalCode, AttentionTier> = {
   "halted-error": 1,
   "blocked-decision": 1,
+  "login-request": 1,
   "plan-rework": 1,
   "plan-question": 1,
   "critic-rework": 1,
@@ -84,6 +86,8 @@ export interface ClassifyCaches {
    *  Makes blocked-decision fire for a running-but-stalled session whose status hasn't
    *  flipped to "blocked". */
   block?: BlockReason | null;
+  /** The session's open Login Request (#2882), supplied by the live HoldReasonService. */
+  loginRequest?: { url: string } | null;
   /** Epoch ms the usage window resets — used ONLY by explainHold for the halted-usage
    *  param; classifyAttention ignores it. */
   resetAt?: number;
@@ -157,6 +161,9 @@ const ATTENTION_RULES: Array<{
       Boolean(s.autopilotPaused && s.autopilotQuestion) ||
       Boolean(c.block),
   },
+  // login-request: the agent is waiting on the operator to log in for it in the Shared Browser
+  // (#2882). After blocked-decision so a live PTY dialog stays the primary line.
+  { signal: "login-request", when: (_s, c) => Boolean(c.loginRequest) },
   { signal: "plan-rework", when: (s, c) => planReworkActive(s, c.gate) },
   { signal: "critic-rework", when: (s, c, now) => criticReworkActive(s, c.review, c.git, now) },
   // pr-conflict BEFORE ci-red: explainHold takes the first non-"in-flight" signal, so a
@@ -299,6 +306,10 @@ const SIGNAL_TO_HOLD: Record<
       : { code: "plan-rework" };
   },
   "plan-question": () => ({ code: "plan-question" }),
+  "login-request": (_session, caches) => {
+    const host = urlHost(caches.loginRequest?.url);
+    return host ? { code: "login-request", params: { host } } : { code: "login-request" };
+  },
   "critic-rework": (_session, caches) => {
     const count = caches.review?.findings?.length;
     return count !== undefined
@@ -349,6 +360,12 @@ const SIGNAL_TO_HOLD: Record<
     return pr !== undefined ? { code: "merging", params: { pr } } : { code: "merging" };
   },
 };
+
+/** `url`'s host, or null when it doesn't parse. */
+function urlHost(url: string | undefined): string | null {
+  if (!url || !URL.canParse(url)) return null;
+  return new URL(url).host || null;
+}
 
 /** Map a primary signal to a HoldReason. Internal to explainHold.
  *  `primary` is guaranteed never to be "in-flight" — the caller filters it out. */

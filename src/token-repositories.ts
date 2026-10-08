@@ -46,6 +46,7 @@ const COLLECTION_READS = new Set([
   "/api/sessions",
   "/api/git",
   "/api/holds",
+  "/api/login-requests",
   "/api/held",
   "/api/reviews/inflight",
   "/api/plan-gates/inflight",
@@ -94,6 +95,7 @@ const SESSION_POSTS = new Set([
   "git/ready",
   "git/draft",
   "git/request-review",
+  "login-request",
 ]);
 
 function collectionRoutePolicy(
@@ -176,6 +178,7 @@ const SESSION_EVENTS = new Set([
   "session:halt",
   "session:git",
   "session:hold",
+  "session:login-request",
   "session:review",
   "session:reviewing",
   "session:plangate",

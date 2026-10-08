@@ -29,6 +29,12 @@ const RELEASE_TYPES = new Set([
  *  entry rather than letting the merge fall through unrecognized (#1206). */
 const FALLBACK_TYPE = "feat";
 
+/** `.github/workflows/pr-title.yml` lints this title with the repo's commitlint config, whose
+ *  `header-max-length` (from `@commitlint/config-conventional`) rejects anything longer — counted
+ *  as JS `.length`, i.e. UTF-16 code units. An over-long landing title never goes green, and no
+ *  repair agent can fix it: they push commits, not titles (#2871). */
+const MAX_TITLE_LENGTH = 100;
+
 /** Lowercase the first character of a subject. `.github/workflows/pr-title.yml` lints this very
  *  title with the repo's commitlint config, whose `subject-case` rule (never sentence-case /
  *  start-case / pascal-case / upper-case) rejects a subject starting with an uppercase letter —
@@ -36,6 +42,18 @@ const FALLBACK_TYPE = "feat";
  *  paren) already passes, and `toLowerCase` is a no-op there. */
 function lowerFirst(subject: string): string {
   return subject.charAt(0).toLowerCase() + subject.slice(1);
+}
+
+/** Fit a description into `budget` code units, marking a cut with `…` (one code unit). Prefer the
+ *  last word boundary unless that would throw away more than half the budget; a hard cut never
+ *  leaves the high half of a surrogate pair dangling. A description that fits is returned as-is. */
+function fitDescription(desc: string, budget: number): string {
+  if (desc.length <= budget) return desc;
+  let cut = desc.slice(0, budget - 1);
+  const space = cut.lastIndexOf(" ");
+  if (space >= budget / 2) cut = cut.slice(0, space);
+  else if (/[\uD800-\uDBFF]$/.test(cut)) cut = cut.slice(0, -1);
+  return `${cut.trimEnd()}…`;
 }
 
 /** Landing-PR title that doubles as the squash-merge **subject** release-please parses, so it
@@ -51,8 +69,10 @@ function lowerFirst(subject: string): string {
  *  - Bare title → prepend `feat:`.
  *  A trailing `[EPIC]`/`[epic]` tag and a leading `Epic:` — the prefix Shepherd's own epic
  *  authoring produces — are stripped either way. The description is then lowercase-initial in
- *  EVERY branch so the `pr title` gate stays green (#2021; see `lowerFirst`). A title that is
- *  nothing but the tag leaves no description, hence the guard on the return. */
+ *  EVERY branch so the `pr title` gate stays green (#2021; see `lowerFirst`), and shortened with
+ *  `…` so the whole title fits `MAX_TITLE_LENGTH` (#2871; see `fitDescription`) — a title that
+ *  already fits is untouched. A title that is nothing but the tag leaves no description, hence
+ *  the guard on the return. */
 export function buildLandingPrTitle(parentNumber: number, parentTitle: string): string {
   // `epic` is not in RELEASE_TYPES, so stripping the leading tag can never clobber a real type.
   const cleaned = parentTitle
@@ -73,7 +93,10 @@ export function buildLandingPrTitle(parentNumber: number, parentTitle: string): 
   }
 
   const desc = lowerFirst(rawDesc.trim());
-  return desc ? `${prefix}: ${desc} ${epicTag}` : `${prefix}: epic #${parentNumber}`;
+  if (!desc) return `${prefix}: epic #${parentNumber}`;
+  // Only the description gives way: the type at column 0 (#1206) and the epic tag both stay.
+  const budget = MAX_TITLE_LENGTH - prefix.length - ": ".length - " ".length - epicTag.length;
+  return `${prefix}: ${fitDescription(desc, budget)} ${epicTag}`;
 }
 
 /** Sanitize a child title for a single Markdown table cell: collapse newlines to spaces (a

@@ -85,7 +85,9 @@ opens the login page in the Shared Browser and waits. The session shows up as
 needing you (_"Wants you to log in at …"_) with an **Open browser** button that
 takes you straight to its Browser tab. Log in, then press **Done**, or
 **Cancel** if you won't. Only you can answer a Login Request; an agent cannot
-mark its own request done. Autonomous sessions can't make one.
+mark its own request done. Autonomous and **plain** sessions (started with no
+Shepherd directives) can't make one: they don't get the `shepherd` tools, so the
+agent names the URL and asks you to log in through its **Browser** tab instead.
 
 ## Autonomous sessions
 
@@ -98,7 +100,10 @@ separate from your tabs, which it cannot see. That window reaches only:
 - the session's own **Preview** port on `localhost`.
 
 Everything else is refused: other local ports, private and Tailscale
-addresses, IP literals. Set the allowlist with:
+addresses, IP literals. An allowlisted host that resolves to a private address
+is refused too, so a self-hosted app on your tailnet (a `*.ts.net` name) is out
+of reach for autonomous sessions even when it's on the list. Set the allowlist
+with:
 
 ```bash
 shepherd repo-config set browserAllowedHosts '["accounts.example.com"]'

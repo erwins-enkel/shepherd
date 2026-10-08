@@ -85,9 +85,11 @@ opens the login page in the Shared Browser and waits. The session shows up as
 needing you (_"Wants you to log in at …"_) with an **Open browser** button that
 takes you straight to its Browser tab. Log in, then press **Done**, or
 **Cancel** if you won't. Only you can answer a Login Request; an agent cannot
-mark its own request done. Autonomous and **plain** sessions (started with no
-Shepherd directives) can't make one: they don't get the `shepherd` tools, so the
-agent names the URL and asks you to log in through its **Browser** tab instead.
+mark its own request done. Autonomous sessions can't make one: log in before
+they start (see [Autonomous sessions](#autonomous-sessions)). **Plain** sessions
+(started with no Shepherd directives) can't either: they get no `shepherd` tools
+at all, so the agent names the URL and asks you to log in through its
+**Browser** tab instead.
 
 ## Autonomous sessions
 

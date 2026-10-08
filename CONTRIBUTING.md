@@ -76,23 +76,29 @@ and failed pushes. Independent work runs in parallel (bounded by your core count
 lane teeing to its own `.test-logs/` file, with a per-lane wall-clock **timeout backstop**
 so a hung child can never wedge the push. The checks (per lane) are:
 
-- **gates:** branch-hygiene · feature-catalog · generated-docs · glossary · announcement-versions · model-mirror · fallow-pin · herdr-types · env-schema
+- **gates:** branch-hygiene · feature-catalog · generated-docs · glossary · announcement-versions · model-mirror · fallow-pin · herdr-types · env-schema · docs-manifest
 - **prettier:** `prettier --check` over the push **delta** (see note)
 - **eslint:** root + extension eslint over the push **delta** (see note)
 - **tsc:** `bun run typecheck` (root `tsc --noEmit`)
 - **root-tests:** `bun test ./test`
-- **ui:** `bun run check` → `check:i18n` → `check:docs-manifest` → `playwright install chromium` → `bun run test` → `scripts/check-ui-build.sh` (the ui build, plus a fail on Rollup's `INEFFECTIVE_DYNAMIC_IMPORT`; CI's **Build (ui)** step runs the same script)
+- **ui:** `bun run check` → `check:i18n` → `playwright install chromium` → `bun run test` → `scripts/check-ui-build.sh` (the ui build, plus a fail on Rollup's `INEFFECTIVE_DYNAMIC_IMPORT`; CI's **Build (ui)** step runs the same script)
 - **ext:** `bun run check` → `check:i18n` → `bun run test` → `bun run build`
 - then **`bunx fallow@2.100.0 audit --base origin/main --fail-on-issues`** (delta
   dead-code/complexity audit; version pinned — see note below)
 
-> **CI remains the exhaustive whole-repo gate.** Two deliberate local-only differences from
+> **CI remains the exhaustive whole-repo gate.** Deliberate local-only differences from
 > `.github/workflows/ci.yml` keep pushes fast without losing coverage:
 >
 > - **Delta-scoped lint.** prettier/eslint run only over files changed vs the `origin/main`
 >   merge-base (near-instant vs ~30s whole-repo). CI keeps `prettier --check .` + full
 >   `eslint`, so tree-wide drift is still caught before merge. (No `origin/main`, e.g.
 >   offline? The hook falls back to whole-repo lint and skips fallow.)
+> - **Docs-only pushes skip tsc and the test lanes.** The hook classifies its delta with
+>   `classify()` from `scripts/ci-changes.mjs`, the rules CI's `changes` job uses
+>   ([#2915](https://github.com/erwins-enkel/shepherd/issues/2915)). When only `docs/**` or
+>   top-level `*.md` change, **tsc**, **root-tests**, **ui** and **ext** drop out and the push
+>   takes seconds. CI skips its test lanes for the same diff but still type-checks it in
+>   `static`. Any other or unknown path runs every lane.
 > - **Same checks, different scoping.** Because the hook no longer shares `ci.yml`'s shell
 >   body, the two gate definitions can drift — when you change a CI step, mirror it in
 >   `scripts/pre-push.ts` (there's a sync banner in both files). The `fallow@2.100.0` pin is

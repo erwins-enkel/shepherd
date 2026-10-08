@@ -626,6 +626,18 @@ test("confined attach: localhost cookies only with a Preview origin, never the S
   expect(set.params.cookies.map((c: { name: string }) => c.name)).toEqual(["dev"]);
 });
 
+test("confined attach: localhost cookies with a verified in-netns dev port (#2889)", async () => {
+  const { m, sent } = await confinedSetup([
+    { name: "dev", value: "3", domain: "localhost" },
+    { name: "shepherd_session", value: "op", domain: "localhost" },
+  ]);
+  await (
+    await m.attach("/r/a", sink(), { policy: { ...policy([]), devPort: async () => 5173 } })
+  ).ready;
+  const set = (await sent()).find((x) => x.method === "Storage.setCookies")!;
+  expect(set.params.cookies.map((c: { name: string }) => c.name)).toEqual(["dev"]);
+});
+
 test("confined attach: no login for an allowed host → no-login, everything undone", async () => {
   const { m, proxies, sent } = await confinedSetup([
     { name: "dev", value: "3", domain: "localhost" },

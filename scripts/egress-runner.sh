@@ -84,6 +84,9 @@ setpriv --pdeathsig SIGKILL \
       echo "egress-runner: tap0 never appeared; refusing to exec agent" >&2
       exit 1
     }
+    # Best-effort: lets the devfwd DNAT (egress.nft) hand slirp hostfwd traffic to a dev server
+    # bound to the netns loopback. Failure only means such a server stays unreachable.
+    sysctl -qw net.ipv4.conf.tap0.route_localnet=1 2>/dev/null || true
     nft -f "$1" || {
       echo "egress-runner: nft load failed; refusing to exec agent" >&2
       exit 1
@@ -100,6 +103,8 @@ setpriv --pdeathsig SIGKILL \
     exec "$@"
   ' bash "$TMP/egress.nft" "$TMP/dnsmasq.argv" "${INNER[@]}" &
 CHILD=$!
+# Shepherd reads the netns listeners via /proc/<pid>/net/tcp (in-netns dev server, #2889).
+echo "$CHILD" > "$TMP/netns.pid"
 
 # Race gate: slirp4netns setns()es into the child's user+net namespace, which fails
 # with EPERM until `unshare --map-root-user` has committed the uid_map. An unmapped
@@ -118,8 +123,14 @@ done
 # slirp gateway 10.0.2.2.
 # The nft ruleset (policy drop + a single explicit allow for that IP:port) remains
 # the real gate — dropping the slirp-level block widens nothing on its own.
+# The API socket lets Shepherd add_hostfwd the session's in-netns dev port (#2889). Omitted when
+# its path exceeds the AF_UNIX limit — slirp would fail to start and cut the agent's uplink.
+SLIRP_API=()
+API_SOCK="$TMP/slirp.sock"
+rm -f "$API_SOCK"
+[ ${#API_SOCK} -le 107 ] && SLIRP_API=(--api-socket "$API_SOCK")
 setpriv --pdeathsig SIGKILL \
-  slirp4netns --configure --mtu=65520 "$CHILD" tap0 &
+  slirp4netns --configure --mtu=65520 "${SLIRP_API[@]}" "$CHILD" tap0 &
 SLIRP=$!
 
 wait "$CHILD"   # agent runs; stdio = inherited PTY fds (never redirected)

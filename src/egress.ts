@@ -312,6 +312,9 @@ const SLIRP_RESOLVER = "10.0.2.3";
  *  (reachable once `--disable-host-loopback` is dropped from the slirp invocation). */
 export const SLIRP_HOST_GATEWAY = "10.0.2.2";
 
+/** The netns tap address slirp4netns `--configure` assigns; `add_hostfwd` delivers here. */
+export const SLIRP_GUEST_ADDR = "10.0.2.100";
+
 /** Minimum slirp4netns version whose host-loopback (10.0.2.2 → host 127.0.0.1) we rely on.
  *  Human-readable source-of-truth: "1.0.0" — a broadly-available modern floor; below it we fall back
  *  to polling (see detectEgressHostLoopback). Module-private (only detectEgressHostLoopback uses it). */
@@ -523,6 +526,9 @@ export function buildEgressConfig(
   // family inet, table egress, default-drop with explicit REJECT for fast-fail.
   // When hostGateway is set, ONE least-privilege allow for the host IP+port goes
   // right after the @allowed accept (return traffic is covered by ct established).
+  // Table `devfwd`: the only new inbound connections on tap0 are slirp hostfwds Shepherd adds
+  // for the session's dev port (#2889); DNAT them to the netns loopback so a dev server bound
+  // to 127.0.0.1 is reachable too (needs tap0 route_localnet, set by the runner).
   const hostGatewayRule = hostGateway
     ? `\n    ip daddr ${hostGateway.ip} tcp dport ${hostGateway.port} accept`
     : "";
@@ -541,6 +547,12 @@ export function buildEgressConfig(
     meta nfproto ipv6 reject
     meta l4proto tcp reject with tcp reset
     reject
+  }
+}
+table ip devfwd {
+  chain pre {
+    type nat hook prerouting priority -100;
+    iifname "tap0" ip daddr ${SLIRP_GUEST_ADDR} dnat to 127.0.0.1
   }
 }
 `;
@@ -623,6 +635,16 @@ export function egressMembraneOverrideFlags(
  */
 export function egressTmpDir(sessionId: string): string {
   return shepherdRuntimeDir("egress", sessionId);
+}
+
+/** slirp4netns API socket the runner opens in the session's egress temp dir (#2889). */
+export function egressApiSocketPath(sessionId: string): string {
+  return join(egressTmpDir(sessionId), "slirp.sock");
+}
+
+/** PID file the runner writes: a process inside the session's netns (#2889). */
+export function egressNetnsPidPath(sessionId: string): string {
+  return join(egressTmpDir(sessionId), "netns.pid");
 }
 
 /** Root dir holding every per-session egress temp dir (for the orphan sweep). */

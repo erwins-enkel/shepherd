@@ -86,6 +86,25 @@ describe("BrowserEgressProxy", () => {
     expect((await socksConnect(proxy.port, "example.com", 443)).rep).toBe(2);
   });
 
+  test("tunnels localhost:<devPort> to the in-netns forward's host port (#2889)", async () => {
+    const hostPort = await echoServer();
+    const other = await echoServer();
+    const policy: OriginPolicy = {
+      allowedHosts: () => [],
+      previewPort: () => null,
+      devForward: async (port) => (port === 5173 ? hostPort : null),
+    };
+    const proxy = await BrowserEgressProxy.start(policy);
+    cleanup.push(() => proxy.close());
+
+    const ok = await socksConnect(proxy.port, "localhost", 5173);
+    expect(ok.rep).toBe(0);
+    expect(await roundTrip(ok.socket, "hi")).toBe("echo:hi");
+
+    expect((await socksConnect(proxy.port, "localhost", hostPort)).rep).toBe(2);
+    expect((await socksConnect(proxy.port, "localhost", other)).rep).toBe(2);
+  });
+
   test("allowlisted names resolving privately or on non-web ports are refused", async () => {
     const port = await echoServer();
     const lookup: LookupFn = async (host) =>

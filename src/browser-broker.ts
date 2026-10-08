@@ -11,6 +11,7 @@ import type { ServerWebSocket } from "bun";
 import type { BrowserTokenSigner } from "./browser-token";
 import { resolvePreviewPort, type OriginPolicy } from "./browser-origin-policy";
 import type { CdpPipeClient } from "./cdp-pipe";
+import type { NetnsDevForwarder } from "./netns-dev-forward";
 import { config } from "./config";
 import { resolveProfile } from "./sandbox";
 import {
@@ -30,6 +31,8 @@ export interface BrowserBrokerDeps {
     snapshot(): Record<string, SessionPreviewState>;
     devPortFor?(sessionId: string): number | null;
   };
+  /** In-netns dev server forwards (#2889): an autonomous attach's `localhost:<devPort>`. */
+  netnsDevForward?: Pick<NetnsDevForwarder, "devPort" | "forward">;
 }
 
 /** Per-socket state, attached via `server.upgrade(req, { data })`. */
@@ -70,11 +73,12 @@ export function isBrowserAttachPath(parts: string[]): boolean {
 
 /**
  * The browser origin allowlist for an autonomous session (#2883), read live per connection: the
- * repo's `browserAllowedHosts` plus the session's own validated Preview port. Shepherd's main and
- * agent-ingress ports are never a Preview origin, nor the target its listener relays to.
+ * repo's `browserAllowedHosts`, the session's own validated Preview port, and its verified in-netns
+ * dev port (#2889). Shepherd's main and agent-ingress ports are never a Preview origin, nor the
+ * target its listener relays to.
  */
 export function autonomousOriginPolicy(
-  deps: Pick<BrowserBrokerDeps, "store" | "preview">,
+  deps: Pick<BrowserBrokerDeps, "store" | "preview" | "netnsDevForward">,
   sessionId: string,
   repoPath: string,
 ): OriginPolicy {
@@ -88,6 +92,8 @@ export function autonomousOriginPolicy(
         rangeCount: config.previewPortCount,
         denyPorts: [config.port, config.agentIngressPort],
       }),
+    devPort: async () => (await deps.netnsDevForward?.devPort(sessionId)) ?? null,
+    devForward: async (port) => (await deps.netnsDevForward?.forward(sessionId, port)) ?? null,
   };
 }
 

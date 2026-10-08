@@ -227,6 +227,7 @@ import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { normalizeOperatorLanguage } from "./operator-language";
 import { EgressWatcher } from "./egress-watch";
+import { NetnsDevForwarder } from "./netns-dev-forward";
 import { detectEgressHostLoopback } from "./egress";
 import { RecapService, type LandedWorkEvidence } from "./recap";
 import { PostMergeStepsService } from "./post-merge-steps";
@@ -705,6 +706,8 @@ const previewService = new PreviewService({
   onChange: (id, previewPort) =>
     events.emit("session:preview", { id, previewPort } satisfies SessionPreviewEvent),
 });
+// Confined Browser Attach → an autonomous session's in-netns dev server (#2889).
+const netnsDevForward = new NetnsDevForwarder({ store });
 const egressWatcher = new EgressWatcher({
   addSignal: (input) => store.addSignal(input),
   emit: (event, data) => events.emit(event, data),
@@ -1035,6 +1038,7 @@ const service = new SessionService({
   // defined below). reconcileTrainMarks reads this to mark sessions whose PR is open.
   prSnapshot: (): Record<string, import("./forge/types").GitState> => prPoller.snapshot(),
   egressWatcher,
+  netnsDevForward,
   // Best-effort pre-teardown recap: generate a durable recap while the worktree still
   // exists (the generator reads it to build its prompt). Bounded + swallowed inside
   // archive() so it can never block teardown / the merge train.
@@ -3910,6 +3914,7 @@ deferredStarts.push(() => {
 const appDeps: AppDeps = {
   store,
   sharedBrowser,
+  netnsDevForward,
   loginRequests,
   browserToken,
   service,

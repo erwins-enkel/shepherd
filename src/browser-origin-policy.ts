@@ -6,8 +6,10 @@
  * Allowed:
  *  - an allowlisted hostname (exact match) on port 80/443 whose EVERY resolved address is public;
  *    the proxy connects to the vetted address, so a later DNS answer cannot rebind it;
- *  - the session's own Preview port on loopback (`localhost`/`127.0.0.1`/`[::1]`), the one
- *    narrow loopback exception (see `resolvePreviewPort`).
+ *  - the session's own Preview port on loopback (`localhost`/`127.0.0.1`/`[::1]`) (see
+ *    `resolvePreviewPort`);
+ *  - the session's verified in-netns dev port on loopback, tunnelled to the host port that
+ *    slirp4netns forwards to it (#2889, `NetnsDevForwarder`) so the origin stays `localhost:<devPort>`.
  * Everything else is denied: other loopback ports (Shepherd, agent ingress), IP literals, and any
  * name resolving into loopback, private, CGNAT (Tailscale), link-local, ULA or other special ranges.
  */
@@ -19,6 +21,10 @@ export interface OriginPolicy {
   allowedHosts(): readonly string[];
   /** The session's validated Preview port (`resolvePreviewPort`), read live; null → no loopback. */
   previewPort(): number | null;
+  /** The session's verified in-netns dev port (#2889), or null. */
+  devPort?(): Promise<number | null>;
+  /** The host loopback port reaching the in-netns dev server when `port` is its dev port, else null. */
+  devForward?(port: number): Promise<number | null>;
 }
 
 export type LookupFn = (host: string) => Promise<{ address: string; family: number }[]>;
@@ -84,7 +90,7 @@ function normalizeDestHost(host: string): string {
 
 const LOOPBACK_NAMES = new Set(["localhost", "127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 
-/** The verdict for one CONNECT to `host:port`. Async only for DNS; never throws. */
+/** The verdict for one CONNECT to `host:port`. Async only for DNS and the dev forward; never throws. */
 export async function checkDestination(
   policy: OriginPolicy,
   rawHost: string,
@@ -93,8 +99,10 @@ export async function checkDestination(
 ): Promise<DestinationVerdict> {
   const host = normalizeDestHost(rawHost);
   if (LOOPBACK_NAMES.has(host)) {
-    return port === policy.previewPort()
-      ? { allow: true, address: "127.0.0.1", port }
+    if (port === policy.previewPort()) return { allow: true, address: "127.0.0.1", port };
+    const hostPort = (await policy.devForward?.(port).catch(() => null)) ?? null;
+    return hostPort !== null
+      ? { allow: true, address: "127.0.0.1", port: hostPort }
       : { allow: false, reason: "loopback port not allowed" };
   }
   if (isIP(host) !== 0) return { allow: false, reason: "IP literals are not allowed" };

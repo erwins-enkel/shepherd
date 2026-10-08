@@ -509,6 +509,7 @@ test("egressWatcher.start called on autonomous egress spawn", async () => {
 });
 
 test("egressWatcher.stop called on archive (before removeEgressTmp)", async () => {
+  const dropped: string[] = [];
   const store = new SessionStore(":memory:");
   store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "autonomous" });
   const record: { argv?: string[] } = {};
@@ -525,12 +526,14 @@ test("egressWatcher.stop called on archive (before removeEgressTmp)", async () =
     detectBackend: () => "bwrap",
     detectEgressBackend: () => "slirp4netns",
     egressWatcher: watcher,
+    netnsDevForward: { drop: (id) => dropped.push(id) },
   });
 
   const s = await service.create(baseInput({ auto: true }));
   try {
     await service.archive(s.id);
     expect(watcher.stops).toContain(s.id);
+    expect(dropped).toEqual([s.id]); // in-netns dev forward forgotten too (#2889)
   } finally {
     // egressTmpDir already removed by archive; ignore if already gone.
     try {

@@ -280,7 +280,7 @@ async function readHintFileBounded(path: string, enc: "utf8"): Promise<string> {
  * within that prefix — no trailing characters, no decimal points, no spaces
  * between digits.
  */
-async function readPreviewHint(
+export async function readPreviewHint(
   dir: string,
   readFile: (path: string, enc: "utf8") => Promise<string> = readHintFileBounded,
 ): Promise<number | null> {

@@ -554,6 +554,11 @@
       var(--mobile-actionbar-h) + max(var(--mobile-actionbar-pad), env(safe-area-inset-bottom))
     );
   }
+  /* Phone: the page scrolls edge-to-edge and the chrome that owned the top safe-area inset
+     slides away on scroll-down — pin band headings below the notch, not under it. */
+  .upnext.flow :global(.un-section-head) {
+    top: env(safe-area-inset-top, 0px);
+  }
   .un-confirm-text {
     flex: 1;
     font-size: var(--fs-meta);

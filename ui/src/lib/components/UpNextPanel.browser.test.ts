@@ -819,4 +819,28 @@ describe("UpNextPanel preview and folding", () => {
     expect(bar.bottom).toBeLessThanOrEqual(box.bottom + 1);
     expect(bar.top).toBeGreaterThanOrEqual(box.top);
   });
+
+  it("pins the current band's heading to the top while its rows scroll under it", async () => {
+    // Stand-in for the Herd's .units scroller; padding leaves room to scroll the last band up.
+    const { container } = await render(UpNextPanel, {});
+    container.style.height = "120px";
+    container.style.overflow = "auto";
+    container.style.paddingBottom = "400px";
+    await expect.element(page.getByText("#6")).toBeInTheDocument();
+    const top = () => container.getBoundingClientRect().top;
+    // Scroll a band's top 20px above the scrollport: its rows go under, its heading stays.
+    const scrollInto = (head: HTMLElement) => {
+      container.scrollTop += head.parentElement!.getBoundingClientRect().top - top() + 20;
+    };
+    const priority = bandHead(m.upnext_priority_section());
+    const unlabeled = bandHead(m.upnext_unlabeled_section());
+    scrollInto(priority);
+    await expect.poll(() => Math.abs(priority.getBoundingClientRect().top - top())).toBeLessThan(1);
+    scrollInto(unlabeled);
+    await expect
+      .poll(() => Math.abs(unlabeled.getBoundingClientRect().top - top()))
+      .toBeLessThan(1);
+    // The previous band has scrolled past, taking its heading with it.
+    expect(priority.getBoundingClientRect().bottom).toBeLessThanOrEqual(top() + 1);
+  });
 });

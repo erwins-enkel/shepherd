@@ -119,8 +119,13 @@
     display: flex;
     flex-direction: column;
   }
-  /* The heading is the band's fold toggle. */
+  /* The heading is the band's fold toggle. It sticks to the top of the scrolling list while its
+     band's rows pass under it (the next band's heading pushes it out), so the band in view
+     stays named. Above rows, below the batch bar (z 2). */
   .un-section-head {
+    position: sticky;
+    top: 0;
+    z-index: 1;
     margin: 0;
     width: 100%;
     display: flex;

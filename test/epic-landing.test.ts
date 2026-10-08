@@ -34,10 +34,19 @@ describe("buildLandingPrTitle", () => {
     expect(build(327, "EFI value map")).toBe("feat: eFI value map (epic #327)");
   });
 
-  it("falls back to `feat:` for a non-type `Word:` prefix (not a real conventional type)", () => {
+  it("turns a non-type `Word:` prefix into the scope of the `feat` fallback", () => {
     expect(build(90, "Comments: communication feed")).toBe(
-      "feat: comments: communication feed (epic #90)",
+      "feat(comments): communication feed (epic #90)",
     );
+    expect(build(2695, "native: drop dialogs")).toBe("feat(native): drop dialogs (epic #2695)");
+  });
+
+  it("guards an empty description after a non-type `Word:` prefix", () => {
+    expect(build(93, "Native:")).toBe("feat(native): epic #93");
+  });
+
+  it("keeps the bare fallback for a non-type word that carries its own scope", () => {
+    expect(build(94, "Comments(x): y")).toBe("feat: comments(x): y (epic #94)");
   });
 
   it("lowercases a recognized but mixed-case type", () => {

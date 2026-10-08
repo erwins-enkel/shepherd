@@ -45,11 +45,14 @@ function lowerFirst(subject: string): string {
  *
  *  - Parent title already conventional with a recognized type → keep it (type lowercased,
  *    scope/`!` verbatim), append ` (epic #<n>)`.
- *  - Bare title, OR a non-type `Word:` prefix (e.g. `Comments: …`) → prepend `feat:`.
+ *  - A bare non-type `Word:` prefix (e.g. `native: …`) → it becomes the scope of the fallback
+ *    type, lowercased: `feat(native): …` rather than a doubled `feat: native: …` (#2871). A
+ *    non-type word that already carries a `(scope)` or `!` falls through to the bare branch.
+ *  - Bare title → prepend `feat:`.
  *  A trailing `[EPIC]`/`[epic]` tag and a leading `Epic:` — the prefix Shepherd's own epic
  *  authoring produces — are stripped either way. The description is then lowercase-initial in
- *  BOTH branches so the `pr title` gate stays green (#2021; see `lowerFirst`). A title that is
- *  nothing but the tag leaves no description, hence the guard in both returns. */
+ *  EVERY branch so the `pr title` gate stays green (#2021; see `lowerFirst`). A title that is
+ *  nothing but the tag leaves no description, hence the guard on the return. */
 export function buildLandingPrTitle(parentNumber: number, parentTitle: string): string {
   // `epic` is not in RELEASE_TYPES, so stripping the leading tag can never clobber a real type.
   const cleaned = parentTitle
@@ -59,14 +62,18 @@ export function buildLandingPrTitle(parentNumber: number, parentTitle: string): 
   const epicTag = `(epic #${parentNumber})`;
 
   const m = /^(\w+)(\([^)]*\))?(!)?:\s*(.*)$/.exec(cleaned);
+  let prefix = FALLBACK_TYPE;
+  let rawDesc = cleaned;
   if (m && RELEASE_TYPES.has(m[1]!.toLowerCase())) {
-    const prefix = `${m[1]!.toLowerCase()}${m[2] ?? ""}${m[3] ?? ""}`;
-    const desc = lowerFirst(m[4]!.trim());
-    return desc ? `${prefix}: ${desc} ${epicTag}` : `${prefix}: epic #${parentNumber}`;
+    prefix = `${m[1]!.toLowerCase()}${m[2] ?? ""}${m[3] ?? ""}`;
+    rawDesc = m[4]!;
+  } else if (m && !m[2] && !m[3]) {
+    prefix = `${FALLBACK_TYPE}(${m[1]!.toLowerCase()})`;
+    rawDesc = m[4]!;
   }
 
-  const desc = lowerFirst(cleaned);
-  return desc ? `${FALLBACK_TYPE}: ${desc} ${epicTag}` : `${FALLBACK_TYPE}: epic #${parentNumber}`;
+  const desc = lowerFirst(rawDesc.trim());
+  return desc ? `${prefix}: ${desc} ${epicTag}` : `${prefix}: epic #${parentNumber}`;
 }
 
 /** Sanitize a child title for a single Markdown table cell: collapse newlines to spaces (a

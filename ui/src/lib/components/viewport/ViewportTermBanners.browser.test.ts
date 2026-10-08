@@ -3,6 +3,18 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 
+const resolveLoginRequest = vi.fn().mockResolvedValue(undefined);
+vi.mock("$lib/api", async (orig) => ({
+  ...(await orig<typeof import("$lib/api")>()),
+  resolveLoginRequest: (...a: unknown[]) => resolveLoginRequest(...a),
+}));
+const toastInfo = vi.fn();
+vi.mock("$lib/toasts.svelte", async (orig) => {
+  const mod = await orig<typeof import("$lib/toasts.svelte")>();
+  return { ...mod, toasts: { ...mod.toasts, info: (...a: unknown[]) => toastInfo(...a) } };
+});
+
+const { ApiError } = await import("$lib/api");
 const { default: ViewportTermBanners } = await import("./ViewportTermBanners.svelte");
 
 const AUTH_URL =
@@ -10,6 +22,7 @@ const AUTH_URL =
 
 const baseProps = {
   tab: "term",
+  sessionId: "s1",
   scrolledUp: false,
   parked: false,
   ended: false,
@@ -27,6 +40,8 @@ const baseProps = {
 afterEach(() => {
   document.body.innerHTML = "";
   vi.restoreAllMocks();
+  resolveLoginRequest.mockReset().mockResolvedValue(undefined);
+  toastInfo.mockReset();
 });
 
 describe("ViewportTermBanners auth banner", () => {
@@ -157,6 +172,102 @@ describe("terminal owner on a narrow screen", () => {
       expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(320);
     } finally {
       setLocale(previous, { reload: false });
+      await page.viewport(1280, 900);
+    }
+  });
+});
+
+describe("ViewportTermBanners login request bar (#2897)", () => {
+  const LOGIN = {
+    id: "lr1",
+    url: "https://login.example/",
+    reason: "Need the dashboard session",
+    createdAt: 1,
+  };
+
+  it("shows url + reason with Open browser / Done / Cancel on the term tab", async () => {
+    render(ViewportTermBanners, { ...baseProps, loginRequest: LOGIN, openBrowser: vi.fn() });
+    await expect.element(page.getByText("https://login.example/")).toBeVisible();
+    await expect.element(page.getByText("Need the dashboard session")).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Open browser" })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Done" })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Cancel" })).toBeVisible();
+  });
+
+  it("Done / Cancel answer the request in place", async () => {
+    render(ViewportTermBanners, { ...baseProps, loginRequest: LOGIN });
+    await page.getByRole("button", { name: "Done" }).click();
+    expect(resolveLoginRequest).toHaveBeenCalledWith("s1", "done");
+    await page.getByRole("button", { name: "Cancel" }).click();
+    expect(resolveLoginRequest).toHaveBeenLastCalledWith("s1", "cancelled");
+  });
+
+  it("Open browser calls openBrowser; hidden without a Browser tab", async () => {
+    const openBrowser = vi.fn();
+    const r = await render(ViewportTermBanners, { ...baseProps, loginRequest: LOGIN, openBrowser });
+    await page.getByRole("button", { name: "Open browser" }).click();
+    expect(openBrowser).toHaveBeenCalledOnce();
+    await r.rerender({ ...baseProps, loginRequest: LOGIN, openBrowser: null });
+    await expect
+      .element(page.getByRole("button", { name: "Open browser" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("hides off the term tab, when parked, and once the request resolves", async () => {
+    const r = await render(ViewportTermBanners, { ...baseProps, loginRequest: LOGIN, tab: "diff" });
+    await expect.element(page.getByRole("button", { name: "Done" })).not.toBeInTheDocument();
+    await r.rerender({ ...baseProps, loginRequest: LOGIN, parked: true });
+    await expect.element(page.getByRole("button", { name: "Done" })).not.toBeInTheDocument();
+    await r.rerender({ ...baseProps, loginRequest: LOGIN });
+    await expect.element(page.getByRole("button", { name: "Done" })).toBeVisible();
+    await r.rerender({ ...baseProps, loginRequest: null });
+    await expect.element(page.getByRole("button", { name: "Done" })).not.toBeInTheDocument();
+  });
+
+  it("stacks under a pending MCP auth strip", async () => {
+    render(ViewportTermBanners, { ...baseProps, authUrl: AUTH_URL, loginRequest: LOGIN });
+    await expect.element(page.getByText(AUTH_URL)).toBeVisible();
+    await expect.element(page.getByText("Need the dashboard session")).toBeVisible();
+    const [auth, login] = document.querySelectorAll<HTMLElement>(".auth-banner");
+    expect(login.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+      auth.getBoundingClientRect().bottom - 1,
+    );
+  });
+
+  it("swallows a 404 (already answered) but toasts other failures", async () => {
+    resolveLoginRequest.mockRejectedValueOnce(new ApiError(404, "gone"));
+    render(ViewportTermBanners, { ...baseProps, loginRequest: LOGIN });
+    await page.getByRole("button", { name: "Done" }).click();
+    await expect.poll(() => resolveLoginRequest.mock.calls.length).toBe(1);
+    expect(toastInfo).not.toHaveBeenCalled();
+    resolveLoginRequest.mockRejectedValueOnce(new ApiError(500, "boom"));
+    await page.getByRole("button", { name: "Done" }).click();
+    await expect.poll(() => toastInfo.mock.calls.length).toBe(1);
+  });
+
+  it("ellipsizes a long URL, clamps the reason, and wraps actions on a phone", async () => {
+    const url = "https://login.example/" + "a".repeat(400);
+    const reason = "word ".repeat(200);
+    await page.viewport(360, 700);
+    try {
+      render(ViewportTermBanners, {
+        ...baseProps,
+        loginRequest: { ...LOGIN, url, reason },
+        openBrowser: vi.fn(),
+      });
+      await expect.element(page.getByRole("button", { name: "Done" })).toBeVisible();
+      const bar = document.querySelector<HTMLElement>(".login-banner")!;
+      expect(bar.scrollWidth).toBeLessThanOrEqual(bar.clientWidth);
+      const urlEl = page.getByText(url).element() as HTMLElement;
+      expect(urlEl.title).toBe(url);
+      expect(urlEl.scrollWidth).toBeGreaterThan(urlEl.clientWidth); // ellipsized
+      const reasonEl = document.querySelector<HTMLElement>(".login-reason")!;
+      expect(reasonEl.title).toBe(reason);
+      const lh = parseFloat(getComputedStyle(reasonEl).lineHeight) || 20;
+      expect(reasonEl.clientHeight).toBeLessThanOrEqual(lh * 2 + 2);
+      const text = bar.querySelector<HTMLElement>(".auth-text")!;
+      expect(text.getBoundingClientRect().width).toBeGreaterThan(200);
+    } finally {
       await page.viewport(1280, 900);
     }
   });

@@ -3,7 +3,8 @@
   // /browser-view/<id>; pointer, keys and pasted text go back as typed messages the server
   // turns into CDP input. Works over Tailscale, so a remote operator can do a Handoff Login.
   import { m } from "$lib/paraglide/messages";
-  import { ApiError, openRepoBrowser, resolveLoginRequest } from "$lib/api";
+  import { ApiError, openRepoBrowser } from "$lib/api";
+  import { answerLoginRequest } from "$lib/login-request";
   import { toasts } from "$lib/toasts.svelte";
   import { statusTip } from "$lib/tooltips/statusTip.svelte";
   import { browserPopoutExplanation } from "$lib/tooltips/explanations";
@@ -281,15 +282,8 @@
   let answering = $state(false);
   async function answerLogin(outcome: "done" | "cancelled") {
     answering = true;
-    try {
-      await resolveLoginRequest(session.id, outcome);
-    } catch (e) {
-      // 404: already answered (another client, or the session ended) — the banner clears itself.
-      if (!(e instanceof ApiError && e.status === 404))
-        toasts.info(m.viewport_browser_login_answer_failed(), { alert: true });
-    } finally {
-      answering = false;
-    }
+    await answerLoginRequest(session.id, outcome);
+    answering = false;
   }
 
   async function openTab() {

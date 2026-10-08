@@ -1,7 +1,8 @@
 <script lang="ts">
   import { terminalOwnerTitle } from "$lib/terminal-client";
-  import type { TerminalClientInfo } from "$lib/types";
+  import type { LoginRequest, TerminalClientInfo } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { answerLoginRequest } from "$lib/login-request";
 
   let {
     tab,
@@ -17,6 +18,9 @@
     resumable,
     stranded = false,
     authUrl = null,
+    sessionId,
+    loginRequest = null,
+    openBrowser = null,
     scrollToTop,
     scrollToBottom,
     takeover,
@@ -39,6 +43,11 @@
     /** Pending MCP OAuth authorization URL for an awaiting-input block — the operator must
      *  open it in their browser. null when the agent isn't waiting on an auth URL. */
     authUrl?: string | null;
+    sessionId: string;
+    /** The session's open Login Request (#2897) — answered in place with Done/Cancel. */
+    loginRequest?: LoginRequest | null;
+    /** Switches to the Browser tab; null hides "Open browser" (no Browser tab for this session). */
+    openBrowser?: (() => void) | null;
     scrollToTop: () => void;
     scrollToBottom: () => void;
     takeover: () => void;
@@ -51,6 +60,12 @@
 
   function openAuth() {
     if (authUrl) window.open(authUrl, "_blank", "noopener,noreferrer");
+  }
+  let answering = $state(false);
+  async function answerLogin(outcome: "done" | "cancelled") {
+    answering = true;
+    await answerLoginRequest(sessionId, outcome);
+    answering = false;
   }
   async function copyAuth() {
     if (!authUrl || !navigator.clipboard) return; // no clipboard (insecure context) → don't fake success
@@ -87,25 +102,65 @@
     </button>
   </div>
 {/if}
-{#if authUrl && tab === "term" && !parked}
-  <!-- Non-modal top strip: an MCP OAuth prompt (e.g. Notion/Vercel) whose URL Claude
-       word-wraps un-clickably in the terminal. Sourced from the JSONL, so the full URL
-       is intact. The prompt sits at the terminal's bottom, so a top strip never covers
-       it. Full URL shown (title=full) so the operator can vet the host before opening. -->
-  <div class="auth-banner" role="status">
-    <span class="auth-icon" aria-hidden="true">🔗</span>
-    <div class="auth-text">
-      <span class="auth-title">{m.viewport_auth_title()}</span>
-      <span class="auth-url" title={authUrl}>{authUrl}</span>
-    </div>
-    <div class="auth-actions">
-      <button class="auth-btn primary" type="button" onclick={openAuth}>
-        {m.viewport_auth_open()}
-      </button>
-      <button class="auth-btn" type="button" onclick={copyAuth}>
-        {copied ? m.viewport_auth_copied() : m.viewport_auth_copy()}
-      </button>
-    </div>
+{#if tab === "term" && !parked && (authUrl || loginRequest)}
+  <div class="top-strips">
+    {#if authUrl}
+      <!-- Non-modal top strip: an MCP OAuth prompt (e.g. Notion/Vercel) whose URL Claude
+         word-wraps un-clickably in the terminal. Sourced from the JSONL, so the full URL
+         is intact. The prompt sits at the terminal's bottom, so a top strip never covers
+         it. Full URL shown (title=full) so the operator can vet the host before opening. -->
+      <div class="auth-banner" role="status">
+        <span class="auth-icon" aria-hidden="true">🔗</span>
+        <div class="auth-text">
+          <span class="auth-title">{m.viewport_auth_title()}</span>
+          <span class="auth-url" title={authUrl}>{authUrl}</span>
+        </div>
+        <div class="auth-actions">
+          <button class="auth-btn primary" type="button" onclick={openAuth}>
+            {m.viewport_auth_open()}
+          </button>
+          <button class="auth-btn" type="button" onclick={copyAuth}>
+            {copied ? m.viewport_auth_copied() : m.viewport_auth_copy()}
+          </button>
+        </div>
+      </div>
+    {/if}
+    {#if loginRequest}
+      <!-- Login Request (#2897): the agent is blocked in browser_request_login. Same store
+           as the Browser-tab banner, so answering either place clears both. Agent text
+           (url, reason) is plain text only. -->
+      <div class="auth-banner login-banner" role="status">
+        <span class="auth-icon" aria-hidden="true">🔑</span>
+        <div class="auth-text">
+          <span class="auth-title">{m.viewport_login_bar_title()}</span>
+          <span class="auth-url" title={loginRequest.url}>{loginRequest.url}</span>
+          <span class="login-reason" title={loginRequest.reason}>{loginRequest.reason}</span>
+        </div>
+        <div class="auth-actions">
+          {#if openBrowser}
+            <button class="auth-btn" type="button" onclick={openBrowser}>
+              {m.viewport_login_bar_open()}
+            </button>
+          {/if}
+          <button
+            class="auth-btn primary"
+            type="button"
+            disabled={answering}
+            onclick={() => answerLogin("done")}
+          >
+            {m.viewport_browser_login_done()}
+          </button>
+          <button
+            class="auth-btn"
+            type="button"
+            disabled={answering}
+            onclick={() => answerLogin("cancelled")}
+          >
+            {m.viewport_browser_login_cancel()}
+          </button>
+        </div>
+      </div>
+    {/if}
   </div>
 {/if}
 {#if parked && tab === "term"}
@@ -143,17 +198,24 @@
 {/if}
 
 <style>
+  /* top-strips: the absolute top anchor; auth + login strips stack when both pend. */
+  .top-strips {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+  }
   /* auth-banner: non-modal top strip surfacing a pending MCP OAuth URL. Anchored at the
      top so it never covers the prompt/input at the terminal's bottom. Amber accent — an
      actionable "needs you" state, not a success. The session stalls silently until the
      operator acts, so the strip is deliberately loud: amber-washed surface, slide-down
      entry, and a continuous "breathing" halo (below) for as long as the URL is pending. */
   .auth-banner {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 3;
+    position: relative; /* containing block for the ::after halo */
+    isolation: isolate; /* own stacking context: the z-index -1 halo stays above this background */
     display: flex;
     align-items: center;
     gap: 10px;
@@ -177,7 +239,7 @@
      top/left/right edges, so a symmetric halo would clip on three sides. An outer
      box-shadow renders outside the border-box only, so nothing inside the strip is
      tinted; z-index -1 keeps it under the text/buttons within the banner's own
-     stacking context (z-index 3 above). */
+     stacking context (isolation above). */
   .auth-banner::after {
     content: "";
     position: absolute;
@@ -244,6 +306,28 @@
     overflow: hidden;
     text-overflow: ellipsis;
   }
+  /* Login bar: the text column keeps a usable floor and the actions drop to their own row
+     when the strip is too narrow (phones, German labels, 44px coarse targets). The prose
+     reason wraps to two lines, full text on hover. */
+  .login-banner {
+    flex-wrap: wrap;
+  }
+  .login-banner .auth-text {
+    flex: 1 1 14rem;
+  }
+  .login-banner .auth-actions {
+    flex-wrap: wrap;
+  }
+  .login-reason {
+    color: var(--color-ink);
+    font-size: var(--fs-base);
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+  }
   .auth-actions {
     display: flex;
     gap: 6px;
@@ -263,7 +347,11 @@
       background 0.12s ease,
       border-color 0.12s ease;
   }
-  .auth-btn:hover {
+  .auth-btn:disabled {
+    cursor: progress;
+    opacity: 0.7;
+  }
+  .auth-btn:hover:not(:disabled) {
     background: var(--color-hover);
   }
   .auth-btn.primary {

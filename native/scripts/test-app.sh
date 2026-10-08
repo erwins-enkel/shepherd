@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Generates the Xcode project and runs the unit + UI test bundles.
 # Usage: native/scripts/test-app.sh [-only-testing:ShepherdTests]
+# A run with UI tests stops before building on a Mac whose UI Automation still
+# asks for authentication; SHEPHERD_ALLOW_AUTOMATION_PROMPT=1 runs it anyway.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -10,6 +12,11 @@ APP_DIR="$(cd "$SCRIPT_DIR/../Apps/ShepherdMac" && pwd)"
 # shellcheck source=native/scripts/codesign-mode.sh
 . "$SCRIPT_DIR/codesign-mode.sh"
 shepherd_codesign_args
+# Stops a run with UI tests that would wait on the "Enable UI Automation"
+# dialog, before anything is unlocked, generated or built.
+# shellcheck source=native/scripts/automation-mode.sh
+. "$SCRIPT_DIR/automation-mode.sh"
+shepherd_automation_preflight "$@" || exit 1
 # Unlocks the dev signing keychain, or stops right here. It is a no-op unless
 # that identity was the one chosen above; when it WAS chosen and cannot be
 # unlocked, failing now beats letting codesign hang on a password dialog.

@@ -836,6 +836,30 @@ test("autonomousOriginPolicy: the session's in-range Preview port, never a Sheph
   expect(autonomousOriginPolicy({ store }, "s1", "/repo").previewPort()).toBeNull();
 });
 
+test("autonomousOriginPolicy: the in-netns dev forward is scoped to the session (#2889)", async () => {
+  const store = {
+    getRepoConfig: () => ({ browserAllowedHosts: [] }),
+  } as unknown as Parameters<typeof autonomousOriginPolicy>[0]["store"];
+  const seen: string[] = [];
+  const netnsDevForward = {
+    devPort: async (id: string) => (id === "s1" ? 5173 : null),
+    forward: async (id: string, port: number) => {
+      seen.push(`${id}:${port}`);
+      return id === "s1" && port === 5173 ? 41234 : null;
+    },
+  };
+  const p = autonomousOriginPolicy({ store, netnsDevForward }, "s1", "/repo");
+  expect(await p.devPort?.()).toBe(5173);
+  expect(await p.devForward?.(5173)).toBe(41234);
+  expect(
+    await autonomousOriginPolicy({ store, netnsDevForward }, "s2", "/repo").devForward?.(5173),
+  ).toBeNull();
+  expect(seen).toEqual(["s1:5173", "s2:5173"]);
+  const none = autonomousOriginPolicy({ store }, "s1", "/repo");
+  expect(await none.devPort?.()).toBeNull();
+  expect(await none.devForward?.(5173)).toBeNull();
+});
+
 // ── browser_request_login long-poll over the real ingress listener (#2882) ─────
 
 async function loginSession(waitMs: number) {

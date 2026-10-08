@@ -73,6 +73,39 @@ describe("checkDestination", () => {
     expect((await checkDestination(policy([]), "app.localhost", 7400, lookup)).allow).toBe(false);
   });
 
+  test("the in-netns dev port tunnels to its forwarded host port; other loopback ports stay denied", async () => {
+    const asked: number[] = [];
+    const p: OriginPolicy = {
+      ...policy([]),
+      devForward: async (port) => {
+        asked.push(port);
+        return port === 5173 ? 41234 : null;
+      },
+    };
+    for (const host of ["localhost", "127.0.0.1", "[::1]"])
+      expect(await checkDestination(p, host, 5173, lookup)).toEqual({
+        allow: true,
+        address: "127.0.0.1",
+        port: 41234,
+      });
+    for (const port of [7330, 7331, 7401, 41234])
+      expect((await checkDestination(p, "localhost", port, lookup)).allow).toBe(false);
+    // The Preview port wins without consulting the forwarder.
+    asked.length = 0;
+    expect((await checkDestination(p, "localhost", 7400, lookup)).allow).toBe(true);
+    expect(asked).toEqual([]);
+    // A throwing forwarder denies.
+    const broken: OriginPolicy = {
+      ...policy([]),
+      devForward: () => Promise.reject(new Error("x")),
+    };
+    expect((await checkDestination(broken, "localhost", 5173, lookup)).allow).toBe(false);
+    // Never consulted for non-loopback names.
+    asked.length = 0;
+    expect((await checkDestination(p, "app.localhost", 5173, lookup)).allow).toBe(false);
+    expect(asked).toEqual([]);
+  });
+
   test("IP literals are denied even when public", async () => {
     for (const host of ["93.184.216.34", "10.0.0.1", "169.254.169.254", "0.0.0.0", "fe80::1"])
       expect((await checkDestination(policy(ALL), host, 443, lookup)).allow).toBe(false);

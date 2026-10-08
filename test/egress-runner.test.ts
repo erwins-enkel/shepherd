@@ -32,6 +32,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { buildEgressConfig, SLIRP_HOST_GATEWAY } from "../src/egress";
+import { slirpApiCall } from "../src/netns-dev-forward";
 import { egressRunnerShouldSkip } from "./egress-runner-gate";
 
 const SCRIPT = join(import.meta.dir, "..", "scripts", "egress-runner.sh");
@@ -242,6 +243,52 @@ test.skipIf(SKIP_LIVE_GW)(
       server.stop(true);
     }
   },
+);
+
+test.skipIf(SKIP)(
+  "in-netns dev server bound to 127.0.0.1 is reachable from the host via add_hostfwd (#2889)",
+  async () => {
+    // Short base: the slirp API socket path must fit AF_UNIX's 108 bytes, or the runner omits it.
+    const dir = mkdtempSync(join(process.env.XDG_RUNTIME_DIR || "/tmp", "egr-"));
+    const cfg = buildEgressConfig(["api.anthropic.com"], { tmpDir: dir });
+    writeFileSync(join(dir, "egress.nft"), cfg.nftRuleset);
+    writeFileSync(join(dir, "dnsmasq.argv"), cfg.dnsmasqArgv.join("\n"));
+    tmpDirs.push(dir);
+    const devPort = 5173;
+    const serve = `Bun.serve({hostname:"127.0.0.1",port:${devPort},fetch:()=>new Response("dev")});await Bun.sleep(20000)`;
+    const proc = spawnRunnerInDir(dir, [process.execPath, "-e", serve]);
+    recorded.push(proc.pid);
+    const { owner, slirp } = await captureChildren(proc.pid);
+    if (owner) recorded.push(owner);
+    if (slirp) recorded.push(slirp);
+    expect(readFileSync(join(dir, "netns.pid"), "utf8").trim()).toBe(String(owner));
+    const sock = join(dir, "slirp.sock");
+    const free = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("") });
+    const hostPort = free.port as number;
+    free.stop(true);
+    let body = "";
+    for (let i = 0; i < 50 && body !== "dev"; i++) {
+      await sleep(100);
+      if (!existsSync(sock)) continue;
+      const tcp = readFileSync(`/proc/${owner}/net/tcp`, "utf8");
+      if (!tcp.includes(`:${devPort.toString(16).toUpperCase()} `)) continue;
+      const reply = (await slirpApiCall(sock, {
+        execute: "add_hostfwd",
+        arguments: {
+          proto: "tcp",
+          host_addr: "127.0.0.1",
+          host_port: hostPort,
+          guest_port: devPort,
+        },
+      })) as { return?: { id?: number } };
+      expect(typeof reply.return?.id).toBe("number");
+      body = await fetch(`http://127.0.0.1:${hostPort}/`).then((r) => r.text());
+    }
+    expect(body).toBe("dev");
+    proc.kill("SIGKILL");
+    await proc.exited;
+  },
+  20_000,
 );
 
 test.skipIf(SKIP)("propagates the inner exit code (42)", async () => {

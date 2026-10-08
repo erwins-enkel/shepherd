@@ -357,13 +357,22 @@ process to reach.
     only when every resolved address is public;
   - the session's own **Preview port** on loopback, only inside the
     `SHEPHERD_PREVIEW_PORT_BASE` range, never Shepherd's main or agent-ingress
-    port, and only while the dev port it relays to is neither of those.
+    port, and only while the dev port it relays to is neither of those;
+  - the session's own **in-netns dev port** on loopback (#2889): the port in
+    the worktree's `.shepherd-preview`, only while it is listening inside the
+    session's network namespace. On first use Shepherd asks the session's
+    slirp4netns (API socket in the egress temp dir) to `add_hostfwd` it to a
+    fresh host `127.0.0.1` port and tunnels there, so the page keeps the origin
+    `localhost:<devPort>` and never reaches a host service on that number. The
+    netns `devfwd` table DNATs that forwarded traffic to the netns loopback, so
+    a dev server bound to `127.0.0.1` works (an `::1`-only one does not). The
+    forward dies with the netns.
 
   Everything else is refused: other loopback ports, IP literals, and names that
   resolve into loopback, RFC 1918, CGNAT/Tailscale (`100.64/10`), link-local,
   ULA, IPv4-mapped or other special ranges. At attach the broker copies only the
   default context's cookies for allowed hosts (and `localhost` when a Preview
-  origin exists, minus Shepherd's own `shepherd_session`) into the confined
+  or in-netns dev origin exists, minus Shepherd's own `shepherd_session`) into the confined
   context. When there are none, the attach
   closes with `1008 no-login`: an autonomous session cannot wait for a Handoff
   Login. The confined client sees and drives only its own context: other
@@ -375,8 +384,8 @@ process to reach.
   through a SOCKS proxy, so it remains an exfiltration channel. Cookies the
   confined context rotates are not written back, so a rotated session cookie
   can log the operator's default context out. The proxy port is open to any
-  local process but grants only the allowlist. A dev server an agent runs
-  inside its own network namespace (not via Preview) is unreachable.
+  local process but grants only the allowlist. The dev port forward is a host
+  `127.0.0.1` listener open to any local process, like a host dev server.
 
 Rationale and alternatives: [ADR 0001](adr/0001-brokered-cdp-for-shared-browser.md).
 

@@ -99,7 +99,13 @@ separate from your tabs, which it cannot see. That window reaches only:
 - the hosts in the repo's **browser origin allowlist** (`browserAllowedHosts`:
   exact host names on ports 80/443, and only when they resolve to public
   addresses);
-- the session's own **Preview** port on `localhost`.
+- the session's own **Preview** port on `localhost`;
+- the dev server the session runs inside its own sandbox, at
+  `http://localhost:<devPort>` — the port in its `.shepherd-preview` file,
+  while that server is listening. Shepherd forwards it out of the sandbox, so
+  the origin stays `localhost:<devPort>` and never reaches a different local
+  service on that port. The server must listen on `127.0.0.1` or all
+  interfaces; one bound only to `::1` is not reachable.
 
 Everything else is refused: other local ports, private and Tailscale
 addresses, IP literals. An allowlisted host that resolves to a private address
@@ -115,13 +121,12 @@ At attach, the window is seeded with your existing logins **for those hosts
 only**. With none, the attach is refused: an autonomous session can't wait for
 a Handoff Login, so log in first. Known gaps: WebRTC traffic is not confined,
 logins the confined window refreshes are not written back (a rotated session
-cookie can log your own window out), and a dev server the agent runs inside
-its own sandbox (not via Preview) is unreachable.
+cookie can log your own window out).
 
 ## Use the real dev origin
 
 Agents should open the app at its real dev address,
 `http://localhost:<devPort>`, not the Preview slot URL: OAuth callbacks are
 registered for the real port, so login flows break on the Preview URL.
-Autonomous sessions are the exception: they use their Preview port, because
-the raw dev port is refused.
+Autonomous sessions too: their dev port is forwarded once it is in
+`.shepherd-preview`.

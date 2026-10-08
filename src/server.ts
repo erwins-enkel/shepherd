@@ -429,6 +429,8 @@ export interface AppDeps {
     import("./shared-browser").SharedBrowserManager,
     "attach" | "open" | "stop" | "sessionTab"
   >;
+  /** In-netns dev server forwards for confined Browser Attach (#2889); absent → none. */
+  netnsDevForward?: Pick<import("./netns-dev-forward").NetnsDevForwarder, "devPort" | "forward">;
   /** Login Requests (#2882); absent → `browser_request_login` answers "unavailable". */
   loginRequests?: Pick<
     import("./login-request").LoginRequestService,

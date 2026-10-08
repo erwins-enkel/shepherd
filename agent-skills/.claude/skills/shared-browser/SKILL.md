@@ -51,8 +51,10 @@ An autonomous session gets a **confined** attach: its own browser window, separa
 operator's tabs, which it cannot see. That window reaches only:
 
 - the hosts in this repo's `browserAllowedHosts` (ports 80/443);
-- this session's own Shepherd Preview, at `http://localhost:<previewPort>`. Use the preview port,
-  not the raw dev port, which is refused.
+- your dev server's real dev origin, `http://localhost:<devPort>`, once you have written that port
+  to `.shepherd-preview` and the server is listening. Bind it to `127.0.0.1` or `0.0.0.0`; a server
+  listening only on `::1` is unreachable;
+- this session's own Shepherd Preview, at `http://localhost:<previewPort>`.
 
 Everything else fails with `net::ERR_SOCKS_CONNECTION_FAILED`. Do not retry it; tell the operator
 which host you needed.

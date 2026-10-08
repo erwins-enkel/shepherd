@@ -25,7 +25,8 @@ repository root. If you started the server from the scratchpad instead, put that
 directory you started it from; the repository root still wins if both exist.
 
 Shepherd uses that value only when the port is actually listening; otherwise it auto-detects the
-port. So this is optional: skip it if you have no dev server, or if the default detection already
+port. In an autonomous session the file is required for the Shared Browser to reach your server:
+Shepherd cannot see your sandbox's ports without it. So this is optional: skip it if you have no dev server, or if the default detection already
 targets the right port.
 
 Debugger endpoints are never chosen as the preview, so a Node inspector or a CDP port on 9222 /

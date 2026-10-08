@@ -142,6 +142,7 @@ import {
   type EgressBackend,
 } from "./egress";
 import type { EgressWatcher } from "./egress-watch";
+import type { NetnsDevForwarder } from "./netns-dev-forward";
 import { foldSpawnPatch } from "./spawn-membrane";
 import { PluginSpawnAborted, type SpawnDescriptor, type SpawnPatch } from "./plugins/types";
 import { SHEPHERD_ISSUE_LOG_MARKER } from "./forge/types";
@@ -352,6 +353,8 @@ export interface ServiceDeps {
   readCodexHelp?: () => string;
   /** Per-session DNS-drop watcher; absent in tests that don't care → no-op. */
   egressWatcher?: Pick<EgressWatcher, "start" | "stop">;
+  /** In-netns dev server forwards (#2889); dropped at archive. Absent → no-op. */
+  netnsDevForward?: Pick<NetnsDevForwarder, "drop">;
   /** Best-effort pre-teardown hook (recap generation) — runs while the worktree still
    *  exists; bounded + swallowed so it can never block teardown. Absent → no hook. */
   beforeArchive?: (s: Session) => Promise<void>;
@@ -6599,6 +6602,7 @@ export class SessionService {
     // Best-effort: drop this session's egress config dir (incl. dns.log). The agent is
     // stopped above, so nothing still tails it. No-op when the session never had egress on.
     removeEgressTmp(id);
+    this.deps.netnsDevForward?.drop(id);
     await this.removeBrowserAttachConfig(s.id);
     this.attributeLearningReward(s);
     this.deps.store.archive(id, reason);

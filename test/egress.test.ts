@@ -336,6 +336,13 @@ describe("buildEgressConfig", () => {
     expect(nftRuleset).toContain("table inet egress");
   });
 
+  test("nftRuleset DNATs tap0 hostfwd traffic to the netns loopback (#2889)", () => {
+    const { nftRuleset } = config();
+    expect(nftRuleset).toContain("table ip devfwd");
+    expect(nftRuleset).toContain("type nat hook prerouting priority -100;");
+    expect(nftRuleset).toContain('iifname "tap0" ip daddr 10.0.2.100 dnat to 127.0.0.1');
+  });
+
   test("nftRuleset has the allowed set with ipv4_addr + timeout", () => {
     const { nftRuleset } = config();
     expect(nftRuleset).toContain("set allowed");

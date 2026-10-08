@@ -388,11 +388,12 @@ export class SharedBrowserManager {
       contextId = ctx.browserContextId;
       const { cookies } = await entry.pipe.call("Storage.getCookies");
       const hosts = policy.allowedHosts();
-      const withPreview = policy.previewPort() !== null;
+      const withLocal =
+        policy.previewPort() !== null || ((await policy.devPort?.()) ?? null) !== null;
       const login = (Array.isArray(cookies) ? (cookies as Record<string, unknown>[]) : []).filter(
         (c) =>
           typeof c.domain === "string" &&
-          cookieMatchesHosts(c.domain, hosts, withPreview) &&
+          cookieMatchesHosts(c.domain, hosts, withLocal) &&
           // localhost cookies ignore ports: never hand over the operator's own Shepherd session.
           c.name !== SESSION_COOKIE,
       );

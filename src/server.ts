@@ -473,6 +473,9 @@ export interface AppDeps {
    *  (working-while-blocked display flag), for client bootstrap; updates flow via
    *  the `session:working-blocked` event. Absent in tests that skip it. */
   workingBlocked?: { snapshot(): Record<string, boolean> };
+  /** Resting sessions whose claude still runs a non-server background shell, for client bootstrap
+   *  of the `session:background-busy` event. Absent in tests that skip it. */
+  backgroundBusy?: { snapshot(): Record<string, boolean> };
   /** Last-emitted block reason per session, for client bootstrap; updates flow via the
    *  `session:block` event. Lets a fresh page load / push-then-open surface a live block
    *  (incl. an MCP-auth `authUrl`) that was edge-emitted before the client connected. */
@@ -1288,6 +1291,13 @@ function handleStrandedSnapshot({ req, parts, deps }: Ctx): Response | null {
 function handleWorkingBlockedSnapshot({ req, parts, deps }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "working-blocked" && !parts[2]) {
     return json(deps.workingBlocked?.snapshot() ?? {});
+  }
+  return null;
+}
+
+function handleBackgroundBusySnapshot({ req, parts, deps }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "background-busy" && !parts[2]) {
+    return json(deps.backgroundBusy?.snapshot() ?? {});
   }
   return null;
 }
@@ -9361,6 +9371,7 @@ const ROUTE_HANDLERS = [
   handleStrandedSnapshot,
   handleReviveStranded,
   handleWorkingBlockedSnapshot,
+  handleBackgroundBusySnapshot,
   handleBlocksSnapshot,
   handleHoldsSnapshot,
   handleSubagentsSnapshot,

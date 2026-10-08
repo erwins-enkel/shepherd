@@ -73,6 +73,7 @@
     statusFilter = null,
     onstatusfilter,
     workingBlocked = {},
+    backgroundBusy = {},
     diagnostics = null,
     diagnosticsOverall = "ok",
     ondiagnose,
@@ -116,6 +117,9 @@
     // working-while-blocked display flags (store map); tallies + gear pip read the
     // DISPLAY status through it — the halt e-stop keeps the raw status (see below)
     workingBlocked?: Record<string, boolean>;
+    // background-busy display flags (store map) — a resting session still running a
+    // background shell tallies as working
+    backgroundBusy?: Record<string, boolean>;
     /** Full diagnostics snapshot; capacity failover needs per-CLI readiness, not just worst-of. */
     diagnostics?: DiagnosticsSnapshot | null;
     /** Worst-of diagnostics state; hidden when "ok". */
@@ -160,7 +164,7 @@
   // status (`haltable` below): the server's haltAll only reaches agents herdr
   // itself reports working, which the latched-"blocked" session is not.
   const working = $derived(
-    sessions.filter((s) => displayStatus(s, workingBlocked) === "running").length,
+    sessions.filter((s) => displayStatus(s, workingBlocked, backgroundBusy) === "running").length,
   );
   const haltable = $derived(sessions.filter((s) => s.status === "running").length);
   // "touch-desktop" = a coarse-pointer device wider than 768px (an unfolded foldable, a
@@ -326,9 +330,11 @@
   const compactBadges = $derived(mode !== "mobile" && measuredCompact);
   const foldBadges = $derived(compactBadges && measuredFold);
 
-  const idle = $derived(sessions.filter((s) => displayStatus(s, workingBlocked) === "idle").length);
+  const idle = $derived(
+    sessions.filter((s) => displayStatus(s, workingBlocked, backgroundBusy) === "idle").length,
+  );
   const blocked = $derived(
-    sessions.filter((s) => displayStatus(s, workingBlocked) === "blocked").length,
+    sessions.filter((s) => displayStatus(s, workingBlocked, backgroundBusy) === "blocked").length,
   );
   const connText = $derived(
     connected ? m.topbar_conn_tip_connected() : m.topbar_conn_tip_disconnected(),

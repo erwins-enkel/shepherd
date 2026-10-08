@@ -59,9 +59,10 @@ function sessionSeverity(
   git: GitState | undefined,
   workingBlocked: Record<string, boolean>,
   gate: PlanGate | undefined,
+  backgroundBusy: Record<string, boolean>,
 ): Severity {
   if (git?.checks === "failure") return "red";
-  if (displayStatus(s, workingBlocked) === "blocked") return "amber";
+  if (displayStatus(s, workingBlocked, backgroundBusy) === "blocked") return "amber";
   if (s.planPhase === "planning" && planQuestionsUnanswered(gate)) return "amber";
   if (s.readyToMerge && git?.handoff !== "merger") return "green";
   return "none";
@@ -74,6 +75,7 @@ export function deriveTabState(
   git: Record<string, GitState>,
   workingBlocked: Record<string, boolean>,
   planGates: Record<string, PlanGate> = {},
+  backgroundBusy: Record<string, boolean> = {},
 ): TabState {
   let count = 0;
   let severity: Severity = "none";
@@ -82,8 +84,8 @@ export function deriveTabState(
   let ready = 0;
   let running = 0;
   for (const s of sessions) {
-    if (displayStatus(s, workingBlocked) === "running") running++;
-    const sev = sessionSeverity(s, git[s.id], workingBlocked, planGates[s.id]);
+    if (displayStatus(s, workingBlocked, backgroundBusy) === "running") running++;
+    const sev = sessionSeverity(s, git[s.id], workingBlocked, planGates[s.id], backgroundBusy);
     if (sev === "none") continue;
     count++;
     if (sev === "red") ci++;

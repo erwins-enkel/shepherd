@@ -35,6 +35,7 @@
     claudeAliveStates,
     strandedStates,
     workingBlockedStates,
+    backgroundBusyStates,
     blockStates,
     holdStates,
     loginRequestStates,
@@ -192,7 +193,13 @@
   // region below mirrors changes for screen readers. Disposed on unmount.
   const tabSignal = createTabSignal();
   $effect(() => {
-    const st = deriveTabState(store.sessions, store.git, store.workingBlocked, planGates.map);
+    const st = deriveTabState(
+      store.sessions,
+      store.git,
+      store.workingBlocked,
+      planGates.map,
+      store.backgroundBusy,
+    );
     // Progress ring: selected session's build-queue completion, but ONLY when it is
     // running and nothing needs the operator (the severity dot always wins).
     const sel = selected;
@@ -201,7 +208,7 @@
     if (
       sel &&
       st.count === 0 &&
-      displayStatus(sel, store.workingBlocked) === "running" &&
+      displayStatus(sel, store.workingBlocked, store.backgroundBusy) === "running" &&
       q &&
       q.steps.length > 0
     ) {
@@ -481,6 +488,7 @@
         store.blocks,
         store.workingBlocked,
         selected,
+        store.backgroundBusy,
       );
       // toDetail=false lives in the handler: filtering the list must not fling a
       // phone user into a terminal. Routed through jumpHandlers so a target in a
@@ -501,7 +509,9 @@
     // displayStatus, not raw status: a working-while-blocked session belongs under
     // the "running" filter (the tallies count it there), never under "blocked".
     return statusFilter
-      ? byRepo.filter((s) => displayStatus(s, store.workingBlocked) === statusFilter)
+      ? byRepo.filter(
+          (s) => displayStatus(s, store.workingBlocked, store.backgroundBusy) === statusFilter,
+        )
       : byRepo;
   });
   // Display name of the active filter for the herd's empty-state copy: null when unfiltered,
@@ -614,6 +624,7 @@
         { planGate: planGates.map[session.id], review: reviews.map[session.id] },
         store.workingBlocked,
         nowMs,
+        store.backgroundBusy,
       );
     return railLocationsOf(
       herdSessions,
@@ -958,6 +969,9 @@
       .catch(() => {});
     workingBlockedStates()
       .then((m) => store.setWorkingBlocked(m))
+      .catch(() => {});
+    backgroundBusyStates()
+      .then((m) => store.setBackgroundBusy(m))
       .catch(() => {});
     blockStates()
       .then((m) => store.setBlocks(m))
@@ -1531,6 +1545,7 @@
           { planGate: planGates.map[session.id], review: reviews.map[session.id] },
           store.workingBlocked,
           nowMs,
+          store.backgroundBusy,
         ),
       nowMs,
       // a page-level status filter short-circuits the rail's all/ready filter in
@@ -1542,6 +1557,7 @@
       activeEpicKeys,
       collapsedEpics,
       collapsedStages,
+      store.backgroundBusy,
     );
   }
 
@@ -1864,6 +1880,9 @@
       .catch(() => {});
     workingBlockedStates()
       .then((m) => store.setWorkingBlocked(m))
+      .catch(() => {});
+    backgroundBusyStates()
+      .then((m) => store.setBackgroundBusy(m))
       .catch(() => {});
     blockStates()
       .then((m) => store.setBlocks(m))
@@ -2948,6 +2967,7 @@
         {statusFilter}
         onstatusfilter={(s) => (statusFilter = s)}
         workingBlocked={store.workingBlocked}
+        backgroundBusy={store.backgroundBusy}
         diagnostics={store.diagnostics}
         diagnosticsOverall={store.diagnosticsOverall}
         ondiagnose={() => {
@@ -3051,6 +3071,7 @@
             flow={true}
             bind:filter={herdFilter}
             workingBlocked={store.workingBlocked}
+            backgroundBusy={store.backgroundBusy}
             liveness={store.claudeAlive}
             blocks={store.blocks}
             holds={store.holds}
@@ -3150,6 +3171,7 @@
             {consumeAutoFocusTerm}
             {onarchive}
             workingBlocked={store.workingBlocked}
+            backgroundBusy={store.backgroundBusy}
             authUrl={selectedAuthUrl}
             onback={() => (mobileScreen = "list")}
             onretry={() => (showRetry = true)}
@@ -3224,6 +3246,7 @@
               }}
               bind:filter={herdFilter}
               workingBlocked={store.workingBlocked}
+              backgroundBusy={store.backgroundBusy}
               liveness={store.claudeAlive}
               blocks={store.blocks}
               holds={store.holds}
@@ -3331,6 +3354,7 @@
             {consumeAutoFocusTerm}
             {onarchive}
             workingBlocked={store.workingBlocked}
+            backgroundBusy={store.backgroundBusy}
             authUrl={selectedAuthUrl}
             onretry={() => (showRetry = true)}
             retryHaltedCount={haltedCount}

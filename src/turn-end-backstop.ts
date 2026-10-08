@@ -99,6 +99,10 @@ interface Deps {
   /** Send the "agent finished its turn" push the lost `done` edge never triggered (#2267).
    *  Phase-agnostic, because the real edge in attachPush() is too. */
   notifyDone: (id: string) => Promise<unknown>;
+  /** True while a resting session's claude still runs a non-server background shell
+   *  (StatusPoller.isBackgroundBusy). Counts as active: the turn isn't over until the shell exits.
+   *  Omitted → never busy. */
+  isBackgroundBusy?: (id: string) => boolean;
   now?: () => number;
   idleThresholdMs?: number;
   maxConsecutiveFailures?: number;
@@ -108,6 +112,7 @@ export class TurnEndBackstopService {
   private now: () => number;
   private idleThresholdMs: number;
   private maxConsecutiveFailures: number;
+  private isBackgroundBusy: (id: string) => boolean;
   private debounce = new Map<string, DebounceEntry>();
   /** Sessions whose recovery is still dispatching. Per session, NOT one global sweep lock: a
    *  dispatch can take minutes (autopilot's onDone runs a classifier spawn with a 120s timeout),
@@ -121,6 +126,7 @@ export class TurnEndBackstopService {
     this.now = deps.now ?? Date.now;
     this.idleThresholdMs = deps.idleThresholdMs ?? DEFAULT_IDLE_THRESHOLD_MS;
     this.maxConsecutiveFailures = deps.maxConsecutiveFailures ?? DEFAULT_MAX_CONSECUTIVE_FAILURES;
+    this.isBackgroundBusy = deps.isBackgroundBusy ?? (() => false);
   }
 
   /** Drop a session's debounce state (call on archive). */
@@ -216,8 +222,10 @@ export class TurnEndBackstopService {
 
     // Active (running/blocked) → the episode is over. `blocked` counts as active: a session waiting
     // on the operator has not finished its turn. Delegates to {@link markActive} so the sweep's
-    // coarse sample and the 1 Hz event path can never diverge.
-    if (!isResting(s.status)) {
+    // coarse sample and the 1 Hz event path can never diverge. A resting session still running a
+    // background shell (e.g. `git push` with pre-push gates) is active too: the settle clock only
+    // starts once the shell is gone, so it can't fire mid-push.
+    if (!isResting(s.status) || this.isBackgroundBusy(s.id)) {
       this.markActive(s.id);
       return null;
     }

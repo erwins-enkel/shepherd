@@ -31,6 +31,7 @@ function makeHarness(opts?: { sessions?: string[]; ready?: string[] }): Harness 
   const deps: ReadyNotifierDeps = {
     listSessions: () => [...sessionIds].map(sess),
     workingBlocked: () => ({}),
+    backgroundBusy: () => ({}),
     gitSnapshot: () => ({}),
     reviewingIds: () => [],
     notify: async (input) => {
@@ -231,5 +232,25 @@ describe("ReadyNotifier", () => {
     h.advance(READY_DWELL_MS + 1); // dwell met but fresh warm-up not
     await h.notifier.tick();
     expect(readyCalls(h).length).toBe(0);
+  });
+
+  it("threads the backgroundBusy snapshot into the ready predicate", async () => {
+    const seen: Record<string, boolean>[] = [];
+    const notifier = new ReadyNotifier({
+      listSessions: () => [sess("a")],
+      workingBlocked: () => ({}),
+      backgroundBusy: () => ({ a: true }),
+      gitSnapshot: () => ({}),
+      reviewingIds: () => [],
+      notify: async () => true,
+      reducedMode: () => true,
+      now: () => 1,
+      isReady: (_s, _g, _r, _wb, bg) => {
+        seen.push(bg);
+        return false;
+      },
+    });
+    await notifier.tick();
+    expect(seen).toEqual([{ a: true }]);
   });
 });

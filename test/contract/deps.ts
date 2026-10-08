@@ -38,6 +38,7 @@ export interface ContractDeps {
     activity: SnapshotStub<unknown>;
     claudeAlive: SnapshotStub<boolean>;
     workingBlocked: SnapshotStub<boolean>;
+    backgroundBusy: SnapshotStub<boolean>;
     blocks: SnapshotStub<unknown>;
     holds: SnapshotStub<unknown>;
     reviewCache: SnapshotStub<unknown> & { inflight: unknown[] };
@@ -151,6 +152,7 @@ export function makeContractDeps(): ContractDeps {
   const activity = { rows: {} as Record<string, unknown> };
   const claudeAlive = { rows: {} as Record<string, boolean> };
   const workingBlocked = { rows: {} as Record<string, boolean> };
+  const backgroundBusy = { rows: {} as Record<string, boolean> };
   const blocks = { rows: {} as Record<string, unknown> };
   const holds = { rows: {} as Record<string, unknown> };
   const reviewCache = { rows: {} as Record<string, unknown>, inflight: [] as unknown[] };
@@ -184,6 +186,7 @@ export function makeContractDeps(): ContractDeps {
     activity: { snapshot: () => activity.rows } as any,
     claudeAlive: { snapshot: () => claudeAlive.rows },
     workingBlocked: { snapshot: () => workingBlocked.rows },
+    backgroundBusy: { snapshot: () => backgroundBusy.rows },
     blocks: { snapshot: () => blocks.rows } as any,
     holds: { snapshot: () => holds.rows } as any,
     stranded: { ids: () => stranded.ids },
@@ -215,6 +218,7 @@ export function makeContractDeps(): ContractDeps {
       activity,
       claudeAlive,
       workingBlocked,
+      backgroundBusy,
       blocks,
       holds,
       reviewCache,

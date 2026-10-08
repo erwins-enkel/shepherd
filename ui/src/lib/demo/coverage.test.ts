@@ -170,6 +170,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/claude-alive"),
   get("/api/stranded"),
   get("/api/working-blocked"),
+  get("/api/background-busy"),
   get("/api/holds"),
   get("/api/subagents"),
   get("/api/preview"),

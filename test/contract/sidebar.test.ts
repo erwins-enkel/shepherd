@@ -15,11 +15,17 @@ import {
 } from "./harness";
 import { eventsForStream, operationsForStream } from "./stream-blocks";
 
-/** The two frames this stream declares, driven through the server's own EventHub below. The
+/** The three frames this stream declares, driven through the server's own EventHub below. The
  *  coverage gate at the bottom derives its expectation from the contract instead, so a frame
  *  added to the sidebar block without a fixture fails there rather than passing unnoticed. */
-const EVENTS = ["held:changed", "session:working-blocked"];
-const ROUTES = ["/api/working-blocked", "/api/holds", "/api/blocks", "/api/usage/limits"];
+const EVENTS = ["held:changed", "session:working-blocked", "session:background-busy"];
+const ROUTES = [
+  "/api/working-blocked",
+  "/api/background-busy",
+  "/api/holds",
+  "/api/blocks",
+  "/api/usage/limits",
+];
 
 let s: ContractServer;
 let token: string;
@@ -38,7 +44,7 @@ afterAll(() => {
 });
 
 describe("sidebar reads", () => {
-  test("the four snapshot routes answer the declared shapes, and 401 without a credential", async () => {
+  test("the five snapshot routes answer the declared shapes, and 401 without a credential", async () => {
     for (const path of ROUTES) {
       const ok = await fetch(`${s.baseUrl}${path}`, { headers: bearer(token) });
       expect(ok.status, path).toBe(200);
@@ -66,10 +72,11 @@ describe("sidebar reads", () => {
 });
 
 describe("sidebar events", () => {
-  test("held:changed and session:working-blocked match the contract", async () => {
+  test("held:changed, session:working-blocked and session:background-busy match the contract", async () => {
     const frames = await collectEvents(s, token, async () => {
       s.deps.events.emit("held:changed", fx.heldChangedEvent);
       s.deps.events.emit("session:working-blocked", fx.workingBlockedEvent);
+      s.deps.events.emit("session:background-busy", fx.backgroundBusyEvent);
     });
     const seen = new Set<string>();
     for (const frame of frames) {

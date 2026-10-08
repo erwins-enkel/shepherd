@@ -2035,6 +2035,11 @@ components:
       additionalProperties:
         type: boolean
       description: GET /api/working-blocked. Session id -> true while a session the poller called blocked is in fact still producing output. The web UI folds this into the status it shows (ui/src/lib/display-status.ts).
+    BackgroundBusyMap:
+      type: object
+      additionalProperties:
+        type: boolean
+      description: GET /api/background-busy. Session id -> true while an idle/done Claude session still has a non-server background Bash shell running (e.g. git push with pre-push gates). The web UI folds this into the status it shows and the ready/steer gates hold the session back; cleared after 30 minutes.
     HoldCode:
       type: string
     HoldParams:
@@ -2135,6 +2140,17 @@ components:
         id:
           type: string
         working:
+          type: boolean
+    SessionBackgroundBusyEvent:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - busy
+      properties:
+        id:
+          type: string
+        busy:
           type: boolean
     ResumeRequest:
       type: object
@@ -7256,6 +7272,19 @@ paths:
                 $ref: "#/components/schemas/WorkingBlockedMap"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/background-busy:
+    get:
+      operationId: getBackgroundBusy
+      description: Which resting sessions still run a non-server background shell.
+      responses:
+        "200":
+          description: Session id -> background-busy flag.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BackgroundBusyMap"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
   /api/holds:
     get:
       operationId: getHolds
@@ -10174,6 +10203,10 @@ x-shepherd-events:
     description: A session the poller called blocked is (or is no longer) still producing output. The client re-reads GET /api/working-blocked.
     schema:
       $ref: "#/components/schemas/SessionWorkingBlockedEvent"
+  session:background-busy:
+    description: A resting session started or stopped running a non-server background shell (or hit the 30-minute cap). The client re-reads GET /api/background-busy.
+    schema:
+      $ref: "#/components/schemas/SessionBackgroundBusyEvent"
   session:recap:
     description: A session's recap was created, regenerated or changed state. Carries the whole recap, so no re-read is needed.
     schema:

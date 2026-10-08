@@ -175,6 +175,7 @@ const SESSION_EVENTS = new Set([
   "session:activity",
   "session:claude-alive",
   "session:working-blocked",
+  "session:background-busy",
   "session:halt",
   "session:git",
   "session:hold",

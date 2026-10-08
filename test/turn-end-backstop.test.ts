@@ -18,6 +18,7 @@ function harness(planPhase: Session["planPhase"] = "planning") {
     planPhase,
     t: 0,
     gateDecision: undefined as PlanDecision | undefined,
+    bgBusy: false,
   };
   const plans: string[] = [];
   const dones: string[] = [];
@@ -36,6 +37,7 @@ function harness(planPhase: Session["planPhase"] = "planning") {
     notifyDone: async (id: string) => {
       pushes.push(id);
     },
+    isBackgroundBusy: () => state.bgBusy,
     now: () => state.t,
     idleThresholdMs: THRESHOLD,
     maxConsecutiveFailures: 3,
@@ -503,4 +505,29 @@ test("a permanently failing phase consumer does not silence the finish push", as
   }
   expect(plans).toBe(3); // written off by its own streak
   expect(pushes).toHaveLength(6); // every lost turn end still notified
+});
+
+// ── background shells ───────────────────────────────────────────────────────
+
+test("a background-busy resting session is active: settle clock starts only once the shell is gone", async () => {
+  const h = harness("executing");
+  h.state.status = "running";
+  await h.svc.sweep(); // evidence gate armed
+  h.state.status = "done";
+  h.svc.markDelivered("S"); // real done edge routed while the shell still runs
+  h.state.bgBusy = true;
+  await h.svc.sweep(); // background-busy → active, episode reset
+  h.state.t += THRESHOLD * 10;
+  await h.svc.sweep(); // still busy → never fires mid-push
+  expect(h.dones).toEqual([]);
+  expect(h.pushes).toEqual([]);
+  h.state.bgBusy = false; // shell exited, herdr still says done
+  await h.svc.sweep(); // first settled tick → clock only
+  h.state.t += THRESHOLD - 1;
+  await h.svc.sweep();
+  expect(h.dones).toEqual([]);
+  h.state.t += 2; // threshold after clearing
+  await h.svc.sweep();
+  expect(h.dones).toEqual(["S"]);
+  expect(h.pushes).toEqual(["S"]);
 });

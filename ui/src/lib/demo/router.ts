@@ -130,6 +130,8 @@ const bootstrapGetRoutes: Record<string, GetHandler> = {
   // whole claude-alive bootstrap (#1821).
   "/api/stranded": () => json(demoState.stranded()),
   "/api/working-blocked": () => json(demoState.workingBlockedStates()),
+  // No demo session runs a background shell — an empty map keeps every flag inert.
+  "/api/background-busy": () => json({}),
   "/api/holds": () => json(demoState.holdStates()),
   "/api/subagents": () => json(demoState.subagentStates()),
   "/api/preview": () => json(demoState.previewStates()),

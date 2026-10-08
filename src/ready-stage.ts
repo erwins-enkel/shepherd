@@ -1,5 +1,5 @@
 // DRIFT: keep in sync with ui/src/lib/components/herd-partition.ts (stageOf/shownSessions ready filter)
-// + ui/src/lib/display-status.ts
+// + ui/src/lib/display-status.ts (backgroundBusy: server-side first; the UI port follows)
 // Intentional delta vs the UI: `merged` is also excluded from isReadyForNotify (terminal ≠ your turn).
 import type { Session, SessionStatus } from "./types";
 import type { GitState } from "./forge/types";
@@ -7,14 +7,20 @@ import { isMerging } from "./attention-core";
 import { checksCleared } from "./checks-gate";
 
 /** Display-side session status — port of ui/src/lib/display-status.ts.
- *  A session herdr reports "blocked" but the server flagged as working-while-blocked
- *  renders with the full working treatment (upgrades blocked → running).
- *  The flag only ever upgrades blocked — a stale entry on a non-blocked session is inert. */
+ *  Two ephemeral server flags upgrade a session to the full working treatment ("running"):
+ *  - workingBlocked: herdr reports "blocked" but the agent is still working — upgrades
+ *    blocked only.
+ *  - backgroundBusy: the session rests (idle/done) while its claude still runs a non-server
+ *    background shell (e.g. `git push` running pre-push gates) — upgrades idle/done only.
+ *  Each flag is inert on any other status, so a stale entry never mis-renders. */
 function displayStatus(
   s: Pick<Session, "id" | "status">,
   workingBlocked: Record<string, boolean>,
+  backgroundBusy: Record<string, boolean>,
 ): SessionStatus {
-  return s.status === "blocked" && workingBlocked[s.id] ? "running" : s.status;
+  if (s.status === "blocked" && workingBlocked[s.id]) return "running";
+  const resting = s.status === "idle" || s.status === "done";
+  return resting && backgroundBusy[s.id] ? "running" : s.status;
 }
 
 /** Lifecycle stage of a session — mirrors herd-partition.ts's Stage type. */
@@ -69,8 +75,10 @@ function stageOf(
   const terminal = terminalStage(s, g, isReviewing, now);
   if (terminal) return terminal;
   // Raw status by design: a working-while-blocked session (display "running") is raw
-  // "blocked" — both are excluded from greenIdle, so the display flag can't change
-  // the partition and doesn't need threading through here.
+  // "blocked" — both are excluded from greenIdle, so that flag can't change the partition.
+  // A background-busy session is raw idle/done and CAN land in a handoff stage here, but
+  // every consumer rejects display-"running" before the stage matters (isReadyForNotify
+  // below), so neither flag needs threading through.
   const greenIdle =
     g?.state === "open" &&
     checksCleared(g.checks, g.noCi ?? false) &&
@@ -92,15 +100,17 @@ const NOT_NOTIFY: ReadonlySet<Stage> = new Set([
 
 /** Ready-for-notify predicate. Equivalent to the UI's shownSessions(filter="ready") filter:
  *  displayStatus !== "running" && !isReviewing(s.id) && stage ∉ NOT_NOTIFY.
+ *  displayStatus folds in both workingBlocked and backgroundBusy (see displayStatus).
  *  Intentional delta vs the UI's NOT_YOUR_TURN: also excludes `merged`. */
 export function isReadyForNotify(
   s: Session,
   git: GitState | undefined,
   isReviewing: (id: string) => boolean,
   workingBlocked: Record<string, boolean>,
+  backgroundBusy: Record<string, boolean>,
   now: number,
 ): boolean {
-  if (displayStatus(s, workingBlocked) === "running") return false;
+  if (displayStatus(s, workingBlocked, backgroundBusy) === "running") return false;
   if (isReviewing(s.id)) return false;
   const stage = stageOf(s, git, isReviewing, now);
   return !NOT_NOTIFY.has(stage);

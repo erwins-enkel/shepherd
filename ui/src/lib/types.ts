@@ -2531,6 +2531,7 @@ export type WsEvent =
       data: { id: string; claudeAlive: boolean; liveness?: LivenessState };
     }
   | { event: "session:working-blocked"; data: { id: string; working: boolean } }
+  | { event: "session:background-busy"; data: { id: string; busy: boolean } }
   | { event: "app:sessions-stranded"; data: { count: number } }
   | { event: "app:auto-revived"; data: { revived: number; failed: number } }
   | { event: "session:preview"; data: { id: string; previewPort: number | null } }

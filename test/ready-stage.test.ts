@@ -67,100 +67,130 @@ function makeGit(overrides: Partial<GitState> = {}): GitState {
 
 const noReview: (_id: string) => boolean = () => false;
 const noBlocked: Record<string, boolean> = {};
+const noBg: Record<string, boolean> = {};
 
 describe("isReadyForNotify", () => {
   test("plain idle session, no git → READY", () => {
     const s = makeSession({ status: "idle" });
-    expect(isReadyForNotify(s, undefined, noReview, noBlocked, NOW)).toBe(true);
+    expect(isReadyForNotify(s, undefined, noReview, noBlocked, noBg, NOW)).toBe(true);
   });
 
   test("running session → NOT ready", () => {
     const s = makeSession({ status: "running" });
-    expect(isReadyForNotify(s, undefined, noReview, noBlocked, NOW)).toBe(false);
+    expect(isReadyForNotify(s, undefined, noReview, noBlocked, noBg, NOW)).toBe(false);
   });
 
   test("working-while-blocked (status=blocked + workingBlocked[id]=true) → NOT ready", () => {
     const s = makeSession({ status: "blocked" });
     const wb = { s1: true };
-    expect(isReadyForNotify(s, undefined, noReview, wb, NOW)).toBe(false);
+    expect(isReadyForNotify(s, undefined, noReview, wb, noBg, NOW)).toBe(false);
+  });
+
+  test("background-busy idle/done session → NOT ready", () => {
+    const bg = { s1: true };
+    for (const status of ["idle", "done"] as const) {
+      const s = makeSession({ status });
+      expect(isReadyForNotify(s, undefined, noReview, noBlocked, bg, NOW)).toBe(false);
+    }
+  });
+
+  test("background-busy idle with green PR handoff → still NOT ready", () => {
+    const s = makeSession({ status: "idle" });
+    const git = makeGit({ checks: "success" });
+    expect(isReadyForNotify(s, git, noReview, noBlocked, { s1: true }, NOW)).toBe(false);
+  });
+
+  test("background-busy flag is inert on blocked/running", () => {
+    const bg = { s1: true };
+    const blocked = makeSession({ status: "blocked" });
+    expect(isReadyForNotify(blocked, undefined, noReview, noBlocked, bg, NOW)).toBe(
+      isReadyForNotify(blocked, undefined, noReview, noBlocked, noBg, NOW),
+    );
+    const running = makeSession({ status: "running" });
+    expect(isReadyForNotify(running, undefined, noReview, noBlocked, bg, NOW)).toBe(false);
+  });
+
+  test("background-busy flag for another id is inert", () => {
+    const s = makeSession({ status: "idle" });
+    expect(isReadyForNotify(s, undefined, noReview, noBlocked, { other: true }, NOW)).toBe(true);
   });
 
   test("isReviewing(id)=true → NOT ready", () => {
     const s = makeSession({ status: "idle" });
     const isReviewing = (id: string) => id === "s1";
-    expect(isReadyForNotify(s, undefined, isReviewing, noBlocked, NOW)).toBe(false);
+    expect(isReadyForNotify(s, undefined, isReviewing, noBlocked, noBg, NOW)).toBe(false);
   });
 
   test("open PR + checks pending (ciRunning) → NOT ready", () => {
     const s = makeSession({ status: "idle" });
     const git = makeGit({ state: "open", checks: "pending" });
-    expect(isReadyForNotify(s, git, noReview, noBlocked, NOW)).toBe(false);
+    expect(isReadyForNotify(s, git, noReview, noBlocked, noBg, NOW)).toBe(false);
   });
 
   test("open PR + checks failure (ciFailed) → READY (failed CI is your turn)", () => {
     const s = makeSession({ status: "idle" });
     const git = makeGit({ state: "open", checks: "failure" });
-    expect(isReadyForNotify(s, git, noReview, noBlocked, NOW)).toBe(true);
+    expect(isReadyForNotify(s, git, noReview, noBlocked, noBg, NOW)).toBe(true);
   });
 
   test("open PR + checks success + idle + handoff=reviewer (waitingOnReviewer) → NOT ready", () => {
     const s = makeSession({ status: "idle" });
     const git = makeGit({ state: "open", checks: "success", handoff: "reviewer" });
-    expect(isReadyForNotify(s, git, noReview, noBlocked, NOW)).toBe(false);
+    expect(isReadyForNotify(s, git, noReview, noBlocked, noBg, NOW)).toBe(false);
   });
 
   test("open PR + checks success + idle + handoff=merger (waitingOnMerger) → NOT ready", () => {
     const s = makeSession({ status: "idle" });
     const git = makeGit({ state: "open", checks: "success", handoff: "merger" });
-    expect(isReadyForNotify(s, git, noReview, noBlocked, NOW)).toBe(false);
+    expect(isReadyForNotify(s, git, noReview, noBlocked, noBg, NOW)).toBe(false);
   });
 
   test("open PR + checks success + idle, no handoff (awaitingMerge) → READY", () => {
     const s = makeSession({ status: "idle" });
     const git = makeGit({ state: "open", checks: "success" });
-    expect(isReadyForNotify(s, git, noReview, noBlocked, NOW)).toBe(true);
+    expect(isReadyForNotify(s, git, noReview, noBlocked, noBg, NOW)).toBe(true);
   });
 
   test("no-CI repo (noCi + checks:none) + idle, no handoff (awaitingMerge) → READY", () => {
     const s = makeSession({ status: "idle" });
     const git = makeGit({ state: "open", checks: "none", noCi: true });
-    expect(isReadyForNotify(s, git, noReview, noBlocked, NOW)).toBe(true);
+    expect(isReadyForNotify(s, git, noReview, noBlocked, noBg, NOW)).toBe(true);
   });
 
   test("no-CI repo (noCi + checks:none) + idle + handoff=merger (waitingOnMerger) → NOT ready", () => {
     // Proves noCi engages greenIdle → the handoff routing (not 'active').
     const s = makeSession({ status: "idle" });
     const git = makeGit({ state: "open", checks: "none", noCi: true, handoff: "merger" });
-    expect(isReadyForNotify(s, git, noReview, noBlocked, NOW)).toBe(false);
+    expect(isReadyForNotify(s, git, noReview, noBlocked, noBg, NOW)).toBe(false);
   });
 
   test("checks:none WITHOUT noCi + idle + handoff=merger → stays active (handoff ignored)", () => {
     // A CI repo's pre-green 'none' is NOT greenIdle, so handoffStage never runs → 'active'.
     const s = makeSession({ status: "idle" });
     const git = makeGit({ state: "open", checks: "none", handoff: "merger" });
-    expect(isReadyForNotify(s, git, noReview, noBlocked, NOW)).toBe(true);
+    expect(isReadyForNotify(s, git, noReview, noBlocked, noBg, NOW)).toBe(true);
   });
 
   test("open PR + checks success + idle + isDraft (draftAwaitingSignoff) → READY", () => {
     const s = makeSession({ status: "idle" });
     const git = makeGit({ state: "open", checks: "success", isDraft: true });
-    expect(isReadyForNotify(s, git, noReview, noBlocked, NOW)).toBe(true);
+    expect(isReadyForNotify(s, git, noReview, noBlocked, noBg, NOW)).toBe(true);
   });
 
   test("readyToMerge=true (ready stage) → READY", () => {
     const s = makeSession({ status: "idle", readyToMerge: true });
-    expect(isReadyForNotify(s, undefined, noReview, noBlocked, NOW)).toBe(true);
+    expect(isReadyForNotify(s, undefined, noReview, noBlocked, noBg, NOW)).toBe(true);
   });
 
   test("mergingSince=now (merging) → NOT ready", () => {
     const s = makeSession({ status: "idle", mergingSince: NOW });
-    expect(isReadyForNotify(s, undefined, noReview, noBlocked, NOW)).toBe(false);
+    expect(isReadyForNotify(s, undefined, noReview, noBlocked, noBg, NOW)).toBe(false);
   });
 
   test("git.state=merged → NOT ready (intentional delta: merged excluded)", () => {
     const s = makeSession({ status: "idle" });
     const git = makeGit({ state: "merged" });
     // Regression anchor: must fail if the merged exclusion is removed
-    expect(isReadyForNotify(s, git, noReview, noBlocked, NOW)).toBe(false);
+    expect(isReadyForNotify(s, git, noReview, noBlocked, noBg, NOW)).toBe(false);
   });
 });

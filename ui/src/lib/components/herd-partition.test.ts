@@ -533,6 +533,30 @@ test('"ready" filter drops a working-while-blocked session like a running one', 
   expect(shownSessions(list, "all", () => false, { wb: true })).toHaveLength(4);
 });
 
+test('"ready" filter drops a background-busy resting session (e.g. git push in pre-push gates)', () => {
+  const list = [
+    session("bg", false, "idle"), // idle but a background shell still runs → dropped
+    session("bgd", false, "done"), // done, same → dropped
+    session("bgg", false, "idle"), // green PR (awaitingMerge) but flagged → dropped
+    session("blk", false, "blocked"), // flag inert on blocked → kept
+    session("idl", false, "idle"), // unflagged idle → kept
+  ];
+  const g = { bgg: git("open", "success") };
+  const busy = { bg: true, bgd: true, bgg: true, blk: true };
+  const shown = shownSessions(list, "ready", () => false, {}, g, Date.now(), busy);
+  expect(shown.map((s) => s.id)).toEqual(["blk", "idl"]);
+  // without the flag map every resting session is listed
+  expect(shownSessions(list, "ready", () => false, {}, g).map((s) => s.id)).toEqual([
+    "bg",
+    "bgd",
+    "bgg",
+    "blk",
+    "idl",
+  ]);
+  // "all" ignores the flag entirely
+  expect(shownSessions(list, "all", () => false, {}, g, Date.now(), busy)).toHaveLength(5);
+});
+
 // ── "ready" lens hides sessions that aren't the operator's turn ────────────
 // Ready = "awaiting you". A green PR handed off to a foreign reviewer/merger, or
 // one a merge train is already carrying, is NOT your turn → hidden from Ready,

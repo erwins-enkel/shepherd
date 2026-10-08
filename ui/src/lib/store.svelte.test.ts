@@ -124,6 +124,17 @@ test("session:git merges into the git map", () => {
   expect(s.git.s1?.number).toBe(4);
 });
 
+test("session:background-busy sets/drops the flag; bootstrap replaces; archive drops", () => {
+  const s = new HerdStore();
+  s.setBackgroundBusy({ s0: true });
+  s.apply({ event: "session:background-busy", data: { id: "s1", busy: true } });
+  expect(s.backgroundBusy).toEqual({ s0: true, s1: true });
+  s.apply({ event: "session:background-busy", data: { id: "s1", busy: false } });
+  expect(s.backgroundBusy).toEqual({ s0: true });
+  s.apply({ event: "session:archived", data: { id: "s0" } });
+  expect(s.backgroundBusy).toEqual({});
+});
+
 test("session:ready patches the target session's readyToMerge", () => {
   const s = new HerdStore();
   s.setAll([session("s1"), session("s2")]);

@@ -1474,6 +1474,11 @@ const poller = new StatusPoller(
   // gone sweeps) — archive so focus-existing never lands on a dead terminal. Fire-and-forget;
   // archive() already tolerates a concurrently-archived row.
   (id) => void service.archive(id).catch((err) => console.warn("[poller] terminal archive:", err)),
+  undefined, // codexTranscripts — use default
+  undefined, // readResumeSignal — use default
+  // background-shell busy flag: a resting claude still runs a non-server background shell
+  // (e.g. `git push` with pre-push gates) — the UI and ready/steer gates keep it out of Ready.
+  { onChange: (id, busy) => events.emit("session:background-busy", { id, busy }) },
 );
 
 // Proactively re-drive a herdr-restored plugin/account pane (herdr's bare `claude --resume` lost the
@@ -2215,6 +2220,7 @@ attachMergePush(events, push);
 const readyNotifier = new ReadyNotifier({
   listSessions: () => store.list({ activeOnly: true }),
   workingBlocked: () => poller.workingBlockedSnapshot(),
+  backgroundBusy: () => poller.backgroundBusySnapshot(),
   gitSnapshot: () => prPoller.snapshot(),
   reviewingIds: () => [...reviewService.reviewingIds(), ...planGate.reviewingIds()],
   notify: (input) => push.notify(input),
@@ -2321,6 +2327,7 @@ const turnEndBackstop = new TurnEndBackstopService({
   // Same helper attachPush() uses on the real edge, so the recovered push is the one the operator
   // missed (same kind/tag/cooldown key) rather than a second, separate notification.
   notifyDone: (id) => notifySessionDone(push, store, id),
+  isBackgroundBusy: (id) => poller.isBackgroundBusy(id),
 });
 // Fast path for the plan gate's first review: herdr's `done` edge no longer arrives in practice (every
 // review was waiting on the backstop above), but Claude's `Stop` hook does. A short quiet dwell,
@@ -2624,6 +2631,7 @@ const autopilot = new AutopilotService({
     return !!s && isFullAuto(s, store.getRepoConfig(s.repoPath));
   },
   getReview: (id) => store.getReview(id),
+  isBackgroundBusy: (id) => poller.isBackgroundBusy(id),
   refreshPr: (id) => prPoller.pollSession(id),
   pollPrNow: (id) => prPoller.pollNow(id),
   onPause: (id, question) => {
@@ -3957,6 +3965,7 @@ const appDeps: AppDeps = {
   claudeAlive: { snapshot: () => poller.claudeAliveSnapshot() },
   stranded: { ids: () => poller.strandedIds() },
   workingBlocked: { snapshot: () => poller.workingBlockedSnapshot() },
+  backgroundBusy: { snapshot: () => poller.backgroundBusySnapshot() },
   preview: {
     snapshot: () => previewService.snapshot(),
     devPortFor: (id) => previewService.devPortFor(id),

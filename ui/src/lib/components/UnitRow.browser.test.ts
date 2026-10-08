@@ -1657,6 +1657,21 @@ describe("UnitRow stop agent action", () => {
     await expect.element(page.getByText(m.cardmenu_stop())).not.toBeInTheDocument();
   });
 
+  it("does not offer Stop agent on an idle row flagged background-busy", async () => {
+    render(UnitRow, {
+      session: session({ id: "bg-row", name: "bg row", status: "idle" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      backgroundBusy: { "bg-row": true },
+      onrename: vi.fn(),
+    });
+
+    openMenu("bg row");
+    await expect.element(page.getByText(m.cardmenu_rename())).toBeInTheDocument();
+    await expect.element(page.getByText(m.cardmenu_stop())).not.toBeInTheDocument();
+  });
+
   it("a 404 (dead pane) surfaces the failure toast instead of throwing", async () => {
     vi.mocked(interruptSession).mockRejectedValue(new Error("interrupt failed (404)"));
     render(UnitRow, {

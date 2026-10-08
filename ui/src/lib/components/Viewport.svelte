@@ -140,6 +140,7 @@
     onSeedBuildQueue,
     previewHost = null,
     workingBlocked = {},
+    backgroundBusy = {},
     authUrl = null,
     consumeAutoFocusTerm = () => true,
     drain = null,
@@ -206,6 +207,8 @@
      *  the derived `dStatus`; behavioral reads (resume self-heal, preview confirm
      *  arm) stay on the raw `session.status`. */
     workingBlocked?: Record<string, boolean>;
+    // background-busy display flags (store map) — upgrades a resting session to "running"
+    backgroundBusy?: Record<string, boolean>;
     /** Pending MCP OAuth authorization URL for this session's awaiting-input block (from
      *  the block reason). Drives the "open in browser" banner above the terminal; null
      *  when the agent isn't waiting on an auth URL. */
@@ -228,7 +231,7 @@
   } = $props();
 
   // Display-side status for every header/status render below (see display-status.ts).
-  const dStatus = $derived(displayStatus(session, workingBlocked));
+  const dStatus = $derived(displayStatus(session, workingBlocked, backgroundBusy));
 
   const headerNameSlug = (value: string) =>
     value

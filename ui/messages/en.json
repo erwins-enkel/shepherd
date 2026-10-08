@@ -5650,5 +5650,7 @@
   "viewport_login_bar_title": "The agent wants you to log in",
   "viewport_login_bar_open": "Open browser",
   "feat_login_request_bar_title": "Login requests show in the terminal",
-  "feat_login_request_bar_body": "When an agent asks you to log in, a bar appears at the top of its terminal. Answer Done or Cancel right there, or jump to the Browser tab to log in."
+  "feat_login_request_bar_body": "When an agent asks you to log in, a bar appears at the top of its terminal. Answer Done or Cancel right there, or jump to the Browser tab to log in.",
+  "feat_ready_lens_background_shells_title": "Ready lens waits for background work",
+  "feat_ready_lens_background_shells_body": "Sessions whose agent is still running a background shell — like a git push running pre-push checks — stay out of Ready until it finishes. Dev servers don't count, and the hold lifts after 30 minutes."
 }

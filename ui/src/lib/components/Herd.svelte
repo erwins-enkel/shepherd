@@ -80,6 +80,7 @@
     statusFilter = null,
     onstatusfilter = undefined,
     workingBlocked = {},
+    backgroundBusy = {},
     liveness = {},
     blocks = {},
     holds = {},
@@ -190,6 +191,9 @@
     // working-while-blocked display flags (store map) — threaded into the rows'
     // displayStatus and the "ready" filter so flagged sessions read as working
     workingBlocked?: Record<string, boolean>;
+    // background-busy display flags (store map) — resting sessions whose claude still runs a
+    // non-server background shell; same threading, keeps them out of the "ready" filter
+    backgroundBusy?: Record<string, boolean>;
     // per-session agent liveness (store.claudeAlive) — drives the distinct stranded card framing (#1630)
     liveness?: Record<string, LivenessState>;
     // live quota blocks map (store.blocks); only "quota"-shape entries surface a badge
@@ -275,6 +279,7 @@
       { planGate: planGates.map[session.id], review: reviews.map[session.id] },
       workingBlocked,
       nowMs,
+      backgroundBusy,
     );
 
   // Derives the quota block kind for a session if its block has shape "quota"; null otherwise.
@@ -296,7 +301,7 @@
   const shown = $derived(
     statusFilter != null
       ? sessions
-      : shownSessions(sessions, filter, inReview, workingBlocked, git, nowMs),
+      : shownSessions(sessions, filter, inReview, workingBlocked, git, nowMs, backgroundBusy),
   );
   // label for the status chip + filtered empty states (only read when set)
   const statusLabel = $derived(
@@ -386,7 +391,9 @@
       needsRework: p?.needsRework.length ?? 0,
       branchProtectionBlocked: p?.branchProtectionBlocked.length ?? 0,
       ready: p?.ready.length ?? 0,
-      blocked: g.sessions.filter((s) => displayStatus(s, workingBlocked) === "blocked").length,
+      blocked: g.sessions.filter(
+        (s) => displayStatus(s, workingBlocked, backgroundBusy) === "blocked",
+      ).length,
     };
   }
   // ready/merged rows that live in epic groups above the lifecycle list — used both to
@@ -446,6 +453,7 @@
     repoFilter,
     onrepofilter,
     workingBlocked,
+    backgroundBusy,
     liveness,
     quotaKindFor,
     holdFor,

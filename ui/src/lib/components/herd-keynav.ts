@@ -45,8 +45,17 @@ export function railOrder(
   activeEpicKeys: Set<string> = new Set(),
   collapsedKeys: Set<string> = new Set(),
   collapsedStageKeys: ReadonlySet<string> = new Set(),
+  backgroundBusy: Record<string, boolean> = {},
 ): string[] {
-  const shown = shownSessions(sessions, filter, isReviewing, workingBlocked, git, now);
+  const shown = shownSessions(
+    sessions,
+    filter,
+    isReviewing,
+    workingBlocked,
+    git,
+    now,
+    backgroundBusy,
+  );
   const experimentGrouped = groupSessionsByExperiment(shown);
   const grouped = groupSessionsByEpic(
     experimentGrouped.rest,

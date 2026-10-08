@@ -545,7 +545,7 @@
     onstatus={(status) => store.setHerdrUpdate(status)}
     connectionEpoch={store.connectionEpoch}
     sessions={store.sessions
-      .filter((s) => displayStatus(s, store.workingBlocked) === "running")
+      .filter((s) => displayStatus(s, store.workingBlocked, store.backgroundBusy) === "running")
       .map((s) => ({ id: s.id, desig: s.desig, name: s.name }))}
     log={store.herdrUpdateLog}
     done={store.herdrUpdateDone}
@@ -702,6 +702,7 @@
   <CommandBar
     sessions={store.sessions}
     workingBlocked={store.workingBlocked}
+    backgroundBusy={store.backgroundBusy}
     blocks={store.blocks}
     commands={commandBarCommands}
     onselectsession={oncommandbarsession}

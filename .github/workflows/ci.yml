@@ -26,7 +26,8 @@ jobs:
   # test-ui/test-ui-browser, mirror it there (and vice-versa). Deliberate differences:
   # the hook scopes prettier/eslint to the push delta and pins fallow@2.100.0;
   # CI keeps the whole-repo checks. The pin is gated: scripts/check-fallow-pin.mjs
-  # fails when any site names a different version.
+  # fails when any site names a different version. On a docs-only delta (the `changes` rules
+  # below) the hook drops the type checks along with the test lanes; `static` still runs them.
   #
   # Every lane carries the same release-please guard. Don't run the suite on
   # release-please's generated PR: it only bumps the version + CHANGELOG, so the gate is
@@ -54,7 +55,8 @@ jobs:
   # `if:`, never workflow `paths:` — a required check that never reports deadlocks the PR
   # (#1859); an `if:`-skipped job reports "skipped", which the ruleset counts as passing.
   # Fail-open: gated jobs use `!cancelled()` and run anyway when this job fails, and
-  # `verify` goes red. Pushes to main always run everything. CI-only: pre-push has no mirror.
+  # `verify` goes red. Pushes to main always run everything. scripts/pre-push.ts reads the same
+  # rules for its push delta, so a docs-only push skips the test lanes locally too (#2915).
   changes:
     name: changes
     if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}

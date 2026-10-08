@@ -1,5 +1,9 @@
 import { test, expect } from "bun:test";
-import { classify, formatOutputs } from "../scripts/ci-changes.mjs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { changedPaths, classify, formatOutputs } from "../scripts/ci-changes.mjs";
 
 const ALL = { test: true, site: true, cli: true, docs_site: true };
 const pr = (...files: string[]) => classify(files, { event: "pull_request" });
@@ -132,4 +136,39 @@ test("formatOutputs writes key=value lines", () => {
   expect(formatOutputs({ test: true, site: false, cli: false, docs_site: true, reason: "x" })).toBe(
     "test=true\nsite=false\ncli=false\ndocs_site=true\n",
   );
+});
+
+// The pre-push hook (#2915) classifies its delta with this too: a delete or a move out of src/
+// must still show the src/ side, or a docs-looking push would skip the tests that file broke.
+test("changedPaths: lists a move as both sides and keeps deletes", () => {
+  const repo = mkdtempSync(join(tmpdir(), "shepherd-ci-changes-"));
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "t",
+    GIT_AUTHOR_EMAIL: "t@t",
+    GIT_COMMITTER_NAME: "t",
+    GIT_COMMITTER_EMAIL: "t@t",
+  };
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: repo, env });
+  const cwd = process.cwd();
+  try {
+    git("init", "-q", "-b", "main");
+    mkdirSync(join(repo, "src"));
+    mkdirSync(join(repo, "docs"));
+    writeFileSync(join(repo, "src/a.ts"), "export const a = 1;\n");
+    writeFileSync(join(repo, "src/b.ts"), "export const b = 1;\n");
+    git("add", "-A");
+    git("commit", "-q", "-m", "seed");
+    git("checkout", "-q", "-b", "feature");
+    git("mv", "src/a.ts", "docs/a.ts");
+    git("rm", "-q", "src/b.ts");
+    git("commit", "-q", "-m", "move + delete");
+    process.chdir(repo);
+    const files = changedPaths("main");
+    expect(files.sort()).toEqual(["docs/a.ts", "src/a.ts", "src/b.ts"]);
+    expect(pr(...files).test).toBe(true);
+  } finally {
+    process.chdir(cwd);
+    rmSync(repo, { recursive: true, force: true });
+  }
 });

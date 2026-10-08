@@ -1,5 +1,6 @@
 import { test, expect } from "bun:test";
 import {
+  buildLanes,
   computeConcurrency,
   isEslintFile,
   isSafePath,
@@ -84,16 +85,56 @@ test("computeConcurrency: SHEPHERD_PREPUSH_LANES override clamps to [1, numLanes
 
 test("plannedLaneCount: matches buildLanes' conditional lane inclusion", () => {
   // delta with code + lintable changes → +prettier +eslint = 7
-  expect(plannedLaneCount(true, ["src/server.ts"])).toBe(7);
+  expect(plannedLaneCount(true, ["src/server.ts"], true)).toBe(7);
   // delta with only a non-lintable change → +prettier, no eslint = 6
-  expect(plannedLaneCount(true, ["README.md"])).toBe(6);
+  expect(plannedLaneCount(true, ["ui/messages/en.json"], true)).toBe(6);
   // delta with no changes → no prettier, no eslint = 5
-  expect(plannedLaneCount(true, [])).toBe(5);
+  expect(plannedLaneCount(true, [], true)).toBe(5);
   // delta touching the Rust CLI or its derived contract → +prettier +cli = 7
-  expect(plannedLaneCount(true, ["cli/src/lib.rs"])).toBe(7);
-  expect(plannedLaneCount(true, ["contracts/openapi.rust.yaml"])).toBe(7);
+  expect(plannedLaneCount(true, ["cli/src/lib.rs"], true)).toBe(7);
+  expect(plannedLaneCount(true, ["contracts/openapi.rust.yaml"], true)).toBe(7);
+  // docs-only delta (#2915) → gates + prettier only = 2
+  expect(plannedLaneCount(true, ["docs/research/x.md", "README.md"], false)).toBe(2);
   // whole-repo fallback (no origin/main) → prettier + eslint + cli always = 8
-  expect(plannedLaneCount(false, [])).toBe(8);
+  expect(plannedLaneCount(false, [], true)).toBe(8);
+});
+
+test("plannedLaneCount: equals buildLanes().length for every inclusion case", () => {
+  const cases: [boolean, string[], boolean][] = [
+    [true, ["src/server.ts"], true],
+    [true, ["ui/messages/en.json"], true],
+    [true, [], true],
+    [true, ["cli/src/lib.rs"], true],
+    [true, ["docs/a.md"], false],
+    [true, [], false],
+    [false, [], true],
+  ];
+  for (const [delta, changed, tests] of cases) {
+    const lanes = buildLanes("/repo", { delta, changed, tests, maxWorkers: 1 });
+    expect(plannedLaneCount(delta, changed, tests)).toBe(lanes.length);
+  }
+});
+
+test("buildLanes: a docs-only delta skips tsc and the test lanes, keeps the docs-reading gates", () => {
+  const lanes = buildLanes("/repo", {
+    delta: true,
+    changed: ["docs/research/x.md"],
+    tests: false,
+    maxWorkers: 1,
+  });
+  expect(lanes.map((l) => l.name)).toEqual(["gates", "prettier"]);
+  // check:docs-manifest reads docs/*.md headings, so it rides in gates, not the dropped ui lane.
+  expect(lanes[0]!.steps.map((s) => s.label)).toContain("docs manifest freshness");
+});
+
+test("buildLanes: a code delta keeps tsc, root-tests, ui and ext", () => {
+  const names = buildLanes("/repo", {
+    delta: true,
+    changed: ["src/server.ts"],
+    tests: true,
+    maxWorkers: 1,
+  }).map((l) => l.name);
+  expect(names).toEqual(["gates", "prettier", "eslint", "tsc", "root-tests", "ui", "ext"]);
 });
 
 // ── Scheduler lifecycle (injected fakes — no real processes) ─────────────────

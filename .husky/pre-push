@@ -7,6 +7,8 @@
 # DELIBERATE local-only differences from .github/workflows/ci.yml (flagged per house rules):
 #   • prettier/eslint are scoped to the push DELTA vs origin/main — CI keeps the whole-repo
 #     check, so tree-wide drift is still caught before merge.
+#   • a docs-only delta (scripts/ci-changes.mjs, the rules CI skips its test lanes by) also
+#     skips tsc, root tests, ui and extension — CI's static job still type-checks it.
 # See scripts/pre-push.ts for the lane definitions; keep them in sync with ci.yml.
 set -e
 

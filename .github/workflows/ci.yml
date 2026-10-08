@@ -59,6 +59,7 @@ jobs:
     name: changes
     if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       test: ${{ steps.classify.outputs.test }}
       site: ${{ steps.classify.outputs.site }}
@@ -83,6 +84,7 @@ jobs:
     name: static
     if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -208,6 +210,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) && (needs.changes.result != 'success' || needs.changes.outputs.test == 'true') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -262,6 +265,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) && (needs.changes.result != 'success' || needs.changes.outputs.test == 'true') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -291,6 +295,7 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install Playwright Chromium (ui browser tests)
+        timeout-minutes: 10
         # `--with-deps` shells out to `apt-get update`, which refreshes EVERY source configured on
         # the runner image — including Google's Chrome repo. We need none of it: Chromium itself
         # comes from Playwright's own CDN, and the deps `--with-deps` installs are Ubuntu system
@@ -327,6 +332,7 @@ jobs:
     needs: changes
     if: ${{ !cancelled() && !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) && (needs.changes.result != 'success' || needs.changes.outputs.test == 'true') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -354,6 +360,7 @@ jobs:
             ${{ runner.os }}-playwright-
 
       - name: Install Playwright Chromium
+        timeout-minutes: 10
         # Same apt-source workaround as test-ui — see the comment there.
         run: |
           sudo rm -f /etc/apt/sources.list.d/google-chrome*
@@ -372,6 +379,7 @@ jobs:
     needs: [changes, static, test-root, test-ui, test-ui-browser]
     if: ${{ always() && !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: All lanes green
         env:
@@ -404,6 +412,7 @@ jobs:
     if: ${{ !cancelled() && !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) && (needs.changes.result != 'success' || needs.changes.outputs.docs_site == 'true') }}
     # Pinned to GitHub-hosted like the PR-gate lanes — public repo, no CI_RUNNER toggle.
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -465,6 +474,7 @@ jobs:
     if: ${{ !cancelled() && !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) && (needs.changes.result != 'success' || needs.changes.outputs.site == 'true') }}
     # Pinned to GitHub-hosted like the others — public repo, no CI_RUNNER toggle.
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -512,6 +522,7 @@ jobs:
     if: ${{ !cancelled() && !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) && (needs.changes.result != 'success' || needs.changes.outputs.cli == 'true') }}
     # Pinned to GitHub-hosted like the others — public repo, no CI_RUNNER toggle.
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v7

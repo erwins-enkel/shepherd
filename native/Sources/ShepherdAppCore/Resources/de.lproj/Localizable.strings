@@ -146,6 +146,9 @@
 "diagnostics_hint_bun_missing" = "bun nicht im PATH gefunden — installiere es von bun.sh.";
 "diagnostics_hint_bun_ok" = "bun ist aktuell.";
 "diagnostics_hint_bun_outdated" = "Deine bun-Version liegt unter dem unterstützten Minimum — führe bun upgrade aus.";
+"diagnostics_hint_chromium_missing" = "Ein Repo hat den geteilten Browser aktiviert, aber es wurde kein Chromium gefunden, daher lässt er sich nicht öffnen. Installiere chromium über den Paketmanager deiner Distribution oder setze SHEPHERD_CHROMIUM_BIN auf das Browser-Binary.";
+"diagnostics_hint_chromium_ok" = "Für den geteilten Browser ist ein Chromium verfügbar.";
+"diagnostics_hint_chromium_optional" = "Kein Chromium gefunden. Nur nötig, wenn du den geteilten Browser für ein Repo aktivierst — installiere chromium oder Google Chrome oder setze SHEPHERD_CHROMIUM_BIN.";
 "diagnostics_hint_claude_install_diverged" = "Shepherd startet Claude Code %1$@, mise verwaltet aber %2$@ — zwei Installationen, die auseinandergelaufen sind. Der Auto-Updater von Claude Code schreibt eine native Kopie nach ~/.local/bin/claude, die die von mise überdeckt, sodass mise upgrade claude nur die Installation bewegt, die niemand ausführt. Entferne die native Kopie, damit die von mise wieder im PATH liegt.";
 "diagnostics_hint_claude_install_native_on_path" = "Shepherd startet Claude Code aus einer nativen Installation, nicht aus der von mise verwalteten. Beide melden heute %1$@, sie laufen aber auseinander, sobald eine Seite aktualisiert wird, und mise upgrade claude bewegt dann nur die Kopie, die niemand ausführt. Entferne die native Kopie aus ~/.local/bin, damit die von mise wieder im PATH liegt.";
 "diagnostics_hint_claude_install_native_residue" = "mise verwaltet das Claude Code, das Shepherd startet, aber eine native Installation liegt noch auf der Platte: %1$@ Build(s), %2$@. Der Auto-Updater von Claude Code hat sie angelegt, bevor mise übernommen hat; sie wird nicht ausgeführt und kann gefahrlos gelöscht werden.";
@@ -210,6 +213,7 @@
 "diagnostics_hint_tmp_inodes_ok" = "Das temporäre Dateisystem hat reichlich freie [[inode|Inodes]].";
 "diagnostics_hint_tmp_inodes_uninspectable" = "Shepherd kann die [[inode|Inode]]-Auslastung des temporären Dateisystems auf diesem System nicht auslesen.";
 "diagnostics_label_bun" = "bun";
+"diagnostics_label_chromium" = "Chromium (geteilter Browser)";
 "diagnostics_label_claude" = "claude";
 "diagnostics_label_claude_install" = "Claude-Installation";
 "diagnostics_label_claude_trust" = "Claude Ordner-Vertrauen";
@@ -377,6 +381,8 @@
 "hold_halted_error" = "Bei einem Fehler angehalten — Ihre Eingabe erforderlich.";
 "hold_halted_usage" = "Am Nutzungslimit pausiert — setzt um %1$@ Uhr fort.";
 "hold_halted_usage_pending" = "Am Nutzungslimit pausiert.";
+"hold_login_request" = "Bittet dich, dich bei %1$@ anzumelden.";
+"hold_login_request_generic" = "Bittet dich, dich im Shared Browser anzumelden.";
 "hold_manual_steps" = "%1$@ manuelle(r) Schritt(e) vor dem Mergen — bestätigen zum Fortfahren.";
 "hold_merge_rebasing" = "Rebase im Merge-Train (Versuch %1$@).";
 "hold_merging" = "Im Merge-Train.";
@@ -1067,6 +1073,7 @@
 "native_settings_repo_prewarmepiclandingci" = "Epic-Landing-CI vorwärmen";
 "native_settings_repo_repomode" = "Repository-Modus";
 "native_settings_repo_sandboxprofile" = "Sandbox-Profil";
+"native_settings_repo_sharedbrowserenabled" = "Geteilter Browser";
 "native_settings_repo_signoffauthority" = "Freigabeinstanz";
 "native_settings_repo_usageceilingpct" = "Nutzungslimit in Prozent";
 "native_settings_retention" = "Aufbewahrung: %1$@ Tage, mindestens %2$@ Sitzungen";

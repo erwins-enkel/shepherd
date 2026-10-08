@@ -340,7 +340,29 @@ const CASES: Array<{ state: RowState; args: Args }> = [
       hold("ci-red", { pr: 42 }),
     ],
   },
+  {
+    state: "login",
+    args: [
+      sess({ planPhase: "executing", status: "running" }),
+      undefined,
+      false,
+      hold("login-request", { host: "a.example" }),
+    ],
+  },
 ];
+
+describe("login request (#2882)", () => {
+  it("any phase: login-request hold -> login state, server line + Open browser CTA", () => {
+    const sh = hold("login-request", { host: "a.example" });
+    for (const s of [sess({ planPhase: "executing" }), sess({ planPhase: "planning" })]) {
+      expect(rowState(s, undefined, false, sh)).toBe("login");
+      const r = rowHold(s, undefined, false, sh);
+      expect(r.line).toBe(holdLine(sh));
+      expect(r.action?.kind).toBe("browser");
+      expect(r.action?.label).toBe(m.hold_cta_open_browser());
+    }
+  });
+});
 
 describe("properties", () => {
   it("P1 exhaustive maps: every RowState resolves a defined line/action", () => {
@@ -357,6 +379,7 @@ describe("properties", () => {
       "none",
       "server-answer",
       "ci-retry",
+      "login",
     ];
     expect(new Set(CASES.map((c) => c.state))).toEqual(new Set(allStates));
     for (const { state, args } of CASES) {

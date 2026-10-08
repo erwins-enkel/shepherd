@@ -72,6 +72,7 @@ import {
   validateEpicRunPatch,
   type EpicRunPatch,
   validateEgressExtraHosts,
+  validateBrowserAllowedHosts,
 } from "./validate";
 import {
   parseCookie,
@@ -150,6 +151,14 @@ import { buildDeliveryMetrics } from "./delivery-metrics";
 import { buildUsageTimeline } from "./usage-timeline";
 import { isApiKeyMode } from "./spawn-auth";
 import { detectDevCommand } from "./preview";
+import { SharedBrowserError } from "./shared-browser";
+import { gateBrowserView, openBrowserView, type BrowserViewSession } from "./browser-view";
+import {
+  gateBrowserAttach,
+  isBrowserAttachPath,
+  makeBrowserBrokerHandlers,
+  type BrowserWsData,
+} from "./browser-broker";
 import {
   ensurePreviewStartScript,
   findPreviewDevPort,
@@ -236,6 +245,7 @@ import {
   applyQueueStep,
   applyQueueWrite,
   handleMcpRequest,
+  type AgentControlDeps,
   type ApplyResult,
 } from "./agent-control";
 import {
@@ -257,7 +267,7 @@ import { SNAPSHOT_TTL_MS, type OpenPrSnapshotService } from "./open-pr-snapshot"
 import { join, normalize, basename } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import type { ServerWebSocket } from "bun";
+import type { Server, ServerWebSocket } from "bun";
 import { execFileSync, markPtyEvent } from "./instrument";
 import { opStart } from "./loop-watchdog";
 import { startLoopLagMonitor, withServerTiming } from "./server-timing";
@@ -414,6 +424,20 @@ export interface AppDeps {
   restart?: Pick<RestartService, "apply">;
   /** environment-readiness diagnostics (issue #623); absent in tests that don't wire it. */
   diagnostics?: Pick<DiagnosticsService, "current" | "check" | "fix">;
+  /** Shared Browser lifecycle (ADR 0001); absent in tests that don't exercise Browser Attach. */
+  sharedBrowser?: Pick<
+    import("./shared-browser").SharedBrowserManager,
+    "attach" | "open" | "stop" | "sessionTab"
+  >;
+  /** Login Requests (#2882); absent → `browser_request_login` answers "unavailable". */
+  loginRequests?: Pick<
+    import("./login-request").LoginRequestService,
+    "request" | "wait" | "wouldCreate" | "resolve" | "snapshot"
+  >;
+  /** Test seam: one `browser_request_login` call's wait window (ms); default LOGIN_WAIT_MS. */
+  loginWaitMs?: number;
+  /** Browser Attach token signer (ADR 0001); absent → the broker refuses every attach. */
+  browserToken?: Pick<import("./browser-token").BrowserTokenSigner, "verify">;
   /** GitHub-star nudge: tracks first-use + the operator's choice, stars the repo
    *  via gh. Absent in tests that don't exercise it. */
   starPrompt?: {
@@ -456,6 +480,8 @@ export interface AppDeps {
   preview?: {
     snapshot(): Record<string, SessionPreviewState>;
     ensure?(sessionId: string, devPort: number): number | null;
+    /** The session's live dev-server port, or null when no preview listener is bound. */
+    devPortFor?(sessionId: string): number | null;
   };
   /** Local preview launcher. Defaults to `.git/shepherd/preview-start.sh` scripts;
    *  injectable so route tests never spawn real dev servers. */
@@ -835,7 +861,8 @@ function isPublicRequest(req: Request): boolean {
     // onboarding harness can hit BEFORE login. Exempt it ahead of the /api reject below.
     if (path === "/api/health") return true;
     if (path.startsWith("/api")) return false;
-    if (path === "/events" || path.startsWith("/pty/")) return false;
+    if (path === "/events" || path.startsWith("/pty/") || path.startsWith("/browser-view/"))
+      return false;
     return true; // static SPA shell
   }
   return false;
@@ -1792,6 +1819,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "manualStepsIssueEnabled",
   "preWarmEpicLandingCi",
   "epicStacksEnabled",
+  "sharedBrowserEnabled",
   "hidden",
 ] as const;
 
@@ -1811,12 +1839,14 @@ type RepoCfgBody = {
   manualStepsIssueEnabled?: unknown;
   preWarmEpicLandingCi?: unknown;
   epicStacksEnabled?: unknown;
+  sharedBrowserEnabled?: unknown;
   hidden?: unknown;
   signoffAuthority?: unknown;
   sandboxProfile?: unknown;
   defaultModel?: unknown;
   defaultEffort?: unknown;
   egressExtraHosts?: unknown;
+  browserAllowedHosts?: unknown;
   maxAuto?: unknown;
   autoLabel?: unknown;
   usageCeilingPct?: unknown;
@@ -1844,6 +1874,7 @@ type RepoCfgScalars = {
   defaultModel?: string;
   defaultEffort?: string;
   egressExtraHosts?: string[];
+  browserAllowedHosts?: string[];
   repoMode?: "forge" | "lightweight";
   previewStartScript?: string | null;
   previewStartCommand?: string | null;
@@ -1854,6 +1885,11 @@ type RepoCfgScalars = {
  *  return the validated host array, or a { error } object the loop turns into a 400. */
 function parseRepoEgressExtraHosts(v: unknown): unknown {
   const r = validateEgressExtraHosts(v);
+  return r.ok ? r.value : { error: r.error };
+}
+
+function parseRepoBrowserAllowedHosts(v: unknown): unknown {
+  const r = validateBrowserAllowedHosts(v);
   return r.ok ? r.value : { error: r.error };
 }
 
@@ -1875,6 +1911,7 @@ const REPO_CFG_SCALAR_PARSERS: readonly [keyof RepoCfgScalars, (v: unknown) => u
   ["defaultModel", parseRepoDefaultModel],
   ["defaultEffort", parseRepoDefaultEffort],
   ["egressExtraHosts", parseRepoEgressExtraHosts],
+  ["browserAllowedHosts", parseRepoBrowserAllowedHosts],
   ["repoMode", parseRepoMode],
   ["previewStartScript", parseNullableString],
   ["previewStartCommand", parseNullableString],
@@ -1912,12 +1949,14 @@ async function parseRepoConfigPatch(req: Request): Promise<
       manualStepsIssueEnabled?: boolean;
       preWarmEpicLandingCi?: boolean;
       epicStacksEnabled?: boolean;
+      sharedBrowserEnabled?: boolean;
       hidden?: boolean;
       signoffAuthority?: "human" | "critic" | "either";
       sandboxProfile?: SandboxProfile;
       defaultModel?: string;
       defaultEffort?: string;
       egressExtraHosts?: string[];
+      browserAllowedHosts?: string[];
       maxAuto?: number;
       autoLabel?: string;
       usageCeilingPct?: number;
@@ -1934,7 +1973,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     return json(
       {
         error:
-          "boolean fields (criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled/buildQueueEnabled/draftMode/autoOptimizeFlagged/hidden) must be booleans",
+          "boolean fields (criticEnabled/autoAddressEnabled/learningsEnabled/autopilotEnabled/autoDrainEnabled/autoMergeEnabled/buildQueueEnabled/draftMode/autoOptimizeFlagged/sharedBrowserEnabled/hidden) must be booleans",
       },
       400,
     );
@@ -1952,6 +1991,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     defaultModel,
     defaultEffort,
     egressExtraHosts,
+    browserAllowedHosts,
     repoMode,
     previewStartScript,
     previewStartCommand,
@@ -1959,24 +1999,13 @@ async function parseRepoConfigPatch(req: Request): Promise<
   } = scalars;
   const present =
     REPO_CFG_BOOL_FIELDS.some((k) => body[k] !== undefined) ||
-    maxAuto !== undefined ||
-    autoLabel !== undefined ||
-    usageCeilingPct !== undefined ||
-    signoffAuthority !== undefined ||
-    sandboxProfile !== undefined ||
-    defaultModel !== undefined ||
-    defaultEffort !== undefined ||
-    egressExtraHosts !== undefined ||
-    repoMode !== undefined ||
-    previewStartScript !== undefined ||
-    previewStartCommand !== undefined ||
-    previewOpenMode !== undefined ||
+    Object.values(scalars).some((v) => v !== undefined) ||
     body.automationConfirmed !== undefined;
   if (!present) {
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, autoOptimizeFlagged, hidden, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, autoOptimizeFlagged, sharedBrowserEnabled, hidden, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, browserAllowedHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
       },
       400,
     );
@@ -1997,12 +2026,14 @@ async function parseRepoConfigPatch(req: Request): Promise<
     manualStepsIssueEnabled: body.manualStepsIssueEnabled as boolean | undefined,
     preWarmEpicLandingCi: body.preWarmEpicLandingCi as boolean | undefined,
     epicStacksEnabled: body.epicStacksEnabled as boolean | undefined,
+    sharedBrowserEnabled: body.sharedBrowserEnabled as boolean | undefined,
     hidden: body.hidden as boolean | undefined,
     signoffAuthority,
     sandboxProfile,
     defaultModel,
     defaultEffort,
     egressExtraHosts,
+    browserAllowedHosts,
     maxAuto,
     autoLabel,
     usageCeilingPct,
@@ -2035,9 +2066,60 @@ async function handleRepoConfig({ req, parts, url, deps }: Ctx): Promise<Respons
       return json({ error: "previewStartScript must use the canonical repo-local path" }, 400);
     }
   }
+  const browserWasOn = deps.store.getRepoConfig(dir).sharedBrowserEnabled;
   const r = repoConfigSvc(deps).patch(dir, cfgPatch, { automationConfirmed });
   if (!r.ok) return json({ error: r.error }, 400);
+  // Turning the Shared Browser off revokes it now: stop the repo's Chromium, which closes every
+  // attached agent socket. Later attaches are refused by the broker's opt-in check.
+  if (browserWasOn && !r.config.sharedBrowserEnabled) deps.sharedBrowser?.stop(dir);
   return json(r.config);
+}
+
+/** The tab URL for the operator "Open": the session's real dev origin when it has a dev server
+ *  (never the preview slot — cookies must be set for the origin agents drive), else about:blank. */
+async function sharedBrowserOpenUrl(
+  deps: AppDeps,
+  dir: string,
+  sessionId: unknown,
+): Promise<string | Response> {
+  if (sessionId === undefined || sessionId === null) return "about:blank";
+  if (typeof sessionId !== "string") return json({ error: "sessionId must be a string" }, 400);
+  const s = deps.store.get(sessionId);
+  if (!s) return json({ error: "session not found" }, 404);
+  if (safeRepoDir(s.repoPath, config.repoRoot) !== dir)
+    return json({ error: "session belongs to another repo" }, 400);
+  const devPort =
+    deps.preview?.devPortFor?.(s.id) ??
+    (await previewLauncher(deps).findDevPort(s.worktreePath, s.id));
+  return devPort === null ? "about:blank" : `http://localhost:${devPort}`;
+}
+
+// POST /api/repo-browser/open {repo, sessionId?} — operator "Open shared browser" (ADR 0001):
+// launch the repo's Shared Browser if needed and open a tab, so the operator can log in there.
+// Operator-auth app only; never on the agent ingress.
+async function handleRepoBrowserOpen({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "repo-browser" && parts[2] === "open" && !parts[3]))
+    return null;
+  if (req.method !== "POST") return null;
+  const body = (await req.json().catch(() => ({}))) as { repo?: unknown; sessionId?: unknown };
+  const dir = safeRepoDir(typeof body.repo === "string" ? body.repo : "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  if (!deps.store.getRepoConfig(dir).sharedBrowserEnabled)
+    return json({ error: "shared browser disabled for this repo" }, 409);
+  if (!deps.sharedBrowser) return json({ error: "launch-failed", code: "launch-failed" }, 503);
+  const url = await sharedBrowserOpenUrl(deps, dir, body.sessionId);
+  if (url instanceof Response) return url;
+  try {
+    await deps.sharedBrowser.open(
+      dir,
+      url,
+      typeof body.sessionId === "string" ? { sessionId: body.sessionId } : {},
+    );
+  } catch (e) {
+    if (e instanceof SharedBrowserError) return json({ error: e.code, code: e.code }, 503);
+    throw e;
+  }
+  return json({ ok: true, url });
 }
 
 // /api/repo-roles?repo=<path> — read (GET) / set (PUT) the committed reviewer +
@@ -4608,9 +4690,46 @@ async function handleSessionMcp({ req, parts, deps }: Ctx): Promise<Response | n
   const spawning = row ? null : deps.service.spawningAgentCapabilities(id);
   if (!row && !spawning) return json({ error: "session not found" }, 404);
 
-  const outcome = handleMcpRequest(deps, id, await req.json().catch(() => null), spawning);
+  const body = await req.json().catch(() => null);
+  const outcome = await handleMcpRequest(mcpDeps(deps), id, body, spawning, req.signal);
   if (outcome.body === null) return new Response(null, { status: outcome.status });
   return json(outcome.body, outcome.status);
+}
+
+/** The control plane's deps: AppDeps plus the Shared Browser tab opener `browser_request_login`
+ *  needs (a tab remembered as the session's, so Browser View preselects it). */
+function mcpDeps(deps: AppDeps): AgentControlDeps {
+  const browser = deps.sharedBrowser;
+  if (!browser) return deps;
+  return {
+    ...deps,
+    openLoginTab: async (repoPath, url, sessionId) => {
+      await browser.open(repoPath, url, { sessionId });
+    },
+  };
+}
+
+// GET /api/login-requests — every open Login Request (#2882), keyed by session id (bootstrap).
+function handleLoginRequestsSnapshot({ req, parts, deps, token }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "login-requests" && !parts[2]) {
+    return json(tokenMap(token, deps, deps.loginRequests?.snapshot() ?? {}));
+  }
+  return null;
+}
+
+// POST /api/sessions/:id/login-request {outcome: "done"|"cancelled"} — the operator answers a
+// session's Login Request. Operator app only: deliberately NOT an AGENT_LEAF_ROUTES leaf, so an
+// agent can never mark its own request done.
+async function handleSessionLoginRequest({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "login-request")) return null;
+  const id = parts[2];
+  if (!id || parts[4] || req.method !== "POST") return null;
+  const body = (await req.json().catch(() => ({}))) as { outcome?: unknown };
+  if (body.outcome !== "done" && body.outcome !== "cancelled")
+    return json({ error: "outcome must be done or cancelled" }, 400);
+  if (!deps.loginRequests?.resolve(id, body.outcome))
+    return json({ error: "no open login request" }, 404);
+  return json({ ok: true });
 }
 
 // Sessions core: dispatch to the create / read / delete / reply sub-handlers,
@@ -9268,6 +9387,7 @@ const ROUTE_HANDLERS = [
   handleEpicPut,
   handleEpicQueue,
   handleRepoConfig,
+  handleRepoBrowserOpen,
   handleRepoRoles,
   handleRepoCollaborators,
   handleLearnings,
@@ -9277,6 +9397,8 @@ const ROUTE_HANDLERS = [
   handlePush,
   handleSessionHooks,
   handleSessionMcp,
+  handleSessionLoginRequest,
+  handleLoginRequestsSnapshot,
   handleBuildQueue,
   handleEpicDraft,
   handleTaskExport,
@@ -9419,9 +9541,10 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
 /** Methods allowed on each exact `/api/sessions/<id>/<sub>` agent route. A Map (not an object) so a
  *  hostile sub-segment like `constructor` can never resolve through the prototype chain.
  *   - `hooks`: the push-hook ingest (issue #704).
- *   - `mcp`: the session's MCP endpoint (issue #2003) — strictly weaker than the routes beside it,
- *     since every tool it exposes is one of them, gated by the session's own capabilities
- *     (see agentTools), and neither approve gate has a tool at all.
+ *   - `mcp`: the session's MCP endpoint (issue #2003) — its tools mirror the routes beside it,
+ *     gated by the session's own capabilities (see agentTools), and neither approve gate has a
+ *     tool at all. The one tool without a REST twin, `browser_request_login` (#2882), only ASKS:
+ *     its resolve route (`…/login-request`) is operator-only and absent from this map.
  *   - `queue`: PUT authors/replaces; GET is the "inspect the current queue" / re-GET-for-ids read.
  *   - `epic-draft`: PUT authors/replaces the draft; GET inspects it (issue #1507).
  *   - `rename`: the session's own retitle (issue #2053) — the write half of the coordinates the
@@ -9432,6 +9555,7 @@ const AGENT_LEAF_ROUTES = new Map<string, readonly string[]>([
   ["queue", ["PUT", "GET"]],
   ["epic-draft", ["PUT", "GET"]],
   ["rename", ["POST"]],
+  ["browser", ["GET"]],
 ]);
 
 /**
@@ -9494,7 +9618,28 @@ export function makeAgentIngressApp(deps: AppDeps) {
  *  (fail-fast). Returns the Bun server (read `.port` — the actually-bound port). */
 export function serveAgentIngress(deps: AppDeps, port = 0) {
   const app = makeAgentIngressApp(deps);
-  return Bun.serve({ port, hostname: "127.0.0.1", fetch: (req) => app.fetch(req) });
+  return Bun.serve<BrowserWsData>({
+    port,
+    hostname: "127.0.0.1",
+    fetch(req, server) {
+      const url = new URL(req.url);
+      const parts = url.pathname.split("/").filter(Boolean);
+      if (req.method === "GET" && isBrowserAttachPath(parts)) {
+        const gate = gateBrowserAttach(deps, parts[2]!, url.searchParams.get("token"));
+        if (!gate.ok) return gate.response;
+        if (req.headers.get("upgrade")?.toLowerCase() !== "websocket")
+          return json({ error: "websocket upgrade required" }, 426);
+        return server.upgrade(req, { data: gate.data })
+          ? undefined
+          : json({ error: "upgrade failed" }, 500);
+      }
+      // Agents reach the MCP endpoint HERE, so its long-poll needs the same lifted idle budget.
+      const slowSec = slowRequestTimeoutSec(req, url);
+      if (slowSec !== null) server.timeout(req, slowSec);
+      return app.fetch(req);
+    },
+    websocket: makeBrowserBrokerHandlers(() => deps.sharedBrowser),
+  });
 }
 
 const terminalClientKinds = ["mac-app", "pwa", "browser", "unknown"] as const;
@@ -9519,6 +9664,7 @@ function parseTerminalClient(params: URLSearchParams) {
 
 type WsData = (
   | { kind: "events"; unsub?: () => void }
+  | { kind: "browser-view"; id: string; repoPath: string; view?: BrowserViewSession }
   | {
       kind: "pty";
       client: ReturnType<typeof parseTerminalClient>;
@@ -9536,6 +9682,16 @@ type WsData = (
   expiryTimer?: ReturnType<typeof setTimeout>;
   authClosed?: boolean;
 };
+
+/** The token-scope path a socket is authorized against (one per WS kind). */
+function wsAuthPath(data: WsData): string {
+  if (data.kind === "events") return "/events";
+  if (data.kind === "browser-view") return `/browser-view/${data.id}`;
+  return `/pty/${data.id}`;
+}
+
+/** Browser View send-buffer cap; a client this far behind is closed with 1009. */
+const BROWSER_VIEW_MAX_BUFFERED_BYTES = 8 * 1024 * 1024;
 
 // A pty WS closed with this code means "a newer client took over this terminal".
 // The client parks (shows a take-over prompt) instead of reconnecting — without
@@ -9663,6 +9819,8 @@ const MERGE_ROUTE_TIMEOUT_SEC = Math.ceil(MERGE_ASYNC_MAX_WAIT_MS / 1000) + 60;
 export const slowRequestTimeoutSec = (req: Request, url: URL): number | null => {
   if (req.method !== "POST") return null;
   if (url.pathname === "/api/usage/refresh") return 60;
+  // browser_request_login long-polls up to LOGIN_WAIT_MS (50s) inside one MCP call (#2882).
+  if (/^\/api\/sessions\/[^/]+\/mcp$/.test(url.pathname)) return 60;
   if (/^\/api\/sessions\/[^/]+\/epic-draft\/approve$/.test(url.pathname)) return 255;
   // /api/shape spawns a transient shaping agent and polls it for up to 180s (task-shape.ts); on the
   // 10s default Bun severs the socket mid-round and the New Task card reports a failure for a round
@@ -9712,11 +9870,7 @@ export function serve(deps: AppDeps, port: number) {
     const token = accessTokens(deps).current(ws.data.tokenId);
     const allowed =
       token &&
-      scopeAllows(
-        token.scope,
-        "GET",
-        ws.data.kind === "events" ? "/events" : `/pty/${ws.data.id}`,
-      ) &&
+      scopeAllows(token.scope, "GET", wsAuthPath(ws.data)) &&
       (ws.data.kind === "events" || tokenSessionAllowed(token, deps, ws.data.id));
     if (!allowed) closeTokenSocket(ws);
     return !!allowed;
@@ -9751,6 +9905,94 @@ export function serve(deps: AppDeps, port: number) {
     }
     ws.send(JSON.stringify({ event, data }));
   }
+  // ── WebSocket upgrades: /events, /pty/<id>, /browser-view/<id> ──────────────
+  // Each returns the upgrade outcome (undefined = upgraded, a Response = refused); upgradeSocket
+  // returns null for any other path, which falls through to the HTTP app.
+  type Upgrader = Server<WsData>;
+  const wsOriginRefusal = (req: Request): Response | null =>
+    originAllowed(req.headers.get("Origin"), config.allowedOriginHosts, {
+      base: config.previewPortBase,
+      count: config.previewPortCount,
+    })
+      ? null
+      : new Response("forbidden: origin not allowed", { status: 403 });
+  const upgradeWith = (req: Request, server: Upgrader, data: WsData): Response | undefined =>
+    server.upgrade(req, { data }) ? undefined : new Response("upgrade failed", { status: 500 });
+  function upgradePty(
+    req: Request,
+    url: URL,
+    server: Upgrader,
+    tokenId: string | undefined,
+    id: string,
+  ): Response | undefined {
+    const s = deps.store.get(id);
+    if (!s) return new Response("no session", { status: 404 });
+    // attach at the client's actual terminal size so the very first paint
+    // matches; otherwise herdr renders the pane at the default 100×30 and the
+    // view stays mis-sized until a follow-up resize forces a TUI repaint.
+    const { cols, rows } = parseTermDims(
+      url.searchParams.get("cols"),
+      url.searchParams.get("rows"),
+    );
+    return upgradeWith(req, server, {
+      kind: "pty",
+      tokenId,
+      id: s.id,
+      terminalId: s.herdrAgentId,
+      cols,
+      rows,
+      client: parseTerminalClient(url.searchParams),
+    });
+  }
+  function upgradeBrowserView(
+    req: Request,
+    server: Upgrader,
+    tokenId: string | undefined,
+    id: string,
+  ): Response | undefined {
+    const gate = gateBrowserView(deps, id);
+    if (!gate.ok) return gate.response;
+    return upgradeWith(req, server, { kind: "browser-view", tokenId, id, repoPath: gate.repoPath });
+  }
+  function upgradeSocket(
+    req: Request,
+    url: URL,
+    server: Upgrader,
+    tokenId: string | undefined,
+  ): Response | undefined | null {
+    const pty = url.pathname.match(/^\/pty\/([^/]+)$/);
+    const view = url.pathname.match(/^\/browser-view\/([^/]+)$/);
+    if (url.pathname !== "/events" && !pty && !view) return null;
+    const refused = wsOriginRefusal(req);
+    if (refused) return refused;
+    if (pty) return upgradePty(req, url, server, tokenId, pty[1]!);
+    if (view) return upgradeBrowserView(req, server, tokenId, view[1]!);
+    return upgradeWith(req, server, { kind: "events", tokenId });
+  }
+  // Browser View (#2881): one CdpPipe client per operator socket, attached to the repo's browser.
+  function openBrowserViewSocket(ws: ServerWebSocket<WsData & { kind: "browser-view" }>): void {
+    const manager = deps.sharedBrowser;
+    if (!manager) {
+      ws.close(1011, "shared browser unavailable");
+      return;
+    }
+    let closed = false;
+    const sink = {
+      send: (text: string) => {
+        if (closed || !socketAuthorized(ws)) return;
+        ws.send(text);
+        // Frames are ack-paced, so a backlog means the client stopped reading.
+        if (ws.getBufferedAmount() > BROWSER_VIEW_MAX_BUFFERED_BYTES)
+          sink.close(1009, "client not reading");
+      },
+      close: (code?: number, reason?: string) => {
+        if (closed) return;
+        closed = true;
+        ws.close(code, reason?.slice(0, 100));
+      },
+    };
+    ws.data.view = openBrowserView(manager, ws.data.repoPath, ws.data.id, sink);
+  }
   // last time the operator typed into each session's live PTY (issue #1022 seam).
   // In-memory + throttled; pruned in the pty close() handler. Consumed by nothing
   // yet — a future stage-and-apply guard reads it via getLastOperatorKeystrokeAt.
@@ -9758,6 +10000,123 @@ export function serve(deps: AppDeps, port: number) {
   // terminals that recently fell off the socket path — memo so a reconnect within the
   // TTL retries node-pty directly instead of re-attempting (and re-failing) the socket.
   const socketTerminalFailures = new Map<string, number>();
+  function openPtySocket(ws: ServerWebSocket<WsData & { kind: "pty" }>): void {
+    // Don't attach a terminal whose herdr agent is gone: attaching would make
+    // herdr reply agent_not_found and the client would reconnect-loop on it.
+    // A "done" status only means the agent finished its turn (idle at the
+    // prompt) — its herdr pane may still be alive and attachable. So gate on
+    // herdr LIVENESS, not on status: block only when the session is missing,
+    // archived, or its herdr agent is no longer listed by `herdr agent list`.
+    const cur = deps.store.get(ws.data.id);
+    if (!cur || cur.status === "archived") {
+      ws.close(PTY_GONE_CODE, "ended");
+      return;
+    }
+    // Resolve the live agent by STABLE key (cwd), not the id captured at upgrade:
+    // a herdr restart reassigns terminalIds, so the stored one can be briefly stale.
+    const attach = livePtyAttach(cur, deps.herdr);
+    if (attach === null) {
+      ws.close(PTY_GONE_CODE, "ended");
+      return;
+    }
+    const tid = attach.terminalId;
+    ws.data.terminalId = tid; // keep close()'s ptyOwners cleanup keyed on the same id
+    // single owner per terminal: claim it, then bump the previous owner
+    // with a "superseded" close so it parks instead of fighting back.
+    const prev = ptyOwners.get(tid);
+    ptyOwners.set(tid, ws);
+    deps.events.emit("terminal:owners", terminalOwners());
+    if (prev && prev !== ws) prev.close(PTY_SUPERSEDED_CODE, "superseded");
+    const sock = {
+      send: (d: string | Uint8Array) => (socketAuthorized(ws) ? ws.send(d) : 0),
+      close: () => ws.close(),
+    };
+    const kind = pickTerminalBridgeKind({
+      herdrSocketTerminal: config.herdrSocketTerminal,
+      herdrSocketActive: deps.herdrSocketActive,
+      paneTarget: attach.paneTarget,
+      recentlyFailed: recentlyFailed(socketTerminalFailures, tid, Date.now()),
+      terminalSession: !!cur.terminal,
+    });
+    // Narrowed alias: the hook closures below run asynchronously, after which TS can no
+    // longer see that `ws.data.kind === "pty"` still holds (it never changes, but control
+    // flow narrowing doesn't survive a closure boundary) — `data` keeps them type-checked.
+    const data = ws.data as Extract<WsData, { kind: "pty" }>;
+    // node-pty attach (and its socket→node-pty fallback) target the pane_id on 0.7.5; the
+    // socket bridge already targets paneTarget. See nodePtyAttachTarget.
+    const ptyTarget = nodePtyAttachTarget(attach, tid);
+    if (kind === "node-pty") {
+      const b = new PtyBridge(ptyTarget, sock);
+      data.bridge = b;
+      b.open(data.cols, data.rows);
+    } else {
+      data.awaitingFirstFrame = true;
+      data.pendingInput = [];
+      const flushPending = (b: PtyBridge | SocketPtyBridge) => {
+        if (!socketAuthorized(ws)) {
+          data.pendingInput = [];
+          return;
+        }
+        for (const f of data.pendingInput ?? []) b.write(f);
+        data.pendingInput = [];
+      };
+      const sb = new SocketPtyBridge(attach.paneTarget!, sock, {
+        onFirstFrame: () => {
+          recordSocketAttach();
+          console.info(`[herdr] socket terminal attached ${tid}`);
+          data.awaitingFirstFrame = false;
+          flushPending(data.bridge!);
+        },
+        onFallback: () => {
+          if (!socketAuthorized(ws)) return;
+          // A clean-terminal pane has no node-pty fallback (agent attach refuses it) —
+          // surface "ended" instead of a guaranteed agent_not_found reconnect loop.
+          if (cur.terminal) {
+            ws.close(PTY_GONE_CODE, "ended");
+            return;
+          }
+          recordFallback();
+          console.info(`[herdr] socket terminal → node-pty fallback ${tid}`);
+          socketTerminalFailures.set(tid, Date.now());
+          const nb = new PtyBridge(ptyTarget, sock);
+          data.bridge = nb;
+          data.awaitingFirstFrame = false;
+          nb.open(data.cols, data.rows);
+          flushPending(nb);
+        },
+        onGone: () => {
+          ws.close(PTY_GONE_CODE, "ended");
+        },
+        onAbnormalExit: () => {
+          // The failure memo only exists to steer AGENT terminals back to node-pty; a
+          // clean terminal has no such fallback, so don't stamp it.
+          if (!cur.terminal) socketTerminalFailures.set(tid, Date.now());
+        },
+      });
+      data.bridge = sb;
+      sb.open(data.cols, data.rows);
+    }
+  }
+  // Presence frame: the page reports focus+visibility so push delivery
+  // can suppress OS banners while a window is actively in use.
+  function onEventsMessage(ws: ServerWebSocket<WsData>, msg: string | Buffer): void {
+    try {
+      const m = JSON.parse(typeof msg === "string" ? msg : msg.toString());
+      if (m?.type === "presence") {
+        deps.presence?.set(ws, !!m.active);
+        if (m.active === true) sendTerminalOwners(ws);
+      }
+    } catch {
+      /* ignore malformed frames */
+    }
+  }
+  function onBrowserViewMessage(
+    ws: ServerWebSocket<WsData & { kind: "browser-view" }>,
+    msg: string | Buffer,
+  ): void {
+    if (typeof msg !== "string") ws.close(1003, "binary frames not supported");
+    else ws.data.view?.handle(msg);
+  }
   return Bun.serve<WsData>({
     port,
     hostname: config.host,
@@ -9778,54 +10137,8 @@ export function serve(deps: AppDeps, port: number) {
         token: authErr,
       });
       if (boundaryErr) return boundaryErr;
-      if (url.pathname === "/events") {
-        const origin = req.headers.get("Origin");
-        if (
-          !originAllowed(origin, config.allowedOriginHosts, {
-            base: config.previewPortBase,
-            count: config.previewPortCount,
-          })
-        ) {
-          return new Response("forbidden: origin not allowed", { status: 403 });
-        }
-        return server.upgrade(req, { data: { kind: "events", tokenId } })
-          ? undefined
-          : new Response("upgrade failed", { status: 500 });
-      }
-      const m = url.pathname.match(/^\/pty\/([^/]+)$/);
-      if (m) {
-        const origin = req.headers.get("Origin");
-        if (
-          !originAllowed(origin, config.allowedOriginHosts, {
-            base: config.previewPortBase,
-            count: config.previewPortCount,
-          })
-        ) {
-          return new Response("forbidden: origin not allowed", { status: 403 });
-        }
-        const s = deps.store.get(m[1]!);
-        if (!s) return new Response("no session", { status: 404 });
-        // attach at the client's actual terminal size so the very first paint
-        // matches; otherwise herdr renders the pane at the default 100×30 and the
-        // view stays mis-sized until a follow-up resize forces a TUI repaint.
-        const { cols, rows } = parseTermDims(
-          url.searchParams.get("cols"),
-          url.searchParams.get("rows"),
-        );
-        return server.upgrade(req, {
-          data: {
-            kind: "pty",
-            tokenId,
-            id: s.id,
-            terminalId: s.herdrAgentId,
-            cols,
-            rows,
-            client: parseTerminalClient(url.searchParams),
-          },
-        })
-          ? undefined
-          : new Response("upgrade failed", { status: 500 });
-      }
+      const upgraded = upgradeSocket(req, url, server, tokenId);
+      if (upgraded !== null) return upgraded;
       // Lift Bun's 10s idle timeout for the known-slow routes (see slowRequestTimeoutSec) so a long
       // handler can't have its connection reset out from under it. Other endpoints unchanged.
       const slowSec = slowRequestTimeoutSec(req, url);
@@ -9848,120 +10161,20 @@ export function serve(deps: AppDeps, port: number) {
           // A live /events socket = a dashboard is open (regardless of focus), so
           // background pollers should run warm. `close` drops it again.
           deps.presence?.connect(ws);
+        } else if (ws.data.kind === "browser-view") {
+          openBrowserViewSocket(ws as ServerWebSocket<WsData & { kind: "browser-view" }>);
         } else {
-          // Don't attach a terminal whose herdr agent is gone: attaching would make
-          // herdr reply agent_not_found and the client would reconnect-loop on it.
-          // A "done" status only means the agent finished its turn (idle at the
-          // prompt) — its herdr pane may still be alive and attachable. So gate on
-          // herdr LIVENESS, not on status: block only when the session is missing,
-          // archived, or its herdr agent is no longer listed by `herdr agent list`.
-          const cur = deps.store.get(ws.data.id);
-          if (!cur || cur.status === "archived") {
-            ws.close(PTY_GONE_CODE, "ended");
-            return;
-          }
-          // Resolve the live agent by STABLE key (cwd), not the id captured at upgrade:
-          // a herdr restart reassigns terminalIds, so the stored one can be briefly stale.
-          const attach = livePtyAttach(cur, deps.herdr);
-          if (attach === null) {
-            ws.close(PTY_GONE_CODE, "ended");
-            return;
-          }
-          const tid = attach.terminalId;
-          ws.data.terminalId = tid; // keep close()'s ptyOwners cleanup keyed on the same id
-          // single owner per terminal: claim it, then bump the previous owner
-          // with a "superseded" close so it parks instead of fighting back.
-          const prev = ptyOwners.get(tid);
-          ptyOwners.set(tid, ws);
-          deps.events.emit("terminal:owners", terminalOwners());
-          if (prev && prev !== ws) prev.close(PTY_SUPERSEDED_CODE, "superseded");
-          const sock = {
-            send: (d: string | Uint8Array) => (socketAuthorized(ws) ? ws.send(d) : 0),
-            close: () => ws.close(),
-          };
-          const kind = pickTerminalBridgeKind({
-            herdrSocketTerminal: config.herdrSocketTerminal,
-            herdrSocketActive: deps.herdrSocketActive,
-            paneTarget: attach.paneTarget,
-            recentlyFailed: recentlyFailed(socketTerminalFailures, tid, Date.now()),
-            terminalSession: !!cur.terminal,
-          });
-          // Narrowed alias: the hook closures below run asynchronously, after which TS can no
-          // longer see that `ws.data.kind === "pty"` still holds (it never changes, but control
-          // flow narrowing doesn't survive a closure boundary) — `data` keeps them type-checked.
-          const data = ws.data as Extract<WsData, { kind: "pty" }>;
-          // node-pty attach (and its socket→node-pty fallback) target the pane_id on 0.7.5; the
-          // socket bridge already targets paneTarget. See nodePtyAttachTarget.
-          const ptyTarget = nodePtyAttachTarget(attach, tid);
-          if (kind === "node-pty") {
-            const b = new PtyBridge(ptyTarget, sock);
-            data.bridge = b;
-            b.open(data.cols, data.rows);
-          } else {
-            data.awaitingFirstFrame = true;
-            data.pendingInput = [];
-            const flushPending = (b: PtyBridge | SocketPtyBridge) => {
-              if (!socketAuthorized(ws)) {
-                data.pendingInput = [];
-                return;
-              }
-              for (const f of data.pendingInput ?? []) b.write(f);
-              data.pendingInput = [];
-            };
-            const sb = new SocketPtyBridge(attach.paneTarget!, sock, {
-              onFirstFrame: () => {
-                recordSocketAttach();
-                console.info(`[herdr] socket terminal attached ${tid}`);
-                data.awaitingFirstFrame = false;
-                flushPending(data.bridge!);
-              },
-              onFallback: () => {
-                if (!socketAuthorized(ws)) return;
-                // A clean-terminal pane has no node-pty fallback (agent attach refuses it) —
-                // surface "ended" instead of a guaranteed agent_not_found reconnect loop.
-                if (cur.terminal) {
-                  ws.close(PTY_GONE_CODE, "ended");
-                  return;
-                }
-                recordFallback();
-                console.info(`[herdr] socket terminal → node-pty fallback ${tid}`);
-                socketTerminalFailures.set(tid, Date.now());
-                const nb = new PtyBridge(ptyTarget, sock);
-                data.bridge = nb;
-                data.awaitingFirstFrame = false;
-                nb.open(data.cols, data.rows);
-                flushPending(nb);
-              },
-              onGone: () => {
-                ws.close(PTY_GONE_CODE, "ended");
-              },
-              onAbnormalExit: () => {
-                // The failure memo only exists to steer AGENT terminals back to node-pty; a
-                // clean terminal has no such fallback, so don't stamp it.
-                if (!cur.terminal) socketTerminalFailures.set(tid, Date.now());
-              },
-            });
-            data.bridge = sb;
-            sb.open(data.cols, data.rows);
-          }
+          openPtySocket(ws as ServerWebSocket<WsData & { kind: "pty" }>);
         }
       },
       message(ws, msg) {
         if (!socketAuthorized(ws)) return;
-        if (ws.data.kind === "events") {
-          // Presence frame: the page reports focus+visibility so push delivery
-          // can suppress OS banners while a window is actively in use.
-          try {
-            const m = JSON.parse(typeof msg === "string" ? msg : msg.toString());
-            if (m?.type === "presence") {
-              deps.presence?.set(ws, !!m.active);
-              if (m.active === true) sendTerminalOwners(ws);
-            }
-          } catch {
-            /* ignore malformed frames */
-          }
-          return;
-        }
+        if (ws.data.kind === "events") return onEventsMessage(ws, msg);
+        if (ws.data.kind === "browser-view")
+          return onBrowserViewMessage(
+            ws as ServerWebSocket<WsData & { kind: "browser-view" }>,
+            msg,
+          );
         markPtyEvent("in");
         const frame = typeof msg === "string" ? msg : msg.toString();
         // Stamp the operator-activity seam only for genuine keystrokes — the same
@@ -9977,6 +10190,8 @@ export function serve(deps: AppDeps, port: number) {
         if (ws.data.kind === "events") {
           ws.data.unsub?.();
           deps.presence?.drop(ws);
+        } else if (ws.data.kind === "browser-view") {
+          ws.data.view?.close();
         } else {
           // only drop ownership if we're still the owner (a newer client may have
           // already claimed this terminal before our close fired)

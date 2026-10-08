@@ -65,6 +65,8 @@ const EN: CopyMap = {
   "plan-rework": (p) =>
     `Plan review wants changes (round ${p.round ?? "?"}/${p.cap ?? "?"}) — your call.`,
   "plan-question": () => "The plan has questions waiting on your answer.",
+  "login-request": (p) =>
+    p.host ? `Wants you to log in at ${p.host}.` : "Wants you to log in in the Shared Browser.",
   "critic-rework": (p) =>
     p.findings !== undefined
       ? `Critic requested changes (${p.findings} open) — steered back to the agent.`
@@ -108,6 +110,10 @@ const DE: CopyMap = {
   "plan-rework": (p) =>
     `Plan-Review fordert Änderungen (Runde ${p.round ?? "?"}/${p.cap ?? "?"}) — deine Entscheidung.`,
   "plan-question": () => "Der Plan hat Fragen, die auf deine Antwort warten.",
+  "login-request": (p) =>
+    p.host
+      ? `Bittet dich, dich bei ${p.host} anzumelden.`
+      : "Bittet dich, dich im Shared Browser anzumelden.",
   "critic-rework": (p) =>
     p.findings !== undefined
       ? `Kritiker fordert Änderungen (${p.findings} offen) — zurück zum Agenten gesteuert.`

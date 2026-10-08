@@ -292,6 +292,23 @@ function hasTriple(flags: string[], flag: string, a: string, b: string): boolean
 }
 
 describe("buildMembraneFlags", () => {
+  test("browser attach config: one RO file bind after the $HOME tmpfs; none when absent", () => {
+    const file = "/home/me/.shepherd/browser-attach/s1.json";
+    const f = buildMembraneFlags(fakeMembrane({ browserConfigFile: file }), detDeps);
+    const i = f.indexOf(file);
+    expect(f[i - 1]).toBe("--ro-bind");
+    expect(f[i + 1]).toBe(file);
+    expect(f.filter((v) => v.includes("browser-attach"))).toHaveLength(2);
+    const homeTmpfs = f.findIndex((v, k) => v === "/home/me" && f[k - 1] === "--tmpfs");
+    expect(i).toBeGreaterThan(homeTmpfs);
+    // ~/.shepherd itself is never bound.
+    expect(f.some((v) => v === "/home/me/.shepherd")).toBe(false);
+    for (const absent of [undefined, null, ""])
+      expect(buildMembraneFlags(fakeMembrane({ browserConfigFile: absent }), detDeps)).toEqual(
+        buildMembraneFlags(fakeMembrane(), detDeps),
+      );
+  });
+
   test("has hardened process isolation flags", () => {
     const f = buildMembraneFlags(fakeMembrane(), detDeps);
     expect(f).toContain("--die-with-parent");

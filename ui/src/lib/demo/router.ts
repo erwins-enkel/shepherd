@@ -269,12 +269,13 @@ const ambientGetRoutes: Record<string, GetHandler> = {
       preferLocal: false,
       hint: "",
     }),
-  // The three below are typed `Record<…>` by their `api.ts` callers, so `{}` genuinely
+  // The four below are typed `Record<…>` by their `api.ts` callers, so `{}` genuinely
   // IS the correct "none" — no session in the scenario is blocked by a block reason,
-  // carries a task amendment, or had a spawn clamped/refused.
+  // carries a task amendment, had a spawn clamped/refused, or waits on a Login Request.
   "/api/blocks": () => json({}),
   "/api/amendments": () => json({}),
   "/api/spawn-notices": () => json({}),
+  "/api/login-requests": () => json({}),
 };
 
 const exactGetRoutes: Record<string, GetHandler> = {

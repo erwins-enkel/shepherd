@@ -166,6 +166,9 @@ struct SessionRowContent {
         case .mergeRebasing: return L.t("hold_merge_rebasing", String(params?.rebaseCount ?? 0))
         case .readyMerge: return L.t("hold_ready_merge")
         case .manualSteps: return L.t("hold_manual_steps", String(params?.steps ?? 1))
+        case .loginRequest:
+            if let host = params?.host, !host.isEmpty { return L.t("hold_login_request", host) }
+            return L.t("hold_login_request_generic")
         case nil: return hold.code.rawValue
         }
     }

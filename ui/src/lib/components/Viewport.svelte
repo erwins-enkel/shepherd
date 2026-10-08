@@ -94,10 +94,11 @@
   import { ciBannerState } from "$lib/ci-banner";
   import ViewportTermControls from "./viewport/ViewportTermControls.svelte";
   import ViewportTabBar from "./viewport/ViewportTabBar.svelte";
+  import BrowserPanel from "./viewport/BrowserPanel.svelte";
   import ViewportHeaderActions from "./viewport/ViewportHeaderActions.svelte";
   import ClipboardPill from "./viewport/ClipboardPill.svelte";
   import { handleOsc52 } from "$lib/osc52";
-  import type { BuildQueue } from "$lib/types";
+  import type { BuildQueue, LoginRequest } from "$lib/types";
   import AttachmentChip from "./new-task/AttachmentChip.svelte";
   import { ATTACHMENTS_DIR, computeHasFiles } from "$lib/session-files";
   import { m } from "$lib/paraglide/messages";
@@ -132,6 +133,8 @@
     previewServeFailed = false,
     previewMap = {},
     openPreviewTick = 0,
+    browserRequest = null,
+    loginRequest = null,
     renameRequest = null,
     buildQueue = null,
     onSeedBuildQueue,
@@ -186,6 +189,10 @@
     previewMap?: Record<string, number | null>;
     /** Monotonic tick bumped by a row's Preview-badge click → switch to the Preview tab. */
     openPreviewTick?: number;
+    /** A row's Login Request "Open browser" CTA (#2882) for session `id` → its Browser tab. */
+    browserRequest?: { id: string; tick: number } | null;
+    /** This session's open Login Request (#2882), shown on the Browser tab. */
+    loginRequest?: LoginRequest | null;
     /** Targeted request from a card context-menu Rename action. */
     renameRequest?: { id: string; tick: number } | null;
     /** Current build queue for this session; updated live by WS queue:update events. */
@@ -253,7 +260,7 @@
   let viewportEl: HTMLDivElement | undefined = $state();
   let swipeX = $state(0);
   let swiping = $state(false);
-  let tab = $state<"term" | "todo" | "activity" | "diff" | "files" | "preview">("term");
+  let tab = $state<"term" | "todo" | "activity" | "diff" | "files" | "preview" | "browser">("term");
   // desktop only: reveals the git rail (PR / merge / critic / ready / verdict) as a
   // second header row, so the primary strip stays uncrowded until the operator asks
   let gitOpen = $state(false);
@@ -980,6 +987,27 @@
   // terminal rather than stranding a dead iframe.
   $effect(() => {
     if (!hasPreview && tab === "preview") tab = "term";
+  });
+  // Browser View (#2881): offered while the repo has the Shared Browser enabled; the repo
+  // config is fetched lazily, so make sure it is loaded for this session's repo.
+  $effect(() => {
+    const repoPath = session.repoPath;
+    untrack(() => void repoConfig.ensure(repoPath));
+  });
+  const hasBrowser = $derived(repoConfig.sharedBrowserOn(session.repoPath) && !session.archivedAt);
+  $effect(() => {
+    if (!hasBrowser && tab === "browser") tab = "term";
+  });
+  // A row's "Open browser" CTA for THIS session → the Browser tab (the renameRequest idiom: only
+  // the targeted session reacts, so another session's later mount stays on the terminal). Placed
+  // after the unit-switch reset, so a click that also selects wins the flush. Consumed only once
+  // the tab exists: the repo config loads lazily, so a click that lands first still opens it.
+  let lastBrowserRequestTick = -1;
+  $effect(() => {
+    const req = browserRequest;
+    if (!req || req.id !== session.id || req.tick === lastBrowserRequestTick || !hasBrowser) return;
+    lastBrowserRequestTick = req.tick;
+    tab = "browser";
   });
   $effect(() => () => clearTimeout(armTimer));
   async function confirmDecommission(id: string) {
@@ -2806,6 +2834,7 @@
       todoExists={!!todoExists}
       {hasFiles}
       {hasPreview}
+      {hasBrowser}
       {compact}
       {headerFolded}
       {vpBodyId}
@@ -3157,6 +3186,11 @@
     {#if tab === "files"}
       <div class="panel-wrap">
         <FilesPanel sessionId={session.id} />
+      </div>
+    {/if}
+    {#if tab === "browser" && hasBrowser}
+      <div class="panel-wrap">
+        <BrowserPanel {session} {loginRequest} />
       </div>
     {/if}
     {#if tab === "preview" && previewUrl}

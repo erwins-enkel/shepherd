@@ -120,6 +120,8 @@ function makeHarness(
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
+    sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
   });
   store.setEpicRun({

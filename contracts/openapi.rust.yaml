@@ -2058,6 +2058,8 @@ components:
           type: string
         steps:
           type: integer
+        host:
+          type: string
     HoldReason:
       type: object
       additionalProperties: true
@@ -5492,6 +5494,7 @@ components:
         - manualStepsIssueEnabled
         - preWarmEpicLandingCi
         - epicStacksEnabled
+        - sharedBrowserEnabled
         - hidden
         - signoffAuthority
         - maxAuto
@@ -5501,6 +5504,7 @@ components:
         - defaultModel
         - defaultEffort
         - egressExtraHosts
+        - browserAllowedHosts
         - repoMode
         - previewOpenMode
       properties:
@@ -5534,6 +5538,9 @@ components:
           type: boolean
         epicStacksEnabled:
           type: boolean
+        sharedBrowserEnabled:
+          type: boolean
+          description: "Per-repo Shared Browser: a headful Chromium on the Shepherd host with a persistent per-repo profile that the operator logs in to and this repo's agents drive via brokered CDP. Agents attached to this repo can read every login in its profile."
         hidden:
           type: boolean
         signoffAuthority:
@@ -5554,6 +5561,11 @@ components:
           type: array
           items:
             type: string
+        browserAllowedHosts:
+          type: array
+          items:
+            type: string
+          description: Hostnames an autonomous session's Browser Attach may reach (ports 80/443, public addresses only), besides its own Preview port. Only cookies for these hosts are copied into the autonomous session's isolated browser context.
         repoMode:
           type: string
         previewStartScript:
@@ -5602,6 +5614,9 @@ components:
           type: boolean
         epicStacksEnabled:
           type: boolean
+        sharedBrowserEnabled:
+          type: boolean
+          description: "Per-repo Shared Browser: a headful Chromium on the Shepherd host with a persistent per-repo profile that the operator logs in to and this repo's agents drive via brokered CDP. Agents attached to this repo can read every login in its profile."
         hidden:
           type: boolean
         signoffAuthority:
@@ -5622,6 +5637,11 @@ components:
           type: array
           items:
             type: string
+        browserAllowedHosts:
+          type: array
+          items:
+            type: string
+          description: Hostnames an autonomous session's Browser Attach may reach (ports 80/443, public addresses only), besides its own Preview port. Only cookies for these hosts are copied into the autonomous session's isolated browser context.
         repoMode:
           type: string
         previewStartScript:
@@ -5660,6 +5680,27 @@ components:
           type: string
           nullable: true
         pushError:
+          type: string
+    RepoBrowserOpenRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - repo
+      properties:
+        repo:
+          type: string
+        sessionId:
+          type: string
+    RepoBrowserOpenResult:
+      type: object
+      additionalProperties: true
+      required:
+        - ok
+        - url
+      properties:
+        ok:
+          type: boolean
+        url:
           type: string
     RepoRolesPatch:
       type: object
@@ -9427,6 +9468,49 @@ paths:
                 $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/repo-browser/open:
+    post:
+      operationId: openRepoBrowser
+      description: 'Operator "Open shared browser": launch the repo''s Shared Browser if needed and open a tab at the session''s dev origin (`http://localhost:<devPort>`) or `about:blank`.'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepoBrowserOpenRequest"
+      responses:
+        "200":
+          description: Success.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepoBrowserOpenResult"
+        "400":
+          description: Invalid repo, or the session belongs to another repo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: Unknown session.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: The Shared Browser is disabled for this repo.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "503":
+          description: Browser could not be opened; `error` is `missing-binary`, `cap` or `launch-failed`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/repo-roles:
     get:
       operationId: getRepoRoles

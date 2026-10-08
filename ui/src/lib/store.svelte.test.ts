@@ -1605,3 +1605,15 @@ test("terminal owner snapshots replace stale owners and lose freshness on discon
   dispose();
   expect(s.terminalOwners).toBeNull();
 });
+
+test("session:login-request sets and clears a session's Login Request; archive drops it (#2882)", () => {
+  const s = new HerdStore();
+  const request = { id: "r1", url: "https://a.example/", reason: "x", createdAt: 1 };
+  s.apply({ event: "session:login-request", data: { id: "s1", request } });
+  expect(s.loginRequests.s1).toEqual(request);
+  s.apply({ event: "session:login-request", data: { id: "s1", request: null } });
+  expect(s.loginRequests.s1).toBeUndefined();
+  s.setLoginRequests({ s1: request });
+  s.apply({ event: "session:archived", data: { id: "s1" } });
+  expect(s.loginRequests.s1).toBeUndefined();
+});

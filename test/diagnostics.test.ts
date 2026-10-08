@@ -8,6 +8,7 @@ import {
   classifyPreviewProbes,
   classifyTmpInodes,
   defaultReadHerdrFleet,
+  resolveChromiumBinary,
   defaultRunRemediation,
   hasMeaningfulLimit,
   herdrLimitFromProps,
@@ -35,7 +36,7 @@ import { REMEDIATIONS } from "../src/remediations";
 import type { DiagnosticCheck } from "../src/types";
 import { SessionStore } from "../src/store";
 import { listRepos } from "../src/repos";
-import { mkdirSync, mkdtempSync, rmSync, utimesSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import * as fsp from "node:fs/promises";
 import {
   readTmpPressureSignal,
@@ -137,6 +138,9 @@ function healthyDeps(): DiagnosticsDeps {
     // deterministic regardless of the test host's real /proc/lsof state.
     runPreviewProbe: async () => "ok",
     probeHealth: () => ({ state: "fresh", driven: true }),
+    // chromium (Shared Browser): a resolvable binary → ok. Pinned so the row never depends on
+    // which browsers the test host happens to have.
+    resolveChromium: async () => "/usr/bin/chromium",
   };
 }
 
@@ -213,9 +217,10 @@ describe("DiagnosticsService probes", () => {
     const snap = await svc.check(1000);
     expect(snap.overall).toBe("ok");
     expect(snap.generatedAt).toBe(1000);
-    expect(snap.checks).toHaveLength(14);
+    expect(snap.checks).toHaveLength(15);
     expect(snap.checks.map((c) => c.id).sort()).toEqual([
       "bun",
+      "chromium",
       "claude",
       "claude_trust",
       "codex",
@@ -1024,9 +1029,10 @@ describe("DiagnosticsService git_mergetree capability check", () => {
       anyLightweightRepo: () => true,
     });
     const snap = await svc.check(0);
-    expect(snap.checks).toHaveLength(15);
+    expect(snap.checks).toHaveLength(16);
     expect(snap.checks.map((c) => c.id).sort()).toEqual([
       "bun",
+      "chromium",
       "claude",
       "claude_trust",
       "codex",
@@ -1042,6 +1048,100 @@ describe("DiagnosticsService git_mergetree capability check", () => {
       "tailscale",
       "tmp_inodes",
     ]);
+  });
+});
+
+describe("chromium (Shared Browser binary)", () => {
+  it("ok when a binary resolves", async () => {
+    const c = byId((await new DiagnosticsService(healthyDeps()).check(0)).checks, "chromium");
+    expect(c).toEqual({ id: "chromium", state: "ok", hintKey: "diagnostics_hint_chromium_ok" });
+  });
+
+  it("optional (no pip degrade, no remediation) when missing and no repo enables it", async () => {
+    const svc = new DiagnosticsService({ ...healthyDeps(), resolveChromium: async () => null });
+    const snap = await svc.check(0);
+    const c = byId(snap.checks, "chromium");
+    expect(c).toEqual({
+      id: "chromium",
+      state: "optional",
+      hintKey: "diagnostics_hint_chromium_optional",
+    });
+    expect(snap.overall).toBe("ok");
+    // The optional hint carries no command, so the onboarding harness never installs a browser.
+    expect(REMEDIATIONS.diagnostics_hint_chromium_optional).toBeUndefined();
+  });
+
+  it("warning when missing and some repo has the Shared Browser enabled — guidance-only", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      resolveChromium: async () => null,
+      anySharedBrowserEnabled: () => true,
+    });
+    const snap = await svc.check(0);
+    const c = byId(snap.checks, "chromium");
+    expect(c.state).toBe("warning");
+    expect(c.hintKey).toBe("diagnostics_hint_chromium_missing");
+    expect("remediation" in c).toBe(false);
+    assertPure(c);
+    expect(snap.overall).toBe("warning");
+  });
+
+  it("a rejected lookup lands on the same missing verdict", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      resolveChromium: async () => {
+        throw new Error("boom");
+      },
+      anySharedBrowserEnabled: () => true,
+    });
+    const c = byId((await svc.check(0)).checks, "chromium");
+    expect(c.hintKey).toBe("diagnostics_hint_chromium_missing");
+  });
+});
+
+describe("resolveChromiumBinary", () => {
+  const withBinDir = async (names: string[], fn: (dir: string) => Promise<void>) => {
+    const dir = mkdtempSync(join(tmpdir(), "shepherd-chromium-"));
+    try {
+      for (const name of names) {
+        writeFileSync(join(dir, name), "#!/bin/sh\n");
+        chmodSync(join(dir, name), 0o755);
+      }
+      await fn(dir);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  it("finds the first candidate on PATH, in launcher order", async () => {
+    await withBinDir(["google-chrome", "chromium-browser"], async (dir) => {
+      expect(await resolveChromiumBinary({ PATH: dir })).toBe(join(dir, "google-chrome"));
+    });
+  });
+
+  it("null when no candidate is on PATH", async () => {
+    await withBinDir([], async (dir) => {
+      expect(await resolveChromiumBinary({ PATH: dir })).toBeNull();
+    });
+  });
+
+  it("SHEPHERD_CHROMIUM_BIN wins, and a broken override does not fall back to PATH", async () => {
+    await withBinDir(["chromium", "custom"], async (dir) => {
+      const custom = join(dir, "custom");
+      expect(await resolveChromiumBinary({ PATH: dir, SHEPHERD_CHROMIUM_BIN: custom })).toBe(
+        custom,
+      );
+      expect(
+        await resolveChromiumBinary({ PATH: dir, SHEPHERD_CHROMIUM_BIN: join(dir, "nope") }),
+      ).toBeNull();
+    });
+  });
+
+  it("ignores a non-executable file", async () => {
+    await withBinDir([], async (dir) => {
+      writeFileSync(join(dir, "chromium"), "");
+      expect(await resolveChromiumBinary({ PATH: dir })).toBeNull();
+    });
   });
 });
 

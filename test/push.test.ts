@@ -1338,3 +1338,42 @@ test("buildPayload onboarding_stale localizes title + body, with and without an 
   );
   expect(buildPayload(never, "de").body).toContain("noch nie");
 });
+
+test("attachPush pushes once per new login request, with host and reason (#2882)", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => calls.push(p);
+  const events = new EventHub();
+  attachPush(events, store, push);
+  const request = { id: "r1", url: "https://app.example.com/login", reason: "staging" };
+  events.emit("session:login-request", { id: "z", request });
+  events.emit("session:login-request", { id: "z", request: null });
+  await Promise.resolve();
+  expect(calls).toEqual([
+    expect.objectContaining({
+      kind: "login_request",
+      sessionId: "z",
+      loginHost: "app.example.com",
+      loginReason: "staging",
+      cooldownKey: "login_request:r1",
+    }),
+  ]);
+});
+
+test("buildPayload localizes the login request push", () => {
+  const input: NotifyInput = {
+    kind: "login_request",
+    sessionId: "z",
+    tag: "z",
+    name: "TASK-01",
+    loginHost: "app.example.com",
+    loginReason: "staging",
+  };
+  expect(buildPayload(input, "en")).toMatchObject({
+    title: "TASK-01 — log in for it",
+    body: "Log in at app.example.com in the Shared Browser: staging",
+  });
+  expect(buildPayload(input, "de").body).toBe(
+    "Melde dich im Shared Browser bei app.example.com an: staging",
+  );
+});

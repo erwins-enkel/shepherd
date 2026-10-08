@@ -737,3 +737,24 @@ test("red+dirty surfaces pr-conflict, so the row-level Retry CI CTA is intention
   } as any;
   expect(explainHold(s, caches, 0)?.code).toBe("pr-conflict");
 });
+
+test("an open login request is a Tier-1 signal with a login-request hold naming the host (#2882)", () => {
+  const caches: ClassifyCaches = { loginRequest: { url: "https://app.example.com:8443/login" } };
+  const { tier, signals } = classifyAttention(session({ status: "running" }), caches, NOW);
+  expect(tier).toBe(1);
+  expect(signals).toContain("login-request");
+  expect(explainHold(session({ status: "running" }), caches, NOW)).toEqual({
+    code: "login-request",
+    params: { host: "app.example.com:8443" },
+  });
+});
+
+test("a live PTY block outranks the login request as the primary hold", () => {
+  const block: BlockReason = { shape: "yes-no", options: [], tail: [] };
+  const hold = explainHold(
+    session({ status: "running" }),
+    { block, loginRequest: { url: "https://app.example.com/" } },
+    NOW,
+  );
+  expect(hold?.code).toBe("blocked-yes-no");
+});

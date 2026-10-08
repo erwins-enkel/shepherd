@@ -45,6 +45,7 @@ export class HoldReasonService {
   private holds = new Map<string, HoldReason>();
   private lastSig = new Map<string, string>();
   private blockCache = new Map<string, BlockReason | null>();
+  private loginCache = new Map<string, { url: string }>();
   private mergeErrorSessions = new Set<string>();
   private resetAt: number | undefined;
   private nowFn: () => number;
@@ -105,6 +106,15 @@ export class HoldReasonService {
         break;
       }
 
+      case "session:login-request": {
+        const id = d.id as string;
+        const request = d.request as { url: string } | null;
+        if (request) this.loginCache.set(id, { url: request.url });
+        else this.loginCache.delete(id);
+        this.recompute(id);
+        break;
+      }
+
       case "automerge:status": {
         this.handleAutoMergeStatus(d);
         break;
@@ -126,6 +136,7 @@ export class HoldReasonService {
         this.holds.delete(id);
         this.lastSig.delete(id);
         this.blockCache.delete(id);
+        this.loginCache.delete(id);
         this.mergeErrorSessions.delete(id);
         if (hadHold) {
           this.deps.onChange(id, null);
@@ -170,6 +181,7 @@ export class HoldReasonService {
       recap: this.deps.recapSnapshot()[id],
       train: this.mergeErrorSessions.has(id) ? { error: true as const } : undefined,
       block: this.blockCache.get(id) ?? null,
+      loginRequest: this.loginCache.get(id) ?? null,
       resetAt: this.resetAt,
     };
 

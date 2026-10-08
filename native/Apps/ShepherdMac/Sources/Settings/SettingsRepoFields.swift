@@ -23,6 +23,7 @@ struct SettingsRepoFields: View {
             Toggle(L.t("native_settings_repo_manualstepsissueenabled"),isOn:Binding(get:{config.manualStepsIssueEnabled},set:{request(.init(manualStepsIssueEnabled:$0))}))
             Toggle(L.t("native_settings_repo_prewarmepiclandingci"),isOn:Binding(get:{config.preWarmEpicLandingCi},set:{request(.init(preWarmEpicLandingCi:$0))}))
             Toggle(L.t("native_settings_repo_epicstacksenabled"),isOn:Binding(get:{config.epicStacksEnabled},set:{request(.init(epicStacksEnabled:$0))}))
+            Toggle(L.t("native_settings_repo_sharedbrowserenabled"),isOn:Binding(get:{config.sharedBrowserEnabled},set:{request(.init(sharedBrowserEnabled:$0))}))
             Toggle(L.t("native_settings_repo_hidden"),isOn:Binding(get:{config.hidden},set:{request(.init(hidden:$0))}))
             textRow("native_settings_repo_maxauto", value: { String($0.maxAuto) }) {
                 guard let value = Int($0) else { return nil }; return .init(maxAuto: value)

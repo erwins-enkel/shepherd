@@ -92,6 +92,8 @@ function makeHarness(parentTitleRef: { title: string }, subIssues: SubIssueRef[]
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
+    sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
   });
   store.setEpicRun({ repoPath: REPO, parentIssueNumber: PARENT, mode: "auto", status: "running" });

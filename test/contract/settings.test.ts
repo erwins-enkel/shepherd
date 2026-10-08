@@ -95,6 +95,37 @@ test("repo config, role no-op, push refusal and collaborator fallback", async ()
     s.stubs.resolveForge.forge = saved;
   }
 });
+test("repo browser open: refusals, launch failure and success", async () => {
+  const path = "/api/repo-browser/open";
+  const repo = s.validRepo;
+  const saved = s.deps.sharedBrowser;
+  const savedCfg = s.deps.store.getRepoConfig(repo);
+  try {
+    await request("POST", path, 400, { repo: "/outside" });
+    await request("POST", path, 409, { repo });
+    s.deps.store.setRepoConfig(repo, { ...savedCfg, sharedBrowserEnabled: true });
+    s.deps.sharedBrowser = undefined;
+    const failed = (await request("POST", path, 503, { repo })) as { error: string };
+    expect(failed.error).toBe("launch-failed");
+    const opened: string[] = [];
+    s.deps.sharedBrowser = {
+      attach: () => Promise.reject(new Error("unused")),
+      open: async (_repo: string, url: string) => {
+        opened.push(url);
+        return "T1";
+      },
+      sessionTab: () => null,
+      stop: () => {},
+    };
+    await request("POST", path, 404, { repo, sessionId: "missing" });
+    const ok = (await request("POST", path, 200, { repo })) as { url: string };
+    expect(ok.url).toBe("about:blank");
+    expect(opened).toEqual(["about:blank"]);
+  } finally {
+    s.deps.sharedBrowser = saved;
+    s.deps.store.setRepoConfig(repo, savedCfg);
+  }
+});
 test("diagnostics current, refresh, fix and all refusal statuses", async () => {
   const saved = s.deps.diagnostics;
   let currentCalls = 0,

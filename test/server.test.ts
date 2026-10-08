@@ -2212,6 +2212,8 @@ test("GET /api/learnings/injectable marks all rules uninjected when learnings di
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
+    sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
   });
 
@@ -2592,6 +2594,40 @@ test("PUT /api/repo-config rejects non-boolean epicStacksEnabled", async () => {
   const res = await putRepoConfig(app, validRepo, { epicStacksEnabled: "yes" });
   expect(res.status).toBe(400);
   expect(deps.store.getRepoConfig(validRepo).epicStacksEnabled).toBe(false);
+});
+
+// ── sharedBrowserEnabled repo-config ─────────────────────────────────────────
+test("PUT /api/repo-config accepts sharedBrowserEnabled true → 200 and GET reflects it", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  expect(deps.store.getRepoConfig(validRepo).sharedBrowserEnabled).toBe(false);
+  const res = await putRepoConfig(app, validRepo, { sharedBrowserEnabled: true });
+  expect(res.status).toBe(200);
+  expect(((await res.json()) as { sharedBrowserEnabled: boolean }).sharedBrowserEnabled).toBe(true);
+  expect(deps.store.getRepoConfig(validRepo).sharedBrowserEnabled).toBe(true);
+});
+
+test("PUT /api/repo-config normalizes browserAllowedHosts and rejects invalid hosts", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const ok = await putRepoConfig(app, validRepo, {
+    browserAllowedHosts: [" Accounts.Example.com "],
+  });
+  expect(ok.status).toBe(200);
+  expect(deps.store.getRepoConfig(validRepo).browserAllowedHosts).toEqual(["accounts.example.com"]);
+  for (const bad of [["localhost"], ["http://x.com"], "x.com", [1]]) {
+    const res = await putRepoConfig(app, validRepo, { browserAllowedHosts: bad });
+    expect(res.status).toBe(400);
+  }
+  expect(deps.store.getRepoConfig(validRepo).browserAllowedHosts).toEqual(["accounts.example.com"]);
+});
+
+test("PUT /api/repo-config rejects non-boolean sharedBrowserEnabled", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { sharedBrowserEnabled: "yes" });
+  expect(res.status).toBe(400);
+  expect(deps.store.getRepoConfig(validRepo).sharedBrowserEnabled).toBe(false);
 });
 
 // ── draftMode + signoffAuthority repo-config ─────────────────────────────────

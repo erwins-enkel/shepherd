@@ -240,6 +240,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/blocks"),
   get("/api/amendments"),
   get("/api/spawn-notices"),
+  get("/api/login-requests"),
 
   // session-detail tabs
   get("/api/sessions/:p/git", `/api/sessions/${PROBE}/git`),
@@ -388,6 +389,11 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     // clone fails, and the demo's clone always succeeds.
     "/api/github/access",
     "/api/github/git-credentials",
+    // "Open shared browser" launches Chromium on the host; no seeded repo enables the Shared
+    // Browser, so the button never renders in the demo.
+    "/api/repo-browser/open",
+    // Answering a Login Request: no seeded session raises one, so the banner never renders.
+    "/api/sessions/:p/login-request",
   ],
 
   // Settings/plugin/update WRITES and the probes behind them. Every corresponding read is

@@ -1248,6 +1248,26 @@ describe("UnitRow answer CTA (non-plan hold)", () => {
   });
 });
 
+describe("UnitRow open-browser CTA (login request, #2882)", () => {
+  it("renders Open browser for a login-request hold and click calls onopenbrowser", async () => {
+    let opened: string | null = null;
+    let selects = 0;
+    render(UnitRow, {
+      session: session({ id: "lr1", planPhase: "executing", status: "running" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => selects++,
+      onopenbrowser: (id: string) => (opened = id),
+      hold: { code: "login-request", params: { host: "a.example" } },
+    });
+    await expect.element(page.getByText(m.hold_login_request({ host: "a.example" }))).toBeVisible();
+    const btn = page.getByTitle(m.hold_cta_open_browser_title());
+    await btn.click();
+    expect(opened).toBe("lr1");
+    expect(selects).toBe(0);
+  });
+});
+
 describe("UnitRow manual-steps chip", () => {
   // The chip's text content (the count) bubbles into the accessible name too, so match it
   // precisely by its title attribute rather than the ambiguous role+name (same pattern as the

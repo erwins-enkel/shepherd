@@ -22,7 +22,11 @@ export const AGENT_SKILLS_DIR = resolve(import.meta.dir, "..", "agent-skills");
 /** Skill names shipped here. Kept as a literal (not a directory listing) because it is read on the
  *  spawn path: the single Bun event loop also pumps the live web terminal, so no sync fs there. The
  *  `test/agent-skills.test.ts` pin asserts it matches what is actually on disk. */
-export const AGENT_SKILL_NAMES = ["shepherd-pull-requests", "shepherd-preview"] as const;
+export const AGENT_SKILL_NAMES = [
+  "shepherd-pull-requests",
+  "shepherd-preview",
+  "shared-browser",
+] as const;
 
 let availableCache: boolean | null = null;
 

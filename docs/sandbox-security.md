@@ -283,6 +283,103 @@ dontAsk` can otherwise read nothing but the files Shepherd itself wrote into
   delivers a **report PR or GitHub issue only, never a code PR**
   (`RESEARCH_PROCEED_STEER`, `src/autopilot.ts`). The residual is **accepted**.
 
+## Shared browser
+
+The per-repo **Shared Browser** (a headful Chromium on the Shepherd host with a
+persistent per-repo profile the operator logs in to; opt-in per repo via
+`sharedBrowserEnabled`) is reachable by agents only through a Shepherd-brokered
+CDP WebSocket on the **agent-ingress listener**. Chromium runs with
+`--remote-debugging-pipe`, so there is **no TCP debug port** for any other local
+process to reach.
+
+- **Credential.** Each session gets its own HMAC-signed attach token, delivered
+  in a per-session config file `~/.shepherd/browser-attach/<session>.json`
+  (`{"cdp": "<ws url>"}`, mode 0600 in a 0700 dir, written atomically at spawn,
+  deleted on archive). Only the file's path rides the env
+  (`SHEPHERD_BROWSER_CONFIG`): the spawn env reaches argv (bwrap `--setenv`,
+  herdr's env shim), which any local user can read from `/proc/<pid>/cmdline`.
+  A sandboxed session gets exactly its own file through a single-file read-only
+  bind; `~/.shepherd` is otherwise not bound, so no session can read another
+  session's token. An autonomous session gets a file only when it reaches
+  Shepherd through the slirp ingress gateway (`10.0.2.2`). **Residual:**
+  processes running as the operator's own uid outside the sandbox can read the
+  file (they can read the broker key too); other local users cannot.
+- **Attach is browser-level.** An attached agent can read every login in that
+  repo's profile, not just its own tab. The **per-repo profile is the isolation
+  boundary**: sessions on one repo never reach another repo's logins, but every
+  agent on a repo sees all of its logins. Operators should log in there only with
+  accounts they are willing to share with that repo's agents.
+- **CDP is allowlisted.** The broker forwards only domains page automation needs
+  (`Target`, `Page`, `Runtime`, `DOM`, `Network`, `Input`, `Emulation`,
+  `Accessibility` and their in-page siblings) plus a few `Browser` window/version
+  reads. Everything else is refused by default, including `PWA` (file handlers
+  would read host files), `Extensions`, `Tracing`, `SystemInfo` and browser
+  process control. Inside allowed domains it also refuses host-reaching methods
+  (download behavior, file inputs, file chooser and file drops) and non-web URLs.
+  Agents attach only to web targets (`http(s)`, `about:`, `data:`, `blob:`):
+  `Target.openDevTools` is refused, attaching or auto-attaching to a `devtools://`,
+  `chrome://` or other non-web target is refused, and a tab that navigates off the
+  web loses its agent sessions.
+  Only flat sessions are allowed:
+  `Target.sendMessageToTarget` is blocked and `Target.attachToTarget` /
+  `Target.setAutoAttach` need `flatten: true`, so no command can hide inside a
+  nested message the broker never parses.
+- **Downloads stay in the profile.** Shepherd pins the profile's download and
+  save-as directory to `<profile>/Downloads` before every launch, so a
+  page-triggered download never lands in the operator's `~/Downloads`. Profiles
+  live under `~/.shepherd/browser-profiles/`, which the sandbox membrane does
+  not bind (`$HOME` is a tmpfs inside it), so sandboxed agents cannot read
+  downloaded files either.
+- **Browser View is operator-only.** The live view in a session's **Browser**
+  tab is a WebSocket on the operator app (`/browser-view/<session>`), never on
+  agent ingress, behind the same auth and origin checks as `/pty`: read/submit
+  tokens are refused, a repo-restricted token reaches only its own repos'
+  sessions. It attaches as one more broker client, so the CDP allowlist above
+  applies to it too. The UI never sends raw CDP: the server translates a small
+  typed set (tab select, frame ack, mouse, key, paste text, http(s) navigate,
+  reload) into `Page`/`Input`/`Target` commands. Pasted text is typed into the
+  page and never stored or logged.
+- **Only the operator answers a Login Request.** An agent asks for a login with
+  the `browser_request_login` MCP tool, which opens the URL (http(s) only) in
+  the Shared Browser and waits. Marking it done or cancelled is
+  `POST /api/sessions/<session>/login-request` on the operator app, absent from
+  agent ingress, so an agent cannot answer its own request. The agent's reason
+  and URL are shown as plain text. Autonomous sessions do not get the tool.
+- **Autonomous sessions attach confined** (#2883). The broker gives an
+  autonomous attach its **own browser context** whose `proxyServer` is a
+  per-attach SOCKS5 proxy Shepherd runs on `127.0.0.1` (`src/browser-egress-proxy.ts`),
+  with the implicit loopback bypass removed (`<-loopback>`). Every connection
+  the context makes goes through it: navigations, redirects, subresources,
+  WebSockets, workers and popups. The proxy, not the browser, resolves DNS, and
+  it connects to the address it vetted. The **browser origin allowlist**
+  (`src/browser-origin-policy.ts`) allows:
+  - hosts in the repo's `browserAllowedHosts` (exact match, ports 80/443),
+    only when every resolved address is public;
+  - the session's own **Preview port** on loopback, only inside the
+    `SHEPHERD_PREVIEW_PORT_BASE` range, never Shepherd's main or agent-ingress
+    port, and only while the dev port it relays to is neither of those.
+
+  Everything else is refused: other loopback ports, IP literals, and names that
+  resolve into loopback, RFC 1918, CGNAT/Tailscale (`100.64/10`), link-local,
+  ULA, IPv4-mapped or other special ranges. At attach the broker copies only the
+  default context's cookies for allowed hosts (and `localhost` when a Preview
+  origin exists, minus Shepherd's own `shepherd_session`) into the confined
+  context. When there are none, the attach
+  closes with `1008 no-login`: an autonomous session cannot wait for a Handoff
+  Login. The confined client sees and drives only its own context: other
+  contexts' targets are hidden from discovery and auto-attach, refused for
+  attach/activate/close, and `Target.createTarget` and cookie calls are forced
+  into its context. New contexts, other browser sessions and browser-level
+  `Fetch`/`Network`/`Storage` are refused. Operator and trusted/standard
+  attaches are unaffected. **Residuals:** WebRTC UDP (STUN/TURN) does not go
+  through a SOCKS proxy, so it remains an exfiltration channel. Cookies the
+  confined context rotates are not written back, so a rotated session cookie
+  can log the operator's default context out. The proxy port is open to any
+  local process but grants only the allowlist. A dev server an agent runs
+  inside its own network namespace (not via Preview) is unreachable.
+
+Rationale and alternatives: [ADR 0001](adr/0001-brokered-cdp-for-shared-browser.md).
+
 ## See also
 
 - `src/egress.ts`, `src/sandbox.ts`, `src/service.ts`, `src/autopilot.ts`,

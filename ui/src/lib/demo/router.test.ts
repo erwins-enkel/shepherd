@@ -1072,8 +1072,13 @@ describe("ambient GETs + issue peek (#2295)", () => {
     expect(body.engine).toBeNull();
   });
 
-  it("the three Record-typed reads answer {} because {} is genuinely correct", async () => {
-    for (const path of ["/api/blocks", "/api/amendments", "/api/spawn-notices"]) {
+  it("the four Record-typed reads answer {} because {} is genuinely correct", async () => {
+    for (const path of [
+      "/api/blocks",
+      "/api/amendments",
+      "/api/spawn-notices",
+      "/api/login-requests",
+    ]) {
       const { status, body } = await get(path);
       expect(status).toBe(200);
       // Typed `Record<…>` by their api.ts callers, so an empty object IS "none" — unlike

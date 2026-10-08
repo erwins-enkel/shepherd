@@ -87,7 +87,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Concepts & glossary",
     path: "/reference/glossary/",
     keywords:
-      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic plan gate autopilot task amendment critic merge train rework first-pass rate first-push ci green plan drift maintain loop band inferred lightweight repo trial weighted units cold cache reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane spawn prompt access token token scope industry terms pr ci telemetry lead time inode",
+      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic plan gate autopilot task amendment critic merge train rework first-pass rate first-push ci green plan drift maintain loop band inferred lightweight repo trial weighted units cold cache reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane shared browser handoff login spawn prompt access token token scope industry terms pr ci telemetry lead time inode",
   },
   {
     title: "Project house rules",
@@ -145,7 +145,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Security",
     path: "/reference/security/",
     keywords:
-      "sandbox membrane, egress firewall, and accepted security residuals. r3 — in-membrane token readability (accepted) attended-mode egress coverage launch probe — the membrane is proven, the launcher is not (#2111) r4 — prompt-injection posture see also",
+      "sandbox membrane, egress firewall, and accepted security residuals. r3 — in-membrane token readability (accepted) attended-mode egress coverage launch probe — the membrane is proven, the launcher is not (#2111) r4 — prompt-injection posture shared browser see also",
   },
   {
     title: "Sentry",
@@ -170,5 +170,11 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     path: "/releases/2-0/",
     keywords:
       "a native mac app, a terminal cli, production errors and red ci that turn into fix prs, and a fast judge behind shepherd's decisions. shepherd for mac the shepherd cli sentry auto-fix ci watch the judge shepherd in your omarchy bar also new upgrading",
+  },
+  {
+    title: "Shared browser",
+    path: "/shared-browser/",
+    keywords:
+      "log in once in a real browser on the shepherd host and let that repo's agents continue in the same logged-in browser. requirements turn it on what agents can see log in for your agents at the host remotely, from the hud when an agent asks autonomous sessions use the real dev origin",
   },
 ];

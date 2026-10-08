@@ -681,6 +681,8 @@ test("consider does nothing when learnings disabled for the repo", async () => {
     manualStepsIssueEnabled: false,
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
+    sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
   });
   const { deps, started } = mkDeps(store, { rules: [] });
@@ -729,6 +731,8 @@ test("distiller increments ineffective for cited active rule ids with validated 
         manualStepsIssueEnabled: false,
         preWarmEpicLandingCi: false,
         epicStacksEnabled: false,
+        sharedBrowserEnabled: false,
+        browserAllowedHosts: [],
         hidden: false,
       }),
       incrementLearningIneffective: (id: string, signals: string[]) => {

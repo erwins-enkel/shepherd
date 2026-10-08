@@ -1014,6 +1014,8 @@ export interface RepoConfig {
   /** Per-repo Shared Browser: a headful Chromium on the Shepherd host with a persistent per-repo
    *  profile this repo's agents drive. Agents can read every login in it. Default off — opt-in. */
   sharedBrowserEnabled: boolean;
+  /** Exact hostnames an autonomous session's confined Browser Attach may reach (#2883). */
+  browserAllowedHosts: string[];
   /** Hidden from the Backlog repos panel (list-only declutter; sessions/drain unaffected). Default off. */
   hidden: boolean;
   /** Local, non-replicated preview start script path stored by Shepherd. */

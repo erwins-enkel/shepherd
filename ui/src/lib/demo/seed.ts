@@ -1848,6 +1848,7 @@ function buildRepoConfig(): Record<string, DemoRepoConfig> {
     preWarmEpicLandingCi: false,
     epicStacksEnabled: false,
     sharedBrowserEnabled: false,
+    browserAllowedHosts: [],
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,

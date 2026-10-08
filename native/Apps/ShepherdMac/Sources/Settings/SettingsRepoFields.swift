@@ -44,6 +44,9 @@ struct SettingsRepoFields: View {
             textRow("native_settings_repo_egressextrahosts", value: { $0.egressExtraHosts.joined(separator: ",") }) {
                 .init(egressExtraHosts: $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
             }
+            textRow("native_settings_repo_browserallowedhosts", value: { $0.browserAllowedHosts.joined(separator: ",") }) {
+                .init(browserAllowedHosts: $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) })
+            }
         }
     }
     private func request(_ patch: RepoConfigPatch) { save(patch, { _ in }) }

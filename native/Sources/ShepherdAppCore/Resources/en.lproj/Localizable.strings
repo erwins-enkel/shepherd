@@ -1052,6 +1052,7 @@
 "native_settings_repo_automergeenabled" = "Automatic merge";
 "native_settings_repo_autooptimizeflagged" = "Optimize flagged rules";
 "native_settings_repo_autopilotenabled" = "Autopilot";
+"native_settings_repo_browserallowedhosts" = "Browser allowed hosts, comma separated";
 "native_settings_repo_buildqueueenabled" = "Build queue";
 "native_settings_repo_confirm" = "Apply this change on the server?";
 "native_settings_repo_criticallprs" = "Critic on all PRs";

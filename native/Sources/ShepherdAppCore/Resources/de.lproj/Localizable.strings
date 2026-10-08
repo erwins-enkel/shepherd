@@ -1052,6 +1052,7 @@
 "native_settings_repo_automergeenabled" = "Automatischer Merge";
 "native_settings_repo_autooptimizeflagged" = "Markierte Regeln optimieren";
 "native_settings_repo_autopilotenabled" = "Autopilot";
+"native_settings_repo_browserallowedhosts" = "Erlaubte Browser-Hosts, kommagetrennt";
 "native_settings_repo_buildqueueenabled" = "Build-Warteschlange";
 "native_settings_repo_confirm" = "Diese Änderung auf dem Server anwenden?";
 "native_settings_repo_criticallprs" = "Kritiker für alle PRs";

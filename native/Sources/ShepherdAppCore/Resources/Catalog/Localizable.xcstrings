@@ -18060,6 +18060,23 @@
         }
       }
     },
+    "native_settings_repo_browserallowedhosts": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erlaubte Browser-Hosts, kommagetrennt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Browser allowed hosts, comma separated"
+          }
+        }
+      }
+    },
     "native_settings_repo_buildqueueenabled": {
       "extractionState": "manual",
       "localizations": {

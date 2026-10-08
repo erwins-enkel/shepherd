@@ -236,6 +236,19 @@ export function sharedBrowserExplanation(): TooltipExplanation {
   };
 }
 
+/** Browser allowed hosts (#2898): what to enter, what is always refused, what else it needs. */
+export function browserAllowedHostsExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_browser_hosts_title(),
+    summary: m.tooltip_browser_hosts_summary(),
+    sections: [
+      { label: m.tooltip_browser_hosts_allowed(), text: m.tooltip_browser_hosts_allowed_body() },
+      { label: m.tooltip_browser_hosts_refused(), text: m.tooltip_browser_hosts_refused_body() },
+      { label: m.tooltip_browser_hosts_needs(), text: m.tooltip_browser_hosts_needs_body() },
+    ],
+  };
+}
+
 /** Browser View "Pop out" (#2896): where it opens and what happens to the other view. */
 export function browserPopoutExplanation(): TooltipExplanation {
   return {

@@ -155,3 +155,95 @@ describe("AutomationSettings — Open shared browser", () => {
     );
   });
 });
+
+describe("AutomationSettings — browser allowed hosts", () => {
+  const REPO = "/tmp/repo";
+  const hostInput = () => page.getByRole("textbox", { name: m.automation_browser_hosts_label() });
+  const addButton = () =>
+    page.getByRole("button", { name: m.automation_browser_hosts_add(), exact: true });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    repoConfig.sharedBrowser = {};
+    repoConfig.browserAllowedHosts = {};
+  });
+
+  // Fake only the repo-config PUT: echo the patch back as the stored config.
+  const realFetch = globalThis.fetch;
+  function stubFetch() {
+    const puts: Record<string, unknown>[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).startsWith("/api/repo-config") && init?.method === "PUT") {
+        const patch = JSON.parse(String(init.body)) as Record<string, unknown>;
+        puts.push(patch);
+        return Response.json({ sharedBrowserEnabled: true, ...patch });
+      }
+      return realFetch(input, init);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return puts;
+  }
+
+  async function addHost(value: string) {
+    const input = hostInput().element() as HTMLInputElement;
+    input.value = value;
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    await tick();
+    (addButton().element() as HTMLButtonElement).click();
+    await tick();
+  }
+
+  it("is shown only while the shared browser is on", async () => {
+    stubFetch();
+    repoConfig.sharedBrowser = { [REPO]: false };
+    await mount();
+    expect(hostInput().query()).toBeNull();
+    repoConfig.sharedBrowser = { [REPO]: true };
+    await expect.element(hostInput()).toBeVisible();
+    await expect.element(page.getByText(m.automation_browser_hosts_hint())).toBeVisible();
+  });
+
+  it("adds a normalized host and persists the full list", async () => {
+    const puts = stubFetch();
+    repoConfig.sharedBrowser = { [REPO]: true };
+    repoConfig.browserAllowedHosts = { [REPO]: ["a.example.com"] };
+    await mount();
+    await addHost(" App.Example.com ");
+    await vi.waitFor(() =>
+      expect(puts).toEqual([{ browserAllowedHosts: ["a.example.com", "app.example.com"] }]),
+    );
+    await expect.element(page.getByText("app.example.com", { exact: true })).toBeVisible();
+    expect((hostInput().element() as HTMLInputElement).value).toBe("");
+  });
+
+  it("removes a host and persists the rest", async () => {
+    const puts = stubFetch();
+    repoConfig.sharedBrowser = { [REPO]: true };
+    repoConfig.browserAllowedHosts = { [REPO]: ["a.example.com", "b.example.com"] };
+    await mount();
+    const remove = page.getByRole("button", {
+      name: m.automation_browser_hosts_remove({ host: "a.example.com" }),
+    });
+    (remove.element() as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(puts).toEqual([{ browserAllowedHosts: ["b.example.com"] }]));
+    expect(page.getByText("a.example.com", { exact: true }).query()).toBeNull();
+  });
+
+  it.each([
+    ["https://x.com", () => m.automation_browser_hosts_err_invalid()],
+    ["x.com:443", () => m.automation_browser_hosts_err_invalid()],
+    ["*.x.com", () => m.automation_browser_hosts_err_invalid()],
+    ["localhost", () => m.automation_browser_hosts_err_invalid()],
+    ["1.2.3.4", () => m.automation_browser_hosts_err_ip()],
+    ["A.example.com", () => m.automation_browser_hosts_err_duplicate()],
+  ])("rejects %s inline without saving", async (value, message) => {
+    const puts = stubFetch();
+    repoConfig.sharedBrowser = { [REPO]: true };
+    repoConfig.browserAllowedHosts = { [REPO]: ["a.example.com"] };
+    await mount();
+    await addHost(value);
+    await expect.element(page.getByRole("alert")).toHaveTextContent(message());
+    expect(hostInput().element().getAttribute("aria-invalid")).toBe("true");
+    expect(puts).toEqual([]);
+  });
+});

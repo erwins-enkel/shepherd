@@ -1,6 +1,7 @@
 import { statSync, realpathSync } from "node:fs";
 import { resolve, sep, join } from "node:path";
 import { homedir } from "node:os";
+import { isIP } from "node:net";
 import { timingSafeEqual, randomUUID } from "node:crypto";
 import {
   AGENT_PROVIDERS,
@@ -886,7 +887,12 @@ export function validateEgressExtraHosts(value: unknown): Field<string[]> {
 
 /** browserAllowedHosts — per-repo hosts an autonomous Browser Attach may reach (#2883). */
 export function validateBrowserAllowedHosts(value: unknown): Field<string[]> {
-  return validateHostList("browserAllowedHosts", value);
+  const r = validateHostList("browserAllowedHosts", value);
+  if (!r.ok) return r;
+  // The hostname regex admits dotted-quad IPv4; the browser proxy refuses IP literals at connect.
+  const i = r.value.findIndex((h) => isIP(h) !== 0);
+  if (i !== -1) return err(`browserAllowedHosts[${i}]: "${r.value[i]}" is an IP literal`);
+  return r;
 }
 
 /**

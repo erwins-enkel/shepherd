@@ -6,10 +6,12 @@ import type { LoginRequest, Session } from "$lib/types";
 
 const listSessions = vi.fn<() => Promise<Session[]>>();
 const loginRequestStates = vi.fn<() => Promise<Record<string, LoginRequest>>>();
+const resolveLoginRequest = vi.fn<() => Promise<void>>();
 vi.mock("$lib/api", async (orig) => ({
   ...(await orig<typeof import("$lib/api")>()),
   listSessions: () => listSessions(),
   loginRequestStates: () => loginRequestStates(),
+  resolveLoginRequest: () => resolveLoginRequest(),
 }));
 
 const { default: BrowserPopout } = await import("./BrowserPopout.svelte");
@@ -52,6 +54,17 @@ describe("BrowserPopout", () => {
     expect(FakeWs.views.map((w) => w.path)).toEqual(["/browser-view/s1"]);
     expect(page.getByRole("button", { name: /pop out/i }).elements()).toHaveLength(0);
     await vi.waitFor(() => expect(document.title).toBe("Browser · login task"));
+  });
+
+  it("shows a failed Login Request answer as a toast (the pop-out has no HUD)", async () => {
+    listSessions.mockResolvedValue([session]);
+    loginRequestStates.mockResolvedValue({
+      s1: { id: "r1", url: "https://login.example/", reason: "need it", createdAt: 0 },
+    } as unknown as Record<string, LoginRequest>);
+    resolveLoginRequest.mockRejectedValue(new Error("offline"));
+    render(BrowserPopout, { sessionId: "s1", makeEventsWs, makeWs });
+    await page.getByRole("button", { name: /^done$/i }).click();
+    await expect.element(page.getByText(/couldn't send your answer/i)).toBeVisible();
   });
 
   it("an unknown session shows not-found and opens no view", async () => {

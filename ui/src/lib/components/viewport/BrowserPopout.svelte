@@ -7,6 +7,7 @@
   import { HerdStore } from "$lib/store.svelte";
   import type { Session } from "$lib/types";
   import BrowserPanel from "./BrowserPanel.svelte";
+  import Toasts from "../Toasts.svelte";
 
   let {
     sessionId,
@@ -67,6 +68,8 @@
     <p class="state">{loaded ? m.browser_popout_not_found() : m.browser_popout_loading()}</p>
   {/if}
 </main>
+<!-- BrowserPanel reports failed Login Request answers and New tab only as toasts. -->
+<Toasts />
 
 <style>
   .popout {

@@ -17,8 +17,8 @@ It is **off by default** and turned on per repo.
   `chromium`, `google-chrome-stable`, `google-chrome` or `chromium-browser` it
   finds on `PATH`; set `SHEPHERD_CHROMIUM_BIN` to point at another binary (see
   [Configuration](/reference/configuration/)). The **Diagnose** panel shows a
-  **Chromium (shared browser)** row, which turns red when a repo has the Shared
-  Browser on but no binary was found.
+  **Chromium (shared browser)** row, which shows a warning when a repo has the
+  Shared Browser on but no binary was found.
 - **A desktop session on the host** only if you want to log in at the host
   itself. Logging in remotely from the HUD works without one.
 

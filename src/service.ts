@@ -5077,7 +5077,7 @@ export class SessionService {
       session.isolated &&
       !!session.branch &&
       !this.deps.worktree.branchExists(session.repoPath, `shepherd/${slug}`) &&
-      this.deps.worktree.commitsAhead(session.repoPath, session.baseBranch, session.branch) === 0;
+      this.branchUnmoved(session.repoPath, session.baseBranch, session.branch);
     // The branchExists pre-check narrows the window, but a branch can still appear
     // between it and `git branch -m` (concurrent create, archived-branch cleanup) —
     // rename() moves the branch before updating the row, so a throw would abandon the
@@ -5094,6 +5094,17 @@ export class SessionService {
       name: updated.name,
       branch: updated.branch,
     });
+  }
+
+  /** True while `branch` has no commits of its own. Checked against `origin/<base>` first (where
+   *  worktrees are normally cut, so a stale LOCAL base doesn't read as committed), then the local
+   *  base (`ensureBaseRef` cuts from it when it diverged from origin; also the no-remote case). */
+  private branchUnmoved(repoPath: string, baseBranch: string, branch: string): boolean {
+    const { worktree } = this.deps;
+    return (
+      worktree.commitsAhead(repoPath, `origin/${baseBranch}`, branch) === 0 ||
+      worktree.commitsAhead(repoPath, baseBranch, branch) === 0
+    );
   }
 
   /**

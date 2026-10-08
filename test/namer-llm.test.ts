@@ -35,9 +35,13 @@ function stripFenceNonce(s: string): string {
 }
 
 function makeDeps(over: Partial<import("../src/namer-llm").LlmNamerDeps> = {}) {
-  const calls: any = { started: null, stopped: false, cleaned: false };
+  const calls: any = { started: null, stopped: false, cleaned: false, read: null };
   const base = {
     herdr: {
+      readAsync: async (target: string, source?: string, lines?: number) => {
+        calls.read = { target, source, lines, stoppedBefore: calls.stopped };
+        return "Do you trust the files in this folder?\n❯ 1. Yes, proceed\n";
+      },
       start: async (name: string, cwd: string, argv: string[], env?: Record<string, string>) => {
         calls.started = { name, cwd, argv, env };
         return { terminalId: "term_n", cwd } as any;
@@ -207,12 +211,56 @@ test("llmName: timeout logs a [namer] warning naming the label", async () => {
   }
 });
 
+test("llmName: timeout warning carries the helper pane tail, read before teardown", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    let t = 0;
+    const { deps, calls } = makeDeps({ readName: () => null, now: () => (t += 11_000) });
+    expect(await llmName("x", deps, "name TASK-7")).toBeNull();
+    expect(calls.read).toMatchObject({ target: "term_n", source: "recent", stoppedBefore: false });
+    expect(String(warn.mock.calls[0]![0])).toContain("Do you trust the files in this folder?");
+  } finally {
+    warn.mockRestore();
+  }
+});
+
+test("llmName: timeout clips a long pane tail", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    let t = 0;
+    const { deps } = makeDeps({ readName: () => null, now: () => (t += 11_000) });
+    deps.herdr.readAsync = async () => "y".repeat(10_000);
+    await llmName("x", deps, "l");
+    expect(String(warn.mock.calls[0]![0]).length).toBeLessThan(2_000);
+  } finally {
+    warn.mockRestore();
+  }
+});
+
+test("llmName: an unreadable pane on timeout still warns, stops + cleans", async () => {
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    let t = 0;
+    const { deps, calls } = makeDeps({ readName: () => null, now: () => (t += 11_000) });
+    deps.herdr.readAsync = async () => {
+      throw new Error("herdr down");
+    };
+    expect(await llmName("x", deps, "name TASK-7")).toBeNull();
+    expect(String(warn.mock.calls[0]![0])).toContain("[namer] name TASK-7: no slug within");
+    expect(calls.stopped).toBe(true);
+    expect(calls.cleaned).toBe(true);
+  } finally {
+    warn.mockRestore();
+  }
+});
+
 test("llmName: success does not warn", async () => {
   const warn = spyOn(console, "warn").mockImplementation(() => {});
   try {
-    const { deps } = makeDeps({ readName: () => "diff-view" });
+    const { deps, calls } = makeDeps({ readName: () => "diff-view" });
     expect(await llmName("x", deps, "l")).toBe("diff-view");
     expect(warn).not.toHaveBeenCalled();
+    expect(calls.read).toBeNull();
   } finally {
     warn.mockRestore();
   }

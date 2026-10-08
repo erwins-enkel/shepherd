@@ -17,7 +17,7 @@ import { UNTRUSTED_CONTENT_DIRECTIVE, fenceUntrusted } from "./untrusted";
 export const NAME_FILE = ".shepherd-name";
 
 export interface LlmNamerDeps {
-  herdr: Pick<HerdrDriver, "start" | "stop">;
+  herdr: Pick<HerdrDriver, "start" | "stop" | "readAsync">;
   makeTmpDir?: () => string;
   readName?: (cwd: string) => string | null;
   cleanup?: (cwd: string) => void;
@@ -112,6 +112,21 @@ function extractSlug(raw: string): string | null {
   return slug && slug !== "task" ? slug : null;
 }
 
+/** The helper pane's last lines, for the timeout warning — what it was stuck on (a dialog, an
+ *  error) is otherwise lost with the teardown. Best-effort: "" when unreadable. */
+async function paneTail(
+  herdr: Pick<HerdrDriver, "readAsync">,
+  terminalId: string | null,
+): Promise<string> {
+  if (!terminalId) return "";
+  try {
+    const tail = (await herdr.readAsync(terminalId, "recent", 20)).trim().slice(-1_500);
+    return tail ? `; pane tail:\n${tail}` : "";
+  } catch {
+    return "";
+  }
+}
+
 /**
  * Comprehend a session's subject via a transient interactive `claude` (subscription
  * OAuth — NOT `claude -p`, which bills as extra API usage). Spawns haiku in a fresh
@@ -163,7 +178,10 @@ export async function llmName(
     if (raw === null) {
       // Loud on purpose: a wedged namer (e.g. on Claude's trust dialog) used to fail silently,
       // leaving every session on its heuristic name with nothing in the log.
-      console.warn(`[namer] ${label}: no slug within ${timeoutMs}ms — keeping heuristic name`);
+      console.warn(
+        `[namer] ${label}: no slug within ${timeoutMs}ms — keeping heuristic name` +
+          (await paneTail(deps.herdr, terminalId)),
+      );
       return null;
     }
     return extractSlug(raw);

@@ -13,6 +13,7 @@ import { BrowserTokenSigner } from "../src/browser-token";
 import type { CdpClient, CdpPipeClient } from "../src/cdp-pipe";
 import { SharedBrowserError, type BrowserConfinement } from "../src/shared-browser";
 import { autonomousOriginPolicy } from "../src/browser-broker";
+import { LoginRequestService } from "../src/login-request";
 
 // A representative per-session UUID — the de-facto capability segment the agent only knows
 // for its own session.
@@ -833,4 +834,82 @@ test("autonomousOriginPolicy: the session's in-range Preview port, never a Sheph
   expect(p.previewPort()).toBeNull();
   expect(autonomousOriginPolicy({ store, preview }, "s3", "/repo").previewPort()).toBeNull();
   expect(autonomousOriginPolicy({ store }, "s1", "/repo").previewPort()).toBeNull();
+});
+
+// ── browser_request_login long-poll over the real ingress listener (#2882) ─────
+
+async function loginSession(waitMs: number) {
+  const deps = makeDeps();
+  deps.store.setRepoConfig("/repo", {
+    ...deps.store.getRepoConfig("/repo"),
+    sharedBrowserEnabled: true,
+  });
+  const loginRequests = new LoginRequestService({ events: deps.events! });
+  const opened: string[] = [];
+  deps.loginRequests = loginRequests;
+  deps.loginWaitMs = waitMs;
+  deps.sharedBrowser = {
+    open: async (_repo: string, url: string) => {
+      opened.push(url);
+      return "target-1";
+    },
+  } as unknown as AppDeps["sharedBrowser"];
+  const s = await deps.service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+  });
+  const server = serveAgentIngress(deps, 0);
+  const callLogin = () =>
+    fetch(`http://127.0.0.1:${server.port}/api/sessions/${s.id}/mcp`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "browser_request_login",
+          arguments: { url: "http://localhost:5173/login", reason: "dashboard" },
+        },
+      }),
+    }).then(async (res) => {
+      const body = await res.json();
+      return JSON.parse(body.result.content[0].text) as { status: string };
+    });
+  return { server, loginRequests, sessionId: s.id, opened, callLogin };
+}
+
+// End-to-end over a real socket for longer than Bun's 10s idle default. Bun 1.4.2 does not sever a
+// pending loopback handler at that default, so this cannot catch a missing `server.timeout` there by
+// itself; it pins that the long-poll answers `pending` over the agent's real transport.
+test("ingress: a browser_request_login wait outlives Bun's 10s idle default and reports pending", async () => {
+  const { server, callLogin, opened } = await loginSession(12_000);
+  try {
+    const started = Date.now();
+    expect(await callLogin()).toMatchObject({ status: "pending" });
+    expect(Date.now() - started).toBeGreaterThanOrEqual(11_500);
+    expect(opened).toEqual(["http://localhost:5173/login"]);
+  } finally {
+    await server.stop(true);
+  }
+}, 20_000);
+
+test("ingress: the operator resolving mid-wait answers the agent's call with done", async () => {
+  const { server, callLogin, loginRequests, sessionId } = await loginSession(10_000);
+  try {
+    const answer = callLogin();
+    while (!loginRequests.get(sessionId)) await Bun.sleep(5);
+    loginRequests.resolve(sessionId, "done");
+    expect(await answer).toEqual({ status: "done" });
+  } finally {
+    await server.stop(true);
+  }
+});
+
+test("ingress: the operator-only resolve route is not reachable by agents", () => {
+  expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/login-request`))).toBe(false);
+  expect(isAgentIngressRoute("GET", ["api", "login-requests"])).toBe(false);
 });

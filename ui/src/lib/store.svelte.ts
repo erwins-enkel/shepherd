@@ -31,6 +31,7 @@ import type {
   CompletedEpic,
   DocAgentOutcome,
   HoldReason,
+  LoginRequest,
 } from "./types";
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
@@ -127,6 +128,8 @@ export class HerdStore {
    *  server's `session:hold` event; bootstrapped via GET /api/holds.
    *  Absent = no hold active for that session. */
   holds = $state<Record<string, HoldReason>>({});
+  /** Open Login Requests (#2882), keyed by session id. */
+  loginRequests = $state<Record<string, LoginRequest>>({});
   /** Live per-session preview-listener port (sessionId → port), pushed by the
    *  server's `session:preview` event. A present, non-null value is the single
    *  source of truth for "this agent has a live preview"; absent/null = none. */
@@ -229,6 +232,10 @@ export class HerdStore {
   /** Seed (or replace) the hold-reason map after a bootstrap GET. */
   setHolds(map: Record<string, HoldReason>): void {
     this.holds = map;
+  }
+  /** Seed (or replace) the open Login Requests after the bootstrap GET. */
+  setLoginRequests(map: Record<string, LoginRequest>): void {
+    this.loginRequests = map;
   }
   /** Seed (or replace) the loaded-plugins list after the bootstrap GET /api/plugins. */
   setPlugins(list: PluginInfo[]): void {
@@ -494,6 +501,7 @@ export class HerdStore {
         this.clearStrandedToastIfEmpty(); // archiving the last stranded session → drop the banner
         this.workingBlocked = dropKey(this.workingBlocked, ev.data.id);
         this.holds = dropKey(this.holds, ev.data.id);
+        this.loginRequests = dropKey(this.loginRequests, ev.data.id);
         this.preview = dropKey(this.preview, ev.data.id);
         this.previewServe = dropKey(this.previewServe, ev.data.id);
         reviews.drop(ev.data.id);
@@ -649,6 +657,11 @@ export class HerdStore {
           haltReason: ev.data.haltReason,
           haltedAt: ev.data.haltedAt,
         });
+        return true;
+      case "session:login-request":
+        this.loginRequests = ev.data.request
+          ? setKey(this.loginRequests, ev.data.id, ev.data.request)
+          : dropKey(this.loginRequests, ev.data.id);
         return true;
       case "session:manual-steps":
         this.patchSession(ev.data.id, {

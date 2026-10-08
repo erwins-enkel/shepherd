@@ -18,6 +18,9 @@ import {
 } from "../src/agent-control";
 import { SessionStore } from "../src/store";
 import type { GitState } from "../src/forge/types";
+import { EventHub } from "../src/events";
+import { LoginRequestService } from "../src/login-request";
+import type { SandboxProfile } from "../src/sandbox";
 
 function harness(
   opts: {
@@ -26,6 +29,8 @@ function harness(
     research?: boolean;
     landingRepair?: boolean;
     plain?: boolean;
+    sharedBrowser?: boolean;
+    sandboxApplied?: SandboxProfile;
   } = {},
 ): {
   deps: AgentControlDeps;
@@ -37,6 +42,9 @@ function harness(
   const emitted: { event: string; data: unknown }[] = [];
   if (opts.buildQueue) {
     store.setRepoConfig("/repo", { ...store.getRepoConfig("/repo"), buildQueueEnabled: true });
+  }
+  if (opts.sharedBrowser) {
+    store.setRepoConfig("/repo", { ...store.getRepoConfig("/repo"), sharedBrowserEnabled: true });
   }
   const session = store.create({
     name: "test-session",
@@ -54,6 +62,7 @@ function harness(
     research: opts.research,
     landingRepair: opts.landingRepair,
     plain: opts.plain,
+    sandboxApplied: opts.sandboxApplied,
   });
   return {
     deps: { store, events: { emit: (event, data) => emitted.push({ event, data }) } },
@@ -78,7 +87,7 @@ function call(
 }
 
 /** The parsed payload of a tool result, plus whether it was flagged as an error. */
-function toolPayload(outcome: ReturnType<typeof handleMcpRequest>): {
+function toolPayload(outcome: Awaited<ReturnType<typeof handleMcpRequest>>): {
   isError: boolean;
   payload: any;
 } {
@@ -163,14 +172,15 @@ test("an unknown session gets no tools", () => {
     buildQueue: false,
     epicDraft: false,
     sessionRead: false,
+    browserLogin: false,
   });
 });
 
 // ── protocol ─────────────────────────────────────────────────────────────────
 
-test("initialize echoes a known protocol version and advertises tools", () => {
+test("initialize echoes a known protocol version and advertises tools", async () => {
   const { deps, sessionId } = harness({ buildQueue: true });
-  const out = handleMcpRequest(deps, sessionId, {
+  const out = await handleMcpRequest(deps, sessionId, {
     jsonrpc: "2.0",
     id: 1,
     method: "initialize",
@@ -182,9 +192,9 @@ test("initialize echoes a known protocol version and advertises tools", () => {
   expect(body.result.capabilities).toEqual({ tools: { listChanged: false } });
 });
 
-test("initialize with an unknown protocol version answers with ours", () => {
+test("initialize with an unknown protocol version answers with ours", async () => {
   const { deps, sessionId } = harness({ buildQueue: true });
-  const out = handleMcpRequest(deps, sessionId, {
+  const out = await handleMcpRequest(deps, sessionId, {
     jsonrpc: "2.0",
     id: 1,
     method: "initialize",
@@ -194,18 +204,22 @@ test("initialize with an unknown protocol version answers with ours", () => {
   expect(body.result.protocolVersion).toBe(MCP_PROTOCOL_VERSION);
 });
 
-test("a notification (no id) gets a bodyless 202", () => {
+test("a notification (no id) gets a bodyless 202", async () => {
   const { deps, sessionId } = harness({ buildQueue: true });
-  const out = handleMcpRequest(deps, sessionId, {
+  const out = await handleMcpRequest(deps, sessionId, {
     jsonrpc: "2.0",
     method: "notifications/initialized",
   });
   expect(out).toEqual({ status: 202, body: null });
 });
 
-test("tools/list reports the session's catalog", () => {
+test("tools/list reports the session's catalog", async () => {
   const { deps, sessionId } = harness({ buildQueue: true });
-  const out = handleMcpRequest(deps, sessionId, { jsonrpc: "2.0", id: 2, method: "tools/list" });
+  const out = await handleMcpRequest(deps, sessionId, {
+    jsonrpc: "2.0",
+    id: 2,
+    method: "tools/list",
+  });
   const body = out.body as { result: { tools: { name: string }[] } };
   expect(body.result.tools.map((t) => t.name)).toEqual([
     "queue_write",
@@ -214,9 +228,9 @@ test("tools/list reports the session's catalog", () => {
   ]);
 });
 
-test("an unknown method is a JSON-RPC -32601, not a crash", () => {
+test("an unknown method is a JSON-RPC -32601, not a crash", async () => {
   const { deps, sessionId } = harness({ buildQueue: true });
-  const out = handleMcpRequest(deps, sessionId, {
+  const out = await handleMcpRequest(deps, sessionId, {
     jsonrpc: "2.0",
     id: 3,
     method: "resources/list",
@@ -225,15 +239,17 @@ test("an unknown method is a JSON-RPC -32601, not a crash", () => {
   expect(body.error.code).toBe(-32601);
 });
 
-test("a non-object request is a JSON-RPC -32600", () => {
+test("a non-object request is a JSON-RPC -32600", async () => {
   const { deps, sessionId } = harness({ buildQueue: true });
-  const body = handleMcpRequest(deps, sessionId, "nope").body as { error: { code: number } };
+  const body = (await handleMcpRequest(deps, sessionId, "nope")).body as {
+    error: { code: number };
+  };
   expect(body.error.code).toBe(-32600);
 });
 
-test("calling a tool the session doesn't have is -32602, even when the tool exists elsewhere", () => {
+test("calling a tool the session doesn't have is -32602, even when the tool exists elsewhere", async () => {
   const { deps, sessionId } = harness({ buildQueue: true });
-  const out = call(deps, sessionId, "epic_draft", {
+  const out = await call(deps, sessionId, "epic_draft", {
     parent: { title: "x", body: "y" },
     children: [],
   });
@@ -246,9 +262,9 @@ test("calling a tool the session doesn't have is -32602, even when the tool exis
 
 // ── tool calls ───────────────────────────────────────────────────────────────
 
-test("queue_write authors the queue and emits queue:update", () => {
+test("queue_write authors the queue and emits queue:update", async () => {
   const { deps, sessionId, emitted } = harness({ buildQueue: true });
-  const out = call(deps, sessionId, "queue_write", {
+  const out = await call(deps, sessionId, "queue_write", {
     steps: [
       { id: "s1", title: "First" },
       { id: "s2", title: "Second", detail: "with detail" },
@@ -260,16 +276,16 @@ test("queue_write authors the queue and emits queue:update", () => {
   expect(emitted.filter((e) => e.event === "queue:update")).toHaveLength(1);
 });
 
-test("queue_step advances a step, forward-fills earlier ones, and emits", () => {
+test("queue_step advances a step, forward-fills earlier ones, and emits", async () => {
   const { deps, sessionId, emitted } = harness({ buildQueue: true });
-  call(deps, sessionId, "queue_write", {
+  await call(deps, sessionId, "queue_write", {
     steps: [
       { id: "s1", title: "First" },
       { id: "s2", title: "Second" },
     ],
   });
   const { isError, payload } = toolPayload(
-    call(deps, sessionId, "queue_step", { stepId: "s2", status: "active" }),
+    await call(deps, sessionId, "queue_step", { stepId: "s2", status: "active" }),
   );
   expect(isError).toBe(false);
   const byId = Object.fromEntries(
@@ -279,28 +295,30 @@ test("queue_step advances a step, forward-fills earlier ones, and emits", () => 
   expect(emitted.filter((e) => e.event === "queue:update")).toHaveLength(2);
 });
 
-test("queue_step on an unknown step is an isError result the model can correct, not a protocol error", () => {
+test("queue_step on an unknown step is an isError result the model can correct, not a protocol error", async () => {
   const { deps, sessionId } = harness({ buildQueue: true });
-  call(deps, sessionId, "queue_write", { steps: [{ id: "s1", title: "First" }] });
+  await call(deps, sessionId, "queue_write", { steps: [{ id: "s1", title: "First" }] });
   const { isError, payload } = toolPayload(
-    call(deps, sessionId, "queue_step", { stepId: "nope", status: "done" }),
+    await call(deps, sessionId, "queue_step", { stepId: "nope", status: "done" }),
   );
   expect(isError).toBe(true);
   expect(payload.error).toContain("not found");
 });
 
-test("queue_write with an invalid step is an isError result and leaves the queue alone", () => {
+test("queue_write with an invalid step is an isError result and leaves the queue alone", async () => {
   const { deps, sessionId } = harness({ buildQueue: true });
-  call(deps, sessionId, "queue_write", { steps: [{ id: "s1", title: "First" }] });
-  const { isError } = toolPayload(call(deps, sessionId, "queue_write", { steps: [{ id: "s2" }] }));
+  await call(deps, sessionId, "queue_write", { steps: [{ id: "s1", title: "First" }] });
+  const { isError } = toolPayload(
+    await call(deps, sessionId, "queue_write", { steps: [{ id: "s2" }] }),
+  );
   expect(isError).toBe(true);
   expect(deps.store.getBuildQueue(sessionId).steps.map((s) => s.id)).toEqual(["s1"]);
 });
 
-test("epic_draft stores the draft and emits session:epic-draft", () => {
+test("epic_draft stores the draft and emits session:epic-draft", async () => {
   const { deps, sessionId, emitted } = harness({ epicAuthoring: true });
   const { isError, payload } = toolPayload(
-    call(deps, sessionId, "epic_draft", {
+    await call(deps, sessionId, "epic_draft", {
       parent: { title: "Epic", body: "Why" },
       children: [
         { key: "c1", title: "Slice 1" },
@@ -313,10 +331,10 @@ test("epic_draft stores the draft and emits session:epic-draft", () => {
   expect(emitted.filter((e) => e.event === "session:epic-draft")).toHaveLength(1);
 });
 
-test("epic_draft rejects a dependency cycle as an isError result", () => {
+test("epic_draft rejects a dependency cycle as an isError result", async () => {
   const { deps, sessionId } = harness({ epicAuthoring: true });
   const { isError, payload } = toolPayload(
-    call(deps, sessionId, "epic_draft", {
+    await call(deps, sessionId, "epic_draft", {
       parent: { title: "Epic", body: "Why" },
       children: [
         { key: "c1", title: "One", blockedBy: ["c2"] },
@@ -449,9 +467,9 @@ function expectFenced(text: string) {
   expect(text.split("⟦/UNTRUSTED:").length).toBe(2); // exactly one real closer
 }
 
-test("sessions_list: live agent sessions across repos, no archived or terminal rows, self marked", () => {
+test("sessions_list: live agent sessions across repos, no archived or terminal rows, self marked", async () => {
   const { deps, sessionId, store, other } = readHarness();
-  const { isError, payload } = toolPayload(call(deps, sessionId, "sessions_list", {}));
+  const { isError, payload } = toolPayload(await call(deps, sessionId, "sessions_list", {}));
   expect(isError).toBe(false);
   expect(payload.map((r: any) => r.desig)).toEqual([store.get(sessionId)!.desig, other.desig]);
   expect(payload.map((r: any) => r.self)).toEqual([true, false]);
@@ -464,35 +482,35 @@ test("sessions_list: live agent sessions across repos, no archived or terminal r
   expectFenced(row.pr.title);
 });
 
-test("read tools never reveal a session UUID — the UUID is the write capability on the ingress", () => {
+test("read tools never reveal a session UUID — the UUID is the write capability on the ingress", async () => {
   const { deps, sessionId, other, archived, shell } = readHarness();
   const ids = [sessionId, other.id, archived.id, shell.id];
   const texts = [
-    call(deps, sessionId, "sessions_list", {}),
-    call(deps, sessionId, "sessions_show", { desig: other.desig }),
-    call(deps, sessionId, "self_status", {}),
+    await call(deps, sessionId, "sessions_list", {}),
+    await call(deps, sessionId, "sessions_show", { desig: other.desig }),
+    await call(deps, sessionId, "self_status", {}),
   ].map((o) => JSON.stringify(o.body));
   for (const text of texts) for (const id of ids) expect(text).not.toContain(id);
 });
 
-test("sessions_show: resolves by desig or bare number; archived, terminal and unknown are errors", () => {
+test("sessions_show: resolves by desig or bare number; archived, terminal and unknown are errors", async () => {
   const { deps, sessionId, other, archived, shell } = readHarness();
-  const byDesig = toolPayload(call(deps, sessionId, "sessions_show", { desig: other.desig }));
+  const byDesig = toolPayload(await call(deps, sessionId, "sessions_show", { desig: other.desig }));
   expect(byDesig.isError).toBe(false);
   expect(byDesig.payload.desig).toBe(other.desig);
   expect(byDesig.payload.self).toBe(false);
   const bare = String(Number(other.desig.replace(/\D/g, "")));
-  expect(toolPayload(call(deps, sessionId, "sessions_show", { desig: bare })).payload.desig).toBe(
-    other.desig,
-  );
+  expect(
+    toolPayload(await call(deps, sessionId, "sessions_show", { desig: bare })).payload.desig,
+  ).toBe(other.desig);
   for (const desig of [archived.desig, shell.desig, "TASK-9999", "nope"]) {
-    const out = toolPayload(call(deps, sessionId, "sessions_show", { desig }));
+    const out = toolPayload(await call(deps, sessionId, "sessions_show", { desig }));
     expect(out.isError).toBe(true);
     expect(out.payload.error).toContain("not found");
   }
 });
 
-test("self_status: PR/CI, review verdict and plan gate, with critic text fenced", () => {
+test("self_status: PR/CI, review verdict and plan gate, with critic text fenced", async () => {
   const { deps, sessionId, store } = readHarness();
   const git: GitState = {
     kind: "github",
@@ -540,7 +558,7 @@ test("self_status: PR/CI, review verdict and plan gate, with critic text fenced"
     plan: "plan",
     updatedAt: 0,
   } as any);
-  const { isError, payload } = toolPayload(call(withPr, sessionId, "self_status", {}));
+  const { isError, payload } = toolPayload(await call(withPr, sessionId, "self_status", {}));
   expect(isError).toBe(false);
   expect(payload.desig).toBe(store.get(sessionId)!.desig);
   expect(payload.pr).toMatchObject({
@@ -567,14 +585,113 @@ test("self_status: PR/CI, review verdict and plan gate, with critic text fenced"
   });
 });
 
-test("self_status with nothing recorded reads null blocks", () => {
+test("self_status with nothing recorded reads null blocks", async () => {
   const { deps, sessionId } = harness();
-  const { payload } = toolPayload(call(deps, sessionId, "self_status", {}));
+  const { payload } = toolPayload(await call(deps, sessionId, "self_status", {}));
   expect(payload).toMatchObject({ pr: null, review: null, planGate: null });
 });
 
-test("a plain session calling a read tool is a -32602 protocol error", () => {
+test("a plain session calling a read tool is a -32602 protocol error", async () => {
   const { deps, sessionId } = harness({ plain: true });
-  const body = call(deps, sessionId, "sessions_list", {}).body as { error: { code: number } };
+  const body = (await call(deps, sessionId, "sessions_list", {})).body as {
+    error: { code: number };
+  };
   expect(body.error.code).toBe(-32602);
+});
+
+// ── browser_request_login (#2882) ────────────────────────────────────────────
+
+function loginHarness(opts: { sandboxApplied?: SandboxProfile; openFails?: boolean } = {}) {
+  const h = harness({ sharedBrowser: true, sandboxApplied: opts.sandboxApplied });
+  const events = new EventHub();
+  const loginRequests = new LoginRequestService({ events });
+  const opened: { repoPath: string; url: string; sessionId: string }[] = [];
+  const deps: AgentControlDeps = {
+    ...h.deps,
+    loginRequests,
+    loginWaitMs: 20,
+    openLoginTab: async (repoPath, url, sessionId) => {
+      if (opts.openFails) throw Object.assign(new Error("cap"), { code: "cap" });
+      opened.push({ repoPath, url, sessionId });
+    },
+  };
+  return { ...h, deps, loginRequests, opened };
+}
+
+const LOGIN_ARGS = { url: "http://localhost:5173/login", reason: "test the dashboard" };
+
+test("browser_request_login is offered only with the Shared Browser on, never plain or autonomous", () => {
+  const names = (deps: AgentControlDeps, id: string) => agentTools(deps, id).map((t) => t.name);
+  const on = harness({ sharedBrowser: true, sandboxApplied: "standard" });
+  expect(names(on.deps, on.sessionId)).toContain("browser_request_login");
+  const off = harness({ sandboxApplied: "standard" });
+  expect(names(off.deps, off.sessionId)).not.toContain("browser_request_login");
+  const auto = harness({ sharedBrowser: true, sandboxApplied: "autonomous" });
+  expect(names(auto.deps, auto.sessionId)).not.toContain("browser_request_login");
+  const plain = harness({ sharedBrowser: true, plain: true });
+  expect(names(plain.deps, plain.sessionId)).not.toContain("browser_request_login");
+});
+
+test("browser_request_login opens the session's tab, raises a request and reports pending", async () => {
+  const { deps, sessionId, loginRequests, opened } = loginHarness();
+  const { isError, payload } = toolPayload(
+    await call(deps, sessionId, "browser_request_login", LOGIN_ARGS),
+  );
+  expect(isError).toBe(false);
+  expect(payload.status).toBe("pending");
+  expect(payload.next).toContain("again with the same url");
+  expect(opened).toEqual([{ repoPath: "/repo", url: LOGIN_ARGS.url, sessionId }]);
+  expect(loginRequests.get(sessionId)).toMatchObject(LOGIN_ARGS);
+  // a re-call re-attaches: no second tab
+  await call(deps, sessionId, "browser_request_login", LOGIN_ARGS);
+  expect(opened).toHaveLength(1);
+});
+
+test("browser_request_login returns done once the operator resolves mid-wait", async () => {
+  const { deps, sessionId, loginRequests } = loginHarness();
+  const slow = { ...deps, loginWaitMs: 10_000 };
+  const pending = call(slow, sessionId, "browser_request_login", LOGIN_ARGS);
+  await Bun.sleep(5);
+  loginRequests.resolve(sessionId, "done");
+  expect(toolPayload(await pending).payload).toEqual({ status: "done" });
+});
+
+test("browser_request_login returns an outcome resolved between two calls", async () => {
+  const { deps, sessionId, loginRequests } = loginHarness();
+  await call(deps, sessionId, "browser_request_login", LOGIN_ARGS);
+  loginRequests.resolve(sessionId, "cancelled");
+  const { payload } = toolPayload(await call(deps, sessionId, "browser_request_login", LOGIN_ARGS));
+  expect(payload).toEqual({ status: "cancelled" });
+});
+
+test("browser_request_login rejects a non-web url or a missing reason as isError", async () => {
+  const { deps, sessionId, loginRequests } = loginHarness();
+  for (const args of [
+    { url: "file:///etc/passwd", reason: "x" },
+    { url: "chrome://settings", reason: "x" },
+    { url: "data:text/html,<h1>Sign in</h1>", reason: "x" },
+    { url: "about:blank", reason: "x" },
+    { url: "not a url", reason: "x" },
+    { url: LOGIN_ARGS.url, reason: "  " },
+  ]) {
+    const { isError } = toolPayload(await call(deps, sessionId, "browser_request_login", args));
+    expect(isError).toBe(true);
+  }
+  expect(loginRequests.get(sessionId)).toBeNull();
+});
+
+test("browser_request_login raises nothing when the Shared Browser can't be opened", async () => {
+  const { deps, sessionId, loginRequests } = loginHarness({ openFails: true });
+  const { isError, payload } = toolPayload(
+    await call(deps, sessionId, "browser_request_login", LOGIN_ARGS),
+  );
+  expect(isError).toBe(true);
+  expect(payload.error).toContain("cap");
+  expect(loginRequests.get(sessionId)).toBeNull();
+});
+
+test("browser_request_login without the service wired is an isError result", async () => {
+  const { deps, sessionId } = harness({ sharedBrowser: true });
+  const { isError } = toolPayload(await call(deps, sessionId, "browser_request_login", LOGIN_ARGS));
+  expect(isError).toBe(true);
 });

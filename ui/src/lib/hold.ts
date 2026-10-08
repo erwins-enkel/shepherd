@@ -41,6 +41,8 @@ const HOLD_LINE: Record<HoldCode, (hold: HoldReason) => string> = {
     m.hold_merge_rebasing({ rebaseCount: p.rebaseCount ?? 0 }),
   "ready-merge": () => m.hold_ready_merge(),
   "manual-steps": ({ params: p = {} }) => m.hold_manual_steps({ steps: p.steps ?? 1 }),
+  "login-request": ({ params: p = {} }) =>
+    p.host ? m.hold_login_request({ host: p.host }) : m.hold_login_request_generic(),
 };
 
 /** Return a localized one-line description for a hold reason. Used by Task-7 components. */
@@ -82,6 +84,7 @@ const HOLD_AWAITS_OPERATOR: Record<HoldCode, boolean> = {
   "plan-rework": true,
   "plan-question": true,
   "manual-steps": true,
+  "login-request": true,
   "blocked-stall": false,
   "quota-rework": false,
   "quota-review": false,

@@ -192,6 +192,21 @@ describe("HoldReasonService", () => {
     expect(svc.snapshot()["s1"]).toBeUndefined();
   });
 
+  it("session:login-request → login-request hold; null request clears it (#2882)", () => {
+    const session = makeSession({ id: "s1", status: "running" });
+    const { events, svc } = makeHarness([session]);
+    events.emit("session:login-request", {
+      id: "s1",
+      request: { id: "r1", url: "https://app.example.com/login", reason: "x", createdAt: 0 },
+    });
+    expect(svc.snapshot()["s1"]).toEqual({
+      code: "login-request",
+      params: { host: "app.example.com" },
+    });
+    events.emit("session:login-request", { id: "s1", request: null });
+    expect(svc.snapshot()["s1"]).toBeUndefined();
+  });
+
   // 5. session:block with stall → blocked-stall; block null clears it
   it("session:block stall → blocked-stall; block null → clears hold", () => {
     const session = makeSession({ id: "s1", status: "running" });

@@ -508,7 +508,8 @@ export type HoldCode =
   | "merging"
   | "merge-rebasing"
   | "ready-merge"
-  | "manual-steps";
+  | "manual-steps"
+  | "login-request";
 
 /** Display params interpolated into the localized hold line. All optional; each code
  *  uses the subset it needs. `question` is verbatim agent text (not translated). */
@@ -521,6 +522,16 @@ export interface HoldParams {
   rebaseCount?: number; // merge-rebasing: auto-rebase attempts
   question?: string; // autopilot-paused: the agent's hand-back question (verbatim)
   steps?: number; // manual-steps: count of un-acked non-POST-MERGE manual operator steps
+  host?: string; // login-request: host of the page the agent wants logged in
+}
+
+/** An agent's open Login Request (#2882): it waits until the operator marks it done or
+ *  cancelled. `url` and `reason` are agent text — render as plain text only. */
+export interface LoginRequest {
+  id: string;
+  url: string;
+  reason: string;
+  createdAt: number;
 }
 
 export interface HoldReason {
@@ -2499,6 +2510,7 @@ export type WsEvent =
   | { event: "usage:limits"; data: UsageLimits }
   | { event: "session:block"; data: { id: string; block: BlockReason | null } }
   | { event: "session:hold"; data: { id: string; hold: HoldReason | null } }
+  | { event: "session:login-request"; data: { id: string; request: LoginRequest | null } }
   | {
       event: "session:halt";
       data: { id: string; haltReason: Session["haltReason"]; haltedAt: number | null };

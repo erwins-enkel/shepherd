@@ -18,6 +18,9 @@
  *     return a session UUID (not even the caller's): on the unauthenticated ingress the UUID IS the
  *     write capability for `…/queue`, `…/epic-draft` and `…/rename`, so other sessions are keyed
  *     by desig. Issue/PR/critic-derived strings are fenced as untrusted data.
+ *     Plus `browser_request_login` (issue #2882), the one tool with no REST twin: it raises a
+ *     Login Request (src/login-request.ts) and long-polls for the operator's answer. Only the
+ *     operator app can resolve it — the agent cannot mark its own request done.
  *  3. **The session-gated tool catalog** (`agentTools`) — a session only sees the tools its
  *     capabilities warrant (queue tools when the repo runs the build queue, the draft tool for
  *     an epic-authoring session). An empty catalog means the spawn passes no `--mcp-config` at
@@ -39,6 +42,7 @@
 import { basename } from "node:path";
 import { validateEpicDraft } from "./epic-author";
 import type { GitState } from "./forge/types";
+import type { LoginRequestService } from "./login-request";
 import type { PrCache } from "./pr-poller";
 import type { SessionStore } from "./store";
 import type { BuildQueue, EpicDraft, Session } from "./types";
@@ -57,6 +61,13 @@ export interface AgentControlDeps {
   events?: { emit(event: string, data: unknown): void };
   /** PR/CI state for the read tools; absent ⇒ every `pr` block reads null. */
   prCache?: Pick<PrCache, "get">;
+  /** Login Requests (#2882); absent ⇒ `browser_request_login` answers "unavailable". */
+  loginRequests?: Pick<LoginRequestService, "request" | "wait" | "wouldCreate">;
+  /** Open `url` as the session's tab in the repo's Shared Browser, so Browser View preselects
+   *  it. Throws (e.g. `SharedBrowserError`) when the browser can't be reached. */
+  openLoginTab?: (repoPath: string, url: string, sessionId: string) => Promise<void>;
+  /** One `browser_request_login` call's wait window (ms); default `LOGIN_WAIT_MS`. */
+  loginWaitMs?: number;
 }
 
 /** Transport-neutral outcome of an applier: the REST route renders it as a Response, the MCP
@@ -236,6 +247,68 @@ function applySelfStatus(deps: AgentControlDeps, sessionId: string): ApplyResult
   };
 }
 
+// ── login request (#2882) ────────────────────────────────────────────────────
+
+/** One call's wait window. Claude Code's HTTP MCP transport aborts a call at a hard 60s
+ *  (ignoring MCP_TOOL_TIMEOUT), so stay under it and let the agent call again. */
+const LOGIN_WAIT_MS = 50_000;
+const MAX_LOGIN_URL_CHARS = 2048;
+const MAX_LOGIN_REASON_CHARS = 500;
+
+const LOGIN_PENDING_NEXT =
+  "The operator has not finished yet. Call browser_request_login again with the same url to keep waiting.";
+
+/** Validated `{url, reason}`, or the error the agent should correct. */
+function loginArgs(args: Record<string, unknown>): { url: string; reason: string } | string {
+  const url = typeof args.url === "string" ? args.url.trim() : "";
+  const protocol = URL.canParse(url) ? new URL(url).protocol : "";
+  if (url.length > MAX_LOGIN_URL_CHARS || (protocol !== "http:" && protocol !== "https:"))
+    return "url must be an absolute http(s) URL";
+  const reason = typeof args.reason === "string" ? args.reason.trim() : "";
+  if (!reason) return "reason is required";
+  return { url, reason: reason.slice(0, MAX_LOGIN_REASON_CHARS) };
+}
+
+/** Ask the operator for a Handoff Login and wait (one bounded window) for the answer. A new
+ *  request first opens its tab: if the Shared Browser can't be reached, no request is raised. */
+async function applyBrowserRequestLogin(
+  deps: AgentControlDeps,
+  sessionId: string,
+  args: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<ApplyResult<unknown>> {
+  const session = deps.store.get(sessionId);
+  if (!deps.loginRequests || !deps.openLoginTab || !session)
+    return { ok: false, status: 503, error: "login requests unavailable" };
+  const parsed = loginArgs(args);
+  if (typeof parsed === "string") return { ok: false, status: 400, error: parsed };
+  if (deps.loginRequests.wouldCreate(sessionId, parsed.url)) {
+    try {
+      await deps.openLoginTab(session.repoPath, parsed.url, sessionId);
+    } catch (err) {
+      const code = (err as { code?: unknown }).code;
+      return {
+        ok: false,
+        status: 503,
+        error: `could not open the Shared Browser${typeof code === "string" ? ` (${code})` : ""}`,
+      };
+    }
+  }
+  const existing = deps.loginRequests.request(sessionId, parsed.url, parsed.reason);
+  if (existing.status !== "open") return { ok: true, data: { status: existing.status } };
+  const outcome = await deps.loginRequests.wait(
+    sessionId,
+    existing.request.id,
+    deps.loginWaitMs ?? LOGIN_WAIT_MS,
+    signal,
+  );
+  return {
+    ok: true,
+    data:
+      outcome === "pending" ? { status: outcome, next: LOGIN_PENDING_NEXT } : { status: outcome },
+  };
+}
+
 // ── tool catalog ─────────────────────────────────────────────────────────────
 
 /** One MCP tool as `tools/list` reports it. */
@@ -384,6 +457,31 @@ const SELF_STATUS: McpTool = {
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
 };
 
+const BROWSER_REQUEST_LOGIN: McpTool = {
+  name: "browser_request_login",
+  description:
+    "Ask the operator to log in for you in this repo's Shared Browser. Use it when a page you " +
+    "need sits behind a login wall. Shepherd opens `url` in a tab of the Shared Browser and shows " +
+    "the operator a needs-you item. Each call waits up to ~50s: `pending` means call it again " +
+    "with the same url to keep waiting; `done` means reload your own tab and continue; " +
+    "`cancelled` means the operator declined, so do not ask again for this url, report it.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      url: {
+        type: "string",
+        description: "Absolute http(s) URL of the page to log in on (the app's real dev origin).",
+      },
+      reason: {
+        type: "string",
+        description: "One line for the operator: what you need the login for.",
+      },
+    },
+    required: ["url", "reason"],
+    additionalProperties: false,
+  },
+};
+
 /** What a session is allowed to drive. Kept separate from the session ROW because the spawn path
  *  needs the answer before the row exists (`create` pre-generates the id), while the request path
  *  reads it back off the row. */
@@ -392,6 +490,9 @@ export interface AgentCapabilities {
   epicDraft: boolean;
   /** The read tools — every session except `plain` (bare-CLI parity). */
   sessionRead: boolean;
+  /** `browser_request_login` — a non-plain, non-autonomous session in a repo with the Shared
+   *  Browser on (the same sessions that get a Browser Attach config). */
+  browserLogin: boolean;
 }
 
 /**
@@ -423,6 +524,7 @@ function toolsFor(caps: AgentCapabilities): McpTool[] {
   if (caps.buildQueue) tools.push(QUEUE_WRITE, QUEUE_STEP);
   if (caps.epicDraft) tools.push(EPIC_DRAFT);
   if (caps.sessionRead) tools.push(SESSIONS_LIST, SESSIONS_SHOW, SELF_STATUS);
+  if (caps.browserLogin) tools.push(BROWSER_REQUEST_LOGIN);
   return tools;
 }
 
@@ -432,16 +534,32 @@ export function hasAgentTools(caps: AgentCapabilities): boolean {
   return toolsFor(caps).length > 0;
 }
 
+/** The `browserLogin` rule, shared by the spawn path (resolved profile) and the row path
+ *  (`sandboxApplied`): mirrors which sessions get a Browser Attach config. */
+export function browserLoginAllowed(
+  sharedBrowserEnabled: boolean,
+  plain: boolean | undefined,
+  profile: string | null,
+): boolean {
+  return sharedBrowserEnabled && !plain && profile !== "autonomous";
+}
+
 /** A stored session's capabilities; an unknown session has none. Reads the session's PERSISTED
  *  mode flags, so a resume applies the same non-code suppression the spawn did. */
 export function sessionCapabilities(deps: AgentControlDeps, sessionId: string): AgentCapabilities {
   const session = deps.store.get(sessionId);
-  if (!session) return { buildQueue: false, epicDraft: false, sessionRead: false };
+  if (!session)
+    return { buildQueue: false, epicDraft: false, sessionRead: false, browserLogin: false };
+  const repoConfig = deps.store.getRepoConfig(session.repoPath);
   return {
-    buildQueue:
-      deps.store.getRepoConfig(session.repoPath).buildQueueEnabled && !isNonCodeMode(session),
+    buildQueue: repoConfig.buildQueueEnabled && !isNonCodeMode(session),
     epicDraft: session.epicAuthoring,
     sessionRead: !session.plain,
+    browserLogin: browserLoginAllowed(
+      repoConfig.sharedBrowserEnabled,
+      session.plain,
+      session.sandboxApplied,
+    ),
   };
 }
 
@@ -509,7 +627,8 @@ type ToolHandler = (
   deps: AgentControlDeps,
   sessionId: string,
   args: Record<string, unknown>,
-) => ApplyResult<unknown>;
+  signal?: AbortSignal,
+) => ApplyResult<unknown> | Promise<ApplyResult<unknown>>;
 
 /** One handler per catalog tool; looked up only after the entitlement check. */
 const TOOL_HANDLERS: Record<string, ToolHandler> = {
@@ -519,17 +638,20 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   sessions_list: (deps, id) => applySessionsList(deps, id),
   sessions_show: (deps, id, args) => applySessionsShow(deps, id, args),
   self_status: (deps, id) => applySelfStatus(deps, id),
+  browser_request_login: (deps, id, args, signal) =>
+    applyBrowserRequestLogin(deps, id, args, signal),
 };
 
 /** Run one `tools/call`. A tool the session isn't entitled to is a protocol error (-32602); an
  *  applier failure is an `isError` RESULT, which the model can read and correct. */
-function toolCallOutcome(
+async function toolCallOutcome(
   deps: AgentControlDeps,
   sessionId: string,
   id: unknown,
   params: Record<string, unknown>,
   spawning: AgentCapabilities | null,
-): McpOutcome {
+  signal?: AbortSignal,
+): Promise<McpOutcome> {
   const name = typeof params.name === "string" ? params.name : "";
   const args = asRecord(params.arguments);
   const tools = spawning ? toolsFor(spawning) : agentTools(deps, sessionId);
@@ -542,7 +664,7 @@ function toolCallOutcome(
       toolResult({ error: "session is still starting — retry in a few seconds" }, true),
     );
   }
-  const applied = handler(deps, sessionId, args);
+  const applied = await handler(deps, sessionId, args, signal);
   return result(
     id,
     applied.ok ? toolResult(applied.data) : toolResult({ error: applied.error }, true),
@@ -550,21 +672,24 @@ function toolCallOutcome(
 }
 
 /**
- * Handle one JSON-RPC request for a session's MCP endpoint. Pure over `deps` — no PTY, no
- * network, no filesystem — so the whole protocol is unit-testable against an in-memory store.
+ * Handle one JSON-RPC request for a session's MCP endpoint. Pure over `deps` (the Shared Browser
+ * is reached only through the injected `openLoginTab`), so the whole protocol is unit-testable
+ * against an in-memory store.
  *
  * JSON-RPC batching is deliberately unsupported: MCP removed it in 2025-06-18, and Claude Code
  * never sends one.
  *
  * `spawning` is set for a session whose spawn is still in flight (no store row yet): the catalog
- * comes from it, and a tool call is refused as "still starting".
+ * comes from it, and a tool call is refused as "still starting". `signal` is the HTTP request's:
+ * an aborted call ends a waiting tool (`browser_request_login`) early.
  */
-export function handleMcpRequest(
+export async function handleMcpRequest(
   deps: AgentControlDeps,
   sessionId: string,
   body: unknown,
   spawning: AgentCapabilities | null = null,
-): McpOutcome {
+  signal?: AbortSignal,
+): Promise<McpOutcome> {
   if (body === null || typeof body !== "object" || Array.isArray(body)) {
     return rpcError(null, -32600, "invalid request");
   }
@@ -585,7 +710,7 @@ export function handleMcpRequest(
         tools: spawning ? toolsFor(spawning) : agentTools(deps, sessionId),
       });
     case "tools/call":
-      return toolCallOutcome(deps, sessionId, req.id, params, spawning);
+      return toolCallOutcome(deps, sessionId, req.id, params, spawning, signal);
     default:
       return rpcError(req.id, -32601, `method not found: ${method}`);
   }

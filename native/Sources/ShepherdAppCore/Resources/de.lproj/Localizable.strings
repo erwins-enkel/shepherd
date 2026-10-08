@@ -381,6 +381,8 @@
 "hold_halted_error" = "Bei einem Fehler angehalten — Ihre Eingabe erforderlich.";
 "hold_halted_usage" = "Am Nutzungslimit pausiert — setzt um %1$@ Uhr fort.";
 "hold_halted_usage_pending" = "Am Nutzungslimit pausiert.";
+"hold_login_request" = "Bittet dich, dich bei %1$@ anzumelden.";
+"hold_login_request_generic" = "Bittet dich, dich im Shared Browser anzumelden.";
 "hold_manual_steps" = "%1$@ manuelle(r) Schritt(e) vor dem Mergen — bestätigen zum Fortfahren.";
 "hold_merge_rebasing" = "Rebase im Merge-Train (Versuch %1$@).";
 "hold_merging" = "Im Merge-Train.";

@@ -245,6 +245,7 @@ import {
   applyQueueStep,
   applyQueueWrite,
   handleMcpRequest,
+  type AgentControlDeps,
   type ApplyResult,
 } from "./agent-control";
 import {
@@ -428,6 +429,13 @@ export interface AppDeps {
     import("./shared-browser").SharedBrowserManager,
     "attach" | "open" | "stop" | "sessionTab"
   >;
+  /** Login Requests (#2882); absent → `browser_request_login` answers "unavailable". */
+  loginRequests?: Pick<
+    import("./login-request").LoginRequestService,
+    "request" | "wait" | "wouldCreate" | "resolve" | "snapshot"
+  >;
+  /** Test seam: one `browser_request_login` call's wait window (ms); default LOGIN_WAIT_MS. */
+  loginWaitMs?: number;
   /** Browser Attach token signer (ADR 0001); absent → the broker refuses every attach. */
   browserToken?: Pick<import("./browser-token").BrowserTokenSigner, "verify">;
   /** GitHub-star nudge: tracks first-use + the operator's choice, stars the repo
@@ -4682,9 +4690,46 @@ async function handleSessionMcp({ req, parts, deps }: Ctx): Promise<Response | n
   const spawning = row ? null : deps.service.spawningAgentCapabilities(id);
   if (!row && !spawning) return json({ error: "session not found" }, 404);
 
-  const outcome = handleMcpRequest(deps, id, await req.json().catch(() => null), spawning);
+  const body = await req.json().catch(() => null);
+  const outcome = await handleMcpRequest(mcpDeps(deps), id, body, spawning, req.signal);
   if (outcome.body === null) return new Response(null, { status: outcome.status });
   return json(outcome.body, outcome.status);
+}
+
+/** The control plane's deps: AppDeps plus the Shared Browser tab opener `browser_request_login`
+ *  needs (a tab remembered as the session's, so Browser View preselects it). */
+function mcpDeps(deps: AppDeps): AgentControlDeps {
+  const browser = deps.sharedBrowser;
+  if (!browser) return deps;
+  return {
+    ...deps,
+    openLoginTab: async (repoPath, url, sessionId) => {
+      await browser.open(repoPath, url, { sessionId });
+    },
+  };
+}
+
+// GET /api/login-requests — every open Login Request (#2882), keyed by session id (bootstrap).
+function handleLoginRequestsSnapshot({ req, parts, deps, token }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "login-requests" && !parts[2]) {
+    return json(tokenMap(token, deps, deps.loginRequests?.snapshot() ?? {}));
+  }
+  return null;
+}
+
+// POST /api/sessions/:id/login-request {outcome: "done"|"cancelled"} — the operator answers a
+// session's Login Request. Operator app only: deliberately NOT an AGENT_LEAF_ROUTES leaf, so an
+// agent can never mark its own request done.
+async function handleSessionLoginRequest({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "login-request")) return null;
+  const id = parts[2];
+  if (!id || parts[4] || req.method !== "POST") return null;
+  const body = (await req.json().catch(() => ({}))) as { outcome?: unknown };
+  if (body.outcome !== "done" && body.outcome !== "cancelled")
+    return json({ error: "outcome must be done or cancelled" }, 400);
+  if (!deps.loginRequests?.resolve(id, body.outcome))
+    return json({ error: "no open login request" }, 404);
+  return json({ ok: true });
 }
 
 // Sessions core: dispatch to the create / read / delete / reply sub-handlers,
@@ -9352,6 +9397,8 @@ const ROUTE_HANDLERS = [
   handlePush,
   handleSessionHooks,
   handleSessionMcp,
+  handleSessionLoginRequest,
+  handleLoginRequestsSnapshot,
   handleBuildQueue,
   handleEpicDraft,
   handleTaskExport,
@@ -9494,9 +9541,10 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
 /** Methods allowed on each exact `/api/sessions/<id>/<sub>` agent route. A Map (not an object) so a
  *  hostile sub-segment like `constructor` can never resolve through the prototype chain.
  *   - `hooks`: the push-hook ingest (issue #704).
- *   - `mcp`: the session's MCP endpoint (issue #2003) — strictly weaker than the routes beside it,
- *     since every tool it exposes is one of them, gated by the session's own capabilities
- *     (see agentTools), and neither approve gate has a tool at all.
+ *   - `mcp`: the session's MCP endpoint (issue #2003) — its tools mirror the routes beside it,
+ *     gated by the session's own capabilities (see agentTools), and neither approve gate has a
+ *     tool at all. The one tool without a REST twin, `browser_request_login` (#2882), only ASKS:
+ *     its resolve route (`…/login-request`) is operator-only and absent from this map.
  *   - `queue`: PUT authors/replaces; GET is the "inspect the current queue" / re-GET-for-ids read.
  *   - `epic-draft`: PUT authors/replaces the draft; GET inspects it (issue #1507).
  *   - `rename`: the session's own retitle (issue #2053) — the write half of the coordinates the
@@ -9585,6 +9633,9 @@ export function serveAgentIngress(deps: AppDeps, port = 0) {
           ? undefined
           : json({ error: "upgrade failed" }, 500);
       }
+      // Agents reach the MCP endpoint HERE, so its long-poll needs the same lifted idle budget.
+      const slowSec = slowRequestTimeoutSec(req, url);
+      if (slowSec !== null) server.timeout(req, slowSec);
       return app.fetch(req);
     },
     websocket: makeBrowserBrokerHandlers(() => deps.sharedBrowser),
@@ -9768,6 +9819,8 @@ const MERGE_ROUTE_TIMEOUT_SEC = Math.ceil(MERGE_ASYNC_MAX_WAIT_MS / 1000) + 60;
 export const slowRequestTimeoutSec = (req: Request, url: URL): number | null => {
   if (req.method !== "POST") return null;
   if (url.pathname === "/api/usage/refresh") return 60;
+  // browser_request_login long-polls up to LOGIN_WAIT_MS (50s) inside one MCP call (#2882).
+  if (/^\/api\/sessions\/[^/]+\/mcp$/.test(url.pathname)) return 60;
   if (/^\/api\/sessions\/[^/]+\/epic-draft\/approve$/.test(url.pathname)) return 255;
   // /api/shape spawns a transient shaping agent and polls it for up to 180s (task-shape.ts); on the
   // 10s default Bun severs the socket mid-round and the New Task card reports a failure for a round

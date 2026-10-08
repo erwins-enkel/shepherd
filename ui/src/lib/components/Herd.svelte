@@ -52,6 +52,7 @@
     preview = {},
     previewServe = {},
     onpreview = undefined,
+    onopenbrowser = undefined,
     epics = {},
     onepic = undefined,
     activeEpicKeys = new Set(),
@@ -123,6 +124,8 @@
     previewServe?: Record<string, "ok" | "failed">;
     // a row's Preview badge was clicked → select the session + open its Viewport preview pane
     onpreview?: (id: string, target?: "inline" | "tab") => void;
+    // a row's "Open browser" CTA (Login Request, #2882) → select + open its Browser tab
+    onopenbrowser?: (id: string) => void;
     // live epics map (store.epics, keyed `${repoPath}#${parentIssueNumber}`) — threaded
     // into each row so an epic-seeded session can badge with WS-live counts
     epics?: Record<string, Epic>;
@@ -431,6 +434,7 @@
     preview,
     previewServe,
     onpreview,
+    onopenbrowser,
     ondecommission,
     onrename,
     onamend,

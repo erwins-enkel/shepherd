@@ -394,6 +394,31 @@ describe("Viewport preview tab", () => {
     await expect.element(browserTab()).not.toBeInTheDocument();
   });
 
+  it("opens the Browser tab on an Open-browser request, also when the repo config lands later (#2882)", async () => {
+    const browserTab = () => page.getByRole("tab", { name: "Browser", exact: true });
+    repoConfig.sharedBrowser = {};
+    const { rerender } = await render(Viewport, { session: session({ id: "bv2" }) });
+    await rerender({ session: session({ id: "bv2" }), browserRequest: { id: "bv2", tick: 1 } });
+    repoConfig.sharedBrowser = { "/repo/a": true };
+    await expect.element(browserTab()).toHaveClass(/active/);
+    repoConfig.sharedBrowser = {};
+  });
+
+  it("ignores another session's Open-browser request on mount (#2882)", async () => {
+    repoConfig.sharedBrowser = { "/repo/a": true };
+    await render(Viewport, {
+      session: session({ id: "bv3" }),
+      browserRequest: { id: "bv2", tick: 1 },
+    });
+    await expect
+      .element(page.getByRole("tab", { name: "Browser", exact: true }))
+      .not.toHaveClass(/active/);
+    await expect
+      .element(page.getByRole("tab", { name: "Terminal", exact: true }))
+      .toHaveClass(/active/);
+    repoConfig.sharedBrowser = {};
+  });
+
   it("does not re-open Preview on a later null→port flip without a fresh tick bump", async () => {
     // open via the initial tick, then the operator navigates away to another tab
     const { rerender } = await render(Viewport, {

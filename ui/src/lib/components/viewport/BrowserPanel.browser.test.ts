@@ -5,9 +5,11 @@ import "../../../app.css";
 import type { Session } from "$lib/types";
 
 const openRepoBrowser = vi.fn().mockResolvedValue({ ok: true, url: "about:blank" });
+const resolveLoginRequest = vi.fn().mockResolvedValue(undefined);
 vi.mock("$lib/api", async (orig) => ({
   ...(await orig<typeof import("$lib/api")>()),
   openRepoBrowser: (...a: unknown[]) => openRepoBrowser(...a),
+  resolveLoginRequest: (...a: unknown[]) => resolveLoginRequest(...a),
 }));
 
 const { default: BrowserPanel } = await import("./BrowserPanel.svelte");
@@ -54,6 +56,7 @@ const targets = (selected: string | null = "T1") => ({
 afterEach(() => {
   document.body.innerHTML = "";
   openRepoBrowser.mockClear();
+  resolveLoginRequest.mockClear();
 });
 
 describe("BrowserPanel", () => {
@@ -162,5 +165,26 @@ describe("BrowserPanel", () => {
     await page.getByRole("button", { name: /reconnect/i }).click();
     expect(FakeWs.last).not.toBe(first);
     await expect.element(page.getByText(/connecting/i)).toBeVisible();
+  });
+
+  it("shows an open login request as plain text and sends Done / Cancel (#2882)", async () => {
+    const loginRequest = {
+      id: "r1",
+      url: "https://login.example/",
+      reason: "<b>need</b> the dashboard",
+      createdAt: 0,
+    };
+    render(BrowserPanel, { session, makeWs, loginRequest });
+    await expect.element(page.getByText("<b>need</b> the dashboard")).toBeVisible();
+    await expect.element(page.getByText("https://login.example/")).toBeVisible();
+    await userEvent.click(page.getByRole("button", { name: /^done$/i }));
+    expect(resolveLoginRequest).toHaveBeenCalledWith("s1", "done");
+    await userEvent.click(page.getByRole("button", { name: /^cancel$/i }));
+    expect(resolveLoginRequest).toHaveBeenLastCalledWith("s1", "cancelled");
+  });
+
+  it("shows no login banner without a request", async () => {
+    render(BrowserPanel, { session, makeWs });
+    await expect.element(page.getByRole("button", { name: /^done$/i })).not.toBeInTheDocument();
   });
 });

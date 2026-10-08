@@ -6580,6 +6580,41 @@
         }
       }
     },
+    "hold_login_request": {
+      "comment": "%1$@ = host",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bittet dich, dich bei %1$@ anzumelden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wants you to log in at %1$@."
+          }
+        }
+      }
+    },
+    "hold_login_request_generic": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bittet dich, dich im Shared Browser anzumelden."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wants you to log in in the Shared Browser."
+          }
+        }
+      }
+    },
     "hold_manual_steps": {
       "comment": "%1$@ = steps",
       "extractionState": "manual",

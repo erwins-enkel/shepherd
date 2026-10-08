@@ -2058,6 +2058,8 @@ components:
           type: string
         steps:
           type: integer
+        host:
+          type: string
     HoldReason:
       type: object
       additionalProperties: true

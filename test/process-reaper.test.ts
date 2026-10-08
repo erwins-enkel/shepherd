@@ -3,6 +3,7 @@ import {
   ProcessReaper,
   leftoverKey,
   scanClaudeAliveByWorktree,
+  scanBackgroundShellsByWorktree,
   reapDeletedWorktreeOrphans,
   reapMarkedOrphans,
   USER_HZ,
@@ -597,6 +598,131 @@ test("claude-alive: a dead sandboxed agent leaves no worktree-cwd claude → hus
     makeProbes({ scanProcs: () => [{ pid: 200, cwd: "/wt/repo-x", comm: "zsh" }] }),
   );
   expect(out!.get("/wt/repo-x")).toBe(false);
+});
+
+// ── scanBackgroundShellsByWorktree ──────────────────────────────────────────
+
+/** A Claude Code background-Bash cmdline, in the snapshot-shell shape it spawns. */
+function snapshotShell(evalBody: string): string {
+  return (
+    "/usr/bin/zsh -c source /home/u/.claude/shell-snapshots/snapshot-zsh-1-abc.sh 2>/dev/null || true" +
+    ` && eval '${evalBody}' < /dev/null && pwd -P >| /tmp/claude-1-cwd`
+  );
+}
+
+/** Fake probes over a process tree: `tree` maps pid → children, `cmd` pid → cmdline. */
+function shellProbes(opts: {
+  procs: { pid: number; cwd: string; comm: string }[];
+  tree: Record<number, number[]>;
+  cmd: Record<number, string>;
+  listening?: number[];
+}): ReaperProbes {
+  return makeProbes({
+    scanProcs: () => opts.procs,
+    portsForPid: (pid) => (opts.listening?.includes(pid) ? [5173] : []),
+    childrenOf: (pid) => opts.tree[pid] ?? [],
+    cmdlineOf: (pid) => opts.cmd[pid] ?? null,
+  });
+}
+
+test("bg-shells: a snapshot shell running git push marks its worktree busy", () => {
+  const out = scanBackgroundShellsByWorktree(
+    ["/wt/repo-x", "/wt/repo-y"],
+    shellProbes({
+      procs: [{ pid: 10, cwd: "/wt/repo-x", comm: "claude" }],
+      tree: { 10: [11], 11: [12] },
+      cmd: { 11: snapshotShell("git push"), 12: "git push" },
+    }),
+  );
+  expect(out!.get("/wt/repo-x")).toEqual(["git push"]);
+  expect(out!.get("/wt/repo-y")).toEqual([]);
+});
+
+test("bg-shells: a shell whose grandchild listens is a server and ignored", () => {
+  const out = scanBackgroundShellsByWorktree(
+    ["/wt/repo-x"],
+    shellProbes({
+      procs: [{ pid: 10, cwd: "/wt/repo-x", comm: "claude" }],
+      tree: { 10: [11], 11: [12], 12: [13] },
+      cmd: { 11: snapshotShell("bun run dev"), 12: "bun run dev", 13: "vite" },
+      listening: [13],
+    }),
+  );
+  expect(out!.get("/wt/repo-x")).toEqual([]);
+});
+
+test("bg-shells: a non-snapshot child (MCP server) is ignored", () => {
+  const out = scanBackgroundShellsByWorktree(
+    ["/wt/repo-x"],
+    shellProbes({
+      procs: [{ pid: 10, cwd: "/wt/repo-x", comm: "claude" }],
+      tree: { 10: [11] },
+      cmd: { 11: "npm exec @upstash/context7-mcp" },
+    }),
+  );
+  expect(out!.get("/wt/repo-x")).toEqual([]);
+});
+
+test("bg-shells: codex agents have no snapshot shells to report", () => {
+  const out = scanBackgroundShellsByWorktree(
+    ["/wt/repo-x"],
+    shellProbes({
+      procs: [{ pid: 10, cwd: "/wt/repo-x", comm: "codex" }],
+      tree: { 10: [11] },
+      cmd: { 11: snapshotShell("git push") },
+    }),
+  );
+  expect(out!.get("/wt/repo-x")).toEqual([]);
+});
+
+test("bg-shells: unknown (null) without childrenOf/cmdlineOf or with a stale snapshot", () => {
+  expect(scanBackgroundShellsByWorktree(["/wt/repo-x"], makeProbes())).toBeNull();
+  const stale = makeProbes({
+    childrenOf: () => [],
+    cmdlineOf: () => null,
+    snapshotState: () => "stale",
+  });
+  expect(scanBackgroundShellsByWorktree(["/wt/repo-x"], stale)).toBeNull();
+});
+
+test("bg-shells: undoes both shell-quote escapes for an embedded quote", () => {
+  const out = scanBackgroundShellsByWorktree(
+    ["/wt/repo-x"],
+    shellProbes({
+      procs: [{ pid: 10, cwd: "/wt/repo-x", comm: "claude" }],
+      tree: { 10: [11, 12] },
+      cmd: {
+        11: snapshotShell(String.raw`echo '\''a b'\''`),
+        12: snapshotShell(`echo '"'"'c'"'"'`),
+      },
+    }),
+  );
+  expect(out!.get("/wt/repo-x")).toEqual(["echo 'a b'", "echo 'c'"]);
+});
+
+test("bg-shells: no eval segment falls back to the truncated raw cmdline", () => {
+  const raw = "zsh -c source ~/.claude/shell-snapshots/snapshot-zsh-1.sh && " + "x".repeat(300);
+  const out = scanBackgroundShellsByWorktree(
+    ["/wt/repo-x"],
+    shellProbes({
+      procs: [{ pid: 10, cwd: "/wt/repo-x", comm: "claude" }],
+      tree: { 10: [11] },
+      cmd: { 11: raw },
+    }),
+  );
+  expect(out!.get("/wt/repo-x")).toEqual([raw.slice(0, 200)]);
+});
+
+test("bg-shells: a process-tree cycle terminates", () => {
+  const out = scanBackgroundShellsByWorktree(
+    ["/wt/repo-x"],
+    shellProbes({
+      procs: [{ pid: 10, cwd: "/wt/repo-x", comm: "claude" }],
+      tree: { 10: [11], 11: [12], 12: [11] },
+      cmd: { 11: snapshotShell("sleep 60") },
+    }),
+  );
+  expect(out!.get("/wt/repo-x")).toEqual(["sleep 60"]);
 });
 
 // ── #1133: orphan reaping (PPID-1 busy-loops the port-based detector misses) ──

@@ -186,6 +186,13 @@ export interface ReaperProbes {
    * place instead of being duplicated into each backend.
    */
   liveProcForPid?(pid: number): { cwd: string; comm: string; ports: number[] } | null;
+  /**
+   * Direct children of a pid (union of every thread's `/proc/<pid>/task/<tid>/children`), or [] when unreadable.
+   * Optional: only the background-shell scan uses it; absent ⇒ that scan answers null.
+   */
+  childrenOf?(pid: number): number[];
+  /** A pid's argv joined by spaces (`/proc/<pid>/cmdline`), or null when unreadable. */
+  cmdlineOf?(pid: number): string | null;
 }
 
 /** Raw CPU accounting for one process, in USER_HZ ticks (see {@link USER_HZ}). */
@@ -600,6 +607,36 @@ function readEnviron(pid: number): Record<string, string> | null {
   return env;
 }
 
+/** Direct children of a pid: the union of every thread's /proc/<pid>/task/<tid>/children. */
+function readChildren(pid: number): number[] {
+  let tids: string[];
+  try {
+    tids = readdirSync(`/proc/${pid}/task`);
+  } catch {
+    return [];
+  }
+  const out = new Set<number>();
+  for (const tid of tids) {
+    let text: string;
+    try {
+      text = readFileSync(`/proc/${pid}/task/${tid}/children`, "utf8");
+    } catch {
+      continue;
+    }
+    for (const c of text.split(/\s+/)) if (/^\d+$/.test(c)) out.add(Number(c));
+  }
+  return [...out];
+}
+
+/** A pid's NUL-separated /proc/<pid>/cmdline joined by spaces, or null when unreadable. */
+function readCmdline(pid: number): string | null {
+  try {
+    return readFileSync(`/proc/${pid}/cmdline`, "utf8").split("\0").join(" ").trim();
+  } catch {
+    return null;
+  }
+}
+
 /** System uptime in seconds — the first field of /proc/uptime. */
 function readUptimeSeconds(): number | null {
   try {
@@ -704,6 +741,12 @@ const linuxProbes: ReaperProbes = {
     } catch {
       return null;
     }
+  },
+  childrenOf(pid) {
+    return readChildren(pid);
+  },
+  cmdlineOf(pid) {
+    return readCmdline(pid);
   },
   readTranscript(path) {
     try {
@@ -1451,6 +1494,103 @@ export function scanClaudeAliveByWorktree(
     if (!AGENT_COMMS.has(proc.comm)) continue;
     const matchedPath = matchWorktreePath(proc.cwd, roots, worktreePaths);
     if (matchedPath !== null) result.set(matchedPath, true);
+  }
+  return result;
+}
+
+// ── background shells ───────────────────────────────────────────────────────
+
+/** Marker in the cmdline of every Bash-tool shell Claude Code spawns (it sources a snapshot). */
+const SNAPSHOT_SHELL_MARKER = "shell-snapshots/snapshot-";
+/** Bound on the descendant walk per shell — a runaway fork tree must not stall the loop. */
+const MAX_SHELL_DESCENDANTS = 64;
+const MAX_COMMAND_CHARS = 200;
+
+/**
+ * The user command inside a snapshot shell's `eval '<cmd>'` segment, undoing the shell-quote
+ * escapes Claude Code emits for an embedded `'` (`'\''` and `'"'"'`). Falls back to the raw
+ * cmdline, truncated, when there is no eval segment.
+ */
+function snapshotShellCommand(cmdline: string): string {
+  const start = cmdline.indexOf("eval '");
+  if (start === -1) return cmdline.slice(0, MAX_COMMAND_CHARS);
+  let out = "";
+  let i = start + "eval '".length;
+  while (i < cmdline.length) {
+    const ch = cmdline[i]!;
+    if (ch !== "'") {
+      out += ch;
+      i++;
+    } else if (cmdline.startsWith("'\\''", i)) {
+      out += "'";
+      i += 4;
+    } else if (cmdline.startsWith(`'"'"'`, i)) {
+      out += "'";
+      i += 5;
+    } else break; // closing quote
+  }
+  return out;
+}
+
+/** Does `root` or any descendant (bounded, cycle-guarded) hold a listening TCP socket? */
+function treeListens(
+  root: number,
+  inodeMap: Map<number, number> | null,
+  probes: ReaperProbes,
+): boolean {
+  const seen = new Set<number>([root]);
+  const queue = [root];
+  while (queue.length > 0) {
+    const pid = queue.shift()!;
+    if (portsForProcBatched(pid, inodeMap, probes).length > 0) return true;
+    for (const child of probes.childrenOf!(pid)) {
+      if (seen.has(child) || seen.size >= MAX_SHELL_DESCENDANTS) continue;
+      seen.add(child);
+      queue.push(child);
+    }
+  }
+  return false;
+}
+
+/**
+ * Commands of the still-running Claude Code background Bash shells per worktree, ignoring any
+ * shell whose process tree LISTENS on a TCP port (a dev server is not "work in flight").
+ *
+ * A background shell is a DIRECT child of a `claude` process (comm exactly `claude` — codex has
+ * no such shells) whose cmdline contains `shell-snapshots/snapshot-`. DEPENDS on Claude Code's
+ * snapshot-shell cmdline shape (`zsh -c 'source …/snapshot-….sh … && eval '<cmd>' …'`); if that
+ * changes, nothing matches and callers see empty arrays — the fail-open status quo. Assumes the
+ * agent is idle: mid-turn the foreground Bash tool's shell has the same shape and is reported too.
+ *
+ * Returns a Map with every supplied worktreePath as a key (empty array when none), or `null` when
+ * the backend cannot answer (no `childrenOf`/`cmdlineOf` — darwin/null probes — or a non-fresh
+ * snapshot). Sessions sharing a cwd share the verdict, as in {@link scanClaudeAliveByWorktree}.
+ */
+export function scanBackgroundShellsByWorktree(
+  worktreePaths: string[],
+  probes: ReaperProbes = defaultProbes,
+): Map<string, string[]> | null {
+  if (!probes.childrenOf || !probes.cmdlineOf) return null;
+  if (probes.snapshotState && probes.snapshotState() !== "fresh") return null;
+  const result = new Map<string, string[]>(worktreePaths.map((p) => [p, []]));
+  if (worktreePaths.length === 0) return result;
+  const roots = worktreePaths.map((p) => normRoot(p, probes));
+  let inodeMap: Map<number, number> | null | undefined; // built lazily, once per scan
+  for (const proc of probes.scanProcs()) {
+    if (proc.comm !== "claude") continue;
+    const path = matchWorktreePath(proc.cwd, roots, worktreePaths);
+    if (path === null) continue;
+    for (const child of probes.childrenOf(proc.pid)) {
+      const cmdline = probes.cmdlineOf(child);
+      if (cmdline === null || !cmdline.includes(SNAPSHOT_SHELL_MARKER)) continue;
+      inodeMap ??=
+        typeof probes.inodeToPortMap === "function" &&
+        typeof probes.socketInodesForPid === "function"
+          ? probes.inodeToPortMap()
+          : null;
+      if (treeListens(child, inodeMap, probes)) continue;
+      result.get(path)!.push(snapshotShellCommand(cmdline));
+    }
   }
   return result;
 }

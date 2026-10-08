@@ -213,6 +213,21 @@ from an issue, a pull request or a plan cannot reach the rest of the machine. Th
 residuals it deliberately does not close are listed on the
 [Security](/reference/security/) page.
 
+### Shared browser
+
+A real Chromium window on the Shepherd host, one per repo, with a saved login
+profile. You log in there once and that repo's agents continue in the same
+logged-in browser. Every agent on the repo can read every login in that
+profile. Off by default, turned on per repo — see
+[Shared browser](/shared-browser/).
+
+### Handoff login
+
+You signing in to a service inside a repo's Shared Browser — at the host or
+remotely in a session's Browser tab — so an agent can continue as that
+logged-in user. An agent can ask you for one with a Login Request. See
+[Log in for your agents](/shared-browser/#log-in-for-your-agents).
+
 ### Spawn prompt
 
 The standing instructions Shepherd assembles and hands an agent the moment it

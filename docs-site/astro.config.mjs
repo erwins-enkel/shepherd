@@ -124,6 +124,7 @@ export default defineConfig({
             { label: "Authoring an epic", slug: "authoring-epics" },
             { label: "Hands-off epics", slug: "hands-off-epics" },
             { label: "Capture extension", slug: "capture-extension" },
+            { label: "Shared browser", slug: "shared-browser" },
           ],
         },
         {

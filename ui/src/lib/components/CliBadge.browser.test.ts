@@ -91,7 +91,9 @@ describe("CliBadge", () => {
   it("renders no popover overlay", async () => {
     render(CliBadge, { session: session({ id: "e", agentProvider: "codex" }) });
     const el = document.querySelector(".cli-badge") as HTMLElement;
-    await el.dispatchEvent(new PointerEvent("pointerenter", { bubbles: true }));
+    el.dispatchEvent(new PointerEvent("pointerenter", { bubbles: true }));
+    // Outlast statusTip's 500ms hover-open delay, or this absence check proves nothing.
+    await new Promise((r) => setTimeout(r, 650));
     expect(document.querySelector(".status-tip")).toBeNull();
   });
 });

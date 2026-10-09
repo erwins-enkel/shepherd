@@ -166,7 +166,8 @@ describe("SlashCommandMenu description tooltip", () => {
     document
       .querySelector(".sc-row")!
       .dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", bubbles: true }));
-    await new Promise((r) => setTimeout(r, 50));
+    // Outlast statusTip's 500ms hover-open delay, or this absence check proves nothing.
+    await new Promise((r) => setTimeout(r, 650));
     expect(tip()).toBeNull();
   });
 });

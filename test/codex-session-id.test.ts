@@ -228,3 +228,30 @@ test("Codex launch attribution distinguishes fork thread ids sharing a session r
   );
   expect(findCodexLaunchSessionId(CWD, "launch", 0, home)).toBeNull();
 });
+
+test("Codex launch attribution accepts the daemon TUI's vscode source (Codex 0.160+)", () => {
+  writeRollout("rollout-daemon.jsonl", { id: "daemon", cwd: CWD, source: "vscode" }, 1000, [
+    launchMessage("launch"),
+  ]);
+  expect(findCodexLaunchSessionId(CWD, "launch", 0, home)).toBe("daemon");
+});
+
+test("Codex launch attribution ignores subagent threads (object source) carrying the marker", () => {
+  writeRollout(
+    "rollout-sub.jsonl",
+    JSON.stringify({
+      type: "session_meta",
+      payload: {
+        id: "sub",
+        cwd: CWD,
+        source: { subagent: { thread_spawn: { parent_thread_id: "main" } } },
+      },
+    }),
+    2000,
+    [launchMessage("launch")],
+  );
+  writeRollout("rollout-main.jsonl", { id: "main", cwd: CWD, source: "cli" }, 1000, [
+    launchMessage("launch"),
+  ]);
+  expect(findCodexLaunchSessionId(CWD, "launch", 0, home)).toBe("main");
+});

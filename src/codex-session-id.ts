@@ -66,24 +66,58 @@ export function codexLaunchMarker(launchId: string): string {
   return `<shepherd-session launch="${launchId}" />\n`;
 }
 
-/** Resolve by launch provenance, never by cwd recency. Multiple distinct conversations carrying
- * the marker (e.g. a copied/forked history) are ambiguous and must stay manual. A bounded prefix
- * read avoids loading growing transcripts; an incomplete/oversized prefix simply cannot resolve. */
+/** A rollout file together with its parsed `session_meta` header. */
+export interface RolloutHeader extends SessionMetaHeader {
+  path: string;
+  mtimeMs: number;
+}
+
+/** Interactive TUI rollouts: `cli`, or `vscode` when Codex 0.160+ runs the TUI through its shared
+ *  daemon. Headless role spawns are `exec`; subagent threads carry an object source (parsed as
+ *  null). The launch marker, not this label, proves ownership — this only keeps roles out. */
+function isInteractiveSource(source: string | null): boolean {
+  return source !== null && source !== "exec";
+}
+
+/** Every readable rollout header under `$CODEX_HOME/sessions`, newest-first by mtime, read lazily
+ *  so a caller that stops early never parses the older tail. */
+function* rolloutHeaders(home: string): Generator<RolloutHeader> {
+  for (const { path, mtimeMs } of listRolloutFiles(home)) {
+    const meta = readSessionMeta(path);
+    if (meta) yield { ...meta, path, mtimeMs };
+  }
+}
+
+/** The launch-provenance rule over newest-first `headers`: the one interactive conversation in
+ *  `worktreePath`, modified at/after `notBeforeMs`, whose first user turn opens with the launch
+ *  marker. Multiple distinct conversations carrying the marker (e.g. a copied/forked history) are
+ *  ambiguous and must stay manual. */
+export function launchSessionIdAmong(
+  headers: Iterable<RolloutHeader>,
+  worktreePath: string,
+  launchId: string,
+  notBeforeMs: number,
+): string | null {
+  const target = normalize(worktreePath);
+  const marker = codexLaunchMarker(launchId);
+  const ids = new Set<string>();
+  for (const h of headers) {
+    if (h.mtimeMs < notBeforeMs) break;
+    if (!h.id || !isInteractiveSource(h.source) || normalize(h.cwd) !== target) continue;
+    if (rolloutHasLaunchMarker(h.path, marker)) ids.add(h.id);
+  }
+  return ids.size === 1 ? [...ids][0]! : null;
+}
+
+/** Resolve by launch provenance, never by cwd recency. A bounded prefix read avoids loading
+ * growing transcripts; an incomplete/oversized prefix simply cannot resolve. */
 export function findCodexLaunchSessionId(
   worktreePath: string,
   launchId: string,
   notBeforeMs: number,
   home = codexHome(),
 ): string | null {
-  const ids = new Set<string>();
-  for (const { path, mtimeMs } of listRolloutFiles(home)) {
-    if (mtimeMs < notBeforeMs) break;
-    const meta = readSessionMeta(path);
-    if (!meta?.id || meta.source !== "cli" || normalize(meta.cwd) !== normalize(worktreePath))
-      continue;
-    if (rolloutHasLaunchMarker(path, codexLaunchMarker(launchId))) ids.add(meta.id);
-  }
-  return ids.size === 1 ? [...ids][0]! : null;
+  return launchSessionIdAmong(rolloutHeaders(home), worktreePath, launchId, notBeforeMs);
 }
 
 /** Bound disk work independently of transcript size. */

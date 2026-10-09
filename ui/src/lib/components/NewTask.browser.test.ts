@@ -13,6 +13,13 @@ import type {
   Steer,
 } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
+import { tooltipText } from "#lib/tooltips/content.js";
+import {
+  epicModeExplanation,
+  plainModeExplanation,
+  researchModeExplanation,
+  sandboxOverrideExplanation,
+} from "#lib/tooltips/explanations.js";
 import { steers } from "#lib/steers.svelte.js";
 import { viewerCache } from "#lib/viewer-cache.svelte.js";
 import { expectMinPx } from "#lib/test-support/geometry.js";
@@ -877,6 +884,11 @@ describe("NewTask task attachments", () => {
 
   it("opens an image preview on desktop hover and keyboard focus", async () => {
     mockObjectUrls();
+    // A decodable image: the fake blob URL errors, and the hover delay leaves time for
+    // onerror to swap the <img> for the "unavailable" text before we can look at it.
+    const pixel =
+      "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=";
+    createObjectUrlSpy!.mockImplementation(() => pixel);
     mockPointer(false);
     render(NewTask, { props: base({ initialRepoPath: "/repo/attachments" }) });
     await upload([new File(["png"], "shot.png", { type: "image/png" })]);
@@ -886,16 +898,25 @@ describe("NewTask task attachments", () => {
     });
     await expect.element(trigger).toBeVisible();
     const triggerEl = trigger.element() as HTMLButtonElement;
+    const previewOpen = () => !!document.querySelector(".attachment-preview:popover-open");
+    // A pass-through sweep never opens the preview.
     triggerEl.dispatchEvent(
       new PointerEvent("pointerenter", { bubbles: true, pointerType: "mouse" }),
     );
-
-    await expect
-      .poll(() => document.querySelector(".attachment-preview:popover-open"))
-      .not.toBeNull();
-    expect(document.querySelector<HTMLImageElement>(".attachment-preview img")?.src).toContain(
-      "blob:attachment-preview-1",
+    triggerEl.dispatchEvent(
+      new PointerEvent("pointerleave", { bubbles: true, pointerType: "mouse" }),
     );
+    await new Promise((r) => setTimeout(r, 650));
+    expect(previewOpen()).toBe(false);
+
+    // Resting opens it, but only after the hover-intent delay.
+    triggerEl.dispatchEvent(
+      new PointerEvent("pointerenter", { bubbles: true, pointerType: "mouse" }),
+    );
+    await new Promise((r) => setTimeout(r, 200));
+    expect(previewOpen()).toBe(false);
+    await expect.poll(previewOpen).toBe(true);
+    expect(document.querySelector<HTMLImageElement>(".attachment-preview img")?.src).toBe(pixel);
 
     triggerEl.dispatchEvent(
       new PointerEvent("pointerleave", { bubbles: true, pointerType: "mouse" }),
@@ -5477,5 +5498,49 @@ describe("NewTask dismissed-draft restore", () => {
 
     await render(NewTask, { props: base({ restoreDraft: true }) });
     expect(promptField().value).toBe("");
+  });
+});
+
+describe("NewTask explanation tooltips", () => {
+  const tipOpen = () => !!document.querySelector("[role=tooltip]:popover-open");
+
+  it("mode buttons and the sandbox select carry structured explanations, not native titles", async () => {
+    render(NewTask, { props: base() });
+    await expect.poll(() => segButton(m.newtask_mode_research())).toBeTruthy();
+    const cases: [HTMLElement, string][] = [
+      [segButton(m.newtask_mode_research()), tooltipText(researchModeExplanation())],
+      [segButton(m.newtask_mode_epic()), tooltipText(epicModeExplanation())],
+      [segButton(m.newtask_mode_plain()), tooltipText(plainModeExplanation())],
+      [
+        document.querySelector<HTMLSelectElement>("#nt-sandbox")!,
+        tooltipText(sandboxOverrideExplanation()),
+      ],
+    ];
+    for (const [el, text] of cases) {
+      expect(el.hasAttribute("title")).toBe(false);
+      expect(el.getAttribute("aria-description")).toBe(text);
+    }
+  });
+
+  it("a mode tip opens only after the pointer rests, and clicking still switches mode", async () => {
+    render(NewTask, { props: base() });
+    await expect.poll(() => segButton(m.newtask_mode_research())).toBeTruthy();
+    const research = segButton(m.newtask_mode_research());
+
+    research.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+    research.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "mouse" }));
+    await new Promise((r) => setTimeout(r, 650));
+    expect(tipOpen()).toBe(false);
+
+    research.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+    await new Promise((r) => setTimeout(r, 200));
+    expect(tipOpen()).toBe(false);
+    await expect.poll(tipOpen).toBe(true);
+    expect(document.querySelector("[role=tooltip]:popover-open")?.textContent).toContain(
+      m.tooltip_mode_research_title(),
+    );
+
+    research.click();
+    await expect.poll(() => segActive(m.newtask_mode_research())).toBe(true);
   });
 });

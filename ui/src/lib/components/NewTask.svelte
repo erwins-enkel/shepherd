@@ -66,6 +66,12 @@
   import { repoConfig } from "#lib/reviews.svelte.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import {
+    epicModeExplanation,
+    plainModeExplanation,
+    researchModeExplanation,
+  } from "#lib/tooltips/explanations.js";
   import { viewerCache } from "#lib/viewer-cache.svelte.js";
   import { assignedOthers } from "./issues-panel";
   import { projectIcons } from "#lib/projectIcons.svelte.js";
@@ -1872,6 +1878,10 @@
   // Mobile ready footer shows the selected engine's compact capacity (handoff:
   // "✓ ready · CX·WK 92% free"); desktop keeps the branch preview line.
   const footerCapacity = $derived(selectedProviderCapacity(usageLimits, agentProvider));
+
+  // Mode-button explanations: a click switches the mode, so the tip neither pins nor
+  // stops the (delegated) click.
+  const modeTip = { still: true, stopClickPropagation: false, pinOnClick: false } as const;
 </script>
 
 {#if mobile}
@@ -2893,7 +2903,7 @@
       class="seg-btn"
       class:seg-active={mode === "research"}
       aria-pressed={mode === "research"}
-      title={m.newtask_research_hint()}
+      use:statusTip={{ text: researchModeExplanation(), ...modeTip }}
       aria-keyshortcuts={shortcutAttr("mode-research")}
       onclick={() => setMode("research")}
       >{held ? m.keymap_mode_research_short() : m.newtask_mode_research()}{#if held}<Keycap
@@ -2908,7 +2918,7 @@
       class="seg-btn"
       class:seg-active={mode === "epic"}
       aria-pressed={mode === "epic"}
-      title={m.newtask_epic_authoring_hint()}
+      use:statusTip={{ text: epicModeExplanation(), ...modeTip }}
       aria-keyshortcuts={shortcutAttr("mode-epic")}
       onclick={() => setMode("epic")}
       >{m.newtask_mode_epic()}{#if held}<Keycap
@@ -2923,7 +2933,7 @@
       class="seg-btn"
       class:seg-active={mode === "plain"}
       aria-pressed={mode === "plain"}
-      title={m.newtask_plain_hint()}
+      use:statusTip={{ text: plainModeExplanation(), ...modeTip }}
       aria-keyshortcuts={shortcutAttr("mode-plain")}
       onclick={() => setMode("plain")}
       >{m.newtask_mode_plain()}{#if held}<Keycap

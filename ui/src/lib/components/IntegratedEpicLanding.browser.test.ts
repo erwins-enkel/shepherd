@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import type { CompletedEpic } from "#lib/types.js";
 import IntegratedEpicLanding from "./IntegratedEpicLanding.svelte";
@@ -234,4 +234,159 @@ it.each([
     const bg = luminance(style.backgroundColor);
     expect((Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05)).toBeGreaterThanOrEqual(4.5);
   }
+});
+
+describe("#2872 red landing CI", () => {
+  type Automation = NonNullable<CompletedEpic["landingCiAutomation"]>;
+  const automation = (
+    reruns: Partial<Automation["reruns"]> = {},
+    repair: Partial<Automation["repair"]> = {},
+  ): Automation => ({
+    reruns: { status: "done", used: 2, cap: 2, skipReason: null, ...reruns },
+    repair: {
+      status: "pending",
+      used: 0,
+      cap: 1,
+      skipReason: null,
+      sessionId: null,
+      sessionStartedAt: null,
+      ...repair,
+    },
+  });
+  const red = (a: Automation, over: Partial<CompletedEpic> = {}) =>
+    epic({
+      landingChecks: "failure",
+      landingCiChecks: {
+        failed: [{ name: "pr title", url: "https://github.com/o/r/runs/9" }],
+        running: 1,
+        passed: 3,
+      },
+      landingCiAutomation: a,
+      ...over,
+    });
+  const ciProps = (e: CompletedEpic, ok = true) => ({
+    ...props(e),
+    onrepairci: vi.fn(async () => ok),
+    onopensession: vi.fn(),
+    nowMs: 10 * 60_000,
+  });
+  const stage = (name: string) =>
+    document.querySelector<HTMLElement>(`.lcs-stage[data-stage="${name}"]`)!;
+
+  it("while Shepherd still retries: calm copy, red checks, and a secondary repair button", async () => {
+    await render(IntegratedEpicLanding, ciProps(red(automation({ status: "pending", used: 0 }))));
+    await expect
+      .element(page.getByRole("heading", { name: "Shepherd is re-running the red checks" }))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByText("A red check is often just a flake. Nothing for you to do yet."))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByRole("link", { name: "Log ↗" }))
+      .toHaveAttribute("href", "https://github.com/o/r/runs/9");
+    await expect.element(page.getByText("1 running · 3 green")).toBeInTheDocument();
+    expect(stage("reruns").textContent).toContain("○ up next");
+    expect(stage("you").textContent).toContain("From here on, it's your call");
+    expect(button("Fix CI failures")!.classList.contains("primary")).toBe(false);
+    expect(document.querySelector(".landing")!.classList.contains("warn")).toBe(false);
+  });
+
+  it("a rerun in flight: retrying heading without the repair button", async () => {
+    await render(
+      IntegratedEpicLanding,
+      ciProps(red(automation({ status: "running", used: 1 }), { landingChecks: "pending" })),
+    );
+    expect(stage("reruns").textContent).toContain("● attempt 1 of 2 running");
+    expect(button("Fix CI failures")).toBeUndefined();
+    await expect.element(page.getByRole("link", { name: "View checks ↗" })).toBeInTheDocument();
+  });
+
+  it("reruns spent, repair next: names the repair stage", async () => {
+    await render(IntegratedEpicLanding, ciProps(red(automation())));
+    await expect
+      .element(page.getByRole("heading", { name: "Shepherd is about to start a repair agent" }))
+      .toBeInTheDocument();
+    expect(stage("reruns").textContent).toContain("✓ 2 of 2 · still red");
+  });
+
+  it("Auto-Drain off: explains the skipped repair, opens the repo automation and starts a repair", async () => {
+    const p = ciProps(red(automation({}, { status: "skipped", skipReason: "auto-drain-off" })));
+    await render(IntegratedEpicLanding, p);
+    await expect
+      .element(page.getByText("Shepherd won't start an agent here on its own – it's your call."))
+      .toBeInTheDocument();
+    expect(stage("repair").querySelector(".gtl-marker.conditional")).toBeTruthy();
+    expect(stage("repair").textContent).toContain("runs only with Auto-Drain on");
+    await page.getByRole("button", { name: "Open repo automation" }).click();
+    expect(document.querySelector(".lcs-who .auto-pop")).toBeTruthy();
+    await userEvent.keyboard("{Escape}");
+    expect(document.querySelector(".lcs-who .auto-pop")).toBeNull();
+
+    const fix = button("Fix CI failures")!;
+    expect(fix.classList.contains("primary")).toBe(true);
+    expect(fix.getAttribute("aria-description")).toContain("no new PR");
+    await expect
+      .element(page.getByText("starts an agent · fix goes to the integration branch"))
+      .toBeInTheDocument();
+    await page.getByRole("button", { name: "Fix CI failures" }).click();
+    expect(p.onrepairci).toHaveBeenCalledExactlyOnceWith("/repo", 327);
+  });
+
+  it("automation exhausted: says so", async () => {
+    await render(
+      IntegratedEpicLanding,
+      ciProps(
+        red(
+          automation(
+            { status: "skipped", skipReason: "no-github" },
+            { status: "skipped", skipReason: "no-github" },
+          ),
+        ),
+      ),
+    );
+    await expect
+      .element(page.getByText("Shepherd has tried everything automatic – now it's your turn."))
+      .toBeInTheDocument();
+    expect(stage("reruns").textContent).toContain("skipped – GitHub only");
+  });
+
+  it("a failed start is shown inline", async () => {
+    const p = ciProps(
+      red(automation({}, { status: "skipped", skipReason: "auto-drain-off" })),
+      false,
+    );
+    await render(IntegratedEpicLanding, p);
+    await page.getByRole("button", { name: "Fix CI failures" }).click();
+    await expect
+      .element(page.getByRole("alert"))
+      .toHaveTextContent("Couldn't start the repair agent – try again");
+  });
+
+  it("after a repair that did not help: try again + the last session", async () => {
+    const p = ciProps(red(automation({}, { status: "done", used: 1, sessionId: "s-1" })));
+    await render(IntegratedEpicLanding, p);
+    await expect
+      .element(page.getByRole("heading", { name: "CI is still red after the repair" }))
+      .toBeInTheDocument();
+    expect(stage("repair").textContent).toContain("✓ 1 of 1 · still red");
+    await page.getByRole("button", { name: "View last session →" }).click();
+    expect(p.onopensession).toHaveBeenCalledExactlyOnceWith("s-1");
+    await page.getByRole("button", { name: "Try again" }).click();
+    expect(p.onrepairci).toHaveBeenCalledExactlyOnceWith("/repo", 327);
+  });
+
+  it("an agent at work: how long, what it fixes, and a link to its session", async () => {
+    const p = ciProps(
+      red(automation({}, { status: "running", sessionId: "s-2", sessionStartedAt: 6 * 60_000 }), {
+        landingRepairing: true,
+      }),
+    );
+    await render(IntegratedEpicLanding, p);
+    await expect
+      .element(page.getByRole("heading", { name: "An agent is repairing the landing PR" }))
+      .toBeInTheDocument();
+    expect(stage("repair").textContent).toContain("● running for 4m · fixing: pr title");
+    await page.getByRole("button", { name: "Open session →" }).click();
+    expect(p.onopensession).toHaveBeenCalledExactlyOnceWith("s-2");
+  });
 });

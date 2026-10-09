@@ -368,6 +368,7 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/epics/completed/dismiss",
     "/api/epics/completed/land",
     "/api/epics/completed/resolve-conflicts",
+    "/api/epics/completed/repair-ci",
     "/api/up-next/refresh",
     "/api/up-next/start",
     "/api/prs/merge",

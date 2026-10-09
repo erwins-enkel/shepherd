@@ -5,8 +5,12 @@
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { deriveIntegratedEpicStatus } from "#lib/integrated-epic-status.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
-  import { landingConflictReworkExplanation } from "#lib/tooltips/explanations.js";
+  import {
+    landingCiRepairExplanation,
+    landingConflictReworkExplanation,
+  } from "#lib/tooltips/explanations.js";
   import GlossaryText from "./GlossaryText.svelte";
+  import LandingCiStatus from "./LandingCiStatus.svelte";
 
   let {
     epic,
@@ -14,6 +18,9 @@
     ondismiss,
     onackmigrations,
     onresolveconflicts = () => {},
+    onrepairci = async () => true,
+    onopensession = () => {},
+    nowMs = Date.now(),
     children,
   }: {
     epic: CompletedEpic;
@@ -21,9 +28,15 @@
     ondismiss: (repoPath: string, parent: number) => void;
     onackmigrations: (repoPath: string, parent: number) => void;
     onresolveconflicts?: (repoPath: string, parent: number) => void;
+    /** #2872: start a CI-repair agent; resolves false when it could not be started. */
+    onrepairci?: (repoPath: string, parent: number) => Promise<boolean>;
+    onopensession?: (id: string) => void;
+    nowMs?: number;
     children?: Snippet;
   } = $props();
   let confirming = $state(false);
+  let repairStarting = $state(false);
+  let repairFailed = $state(false);
   const status = $derived(deriveIntegratedEpicStatus(epic, confirming));
   const total = $derived(epic.children.length);
   const included = $derived(epic.children.filter((c) => c.integrated).length);
@@ -41,6 +54,13 @@
     epic.landingPrUrl ? `${epic.landingPrUrl.replace(/\/$/, "")}/checks` : null,
   );
   const checking = $derived(epic.landingChecks === "pending" || epic.landingMergeable === null);
+  // #2872: the live repair session, else the last recorded one (server omits archived sessions).
+  const repairSessionId = $derived(epic.landingCiAutomation?.repair.sessionId ?? null);
+  const showCiStatus = $derived(
+    status.situation === "ci-failed" ||
+      status.situation === "ci-retrying" ||
+      (status.situation === "repairing" && status.repairKind === "ci"),
+  );
   const paused = $derived.by(() => {
     switch (epic.landingRebasePauseReason) {
       case "cap":
@@ -87,12 +107,31 @@
         label: m.integrated_epics_status_repairing(),
         reason: m.integrated_epics_land_not_ready_repairing(),
       }),
+      "ci-retrying": () => ({
+        heading:
+          status.ciRetrying === "repair"
+            ? m.integrated_epics_heading_ci_retrying_repair()
+            : m.integrated_epics_heading_ci_retrying_reruns(),
+        body:
+          status.ciRetrying === "repair"
+            ? m.integrated_epics_body_ci_retrying_repair()
+            : m.integrated_epics_body_ci_retrying_reruns(),
+        label: m.integrated_epics_status_ci_retrying(),
+        reason: m.integrated_epics_land_not_ready_ci_failing(),
+      }),
       "ci-failed": () => ({
         heading:
-          number != null
-            ? m.integrated_epics_heading_ci_failed({ number })
-            : m.integrated_epics_heading_ci_failed_nonum(),
-        body: m.integrated_epics_body_ci_failed(),
+          status.ciVariant === "after-repair"
+            ? m.integrated_epics_heading_ci_after_repair()
+            : number != null
+              ? m.integrated_epics_heading_ci_failed({ number })
+              : m.integrated_epics_heading_ci_failed_nonum(),
+        body:
+          status.ciVariant === "after-repair"
+            ? m.integrated_epics_body_ci_after_repair()
+            : status.ciVariant === "drain-off"
+              ? m.integrated_epics_body_ci_drain_off()
+              : m.integrated_epics_body_ci_exhausted(),
         label: m.integrated_epics_status_ci_failed(),
         reason: m.integrated_epics_land_not_ready_ci_failing(),
       }),
@@ -167,7 +206,7 @@
           ? "failure"
           : status.situation === "conflicts" || status.situation === "error"
             ? "warn"
-            : ["preparing", "checking", "repairing"].includes(status.situation)
+            : ["preparing", "checking", "repairing", "ci-retrying"].includes(status.situation)
               ? "running"
               : "open",
   );
@@ -207,6 +246,18 @@
   $effect(() => {
     if (!status.canLand) confirming = false;
   });
+  $effect(() => {
+    if (!status.canRepairCi) repairFailed = false;
+  });
+  async function handleRepairCi() {
+    repairFailed = false;
+    repairStarting = true;
+    try {
+      repairFailed = !(await onrepairci(epic.repoPath, epic.parentIssueNumber));
+    } finally {
+      repairStarting = false;
+    }
+  }
   function handleLandConfirm() {
     if (!deriveIntegratedEpicStatus(epic).canLand) return;
     confirming = false;
@@ -244,6 +295,7 @@
       {copy.heading}
     </h3>
     <p><GlossaryText text={copy.body} /></p>
+    {#if showCiStatus}<LandingCiStatus {epic} {nowMs} {onopensession} />{/if}
     {#if status.situation === "confirming" && pendingAck}
       <p class="migration-warn">
         {m.integrated_epics_land_confirm_migration_warn({ count: epic.migrationPaths.length })}
@@ -261,10 +313,38 @@
         <button class="gbtn primary" type="button" onclick={() => (confirming = true)}
           >{m.integrated_epics_land()}</button
         >
-      {:else if status.situation === "ci-failed" && epic.landingPrUrl}
+      {:else if status.canRepairCi}
+        <!-- #2872: primary once nothing automatic is left; secondary while Shepherd still retries. -->
+        <button
+          class="gbtn"
+          class:primary={status.situation === "ci-failed"}
+          type="button"
+          disabled={repairStarting}
+          use:statusTip={{ text: landingCiRepairExplanation(), stopClickPropagation: false }}
+          onclick={handleRepairCi}
+          >{status.ciVariant === "after-repair"
+            ? m.integrated_epics_repair_ci_again()
+            : m.integrated_epics_repair_ci()}</button
+        >
+        {#if status.ciVariant === "after-repair" && repairSessionId}
+          <button class="gbtn" type="button" onclick={() => onopensession(repairSessionId)}
+            >{m.integrated_epics_last_session()}</button
+          >
+        {/if}
+        {#if checksUrl}
+          <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
+          <a class="gbtn" href={checksUrl} target="_blank" rel="noopener noreferrer"
+            >{m.integrated_epics_view_checks()}</a
+          >
+        {/if}
+      {:else if (status.situation === "ci-retrying" || status.situation === "ci-failed") && checksUrl}
         <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-        <a class="gbtn primary" href={checksUrl} target="_blank" rel="noopener noreferrer"
+        <a class="gbtn" href={checksUrl} target="_blank" rel="noopener noreferrer"
           >{m.integrated_epics_view_checks()}</a
+        >
+      {:else if status.situation === "repairing" && repairSessionId}
+        <button class="gbtn" type="button" onclick={() => onopensession(repairSessionId)}
+          >{m.integrated_epics_open_session()}</button
         >
       {:else if status.situation === "conflicts" && status.canResolveConflicts}
         <button
@@ -319,6 +399,10 @@
         >
       {/if}
     </div>
+    {#if status.canRepairCi}<p class="remove-hint">{m.integrated_epics_repair_ci_hint()}</p>{/if}
+    {#if repairFailed}<p class="migration-warn" role="alert">
+        {m.integrated_epics_repair_ci_failed()}
+      </p>{/if}
     {#if ackInstead}<p class="migration-warn">
         {m.epic_migrations_pending({ count: epic.migrationPaths.length })}
       </p>{/if}

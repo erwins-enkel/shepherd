@@ -3251,6 +3251,27 @@ export async function resolveLandingConflicts(
   return r.json();
 }
 
+/** Dispatch a CI-repair agent for a completed epic's red landing PR (#2872): it fixes the red checks
+ *  and pushes straight to the integration branch (no new PR). 202 → dispatched. Non-2xx throws an
+ *  {@link ApiError} whose `code` is the server's `reason` (`no-landing` · `repairing` · `not-red` ·
+ *  `busy` · `unsupported` · `spawn-failed`). */
+export async function repairLandingCi(repoPath: string, parent: number): Promise<{ ok: boolean }> {
+  const r = await fetch("/api/epics/completed/repair-ci", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ repo: repoPath, parent }),
+  });
+  if (!r.ok) {
+    const body = (await r.json().catch(() => null)) as { error?: string; reason?: string } | null;
+    throw apiError(
+      r.status,
+      body ? { error: body.error, code: body.reason } : null,
+      `repair landing CI failed: ${r.status}`,
+    );
+  }
+  return r.json();
+}
+
 /** Manually trigger the PR-gated doc agent for a repo. 202 → started; 409 → skipped
  *  (with the server's reason); other non-2xx throws. */
 export async function triggerDocAgent(

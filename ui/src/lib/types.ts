@@ -1259,6 +1259,41 @@ export interface CompletedEpic {
   landingRepairing?: boolean;
   /** Conflict-rework sessions dispatched against this landing PR so far (#1841; auto + manual). */
   landingConflictReworkCount: number;
+  /** Live (#2872): the landing PR's red checks (name + log URL) and running/green counts. Absent
+   *  when the forge reports no per-check detail. Mirrors server CompletedEpic.landingCiChecks. */
+  landingCiChecks?: LandingCiChecks;
+  /** Live (#2872): where Shepherd's automatic handling of a red landing PR stands — drives the
+   *  card's "who's handling it" bar. Mirrors server CompletedEpic.landingCiAutomation. */
+  landingCiAutomation?: LandingCiAutomation;
+}
+
+/** #2872: a landing PR's per-check breakdown (mirrors the server type). */
+export interface LandingCiChecks {
+  failed: { name: string; url: string | null }[];
+  running: number;
+  passed: number;
+}
+
+/** #2872: one automatic stage on a red landing PR. `done` = budget spent (still red); `running` = in
+ *  flight; `pending` = Shepherd will still act; `skipped` = it will not, for `skipReason`. */
+export type LandingStageStatus = "done" | "running" | "pending" | "skipped";
+
+/** #2872: the rerun and agent-repair stages of a red landing PR (mirrors the server type). */
+export interface LandingCiAutomation {
+  reruns: {
+    status: LandingStageStatus;
+    used: number;
+    cap: number;
+    skipReason: "no-github" | "draft-mode" | "not-engaged" | "draft-pr" | "no-run" | null;
+  };
+  repair: {
+    status: LandingStageStatus;
+    used: number;
+    cap: number;
+    skipReason: "no-github" | "draft-mode" | "draft-pr" | "auto-drain-off" | null;
+    sessionId: string | null;
+    sessionStartedAt: number | null;
+  };
 }
 
 /** One queued backlog issue behind DrainStatus.queued — a row in the queue popover.

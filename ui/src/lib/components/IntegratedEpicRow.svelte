@@ -10,6 +10,8 @@
     onackmigrations,
     onland,
     onresolveconflicts = () => {},
+    onrepairci = async () => true,
+    onopensession = () => {},
     nowMs = Date.now(),
   }: {
     epic: CompletedEpic;
@@ -18,6 +20,8 @@
     onackmigrations: (repoPath: string, parent: number) => void;
     onland: (repoPath: string, parent: number) => void;
     onresolveconflicts?: (repoPath: string, parent: number) => void;
+    onrepairci?: (repoPath: string, parent: number) => Promise<boolean>;
+    onopensession?: (id: string) => void;
   } = $props();
   let open = $state(false);
   let childrenOpen = $state(false);
@@ -47,6 +51,10 @@
         return status.repairKind === "conflicts"
           ? m.integrated_epics_heading_repairing_conflicts()
           : m.integrated_epics_heading_repairing_ci();
+      case "ci-retrying":
+        return status.ciRetrying === "repair"
+          ? m.integrated_epics_heading_ci_retrying_repair()
+          : m.integrated_epics_heading_ci_retrying_reruns();
       case "ci-failed":
         return number != null
           ? m.integrated_epics_short_ci_failed({ number })
@@ -112,7 +120,16 @@
     {#if !open}<span class="summary">{summary}</span>{/if}
   </div>
   {#if open}
-    <IntegratedEpicLanding {epic} {onland} {ondismiss} {onackmigrations} {onresolveconflicts}>
+    <IntegratedEpicLanding
+      {epic}
+      {onland}
+      {ondismiss}
+      {onackmigrations}
+      {onresolveconflicts}
+      {onrepairci}
+      {onopensession}
+      {nowMs}
+    >
       <section class="children-section">
         <button
           class="children-toggle"

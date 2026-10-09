@@ -56,6 +56,19 @@ export function landingConflictReworkExplanation(): TooltipExplanation {
   };
 }
 
+/** Epic landing card "Fix CI failures" (#2872): what the repair agent does, what it costs, what follows. */
+export function landingCiRepairExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_landing_ci_title(),
+    summary: m.tooltip_landing_ci_summary(),
+    sections: [
+      { label: m.tooltip_landing_ci_does(), text: m.tooltip_landing_ci_does_body() },
+      { label: m.tooltip_landing_ci_cost(), text: m.tooltip_landing_ci_cost_body() },
+      { label: m.tooltip_landing_ci_after(), text: m.tooltip_landing_ci_after_body() },
+    ],
+  };
+}
+
 /** Settings → Up Next readiness rerank (#2535): what reorders, what it costs, what happens when it can't. */
 export function upNextReadinessExplanation(): TooltipExplanation {
   return {

@@ -82,6 +82,7 @@ import {
   apiKeyMembraneFields,
   apiKeyPassthroughEnv,
 } from "./spawn-auth";
+import { MAIN_SESSION_CACHE_TTL } from "./pricing";
 import type { Leftover, ProcessReaper } from "./process-reaper";
 import { SESSION_MARKER_ENV } from "./process-reaper";
 import type { BrowserTokenSigner } from "./browser-token";
@@ -550,6 +551,12 @@ export function spawnSettingsOverlay(
     ...(config.hooksIngest && opts.hooks ? buildHooksFragment(opts.hooks) : {}),
   };
   if (Object.keys(hooks).length > 0) settings.hooks = hooks;
+  // #1159: an api key gets the five-minute prompt cache by default, so a coffee-break idle
+  // re-writes the whole context. `promptCacheTtl` (Claude Code >= 2.1.242) lifts only the main
+  // conversation to an hour — NOT `ENABLE_PROMPT_CACHING_1H`, which lifts subagents too — and it
+  // lives here rather than in apiKeySettingsFragment, which one-shot transient agents share.
+  // Subscription already gets the hour, so it keeps its byte-identical overlay.
+  if (isApiKeyMode()) settings.promptCacheTtl = MAIN_SESSION_CACHE_TTL;
   // api-key mode folds in `apiKeyHelper` LAST so key order is stable; subscription
   // returns {} so the JSON is byte-for-byte identical to before (see spawn-auth).
   Object.assign(settings, apiKeySettingsFragment());

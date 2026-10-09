@@ -1168,7 +1168,7 @@ test("spawnSettingsOverlay pins remoteControlAtStartup + disables claude.ai conn
   }
 });
 
-test("spawnSettingsOverlay: subscription => byte-identical (no apiKeyHelper); api-key + helper path => adds apiKeyHelper last", () => {
+test("spawnSettingsOverlay: subscription => byte-identical (no apiKeyHelper/promptCacheTtl); api-key + helper path => adds promptCacheTtl 1h + apiKeyHelper last", () => {
   const prevMode = config.authMode;
   const prevPath = config.authApiKeyHelperPath;
   try {
@@ -1177,6 +1177,7 @@ test("spawnSettingsOverlay: subscription => byte-identical (no apiKeyHelper); ap
     config.authApiKeyHelperPath = null;
     const subJson = spawnSettingsOverlay();
     expect(JSON.parse(subJson)).not.toHaveProperty("apiKeyHelper");
+    expect(JSON.parse(subJson)).not.toHaveProperty("promptCacheTtl");
     // a stray helper path in subscription mode must still be ignored (byte-identical).
     config.authApiKeyHelperPath = "/h/x.sh";
     expect(spawnSettingsOverlay()).toBe(subJson);
@@ -1186,6 +1187,8 @@ test("spawnSettingsOverlay: subscription => byte-identical (no apiKeyHelper); ap
     config.authApiKeyHelperPath = "/h/x.sh";
     const parsed = JSON.parse(spawnSettingsOverlay());
     expect(parsed.apiKeyHelper).toBe("/h/x.sh");
+    // #1159: the main conversation asks for the one-hour prompt cache an api key lacks by default.
+    expect(parsed.promptCacheTtl).toBe("1h");
     // everything else is unchanged from subscription.
     expect(parsed.remoteControlAtStartup).toBe(config.remoteControlAtStartup);
     expect(parsed.env).toEqual({ ENABLE_CLAUDEAI_MCP_SERVERS: "false" });

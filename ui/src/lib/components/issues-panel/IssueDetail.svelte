@@ -222,6 +222,7 @@
           {epic}
           runSummary={drain?.runSummary ?? null}
           headActions={false}
+          {nowMs}
         />
       {:else}
         <div class="muted">{m.common_loading()}</div>

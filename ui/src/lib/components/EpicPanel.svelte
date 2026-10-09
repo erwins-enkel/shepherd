@@ -3,6 +3,7 @@
   import { m } from "#lib/paraglide/messages.js";
   import { importEpic } from "#lib/api.js";
   import { chipFor, progress, slotHeldBy, stateLabel } from "./epic-panel";
+  import { childDuration } from "#lib/epic-timing-detail.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import EpicHandsOffIntro from "./EpicHandsOffIntro.svelte";
   import EpicDiagnosisModal from "./EpicDiagnosisModal.svelte";
@@ -16,6 +17,7 @@
     epic,
     runSummary = null,
     headActions = true,
+    nowMs = Date.now(),
   }: {
     repoPath: string;
     parent: number;
@@ -25,10 +27,14 @@
     /** Render Import + Diagnose in the head. False when the host (the backlog reading
      *  detail, #2617) offers them in its own ⋯ menu instead. */
     headActions?: boolean;
+    /** The host's tick — a running step's clock runs on it (#2939). */
+    nowMs?: number;
   } = $props();
 
   const p = $derived(progress(epic.children));
   const readyCount = $derived(epic.children.filter((c) => c.state === "ready").length);
+  // A DAUER column (#2939) once the server sends the epic clock.
+  const timed = $derived(epic.timing != null);
 
   let showDiag = $state(false);
 </script>
@@ -64,6 +70,7 @@
         {m.epic_diag_open()}
       </button>
     {/if}
+    {#if timed}<span class="dur-head">{m.epicdetail_col_duration()}</span>{/if}
   </div>
 
   <ul class="epic-children">
@@ -77,6 +84,14 @@
         <span class="chip chip-{chip.tone}">{stateLabel(c.state)}</span>
         {#if slot}
           <span class="slot">{m.epic_slot_held({ index: slot.index, max: slot.max })}</span>
+        {/if}
+        {#if timed}
+          {@const d = childDuration(c, epic, nowMs)}
+          <span class="dur dur-{d?.tone ?? 'none'}">
+            {#if d?.clock}<span class="dur-clock">{d.clock}</span>{/if}{d?.clock && d.text
+              ? ` · ${d.text}`
+              : (d?.text ?? "")}
+          </span>
         {/if}
         {#if c.state === "blocked" && c.blockedBy.length > 0}
           <span class="deps"
@@ -160,8 +175,9 @@
     text-decoration: underline;
   }
 
+  /* A basis, so a narrow row wraps its DAUER cell instead of crushing the title. */
   .title {
-    flex: 1;
+    flex: 1 1 12ch;
     min-width: 0;
     color: var(--color-ink);
     font-size: var(--fs-meta);
@@ -225,6 +241,33 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     white-space: nowrap;
+  }
+
+  /* ── DAUER (#2939) ──────────────────────────────────────────────────────
+     Merged: the measured time, bright; running: its clock amber, what is left muted; the rest
+     the step estimate, muted. A fixed width keeps the chips in line. */
+  .dur-head {
+    margin-left: auto;
+    color: var(--color-faint);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .dur {
+    flex: none;
+    min-width: 22ch;
+    margin-left: auto;
+    color: var(--color-muted);
+    text-align: right;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .dur-done {
+    color: var(--color-ink-bright);
+  }
+  .dur-clock {
+    color: var(--status-running);
   }
 
   /* ── blocker deps + warnings ─────────────────────────────────────────── */

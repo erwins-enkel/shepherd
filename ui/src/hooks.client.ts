@@ -1,4 +1,4 @@
-import type { HandleClientError } from "@sveltejs/kit";
+import type { HandleClientError } from "@sveltejs/kit/hooks";
 import { installDemoBackend } from "$lib/demo/install";
 import { director } from "$lib/demo/director";
 import { startCommandBarShowcase } from "$lib/demo/showcase";

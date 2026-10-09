@@ -4775,6 +4775,52 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     ]);
   }
 
+  /**
+   * Codex rows whose launch marker never resolved to a native id — the boot backfill's candidates
+   * (see `backfillCodexProviderSessionIds`). Newest first and capped, so rows whose rollout is gone
+   * for good can't grow the per-boot work. Rows without a launch id have no provenance to resolve.
+   */
+  listCodexRowsMissingProviderSessionId(limit = 200): Array<{
+    id: string;
+    worktreePath: string;
+    codexLaunchId: string;
+    createdAt: number;
+  }> {
+    return this.db
+      .query(
+        `SELECT id, worktreePath, codexLaunchId, createdAt
+           FROM sessions
+          WHERE agentProvider = 'codex'
+            AND terminal = 0
+            AND COALESCE(codexLaunchId, '') <> ''
+            AND COALESCE(providerSessionId, '') = ''
+          ORDER BY createdAt DESC
+          LIMIT ?`,
+      )
+      .all(limit) as Array<{
+      id: string;
+      worktreePath: string;
+      codexLaunchId: string;
+      createdAt: number;
+    }>;
+  }
+
+  /**
+   * Backfill a native id ONLY while the row still carries the launch it was resolved for and has no
+   * id yet — so it can never overwrite a live capture or a relaunch's fresh identity. Leaves
+   * `updatedAt` alone (like {@link setRuntimeIdentity}): filling in history is not an update the
+   * operator made. True when the row was written.
+   */
+  fillProviderSessionId(id: string, codexLaunchId: string, providerSessionId: string): boolean {
+    return (
+      this.db.run(
+        `UPDATE sessions SET providerSessionId = ?
+          WHERE id = ? AND codexLaunchId = ? AND COALESCE(providerSessionId, '') = ''`,
+        [providerSessionId, id, codexLaunchId],
+      ).changes > 0
+    );
+  }
+
   /** Persist the manual operator steps detected in a session's PR body (#1059). Stored as a JSON
    *  array; an empty array clears any prior detection. Dedicated setter (the generic update()
    *  whitelist would silently drop it), mirroring {@link setHaltReason}'s direct-UPDATE style. */

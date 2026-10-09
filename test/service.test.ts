@@ -3687,7 +3687,7 @@ test("restore: isolated codex with no matching rollout → cannot_restore", asyn
 test("restore: non-isolated codex → cannot_restore EVEN with a matching rollout present", async () => {
   // Locks the DELIBERATE isolated-only guard (#1175 / #1476): a non-isolated session shares its cwd
   // with siblings/relaunches/operator runs, so a discoverable rollout can't be attributed to THIS
-  // row — restore refuses even when findCodexSessionId WOULD return an id for the cwd. Proves the
+  // row — restore refuses even when a cwd scan WOULD find an id for it. Proves the
   // block is the intentional guard, not an incidental "no rollout found".
   await withCodexHome(
     [

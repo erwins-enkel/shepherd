@@ -41,9 +41,9 @@ function readTextOrNull(path: string): string | null {
 
 /** Resolve a Codex row's rollout by its NATIVE session id and read the identity out of it.
  *
- * Resolving by id sidesteps the cwd ambiguity that makes `CodexTranscriptLocator.pathFor()` refuse
- * non-isolated sessions (#1175): a native id names exactly one conversation, so there is nothing to
- * mis-attribute. A row with no id recorded stays unresolved. */
+ * Resolving by id sidesteps the cwd ambiguity of a non-isolated checkout (#1175): a native id
+ * names exactly one conversation, so there is nothing to mis-attribute. A row with no id recorded
+ * stays unresolved. */
 function codexIdentity(
   row: RuntimeIdentityCandidate,
   metas: RolloutMeta[],

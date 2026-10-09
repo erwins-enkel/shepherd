@@ -1,10 +1,10 @@
 /**
  * Codex rollout readers. Task automation resolves launch provenance with
- * findCodexLaunchSessionId; cwd-recency helpers remain for legacy transcript display only.
- * Native resume always uses the attributed session_meta id.
+ * findCodexLaunchSessionId and persists the attributed session_meta id; every later reader —
+ * native resume and the transcript readers alike — goes through that id, never cwd recency.
  */
 import { closeSync, openSync, readSync } from "node:fs";
-import { normalize } from "node:path";
+import { basename, normalize } from "node:path";
 
 import { codexHome, listRolloutFiles } from "./codex-usage";
 
@@ -14,50 +14,24 @@ export interface SessionMetaHeader {
   source: string | null;
 }
 
-/** A resolved interactive rollout: its Codex-native id AND the file it lives in. */
-export interface CodexRollout {
-  id: string;
-  path: string;
-}
-
 /** Generous negative clock-skew allowance when filtering rollout files by mtime against a session's
  *  `createdAt` — a rollout is written just after spawn, so its mtime is >= createdAt on the same
  *  machine; this only guards against tiny FS/clock jitter so a legit rollout is never excluded.
- *  Lives here, with the scan, because every caller's window MUST agree: the id the resume path
- *  captures and the rollout the transcript readers show have to be the same conversation. */
+ *  Lives here, with the scan, so the live capture and the boot backfill share one window. */
 export const CODEX_ID_SKEW_MS = 5 * 60_000;
 
 /**
- * The newest interactive (`source === "cli"`) rollout whose recorded cwd equals `worktreePath`,
- * among rollouts modified at/after `notBeforeMs`; null if none. The scan is UNBOUNDED over that
- * mtime window (callers must not cap it) so a busy machine can't push the target rollout out of view.
- *
- * This legacy display heuristic is not proof of ownership and must never select a resume target.
+ * The rollout file of the Codex conversation `id`, or null. Codex names every rollout
+ * `rollout-<timestamp>-<id>.jsonl` and `codex resume <id>` appends to that same file, so the name
+ * alone locates it — a stat-only walk, no header scan. The header is still checked so a renamed or
+ * foreign file can never be served as this conversation.
  */
-export function findCodexRollout(
-  worktreePath: string,
-  notBeforeMs: number,
-  home = codexHome(),
-): CodexRollout | null {
-  const target = normalize(worktreePath);
-  // listRolloutFiles is newest-first by mtime, so the first cwd+cli match is the newest one — and the
-  // first file older than the window means every remaining file is too: stop rather than scan the tail.
-  for (const { path, mtimeMs } of listRolloutFiles(home)) {
-    if (mtimeMs < notBeforeMs) break;
-    const meta = readSessionMeta(path);
-    if (!meta || meta.source !== "cli" || !meta.id) continue;
-    if (normalize(meta.cwd) === target) return { id: meta.id, path };
+export function findCodexRolloutById(id: string, home = codexHome()): string | null {
+  const suffix = `-${id}.jsonl`;
+  for (const { path } of listRolloutFiles(home)) {
+    if (basename(path).endsWith(suffix) && readSessionMeta(path)?.id === id) return path;
   }
   return null;
-}
-
-/** {@link findCodexRollout}'s id alone; not safe for automated session targeting. */
-export function findCodexSessionId(
-  worktreePath: string,
-  notBeforeMs: number,
-  home = codexHome(),
-): string | null {
-  return findCodexRollout(worktreePath, notBeforeMs, home)?.id ?? null;
 }
 
 /** A fresh launch gets its own marker, including when an existing task replaces its agent.
@@ -66,24 +40,110 @@ export function codexLaunchMarker(launchId: string): string {
   return `<shepherd-session launch="${launchId}" />\n`;
 }
 
-/** Resolve by launch provenance, never by cwd recency. Multiple distinct conversations carrying
- * the marker (e.g. a copied/forked history) are ambiguous and must stay manual. A bounded prefix
- * read avoids loading growing transcripts; an incomplete/oversized prefix simply cannot resolve. */
+/** A rollout file together with its parsed `session_meta` header. */
+export interface RolloutHeader extends SessionMetaHeader {
+  path: string;
+  mtimeMs: number;
+}
+
+/** Interactive TUI rollouts: `cli`, or `vscode` when Codex 0.160+ runs the TUI through its shared
+ *  daemon. Headless role spawns are `exec`; subagent threads carry an object source (parsed as
+ *  null). The launch marker, not this label, proves ownership — this only keeps roles out. */
+function isInteractiveSource(source: string | null): boolean {
+  return source !== null && source !== "exec";
+}
+
+/** Every readable rollout header under `$CODEX_HOME/sessions`, newest-first by mtime, read lazily
+ *  so a caller that stops early never parses the older tail. */
+export function* rolloutHeaders(home = codexHome()): Generator<RolloutHeader> {
+  for (const { path, mtimeMs } of listRolloutFiles(home)) {
+    const meta = readSessionMeta(path);
+    if (meta) yield { ...meta, path, mtimeMs };
+  }
+}
+
+/** The launch-provenance rule over newest-first `headers`: the one interactive conversation in
+ *  `worktreePath`, modified at/after `notBeforeMs`, whose first user turn opens with the launch
+ *  marker. Multiple distinct conversations carrying the marker (e.g. a copied/forked history) are
+ *  ambiguous and must stay manual. */
+function launchSessionIdAmong(
+  headers: Iterable<RolloutHeader>,
+  worktreePath: string,
+  launchId: string,
+  notBeforeMs: number,
+): string | null {
+  const target = normalize(worktreePath);
+  const marker = codexLaunchMarker(launchId);
+  const ids = new Set<string>();
+  for (const h of headers) {
+    if (h.mtimeMs < notBeforeMs) break;
+    if (!h.id || !isInteractiveSource(h.source) || normalize(h.cwd) !== target) continue;
+    if (rolloutHasLaunchMarker(h.path, marker)) ids.add(h.id);
+  }
+  return ids.size === 1 ? [...ids][0]! : null;
+}
+
+/** Resolve by launch provenance, never by cwd recency. A bounded prefix read avoids loading
+ * growing transcripts; an incomplete/oversized prefix simply cannot resolve. */
 export function findCodexLaunchSessionId(
   worktreePath: string,
   launchId: string,
   notBeforeMs: number,
   home = codexHome(),
 ): string | null {
-  const ids = new Set<string>();
-  for (const { path, mtimeMs } of listRolloutFiles(home)) {
-    if (mtimeMs < notBeforeMs) break;
-    const meta = readSessionMeta(path);
-    if (!meta?.id || meta.source !== "cli" || normalize(meta.cwd) !== normalize(worktreePath))
-      continue;
-    if (rolloutHasLaunchMarker(path, codexLaunchMarker(launchId))) ids.add(meta.id);
+  return launchSessionIdAmong(rolloutHeaders(home), worktreePath, launchId, notBeforeMs);
+}
+
+/** What the boot backfill needs from the store (structural, so tests can inject it). */
+export interface ProviderSessionIdBackfillStore {
+  listCodexRowsMissingProviderSessionId(): Array<{
+    id: string;
+    worktreePath: string;
+    codexLaunchId: string;
+    createdAt: number;
+  }>;
+  fillProviderSessionId(id: string, codexLaunchId: string, providerSessionId: string): boolean;
+}
+
+/**
+ * Capture the native id of Codex rows whose launch marker never resolved live — rows that settled
+ * before the poller caught their rollout, e.g. the daemon-sourced (`vscode`) rollouts Codex 0.160
+ * wrote while capture still required `cli`. Same provenance rule as the live capture.
+ *
+ * Boot-only and bounded: ONE header walk is shared by every candidate (never one per row), the
+ * store caps the candidates, there is no walk at all without one, and it never throws — a backfill
+ * failure must not block startup. Returns the number of rows filled.
+ */
+export function backfillCodexProviderSessionIds(
+  store: ProviderSessionIdBackfillStore,
+  listHeaders: () => Iterable<RolloutHeader> = () => rolloutHeaders(),
+): number {
+  let rows: ReturnType<ProviderSessionIdBackfillStore["listCodexRowsMissingProviderSessionId"]>;
+  let headers: RolloutHeader[];
+  try {
+    rows = store.listCodexRowsMissingProviderSessionId();
+    if (rows.length === 0) return 0;
+    headers = [...listHeaders()];
+  } catch {
+    return 0;
   }
-  return ids.size === 1 ? [...ids][0]! : null;
+
+  let filled = 0;
+  for (const row of rows) {
+    try {
+      const id = launchSessionIdAmong(
+        headers,
+        row.worktreePath,
+        row.codexLaunchId,
+        row.createdAt - CODEX_ID_SKEW_MS,
+      );
+      if (id && store.fillProviderSessionId(row.id, row.codexLaunchId, id)) filled += 1;
+    } catch {
+      /* one bad row must not abort the sweep */
+    }
+  }
+  if (filled > 0) console.log(`[codex-session-id] backfilled native ids for ${filled} row(s)`);
+  return filled;
 }
 
 /** Bound disk work independently of transcript size. */

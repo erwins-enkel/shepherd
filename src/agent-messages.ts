@@ -22,7 +22,8 @@ export interface AgentMessage {
 }
 
 /** Why no transcript could be read. `no-transcript`: nothing to resolve (no pinned agent session
- *  id, a non-isolated Codex session, or no rollout found). `file-missing`: resolved, but gone. */
+ *  id, a Codex session whose native id isn't captured yet, or no rollout found). `file-missing`:
+ *  resolved, but gone. */
 export type MessagesUnavailable = "no-transcript" | "file-missing";
 
 export interface SessionMessages {

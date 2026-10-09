@@ -54,6 +54,7 @@
     onselectepic = undefined,
     onstartchild = undefined,
     sessionInfo = undefined,
+    issueSession = undefined,
   }: {
     repoPath: string;
     selection: IssueSelection;
@@ -84,6 +85,8 @@
     onstartchild?: (parent: number, child: number) => void;
     /** A session and its PR state from the store, by id; null when unknown. */
     sessionInfo?: (id: string) => { session: Session; git?: GitState } | null;
+    /** The live session working an issue of this repo, by issue number. */
+    issueSession?: (issue: number) => Session | null;
   } = $props();
 
   let showDiag = $state(false);
@@ -166,11 +169,13 @@
     <IssueTaskBox
       {repoPath}
       issue={selection.issue}
+      session={issueSession?.(selection.issue.number) ?? null}
       defaults={taskDefaults}
       bind:run
       {issueActions}
       onstart={() => onstart(selection.issue)}
       onquick={onquick ? (a) => onquick(selection.issue, a) : undefined}
+      {onopensession}
     />
   {:else if selection.kind === "epic"}
     <!-- A direct child of the article, so it stays pinned across the child list AND the

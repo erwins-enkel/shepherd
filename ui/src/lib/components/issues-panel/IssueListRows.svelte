@@ -20,6 +20,7 @@
     epicFor,
     issueActions,
     runSummary = null,
+    running = undefined,
     oninject = undefined,
     onselect,
     ontoggle,
@@ -31,6 +32,8 @@
     issueActions: Steer[];
     /** The repo's run picture (#2620): epic roles and the child holding a slot. */
     runSummary?: DrainRunSummary | null;
+    /** Whether a single issue is being worked (a live session or the claim label). */
+    running?: (issue: Issue) => boolean;
     oninject?: (issue: Issue, steer: Steer) => void;
     onselect: (key: string) => void;
     ontoggle: (n: number) => void;
@@ -128,7 +131,14 @@
       use:issueMenuTrigger={{ onopen: (x, y, node) => openMenu(issue, x, y, node) }}
     >
       <span class="title issue-title">{issue.title}</span>
-      <span class="meta">{metaLine(issue)}</span>
+      <span class="meta"
+        >{#if running?.(issue)}<span
+            class="dot dot-running"
+            role="img"
+            aria-label={m.issuetask_state_claimed()}
+            title={m.issuetask_state_claimed()}
+          ></span>{/if}{metaLine(issue)}</span
+      >
     </div>
   {/if}
 {/each}
@@ -267,6 +277,12 @@
     font-size: var(--fs-micro);
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* Running marker leading the meta line: the child rows' dot, set inline. */
+  .meta .dot {
+    display: inline-block;
+    margin-right: 5px;
+    vertical-align: middle;
   }
 
   @media (max-width: 768px), (pointer: coarse) {

@@ -4876,6 +4876,8 @@
   "backlog_quick_started": "Session started for #{number}",
   "feat_issues_reading_title": "Issues: list and reading view",
   "feat_issues_reading_body": "The Issues tab now groups sub-issues under their epic on the left and shows the selected entry on the right, with its description rendered. Use ↑/↓ to move, → to expand an epic and A to start a task.",
+  "feat_backlog_steer_stays_title": "Steers start in the background",
+  "feat_backlog_steer_stays_body": "A steer in an issue's task box now starts its session without leaving Repos. A toast confirms the start and opens the session on request; the task box switches to “In progress” with “Open session”, and the issue list marks running issues with a dot.",
   "backlog_row_tip_issues": "Open issues: {count}",
   "backlog_row_tip_issues_unknown": "Open issues: not loaded yet",
   "backlog_row_tip_prs_label": "Pull requests",

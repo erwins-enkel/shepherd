@@ -36,6 +36,7 @@
     staleSummary,
     labelCounts,
     runningIssues,
+    ACTIVE_LABEL,
   } from "./issues-panel";
   import { childAsIssue, openBlockers } from "./epic-child";
   import { progress } from "./epic-panel";
@@ -583,6 +584,11 @@
       return [record ? { ...summary, ...progress(record.children) } : summary];
     }),
   );
+  // The live session working an issue of this repo; with the claim label it marks the issue
+  // running in the list and the task box.
+  const sessionFor = (n: number) => issueSession?.(repoPath, n) ?? null;
+  const isRunning = (issue: Issue) =>
+    sessionFor(issue.number) != null || (issue.labels ?? []).includes(ACTIVE_LABEL);
   // What runs, what is labelled how, what lies (#2638) — the repo picture the list can't give.
   // "Running now" covers the singles; epic work shows in the run area and epic cards.
   const overviewRunning = $derived.by(() => {
@@ -590,7 +596,7 @@
       (i) => !epicParentNums.has(i.number) && !nativeSubIssues.has(i.number),
     );
     const visible = new Set(visibleIssues.map((i) => i.number));
-    return runningIssues(singles, (n) => issueSession?.(repoPath, n) ?? null, visible);
+    return runningIssues(singles, sessionFor, visible);
   });
   const overviewLabels = $derived(labelCounts(issues, availableLabels));
   const overviewStale = $derived(staleSummary(issues, clock.current));
@@ -798,6 +804,7 @@
             {epicFor}
             {issueActions}
             runSummary={drain?.runSummary ?? null}
+            running={isRunning}
             {oninject}
             onselect={selectFromList}
             ontoggle={toggleEpic}
@@ -848,6 +855,7 @@
             onselectepic={(parent) => selectAndReveal(epicKey(parent))}
             onstartchild={startChild}
             {sessionInfo}
+            issueSession={sessionFor}
           />
         {/key}
       {:else}

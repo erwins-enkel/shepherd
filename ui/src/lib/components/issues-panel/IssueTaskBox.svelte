@@ -3,6 +3,7 @@
     AGENT_PROVIDERS,
     type AgentProvider,
     type Issue,
+    type Session,
     type Steer,
     type TaskRunDefaults,
     type TaskRunSeed,
@@ -31,19 +32,25 @@
   let {
     repoPath,
     issue,
+    session = null,
     defaults = undefined,
     run = $bindable({}),
     issueActions,
     onstart,
     onquick = undefined,
+    onopensession = undefined,
   }: {
     repoPath: string;
     issue: Issue;
+    /** The live session working this issue, if any — it marks the task "in progress" right
+     *  away, before the claim label reaches the cached issue list. */
+    session?: Pick<Session, "id"> | null;
     defaults?: TaskRunDefaults;
     run?: TaskRunSeed;
     issueActions: Steer[];
     onstart: () => void;
     onquick?: (action: Steer) => void;
+    onopensession?: (sessionId: string) => void;
   } = $props();
 
   // Repo overrides (default model/effort) load lazily — same as the New Task dialog.
@@ -51,7 +58,7 @@
     void repoConfig.ensure(repoPath);
   });
 
-  const claimed = $derived((issue.labels ?? []).includes(ACTIVE_LABEL));
+  const claimed = $derived(session != null || (issue.labels ?? []).includes(ACTIVE_LABEL));
 
   const provider = $derived<AgentProvider>(
     run.agentProvider ?? defaults?.agentProvider ?? "claude",
@@ -118,6 +125,12 @@
     <span class="task-state" class:claimed
       >{claimed ? m.issuetask_state_claimed() : m.issuetask_state_not_started()}</span
     >
+    {#if session && onopensession}
+      {@const id = session.id}
+      <button class="open-session gbtn" type="button" onclick={() => onopensession(id)}
+        >{m.epic_run_open_session()}</button
+      >
+    {/if}
   </div>
 
   <div class="run-settings" role="group" aria-label={m.issuetask_settings_label()}>

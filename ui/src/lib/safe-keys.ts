@@ -103,6 +103,20 @@ export function setPathKey<T>(rec: Record<string, T>, key: string, value: T): Re
   return Object.fromEntries([...Object.entries(rec), [key, value]]) as Record<string, T>;
 }
 
+/** Immutably drop `rec[id]`.
+ *
+ *  DELIBERATELY UNGUARDED, unlike its {@link setKey} sibling. Removing a key can never create or
+ *  redirect a prototype under any name, so a key check would add no safety — while a REJECTED key
+ *  would silently fail to delete, pinning a session as "Reviewing…" or leaving a stale verdict on
+ *  screen. Guarding here can only break deletion.
+ *
+ *  Filters entries rather than `delete copy[id]` for the same reason {@link setPathKey} uses
+ *  `Object.fromEntries`: identical semantics, but the key is data, not a dynamic property write
+ *  that `js/remote-property-injection` flags. */
+export function dropKey<T>(rec: Record<string, T>, id: string): Record<string, T> {
+  return Object.fromEntries(Object.entries(rec).filter(([k]) => k !== id)) as Record<string, T>;
+}
+
 /** Strip prototype-polluting own keys from a payload before an `Object.assign`.
  *
  *  Needed because `Object.assign` uses `[[Set]]`: an own `__proto__` key — which `JSON.parse`

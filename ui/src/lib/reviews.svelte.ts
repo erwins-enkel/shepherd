@@ -10,7 +10,7 @@ import type {
 import type { AutomationFlags } from "./components/git-rail-automation";
 import { handsOffPatch } from "./components/epic-handsoff";
 import type { RepoConfigResponse } from "./api";
-import { SAFE_ID, setKey } from "./safe-keys";
+import { SAFE_ID, dropKey, setKey } from "./safe-keys";
 import {
   getReviews,
   getReviewingIds,
@@ -135,9 +135,7 @@ class ReviewsStore {
   apply(d: { id: string; review: ReviewVerdict | null }) {
     if (d.review) this.map = setKey(this.map, d.id, d.review);
     else {
-      const copy = { ...this.map };
-      delete copy[d.id];
-      this.map = copy;
+      this.map = dropKey(this.map, d.id);
     }
     // a verdict (or its removal) means the run is no longer in flight
     this.setReviewing(d.id, false);
@@ -158,9 +156,7 @@ class ReviewsStore {
     this.clearActivity(id);
     if (on) this.reviewing = setKey(this.reviewing, id, true);
     else {
-      const copy = { ...this.reviewing };
-      delete copy[id];
-      this.reviewing = copy;
+      this.reviewing = dropKey(this.reviewing, id);
     }
   }
 
@@ -294,9 +290,7 @@ export class PlanGateStore {
     this.clearActivity(id);
     if (on) this.reviewing = setKey(this.reviewing, id, true);
     else {
-      const copy = { ...this.reviewing };
-      delete copy[id];
-      this.reviewing = copy;
+      this.reviewing = dropKey(this.reviewing, id);
     }
   }
 

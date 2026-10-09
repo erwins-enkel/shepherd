@@ -1,6 +1,7 @@
 import { test, expect, vi, afterEach } from "vitest";
 import { amendments } from "./amendments.svelte";
 import { HerdStore } from "./store.svelte";
+import { dropKey } from "./safe-keys";
 import { toasts } from "./toasts.svelte";
 
 test("an older herdr snapshot cannot erase a repair in progress", () => {
@@ -1463,6 +1464,11 @@ test("dropKey stays unguarded so deletion never silently fails", () => {
   expect(s.git["s1"]).toBeDefined();
   s.apply({ event: "session:archived", data: { id: "s1" } });
   expect(s.git["s1"]).toBeUndefined();
+  // even a dangerous own key is removable, and removal touches no prototype
+  const rec = JSON.parse('{"__proto__":1,"a":2}') as Record<string, number>;
+  const out = dropKey(rec, "__proto__");
+  expect(Object.keys(out)).toEqual(["a"]);
+  expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
 });
 
 test("path-keyed writes stay enumerable, spreadable and serialisable", () => {

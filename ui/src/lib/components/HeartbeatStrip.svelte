@@ -2,6 +2,7 @@
   import { formatAgo } from "#lib/format.js";
   import { bucketStrip } from "#lib/heartbeat.js";
   import { anchorPopover } from "#lib/floating-anchor.js";
+  import { HOVER_OPEN_DELAY_MS } from "#lib/tooltips/statusTip.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
   import type { SessionActivity } from "#lib/types.js";
 
@@ -48,14 +49,28 @@
 
   // Fine pointer: hover opens. Touch pointerenter is skipped so a tap just selects
   // the row (no tap-toggle) rather than popping a desktop tooltip.
-  function onEnter(e: PointerEvent) {
-    if (e.pointerType !== "touch") open = true;
+  // Hover waits HOVER_OPEN_DELAY_MS (shared with statusTip) so sweeping across a row
+  // doesn't flash the legend; focus still opens at once.
+  let enterTimer: ReturnType<typeof setTimeout> | null = null;
+  function cancelEnter() {
+    if (enterTimer !== null) clearTimeout(enterTimer);
+    enterTimer = null;
   }
+  function onEnter(e: PointerEvent) {
+    if (e.pointerType === "touch") return;
+    cancelEnter();
+    enterTimer = setTimeout(() => {
+      enterTimer = null;
+      open = true;
+    }, HOVER_OPEN_DELAY_MS);
+  }
+  $effect(() => cancelEnter);
   // Focus opens on fine pointers only (a touch tap also focuses the button).
   function onOpen() {
     if (!isCoarse()) open = true;
   }
   function onClose() {
+    cancelEnter();
     open = false;
   }
 

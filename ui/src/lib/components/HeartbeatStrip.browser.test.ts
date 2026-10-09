@@ -60,6 +60,21 @@ describe("HeartbeatStrip trigger", () => {
     expect(labels).toContain(m.heartbeat_legend_error_label());
   });
 
+  it("hover opens the legend only after the pointer rests; a pass-through never opens", async () => {
+    render(HeartbeatStrip, { activity: activity(), nowMs: NOW });
+    const strip = document.querySelector("button.strip") as HTMLButtonElement;
+    const legendOpen = () => !!document.querySelector("[role=tooltip]:popover-open");
+    strip.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+    strip.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "mouse" }));
+    await new Promise((r) => setTimeout(r, 650));
+    expect(legendOpen()).toBe(false);
+
+    strip.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+    await new Promise((r) => setTimeout(r, 200));
+    expect(legendOpen()).toBe(false);
+    await expect.poll(legendOpen).toBe(true);
+  });
+
   it("still renders an errored slice as a red stub cell in the strip", () => {
     render(HeartbeatStrip, { activity: activity(), nowMs: NOW });
     // Scope to the strip so the legend's error swatch isn't what we're matching.

@@ -37,7 +37,7 @@ let uid = 0;
 // Hover intent: the pointer must rest this long on a trigger before its tip opens.
 // Herd rows pack many chips side by side, and instant tips covered the row the
 // operator was reaching for.
-const HOVER_OPEN_DELAY_MS = 500;
+export const HOVER_OPEN_DELAY_MS = 500;
 
 /**
  * Explanation-only tooltip for the session-card status chips.

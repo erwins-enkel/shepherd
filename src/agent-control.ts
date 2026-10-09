@@ -41,6 +41,7 @@
  */
 import { basename } from "node:path";
 import { validateEpicDraft } from "./epic-author";
+import type { RateLimitSnapshot } from "./forge/rate-limit";
 import type { GitState } from "./forge/types";
 import type { LoginRequestService } from "./login-request";
 import type { PrCache } from "./pr-poller";
@@ -61,6 +62,8 @@ export interface AgentControlDeps {
   events?: { emit(event: string, data: unknown): void };
   /** PR/CI state for the read tools; absent ⇒ every `pr` block reads null. */
   prCache?: Pick<PrCache, "get">;
+  /** Shepherd's GitHub backoff trackers (#2860); absent ⇒ `self_status.github` reads null. */
+  githubBackoff?: () => GithubBackoff;
   /** Login Requests (#2882); absent ⇒ `browser_request_login` answers "unavailable". */
   loginRequests?: Pick<LoginRequestService, "request" | "wait" | "wouldCreate">;
   /** Open `url` as the session's tab in the repo's Shared Browser, so Browser View preselects
@@ -211,6 +214,45 @@ function applySessionsShow(
   return { ok: true, data: sessionSummary(deps, s, sessionId, makeFence()) };
 }
 
+/** The three GitHub backoff trackers (src/forge/rate-limit.ts), read live. */
+export interface GithubBackoff {
+  graphql: RateLimitSnapshot;
+  restRead: RateLimitSnapshot;
+  restWrite: RateLimitSnapshot;
+}
+
+/** Epoch ms → ISO, or null. Agents read ISO; epoch arithmetic invites off-by-1000 mistakes. */
+const isoOrNull = (ms: number | null) => (ms === null ? null : new Date(ms).toISOString());
+
+/**
+ * Shepherd's real GitHub budget as `self_status` reports it (#2860) — the truth `gh api
+ * rate_limit` misreports on this account. A reading whose `resetAt` has passed belongs to an
+ * expired window and reads null; while the GraphQL backoff is on, `remaining` reads 0 (a limit
+ * error leaves the last, pre-403 reading in the tracker). `blockedUntil` is the latest moment any
+ * blocked tracker lifts, using the in-query `resetAt` for GraphQL when it is still ahead — the
+ * real window end, not the 60s re-probe — or null when nothing is blocked.
+ */
+export function githubBudget(b: GithubBackoff, now: number) {
+  const { graphql, restRead, restWrite } = b;
+  const resetAt = graphql.resetAt !== null && graphql.resetAt > now ? graphql.resetAt : null;
+  const pausedUntil = (s: RateLimitSnapshot) => (s.blocked ? s.pausedUntil : null);
+  const until = [
+    graphql.blocked ? Math.max(graphql.pausedUntil ?? 0, resetAt ?? 0) : null,
+    pausedUntil(restRead),
+    pausedUntil(restWrite),
+  ].filter((ms): ms is number => ms !== null);
+  return {
+    blockedUntil: until.length > 0 ? isoOrNull(Math.max(...until)) : null,
+    graphql: {
+      remaining: graphql.blocked ? 0 : resetAt === null ? null : graphql.remaining,
+      resetAt: isoOrNull(resetAt),
+      pausedUntil: isoOrNull(pausedUntil(graphql)),
+    },
+    restRead: { pausedUntil: isoOrNull(pausedUntil(restRead)) },
+    restWrite: { pausedUntil: isoOrNull(pausedUntil(restWrite)) },
+  };
+}
+
 function applySelfStatus(deps: AgentControlDeps, sessionId: string): ApplyResult<unknown> {
   const s = deps.store.get(sessionId);
   if (!s) return { ok: false, status: 404, error: "session not found" };
@@ -243,6 +285,7 @@ function applySelfStatus(deps: AgentControlDeps, sessionId: string): ApplyResult
         round: gate.round,
         cap: gate.cap,
       },
+      github: deps.githubBackoff ? githubBudget(deps.githubBackoff(), Date.now()) : null,
     },
   };
 }
@@ -451,8 +494,9 @@ const SESSIONS_SHOW: McpTool = {
 const SELF_STATUS: McpTool = {
   name: "self_status",
   description:
-    "This session's own state: PR and CI checks, the critic's latest review verdict and the " +
-    "plan-gate verdict." +
+    "This session's own state: PR and CI checks, the critic's latest review verdict, the " +
+    "plan-gate verdict, and Shepherd's live GitHub API budget (`github`) — make no `gh` call " +
+    "before `github.blockedUntil`." +
     READ_NOTE,
   inputSchema: { type: "object", properties: {}, additionalProperties: false },
 };

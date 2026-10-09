@@ -3,6 +3,7 @@ import {
   decideToolGuard,
   hookOutput,
   isTmpfsPath,
+  RATE_LIMIT_REASON,
   type ToolGuardContext,
   type ToolGuardDenial,
   type ToolGuardEvent,
@@ -248,6 +249,39 @@ describe("inline-shell rule (Claude Code false 'runs rm' prompt, anthropics/clau
       `bash -c 'echo "$AB {a,b}"'`, // $VAR only as data
       `git commit -m "bash -c '$AB {a,b}'"`, // the whole shape mentioned as data
       `bash script.sh '{a,b}'`, // no -c
+    ]) {
+      expect(`${cmd}: ${deny(bash(cmd))}`).toBe(`${cmd}: null`);
+    }
+  });
+});
+
+describe("#2860 rate_limit rule (gh api rate_limit misreports on this account)", () => {
+  it("denies the endpoint Claude Code's rate-limit reminder sends agents to", () => {
+    for (const cmd of [
+      "gh api rate_limit",
+      "gh api rate_limit --jq .resources",
+      "gh api /rate_limit",
+      "gh api 'rate_limit'",
+      "gh api -X GET rate_limit",
+      "gh api --jq .resources.core rate_limit",
+      "cd /home/u/repo && gh api rate_limit",
+    ]) {
+      const d = deny(bash(cmd));
+      expect(`${cmd}: ${d?.permissionDecision}`).toBe(`${cmd}: deny`);
+      expect(d?.permissionDecisionReason).toBe(RATE_LIMIT_REASON);
+    }
+    // The refusal must name the truthful source, not just a "no".
+    expect(RATE_LIMIT_REASON).toContain("self_status");
+    expect(RATE_LIMIT_REASON).toContain("github.blockedUntil");
+  });
+
+  it("leaves the in-query reading, other endpoints and mere mentions alone", () => {
+    for (const cmd of [
+      `gh api graphql -f query='{rateLimit{remaining resetAt}}'`,
+      "gh api repos/o/r",
+      "gh api repos/o/r --jq .rate_limit",
+      `echo "gh api rate_limit"`,
+      `git commit -m "gh api rate_limit"`,
     ]) {
       expect(`${cmd}: ${deny(bash(cmd))}`).toBe(`${cmd}: null`);
     }

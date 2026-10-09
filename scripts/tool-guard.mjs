@@ -18,6 +18,8 @@
 //
 // A third denial is a workaround, not a hazard: a `<shell> -c` script Claude Code's inline-shell
 // check cannot resolve, which it flags with a bypass-immune "runs rm" ask (anthropics/claude-code#99630).
+// A fourth redirects a misleading source: `gh api rate_limit` misreports on this account, so the
+// refusal points the agent at `self_status`, which carries Shepherd's real GitHub budget (#2860).
 
 import { realpathSync, statfsSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
@@ -112,6 +114,19 @@ export const INLINE_SHELL_REASON =
   "session auto-denies. Rewrite it: drop the `-c` wrapper and run the commands directly, spell " +
   "the command out on each line, or define a shell function (`ab() { agent-browser --session x " +
   '"$@"; }`) instead of a `$VAR` command.';
+
+/**
+ * Reason attached to a denied `gh api rate_limit` (#2860). Claude Code's own rate-limit reminder
+ * tells agents to run exactly that, but on this account it misreports — a full `core` bucket while
+ * real REST calls 403'd, GraphQL `used` far below the in-query reading, resets off the real window —
+ * so an agent following it retries into the limit or sleeps until the wrong time.
+ */
+export const RATE_LIMIT_REASON =
+  "Blocked by Shepherd: `gh api rate_limit` misreports on this account — it has shown a full " +
+  "bucket while real calls were limited, and reset times that differ from the real window. Call " +
+  "the `self_status` tool instead: `github.blockedUntil` is the real reset (null = Shepherd sees " +
+  "no limit). Make no `gh` call before it; keep working locally — `git commit`/`git push` don't " +
+  "use the API budget — and create or update the PR after the reset.";
 
 /** Shells whose `-c` script Claude Code's inline-shell check parses. */
 const INLINE_SHELLS = new Set(["bash", "sh", "zsh", "dash", "ksh"]);
@@ -352,6 +367,42 @@ function runsUncheckableInlineShell(command) {
   });
 }
 
+/** `gh api` flags that consume the following word — mirrors `API_VALUE_FLAGS` in
+ *  src/forge/rate-limit.ts, which this plain .mjs cannot import. */
+const GH_API_VALUE_FLAGS = new Set([
+  "-X",
+  "--method",
+  "-f",
+  "--raw-field",
+  "-F",
+  "--field",
+  "-H",
+  "--header",
+  "-q",
+  "--jq",
+  "-t",
+  "--template",
+  "--input",
+  "--hostname",
+  "--cache",
+  "-p",
+  "--preview",
+]);
+
+/** True when a segment's words run `gh api rate_limit` (the endpoint is the first positional
+ *  after `api`, flag values skipped). */
+function readsRateLimit(w) {
+  if (w[0] !== "gh" || w[1] !== "api") return false;
+  for (let i = 2; i < w.length; i++) {
+    if (GH_API_VALUE_FLAGS.has(w[i])) i++;
+    else if (!w[i].startsWith("-")) {
+      const endpoint = unquote(w[i]);
+      return endpoint === "rate_limit" || endpoint === "/rate_limit";
+    }
+  }
+  return false;
+}
+
 /** True when any segment of `command` opens a pull request. */
 function opensPullRequest(command) {
   return segments(command).some((segment) => {
@@ -376,7 +427,8 @@ function isBackgrounded(input, command) {
   return input.run_in_background === true || /(^|[^&])&\s*$/.test(command.trim());
 }
 
-/** The denial rules — the two hazards this guard exists to stop. `null` = nothing recognized. */
+/** The denial rules — the two hazards this guard exists to stop, plus the misreporting
+ *  `gh api rate_limit` (#2860). `null` = nothing recognized. */
 function denyFor(command, eventCwd, isTmpfs) {
   let cwd = typeof eventCwd === "string" ? eventCwd : undefined;
 
@@ -395,6 +447,10 @@ function denyFor(command, eventCwd, isTmpfs) {
       const target = args.find((a) => !a.startsWith("-"));
       cwd = target ? (resolvePath(target, cwd) ?? undefined) : undefined;
       continue;
+    }
+
+    if (readsRateLimit(w)) {
+      return { permissionDecision: "deny", permissionDecisionReason: RATE_LIMIT_REASON };
     }
 
     if (cmd === "git") {

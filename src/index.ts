@@ -245,7 +245,7 @@ import { PROVIDER_FAILOVER_FROM_KEY, releaseProviderFailover } from "./provider-
 import { snapshotSessionUsage } from "./usage-snapshot";
 import { hasCommittedChanges } from "./diff";
 import { HoldReasonService } from "./hold-service";
-import { graphRateLimit, restWriteRateLimit } from "./forge/rate-limit";
+import { graphRateLimit, restRateLimit, restWriteRateLimit } from "./forge/rate-limit";
 import { fetchGithubRateLimit } from "./forge/github-rate-limit";
 import { sharedGhRunner } from "./forge/github";
 import { fetchRepoFingerprints } from "./forge/github-fingerprint";
@@ -3956,6 +3956,12 @@ const appDeps: AppDeps = {
   // Live GitHub REST + GraphQL buckets for the usage view. `gh api rate_limit`
   // is quota-exempt, so it works even when the GraphQL bucket is at zero.
   githubRateLimit: () => fetchGithubRateLimit(ghRunnerAsync),
+  // #2860: the agents' truthful budget — `self_status` reads these, never `gh api rate_limit`.
+  githubBackoff: () => ({
+    graphql: graphRateLimit.snapshot(),
+    restRead: restRateLimit.snapshot(),
+    restWrite: restWriteRateLimit.snapshot(),
+  }),
   updates,
   restart,
   herdrUpdates,

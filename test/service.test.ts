@@ -5124,6 +5124,31 @@ test("composeSystemPrompt rides <steer-provenance-notice> right after the untrus
   expect(codex.map((b) => b.name)).not.toContain("steer-provenance-notice");
 });
 
+test("composeSystemPrompt rides <github-rate-limit-notice> after research-first wherever self_status exists", () => {
+  // #2860: Claude Code's own reminder sends agents to `gh api rate_limit`, which misreports here.
+  for (const [autopilot, opts] of [
+    [false, {}],
+    [true, {}],
+    [true, { planGate: "interactive" as const }],
+    [false, { research: true }],
+  ] as const) {
+    const blocks = composeSystemPromptBlocks(null, autopilot, opts);
+    const names = blocks.map((b) => b.name);
+    expect(names.indexOf("github-rate-limit-notice")).toBe(
+      names.indexOf("research-first-notice") + 1,
+    );
+    const text = blocks.find((b) => b.name === "github-rate-limit-notice")!.text;
+    expect(text).toContain("`self_status`");
+    expect(text).toContain("github.blockedUntil");
+    expect(text).toContain("Never use `gh api rate_limit`");
+  }
+  // No self_status there: Codex has no MCP wiring, a plain session no read tools.
+  for (const opts of [{ agentProvider: "codex" as const }, { plain: true }]) {
+    const names = composeSystemPromptBlocks(null, false, opts).map((b) => b.name);
+    expect(names).not.toContain("github-rate-limit-notice");
+  }
+});
+
 test("composeSystemPrompt rides the single-PR invariant on code spawns, never on research", () => {
   // Issue #839: one session → one tracked PR. The block must ride every CODE spawn (with/without
   // house rules, autopilot on, plan-gate variants) but be suppressed for a research session, which

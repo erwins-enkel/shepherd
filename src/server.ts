@@ -247,6 +247,7 @@ import {
   handleMcpRequest,
   type AgentControlDeps,
   type ApplyResult,
+  type GithubBackoff,
 } from "./agent-control";
 import {
   anyLiveRepairSession,
@@ -406,6 +407,9 @@ export interface AppDeps {
   /** Live GitHub REST + GraphQL rate-limit buckets (via `gh api rate_limit`, which is
    *  itself quota-exempt); absent in tests → `/api/usage/github` 503s. */
   githubRateLimit?: () => Promise<GithubRateLimitPayload>;
+  /** Shepherd's GitHub backoff trackers, read live for `self_status` (#2860); absent in tests →
+   *  its `github` block reads null. */
+  githubBackoff?: () => GithubBackoff;
   /** Resolve the git forge for a repo dir; null when none is configured. */
   resolveForge?: (repoDir: string) => GitForge | null;
   /** Self-update tracker; absent in environments where it isn't wired. */

@@ -906,6 +906,22 @@ const RESEARCH_FIRST_NOTICE =
   "files against a stale or assumed API with no human to correct course.";
 
 /**
+ * Rides every spawn whose MCP config carries `self_status` — Claude-family, non-plain (issue #2860).
+ * Claude Code's own rate-limit reminder tells agents to run `gh api rate_limit` and sleep until its
+ * reset, but on this account that endpoint misreports both the budget and the window, so agents
+ * retried into the limit or slept until the wrong time. `self_status.github` carries Shepherd's real
+ * readings instead; the tool guard additionally denies `gh api rate_limit` with the same redirect.
+ * Agent-facing prompt text (not operator UI), so fixed English — same precedent as the other notices.
+ */
+const GITHUB_RATE_LIMIT_NOTICE =
+  "On a GitHub rate-limit error, call the `self_status` tool: its `github` block is Shepherd's " +
+  "live budget, and `github.blockedUntil` is the real reset. Never use `gh api rate_limit` — it " +
+  "misreports on this account. Make no `gh` call before that reset (if `blockedUntil` is null, " +
+  "wait a few minutes before one retry — never loop). Keep working locally meanwhile: " +
+  "`git commit` and `git push` don't use the API budget, and Shepherd notices the pushed branch " +
+  "— create or update the PR after the reset.";
+
+/**
  * Injected into the system prompt only for isolated sessions (worktree-backed). Non-isolated
  * sessions share the main repo directory and have no dedicated worktree, so the file would be
  * ambiguous and the hint would be misleading — it is intentionally omitted there.
@@ -1987,8 +2003,10 @@ export interface ComposeSystemPromptOptions {
  * `houseRules` is the already-wrapped `<shepherd-house-rules>` block, or null when there are
  * none / learnings are disabled; the engineering-posture, research-first, and branch-rename blocks
  * always ride. The `<steer-provenance-notice>` block rides every Claude-family spawn, directly after
- * the untrusted-content boundary (Codex never carries it). The whole set is re-passed on the Claude
- * resume argv (see buildClaudeResumeArgv).
+ * the untrusted-content boundary (Codex never carries it). The `<github-rate-limit-notice>` block
+ * (issue #2860) follows research-first on every Claude-family spawn except a plain one — exactly the
+ * spawns that have `self_status`. The whole set is re-passed on the Claude resume argv (see
+ * buildClaudeResumeArgv).
  * The `<single-pr-invariant>` block (issue #839) rides every spawn EXCEPT a research
  * one (`opts.research`) — research already caps at one report-PR / issue, so it's redundant there.
  * `opts.epicIntent` (issue #1391) appends the `<epic-authoring-notice>` block after the
@@ -2040,6 +2058,10 @@ export function composeSystemPromptBlocks(
   const blocks: PromptBlock[] = [posture, untrustedBoundary];
   if (claudeFamily) blocks.push(steerProvenanceBlock());
   blocks.push(research);
+  // #2860: only where `self_status` exists — Codex has no MCP wiring, a plain session no read tools.
+  if (claudeFamily && !opts.plain) {
+    blocks.push(taggedBlock("github-rate-limit-notice", GITHUB_RATE_LIMIT_NOTICE));
+  }
   if (houseRules) blocks.push({ name: "shepherd-house-rules", text: houseRules });
   blocks.push(...situationalBlocks(agentProvider, guard, opts.branchRename === true));
   // One-session-one-PR invariant (issue #839): rides every code spawn, suppressed for a research

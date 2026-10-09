@@ -155,6 +155,7 @@
   import { registerSW, onSelectSession, onOpenLearnings } from "#lib/push.js";
   import { onLaunchLink, sessionIdFromLink } from "#lib/launch-link.js";
   import { toasts } from "#lib/toasts.svelte.js";
+  import { confirmBacklogQuickStart } from "#lib/backlog-quick-start.js";
   import { m } from "#lib/paraglide/messages.js";
   import type { FeatureAnnouncement } from "#lib/feature-announcements.js";
   import { featureAnnouncements, FABLE_FEATURE_ID } from "#lib/feature-announcements.js";
@@ -1127,10 +1128,13 @@
   // branch the same way NewTask does; on any spawn failure fall back to the normal
   // dialog so the click is never lost. Resolves how it ended (null = the dialog took over),
   // so Up Next — whose lens doesn't show the new session — can confirm with a toast.
+  // `stay` (the Repos dialog): keep the backlog open and confirm with a toast instead of
+  // jumping to the new session.
   async function onquickissue(
     repoPath: string,
     issue: Issue,
     action: Steer,
+    stay = false,
   ): Promise<"created" | "held" | null> {
     const cmd = action.text.trim();
     if (!cmd) {
@@ -1154,7 +1158,9 @@
           body: issue.body,
         },
       });
+      if (stay) confirmBacklogQuickStart(r, issue.number, openFromBacklog);
       if ("held" in r) return "held";
+      if (stay) return "created";
       selectNewSession(r.id, repoPath);
       showBacklog = false;
       if (mobile.current) mobileScreen = "detail";
@@ -1459,6 +1465,13 @@
   // revealed before selection.
   function jumpToSession(id: string) {
     void jumpHandlers.jumpToSession(id);
+  }
+
+  // Leave the Repos dialog for a session it points at (a running issue's "Open session").
+  function openFromBacklog(id: string) {
+    showBacklog = false;
+    backlogSelectPath = null;
+    jumpToSession(id);
   }
 
   // true when focus sits in something that consumes typing — a form field or the
@@ -3621,7 +3634,7 @@
   {epicTarget}
   {inTrainPrs}
   {onissue}
-  onquick={onquickissue}
+  onquick={(repoPath, issue, action) => onquickissue(repoPath, issue, action, true)}
   oninject={oninjectissue}
   {onpr}
   {onadopt}
@@ -3635,11 +3648,7 @@
     showBacklog = false;
     backlogSelectPath = null;
   }}
-  onbacklogopensession={(id) => {
-    showBacklog = false;
-    backlogSelectPath = null;
-    jumpToSession(id);
-  }}
+  onbacklogopensession={openFromBacklog}
   {pendingTrain}
   ontrainclose={() => (pendingTrain = null)}
   ontrainconfirm={confirmTrain}

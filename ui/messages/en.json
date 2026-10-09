@@ -4873,6 +4873,7 @@
   "issuetask_start": "Start task",
   "issuetask_settings_label": "Task run settings",
   "issuetask_no_epic_hint": "No epic: doesn't take an agent slot",
+  "backlog_quick_started": "Session started for #{number}",
   "feat_issues_reading_title": "Issues: list and reading view",
   "feat_issues_reading_body": "The Issues tab now groups sub-issues under their epic on the left and shows the selected entry on the right, with its description rendered. Use ↑/↓ to move, → to expand an epic and A to start a task.",
   "backlog_row_tip_issues": "Open issues: {count}",

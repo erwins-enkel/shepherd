@@ -87,7 +87,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Concepts & glossary",
     path: "/reference/glossary/",
     keywords:
-      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic plan gate autopilot task amendment critic merge train rework first-pass rate first-push ci green plan drift maintain loop band inferred lightweight repo trial weighted units cold cache reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane shared browser handoff login spawn prompt access token token scope industry terms pr ci telemetry lead time inode",
+      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic epic clock agent time plan gate autopilot task amendment critic merge train rework first-pass rate first-push ci green plan drift maintain loop band inferred lightweight repo trial weighted units cold cache reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane shared browser handoff login spawn prompt access token token scope industry terms pr ci telemetry lead time inode",
   },
   {
     title: "Project house rules",

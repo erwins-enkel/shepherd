@@ -112,9 +112,12 @@ export function chipRailVisible(chips: RepoChip[], repoFilter: ReadonlySet<strin
 
 /** Whether a chip carries drain telemetry worth showing on its own detail line.
  *  Learnings are no longer surfaced here (they live on the chip's ✦ mark + the gear
- *  menu), so an insights-only repo would otherwise render an empty detail band. */
+ *  menu), so an insights-only repo would otherwise render an empty detail band.
+ *  An enabled but idle drain (nothing in flight, queued or paused) says nothing worth
+ *  a band of vertical space, so it is hidden too. */
 export function chipHasTelemetry(chip: RepoChip): boolean {
-  return chip.drain !== null;
+  const d = chip.drain;
+  return d !== null && (d.inFlight > 0 || d.queued > 0 || d.paused);
 }
 
 /** Selected repos that no longer have any live session (no chip) — a filter on a vanished

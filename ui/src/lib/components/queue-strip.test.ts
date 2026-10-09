@@ -459,8 +459,20 @@ describe("chipHasTelemetry", () => {
     expect(chipHasTelemetry(chip({}))).toBe(false);
   });
 
-  it("true when drain is present", () => {
-    expect(chipHasTelemetry(chip({ drain: drain({}) }))).toBe(true);
+  it("false when drain is enabled but idle (nothing in flight, queued or paused)", () => {
+    expect(chipHasTelemetry(chip({ drain: drain({}) }))).toBe(false);
+  });
+
+  it("true when drain has agents in flight", () => {
+    expect(chipHasTelemetry(chip({ drain: drain({ inFlight: 1 }) }))).toBe(true);
+  });
+
+  it("true when drain has queued issues", () => {
+    expect(chipHasTelemetry(chip({ drain: drain({ queued: 1 }) }))).toBe(true);
+  });
+
+  it("true when drain is paused", () => {
+    expect(chipHasTelemetry(chip({ drain: drain({ paused: true }) }))).toBe(true);
   });
 
   // learnings no longer surface on the detail line (they live on the chip ✦ mark + the

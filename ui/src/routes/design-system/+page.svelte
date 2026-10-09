@@ -493,6 +493,25 @@ const explanation: TooltipExplanation = {
 };
 // Structure automatically selects the readable width; content is escaped text.
 <button use:statusTip={{ text: explanation }}>…</button>
+// A status overview (the EPIC badge): panel: true is the session status panel's surface, and the
+// optional pieces it uses — a timeline strip, a full-width section, a row meter, a note, a footer.
+// navigates: true for a trigger whose click opens another view (touch: first tap previews).
+const overview: TooltipExplanation = {
+  title, summary,
+  timeline: {
+    segments: [{ from: 0, to: 0.22, tone: "done" }, { from: 0.24, to: 0.3, tone: "run" },
+      { from: 0.3, to: 0.42, tone: "run", projected: true }, { from: 0.96, to: 1, tone: "landing", projected: true }],
+    start: "10:21", end: "~20:00", now: { at: 0.3, label: "now 12:43" },
+    legend: [{ tone: "done", label: "merged" }, { tone: "run", label: "running" }, …],
+  },
+  sections: [
+    { label: "Forecast", text: "", note: "~1 h 45 min per step, plus ~20 min landing.",
+      rows: [{ text: "Confidence", aside: "low", meter: { value: 1, max: 3 } }] },
+    { label: "Steps", text: "", full: true, rows: [{ text: "#160 Baseline", aside: "2 h 10 min", tone: "ok" }] },
+  ],
+  footer: ["Click opens the epic in Repos."],
+};
+<button use:statusTip={{ text: overview, panel: true, navigates: true }}>EPIC 1/5</button>
 // Glossary registry entries can supply explanation: () => TooltipExplanation.
 // For existing disclosure/popover shells (wide: sections flow into columns when there is room):
 <TooltipBody content={explanation} wide />`;
@@ -520,6 +539,69 @@ const explanation: TooltipExplanation = {
         ],
       },
     ],
+  };
+
+  // Live status-panel example (the EPIC badge's shape). Exempt from i18n like the page.
+  const overviewExplanation: TooltipExplanation = {
+    title: "Epic #158 running for 2 h 22 min",
+    summary: "1 of 5 steps merged. At this pace the epic lands today around 20:00.",
+    timeline: {
+      segments: [
+        { from: 0, to: 0.22, tone: "done" },
+        { from: 0.24, to: 0.25, tone: "run" },
+        { from: 0.25, to: 0.42, tone: "run", projected: true },
+        { from: 0.42, to: 0.6, tone: "done", projected: true },
+        { from: 0.6, to: 0.78, tone: "done", projected: true },
+        { from: 0.78, to: 0.96, tone: "done", projected: true },
+        { from: 0.96, to: 1, tone: "landing", projected: true },
+      ],
+      start: "10:21",
+      end: "~20:00",
+      now: { at: 0.25, label: "now 12:43" },
+      legend: [
+        { tone: "done", label: "merged" },
+        { tone: "run", label: "running" },
+        { tone: "done", projected: true, label: "forecast" },
+        { tone: "landing", projected: true, label: "landing" },
+      ],
+    },
+    sections: [
+      {
+        label: "Time",
+        text: "",
+        rows: [
+          { text: "Started", aside: "Oct 9, 10:21" },
+          { text: "Agents active", aside: "2 h 14 min" },
+          { text: "Waited, no agent ran", aside: "8 min" },
+        ],
+      },
+      {
+        label: "Forecast",
+        text: "",
+        rows: [
+          { text: "Remaining", aside: "~7 h 15 min" },
+          { text: "Done around", aside: "~20:00" },
+          { text: "Range", aside: "18:15–22:15" },
+          { text: "Confidence", aside: "low", meter: { value: 1, max: 3 } },
+        ],
+        note: "~1 h 45 min per step, one after another (1 slot), plus ~20 min landing.",
+      },
+      {
+        label: "Steps",
+        text: "",
+        full: true,
+        rows: [
+          {
+            text: "#160 Baseline, U-15 decision and PostgreSQL 18",
+            aside: "2 h 10 min",
+            tone: "ok",
+          },
+          { text: "#161 Bun as package manager", aside: "04:13 · ~1 h 40 min left", tone: "run" },
+          { text: "#159 Test server sync", aside: "ready · waiting for a slot" },
+        ],
+      },
+    ],
+    footer: ["/repo · Epic #158", "⏱ 2h 22m on the clock, ticking since Oct 9, 10:21"],
   };
 
   const glossMarkup = `<!-- In a message value, wrap a term with [[id|Label]]: -->
@@ -1310,6 +1392,9 @@ const explanation: TooltipExplanation = {
       >
       <GlossaryText text="[[plan-gate|Plan gate]] · [[autopilot|Autopilot]]" />
       <button class="gbtn" use:statusTip={{ text: rowsExplanation }}>◷ Waiting on CI</button>
+      <button class="gbtn" use:statusTip={{ text: overviewExplanation, panel: true }}
+        >EPIC 1/5</button
+      >
     </div>
     <pre><code>{tooltipMarkup}</code></pre>
   </section>

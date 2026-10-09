@@ -27,7 +27,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Hands-off epics",
     path: "/hands-off-epics/",
     keywords:
-      'the automation-pane settings that let an epic drain end-to-end without operator intervention, and the blockers that will still legitimately stop it. recommended settings plan gate is hands-off-safe — keep it on sign-off authority — leave it on "human" what still stops a hands-off epic starting the epic when the landing pr\'s ci is red',
+      'the automation-pane settings that let an epic drain end-to-end without operator intervention, and the blockers that will still legitimately stop it. recommended settings plan gate is hands-off-safe — keep it on sign-off authority — leave it on "human" what still stops a hands-off epic starting the epic how long will this epic take? the epic clock agent time and waiting time how the forecast is built range and confidence why the first estimate is wide the "faster with n slots" hint when the landing pr\'s ci is red',
   },
   {
     title: "Operating Shepherd",

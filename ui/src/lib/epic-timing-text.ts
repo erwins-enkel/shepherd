@@ -84,7 +84,7 @@ export function sameDay(a: number, b: number): boolean {
 /** The time alone on today's date, else with the date. */
 export const at = (ts: number, now: number) => (sameDay(ts, now) ? clock(ts) : dateTime(ts));
 /** A forecast instant is no more precise than 5 min. */
-const round5 = (ts: number) => Math.round(ts / (5 * MIN)) * 5 * MIN;
+export const round5 = (ts: number) => Math.round(ts / (5 * MIN)) * 5 * MIN;
 export const atApprox = (ts: number, now: number) => at(round5(ts), now);
 
 function when(ts: number, now: number): string {

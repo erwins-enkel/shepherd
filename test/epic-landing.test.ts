@@ -3,8 +3,10 @@ import { buildLandingPrBody, buildLandingPrTitle } from "../src/epic-landing";
 
 /** Build a landing title AND assert it clears the `pr title` gate. `.github/workflows/pr-title.yml`
  *  lints the PR title with the repo's commitlint config, whose `subject-case` rule rejects a
- *  subject whose first character is uppercase (#2021 — verified against `bunx commitlint`). Every
- *  case below goes through this wrapper so the builder can never drift away from the gate again. */
+ *  subject whose first character is uppercase (#2021 — verified against `bunx commitlint`) and
+ *  whose `header-max-length` rejects a title over 100 chars, counted as JS `.length` (#2871).
+ *  Every case below goes through this wrapper so the builder can never drift away from the gate
+ *  again. */
 function build(parentNumber: number, parentTitle: string): string {
   const title = buildLandingPrTitle(parentNumber, parentTitle);
 
@@ -12,6 +14,7 @@ function build(parentNumber: number, parentTitle: string): string {
   // A missing prefix is itself the #1206 bug — assert on `title` so the failure names it.
   if (subject === undefined) expect(title).toBe("<a conventional type(scope)!?: prefix>");
   expect(subject).not.toMatch(/^[A-Z]/);
+  expect(title.length).toBeLessThanOrEqual(100);
 
   return title;
 }
@@ -34,10 +37,19 @@ describe("buildLandingPrTitle", () => {
     expect(build(327, "EFI value map")).toBe("feat: eFI value map (epic #327)");
   });
 
-  it("falls back to `feat:` for a non-type `Word:` prefix (not a real conventional type)", () => {
+  it("turns a non-type `Word:` prefix into the scope of the `feat` fallback", () => {
     expect(build(90, "Comments: communication feed")).toBe(
-      "feat: comments: communication feed (epic #90)",
+      "feat(comments): communication feed (epic #90)",
     );
+    expect(build(2695, "native: drop dialogs")).toBe("feat(native): drop dialogs (epic #2695)");
+  });
+
+  it("guards an empty description after a non-type `Word:` prefix", () => {
+    expect(build(93, "Native:")).toBe("feat(native): epic #93");
+  });
+
+  it("keeps the bare fallback for a non-type word that carries its own scope", () => {
+    expect(build(94, "Comments(x): y")).toBe("feat: comments(x): y (epic #94)");
   });
 
   it("lowercases a recognized but mixed-case type", () => {
@@ -84,6 +96,49 @@ describe("buildLandingPrTitle", () => {
 
   it("leaves a non-letter-initial description alone (already gate-safe)", () => {
     expect(build(15, "5 things to fix")).toBe("feat: 5 things to fix (epic #15)");
+  });
+
+  it("shortens the real #2695 title, which wedged landing PR #2754 at 127 chars", () => {
+    expect(
+      build(
+        2695,
+        "native: wiederkehrende macOS-Dialoge für XCTest-UI-Automation und github.com-Schlüsselbundzugriff beseitigen",
+      ),
+    ).toBe("feat(native): wiederkehrende macOS-Dialoge für XCTest-UI-Automation und… (epic #2695)");
+  });
+
+  it("shortens a very long bare title but keeps the type and the epic tag", () => {
+    const title = build(4242, "Rework the landing flow ".repeat(15));
+    expect(title).toStartWith("feat: rework the landing flow ");
+    expect(title).toEndWith("… (epic #4242)");
+  });
+
+  it("keeps a recognized type, scope and `!` when shortening", () => {
+    const title = build(4243, `fix(api)!: ${"drop the legacy route ".repeat(10)}`);
+    expect(title).toStartWith("fix(api)!: drop the legacy route ");
+    expect(title).toEndWith("… (epic #4243)");
+  });
+
+  it("leaves a title of exactly 100 chars unchanged and cuts one of 101 at a word boundary", () => {
+    const exact = build(1, `${"word ".repeat(16)}abcd`);
+    expect(exact).toBe(`feat: ${"word ".repeat(16)}abcd (epic #1)`);
+    expect(exact.length).toBe(100);
+    expect(build(1, `${"word ".repeat(16)}abcde`)).toBe(
+      `feat: ${"word ".repeat(15)}word… (epic #1)`,
+    );
+  });
+
+  it("hard-cuts a single long word that offers no word boundary", () => {
+    const title = build(1, "x".repeat(200));
+    expect(title).toBe(`feat: ${"x".repeat(83)}… (epic #1)`);
+    expect(title.length).toBe(100);
+  });
+
+  it("never leaves half of a surrogate pair at a hard cut", () => {
+    // The 84-char budget's hard cut lands between the emoji's two UTF-16 code units.
+    expect(build(1, `${"x".repeat(82)}😀${"y".repeat(20)}`)).toBe(
+      `feat: ${"x".repeat(82)}… (epic #1)`,
+    );
   });
 });
 

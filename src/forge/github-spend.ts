@@ -120,7 +120,7 @@ export interface GraphqlSpendSplit {
 }
 
 /** Readings must span this long before the split shows per-hour rates. */
-export const SPLIT_MIN_COVERAGE_MS = 5 * 60_000;
+const SPLIT_MIN_COVERAGE_MS = 5 * 60_000;
 
 const HOUR_MS = 3_600_000;
 

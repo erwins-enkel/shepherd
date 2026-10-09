@@ -462,19 +462,33 @@ export function makeGhRunner(
           if (graphql) chargeGraphql(args, out, graph, spend);
           return out;
         } catch (err) {
-          if (isRateLimitError(err)) {
-            const stderr = String((err as Record<string, unknown>)?.stderr ?? "");
-            const bucket = graphql ? graph : restBucket;
-            bucket?.noteLimitError(parseRetryAfter(stderr), limitCause(args, stderr));
-          } else if (graphql && (err as NodeJS.ErrnoException | null)?.code !== "ENOENT") {
-            // GitHub answered (an error, or partial data next to one) — and charged for it.
-            const stdout = (err as { stdout?: unknown } | null)?.stdout;
-            chargeGraphql(args, typeof stdout === "string" ? stdout : null, graph, spend);
-          }
+          noteFailure(args, err, { graph, restBucket, spend });
           throw err;
         }
       }),
     );
+}
+
+/**
+ * Record a failed call. A rate-limit error engages the bucket the call drew on (GraphQL, or
+ * its REST read/write tracker). Any other GraphQL failure GitHub answered — an error, or
+ * partial data next to one — was still charged, so it is charged to the ledger too (#2840).
+ */
+function noteFailure(
+  args: string[],
+  err: unknown,
+  t: { graph: BucketRateLimit; restBucket: BucketRateLimit | null; spend: GraphqlSpendLedger },
+): void {
+  const graphql = isGraphqlBucketCall(args);
+  if (isRateLimitError(err)) {
+    const stderr = String((err as Record<string, unknown>)?.stderr ?? "");
+    const bucket = graphql ? t.graph : t.restBucket;
+    bucket?.noteLimitError(parseRetryAfter(stderr), limitCause(args, stderr));
+    return;
+  }
+  if (!graphql || (err as NodeJS.ErrnoException | null)?.code === "ENOENT") return;
+  const stdout = (err as { stdout?: unknown } | null)?.stdout;
+  chargeGraphql(args, typeof stdout === "string" ? stdout : null, t.graph, t.spend);
 }
 
 /**

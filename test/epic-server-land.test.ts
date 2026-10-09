@@ -420,3 +420,81 @@ describe("POST /api/epics/completed/resolve-conflicts", () => {
     expect(typeof body.error).toBe("string");
   });
 });
+
+// ── POST /api/epics/completed/repair-ci (#2872) ───────────────────────────────
+
+describe("POST /api/epics/completed/repair-ci", () => {
+  function repairHarness(
+    repair?: (
+      repoPath: string,
+      parent: number,
+    ) => Promise<import("../src/drain").RepairLandingCiResult>,
+  ) {
+    const calls: Array<[string, number]> = [];
+    const drain: AppDeps["drain"] = {
+      snapshot: async () => [],
+      queue: async () => [],
+      retainClaim: () => {},
+      buildEpic: async () => null,
+      diagnoseEpic: async () => null,
+      approveEpicNext: () => {},
+      tick: async () => {},
+      ...(repair
+        ? {
+            repairLandingCi: (repoPath: string, parent: number) => {
+              calls.push([repoPath, parent]);
+              return repair(repoPath, parent);
+            },
+          }
+        : {}),
+    };
+    const deps: AppDeps = {
+      store: new SessionStore(":memory:"),
+      service: {} as AppDeps["service"],
+      events: new EventHub(),
+      usageLimits: { limits: () => ({}) } as any,
+      drain,
+    };
+    return { app: makeApp(deps), calls };
+  }
+
+  const post = (app: ReturnType<typeof makeApp>, body: unknown) =>
+    app.fetch(
+      new Request("http://x/api/epics/completed/repair-ci", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    );
+
+  test("invalid repo → 400; no drain wired → 503", async () => {
+    const { app, calls } = repairHarness(async () => ({ ok: true }));
+    expect((await post(app, { repo: "/nope/not/here", parent: 5 })).status).toBe(400);
+    expect(calls).toHaveLength(0);
+    expect((await post(repairHarness().app, { repo: repoDir, parent: 5 })).status).toBe(503);
+  });
+
+  test("dispatched → 202 ok, drain called with the resolved repo dir + parent", async () => {
+    const { app, calls } = repairHarness(async () => ({ ok: true }));
+    const res = await post(app, { repo: repoDir, parent: 5 });
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(calls).toEqual([[repoDir, 5]]);
+  });
+
+  test.each([
+    ["no-landing", 404],
+    ["repairing", 409],
+    ["not-red", 409],
+    ["busy", 409],
+    ["unsupported", 409],
+    ["spawn-failed", 502],
+  ] as const)("%s → %d with reason code + generic message", async (error, status) => {
+    const { app } = repairHarness(async () => ({ ok: false, error }));
+    const res = await post(app, { repo: repoDir, parent: 5 });
+    expect(res.status).toBe(status);
+    const body = (await res.json()) as { error: string; reason: string };
+    expect(body.reason).toBe(error);
+    expect(typeof body.error).toBe("string");
+  });
+});

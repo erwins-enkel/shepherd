@@ -131,6 +131,17 @@ export function computeLandingConflictStranded(opts: {
   );
 }
 
+/** Per-head-SHA budget of automatic failed-CI reruns for a red epic landing PR before the drain
+ *  escalates to the agent repair. A new head resets the budget. Persisted on the row (#2872:
+ *  `landingRerunHead`/`landingRerunCount`), so a restart does not re-spend it. */
+export const LANDING_RERUN_CAP = 2;
+
+/** One lifetime AUTO agent-repair attempt per epic landing PR (durable via `landingRepairCount`).
+ *  Once the rerun budget is spent and CI is still terminally red, the drain dispatches a single
+ *  capped repair session that pushes directly to the pinned integration branch. Exhausted ⇒ the
+ *  operator-facing `landingCiFailing` surface. The operator's manual repair (#2872) bypasses it. */
+export const LANDING_REPAIR_CAP = 1;
+
 /** How long a repair session may hold the landing branch (fence + surface suppression) before it is
  *  treated as stuck and the operator-facing landingCiFailing surface returns. Bounds a hung session. */
 export const REPAIR_ACTIVE_TTL_MS = 45 * 60 * 1000;

@@ -58,6 +58,8 @@ import {
   buildRollup,
   computeLandingReady,
   EPIC_LANDING_STRANDED_MS,
+  LANDING_REPAIR_CAP,
+  LANDING_RERUN_CAP,
   type CompletedEpic,
   type CompletedEpicChild,
   type EpicLandingState,
@@ -146,15 +148,16 @@ const MAX_LANDING_ATTEMPTS = 5;
 const PREWARM_DRAFT_NOTICE =
   "> ⚠️ Pre-warm draft — CI is being warmed while the epic drains; the body and child list are finalized when the epic lands.\n\n";
 
-/** Per-head-SHA budget of automatic failed-CI reruns for a red epic landing PR before we stop and
- *  leave it to the operator-facing `landingCiFailing` surfacing. A new head resets the budget. */
-const LANDING_RERUN_CAP = 2;
-
-/** One lifetime agent-repair attempt per epic landing PR (durable via `landingRepairCount`). Once
- *  C's rerun budget is spent and CI is still terminally red, the drain dispatches a single capped
- *  repair session that pushes directly to the pinned integration branch. Exhausted ⇒ fall back to
- *  the operator-facing `landingCiFailing` surface. */
-const LANDING_REPAIR_CAP = 1;
+/** The completed-epic row fields the red-landing rerun (C) + repair escalation read (#2872: the
+ *  rerun budget is persisted on the row, see {@link LANDING_RERUN_CAP}). */
+type LandingRerunRow = {
+  landingRepairCount: number;
+  parentTitle: string;
+  landingPrUrl: string | null;
+  landingRerunHead: string | null;
+  landingRerunCount: number;
+  landingRerunUnavailable: boolean;
+};
 
 /** #1841: one lifetime AUTO conflict-rework attempt per epic landing PR (durable via
  *  `landingConflictReworkCount`, independent of the CI-repair budget). The operator's manual
@@ -168,6 +171,14 @@ const CADENCE_REBASE_INTERVAL_MS = 60 * 60_000;
 /** #1841: after a mid-epic cadence rebase hits a genuine conflict, wait this long before retrying.
  *  Nothing is paused or surfaced — the landing-time rebase/rework/escalation path owns a conflict. */
 const CADENCE_REBASE_CONFLICT_BACKOFF_MS = 6 * 60 * 60_000;
+
+/** Outcome of the operator-triggered {@link DrainService.repairLandingCi} (#2872). */
+export type RepairLandingCiResult =
+  | { ok: true }
+  | {
+      ok: false;
+      error: "no-landing" | "unsupported" | "busy" | "repairing" | "not-red" | "spawn-failed";
+    };
 
 /** Outcome of the operator-triggered {@link DrainService.resolveLandingConflict}. */
 export type ResolveLandingConflictResult =
@@ -279,6 +290,7 @@ export interface DrainDeps {
     | "setEpicLandingPr"
     | "setEpicLandingRebaseState"
     | "setEpicLandingRepairCount"
+    | "setEpicLandingRerun"
     | "setEpicLandingConflictReworkCount"
     | "setEpicLandingConflictEscalatedAt"
     | "setEpicMigrationPaths"
@@ -401,10 +413,6 @@ export class DrainService {
   // same landingAttempts → lose an increment. This set makes the second invocation a
   // no-op; it'll be retried next tick anyway.
   private landingInFlight = new Set<string>();
-  /** Automatic landing-CI reruns (C), keyed `${repoPath}#${parentIssueNumber}` → the current head +
-   *  reruns spent on it. A new head replaces the entry (reset), and a successful/terminal land deletes
-   *  it — so the map stays bounded to live epics, mirroring `landMergeFail`. In-memory (ephemeral). */
-  private landingRerunCount = new Map<string, { head: string; count: number }>();
   /** Landing-repair spawn back-off, keyed `${repoPath}#${parentIssueNumber}` → timestamp of the last
    *  FAILED spawn. A hold/egress/transient refusal must NOT permanently burn the one lifetime attempt
    *  (`landingRepairCount`) — it backs off SPAWN_FAIL_COOLDOWN_MS and retries; only a SUCCESSFUL
@@ -2660,7 +2668,7 @@ export class DrainService {
     prNumber: number,
     latestFailedRunForPr: (prNumber: number) => Promise<number | null>,
     rerunWorkflowRun: (runId: number, o: { failedOnly: boolean }) => Promise<void>,
-    row: { landingRepairCount: number; parentTitle: string; landingPrUrl: string | null },
+    row: LandingRerunRow,
   ): Promise<void> {
     const branch = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
     if (branch === null) return;
@@ -2675,20 +2683,36 @@ export class DrainService {
       return;
 
     const head = pr.headSha ?? "";
-    const key = `${repoPath}#${parent}`;
-    // A new head resets the budget (new commits = a fresh failure to absorb); same head accumulates.
-    const prior = this.landingRerunCount.get(key);
-    const used = prior && prior.head === head ? prior.count : 0;
-    if (used >= LANDING_RERUN_CAP) {
-      // Rerun budget spent + CI still terminally red: escalate to ONE capped agent repair session.
+    // #2872: the budget is persisted on the row. A new head resets it (new commits = a fresh failure
+    // to absorb); the same head accumulates across ticks AND restarts.
+    const sameHead = row.landingRerunHead === head;
+    const used = sameHead ? row.landingRerunCount : 0;
+    if (used >= LANDING_RERUN_CAP || (sameHead && row.landingRerunUnavailable)) {
+      // Rerun budget spent (or nothing rerunnable on this head) + CI still terminally red: escalate
+      // to ONE capped agent repair session.
       await this.maybeDispatchLandingRepair(repoPath, parent, prNumber, pr, branch, row);
       return;
     }
 
     const runId = await latestFailedRunForPr(prNumber);
-    if (runId == null) return; // fork-origin PR / no failed run resolvable
+    if (runId == null) {
+      // #2872: no failed Actions run resolvable (e.g. a third-party app's check) — nothing for C to
+      // absorb. Record it for this head (the landing card shows the rerun stage as skipped) and
+      // escalate straight to the repair instead of stopping silently.
+      this.deps.store.setEpicLandingRerun(repoPath, parent, {
+        head,
+        count: used,
+        unavailable: true,
+      });
+      await this.maybeDispatchLandingRepair(repoPath, parent, prNumber, pr, branch, row);
+      return;
+    }
     await rerunWorkflowRun(runId, { failedOnly: true });
-    this.landingRerunCount.set(key, { head, count: used + 1 });
+    this.deps.store.setEpicLandingRerun(repoPath, parent, {
+      head,
+      count: used + 1,
+      unavailable: false,
+    });
     console.warn(
       `[drain] rerunning failed landing CI for ${repoPath}#${parent} (run ${runId}, ${used + 1}/${LANDING_RERUN_CAP})`,
     );
@@ -2717,27 +2741,67 @@ export class DrainService {
     if (row.landingRepairCount >= LANDING_REPAIR_CAP) return; // one lifetime attempt spent → backstop
     if (this.hasLiveRepairSession(repoPath, branch)) return; // de-dupe (belt-and-suspenders w/ the fence)
     const head = pr.headSha ?? "";
-    const prompt =
-      `Repair the failing CI on the landing pull request for epic #${parent} ("${row.parentTitle}"). ` +
-      `Landing PR #${prNumber}${row.landingPrUrl ? ` (${row.landingPrUrl})` : ""} targets the epic ` +
-      `integration branch \`${branch}\`. You are working in a scratch branch cut from \`${branch}\`. ` +
-      `Goal: drive the landing PR's CI green. Commit your fix, then publish it by pushing your commit ` +
-      `to the integration branch with \`git push origin HEAD:${branch}\` — this updates the landing ` +
-      `PR's head and re-triggers its CI. Do NOT open a new pull request.`;
-    const spawned = await this.spawnLandingRepairSession({
+    const session = await this.spawnLandingRepairSession({
       repoPath,
       branch,
       head,
-      prompt,
+      prompt: this.ciRepairPrompt({
+        parent,
+        parentTitle: row.parentTitle,
+        prNumber,
+        prUrl: row.landingPrUrl,
+        branch,
+        pr,
+      }),
       capacityKey: `drain:repair:${repoPath}:${parent}`,
       cooldownKey: `${repoPath}#${parent}`,
       what: "landing-repair",
     });
-    if (!spawned) return;
-    // Increment ONLY on a successful spawn; record the head so the attempt is observable (head-advance).
-    this.deps.store.setEpicLandingRepairCount(repoPath, parent, row.landingRepairCount + 1, head);
+    if (!session) return;
+    // Increment ONLY on a successful spawn; record the head so the attempt is observable (head-advance)
+    // and the session id so the landing card can link to it (#2872).
+    this.deps.store.setEpicLandingRepairCount(
+      repoPath,
+      parent,
+      row.landingRepairCount + 1,
+      head,
+      session.id,
+    );
     console.warn(
       `[drain] dispatched landing-repair session for ${repoPath}#${parent} (landing PR #${prNumber}, head ${head})`,
+    );
+  }
+
+  /** The task prompt for a CI-repair session — auto ({@link maybeDispatchLandingRepair}) and manual
+   *  ({@link repairLandingCi}). #2872: names the red checks (name + URL, when the forge reports per-check
+   *  detail) and allows a fix to the landing PR's metadata (a check validating its title/body) as well
+   *  as a pushed code fix. The goal-neutral landingRepairDirective defers to this for the push command. */
+  private ciRepairPrompt(o: {
+    parent: number;
+    parentTitle: string;
+    prNumber: number;
+    prUrl: string | null;
+    branch: string;
+    pr: PrStatus;
+  }): string {
+    const { branch, prNumber } = o;
+    const failed = (o.pr.jobs ?? []).filter((j) => j.state === "failure");
+    const checks =
+      failed.length > 0
+        ? `Red checks:\n${failed.map((j) => `- ${j.name}${j.url ? ` (${j.url})` : ""}`).join("\n")}\n`
+        : "";
+    return (
+      `Repair the failing CI on the landing pull request for epic #${o.parent} ("${o.parentTitle}"). ` +
+      `Landing PR #${prNumber}${o.prUrl ? ` (${o.prUrl})` : ""} targets the epic ` +
+      `integration branch \`${branch}\`. You are working in a scratch branch cut from \`${branch}\`. ` +
+      `Goal: drive the landing PR's CI green.\n` +
+      checks +
+      `- A code fix: commit it, then publish it by pushing your commit to the integration branch with ` +
+      `\`git push origin HEAD:${branch}\` — this updates the landing PR's head and re-triggers its CI.\n` +
+      `- A check that validates the landing PR itself (title, body, labels): fix the PR's metadata ` +
+      `instead, e.g. \`gh pr edit ${prNumber} --title "…"\`, then re-run the failed check ` +
+      `(\`gh run rerun <run-id> --failed\`) if editing did not re-trigger it. No push is needed for that.\n` +
+      `Do NOT open a new pull request.`
     );
   }
 
@@ -2746,7 +2810,8 @@ export class DrainService {
    *  Resolves model/effort from repo config, honours the capacity gate and a per-`cooldownKey`
    *  spawn-failure back-off (skipped when `ignoreCooldown` — an operator click), and calls
    *  service.create directly (NOT doSpawn — that stamps ACTIVE_LABEL on the closed epic issue).
-   *  True ONLY on a successful spawn; callers bump their own durable budget on true. Never throws. */
+   *  The spawned session ONLY on a successful spawn (else null); callers bump their own durable
+   *  budget on a session. Never throws. */
   private async spawnLandingRepairSession(input: {
     repoPath: string;
     branch: string;
@@ -2756,11 +2821,11 @@ export class DrainService {
     cooldownKey: string;
     what: string;
     ignoreCooldown?: boolean;
-  }): Promise<boolean> {
+  }): Promise<Session | null> {
     const { repoPath, cooldownKey } = input;
     const lastFail = this.repairSpawnCooldown.get(cooldownKey);
     const coolingDown = lastFail !== undefined && this.now() - lastFail < SPAWN_FAIL_COOLDOWN_MS;
-    if (coolingDown && !input.ignoreCooldown) return false; // recent refusal
+    if (coolingDown && !input.ignoreCooldown) return null; // recent refusal
     const cfg = this.deps.store.getRepoConfig(repoPath);
     const cfgModel = this.clampCodexModel(
       drainSpawnModel(
@@ -2790,7 +2855,7 @@ export class DrainService {
         fingerprint: input.head || undefined,
       }))
     )
-      return false;
+      return null;
     let session: Session;
     try {
       session = await this.deps.service.create({
@@ -2812,7 +2877,7 @@ export class DrainService {
       // js/clear-text-logging. The message string alone is off that taint path.
       const reason = err instanceof Error ? err.message : String(err);
       console.warn(`[drain] ${input.what} spawn for ${cooldownKey} failed: ${reason}`);
-      return false;
+      return null;
     }
     // Success-only, outside the spawn try: push the new session to the UI live. A throwing
     // listener must not turn a real spawn into a refusal (cooldown, unbumped budget, duplicate).
@@ -2822,7 +2887,7 @@ export class DrainService {
       const reason = err instanceof Error ? err.message : String(err);
       console.warn(`[drain] ${input.what} session:new emit for ${cooldownKey} failed: ${reason}`);
     }
-    return true;
+    return session;
   }
 
   /** #1841: the task prompt for a conflict-rework session. The goal + exact force-with-lease push
@@ -2978,6 +3043,72 @@ export class DrainService {
   }
 
   /**
+   * #2872: operator-triggered CI repair (the landing card's "Fix CI failures"). Bypasses
+   * autoDrainEnabled, the lifetime LANDING_REPAIR_CAP and the spawn back-off; still refused while a
+   * live repair session holds the branch, and only for an OPEN GitHub landing PR whose checks are
+   * terminally red. Bumps `landingRepairCount` (like the manual conflict rework bumps its own count)
+   * and records the head + session id. Serialized with the drain's landing passes via
+   * landingInFlight so a tick can't double-spawn. Never throws.
+   */
+  async repairLandingCi(repoPath: string, parent: number): Promise<RepairLandingCiResult> {
+    const row = this.deps.store
+      .listEpicCompleted(repoPath)
+      .find((r) => r.parentIssueNumber === parent);
+    if (!row || row.landingState !== "open" || row.landingPrNumber == null)
+      return { ok: false, error: "no-landing" };
+    const branch = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
+    if (branch === null) return { ok: false, error: "no-landing" };
+    const forge = this.deps.resolveForge(repoPath);
+    if (!forge || forge.kind !== "github") return { ok: false, error: "unsupported" };
+    const key = `${repoPath}#${parent}`;
+    if (this.landingInFlight.has(key)) return { ok: false, error: "busy" };
+    this.landingInFlight.add(key);
+    try {
+      if (this.hasLiveRepairSession(repoPath, branch)) return { ok: false, error: "repairing" };
+      const pr = await forge.prStatus(branch);
+      if (pr.state !== "open") return { ok: false, error: "no-landing" };
+      if (pr.checks !== "failure") return { ok: false, error: "not-red" };
+      const head = pr.headSha ?? "";
+      const session = await this.spawnLandingRepairSession({
+        repoPath,
+        branch,
+        head,
+        prompt: this.ciRepairPrompt({
+          parent,
+          parentTitle: row.parentTitle,
+          prNumber: row.landingPrNumber,
+          prUrl: row.landingPrUrl,
+          branch,
+          pr,
+        }),
+        capacityKey: `drain:repair:${repoPath}:${parent}`,
+        cooldownKey: key,
+        what: "landing-repair",
+        ignoreCooldown: true,
+      });
+      if (!session) return { ok: false, error: "spawn-failed" };
+      this.deps.store.setEpicLandingRepairCount(
+        repoPath,
+        parent,
+        row.landingRepairCount + 1,
+        head,
+        session.id,
+      );
+      this.emitCompleted(repoPath, parent);
+      console.warn(
+        `[drain] dispatched manual landing-repair session for ${key} (landing PR #${row.landingPrNumber}, head ${head})`,
+      );
+      return { ok: true };
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(`[drain] repairLandingCi failed for ${key}: ${reason}`);
+      return { ok: false, error: "spawn-failed" };
+    } finally {
+      this.landingInFlight.delete(key);
+    }
+  }
+
+  /**
    * AUTO-LAND (#1044): opt-in autonomous merge of a completed epic's aggregate landing PR. Runs in
    * {@link tick} alongside {@link ensureLandingPrsForRepo} — the session-less landing PR has no
    * managed session, so it can't ride the session-owned `AutoMergeService`; the drain (which
@@ -3079,7 +3210,6 @@ export class DrainService {
       return;
     }
     this.landMergeFail.delete(key); // success clears any backoff
-    this.landingRerunCount.delete(key); // landed → drop the rerun budget entry
     this.reconcileAutoLand(repoPath, parentIssueNumber, "merged", pr);
   }
 
@@ -3108,13 +3238,11 @@ export class DrainService {
     }
     if (live && live.state === "merged") {
       this.landMergeFail.delete(key);
-      this.landingRerunCount.delete(key); // terminal → drop the rerun budget entry
       this.reconcileAutoLand(repoPath, parentIssueNumber, "merged", live);
       return;
     }
     if (live && (live.state === "closed" || live.state === "none")) {
       this.landMergeFail.delete(key);
-      this.landingRerunCount.delete(key); // terminal → drop the rerun budget entry
       this.reconcileAutoLand(repoPath, parentIssueNumber, "none", live);
       return;
     }

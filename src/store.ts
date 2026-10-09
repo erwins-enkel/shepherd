@@ -2835,6 +2835,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     migrationsAckedAt: number | null;
     landingRepairCount: number;
     landingRepairHead: string | null;
+    landingRepairSessionId: string | null;
+    landingRerunHead: string | null;
+    landingRerunCount: number;
+    landingRerunUnavailable: boolean;
     landingConflictReworkCount: number;
     landingConflictSince: number | null;
     landingConflictEscalatedAt: number | null;
@@ -2843,6 +2847,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
                 landingPrNumber, landingPrUrl, landingState, landingAttempts,
                 landingRebaseCount, landingRebaseDriverMisses, landingRebasePauseReason,
                 migrationPathsJson, migrationsAckedAt, landingRepairCount, landingRepairHead,
+                landingRepairSessionId, landingRerunHead, landingRerunCount, landingRerunUnavailable,
                 landingConflictReworkCount, landingConflictSince, landingConflictEscalatedAt
          FROM epic_completed WHERE dismissedAt IS NULL`;
     type Raw = {
@@ -2862,6 +2867,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       migrationsAckedAt: number | null;
       landingRepairCount: number;
       landingRepairHead: string | null;
+      landingRepairSessionId: string | null;
+      landingRerunHead: string | null;
+      landingRerunCount: number;
+      landingRerunUnavailable: number;
       landingConflictReworkCount: number;
       landingConflictSince: number | null;
       landingConflictEscalatedAt: number | null;
@@ -2872,11 +2881,14 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
             .query(`${sql} AND repoPath = ? ORDER BY completedAt DESC`)
             .all(repoPath) as Raw[])
         : (this.db.query(`${sql} ORDER BY completedAt DESC`).all() as Raw[]);
-    return rows.map(({ migrationPathsJson, landingRebasePauseReason, ...rest }) => ({
-      ...rest,
-      landingRebasePauseReason: landingRebasePauseReason as "cap" | "conflict" | "driver" | null,
-      migrationPaths: parseFindings(migrationPathsJson),
-    }));
+    return rows.map(
+      ({ migrationPathsJson, landingRebasePauseReason, landingRerunUnavailable, ...rest }) => ({
+        ...rest,
+        landingRebasePauseReason: landingRebasePauseReason as "cap" | "conflict" | "driver" | null,
+        landingRerunUnavailable: landingRerunUnavailable === 1,
+        migrationPaths: parseFindings(migrationPathsJson),
+      }),
+    );
   }
 
   /** Write the Stage B (#635) landing-PR resolution onto a completed epic.
@@ -2943,18 +2955,37 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   /** Write the landing-repair session counters onto a completed epic's row: lifetime dispatch
-   *  count + the epic-branch head SHA recorded at the last repair dispatch. Direct UPDATE,
-   *  mirroring {@link setEpicLandingPr}'s style. */
+   *  count + the epic-branch head SHA recorded at the last repair dispatch + that dispatch's
+   *  session id (#2872, the card's "view session" link). Direct UPDATE, mirroring
+   *  {@link setEpicLandingPr}'s style. */
   setEpicLandingRepairCount(
     repoPath: string,
     parentIssueNumber: number,
     count: number,
     head: string | null,
+    sessionId: string | null = null,
   ): void {
     this.db.run(
-      `UPDATE epic_completed SET landingRepairCount = ?, landingRepairHead = ?
+      `UPDATE epic_completed SET landingRepairCount = ?, landingRepairHead = ?, landingRepairSessionId = ?
        WHERE repoPath = ? AND parentIssueNumber = ?`,
-      [count, head, repoPath, parentIssueNumber],
+      [count, head, sessionId, repoPath, parentIssueNumber],
+    );
+  }
+
+  /** #2872: persist the automatic failed-CI rerun budget of a landing PR — the head it was spent
+   *  on, the reruns spent there, and whether that head has no rerunnable Actions run at all (the
+   *  drain then escalates straight to the agent repair). Durable so a restart neither re-spends
+   *  the budget nor loses what the landing card shows. Direct UPDATE, mirroring
+   *  {@link setEpicLandingPr}'s style. */
+  setEpicLandingRerun(
+    repoPath: string,
+    parentIssueNumber: number,
+    fields: { head: string; count: number; unavailable: boolean },
+  ): void {
+    this.db.run(
+      `UPDATE epic_completed SET landingRerunHead = ?, landingRerunCount = ?, landingRerunUnavailable = ?
+       WHERE repoPath = ? AND parentIssueNumber = ?`,
+      [fields.head, fields.count, fields.unavailable ? 1 : 0, repoPath, parentIssueNumber],
     );
   }
 
@@ -5839,6 +5870,12 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // nullable-TEXT handling.
     add("landingRepairCount", `landingRepairCount INTEGER NOT NULL DEFAULT 0`);
     add("landingRepairHead", `landingRepairHead TEXT`);
+    // #2872: the session id of the last CI-repair dispatch (the landing card links to it) and the
+    // persisted failed-CI rerun budget (head + reruns spent + "no rerunnable run" flag).
+    add("landingRepairSessionId", `landingRepairSessionId TEXT`);
+    add("landingRerunHead", `landingRerunHead TEXT`);
+    add("landingRerunCount", `landingRerunCount INTEGER NOT NULL DEFAULT 0`);
+    add("landingRerunUnavailable", `landingRerunUnavailable INTEGER NOT NULL DEFAULT 0`);
     // #1841: lifetime conflict-rework dispatch count — its own budget, independent of the CI
     // repair counter above.
     add("landingConflictReworkCount", `landingConflictReworkCount INTEGER NOT NULL DEFAULT 0`);

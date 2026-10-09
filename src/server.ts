@@ -697,6 +697,12 @@ export interface AppDeps {
       repoPath: string,
       parent: number,
     ): Promise<import("./drain").ResolveLandingConflictResult>;
+    /** #2872: operator-triggered CI repair for a red epic landing PR
+     *  (POST /api/epics/completed/repair-ci). Optional — absent in tests that don't need it. */
+    repairLandingCi?(
+      repoPath: string,
+      parent: number,
+    ): Promise<import("./drain").RepairLandingCiResult>;
   };
   /** Full-auto merge train snapshot; absent in tests that don't exercise it. */
   autoMerge?: { snapshot(): Promise<import("./automerge").AutoMergeStatus[]> };
@@ -9323,22 +9329,26 @@ const RESOLVE_CONFLICT_ERRORS: Record<
   "spawn-failed": { status: 502, message: "conflict rework could not be started" },
 };
 
-// POST /api/epics/completed/resolve-conflicts — body { repo, parent }. #1841: dispatch a
-// conflict-rework session (rebase onto the default branch, resolve, force-with-lease push) for a
-// conflicting epic landing PR. Manual: bypasses auto-drain + the auto cap, still refused while a
-// repair session is live. 202 dispatched · 404 no open landing · 409 repairing/not-conflicting/
-// busy/unsupported · 502 spawn failed · 503 no drain.
-async function handleEpicsCompletedResolveConflicts({
-  req,
-  parts,
-  deps,
-}: Ctx): Promise<Response | null> {
+// POST /api/epics/completed/<action> — body { repo, parent }. Shared by the landing card's agent
+// dispatches (resolve-conflicts, repair-ci): same validation, and the drain's stable result code maps
+// to a status + constant message (no forge/spawn error text reaches the client). Null when the
+// request is not this route.
+async function dispatchLandingAction<E extends string>(
+  { req, parts, deps }: Ctx,
+  action: string,
+  pick: (
+    drain: NonNullable<Ctx["deps"]["drain"]>,
+  ) =>
+    | ((repoPath: string, parent: number) => Promise<{ ok: true } | { ok: false; error: E }>)
+    | undefined,
+  errors: Record<E, { status: number; message: string }>,
+): Promise<Response | null> {
   if (!(
     req.method === "POST" &&
     parts[0] === "api" &&
     parts[1] === "epics" &&
     parts[2] === "completed" &&
-    parts[3] === "resolve-conflicts"
+    parts[3] === action
   ))
     return null;
   const body = (await req.json().catch(() => null)) as { repo?: string; parent?: number } | null;
@@ -9347,12 +9357,49 @@ async function handleEpicsCompletedResolveConflicts({
   const parent = body?.parent;
   if (typeof parent !== "number" || !Number.isInteger(parent) || parent <= 0)
     return json({ error: "parent must be a positive integer" }, 400);
-  const resolve = deps.drain?.resolveLandingConflict;
-  if (!resolve) return json({ error: "drain unavailable" }, 503);
-  const r = await resolve.call(deps.drain, dir, parent);
+  const run = deps.drain ? pick(deps.drain) : undefined;
+  if (!run) return json({ error: "drain unavailable" }, 503);
+  const r = await run.call(deps.drain, dir, parent);
   if (r.ok) return json({ ok: true }, 202);
-  const e = RESOLVE_CONFLICT_ERRORS[r.error];
+  const e = errors[r.error];
   return json({ error: e.message, reason: r.error }, e.status);
+}
+
+// POST /api/epics/completed/resolve-conflicts — body { repo, parent }. #1841: dispatch a
+// conflict-rework session (rebase onto the default branch, resolve, force-with-lease push) for a
+// conflicting epic landing PR. Manual: bypasses auto-drain + the auto cap, still refused while a
+// repair session is live. 202 dispatched · 404 no open landing · 409 repairing/not-conflicting/
+// busy/unsupported · 502 spawn failed · 503 no drain.
+function handleEpicsCompletedResolveConflicts(ctx: Ctx): Promise<Response | null> {
+  return dispatchLandingAction(
+    ctx,
+    "resolve-conflicts",
+    (d) => d.resolveLandingConflict,
+    RESOLVE_CONFLICT_ERRORS,
+  );
+}
+
+// #2872: result code → HTTP status + generic client message for repair-ci. Constant strings only —
+// no forge/spawn error text reaches the client (CodeQL js/stack-trace-exposure).
+const REPAIR_CI_ERRORS: Record<
+  Extract<import("./drain").RepairLandingCiResult, { ok: false }>["error"],
+  { status: number; message: string }
+> = {
+  "no-landing": { status: 404, message: "no open landing PR" },
+  unsupported: { status: 409, message: "CI repair unsupported for this forge" },
+  busy: { status: 409, message: "landing busy, retry shortly" },
+  repairing: { status: 409, message: "a repair session is already working this landing" },
+  "not-red": { status: 409, message: "landing PR CI is not failing" },
+  "spawn-failed": { status: 502, message: "CI repair could not be started" },
+};
+
+// POST /api/epics/completed/repair-ci — body { repo, parent }. #2872: dispatch a CI-repair agent for
+// a red epic landing PR (fix pushed straight to the integration branch, no new PR). Manual: bypasses
+// auto-drain, the auto cap and the spawn back-off; still refused while a repair session is live.
+// 202 dispatched · 404 no open landing · 409 repairing/not-red/busy/unsupported · 502 spawn failed ·
+// 503 no drain.
+function handleEpicsCompletedRepairCi(ctx: Ctx): Promise<Response | null> {
+  return dispatchLandingAction(ctx, "repair-ci", (d) => d.repairLandingCi, REPAIR_CI_ERRORS);
 }
 
 const ROUTE_HANDLERS = [
@@ -9392,6 +9439,7 @@ const ROUTE_HANDLERS = [
   handleManualSteps,
   handleEpicsCompletedLand,
   handleEpicsCompletedResolveConflicts,
+  handleEpicsCompletedRepairCi,
   handleEpicsCompletedList,
   handleEpicApproveNext,
   handleEpicImport,

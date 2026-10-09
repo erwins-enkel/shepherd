@@ -66,7 +66,10 @@ interface ForgeSpy {
   mergeCalls: MergeCall[];
 }
 
-function fakeForge(opts: { prStatus?: (branch: string) => Promise<PrStatus> }): ForgeSpy {
+function fakeForge(opts: {
+  prStatus?: (branch: string) => Promise<PrStatus>;
+  latestFailedRunForPr?: () => Promise<number | null>;
+}): ForgeSpy {
   const prStatusCalls: string[] = [];
   const rerunCalls: number[] = [];
   const mergeCalls: MergeCall[] = [];
@@ -100,7 +103,7 @@ function fakeForge(opts: { prStatus?: (branch: string) => Promise<PrStatus> }): 
     getIssue: async (): Promise<Issue | null> => null,
     listSubIssues: async (): Promise<SubIssueRef[]> => [],
     listBlockedBy: async () => [],
-    latestFailedRunForPr: async () => 42,
+    latestFailedRunForPr: opts.latestFailedRunForPr ?? (async () => 42),
     rerunWorkflowRun: async (runId: number) => {
       rerunCalls.push(runId);
     },
@@ -136,6 +139,7 @@ function makeHarness(opts: {
   repoDefaultModel?: string;
   authMode?: "chatgpt" | "apikey" | "unknown";
   emitSessionNewThrows?: boolean;
+  latestFailedRunForPr?: () => Promise<number | null>;
 }): Harness {
   const store = new SessionStore(":memory:");
   store.setRepoConfig(REPO, {
@@ -168,7 +172,10 @@ function makeHarness(opts: {
     browserAllowedHosts: [],
     hidden: false,
   });
-  const spy = fakeForge({ prStatus: opts.prStatus });
+  const spy = fakeForge({
+    prStatus: opts.prStatus,
+    latestFailedRunForPr: opts.latestFailedRunForPr,
+  });
   const createCalls: CreateCall[] = [];
   const repairCountCalls: RepairCountCall[] = [];
   const sessionNews: unknown[] = [];
@@ -181,9 +188,10 @@ function makeHarness(opts: {
     parent: number,
     count: number,
     head: string | null,
+    sessionId: string | null = null,
   ) => {
     repairCountCalls.push({ count, head });
-    return origSetRepair(repoPath, parent, count, head);
+    return origSetRepair(repoPath, parent, count, head, sessionId);
   };
   // Record every rebase-state write (a fence must not write pauseReason).
   const origSetRebase = store.setEpicLandingRebaseState.bind(store);
@@ -288,13 +296,14 @@ function addLiveRepairSession(h: Harness): void {
   });
 }
 
-/** Pre-spend C's per-head rerun budget so the next rerun pass reaches the repair dispatch. */
+/** Pre-spend C's per-head rerun budget (persisted on the row, #2872) so the next rerun pass
+ *  reaches the repair dispatch. */
 function spendRerunBudget(h: Harness, head = "h1"): void {
-  (
-    h.drain as unknown as {
-      landingRerunCount: Map<string, { head: string; count: number }>;
-    }
-  ).landingRerunCount.set(`${REPO}#${PARENT}`, { head, count: LANDING_RERUN_CAP });
+  h.store.setEpicLandingRerun(REPO, PARENT, {
+    head,
+    count: LANDING_RERUN_CAP,
+    unavailable: false,
+  });
 }
 
 function callRerunPass(h: Harness): Promise<void> {
@@ -376,6 +385,46 @@ describe("landing-repair: dispatch", () => {
     expect(h.repairCountCalls).toEqual([{ count: 1, head: "h1" }]);
     // Pushed to the UI live, not only on the next full refresh.
     expect(h.sessionNews).toEqual([{ id: "repair-sess", baseBranch: INTEGRATION_BRANCH }]);
+    // #2872: the session id is recorded for the landing card's "view session" link.
+    expect(h.store.listEpicCompleted(REPO)[0]!.landingRepairSessionId).toBe("repair-sess");
+  });
+
+  test("#2872 prompt: names the red checks and allows a metadata fix via gh pr edit", async () => {
+    const h = makeHarness({
+      autoDrainEnabled: true,
+      prStatus: async () =>
+        redPr({
+          jobs: [
+            { name: "pr title", state: "failure", url: "https://github.com/o/r/runs/1" },
+            { name: "verify / test", state: "success" },
+          ],
+        }),
+    });
+    seedOpenLanding(h);
+    spendRerunBudget(h);
+
+    await callRerunPass(h);
+
+    const prompt = h.createCalls[0]!.input.prompt;
+    expect(prompt).toContain("- pr title (https://github.com/o/r/runs/1)");
+    expect(prompt).not.toContain("verify / test");
+    expect(prompt).toContain(`gh pr edit ${LANDING_PR} --title`);
+    expect(prompt).toContain(`git push origin HEAD:${INTEGRATION_BRANCH}`);
+  });
+
+  test("#2872 no rerunnable run on the head → escalates straight to the repair", async () => {
+    const h = makeHarness({
+      autoDrainEnabled: true,
+      prStatus: async () => redPr(),
+      latestFailedRunForPr: async () => null,
+    });
+    seedOpenLanding(h);
+
+    await callRerunPass(h);
+
+    expect(h.spy.rerunCalls).toHaveLength(0);
+    expect(h.createCalls).toHaveLength(1);
+    expect(h.store.listEpicCompleted(REPO)[0]!.landingRerunUnavailable).toBe(true);
   });
 
   test("throwing session:new listener: spawn still counts (budget bumped, no cooldown, no duplicate)", async () => {
@@ -534,5 +583,83 @@ describe("landing-repair: auto-land fence", () => {
     await callTryAutoLand(h);
 
     expect(h.spy.mergeCalls).toEqual([{ prNumber: LANDING_PR, deleteBranch: true }]);
+  });
+});
+
+// ── #2872: manual repair (the landing card's "Fix CI failures") ────────────────
+
+describe("landing-repair: manual repairLandingCi", () => {
+  test("bypasses auto-drain off, the exhausted cap and the spawn cooldown; bumps the count", async () => {
+    const h = makeHarness({ autoDrainEnabled: false, prStatus: async () => redPr() });
+    seedOpenLanding(h);
+    h.store.setEpicLandingRepairCount(REPO, PARENT, 1, "old");
+    h.repairCountCalls.length = 0;
+    (h.drain as unknown as { repairSpawnCooldown: Map<string, number> }).repairSpawnCooldown.set(
+      `${REPO}#${PARENT}`,
+      Date.now(),
+    );
+
+    expect(await h.drain.repairLandingCi(REPO, PARENT)).toEqual({ ok: true });
+
+    expect(h.createCalls).toHaveLength(1);
+    expect(h.createCalls[0]!.input.landingRepair).toBe(true);
+    expect(h.repairCountCalls).toEqual([{ count: 2, head: "h1" }]);
+    expect(h.store.listEpicCompleted(REPO)[0]!.landingRepairSessionId).toBe("repair-sess");
+  });
+
+  test("refused while a live repair session holds the branch", async () => {
+    const h = makeHarness({ prStatus: async () => redPr() });
+    seedOpenLanding(h);
+    addLiveRepairSession(h);
+
+    expect(await h.drain.repairLandingCi(REPO, PARENT)).toEqual({
+      ok: false,
+      error: "repairing",
+    });
+    expect(h.createCalls).toHaveLength(0);
+  });
+
+  test("refused when the landing PR is no longer red", async () => {
+    const h = makeHarness({ prStatus: async () => greenPr() });
+    seedOpenLanding(h);
+
+    expect(await h.drain.repairLandingCi(REPO, PARENT)).toEqual({ ok: false, error: "not-red" });
+    expect(h.createCalls).toHaveLength(0);
+  });
+
+  test("busy while another landing pass holds the epic", async () => {
+    const h = makeHarness({ prStatus: async () => redPr() });
+    seedOpenLanding(h);
+    (h.drain as unknown as { landingInFlight: Set<string> }).landingInFlight.add(
+      `${REPO}#${PARENT}`,
+    );
+
+    expect(await h.drain.repairLandingCi(REPO, PARENT)).toEqual({ ok: false, error: "busy" });
+  });
+
+  test("no-landing without an open landing row; unsupported off GitHub", async () => {
+    const h = makeHarness({ prStatus: async () => redPr() });
+    expect(await h.drain.repairLandingCi(REPO, PARENT)).toEqual({
+      ok: false,
+      error: "no-landing",
+    });
+
+    seedOpenLanding(h);
+    (h.spy.forge as { kind: string }).kind = "gitea";
+    expect(await h.drain.repairLandingCi(REPO, PARENT)).toEqual({
+      ok: false,
+      error: "unsupported",
+    });
+  });
+
+  test("spawn refusal → spawn-failed, count not burned", async () => {
+    const h = makeHarness({ prStatus: async () => redPr(), createThrows: true });
+    seedOpenLanding(h);
+
+    expect(await h.drain.repairLandingCi(REPO, PARENT)).toEqual({
+      ok: false,
+      error: "spawn-failed",
+    });
+    expect(h.repairCountCalls).toHaveLength(0);
   });
 });

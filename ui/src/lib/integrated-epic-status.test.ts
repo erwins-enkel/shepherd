@@ -56,6 +56,87 @@ describe("deriveIntegratedEpicStatus", () => {
     expect(deriveIntegratedEpicStatus(landing(over))).toMatchObject({ situation, turn, sortOrder });
   });
 
+  describe("#2872 red landing: Shepherd retrying vs your turn", () => {
+    type Automation = NonNullable<CompletedEpic["landingCiAutomation"]>;
+    const automation = (
+      reruns: Partial<Automation["reruns"]>,
+      repair: Partial<Automation["repair"]>,
+    ): Automation => ({
+      reruns: { status: "done", used: 2, cap: 2, skipReason: null, ...reruns },
+      repair: {
+        status: "pending",
+        used: 0,
+        cap: 1,
+        skipReason: null,
+        sessionId: null,
+        sessionStartedAt: null,
+        ...repair,
+      },
+    });
+    const red = (a?: Automation) =>
+      landing({ landingChecks: "failure", landingMergeable: true, landingCiAutomation: a });
+
+    it("a stage still pending → ci-retrying, quiet, nobody's turn, repair offered", () => {
+      expect(
+        deriveIntegratedEpicStatus(red(automation({ status: "pending", used: 0 }, {}))),
+      ).toMatchObject({
+        situation: "ci-retrying",
+        turn: "nothing-to-do",
+        needsOperator: false,
+        canRepairCi: true,
+        ciVariant: null,
+        ciRetrying: "reruns",
+      });
+    });
+
+    it("reruns spent, repair still pending → ci-retrying on the repair stage", () => {
+      expect(deriveIntegratedEpicStatus(red(automation({}, {}))).ciRetrying).toBe("repair");
+    });
+
+    it("a rerun in flight (checks pending on the same head) → ci-retrying without the repair button", () => {
+      const s = deriveIntegratedEpicStatus(
+        landing({
+          landingChecks: "pending",
+          landingMergeable: true,
+          landingCiAutomation: automation({ status: "running", used: 1 }, {}),
+        }),
+      );
+      expect(s).toMatchObject({ situation: "ci-retrying", canRepairCi: false });
+    });
+
+    it.each([
+      [automation({}, { status: "skipped", skipReason: "auto-drain-off" }), "drain-off"],
+      [automation({}, { status: "done", used: 1 }), "after-repair"],
+      [
+        automation(
+          { status: "skipped", skipReason: "draft-mode" },
+          { status: "skipped", skipReason: "draft-mode" },
+        ),
+        "exhausted",
+      ],
+      [undefined, "exhausted"],
+    ] as const)("nothing left to try → ci-failed (%#) with variant %s", (a, ciVariant) => {
+      expect(deriveIntegratedEpicStatus(red(a))).toMatchObject({
+        situation: "ci-failed",
+        turn: "your-turn",
+        canRepairCi: true,
+        ciVariant,
+      });
+    });
+
+    it("a non-GitHub forge → ci-failed without the repair button (the server refuses it there)", () => {
+      const a = automation(
+        { status: "skipped", skipReason: "no-github" },
+        { status: "skipped", skipReason: "no-github" },
+      );
+      expect(deriveIntegratedEpicStatus(red(a))).toMatchObject({
+        situation: "ci-failed",
+        canRepairCi: false,
+        ciVariant: "unsupported",
+      });
+    });
+  });
+
   it("only confirms a currently ready landing with a PR number", () => {
     expect(deriveIntegratedEpicStatus(landing({ landingReady: true }), true).situation).toBe(
       "confirming",

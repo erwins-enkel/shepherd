@@ -105,3 +105,23 @@ in-flight work running and resumes on its own — and only a few are **terminal*
 
 Shepherd spawns the first ready child immediately, then drains the rest as their dependencies
 complete, landing one aggregate PR at the end.
+
+## When the landing PR's CI is red
+
+A red landing PR is not your turn straight away. The epic's card on the **Epics to land** band
+shows the red checks (each with its log), and a **Who's handling it** bar with the steps Shepherd
+still takes before it hands over:
+
+1. **Checks re-run** — Shepherd re-runs the failed jobs up to **2 times per head commit**, since a
+   red check is often a flake. This runs while Full-auto merge, Auto-Drain or an epic run is active,
+   on GitHub only, and never in Draft mode.
+2. **Agent repair** — if CI is still red, Shepherd starts **one** repair agent. It fixes the cause
+   (or the PR's metadata, e.g. a too-long title) and pushes straight to the integration branch —
+   no new PR. This step runs **only with Auto-Drain on**; with it off, the card says it was skipped
+   and links to the repo automation.
+3. **You** — only once nothing automatic is left does the card say **your turn**.
+
+**Fix CI failures** on the card starts a repair agent yourself at any time — it bypasses Auto-Drain
+and the one-repair limit, and is refused only while a repair agent is already working. After a
+repair that did not help, the card offers **Try again** and a link to the last repair session. A
+landing PR that conflicts with main has the counterpart, **Resolve conflicts**.

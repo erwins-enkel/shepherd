@@ -67,6 +67,53 @@ export interface CompletedEpic {
    *  conflicting PR). Non-actionable — suppresses `landingCiFailing` while true
    *  (a stuck/finished session falls back to `landingCiFailing`, the backstop). */
   landingRepairing?: boolean;
+  /** Live, non-persisted (#2872): the landing PR's per-check breakdown — red checks with their log
+   *  URL plus the running/green counts. Absent when the forge reports no per-check detail. */
+  landingCiChecks?: LandingCiChecks;
+  /** Live, non-persisted (#2872): where Shepherd's automatic handling of a red landing PR stands —
+   *  the rerun and agent-repair stages the landing card's "who's handling it" bar shows. */
+  landingCiAutomation?: LandingCiAutomation;
+}
+
+/** #2872: the per-check breakdown of a landing PR's head commit. */
+export interface LandingCiChecks {
+  failed: { name: string; url: string | null }[];
+  running: number;
+  passed: number;
+}
+
+/** #2872: one automatic stage on a red landing PR. `done` = budget spent (still red); `running` = in
+ *  flight now; `pending` = the drain will still act; `skipped` = it will not, for `skipReason`. */
+export type LandingStageStatus = "done" | "running" | "pending" | "skipped";
+
+/** #2872: the two automatic stages of a red landing PR, mirroring the drain's gates
+ *  (rerunRedLandingCiForRepo → processRedLandingRerun → maybeDispatchLandingRepair). */
+export interface LandingCiAutomation {
+  reruns: {
+    status: LandingStageStatus;
+    used: number;
+    cap: number;
+    skipReason: "no-github" | "draft-mode" | "not-engaged" | "draft-pr" | "no-run" | null;
+  };
+  repair: {
+    status: LandingStageStatus;
+    used: number;
+    cap: number;
+    skipReason: "no-github" | "draft-mode" | "draft-pr" | "auto-drain-off" | null;
+    /** The live repair session, else the last recorded one while it is still visible. */
+    sessionId: string | null;
+    /** When the live repair session started (null when none is live). */
+    sessionStartedAt: number | null;
+  };
+}
+
+/** #2872: the persisted landing-automation counters enrichment reads off the DB row. Internal — the
+ *  GET route strips them from the response once folded into `landingCiAutomation`. */
+export interface LandingAutomationRow {
+  landingRerunHead: string | null;
+  landingRerunCount: number;
+  landingRerunUnavailable: boolean;
+  landingRepairSessionId: string | null;
 }
 
 /** Rec D threshold: surface the "stranded" escalation when an open+ready landing PR has sat
@@ -131,6 +178,17 @@ export function computeLandingConflictStranded(opts: {
   );
 }
 
+/** Per-head-SHA budget of automatic failed-CI reruns for a red epic landing PR before the drain
+ *  escalates to the agent repair. A new head resets the budget. Persisted on the row (#2872:
+ *  `landingRerunHead`/`landingRerunCount`), so a restart does not re-spend it. */
+export const LANDING_RERUN_CAP = 2;
+
+/** One lifetime AUTO agent-repair attempt per epic landing PR (durable via `landingRepairCount`).
+ *  Once the rerun budget is spent and CI is still terminally red, the drain dispatches a single
+ *  capped repair session that pushes directly to the pinned integration branch. Exhausted ⇒ the
+ *  operator-facing `landingCiFailing` surface. The operator's manual repair (#2872) bypasses it. */
+export const LANDING_REPAIR_CAP = 1;
+
 /** How long a repair session may hold the landing branch (fence + surface suppression) before it is
  *  treated as stuck and the operator-facing landingCiFailing surface returns. Bounds a hung session. */
 export const REPAIR_ACTIVE_TTL_MS = 45 * 60 * 1000;
@@ -149,19 +207,128 @@ export function isLiveRepairSession(s: Session, now: number): boolean {
   );
 }
 
+/** The genuinely-live repair session holding `integrationBranch` for `repoPath`, or null. Single
+ *  source of truth for the fence/surface predicate so the drain pass and GET /api/epics/completed
+ *  can't drift. */
+export function findLiveRepairSession(
+  sessions: Session[],
+  repoPath: string,
+  integrationBranch: string,
+  now: number,
+): Session | null {
+  return (
+    sessions.find(
+      (s) =>
+        s.repoPath === repoPath &&
+        s.baseBranch === integrationBranch &&
+        isLiveRepairSession(s, now),
+    ) ?? null
+  );
+}
+
 /** Whether any session in `sessions` is a genuinely-live repair session holding `integrationBranch`
- *  for `repoPath`. Single source of truth for the fence/surface predicate so the drain pass and
- *  GET /api/epics/completed can't drift. */
+ *  for `repoPath` (see {@link findLiveRepairSession}). */
 export function anyLiveRepairSession(
   sessions: Session[],
   repoPath: string,
   integrationBranch: string,
   now: number,
 ): boolean {
-  return sessions.some(
-    (s) =>
-      s.repoPath === repoPath && s.baseBranch === integrationBranch && isLiveRepairSession(s, now),
-  );
+  return findLiveRepairSession(sessions, repoPath, integrationBranch, now) !== null;
+}
+
+/** #2872: the per-check breakdown of a landing PR, or undefined when the forge reports none. */
+export function landingCiChecksOf(pr: Pick<PrStatus, "jobs">): LandingCiChecks | undefined {
+  if (!pr.jobs) return undefined;
+  return {
+    failed: pr.jobs
+      .filter((j) => j.state === "failure")
+      .map((j) => ({ name: j.name, url: j.url ?? null })),
+    running: pr.jobs.filter((j) => j.state === "pending").length,
+    passed: pr.jobs.filter((j) => j.state === "success").length,
+  };
+}
+
+/** The repo-level inputs of the drain's landing-automation gates (#2872), plus the session lookups
+ *  the repair stage needs. */
+export interface LandingAutomationContext {
+  draftMode: boolean;
+  autoMergeEnabled: boolean;
+  autoDrainEnabled: boolean;
+  /** The repo's epic run is `running` (it engages the rerun pass like the two toggles). */
+  epicRunning: boolean;
+  /** The genuinely-live repair session on the integration branch, if any. */
+  liveRepair: Pick<Session, "id" | "createdAt"> | null;
+  /** Whether a recorded session id still names a visible (non-archived) session. */
+  sessionVisible: (id: string) => boolean;
+}
+
+type DeriveAutomationInput = {
+  pr: Pick<PrStatus, "checks" | "headSha" | "isDraft">;
+  github: boolean;
+  ctx: LandingAutomationContext;
+  row: LandingAutomationRow & { landingRepairCount: number };
+};
+type RerunSkip = LandingCiAutomation["reruns"]["skipReason"];
+type RepairSkip = LandingCiAutomation["repair"]["skipReason"];
+
+/** Why the drain's red-landing pass (rerunRedLandingCiForRepo → processRedLandingRerun) never
+ *  reaches either stage — the repair inherits these, except `not-engaged` (implies auto-drain off). */
+function landingPassSkip(o: DeriveAutomationInput): Exclude<RerunSkip, "no-run"> {
+  const { ctx } = o;
+  if (!o.github) return "no-github";
+  if (ctx.draftMode) return "draft-mode";
+  if (!(ctx.autoMergeEnabled || ctx.autoDrainEnabled || ctx.epicRunning)) return "not-engaged";
+  return o.pr.isDraft ? "draft-pr" : null;
+}
+
+function rerunStage(o: DeriveAutomationInput, passSkip: RerunSkip): LandingCiAutomation["reruns"] {
+  const { pr, row } = o;
+  const sameHead = row.landingRerunHead === (pr.headSha ?? "");
+  const used = sameHead ? row.landingRerunCount : 0;
+  const skipReason = passSkip ?? (sameHead && row.landingRerunUnavailable ? "no-run" : null);
+  let status: LandingStageStatus = "pending";
+  if (skipReason) status = "skipped";
+  else if (pr.checks === "pending" && used > 0) status = "running";
+  else if (used >= LANDING_RERUN_CAP) status = "done";
+  return { status, used, cap: LANDING_RERUN_CAP, skipReason };
+}
+
+function repairStage(o: DeriveAutomationInput, passSkip: RerunSkip): LandingCiAutomation["repair"] {
+  const { ctx, row } = o;
+  // `not-engaged` implies auto-drain off; `no-run` escalates to the repair (not a repair skip).
+  const skip: RepairSkip =
+    passSkip && passSkip !== "not-engaged" && passSkip !== "no-run"
+      ? passSkip
+      : ctx.autoDrainEnabled
+        ? null
+        : "auto-drain-off";
+  let status: LandingStageStatus = "pending";
+  if (ctx.liveRepair) status = "running";
+  else if (row.landingRepairCount >= LANDING_REPAIR_CAP) status = "done";
+  else if (skip) status = "skipped";
+  const recorded = row.landingRepairSessionId;
+  return {
+    status,
+    used: row.landingRepairCount,
+    cap: LANDING_REPAIR_CAP,
+    skipReason: status === "skipped" ? skip : null,
+    sessionId: ctx.liveRepair?.id ?? (recorded && ctx.sessionVisible(recorded) ? recorded : null),
+    sessionStartedAt: ctx.liveRepair?.createdAt ?? null,
+  };
+}
+
+/** #2872: where the drain's automatic handling of a red landing PR stands. Mirrors the gates of
+ *  rerunRedLandingCiForRepo / processRedLandingRerun / maybeDispatchLandingRepair — when one of those
+ *  moves, this moves. Pure. */
+export function deriveLandingCiAutomation(o: DeriveAutomationInput): LandingCiAutomation {
+  const passSkip = landingPassSkip(o);
+  return { reruns: rerunStage(o, passSkip), repair: repairStage(o, passSkip) };
+}
+
+/** #2872: true while an automatic stage is still pending or in flight — the operator's turn waits. */
+function automationStillActing(a: LandingCiAutomation): boolean {
+  return [a.reruns.status, a.repair.status].some((s) => s === "pending" || s === "running");
 }
 
 /** Accessors enrichLandingEpics needs, injected so this module stays forge-light (a structural
@@ -177,16 +344,42 @@ export interface EnrichLandingDeps {
   /** Read the landing PR's state. Absent ⇒ a fresh `forge.prStatus(branch)` per row; the GET
    *  route passes a snapshot-first, shared-TTL read so polling tabs don't multiply calls. */
   prStatus?: (repoPath: string, branch: string) => Promise<PrStatus>;
+  /** #2872: the inputs of the drain's landing-automation gates. Absent ⇒ no `landingCiAutomation`,
+   *  and `landingCiFailing` is not held back for pending automatic stages. */
+  automation?: (repoPath: string, integrationBranch: string) => LandingAutomationContext;
   now: number;
+}
+
+/** #2872: the automation stages of one enriched row, or undefined without the `automation` dep. */
+function rowAutomation(
+  row: CompletedEpic & Partial<LandingAutomationRow>,
+  pr: PrStatus,
+  forgeKind: ForgeKind,
+  branch: string,
+  deps: EnrichLandingDeps,
+): LandingCiAutomation | undefined {
+  if (!deps.automation) return undefined;
+  return deriveLandingCiAutomation({
+    pr,
+    github: forgeKind === "github",
+    ctx: deps.automation(row.repoPath, branch),
+    row: {
+      landingRerunHead: row.landingRerunHead ?? null,
+      landingRerunCount: row.landingRerunCount ?? 0,
+      landingRerunUnavailable: row.landingRerunUnavailable ?? false,
+      landingRepairSessionId: row.landingRepairSessionId ?? null,
+      landingRepairCount: row.landingRepairCount,
+    },
+  });
 }
 
 /** Enrich each OPEN-landing completed epic in `rows` with live landing-PR gate signals
  *  (`landingChecks`/`landingMergeable`/`landingReady`/`landingStranded`/`landingCiFailing`/
- *  `landingRepairing`), mutating in place.
+ *  `landingRepairing`/`landingCiChecks`/`landingCiAutomation`), mutating in place.
  *  Best-effort + fail-safe per row: a missing branch/forge or a forge error simply leaves that
  *  row's live fields undefined — never throws. Used by GET /api/epics/completed. */
 export async function enrichLandingEpics(
-  rows: CompletedEpic[],
+  rows: Array<CompletedEpic & Partial<LandingAutomationRow>>,
   deps: EnrichLandingDeps,
 ): Promise<void> {
   await Promise.all(
@@ -226,7 +419,12 @@ export async function enrichLandingEpics(
           (red || conflicting || conflictPaused) && deps.hasLiveRepairSession(row.repoPath, branch);
         const repairing = (red || conflicting) && live;
         row.landingRepairing = repairing;
-        row.landingCiFailing = red && !repairing;
+        row.landingCiChecks = landingCiChecksOf(pr);
+        const automation = rowAutomation(row, pr, forge.kind, branch, deps);
+        row.landingCiAutomation = automation;
+        // #2872: "your turn" only once no automatic stage is still pending or in flight.
+        row.landingCiFailing =
+          red && !repairing && !(automation && automationStillActing(automation));
         row.landingConflictStranded = computeLandingConflictStranded({
           pauseReason: row.landingRebasePauseReason,
           conflictSince: row.landingConflictSince,

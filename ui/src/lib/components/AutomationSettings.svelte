@@ -478,7 +478,25 @@
     <AutomationDetail
       id="auto-drain"
       open={openDetail === "auto-drain"}
-      text={m.automation_autodrain_detail()}
+      intro={m.automation_autodrain_detail_intro()}
+      sections={[
+        {
+          title: m.automation_autodrain_detail_backlog_title(),
+          text: m.automation_autodrain_detail_backlog(),
+        },
+        {
+          title: m.automation_autodrain_detail_landing_title(),
+          text: m.automation_autodrain_detail_landing(),
+        },
+        {
+          title: m.automation_autodrain_detail_off_title(),
+          text: m.automation_autodrain_detail_off(),
+        },
+        {
+          title: m.automation_autodrain_detail_limits_title(),
+          text: m.automation_autodrain_detail_limits(),
+        },
+      ]}
     />
   </div>
   <button

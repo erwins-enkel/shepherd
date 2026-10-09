@@ -55,6 +55,7 @@
     ackManualSteps,
     landEpic,
     resolveLandingConflicts,
+    repairLandingCi,
     getEpic,
     getDiagnostics,
     getPlugins,
@@ -2848,6 +2849,23 @@
     }
   }
 
+  // #2872: dispatch a CI-repair agent for a red epic landing PR. Either way re-seed — the live
+  // landingRepairing / stage fields are GET-only. Failure is shown inline on the card (false).
+  async function onRepairEpicCi(repoPath: string, parent: number): Promise<boolean> {
+    const reseed = () =>
+      getCompletedEpics()
+        .then((l) => store.seedCompletedEpics(l))
+        .catch(() => {});
+    try {
+      await repairLandingCi(repoPath, parent);
+      reseed();
+      return true;
+    } catch {
+      reseed();
+      return false;
+    }
+  }
+
   // Confirmed with the ids the operator chose (the filtered repos, or every repo): clear
   // the dialog state (before the await, so it can't double-submit), then run the bulk archive.
   function confirmClearMerged(ids: string[]) {
@@ -3079,6 +3097,8 @@
             ondismissepic={onDismissEpic}
             onlandepic={onLandEpic}
             onresolveconflictsepic={onResolveEpicConflicts}
+            onrepairciepic={onRepairEpicCi}
+            onopensessionepic={jumpToSession}
             doneList={shownDoneSessions}
             {doneSelectedId}
             ondoneselect={(id) => {
@@ -3259,6 +3279,8 @@
               ondismissepic={onDismissEpic}
               onlandepic={onLandEpic}
               onresolveconflictsepic={onResolveEpicConflicts}
+              onrepairciepic={onRepairEpicCi}
+              onopensessionepic={jumpToSession}
               doneList={shownDoneSessions}
               {doneSelectedId}
               ondoneselect={(id) => (doneSelectedId = id)}

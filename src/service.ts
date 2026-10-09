@@ -1246,6 +1246,8 @@ function landingRepairDirective(agentProvider: AgentProvider): string {
     "- Publish by pushing to the epic INTEGRATION branch with the EXACT push command from the " +
     "task prompt — this updates the open landing PR and re-triggers its CI. A plain `git push` " +
     "will NOT work (your scratch branch has no upstream).\n" +
+    "- When the task prompt allows it and the cause is the landing PR's own metadata (e.g. a check " +
+    "on its title), fix that with `gh pr edit` instead — no commit or push is needed for it.\n" +
     "- Do NOT open a pull request; do NOT run `gh pr create` — there is no child PR for this work.\n" +
     "- Once the task prompt's goal is met, or you have pushed your best fix, you are done."
   );

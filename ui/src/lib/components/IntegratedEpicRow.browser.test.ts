@@ -96,6 +96,31 @@ describe("IntegratedEpicRow", () => {
     await expect.element(page.getByText(label, { exact: true })).toBeInTheDocument();
     expect(document.querySelector(".row")!.classList.contains("ready")).toBe(false);
   });
+  it("#2872: a red landing Shepherd still retries is nobody's turn yet", async () => {
+    await render(
+      IntegratedEpicRow,
+      props(
+        epic({
+          landingChecks: "failure",
+          landingCiAutomation: {
+            reruns: { status: "pending", used: 0, cap: 2, skipReason: null },
+            repair: {
+              status: "pending",
+              used: 0,
+              cap: 1,
+              skipReason: null,
+              sessionId: null,
+              sessionStartedAt: null,
+            },
+          },
+        }),
+      ),
+    );
+    await expect.element(page.getByText("NOTHING TO DO", { exact: true })).toBeInTheDocument();
+    await expect
+      .element(page.getByText("Shepherd is re-running the red checks", { exact: true }))
+      .toBeInTheDocument();
+  });
   it("uses completion age for waiting and preserves stale conflicts", async () => {
     await render(
       IntegratedEpicRow,

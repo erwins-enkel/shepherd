@@ -14,16 +14,26 @@
   // again, since its ⓘ is gone too.
   import { infoTips } from "#lib/info-tips.svelte.js";
 
-  // Exactly one of `text` / `paragraphs` is given. `text` is the single-note shape every
-  // switch row uses (its message may carry \n\n breaks, rendered via white-space: pre-line).
-  // `paragraphs` is the multi-paragraph shape — currently only the sandbox row, which needs
-  // real <p> children rather than pre-line whitespace.
+  // Exactly one of `text` / `paragraphs` / `sections` is given. `text` is the single-note shape
+  // most switch rows use (its message may carry \n\n breaks, rendered via white-space: pre-line).
+  // `paragraphs` is the multi-paragraph shape — the sandbox row, which needs real <p> children
+  // rather than pre-line whitespace. `sections` (#2872) is an optional `intro` plus labelled
+  // sections with a bold title each — for a row that explains several distinct cases (Auto-Drain).
   let {
     id,
     open,
     text,
     paragraphs,
-  }: { id: string; open: boolean; text?: string; paragraphs?: string[] } = $props();
+    intro,
+    sections,
+  }: {
+    id: string;
+    open: boolean;
+    text?: string;
+    paragraphs?: string[];
+    intro?: string;
+    sections?: { title: string; text: string }[];
+  } = $props();
 </script>
 
 {#if !infoTips.hidden}
@@ -34,6 +44,13 @@
     <div id="auto-detail-{id}" class="auto-detail sandbox-detail" role="note" hidden={!open}>
       {#each paragraphs as paragraph, i (i)}
         <p>{paragraph}</p>
+      {/each}
+    </div>
+  {:else if sections}
+    <div id="auto-detail-{id}" class="auto-detail sections-detail" role="note" hidden={!open}>
+      {#if intro}<p>{intro}</p>{/if}
+      {#each sections as section, i (i)}
+        <p><strong>{section.title}</strong>{section.text}</p>
       {/each}
     </div>
   {:else}
@@ -65,10 +82,20 @@
     /* container with real <p> children — pre-line would render markup whitespace */
     white-space: normal;
   }
-  .sandbox-detail p {
+  /* containers with real <p> children — pre-line would render markup whitespace */
+  .sections-detail {
+    white-space: normal;
+  }
+  .sandbox-detail p,
+  .sections-detail p {
     margin: 0;
   }
-  .sandbox-detail p + p {
+  .sandbox-detail p + p,
+  .sections-detail p + p {
     margin-top: 6px;
+  }
+  .sections-detail strong {
+    display: block;
+    color: var(--color-ink-bright);
   }
 </style>

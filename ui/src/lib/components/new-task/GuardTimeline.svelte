@@ -1,7 +1,8 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
   import AutomationPanel from "#lib/components/AutomationPanel.svelte";
-  import { buildGuardTimeline, type GuardRepoConfig, type GuardStep } from "#lib/guard-timeline.js";
+  import GuardMarker from "#lib/components/GuardMarker.svelte";
+  import { buildGuardTimeline, type GuardRepoConfig } from "#lib/guard-timeline.js";
   import type { AgentProvider } from "#lib/types.js";
 
   // "Where does this task wait for a human?" — rendered under the Guards toggles.
@@ -42,18 +43,6 @@
 
   const msg = (key: string) => (m as unknown as Record<string, () => string>)[key]!();
 
-  function markerLabel(kind: GuardStep["kind"]): string {
-    if (kind === "human") return m.guardtl_marker_you();
-    if (kind === "auto") return m.guardtl_marker_auto();
-    return m.guardtl_marker_conditional();
-  }
-
-  function markerGlyph(kind: GuardStep["kind"]): string {
-    if (kind === "human") return "▲";
-    if (kind === "auto") return "⚙";
-    return "◈";
-  }
-
   // The card's use:dialog Escape handler bails on defaultPrevented, so consuming the
   // event here closes the popover first and leaves the dialog open.
   function onKeydown(e: KeyboardEvent) {
@@ -89,10 +78,7 @@
     <ol class="gtl-list">
       {#each localSteps as step (step.id)}
         <li class="gtl-step">
-          <span class="gtl-marker {step.kind}">
-            <span class="gtl-glyph" aria-hidden="true">{markerGlyph(step.kind)}</span>
-            {markerLabel(step.kind)}
-          </span>
+          <GuardMarker kind={step.kind} />
           <span class="gtl-text">{msg(step.key)}</span>
         </li>
       {/each}
@@ -103,10 +89,7 @@
       <ol class="gtl-list" start={localSteps.length + 1}>
         {#each repoSteps as step (step.id)}
           <li class="gtl-step">
-            <span class="gtl-marker {step.kind}">
-              <span class="gtl-glyph" aria-hidden="true">{markerGlyph(step.kind)}</span>
-              {markerLabel(step.kind)}
-            </span>
+            <GuardMarker kind={step.kind} />
             <span class="gtl-text">{msg(step.key)}</span>
             <button
               type="button"
@@ -184,27 +167,6 @@
     display: flex;
     align-items: baseline;
     gap: 6px;
-  }
-  .gtl-marker {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: baseline;
-    gap: 3px;
-    letter-spacing: 0.06em;
-    text-transform: uppercase;
-    color: var(--color-slate);
-  }
-  /* Semantic, not decorative: amber is the "needs you" accent already carried by the
-     guard toggles' ON readout; blue marks a condition without reading as a failure
-     (red) or as actionable-complete (green, reserved). */
-  .gtl-marker.human {
-    color: var(--color-amber);
-  }
-  .gtl-marker.conditional {
-    color: var(--color-blue);
-  }
-  .gtl-glyph {
-    font-size: var(--fs-micro);
   }
   .gtl-text {
     min-width: 0;

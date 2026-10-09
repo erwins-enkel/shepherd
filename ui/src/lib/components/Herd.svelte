@@ -93,6 +93,8 @@
     ondismissepic = undefined,
     onlandepic = undefined,
     onresolveconflictsepic = undefined,
+    onrepairciepic = undefined,
+    onopensessionepic = undefined,
     doneList = [],
     doneSelectedId = null,
     ondoneselect = undefined,
@@ -225,6 +227,10 @@
     onlandepic?: (repoPath: string, parent: number) => void;
     /** #1841: dispatch a conflict-rework agent for a completed epic's conflicting landing PR. */
     onresolveconflictsepic?: (repoPath: string, parent: number) => void;
+    /** #2872: dispatch a CI-repair agent for a completed epic's red landing PR; false = not started. */
+    onrepairciepic?: (repoPath: string, parent: number) => Promise<boolean>;
+    /** #2872: jump to a landing-repair session from the epic card. */
+    onopensessionepic?: (id: string) => void;
     // Done lens: the archived ("done") sessions to list when filter === "done" (newest
     // first; the endpoint already orders them). These are NOT live sessions — they live in
     // the page's lazy doneSessions store, distinct from `sessions`.
@@ -692,6 +698,8 @@
       onackmigrations={onackmigrationsepic ?? (() => {})}
       onland={onlandepic ?? (() => {})}
       onresolveconflicts={onresolveconflictsepic ?? (() => {})}
+      onrepairci={onrepairciepic ?? (async () => false)}
+      onopensession={onopensessionepic ?? (() => {})}
       {nowMs}
     />
   {/if}

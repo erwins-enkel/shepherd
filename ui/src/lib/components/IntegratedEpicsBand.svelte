@@ -11,6 +11,8 @@
     onackmigrations,
     onland,
     onresolveconflicts = () => {},
+    onrepairci = async () => true,
+    onopensession = () => {},
     nowMs = Date.now(),
     collapsed = $bindable(null),
   }: {
@@ -21,6 +23,8 @@
     onackmigrations: (repoPath: string, parent: number) => void;
     onland: (repoPath: string, parent: number) => void;
     onresolveconflicts?: (repoPath: string, parent: number) => void;
+    onrepairci?: (repoPath: string, parent: number) => Promise<boolean>;
+    onopensession?: (id: string) => void;
   } = $props();
   const waitingCountId = $props.id();
   const ranked = $derived(
@@ -64,6 +68,8 @@
             {onackmigrations}
             {onland}
             {onresolveconflicts}
+            {onrepairci}
+            {onopensession}
             {nowMs}
           />
         {/each}

@@ -132,8 +132,10 @@ function makeHarness(opts: {
   hasRerunCapability?: boolean;
   /** #2805: the GitHub REST write backoff seam. */
   restWritesBlocked?: () => boolean;
+  /** #2872: reuse a store (simulates a server restart: a fresh DrainService over the same DB). */
+  store?: SessionStore;
 }): Harness {
-  const store = new SessionStore(":memory:");
+  const store = opts.store ?? new SessionStore(":memory:");
   store.setRepoConfig(REPO, {
     criticEnabled: false,
     criticAllPrs: false,
@@ -417,7 +419,7 @@ describe("rerunRedLandingCiForRepo (C)", () => {
     expect(h.spy.rerunCalls).toHaveLength(CAP + 1);
   });
 
-  test("bounded map: successive heads on one landing keep a SINGLE per-parent entry (not one per head)", async () => {
+  test("#2872 persisted budget: successive heads overwrite one row; a restart does not re-spend it", async () => {
     let head = "h1";
     const h = makeHarness({
       autoMergeEnabled: true,
@@ -426,17 +428,24 @@ describe("rerunRedLandingCiForRepo (C)", () => {
     });
     seedOpenLanding(h);
 
-    for (const nextHead of ["h1", "h2", "h3"]) {
+    for (const nextHead of ["h1", "h2", "h2"]) {
       head = nextHead;
       await callRerunPass(h);
     }
+    const row = () => h.store.listEpicCompleted(REPO)[0]!;
+    expect(row().landingRerunHead).toBe("h2");
+    expect(row().landingRerunCount).toBe(2);
+    expect(h.spy.rerunCalls).toHaveLength(3);
 
-    // The old per-head-SHA keying grew one entry per head (would be 3 here) and never evicted; the
-    // per-`repoPath#parent` keying self-replaces on each new head, so the map stays bounded to live
-    // epics. This is the regression guard for the unbounded-growth finding.
-    const map = (h.drain as unknown as { landingRerunCount: Map<string, unknown> })
-      .landingRerunCount;
-    expect(map.size).toBe(1);
+    // A fresh DrainService over the same store (= a server restart) sees the spent budget.
+    const restarted = makeHarness({
+      autoMergeEnabled: true,
+      prStatus: async () => redPr({ headSha: "h2" }),
+      latestFailedRunForPr: async () => 42,
+      store: h.store,
+    });
+    await callRerunPass(restarted);
+    expect(restarted.spy.rerunCalls).toHaveLength(0);
   });
 
   // ── skip cases (no rerun) ────────────────────────────────────────────────────
@@ -506,7 +515,7 @@ describe("rerunRedLandingCiForRepo (C)", () => {
     expect(h.spy.rerunCalls).toHaveLength(0);
   });
 
-  test("skips: latestFailedRunForPr resolves null (fork-origin PR / no resolvable run)", async () => {
+  test("skips: latestFailedRunForPr resolves null → no rerun, the head is recorded as unavailable (#2872)", async () => {
     const h = makeHarness({
       autoMergeEnabled: true,
       prStatus: async () => redPr(),
@@ -517,6 +526,10 @@ describe("rerunRedLandingCiForRepo (C)", () => {
     await callRerunPass(h);
 
     expect(h.spy.rerunCalls).toHaveLength(0);
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingRerunHead).toBe("h1");
+    expect(row.landingRerunUnavailable).toBe(true);
+    expect(row.landingRerunCount).toBe(0);
   });
 
   // ── never-merges ─────────────────────────────────────────────────────────────

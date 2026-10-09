@@ -8174,6 +8174,8 @@ test("landingRepairDirective: repair-and-push substance, no PR", () => {
   expect(sp).toContain("A plain `git push` will NOT work");
   expect(sp).toContain("Do NOT open a pull request");
   expect(sp).toContain("gh pr create");
+  // #2872: a check on the landing PR's own metadata is fixed with `gh pr edit`, not a push.
+  expect(sp).toContain("`gh pr edit`");
 });
 
 test("create landingRepair: persists landingRepair flag; non-landingRepair stays false", async () => {

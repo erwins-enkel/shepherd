@@ -252,7 +252,10 @@ import {
   anyLiveRepairSession,
   computeLandingReady,
   enrichLandingEpics,
+  findLiveRepairSession,
   type CompletedEpic,
+  type LandingAutomationContext,
+  type LandingAutomationRow,
 } from "./completed-epic";
 import {
   completedEpicScopeRepos,
@@ -697,6 +700,12 @@ export interface AppDeps {
       repoPath: string,
       parent: number,
     ): Promise<import("./drain").ResolveLandingConflictResult>;
+    /** #2872: operator-triggered CI repair for a red epic landing PR
+     *  (POST /api/epics/completed/repair-ci). Optional — absent in tests that don't need it. */
+    repairLandingCi?(
+      repoPath: string,
+      parent: number,
+    ): Promise<import("./drain").RepairLandingCiResult>;
   };
   /** Full-auto merge train snapshot; absent in tests that don't exercise it. */
   autoMerge?: { snapshot(): Promise<import("./automerge").AutoMergeStatus[]> };
@@ -9045,6 +9054,28 @@ function landingPrStatus(deps: AppDeps, repoPath: string, branch: string): Promi
   return value;
 }
 
+/** #2872: the drain's landing-automation gate inputs for one repo + the session lookups the repair
+ *  stage needs — fed to enrichLandingEpics so the card's stages mirror what the drain will do. */
+function landingAutomationContext(
+  deps: AppDeps,
+  repoPath: string,
+  integrationBranch: string,
+  now: number,
+): LandingAutomationContext {
+  const cfg = deps.store.getRepoConfig(repoPath);
+  return {
+    draftMode: cfg.draftMode,
+    autoMergeEnabled: cfg.autoMergeEnabled,
+    autoDrainEnabled: cfg.autoDrainEnabled,
+    epicRunning: deps.store.getEpicRun(repoPath)?.status === "running",
+    liveRepair: findLiveRepairSession(deps.store.list(), repoPath, integrationBranch, now),
+    sessionVisible: (id) => {
+      const s = deps.store.get(id);
+      return s !== null && s.status !== "archived";
+    },
+  };
+}
+
 // GET /api/epics/completed[?repo=] — durable completed-epics band. Primarily pure-DB; for a repo
 // no fingerprint covers it also runs a bounded, best-effort, fail-safe reconcile (auto-dismiss
 // confidently-closed parents + backfill an all-merged idle run that never got recorded). Always
@@ -9080,7 +9111,8 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
   // Re-query post-reconcile so the response reflects dismiss + backfill.
   const dbRows = deps.store.listEpicCompleted(repoFilter);
   const baseRows: Array<
-    CompletedEpic & { repoPath: string; parentIssueNumber: number; completedAt: number }
+    CompletedEpic &
+      LandingAutomationRow & { repoPath: string; parentIssueNumber: number; completedAt: number }
   > = dbRows.map((row) => {
     // landingAttempts, landingRebaseCount, landingRebaseDriverMisses are internal counters,
     // not part of the CompletedEpic response. landingRebasePauseReason is API-facing and passes through.
@@ -9113,20 +9145,42 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
     hasLiveRepairSession: (repoPath, integrationBranch) =>
       anyLiveRepairSession(deps.store.list(), repoPath, integrationBranch, nowMs),
     prStatus: (repoPath, branch) => landingPrStatus(deps, repoPath, branch),
+    automation: (repoPath, integrationBranch) =>
+      landingAutomationContext(deps, repoPath, integrationBranch, nowMs),
     now: nowMs,
   });
 
-  return json(baseRows);
+  // #2872: the raw automation counters are folded into landingCiAutomation — not part of the response.
+  return json(
+    baseRows.map((row) => {
+      const {
+        landingRerunHead,
+        landingRerunCount,
+        landingRerunUnavailable,
+        landingRepairSessionId,
+        ...rest
+      } = row;
+      void landingRerunHead;
+      void landingRerunCount;
+      void landingRerunUnavailable;
+      void landingRepairSessionId;
+      return rest;
+    }),
+  );
 }
 
-// POST /api/epics/completed/dismiss — body { repo, parent }. Dismiss one completed epic + emit.
-async function handleEpicsCompletedDismiss({ req, parts, deps }: Ctx): Promise<Response | null> {
+/** POST /api/epics/completed/<action> with body { repo, parent }: the validated repo dir + parent,
+ *  a 400 response for a bad body, or null when the request is not this route. */
+async function completedEpicPost(
+  { req, parts }: Ctx,
+  action: string,
+): Promise<{ dir: string; parent: number } | Response | null> {
   if (!(
     req.method === "POST" &&
     parts[0] === "api" &&
     parts[1] === "epics" &&
     parts[2] === "completed" &&
-    parts[3] === "dismiss"
+    parts[3] === action
   ))
     return null;
   const body = (await req.json().catch(() => null)) as { repo?: string; parent?: number } | null;
@@ -9135,6 +9189,15 @@ async function handleEpicsCompletedDismiss({ req, parts, deps }: Ctx): Promise<R
   const parent = body?.parent;
   if (typeof parent !== "number" || !Number.isInteger(parent) || parent <= 0)
     return json({ error: "parent must be a positive integer" }, 400);
+  return { dir, parent };
+}
+
+// POST /api/epics/completed/dismiss — body { repo, parent }. Dismiss one completed epic + emit.
+async function handleEpicsCompletedDismiss(ctx: Ctx): Promise<Response | null> {
+  const target = await completedEpicPost(ctx, "dismiss");
+  if (!target || target instanceof Response) return target;
+  const { dir, parent } = target;
+  const { deps } = ctx;
   deps.store.dismissEpicCompleted(dir, parent);
   deps.events?.emit("epic:completed-cleared", { repoPath: dir, parentIssueNumber: parent });
   return json({ ok: true });
@@ -9143,25 +9206,11 @@ async function handleEpicsCompletedDismiss({ req, parts, deps }: Ctx): Promise<R
 // POST /api/epics/completed/ack-migrations — body { repo, parent }. Acknowledge the landing PR's
 // detected migrations (#645): stamps migrationsAckedAt + dismisses the row (one operator action,
 // clears the band). Mirrors the dismiss handler's validation + clear emit.
-async function handleEpicsCompletedAckMigrations({
-  req,
-  parts,
-  deps,
-}: Ctx): Promise<Response | null> {
-  if (!(
-    req.method === "POST" &&
-    parts[0] === "api" &&
-    parts[1] === "epics" &&
-    parts[2] === "completed" &&
-    parts[3] === "ack-migrations"
-  ))
-    return null;
-  const body = (await req.json().catch(() => null)) as { repo?: string; parent?: number } | null;
-  const dir = safeRepoDir(body?.repo ?? "", config.repoRoot);
-  if (!dir) return json({ error: "invalid repo" }, 400);
-  const parent = body?.parent;
-  if (typeof parent !== "number" || !Number.isInteger(parent) || parent <= 0)
-    return json({ error: "parent must be a positive integer" }, 400);
+async function handleEpicsCompletedAckMigrations(ctx: Ctx): Promise<Response | null> {
+  const target = await completedEpicPost(ctx, "ack-migrations");
+  if (!target || target instanceof Response) return target;
+  const { dir, parent } = target;
+  const { deps } = ctx;
   deps.store.ackEpicMigrations(dir, parent);
   deps.events?.emit("epic:completed-cleared", { repoPath: dir, parentIssueNumber: parent });
   return json({ ok: true });
@@ -9323,36 +9372,67 @@ const RESOLVE_CONFLICT_ERRORS: Record<
   "spawn-failed": { status: 502, message: "conflict rework could not be started" },
 };
 
+// POST /api/epics/completed/<action> — body { repo, parent }. Shared by the landing card's agent
+// dispatches (resolve-conflicts, repair-ci): same validation, and the drain's stable result code maps
+// to a status + constant message (no forge/spawn error text reaches the client). Null when the
+// request is not this route.
+async function dispatchLandingAction<E extends string>(
+  ctx: Ctx,
+  action: string,
+  pick: (
+    drain: NonNullable<Ctx["deps"]["drain"]>,
+  ) =>
+    | ((repoPath: string, parent: number) => Promise<{ ok: true } | { ok: false; error: E }>)
+    | undefined,
+  errors: Record<E, { status: number; message: string }>,
+): Promise<Response | null> {
+  const target = await completedEpicPost(ctx, action);
+  if (!target || target instanceof Response) return target;
+  const { dir, parent } = target;
+  const { deps } = ctx;
+  const run = deps.drain ? pick(deps.drain) : undefined;
+  if (!run) return json({ error: "drain unavailable" }, 503);
+  const r = await run.call(deps.drain, dir, parent);
+  if (r.ok) return json({ ok: true }, 202);
+  const e = errors[r.error];
+  return json({ error: e.message, reason: r.error }, e.status);
+}
+
 // POST /api/epics/completed/resolve-conflicts — body { repo, parent }. #1841: dispatch a
 // conflict-rework session (rebase onto the default branch, resolve, force-with-lease push) for a
 // conflicting epic landing PR. Manual: bypasses auto-drain + the auto cap, still refused while a
 // repair session is live. 202 dispatched · 404 no open landing · 409 repairing/not-conflicting/
 // busy/unsupported · 502 spawn failed · 503 no drain.
-async function handleEpicsCompletedResolveConflicts({
-  req,
-  parts,
-  deps,
-}: Ctx): Promise<Response | null> {
-  if (!(
-    req.method === "POST" &&
-    parts[0] === "api" &&
-    parts[1] === "epics" &&
-    parts[2] === "completed" &&
-    parts[3] === "resolve-conflicts"
-  ))
-    return null;
-  const body = (await req.json().catch(() => null)) as { repo?: string; parent?: number } | null;
-  const dir = safeRepoDir(body?.repo ?? "", config.repoRoot);
-  if (!dir) return json({ error: "invalid repo" }, 400);
-  const parent = body?.parent;
-  if (typeof parent !== "number" || !Number.isInteger(parent) || parent <= 0)
-    return json({ error: "parent must be a positive integer" }, 400);
-  const resolve = deps.drain?.resolveLandingConflict;
-  if (!resolve) return json({ error: "drain unavailable" }, 503);
-  const r = await resolve.call(deps.drain, dir, parent);
-  if (r.ok) return json({ ok: true }, 202);
-  const e = RESOLVE_CONFLICT_ERRORS[r.error];
-  return json({ error: e.message, reason: r.error }, e.status);
+function handleEpicsCompletedResolveConflicts(ctx: Ctx): Promise<Response | null> {
+  return dispatchLandingAction(
+    ctx,
+    "resolve-conflicts",
+    (d) => d.resolveLandingConflict,
+    RESOLVE_CONFLICT_ERRORS,
+  );
+}
+
+// #2872: result code → HTTP status + generic client message for repair-ci. Constant strings only —
+// no forge/spawn error text reaches the client (CodeQL js/stack-trace-exposure).
+const REPAIR_CI_ERRORS: Record<
+  Extract<import("./drain").RepairLandingCiResult, { ok: false }>["error"],
+  { status: number; message: string }
+> = {
+  "no-landing": { status: 404, message: "no open landing PR" },
+  unsupported: { status: 409, message: "CI repair unsupported for this forge" },
+  busy: { status: 409, message: "landing busy, retry shortly" },
+  repairing: { status: 409, message: "a repair session is already working this landing" },
+  "not-red": { status: 409, message: "landing PR CI is not failing" },
+  "spawn-failed": { status: 502, message: "CI repair could not be started" },
+};
+
+// POST /api/epics/completed/repair-ci — body { repo, parent }. #2872: dispatch a CI-repair agent for
+// a red epic landing PR (fix pushed straight to the integration branch, no new PR). Manual: bypasses
+// auto-drain, the auto cap and the spawn back-off; still refused while a repair session is live.
+// 202 dispatched · 404 no open landing · 409 repairing/not-red/busy/unsupported · 502 spawn failed ·
+// 503 no drain.
+function handleEpicsCompletedRepairCi(ctx: Ctx): Promise<Response | null> {
+  return dispatchLandingAction(ctx, "repair-ci", (d) => d.repairLandingCi, REPAIR_CI_ERRORS);
 }
 
 const ROUTE_HANDLERS = [
@@ -9392,6 +9472,7 @@ const ROUTE_HANDLERS = [
   handleManualSteps,
   handleEpicsCompletedLand,
   handleEpicsCompletedResolveConflicts,
+  handleEpicsCompletedRepairCi,
   handleEpicsCompletedList,
   handleEpicApproveNext,
   handleEpicImport,

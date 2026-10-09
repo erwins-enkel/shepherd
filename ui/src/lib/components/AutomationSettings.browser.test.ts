@@ -100,6 +100,29 @@ describe("AutomationSettings — hide-info-tips preference", () => {
   });
 });
 
+describe("AutomationSettings — Auto-Drain explanation (#2872)", () => {
+  it("renders an intro plus titled sections, naming both cases and the off-switch fallback", async () => {
+    await mount();
+    document
+      .querySelector<HTMLButtonElement>('button[aria-controls="auto-detail-auto-drain"]')!
+      .click();
+    await tick();
+
+    const detail = document.querySelector<HTMLElement>("#auto-detail-auto-drain")!;
+    expect(detail.hidden).toBe(false);
+    const titles = [...detail.querySelectorAll("strong")].map((t) => t.textContent);
+    expect(titles).toEqual([
+      m.automation_autodrain_detail_backlog_title(),
+      m.automation_autodrain_detail_landing_title(),
+      m.automation_autodrain_detail_off_title(),
+      m.automation_autodrain_detail_limits_title(),
+    ]);
+    expect(detail.textContent).toContain(m.automation_autodrain_detail_intro());
+    expect(detail.textContent).toContain(m.automation_autodrain_detail_off());
+    await expect.element(page.getByText(m.automation_autodrain_desc())).toBeInTheDocument();
+  });
+});
+
 describe("AutomationSettings — Open shared browser", () => {
   const REPO = "/tmp/repo";
   const openButton = () => page.getByRole("button", { name: m.automation_shared_browser_open() });

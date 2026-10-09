@@ -4,6 +4,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { parseCodexActivity } from "../src/codex-activity";
 import { config } from "../src/config";
 import { makeApp, makeAgentIngressApp, type AppDeps } from "../src/server";
 import { capRaw, RAW_CAP_BYTES } from "../src/task-export";
@@ -116,18 +117,55 @@ function toolUseLine(name: string, ts: string): string {
   });
 }
 
+/** A Codex rollout header for conversation `id`, in the session's worktree. */
+function sessionMetaLine(id: string): string {
+  return JSON.stringify({
+    timestamp: "2026-08-01T10:00:00.000Z",
+    type: "session_meta",
+    payload: { id, cwd: SESSION.worktreePath, source: "cli" },
+  });
+}
+
+/** One Codex exec tool call — what parseCodexActivity turns into an entry. */
+function codexToolCallLine(cmd: string, ts: string): string {
+  return JSON.stringify({
+    timestamp: ts,
+    type: "response_item",
+    payload: {
+      type: "custom_tool_call",
+      call_id: `call-${cmd}`,
+      name: "exec",
+      input: `const r = await tools.exec_command({cmd:${JSON.stringify(cmd)},workdir:"/wt"});`,
+    },
+  });
+}
+
+/** Write a rollout under the test's $CODEX_HOME, named the way Codex names it. */
+function writeRollout(id: string, text: string): string {
+  const dir = join(tmpDir, "codex", "sessions", "2026", "08", "01");
+  mkdirSync(dir, { recursive: true });
+  const p = join(dir, `rollout-2026-08-01T10-00-00-${id}.jsonl`);
+  writeFileSync(p, text);
+  return p;
+}
+
 let tmpDir: string;
 let origProjectsDir: string;
+let origCodexHome: string | undefined;
 
 beforeEach(() => {
   tmpDir = join(tmpdir(), `task-export-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   mkdirSync(tmpDir, { recursive: true });
   origProjectsDir = config.claudeProjectsDir;
   config.claudeProjectsDir = tmpDir;
+  origCodexHome = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = join(tmpDir, "codex");
 });
 
 afterEach(() => {
   config.claudeProjectsDir = origProjectsDir;
+  if (origCodexHome === undefined) delete process.env.CODEX_HOME;
+  else process.env.CODEX_HOME = origCodexHome;
   rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -246,23 +284,53 @@ test("a session without a branch reports no-branch rather than an empty diff", a
   expect(body.diffUnavailable).toBe("no-branch");
 });
 
-test("codex session: metadata still ships, transcript gap is explicit (pending #1267)", async () => {
+test("codex session: the bundle carries its rollout, resolved by native id and Codex-parsed", async () => {
   const codex: Session = {
     ...SESSION,
     agentProvider: "codex",
+    claudeSessionId: "",
     providerSessionId: "rollout-uuid-1",
   };
+  const text = [
+    sessionMetaLine("rollout-uuid-1"),
+    codexToolCallLine("bun test", "2026-08-01T10:00:20.000Z"),
+  ].join("\n");
+  const path = writeRollout("rollout-uuid-1", text);
+  // A newer sibling conversation in the same cwd must never stand in for this one.
+  writeRollout("sibling", sessionMetaLine("sibling"));
+
   const app = makeApp(makeDeps(codex));
   const res = await app.fetch(new Request("http://localhost/api/tasks/TASK-42/export"));
-  expect(res.status).toBe(200); // never a 500
+  expect(res.status).toBe(200);
   const body = await res.json();
 
   expect(body.meta.agentProvider).toBe("codex");
   expect(body.meta.agentSessionId).toBe("rollout-uuid-1"); // provider-agnostic field
-  expect(body.transcript.unavailable).toBe("codex-pending-1267");
-  expect(body.transcript.raw).toBeNull();
-  expect(body.transcript.path).toBeNull();
+  expect(body.transcript.unavailable).toBeNull();
+  expect(body.transcript.path).toBe(path);
+  expect(body.transcript.raw).toBe(text);
+  expect(body.transcript.entries).toEqual(parseCodexActivity(text, -1));
+  expect(body.transcript.entries.map((e: { summary: string }) => e.summary)).toEqual([
+    "$ bun test",
+  ]);
   expect(body.diffUnavailable).toBe("no-branch"); // diff still attempted, not skipped
+});
+
+test("codex session: no captured id → no-transcript-id; id without a rollout → file-missing", async () => {
+  const noId: Session = { ...SESSION, agentProvider: "codex", providerSessionId: "" };
+  const a = await (
+    await makeApp(makeDeps(noId)).fetch(new Request("http://localhost/api/tasks/TASK-42/export"))
+  ).json();
+  expect(a.transcript.unavailable).toBe("no-transcript-id");
+  expect(a.meta.agentSessionId).toBeNull();
+
+  const gone: Session = { ...SESSION, agentProvider: "codex", providerSessionId: "gone" };
+  const b = await (
+    await makeApp(makeDeps(gone)).fetch(new Request("http://localhost/api/tasks/TASK-42/export"))
+  ).json();
+  expect(b.transcript.unavailable).toBe("file-missing");
+  expect(b.transcript.path).toBeNull();
+  expect(b.transcript.raw).toBeNull();
 });
 
 test("a session with no pinned agent session id reports no-transcript-id", async () => {
@@ -323,16 +391,44 @@ test("GET /api/tasks/:key/transcript streams the untruncated JSONL", async () =>
   expect(await res.text()).toBe(text);
 });
 
+test("GET /api/tasks/:key/transcript streams a Codex session's rollout", async () => {
+  const text = [
+    sessionMetaLine("rollout-uuid-1"),
+    codexToolCallLine("ls", "2026-08-01T10:00:20.000Z"),
+  ]
+    .join("\n")
+    .concat("\n");
+  writeRollout("rollout-uuid-1", text);
+  const codex: Session = {
+    ...SESSION,
+    agentProvider: "codex",
+    providerSessionId: "rollout-uuid-1",
+  };
+  const res = await makeApp(makeDeps(codex)).fetch(
+    new Request("http://localhost/api/tasks/TASK-42/transcript"),
+  );
+  expect(res.status).toBe(200);
+  expect(res.headers.get("content-type")).toBe("application/x-ndjson");
+  expect(await res.text()).toBe(text);
+});
+
 test("transcript route 404s with the same reason code the bundle carries", async () => {
-  const app = makeApp(makeDeps({ ...SESSION, agentProvider: "codex" }));
+  const app = makeApp(makeDeps({ ...SESSION, agentProvider: "codex", providerSessionId: "" }));
   const res = await app.fetch(new Request("http://localhost/api/tasks/TASK-42/transcript"));
   expect(res.status).toBe(404);
-  expect((await res.json()).reason).toBe("codex-pending-1267");
+  expect((await res.json()).reason).toBe("no-transcript-id");
 
   const missing = makeApp(makeDeps(SESSION)); // claude, but nothing on disk
   const res2 = await missing.fetch(new Request("http://localhost/api/tasks/TASK-42/transcript"));
   expect(res2.status).toBe(404);
   expect((await res2.json()).reason).toBe("file-missing");
+
+  const codexGone = makeApp(
+    makeDeps({ ...SESSION, agentProvider: "codex", providerSessionId: "gone" }),
+  );
+  const res3 = await codexGone.fetch(new Request("http://localhost/api/tasks/TASK-42/transcript"));
+  expect(res3.status).toBe(404);
+  expect((await res3.json()).reason).toBe("file-missing");
 });
 
 // ── surface boundaries ────────────────────────────────────────────────────────

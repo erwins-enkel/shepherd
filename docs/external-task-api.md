@@ -393,6 +393,11 @@ curl -H "Authorization: Bearer $SHEPHERD_TOKEN" \
 - `GET /api/tasks/:key/transcript` — the untruncated raw JSONL as an
   `application/x-ndjson` download.
 
+The raw transcript is the provider's own format: Claude Code's session JSONL, or
+for Codex the rollout JSONL under `$CODEX_HOME/sessions`, located by the
+session's native id (`meta.agentSessionId`). `entries` is the same parsed
+activity shape for both.
+
 `:key` is whichever identifier you hold: `TASK-435`, the bare number `435`, or
 the session UUID. **Archived sessions are included** — post-hoc analysis is the
 point. The bare-number form matches on the numeric suffix, so `5` resolves the
@@ -442,15 +447,14 @@ zero-padded `TASK-05`; `TASK-…` is the unambiguous form.
 A field is only empty when there is genuinely nothing there; anything Shepherd
 could not resolve says so:
 
-| Field                    | Value                | Meaning                                                                   |
-| ------------------------ | -------------------- | ------------------------------------------------------------------------- |
-| `transcript.unavailable` | `codex-pending-1267` | Non-Claude provider — native transcript resolution lands with issue #1267 |
-|                          | `no-transcript-id`   | Session predates the pinned agent session id; nothing to resolve          |
-|                          | `file-missing`       | Path resolved, but the JSONL is gone from disk                            |
-| `transcript.truncated`   | `true`               | Inline `raw` hit the 8 MiB cap — fetch `/transcript` for the full stream  |
-| `diffUnavailable`        | `worktree-removed`   | Archived isolated session: the transcript survives, the worktree does not |
-|                          | `no-branch`          | Non-isolated session — there is no branch to diff                         |
-|                          | _an error message_   | `git` failed; the rest of the bundle is still served                      |
+| Field                    | Value              | Meaning                                                                     |
+| ------------------------ | ------------------ | --------------------------------------------------------------------------- |
+| `transcript.unavailable` | `no-transcript-id` | No agent session id: predates the pinned id, or the Codex id never captured |
+|                          | `file-missing`     | The id is known, but its JSONL / Codex rollout is gone from disk            |
+| `transcript.truncated`   | `true`             | Inline `raw` hit the 8 MiB cap — fetch `/transcript` for the full stream    |
+| `diffUnavailable`        | `worktree-removed` | Archived isolated session: the transcript survives, the worktree does not   |
+|                          | `no-branch`        | Non-isolated session — there is no branch to diff                           |
+|                          | _an error message_ | `git` failed; the rest of the bundle is still served                        |
 
 A truncated `raw` is still **valid JSONL** — it is cut back to the last complete
 line, never mid-record — so it can be parsed as-is. (If a single record exceeds

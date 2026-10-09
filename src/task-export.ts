@@ -6,13 +6,16 @@
  * externally or re-ingested into another CLI/model without reaching into the DB or the disk.
  *
  * This module only *aggregates*: usage comes from the caller (the server owns that DTO ladder),
- * the diff from `computeDiff`, the parsed activity from `parseActivity`. It invents no new
- * resolution logic — every gap is reported as an explicit marker rather than an empty field, so a
- * consumer can always tell "nothing happened" apart from "Shepherd could not tell you".
+ * the diff from `computeDiff`, the parsed activity from `parseActivity` (Claude) or
+ * `parseCodexActivity` (Codex rollout). It invents no new resolution logic — every gap is reported
+ * as an explicit marker rather than an empty field, so a consumer can always tell "nothing
+ * happened" apart from "Shepherd could not tell you".
  */
 import { stat } from "node:fs/promises";
 
 import { parseActivity, type ActivityEntry } from "./activity";
+import { parseCodexActivity } from "./codex-activity";
+import { findCodexRolloutById } from "./codex-session-id";
 import { computeDiff, toSessionDiff } from "./diff";
 import { resolveDiffBase } from "./diff-base";
 import type { GitForge } from "./forge/types";
@@ -28,10 +31,10 @@ import { jsonlPathFor } from "./usage";
 export const RAW_CAP_BYTES = 8 * 1024 * 1024;
 
 /** Why a transcript isn't in the bundle.
- *  - `codex-pending-1267` — non-Claude provider; native transcript resolution lands with #1267.
- *  - `no-transcript-id`   — session predates the pinned agent session id (nothing to resolve).
- *  - `file-missing`       — resolved a path, but the JSONL is gone from disk. */
-export type TranscriptUnavailable = "codex-pending-1267" | "no-transcript-id" | "file-missing";
+ *  - `no-transcript-id` — no agent session id to resolve: the session predates the pinned Claude
+ *    id, or its Codex native id was never captured.
+ *  - `file-missing`     — the id is known, but its JSONL (Claude) / rollout (Codex) is gone. */
+export type TranscriptUnavailable = "no-transcript-id" | "file-missing";
 
 export interface TaskExportTranscript {
   format: "jsonl";
@@ -96,8 +99,13 @@ export function resolveTranscript(s: Session): {
   path: string | null;
   unavailable: TranscriptUnavailable | null;
 } {
-  if ((s.agentProvider ?? "claude") !== "claude")
-    return { path: null, unavailable: "codex-pending-1267" };
+  if ((s.agentProvider ?? "claude") === "codex") {
+    // A Codex rollout lives under $CODEX_HOME, named after the native id the launch marker proved —
+    // the same id `codex resume` targets, so the export is the conversation that would be resumed.
+    if (!s.providerSessionId) return { path: null, unavailable: "no-transcript-id" };
+    const path = findCodexRolloutById(s.providerSessionId);
+    return path ? { path, unavailable: null } : { path: null, unavailable: "file-missing" };
+  }
   if (!s.claudeSessionId) return { path: null, unavailable: "no-transcript-id" };
   return {
     path: jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir),
@@ -151,7 +159,11 @@ async function readTranscript(s: Session): Promise<TaskExportTranscript> {
     path,
     ...capRaw(text),
     unavailable: null,
-    entries: parseActivity(text, -1), // -1 = every entry, not the live view's tail
+    // -1 = every entry, not the live view's tail
+    entries:
+      (s.agentProvider ?? "claude") === "codex"
+        ? parseCodexActivity(text, -1)
+        : parseActivity(text, -1),
   };
 }
 

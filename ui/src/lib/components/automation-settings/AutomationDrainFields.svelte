@@ -2,6 +2,7 @@
   import { untrack } from "svelte";
   import { m } from "#lib/paraglide/messages.js";
   import { repoConfig } from "#lib/reviews.svelte.js";
+  import { automationFocus } from "#lib/automation-focus.js";
   import { clampCap, clampCeiling, sanitizeLabel } from "../git-rail-drain";
   import "./automation-fields.css";
 
@@ -42,6 +43,16 @@
     });
   });
 
+  // The epic detail's "Allow N slots" (#2939) opens the tab here: bring the cap into view and
+  // focus it. Reading `active` re-runs this when the rails appear.
+  let capInput = $state<HTMLInputElement>();
+  $effect(() => {
+    if (active && capInput && automationFocus.take("max-auto")) {
+      capInput.scrollIntoView({ block: "center" });
+      capInput.focus();
+    }
+  });
+
   async function commitDrainCap() {
     const n = clampCap(drainCap);
     drainCap = n;
@@ -78,6 +89,7 @@
         type="number"
         min="1"
         max="20"
+        bind:this={capInput}
         bind:value={drainCap}
         aria-label={m.drain_cap_label()}
         aria-describedby="{uid}-cap"

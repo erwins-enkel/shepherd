@@ -1,6 +1,6 @@
 /** Whole-session export keyed on the Task-ID (issue #1268): GET /api/tasks/:key/{export,transcript}. */
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -154,8 +154,7 @@ let origProjectsDir: string;
 let origCodexHome: string | undefined;
 
 beforeEach(() => {
-  tmpDir = join(tmpdir(), `task-export-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-  mkdirSync(tmpDir, { recursive: true });
+  tmpDir = mkdtempSync(join(tmpdir(), "task-export-test-"));
   origProjectsDir = config.claudeProjectsDir;
   config.claudeProjectsDir = tmpDir;
   origCodexHome = process.env.CODEX_HOME;

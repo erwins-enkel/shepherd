@@ -69,7 +69,7 @@
     "prettier-plugin-tailwindcss": "^0.8.1",
     "svelte": "^5.57.1",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.71.0",
+    "typescript-eslint": "^8.71.1",
     "varlock": "^1.21.1",
     "yaml": "^2.9.1"
   },

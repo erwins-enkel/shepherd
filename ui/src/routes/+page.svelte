@@ -3080,6 +3080,7 @@
             onamend={openAmend}
             epics={store.epics}
             onepic={openEpicInBacklog}
+            drain={store.drain}
             {activeEpicKeys}
             collapsedKeys={collapsedEpics}
             oncollapsetoggle={toggleEpicCollapse}
@@ -3258,6 +3259,7 @@
               onamend={openAmend}
               epics={store.epics}
               onepic={openEpicInBacklog}
+              drain={store.drain}
               {activeEpicKeys}
               collapsedKeys={collapsedEpics}
               oncollapsetoggle={toggleEpicCollapse}

@@ -77,12 +77,14 @@ import { sanitizeScopeGlobs } from "./house-rules";
 import { decodeStoredRepoPaths, type AccessTokenRow } from "./access-tokens";
 import {
   epicRunEnding,
+  type EpicClock,
   type EpicQueueEntry,
   type EpicRun,
   type EpicRunEnd,
   type EpicSettings,
 } from "./epic-core";
 import type { EpicLandingState } from "./completed-epic";
+import { epicParentFromBranch } from "./epic-branch";
 import { normalizeRule } from "./learning-rule";
 import { trimRuleToLimit } from "./learning-shape";
 import type { GitState, WorkflowJob } from "./forge/types";
@@ -1361,8 +1363,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // is sub-second, so the worst-case wait is a brief, bounded stall — not a crash. Keep equal to
     // BUSY_TIMEOUT_MS in scripts/backup.ts.
     this.db.run("PRAGMA busy_timeout = 5000");
-    // Everything below is ONE transaction. A fresh open fires 153 write statements: 44
-    // CREATE TABLE IF NOT EXISTS (43 here, REVIEWER_SPAWNS_DDL, and terminal_claims inside
+    // Everything below is ONE transaction. A fresh open fires 154 write statements: 45
+    // CREATE TABLE IF NOT EXISTS (44 here, REVIEWER_SPAWNS_DDL, and terminal_claims inside
     // migrateSessionColumns), 14 index creations (13 here plus that method's partial unique
     // index), 89 ALTER TABLE column adds behind PRAGMA table_info probes, and 3 seed INSERTs.
     // Each one left to autocommit pays SQLite's full rollback-journal fsync cycle — 310ms per open
@@ -1831,6 +1833,17 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       landingAttempts INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY (repoPath, parentIssueNumber))`);
     this.migrateEpicCompletedColumns();
+    // The epic clock (EpicClock), keyed PER EPIC like epic_branch (#645) — not on epic_run, which
+    // one-row-per-repo supersession overwrites — so an epic keeps its clock across supersession and
+    // into landing. Never pruned, like every other epic_* table: rows are bounded by epics.
+    this.db.run(`CREATE TABLE IF NOT EXISTS epic_clock (
+      repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL,
+      startedAt INTEGER NOT NULL, pausedAt INTEGER,
+      pausesJson TEXT NOT NULL DEFAULT '[]',
+      landingStartedAt INTEGER, landedAt INTEGER, firstFinishAt INTEGER,
+      PRIMARY KEY (repoPath, parentIssueNumber))`);
+    this.migrateEpicClockColumns();
+    this.backfillEpicClocks();
     // #645: a child whose PR targets a base other than the pinned epic branch is parked here at
     // retire (fail-closed: not merged, not integrated). Keyed per child; the row is the throttle
     // anchor (bounds prReviewMeta to ≤1/child/~60s while stuck) and the assembleEpic warning source.
@@ -2306,10 +2319,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
    *  move to `epic_settings` and the new epic's remembered ones are dropped — they ride on the row
    *  now (see {@link EpicSettings}). An epic that stops leading gets its {@link EpicRunEnd}
    *  (`via`: the requesting token's name; `completed`: the drain finished it); one that leads
-   *  again loses it. */
+   *  again loses it. The write also drives the epics' clocks (see {@link EpicClock}): the epic
+   *  it passes from stops, and `r`'s runs while `running` and stops otherwise. */
   setEpicRun(r: EpicRun, opts: { via?: string | null; completed?: boolean } = {}): void {
     this.db.transaction(() => {
       const prev = this.getEpicRun(r.repoPath);
+      const now = Date.now();
+      if (prev && prev.parentIssueNumber !== r.parentIssueNumber)
+        this.stopEpicClock(r.repoPath, prev.parentIssueNumber, now);
+      if (r.status === "running") this.runEpicClock(r.repoPath, r.parentIssueNumber, now);
+      else this.stopEpicClock(r.repoPath, r.parentIssueNumber, now);
       const end = epicRunEnding(prev, r, opts);
       if (end)
         this.db.run(
@@ -2349,6 +2368,70 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           `SELECT cause, successor, at, via FROM epic_run_end WHERE repoPath = ? AND parentIssueNumber = ?`,
         )
         .get(repoPath, parentIssueNumber) as EpicRunEnd | null) ?? null
+    );
+  }
+
+  // ── epic clock: one per epic, survives supersession and landing ──────────
+  /** The epic's clock; null when it never ran. */
+  getEpicClock(repoPath: string, parentIssueNumber: number): EpicClock | null {
+    const row = this.db
+      .query(
+        `SELECT startedAt, pausedAt, pausesJson, landingStartedAt, landedAt, firstFinishAt
+        FROM epic_clock WHERE repoPath = ? AND parentIssueNumber = ?`,
+      )
+      .get(repoPath, parentIssueNumber) as
+      (Omit<EpicClock, "pauses"> & { pausesJson: string }) | null;
+    if (!row) return null;
+    const { pausesJson, ...clock } = row;
+    const pauses = safeJsonParse<unknown>(pausesJson, []);
+    return { ...clock, pauses: Array.isArray(pauses) ? (pauses as [number, number][]) : [] };
+  }
+
+  /** Start the epic's clock, or resume it: the open stop becomes a closed pause. Running → no-op. */
+  private runEpicClock(repoPath: string, parentIssueNumber: number, now: number): void {
+    const clock = this.getEpicClock(repoPath, parentIssueNumber);
+    if (!clock) {
+      this.db.run(
+        `INSERT INTO epic_clock (repoPath, parentIssueNumber, startedAt) VALUES (?,?,?)`,
+        [repoPath, parentIssueNumber, now],
+      );
+      return;
+    }
+    if (clock.pausedAt == null) return;
+    const pauses = [...clock.pauses, [clock.pausedAt, Math.max(clock.pausedAt, now)]];
+    this.db.run(
+      `UPDATE epic_clock SET pausedAt = NULL, pausesJson = ? WHERE repoPath = ? AND parentIssueNumber = ?`,
+      [JSON.stringify(pauses), repoPath, parentIssueNumber],
+    );
+  }
+
+  /** Record the epic's drift anchor — the first forecast after its first merge. First write wins;
+   *  an epic without a clock gets none. */
+  recordEpicFirstFinish(repoPath: string, parentIssueNumber: number, finishAt: number): void {
+    this.db.run(
+      `UPDATE epic_clock SET firstFinishAt = COALESCE(firstFinishAt, ?)
+       WHERE repoPath = ? AND parentIssueNumber = ?`,
+      [finishAt, repoPath, parentIssueNumber],
+    );
+  }
+
+  /** How long each of the repo's landed epics took to land (`landedAt − landingStartedAt`). */
+  listEpicLandingDurations(repoPath: string): number[] {
+    return (
+      this.db
+        .query(
+          `SELECT landedAt - landingStartedAt AS ms FROM epic_clock
+           WHERE repoPath = ? AND landingStartedAt IS NOT NULL AND landedAt IS NOT NULL`,
+        )
+        .all(repoPath) as { ms: number }[]
+    ).map((r) => r.ms);
+  }
+
+  /** Stop a running clock. Never creates one, and never moves an existing stop. */
+  private stopEpicClock(repoPath: string, parentIssueNumber: number, now: number): void {
+    this.db.run(
+      `UPDATE epic_clock SET pausedAt = ? WHERE repoPath = ? AND parentIssueNumber = ? AND pausedAt IS NULL`,
+      [now, repoPath, parentIssueNumber],
     );
   }
 
@@ -2775,7 +2858,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   /** Record a completed epic (all children done-in-epic). Idempotent upsert.
    *  On conflict, refreshes parentTitle/completedAt/childrenJson but leaves dismissedAt untouched
-   *  so a previously dismissed epic never resurrects. */
+   *  so a previously dismissed epic never resurrects. The completion is where the epic's landing
+   *  begins: the first one stamps its clock's `landingStartedAt`. */
   recordEpicCompleted(row: {
     repoPath: string;
     parentIssueNumber: number;
@@ -2783,28 +2867,44 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     completedAt: number;
     childrenJson: string;
   }): void {
-    this.db.run(
-      `INSERT INTO epic_completed (repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson)
-       VALUES (?,?,?,?,?)
-       ON CONFLICT DO UPDATE SET
-         parentTitle = excluded.parentTitle,
-         completedAt = excluded.completedAt,
-         childrenJson = excluded.childrenJson`,
-      [row.repoPath, row.parentIssueNumber, row.parentTitle, row.completedAt, row.childrenJson],
-    );
+    this.db.transaction(() => {
+      this.db.run(
+        `INSERT INTO epic_completed (repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson)
+         VALUES (?,?,?,?,?)
+         ON CONFLICT DO UPDATE SET
+           parentTitle = excluded.parentTitle,
+           completedAt = excluded.completedAt,
+           childrenJson = excluded.childrenJson`,
+        [row.repoPath, row.parentIssueNumber, row.parentTitle, row.completedAt, row.childrenJson],
+      );
+      this.db.run(
+        `UPDATE epic_clock SET landingStartedAt = COALESCE(landingStartedAt, ?)
+         WHERE repoPath = ? AND parentIssueNumber = ?`,
+        [row.completedAt, row.repoPath, row.parentIssueNumber],
+      );
+    })();
   }
 
   /** Drop the completion of an epic whose run is starting again — a running epic is not complete.
    *  Kept while its landing PR is open or merged: that row still tracks a real landing. A stale
    *  row would otherwise keep its terminal landingState (recordEpicCompleted never resets it) and
-   *  dismissedAt, so the epic's real completion would open no landing PR and show no band. */
+   *  dismissedAt, so the epic's real completion would open no landing PR and show no band. A
+   *  dropped completion takes its landing stamps off the epic's clock with it. */
   clearEpicCompletedOnRestart(repoPath: string, parentIssueNumber: number): boolean {
-    const r = this.db.run(
-      `DELETE FROM epic_completed WHERE repoPath = ? AND parentIssueNumber = ?
-       AND landingState NOT IN ('open', 'merged')`,
-      [repoPath, parentIssueNumber],
-    );
-    return r.changes > 0;
+    return this.db.transaction(() => {
+      const r = this.db.run(
+        `DELETE FROM epic_completed WHERE repoPath = ? AND parentIssueNumber = ?
+         AND landingState NOT IN ('open', 'merged')`,
+        [repoPath, parentIssueNumber],
+      );
+      if (r.changes === 0) return false;
+      this.db.run(
+        `UPDATE epic_clock SET landingStartedAt = NULL, landedAt = NULL
+         WHERE repoPath = ? AND parentIssueNumber = ?`,
+        [repoPath, parentIssueNumber],
+      );
+      return true;
+    })();
   }
 
   /** True if an epic_completed row exists for this key, regardless of dismissedAt.
@@ -2892,7 +2992,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   /** Write the Stage B (#635) landing-PR resolution onto a completed epic.
-   *  Direct UPDATE (not part of recordEpicCompleted's preserve-by-omission upsert). */
+   *  Direct UPDATE (not part of recordEpicCompleted's preserve-by-omission upsert). The only
+   *  writer of `merged`, so it stamps the epic clock's `landedAt` (first observation wins). */
   setEpicLandingPr(
     repoPath: string,
     parentIssueNumber: number,
@@ -2903,11 +3004,19 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       attempts: number;
     },
   ): void {
-    this.db.run(
-      `UPDATE epic_completed SET landingState = ?, landingPrNumber = ?, landingPrUrl = ?, landingAttempts = ?
-       WHERE repoPath = ? AND parentIssueNumber = ?`,
-      [fields.state, fields.prNumber, fields.prUrl, fields.attempts, repoPath, parentIssueNumber],
-    );
+    this.db.transaction(() => {
+      const r = this.db.run(
+        `UPDATE epic_completed SET landingState = ?, landingPrNumber = ?, landingPrUrl = ?, landingAttempts = ?
+         WHERE repoPath = ? AND parentIssueNumber = ?`,
+        [fields.state, fields.prNumber, fields.prUrl, fields.attempts, repoPath, parentIssueNumber],
+      );
+      if (fields.state === "merged" && r.changes > 0)
+        this.db.run(
+          `UPDATE epic_clock SET landedAt = COALESCE(landedAt, ?)
+           WHERE repoPath = ? AND parentIssueNumber = ?`,
+          [Date.now(), repoPath, parentIssueNumber],
+        );
+    })();
   }
 
   /** Write rebase-state fields onto a completed epic's row (#1071). Only updates the fields
@@ -5140,6 +5249,17 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return row?.t ?? null;
   }
 
+  /** One repo's delivery facts for sessions on any of `issueNumbers` — an epic's children. */
+  listDeliveryFactsForIssues(repoPath: string, issueNumbers: number[]): DeliveryFact[] {
+    if (issueNumbers.length === 0) return [];
+    return this.db
+      .query(
+        `SELECT * FROM delivery_facts
+         WHERE repoPath = ? AND issueNumber IN (${issueNumbers.map(() => "?").join(",")})`,
+      )
+      .all(repoPath, ...issueNumbers) as DeliveryFact[];
+  }
+
   /** Drop delivery facts for sessions created before `beforeTs` (own retention sweep, matching
    *  reviewer_spawns' window — the two are read together). Returns the count removed. */
   pruneDeliveryFacts(beforeTs: number): number {
@@ -5884,6 +6004,71 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // #645: the branch the child actually squash-merged into. Nullable — pre-existing rows
     // backfill to NULL and never fire divergence warnings (forward-looking only; no backfill).
     add("mergedBase", `mergedBase TEXT`);
+  }
+
+  /** Give an epic that already led its repo when the epic clock shipped (running or paused, no
+   *  clock row) a clock. `startedAt` is the earliest known start among its child work and the run
+   *  row's `updatedAt` — the last write while the epic led, so never before its real start, and
+   *  the only candidate when no child is known. A paused epic's clock stopped at that write.
+   *  Idempotent: an epic that has a clock is skipped. */
+  private backfillEpicClocks(): void {
+    const runs = this.db
+      .query(
+        `SELECT r.repoPath, r.parentIssueNumber, r.status, r.updatedAt FROM epic_run r
+         WHERE r.status IN ('running', 'paused') AND NOT EXISTS (
+           SELECT 1 FROM epic_clock c
+           WHERE c.repoPath = r.repoPath AND c.parentIssueNumber = r.parentIssueNumber)`,
+      )
+      .all() as {
+      repoPath: string;
+      parentIssueNumber: number;
+      status: string;
+      updatedAt: number;
+    }[];
+    for (const r of runs) {
+      const starts = this.epicChildStarts(r.repoPath, r.parentIssueNumber);
+      this.db.run(
+        `INSERT INTO epic_clock (repoPath, parentIssueNumber, startedAt, pausedAt) VALUES (?,?,?,?)`,
+        [
+          r.repoPath,
+          r.parentIssueNumber,
+          Math.min(r.updatedAt, ...starts),
+          r.status === "paused" ? r.updatedAt : null,
+        ],
+      );
+    }
+  }
+
+  /** Every recorded start of an epic's child work: its sessions (stamped `epicParent`, else the
+   *  legacy integration-branch name — drain's `sessionEpicParent`) plus the delivery facts of their
+   *  issues and of the epic's integrated children. */
+  private epicChildStarts(repoPath: string, parentIssueNumber: number): number[] {
+    const sessions = (
+      this.db
+        .query(
+          `SELECT createdAt, issueNumber, epicParent, baseBranch FROM sessions WHERE repoPath = ?`,
+        )
+        .all(repoPath) as {
+        createdAt: number;
+        issueNumber: number | null;
+        epicParent: number | null;
+        baseBranch: string;
+      }[]
+    ).filter((s) => (s.epicParent ?? epicParentFromBranch(s.baseBranch)) === parentIssueNumber);
+    const issues = new Set([
+      ...sessions.flatMap((s) => (s.issueNumber == null ? [] : [s.issueNumber])),
+      ...this.listEpicIntegrated(repoPath, parentIssueNumber),
+    ]);
+    const facts = this.listDeliveryFactsForIssues(repoPath, [...issues]);
+    return [...sessions, ...facts].map((x) => x.createdAt);
+  }
+
+  /** Columns added to `epic_clock` after it first shipped. */
+  private migrateEpicClockColumns(): void {
+    const cols = this.db.query(`PRAGMA table_info(epic_clock)`).all() as { name: string }[];
+    // #2937: the forecast's drift anchor.
+    if (!cols.some((c) => c.name === "firstFinishAt"))
+      this.db.run(`ALTER TABLE epic_clock ADD COLUMN firstFinishAt INTEGER`);
   }
 
   private migrateEpicCompletedColumns(): void {

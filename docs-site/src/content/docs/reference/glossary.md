@@ -22,6 +22,19 @@ Shepherd spawns a session per ready child, collects their PRs on an integration
 branch, and lands everything as one final PR. (From Agile, where an epic is a
 large body of work split into smaller stories.)
 
+### Epic clock
+
+Measures how long an epic has run. It runs only while the epic runs and stands
+while it is paused or stopped. See
+[How long will this epic take?](/hands-off-epics/#how-long-will-this-epic-take)
+for when it starts and stops and how the forecast builds on it.
+
+### Agent time
+
+The summed run time of every agent session that worked on an epic's steps.
+Parallel agents each count in full, so it can exceed how long the epic has run.
+See [Agent time and waiting time](/hands-off-epics/#agent-time-and-waiting-time).
+
 ### Plan gate
 
 A checkpoint before execution: the agent first researches the task, asks you what

@@ -112,6 +112,85 @@ describe("EpicPanel after the run area (#2620)", () => {
   });
 });
 
+const MIN = 60_000;
+const NOW = new Date(2026, 9, 9, 12, 43).getTime();
+
+/** An epic with the clock and a forecast: one step merged, one running, one waiting. */
+function timed(): Epic {
+  return {
+    ...epic(),
+    children: [
+      child({ number: 160, state: "merged", startedAt: NOW - 142 * MIN, endedAt: NOW - 12 * MIN }),
+      child({ number: 161, order: 1, state: "running", startedAt: NOW - 253_000 }),
+      child({ number: 159, order: 2, state: "ready" }),
+    ],
+    timing: {
+      startedAt: NOW - 142 * MIN,
+      pausedAt: null,
+      pausedMs: 0,
+      landingStartedAt: null,
+      landedAt: null,
+      agentMs: 134 * MIN,
+      idleMs: 8 * MIN,
+    },
+    forecast: {
+      finishAt: NOW + 230 * MIN,
+      finishLow: NOW + 180 * MIN,
+      finishHigh: NOW + 300 * MIN,
+      remainingMsFromResume: null,
+      confidence: "low",
+      stepMs: 105 * MIN,
+      landingMs: 20 * MIN,
+      epicSamples: 1,
+      repoSamples: 23,
+      firstFinishAt: null,
+      fasterWithSlots: null,
+      children: [
+        {
+          number: 161,
+          projectedStart: NOW - 253_000,
+          projectedEnd: NOW + 100 * MIN,
+          overrun: false,
+        },
+        {
+          number: 159,
+          projectedStart: NOW + 100 * MIN,
+          projectedEnd: NOW + 205 * MIN,
+          overrun: false,
+        },
+      ],
+    },
+  };
+}
+
+const row = (n: number) =>
+  page.getByRole("listitem").filter({ has: page.getByRole("link", { name: `#${n}` }) });
+
+describe("EpicPanel DAUER column (#2939)", () => {
+  it("shows each step's duration: measured, live, forecast", async () => {
+    render(EpicPanel, { repoPath: "/repo", parent: 327, epic: timed(), nowMs: NOW });
+
+    await expect.element(page.getByText(m.epicdetail_col_duration())).toBeVisible();
+    await expect.element(row(160).getByText("2 h 10 min")).toBeVisible();
+    await expect.element(row(161).getByText("04:13")).toBeVisible();
+    await expect.element(row(161).getByText(/· ~1 h 40 min left/)).toBeVisible();
+    await expect.element(row(159).getByText("~1 h 45 min · forecast")).toBeVisible();
+  });
+
+  it("has no column without the epic clock", async () => {
+    render(EpicPanel, {
+      repoPath: "/repo",
+      parent: 327,
+      epic: { ...timed(), timing: undefined },
+      nowMs: NOW,
+    });
+
+    await expect.element(page.getByRole("link", { name: "#160" })).toBeVisible();
+    expect(page.getByText(m.epicdetail_col_duration()).query()).toBeNull();
+    expect(document.querySelector(".dur")).toBeNull();
+  });
+});
+
 // The "epic not loading" bug: a duplicate child (an epic-dag node listed on two `<-` lines) reaches
 // EpicPanel's `{#each epic.children as c (c.number)}`, whose duplicate key throws each_key_duplicate
 // and crashes the panel on mount. The data-layer fix (parser + assembleEpic dedup) guarantees unique

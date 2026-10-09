@@ -51,7 +51,13 @@ describe("EpicGroupHeader", () => {
       child("running", 3),
       child("ready", 4),
     ]);
-    render(EpicGroupHeader, { epic: e, collapsed: false, cues: noCues, ontoggle: () => {} });
+    render(EpicGroupHeader, {
+      epic: e,
+      collapsed: false,
+      cues: noCues,
+      nowMs: Date.now(),
+      ontoggle: () => {},
+    });
     await expect.element(page.getByText("Ship the new map")).toBeInTheDocument();
     await expect.element(page.getByText("#327")).toBeInTheDocument();
     await expect.element(page.getByText("EPIC 1/4")).toBeInTheDocument();
@@ -63,6 +69,7 @@ describe("EpicGroupHeader", () => {
       epic: epic([child("running", 1)]),
       collapsed: false,
       cues: noCues,
+      nowMs: Date.now(),
       ontoggle,
     });
     const btn = document.querySelector(".epic-toggle") as HTMLButtonElement;
@@ -75,6 +82,7 @@ describe("EpicGroupHeader", () => {
       epic: epic([child("running", 1)]),
       collapsed: false,
       cues: noCues,
+      nowMs: Date.now(),
       ontoggle: () => {},
     });
     const btn = document.querySelector(".epic-toggle") as HTMLButtonElement;
@@ -87,6 +95,7 @@ describe("EpicGroupHeader", () => {
       epic: epic([child("running", 1)]),
       collapsed: true,
       cues: noCues,
+      nowMs: Date.now(),
       ontoggle: () => {},
     });
     const btn = document.querySelector(".epic-toggle") as HTMLButtonElement;
@@ -99,6 +108,7 @@ describe("EpicGroupHeader", () => {
       epic: epic([child("running", 1)]),
       collapsed: true,
       cues: { ciFailed: 2, needsRework: 4, branchProtectionBlocked: 5, ready: 3, blocked: 1 },
+      nowMs: Date.now(),
       ontoggle: () => {},
     });
     // each chip = leading aria-hidden glyph + count, so textContent ends with the count
@@ -117,6 +127,7 @@ describe("EpicGroupHeader", () => {
       epic: epic([child("running", 1)]),
       collapsed: true,
       cues: { ciFailed: 1, needsRework: 0, branchProtectionBlocked: 0, ready: 0, blocked: 1 },
+      nowMs: Date.now(),
       ontoggle: () => {},
     });
     const ciGlyph = document.querySelector(".cue-ci .cue-glyph")?.textContent;
@@ -136,6 +147,7 @@ describe("EpicGroupHeader", () => {
       epic: epic([child("running", 1)]),
       collapsed: false,
       cues: { ciFailed: 0, needsRework: 0, branchProtectionBlocked: 0, ready: 2, blocked: 0 },
+      nowMs: Date.now(),
       ontoggle: () => {},
     });
     expect(document.querySelector(".cue-ci")).toBeNull();
@@ -150,6 +162,7 @@ describe("EpicGroupHeader", () => {
       epic: e,
       collapsed: false,
       cues: noCues,
+      nowMs: Date.now(),
       ontoggle: () => {},
       onepic,
     });

@@ -106,6 +106,106 @@ in-flight work running and resumes on its own — and only a few are **terminal*
 Shepherd spawns the first ready child immediately, then drains the rest as their dependencies
 complete, landing one aggregate PR at the end.
 
+## How long will this epic take?
+
+Hover an epic's **EPIC** badge in the Herd to see how long it has run and when it is forecast to
+land. The epic's detail in **Repos** adds time tiles, a timeline of every step and a **Duration**
+column in its step list. Both read the same epic clock and forecast.
+
+### The epic clock
+
+The epic clock measures how long the epic has **run** — not how long ago it started.
+
+- It **starts the first time the epic runs** — usually when you press **Start**.
+- It runs **only while the epic is running**. **Pause** stops it, and paused time never counts.
+- Only one epic leads per repo at a time. When another epic **supersedes** it, the epic shows as
+  **stopped**: its clock stands, but it is **not reset**. When that epic runs again, the clock
+  carries on from where it stood, and the gap counts like a pause.
+- It stops when the last step is in and the **landing** begins — the epic's PR into main, its CI
+  and the merge. The landing is timed on its own.
+
+Once the epic has landed, its **Total** runs from the first start to the landing's merge, minus the
+pauses.
+
+### Agent time and waiting time
+
+The clock is wall time. Two more figures show what happened during it:
+
+- **Agent time** is the summed run time of every agent session that worked on the epic's steps.
+  Parallel agents each count in full, so it can exceed the clock.
+- **Waited, no agent ran** is the time the clock ran while no agent worked on any step — for
+  example between one step merging and the next one starting, or while the next spawn waited on
+  the usage ceiling or on an agent slot held by a task outside the epic.
+
+Paused time never counts as waiting: the clock stood still. **Pause** leaves running sessions
+intact, though, so an agent that keeps working while the epic is paused still adds to agent time.
+
+### How the forecast is built
+
+The forecast plays the rest of the epic through in three parts:
+
+1. **A duration per step.** Shepherd blends two sources: the repo's median
+   [lead time](/reference/glossary/#lead-time) over the last 30 days, counted as two samples, and
+   every step this epic has already finished, measured from its first session until it merged into
+   the epic's integration branch. The estimate is their mean, so the epic's own pace takes over as
+   its steps finish. A running step is given what is left of the estimate, but never less than a
+   tenth of it; a step running past 1.5× the estimate is flagged as taking much longer than usual.
+2. **The order.** The open steps are laid out in epic order over the repo's agent slots — the
+   **Cap** in the automation pane, the concurrency cap above. A step starts once the steps it
+   depends on are done and a slot is free, so with one slot the steps run one after another. The
+   forecast assumes the epic has the slots to itself: an auto-started task outside the epic that
+   takes a slot pushes the real finish later.
+3. **The landing.** After the last step comes the landing, priced at the median of the repo's past
+   epic landings, or 20 minutes when the repo has never landed one. Once the landing is underway,
+   only its remainder is left.
+
+While the epic is paused or stopped there is no finish time; the forecast shows **Remaining from
+resume** instead. With no repo median and no finished step yet, there is no forecast at all.
+
+### Range and confidence
+
+The **range** plays the same schedule through twice more, with the 25th and the 75th percentile of
+the blended step durations. Until three of the epic's own steps are measured, those two durations
+are pushed out to at least 25 % below and 35 % above the estimate. The range narrows with every
+finished step.
+
+**Confidence** says how much of the forecast rests on this epic's own steps. The first row that
+fits applies:
+
+| Confidence   | When |
+| ------------ | ---- |
+| **high**     | At least half of the epic's steps have merged, or four or more are measured. |
+| **medium**   | Two or three steps measured. |
+| **low**      | One step measured. |
+| **very low** | None measured yet — the forecast rests on the repo median alone, and says so ("repo median only"). |
+
+### Why the first estimate is wide
+
+Before the first step merges, the forecast knows nothing about this epic. Every step is priced at
+the repo median — a median over tasks of every size, not over steps like these — the range is
+widened, and confidence is **very low**. Read it as a rough guide. Each finished step replaces part
+of that guess with the epic's own pace, and the range narrows.
+
+The first forecast after the first merge is kept as the **first estimate**. If a later forecast
+lands 15 minutes or more past it, the hover shows the slip ("so far ~…") and, when one step is
+taking much longer than usual, names it.
+
+### The "faster with N slots" hint
+
+When a step is ready but waits for a free agent slot, the epic's detail in Repos can offer **With
+N agent slots done around ~… instead of ~…**. It appears only when every slot is taken by an
+auto-started session and one more slot would land the epic at least 15 minutes sooner. Its **Allow
+N slots** button opens the Automation tab with the **Cap** focused; it never changes the cap
+itself.
+
+Raising the cap costs:
+
+- **One more agent at a time.** That is the point — and it means more spend at once.
+- **It is repo-wide.** The cap counts every auto-started session in the repo, not only this epic's,
+  so every auto-started task there gets the extra slot.
+- **Usage drains faster.** More agents at once reach the usage ceiling sooner, and new spawns pause
+  there until usage drops.
+
 ## When the landing PR's CI is red
 
 A red landing PR is not your turn straight away. The epic's card on the **Epics to land** band

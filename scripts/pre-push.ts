@@ -16,6 +16,8 @@
  * │  • fallow@2.100.0 pin — same as CI, gated by check-fallow-pin.mjs.            │
  * │  • a docs-only delta (CI's own rule, see `needsTests`) skips the type checks  │
  * │    too, not just the test lanes — CI's `static` job still runs them.          │
+ * │  • local Bun below package.json engines.bun aborts the push (#2916); CI only  │
+ * │    asserts its own `latest` meets the floor.                                  │
  * └──────────────────────────────────────────────────────────────────────────────┘
  *
  * The hook (`.husky/pre-push`) scrubs git's local-env-vars and execs this script,
@@ -33,6 +35,7 @@ import {
 } from "node:fs";
 import { availableParallelism, cpus, tmpdir } from "node:os";
 import { join } from "node:path";
+import { checkCurrentBun } from "./check-bun-version";
 import { changedPaths, classify } from "./ci-changes.mjs";
 
 // ── Pure helpers (unit-tested in test/pre-push.test.ts) ──────────────────────
@@ -608,6 +611,8 @@ export function buildLanes(
 
     lanes.push({
       name: "root-tests",
+      // ~130–140s on Bun 1.4.2, also under a parallel full suite (#2916). Earlier TIMEOUTs
+      // here were Bun 1.3.x's child-process hang, now blocked by the engines.bun floor.
       timeoutMs: t(300_000),
       steps: [
         {
@@ -708,6 +713,19 @@ async function main(): Promise<void> {
   }
 
   const repoRoot = process.cwd();
+
+  // Local-only: a Bun below engines.bun fails/hangs root-tests spuriously (#2916).
+  const bunCheck = checkCurrentBun(repoRoot);
+  if (!bunCheck.ok) {
+    if (!["1", "true"].includes(process.env.SHEPHERD_SKIP_BUN_VERSION_CHECK ?? "")) {
+      console.error(
+        `✗ pre-push: ${bunCheck.message}\n  (override: SHEPHERD_SKIP_BUN_VERSION_CHECK=true)`,
+      );
+      process.exit(1);
+    }
+    console.error(`⚠ pre-push: ${bunCheck.message} — continuing (SHEPHERD_SKIP_BUN_VERSION_CHECK)`);
+  }
+
   const cores = (availableParallelism?.() ?? cpus().length) || 4;
   const delta = hasOriginMain();
   const changed = delta ? changedFiles(repoRoot) : [];

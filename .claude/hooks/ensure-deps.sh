@@ -15,8 +15,19 @@ for dir in "$root" "$root/ui" "$root/extension"; do
   fi
 done
 
-if [ "${#installed[@]}" -gt 0 ]; then
-  printf '{"systemMessage": "ensure-deps: ran bun install in %s"}\n' "${installed[*]}"
+msgs=()
+[ "${#installed[@]}" -gt 0 ] && msgs+=("ensure-deps: ran bun install in ${installed[*]}")
+# Warn (never block) on a Bun below engines.bun (#2916); pre-push enforces it. First
+# line only, quotes and backslashes stripped, so it is safe inside the JSON string.
+check="$root/scripts/check-bun-version.ts"
+if [ -f "$check" ] && ! bun_msg="$("$bun" "$check" 2>&1)"; then
+  bun_msg="${bun_msg%%$'\n'*}"
+  bun_msg="${bun_msg//[\"\\]/}"
+  msgs+=("ensure-deps: ${bun_msg#✗ }")
+fi
+
+if [ "${#msgs[@]}" -gt 0 ]; then
+  printf '{"systemMessage": "%s"}\n' "${msgs[*]}"
 else
   echo '{"suppressOutput": true}'
 fi

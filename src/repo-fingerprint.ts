@@ -35,6 +35,9 @@ export interface RepoFingerprintDeps {
   intervalMs?: number;
   /** Background refresh pauses while the last in-query `remaining` is below this, until reset. */
   reserve?: number;
+  /** Points/h the rest of the account spends (#2840), or null while unmeasured. The reserve
+   *  grows by what that rate will spend before the reset. */
+  foreignPerHour?: () => number | null;
   /** Minimum spacing between demanded runs. */
   minGapMs?: number;
   cache?: GithubReadCache;
@@ -116,7 +119,7 @@ export class RepoFingerprintService {
       if (!this.pausedLogged) {
         const rl = this.deps.rateLimit();
         console.log(
-          `[fingerprint] background refresh paused (GraphQL ${rl.blocked ? "backoff" : `${rl.remaining} remaining < reserve ${this.reserve}`})`,
+          `[fingerprint] background refresh paused (GraphQL ${rl.blocked ? "backoff" : `${rl.remaining} remaining < reserve ${this.effectiveReserve(rl)}`})`,
         );
         this.pausedLogged = true;
       }
@@ -190,10 +193,20 @@ export class RepoFingerprintService {
     if (rl.blocked) return true;
     return (
       rl.remaining !== null &&
-      rl.remaining < this.reserve &&
       rl.resetAt !== null &&
-      this.now() < rl.resetAt
+      this.now() < rl.resetAt &&
+      rl.remaining < this.effectiveReserve(rl)
     );
+  }
+
+  /** The reserve plus what the rest of the account will spend before the reset at its measured
+   *  rate (#2840), so background refresh pauses early instead of racing a heavy foreign consumer
+   *  to an empty bucket. Just the reserve while that rate is unmeasured. */
+  private effectiveReserve(rl: RateLimitSnapshot): number {
+    const foreign = this.deps.foreignPerHour?.() ?? null;
+    if (foreign === null || rl.resetAt === null) return this.reserve;
+    const left = Math.max(0, rl.resetAt - this.now());
+    return this.reserve + Math.round((foreign * left) / 3_600_000);
   }
 
   /** Single-flight run. */

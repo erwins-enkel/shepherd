@@ -27,6 +27,7 @@ function harness(
   opts: {
     targets?: FingerprintTarget[];
     minGapMs?: number;
+    foreignPerHour?: () => number | null;
   } = {},
 ) {
   let clock = 1_000_000;
@@ -57,6 +58,7 @@ function harness(
     now: () => clock,
     intervalMs: 120_000,
     reserve: 1_000,
+    foreignPerHour: opts.foreignPerHour,
     minGapMs: opts.minGapMs ?? 30_000,
   });
   return {
@@ -195,6 +197,30 @@ test("below the reserve the background tick makes no call, coverage holds, ensur
     h.advance(30 * 60_000);
     await h.svc.tick();
     expect(h.fetches).toHaveLength(3);
+  } finally {
+    log.mockRestore();
+  }
+});
+
+test("the reserve grows by what the rest of the account will spend before the reset (#2840)", async () => {
+  let foreign: number | null = 2_000;
+  const h = harness({ foreignPerHour: () => foreign });
+  const log = spyOn(console, "log").mockImplementation(() => {});
+  try {
+    // 2,000/h × 45 min to the reset → reserve 1,000 + 1,500.
+    h.setRate({ remaining: 2_499, resetAt: h.now() + 45 * 60_000 });
+    await h.svc.tick();
+    expect(h.fetches).toHaveLength(0);
+    expect(String(log.mock.calls.at(-1)?.[0])).toContain("2499 remaining < reserve 2500");
+    h.setRate({ remaining: 2_500, resetAt: h.now() + 45 * 60_000 });
+    await h.svc.tick();
+    expect(h.fetches).toHaveLength(1);
+    // Unmeasured foreign rate → the flat reserve.
+    foreign = null;
+    h.advance(120_000);
+    h.setRate({ remaining: 1_500, resetAt: h.now() + 45 * 60_000 });
+    await h.svc.tick();
+    expect(h.fetches).toHaveLength(2);
   } finally {
     log.mockRestore();
   }

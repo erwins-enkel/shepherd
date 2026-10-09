@@ -248,6 +248,7 @@ import { graphRateLimit, restWriteRateLimit } from "./forge/rate-limit";
 import { fetchGithubRateLimit } from "./forge/github-rate-limit";
 import { sharedGhRunner } from "./forge/github";
 import { fetchRepoFingerprints } from "./forge/github-fingerprint";
+import { graphqlSpend } from "./forge/github-spend";
 import { setIssuesFreshness } from "./forge/repo-freshness";
 import {
   countsPlan,
@@ -327,6 +328,8 @@ const fingerprint = new RepoFingerprintService({
   listTargets: fingerprintTargets,
   fetch: (slugs) => fetchRepoFingerprints(sharedGhRunner, slugs),
   rateLimit: () => graphRateLimit.snapshot(),
+  // The foreign rate counts toward the reserve once 10 min of readings back it (#2840).
+  foreignPerHour: () => graphqlSpend.foreignPerHour(10 * 60_000),
   onObserved: onFingerprintObserved,
 });
 setIssuesFreshness((slug) => fingerprint.issuesKey(slug));

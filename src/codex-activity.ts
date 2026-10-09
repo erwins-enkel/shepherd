@@ -606,10 +606,10 @@ export async function reviewerUsage(
 //
 // The reviewer readers above resolve an `exec` spawn's rollout through
 // `CodexRolloutResolver` (unique-cwd, fail-safe). A TASK session is different in kind: it is
-// interactive and long-lived, and in a non-isolated checkout its cwd is shared with siblings and the
-// operator's own `codex` runs. So a task session's rollout is located ONLY by the native id its
-// launch marker proved (`providerSessionId`) — the same id `codex resume` targets, so the transcript
-// shown is always the conversation that would be resumed. No id yet → nothing to show.
+// interactive and long-lived, and in a non-isolated checkout its cwd is shared with siblings and
+// the operator's own `codex` runs. So a task session's rollout is located ONLY by the native id its
+// launch marker proved (`providerSessionId`) — the same id `codex resume` targets, so the
+// transcript shown is always the conversation that would be resumed. No id yet → nothing to show.
 
 /** How long a proven rollout path is reused before re-deriving. File CONTENT is re-read on every
  *  request regardless, so live output is never stale; the re-derive only notices a moved file. */
@@ -637,7 +637,7 @@ export interface CodexTranscriptLocatorDeps {
  */
 export class CodexTranscriptLocator {
   // Both maps are keyed by native id and hold two words per entry; they grow only with the number
-  // of distinct Codex conversations whose transcript was read since boot, so no eviction is warranted.
+  // of distinct Codex conversations whose transcript was read since boot, so no eviction is needed.
   private hits = new Map<string, { path: string; at: number }>();
   private misses = new Map<string, { nextAt: number; count: number }>();
 

@@ -1926,6 +1926,7 @@
   "diagnostics_hint_gh_not_required": "GitHub CLI ist nicht installiert oder nicht authentifiziert, es sind jedoch keine Forge-basierten Repos konfiguriert — gh ist optional, wenn ausschließlich Lightweight-Repos verwendet werden.",
   "diagnostics_label_git_mergetree": "git merge-tree",
   "backlog_tab_automation": "Automatisierung",
+  "backlog_overview_button": "Überblick",
   "feat_repo_settings_backlog_title": "Repo-Einstellungen ohne Task",
   "feat_repo_settings_backlog_body": "Die Repo-Automatisierungseinstellungen — Kritiker, Plan-Gate, Autopilot, Backlog-Abarbeitung/Voll-Auto-Merge, Sandbox-Profil, Standardmodell, Abarbeitungs-Regler sowie Reviewer-/Merger-Rollen — sind jetzt als Automatisierungs-Tab in der Repos-Detailansicht verfügbar. Stelle die Vorgaben jedes Repos ein, ohne einen Task zu starten; Änderungen teilen sich eine einzige Quelle der Wahrheit mit dem Task-Panel.",
   "toast_task_held": "Aufgabe zurückgehalten — Nutzung ist hoch. Sie startet beim Reset.",

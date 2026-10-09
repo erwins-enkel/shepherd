@@ -2,6 +2,7 @@
   import type { BacklogProject, DocAgentRun } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import { issuesOverview } from "#lib/issues-overview.svelte.js";
   import type { ActionsTabState } from "../backlog-view";
   import DocAgentControl from "./DocAgentControl.svelte";
 
@@ -9,8 +10,10 @@
 
   // The Issues/PRs/Actions/Readiness/Automation tab strip + Fast-forward button,
   // shared by BacklogView's desktop split and mobile overlay (#855). `variant`
-  // only swaps the wrapper class (the desktop `.tab-bar` vs the horizontally-
-  // scrolling mobile `.overlay-tabs`); the buttons are identical.
+  // swaps the wrapper class (the desktop `.tab-bar` vs the horizontally-scrolling
+  // mobile `.overlay-tabs`); the tabs are identical. The "Overview" button (#2950) is
+  // desktop-only: it lifts the Issues list's selection to show the repo overview, which
+  // the phone layout (list → fullscreen detail) never shows.
   let {
     variant,
     activeTab,
@@ -49,9 +52,13 @@
   function coachMaybe(node: HTMLElement, id: string | undefined) {
     return id ? coachTarget(node, id) : undefined;
   }
+
+  const showOverview = $derived(
+    variant === "desktop" && activeTab === "issues" && selectedPath !== null,
+  );
 </script>
 
-<div class={variant === "mobile" ? "overlay-tabs" : "tab-bar"}>
+<div class={variant === "mobile" ? "overlay-tabs" : "tab-bar"} class:has-overview={showOverview}>
   <button
     class="tab-btn"
     class:active={activeTab === "issues"}
@@ -104,6 +111,16 @@
   >
     {m.backlog_tab_automation()}
   </button>
+  {#if showOverview}
+    <button
+      class="gbtn overview-btn"
+      type="button"
+      aria-pressed={!issuesOverview.selected}
+      onclick={() => issuesOverview.show()}
+    >
+      {m.backlog_overview_button()}
+    </button>
+  {/if}
   {#if docAgentEnabled}
     <!-- Doc-agent control + FF button in a right-aligned cluster -->
     <div class="action-cluster">
@@ -218,6 +235,22 @@
   .gbtn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+  /* "Overview" is a toggle-like view switch: lit while the repo overview is what's showing. */
+  .gbtn[aria-pressed="true"] {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+  }
+
+  /* Right-aligned, ahead of the doc-agent / fast-forward controls, which then follow it
+     directly instead of each claiming the free space. */
+  .overview-btn {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .has-overview .action-cluster,
+  .has-overview .ff-btn-solo {
+    margin-left: 6px;
   }
 
   .ff-btn {

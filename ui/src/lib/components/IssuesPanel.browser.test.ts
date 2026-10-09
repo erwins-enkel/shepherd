@@ -8,6 +8,7 @@ import { listIssues, getEpics, getEpic, getGithubRateLimit } from "#lib/api.js";
 import { steers } from "#lib/steers.svelte.js";
 import { issuesFilter } from "#lib/issues-filter.svelte.js";
 import { backlogRefresh } from "#lib/backlog-refresh.svelte.js";
+import { issuesOverview } from "#lib/issues-overview.svelte.js";
 import { ACTIVE_LABEL } from "./issues-panel";
 import { formatReset } from "#lib/format.js";
 import { reactiveRecord } from "./reactive-fixture.svelte";
@@ -759,6 +760,39 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     await expect
       .poll(() => document.querySelector("[popover].filter-popover:popover-open"))
       .not.toBeNull();
+  });
+
+  describe("the tab row's Overview button (#2950)", () => {
+    afterEach(() => {
+      issuesOverview.selected = false;
+    });
+    const overview = () => document.querySelector<HTMLElement>(".detail-col .overview");
+
+    it("mirrors the selection out and drops it on request", async () => {
+      seed([plain(42)]);
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+      await expect.poll(() => overview()).not.toBeNull();
+      expect(issuesOverview.selected).toBe(false);
+
+      await selectRow("s:42");
+      expect(overview()).toBeNull();
+      await expect.poll(() => issuesOverview.selected).toBe(true);
+
+      issuesOverview.show();
+      await expect.poll(() => overview()).not.toBeNull();
+      expect(option("s:42")!.getAttribute("aria-selected")).toBe("false");
+      await expect.poll(() => issuesOverview.selected).toBe(false);
+    });
+
+    it("ignores requests made before the panel mounted", async () => {
+      issuesOverview.show();
+      seed([plain(42)]);
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+      await selectRow("s:42");
+      await new Promise((r) => setTimeout(r, 50));
+      expect(option("s:42")!.getAttribute("aria-selected")).toBe("true");
+      expect(overview()).toBeNull();
+    });
   });
 
   it("↑/↓ move the selection, → expands an epic and A starts a task", async () => {

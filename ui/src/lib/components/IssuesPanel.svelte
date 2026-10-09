@@ -43,6 +43,7 @@
   import { issuesFilter } from "#lib/issues-filter.svelte.js";
   import { viewerCache } from "#lib/viewer-cache.svelte.js";
   import { backlogRefresh } from "#lib/backlog-refresh.svelte.js";
+  import { issuesOverview } from "#lib/issues-overview.svelte.js";
   import { clock } from "#lib/now.svelte.js";
   import IssueListRows from "./issues-panel/IssueListRows.svelte";
   import IssueDetail from "./issues-panel/IssueDetail.svelte";
@@ -538,6 +539,26 @@
     selectedKey = key;
     taskRun = {};
   }
+
+  // The tab row's "Overview" button (#2950) lives outside this panel: mirror whether an entry is
+  // selected out to it, and drop the selection when it asks. Same latch as the soft refresh
+  // above — requests made before this panel mounted are not ours to act on.
+  $effect(() => {
+    issuesOverview.selected = selection != null;
+  });
+  $effect(() => () => {
+    issuesOverview.selected = false;
+  });
+  let lastOverviewNonce: number | undefined;
+  $effect(() => {
+    const n = issuesOverview.nonce;
+    if (lastOverviewNonce === undefined || n === lastOverviewNonce) {
+      lastOverviewNonce = n;
+      return;
+    }
+    lastOverviewNonce = n;
+    untrack(() => select(null));
+  });
 
   function selectFromList(key: string) {
     select(key);

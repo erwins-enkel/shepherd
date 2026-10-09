@@ -5290,6 +5290,8 @@
   "slotstepper_more": "Add an agent slot",
   "feat_slot_stepper_title": "Change agent slots with − / +",
   "feat_slot_stepper_body": "Under Repos → Issues, − and + beside the agent-slot count — in the list heading and in the run area's Now step — raise or lower the repo's cap directly, without the detour through Automation → Cap. An added slot is used on the next pass, within about 30 seconds.",
+  "feat_repos_dialog_wide_reader_title": "Narrower list, wider reading view in Repos → Issues",
+  "feat_repos_dialog_wide_reader_body": "The Issues list in the Repos dialog is narrower and its rows wrap in full, so titles are no longer cut off. The reading view uses the room: a single issue shows its description beside the Task box, an epic shows the Flow across the full width with the description beside its Run area. The new Overview button at the right of the tab row drops the selection and shows what is happening in the repo.",
   "session_resume_transcript_missing": "Conversation history was not saved – this session cannot be resumed.",
   "session_resume_transcript_missing_next": "Use “Continue with…” in the session menu to start a fresh agent in this worktree.",
   "newtask_readiness_upload_failed": "upload failed — retry or remove the attachment",

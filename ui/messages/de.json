@@ -5290,6 +5290,8 @@
   "slotstepper_more": "Einen Agenten-Platz mehr",
   "feat_slot_stepper_title": "Agenten-Plätze mit − / + ändern",
   "feat_slot_stepper_body": "Unter Repos → Issues ändern − und + neben der Zahl der Agenten-Plätze — im Listenkopf und im Schritt „Jetzt“ der Abarbeitung — das Limit des Repos direkt, ohne Umweg über Automatisierung → Limit. Ein zusätzlicher Platz wird beim nächsten Durchlauf genutzt, spätestens nach etwa 30 Sekunden.",
+  "feat_repos_dialog_wide_reader_title": "Schmalere Liste, breitere Leseansicht unter Repos → Issues",
+  "feat_repos_dialog_wide_reader_body": "Die Issue-Liste im Repos-Dialog ist schmaler und ihre Zeilen brechen um, damit Titel nicht mehr abgeschnitten werden. Die Leseansicht nutzt die Breite: Ein einzelnes Issue zeigt die Beschreibung neben dem Bereich „Aufgabe“, ein Epic den Ablauf über die volle Breite und die Beschreibung neben der Abarbeitung. Der neue Knopf „Überblick“ rechts in der Tab-Zeile hebt die Auswahl auf und zeigt, was im Repo gerade passiert.",
   "session_resume_transcript_missing": "Verlauf wurde nicht gespeichert – diese Sitzung kann nicht fortgesetzt werden.",
   "session_resume_transcript_missing_next": "Starte über „Weiterführen mit…“ im Sitzungsmenü einen neuen Agenten in diesem Worktree.",
   "newtask_readiness_upload_failed": "Upload fehlgeschlagen – erneut versuchen oder Anhang entfernen",

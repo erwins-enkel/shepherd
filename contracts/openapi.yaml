@@ -3692,6 +3692,16 @@ components:
             description: Squash-merged into the epic integration branch; counts as done like issueClosed.,
           }
         claimed: { type: boolean }
+        startedAt:
+          {
+            type: [integer, "null"],
+            description: "Epoch ms work on the child began (its earliest session); null when unknown. Always sent by the current server; optional so an older server stays valid.",
+          }
+        endedAt:
+          {
+            type: [integer, "null"],
+            description: "Epoch ms the child was done (integrated into the epic branch, else merged); null while not done or when unknown. Always sent by the current server; optional so an older server stays valid.",
+          }
     EpicRun:
       type: object
       additionalProperties: true
@@ -3725,6 +3735,34 @@ components:
           }
         run: { $ref: "#/components/schemas/EpicRun" }
         runEnd: { $ref: "#/components/schemas/EpicRunEnd" }
+        timing: { $ref: "#/components/schemas/EpicTiming" }
+    EpicTiming:
+      type: object
+      additionalProperties: true
+      description: >-
+        The epic clock (EpicTiming in src/epic-core.ts), epoch milliseconds throughout. The clock
+        runs only while the epic's run is running; running time is
+        (pausedAt ?? now) − startedAt − pausedMs. Always sent on an Epic by the current server;
+        optional there so an older server stays valid.
+      required: [startedAt, pausedAt, pausedMs, landingStartedAt, landedAt, agentMs, idleMs]
+      properties:
+        startedAt:
+          { type: [integer, "null"], description: First start; null when the epic never ran. }
+        pausedAt:
+          {
+            type: [integer, "null"],
+            description: "When the clock last stopped (pause, end, supersede or completion); null while it runs.",
+          }
+        pausedMs:
+          { type: integer, description: Time the clock stood still before its latest resume. }
+        landingStartedAt:
+          {
+            type: [integer, "null"],
+            description: When the last child integrated and the epic→default landing began.,
+          }
+        landedAt: { type: [integer, "null"], description: When the landing PR merged. }
+        agentMs: { type: integer, description: Sum of child session wall time. }
+        idleMs: { type: integer, description: Running-clock time when no child session was alive. }
     EpicRunEnd:
       type: object
       additionalProperties: true

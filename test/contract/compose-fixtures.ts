@@ -176,6 +176,8 @@ export function epic(run: EpicRun): Epic {
         issueClosed: false,
         integrationMerged: false,
         claimed: true,
+        startedAt: 1_780_000_000_000,
+        endedAt: null,
       },
       {
         number: 414,
@@ -190,10 +192,21 @@ export function epic(run: EpicRun): Epic {
         issueClosed: false,
         integrationMerged: false,
         claimed: false,
+        startedAt: null,
+        endedAt: null,
       },
     ],
     warnings: ["#414 blocked_by #999 is outside the epic — ignored"],
     noDependencyEdges: false,
     run,
+    timing: {
+      startedAt: 1_779_999_000_000,
+      pausedAt: null,
+      pausedMs: 0,
+      landingStartedAt: null,
+      landedAt: null,
+      agentMs: 600_000,
+      idleMs: 400_000,
+    },
   };
 }

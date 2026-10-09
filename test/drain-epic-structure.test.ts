@@ -160,7 +160,7 @@ describe("epic structure reads (#2807)", () => {
       expect(gh.structureQueries()).toBe(0);
       expect(gh.blockedByRest()).toBe(CHILDREN.length); // one read per child, once
     } finally {
-      graphRateLimit.note({ remaining: 1000, resetAt: Date.now() + 60_000 });
+      graphRateLimit.noteSuccess();
     }
   });
 });

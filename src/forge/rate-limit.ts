@@ -36,6 +36,20 @@ export interface RateLimitSnapshot {
   blocked: boolean;
 }
 
+// ── Windows ───────────────────────────────────────────────────────────────────
+
+/** Two `resetAt`s at most this far apart name the same window. */
+const WINDOW_SKEW_MS = 5_000;
+
+/** Consecutive readings that must agree on another `resetAt` before a live window is given up
+ *  for it — the way out after locking onto another counter's reading at boot. */
+const ADOPT_AFTER = 3;
+
+/** True iff two epoch-ms `resetAt`s name the same rate-limit window. */
+export function sameWindow(a: number, b: number): boolean {
+  return Math.abs(a - b) <= WINDOW_SKEW_MS;
+}
+
 // ── BucketRateLimit ───────────────────────────────────────────────────────────
 
 /**
@@ -61,6 +75,10 @@ export class BucketRateLimit {
   /** Consecutive windows that lapsed straight into another limit error, with no
    *  success in between — drives the escalating cooldown. */
   private _strikes = 0;
+  /** A `resetAt` other than the live window's, and how many readings in a row named it. */
+  private _candidate: { resetAt: number; count: number } | null = null;
+  /** The last foreign `resetAt` logged as ignored — one line per counter, not per reading. */
+  private _loggedForeign: number | null = null;
 
   /**
    * True after we have emitted the "engaged" log, false after we emit the
@@ -90,14 +108,22 @@ export class BucketRateLimit {
   /**
    * Record a fresh `rateLimit` reading from a GraphQL response.
    *
+   * - A reading of another window while the current one is live is ignored
+   *   (returns false): GitHub serves readings from more than one counter, e.g.
+   *   `used 158, resetAt 15:41:33Z` once among `used 4,656, resetAt 16:29:29Z`
+   *   (#2840). It is adopted once the current window has passed, or after
+   *   {@link ADOPT_AFTER} readings in a row agree on it.
    * - If `remaining` is below the floor we are close to exhaustion: extend
    *   `pausedUntil` to `max(existing, resetAt)` so a longer error cooldown is
    *   never shortened.
    * - If `remaining` is at or above the floor the bucket is healthy: clear the
    *   backoff unconditionally (positive evidence we are not limited).
+   *
+   * @returns true iff the reading was taken as the current window's.
    */
-  note(reading: { remaining: number; resetAt: number /* epoch ms */ }): void {
+  note(reading: { remaining: number; resetAt: number /* epoch ms */ }): boolean {
     const { remaining, resetAt } = reading;
+    if (!this._acceptWindow(resetAt)) return false;
     this._remaining = remaining;
     this._resetAt = resetAt;
 
@@ -108,6 +134,7 @@ export class BucketRateLimit {
       // Healthy reading: positive evidence we can proceed.
       this.noteSuccess();
     }
+    return true;
   }
 
   /**
@@ -165,6 +192,35 @@ export class BucketRateLimit {
   }
 
   // ── private helpers ─────────────────────────────────────────────────────────
+
+  /** Whether a reading resetting at `resetAt` belongs to the window this tracker follows. Logs
+   *  the first ignored reading of each other counter, and the switch when one is adopted. */
+  private _acceptWindow(resetAt: number): boolean {
+    const current = this._resetAt;
+    if (current === null || sameWindow(current, resetAt) || this._now() >= current) {
+      this._candidate = null;
+      return true;
+    }
+    const c = this._candidate;
+    const count = c && sameWindow(c.resetAt, resetAt) ? c.count + 1 : 1;
+    const iso = (ms: number) => new Date(ms).toISOString();
+    if (count >= ADOPT_AFTER) {
+      console.warn(
+        `[rate-limit] ${this._label} following the window resetting ${iso(resetAt)} after ${count} readings named it (was ${iso(current)})`,
+      );
+      this._candidate = null;
+      this._loggedForeign = null;
+      return true;
+    }
+    this._candidate = { resetAt, count };
+    if (this._loggedForeign === null || !sameWindow(this._loggedForeign, resetAt)) {
+      console.warn(
+        `[rate-limit] ${this._label} ignoring a reading from another counter (resets ${iso(resetAt)}; this window resets ${iso(current)})`,
+      );
+      this._loggedForeign = resetAt;
+    }
+    return false;
+  }
 
   /**
    * Extend the backoff window to `until` (taking the max of any existing value

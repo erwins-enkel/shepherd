@@ -121,7 +121,7 @@ test("fork PR author and target context survive CLI and REST status paths", asyn
     "me/project",
   );
   try {
-    graphRateLimit.note({ remaining: 1000, resetAt: Date.now() + 60_000 });
+    graphRateLimit.noteSuccess();
     const cli = await forge.prStatus("feature");
     expect(cli).toMatchObject({
       number: 42,
@@ -138,7 +138,7 @@ test("fork PR author and target context survive CLI and REST status paths", asyn
       requestedReviewers: ["alice"],
     });
   } finally {
-    graphRateLimit.note({ remaining: 1000, resetAt: Date.now() + 60_000 });
+    graphRateLimit.noteSuccess();
   }
 });
 
@@ -208,6 +208,6 @@ test.each([
       calls.filter((args) => args.includes("repos/team/project/pulls/42/reviews")),
     ).toHaveLength(2);
   } finally {
-    graphRateLimit.note({ remaining: 1000, resetAt: Date.now() + 60_000 });
+    graphRateLimit.noteSuccess();
   }
 });

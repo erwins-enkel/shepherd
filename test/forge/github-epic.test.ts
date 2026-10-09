@@ -392,7 +392,7 @@ describe("GithubForge listBlockedByOpen", () => {
       expect(result.size).toBe(0);
       expect(calls.length).toBe(0);
     } finally {
-      graphRateLimit.note({ remaining: 1000, resetAt: Date.now() + 60_000 });
+      graphRateLimit.noteSuccess();
     }
   });
 
@@ -529,7 +529,7 @@ describe("GithubForge.getEpicStructure", () => {
   }
 
   function unblockGraphql(): void {
-    graphRateLimit.note({ remaining: 1000, resetAt: Date.now() + 60_000 });
+    graphRateLimit.noteSuccess();
   }
 
   test("one GraphQL query yields the parent, sub-issues and every child's blockers", async () => {
@@ -921,7 +921,7 @@ describe("GithubForge issue-relations cache", () => {
       expect(blocked).toEqual(new Map([[11, [12]]]));
       expect(summaries.subIssueNumbers).toEqual([11]);
     } finally {
-      graphRateLimit.note({ remaining: 1000, resetAt: Date.now() + 60_000 });
+      graphRateLimit.noteSuccess();
       setIssuesFreshness(null);
     }
   });

@@ -3,7 +3,7 @@ import { GithubForge } from "../../src/forge/github";
 import { graphRateLimit } from "../../src/forge/rate-limit";
 
 afterEach(() => {
-  graphRateLimit.note({ remaining: 1000, resetAt: Date.now() + 60_000 });
+  graphRateLimit.noteSuccess();
 });
 
 test("#2854 commit checks batch unique heads in one aliased rollup-only query", async () => {

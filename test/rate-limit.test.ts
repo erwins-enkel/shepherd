@@ -94,9 +94,89 @@ describe("BucketRateLimit — note() low reading (remaining < floor)", () => {
 
   it("updates pausedUntil when new resetAt is later (extends cooldown)", () => {
     const rl = new BucketRateLimit({ now: () => 0 });
-    rl.note({ remaining: 50, resetAt: 60_000 });
+    rl.noteLimitError(30); // pausedUntil = 30_000
     rl.note({ remaining: 50, resetAt: 90_000 });
     expect(rl.snapshot().pausedUntil).toBe(90_000);
+  });
+});
+
+// ── BucketRateLimit: note() — readings from another counter (#2840) ───────────
+
+describe("BucketRateLimit — note() ignores another counter's window (#2840)", () => {
+  const WINDOW = 3_600_000;
+  const OTHER = 600_000;
+  let warnSpy: ReturnType<typeof spyOn>;
+  beforeEach(() => {
+    warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  it("ignores a reading of another window while the current one is live", () => {
+    const rl = new BucketRateLimit({ now: () => 1_000 });
+    expect(rl.note({ remaining: 344, resetAt: WINDOW })).toBe(true);
+    const before = rl.snapshot();
+    expect(rl.note({ remaining: 4842, resetAt: OTHER })).toBe(false);
+    expect(rl.snapshot()).toEqual(before);
+  });
+
+  it("a low reading from another counter neither engages nor clears the backoff", () => {
+    const rl = new BucketRateLimit({ now: () => 1_000 });
+    rl.note({ remaining: 4000, resetAt: WINDOW });
+    rl.note({ remaining: 5, resetAt: OTHER });
+    expect(rl.blocked()).toBe(false);
+    rl.note({ remaining: 50, resetAt: WINDOW });
+    expect(rl.blocked()).toBe(true);
+    rl.note({ remaining: 4900, resetAt: OTHER });
+    expect(rl.blocked()).toBe(true);
+    expect(rl.snapshot().pausedUntil).toBe(WINDOW);
+  });
+
+  it("treats resetAts a few seconds apart as the same window", () => {
+    const rl = new BucketRateLimit({ now: () => 1_000 });
+    rl.note({ remaining: 4000, resetAt: WINDOW });
+    expect(rl.note({ remaining: 3990, resetAt: WINDOW + 2_000 })).toBe(true);
+    expect(rl.snapshot().remaining).toBe(3990);
+  });
+
+  it("adopts the next window once the current one has passed", () => {
+    let t = 1_000;
+    const rl = new BucketRateLimit({ now: () => t });
+    rl.note({ remaining: 200, resetAt: WINDOW });
+    t = WINDOW + 1;
+    expect(rl.note({ remaining: 4990, resetAt: 2 * WINDOW })).toBe(true);
+    expect(rl.snapshot().resetAt).toBe(2 * WINDOW);
+  });
+
+  it("adopts another window after 3 readings in a row agree on it, not after 2", () => {
+    const rl = new BucketRateLimit({ now: () => 1_000 });
+    rl.note({ remaining: 4842, resetAt: OTHER }); // locked onto the outlier first
+    expect(rl.note({ remaining: 344, resetAt: WINDOW })).toBe(false);
+    expect(rl.note({ remaining: 340, resetAt: WINDOW })).toBe(false);
+    expect(rl.snapshot().resetAt).toBe(OTHER);
+    expect(rl.note({ remaining: 336, resetAt: WINDOW })).toBe(true);
+    expect(rl.snapshot()).toMatchObject({ remaining: 336, resetAt: WINDOW });
+  });
+
+  it("a reading of the current window breaks the streak", () => {
+    const rl = new BucketRateLimit({ now: () => 1_000 });
+    rl.note({ remaining: 4000, resetAt: WINDOW });
+    rl.note({ remaining: 4842, resetAt: OTHER });
+    rl.note({ remaining: 4842, resetAt: OTHER });
+    rl.note({ remaining: 3990, resetAt: WINDOW });
+    expect(rl.note({ remaining: 4842, resetAt: OTHER })).toBe(false);
+    expect(rl.snapshot().resetAt).toBe(WINDOW);
+  });
+
+  it("logs the first ignored reading of a counter once", () => {
+    const rl = new BucketRateLimit({ now: () => 1_000 });
+    rl.note({ remaining: 4000, resetAt: WINDOW });
+    rl.note({ remaining: 4842, resetAt: OTHER });
+    rl.note({ remaining: 3990, resetAt: WINDOW });
+    rl.note({ remaining: 4842, resetAt: OTHER });
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(String(warnSpy.mock.calls[0]?.[0])).toContain("ignoring a reading from another counter");
   });
 });
 

@@ -252,7 +252,7 @@ describe("GitHub warm restart", () => {
   });
   afterEach(() => {
     setIssuesFreshness(null);
-    graphRateLimit.note({ remaining: 4_000, resetAt: Date.now() + 60_000 });
+    graphRateLimit.noteSuccess();
   });
 
   async function readIssues(forge: GithubForge) {

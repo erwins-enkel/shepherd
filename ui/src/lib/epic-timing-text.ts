@@ -28,9 +28,9 @@ const OPEN_SPAN = 3;
 /** One segment of the EPIC badge's meter, per child in epic order. */
 export type EpicMeterTone = "merged" | "running" | "rest";
 
-const byEpicOrder = (a: EpicChild, b: EpicChild) => a.order - b.order || a.number - b.number;
+export const byEpicOrder = (a: EpicChild, b: EpicChild) => a.order - b.order || a.number - b.number;
 /** In flight, as the forecast counts it: the step holds its place until it merges. */
-const inFlight = (c: EpicChild) => c.state === "running" || c.state === "in-review";
+export const inFlight = (c: EpicChild) => c.state === "running" || c.state === "in-review";
 
 export function epicMeter(children: readonly EpicChild[]): EpicMeterTone[] {
   return [...children]
@@ -63,16 +63,16 @@ export function approx(ms: number): string {
   return dur(Math.max(MIN, Math.round(ms / step) * step));
 }
 
-const clock = (ts: number) =>
+export const clock = (ts: number) =>
   new Date(ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
-const dateTime = (ts: number) =>
+export const dateTime = (ts: number) =>
   new Date(ts).toLocaleString(undefined, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
   });
-function sameDay(a: number, b: number): boolean {
+export function sameDay(a: number, b: number): boolean {
   const x = new Date(a);
   const y = new Date(b);
   return (
@@ -82,10 +82,10 @@ function sameDay(a: number, b: number): boolean {
   );
 }
 /** The time alone on today's date, else with the date. */
-const at = (ts: number, now: number) => (sameDay(ts, now) ? clock(ts) : dateTime(ts));
+export const at = (ts: number, now: number) => (sameDay(ts, now) ? clock(ts) : dateTime(ts));
 /** A forecast instant is no more precise than 5 min. */
-const round5 = (ts: number) => Math.round(ts / (5 * MIN)) * 5 * MIN;
-const atApprox = (ts: number, now: number) => at(round5(ts), now);
+export const round5 = (ts: number) => Math.round(ts / (5 * MIN)) * 5 * MIN;
+export const atApprox = (ts: number, now: number) => at(round5(ts), now);
 
 function when(ts: number, now: number): string {
   const t = round5(ts);
@@ -99,13 +99,13 @@ function when(ts: number, now: number): string {
 /** Where the epic clock stands: at its stop, at the landing's start, else it runs. */
 const clockEnd = (t: EpicTiming, now: number) => t.pausedAt ?? t.landingStartedAt ?? now;
 /** The epic clock: `(pausedAt ?? now) − startedAt − pausedMs`, ticking client-side. */
-function runMs(t: EpicTiming, now: number): number {
+export function runMs(t: EpicTiming, now: number): number {
   return t.startedAt == null ? 0 : Math.max(0, clockEnd(t, now) - t.startedAt - t.pausedMs);
 }
 
-type Phase = "plain" | "unstarted" | "running" | "paused" | "stopped" | "landing" | "landed";
+export type Phase = "plain" | "unstarted" | "running" | "paused" | "stopped" | "landing" | "landed";
 
-function phaseOf(epic: Epic): Phase {
+export function phaseOf(epic: Epic): Phase {
   const t = epic.timing;
   if (!t) return "plain";
   if (t.landedAt != null) return "landed";
@@ -122,6 +122,16 @@ const CONFIDENCE: Record<EpicForecastConfidence, () => string> = {
   medium: m.epic_tip_confidence_medium,
   high: m.epic_tip_confidence_high,
 };
+
+/** The confidence rung 0–3 for a meter; an unknown rung counts as the lowest. */
+export const confidenceRung = (f: EpicForecast) => RUNG[f.confidence] ?? 0;
+
+/** The confidence word, marked when only the repo median backs it. */
+export function confidenceWord(f: EpicForecast): string {
+  // The contract's confidence enum is open: a rung this UI doesn't know shows as sent.
+  const word = CONFIDENCE[f.confidence]?.() ?? f.confidence;
+  return f.epicSamples === 0 ? m.epic_tip_confidence_repo_only({ word }) : word;
+}
 
 /** What the badge knows besides the epic. */
 export interface EpicTipInput {
@@ -259,7 +269,7 @@ function runningDetail(ctx: Ctx): string {
 }
 
 /** How far the finish moved past the first forecast after a merge; null when not behind. */
-function slipMs(f: EpicForecast): number | null {
+export function slipMs(f: EpicForecast): number | null {
   if (f.finishAt == null || f.firstFinishAt == null) return null;
   const slip = f.finishAt - f.firstFinishAt;
   return slip >= SLIP_MS ? slip : null;
@@ -304,12 +314,10 @@ function forecastSection(ctx: Ctx, slots: number | null): TooltipSection {
         { text: m.epic_tip_first_estimate(), aside: m.epic_tip_after_first_merge() },
       ],
     };
-  // The contract's confidence enum is open: a rung this UI doesn't know shows as sent.
-  const word = CONFIDENCE[f.confidence]?.() ?? f.confidence;
   const confidence: TooltipRow = {
     text: m.epic_tip_confidence(),
-    meter: { value: RUNG[f.confidence] ?? 0, max: 3 },
-    aside: f.epicSamples === 0 ? m.epic_tip_confidence_repo_only({ word }) : word,
+    meter: { value: confidenceRung(f), max: 3 },
+    aside: confidenceWord(f),
   };
   const note = basis(f, slots);
   if (f.finishAt == null)
@@ -464,7 +472,8 @@ function stepStatus(
       aside: c.startedAt != null && c.endedAt != null ? dur(c.endedAt - c.startedAt) : "",
     };
   if (inFlight(c)) return { tone: "run", aside: inFlightAside(c, ctx) };
-  return { aside: c.state === "ready" ? readyAside(c, ctx) : blockedAside(c, ctx, open) };
+  const wait = waitNote(c, ctx.fc.get(c.number), ctx.now, open) ?? "";
+  return { aside: c.state === "ready" ? wait : blockedAside(wait, ctx) };
 }
 
 /** The step's own clock (the session clock's format), then what is left of it. */
@@ -478,25 +487,28 @@ function inFlightAside(c: EpicChild, { fc, now }: Ctx): string {
     .join(" · ");
 }
 
-/** Ready, and projected to start later: it waits on an agent slot. */
-function readyAside(c: EpicChild, { fc, now }: Ctx): string {
-  const start = fc.get(c.number)?.projectedStart;
-  return start != null && start > now + WAIT_MS
-    ? m.epic_tip_step_waiting_slot()
-    : m.epic_tip_step_ready();
+/** What a step not yet started waits on: ready and projected to start later, an agent slot;
+ *  blocked, the open steps it waits on (`open`: the epic's unmerged children). Null for a blocked
+ *  step whose blockers are all done. */
+export function waitNote(
+  c: EpicChild,
+  cf: EpicChildForecast | undefined,
+  now: number,
+  open: ReadonlySet<number>,
+): string | null {
+  if (c.state === "ready")
+    return cf?.projectedStart != null && cf.projectedStart > now + WAIT_MS
+      ? m.epic_tip_step_waiting_slot()
+      : m.epic_tip_step_ready();
+  const blockers = c.blockedBy.filter((b) => b !== c.number && open.has(b));
+  return blockers.length > 0
+    ? m.epic_tip_step_after({ list: blockers.map((b) => `#${b}`).join(", ") })
+    : null;
 }
 
 /** The open steps it waits on, then the step estimate. */
-function blockedAside(c: EpicChild, { f }: Ctx, open: Set<number>): string {
-  const blockers = c.blockedBy.filter((b) => b !== c.number && open.has(b));
-  return [
-    blockers.length > 0
-      ? m.epic_tip_step_after({ list: blockers.map((b) => `#${b}`).join(", ") })
-      : null,
-    f ? `~${approx(f.stepMs)}` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+function blockedAside(wait: string, { f }: Ctx): string {
+  return [wait, f ? `~${approx(f.stepMs)}` : null].filter(Boolean).join(" · ");
 }
 
 function footer(epic: Epic, now: number): string[] {

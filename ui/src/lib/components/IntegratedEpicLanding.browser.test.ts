@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { CompletedEpic } from "$lib/types";
+import type { CompletedEpic } from "#lib/types.js";
 import IntegratedEpicLanding from "./IntegratedEpicLanding.svelte";
 const epic = (over: Partial<CompletedEpic> = {}): CompletedEpic => ({
   repoPath: "/repo",

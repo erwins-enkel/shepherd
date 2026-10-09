@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { toasts } from "$lib/toasts.svelte";
-  import { m } from "$lib/paraglide/messages";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   // True only on the mobile list screen, where the fixed ActionBar (+ New Task)
   // shares the bottom edge with the toast banner. When set, the mobile banner is

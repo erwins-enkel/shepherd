@@ -2,15 +2,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
-import { addAmendment, retractAmendment, reviewPr } from "$lib/api";
-import { amendments } from "$lib/amendments.svelte";
-import { reviews } from "$lib/reviews.svelte";
-import { toasts } from "$lib/toasts.svelte";
-import type { Session, TaskAmendment } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import { addAmendment, retractAmendment, reviewPr } from "#lib/api.js";
+import { amendments } from "#lib/amendments.svelte.js";
+import { reviews } from "#lib/reviews.svelte.js";
+import { toasts } from "#lib/toasts.svelte.js";
+import type { Session, TaskAmendment } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     addAmendment: vi.fn(),

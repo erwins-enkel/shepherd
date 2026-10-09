@@ -1,6 +1,6 @@
-import { getVoiceStatus, transcribeAudio } from "$lib/api";
-import { getLocale } from "$lib/i18n";
-import { pcmChunksToWavBlob } from "$lib/wav";
+import { getVoiceStatus, transcribeAudio } from "#lib/api.js";
+import { getLocale } from "#lib/i18n.js";
+import { pcmChunksToWavBlob } from "#lib/wav.js";
 
 // Reusable dictation controller — the engine behind every mic in the app, extracted from
 // ComposeBar so further fields cost one MicButton each instead of ~250 inlined lines.

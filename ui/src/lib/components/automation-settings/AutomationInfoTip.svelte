@@ -6,8 +6,8 @@
   // Pairs with AutomationDetail, which renders the block this button reveals. `open` is owned
   // by the parent so only one explanation is expanded at a time — the panel is a narrow
   // popover, and a single open detail keeps it readable.
-  import { m } from "$lib/paraglide/messages";
-  import { infoTips } from "$lib/info-tips.svelte";
+  import { m } from "#lib/paraglide/messages.js";
+  import { infoTips } from "#lib/info-tips.svelte.js";
 
   let {
     id,

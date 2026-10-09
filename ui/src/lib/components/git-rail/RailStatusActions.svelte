@@ -1,11 +1,11 @@
 <script lang="ts">
-  import type { GitState, SessionStatus } from "$lib/types";
+  import type { GitState, SessionStatus } from "#lib/types.js";
   import type { CriticChip } from "../critic-badge";
   import ReadyToggle from "../ReadyToggle.svelte";
   import PrBadgeMenu from "../PrBadgeMenu.svelte";
   import PrReviewRequestPopover from "../PrReviewRequestPopover.svelte";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import { m } from "$lib/paraglide/messages";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let {
     git,

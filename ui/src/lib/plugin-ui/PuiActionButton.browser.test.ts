@@ -4,7 +4,7 @@ import { tick } from "svelte";
 import "../../app.css";
 import PluginUIRoot from "./PluginUIRoot.svelte";
 import PuiActionButton from "./PuiActionButton.svelte";
-import type { PluginUINode } from "$lib/types";
+import type { PluginUINode } from "#lib/types.js";
 
 /** Mount an action-button inside its PluginUIRoot wrapper (so the plugin-id context is set,
  *  exactly as the Settings panel mounts it) and resolve it through the live registry. */

@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { version } from "$lib/build-info";
+  import { m } from "#lib/paraglide/messages.js";
+  import { version } from "#lib/build-info.js";
 
   // Identity header shared by the desktop telemetry popover and the mobile sheet
   // (design handoff 3b/3c): brand mark · build version · connection readout.

@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { getTodo, putTodo } from "$lib/api";
-  import { ITEM_RE, isDone, toggleItem, cleanupTodo } from "$lib/todo";
-  import { m } from "$lib/paraglide/messages";
+  import { getTodo, putTodo } from "#lib/api.js";
+  import { ITEM_RE, isDone, toggleItem, cleanupTodo } from "#lib/todo.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let { repoPath }: { repoPath: string } = $props();
 

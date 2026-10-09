@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import AppOverlays from "./AppOverlays.svelte";
-import { HerdStore } from "$lib/store.svelte";
+import { HerdStore } from "#lib/store.svelte.js";
 import type {
   AgentProvider,
   BacklogPayload,
@@ -12,12 +12,12 @@ import type {
   HerdrUpdateStatus,
   Session,
   Steer,
-} from "$lib/types";
-import { steers } from "$lib/steers.svelte";
-import { repos } from "$lib/repos.svelte";
+} from "#lib/types.js";
+import { steers } from "#lib/steers.svelte.js";
+import { repos } from "#lib/repos.svelte.js";
 import { steersSettingsOpen } from "../../../routes/steers-settings-open";
-import { m } from "$lib/paraglide/messages";
-import { ApiError, restartHerdrServer, uploadFile } from "$lib/api";
+import { m } from "#lib/paraglide/messages.js";
+import { ApiError, restartHerdrServer, uploadFile } from "#lib/api.js";
 
 // The redesigned NewTask is responsive (rail vs. mobile sheet); vitest-browser's
 // default viewport is mobile-width, so pin desktop for these desktop-DOM suites.
@@ -32,10 +32,10 @@ afterEach(() => {
 });
 
 // NewTask calls listRepos() on mount; stub it so the dialog mounts without a server.
-// Keep every other $lib/api export real (AppOverlays imports many for the
+// Keep every other #lib/api export real (AppOverlays imports many for the
 // learnings drawer, but those only fire on interaction, not on mount).
-vi.mock("$lib/api", async (original) => ({
-  ...(await original<typeof import("$lib/api")>()),
+vi.mock("#lib/api.js", async (original) => ({
+  ...(await original<typeof import("#lib/api.js")>()),
   listRepos: vi.fn(async () => ({ repos: [], recentWindowDays: 30 })),
   listBranches: vi.fn(async () => ({ current: "main", branches: ["main"], default: "main" })),
   branchStatus: vi.fn(async () => ({

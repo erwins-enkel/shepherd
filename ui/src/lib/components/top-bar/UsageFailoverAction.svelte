@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import type { ProviderFailoverOffer } from "$lib/provider-capacity";
-  import type { AgentProvider, ProviderFailoverStatus } from "$lib/types";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { ProviderFailoverOffer } from "#lib/provider-capacity.js";
+  import type { AgentProvider, ProviderFailoverStatus } from "#lib/types.js";
 
   // The capacity-failover control inside the usage hero: switch the default coding CLI to the
   // counterpart that still has weekly headroom, or undo a switch already in effect. Its own

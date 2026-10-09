@@ -2,19 +2,19 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
-import type { Issue, EpicSummary, Epic, Session, Steer } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
-import { listIssues, getEpics, getEpic, getGithubRateLimit } from "$lib/api";
-import { steers } from "$lib/steers.svelte";
-import { issuesFilter } from "$lib/issues-filter.svelte";
-import { backlogRefresh } from "$lib/backlog-refresh.svelte";
+import type { Issue, EpicSummary, Epic, Session, Steer } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
+import { listIssues, getEpics, getEpic, getGithubRateLimit } from "#lib/api.js";
+import { steers } from "#lib/steers.svelte.js";
+import { issuesFilter } from "#lib/issues-filter.svelte.js";
+import { backlogRefresh } from "#lib/backlog-refresh.svelte.js";
 import { ACTIVE_LABEL } from "./issues-panel";
-import { formatReset } from "$lib/format";
+import { formatReset } from "#lib/format.js";
 import { reactiveRecord } from "./reactive-fixture.svelte";
 
 // Mock the API so no network calls fire; each test seeds the results.
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     listIssues: vi.fn(),

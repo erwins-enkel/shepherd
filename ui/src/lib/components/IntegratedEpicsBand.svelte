@@ -1,9 +1,9 @@
 <script lang="ts">
-  import type { CompletedEpic } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { deriveIntegratedEpicStatus } from "$lib/integrated-epic-status";
-  import { epicsToLandExplanation } from "$lib/tooltips/explanations";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
+  import type { CompletedEpic } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { deriveIntegratedEpicStatus } from "#lib/integrated-epic-status.js";
+  import { epicsToLandExplanation } from "#lib/tooltips/explanations.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import IntegratedEpicRow from "./IntegratedEpicRow.svelte";
   let {
     epics,

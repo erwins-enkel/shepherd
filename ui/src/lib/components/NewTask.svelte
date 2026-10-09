@@ -16,10 +16,10 @@
     composeTaskBrief,
     cancelSpawn,
     ApiError,
-  } from "$lib/api";
-  import { toasts } from "$lib/toasts.svelte";
-  import { getLocale } from "$lib/i18n";
-  import { handleImagePaste } from "$lib/clipboard";
+  } from "#lib/api.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { getLocale } from "#lib/i18n.js";
+  import { handleImagePaste } from "#lib/clipboard.js";
   import {
     type Issue,
     type IssueRef,
@@ -33,7 +33,7 @@
     type ShapeRound as ShapeRoundData,
     type SpawnPhase,
     type SpawnProgress,
-  } from "$lib/types";
+  } from "#lib/types.js";
   import {
     matchSlashTrigger,
     filterCommands,
@@ -42,9 +42,9 @@
     commandInvocation,
     commandInvocationName,
     commandProviders,
-  } from "$lib/slash";
-  import { matchIssueTrigger } from "$lib/issue-trigger";
-  import { isFableModel } from "$lib/provider-models";
+  } from "#lib/slash.js";
+  import { matchIssueTrigger } from "#lib/issue-trigger.js";
+  import { isFableModel } from "#lib/provider-models.js";
   import RepoSelect from "./RepoSelect.svelte";
   import PromptSources from "./PromptSources.svelte";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
@@ -57,21 +57,21 @@
   import Keycap from "./new-task/Keycap.svelte";
   import KeymapSheet from "./new-task/KeymapSheet.svelte";
   import FirstTaskAutomationConfirm from "./FirstTaskAutomationConfirm.svelte";
-  import { ariaKeyshortcuts, modLabel } from "$lib/keymap/chord";
-  import { createHoldReveal } from "$lib/keymap/hold.svelte";
-  import { scrimIn, scrimOut } from "$lib/keymap/motion";
-  import { keymapEntry, matchKeymap } from "$lib/keymap/newTask";
-  import type { ComposeMode, NewTaskKeymapCtx } from "$lib/keymap/types";
-  import { dialog } from "$lib/a11yDialog";
-  import { repoConfig } from "$lib/reviews.svelte";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { viewerCache } from "$lib/viewer-cache.svelte";
+  import { ariaKeyshortcuts, modLabel } from "#lib/keymap/chord.js";
+  import { createHoldReveal } from "#lib/keymap/hold.svelte.js";
+  import { scrimIn, scrimOut } from "#lib/keymap/motion.js";
+  import { keymapEntry, matchKeymap } from "#lib/keymap/newTask.js";
+  import type { ComposeMode, NewTaskKeymapCtx } from "#lib/keymap/types.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { viewerCache } from "#lib/viewer-cache.svelte.js";
   import { assignedOthers } from "./issues-panel";
-  import { projectIcons } from "$lib/projectIcons.svelte";
-  import { modelOptionLabel } from "$lib/model-guidance";
-  import { selectedProviderCapacity } from "$lib/components/usage-gauges";
-  import { elapsed } from "$lib/format";
+  import { projectIcons } from "#lib/projectIcons.svelte.js";
+  import { modelOptionLabel } from "#lib/model-guidance.js";
+  import { selectedProviderCapacity } from "#lib/components/usage-gauges.js";
+  import { elapsed } from "#lib/format.js";
   import { deriveReadiness } from "./new-task/readiness";
   import { shapeBlocker, shapeErrorKey, type ShapeFailure } from "./new-task/shape";
   import ShapeRound from "./ShapeRound.svelte";
@@ -87,7 +87,7 @@
   import { IssueData } from "./new-task/issue-data.svelte";
   import VideoBriefNotice from "./new-task/VideoBriefNotice.svelte";
   import { hasVideoAttachment, VideoSkillInventory } from "./new-task/video-skill.svelte";
-  import type { UsageLimits } from "$lib/types";
+  import type { UsageLimits } from "#lib/types.js";
   import { stashDraft, takeDraft } from "./new-task/draft-stash";
 
   type TaskAttachment = {
@@ -1522,7 +1522,7 @@
   }
 
   // ── keymap ──────────────────────────────────────────────────────────────
-  // Every shortcut of this dialog lives in $lib/keymap/newTask.ts. This block
+  // Every shortcut of this dialog lives in #lib/keymap/newTask.ts. This block
   // only supplies the context (what's possible right now, and how to do it) and
   // routes keydown into the registry. Do not add a chord branch here.
   //

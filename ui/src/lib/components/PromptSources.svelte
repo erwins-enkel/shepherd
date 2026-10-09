@@ -2,16 +2,16 @@
   import type { Snippet } from "svelte";
   import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import { getCommands } from "$lib/api";
-  import type { Issue, SlashCommand, Steer } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
+  import { getCommands } from "#lib/api.js";
+  import type { Issue, SlashCommand, Steer } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import {
     commandInsertable,
     commandInvocation,
     commandInvocationProvider,
     commandProviders,
-  } from "$lib/slash";
+  } from "#lib/slash.js";
   import {
     hideOthers,
     hideActive,
@@ -23,14 +23,14 @@
     distinctLabels,
     labelColorMap,
   } from "./issues-panel";
-  import { issuesFilter } from "$lib/issues-filter.svelte";
+  import { issuesFilter } from "#lib/issues-filter.svelte.js";
   import type { IssueData } from "./new-task/issue-data.svelte";
   import IssueFilterPopover from "./IssueFilterPopover.svelte";
   import IssueMenuLayer from "./IssueMenuLayer.svelte";
   import { issueMenuTrigger } from "./issue-menu-trigger";
-  import { steers } from "$lib/steers.svelte";
-  import { repos } from "$lib/repos.svelte";
-  import { steerAppliesToRepo } from "$lib/steer-scope";
+  import { steers } from "#lib/steers.svelte.js";
+  import { repos } from "#lib/repos.svelte.js";
+  import { steerAppliesToRepo } from "#lib/steer-scope.js";
   import IssueLabelChips from "./IssueLabelChips.svelte";
   import IssueLoadAttempts from "./IssueLoadAttempts.svelte";
 

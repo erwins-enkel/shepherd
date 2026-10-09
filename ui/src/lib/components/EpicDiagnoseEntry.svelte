@@ -1,9 +1,9 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { dialog } from "$lib/a11yDialog";
-  import { m } from "$lib/paraglide/messages";
-  import { listRepos } from "$lib/api";
-  import type { RepoEntry } from "$lib/types";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { listRepos } from "#lib/api.js";
+  import type { RepoEntry } from "#lib/types.js";
   import RepoSelect from "./RepoSelect.svelte";
   import GlossaryText from "./GlossaryText.svelte";
   import EpicDiagnosisModal from "./EpicDiagnosisModal.svelte";

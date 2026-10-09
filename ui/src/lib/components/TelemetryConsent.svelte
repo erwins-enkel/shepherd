@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { dialog } from "$lib/a11yDialog";
+  import { m } from "#lib/paraglide/messages.js";
+  import { dialog } from "#lib/a11yDialog.js";
   import GlossaryText from "./GlossaryText.svelte";
-  import { putTelemetryConsent } from "$lib/api";
+  import { putTelemetryConsent } from "#lib/api.js";
 
   const { show, onresolved }: { show: boolean; onresolved: () => void } = $props();
   let busy = $state(false);

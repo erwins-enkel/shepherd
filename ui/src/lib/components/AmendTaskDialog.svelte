@@ -1,11 +1,11 @@
 <script lang="ts">
-  import type { LivenessState, Session, TaskAmendment } from "$lib/types";
-  import { addAmendment, retractAmendment, reviewPr } from "$lib/api";
-  import { amendments } from "$lib/amendments.svelte";
-  import { reviews } from "$lib/reviews.svelte";
-  import { toasts } from "$lib/toasts.svelte";
-  import { dialog } from "$lib/a11yDialog";
-  import { m } from "$lib/paraglide/messages";
+  import type { LivenessState, Session, TaskAmendment } from "#lib/types.js";
+  import { addAmendment, retractAmendment, reviewPr } from "#lib/api.js";
+  import { amendments } from "#lib/amendments.svelte.js";
+  import { reviews } from "#lib/reviews.svelte.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { m } from "#lib/paraglide/messages.js";
   import GlossaryText from "./GlossaryText.svelte";
 
   let {

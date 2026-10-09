@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../app.css";
-import { listWorkflowRuns } from "$lib/api";
+import { listWorkflowRuns } from "#lib/api.js";
 
 // Mock the API so the panel never hits the network; each test seeds the result.
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     listWorkflowRuns: vi.fn(),

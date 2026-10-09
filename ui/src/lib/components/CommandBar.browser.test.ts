@@ -3,11 +3,11 @@ import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import CommandBar from "./CommandBar.svelte";
-import { m } from "$lib/paraglide/messages";
-import { repos } from "$lib/repos.svelte";
-import type { Command } from "$lib/command-registry";
-import type { BlockState } from "$lib/triage";
-import type { RepoEntry, Session } from "$lib/types";
+import { m } from "#lib/paraglide/messages.js";
+import { repos } from "#lib/repos.svelte.js";
+import type { Command } from "#lib/command-registry.js";
+import type { BlockState } from "#lib/triage.js";
+import type { RepoEntry, Session } from "#lib/types.js";
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {

@@ -1,8 +1,8 @@
 <script lang="ts">
   import { isSwipeUp } from "../swipe";
-  import ControlBar from "$lib/components/ControlBar.svelte";
-  import type { ControlKey } from "$lib/controlKeys";
-  import { m } from "$lib/paraglide/messages";
+  import ControlBar from "#lib/components/ControlBar.svelte";
+  import type { ControlKey } from "#lib/controlKeys.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let {
     mobile,

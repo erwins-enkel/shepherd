@@ -1,19 +1,19 @@
 <script lang="ts">
-  import type { Session } from "$lib/types";
-  import type { HerdFilter } from "$lib/components/herd-partition";
-  import { repos } from "$lib/repos.svelte";
-  import { projectIcons } from "$lib/projectIcons.svelte";
-  import { displayStatus } from "$lib/display-status";
-  import { statusLabel } from "$lib/format";
-  import { dialog } from "$lib/a11yDialog";
-  import { lensGlyph } from "$lib/components/herd/lens-glyphs";
-  import { DOCS_URL } from "$lib/build-info";
-  import { DOCS_PAGES } from "$lib/docs-manifest";
-  import type { Command } from "$lib/command-registry";
-  import { fuzzyScore } from "$lib/fuzzy";
-  import { jumpDigitIndex } from "$lib/components/herd-keynav";
-  import { sortBlocked, type BlockState } from "$lib/triage";
-  import { m } from "$lib/paraglide/messages";
+  import type { Session } from "#lib/types.js";
+  import type { HerdFilter } from "#lib/components/herd-partition.js";
+  import { repos } from "#lib/repos.svelte.js";
+  import { projectIcons } from "#lib/projectIcons.svelte.js";
+  import { displayStatus } from "#lib/display-status.js";
+  import { statusLabel } from "#lib/format.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { lensGlyph } from "#lib/components/herd/lens-glyphs.js";
+  import { DOCS_URL } from "#lib/build-info.js";
+  import { DOCS_PAGES } from "#lib/docs-manifest.js";
+  import type { Command } from "#lib/command-registry.js";
+  import { fuzzyScore } from "#lib/fuzzy.js";
+  import { jumpDigitIndex } from "#lib/components/herd-keynav.js";
+  import { sortBlocked, type BlockState } from "#lib/triage.js";
+  import { m } from "#lib/paraglide/messages.js";
   import { untrack } from "svelte";
 
   let {
@@ -27,7 +27,7 @@
     onfilterrepo,
     onselectlens,
     onclose,
-    // Demo-only seed for the scripted showcase (see $lib/demo/showcase.ts) — the
+    // Demo-only seed for the scripted showcase (see #lib/demo/showcase.ts) — the
     // real ⌘K path never passes this, so `filter` seeds to "" exactly as before.
     initialFilter = undefined,
   }: {

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { portal } from "$lib/portal";
+  import { m } from "#lib/paraglide/messages.js";
+  import { portal } from "#lib/portal.js";
 
   let {
     anchor,

@@ -1,7 +1,7 @@
-import { m } from "$lib/paraglide/messages";
-import { modelLabel } from "$lib/model-label";
-import { effortLabel } from "$lib/effort-guidance";
-import type { AgentProvider } from "$lib/types";
+import { m } from "#lib/paraglide/messages.js";
+import { modelLabel } from "#lib/model-label.js";
+import { effortLabel } from "#lib/effort-guidance.js";
+import type { AgentProvider } from "#lib/types.js";
 
 /** Localized CLI label for an agent provider (Claude Code / Codex). Most callers want the composed
  *  {@link environmentLabel}; it is exported for the session surfaces, which pair it with a

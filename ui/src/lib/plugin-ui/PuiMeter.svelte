@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { PluginUINode } from "$lib/types";
+  import type { PluginUINode } from "#lib/types.js";
 
   let { node }: { node: PluginUINode } = $props();
 

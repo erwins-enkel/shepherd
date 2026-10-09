@@ -1,10 +1,10 @@
 <script lang="ts">
-  import type { AutoMergeStatus, GitState, MergeWaitCode } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { reviews, repoConfig } from "$lib/reviews.svelte";
-  import { autoMergeView } from "$lib/auto-merge-banner";
-  import { autoMergeStripExplanation } from "$lib/tooltips/explanations";
-  import InfoTip from "$lib/components/InfoTip.svelte";
+  import type { AutoMergeStatus, GitState, MergeWaitCode } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { reviews, repoConfig } from "#lib/reviews.svelte.js";
+  import { autoMergeView } from "#lib/auto-merge-banner.js";
+  import { autoMergeStripExplanation } from "#lib/tooltips/explanations.js";
+  import InfoTip from "#lib/components/InfoTip.svelte";
 
   // Non-blocking "full auto-merge owns this PR" strip (TASK-1368): the same bottom slot as
   // ReviewInFlightBanner / CiRunningBanner, shown only when neither claims it, naming what the

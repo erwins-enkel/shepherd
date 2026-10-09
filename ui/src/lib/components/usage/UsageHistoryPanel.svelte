@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { UsageHistoryResponse, CapHistoryPoint, CreditHistoryPoint } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { gaugeColor } from "$lib/components/usage-gauges";
-  import { formatReset } from "$lib/format";
+  import type { UsageHistoryResponse, CapHistoryPoint, CreditHistoryPoint } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { gaugeColor } from "#lib/components/usage-gauges.js";
+  import { formatReset } from "#lib/format.js";
   import Sparkline from "./Sparkline.svelte";
 
   const { history }: { history: UsageHistoryResponse } = $props();

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { Session, PlanSummaryCode } from "$lib/types";
-  import { planGates, spawnNotices } from "$lib/reviews.svelte";
+  import type { Session, PlanSummaryCode } from "#lib/types.js";
+  import { planGates, spawnNotices } from "#lib/reviews.svelte.js";
   import {
     dismissQuota,
     releasePlanGate,
@@ -10,7 +10,7 @@
     isPlanReviewError,
     planReviewStarted,
     type PlanReviewError,
-  } from "$lib/api";
+  } from "#lib/api.js";
   import {
     canOfferPlanReview,
     canRelease,
@@ -20,11 +20,11 @@
     planGateChip,
   } from "./plan-gate-badge";
   import SpawnFailureNotice from "./SpawnFailureNotice.svelte";
-  import { dialog } from "$lib/a11yDialog";
-  import { portal } from "$lib/portal";
-  import { m } from "$lib/paraglide/messages";
-  import { environmentLabel } from "$lib/reviewer-env";
-  import { DOCS_URL } from "$lib/build-info";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { portal } from "#lib/portal.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { environmentLabel } from "#lib/reviewer-env.js";
+  import { DOCS_URL } from "#lib/build-info.js";
   import VisualReview from "./VisualReview.svelte";
 
   let { session, onclose }: { session: Session; onclose: () => void } = $props();

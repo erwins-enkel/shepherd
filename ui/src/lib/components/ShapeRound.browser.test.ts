@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import ShapeRound from "./ShapeRound.svelte";
-import type { ShapeRound as ShapeRoundData } from "$lib/types";
+import type { ShapeRound as ShapeRoundData } from "#lib/types.js";
 
 const round: ShapeRoundData = {
   draft: {

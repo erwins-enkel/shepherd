@@ -1,4 +1,4 @@
-import type { CompletedEpic } from "$lib/types";
+import type { CompletedEpic } from "#lib/types.js";
 
 export type IntegratedEpicSituation =
   | "preparing"

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // The one place that says "this merge is someone else's" — shared by the merge confirmation,
   // the decommission dialog's merge choice and the merge-train confirmation, so the three can

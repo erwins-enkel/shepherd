@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { Issue } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import type { Issue } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   // Inline `#` issue search for the New Task prompt — same anchored-menu pattern as
   // SlashCommandMenu (absolute below the field, mousedown-pick to keep textarea focus,

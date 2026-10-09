@@ -9,13 +9,13 @@
    * this only for a rate-limited trail and remounts it on every retry, which re-reads the
    * time and drops a pending auto-retry with the old instance.
    */
-  import { getGithubRateLimit } from "$lib/api";
-  import type { GithubRateLimit, IssueFetchAttempt } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { clock } from "$lib/now.svelte";
-  import { formatReset, formatResetIn } from "$lib/format";
-  import TooltipBody from "$lib/tooltips/TooltipBody.svelte";
-  import { githubRateLimitRaiseExplanation } from "$lib/tooltips/explanations";
+  import { getGithubRateLimit } from "#lib/api.js";
+  import type { GithubRateLimit, IssueFetchAttempt } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { clock } from "#lib/now.svelte.js";
+  import { formatReset, formatResetIn } from "#lib/format.js";
+  import TooltipBody from "#lib/tooltips/TooltipBody.svelte";
+  import { githubRateLimitRaiseExplanation } from "#lib/tooltips/explanations.js";
   import IssueLoadAttempts from "../IssueLoadAttempts.svelte";
   import { rateLimitWait } from "./rate-limit-wait";
 

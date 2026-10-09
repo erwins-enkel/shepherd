@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
   import type { EpicOthersFlag } from "../issues-panel";
 
   // The "someone else is working / owns this epic" pill (#1616), extracted from IssueRow so

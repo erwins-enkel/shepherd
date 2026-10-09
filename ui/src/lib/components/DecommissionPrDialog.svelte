@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { dialog } from "$lib/a11yDialog";
-  import { prMergeAvailable } from "$lib/components/pr-badge";
-  import MergeHandoffNotice from "$lib/components/MergeHandoffNotice.svelte";
-  import { isMergeTakeover } from "$lib/components/merge-confirm";
-  import { m } from "$lib/paraglide/messages";
-  import type { GitState } from "$lib/types";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { prMergeAvailable } from "#lib/components/pr-badge.js";
+  import MergeHandoffNotice from "#lib/components/MergeHandoffNotice.svelte";
+  import { isMergeTakeover } from "#lib/components/merge-confirm.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { GitState } from "#lib/types.js";
 
   let {
     name,

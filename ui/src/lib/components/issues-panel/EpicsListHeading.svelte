@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { DrainRunSummary } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
-  import { epicLeadExplanation } from "$lib/tooltips/explanations";
+  import type { DrainRunSummary } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import { epicLeadExplanation } from "#lib/tooltips/explanations.js";
   import GlossaryText from "../GlossaryText.svelte";
   import SlotStepper, { slotCap } from "./SlotStepper.svelte";
 

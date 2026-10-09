@@ -9,9 +9,9 @@
   //
   // It names the required action in plain words rather than implying Retry resolves it: under
   // clamp-only scope the substantive fix is shortening the plan; Retry only re-attempts.
-  import type { SpawnNotice } from "$lib/types";
-  import { retrySpawnNotice } from "$lib/api";
-  import { m } from "$lib/paraglide/messages";
+  import type { SpawnNotice } from "#lib/types.js";
+  import { retrySpawnNotice } from "#lib/api.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   // Nullable + self-guarding: the caller renders this unconditionally, so PlanPanel's template
   // gains no branch of its own (it sits exactly on the Tier-1 cognitive bar).

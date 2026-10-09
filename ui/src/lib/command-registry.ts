@@ -9,7 +9,7 @@
 // owns every overlay/view-state signal; `buildCommands` turns that context into the list
 // of currently-runnable commands and CommandBar just renders/filters what it's handed.
 
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 
 export type Command = {
   /** Stable identifier — used as the listbox row key and in tests. */

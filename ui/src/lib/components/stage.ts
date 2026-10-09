@@ -1,6 +1,6 @@
-import type { GitState, ReviewVerdict, ChecksState } from "$lib/types";
-import { verdictStale } from "$lib/verdict-freshness";
-import { prReadinessBlock } from "$lib/pr-ready";
+import type { GitState, ReviewVerdict, ChecksState } from "#lib/types.js";
+import { verdictStale } from "#lib/verdict-freshness.js";
+import { prReadinessBlock } from "#lib/pr-ready.js";
 
 /** Pipeline stages, low→high. The agent's furthest-reached stage drives the stepper. */
 export const STAGE_ORDER = ["planning", "implementing", "pr", "review", "ready"] as const;

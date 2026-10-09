@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { SlashCommand } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
-  import { commandInvocation, commandInvocationProvider, commandProviders } from "$lib/slash";
+  import type { SlashCommand } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import { commandInvocation, commandInvocationProvider, commandProviders } from "#lib/slash.js";
 
   let {
     commands,

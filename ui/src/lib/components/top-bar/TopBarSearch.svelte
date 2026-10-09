@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { isMacPlatform } from "$lib/platform";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import { m } from "#lib/paraglide/messages.js";
+  import { isMacPlatform } from "#lib/platform.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
 
   let { compact, oncommandbar }: { compact: boolean; oncommandbar: () => void } = $props();
 

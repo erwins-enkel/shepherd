@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
-import { repoConfig } from "$lib/reviews.svelte";
-import { m } from "$lib/paraglide/messages";
-import { getRepoCollaborators, getRepoRoles, putRepoRoles } from "$lib/api";
+import { repoConfig } from "#lib/reviews.svelte.js";
+import { m } from "#lib/paraglide/messages.js";
+import { getRepoCollaborators, getRepoRoles, putRepoRoles } from "#lib/api.js";
 import "../../../app.css";
 
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     getRepoCollaborators: vi.fn(),

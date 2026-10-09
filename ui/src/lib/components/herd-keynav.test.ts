@@ -12,7 +12,7 @@ import {
   isPtySuppressedChord,
 } from "./herd-keynav";
 import { GROUP_KEY_BY_STAGE, type HerdFilter } from "./herd-partition";
-import type { Session, GitState, Epic, EpicChild, SessionStatus } from "$lib/types";
+import type { Session, GitState, Epic, EpicChild, SessionStatus } from "#lib/types.js";
 
 function session(
   id: string,

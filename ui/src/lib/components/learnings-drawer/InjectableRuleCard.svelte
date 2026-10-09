@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import type { InjectableRule } from "$lib/types";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { InjectableRule } from "#lib/types.js";
   import {
     injectionBadge,
     showIneffective,

@@ -5,7 +5,7 @@ import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 
 // Mock startPreview so it resolves to "ok" without a backend. All other
-// named exports from $lib/api are preserved (getSessionUsage etc. are used
+// named exports from #lib/api are preserved (getSessionUsage etc. are used
 // by subcomponents; they can fail silently under test — existing tests pass
 // without mocking them).
 // The fn is declared BEFORE vi.mock so vitest's hoisting can close over it.
@@ -53,8 +53,8 @@ const putBuildQueueFn = vi.fn(
   }),
 );
 
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     startPreview: startPreviewFn,
@@ -71,18 +71,18 @@ vi.mock("$lib/api", async (importOriginal) => {
 
 // Component must be imported AFTER the mock is registered.
 const { default: Viewport } = await import("./Viewport.svelte");
-// Dynamic import AFTER the $lib/api mock: reviews.svelte imports $lib/api, so a static
+// Dynamic import AFTER the #lib/api mock: reviews.svelte imports #lib/api, so a static
 // (hoisted) import would pull the real module in before the mock registers and break it.
-const { reviews, planGates, repoConfig } = await import("$lib/reviews.svelte");
-// Dynamic import for same reason: recaps.svelte imports $lib/api via getRecaps.
-const { recaps } = await import("$lib/recaps.svelte");
-// Dynamic import for same reason: epic-draft.svelte imports $lib/api via getEpicDraft.
-const { epicDrafts } = await import("$lib/epic-draft.svelte");
-// Dynamic import for same reason: projectIcons.svelte imports $lib/api via getProjectIcons.
-const { projectIcons } = await import("$lib/projectIcons.svelte");
-const { buildQueueCollapse } = await import("$lib/build-queue-collapse.svelte");
-import { toasts } from "$lib/toasts.svelte";
-import { m } from "$lib/paraglide/messages";
+const { reviews, planGates, repoConfig } = await import("#lib/reviews.svelte.js");
+// Dynamic import for same reason: recaps.svelte imports #lib/api via getRecaps.
+const { recaps } = await import("#lib/recaps.svelte.js");
+// Dynamic import for same reason: epic-draft.svelte imports #lib/api via getEpicDraft.
+const { epicDrafts } = await import("#lib/epic-draft.svelte.js");
+// Dynamic import for same reason: projectIcons.svelte imports #lib/api via getProjectIcons.
+const { projectIcons } = await import("#lib/projectIcons.svelte.js");
+const { buildQueueCollapse } = await import("#lib/build-queue-collapse.svelte.js");
+import { toasts } from "#lib/toasts.svelte.js";
+import { m } from "#lib/paraglide/messages.js";
 import type {
   Session,
   BuildQueue,
@@ -92,7 +92,7 @@ import type {
   ReviewVerdict,
   SessionActivity,
   EpicDraft,
-} from "$lib/types";
+} from "#lib/types.js";
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {

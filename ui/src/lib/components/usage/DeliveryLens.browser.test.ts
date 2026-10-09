@@ -8,7 +8,7 @@ import type {
   DeliverySample,
   DeliveryStats,
   MaintainBlock,
-} from "$lib/types";
+} from "#lib/types.js";
 
 const { default: DeliveryLens } = await import("./DeliveryLens.svelte");
 

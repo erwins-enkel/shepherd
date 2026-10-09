@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { BacklogProject } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import type { BacklogProject } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
   import ProjectRow from "./ProjectRow.svelte";
   import AddRepoButton from "./AddRepoButton.svelte";
   import RepoFilterPopover from "./RepoFilterPopover.svelte";

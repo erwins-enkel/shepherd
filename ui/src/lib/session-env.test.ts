@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { modelsMixed, providersMixed, sessionEnvironment } from "./session-env";
 import { runtimeModelLabel } from "./model-label";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 import type { Session, SessionActivity } from "./types";
 
 const empty = { model: null, effort: null, runtimeModel: null, runtimeEffort: null };

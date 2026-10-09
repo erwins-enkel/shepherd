@@ -1,4 +1,4 @@
-import type { GhBackoff, GhRateBucket, GithubRateLimit, IssueFetchAttempt } from "$lib/types";
+import type { GhBackoff, GhRateBucket, GithubRateLimit, IssueFetchAttempt } from "#lib/types.js";
 
 /** When an issue listing that GitHub rate-limited can load again. */
 export interface RateLimitWait {

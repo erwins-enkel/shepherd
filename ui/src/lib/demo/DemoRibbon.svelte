@@ -4,7 +4,7 @@
   // a screen-hogging banner. Non-blocking, anchored — NOT a modal, so no
   // scrim/blur (see .claude/rules/ui-design-system.md "Modal & scrim" scope notes: a small anchored
   // popover/pill is exempt).
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // Marketing destination for the CTA — adjust this if the landing page moves.
   const CTA_URL = "https://shepherd.run";

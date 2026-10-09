@@ -1,9 +1,9 @@
 <script lang="ts">
-  import type { FeedbackKind } from "$lib/feedback-link";
-  import { buildIssueUrl } from "$lib/feedback-link";
-  import { feedbackDialog, closeFeedback } from "$lib/feedback-dialog.svelte";
-  import { dialog } from "$lib/a11yDialog";
-  import { m } from "$lib/paraglide/messages";
+  import type { FeedbackKind } from "#lib/feedback-link.js";
+  import { buildIssueUrl } from "#lib/feedback-link.js";
+  import { feedbackDialog, closeFeedback } from "#lib/feedback-dialog.svelte.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let title = $state("");
   let details = $state("");

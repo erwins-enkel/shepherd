@@ -9,7 +9,7 @@
   // The autofill guard (issue #1978) matters here for a second reason: it also suppresses
   // browser form-value RESTORATION, which sets a select's DOM value on reload WITHOUT firing
   // `change` — leaving what the operator sees diverged from what the form scope would submit.
-  import type { PluginUINode } from "$lib/types";
+  import type { PluginUINode } from "#lib/types.js";
   import { noAutofill } from "./autofill";
   import { pluginField } from "./field.svelte";
 

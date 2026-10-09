@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { cdp, page } from "vitest/browser";
 import "../../app.css";
-import type { Session } from "$lib/types";
-import type { connectPty } from "$lib/pty";
+import type { Session } from "#lib/types.js";
+import type { connectPty } from "#lib/pty.js";
 
 const clients: {
   receive: Parameters<typeof connectPty>[3];
@@ -13,7 +13,7 @@ const clients: {
 }[] = [];
 const ptySend = vi.fn();
 const ptyResize = vi.fn();
-vi.mock("$lib/pty", () => ({
+vi.mock("#lib/pty.js", () => ({
   connectPty: vi.fn((...args: Parameters<typeof connectPty>) => {
     clients.push({ receive: args[3], reconnect: args[4]!, park: args[5]!, end: args[6]! });
     return { send: ptySend, resize: ptyResize, close: vi.fn(), poke: vi.fn(), takeover: vi.fn() };

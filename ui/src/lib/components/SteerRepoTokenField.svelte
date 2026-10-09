@@ -9,8 +9,8 @@
 </script>
 
 <script lang="ts">
-  import type { RepoEntry } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import type { RepoEntry } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   // The 9c repo-scope control (the "SICHTBAR AUF" block): a token field whose scope state is
   // encoded entirely by `value` — `undefined` = ALLE (the ✱ token), an array = per-repo

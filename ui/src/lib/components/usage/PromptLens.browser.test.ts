@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../../app.css";
-import type { PromptBudgetRecord } from "$lib/types";
+import type { PromptBudgetRecord } from "#lib/types.js";
 
 const { default: PromptLens } = await import("./PromptLens.svelte");
 

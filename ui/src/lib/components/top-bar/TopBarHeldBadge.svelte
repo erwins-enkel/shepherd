@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { formatResetIn } from "$lib/format";
+  import { m } from "#lib/paraglide/messages.js";
+  import { formatResetIn } from "#lib/format.js";
   import type { Gauge } from "../usage-gauges";
-  import { AGENT_PROVIDERS, type AgentProvider, type HeldTask } from "$lib/types";
-  import { dialog } from "$lib/a11yDialog";
-  import { portal } from "$lib/portal";
+  import { AGENT_PROVIDERS, type AgentProvider, type HeldTask } from "#lib/types.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { portal } from "#lib/portal.js";
 
   const fallbackProvider: AgentProvider = "claude";
 

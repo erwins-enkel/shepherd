@@ -1,4 +1,4 @@
-import type { Session } from "$lib/types";
+import type { Session } from "#lib/types.js";
 
 /** One comparison experiment: the same-prompt variant runs + an optional comparison session. */
 export type ExperimentGroup = {

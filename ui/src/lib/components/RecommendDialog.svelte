@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { dialog } from "$lib/a11yDialog";
-  import { portal } from "$lib/portal";
-  import { recommendPrompt, replySession } from "$lib/api";
-  import { configuredModelLabel } from "$lib/model-label";
-  import type { AgentProvider } from "$lib/types";
+  import { m } from "#lib/paraglide/messages.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { portal } from "#lib/portal.js";
+  import { recommendPrompt, replySession } from "#lib/api.js";
+  import { configuredModelLabel } from "#lib/model-label.js";
+  import type { AgentProvider } from "#lib/types.js";
 
   // Modal that runs a next-prompt recommendation for one session and surfaces the
   // result as a copyable / injectable prompt. A blocking dialog (the operator reads

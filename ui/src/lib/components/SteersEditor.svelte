@@ -3,13 +3,13 @@
   import { flip } from "svelte/animate";
   import { dragHandleZone, dragHandle } from "svelte-dnd-action";
   import type { DndEvent } from "svelte-dnd-action";
-  import { steers } from "$lib/steers.svelte";
-  import { repos } from "$lib/repos.svelte";
-  import { toasts } from "$lib/toasts.svelte";
-  import EmojiPicker from "$lib/components/EmojiPicker.svelte";
-  import SlashCommandMenu from "$lib/components/SlashCommandMenu.svelte";
-  import SteerRepoTokenField from "$lib/components/SteerRepoTokenField.svelte";
-  import { getCommands } from "$lib/api";
+  import { steers } from "#lib/steers.svelte.js";
+  import { repos } from "#lib/repos.svelte.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import EmojiPicker from "#lib/components/EmojiPicker.svelte";
+  import SlashCommandMenu from "#lib/components/SlashCommandMenu.svelte";
+  import SteerRepoTokenField from "#lib/components/SteerRepoTokenField.svelte";
+  import { getCommands } from "#lib/api.js";
   import {
     matchSlashTrigger,
     filterCommands,
@@ -17,10 +17,10 @@
     applyMentionPick,
     commandInvocationName,
     commandProviders,
-  } from "$lib/slash";
-  import type { Steer, SlashCommand } from "$lib/types";
-  import HighlightText from "$lib/components/settings/HighlightText.svelte";
-  import { m } from "$lib/paraglide/messages";
+  } from "#lib/slash.js";
+  import type { Steer, SlashCommand } from "#lib/types.js";
+  import HighlightText from "#lib/components/settings/HighlightText.svelte";
+  import { m } from "#lib/paraglide/messages.js";
 
   // Steer to expand + focus on open (from a steer chip's right-click → "Edit"). The
   // accordion lists every steer; this jumps straight to the one the operator picked.

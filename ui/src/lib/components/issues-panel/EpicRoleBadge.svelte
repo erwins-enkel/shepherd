@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
   import type { EpicRole } from "../epic-panel";
 
   // Neutral role badge of an epic in its repo's run (#2620): "leads" / "winding down" / "queued (k.)"

@@ -3,8 +3,8 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import PrRow from "./PrRow.svelte";
-import type { PullRequest, PrKind } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { PullRequest, PrKind } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 function pr(partial: Partial<PullRequest> = {}): PullRequest {
   return {

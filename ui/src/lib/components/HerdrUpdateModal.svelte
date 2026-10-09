@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
-  import type { HerdrUpdateStatus, HerdrUpdateResult } from "$lib/types";
+  import type { HerdrUpdateStatus, HerdrUpdateResult } from "#lib/types.js";
   import {
     applyHerdrUpdate,
     applyHerdrDowngrade,
@@ -8,9 +8,9 @@
     getHerdrUpdate,
     restartHerdrServer,
     ApiError,
-  } from "$lib/api";
-  import { dialog } from "$lib/a11yDialog";
-  import { m } from "$lib/paraglide/messages";
+  } from "#lib/api.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let {
     update,

@@ -4,9 +4,9 @@
   // scroll for large ones), then zoom + drag-to-pan to read fine labels.
   // The SVG arrives already rendered + themed from MermaidBlock; this component
   // only sizes and frames it. Blocking modal → scrim+blur, focus trap, Esc.
-  import { dialog } from "$lib/a11yDialog";
-  import { portal } from "$lib/portal";
-  import { m } from "$lib/paraglide/messages";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { portal } from "#lib/portal.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let { svg, title, onclose }: { svg: string; title?: string; onclose: () => void } = $props();
 

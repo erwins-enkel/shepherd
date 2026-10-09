@@ -8,8 +8,8 @@
     PromptBudgetRecord,
     DeliveryMetrics,
     GithubRateLimit,
-  } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
   import {
     getUsageBreakdown,
     getUsageTimeline,
@@ -17,20 +17,20 @@
     getGithubRateLimit,
     getPromptBudgets,
     getDeliveryMetrics,
-  } from "$lib/api";
-  import { dialog } from "$lib/a11yDialog";
-  import { formatTokenLabel } from "$lib/format";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import { codexTokenUsage } from "$lib/components/usage-gauges";
-  import SpendLens from "$lib/components/usage/SpendLens.svelte";
-  import OverheadLens from "$lib/components/usage/OverheadLens.svelte";
-  import PromptLens from "$lib/components/usage/PromptLens.svelte";
-  import LimitsLens from "$lib/components/usage/LimitsLens.svelte";
-  import GithubLens from "$lib/components/usage/GithubLens.svelte";
-  import TimelineLens from "$lib/components/usage/TimelineLens.svelte";
-  import DeliveryLens from "$lib/components/usage/DeliveryLens.svelte";
+  } from "#lib/api.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { formatTokenLabel } from "#lib/format.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import { codexTokenUsage } from "#lib/components/usage-gauges.js";
+  import SpendLens from "#lib/components/usage/SpendLens.svelte";
+  import OverheadLens from "#lib/components/usage/OverheadLens.svelte";
+  import PromptLens from "#lib/components/usage/PromptLens.svelte";
+  import LimitsLens from "#lib/components/usage/LimitsLens.svelte";
+  import GithubLens from "#lib/components/usage/GithubLens.svelte";
+  import TimelineLens from "#lib/components/usage/TimelineLens.svelte";
+  import DeliveryLens from "#lib/components/usage/DeliveryLens.svelte";
 
-  import ModelsLens from "$lib/components/usage/ModelsLens.svelte";
+  import ModelsLens from "#lib/components/usage/ModelsLens.svelte";
 
   let { onclose }: { onclose?: () => void } = $props();
 

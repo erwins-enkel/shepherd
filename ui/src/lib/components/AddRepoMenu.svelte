@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // Small anchored, non-blocking popover listing the three repo-acquisition
   // actions (New project · Clone · Fork). Per the design system's popover rule it

@@ -2,12 +2,12 @@
   import type { Snippet } from "svelte";
   import { tick } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import type { RepoEntry } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { recentRepos } from "$lib/recentRepos";
+  import type { RepoEntry } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { recentRepos } from "#lib/recentRepos.js";
   import EmojiPicker from "./EmojiPicker.svelte";
-  import { projectIcons } from "$lib/projectIcons.svelte";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import { projectIcons } from "#lib/projectIcons.svelte.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
 
   let {
     repos,

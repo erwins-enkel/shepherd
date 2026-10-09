@@ -1,19 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../app.css";
-import type { GitState } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { GitState } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
-// Stepper reads from the reviews store, which loads from $lib/api on init.
+// Stepper reads from the reviews store, which loads from #lib/api on init.
 // Mock the two methods the store calls so no real network requests fire.
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return { ...actual, getReviews: vi.fn(async () => ({})), getReviewingIds: vi.fn(async () => []) };
 });
 
 // Import component + store AFTER mock is registered.
 const { default: Stepper } = await import("./Stepper.svelte");
-const { reviews } = await import("$lib/reviews.svelte");
+const { reviews } = await import("#lib/reviews.svelte.js");
 
 beforeEach(() => {
   reviews.map = {};

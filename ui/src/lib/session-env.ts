@@ -1,7 +1,7 @@
-import { m } from "$lib/paraglide/messages";
-import { modelLabel, runtimeModelLabel } from "$lib/model-label";
-import { effortLabel } from "$lib/effort-guidance";
-import type { Session, SessionActivity } from "$lib/types";
+import { m } from "#lib/paraglide/messages.js";
+import { modelLabel, runtimeModelLabel } from "#lib/model-label.js";
+import { effortLabel } from "#lib/effort-guidance.js";
+import type { Session, SessionActivity } from "#lib/types.js";
 
 /** A session's coding environment, resolved for display. `segments` is what a `·`-joined line should
  *  print after the task id — one entry when nothing concrete is known, two when it is. */

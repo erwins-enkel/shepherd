@@ -1,4 +1,4 @@
-import type { PrKind } from "$lib/types";
+import type { PrKind } from "#lib/types.js";
 
 /** Whether to offer the one-click "@dependabot rebase" action on a backlog PR
  *  row: only for Dependabot PRs that are stuck (merge blocked by conflicts/behind,

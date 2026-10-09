@@ -4,8 +4,8 @@ import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import GlossaryTerm from "./GlossaryTerm.svelte";
 import GlossaryText from "./GlossaryText.svelte";
-import { infoTips } from "$lib/info-tips.svelte";
-import { m } from "$lib/paraglide/messages";
+import { infoTips } from "#lib/info-tips.svelte.js";
+import { m } from "#lib/paraglide/messages.js";
 
 describe("GlossaryTerm — activation-only inline disclosure", () => {
   it("click → inline panel opens, no floating tooltip", async () => {

@@ -4,9 +4,9 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import BacklogOverlay from "./BacklogOverlay.svelte";
-import { m } from "$lib/paraglide/messages";
-import { backlogLayout } from "$lib/backlog-layout.svelte";
-import type { BacklogPayload, BacklogProject } from "$lib/types";
+import { m } from "#lib/paraglide/messages.js";
+import { backlogLayout } from "#lib/backlog-layout.svelte.js";
+import type { BacklogPayload, BacklogProject } from "#lib/types.js";
 
 const noop = () => {};
 

@@ -1,7 +1,7 @@
 /**
  * Pure logic extracted from IssuesPanel.svelte — unit-testable without a DOM.
  */
-import type { Issue, EpicSummary, EpicChild } from "$lib/types";
+import type { Issue, EpicSummary, EpicChild } from "#lib/types.js";
 
 /** Which "someone else is working / owns this epic" signal (#1616) fired, highest-priority first. */
 export type EpicOthersTier = "inflight" | "assigned" | "authored";

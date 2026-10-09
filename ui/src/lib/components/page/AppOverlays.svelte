@@ -1,12 +1,12 @@
 <script lang="ts">
   import type { ComponentProps } from "svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { displayStatus } from "$lib/display-status";
-  import { learnings } from "$lib/learnings.svelte";
-  import { repos } from "$lib/repos.svelte";
-  import { toasts } from "$lib/toasts.svelte";
-  import { capacitySuggestedProvider } from "$lib/provider-capacity";
-  import { basename } from "$lib/components/learnings-drawer";
+  import { m } from "#lib/paraglide/messages.js";
+  import { displayStatus } from "#lib/display-status.js";
+  import { learnings } from "#lib/learnings.svelte.js";
+  import { repos } from "#lib/repos.svelte.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { capacitySuggestedProvider } from "#lib/provider-capacity.js";
+  import { basename } from "#lib/components/learnings-drawer.js";
   import {
     approveLearning,
     dismissLearning,
@@ -22,9 +22,9 @@
     dismissMergeSuggestion,
     mergeSuggestNow,
     getPlugins,
-  } from "$lib/api";
-  import type { HerdStore } from "$lib/store.svelte";
-  import type { SettingsSectionId } from "$lib/settings-search";
+  } from "#lib/api.js";
+  import type { HerdStore } from "#lib/store.svelte.js";
+  import type { SettingsSectionId } from "#lib/settings-search.js";
   import type {
     AgentProvider,
     BacklogPayload,
@@ -43,36 +43,36 @@
     TaskRunDefaults,
     TaskRunSeed,
     UsageLimits,
-  } from "$lib/types";
-  import type { FeatureAnnouncement } from "$lib/feature-announcements";
-  import LearningsDrawer from "$lib/components/LearningsDrawer.svelte";
-  import NewTask from "$lib/components/NewTask.svelte";
-  import Settings from "$lib/components/Settings.svelte";
-  import Usage from "$lib/components/Usage.svelte";
-  import CloneRepo from "$lib/components/CloneRepo.svelte";
-  import ForkRepo from "$lib/components/ForkRepo.svelte";
-  import NewProject from "$lib/components/NewProject.svelte";
-  import type { KickoffChoice } from "$lib/components/NewProject.svelte";
-  import BroadcastDialog from "$lib/components/BroadcastDialog.svelte";
-  import CommandBar from "$lib/components/CommandBar.svelte";
-  import type { Command } from "$lib/command-registry";
-  import type { HerdFilter } from "$lib/components/herd-partition";
-  import RetryDialog from "$lib/components/RetryDialog.svelte";
-  import AmendTaskDialog from "$lib/components/AmendTaskDialog.svelte";
-  import DecomLeftovers from "$lib/components/page/DecomLeftovers.svelte";
-  import DecommissionPrDialog from "$lib/components/DecommissionPrDialog.svelte";
-  import EpicDiagnoseEntry from "$lib/components/EpicDiagnoseEntry.svelte";
-  import ClearMergedDialog from "$lib/components/ClearMergedDialog.svelte";
-  import MergeTrainConfirmDialog from "$lib/components/MergeTrainConfirmDialog.svelte";
-  import BacklogOverlay from "$lib/components/BacklogOverlay.svelte";
-  import UpdateModal from "$lib/components/UpdateModal.svelte";
-  import HerdrUpdateModal from "$lib/components/HerdrUpdateModal.svelte";
-  import CodexUpdateModal from "$lib/components/CodexUpdateModal.svelte";
-  import PluginUpdatesModal from "$lib/components/PluginUpdatesModal.svelte";
-  import StarPrompt from "$lib/components/StarPrompt.svelte";
-  import WhatsNew from "$lib/components/WhatsNew.svelte";
-  import FableArrival from "$lib/components/FableArrival.svelte";
-  import Onboarding from "$lib/components/Onboarding.svelte";
+  } from "#lib/types.js";
+  import type { FeatureAnnouncement } from "#lib/feature-announcements.js";
+  import LearningsDrawer from "#lib/components/LearningsDrawer.svelte";
+  import NewTask from "#lib/components/NewTask.svelte";
+  import Settings from "#lib/components/Settings.svelte";
+  import Usage from "#lib/components/Usage.svelte";
+  import CloneRepo from "#lib/components/CloneRepo.svelte";
+  import ForkRepo from "#lib/components/ForkRepo.svelte";
+  import NewProject from "#lib/components/NewProject.svelte";
+  import type { KickoffChoice } from "#lib/components/NewProject.svelte";
+  import BroadcastDialog from "#lib/components/BroadcastDialog.svelte";
+  import CommandBar from "#lib/components/CommandBar.svelte";
+  import type { Command } from "#lib/command-registry.js";
+  import type { HerdFilter } from "#lib/components/herd-partition.js";
+  import RetryDialog from "#lib/components/RetryDialog.svelte";
+  import AmendTaskDialog from "#lib/components/AmendTaskDialog.svelte";
+  import DecomLeftovers from "#lib/components/page/DecomLeftovers.svelte";
+  import DecommissionPrDialog from "#lib/components/DecommissionPrDialog.svelte";
+  import EpicDiagnoseEntry from "#lib/components/EpicDiagnoseEntry.svelte";
+  import ClearMergedDialog from "#lib/components/ClearMergedDialog.svelte";
+  import MergeTrainConfirmDialog from "#lib/components/MergeTrainConfirmDialog.svelte";
+  import BacklogOverlay from "#lib/components/BacklogOverlay.svelte";
+  import UpdateModal from "#lib/components/UpdateModal.svelte";
+  import HerdrUpdateModal from "#lib/components/HerdrUpdateModal.svelte";
+  import CodexUpdateModal from "#lib/components/CodexUpdateModal.svelte";
+  import PluginUpdatesModal from "#lib/components/PluginUpdatesModal.svelte";
+  import StarPrompt from "#lib/components/StarPrompt.svelte";
+  import WhatsNew from "#lib/components/WhatsNew.svelte";
+  import FableArrival from "#lib/components/FableArrival.svelte";
+  import Onboarding from "#lib/components/Onboarding.svelte";
 
   type PendingTrain = {
     repoLabel: string;
@@ -322,7 +322,7 @@
     oncommandbarfilterrepo: (path: string) => void;
     oncommandbarlens: (lens: HerdFilter) => void;
     /** Demo-only scripted-showcase seed, forwarded verbatim to CommandBar's
-     *  `initialFilter` (see $lib/demo/showcase.ts). Absent on the real ⌘K path. */
+     *  `initialFilter` (see #lib/demo/showcase.ts). Absent on the real ⌘K path. */
     commandBarInitialFilter?: string;
     /** Leftover subprocesses the ⌘K Decommission probe turned up; [] when none (or not probing).
      *  Mirrors Viewport's own LeftoverDialog — the command-bar verb must reap like the button. */

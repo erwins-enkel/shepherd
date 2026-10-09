@@ -3,8 +3,8 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import RepoSelect from "./RepoSelect.svelte";
-import { m } from "$lib/paraglide/messages";
-import type { RepoEntry } from "$lib/types";
+import { m } from "#lib/paraglide/messages.js";
+import type { RepoEntry } from "#lib/types.js";
 
 const noop = vi.fn();
 

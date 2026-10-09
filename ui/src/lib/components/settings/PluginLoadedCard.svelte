@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import type { PluginInfo, PluginUIView } from "$lib/types";
-  import PluginUIRoot from "$lib/plugin-ui/PluginUIRoot.svelte";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { PluginInfo, PluginUIView } from "#lib/types.js";
+  import PluginUIRoot from "#lib/plugin-ui/PluginUIRoot.svelte";
   import PluginUpdateNote, {
     type PluginApplyOutcome,
     type PluginCheckedNote,

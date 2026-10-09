@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
   import { basename } from "../learnings-drawer";
   import type { reposNeedingAttention } from "../learnings-drawer";
 

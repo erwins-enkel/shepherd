@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { Session, RecapVerdict } from "$lib/types";
-  import { recaps } from "$lib/recaps.svelte";
-  import { formatAgo } from "$lib/format";
-  import { m } from "$lib/paraglide/messages";
+  import type { Session, RecapVerdict } from "#lib/types.js";
+  import { recaps } from "#lib/recaps.svelte.js";
+  import { formatAgo } from "#lib/format.js";
+  import { m } from "#lib/paraglide/messages.js";
   import CardMenu from "../CardMenu.svelte";
   import { longPress } from "../longpress";
 

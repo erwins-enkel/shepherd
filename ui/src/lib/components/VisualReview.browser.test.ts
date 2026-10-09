@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import VisualReview from "./VisualReview.svelte";
-import type { VisualBlock, DiffFile } from "$lib/types";
+import type { VisualBlock, DiffFile } from "#lib/types.js";
 
 const TEST_DIFF_FILE: DiffFile = {
   path: "src/index.ts",

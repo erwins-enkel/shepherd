@@ -4,8 +4,8 @@ import {
   agentSlotExplanation,
   landingPrExplanation,
   integrationBranchExplanation,
-} from "$lib/tooltips/explanations";
-import type { TooltipExplanation } from "$lib/tooltips/content";
+} from "#lib/tooltips/explanations.js";
+import type { TooltipExplanation } from "#lib/tooltips/content.js";
 
 // Glossary registry driving inline term tooltips throughout the UI.
 //

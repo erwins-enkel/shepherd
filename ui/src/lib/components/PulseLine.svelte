@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import type { Pulse } from "$lib/session-pulse";
-  import { pulseLabel } from "$lib/pulse-text";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { Pulse } from "#lib/session-pulse.js";
+  import { pulseLabel } from "#lib/pulse-text.js";
 
   // The card's "now" line: the session's progress verdict in one glance — what it is doing or
   // waiting on, how long against the usual, and whether Shepherd is re-steering in circles.

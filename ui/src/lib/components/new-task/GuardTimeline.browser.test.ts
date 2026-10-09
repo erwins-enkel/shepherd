@@ -2,10 +2,10 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { tick } from "svelte";
 import "../../../app.css";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 import GuardTimeline from "./GuardTimeline.svelte";
 import RunSettingsGroups from "./RunSettingsGroups.svelte";
-import type { GuardRepoConfig } from "$lib/guard-timeline";
+import type { GuardRepoConfig } from "#lib/guard-timeline.js";
 
 // Rendering seam for the guard timeline. The derivation itself is covered without a DOM in
 // guard-timeline.test.ts; this file asserts the collapse/expand contract, the marker classes

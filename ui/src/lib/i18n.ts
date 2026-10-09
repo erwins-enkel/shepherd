@@ -1,5 +1,5 @@
-import { m } from "$lib/paraglide/messages";
-import { getLocale, locales, setLocale, type Locale } from "$lib/paraglide/runtime";
+import { m } from "#lib/paraglide/messages.js";
+import { getLocale, locales, setLocale, type Locale } from "#lib/paraglide/runtime.js";
 
 export { getLocale, locales, setLocale, type Locale };
 

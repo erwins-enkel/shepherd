@@ -1,4 +1,4 @@
-import type { Session, GitState, Epic } from "$lib/types";
+import type { Session, GitState, Epic } from "#lib/types.js";
 import { partitionSessions, flattenByStage } from "./herd-partition";
 
 /** Group sessions under their parent epic. Pure; shared by the Herd render and the

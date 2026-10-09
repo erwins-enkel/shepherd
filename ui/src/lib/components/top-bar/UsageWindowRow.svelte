@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { formatResetIn } from "$lib/format";
-  import { m } from "$lib/paraglide/messages";
+  import { formatResetIn } from "#lib/format.js";
+  import { m } from "#lib/paraglide/messages.js";
   import { gaugeColor } from "../usage-gauges";
 
   // The usage popover's row: label, bar, percentage and the countdown to the reset, on ONE line.

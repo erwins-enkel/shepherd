@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { DrainStatus } from "$lib/types";
+import type { DrainStatus } from "#lib/types.js";
 
 // Pure helper mirroring the `epicActive` derived in AutomationPanel: true when
 // drain.epicParent is set (non-null/non-undefined). Extracted here so it can be

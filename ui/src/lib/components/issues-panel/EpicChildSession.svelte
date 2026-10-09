@@ -1,9 +1,9 @@
 <script lang="ts">
-  import type { DrainRunSummary, EpicChild, GitState, Session } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { formatAgo } from "$lib/format";
-  import { clock } from "$lib/now.svelte";
-  import { sessionEnvironment } from "$lib/session-env";
+  import type { DrainRunSummary, EpicChild, GitState, Session } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { formatAgo } from "#lib/format.js";
+  import { clock } from "#lib/now.svelte.js";
+  import { sessionEnvironment } from "#lib/session-env.js";
   import { slotHeldBy } from "../epic-panel";
   import { childPrUrl } from "../epic-child";
   import SessionPhaseBar from "./SessionPhaseBar.svelte";

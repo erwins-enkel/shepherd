@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import type { CreditWindow } from "$lib/types";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { CreditWindow } from "#lib/types.js";
 
   let {
     credits,

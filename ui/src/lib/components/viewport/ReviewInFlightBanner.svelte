@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { Session, SessionActivity, SessionStatus } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { reviews, planGates, repoConfig, MAX_ACTIVITY_LINES } from "$lib/reviews.svelte";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import type { Session, SessionActivity, SessionStatus } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { reviews, planGates, repoConfig, MAX_ACTIVITY_LINES } from "#lib/reviews.svelte.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import {
     activeReworkBannerState,
     reviewBannerState,
@@ -10,19 +10,19 @@
     elapsedMinutes,
     type BannerState,
     type ReviewKind,
-  } from "$lib/review-banner";
-  import { cancelReview, holdReview, planReviewStarted, reviewPlan, reviewPr } from "$lib/api";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
+  } from "#lib/review-banner.js";
+  import { cancelReview, holdReview, planReviewStarted, reviewPlan, reviewPr } from "#lib/api.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import {
     reviewCancelExplanation,
     reviewHoldExplanation,
     reviewRestartExplanation,
     reviewResumeExplanation,
-  } from "$lib/tooltips/explanations";
-  import { planStallStatus } from "$lib/plan-status";
-  import { addressStallStatus } from "$lib/review-status";
-  import { clock } from "$lib/now.svelte";
-  import { environmentLabel } from "$lib/reviewer-env";
+  } from "#lib/tooltips/explanations.js";
+  import { planStallStatus } from "#lib/plan-status.js";
+  import { addressStallStatus } from "#lib/review-status.js";
+  import { clock } from "#lib/now.svelte.js";
+  import { environmentLabel } from "#lib/reviewer-env.js";
 
   // Non-blocking signal that an in-flight PR-critic / plan-gate review is running and
   // may steer this session when it concludes (issue #1022). A critic review that cannot

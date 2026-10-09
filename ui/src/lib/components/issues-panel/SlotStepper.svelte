@@ -1,5 +1,5 @@
 <script module lang="ts">
-  import { repoConfig } from "$lib/reviews.svelte";
+  import { repoConfig } from "#lib/reviews.svelte.js";
 
   /** The agent-slot cap to show beside a SlotStepper: the repo config's (optimistic, so a step
    *  reads at once) once known, else the server's — the drain only re-reports its own on its
@@ -10,7 +10,7 @@
 </script>
 
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
   import { clampCap } from "../git-rail-drain";
 
   // − / + beside an agent-slot count: steps the repo's cap (maxAuto) in place instead of a trip to

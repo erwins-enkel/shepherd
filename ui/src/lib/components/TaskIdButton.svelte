@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import type { AgentProvider, Session } from "$lib/types";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { AgentProvider, Session } from "#lib/types.js";
   import TaskIdMenu from "./TaskIdMenu.svelte";
   import RecommendDialog from "./RecommendDialog.svelte";
 

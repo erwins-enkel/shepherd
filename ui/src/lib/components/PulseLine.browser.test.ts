@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../app.css";
-import { m } from "$lib/paraglide/messages";
-import type { Pulse } from "$lib/session-pulse";
+import { m } from "#lib/paraglide/messages.js";
+import type { Pulse } from "#lib/session-pulse.js";
 import PulseLine from "./PulseLine.svelte";
 
 const MIN = 60_000;

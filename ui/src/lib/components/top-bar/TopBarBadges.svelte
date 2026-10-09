@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import { m } from "#lib/paraglide/messages.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import type {
     UpdateStatus,
     HerdrUpdateStatus,
     CodexUpdateStatus,
     DiagnosticState,
-  } from "$lib/types";
+  } from "#lib/types.js";
 
   let {
     compactBadges,

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { actStarPrompt } from "$lib/api";
-  import { toasts } from "$lib/toasts.svelte";
-  import type { StarPromptStatus } from "$lib/types";
+  import { m } from "#lib/paraglide/messages.js";
+  import { actStarPrompt } from "#lib/api.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import type { StarPromptStatus } from "#lib/types.js";
 
   // A gentle, non-blocking nudge: it floats bottom-left, doesn't seize the app,
   // and carries no scrim (per the design-system rule for non-modal popovers).

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { CompletedEpic } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { formatAgo } from "$lib/format";
-  import { deriveIntegratedEpicStatus } from "$lib/integrated-epic-status";
+  import type { CompletedEpic } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { formatAgo } from "#lib/format.js";
+  import { deriveIntegratedEpicStatus } from "#lib/integrated-epic-status.js";
   import IntegratedEpicLanding from "./IntegratedEpicLanding.svelte";
   let {
     epic,

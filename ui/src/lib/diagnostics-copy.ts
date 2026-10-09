@@ -1,4 +1,4 @@
-import type { DiagnosticCheck } from "$lib/types";
+import type { DiagnosticCheck } from "#lib/types.js";
 
 /**
  * Which "the fix ran but the check is still not OK" message a diagnostics row should show.

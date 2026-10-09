@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
-import { mockBreakdown } from "$lib/usage-mock";
+import { mockBreakdown } from "#lib/usage-mock.js";
 
 const { default: SpendLens } = await import("./SpendLens.svelte");
 

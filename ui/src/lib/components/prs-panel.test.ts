@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { PullRequest } from "$lib/types";
+import type { PullRequest } from "#lib/types.js";
 import {
   hideDraftPrs,
   hasConflicts,

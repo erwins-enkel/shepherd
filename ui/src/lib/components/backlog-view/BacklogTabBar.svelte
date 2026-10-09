@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { BacklogProject, DocAgentRun } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import type { BacklogProject, DocAgentRun } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import type { ActionsTabState } from "../backlog-view";
   import DocAgentControl from "./DocAgentControl.svelte";
 

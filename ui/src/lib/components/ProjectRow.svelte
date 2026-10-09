@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { BacklogProject } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { projectIcons } from "$lib/projectIcons.svelte";
-  import { statusTip, type StatusTipParams } from "$lib/tooltips/statusTip.svelte";
+  import type { BacklogProject } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { projectIcons } from "#lib/projectIcons.svelte.js";
+  import { statusTip, type StatusTipParams } from "#lib/tooltips/statusTip.svelte.js";
 
   let {
     project,

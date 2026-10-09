@@ -3,12 +3,12 @@ import { tick } from "svelte";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { DrainStatus, ForgeKind, QueuedItem } from "$lib/types";
+import type { DrainStatus, ForgeKind, QueuedItem } from "#lib/types.js";
 import type { RepoChip } from "./queue-strip";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 
 // getDrainQueue is only exercised by the inline-expand interaction; stub it so no
-// network call fires. Preserve the rest of $lib/api so the import graph resolves.
+// network call fires. Preserve the rest of #lib/api so the import graph resolves.
 const getDrainQueueFn = vi.fn(async (): Promise<QueuedItem[]> => []);
 const getRepoWebFn = vi.fn(
   async (): Promise<{ slug: string | null; webUrl: string | null; kind: ForgeKind | null }> => ({
@@ -17,8 +17,8 @@ const getRepoWebFn = vi.fn(
     kind: null,
   }),
 );
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return { ...actual, getDrainQueue: getDrainQueueFn, getRepoWeb: getRepoWebFn };
 });
 

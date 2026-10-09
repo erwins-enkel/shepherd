@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
-import type { UsageHistoryResponse } from "$lib/types";
+import type { UsageHistoryResponse } from "#lib/types.js";
 
 const BASE = Date.now();
 const H = 3_600_000;

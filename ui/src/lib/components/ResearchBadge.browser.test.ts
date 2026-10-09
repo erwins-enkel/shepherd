@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { Session } from "$lib/types";
+import type { Session } from "#lib/types.js";
 
 const { default: ResearchBadge } = await import("./ResearchBadge.svelte");
 

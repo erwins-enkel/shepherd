@@ -7,7 +7,7 @@ import {
   isMerging,
   MERGE_MARK_BACKSTOP_MS,
 } from "./merge-train";
-import type { Session, GitState } from "$lib/types";
+import type { Session, GitState } from "#lib/types.js";
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {

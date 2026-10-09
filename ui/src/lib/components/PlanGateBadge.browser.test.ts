@@ -3,19 +3,19 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import PlanGateBadge from "./PlanGateBadge.svelte";
-import type { PlanGate, Session } from "$lib/types";
-import { planGates } from "$lib/reviews.svelte";
-import { m } from "$lib/paraglide/messages";
-import { toasts } from "$lib/toasts.svelte";
+import type { PlanGate, Session } from "#lib/types.js";
+import { planGates } from "#lib/reviews.svelte.js";
+import { m } from "#lib/paraglide/messages.js";
+import { toasts } from "#lib/toasts.svelte.js";
 
 const api = vi.hoisted(() => ({
   replySession: vi.fn(async () => {}),
-  reviewPlan: vi.fn(async (): Promise<import("$lib/api").PlanReviewTrigger> => "skipped"),
+  reviewPlan: vi.fn(async (): Promise<import("#lib/api.js").PlanReviewTrigger> => "skipped"),
   releasePlanGate: vi.fn(async () => true),
 }));
 
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     replySession: api.replySession,

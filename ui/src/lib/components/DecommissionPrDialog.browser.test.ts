@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
-import type { GitState } from "$lib/types";
+import type { GitState } from "#lib/types.js";
 import DecommissionPrDialog from "./DecommissionPrDialog.svelte";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 
 function git(overrides: Partial<GitState> = {}): GitState {
   return {

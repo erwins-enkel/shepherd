@@ -1,5 +1,5 @@
-import { getCommands } from "$lib/api";
-import type { AgentProvider } from "$lib/types";
+import { getCommands } from "#lib/api.js";
+import type { AgentProvider } from "#lib/types.js";
 
 /**
  * The New Task recommendation for the public `video-brief` Agent Skill (issue #2053).

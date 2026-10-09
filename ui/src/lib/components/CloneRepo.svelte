@@ -8,11 +8,11 @@
     type GithubAccess,
     type GithubRepo,
     type GitHelperInfo,
-  } from "$lib/api";
-  import type { RepoEntry } from "$lib/types";
-  import { dialog } from "$lib/a11yDialog";
-  import { accessCase, looksLikeGithubUrl } from "$lib/clone-access";
-  import { m } from "$lib/paraglide/messages";
+  } from "#lib/api.js";
+  import type { RepoEntry } from "#lib/types.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { accessCase, looksLikeGithubUrl } from "#lib/clone-access.js";
+  import { m } from "#lib/paraglide/messages.js";
   import CloneAccessPanel from "./CloneAccessPanel.svelte";
   import CloneGitNote from "./CloneGitNote.svelte";
   import "./clone-access.css";

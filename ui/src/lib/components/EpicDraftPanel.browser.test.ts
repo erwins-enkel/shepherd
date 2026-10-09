@@ -1,9 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../app.css";
-import type { EpicDraft } from "$lib/types";
-import { epicDrafts } from "$lib/epic-draft.svelte";
-import { expectMinPx } from "$lib/test-support/geometry";
+import type { EpicDraft } from "#lib/types.js";
+import { epicDrafts } from "#lib/epic-draft.svelte.js";
+import { expectMinPx } from "#lib/test-support/geometry.js";
 import EpicDraftPanel from "./EpicDraftPanel.svelte";
 
 function longDraft(sessionId: string): EpicDraft {

@@ -7,8 +7,8 @@ import {
   planGateStalledNow,
   type PlanGateTooltipCopy,
 } from "./plan-gate-badge";
-import type { PlanGate, Session } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { PlanGate, Session } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 const baseGate: PlanGate = {
   sessionId: "s1",

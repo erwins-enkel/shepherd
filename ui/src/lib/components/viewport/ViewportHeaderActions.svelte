@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import RedrawMenu from "$lib/components/RedrawMenu.svelte";
+  import { m } from "#lib/paraglide/messages.js";
+  import RedrawMenu from "#lib/components/RedrawMenu.svelte";
 
   let {
     compact,

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { Session, GitState } from "$lib/types";
-  import { elapsed } from "$lib/format";
+  import type { Session, GitState } from "#lib/types.js";
+  import { elapsed } from "#lib/format.js";
   import { isMerging } from "../merge-train";
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
   import CliBadge from "../CliBadge.svelte";
   import ResearchBadge from "../ResearchBadge.svelte";
   import TerminalBadge from "../TerminalBadge.svelte";
@@ -12,9 +12,9 @@
   import BuildQueueBadge from "../BuildQueueBadge.svelte";
   import PlanGateBadge from "../PlanGateBadge.svelte";
   import AutopilotBadge from "../AutopilotBadge.svelte";
-  import { repoConfig } from "$lib/reviews.svelte";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
-  import { checksCleared } from "$lib/checks-cleared";
+  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import { checksCleared } from "#lib/checks-cleared.js";
 
   let {
     session,

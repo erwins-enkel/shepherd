@@ -13,7 +13,7 @@
   // with a username; it fills one because a password box next to it made the pair look like a
   // sign-in form. `new-password` denies that reading, so the neighbour stops being a username
   // slot. See `autofill.ts` for the rest of the guard.
-  import type { PluginUINode } from "$lib/types";
+  import type { PluginUINode } from "#lib/types.js";
   import { noAutofill } from "./autofill";
   import { pluginField } from "./field.svelte";
 

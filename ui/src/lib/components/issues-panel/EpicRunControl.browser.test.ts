@@ -3,9 +3,9 @@ import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../../app.css";
 import EpicRunControl from "./EpicRunControl.svelte";
-import type { DrainRunSummary, DrainStatus, Epic, EpicChild, EpicSummary } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
-import { formatReset } from "$lib/format";
+import type { DrainRunSummary, DrainStatus, Epic, EpicChild, EpicSummary } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
+import { formatReset } from "#lib/format.js";
 
 const api = vi.hoisted(() => ({
   updateEpic: vi.fn(async () => ({})),
@@ -17,8 +17,8 @@ const api = vi.hoisted(() => ({
   }),
 }));
 
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return { ...actual, ...api };
 });
 

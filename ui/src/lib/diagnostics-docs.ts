@@ -1,4 +1,4 @@
-import type { PwaRowState } from "$lib/pwa";
+import type { PwaRowState } from "#lib/pwa.js";
 
 /** hintKey → external "how to fix" doc URL, for guidance-only DIAGNOSE rows that
  *  get no auto-Fix button (the fix needs a human secret). Pure presentational

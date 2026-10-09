@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // Small anchored, non-blocking context menu for a session card (right-click on
   // desktop, long-press → native `contextmenu` on touch). Per the design system's

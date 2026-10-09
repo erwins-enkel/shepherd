@@ -9,8 +9,8 @@
    */
   import { onMount } from "svelte";
   import { page } from "$app/state";
-  import { m } from "$lib/paraglide/messages";
-  import { shouldAutoReload } from "$lib/client-error";
+  import { m } from "#lib/paraglide/messages.js";
+  import { shouldAutoReload } from "#lib/client-error.js";
 
   // A chunk that never arrived is a transport failure, not an app fault — it gets a different
   // explanation (and the one-shot reload below) from a genuine crash.

@@ -66,7 +66,7 @@ import type {
   PromptBudgetRecord,
   QueuedItem,
   ForgeKind,
-} from "$lib/types";
+} from "#lib/types.js";
 import { bus } from "./bus";
 import { buildSeed, mkSession } from "./seed";
 import { DEMO_VIEWER } from "./seed-constants";

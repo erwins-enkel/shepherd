@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../app.css";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 import RepoFilterPopover from "./RepoFilterPopover.svelte";
 
 const trigger = () => document.querySelector<HTMLButtonElement>(".repo-filter-trigger")!;

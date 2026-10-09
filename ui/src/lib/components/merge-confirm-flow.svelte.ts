@@ -1,5 +1,5 @@
-import { MergeRefusedError } from "$lib/api";
-import { m } from "$lib/paraglide/messages";
+import { MergeRefusedError } from "#lib/api.js";
+import { m } from "#lib/paraglide/messages.js";
 import {
   applyMergeGate,
   mergeConfirmPayload,

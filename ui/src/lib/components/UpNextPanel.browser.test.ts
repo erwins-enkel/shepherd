@@ -8,16 +8,16 @@ import type {
   UpNextItem,
   UpNextSnapshot,
   UsageLimits,
-} from "$lib/types";
-import { m } from "$lib/paraglide/messages";
-import { upNext } from "$lib/up-next.svelte";
-import { upNextUi } from "$lib/up-next-ui.svelte";
-import { expectMinPx } from "$lib/test-support/geometry";
-import { getUpNext, startUpNext } from "$lib/api";
+} from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
+import { upNext } from "#lib/up-next.svelte.js";
+import { upNextUi } from "#lib/up-next-ui.svelte.js";
+import { expectMinPx } from "#lib/test-support/geometry.js";
+import { getUpNext, startUpNext } from "#lib/api.js";
 
 // Mock the API so mounting (which kicks upNext.load()) makes no real network call.
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     getUpNext: vi.fn(async (): Promise<UpNextSnapshot | null> => upNext.snapshot),

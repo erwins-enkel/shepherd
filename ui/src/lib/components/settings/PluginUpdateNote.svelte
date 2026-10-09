@@ -11,7 +11,7 @@
 </script>
 
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // The one-line note under a plugin row: either what an apply just did, or — when
   // there is nothing to apply — what the last check concluded. The second half is the

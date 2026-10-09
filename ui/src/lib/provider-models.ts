@@ -1,4 +1,4 @@
-import { CODEX_MODELS, MODELS, type AgentProvider } from "$lib/types";
+import { CODEX_MODELS, MODELS, type AgentProvider } from "#lib/types.js";
 
 /** The selectable model aliases for a provider (Claude vs Codex curated lists). */
 export function providerModels(provider: AgentProvider): readonly string[] {

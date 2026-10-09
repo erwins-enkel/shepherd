@@ -7,7 +7,7 @@
     putDefaultAgentProvider,
     putFableAvailable,
     putReducedPushMode,
-  } from "$lib/api";
+  } from "#lib/api.js";
   import type {
     AgentProvider,
     HerdrUpdateStatus,
@@ -16,7 +16,7 @@
     DiagnosticCheck,
     PluginInfo,
     Settings,
-  } from "$lib/types";
+  } from "#lib/types.js";
   import {
     SETTINGS_SECTION_IDS,
     SECTION_GLYPHS,
@@ -24,24 +24,24 @@
     matchCount,
     type SettingsSectionId,
     type SettingsSectionNav,
-  } from "$lib/settings-search";
-  import SettingsShell from "$lib/components/settings/SettingsShell.svelte";
-  import SettingsWorkspacePanel from "$lib/components/settings/SettingsWorkspacePanel.svelte";
-  import SettingsCodingCliPanel from "$lib/components/settings/SettingsCodingCliPanel.svelte";
-  import SettingsSessionPanel from "$lib/components/settings/SettingsSessionPanel.svelte";
-  import SettingsDevicePanel from "$lib/components/settings/SettingsDevicePanel.svelte";
-  import SettingsNotificationsPanel from "$lib/components/settings/SettingsNotificationsPanel.svelte";
-  import SettingsAccessPanel from "$lib/components/settings/SettingsAccessPanel.svelte";
-  import SettingsDiagnosePanel from "$lib/components/settings/SettingsDiagnosePanel.svelte";
-  import SettingsPluginsPanel from "$lib/components/settings/SettingsPluginsPanel.svelte";
-  import SteersEditor from "$lib/components/SteersEditor.svelte";
-  import { dialog } from "$lib/a11yDialog";
-  import { openFeedback } from "$lib/feedback-dialog.svelte";
-  import type { FeedbackKind } from "$lib/feedback-link";
-  import { theme } from "$lib/theme.svelte";
-  import { version } from "$lib/build-info";
-  import { toasts } from "$lib/toasts.svelte";
-  import { m } from "$lib/paraglide/messages";
+  } from "#lib/settings-search.js";
+  import SettingsShell from "#lib/components/settings/SettingsShell.svelte";
+  import SettingsWorkspacePanel from "#lib/components/settings/SettingsWorkspacePanel.svelte";
+  import SettingsCodingCliPanel from "#lib/components/settings/SettingsCodingCliPanel.svelte";
+  import SettingsSessionPanel from "#lib/components/settings/SettingsSessionPanel.svelte";
+  import SettingsDevicePanel from "#lib/components/settings/SettingsDevicePanel.svelte";
+  import SettingsNotificationsPanel from "#lib/components/settings/SettingsNotificationsPanel.svelte";
+  import SettingsAccessPanel from "#lib/components/settings/SettingsAccessPanel.svelte";
+  import SettingsDiagnosePanel from "#lib/components/settings/SettingsDiagnosePanel.svelte";
+  import SettingsPluginsPanel from "#lib/components/settings/SettingsPluginsPanel.svelte";
+  import SteersEditor from "#lib/components/SteersEditor.svelte";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { openFeedback } from "#lib/feedback-dialog.svelte.js";
+  import type { FeedbackKind } from "#lib/feedback-link.js";
+  import { theme } from "#lib/theme.svelte.js";
+  import { version } from "#lib/build-info.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   // Settings dialog — "Sidebar Cockpit" (design handoff 5a/5b): a summoned
   // 780px dialog whose nav rail + content pane replace the old wrapping tab

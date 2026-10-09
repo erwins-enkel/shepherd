@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { installDemoBackend } from "./install";
-import { HerdStore } from "$lib/store.svelte";
-import { connectPty } from "$lib/pty";
+import { HerdStore } from "#lib/store.svelte.js";
+import { connectPty } from "#lib/pty.js";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 

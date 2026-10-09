@@ -1,11 +1,11 @@
 <script lang="ts">
-  import TooltipBody from "$lib/tooltips/TooltipBody.svelte";
+  import TooltipBody from "#lib/tooltips/TooltipBody.svelte";
   import { getContext } from "svelte";
-  import { anchorPopover } from "$lib/floating-anchor";
-  import { m } from "$lib/paraglide/messages";
-  import { getLocale } from "$lib/i18n";
-  import { glossaryById } from "$lib/glossary";
-  import { infoTips, INFO_TIPS_FORCE } from "$lib/info-tips.svelte";
+  import { anchorPopover } from "#lib/floating-anchor.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { getLocale } from "#lib/i18n.js";
+  import { glossaryById } from "#lib/glossary.js";
+  import { infoTips, INFO_TIPS_FORCE } from "#lib/info-tips.svelte.js";
 
   let { id, label }: { id: string; label: string } = $props();
 

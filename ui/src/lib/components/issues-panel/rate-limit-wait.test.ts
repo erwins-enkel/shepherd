@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { GhBackoff, GhRateBucket, GithubRateLimit, IssueFetchAttempt } from "$lib/types";
+import type { GhBackoff, GhRateBucket, GithubRateLimit, IssueFetchAttempt } from "#lib/types.js";
 import { isRateLimited, rateLimitWait, transportFreeAt } from "./rate-limit-wait";
 
 const NOW = 1_000_000;

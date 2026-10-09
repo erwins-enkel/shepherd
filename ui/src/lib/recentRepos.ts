@@ -1,4 +1,4 @@
-import type { RepoEntry } from "$lib/types";
+import type { RepoEntry } from "#lib/types.js";
 
 /** How many repos to pin in the "recently worked on" shortcut group. */
 export const RECENT_LIMIT = 3;

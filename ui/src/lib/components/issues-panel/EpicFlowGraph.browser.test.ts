@@ -3,8 +3,8 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import EpicFlowGraph from "./EpicFlowGraph.svelte";
-import type { Epic, EpicChild, Session } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { Epic, EpicChild, Session } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 function child(number: number, blockedBy: number[], state: EpicChild["state"]): EpicChild {
   return {

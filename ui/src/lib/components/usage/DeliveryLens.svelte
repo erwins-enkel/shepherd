@@ -8,9 +8,9 @@
     DeliverySample,
     DeliveryStats,
     MaintainRun,
-  } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import GlossaryText from "$lib/components/GlossaryText.svelte";
+  } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import GlossaryText from "#lib/components/GlossaryText.svelte";
   import Sparkline from "./Sparkline.svelte";
   import { formatPct } from "./format";
 

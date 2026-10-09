@@ -2,13 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import { m } from "$lib/paraglide/messages";
-import { putSettings } from "$lib/api";
+import { m } from "#lib/paraglide/messages.js";
+import { putSettings } from "#lib/api.js";
 
 // Onboarding never fetches diagnostics itself (checks arrive as a prop); the picker step
 // does call listDirs/putSettings via DirPicker/Onboarding, so stub those two.
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     listDirs: vi.fn(async (path?: string) => ({

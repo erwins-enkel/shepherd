@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // Small anchored, non-blocking context menu for a steer chip (right-click on
   // desktop). Per the design system's popover rule it gets NO scrim/blur — it

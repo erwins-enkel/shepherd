@@ -1,15 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../app.css";
-import { m } from "$lib/paraglide/messages";
-import { pwaDocLink } from "$lib/diagnostics-docs";
-import type { PwaRowState } from "$lib/pwa";
+import { m } from "#lib/paraglide/messages.js";
+import { pwaDocLink } from "#lib/diagnostics-docs.js";
+import type { PwaRowState } from "#lib/pwa.js";
 
 // PwaInstallRow reads pwaRowState() on mount (browser-only); mock it so each test
 // can drive the row into a specific state.
 const state = vi.hoisted(() => ({ value: "optional" as PwaRowState }));
-vi.mock("$lib/pwa", async (importOriginal) => {
-  const orig = await importOriginal<typeof import("$lib/pwa")>();
+vi.mock("#lib/pwa.js", async (importOriginal) => {
+  const orig = await importOriginal<typeof import("#lib/pwa.js")>();
   return { ...orig, pwaRowState: () => state.value };
 });
 

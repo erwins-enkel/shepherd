@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
-import { getLocale, setLocale } from "$lib/paraglide/runtime";
+import { getLocale, setLocale } from "#lib/paraglide/runtime.js";
 import "../../app.css";
-import type { CompletedEpic, CompletedEpicChild } from "$lib/types";
+import type { CompletedEpic, CompletedEpicChild } from "#lib/types.js";
 import IntegratedEpicRow from "./IntegratedEpicRow.svelte";
 const child = (over: Partial<CompletedEpicChild> = {}): CompletedEpicChild => ({
   number: 11,

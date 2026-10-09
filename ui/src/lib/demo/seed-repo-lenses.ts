@@ -10,7 +10,7 @@
 // the session that opened it. A PRs tab that disagrees with the herd rows next to it
 // is a worse demo bug than the empty panel this replaces.
 //
-// Every record is typed against `$lib/types`, so `tsc` proves each shape matches what
+// Every record is typed against `#lib/types`, so `tsc` proves each shape matches what
 // the live UI consumes. Titles, workflow names, logins and readiness artifacts are
 // forge/verbatim data — exempt from i18n exactly like the seeded PR titles in `seed.ts`.
 
@@ -21,7 +21,7 @@ import type {
   ReadinessReport,
   RepoRoles,
   DocAgentRun,
-} from "$lib/types";
+} from "#lib/types.js";
 import { STOREFRONT, API, NOW, MIN, HOUR, DEMO_VIEWER, gh } from "./seed-constants";
 
 /** The workflow whose history the Actions tab can expand. Stable so the history and

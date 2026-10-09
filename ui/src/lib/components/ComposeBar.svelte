@@ -1,22 +1,22 @@
 <script lang="ts">
   import { onDestroy, onMount } from "svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { insertNewlineAt } from "$lib/compose";
-  import { getCommands } from "$lib/api";
-  import { createDictation } from "$lib/dictation.svelte";
+  import { m } from "#lib/paraglide/messages.js";
+  import { insertNewlineAt } from "#lib/compose.js";
+  import { getCommands } from "#lib/api.js";
+  import { createDictation } from "#lib/dictation.svelte.js";
   import {
     matchSlashTrigger,
     filterCommands,
     applyCommandPick,
     applyMentionPick,
     commandInvocationName,
-  } from "$lib/slash";
-  import type { AgentProvider, SlashCommand } from "$lib/types";
+  } from "#lib/slash.js";
+  import type { AgentProvider, SlashCommand } from "#lib/types.js";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
-  import { dialog } from "$lib/a11yDialog";
-  import { steers } from "$lib/steers.svelte";
-  import { repos } from "$lib/repos.svelte";
-  import { steerAppliesToRepo } from "$lib/steer-scope";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { steers } from "#lib/steers.svelte.js";
+  import { repos } from "#lib/repos.svelte.js";
+  import { steerAppliesToRepo } from "#lib/steer-scope.js";
 
   // Centered compose overlay: a real <textarea> (not xterm's hidden one) so
   // Android autocomplete / suggestions / double-space-period resolve natively
@@ -165,7 +165,7 @@
   }
 
   // Dictation (Web Speech / the local-Whisper voice plugin) lives in the shared controller —
-  // $lib/dictation.svelte.ts owns the engine pick, recording, live interim preview and
+  // #lib/dictation.svelte.ts owns the engine pick, recording, live interim preview and
   // teardown; this sheet just renders its state on the mic button and the lines below the field.
   const dict = createDictation({
     getText: () => value,

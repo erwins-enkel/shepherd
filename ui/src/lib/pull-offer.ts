@@ -1,6 +1,6 @@
-import { pullRepo } from "$lib/api";
-import { toasts } from "$lib/toasts.svelte";
-import { m } from "$lib/paraglide/messages";
+import { pullRepo } from "#lib/api.js";
+import { toasts } from "#lib/toasts.svelte.js";
+import { m } from "#lib/paraglide/messages.js";
 
 /** Execute a fast-forward pull of `repoPath`'s default branch and queue the
  *  appropriate outcome toast. The `branch` hint is optional — when omitted the

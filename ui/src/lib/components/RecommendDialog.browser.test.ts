@@ -2,12 +2,12 @@ import { describe, it, expect, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 
 // The dialog fires recommendPrompt from an $effect on mount (the real call spawns a
 // second agent), so stub the API before rendering.
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     recommendPrompt: vi.fn(async () => ({ prompt: "next: run the tests" })),

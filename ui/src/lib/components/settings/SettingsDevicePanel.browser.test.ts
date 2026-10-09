@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
-import { m } from "$lib/paraglide/messages";
-import { infoTips } from "$lib/info-tips.svelte";
-import { theme } from "$lib/theme.svelte";
+import { m } from "#lib/paraglide/messages.js";
+import { infoTips } from "#lib/info-tips.svelte.js";
+import { theme } from "#lib/theme.svelte.js";
 import SettingsDevicePanel from "./SettingsDevicePanel.svelte";
 
 let fontStyle: HTMLStyleElement;

@@ -1,4 +1,4 @@
-import type { Session } from "$lib/types";
+import type { Session } from "#lib/types.js";
 
 /**
  * Reserved top-level segment under which the Scratchpad view overlays the session's operator

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { Steer } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import type { Steer } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   // The Up Next preview's "▾" beside Start, shown once the action row is too narrow for every
   // issue steer: plain Start plus ALL steers (not just the clipped ones, so the list never

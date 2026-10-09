@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { Epic, EpicChild, Session } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import type { Epic, EpicChild, Session } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
   import {
     firstParallelStage,
     flowTone,
@@ -9,7 +9,7 @@
     FLOW_GAP_X,
     type FlowStage,
     type FlowTone,
-  } from "$lib/epic-flow";
+  } from "#lib/epic-flow.js";
   import { progress, stateLabel } from "../epic-panel";
   import GlossaryText from "../GlossaryText.svelte";
 

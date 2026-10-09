@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { RepoEntry } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import type { RepoEntry } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
   let {
     repos,
     all = $bindable(false),

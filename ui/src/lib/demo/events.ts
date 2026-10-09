@@ -1,4 +1,4 @@
-import type { WsEvent } from "$lib/types";
+import type { WsEvent } from "#lib/types.js";
 import { bus } from "./bus";
 import { FakeWebSocket } from "./fake-socket";
 

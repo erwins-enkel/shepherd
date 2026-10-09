@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import type { ComponentProps } from "svelte";
-import { getLocale, setLocale } from "$lib/paraglide/runtime";
+import { getLocale, setLocale } from "#lib/paraglide/runtime.js";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import type {
@@ -12,16 +12,16 @@ import type {
   CodexUpdateStatus,
   DiagnosticState,
   HeldTask,
-} from "$lib/types";
-import { m } from "$lib/paraglide/messages";
-import { REPO_URL, DOCS_URL, version } from "$lib/build-info";
-import { formatTokenLabel } from "$lib/format";
-import { expectMinPx } from "$lib/test-support/geometry";
+} from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
+import { REPO_URL, DOCS_URL, version } from "#lib/build-info.js";
+import { formatTokenLabel } from "#lib/format.js";
+import { expectMinPx } from "#lib/test-support/geometry.js";
 
 // Mock api so the manual /usage refresh path never fires a real network call —
 // individual tests stub refreshUsage's resolution/rejection per case.
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   // Default: resolve (success). The value is ignored by the component (the gauge
   // self-updates via the ln WS frame); the fail-closed test overrides with a reject.
   return { ...actual, refreshUsage: vi.fn(async () => undefined) };
@@ -30,7 +30,7 @@ vi.mock("$lib/api", async (importOriginal) => {
 const { default: TopBar } = await import("./TopBar.svelte");
 const { default: TopBarHeldBadge } = await import("./top-bar/TopBarHeldBadge.svelte");
 const { default: TopBarLimitsHarness } = await import("./TopBarLimitsHarness.svelte");
-const { refreshUsage } = await import("$lib/api");
+const { refreshUsage } = await import("#lib/api.js");
 
 // Deterministic measurement: pin the bar's font so CI (no Berkeley Mono) and
 // local agree. Mounted into a full-width container; widths come from page.viewport.

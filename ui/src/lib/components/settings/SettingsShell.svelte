@@ -1,9 +1,9 @@
 <script lang="ts">
   import { MediaQuery } from "svelte/reactivity";
   import type { Snippet } from "svelte";
-  import type { SettingsSectionId, SettingsSectionNav } from "$lib/settings-search";
+  import type { SettingsSectionId, SettingsSectionNav } from "#lib/settings-search.js";
   import HighlightText from "./HighlightText.svelte";
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // Layout + navigation chrome for the redesigned Settings dialog (handoff
   // 5a/5b): header, the 176px nav rail with search and live footer, and the

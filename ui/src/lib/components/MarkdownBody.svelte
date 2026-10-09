@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // Shared reading surface for forge Markdown (issue descriptions, #2617): renders `source`
   // through marked + DOMPurify, styled from tokens only. Same lazy-import recipe as GitRail's

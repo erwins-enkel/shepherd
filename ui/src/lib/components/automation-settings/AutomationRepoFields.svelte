@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { repoConfig } from "$lib/reviews.svelte";
-  import { getRepoRoles, getRepoCollaborators, putRepoRoles } from "$lib/api";
-  import { MODELS, EFFORTS } from "$lib/types";
-  import { modelGuidanceAlias, modelOptionLabel } from "$lib/model-guidance";
-  import { effortLabel } from "$lib/effort-guidance";
-  import ModelGuidance from "$lib/components/ModelGuidance.svelte";
-  import type { RepoConfig, RepoRoles } from "$lib/types";
+  import { m } from "#lib/paraglide/messages.js";
+  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { getRepoRoles, getRepoCollaborators, putRepoRoles } from "#lib/api.js";
+  import { MODELS, EFFORTS } from "#lib/types.js";
+  import { modelGuidanceAlias, modelOptionLabel } from "#lib/model-guidance.js";
+  import { effortLabel } from "#lib/effort-guidance.js";
+  import ModelGuidance from "#lib/components/ModelGuidance.svelte";
+  import type { RepoConfig, RepoRoles } from "#lib/types.js";
   import "./automation-fields.css";
 
   let {

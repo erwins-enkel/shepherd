@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { EpicChild } from "$lib/types";
+import type { EpicChild } from "#lib/types.js";
 import {
   firstParallelStage,
   flowTone,

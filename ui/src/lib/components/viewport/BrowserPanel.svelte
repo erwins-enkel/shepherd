@@ -2,13 +2,13 @@
   // Browser View (#2881): the session's Shared Browser tab, live. Frames arrive as JPEGs over
   // /browser-view/<id>; pointer, keys and pasted text go back as typed messages the server
   // turns into CDP input. Works over Tailscale, so a remote operator can do a Handoff Login.
-  import { m } from "$lib/paraglide/messages";
-  import { ApiError, openRepoBrowser } from "$lib/api";
-  import { answerLoginRequest } from "$lib/login-request";
-  import { toasts } from "$lib/toasts.svelte";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
-  import { browserPopoutExplanation } from "$lib/tooltips/explanations";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import { m } from "#lib/paraglide/messages.js";
+  import { ApiError, openRepoBrowser } from "#lib/api.js";
+  import { answerLoginRequest } from "#lib/login-request.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import { browserPopoutExplanation } from "#lib/tooltips/explanations.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import {
     BROWSER_VIEW_TAKEN_OVER,
     connectBrowserView,
@@ -21,8 +21,8 @@
     type BrowserViewConn,
     type BrowserViewMessage,
     type BrowserViewTarget,
-  } from "$lib/browserView";
-  import type { LoginRequest, Session } from "$lib/types";
+  } from "#lib/browserView.js";
+  import type { LoginRequest, Session } from "#lib/types.js";
   import { untrack } from "svelte";
 
   let {

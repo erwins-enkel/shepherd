@@ -2,11 +2,11 @@
   // Why a GitHub clone was refused, and the way out — shown in the clone dialog in place of
   // a bare "access denied" line. The repo list comes from gh, but `git clone` authenticates
   // with git's own credential helper; this panel checks gh for the one repo, names both
-  // credentials side by side and offers the fix that applies (see $lib/clone-access).
+  // credentials side by side and offers the fix that applies (see #lib/clone-access).
   import { onMount } from "svelte";
-  import { getGithubAccess, type GithubAccess } from "$lib/api";
-  import { accessCase, ghFixApplies, TOKEN_SETTINGS_URL } from "$lib/clone-access";
-  import { m } from "$lib/paraglide/messages";
+  import { getGithubAccess, type GithubAccess } from "#lib/api.js";
+  import { accessCase, ghFixApplies, TOKEN_SETTINGS_URL } from "#lib/clone-access.js";
+  import { m } from "#lib/paraglide/messages.js";
   import CloneAccessTable from "./CloneAccessTable.svelte";
   import GhSetupConfirm from "./GhSetupConfirm.svelte";
   import "./clone-access.css";

@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../../app.css";
-import { m } from "$lib/paraglide/messages";
-import type { DocAgentRun } from "$lib/types";
+import { m } from "#lib/paraglide/messages.js";
+import type { DocAgentRun } from "#lib/types.js";
 
 const { default: DocAgentControl } = await import("./DocAgentControl.svelte");
 

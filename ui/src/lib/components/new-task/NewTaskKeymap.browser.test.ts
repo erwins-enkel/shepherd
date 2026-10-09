@@ -2,10 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
-import type { Issue, RepoConfig, RepoEntry } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
-import { HOLD_MS } from "$lib/keymap/hold.svelte";
-import { NEW_TASK_KEYMAP } from "$lib/keymap/newTask";
+import type { Issue, RepoConfig, RepoEntry } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
+import { HOLD_MS } from "#lib/keymap/hold.svelte.js";
+import { NEW_TASK_KEYMAP } from "#lib/keymap/newTask.js";
 import {
   listIssues,
   getEpics,
@@ -16,10 +16,10 @@ import {
   listRepos,
   branchStatus,
   getCommands,
-} from "$lib/api";
+} from "#lib/api.js";
 
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     listIssues: vi.fn(),

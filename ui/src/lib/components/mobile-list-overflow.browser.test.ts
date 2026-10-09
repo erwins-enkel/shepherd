@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../app.css";
 import UnitRow from "./UnitRow.svelte";
-import { overwriteGetLocale } from "$lib/paraglide/runtime";
-import type { HoldReason, LivenessState, PlanGate, Session, SessionActivity } from "$lib/types";
+import { overwriteGetLocale } from "#lib/paraglide/runtime.js";
+import type { HoldReason, LivenessState, PlanGate, Session, SessionActivity } from "#lib/types.js";
 
 // The mobile session list is a full-bleed document-scroll app-shell: `.units.flow`
 // is `overflow: visible` and `container-type: inline-size`, so it CANNOT absorb a row
@@ -17,20 +17,20 @@ import type { HoldReason, LivenessState, PlanGate, Session, SessionActivity } fr
 // fixed widths exceeded the card even with `.meta-text` collapsed to zero. The other
 // cases cover the plan-gate `.hold-cta` states so the whole footer stays guarded.
 
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     getReviews: vi.fn(async () => ({})),
     getReviewingIds: vi.fn(async () => []),
     releasePlanGate: vi.fn(async () => true),
-    reviewPlan: vi.fn(async (): Promise<import("$lib/api").PlanReviewTrigger> => "started"),
+    reviewPlan: vi.fn(async (): Promise<import("#lib/api.js").PlanReviewTrigger> => "started"),
     resumeQuota: vi.fn(async () => ({ status: "resumed" as const })),
     retryCi: vi.fn(async () => ({ ok: true }) as { ok: boolean }),
   };
 });
 
-const { reviews, planGates, repoConfig } = await import("$lib/reviews.svelte");
+const { reviews, planGates, repoConfig } = await import("#lib/reviews.svelte.js");
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {

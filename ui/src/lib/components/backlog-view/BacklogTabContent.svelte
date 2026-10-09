@@ -9,7 +9,7 @@
     Steer,
     TaskRunDefaults,
     TaskRunSeed,
-  } from "$lib/types";
+  } from "#lib/types.js";
   import IssuesPanel from "../IssuesPanel.svelte";
   import PrsPanel from "../PrsPanel.svelte";
   import ActionsPanel from "../ActionsPanel.svelte";

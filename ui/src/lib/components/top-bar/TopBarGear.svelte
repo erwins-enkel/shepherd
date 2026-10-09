@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { DOCS_URL, MAC_APP_DOWNLOAD_URL } from "$lib/build-info";
-  import type { FeedbackKind } from "$lib/feedback-link";
-  import type { UsageLimits, UpdateStatus, DiagnosticState } from "$lib/types";
-  import { isMacPlatform, isMacOSPlatform } from "$lib/platform";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import { m } from "#lib/paraglide/messages.js";
+  import { DOCS_URL, MAC_APP_DOWNLOAD_URL } from "#lib/build-info.js";
+  import type { FeedbackKind } from "#lib/feedback-link.js";
+  import type { UsageLimits, UpdateStatus, DiagnosticState } from "#lib/types.js";
+  import { isMacPlatform, isMacOSPlatform } from "#lib/platform.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { settingsChordHint } from "../herd-keynav";
   import type { GaugeKey } from "../usage-gauges";
   import GearMenuUsage from "./GearMenuUsage.svelte";

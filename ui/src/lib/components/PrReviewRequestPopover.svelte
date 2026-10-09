@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount, tick, untrack } from "svelte";
-  import { getPrReviewers, requestPrReview, type PrReviewerOptions } from "$lib/api";
-  import { m } from "$lib/paraglide/messages";
-  import { portal } from "$lib/portal";
+  import { getPrReviewers, requestPrReview, type PrReviewerOptions } from "#lib/api.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { portal } from "#lib/portal.js";
 
   let {
     anchor,

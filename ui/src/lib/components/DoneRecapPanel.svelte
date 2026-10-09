@@ -5,13 +5,13 @@
     RecapFailureCode,
     RecapVerdict,
     SessionArchiveReason,
-  } from "$lib/types";
-  import { recaps } from "$lib/recaps.svelte";
-  import { formatAgo } from "$lib/format";
-  import { clock } from "$lib/now.svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { getSessionUsage } from "$lib/api";
-  import { recapSkipHeadline, recapSkipBody } from "$lib/recap-skip";
+  } from "#lib/types.js";
+  import { recaps } from "#lib/recaps.svelte.js";
+  import { formatAgo } from "#lib/format.js";
+  import { clock } from "#lib/now.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { getSessionUsage } from "#lib/api.js";
+  import { recapSkipHeadline, recapSkipBody } from "#lib/recap-skip.js";
   import VisualReview from "./VisualReview.svelte";
   import SessionStatusBar from "./SessionStatusBar.svelte";
 

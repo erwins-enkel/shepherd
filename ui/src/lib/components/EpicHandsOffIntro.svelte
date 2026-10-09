@@ -1,11 +1,11 @@
 <script lang="ts">
-  import type { Epic } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { repoConfig } from "$lib/reviews.svelte";
-  import { featureDiscovery } from "$lib/featureDiscovery.svelte";
-  import { updateEpic } from "$lib/api";
-  import { toasts } from "$lib/toasts.svelte";
-  import { DOCS_URL } from "$lib/build-info";
+  import type { Epic } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { featureDiscovery } from "#lib/featureDiscovery.svelte.js";
+  import { updateEpic } from "#lib/api.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { DOCS_URL } from "#lib/build-info.js";
   import { handsOffDelta, type HandsOffItemKey } from "./epic-handsoff";
   import { onMount } from "svelte";
 

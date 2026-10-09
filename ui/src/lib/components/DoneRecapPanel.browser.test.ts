@@ -3,9 +3,9 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import DoneRecapPanel from "./DoneRecapPanel.svelte";
-import { recaps } from "$lib/recaps.svelte";
-import { m } from "$lib/paraglide/messages";
-import type { Session, Recap, SessionUsage } from "$lib/types";
+import { recaps } from "#lib/recaps.svelte.js";
+import { m } from "#lib/paraglide/messages.js";
+import type { Session, Recap, SessionUsage } from "#lib/types.js";
 
 // Deferred-resolution mock for the status bar's usage fetch: each call parks its resolver
 // under the session id so tests control response ORDER (the stale-response test resolves
@@ -14,7 +14,7 @@ import type { Session, Recap, SessionUsage } from "$lib/types";
 const { usageResolvers } = vi.hoisted(() => ({
   usageResolvers: new Map<string, (u: SessionUsage) => void>(),
 }));
-vi.mock(import("$lib/api"), async (importOriginal) => {
+vi.mock(import("#lib/api.js"), async (importOriginal) => {
   const mod = await importOriginal();
   return {
     ...mod,

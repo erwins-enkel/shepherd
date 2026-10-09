@@ -1,4 +1,4 @@
-import type { EpicChild, EpicChildState } from "$lib/types";
+import type { EpicChild, EpicChildState } from "#lib/types.js";
 
 // Stage layout of an epic's dependency DAG (#2621) for the epic detail's flow graph. Pure: the
 // component only turns the result into markup.

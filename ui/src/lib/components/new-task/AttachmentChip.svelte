@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { anchorPopover } from "$lib/floating-anchor";
-  import { m } from "$lib/paraglide/messages";
+  import { anchorPopover } from "#lib/floating-anchor.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let {
     name,

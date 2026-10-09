@@ -11,13 +11,13 @@
     isPlanReviewError,
     planReviewStarted,
     MergeRefusedError,
-  } from "$lib/api";
-  import type { DrainStatus, GitState, Session, SessionStatus } from "$lib/types";
-  import { toasts } from "$lib/toasts.svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { reviews, repoConfig, planGates } from "$lib/reviews.svelte";
-  import { checksCleared } from "$lib/checks-cleared";
-  import { isConflicting } from "$lib/pr-conflict";
+  } from "#lib/api.js";
+  import type { DrainStatus, GitState, Session, SessionStatus } from "#lib/types.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { reviews, repoConfig, planGates } from "#lib/reviews.svelte.js";
+  import { checksCleared } from "#lib/checks-cleared.js";
+  import { isConflicting } from "#lib/pr-conflict.js";
   import { criticChip, criticBadgeLabel, criticTitle } from "./critic-badge";
   import { canOfferPlanReview, canTriggerPlanReview } from "./plan-gate-badge";
   import RailStatusActions from "./git-rail/RailStatusActions.svelte";
@@ -28,12 +28,12 @@
   import PlanDriftNote from "./git-rail/PlanDriftNote.svelte";
   import AutomationPanel from "./AutomationPanel.svelte";
   import { automationCount, AUTOMATION_TOTAL } from "./git-rail-automation";
-  import { coachTarget, coachTargets } from "$lib/actions/coachTarget.svelte";
-  import { featureDiscovery } from "$lib/featureDiscovery.svelte";
-  import { featureAnnouncements } from "$lib/feature-announcements";
-  import Coachmark from "$lib/components/Coachmark.svelte";
-  import { pollWhileVisible } from "$lib/visibility";
-  import { pullMainAndToast } from "$lib/pull-offer";
+  import { coachTarget, coachTargets } from "#lib/actions/coachTarget.svelte.js";
+  import { featureDiscovery } from "#lib/featureDiscovery.svelte.js";
+  import { featureAnnouncements } from "#lib/feature-announcements.js";
+  import Coachmark from "#lib/components/Coachmark.svelte";
+  import { pollWhileVisible } from "#lib/visibility.js";
+  import { pullMainAndToast } from "#lib/pull-offer.js";
 
   let {
     sessionId,

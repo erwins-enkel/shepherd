@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { fade, scale } from "svelte/transition";
-  import { dialog } from "$lib/a11yDialog";
-  import { m } from "$lib/paraglide/messages";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   // One-time "Fable 5 has arrived" celebration. `ontry` opens New Task preset to
   // Fable; `onclose` dismisses (the caller marks it seen so it never reappears).

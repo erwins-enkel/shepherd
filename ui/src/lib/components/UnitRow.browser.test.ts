@@ -3,23 +3,23 @@ import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import UnitRow from "./UnitRow.svelte";
-import { projectIcons } from "$lib/projectIcons.svelte";
-import type { GitState, HoldReason, PlanGate, Session } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
-import type { ReviewVerdict } from "$lib/types";
-import { overwriteGetLocale } from "$lib/paraglide/runtime";
+import { projectIcons } from "#lib/projectIcons.svelte.js";
+import type { GitState, HoldReason, PlanGate, Session } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
+import type { ReviewVerdict } from "#lib/types.js";
+import { overwriteGetLocale } from "#lib/paraglide/runtime.js";
 
 // Mock api so the reviews store's load() never fires real network calls, and so the
 // hold-row CTA's three fail-closed calls (releasePlanGate/reviewPlan/resumeQuota) are
 // under test control instead of hitting the network.
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     getReviews: vi.fn(async () => ({})),
     getReviewingIds: vi.fn(async () => []),
     releasePlanGate: vi.fn(async () => true),
-    reviewPlan: vi.fn(async (): Promise<import("$lib/api").PlanReviewTrigger> => "started"),
+    reviewPlan: vi.fn(async (): Promise<import("#lib/api.js").PlanReviewTrigger> => "started"),
     resumeQuota: vi.fn(async () => ({ status: "resumed" as const })),
     retryCi: vi.fn(
       async () => ({ ok: true }) as { ok: boolean; reason?: "unsupported" | "no-run" },
@@ -29,10 +29,10 @@ vi.mock("$lib/api", async (importOriginal) => {
   };
 });
 
-const { reviews, planGates, repoConfig } = await import("$lib/reviews.svelte");
+const { reviews, planGates, repoConfig } = await import("#lib/reviews.svelte.js");
 const { releasePlanGate, reviewPlan, resumeQuota, retryCi, mergePr, interruptSession } =
-  await import("$lib/api");
-const { toasts } = await import("$lib/toasts.svelte");
+  await import("#lib/api.js");
+const { toasts } = await import("#lib/toasts.svelte.js");
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { Steer } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import type { Steer } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   // Small anchored, non-blocking context menu for an issue row (desktop right-click
   // or touch long-press, both via issueMenuTrigger). Per the design system's popover

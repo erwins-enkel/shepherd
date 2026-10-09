@@ -1,9 +1,9 @@
 <script lang="ts">
-  import type { UpdateStatus, DeployState, DirtyStatus } from "$lib/types";
-  import { applyUpdate, getUpdateDirty, StaleDirtyError } from "$lib/api";
-  import { dialog } from "$lib/a11yDialog";
-  import { m } from "$lib/paraglide/messages";
-  import SvgFlockOverlay from "$lib/components/SvgFlockOverlay.svelte";
+  import type { UpdateStatus, DeployState, DirtyStatus } from "#lib/types.js";
+  import { applyUpdate, getUpdateDirty, StaleDirtyError } from "#lib/api.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import SvgFlockOverlay from "#lib/components/SvgFlockOverlay.svelte";
 
   let {
     update,

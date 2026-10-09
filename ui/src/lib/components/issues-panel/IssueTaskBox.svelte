@@ -6,12 +6,16 @@
     type Steer,
     type TaskRunDefaults,
     type TaskRunSeed,
-  } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { repoConfig } from "$lib/reviews.svelte";
-  import { providerModels } from "$lib/provider-models";
-  import { providerEfforts, effortLabel, effortAvailableForProvider } from "$lib/effort-guidance";
-  import { modelOptionLabel } from "$lib/model-guidance";
+  } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { providerModels } from "#lib/provider-models.js";
+  import {
+    providerEfforts,
+    effortLabel,
+    effortAvailableForProvider,
+  } from "#lib/effort-guidance.js";
+  import { modelOptionLabel } from "#lib/model-guidance.js";
   import {
     effortSettingFor,
     modelSettingFor,

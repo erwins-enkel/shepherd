@@ -1,4 +1,4 @@
-import type { InjectableRule } from "$lib/types";
+import type { InjectableRule } from "#lib/types.js";
 
 /** Shared context bundle passed from LearningsDrawer to all leaf-card children.
  *  Must be built as $derived in the parent so editingScope/scopeDraft stay reactive

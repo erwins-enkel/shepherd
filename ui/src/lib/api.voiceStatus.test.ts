@@ -2,7 +2,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 // The message catalog is irrelevant here and slow to re-evaluate after every resetModules —
 // under pre-push load that pushed a case past the 5s timeout.
-vi.mock("$lib/paraglide/messages", () => ({ m: {} }));
+vi.mock("#lib/paraglide/messages.js", () => ({ m: {} }));
 
 // Pay the cold transform of api.ts once, outside the per-case 5s budget; the per-case
 // re-imports below then only re-evaluate.

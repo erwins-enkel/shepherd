@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { getReadiness, adoptGitignore } from "$lib/api";
-  import type { GuardrailId, ReadinessReport } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { toasts } from "$lib/toasts.svelte";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import { getReadiness, adoptGitignore } from "#lib/api.js";
+  import type { GuardrailId, ReadinessReport } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { SvelteSet } from "svelte/reactivity";
   import { adoptList, haveList, scoreBand, buildAdoptPrompt } from "./readiness-view";
 

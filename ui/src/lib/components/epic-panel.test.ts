@@ -14,15 +14,15 @@ import {
   stateLabel,
   supersedeImpact,
 } from "./epic-panel";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 import type {
   DrainRunSummary,
   DrainStatus,
   EpicChild,
   EpicRunEnd,
   EpicRunStatus,
-} from "$lib/types";
-import { formatReset } from "$lib/format";
+} from "#lib/types.js";
+import { formatReset } from "#lib/format.js";
 
 function drain(over: Partial<DrainStatus>): DrainStatus {
   return {

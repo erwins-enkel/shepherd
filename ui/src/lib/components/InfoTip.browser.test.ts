@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import InfoTip from "./InfoTip.svelte";
-import { infoTips } from "$lib/info-tips.svelte";
+import { infoTips } from "#lib/info-tips.svelte.js";
 
 afterEach(() => infoTips.set(false));
 

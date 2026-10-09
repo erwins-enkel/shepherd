@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import type { Session } from "$lib/types";
-  import { retryHalted } from "$lib/api";
-  import { toasts } from "$lib/toasts.svelte";
-  import { dialog } from "$lib/a11yDialog";
-  import { m } from "$lib/paraglide/messages";
+  import type { Session } from "#lib/types.js";
+  import { retryHalted } from "#lib/api.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let { sessions, onclose }: { sessions: Session[]; onclose: () => void } = $props();
 

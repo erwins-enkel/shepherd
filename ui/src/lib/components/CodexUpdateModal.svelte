@@ -1,9 +1,13 @@
 <script lang="ts">
   import { onMount, tick } from "svelte";
-  import type { CodexReleaseNotesResult, CodexUpdateStatus, CodexUpdateResult } from "$lib/types";
-  import { applyCodexUpdate, fetchCodexReleaseNotes } from "$lib/api";
-  import { dialog } from "$lib/a11yDialog";
-  import { m } from "$lib/paraglide/messages";
+  import type {
+    CodexReleaseNotesResult,
+    CodexUpdateStatus,
+    CodexUpdateResult,
+  } from "#lib/types.js";
+  import { applyCodexUpdate, fetchCodexReleaseNotes } from "#lib/api.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { m } from "#lib/paraglide/messages.js";
   import CodexReleaseNotes from "./CodexReleaseNotes.svelte";
 
   let {

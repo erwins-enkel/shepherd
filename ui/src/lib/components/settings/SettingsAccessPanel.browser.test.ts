@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import SettingsAccessPanel from "./SettingsAccessPanel.svelte";
-import type { AccessToken, Settings } from "$lib/types";
+import type { AccessToken, Settings } from "#lib/types.js";
 
 const DAY = 24 * 60 * 60 * 1000;
 

@@ -1,9 +1,9 @@
 // DRIFT: keep in sync with src/ready-stage.ts (isReadyForNotify ≙ shownSessions "ready";
 // stageOf/terminalStage; both display flags — workingBlocked + backgroundBusy — fold in via
 // displayStatus). Intentional delta: the server also excludes `merged` from notify.
-import type { Session, GitState } from "$lib/types";
-import { displayStatus } from "$lib/display-status";
-import { checksCleared } from "$lib/checks-cleared";
+import type { Session, GitState } from "#lib/types.js";
+import { displayStatus } from "#lib/display-status.js";
+import { checksCleared } from "#lib/checks-cleared.js";
 import { isMerging } from "./merge-train";
 
 /** Split sessions into stage groups, preserving input order within each:

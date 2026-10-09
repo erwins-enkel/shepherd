@@ -2,9 +2,9 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../app.css";
 import ProjectRow from "./ProjectRow.svelte";
-import type { BacklogProject } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
-import { projectIcons } from "$lib/projectIcons.svelte";
+import type { BacklogProject } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
+import { projectIcons } from "#lib/projectIcons.svelte.js";
 
 function project(partial: Partial<BacklogProject> = {}): BacklogProject {
   return {

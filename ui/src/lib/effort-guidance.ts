@@ -1,5 +1,5 @@
-import { m } from "$lib/paraglide/messages";
-import { CODEX_MODELS, EFFORTS, type AgentProvider } from "$lib/types";
+import { m } from "#lib/paraglide/messages.js";
+import { CODEX_MODELS, EFFORTS, type AgentProvider } from "#lib/types.js";
 
 /** Codex 0.160.1 model catalog: Astra/Sol/Terra offer Ultra, Luna stops at Max.
  * Older curated models keep their four tiers. Unknown models and CLI-default choices are

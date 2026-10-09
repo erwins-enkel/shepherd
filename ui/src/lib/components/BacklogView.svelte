@@ -14,19 +14,19 @@
     Steer,
     TaskRunDefaults,
     TaskRunSeed,
-  } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { toasts } from "$lib/toasts.svelte";
-  import { triggerDocAgent, getDocAgentRuns } from "$lib/api";
+  } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { triggerDocAgent, getDocAgentRuns } from "#lib/api.js";
   import ProjectBacklogList from "./ProjectBacklogList.svelte";
   import AddRepoButton from "./AddRepoButton.svelte";
   import BacklogTabBar from "./backlog-view/BacklogTabBar.svelte";
   import BacklogTabContent from "./backlog-view/BacklogTabContent.svelte";
   import { actionsTabState, filterProjects, splitHidden, tabForFilters } from "./backlog-view";
-  import { repoConfig } from "$lib/reviews.svelte";
-  import { pullMainAndToast } from "$lib/pull-offer";
-  import { backlogLayout, clampSidebarWidth } from "$lib/backlog-layout.svelte";
-  import { createResizeDrag } from "$lib/resize-drag";
+  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { pullMainAndToast } from "#lib/pull-offer.js";
+  import { backlogLayout, clampSidebarWidth } from "#lib/backlog-layout.svelte.js";
+  import { createResizeDrag } from "#lib/resize-drag.js";
 
   let {
     payload,

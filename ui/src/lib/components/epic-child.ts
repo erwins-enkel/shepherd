@@ -1,4 +1,4 @@
-import type { EpicChild, Issue } from "$lib/types";
+import type { EpicChild, Issue } from "#lib/types.js";
 
 // Pure derivations for the epic-child detail (#2622): which run area it shows, what it waits
 // on, what it frees, and the Issue handed to the New Task dialog for a manual start.

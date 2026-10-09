@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
-  import { agentSlotExplanation } from "$lib/tooltips/explanations";
+  import { m } from "#lib/paraglide/messages.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import { agentSlotExplanation } from "#lib/tooltips/explanations.js";
   import type { EpicRunSteps, SlotHolder } from "../epic-panel";
   import EpicRoleBadge from "./EpicRoleBadge.svelte";
   import SlotStepper, { slotCap } from "./SlotStepper.svelte";

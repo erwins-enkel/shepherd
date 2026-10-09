@@ -5,7 +5,7 @@ import "../../app.css";
 // Capture everything the terminal would write to the PTY. Registered BEFORE the
 // component import so xterm's onData wires into this spy instead of a real WS.
 const ptySend = vi.fn();
-vi.mock("$lib/pty", () => ({
+vi.mock("#lib/pty.js", () => ({
   connectPty: vi.fn(() => ({
     send: ptySend,
     resize: vi.fn(),
@@ -17,7 +17,7 @@ vi.mock("$lib/pty", () => ({
 
 // Component must be imported AFTER the mock is registered.
 const { default: Viewport } = await import("./Viewport.svelte");
-import type { Session } from "$lib/types";
+import type { Session } from "#lib/types.js";
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {

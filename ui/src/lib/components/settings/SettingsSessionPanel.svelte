@@ -21,18 +21,18 @@
     putHouseRuleRelevance,
     putUpNextReadiness,
     logout,
-  } from "$lib/api";
-  import { MODELS, type HouseRuleRelevanceMode, type Settings } from "$lib/types";
-  import { modelGuidanceAlias, modelOptionLabel } from "$lib/model-guidance";
-  import ModelGuidance from "$lib/components/ModelGuidance.svelte";
-  import RestartShepherdDialog from "$lib/components/RestartShepherdDialog.svelte";
-  import { relativeAge } from "$lib/format";
+  } from "#lib/api.js";
+  import { MODELS, type HouseRuleRelevanceMode, type Settings } from "#lib/types.js";
+  import { modelGuidanceAlias, modelOptionLabel } from "#lib/model-guidance.js";
+  import ModelGuidance from "#lib/components/ModelGuidance.svelte";
+  import RestartShepherdDialog from "#lib/components/RestartShepherdDialog.svelte";
+  import { relativeAge } from "#lib/format.js";
   import SettingRow from "./SettingRow.svelte";
   import SettingToggle from "./SettingToggle.svelte";
-  import { upNextReadinessExplanation } from "$lib/tooltips/explanations";
+  import { upNextReadinessExplanation } from "#lib/tooltips/explanations.js";
   import "./settings-controls.css";
-  import { toasts } from "$lib/toasts.svelte";
-  import { m } from "$lib/paraglide/messages";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   // The Session section rebuilt to the 5a/5b aligned-row pattern. Owns all
   // session-scoped state, seeded once from the parent's single getSettings()

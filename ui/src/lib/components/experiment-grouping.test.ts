@@ -1,6 +1,6 @@
 import { test, expect } from "vitest";
 import { groupSessionsByExperiment } from "./experiment-grouping";
-import type { Session, ExperimentRole } from "$lib/types";
+import type { Session, ExperimentRole } from "#lib/types.js";
 
 function session(
   id: string,

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { DrainStatus, QueuedItem } from "$lib/types";
+  import type { DrainStatus, QueuedItem } from "#lib/types.js";
   import type { RepoChip } from "../queue-strip";
-  import { m } from "$lib/paraglide/messages";
-  import { getDrainQueue } from "$lib/api";
+  import { m } from "#lib/paraglide/messages.js";
+  import { getDrainQueue } from "#lib/api.js";
   import { basename } from "../learnings-drawer";
   import { queueOpenable, pausedText } from "../queue-strip";
 

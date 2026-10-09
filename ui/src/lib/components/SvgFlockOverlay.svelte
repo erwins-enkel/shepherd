@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { theme } from "$lib/theme.svelte";
+  import { theme } from "#lib/theme.svelte.js";
 
   let { placement = "backdrop" }: { placement?: "backdrop" | "sheet" } = $props();
 

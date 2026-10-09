@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { modelGuidance, type ModelGuidanceContext } from "$lib/model-guidance";
-  import type { AgentProvider } from "$lib/types";
+  import { modelGuidance, type ModelGuidanceContext } from "#lib/model-guidance.js";
+  import type { AgentProvider } from "#lib/types.js";
 
   let {
     provider,

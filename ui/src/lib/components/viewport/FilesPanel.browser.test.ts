@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
-import { ApiError } from "$lib/api";
-import { m } from "$lib/paraglide/messages";
+import { ApiError } from "#lib/api.js";
+import { m } from "#lib/paraglide/messages.js";
 
 // Mock the entire API module — no real network calls
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     getScratchpadListing: vi.fn(),
@@ -20,7 +20,8 @@ vi.mock("$lib/api", async (importOriginal) => {
 
 const { default: FilesPanel } = await import("./FilesPanel.svelte");
 
-const { getScratchpadListing, uploadScratchpadFile, getWorktreeListing } = await import("$lib/api");
+const { getScratchpadListing, uploadScratchpadFile, getWorktreeListing } =
+  await import("#lib/api.js");
 const mockListing = vi.mocked(getScratchpadListing);
 const mockUpload = vi.mocked(uploadScratchpadFile);
 const mockWorktreeListing = vi.mocked(getWorktreeListing);

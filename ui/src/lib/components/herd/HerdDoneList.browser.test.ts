@@ -3,8 +3,8 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import HerdDoneList from "./HerdDoneList.svelte";
-import { m } from "$lib/paraglide/messages";
-import type { Session } from "$lib/types";
+import { m } from "#lib/paraglide/messages.js";
+import type { Session } from "#lib/types.js";
 
 afterEach(() => {
   document.body.innerHTML = "";

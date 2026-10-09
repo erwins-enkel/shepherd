@@ -8,8 +8,8 @@
     DiagnosticState,
     DiagnosticsSnapshot,
     ProviderFailoverStatus,
-  } from "$lib/types";
-  import { displayStatus } from "$lib/display-status";
+  } from "#lib/types.js";
+  import { displayStatus } from "#lib/display-status.js";
   import {
     compactUsageViews as compactUsageViewList,
     claudeDisplayGauges,
@@ -32,12 +32,12 @@
     actProviderFailover,
     getSettings,
     putUsageHoldAutoRelease,
-  } from "$lib/api";
-  import type { AgentProvider, HeldTask } from "$lib/types";
-  import { providerFailoverOffer } from "$lib/provider-capacity";
-  import { m } from "$lib/paraglide/messages";
-  import { openFeedback } from "$lib/feedback-dialog.svelte";
-  import type { FeedbackKind } from "$lib/feedback-link";
+  } from "#lib/api.js";
+  import type { AgentProvider, HeldTask } from "#lib/types.js";
+  import { providerFailoverOffer } from "#lib/provider-capacity.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { openFeedback } from "#lib/feedback-dialog.svelte.js";
+  import type { FeedbackKind } from "#lib/feedback-link.js";
   import { modeOf, badgeCount } from "./top-bar-layout";
   import { isSettingsChord } from "./herd-keynav";
   import TopBarTallies from "./top-bar/TopBarTallies.svelte";

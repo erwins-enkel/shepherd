@@ -15,7 +15,7 @@ declare global {
      */
     interface Error {
       message: string;
-      kind?: import("$lib/client-error").ClientErrorKind;
+      kind?: import("#lib/client-error.js").ClientErrorKind;
     }
     // interface Locals {}
     // interface PageData {}

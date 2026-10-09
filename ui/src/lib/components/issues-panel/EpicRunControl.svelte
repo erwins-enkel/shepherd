@@ -1,9 +1,15 @@
 <script lang="ts">
-  import type { DrainRunSummary, DrainStatus, Epic, EpicRunStatus, EpicSummary } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { updateEpic, approveEpicNext, queueEpic, unqueueEpic } from "$lib/api";
-  import { toasts } from "$lib/toasts.svelte";
-  import { epicRunStateExplanation } from "$lib/tooltips/explanations";
+  import type {
+    DrainRunSummary,
+    DrainStatus,
+    Epic,
+    EpicRunStatus,
+    EpicSummary,
+  } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { updateEpic, approveEpicNext, queueEpic, unqueueEpic } from "#lib/api.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { epicRunStateExplanation } from "#lib/tooltips/explanations.js";
   import {
     epicRole,
     epicRunState,

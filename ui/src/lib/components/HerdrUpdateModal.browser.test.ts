@@ -2,10 +2,10 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { HerdrUpdateStatus } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { HerdrUpdateStatus } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
-vi.mock("$lib/api", async (orig) => ({
+vi.mock("#lib/api.js", async (orig) => ({
   ...((await orig()) as object),
   applyHerdrUpdate: vi.fn(() => new Promise(() => {})),
   applyHerdrDowngrade: vi.fn(() => new Promise(() => {})),
@@ -15,7 +15,7 @@ vi.mock("$lib/api", async (orig) => ({
 }));
 
 import HerdrUpdateModal from "./HerdrUpdateModal.svelte";
-import { getHerdrUpdate, restartHerdrServer } from "$lib/api";
+import { getHerdrUpdate, restartHerdrServer } from "#lib/api.js";
 
 const update: HerdrUpdateStatus = {
   current: "0.6.9",
@@ -151,7 +151,7 @@ describe("HerdrUpdateModal", () => {
     },
   );
   it("explains an incomplete installed update and only repairs after explicit confirmation", async () => {
-    const { restartHerdrServer } = await import("$lib/api");
+    const { restartHerdrServer } = await import("#lib/api.js");
     vi.mocked(restartHerdrServer).mockClear();
     const runtime = {
       state: "restart_required" as const,
@@ -317,7 +317,7 @@ describe("HerdrUpdateModal", () => {
   });
 
   it("allows retrying a persisted downgrade failure after reopening", async () => {
-    const { applyHerdrDowngrade } = await import("$lib/api");
+    const { applyHerdrDowngrade } = await import("#lib/api.js");
     vi.mocked(applyHerdrDowngrade).mockClear();
     const snapshot: HerdrUpdateStatus = {
       ...update,
@@ -441,7 +441,7 @@ describe("HerdrUpdateModal", () => {
   });
 
   it("offers the one-click downgrade when the INSTALLED herdr is unsupported (#1898)", async () => {
-    const { applyHerdrDowngrade } = await import("$lib/api");
+    const { applyHerdrDowngrade } = await import("#lib/api.js");
     render(HerdrUpdateModal, {
       props: {
         update: {
@@ -477,7 +477,7 @@ describe("HerdrUpdateModal", () => {
   });
 
   it("shows the non-blocking two-path advisory + sandbox downgrade on a supported-but-regressed herdr (#1716)", async () => {
-    const { applyHerdrSandboxDowngrade } = await import("$lib/api");
+    const { applyHerdrSandboxDowngrade } = await import("#lib/api.js");
     render(HerdrUpdateModal, {
       props: {
         update: {

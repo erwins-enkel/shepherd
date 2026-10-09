@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { portal } from "$lib/portal";
+  import { portal } from "#lib/portal.js";
 
   // Small anchored, non-blocking single-select picker opened by the Up Next sort
   // button. Positioning + dismiss mechanics mirror TaskIdMenu (portal so the

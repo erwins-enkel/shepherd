@@ -42,7 +42,7 @@ import { upNext } from "./up-next.svelte";
 import { learnings } from "./learnings.svelte";
 import { toasts } from "./toasts.svelte";
 import { reviveStranded as apiReviveStranded } from "./api";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 import { buildQueues as buildQueuesStore } from "./buildQueues.svelte";
 import { epicDrafts as epicDraftsStore } from "./epic-draft.svelte";
 import { postMergeSteps as postMergeStepsStore } from "./post-merge-steps.svelte";

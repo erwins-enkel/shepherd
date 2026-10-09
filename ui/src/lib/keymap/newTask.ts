@@ -11,7 +11,7 @@
 // order the spec's inventory table uses.
 // See docs/design/keymap-10a/README.md → "Kürzel-Inventar (kanonisch)".
 
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 import { chordMatches, modLabel } from "./chord";
 import type { Chord, KeymapEntry } from "./types";
 

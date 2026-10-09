@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import AutomationPanel from "$lib/components/AutomationPanel.svelte";
-  import { buildGuardTimeline, type GuardRepoConfig, type GuardStep } from "$lib/guard-timeline";
-  import type { AgentProvider } from "$lib/types";
+  import { m } from "#lib/paraglide/messages.js";
+  import AutomationPanel from "#lib/components/AutomationPanel.svelte";
+  import { buildGuardTimeline, type GuardRepoConfig, type GuardStep } from "#lib/guard-timeline.js";
+  import type { AgentProvider } from "#lib/types.js";
 
   // "Where does this task wait for a human?" — rendered under the Guards toggles.
   //
@@ -10,7 +10,7 @@
   // starts collapsed and is NOT remembered across dialog openings (deliberate: the New
   // Task card is already dense, and the header carries the answer on its own).
   //
-  // All of the semantics live in $lib/guard-timeline — this component only renders keys.
+  // All of the semantics live in #lib/guard-timeline — this component only renders keys.
   let {
     planGate,
     autopilot,

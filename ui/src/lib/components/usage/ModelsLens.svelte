@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { UsageBreakdown, UsageModelBreakdown, UsageRole } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { formatTokenLabel } from "$lib/format";
-  import { modelDisplayName } from "$lib/components/usage-gauges";
+  import type { UsageBreakdown, UsageModelBreakdown, UsageRole } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { formatTokenLabel } from "#lib/format.js";
+  import { modelDisplayName } from "#lib/components/usage-gauges.js";
 
   let { models }: { models: UsageBreakdown["models"] } = $props();
 

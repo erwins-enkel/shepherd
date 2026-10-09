@@ -2,13 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import TimePopover from "./TimePopover.svelte";
-import type { GitState, Session } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
-import { sessionPulse } from "$lib/session-pulse";
+import type { GitState, Session } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
+import { sessionPulse } from "#lib/session-pulse.js";
 
 // The panel re-reads the steer log on open; keep that off the network.
-vi.mock("$lib/api", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("$lib/api")>()),
+vi.mock("#lib/api.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("#lib/api.js")>()),
   getSteerLog: vi.fn(async () => []),
 }));
 

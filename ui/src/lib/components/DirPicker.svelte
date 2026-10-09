@@ -4,9 +4,9 @@
   // browse the filesystem the same way. Owns browsing/listing/loading/error state; the
   // caller owns everything above it (a "current root" label, the save action + its own
   // busy/error state) since those differ between the two call sites.
-  import { listDirs } from "$lib/api";
-  import { type DirListing } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import { listDirs } from "#lib/api.js";
+  import { type DirListing } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let {
     initialPath,

@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { portal } from "$lib/portal";
-  import type { AgentProvider } from "$lib/types";
+  import { m } from "#lib/paraglide/messages.js";
+  import { portal } from "#lib/portal.js";
+  import type { AgentProvider } from "#lib/types.js";
 
   // Small anchored, non-blocking menu opened by clicking a card's task-id button.
   // Per the design system's popover rule it gets NO scrim/blur — it dismisses on

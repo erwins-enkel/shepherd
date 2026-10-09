@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { buildQueues } from "$lib/buildQueues.svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
-  import { buildQueueCollapse } from "$lib/build-queue-collapse.svelte";
-  import type { Session, GitState } from "$lib/types";
+  import { buildQueues } from "#lib/buildQueues.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import { buildQueueCollapse } from "#lib/build-queue-collapse.svelte.js";
+  import type { Session, GitState } from "#lib/types.js";
 
   // `tip` (Herd card only): swap the native title for the styled statusTip tooltip.
   let {

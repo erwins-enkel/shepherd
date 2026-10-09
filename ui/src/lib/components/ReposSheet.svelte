@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { dialog } from "$lib/a11yDialog";
+  import { m } from "#lib/paraglide/messages.js";
+  import { dialog } from "#lib/a11yDialog.js";
   import { basename } from "./learnings-drawer";
-  import type { RepoChip } from "$lib/components/queue-strip";
+  import type { RepoChip } from "#lib/components/queue-strip.js";
 
   // The phone's repo surface (D14, docs/design/mobile-herd). It replaces the top-edge repo rail,
   // which cost 48px of a 932px screen for three 10px labels and put the filter out of thumb

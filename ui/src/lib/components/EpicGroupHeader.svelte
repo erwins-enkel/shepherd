@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { Epic } from "$lib/types";
-  import { projectIcons } from "$lib/projectIcons.svelte";
-  import { m } from "$lib/paraglide/messages";
+  import type { Epic } from "#lib/types.js";
+  import { projectIcons } from "#lib/projectIcons.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
   import EpicBadge from "./EpicBadge.svelte";
 
   let {

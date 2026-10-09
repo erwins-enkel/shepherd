@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import { tick } from "svelte";
 import "../../../app.css";
-import { enterKey } from "$lib/controlKeys";
+import { enterKey } from "#lib/controlKeys.js";
 
 const { default: ViewportTermControls } = await import("./ViewportTermControls.svelte");
 

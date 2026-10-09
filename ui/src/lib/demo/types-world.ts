@@ -1,5 +1,5 @@
 // The single object graph the demo world holds. Every field is typed against the
-// real `$lib/types` domain shapes — NEVER a parallel shape — so `tsc` validates the
+// real `#lib/types` domain shapes — NEVER a parallel shape — so `tsc` validates the
 // seed against exactly what the live UI consumes. `state.ts` deep-clones one of
 // these on every `reset()`; `seed.ts` builds a fresh, internally-consistent one.
 
@@ -52,16 +52,16 @@ import type {
   DeliveryMetrics,
   GithubRateLimit,
   PromptBudgetRecord,
-} from "$lib/types";
+} from "#lib/types.js";
 
-/** Mirrors `RepoConfigResponse` from `$lib/api` (`RepoConfig` + optimistic-automation
+/** Mirrors `RepoConfigResponse` from `#lib/api` (`RepoConfig` + optimistic-automation
  *  fields) without importing api.ts from the seed layer — keeps seed.ts import-clean. */
 export type DemoRepoConfig = RepoConfig & {
   automationConfirmed?: boolean;
   automationRowExists?: boolean;
 };
 
-/** Mirrors `BranchList` from `$lib/api` for the same reason `DemoRepoConfig` mirrors
+/** Mirrors `BranchList` from `#lib/api` for the same reason `DemoRepoConfig` mirrors
  *  `RepoConfigResponse`: the seed layer stays import-clean of api.ts. */
 export interface DemoBranchList {
   branches: string[];

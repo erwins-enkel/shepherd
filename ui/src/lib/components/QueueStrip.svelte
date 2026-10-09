@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { AutoMergeStatus } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import type { AutoMergeStatus } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
   import { basename } from "./learnings-drawer";
   import { activeMergeTrain, mergeTrainIsAttention, mergeTrainLabel } from "./queue-strip";
 

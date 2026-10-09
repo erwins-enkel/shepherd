@@ -2,11 +2,11 @@ import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { GitState, Issue, Session, SessionLaunchMetadata } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { GitState, Issue, Session, SessionLaunchMetadata } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 const { default: IssueBadge } = await import("./IssueBadge.svelte");
-const { issueRef } = await import("$lib/issue-ref.svelte");
+const { issueRef } = await import("#lib/issue-ref.svelte.js");
 
 // The peek store is a module singleton with its own cache, so every case here uses a
 // distinct repo/number pair rather than trying to reset it — that also keeps each case

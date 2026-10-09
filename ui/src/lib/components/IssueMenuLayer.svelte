@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Issue, Steer } from "$lib/types";
+  import type { Issue, Steer } from "#lib/types.js";
   import IssueContextMenu from "./IssueContextMenu.svelte";
   import IssueDetailsPopover from "./IssueDetailsPopover.svelte";
 

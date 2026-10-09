@@ -1,8 +1,8 @@
-import { m } from "$lib/paraglide/messages";
-import { holdLine } from "$lib/hold";
-import { planGateChip, type PlanGateChip } from "$lib/components/plan-gate-badge";
-import { planQuestionsUnanswered } from "$lib/tab-signal.svelte";
-import type { HoldReason, PlanGate, Session } from "$lib/types";
+import { m } from "#lib/paraglide/messages.js";
+import { holdLine } from "#lib/hold.js";
+import { planGateChip, type PlanGateChip } from "#lib/components/plan-gate-badge.js";
+import { planQuestionsUnanswered } from "#lib/tab-signal.svelte.js";
+import type { HoldReason, PlanGate, Session } from "#lib/types.js";
 
 /** The thirteen mutually-exclusive presentations a plan-gate row can take. One classifier
  *  decides the state; LINE and ACTION are total maps over it, so the subline can never

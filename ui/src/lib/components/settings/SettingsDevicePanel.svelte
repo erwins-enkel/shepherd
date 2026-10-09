@@ -1,13 +1,20 @@
 <script lang="ts">
-  import { theme, type ThemePref, type MotionPref } from "$lib/theme.svelte";
-  import { tabTicker } from "$lib/tab-ticker.svelte";
-  import { infoTips } from "$lib/info-tips.svelte";
-  import { issueRef } from "$lib/issue-ref.svelte";
-  import { REPO, REPO_URL, sha, version, commitUrl, CAPTURE_EXTENSION_URL } from "$lib/build-info";
-  import ThemeIcon from "$lib/components/ThemeIcon.svelte";
+  import { theme, type ThemePref, type MotionPref } from "#lib/theme.svelte.js";
+  import { tabTicker } from "#lib/tab-ticker.svelte.js";
+  import { infoTips } from "#lib/info-tips.svelte.js";
+  import { issueRef } from "#lib/issue-ref.svelte.js";
+  import {
+    REPO,
+    REPO_URL,
+    sha,
+    version,
+    commitUrl,
+    CAPTURE_EXTENSION_URL,
+  } from "#lib/build-info.js";
+  import ThemeIcon from "#lib/components/ThemeIcon.svelte";
   import HighlightText from "./HighlightText.svelte";
-  import { m } from "$lib/paraglide/messages";
-  import type { FeedbackKind } from "$lib/feedback-link";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { FeedbackKind } from "#lib/feedback-link.js";
 
   let {
     onwhatsnew,

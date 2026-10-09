@@ -4,9 +4,9 @@
 </script>
 
 <script lang="ts">
-  import type { VisualBlock } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { theme } from "$lib/theme.svelte";
+  import type { VisualBlock } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { theme } from "#lib/theme.svelte.js";
   import InferredBadge from "./InferredBadge.svelte";
   import DiagramLightbox from "./DiagramLightbox.svelte";
 

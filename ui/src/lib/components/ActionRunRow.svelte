@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
-  import type { WorkflowRun } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { rerunWorkflowRun, cancelWorkflowRun, listWorkflowRunHistory } from "$lib/api";
+  import type { WorkflowRun } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { rerunWorkflowRun, cancelWorkflowRun, listWorkflowRunHistory } from "#lib/api.js";
   import ActionHistoryRow from "./ActionHistoryRow.svelte";
 
   let {

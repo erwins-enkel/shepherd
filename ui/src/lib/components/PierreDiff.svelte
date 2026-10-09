@@ -25,9 +25,9 @@
   // `diffStyle`, NOT a component-side copy that would drift (e.g. freeze themeType
   // at mount and silently revert the theme on toggle).
   import type { DiffLineAnnotation, FileDiff, FileDiffOptions } from "@pierre/diffs";
-  import { theme } from "$lib/theme.svelte";
-  import { registerShepherdThemes, parseFilePatch } from "$lib/pierre-diff";
-  import { m } from "$lib/paraglide/messages";
+  import { theme } from "#lib/theme.svelte.js";
+  import { registerShepherdThemes, parseFilePatch } from "#lib/pierre-diff.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   // Metadata carried on each agent annotation (#1699). Threaded as Pierre's `LAnnotation` generic
   // so `renderAnnotation` can read `a.metadata`; the wrapper hardcoded `<undefined>` before.

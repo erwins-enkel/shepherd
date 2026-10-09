@@ -14,10 +14,10 @@
   //
   // Self-guarding (renders nothing without a failed notice) so CriticBadge can mount it
   // unconditionally and gain no template branch of its own.
-  import { spawnNotices } from "$lib/reviews.svelte";
-  import { retrySpawnNotice } from "$lib/api";
-  import { anchorPopover } from "$lib/floating-anchor";
-  import { m } from "$lib/paraglide/messages";
+  import { spawnNotices } from "#lib/reviews.svelte.js";
+  import { retrySpawnNotice } from "#lib/api.js";
+  import { anchorPopover } from "#lib/floating-anchor.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let { sessionId }: { sessionId: string } = $props();
 

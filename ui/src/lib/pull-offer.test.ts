@@ -1,9 +1,9 @@
 import { test, expect, vi, beforeEach, afterEach } from "vitest";
 import { toasts } from "./toasts.svelte";
 import { pullMainAndToast } from "./pull-offer";
-import { pullRepo } from "$lib/api";
+import { pullRepo } from "#lib/api.js";
 
-vi.mock("$lib/api", () => ({ pullRepo: vi.fn() }));
+vi.mock("#lib/api.js", () => ({ pullRepo: vi.fn() }));
 
 beforeEach(() => {
   vi.useFakeTimers();

@@ -1,4 +1,4 @@
-import type { MergeConfirmPayload } from "$lib/components/merge-confirm";
+import type { MergeConfirmPayload } from "#lib/components/merge-confirm.js";
 
 export type DecommissionPrAction = "keep" | "close" | "merge";
 

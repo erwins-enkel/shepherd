@@ -1,8 +1,8 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import HighlightText from "./HighlightText.svelte";
-  import InfoTip from "$lib/components/InfoTip.svelte";
-  import type { TooltipExplanation } from "$lib/tooltips/content";
+  import InfoTip from "#lib/components/InfoTip.svelte";
+  import type { TooltipExplanation } from "#lib/tooltips/content.js";
 
   // The aligned setting row from the 5a/5b handoff: title + description on the
   // left, the control on a fixed 200px column on the right, hairline top

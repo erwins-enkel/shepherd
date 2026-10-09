@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import type { DrainRunSummary, Epic } from "$lib/types";
-  import { dialog } from "$lib/a11yDialog";
-  import { m } from "$lib/paraglide/messages";
-  import { getEpic } from "$lib/api";
-  import { repos } from "$lib/repos.svelte";
+  import type { DrainRunSummary, Epic } from "#lib/types.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { getEpic } from "#lib/api.js";
+  import { repos } from "#lib/repos.svelte.js";
   import { supersedeImpact } from "../epic-panel";
 
   // Asks before starting epic `parent` supersedes `leader`, the epic that leads the repo now

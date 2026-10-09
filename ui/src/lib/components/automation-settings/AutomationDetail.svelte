@@ -12,7 +12,7 @@
   // the button's aria-controls target always resolves. When the operator hides tips it is
   // removed outright — leaving it `hidden` would strand content that nothing could ever reveal
   // again, since its ⓘ is gone too.
-  import { infoTips } from "$lib/info-tips.svelte";
+  import { infoTips } from "#lib/info-tips.svelte.js";
 
   // Exactly one of `text` / `paragraphs` is given. `text` is the single-note shape every
   // switch row uses (its message may carry \n\n breaks, rendered via white-space: pre-line).

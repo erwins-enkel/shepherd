@@ -2,13 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
-import { getRepoConfig, putRepoConfig } from "$lib/api";
-import { repoConfig } from "$lib/reviews.svelte";
-import type { DrainRunSummary } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import { getRepoConfig, putRepoConfig } from "#lib/api.js";
+import { repoConfig } from "#lib/reviews.svelte.js";
+import type { DrainRunSummary } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return { ...actual, getRepoConfig: vi.fn(), putRepoConfig: vi.fn() };
 });
 

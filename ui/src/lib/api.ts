@@ -95,9 +95,9 @@ import type {
   PushTestResult,
   TokenScope,
 } from "./types";
-import type { MergeConfirmPayload } from "$lib/components/merge-confirm";
-import { m } from "$lib/paraglide/messages";
-import { auth } from "$lib/auth.svelte";
+import type { MergeConfirmPayload } from "#lib/components/merge-confirm.js";
+import { m } from "#lib/paraglide/messages.js";
+import { auth } from "#lib/auth.svelte.js";
 
 const JSON_HEADERS = { "content-type": "application/json" };
 

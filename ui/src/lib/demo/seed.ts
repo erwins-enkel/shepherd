@@ -1,6 +1,6 @@
 // Pure seed data for the demo world. `buildSeed()` returns a fresh, deep-cloneable
 // object graph — no timers, no bus, no imports from state/router/director. Every
-// record is typed against `$lib/types`, so `tsc` proves each shape matches what the
+// record is typed against `#lib/types`, so `tsc` proves each shape matches what the
 // live UI consumes.
 //
 // The scenario — the fictional herd the marketing demo shows off:
@@ -63,7 +63,7 @@ import type {
   Issue,
   DirListing,
   PullRequest,
-} from "$lib/types";
+} from "#lib/types.js";
 import type { DemoWorld, DemoRepoConfig, DemoBranchList } from "./types-world";
 import {
   buildPullRequests,

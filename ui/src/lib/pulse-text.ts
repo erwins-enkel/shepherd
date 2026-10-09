@@ -1,5 +1,5 @@
-import { m } from "$lib/paraglide/messages";
-import type { TooltipExplanation, TooltipRow, TooltipSection } from "$lib/tooltips/content";
+import { m } from "#lib/paraglide/messages.js";
+import type { TooltipExplanation, TooltipRow, TooltipSection } from "#lib/tooltips/content.js";
 import {
   OVERDUE_FACTOR,
   ciRows,

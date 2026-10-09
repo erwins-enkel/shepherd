@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Action } from "svelte/action";
-  import { m } from "$lib/paraglide/messages";
-  import type { Learning, SignalKind } from "$lib/types";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { Learning, SignalKind } from "#lib/types.js";
   import { evidenceSources } from "../learnings-drawer";
   import type { LearningsCtx } from "./ctx";
 

@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../../app.css";
-import { m } from "$lib/paraglide/messages";
-import { reviews, planGates, repoConfig } from "$lib/reviews.svelte";
-import type { PlanGate, ReviewVerdict } from "$lib/types";
-import { cancelReview, holdReview, reviewPlan } from "$lib/api";
+import { m } from "#lib/paraglide/messages.js";
+import { reviews, planGates, repoConfig } from "#lib/reviews.svelte.js";
+import type { PlanGate, ReviewVerdict } from "#lib/types.js";
+import { cancelReview, holdReview, reviewPlan } from "#lib/api.js";
 
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return { ...actual, holdReview: vi.fn(), cancelReview: vi.fn(), reviewPlan: vi.fn() };
 });
 

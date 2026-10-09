@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // Reliability floor for OSC 52 clipboard writes (see Viewport.svelte). The write
   // arrives async over the WS — not inside the `c` keydown that triggered it — so

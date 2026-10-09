@@ -12,9 +12,9 @@
    * caller, whose type scale and padding differ (the modal runs on --fs-meta, the
    * panel on --fs-base), which is why sizing here is inherited rather than set.
    */
-  import type { IssueFetchAttempt } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
+  import type { IssueFetchAttempt } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
 
   const {
     attempts,

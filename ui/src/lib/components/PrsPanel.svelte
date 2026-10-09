@@ -1,10 +1,10 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import { listPullRequests } from "$lib/api";
-  import type { PullRequest } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { prsFilter } from "$lib/prs-filter.svelte";
+  import { listPullRequests } from "#lib/api.js";
+  import type { PullRequest } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { prsFilter } from "#lib/prs-filter.svelte.js";
   import {
     hideDraftPrs,
     hideConflictPrs,

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from "$app/state";
-  import BrowserPopout from "$lib/components/viewport/BrowserPopout.svelte";
+  import BrowserPopout from "#lib/components/viewport/BrowserPopout.svelte";
 </script>
 
 {#key page.params.id}

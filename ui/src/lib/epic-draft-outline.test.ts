@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { EpicDraftChild } from "$lib/types";
+import type { EpicDraftChild } from "#lib/types.js";
 import { childWaves, splitMarkdownSections } from "./epic-draft-outline";
 
 function child(key: string, blockedBy: string[] = []): EpicDraftChild {

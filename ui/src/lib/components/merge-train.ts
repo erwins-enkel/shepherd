@@ -1,5 +1,5 @@
-import { m } from "$lib/paraglide/messages";
-import type { Session, GitState, MergeResponsibility, StandardCreateInput } from "$lib/types";
+import { m } from "#lib/paraglide/messages.js";
+import type { Session, GitState, MergeResponsibility, StandardCreateInput } from "#lib/types.js";
 
 /** Safety backstop, NOT the authoritative TTL. The server keeps a merge mark for
  *  the life of the train and clears it authoritatively on merge/close/archive, so

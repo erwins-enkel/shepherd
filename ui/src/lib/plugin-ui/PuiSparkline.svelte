@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { PluginUINode } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import type { PluginUINode } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
   import { toneColor } from "./tones";
   import { coerceText } from "./coerce";
 

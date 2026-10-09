@@ -27,7 +27,7 @@ import { describe, it, expect, beforeEach, beforeAll, afterAll } from "vitest";
 import { readFileSync } from "node:fs";
 import { handleApi } from "./router";
 import { demoState } from "./state";
-import * as api from "$lib/api";
+import * as api from "#lib/api.js";
 
 // ── scraping api.ts ─────────────────────────────────────────────────────────
 

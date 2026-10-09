@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { DrainStatus, Epic, EpicSummary } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { labelChipStyle } from "$lib/label-color";
+  import type { DrainStatus, Epic, EpicSummary } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { labelChipStyle } from "#lib/label-color.js";
   import {
     epicRole,
     epicRunState,

@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { formatTokenLabel, relativeAge } from "$lib/format";
-  import type { UsageProviderSnapshot } from "$lib/types";
+  import { m } from "#lib/paraglide/messages.js";
+  import { formatTokenLabel, relativeAge } from "#lib/format.js";
+  import type { UsageProviderSnapshot } from "#lib/types.js";
   import { codexGaugeList, type GaugeKey } from "../usage-gauges";
   import CodexResetControls from "./CodexResetControls.svelte";
   import LimitGaugeRow from "./LimitGaugeRow.svelte";

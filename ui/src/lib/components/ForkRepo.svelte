@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { forkRepo } from "$lib/api";
-  import type { RepoEntry } from "$lib/types";
-  import { dialog } from "$lib/a11yDialog";
-  import { m } from "$lib/paraglide/messages";
+  import { forkRepo } from "#lib/api.js";
+  import type { RepoEntry } from "#lib/types.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let {
     onclose,

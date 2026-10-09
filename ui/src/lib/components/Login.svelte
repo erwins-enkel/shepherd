@@ -1,8 +1,8 @@
 <script lang="ts">
   // Single-operator login (issue #1079). Full-view takeover shown by the root layout while the
   // session is unauthenticated. Tokens-only per the design system; reuses the .gbtn + field recipes.
-  import { login } from "$lib/api";
-  import { m } from "$lib/paraglide/messages";
+  import { login } from "#lib/api.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let password = $state("");
   let busy = $state(false);

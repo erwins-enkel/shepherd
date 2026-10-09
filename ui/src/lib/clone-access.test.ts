@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { accessCase, ghFixApplies, looksLikeGithubUrl } from "./clone-access";
-import type { GithubAccess } from "$lib/api";
+import type { GithubAccess } from "#lib/api.js";
 
 function access(gh: GithubAccess["gh"], extra: Partial<GithubAccess> = {}): GithubAccess {
   return {

@@ -1,8 +1,8 @@
 <script lang="ts">
   import { SvelteSet } from "svelte/reactivity";
-  import type { UsageBreakdown, UsageRepoBreakdown, UsageTaskBreakdown } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import InfoTip from "$lib/components/InfoTip.svelte";
+  import type { UsageBreakdown, UsageRepoBreakdown, UsageTaskBreakdown } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import InfoTip from "#lib/components/InfoTip.svelte";
   import UsageBar from "./UsageBar.svelte";
   import { formatUnits, formatPct, formatDollars } from "./format";
 

@@ -1,4 +1,4 @@
-import type { ComposeMode } from "$lib/keymap/types";
+import type { ComposeMode } from "#lib/keymap/types.js";
 // Pure logic for the New Task "shape this" round (issue #2158) — kept out of the .svelte file so
 // it's unit-testable without a DOM. The round itself (the transient agent, the brief composition)
 // runs on the server; these helpers only decide when the control is offered and how a failure reads.

@@ -1,11 +1,11 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import type { CompletedEpic } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import { deriveIntegratedEpicStatus } from "$lib/integrated-epic-status";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
-  import { landingConflictReworkExplanation } from "$lib/tooltips/explanations";
+  import type { CompletedEpic } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import { deriveIntegratedEpicStatus } from "#lib/integrated-epic-status.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import { landingConflictReworkExplanation } from "#lib/tooltips/explanations.js";
   import GlossaryText from "./GlossaryText.svelte";
 
   let {

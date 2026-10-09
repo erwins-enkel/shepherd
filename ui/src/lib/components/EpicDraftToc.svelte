@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { EpicDraftChild } from "$lib/types";
-  import type { MarkdownSection } from "$lib/epic-draft-outline";
-  import { m } from "$lib/paraglide/messages";
+  import type { EpicDraftChild } from "#lib/types.js";
+  import type { MarkdownSection } from "#lib/epic-draft-outline.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let {
     sections,

@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { Issue } from "$lib/types";
+import type { Issue } from "#lib/types.js";
 
 // The loader's direct unit seam: listIssues is mocked; viewerCache is the real
 // session-lived cache (reset per test) so the warm-cache semantics are observable.
-vi.mock("$lib/api", () => ({ listIssues: vi.fn() }));
+vi.mock("#lib/api.js", () => ({ listIssues: vi.fn() }));
 
-import { listIssues } from "$lib/api";
-import { viewerCache } from "$lib/viewer-cache.svelte";
+import { listIssues } from "#lib/api.js";
+import { viewerCache } from "#lib/viewer-cache.svelte.js";
 import { IssueData } from "./issue-data.svelte";
 
 const listIssuesMock = vi.mocked(listIssues);

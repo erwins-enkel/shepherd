@@ -1,9 +1,9 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { updatePushDevice, deletePushDevice, testPushDevice } from "$lib/api";
-  import type { PushDevice, PushTestResult } from "$lib/types";
+  import { updatePushDevice, deletePushDevice, testPushDevice } from "#lib/api.js";
+  import type { PushDevice, PushTestResult } from "#lib/types.js";
   import "./settings-controls.css";
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // One registered device in Settings → Notifications (#2696): what it is, its categories, a
   // test send that reports the push service's answer, and removal behind a confirm.

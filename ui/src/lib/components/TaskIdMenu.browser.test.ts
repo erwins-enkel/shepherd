@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import TaskIdMenu from "./TaskIdMenu.svelte";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 
 // A real, connected opener: the menu restores focus to it on close.
 let opener: HTMLButtonElement;

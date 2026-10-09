@@ -1,4 +1,4 @@
-import type { LaunchUiState, RelaunchOverrides } from "$lib/types";
+import type { LaunchUiState, RelaunchOverrides } from "#lib/types.js";
 
 /** Build the exact payload submitted by the relaunch form. */
 export function relaunchOverrides(input: {

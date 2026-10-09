@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { PeekEntry } from "$lib/issue-peek.svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { relativeAge } from "$lib/format";
-  import { clock } from "$lib/now.svelte";
+  import type { PeekEntry } from "#lib/issue-peek.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { relativeAge } from "#lib/format.js";
+  import { clock } from "#lib/now.svelte.js";
 
   // Content of the session card's issue hover-preview: number · author · age, title,
   // labels, and the start of the body. Same field set and the same chip/label recipe as

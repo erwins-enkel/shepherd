@@ -10,7 +10,7 @@ import {
   type ReseedInput,
   type NormalizeInput,
 } from "./run-config";
-import type { ProviderTokenConstraint } from "$lib/types";
+import type { ProviderTokenConstraint } from "#lib/types.js";
 
 function reseedInput(over: Partial<ReseedInput> = {}): ReseedInput {
   return {

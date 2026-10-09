@@ -1,9 +1,9 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { putApnsConfig } from "$lib/api";
-  import type { ApnsField, ApnsStatus } from "$lib/types";
+  import { putApnsConfig } from "#lib/api.js";
+  import type { ApnsField, ApnsStatus } from "#lib/types.js";
   import "./settings-controls.css";
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // The APNs setup form of Settings → Notifications (#2696): the .p8 by file, drop or paste,
   // Key ID (prefilled from AuthKey_<ID>.p8), Team ID and, under Advanced, the topic. The server

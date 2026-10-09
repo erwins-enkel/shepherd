@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { demoState } from "./state";
 import { bus } from "./bus";
-import { displayStatus } from "$lib/display-status";
-import type { WsEvent } from "$lib/types";
+import { displayStatus } from "#lib/display-status.js";
+import type { WsEvent } from "#lib/types.js";
 
 /** Collect every frame the bus emits while `fn` runs. */
 function capture(fn: () => void): WsEvent[] {

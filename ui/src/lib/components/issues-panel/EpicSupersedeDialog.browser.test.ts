@@ -3,13 +3,13 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import EpicSupersedeDialog from "./EpicSupersedeDialog.svelte";
-import type { DrainRunSummary, Epic, EpicChild } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { DrainRunSummary, Epic, EpicChild } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 const api = vi.hoisted(() => ({ getEpic: vi.fn() }));
 
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return { ...actual, ...api };
 });
 

@@ -3,8 +3,8 @@ import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import ClearMergedDialog from "./ClearMergedDialog.svelte";
-import type { Session } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { Session } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 const s = (id: string, repo: string) =>
   ({ id, desig: `TASK-${id}`, name: `task-${id}`, repoPath: `/p/${repo}` }) as Session;

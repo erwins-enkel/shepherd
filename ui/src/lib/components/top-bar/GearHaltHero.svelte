@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // The Halt-herd hero action shared by the desktop popover and the mobile sheet:
   // amber ■ e-stop glyph + live "N WORKING" chip. Two-step arm→confirm (the parent

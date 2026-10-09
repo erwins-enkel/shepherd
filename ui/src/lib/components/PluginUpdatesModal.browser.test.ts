@@ -2,12 +2,12 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { PluginUpdatesStatus } from "$lib/types";
+import type { PluginUpdatesStatus } from "#lib/types.js";
 
 const { applyMock } = vi.hoisted(() => ({ applyMock: vi.fn() }));
 // triggerRestart is pulled in by the nested RestartShepherdDialog; the mock only
 // needs the export to exist for these tests (the dialog opens on click only).
-vi.mock("$lib/api", () => ({ applyPluginUpdate: applyMock, triggerRestart: vi.fn() }));
+vi.mock("#lib/api.js", () => ({ applyPluginUpdate: applyMock, triggerRestart: vi.fn() }));
 
 import PluginUpdatesModal from "./PluginUpdatesModal.svelte";
 

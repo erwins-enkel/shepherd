@@ -1,14 +1,20 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { ApiError, getApnsConfig, listPushDevices } from "$lib/api";
-  import { pushState, enablePush, disablePush, currentDeviceId, type PushStatus } from "$lib/push";
-  import type { ApnsStatus, PushDevice } from "$lib/types";
+  import { ApiError, getApnsConfig, listPushDevices } from "#lib/api.js";
+  import {
+    pushState,
+    enablePush,
+    disablePush,
+    currentDeviceId,
+    type PushStatus,
+  } from "#lib/push.js";
+  import type { ApnsStatus, PushDevice } from "#lib/types.js";
   import HighlightText from "./HighlightText.svelte";
   import SettingToggle from "./SettingToggle.svelte";
   import NotificationsApnsBlock from "./NotificationsApnsBlock.svelte";
   import NotificationsDeviceRow from "./NotificationsDeviceRow.svelte";
   import "./settings-controls.css";
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // Notifications section (#2696): native iOS push set up without a shell — the APNs key is
   // uploaded here, validated by the server and never shown again — plus every device that

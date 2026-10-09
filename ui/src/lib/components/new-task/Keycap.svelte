@@ -1,7 +1,7 @@
 <script lang="ts">
   // One hold-to-reveal keycap. Reads its whole content from the registry row —
   // never pass a key label in: that's the second list this feature exists to
-  // prevent. See $lib/keymap/newTask.ts.
+  // prevent. See #lib/keymap/newTask.ts.
   //
   // Layout contract (the reason this is not an overlay): a keycap sits IN the
   // control's own flow and REPLACES a mute glyph that was already there — a ▾
@@ -9,10 +9,10 @@
   // so nothing shifts when the reveal comes and goes. `absolute` is the
   // exception for icon-only buttons (↥, 🎙) that have no text slot to give up.
 
-  import { chordLabel } from "$lib/keymap/chord";
-  import { revealIn, revealOut } from "$lib/keymap/motion";
-  import { keymapEntry } from "$lib/keymap/newTask";
-  import type { NewTaskKeymapCtx } from "$lib/keymap/types";
+  import { chordLabel } from "#lib/keymap/chord.js";
+  import { revealIn, revealOut } from "#lib/keymap/motion.js";
+  import { keymapEntry } from "#lib/keymap/newTask.js";
+  import type { NewTaskKeymapCtx } from "#lib/keymap/types.js";
 
   let {
     id,
@@ -76,7 +76,7 @@
     text-transform: none;
     white-space: nowrap;
     /* Enter/exit are owned by the in:/out: transitions (exact spec timings, see
-       $lib/keymap/motion.ts). Only the trigger flash transitions in place. */
+       #lib/keymap/motion.ts). Only the trigger flash transitions in place. */
     transition: background-color 120ms cubic-bezier(0.2, 0.8, 0.3, 1);
   }
 

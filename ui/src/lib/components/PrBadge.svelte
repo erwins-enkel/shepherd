@@ -1,13 +1,13 @@
 <script lang="ts">
-  import type { GitState } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { setPrDraftState, mergePr, MergeRefusedError } from "$lib/api";
-  import { toasts } from "$lib/toasts.svelte";
+  import type { GitState } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { setPrDraftState, mergePr, MergeRefusedError } from "#lib/api.js";
+  import { toasts } from "#lib/toasts.svelte.js";
   import { prBadgeLabel, prBadgeIsDraft, prMergeAvailable } from "./pr-badge";
   import { mergeConfirmFromGit } from "./merge-confirm";
   import { MergeConfirmFlow } from "./merge-confirm-flow.svelte";
   import MergeConfirmHost from "./MergeConfirmHost.svelte";
-  import { prBadgeStaleMarker } from "$lib/pr-ready";
+  import { prBadgeStaleMarker } from "#lib/pr-ready.js";
   import PrBadgeMenu from "./PrBadgeMenu.svelte";
   import PrReviewRequestPopover from "./PrReviewRequestPopover.svelte";
 

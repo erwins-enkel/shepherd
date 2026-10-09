@@ -1,5 +1,11 @@
 <script lang="ts">
-  import type { Session, GitState, SessionActivity, HoldReason, LivenessState } from "$lib/types";
+  import type {
+    Session,
+    GitState,
+    SessionActivity,
+    HoldReason,
+    LivenessState,
+  } from "#lib/types.js";
   import UnitRow from "../UnitRow.svelte";
   import InfoTip from "../InfoTip.svelte";
 

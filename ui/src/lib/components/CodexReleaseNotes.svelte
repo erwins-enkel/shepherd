@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { renderCodexReleaseMarkdown } from "$lib/codex-release-notes-renderer";
+  import { renderCodexReleaseMarkdown } from "#lib/codex-release-notes-renderer.js";
 
   let {
     version,

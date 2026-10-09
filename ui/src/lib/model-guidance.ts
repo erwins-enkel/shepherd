@@ -1,7 +1,7 @@
-import { configuredModelLabel } from "$lib/model-label";
-import { isFableModel } from "$lib/provider-models";
-import { m } from "$lib/paraglide/messages";
-import type { AgentProvider } from "$lib/types";
+import { configuredModelLabel } from "#lib/model-label.js";
+import { isFableModel } from "#lib/provider-models.js";
+import { m } from "#lib/paraglide/messages.js";
+import type { AgentProvider } from "#lib/types.js";
 
 export type ModelGuidanceContext =
   "task" | "default" | "repo" | "role" | "classifier" | "downgrade";

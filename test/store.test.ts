@@ -99,6 +99,49 @@ test("session providerSessionId: update() preserves it when absent from patch, r
   expect(s.get(a.id)?.providerSessionId).toBe("");
 });
 
+test("listCodexRowsMissingProviderSessionId: launch-marked Codex rows without a native id only", () => {
+  const s = mk();
+  const want = s.create({
+    ...base,
+    herdrAgentId: "t1",
+    agentProvider: "codex",
+    codexLaunchId: "L1",
+  });
+  s.create({
+    ...base,
+    herdrAgentId: "t2",
+    agentProvider: "codex",
+    codexLaunchId: "L2",
+    providerSessionId: "x",
+  });
+  s.create({ ...base, herdrAgentId: "t3", agentProvider: "codex" }); // legacy: no launch provenance
+  s.create({ ...base, herdrAgentId: "t4", agentProvider: "claude", codexLaunchId: "L4" });
+  expect(s.listCodexRowsMissingProviderSessionId()).toEqual([
+    {
+      id: want.id,
+      worktreePath: base.worktreePath,
+      codexLaunchId: "L1",
+      createdAt: want.createdAt,
+    },
+  ]);
+});
+
+test("fillProviderSessionId writes only an empty id for the same launch, leaving updatedAt alone", () => {
+  const s = mk();
+  const a = s.create({ ...base, agentProvider: "codex", codexLaunchId: "L1" });
+  const before = s.get(a.id)!.updatedAt;
+
+  expect(s.fillProviderSessionId(a.id, "other-launch", "native")).toBe(false); // relaunched since
+  expect(s.get(a.id)?.providerSessionId).toBe("");
+
+  expect(s.fillProviderSessionId(a.id, "L1", "native")).toBe(true);
+  expect(s.get(a.id)?.providerSessionId).toBe("native");
+  expect(s.get(a.id)?.updatedAt).toBe(before);
+
+  expect(s.fillProviderSessionId(a.id, "L1", "late")).toBe(false); // never overwrites a capture
+  expect(s.get(a.id)?.providerSessionId).toBe("native");
+});
+
 test("session launchMetadata persists and legacy rows hydrate as null", () => {
   const s = mk();
   const launchMetadata = {

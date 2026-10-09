@@ -55,7 +55,7 @@ function isInteractiveSource(source: string | null): boolean {
 
 /** Every readable rollout header under `$CODEX_HOME/sessions`, newest-first by mtime, read lazily
  *  so a caller that stops early never parses the older tail. */
-function* rolloutHeaders(home: string): Generator<RolloutHeader> {
+export function* rolloutHeaders(home = codexHome()): Generator<RolloutHeader> {
   for (const { path, mtimeMs } of listRolloutFiles(home)) {
     const meta = readSessionMeta(path);
     if (meta) yield { ...meta, path, mtimeMs };
@@ -66,7 +66,7 @@ function* rolloutHeaders(home: string): Generator<RolloutHeader> {
  *  `worktreePath`, modified at/after `notBeforeMs`, whose first user turn opens with the launch
  *  marker. Multiple distinct conversations carrying the marker (e.g. a copied/forked history) are
  *  ambiguous and must stay manual. */
-export function launchSessionIdAmong(
+function launchSessionIdAmong(
   headers: Iterable<RolloutHeader>,
   worktreePath: string,
   launchId: string,
@@ -92,6 +92,58 @@ export function findCodexLaunchSessionId(
   home = codexHome(),
 ): string | null {
   return launchSessionIdAmong(rolloutHeaders(home), worktreePath, launchId, notBeforeMs);
+}
+
+/** What the boot backfill needs from the store (structural, so tests can inject it). */
+export interface ProviderSessionIdBackfillStore {
+  listCodexRowsMissingProviderSessionId(): Array<{
+    id: string;
+    worktreePath: string;
+    codexLaunchId: string;
+    createdAt: number;
+  }>;
+  fillProviderSessionId(id: string, codexLaunchId: string, providerSessionId: string): boolean;
+}
+
+/**
+ * Capture the native id of Codex rows whose launch marker never resolved live — rows that settled
+ * before the poller caught their rollout, e.g. the daemon-sourced (`vscode`) rollouts Codex 0.160
+ * wrote while capture still required `cli`. Same provenance rule as the live capture.
+ *
+ * Boot-only and bounded: ONE header walk is shared by every candidate (never one per row), the
+ * store caps the candidates, there is no walk at all without one, and it never throws — a backfill
+ * failure must not block startup. Returns the number of rows filled.
+ */
+export function backfillCodexProviderSessionIds(
+  store: ProviderSessionIdBackfillStore,
+  listHeaders: () => Iterable<RolloutHeader> = () => rolloutHeaders(),
+): number {
+  let rows: ReturnType<ProviderSessionIdBackfillStore["listCodexRowsMissingProviderSessionId"]>;
+  let headers: RolloutHeader[];
+  try {
+    rows = store.listCodexRowsMissingProviderSessionId();
+    if (rows.length === 0) return 0;
+    headers = [...listHeaders()];
+  } catch {
+    return 0;
+  }
+
+  let filled = 0;
+  for (const row of rows) {
+    try {
+      const id = launchSessionIdAmong(
+        headers,
+        row.worktreePath,
+        row.codexLaunchId,
+        row.createdAt - CODEX_ID_SKEW_MS,
+      );
+      if (id && store.fillProviderSessionId(row.id, row.codexLaunchId, id)) filled += 1;
+    } catch {
+      /* one bad row must not abort the sweep */
+    }
+  }
+  if (filled > 0) console.log(`[codex-session-id] backfilled native ids for ${filled} row(s)`);
+  return filled;
 }
 
 /** Bound disk work independently of transcript size. */

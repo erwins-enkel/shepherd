@@ -1,13 +1,16 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  backfillCodexProviderSessionIds,
   codexLaunchMarker,
   findCodexLaunchSessionId,
   findCodexRolloutById,
+  rolloutHeaders,
 } from "../src/codex-session-id";
+import { SessionStore } from "../src/store";
 
 let home: string;
 let sessionsDir: string;
@@ -209,4 +212,80 @@ test("Codex launch attribution honours the mtime floor and scans past any recenc
   expect(findCodexLaunchSessionId(CWD, "launch", 0, home)).toBe("target");
   // notBeforeMs is in ms; the target's mtime 4000s = 4_000_000 ms is older → excluded.
   expect(findCodexLaunchSessionId(CWD, "launch", 4_500_000, home)).toBeNull();
+});
+
+describe("backfillCodexProviderSessionIds", () => {
+  function codexRow(store: SessionStore, launchId: string, worktreePath = CWD) {
+    return store.create({
+      name: launchId,
+      prompt: "task",
+      repoPath: "/repo",
+      baseBranch: "main",
+      branch: null,
+      worktreePath,
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: `term-${launchId}`,
+      agentProvider: "codex",
+      codexLaunchId: launchId,
+    });
+  }
+  const nowSec = () => Math.floor(Date.now() / 1000);
+
+  test("fills a resolvable row, leaves ambiguous and rollout-less rows empty, and is idempotent", () => {
+    const store = new SessionStore(":memory:");
+    const daemon = codexRow(store, "launch-daemon");
+    const forked = codexRow(store, "launch-forked");
+    const gone = codexRow(store, "launch-gone");
+    writeRollout("rollout-d.jsonl", { id: "d", cwd: CWD, source: "vscode" }, nowSec(), [
+      launchMessage("launch-daemon"),
+    ]);
+    writeRollout("rollout-f1.jsonl", { id: "f1", cwd: CWD, source: "cli" }, nowSec(), [
+      launchMessage("launch-forked"),
+    ]);
+    writeRollout("rollout-f2.jsonl", { id: "f2", cwd: CWD, source: "cli" }, nowSec(), [
+      launchMessage("launch-forked"),
+    ]);
+
+    expect(backfillCodexProviderSessionIds(store, () => rolloutHeaders(home))).toBe(1);
+    expect(store.get(daemon.id)?.providerSessionId).toBe("d");
+    expect(store.get(forked.id)?.providerSessionId).toBe("");
+    expect(store.get(gone.id)?.providerSessionId).toBe("");
+
+    expect(backfillCodexProviderSessionIds(store, () => rolloutHeaders(home))).toBe(0);
+    expect(store.get(daemon.id)?.providerSessionId).toBe("d");
+  });
+
+  test("shares ONE header walk across rows and skips it when nothing is missing", () => {
+    const store = new SessionStore(":memory:");
+    let walks = 0;
+    const listHeaders = () => {
+      walks += 1;
+      return rolloutHeaders(home);
+    };
+    expect(backfillCodexProviderSessionIds(store, listHeaders)).toBe(0);
+    expect(walks).toBe(0);
+
+    codexRow(store, "a", "/wt/a");
+    codexRow(store, "b", "/wt/b");
+    backfillCodexProviderSessionIds(store, listHeaders);
+    expect(walks).toBe(1);
+  });
+
+  test("never throws — a failing store or walk degrades to 0", () => {
+    const broken = {
+      listCodexRowsMissingProviderSessionId: () => {
+        throw new Error("db gone");
+      },
+      fillProviderSessionId: () => false,
+    };
+    expect(backfillCodexProviderSessionIds(broken)).toBe(0);
+    const store = new SessionStore(":memory:");
+    codexRow(store, "a");
+    expect(
+      backfillCodexProviderSessionIds(store, () => {
+        throw new Error("walk failed");
+      }),
+    ).toBe(0);
+  });
 });

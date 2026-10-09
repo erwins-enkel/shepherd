@@ -125,6 +125,7 @@ import { StandalonePrCriticService } from "./standalone-critic";
 import { createIssueLogger } from "./issue-log";
 import { PlanGateService, shouldConsiderOnSettle, shouldCheckPlanDrift } from "./plan-gate";
 import { backfillCodexSpawnUsage, createCodexRolloutResolver } from "./codex-activity";
+import { backfillCodexProviderSessionIds } from "./codex-session-id";
 import { backfillRuntimeIdentity } from "./runtime-identity";
 import { AutopilotService, AUTOPILOT_LABEL } from "./autopilot";
 import { NAMER_LABEL } from "./namer";
@@ -2189,6 +2190,10 @@ deferredStarts.push(() => {
     // finalize (they book NULL = unknown). Runs after the reaps so rows just closed by them are
     // included. One shared tree walk, bounded by the store's row cap. (#1816)
     .then(() => backfillCodexSpawnUsage(store))
+    // Capture the native id of Codex task rows whose launch marker never resolved live, so their
+    // transcript, export and resume work. Before the runtime-identity fill below, which reads
+    // Codex rows by that id. Same shape: one shared walk, row-capped, never throws. (#1267)
+    .then(() => backfillCodexProviderSessionIds(store))
     // Then fill the OBSERVED runtime identity (what each agent actually ran) for rows that never
     // got one persisted — sessions that concluded before the feature existed, and rows whose live
     // write only caught one of the two fields. Same shape: one shared tree walk, row-capped,

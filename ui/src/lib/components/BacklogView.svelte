@@ -226,7 +226,7 @@
     payload ? splitHidden(payload.projects, repoConfig.hidden).hidden.length : 0,
   );
   // Hidden/visible partition of ALL repos, independent of the scope above — what the
-  // header's "Zuletzt" chips and the pinned auto-seed draw from, so typing in the
+  // header's "Zuletzt" chips and the repo grid draw from, so typing in the
   // switcher's search can't change them.
   const allSplit = $derived(
     payload ? splitHidden(payload.projects, repoConfig.hidden) : { visible: [], hidden: [] },
@@ -303,7 +303,7 @@
   // Apply an externally-supplied target (EPIC badge click) once per distinct
   // value: select its repo + switch to the Issues tab. This is an EXPLICIT user
   // action, so seeding selectedPath on mobile is desired (it opens the detail
-  // overlay) — unlike the pinned-repo seed above which deliberately skips mobile.
+  // overlay) — as the dashboard-filter seed above also does.
   // appliedTargetKey is read untracked so the effect depends only on `target`,
   // never self-retriggering and never clobbering a later manual repo switch.
   let appliedTargetKey = $state<string | null>(null);

@@ -72,6 +72,28 @@ describe("GlossaryTerm — activation-only inline disclosure", () => {
     expect(document.querySelectorAll(".gloss-inline")).toHaveLength(0);
   });
 
+  it("hover opens only after the pointer rests; a pass-through never opens", async () => {
+    render(GlossaryTerm, { id: "plan-gate", label: "Plan gate" });
+    const btn = page.getByRole("button", { name: "Plan gate" }).element();
+    const floatingOpen = () => !!document.querySelector(".gloss-tooltip:popover-open");
+    // The harness's real CDP cursor can rest where this button renders and fire a trusted
+    // pointerenter (see StatusPip.browser.test.ts); release it so only our events count.
+    btn.addEventListener("pointerenter", (e) => {
+      if (e.isTrusted)
+        btn.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "mouse" }));
+    });
+
+    btn.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+    btn.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "mouse" }));
+    await new Promise((r) => setTimeout(r, 650));
+    expect(floatingOpen()).toBe(false);
+
+    btn.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+    await new Promise((r) => setTimeout(r, 200));
+    expect(floatingOpen()).toBe(false);
+    await expect.poll(floatingOpen).toBe(true);
+  });
+
   it("pinned inline survives mouse-leave", async () => {
     render(GlossaryTerm, { id: "epic", label: "epic" });
 

@@ -64,6 +64,12 @@ describe("HeartbeatStrip trigger", () => {
     render(HeartbeatStrip, { activity: activity(), nowMs: NOW });
     const strip = document.querySelector("button.strip") as HTMLButtonElement;
     const legendOpen = () => !!document.querySelector("[role=tooltip]:popover-open");
+    // The harness's real CDP cursor can rest where the strip renders and fire a trusted
+    // pointerenter (see StatusPip.browser.test.ts); release it so only our events count.
+    strip.addEventListener("pointerenter", (e) => {
+      if (e.isTrusted)
+        strip.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "mouse" }));
+    });
     strip.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
     strip.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "mouse" }));
     await new Promise((r) => setTimeout(r, 650));

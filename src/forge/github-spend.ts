@@ -138,9 +138,11 @@ interface WindowTally {
  * The runner feeds it {@link noteOwnSpend} for every GraphQL-bucket call, and {@link noteReading}
  * for every in-query reading the GraphQL tracker accepted as its current window's — readings from
  * GitHub's other counters never reach it. Per window it sums, for each pair of consecutive
- * readings, own = what Shepherd charged in between and other = Δ`used` − own. A `used` that went
- * backwards restarts the tally. Calls still in flight at a reading land in the next interval, so
- * per-interval noise cancels over the window.
+ * readings, own = what Shepherd charged in between and other = Δ`used` − own. Calls still in
+ * flight at a reading land in the next interval, so per-interval noise cancels over the window.
+ * Readings arrive as calls complete, up to six at once: one GitHub evaluated earlier can finish
+ * after a later one. Its lower `used` is ignored — its cost stays in the running own total, so
+ * the next in-order reading takes it in.
  */
 export class GraphqlSpendLedger {
   private readonly now: () => number;
@@ -161,13 +163,10 @@ export class GraphqlSpendLedger {
   noteReading(reading: { used: number; resetAt: number }): void {
     const at = this.now();
     const w = this.window;
-    if (
-      !w ||
-      !this.last ||
-      !sameWindow(w.resetAt, reading.resetAt) ||
-      reading.used < this.last.used
-    ) {
+    if (!w || !this.last || !sameWindow(w.resetAt, reading.resetAt)) {
       this.window = { resetAt: reading.resetAt, since: at, until: at, own: 0, other: 0 };
+    } else if (reading.used < this.last.used) {
+      return; // out of order — an earlier-evaluated call that finished late
     } else {
       const own = this.ownTotal - this.last.ownTotal;
       w.own += own;

@@ -170,15 +170,27 @@ describe("GraphqlSpendLedger", () => {
     expect(l.split()).toMatchObject({ resetAt: next, ownPoints: 0, otherPoints: 0 });
   });
 
-  it("restarts the tally when used goes backwards within a window", () => {
+  it("ignores a reading that finishes out of order, keeping the tally and its coverage", () => {
     const { l, advance } = ledger();
+    const start = Date.parse("2026-10-06T15:40:30Z");
     l.noteReading({ used: 500, resetAt: RESET });
     advance(MIN);
-    l.noteReading({ used: 400, resetAt: RESET });
+    l.noteOwnSpend(2);
+    l.noteReading({ used: 600, resetAt: RESET });
+    // A query GitHub evaluated before the 600 one finishes after it.
+    l.noteOwnSpend(1);
+    l.noteReading({ used: 550, resetAt: RESET });
+    expect(l.split()).toMatchObject({ since: start, ownPoints: 2, otherPoints: 98 });
     advance(MIN);
     l.noteOwnSpend(1);
-    l.noteReading({ used: 410, resetAt: RESET });
-    expect(l.split()).toMatchObject({ ownPoints: 1, otherPoints: 9 });
+    l.noteReading({ used: 620, resetAt: RESET });
+    // The late query's point lands in the next interval: own 2 + 2, other 98 + 18.
+    expect(l.split()).toMatchObject({
+      since: start,
+      until: start + 2 * MIN,
+      ownPoints: 4,
+      otherPoints: 116,
+    });
   });
 
   it("never reports negative foreign spend", () => {

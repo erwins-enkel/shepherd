@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { anchorPopover } from "#lib/floating-anchor.js";
+  import { HOVER_OPEN_DELAY_MS } from "#lib/tooltips/statusTip.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
 
   let {
@@ -31,6 +32,15 @@
     objectUrl = url;
     return () => URL.revokeObjectURL(url);
   });
+
+  // Hover waits HOVER_OPEN_DELAY_MS (shared with statusTip) so sweeping across the
+  // toolbar doesn't flash the preview; focus still opens at once.
+  let enterTimer: ReturnType<typeof setTimeout> | null = null;
+  function cancelEnter() {
+    if (enterTimer !== null) clearTimeout(enterTimer);
+    enterTimer = null;
+  }
+  $effect(() => cancelEnter);
 
   $effect(() => {
     if (!open || !triggerEl || !popoverEl) return;
@@ -81,16 +91,23 @@
       aria-controls={previewId}
       aria-expanded={coarse ? open : undefined}
       onpointerenter={(e) => {
-        if (!coarse && e.pointerType !== "touch") open = true;
+        if (coarse || e.pointerType === "touch") return;
+        cancelEnter();
+        enterTimer = setTimeout(() => {
+          enterTimer = null;
+          open = true;
+        }, HOVER_OPEN_DELAY_MS);
       }}
       onpointerleave={(e) => {
-        if (!coarse && e.pointerType !== "touch" && !popoverEl?.contains(e.relatedTarget as Node))
-          open = false;
+        if (coarse || e.pointerType === "touch") return;
+        cancelEnter();
+        if (!popoverEl?.contains(e.relatedTarget as Node)) open = false;
       }}
       onfocus={() => {
         if (!coarse) open = true;
       }}
       onblur={() => {
+        cancelEnter();
         if (!coarse) open = false;
       }}
       onclick={(e) => {

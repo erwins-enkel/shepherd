@@ -279,3 +279,53 @@ export function browserPopoutExplanation(): TooltipExplanation {
     ],
   };
 }
+
+/** New Task "Research" mode button: what it produces and which guards it switches off. */
+export function researchModeExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_mode_research_title(),
+    summary: m.tooltip_mode_research_summary(),
+    sections: [
+      { label: m.tooltip_mode_research_output(), text: m.tooltip_mode_research_output_body() },
+      { label: m.tooltip_mode_research_guards(), text: m.tooltip_mode_research_guards_body() },
+    ],
+  };
+}
+
+/** New Task "Epic" mode button: what the draft holds and when GitHub is touched. */
+export function epicModeExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_mode_epic_title(),
+    summary: m.tooltip_mode_epic_summary(),
+    sections: [
+      { label: m.tooltip_mode_epic_draft(), text: m.tooltip_mode_epic_draft_body() },
+      { label: m.tooltip_mode_epic_github(), text: m.tooltip_mode_epic_github_body() },
+    ],
+  };
+}
+
+/** New Task "Plain" mode button: what stays and what Shepherd leaves out. */
+export function plainModeExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_mode_plain_title(),
+    summary: m.tooltip_mode_plain_summary(),
+    sections: [
+      { label: m.tooltip_mode_plain_kept(), text: m.tooltip_mode_plain_kept_body() },
+      { label: m.tooltip_mode_plain_dropped(), text: m.tooltip_mode_plain_dropped_body() },
+    ],
+  };
+}
+
+/** New Task per-task sandbox select: what each profile confines. */
+export function sandboxOverrideExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_sandbox_title(),
+    summary: m.tooltip_sandbox_summary(),
+    sections: [
+      { label: m.tooltip_sandbox_default(), text: m.tooltip_sandbox_default_body() },
+      { label: m.tooltip_sandbox_standard(), text: m.tooltip_sandbox_standard_body() },
+      { label: m.tooltip_sandbox_autonomous(), text: m.tooltip_sandbox_autonomous_body() },
+      { label: m.tooltip_sandbox_tokens(), text: m.tooltip_sandbox_tokens_body() },
+    ],
+  };
+}

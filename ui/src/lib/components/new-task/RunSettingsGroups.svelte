@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import { m } from "#lib/paraglide/messages.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import { sandboxOverrideExplanation } from "#lib/tooltips/explanations.js";
   import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import { modelOptionLabel } from "#lib/model-guidance.js";
   import ModelGuidance from "#lib/components/ModelGuidance.svelte";
@@ -221,7 +223,12 @@
           <select
             id="nt-sandbox"
             aria-label={m.newtask_sandbox_label()}
-            title={m.newtask_sandbox_hint()}
+            use:statusTip={{
+              text: sandboxOverrideExplanation(),
+              still: true,
+              stopClickPropagation: false,
+              pinOnClick: false,
+            }}
             value={sandboxProfile}
             onchange={(e) => onSandboxChange(e.currentTarget.value as "default" | SandboxProfile)}
           >
@@ -375,6 +382,7 @@
   .chev {
     position: absolute;
     right: 8px;
+    z-index: 1; /* stay above a statusTip'd select, which statusTip raises to z-index 1 */
     color: var(--color-muted);
     font-size: var(--fs-micro);
     pointer-events: none;

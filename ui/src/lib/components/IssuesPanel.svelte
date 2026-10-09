@@ -749,6 +749,7 @@
           <IssueFilterPopover
             showMine={viewer != null}
             coachTargets
+            iconOnly
             showSubIssuesToggle={false}
             authors={availableAuthors}
             labels={availableLabels}
@@ -786,7 +787,7 @@
           {/if}
         {/if}
         {#if rows.some((r) => r.kind === "epic")}
-          <EpicsListHeading {repoPath} runSummary={drain?.runSummary ?? null} {onopenautomation} />
+          <EpicsListHeading {repoPath} runSummary={drain?.runSummary ?? null} />
         {/if}
         <div
           bind:this={listEl}
@@ -886,12 +887,12 @@
 </div>
 
 <style>
-  /* List | detail (#2617). The list column is ~456px, never more than 45% of a narrow
-     Repos dialog, so the reading detail always keeps the larger share. */
+  /* List | detail (#2617). The list is for skimming and picking, the detail for reading and
+     acting: ~380px, never more than 40% of a narrow Repos dialog, so the detail keeps the rest. */
   .issues-panel {
     position: relative;
     display: grid;
-    grid-template-columns: min(456px, 45%) minmax(0, 1fr);
+    grid-template-columns: min(380px, 40%) minmax(0, 1fr);
     height: 100%;
     min-height: 0;
     background: var(--color-inset);
@@ -1083,6 +1084,9 @@
     .filter-bar :global(.filter-chip),
     .sort-chip {
       min-height: 44px;
+    }
+    .filter-bar :global(.filter-chip.icon-only) {
+      min-width: 44px;
     }
     .issues-list,
     .detail-col {

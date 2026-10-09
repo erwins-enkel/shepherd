@@ -61,6 +61,27 @@ describe("IssueFilterPopover", () => {
     expect(triggerBtn()!.getAttribute("aria-expanded")).toBe("false");
   });
 
+  it("is labelled with a chevron by default", async () => {
+    render(IssueFilterPopover, { showMine: true });
+    await expect.poll(() => triggerBtn()).toBeTruthy();
+    expect(triggerBtn()!.textContent).toContain(m.issue_filter_button());
+    expect(triggerBtn()!.querySelector(".chevron")).not.toBeNull();
+    expect(triggerBtn()!.querySelector("svg")).toBeNull();
+  });
+
+  it("iconOnly swaps the label and chevron for a funnel and keeps the count", async () => {
+    render(IssueFilterPopover, { showMine: true, iconOnly: true });
+    await expect.poll(() => triggerBtn()).toBeTruthy();
+    expect(triggerBtn()!.textContent).not.toContain(m.issue_filter_button());
+    expect(triggerBtn()!.querySelector(".chevron")).toBeNull();
+    expect(triggerBtn()!.querySelector("svg")).not.toBeNull();
+    // "mine & unassigned", "hide sub-issues" and "hide blocked" are on here: the count survives the icon.
+    expect(badgeText()).toBe("3");
+    expect(triggerBtn()!.getAttribute("aria-label")).toBe(m.issue_filter_button_aria({ count: 3 }));
+    triggerBtn()!.click();
+    await expect.poll(isOpen).toBe(true);
+  });
+
   it("click trigger opens popover; four rows render when showMine=true", async () => {
     render(IssueFilterPopover, { showMine: true });
 

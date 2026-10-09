@@ -610,13 +610,155 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     expect(hovered.backgroundColor).not.toBe(selected.backgroundColor);
   });
 
-  it("titles wrap to two lines before the ellipsis (#2638)", async () => {
-    seed([plain(1, { title: "A long title ".repeat(20) })]);
+  it("the list column is 380px wide, and at most 40% of a narrow dialog (#2950)", async () => {
+    await page.viewport(1440, 900);
+    seed([plain(1)]);
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
     await expect.poll(() => option("s:1")).not.toBeNull();
-    const title = getComputedStyle(option("s:1")!.querySelector(".issue-title")!);
-    expect(title.webkitLineClamp).toBe("2");
-    expect(title.whiteSpace).not.toBe("nowrap");
+    const width = () => document.querySelector<HTMLElement>(".list-col")!.offsetWidth;
+    expect(width()).toBe(380);
+
+    await page.viewport(700, 900);
+    await expect.poll(width).toBe(280);
+  });
+
+  it("titles wrap in full; a long unbroken name breaks instead of overflowing (#2950)", async () => {
+    seed([
+      plain(1, { title: "Short" }),
+      plain(2, { title: "A long title ".repeat(20) }),
+      plain(3, { title: `feature/${"unbroken".repeat(20)}` }),
+    ]);
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+    await expect.poll(() => option("s:3")).not.toBeNull();
+    const title = (key: string) => option(key)!.querySelector<HTMLElement>(".issue-title")!;
+    const style = getComputedStyle(title("s:2"));
+    expect(style.webkitLineClamp).toBe("none");
+    expect(style.textOverflow).not.toBe("ellipsis");
+    expect(style.overflowWrap).toBe("anywhere");
+    expect(title("s:2").offsetHeight).toBeGreaterThan(3 * title("s:1").offsetHeight);
+    const row = option("s:3")!;
+    expect(title("s:3").offsetHeight).toBeGreaterThan(title("s:1").offsetHeight);
+    expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
+  });
+
+  it("the meta line names number, running state, the label's hue dot and age (#2950)", async () => {
+    seed([
+      plain(7, {
+        labels: [ACTIVE_LABEL, "ci-gate-rot"],
+        labelColors: { "ci-gate-rot": "#d73a4a" },
+        createdAt: Date.now() - 7 * 60_000,
+      }),
+      plain(8, { labels: ["docs"], createdAt: Date.now() - 7 * 60_000 }),
+    ]);
+    render(IssuesPanel, {
+      repoPath: "/repo",
+      onnewtask: noop,
+      issueSession: (rp: string, n: number) =>
+        rp === "/repo" && n === 7 ? ({ id: "s7", desig: "TASK-7" } as Session) : null,
+    });
+    await expect.poll(() => option("s:8")).not.toBeNull();
+    const meta = (key: string) => option(key)!.querySelector<HTMLElement>(".meta")!;
+    const text = (key: string) => meta(key).textContent?.replace(/\s+/g, " ").trim();
+
+    expect(text("s:7")).toMatch(
+      new RegExp(`^#7 · ${m.issuelist_running()} · ci-gate-rot · \\d+m$`),
+    );
+    expect(meta("s:7").querySelector(".dot-running")).not.toBeNull();
+    expect(meta("s:7").querySelector(".label-dot")!.classList.contains("hued")).toBe(true);
+    expect(text("s:7")).not.toContain(ACTIVE_LABEL);
+
+    expect(text("s:8")).toMatch(/^#8 · docs · \d+m$/);
+    expect(meta("s:8").querySelector(".dot-running")).toBeNull();
+    expect(meta("s:8").querySelector(".label-dot")!.classList.contains("hued")).toBe(false);
+  });
+
+  it("an epic header reads on two lines; its children drop the epic prefix and show a held slot below the title (#2950)", async () => {
+    seed([plain(158, { title: "Stack-Angleichung" })], [summary(158)]);
+    mockEpic.mockResolvedValue({
+      repoPath: "/repo",
+      parentIssueNumber: 158,
+      parentTitle: "Stack-Angleichung",
+      source: "native",
+      children: [
+        { ...childOf(11, "Stack-Angleichung (#158): Foo bar"), state: "running" as const },
+        { ...childOf(12, "Other (#99): Baz"), order: 1 },
+      ],
+      warnings: [],
+      run: { repoPath: "/repo", parentIssueNumber: 158, mode: "auto", status: "running" },
+    });
+    render(IssuesPanel, {
+      repoPath: "/repo",
+      onnewtask: noop,
+      drain: {
+        repoPath: "/repo",
+        enabled: true,
+        paused: false,
+        reason: null,
+        detail: null,
+        queued: 0,
+        inFlight: 1,
+        max: 2,
+        epicParent: 158,
+        runSummary: {
+          leadingEpic: 158,
+          windingDown: [],
+          slots: {
+            used: 1,
+            max: 2,
+            holders: [{ sessionId: "s11", desig: "TASK-11", issueNumber: 11, epicParent: 158 }],
+          },
+          next: [],
+          after: [],
+        },
+      },
+    });
+    await expect.poll(() => option("c:158:11")).not.toBeNull();
+
+    const header = option("e:158")!;
+    const top = header.querySelector<HTMLElement>(".issue-title")!.getBoundingClientRect();
+    const badge = header.querySelector<HTMLElement>("[data-role]")!.getBoundingClientRect();
+    const bar = header.querySelector<HTMLElement>(".bar")!.getBoundingClientRect();
+    const count = header.querySelector<HTMLElement>(".count")!.getBoundingClientRect();
+    expect(header.textContent).toContain(m.epic_role_leading());
+    for (const below of [badge, bar, count])
+      expect(below.top).toBeGreaterThanOrEqual(top.bottom - 1);
+    expect(badge.right).toBeLessThanOrEqual(bar.left);
+    expect(bar.right).toBeLessThanOrEqual(count.left);
+
+    const held = option("c:158:11")!;
+    expect(held.querySelector(".title")?.textContent).toBe("Foo bar");
+    const status = held.querySelector<HTMLElement>(".status")!;
+    expect(status.textContent).toBe(m.epic_slot_held({ index: 1, max: 2 }));
+    expect(status.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+      held.querySelector<HTMLElement>(".title")!.getBoundingClientRect().bottom - 1,
+    );
+    // Another epic's number is not "the epic repeated": that title stays whole; no slot, no line.
+    expect(option("c:158:12")!.querySelector(".title")?.textContent).toBe("Other (#99): Baz");
+    expect(option("c:158:12")!.querySelector(".status")).toBeNull();
+  });
+
+  it("the filter trigger is an icon beside the search field and still opens the filters (#2950)", async () => {
+    seed([plain(1)]);
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+    await expect.poll(() => document.querySelector(".filter-bar button")).not.toBeNull();
+    const trigger = document.querySelector<HTMLButtonElement>(".filter-bar button")!;
+    const search = document.querySelector<HTMLElement>(".issue-filter")!;
+
+    // No "Filters" label or ▾ — the funnel and the active-count badge only.
+    expect(trigger.textContent).not.toContain(m.issue_filter_button());
+    expect(trigger.textContent).not.toContain("▾");
+    expect(trigger.querySelector("svg")).not.toBeNull();
+    const count = Number(trigger.querySelector(".badge")?.textContent ?? 0);
+    expect(trigger.getAttribute("aria-label")).toBe(m.issue_filter_button_aria({ count }));
+    const t = trigger.getBoundingClientRect();
+    const f = search.getBoundingClientRect();
+    expect(f.right).toBeLessThanOrEqual(t.left);
+    expect(Math.abs(t.top + t.height / 2 - (f.top + f.height / 2))).toBeLessThan(2);
+
+    trigger.click();
+    await expect
+      .poll(() => document.querySelector("[popover].filter-popover:popover-open"))
+      .not.toBeNull();
   });
 
   it("↑/↓ move the selection, → expands an epic and A starts a task", async () => {
@@ -713,7 +855,7 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
       live["/repo#42"] = { id: "s42", desig: "TASK-42" } as Session;
       await expect.poll(() => chip()?.textContent).toBe(m.issuetask_state_claimed());
       expect(chip()!.classList.contains("claimed")).toBe(true);
-      expect(dot("s:42")?.getAttribute("aria-label")).toBe(m.issuetask_state_claimed());
+      expect(option("s:42")?.querySelector(".meta")?.textContent).toContain(m.issuelist_running());
       expect(dot("s:43")).toBeNull();
 
       expect(openBtn()!.textContent).toBe(m.epic_run_open_session());
@@ -863,12 +1005,20 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     await expect.poll(() => option("e:20")?.textContent).toContain(m.epic_role_leading());
     expect(option("e:10")?.textContent).toContain(m.epic_role_winding());
     await expect.element(page.getByText(m.issuespanel_epics_one_leads())).toBeInTheDocument();
-    await page.getByRole("button", { name: m.issuespanel_slots_change(), exact: true }).click();
-    expect(onopenautomation).toHaveBeenCalled();
+    // The list heading shows the bare "used/max" with −/+ (#2950); the way into Automation is
+    // the overview's "change agent slots".
+    const slots = document.querySelector<HTMLElement>(".epics-heading .count")!;
+    expect(slots.textContent).toBe("1/1");
+    expect(slots.getAttribute("aria-label")).toBe(m.issuespanel_slots_aria({ used: 1, max: 1 }));
+    expect(
+      document.querySelector(`.epics-heading [role=group][aria-label="${m.slotstepper_label()}"]`),
+    ).not.toBeNull();
     // Nothing selected yet: the repo overview names the leading epic (#2622).
     await expect
       .poll(() => document.querySelector("[data-repo-run] .run-state")?.textContent)
       .toContain(m.repooverview_leading({ epic: 20, state: m.epic_run_state_waiting_slot() }));
+    await page.getByRole("button", { name: m.repooverview_change_slots(), exact: true }).click();
+    expect(onopenautomation).toHaveBeenCalled();
 
     // A (#10) is expanded by default (topmost epic): its running child holds the slot.
     await expect

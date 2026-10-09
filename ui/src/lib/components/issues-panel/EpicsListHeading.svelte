@@ -2,20 +2,18 @@
   import type { DrainRunSummary } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
-  import { epicLeadExplanation } from "#lib/tooltips/explanations.js";
-  import GlossaryText from "../GlossaryText.svelte";
+  import { agentSlotExplanation, epicLeadExplanation } from "#lib/tooltips/explanations.js";
   import SlotStepper, { slotCap } from "./SlotStepper.svelte";
 
-  // Heading over the backlog list's epics (#2620): names the one-epic-leads rule and the repo's
-  // agent-slot use, with −/+ for the cap (maxAuto) and a link to it in the Automation tab.
+  // Heading over the backlog list's epics (#2620): names the one-epic-leads rule and, at the
+  // right, the repo's agent-slot use as "used/max" with −/+ for the cap (maxAuto). Kept to the
+  // bare count so it fits the narrow list column; the label lives in the aria-label and tooltip.
   let {
     repoPath,
     runSummary = null,
-    onopenautomation = undefined,
   }: {
     repoPath: string;
     runSummary?: DrainRunSummary | null;
-    onopenautomation?: () => void;
   } = $props();
 </script>
 
@@ -28,19 +26,17 @@
   >
   {#if runSummary}
     <span class="slots">
-      <GlossaryText
-        text={m.issuespanel_slots({
+      <span
+        class="count"
+        role="img"
+        aria-label={m.issuespanel_slots_aria({
           used: runSummary.slots.used,
           max: slotCap(repoPath, runSummary.slots.max),
         })}
-      />
+        use:statusTip={{ text: agentSlotExplanation(), placement: "bottom" }}
+        >{runSummary.slots.used}/{slotCap(repoPath, runSummary.slots.max)}</span
+      >
       <SlotStepper {repoPath} max={runSummary.slots.max} />
-      {#if onopenautomation}
-        ·
-        <button class="change" type="button" onclick={onopenautomation}
-          >{m.issuespanel_slots_change()}</button
-        >
-      {/if}
     </span>
   {/if}
 </div>
@@ -66,30 +62,12 @@
   }
 
   .slots {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
     color: var(--color-faint);
   }
-
-  /* Text-link recipe (as IssuesPanel's .retry-link). */
-  .change {
-    padding: 0;
-    background: transparent;
-    border: 0;
-    color: var(--color-muted);
-    font: inherit;
-    letter-spacing: inherit;
-    text-transform: inherit;
-    text-decoration: underline;
-    cursor: pointer;
-  }
-  .change:hover,
-  .change:focus-visible {
-    color: var(--color-amber);
-    outline: none;
-  }
-
-  @media (max-width: 768px), (pointer: coarse) {
-    .change {
-      min-height: 32px;
-    }
+  .count {
+    letter-spacing: 0.08em;
   }
 </style>

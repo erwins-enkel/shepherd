@@ -761,6 +761,93 @@ function worstChecks(states: ChecksState[]): ChecksState {
   return "none";
 }
 
+/** The `repository{…}` node of the counts query → RepoCounts. Shared by the single-repo and
+ *  aliased-batch paths. */
+export function repoToCounts(repo: CountsRepositoryNode | null | undefined): RepoCounts {
+  const issues = repo?.issues?.totalCount;
+  const prs = repo?.pullRequests?.totalCount;
+  const openPRs = typeof prs === "number" ? prs : null;
+
+  // Open-PR breakdown for the repo-list row. We fetch only the first 100 open
+  // PRs (one page — no extra request); each node is classified once. `regular`
+  // is derived from the authoritative `totalCount` minus the bot kinds (clamped
+  // at 0), NOT by counting "regular" nodes — so a repo with >100 open PRs
+  // classifies the first page and its unfetched tail safely falls into
+  // `regular` rather than silently vanishing.
+  let prKinds: RepoCounts["prKinds"] = null;
+  if (openPRs !== null) {
+    const kinds = (repo?.pullRequests?.nodes ?? [])
+      .filter((n): n is NonNullable<typeof n> => !!n)
+      .map((n) =>
+        classifyPr({
+          author: n.author?.login ?? "",
+          title: n.title ?? "",
+          headRefName: n.headRefName ?? undefined,
+        }),
+      );
+    const release = kinds.filter((k) => k === "release").length;
+    const dependabot = kinds.filter((k) => k === "dependabot").length;
+    prKinds = { release, dependabot, regular: Math.max(0, openPRs - release - dependabot) };
+  }
+
+  return {
+    openIssues: typeof issues === "number" ? issues : null,
+    openPRs,
+    ciStatus: mapRollupState(repo?.defaultBranchRef?.target?.statusCheckRollup?.state),
+    prKinds,
+  };
+}
+
+type CountsRepositoryNode = {
+  issues?: { totalCount?: number };
+  pullRequests?: {
+    totalCount?: number;
+    nodes?: Array<{
+      author?: { login?: string } | null;
+      title?: string;
+      headRefName?: string;
+    } | null>;
+  };
+  defaultBranchRef?: {
+    target?: { statusCheckRollup?: { state?: string } | null } | null;
+  } | null;
+};
+
+const COUNTS_SELECTION =
+  "issues(states:OPEN){totalCount} pullRequests(states:OPEN, first:100){ totalCount nodes{ author{login} title headRefName } } defaultBranchRef{target{... on Commit{statusCheckRollup{state}}}}";
+
+/** Max repos per aliased counts query. */
+export const COUNTS_BATCH_SIZE = 40;
+
+/**
+ * Counts for several repos in ONE aliased GraphQL query (#2879). Slugs GitHub does not resolve
+ * (missing/renamed) are absent from the result so the caller can fall back per repo. Throws
+ * when the call itself fails or the GraphQL bucket is backed off.
+ */
+export async function listBacklogCountsBatch(
+  run: GhRunner,
+  slugs: string[],
+): Promise<Map<string, RepoCounts>> {
+  if (graphRateLimit.blocked()) throw new Error("graphql rate limit backoff");
+  const parts = slugs.map((slug, i) => {
+    const [owner, name] = slug.split("/");
+    return `r${i}:repository(owner:${JSON.stringify(owner)},name:${JSON.stringify(name)}){${COUNTS_SELECTION}}`;
+  });
+  const out = await run([
+    "api",
+    "graphql",
+    "-f",
+    `query=${withRateLimit(`query{${parts.join(" ")}}`)}`,
+  ]);
+  const data = (JSON.parse(out) as { data?: Record<string, CountsRepositoryNode | null> }).data;
+  const result = new Map<string, RepoCounts>();
+  slugs.forEach((slug, i) => {
+    const node = data?.[`r${i}`];
+    if (node) result.set(slug, repoToCounts(node));
+  });
+  return result;
+}
+
 /** GitHub forge driven through the `gh` CLI (operator's existing auth). */
 export class GithubForge implements GitForge {
   readonly kind = "github" as const;
@@ -998,58 +1085,8 @@ export class GithubForge implements GitForge {
       if (isRateLimitError(err)) return this.listBacklogCountsRest();
       throw err;
     }
-    const json = JSON.parse(out) as {
-      data?: {
-        repository?: {
-          issues?: { totalCount?: number };
-          pullRequests?: {
-            totalCount?: number;
-            nodes?: Array<{
-              author?: { login?: string } | null;
-              title?: string;
-              headRefName?: string;
-            } | null>;
-          };
-          defaultBranchRef?: {
-            target?: { statusCheckRollup?: { state?: string } | null } | null;
-          } | null;
-        };
-      };
-    };
-
-    const repo = json.data?.repository;
-    const issues = repo?.issues?.totalCount;
-    const prs = repo?.pullRequests?.totalCount;
-    const openPRs = typeof prs === "number" ? prs : null;
-
-    // Open-PR breakdown for the repo-list row. We fetch only the first 100 open
-    // PRs (one page — no extra request); each node is classified once. `regular`
-    // is derived from the authoritative `totalCount` minus the bot kinds (clamped
-    // at 0), NOT by counting "regular" nodes — so a repo with >100 open PRs
-    // classifies the first page and its unfetched tail safely falls into
-    // `regular` rather than silently vanishing.
-    let prKinds: RepoCounts["prKinds"] = null;
-    if (openPRs !== null) {
-      const kinds = (repo?.pullRequests?.nodes ?? [])
-        .filter((n): n is NonNullable<typeof n> => !!n)
-        .map((n) =>
-          classifyPr({
-            author: n.author?.login ?? "",
-            title: n.title ?? "",
-            headRefName: n.headRefName ?? undefined,
-          }),
-        );
-      const release = kinds.filter((k) => k === "release").length;
-      const dependabot = kinds.filter((k) => k === "dependabot").length;
-      prKinds = { release, dependabot, regular: Math.max(0, openPRs - release - dependabot) };
-    }
-
-    return {
-      openIssues: typeof issues === "number" ? issues : null,
-      openPRs,
-      ciStatus: mapRollupState(repo?.defaultBranchRef?.target?.statusCheckRollup?.state),
-      prKinds,
-    };
+    const json = JSON.parse(out) as { data?: { repository?: CountsRepositoryNode } };
+    return repoToCounts(json.data?.repository);
   }
 
   /** Size nested GraphQL connections from existing counts (#2845). Counts are advisory:

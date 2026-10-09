@@ -2,7 +2,7 @@ import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { detectForge } from "./forge";
 import { makeForgeMemo } from "./forge/resolve";
-import type { GhRunner } from "./forge/github";
+import { COUNTS_BATCH_SIZE, listBacklogCountsBatch, type GhRunner } from "./forge/github";
 import { EMPTY_BACKLOG_COUNTS } from "./forge/types";
 import type { ForgeMap, GitForge, RepoCounts } from "./forge/types";
 import { Semaphore } from "./semaphore";
@@ -66,6 +66,7 @@ export class CountsService {
   /** Bounds simultaneous fetches across both the request path and the warmer. */
   private readonly gate: Semaphore;
   private readonly revisions = new Map<string, number>();
+  private readonly pending: PendingFetch[] = [];
 
   constructor(
     private readonly forges: ForgeMap,
@@ -107,17 +108,17 @@ export class CountsService {
   }
 
   /** Read-through: serve a TTL-fresh cached value, else load it. */
-  async counts(repoPath: string): Promise<RepoCounts> {
+  async counts(repoPath: string, trigger = "read-through"): Promise<RepoCounts> {
     const entry = this.entry(repoPath);
     const slug = this.githubSlug(repoPath);
     const fpKey = slug ? this.readCache?.contentKey("counts", slug) : null;
     if (entry && fpKey != null && entry.contentKey === fpKey) {
       if (this.readCache?.expired(entry) && this.readCache.canRefresh())
-        void this.load(repoPath, true);
+        void this.load(repoPath, true, trigger);
       return entry.value;
     }
     if (entry && fpKey == null && this.now() - entry.at < TTL_MS) return entry.value;
-    return this.load(repoPath);
+    return this.load(repoPath, false, trigger);
   }
 
   private now(): number {
@@ -168,11 +169,15 @@ export class CountsService {
    * successful warm. A genuinely expired entry still falls back to a live fetch
    * on the request path, so persistent failures eventually surface as null.
    */
-  async refresh(repoPath: string): Promise<RepoCounts> {
-    return this.load(repoPath, true);
+  async refresh(repoPath: string, trigger = "refresh"): Promise<RepoCounts> {
+    return this.load(repoPath, true, trigger);
   }
 
-  private load(repoPath: string, preserveOnError = false): Promise<RepoCounts> {
+  private load(
+    repoPath: string,
+    preserveOnError = false,
+    trigger = "unknown",
+  ): Promise<RepoCounts> {
     const slug = this.githubSlug(repoPath);
     // Two local clones of one GitHub repo share one fetch: key by slug, fall back to path.
     const key = slug ?? repoPath;
@@ -185,43 +190,41 @@ export class CountsService {
     const existing = this.inflight.get(key);
     if (existing) return existing;
 
-    const promise = this.gate
-      .run(() => this.fetch(repoPath))
-      .then(
-        (v) => {
-          if (
-            this.inflight.get(key) === promise &&
-            (!slug || revision === this.readCache?.revision(slug))
-          ) {
-            this.cache.set(key, { at: this.now(), value: v, contentKey: fpKey });
-            if (slug) this.readCache?.put("counts", slug, fpKey, v);
-            this.inflight.delete(key);
-          }
-          return v;
-        },
-        () => {
-          const current =
-            this.inflight.get(key) === promise &&
-            (!slug || revision === this.readCache?.revision(slug));
-          if (this.inflight.get(key) === promise) this.inflight.delete(key);
-          const prev = this.entry(repoPath);
-          if (preserveOnError && prev && !slug) return prev.value;
-          const value = preserveOnError && prev ? prev.value : NULL_COUNTS;
-          if (current)
-            this.cache.set(key, {
-              at: this.now(),
-              value,
-              contentKey: fpKey,
-              ...(slug ? { negative: true, revision } : {}),
-            });
-          return value;
-        },
-      );
+    const promise = this.fetch(repoPath, trigger).then(
+      (v) => {
+        if (
+          this.inflight.get(key) === promise &&
+          (!slug || revision === this.readCache?.revision(slug))
+        ) {
+          this.cache.set(key, { at: this.now(), value: v, contentKey: fpKey });
+          if (slug) this.readCache?.put("counts", slug, fpKey, v);
+          this.inflight.delete(key);
+        }
+        return v;
+      },
+      () => {
+        const current =
+          this.inflight.get(key) === promise &&
+          (!slug || revision === this.readCache?.revision(slug));
+        if (this.inflight.get(key) === promise) this.inflight.delete(key);
+        const prev = this.entry(repoPath);
+        if (preserveOnError && prev && !slug) return prev.value;
+        const value = preserveOnError && prev ? prev.value : NULL_COUNTS;
+        if (current)
+          this.cache.set(key, {
+            at: this.now(),
+            value,
+            contentKey: fpKey,
+            ...(slug ? { negative: true, revision } : {}),
+          });
+        return value;
+      },
+    );
     this.inflight.set(key, promise);
     return promise;
   }
 
-  private async fetch(repoPath: string): Promise<RepoCounts> {
+  private async fetch(repoPath: string, trigger: string): Promise<RepoCounts> {
     // Lightweight repos have no remote forge — skip counts regardless of origin URL.
     // Read repoMode per call so a runtime toggle propagates without a restart. (This is
     // a config gate, NOT a forge-kind check: detectForge still yields a GithubForge for a
@@ -230,8 +233,65 @@ export class CountsService {
 
     const forge = this.resolveForgeCached(repoPath);
     if (!forge) return NULL_COUNTS;
+    if (forge.kind === "github" && forge.slug) return this.batched(forge, trigger);
 
-    // Each adapter answers in its own way (GitHub GraphQL / Gitea REST / Local null).
-    return forge.listBacklogCounts();
+    // Each adapter answers in its own way (Gitea REST / Local null).
+    return this.gate.run(() => forge.listBacklogCounts());
   }
+
+  /** GitHub fetches requested in the same tick are collected and sent as aliased queries of up
+   *  to {@link COUNTS_BATCH_SIZE} repos (#2879); a lone repo, or one the batch could not answer,
+   *  uses its own query. */
+  private batched(forge: GitForge, trigger: string): Promise<RepoCounts> {
+    return new Promise((resolve, reject) => {
+      this.pending.push({ forge, trigger, resolve, reject });
+      if (this.pending.length === 1) setTimeout(() => this.flush(), 0);
+    });
+  }
+
+  private flush(): void {
+    const items = this.pending.splice(0);
+    if (items.length > 1) {
+      const by = new Map<string, number>();
+      for (const i of items) by.set(i.trigger, (by.get(i.trigger) ?? 0) + 1);
+      const who = [...by].map(([t, n]) => `${t}×${n}`).join(", ");
+      console.log(`[backlog] counts refresh: ${items.length} repos (${who})`);
+    }
+    for (let i = 0; i < items.length; i += COUNTS_BATCH_SIZE)
+      void this.runBatch(items.slice(i, i + COUNTS_BATCH_SIZE));
+  }
+
+  private async runBatch(items: PendingFetch[]): Promise<void> {
+    let result = new Map<string, RepoCounts>();
+    if (items.length > 1) {
+      try {
+        result = await this.gate.run(() =>
+          listBacklogCountsBatch(
+            this.run,
+            items.map((i) => i.forge.slug as string),
+          ),
+        );
+      } catch {
+        // fall through to per-repo queries
+      }
+    }
+    await Promise.all(
+      items.map(async (i) => {
+        const hit = result.get(i.forge.slug as string);
+        if (hit) return i.resolve(hit);
+        try {
+          i.resolve(await this.gate.run(() => i.forge.listBacklogCounts()));
+        } catch (err) {
+          i.reject(err);
+        }
+      }),
+    );
+  }
+}
+
+interface PendingFetch {
+  forge: GitForge;
+  trigger: string;
+  resolve: (v: RepoCounts) => void;
+  reject: (e: unknown) => void;
 }

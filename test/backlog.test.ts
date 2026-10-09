@@ -656,3 +656,27 @@ test("CountsService: two clones of one slug share one in-flight fetch", async ()
   expect(r2.openIssues).toBe(4);
   expect(calls.filter((c) => c.includes("graphql")).length).toBe(1);
 });
+
+// Several uncovered repos refreshed together → one aliased query (#2879)
+test("CountsService: concurrent refreshes of different repos go out as one aliased query", async () => {
+  const dirs = [1, 2, 3].map((n) =>
+    gitInit(join(tmpBase, `batch-${n}`), `https://github.com/o/b${n}`),
+  );
+  const queries: string[] = [];
+  const run: GhRunner = async (args) => {
+    const q = args.find((a) => a.startsWith("query=")) ?? "";
+    queries.push(q);
+    return JSON.stringify({
+      data: Object.fromEntries(
+        [0, 1, 2].map((i) => [
+          `r${i}`,
+          { issues: { totalCount: i + 1 }, pullRequests: { totalCount: 0, nodes: [] } },
+        ]),
+      ),
+    });
+  };
+  const svc = new CountsService({}, run);
+  const res = await Promise.all(dirs.map((d) => svc.refresh(d)));
+  expect(queries.length).toBe(1);
+  expect(res.map((r) => r.openIssues).sort()).toEqual([1, 2, 3]);
+});

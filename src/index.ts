@@ -3791,7 +3791,7 @@ const broadcastBacklog = async () =>
   events.emit(
     "backlog:update",
     await buildBacklogPayload({
-      counts: (p) => backlog.counts(p),
+      counts: (p) => backlog.counts(p, "api-read"),
       resolveForge,
       lastUsedByRepo: () => store.lastUsedByRepo(),
       recentCountsByRepo: (since) => store.recentSessionCountsByRepo(since),
@@ -3821,7 +3821,7 @@ async function applyFingerprintChanges(issueSlugs: Set<string>, refresh: string[
     }
   }
   if (refresh.length === 0) return;
-  await Promise.all(refresh.map((path) => backlog.refresh(path)));
+  await Promise.all(refresh.map((path) => backlog.refresh(path, "fingerprint-plan")));
   if (presence.hasClients()) await broadcastBacklog();
 }
 // The reconcile and count re-fetches run off the fingerprint's own run, so an operator view
@@ -3878,7 +3878,7 @@ events.subscribe((event, data) => {
 const backlogPoller = new BacklogPoller(
   () => listRepos(config.repoRoot),
   resolveForge,
-  (dir) => backlog.refresh(dir),
+  (dir) => backlog.refresh(dir, "backlog-poller"),
   90_000,
   broadcastBacklog,
   // Broad scans wait for the first fingerprint and the reserve; rehydrated counts stay readable.
@@ -4067,7 +4067,7 @@ const appDeps: AppDeps = {
   // piggyback on an in-flight pre-merge warm fetch and broadcast slightly stale
   // counts; the next warm tick reconciles. Acceptable for a freshness nudge.
   refreshBacklog: async (dir) => {
-    await backlog.refresh(listReposPathForReal(dir, config.repoRoot));
+    await backlog.refresh(listReposPathForReal(dir, config.repoRoot), "refresh-backlog");
     await broadcastBacklog();
   },
   distiller,

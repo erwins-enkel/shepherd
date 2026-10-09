@@ -5860,5 +5860,5 @@
   "gloss_agent_time_term": "agent time",
   "gloss_agent_time_def": "The summed run time of every agent session that worked on an epic's steps. Parallel agents each count in full, so it can exceed how long the epic has run.",
   "feat_epic_timing_title": "See how long an epic runs and when it lands",
-  "feat_epic_timing_body": "Hover the EPIC badge: how long the [[epic-clock|epic clock]] has run, the [[agent-time|agent time]] behind it, when the epic is forecast to land and how sure that is, and where each step stands. The badge's meter now shows which step is running."
+  "feat_epic_timing_body": "Hover the EPIC badge: how long the [[epic-clock|epic clock]] has run, the [[agent-time|agent time]] behind it, when the epic is forecast to land and how sure that is, and where each step stands. The badge's meter now shows which step is running. In Repos, an epic's detail adds time tiles, a timeline of every step and each step's duration."
 }

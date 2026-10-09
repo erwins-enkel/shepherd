@@ -5860,5 +5860,5 @@
   "gloss_agent_time_term": "Agentenzeit",
   "gloss_agent_time_def": "Die summierte Laufzeit aller Agenten-Sitzungen an den Teilschritten eines Epics. Parallele Agenten zählen jeweils voll, daher kann sie länger sein als die Laufzeit des Epics.",
   "feat_epic_timing_title": "Sehen, wie lange ein Epic läuft und wann es landet",
-  "feat_epic_timing_body": "Fahr über das EPIC-Badge: wie lange die [[epic-clock|Epic-Uhr]] läuft, die [[agent-time|Agentenzeit]] dahinter, wann das Epic voraussichtlich landet und wie sicher das ist, und wo jeder Teilschritt steht. Der Balken im Badge zeigt jetzt, welcher Teilschritt gerade läuft."
+  "feat_epic_timing_body": "Fahr über das EPIC-Badge: wie lange die [[epic-clock|Epic-Uhr]] läuft, die [[agent-time|Agentenzeit]] dahinter, wann das Epic voraussichtlich landet und wie sicher das ist, und wo jeder Teilschritt steht. Der Balken im Badge zeigt jetzt, welcher Teilschritt gerade läuft. In Repos zeigt das Epic-Detail dazu Zeit-Kacheln, eine Zeitleiste aller Teilschritte und die Dauer jedes Teilschritts."
 }

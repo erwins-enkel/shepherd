@@ -244,8 +244,12 @@ describe("AppOverlays — Repos selection", () => {
 
     render(AppOverlays, props);
 
-    await expect.element(page.getByText("filtered-link", { exact: true })).toBeVisible();
-    expect(document.querySelectorAll(".project-row")).toHaveLength(2);
+    // The header switcher names the open repo; its popover lists both and marks it.
+    await expect
+      .poll(() => document.querySelector(".rs-trigger .rs-name")?.textContent?.trim())
+      .toBe("filtered-link");
+    document.querySelector<HTMLButtonElement>(".rs-trigger")!.click();
+    await expect.poll(() => document.querySelectorAll(".project-row").length).toBe(2);
     expect(document.querySelector(".project-row.sel .row-name")?.textContent).toBe("filtered-link");
   });
 });

@@ -24,6 +24,7 @@ import {
   filterProjects,
   tabForFilters,
   partitionRecents,
+  repoOwnerName,
   effectiveHidden,
   splitHidden,
   RECENT_LIMIT,
@@ -338,6 +339,28 @@ describe("filterProjects — query search", () => {
     expect(
       filterProjects(projects, { hasIssues: false, hasPRs: false, query: "zzz-no-match" }),
     ).toEqual([]);
+  });
+});
+
+describe("repoOwnerName", () => {
+  it("splits an owner/repo slug into owner + the row's path-basename name", () => {
+    const p = { ...project("/home/me/repos/calendar", 0, 0), slug: "erwins-enkel/calendar" };
+    expect(repoOwnerName(p)).toEqual({ owner: "erwins-enkel", name: "calendar" });
+  });
+
+  it("owner is null when the slug has no owner segment; name falls back to the basename", () => {
+    const p = { ...project("/home/me/repos/solo/", 0, 0), slug: "solo" };
+    expect(repoOwnerName(p)).toEqual({ owner: null, name: "solo" });
+  });
+
+  it("owner is null for an unresolved (null) slug", () => {
+    const p = { ...project("/r/x", 0, 0), slug: null };
+    expect(repoOwnerName(p)).toEqual({ owner: null, name: "x" });
+  });
+
+  it("keeps a multi-segment owner (nested group) intact", () => {
+    const p = { ...project("/r/x", 0, 0), slug: "group/sub/x" };
+    expect(repoOwnerName(p)).toEqual({ owner: "group/sub", name: "x" });
   });
 });
 

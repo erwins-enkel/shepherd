@@ -24,23 +24,17 @@ import {
   parseStored,
   clampModalWidth,
   clampModalHeight,
-  clampSidebarWidth,
   MODAL_MIN_W,
   MODAL_MIN_H,
   OVERLAY_PAD,
-  SIDEBAR_MIN,
-  SIDEBAR_MAX,
-  DETAIL_MIN,
 } from "./backlog-layout.svelte";
 
 const KEY_W = "shepherd:repos-modal-w";
 const KEY_H = "shepherd:repos-modal-h";
-const KEY_SB = "shepherd:repos-sidebar-w";
 
 beforeEach(() => {
   localStorageMock.clear();
   backlogLayout.resetModal();
-  backlogLayout.resetSidebar();
   localStorageMock.clear(); // clear side-effect writes from the resets above
 });
 
@@ -107,26 +101,6 @@ describe("clampModalHeight", () => {
   });
 });
 
-describe("clampSidebarWidth", () => {
-  it("clamps below the minimum up to SIDEBAR_MIN", () => {
-    expect(clampSidebarWidth(50, 1600)).toBe(SIDEBAR_MIN);
-  });
-
-  it("clamps to SIDEBAR_MAX when the split is wide", () => {
-    expect(clampSidebarWidth(9999, 4000)).toBe(SIDEBAR_MAX);
-  });
-
-  it("leaves the detail pane at least DETAIL_MIN (narrow split lowers the max)", () => {
-    // max = min(SIDEBAR_MAX, innerW - DETAIL_MIN) = min(560, 800-380) = 420
-    expect(clampSidebarWidth(9999, 800)).toBe(800 - DETAIL_MIN);
-  });
-
-  it("passes through and rounds a value inside the range", () => {
-    expect(clampSidebarWidth(300, 1600)).toBe(300);
-    expect(clampSidebarWidth(300.4, 1600)).toBe(300);
-  });
-});
-
 // ---------------------------------------------------------------------------
 // Store: set / commit / reset / localStorage
 // ---------------------------------------------------------------------------
@@ -135,7 +109,6 @@ describe("backlogLayout store", () => {
   it("starts null (defaults) with unset localStorage", () => {
     expect(backlogLayout.width).toBe(null);
     expect(backlogLayout.height).toBe(null);
-    expect(backlogLayout.sidebar).toBe(null);
   });
 
   it("setModal updates without persisting", () => {
@@ -169,26 +142,13 @@ describe("backlogLayout store", () => {
     expect(store[KEY_H]).toBeUndefined();
   });
 
-  it("setSidebar / commitSidebar / resetSidebar round-trip", () => {
-    backlogLayout.setSidebar(360);
-    expect(backlogLayout.sidebar).toBe(360);
-    expect(store[KEY_SB]).toBeUndefined();
-    backlogLayout.commitSidebar();
-    expect(store[KEY_SB]).toBe("360");
-    backlogLayout.resetSidebar();
-    expect(backlogLayout.sidebar).toBe(null);
-    expect(store[KEY_SB]).toBeUndefined();
-  });
-
   it("commit swallows storage errors (unavailable / private mode)", () => {
     backlogLayout.setModal(1000, 700);
-    backlogLayout.setSidebar(300);
     const orig = localStorageMock.setItem;
     localStorageMock.setItem = () => {
       throw new Error("QuotaExceeded");
     };
     expect(() => backlogLayout.commitModal()).not.toThrow();
-    expect(() => backlogLayout.commitSidebar()).not.toThrow();
     localStorageMock.setItem = orig;
   });
 });

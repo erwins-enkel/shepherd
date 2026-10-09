@@ -28,6 +28,17 @@ These fire when the dashboard body has focus — not while typing in a field.
 | `r` | Open the Repos / backlog view |
 | `Enter` | Return keyboard focus to the terminal |
 
+## Repos dialog
+
+Inside the Repos dialog on desktop (opened with `r` above), the repo name in the header opens the repo switcher.
+
+| Keys | Action |
+| --- | --- |
+| `r` | Open the repo switcher (not while typing in a field) |
+| `↓` / `↑` | In the switcher: move from the search into the list and between repos |
+| `Enter` | Open the first match from the search, or the focused repo |
+| `Esc` | Close the switcher (clears the search first, if it has text) — the dialog stays open |
+
 ## Switch sessions while the terminal is focused
 
 Except for `Alt+↑` / `Alt+↓`, the Alt combos work even while the terminal owns the keyboard, so you can move around the herd without leaving the active session. On macOS the modifier is ⌥ Option, and matching is on the physical key (Option changes the character that would be typed).

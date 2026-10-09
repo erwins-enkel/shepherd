@@ -42,6 +42,17 @@ describe("BacklogTabBar Overview button (#2950)", () => {
     expect(row.right - ff.getBoundingClientRect().right).toBeLessThan(16);
   });
 
+  it("ends the desktop row when fast-forward lives in the dialog header (showFf off)", async () => {
+    mount({ showFf: false });
+    expect(page.getByRole("button", { name: m.backlog_ff_main_title() }).elements()).toHaveLength(
+      0,
+    );
+    await expect.element(overview()).toBeVisible();
+    const row = document.querySelector<HTMLElement>(".tab-bar")!.getBoundingClientRect();
+    const ov = overview().element().getBoundingClientRect();
+    expect(row.right - ov.right).toBeLessThan(16);
+  });
+
   it("is lit while the overview shows and dims once an entry is selected", async () => {
     mount();
     await expect.element(overview()).toHaveAttribute("aria-pressed", "true");

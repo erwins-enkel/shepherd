@@ -98,6 +98,18 @@ function projectName(p: BacklogProject): string {
 }
 
 /**
+ * The switcher trigger's two lines: the repo name a row displays and, when the
+ * slug is `owner/repo`, the owner shown small above it. `owner` is `null` when
+ * the slug carries no owner segment (non-forge / not yet resolved).
+ */
+export function repoOwnerName(p: BacklogProject): { owner: string | null; name: string } {
+  const slug = p.slug ?? "";
+  const slash = slug.lastIndexOf("/");
+  const owner = slash > 0 ? slug.slice(0, slash) : null;
+  return { owner, name: projectName(p) };
+}
+
+/**
  * Split the (already filtered) repo list into the "recently worked on" group
  * and the rest. Ranking criteria are identical to RepoSelect's pinned recents:
  * agents run in the recent window (desc), then most-recently-used (desc), then

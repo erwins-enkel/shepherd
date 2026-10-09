@@ -347,7 +347,6 @@
   "slash_menu_label": "Slash-Befehle",
   "slash_menu_empty": "keine passenden Befehle",
   "repos_resize_modal": "Ziehen zum Anpassen des Repos-Fensters · Doppelklick zum Zurücksetzen",
-  "repos_resize_sidebar": "Ziehen zum Anpassen der Repository-Liste · Doppelklick zum Zurücksetzen",
   "reposelect_placeholder": "Repo auswählen…",
   "reposelect_filter_placeholder": "filtern…",
   "reposelect_no_matches": "keine Treffer",
@@ -5877,5 +5876,15 @@
   "epicdetail_basis_order_parallel": "Reihenfolge aus den Abhängigkeiten; bei {slots} [[agent-slot|Agent-Plätzen]] laufen bis zu {slots} Teilschritte gleichzeitig. Dazu ~{landing} für die Landung: Epic-PR nach main, CI, Merge.",
   "epicdetail_basis_range": "Die Spanne wird mit jedem fertigen Teilschritt enger. Solange das Epic pausiert, steht die [[epic-clock|Epic-Uhr]] still.",
   "epicdetail_col_duration": "Dauer",
-  "epicdetail_dur_forecast": "~{dur} · Prognose"
+  "epicdetail_dur_forecast": "~{dur} · Prognose",
+  "repos_head_recent": "Zuletzt",
+  "repos_head_chip_aria": "{repo} öffnen ({count} offene Issues)",
+  "repos_switcher_choose": "Repo wählen",
+  "repos_switcher_aria": "Repo wechseln – aktuell: {repo}",
+  "repos_switcher_dialog_aria": "Repo wechseln",
+  "repos_switcher_all": "Alle Repos",
+  "repos_switcher_tile_counts": "{issues} Issues · {prs} PRs",
+  "repos_switcher_hint": "↵ öffnen · ↑↓ wählen · Esc schließen",
+  "feat_repos_switcher_title": "Repos im Kopf von „Repos“ wechseln",
+  "feat_repos_switcher_body": "Die Repo-Liste in Repos belegt keine Spalte mehr. Klicke im Kopf auf den Repo-Namen (oder drücke R), um zu suchen, zu filtern und aus den zuletzt bearbeiteten und allen Repos zu wählen, oder springe mit den Chips daneben direkt in ein zuletzt bearbeitetes Repo. Fast-Forward sitzt jetzt ebenfalls im Kopf."
 }

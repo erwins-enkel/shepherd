@@ -13,7 +13,8 @@
   // swaps the wrapper class (the desktop `.tab-bar` vs the horizontally-scrolling
   // mobile `.overlay-tabs`); the tabs are identical. The "Overview" button (#2950) is
   // desktop-only: it lifts the Issues list's selection to show the repo overview, which
-  // the phone layout (list → fullscreen detail) never shows.
+  // the phone layout (list → fullscreen detail) never shows. `showFf` is false on
+  // desktop, where Fast-forward lives in the dialog header (ReposHead).
   let {
     variant,
     activeTab,
@@ -25,6 +26,7 @@
     docAgentAct = false,
     docAgentRunning = false,
     docAgentRuns = [],
+    showFf = true,
     onselecttab,
     onff,
     ondocagent = () => {},
@@ -39,6 +41,7 @@
     docAgentAct?: boolean;
     docAgentRunning?: boolean;
     docAgentRuns?: DocAgentRun[];
+    showFf?: boolean;
     onselecttab: (tab: Tab) => void;
     onff: () => void;
     ondocagent?: () => void;
@@ -132,9 +135,9 @@
         coach={variant === "desktop"}
         ontrigger={ondocagent}
       />
-      {@render ffButton(false)}
+      {#if showFf}{@render ffButton(false)}{/if}
     </div>
-  {:else}
+  {:else if showFf}
     {@render ffButton(true)}
   {/if}
 </div>

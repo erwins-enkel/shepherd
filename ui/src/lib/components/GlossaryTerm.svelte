@@ -6,6 +6,7 @@
   import { getLocale } from "#lib/i18n.js";
   import { glossaryById } from "#lib/glossary.js";
   import { infoTips, INFO_TIPS_FORCE } from "#lib/info-tips.svelte.js";
+  import { HOVER_OPEN_DELAY_MS } from "#lib/tooltips/statusTip.svelte.js";
 
   let { id, label }: { id: string; label: string } = $props();
 
@@ -127,8 +128,22 @@
     }, 120);
   }
 
-  // Clear any pending close timer on unmount.
-  $effect(() => () => cancelScheduledClose());
+  // Hover waits HOVER_OPEN_DELAY_MS (shared with statusTip) so sweeping across a
+  // sentence or a toggle row doesn't flash the definition; activation opens at once.
+  let openTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function cancelScheduledOpen() {
+    if (openTimer !== null) {
+      clearTimeout(openTimer);
+      openTimer = null;
+    }
+  }
+
+  // Clear any pending timers on unmount.
+  $effect(() => () => {
+    cancelScheduledClose();
+    cancelScheduledOpen();
+  });
 
   function openTooltip() {
     cancelScheduledClose();
@@ -137,6 +152,7 @@
 
   function close() {
     cancelScheduledClose();
+    cancelScheduledOpen();
     open = false;
   }
 
@@ -144,11 +160,21 @@
   function onPointerenter(e: PointerEvent) {
     if (e.pointerType === "touch") return;
     if (open && presentation === "inline") return;
-    presentation = "floating";
-    openTooltip();
+    // Already floating (pointer back from the panel): just keep it open.
+    if (open) {
+      cancelScheduledClose();
+      return;
+    }
+    cancelScheduledOpen();
+    openTimer = setTimeout(() => {
+      openTimer = null;
+      presentation = "floating";
+      openTooltip();
+    }, HOVER_OPEN_DELAY_MS);
   }
   function onPointerleave(e: PointerEvent) {
     if (e.pointerType === "touch") return;
+    cancelScheduledOpen();
     if (presentation !== "floating") return;
     scheduleClose();
   }
@@ -167,6 +193,7 @@
   // A native <button> fires click for Enter (keydown) and Space (keyup) automatically.
   function onClick(e: MouseEvent & { currentTarget: HTMLButtonElement }) {
     e.stopPropagation();
+    cancelScheduledOpen();
     if (open && presentation === "inline") {
       close();
     } else {

@@ -337,7 +337,7 @@
             >{m.integrated_epics_view_checks()}</a
           >
         {/if}
-      {:else if (status.situation === "ci-retrying" || status.situation === "ci-failed") && checksUrl}
+      {:else if status.situation === "ci-retrying" && checksUrl}
         <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
         <a class="gbtn" href={checksUrl} target="_blank" rel="noopener noreferrer"
           >{m.integrated_epics_view_checks()}</a
@@ -399,8 +399,8 @@
         >
       {/if}
     </div>
-    {#if status.canRepairCi}<p class="remove-hint">{m.integrated_epics_repair_ci_hint()}</p>{/if}
-    {#if repairFailed}<p class="migration-warn" role="alert">
+    {#if status.canRepairCi}<p class="repair-hint">{m.integrated_epics_repair_ci_hint()}</p>{/if}
+    {#if repairFailed}<p class="repair-failed" role="alert">
         {m.integrated_epics_repair_ci_failed()}
       </p>{/if}
     {#if ackInstead}<p class="migration-warn">
@@ -566,11 +566,13 @@
     margin-top: 10px;
   }
   .blocked-reason,
-  .remove-hint {
+  .remove-hint,
+  .repair-hint {
     font-size: var(--fs-micro);
     color: var(--color-muted);
   }
-  .migration-warn {
+  .migration-warn,
+  .repair-failed {
     color: var(--status-warn);
   }
   .gbtn {

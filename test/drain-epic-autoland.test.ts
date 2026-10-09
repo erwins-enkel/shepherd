@@ -414,16 +414,16 @@ describe("auto-land of integrated epics (#1044)", () => {
     // fires a concurrent manual land already merged it → merge rejects, and a re-read now reports
     // merged. The failure path must reconcile (→ merged), never arm the backoff.
     //
-    // With the #1071 rebase pass also running each tick, prStatus is read once more (the rebase
-    // pass sees an open+clean PR → not stuck → skips rebase). Auto-land then reads on the NEXT
-    // call and gets a ready PR → attempts merge → it throws "already merged" → re-reads → merged.
+    // The #1071 rebase pass and auto-land share the tick's one landing-PR read (#2873): the rebase
+    // pass sees an open+clean PR → not stuck → skips; auto-land sees it ready → attempts the merge →
+    // it throws "already merged" → re-reads live → merged.
     let reads = 0;
     const h = makeHarness({
       autoMergeEnabled: true,
       prStatus: async () => {
         reads++;
-        // reads 1: rebase pass (not-stuck, skips); reads 2: auto-land ready-check; reads 3+: post-merge re-check.
-        return reads <= 2 ? readyPr() : readyPr({ state: "merged" });
+        // read 1: the tick's shared read (rebase + auto-land ready-check); reads 2+: post-merge re-check.
+        return reads <= 1 ? readyPr() : readyPr({ state: "merged" });
       },
       merge: async () => {
         throw new Error("Pull request is not mergeable: already merged");

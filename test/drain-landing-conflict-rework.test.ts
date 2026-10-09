@@ -220,9 +220,12 @@ function row(h: Harness) {
 }
 
 function tickStuckPass(h: Harness): Promise<void> {
-  return (
-    h.drain as unknown as { rebaseStuckLandingPrsForRepo: (r: string) => Promise<void> }
-  ).rebaseStuckLandingPrsForRepo(REPO);
+  const drain = h.drain as unknown as {
+    landingPrs: { beginTick(): void };
+    rebaseStuckLandingPrsForRepo: (r: string) => Promise<void>;
+  };
+  drain.landingPrs.beginTick(); // each call stands for its own drain tick (#2873)
+  return drain.rebaseStuckLandingPrsForRepo(REPO);
 }
 
 describe("conflict rework: auto dispatch (drain tick)", () => {

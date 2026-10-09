@@ -193,9 +193,12 @@ function makeHarness(
 
 /** Invoke the private pre-warm pass directly (isolates prStatus/openPr to it). */
 function callPass(h: Harness): Promise<void> {
-  return (
-    h.drain as unknown as { ensureDraftLandingPrForRepo: (repoPath: string) => Promise<void> }
-  ).ensureDraftLandingPrForRepo(REPO);
+  const drain = h.drain as unknown as {
+    landingPrs: { beginTick(): void };
+    ensureDraftLandingPrForRepo: (repoPath: string) => Promise<void>;
+  };
+  drain.landingPrs.beginTick(); // each call stands for its own drain tick (#2873)
+  return drain.ensureDraftLandingPrForRepo(REPO);
 }
 
 describe("ensureDraftLandingPrForRepo (#1664)", () => {

@@ -244,9 +244,12 @@ function seedOpenLanding(h: Harness): void {
 /** Invoke the private rerun pass directly so prStatus/rerun call counts are isolated to it
  *  (tick() also runs rebaseStuckLandingPrsForRepo and autoLandLandingPrsForRepo, which read prStatus). */
 function callRerunPass(h: Harness): Promise<void> {
-  return (
-    h.drain as unknown as { rerunRedLandingCiForRepo: (repoPath: string) => Promise<void> }
-  ).rerunRedLandingCiForRepo(REPO);
+  const drain = h.drain as unknown as {
+    landingPrs: { beginTick(): void };
+    rerunRedLandingCiForRepo: (repoPath: string) => Promise<void>;
+  };
+  drain.landingPrs.beginTick(); // each call stands for its own drain tick (#2873)
+  return drain.rerunRedLandingCiForRepo(REPO);
 }
 
 describe("rerunRedLandingCiForRepo (C)", () => {

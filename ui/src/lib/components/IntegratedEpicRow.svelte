@@ -37,6 +37,16 @@
       done: m.integrated_epics_turn_done(),
     }[status.turn],
   );
+  // Agent-at-work headings: a repair in flight, or Shepherd still retrying a red landing (#2872).
+  const workingSummary = $derived(
+    status.situation === "ci-retrying"
+      ? status.ciRetrying === "repair"
+        ? m.integrated_epics_heading_ci_retrying_repair()
+        : m.integrated_epics_heading_ci_retrying_reruns()
+      : status.repairKind === "conflicts"
+        ? m.integrated_epics_heading_repairing_conflicts()
+        : m.integrated_epics_heading_repairing_ci(),
+  );
   const summary = $derived.by(() => {
     const number = epic.landingPrNumber;
     switch (status.situation) {
@@ -48,13 +58,8 @@
           ? m.integrated_epics_short_checking({ number })
           : m.integrated_epics_heading_unknown();
       case "repairing":
-        return status.repairKind === "conflicts"
-          ? m.integrated_epics_heading_repairing_conflicts()
-          : m.integrated_epics_heading_repairing_ci();
       case "ci-retrying":
-        return status.ciRetrying === "repair"
-          ? m.integrated_epics_heading_ci_retrying_repair()
-          : m.integrated_epics_heading_ci_retrying_reruns();
+        return workingSummary;
       case "ci-failed":
         return number != null
           ? m.integrated_epics_short_ci_failed({ number })

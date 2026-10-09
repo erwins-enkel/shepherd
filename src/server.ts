@@ -9169,14 +9169,18 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
   );
 }
 
-// POST /api/epics/completed/dismiss — body { repo, parent }. Dismiss one completed epic + emit.
-async function handleEpicsCompletedDismiss({ req, parts, deps }: Ctx): Promise<Response | null> {
+/** POST /api/epics/completed/<action> with body { repo, parent }: the validated repo dir + parent,
+ *  a 400 response for a bad body, or null when the request is not this route. */
+async function completedEpicPost(
+  { req, parts }: Ctx,
+  action: string,
+): Promise<{ dir: string; parent: number } | Response | null> {
   if (!(
     req.method === "POST" &&
     parts[0] === "api" &&
     parts[1] === "epics" &&
     parts[2] === "completed" &&
-    parts[3] === "dismiss"
+    parts[3] === action
   ))
     return null;
   const body = (await req.json().catch(() => null)) as { repo?: string; parent?: number } | null;
@@ -9185,6 +9189,15 @@ async function handleEpicsCompletedDismiss({ req, parts, deps }: Ctx): Promise<R
   const parent = body?.parent;
   if (typeof parent !== "number" || !Number.isInteger(parent) || parent <= 0)
     return json({ error: "parent must be a positive integer" }, 400);
+  return { dir, parent };
+}
+
+// POST /api/epics/completed/dismiss — body { repo, parent }. Dismiss one completed epic + emit.
+async function handleEpicsCompletedDismiss(ctx: Ctx): Promise<Response | null> {
+  const target = await completedEpicPost(ctx, "dismiss");
+  if (!target || target instanceof Response) return target;
+  const { dir, parent } = target;
+  const { deps } = ctx;
   deps.store.dismissEpicCompleted(dir, parent);
   deps.events?.emit("epic:completed-cleared", { repoPath: dir, parentIssueNumber: parent });
   return json({ ok: true });
@@ -9193,25 +9206,11 @@ async function handleEpicsCompletedDismiss({ req, parts, deps }: Ctx): Promise<R
 // POST /api/epics/completed/ack-migrations — body { repo, parent }. Acknowledge the landing PR's
 // detected migrations (#645): stamps migrationsAckedAt + dismisses the row (one operator action,
 // clears the band). Mirrors the dismiss handler's validation + clear emit.
-async function handleEpicsCompletedAckMigrations({
-  req,
-  parts,
-  deps,
-}: Ctx): Promise<Response | null> {
-  if (!(
-    req.method === "POST" &&
-    parts[0] === "api" &&
-    parts[1] === "epics" &&
-    parts[2] === "completed" &&
-    parts[3] === "ack-migrations"
-  ))
-    return null;
-  const body = (await req.json().catch(() => null)) as { repo?: string; parent?: number } | null;
-  const dir = safeRepoDir(body?.repo ?? "", config.repoRoot);
-  if (!dir) return json({ error: "invalid repo" }, 400);
-  const parent = body?.parent;
-  if (typeof parent !== "number" || !Number.isInteger(parent) || parent <= 0)
-    return json({ error: "parent must be a positive integer" }, 400);
+async function handleEpicsCompletedAckMigrations(ctx: Ctx): Promise<Response | null> {
+  const target = await completedEpicPost(ctx, "ack-migrations");
+  if (!target || target instanceof Response) return target;
+  const { dir, parent } = target;
+  const { deps } = ctx;
   deps.store.ackEpicMigrations(dir, parent);
   deps.events?.emit("epic:completed-cleared", { repoPath: dir, parentIssueNumber: parent });
   return json({ ok: true });
@@ -9378,7 +9377,7 @@ const RESOLVE_CONFLICT_ERRORS: Record<
 // to a status + constant message (no forge/spawn error text reaches the client). Null when the
 // request is not this route.
 async function dispatchLandingAction<E extends string>(
-  { req, parts, deps }: Ctx,
+  ctx: Ctx,
   action: string,
   pick: (
     drain: NonNullable<Ctx["deps"]["drain"]>,
@@ -9387,20 +9386,10 @@ async function dispatchLandingAction<E extends string>(
     | undefined,
   errors: Record<E, { status: number; message: string }>,
 ): Promise<Response | null> {
-  if (!(
-    req.method === "POST" &&
-    parts[0] === "api" &&
-    parts[1] === "epics" &&
-    parts[2] === "completed" &&
-    parts[3] === action
-  ))
-    return null;
-  const body = (await req.json().catch(() => null)) as { repo?: string; parent?: number } | null;
-  const dir = safeRepoDir(body?.repo ?? "", config.repoRoot);
-  if (!dir) return json({ error: "invalid repo" }, 400);
-  const parent = body?.parent;
-  if (typeof parent !== "number" || !Number.isInteger(parent) || parent <= 0)
-    return json({ error: "parent must be a positive integer" }, 400);
+  const target = await completedEpicPost(ctx, action);
+  if (!target || target instanceof Response) return target;
+  const { dir, parent } = target;
+  const { deps } = ctx;
   const run = deps.drain ? pick(deps.drain) : undefined;
   if (!run) return json({ error: "drain unavailable" }, 503);
   const r = await run.call(deps.drain, dir, parent);

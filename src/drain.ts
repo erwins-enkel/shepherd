@@ -2992,6 +2992,28 @@ export class DrainService {
     repoPath: string,
     parent: number,
   ): Promise<ResolveLandingConflictResult> {
+    return this.withOperatorLanding(
+      repoPath,
+      parent,
+      "resolveLandingConflict",
+      (row, branch, forge) => this.resolveLandingConflictLocked(repoPath, forge, branch, row),
+    );
+  }
+
+  /** Shared preamble of the operator-triggered landing dispatches ({@link resolveLandingConflict},
+   *  {@link repairLandingCi}): needs an OPEN landing row with a recorded PR and a pinned integration
+   *  branch on a GitHub forge, and runs `run` serialized with the drain's landing passes via
+   *  landingInFlight (a tick can't double-spawn). Never throws — a throw maps to `spawn-failed`. */
+  private async withOperatorLanding<R extends { ok: boolean }>(
+    repoPath: string,
+    parent: number,
+    what: string,
+    run: (
+      row: ReturnType<DrainDeps["store"]["listEpicCompleted"]>[number],
+      branch: string,
+      forge: GitForge,
+    ) => Promise<R>,
+  ): Promise<R | { ok: false; error: "no-landing" | "unsupported" | "busy" | "spawn-failed" }> {
     const row = this.deps.store
       .listEpicCompleted(repoPath)
       .find((r) => r.parentIssueNumber === parent);
@@ -3005,10 +3027,10 @@ export class DrainService {
     if (this.landingInFlight.has(key)) return { ok: false, error: "busy" };
     this.landingInFlight.add(key);
     try {
-      return await this.resolveLandingConflictLocked(repoPath, forge, branch, row);
+      return await run(row, branch, forge);
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      console.warn(`[drain] resolveLandingConflict failed for ${key}: ${reason}`);
+      console.warn(`[drain] ${what} failed for ${key}: ${reason}`);
       return { ok: false, error: "spawn-failed" };
     } finally {
       this.landingInFlight.delete(key);
@@ -3051,61 +3073,48 @@ export class DrainService {
    * landingInFlight so a tick can't double-spawn. Never throws.
    */
   async repairLandingCi(repoPath: string, parent: number): Promise<RepairLandingCiResult> {
-    const row = this.deps.store
-      .listEpicCompleted(repoPath)
-      .find((r) => r.parentIssueNumber === parent);
-    if (!row || row.landingState !== "open" || row.landingPrNumber == null)
-      return { ok: false, error: "no-landing" };
-    const branch = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
-    if (branch === null) return { ok: false, error: "no-landing" };
-    const forge = this.deps.resolveForge(repoPath);
-    if (!forge || forge.kind !== "github") return { ok: false, error: "unsupported" };
-    const key = `${repoPath}#${parent}`;
-    if (this.landingInFlight.has(key)) return { ok: false, error: "busy" };
-    this.landingInFlight.add(key);
-    try {
-      if (this.hasLiveRepairSession(repoPath, branch)) return { ok: false, error: "repairing" };
-      const pr = await forge.prStatus(branch);
-      if (pr.state !== "open") return { ok: false, error: "no-landing" };
-      if (pr.checks !== "failure") return { ok: false, error: "not-red" };
-      const head = pr.headSha ?? "";
-      const session = await this.spawnLandingRepairSession({
-        repoPath,
-        branch,
-        head,
-        prompt: this.ciRepairPrompt({
-          parent,
-          parentTitle: row.parentTitle,
-          prNumber: row.landingPrNumber,
-          prUrl: row.landingPrUrl,
+    return this.withOperatorLanding(
+      repoPath,
+      parent,
+      "repairLandingCi",
+      async (row, branch, forge) => {
+        if (this.hasLiveRepairSession(repoPath, branch)) return { ok: false, error: "repairing" };
+        const pr = await forge.prStatus(branch);
+        if (pr.state !== "open") return { ok: false, error: "no-landing" };
+        if (pr.checks !== "failure") return { ok: false, error: "not-red" };
+        const head = pr.headSha ?? "";
+        const session = await this.spawnLandingRepairSession({
+          repoPath,
           branch,
-          pr,
-        }),
-        capacityKey: `drain:repair:${repoPath}:${parent}`,
-        cooldownKey: key,
-        what: "landing-repair",
-        ignoreCooldown: true,
-      });
-      if (!session) return { ok: false, error: "spawn-failed" };
-      this.deps.store.setEpicLandingRepairCount(
-        repoPath,
-        parent,
-        row.landingRepairCount + 1,
-        head,
-        session.id,
-      );
-      this.emitCompleted(repoPath, parent);
-      console.warn(
-        `[drain] dispatched manual landing-repair session for ${key} (landing PR #${row.landingPrNumber}, head ${head})`,
-      );
-      return { ok: true };
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      console.warn(`[drain] repairLandingCi failed for ${key}: ${reason}`);
-      return { ok: false, error: "spawn-failed" };
-    } finally {
-      this.landingInFlight.delete(key);
-    }
+          head,
+          prompt: this.ciRepairPrompt({
+            parent,
+            parentTitle: row.parentTitle,
+            prNumber: row.landingPrNumber!,
+            prUrl: row.landingPrUrl,
+            branch,
+            pr,
+          }),
+          capacityKey: `drain:repair:${repoPath}:${parent}`,
+          cooldownKey: `${repoPath}#${parent}`,
+          what: "landing-repair",
+          ignoreCooldown: true,
+        });
+        if (!session) return { ok: false, error: "spawn-failed" };
+        this.deps.store.setEpicLandingRepairCount(
+          repoPath,
+          parent,
+          row.landingRepairCount + 1,
+          head,
+          session.id,
+        );
+        this.emitCompleted(repoPath, parent);
+        console.warn(
+          `[drain] dispatched manual landing-repair session for ${repoPath}#${parent} (landing PR #${row.landingPrNumber}, head ${head})`,
+        );
+        return { ok: true };
+      },
+    );
   }
 
   /**

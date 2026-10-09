@@ -263,68 +263,67 @@ export interface LandingAutomationContext {
   sessionVisible: (id: string) => boolean;
 }
 
-/** #2872: where the drain's automatic handling of a red landing PR stands. Mirrors the gates of
- *  rerunRedLandingCiForRepo / processRedLandingRerun / maybeDispatchLandingRepair — when one of those
- *  moves, this moves. Pure. */
-export function deriveLandingCiAutomation(o: {
+type DeriveAutomationInput = {
   pr: Pick<PrStatus, "checks" | "headSha" | "isDraft">;
   github: boolean;
   ctx: LandingAutomationContext;
   row: LandingAutomationRow & { landingRepairCount: number };
-}): LandingCiAutomation {
-  const { pr, ctx, row } = o;
+};
+type RerunSkip = LandingCiAutomation["reruns"]["skipReason"];
+type RepairSkip = LandingCiAutomation["repair"]["skipReason"];
+
+/** Why the drain's red-landing pass (rerunRedLandingCiForRepo → processRedLandingRerun) never
+ *  reaches either stage — the repair inherits these, except `not-engaged` (implies auto-drain off). */
+function landingPassSkip(o: DeriveAutomationInput): Exclude<RerunSkip, "no-run"> {
+  const { ctx } = o;
+  if (!o.github) return "no-github";
+  if (ctx.draftMode) return "draft-mode";
+  if (!(ctx.autoMergeEnabled || ctx.autoDrainEnabled || ctx.epicRunning)) return "not-engaged";
+  return o.pr.isDraft ? "draft-pr" : null;
+}
+
+function rerunStage(o: DeriveAutomationInput, passSkip: RerunSkip): LandingCiAutomation["reruns"] {
+  const { pr, row } = o;
   const sameHead = row.landingRerunHead === (pr.headSha ?? "");
   const used = sameHead ? row.landingRerunCount : 0;
-  const engaged = ctx.autoMergeEnabled || ctx.autoDrainEnabled || ctx.epicRunning;
-  // The drain stops before both stages on these; the repair inherits them.
-  const passSkip = !o.github
-    ? "no-github"
-    : ctx.draftMode
-      ? "draft-mode"
-      : !engaged
-        ? "not-engaged"
-        : pr.isDraft
-          ? "draft-pr"
-          : null;
-  const rerunSkip = passSkip ?? (sameHead && row.landingRerunUnavailable ? "no-run" : null);
-  const rerunStatus: LandingStageStatus = rerunSkip
-    ? "skipped"
-    : pr.checks === "pending" && used > 0
-      ? "running"
-      : used >= LANDING_RERUN_CAP
-        ? "done"
-        : "pending";
-  // not-engaged implies auto-drain off; no-run escalates to the repair (not a repair skip).
-  const repairSkip =
-    passSkip === "no-github" || passSkip === "draft-mode" || passSkip === "draft-pr"
+  const skipReason = passSkip ?? (sameHead && row.landingRerunUnavailable ? "no-run" : null);
+  let status: LandingStageStatus = "pending";
+  if (skipReason) status = "skipped";
+  else if (pr.checks === "pending" && used > 0) status = "running";
+  else if (used >= LANDING_RERUN_CAP) status = "done";
+  return { status, used, cap: LANDING_RERUN_CAP, skipReason };
+}
+
+function repairStage(o: DeriveAutomationInput, passSkip: RerunSkip): LandingCiAutomation["repair"] {
+  const { ctx, row } = o;
+  // `not-engaged` implies auto-drain off; `no-run` escalates to the repair (not a repair skip).
+  const skip: RepairSkip =
+    passSkip && passSkip !== "not-engaged" && passSkip !== "no-run"
       ? passSkip
-      : !ctx.autoDrainEnabled
-        ? "auto-drain-off"
-        : null;
-  const repairStatus: LandingStageStatus = ctx.liveRepair
-    ? "running"
-    : row.landingRepairCount >= LANDING_REPAIR_CAP
-      ? "done"
-      : repairSkip
-        ? "skipped"
-        : "pending";
+      : ctx.autoDrainEnabled
+        ? null
+        : "auto-drain-off";
+  let status: LandingStageStatus = "pending";
+  if (ctx.liveRepair) status = "running";
+  else if (row.landingRepairCount >= LANDING_REPAIR_CAP) status = "done";
+  else if (skip) status = "skipped";
   const recorded = row.landingRepairSessionId;
   return {
-    reruns: {
-      status: rerunStatus,
-      used,
-      cap: LANDING_RERUN_CAP,
-      skipReason: rerunStatus === "skipped" ? rerunSkip : null,
-    },
-    repair: {
-      status: repairStatus,
-      used: row.landingRepairCount,
-      cap: LANDING_REPAIR_CAP,
-      skipReason: repairStatus === "skipped" ? repairSkip : null,
-      sessionId: ctx.liveRepair?.id ?? (recorded && ctx.sessionVisible(recorded) ? recorded : null),
-      sessionStartedAt: ctx.liveRepair?.createdAt ?? null,
-    },
+    status,
+    used: row.landingRepairCount,
+    cap: LANDING_REPAIR_CAP,
+    skipReason: status === "skipped" ? skip : null,
+    sessionId: ctx.liveRepair?.id ?? (recorded && ctx.sessionVisible(recorded) ? recorded : null),
+    sessionStartedAt: ctx.liveRepair?.createdAt ?? null,
   };
+}
+
+/** #2872: where the drain's automatic handling of a red landing PR stands. Mirrors the gates of
+ *  rerunRedLandingCiForRepo / processRedLandingRerun / maybeDispatchLandingRepair — when one of those
+ *  moves, this moves. Pure. */
+export function deriveLandingCiAutomation(o: DeriveAutomationInput): LandingCiAutomation {
+  const passSkip = landingPassSkip(o);
+  return { reruns: rerunStage(o, passSkip), repair: repairStage(o, passSkip) };
 }
 
 /** #2872: true while an automatic stage is still pending or in flight — the operator's turn waits. */
@@ -349,6 +348,29 @@ export interface EnrichLandingDeps {
    *  and `landingCiFailing` is not held back for pending automatic stages. */
   automation?: (repoPath: string, integrationBranch: string) => LandingAutomationContext;
   now: number;
+}
+
+/** #2872: the automation stages of one enriched row, or undefined without the `automation` dep. */
+function rowAutomation(
+  row: CompletedEpic & Partial<LandingAutomationRow>,
+  pr: PrStatus,
+  forgeKind: ForgeKind,
+  branch: string,
+  deps: EnrichLandingDeps,
+): LandingCiAutomation | undefined {
+  if (!deps.automation) return undefined;
+  return deriveLandingCiAutomation({
+    pr,
+    github: forgeKind === "github",
+    ctx: deps.automation(row.repoPath, branch),
+    row: {
+      landingRerunHead: row.landingRerunHead ?? null,
+      landingRerunCount: row.landingRerunCount ?? 0,
+      landingRerunUnavailable: row.landingRerunUnavailable ?? false,
+      landingRepairSessionId: row.landingRepairSessionId ?? null,
+      landingRepairCount: row.landingRepairCount,
+    },
+  });
 }
 
 /** Enrich each OPEN-landing completed epic in `rows` with live landing-PR gate signals
@@ -398,20 +420,7 @@ export async function enrichLandingEpics(
         const repairing = (red || conflicting) && live;
         row.landingRepairing = repairing;
         row.landingCiChecks = landingCiChecksOf(pr);
-        const automation = deps.automation
-          ? deriveLandingCiAutomation({
-              pr,
-              github: forge.kind === "github",
-              ctx: deps.automation(row.repoPath, branch),
-              row: {
-                landingRerunHead: row.landingRerunHead ?? null,
-                landingRerunCount: row.landingRerunCount ?? 0,
-                landingRerunUnavailable: row.landingRerunUnavailable ?? false,
-                landingRepairSessionId: row.landingRepairSessionId ?? null,
-                landingRepairCount: row.landingRepairCount,
-              },
-            })
-          : undefined;
+        const automation = rowAutomation(row, pr, forge.kind, branch, deps);
         row.landingCiAutomation = automation;
         // #2872: "your turn" only once no automatic stage is still pending or in flight.
         row.landingCiFailing =

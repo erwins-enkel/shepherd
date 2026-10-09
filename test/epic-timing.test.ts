@@ -40,6 +40,7 @@ function clock(c: Partial<EpicClock> = {}): EpicClock {
     pauses: [],
     landingStartedAt: null,
     landedAt: null,
+    firstFinishAt: null,
     ...c,
   };
 }

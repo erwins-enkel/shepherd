@@ -79,6 +79,8 @@ export interface EpicClock {
   landingStartedAt: number | null;
   /** When the landing PR merged (observed, like `DeliveryFact.mergedAt`). */
   landedAt: number | null;
+  /** The first forecast finish after the first child merged (`EpicForecast.firstFinishAt`). */
+  firstFinishAt: number | null;
 }
 
 /** The epic clock as the Epic payload carries it (epoch ms). Running time is

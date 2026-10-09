@@ -68,6 +68,7 @@ describe("epic clock transitions (setEpicRun)", () => {
       pauses: [[T0 + 20 * MIN, T0 + 50 * MIN]],
       landingStartedAt: null,
       landedAt: null,
+      firstFinishAt: null,
     });
     expect(s.getEpicClock("/repo", 2)!.pausedAt).toBe(T0 + 50 * MIN);
   });
@@ -153,6 +154,40 @@ describe("epic clock landing stamps", () => {
   });
 });
 
+describe("epic forecast inputs", () => {
+  test("the drift anchor: first write wins, and an epic without a clock gets none", () => {
+    const s = new SessionStore(":memory:");
+    s.setEpicRun(run(1, "running"));
+    s.recordEpicFirstFinish("/repo", 1, 5000);
+    s.recordEpicFirstFinish("/repo", 1, 9000);
+    expect(s.getEpicClock("/repo", 1)!.firstFinishAt).toBe(5000);
+    s.recordEpicFirstFinish("/repo", 2, 5000);
+    expect(s.getEpicClock("/repo", 2)).toBeNull();
+  });
+
+  test("landing durations: the repo's landed epics only", () => {
+    const s = new SessionStore(":memory:");
+    const land = (parent: number, from: number, to: number | null) => {
+      s.setEpicRun(run(parent, "running"));
+      completed(s, parent, from);
+      at(to ?? 0);
+      if (to != null)
+        s.setEpicLandingPr("/repo", parent, {
+          state: "merged",
+          prNumber: 9,
+          prUrl: "u",
+          attempts: 0,
+        });
+    };
+    land(1, T0, 30);
+    land(2, T0 + 60 * MIN, 70);
+    land(3, T0 + 80 * MIN, null); // still landing
+    s.setEpicRun({ ...run(4, "running"), repoPath: "/other" });
+    expect(s.listEpicLandingDurations("/repo").sort((a, b) => a - b)).toEqual([10 * MIN, 30 * MIN]);
+    expect(s.listEpicLandingDurations("/other")).toEqual([]);
+  });
+});
+
 describe("listDeliveryFactsForIssues", () => {
   test("returns one repo's facts for the given issues only", () => {
     const s = new SessionStore(":memory:");
@@ -229,6 +264,19 @@ describe("epic_clock migration", () => {
     expect(upgraded.getEpicClock("/repo", 1)).not.toBeNull();
   });
 
+  test("a clock from before the drift anchor gains the column and keeps its row", () => {
+    const path = dbPath();
+    at(0);
+    new SessionStore(path).setEpicRun(run(1, "running"));
+    const raw = new Database(path);
+    raw.run(`ALTER TABLE epic_clock DROP COLUMN firstFinishAt`);
+    raw.close();
+    const upgraded = new SessionStore(path);
+    expect(upgraded.getEpicClock("/repo", 1)).toMatchObject({ startedAt: T0, firstFinishAt: null });
+    upgraded.recordEpicFirstFinish("/repo", 1, 5000);
+    expect(upgraded.getEpicClock("/repo", 1)!.firstFinishAt).toBe(5000);
+  });
+
   test("an epic already running starts at its earliest known child start", () => {
     const path = dbPath();
     const s = new SessionStore(path);
@@ -254,6 +302,7 @@ describe("epic_clock migration", () => {
       pauses: [],
       landingStartedAt: null,
       landedAt: null,
+      firstFinishAt: null,
     });
   });
 

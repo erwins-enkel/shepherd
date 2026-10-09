@@ -227,7 +227,7 @@ jobs:
             native/Apps/ShepherdMac/.build/SourcePackages/artifacts/sparkle/Sparkle/bin
 
       - name: Set up Python for DMG packaging
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.13"
 

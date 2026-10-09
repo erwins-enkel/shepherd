@@ -178,7 +178,7 @@ jobs:
             "https://github.com/$GITHUB_REPOSITORY/releases/download/$MAC_TAG/" 2>&1 | tail -n 40
       - name: Set up Python for DMG packaging
         if: steps.existing.outputs.published != 'true'
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.13"
       - name: Package manual installer

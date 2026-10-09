@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { LearningEvidenceRepoMismatchError, SessionStore } from "../src/store";
-import { buildDeliveryMetrics } from "../src/delivery-metrics";
+import { buildDeliveryMetrics, repoLeadTime } from "../src/delivery-metrics";
 import type { CiConclusion, PlanDrift, ReviewerSpawnOutcome } from "../src/types";
 
 const DAY = 86_400_000;
@@ -225,6 +225,26 @@ test("unmerged tasks are excluded entirely", () => {
   expect(m.totals.mergedTasks).toBe(0);
   // ...but it still counts as instrumented, so the "measuring since" note is honest.
   expect(m.measuringSince).toBe(NOW - DAY);
+});
+
+test("repoLeadTime: one repo's 30-day lead-time median, the lens's own number for it", () => {
+  const s = mk();
+  const task = (id: string, repoPath: string, hours: number, mergedDaysAgo: number) =>
+    seedTask(s, {
+      id,
+      repoPath,
+      createdAt: NOW - mergedDaysAgo * DAY - hours * 3_600_000,
+      mergedAt: NOW - mergedDaysAgo * DAY,
+    });
+  task("a1", "/repos/alpha", 1, 1);
+  task("a2", "/repos/alpha", 3, 20);
+  task("old", "/repos/alpha", 10, 40);
+  task("b1", "/repos/beta", 7, 1);
+  expect(repoLeadTime(s, "/repos/alpha", NOW)).toEqual({ value: 2 * 3_600_000, n: 2 });
+  expect(repoLeadTime(s, "/repos/alpha", NOW)).toEqual(
+    build(s, "30d").repos.find((r) => r.repoPath === "/repos/alpha")!.leadTimeMs,
+  );
+  expect(repoLeadTime(s, "/repos/gamma", NOW)).toEqual({ value: null, n: 0 });
 });
 
 test("repos are split, named by basename, and sorted by merged volume", () => {

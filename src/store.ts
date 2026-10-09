@@ -1840,8 +1840,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL,
       startedAt INTEGER NOT NULL, pausedAt INTEGER,
       pausesJson TEXT NOT NULL DEFAULT '[]',
-      landingStartedAt INTEGER, landedAt INTEGER,
+      landingStartedAt INTEGER, landedAt INTEGER, firstFinishAt INTEGER,
       PRIMARY KEY (repoPath, parentIssueNumber))`);
+    this.migrateEpicClockColumns();
     this.backfillEpicClocks();
     // #645: a child whose PR targets a base other than the pinned epic branch is parked here at
     // retire (fail-closed: not merged, not integrated). Keyed per child; the row is the throttle
@@ -2375,7 +2376,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   getEpicClock(repoPath: string, parentIssueNumber: number): EpicClock | null {
     const row = this.db
       .query(
-        `SELECT startedAt, pausedAt, pausesJson, landingStartedAt, landedAt
+        `SELECT startedAt, pausedAt, pausesJson, landingStartedAt, landedAt, firstFinishAt
         FROM epic_clock WHERE repoPath = ? AND parentIssueNumber = ?`,
       )
       .get(repoPath, parentIssueNumber) as
@@ -2402,6 +2403,28 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       `UPDATE epic_clock SET pausedAt = NULL, pausesJson = ? WHERE repoPath = ? AND parentIssueNumber = ?`,
       [JSON.stringify(pauses), repoPath, parentIssueNumber],
     );
+  }
+
+  /** Record the epic's drift anchor — the first forecast after its first merge. First write wins;
+   *  an epic without a clock gets none. */
+  recordEpicFirstFinish(repoPath: string, parentIssueNumber: number, finishAt: number): void {
+    this.db.run(
+      `UPDATE epic_clock SET firstFinishAt = COALESCE(firstFinishAt, ?)
+       WHERE repoPath = ? AND parentIssueNumber = ?`,
+      [finishAt, repoPath, parentIssueNumber],
+    );
+  }
+
+  /** How long each of the repo's landed epics took to land (`landedAt − landingStartedAt`). */
+  listEpicLandingDurations(repoPath: string): number[] {
+    return (
+      this.db
+        .query(
+          `SELECT landedAt - landingStartedAt AS ms FROM epic_clock
+           WHERE repoPath = ? AND landingStartedAt IS NOT NULL AND landedAt IS NOT NULL`,
+        )
+        .all(repoPath) as { ms: number }[]
+    ).map((r) => r.ms);
   }
 
   /** Stop a running clock. Never creates one, and never moves an existing stop. */
@@ -5992,6 +6015,14 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     ]);
     const facts = this.listDeliveryFactsForIssues(repoPath, [...issues]);
     return [...sessions, ...facts].map((x) => x.createdAt);
+  }
+
+  /** Columns added to `epic_clock` after it first shipped. */
+  private migrateEpicClockColumns(): void {
+    const cols = this.db.query(`PRAGMA table_info(epic_clock)`).all() as { name: string }[];
+    // #2937: the forecast's drift anchor.
+    if (!cols.some((c) => c.name === "firstFinishAt"))
+      this.db.run(`ALTER TABLE epic_clock ADD COLUMN firstFinishAt INTEGER`);
   }
 
   private migrateEpicCompletedColumns(): void {

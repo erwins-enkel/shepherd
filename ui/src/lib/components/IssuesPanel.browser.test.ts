@@ -688,6 +688,48 @@ describe("IssuesPanel list + reading detail (#2617)", () => {
     }
   });
 
+  describe("a running issue in the task box and list", () => {
+    const box = () => document.querySelector<HTMLElement>(".task-box");
+    const chip = () => box()?.querySelector<HTMLElement>(".task-state");
+    const openBtn = () => box()?.querySelector<HTMLButtonElement>(".open-session");
+    const dot = (key: string) => option(key)?.querySelector<HTMLElement>(".dot-running") ?? null;
+
+    it("follows a live session the moment it appears, without a list refresh", async () => {
+      const onopensession = vi.fn();
+      const live = reactiveRecord<Session>({});
+      seed([plain(42), plain(43)]);
+      render(IssuesPanel, {
+        repoPath: "/repo",
+        onnewtask: noop,
+        onopensession,
+        issueSession: (rp: string, n: number) => live[`${rp}#${n}`] ?? null,
+      });
+      await selectRow("s:42");
+      await expect.poll(() => chip()?.textContent).toBe(m.issuetask_state_not_started());
+      expect(openBtn()).toBeNull();
+      expect(dot("s:42")).toBeNull();
+
+      live["/repo#42"] = { id: "s42", desig: "TASK-42" } as Session;
+      await expect.poll(() => chip()?.textContent).toBe(m.issuetask_state_claimed());
+      expect(chip()!.classList.contains("claimed")).toBe(true);
+      expect(dot("s:42")?.getAttribute("aria-label")).toBe(m.issuetask_state_claimed());
+      expect(dot("s:43")).toBeNull();
+
+      expect(openBtn()!.textContent).toBe(m.epic_run_open_session());
+      openBtn()!.click();
+      expect(onopensession).toHaveBeenCalledWith("s42");
+    });
+
+    it("shows the claim label as running, with nothing to open", async () => {
+      seed([plain(42, { labels: [ACTIVE_LABEL] })]);
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, onopensession: noop });
+      await selectRow("s:42");
+      await expect.poll(() => chip()?.textContent).toBe(m.issuetask_state_claimed());
+      expect(dot("s:42")).not.toBeNull();
+      expect(openBtn()).toBeNull();
+    });
+  });
+
   it("lists a sub-issue only under its epic, never among the singles", async () => {
     seed(
       [plain(1, { title: "Epic parent" }), plain(9, { title: "Sub issue" }), plain(3)],

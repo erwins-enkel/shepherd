@@ -763,7 +763,7 @@ function worstChecks(states: ChecksState[]): ChecksState {
 
 /** The `repository{…}` node of the counts query → RepoCounts. Shared by the single-repo and
  *  aliased-batch paths. */
-export function repoToCounts(repo: CountsRepositoryNode | null | undefined): RepoCounts {
+function repoToCounts(repo: CountsRepositoryNode | null | undefined): RepoCounts {
   const issues = repo?.issues?.totalCount;
   const prs = repo?.pullRequests?.totalCount;
   const openPRs = typeof prs === "number" ? prs : null;

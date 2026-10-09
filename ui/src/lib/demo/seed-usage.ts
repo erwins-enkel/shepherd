@@ -241,6 +241,16 @@ export function buildGithubRateLimit(): GithubRateLimit {
     backoff: { remaining: 4110, resetAt: NOW + 38 * 60_000, pausedUntil: null, blocked: false },
     restBackoff: { remaining: null, resetAt: null, pausedUntil: null, blocked: false },
     restWriteBackoff: { remaining: null, resetAt: null, pausedUntil: null, blocked: false },
+    // Healthy split, under the 1,000/h hint threshold.
+    graphqlSplit: {
+      resetAt: NOW + 38 * 60_000,
+      since: NOW - 22 * 60_000,
+      until: NOW - 45_000,
+      ownPoints: 150,
+      otherPoints: 205,
+      ownPerHour: 424,
+      otherPerHour: 579,
+    },
   };
 }
 

@@ -3,6 +3,7 @@
   import { m } from "#lib/paraglide/messages.js";
   import { gaugeColor } from "#lib/components/usage-gauges.js";
   import { formatResetIn } from "#lib/format.js";
+  import SplitBar from "./SplitBar.svelte";
 
   const { data }: { data: GithubRateLimit } = $props();
 
@@ -14,6 +15,8 @@
     desc: string;
     /** Shepherd has backed this bucket off (never for Search) — drives the "Paused" pill. */
     paused: boolean;
+    /** The GraphQL row carries the spend split (#2840). */
+    graphql?: true;
   };
 
   // Build only the buckets we actually received, in fixed order (REST, GraphQL, Search).
@@ -33,6 +36,7 @@
         label: m.github_lens_graphql_label(),
         desc: m.github_lens_graphql_desc(),
         paused: d.backoff.blocked,
+        graphql: true,
       });
     if (d.search)
       out.push({
@@ -67,6 +71,13 @@
   const graphqlResumeAt = $derived(
     Math.max(data.graphql?.resetAt ?? 0, data.backoff.pausedUntil ?? 0),
   );
+
+  // Who spent this GraphQL window (#2840): the Shepherd server vs. everything else on the
+  // account. GitHub counts every token of the account against the one budget.
+  const split = $derived(data.graphqlSplit);
+  // Above this foreign rate, the hint names the likely sources.
+  const FOREIGN_HINT_PER_HOUR = 1_000;
+  const foreignHigh = $derived((split?.otherPerHour ?? 0) > FOREIGN_HINT_PER_HOUR);
 
   // Status pill for a row: "Exhausted" only when the bucket is truly empty;
   // "Paused" when Shepherd backed off the bucket while it still reads as having
@@ -146,6 +157,54 @@
             >{m.usage_limits_resets_in({ time: formatResetIn(row.bucket.resetAt, nowMs) })}</span
           >
         </div>
+
+        {#if row.graphql && split}
+          <div class="split-block">
+            {#if split.ownPerHour !== null && split.otherPerHour !== null}
+              <SplitBar a={split.ownPerHour} b={split.otherPerHour} />
+              <div class="split-legend">
+                <span class="split-own"
+                  >{m.github_lens_split_own({ rate: split.ownPerHour.toLocaleString() })}</span
+                >
+                <span class="split-sep" aria-hidden="true">·</span>
+                <span class="split-other"
+                  >{m.github_lens_split_other({ rate: split.otherPerHour.toLocaleString() })}</span
+                >
+              </div>
+            {:else}
+              <span class="desc">{m.github_lens_split_measuring()}</span>
+            {/if}
+          </div>
+        {/if}
+
+        {#if row.graphql && split && foreignHigh}
+          <div class="foreign-hint" role="note">
+            <p class="hint-title">
+              {m.github_lens_foreign_title({ rate: (split.otherPerHour ?? 0).toLocaleString() })}
+            </p>
+            <p class="hint-text">{m.github_lens_foreign_summary()}</p>
+            <p class="hint-label">{m.github_lens_foreign_sources()}</p>
+            <ul class="hint-list">
+              <li>{m.github_lens_foreign_source_agents()}</li>
+              <li>{m.github_lens_foreign_source_machines()}</li>
+              <li>{m.github_lens_foreign_source_apps()}</li>
+            </ul>
+            <p class="hint-label">{m.github_lens_foreign_next()}</p>
+            <p class="hint-links">
+              <a
+                href="https://github.com/settings/applications"
+                target="_blank"
+                rel="noopener noreferrer">{m.github_lens_foreign_link_apps()}</a
+              >
+              <span aria-hidden="true">·</span>
+              <a
+                href="https://github.com/settings/security-log"
+                target="_blank"
+                rel="noopener noreferrer">{m.github_lens_foreign_link_log()}</a
+              >
+            </p>
+          </div>
+        {/if}
       </div>
     {/each}
   {/if}
@@ -256,5 +315,90 @@
   .reset-time {
     font-size: var(--fs-meta);
     color: var(--color-faint);
+  }
+
+  .split-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    margin-top: 0.25rem;
+  }
+
+  .split-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.5rem;
+    font-size: var(--fs-meta);
+    color: var(--color-ink);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Swatches match SplitBar's default tones: blue = Shepherd server, amber = everything else. */
+  .split-own::before,
+  .split-other::before {
+    content: "";
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    margin-right: 0.375rem;
+  }
+
+  .split-own::before {
+    background: var(--color-blue);
+  }
+
+  .split-other::before {
+    background: var(--color-amber);
+  }
+
+  .split-sep {
+    color: var(--color-faint);
+  }
+
+  .foreign-hint {
+    border: 1px solid var(--color-warn);
+    border-radius: 3px;
+    background: var(--color-inset);
+    font-size: var(--fs-meta);
+    line-height: 1.5;
+    padding: 8px 10px;
+    color: var(--color-ink);
+  }
+
+  .foreign-hint p {
+    margin: 0;
+  }
+
+  .hint-title {
+    font-weight: 600;
+    color: var(--color-warn);
+  }
+
+  .hint-text {
+    color: var(--color-muted);
+  }
+
+  .foreign-hint .hint-label {
+    margin-top: 0.5rem;
+    font-weight: 600;
+    color: var(--color-ink-bright);
+  }
+
+  .hint-list {
+    margin: 0;
+    padding-left: 1.1rem;
+    list-style: disc;
+  }
+
+  .hint-links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+
+  .hint-links a {
+    color: var(--color-blue);
   }
 </style>

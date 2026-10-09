@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { fetchGithubRateLimit, __resetGithubRateLimitCache } from "../src/forge/github-rate-limit";
 import { restRateLimit, restWriteRateLimit } from "../src/forge/rate-limit";
+import { graphqlSpend } from "../src/forge/github-spend";
 
 // A trimmed but realistic `gh api rate_limit` payload (epoch *seconds* for reset).
 const SAMPLE = JSON.stringify({
@@ -119,6 +120,24 @@ describe("fetchGithubRateLimit — caching", () => {
     );
     expect(out.restWriteBackoff.blocked).toBe(true);
     expect(out.restBackoff.blocked).toBe(false);
+  });
+
+  it("carries the live GraphQL spend split, cold and cached (#2840)", async () => {
+    // A window of its own, so whatever the process-wide ledger held before can't leak in.
+    const resetAt = Date.now() + 3_600_000 + 17_000;
+    graphqlSpend.noteReading({ used: 100, resetAt });
+    const cold = await fetchGithubRateLimit(
+      async () => SAMPLE,
+      () => 1000,
+    );
+    expect(cold.graphqlSplit).toMatchObject({ resetAt, ownPoints: 0, otherPoints: 0 });
+    graphqlSpend.noteOwnSpend(4);
+    graphqlSpend.noteReading({ used: 110, resetAt });
+    const cached = await fetchGithubRateLimit(
+      async () => SAMPLE,
+      () => 1000 + 5_000,
+    );
+    expect(cached.graphqlSplit).toMatchObject({ resetAt, ownPoints: 4, otherPoints: 6 });
   });
 
   it("re-fetches once the TTL has elapsed", async () => {

@@ -1730,6 +1730,21 @@ export interface GithubRateLimit {
   /** Shepherd's REST write backoff state (#2805) — GitHub limits writes on a counter
    *  of their own; while `blocked`, only background writes pause. */
   restWriteBackoff: GhBackoff;
+  /** The current GraphQL window split into the Shepherd server's own spend and
+   *  everything else on the account (#2840); null before a reading of a live window. */
+  graphqlSplit: GraphqlSpendSplit | null;
+}
+
+/** Mirrors the server `GraphqlSpendSplit`. Rates are null until the window's
+ *  readings span 5 min; `otherPoints` is never negative. */
+export interface GraphqlSpendSplit {
+  resetAt: number;
+  since: number;
+  until: number;
+  ownPoints: number;
+  otherPoints: number;
+  ownPerHour: number | null;
+  otherPerHour: number | null;
 }
 
 /** Raw token detail (authoring side). */

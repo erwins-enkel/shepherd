@@ -18,6 +18,7 @@ function fixture(over: Partial<GithubRateLimit> = {}): GithubRateLimit {
     backoff: { remaining: 0, resetAt: BASE + H, pausedUntil: BASE + H, blocked: true },
     restBackoff: { remaining: null, resetAt: null, pausedUntil: null, blocked: false },
     restWriteBackoff: { remaining: null, resetAt: null, pausedUntil: null, blocked: false },
+    graphqlSplit: null,
     ...over,
   };
 }
@@ -186,5 +187,65 @@ describe("GithubLens", () => {
     await expect.element(page.getByText(m.github_lens_rest_label())).toBeInTheDocument();
     expect(document.body.textContent).not.toContain(m.github_lens_exhausted());
     expect(document.body.textContent).not.toContain(m.github_lens_paused());
+  });
+
+  describe("GraphQL spend split (#2840)", () => {
+    const healthy = {
+      graphql: { limit: 5000, used: 1000, remaining: 4000, resetAt: BASE + H },
+      backoff: { remaining: 4000, resetAt: BASE + H, pausedUntil: null, blocked: false },
+    };
+    const split = (own: number | null, other: number | null) => ({
+      resetAt: BASE + H,
+      since: BASE - 20 * 60_000,
+      until: BASE,
+      ownPoints: 140,
+      otherPoints: 300,
+      ownPerHour: own,
+      otherPerHour: other,
+    });
+
+    it("shows the Shepherd server's rate and everything else's", async () => {
+      render(GithubLens, { data: fixture({ ...healthy, graphqlSplit: split(420, 900) }) });
+      await expect
+        .element(page.getByText(m.github_lens_split_own({ rate: (420).toLocaleString() })))
+        .toBeInTheDocument();
+      await expect
+        .element(page.getByText(m.github_lens_split_other({ rate: (900).toLocaleString() })))
+        .toBeInTheDocument();
+      await expect.element(page.getByRole("note")).not.toBeInTheDocument();
+    });
+
+    it("says it is still measuring before the window has enough readings", async () => {
+      render(GithubLens, { data: fixture({ ...healthy, graphqlSplit: split(null, null) }) });
+      await expect.element(page.getByText(m.github_lens_split_measuring())).toBeInTheDocument();
+    });
+
+    it("shows nothing for the split without a reading", async () => {
+      render(GithubLens, { data: fixture({ ...healthy, graphqlSplit: null }) });
+      await expect.element(page.getByText(m.github_lens_split_measuring())).not.toBeInTheDocument();
+    });
+
+    it("names likely sources and links them once other tools spend over 1,000/h", async () => {
+      render(GithubLens, { data: fixture({ ...healthy, graphqlSplit: split(420, 1001) }) });
+      const hint = page.getByRole("note");
+      await expect.element(hint).toBeInTheDocument();
+      await expect
+        .element(hint.getByText(m.github_lens_foreign_source_agents()))
+        .toBeInTheDocument();
+      await expect
+        .element(hint.getByRole("link", { name: m.github_lens_foreign_link_apps() }))
+        .toHaveAttribute("href", "https://github.com/settings/applications");
+      await expect
+        .element(hint.getByRole("link", { name: m.github_lens_foreign_link_log() }))
+        .toHaveAttribute("href", "https://github.com/settings/security-log");
+    });
+
+    it("keeps the hint off at exactly 1,000/h", async () => {
+      render(GithubLens, { data: fixture({ ...healthy, graphqlSplit: split(420, 1000) }) });
+      await expect
+        .element(page.getByText(m.github_lens_split_other({ rate: (1000).toLocaleString() })))
+        .toBeInTheDocument();
+      await expect.element(page.getByRole("note")).not.toBeInTheDocument();
+    });
   });
 });

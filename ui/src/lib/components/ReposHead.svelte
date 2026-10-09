@@ -13,6 +13,7 @@
     onselect = () => {},
     onff = undefined,
     ffDisabled = false,
+    fromFilter = false,
     onclose,
     children = undefined,
   }: {
@@ -23,6 +24,8 @@
      *  loading / no-repos states have nothing to fast-forward). */
     onff?: () => void;
     ffDisabled?: boolean;
+    /** The open repo is the one filtered on the dashboard — say so next to the switcher. */
+    fromFilter?: boolean;
     onclose: () => void;
     /** The switcher. Omitted → the plain "Repos" title instead. */
     children?: Snippet;
@@ -32,6 +35,9 @@
 <div class="rh">
   {#if children}
     {@render children()}
+    {#if fromFilter}
+      <span class="rh-badge">{m.repos_head_from_filter()}</span>
+    {/if}
     {#if recents.length > 0}
       <div class="rh-recent">
         <span class="rh-label">{m.repos_head_recent()}</span>
@@ -95,6 +101,17 @@
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
+  }
+
+  .rh-badge {
+    flex-shrink: 0;
+    padding: 2px 8px;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.04em;
+    white-space: nowrap;
   }
 
   /* Clipped, not wrapped, when the modal is narrow: Fast-forward and ✕ must stay put. */

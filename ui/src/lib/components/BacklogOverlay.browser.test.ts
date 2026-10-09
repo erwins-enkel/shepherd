@@ -179,7 +179,7 @@ describe("BacklogOverlay (Repos) modal resize", () => {
 // ── the repo sidebar is gone: the header switcher replaces it ───────────────
 describe("BacklogOverlay (Repos) header switcher replaces the sidebar", () => {
   it("renders no sidebar or splitter; the detail column spans the whole card", async () => {
-    await render(BacklogOverlay, props());
+    await render(BacklogOverlay, props({ filterPaths: ["/r/repo-0"] }));
     expect(document.querySelector(".master-pane")).toBeNull();
     expect(document.querySelector(".repo-splitter")).toBeNull();
     expect(document.querySelector(".chead")).toBeNull();
@@ -224,7 +224,7 @@ describe("BacklogOverlay (Repos) mobile", () => {
 // The rule itself (which chip wins) is unit-tested in backlog-view.test.ts via
 // tabForFilters. These mount the real BacklogView to prove the WIRING: that the
 // helper is applied at every place a repo gets selected — the desktop list, the
-// mobile list, and the desktop pinned-repo auto-seed.
+// mobile list, and the dashboard-filter entry.
 
 /** Tab buttons in their fixed BacklogTabBar order, scoped to one variant's bar. */
 function tabs(scope: ".tab-bar" | ".overlay-tabs") {
@@ -298,7 +298,7 @@ describe("BacklogOverlay (Repos) filter chip → opened tab", () => {
   });
 
   it("has-issues on wins over has-PRs and pulls a PRs-tab reader back to Issues", async () => {
-    await render(BacklogOverlay, props());
+    await render(BacklogOverlay, props({ filterPaths: ["/r/repo-0"] }));
     await click(tabs(".tab-bar").prs);
     await click(await chip(m.backlog_filter_has_prs()));
     await click(await chip(m.backlog_filter_has_issues()));
@@ -310,7 +310,7 @@ describe("BacklogOverlay (Repos) filter chip → opened tab", () => {
   });
 
   it("no chip active: selecting a repo leaves the current tab alone", async () => {
-    await render(BacklogOverlay, props());
+    await render(BacklogOverlay, props({ filterPaths: ["/r/repo-0"] }));
     await click(tabs(".tab-bar").prs);
     await click(await row("repo-0"));
 
@@ -321,61 +321,200 @@ describe("BacklogOverlay (Repos) filter chip → opened tab", () => {
   });
 });
 
-// ── pinned-repo auto-seed honours the chip ──────────────────────────────────
-// A FRESH object every call: the seed $effect tracks the `payload` prop, so only
-// a new identity re-fires it (which is what a real poll delivers).
+// ── how the dialog is entered ───────────────────────────────────────────────
+// A FRESH object every call: a poll delivers a new payload identity.
 function seedPayload(): BacklogPayload {
   return {
     pinnedPath: "/r/pinned",
-    projects: [project("/r/pinned"), { ...project("/r/nopr"), openPRs: 0 }],
+    projects: [project("/r/pinned"), { ...project("/r/nopr"), openPRs: 0 }, project("/r/third")],
     totals: { openIssues: 0, openPRs: 0 },
   };
 }
 
-/** Pinned repo named but absent from the list → nothing to seed. */
-function unseededPayload(): BacklogPayload {
-  const p = seedPayload();
-  return { ...p, projects: p.projects.filter((x) => x.path !== "/r/pinned") };
-}
-
-/** The repo named on the switcher trigger (the open repo), or null when none. */
+/** The repo named on the switcher trigger (the open repo), or the "Choose repo" prompt. */
 function triggerName(): string | null {
   return document.querySelector(".rs-trigger .rs-name")?.textContent?.trim() ?? null;
 }
 
-describe("BacklogOverlay (Repos) pinned auto-seed vs filter chip", () => {
-  it("a seed that fires while has-PRs is on lands on the PRs tab", async () => {
-    const { rerender } = await render(BacklogOverlay, props({ payload: unseededPayload() }));
-    // Nothing to seed yet: the detail pane is empty.
-    expect(document.querySelector(".detail-empty")).not.toBeNull();
-    await click(await chip(m.backlog_filter_has_prs()));
+const gridNames = () =>
+  [...document.querySelectorAll(".rg-tile .rg-name")].map((n) => n.textContent?.trim()).sort();
 
-    // A poll delivers the pinned repo → the seed fires and reads the chip.
-    await rerender(props({ payload: seedPayload() }));
-    await tick();
-
-    expect(triggerName()).toBe("pinned");
-    const t = tabs(".tab-bar");
-    expect(t.prs.classList.contains("active")).toBe(true);
-    expect(t.issues.classList.contains("active")).toBe(false);
+describe("BacklogOverlay (Repos) entry", () => {
+  it("no filter: nothing is preselected — not even the pinned repo — and the grid shows", async () => {
+    await render(BacklogOverlay, props({ payload: seedPayload() }));
+    expect(triggerName()).toBe(m.repos_switcher_choose());
+    expect(document.querySelector(".rg")).not.toBeNull();
+    expect(document.querySelector(".tab-bar")).toBeNull();
+    expect(document.querySelector(".rh-badge")).toBeNull();
+    expect(document.querySelector(".rh-recent")).toBeNull(); // the grid's recents are the same shortcut
+    expect(gridNames()).toEqual(["nopr", "pinned", "third"]);
+    // The grid spans the whole card; the search has the cursor.
+    const card = document.querySelector<HTMLElement>(".card")!.getBoundingClientRect();
+    const grid = document.querySelector<HTMLElement>(".rg")!.getBoundingClientRect();
+    expect(grid.width).toBeCloseTo(card.width - 2, 0);
+    await vi.waitFor(() =>
+      expect(document.activeElement).toBe(document.querySelector(".rg-search")),
+    );
   });
 
-  it("a poll does not re-tab a still-live selection", async () => {
-    const { rerender } = await render(BacklogOverlay, props({ payload: seedPayload() }));
-    // Mount seeds the pinned repo with no chip active → Issues, as today.
-    expect(triggerName()).toBe("pinned");
-    // Park on Actions, then filter — the selection survives and so does the tab.
-    await click(tabs(".tab-bar").actions);
-    await click(await chip(m.backlog_filter_has_prs()));
-    expect(triggerName()).toBe("pinned");
+  it("picking a tile opens that repo and drops the grid", async () => {
+    await render(BacklogOverlay, props({ payload: seedPayload() }));
+    await click(
+      [...document.querySelectorAll<HTMLElement>(".rg-tile")].find((t) =>
+        t.textContent?.includes("nopr"),
+      )!,
+    );
+    expect(triggerName()).toBe("nopr");
+    expect(document.querySelector(".rg")).toBeNull();
+    expect(document.querySelector(".tab-bar")).not.toBeNull();
+  });
 
-    await rerender(props({ payload: seedPayload() }));
+  it("one filtered repo: opens in it, switcher closed, with the dashboard-filter badge", async () => {
+    await render(BacklogOverlay, props({ payload: seedPayload(), filterPaths: ["/r/nopr"] }));
+    expect(triggerName()).toBe("nopr");
+    expect(document.querySelector(".rs-pop")).toBeNull();
+    expect(document.querySelector(".rg")).toBeNull();
+    expect(document.querySelector(".rh-badge")?.textContent).toBe(m.repos_head_from_filter());
+    expect(tabs(".tab-bar").issues.classList.contains("active")).toBe(true);
+  });
+
+  it("the badge goes away once another repo is picked — even coming back to the filtered one", async () => {
+    await render(BacklogOverlay, props({ payload: seedPayload(), filterPaths: ["/r/nopr"] }));
+    await click(await row("pinned"));
+    expect(triggerName()).toBe("pinned");
+    expect(document.querySelector(".rh-badge")).toBeNull();
+    await click(await row("nopr"));
+    expect(document.querySelector(".rh-badge")).toBeNull();
+  });
+
+  it("a dashboard-filter change after opening does not move the open repo", async () => {
+    const { rerender } = await render(
+      BacklogOverlay,
+      props({ payload: seedPayload(), filterPaths: ["/r/nopr"] }),
+    );
+    await click(await row("pinned"));
+    await rerender(props({ payload: seedPayload(), filterPaths: ["/r/third"] }));
     await tick();
+    expect(triggerName()).toBe("pinned");
+  });
 
-    // The seed's `selectedPath === null` guard held: no tab was rewritten.
-    const t = tabs(".tab-bar");
-    expect(t.actions.classList.contains("active")).toBe(true);
-    expect(t.prs.classList.contains("active")).toBe(false);
+  it("several filtered repos: no preselection, the grid shows only those", async () => {
+    await render(
+      BacklogOverlay,
+      props({ payload: seedPayload(), filterPaths: ["/r/pinned", "/r/third"] }),
+    );
+    expect(triggerName()).toBe(m.repos_switcher_choose());
+    expect(gridNames()).toEqual(["pinned", "third"]);
+    expect(document.querySelector(".rg-badge")?.textContent).toBe(
+      m.repos_grid_filtered({ count: 2 }),
+    );
+  });
+
+  it("filtered repos missing from the backlog fall back to the whole grid", async () => {
+    await render(
+      BacklogOverlay,
+      props({ payload: seedPayload(), filterPaths: ["/gone/a", "/gone/b"] }),
+    );
+    expect(gridNames()).toEqual(["nopr", "pinned", "third"]);
+    expect(document.querySelector(".rg-badge")).toBeNull();
+  });
+
+  it("an explicit selectPath (command bar / repo added) beats the dashboard filter", async () => {
+    await render(
+      BacklogOverlay,
+      props({ payload: seedPayload(), filterPaths: ["/r/nopr"], selectPath: "/r/third" }),
+    );
+    expect(triggerName()).toBe("third");
+    expect(document.querySelector(".rh-badge")).toBeNull();
+  });
+
+  it("an EPIC-badge target opens its repo directly, beating the dashboard filter", async () => {
+    // `target` is also a render() option name, so the props go under `props`.
+    await render(BacklogOverlay, {
+      props: props({
+        payload: seedPayload(),
+        filterPaths: ["/r/nopr"],
+        target: { repoPath: "/r/third", issueNumber: 7 },
+      }),
+    });
+    expect(triggerName()).toBe("third");
+    expect(document.querySelector(".rh-badge")).toBeNull();
+    expect(document.querySelector(".rg")).toBeNull();
+  });
+
+  it("a repo that vanishes from the payload drops the open repo back to the grid", async () => {
+    const { rerender } = await render(
+      BacklogOverlay,
+      props({ payload: seedPayload(), filterPaths: ["/r/nopr"] }),
+    );
+    const p = seedPayload();
+    await rerender(
+      props({ payload: { ...p, projects: p.projects.filter((x) => x.path !== "/r/nopr") } }),
+    );
+    await tick();
+    expect(triggerName()).toBe(m.repos_switcher_choose());
+    expect(document.querySelector(".rg")).not.toBeNull();
+  });
+
+  it("a poll does not re-tab or re-select a repo that is being read", async () => {
+    const { rerender } = await render(
+      BacklogOverlay,
+      props({ payload: seedPayload(), filterPaths: ["/r/pinned"] }),
+    );
+    await click(tabs(".tab-bar").actions);
+    await rerender(props({ payload: seedPayload(), filterPaths: ["/r/pinned"] }));
+    await tick();
+    expect(triggerName()).toBe("pinned");
+    expect(tabs(".tab-bar").actions.classList.contains("active")).toBe(true);
+  });
+
+  it("Esc in the grid search clears the text first, then closes the dialog", async () => {
+    const onclose = vi.fn();
+    await render(BacklogOverlay, props({ payload: seedPayload(), onclose }));
+    const search = document.querySelector<HTMLInputElement>(".rg-search")!;
+    search.value = "third";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+    await tick();
+    search.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+    await tick();
+    expect(search.value).toBe("");
+    expect(onclose).not.toHaveBeenCalled();
+    search.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+    expect(onclose).toHaveBeenCalledOnce();
+  });
+
+  it("↵ in the grid search opens the top match", async () => {
+    await render(BacklogOverlay, props({ payload: seedPayload() }));
+    const search = document.querySelector<HTMLInputElement>(".rg-search")!;
+    search.value = "third";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+    await tick();
+    search.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    await tick();
+    expect(triggerName()).toBe("third");
+  });
+
+  it("mobile: no grid; one filtered repo still opens its detail, no badge", async () => {
+    await render(
+      BacklogOverlay,
+      props({ mobile: true, payload: seedPayload(), filterPaths: ["/r/nopr"] }),
+    );
+    expect(document.querySelector(".rg")).toBeNull();
+    expect(document.querySelector(".rh-badge")).toBeNull();
+    expect(document.querySelector(".mobile-detail-overlay")).not.toBeNull();
+  });
+
+  it("mobile: no filter shows the list, not the grid", async () => {
+    await render(BacklogOverlay, props({ mobile: true, payload: seedPayload() }));
+    expect(document.querySelector(".rg")).toBeNull();
+    expect(document.querySelector(".project-row")).not.toBeNull();
+    expect(document.querySelector(".mobile-detail-overlay")).toBeNull();
   });
 });
 
@@ -394,7 +533,7 @@ describe("BacklogOverlay (Repos) filter scope vs the open repo", () => {
   });
 
   it("typing in the switcher search keeps the open repo", async () => {
-    await render(BacklogOverlay, props({ payload: seedPayload() }));
+    await render(BacklogOverlay, props({ payload: seedPayload(), filterPaths: ["/r/pinned"] }));
     await openSwitcher();
     const search = document.querySelector<HTMLInputElement>(".filter-search")!;
     search.value = "zzz-no-match";

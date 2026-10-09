@@ -28,8 +28,13 @@ import {
   effectiveHidden,
   splitHidden,
   RECENT_LIMIT,
+  resolveFilterPaths,
+  sortProjects,
+  sizeShare,
+  repoRunState,
+  nearestInDirection,
 } from "./backlog-view";
-import type { BacklogPayload, BacklogProject } from "#lib/types.js";
+import type { BacklogPayload, BacklogProject, DrainStatus } from "#lib/types.js";
 
 function project(
   path: string,
@@ -510,5 +515,166 @@ describe("effectiveHidden / splitHidden", () => {
     const { visible, hidden } = splitHidden([b], { "/r/b": false });
     expect(visible.map((p) => p.path)).toEqual(["/r/b"]);
     expect(hidden).toEqual([]);
+  });
+});
+
+describe("resolveFilterPaths", () => {
+  const entries = [
+    { path: "/root/a", realPath: "/real/a" },
+    { path: "/root/b", realPath: "/real/b" },
+  ];
+
+  it("maps a session real path to the backlog project path", () => {
+    expect(resolveFilterPaths(["/real/b"], entries)).toEqual(["/root/b"]);
+  });
+
+  it("passes an unknown path through unchanged", () => {
+    expect(resolveFilterPaths(["/elsewhere/x"], entries)).toEqual(["/elsewhere/x"]);
+  });
+
+  it("keeps order and drops duplicates", () => {
+    expect(resolveFilterPaths(new Set(["/real/b", "/real/a", "/root/b"]), entries)).toEqual([
+      "/root/b",
+      "/root/a",
+    ]);
+  });
+
+  it("an empty filter resolves to nothing", () => {
+    expect(resolveFilterPaths(new Set(), entries)).toEqual([]);
+  });
+});
+
+describe("sortProjects", () => {
+  const a = project("/r/alpha", 2, 0);
+  const b = project("/r/beta", 9, 0);
+  const c = project("/r/charlie", null, null);
+  const d = project("/r/delta", 9, 0);
+
+  it("issues: most open issues first, unknown last, name breaks ties", () => {
+    expect(sortProjects([a, c, d, b], "issues").map((p) => p.path)).toEqual([
+      "/r/beta",
+      "/r/delta",
+      "/r/alpha",
+      "/r/charlie",
+    ]);
+  });
+
+  it("name: alphabetical", () => {
+    expect(sortProjects([d, c, b, a], "name").map((p) => p.path)).toEqual([
+      "/r/alpha",
+      "/r/beta",
+      "/r/charlie",
+      "/r/delta",
+    ]);
+  });
+
+  it("does not mutate its input", () => {
+    const input = [b, a];
+    sortProjects(input, "name");
+    expect(input.map((p) => p.path)).toEqual(["/r/beta", "/r/alpha"]);
+  });
+});
+
+describe("sizeShare", () => {
+  it("is the fraction of the largest count", () => {
+    expect(sizeShare(5, 20)).toBe(0.25);
+    expect(sizeShare(20, 20)).toBe(1);
+  });
+
+  it("is 0 for an unknown count or an empty universe", () => {
+    expect(sizeShare(null, 20)).toBe(0);
+    expect(sizeShare(0, 0)).toBe(0);
+    expect(sizeShare(3, 0)).toBe(0);
+  });
+
+  it("never exceeds 1", () => {
+    expect(sizeShare(30, 20)).toBe(1);
+  });
+});
+
+describe("repoRunState", () => {
+  const drain = (over: Partial<DrainStatus> = {}): DrainStatus => ({
+    repoPath: "/r/a",
+    enabled: true,
+    paused: false,
+    reason: null,
+    detail: null,
+    queued: 0,
+    inFlight: 0,
+    max: 3,
+    epicParent: null,
+    ...over,
+  });
+  const summary = (leadingEpic: number | null): DrainStatus["runSummary"] => ({
+    leadingEpic,
+    windingDown: [],
+    slots: { used: 0, max: 3, holders: [] },
+    next: [],
+    after: [],
+  });
+
+  it("is null without a drain, with a disabled one, or when idle", () => {
+    expect(repoRunState(undefined)).toBeNull();
+    expect(repoRunState(null)).toBeNull();
+    expect(repoRunState(drain({ enabled: false, inFlight: 2 }))).toBeNull();
+    expect(repoRunState(drain())).toBeNull();
+  });
+
+  it("a leading epic names the epic and the agents in flight", () => {
+    expect(repoRunState(drain({ inFlight: 1, runSummary: summary(158) }))).toEqual({
+      kind: "epic",
+      epic: 158,
+      inFlight: 1,
+      max: 3,
+    });
+  });
+
+  it("agents in flight without an epic are plain running", () => {
+    expect(repoRunState(drain({ inFlight: 2, runSummary: summary(null) }))).toEqual({
+      kind: "running",
+      inFlight: 2,
+      max: 3,
+    });
+  });
+
+  it("paused outranks a leading epic", () => {
+    expect(repoRunState(drain({ paused: true, reason: "cap", runSummary: summary(158) }))).toEqual({
+      kind: "paused",
+    });
+  });
+});
+
+describe("nearestInDirection", () => {
+  // Two rows: three tiles on top, two below (offset), one alone at the bottom.
+  const box = (left: number, top: number, width = 100, height = 40) => ({
+    left,
+    top,
+    width,
+    height,
+  });
+  const boxes = [
+    box(0, 0), // 0
+    box(110, 0), // 1
+    box(220, 0), // 2
+    box(0, 50), // 3
+    box(220, 50), // 4
+    box(110, 100), // 5
+  ];
+
+  it("down lands on the tile in the next row closest horizontally", () => {
+    expect(nearestInDirection(boxes, 0, 1)).toBe(3);
+    expect(nearestInDirection(boxes, 2, 1)).toBe(4);
+    expect(nearestInDirection(boxes, 1, 1)).toBe(3); // equidistant (110px each side) → the earlier tile wins
+  });
+
+  it("up lands on the nearest row above", () => {
+    expect(nearestInDirection(boxes, 5, -1)).toBe(3);
+    expect(nearestInDirection(boxes, 4, -1)).toBe(2);
+  });
+
+  it("is null at the first and last row, and for an unknown index", () => {
+    expect(nearestInDirection(boxes, 1, -1)).toBeNull();
+    expect(nearestInDirection(boxes, 5, 1)).toBeNull();
+    expect(nearestInDirection(boxes, 99, 1)).toBeNull();
   });
 });

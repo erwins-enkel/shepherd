@@ -68,12 +68,16 @@ describe("SlashCommandMenu description tooltip", () => {
   const tip = () => document.querySelector(".status-tip:popover-open");
   // statusTip dismisses on scroll/resize, and the browser-test harness emits both while
   // the container settles after mount — so retry the hover until it sticks rather than
-  // hovering once and racing the harness.
+  // hovering once and racing the harness. Each attempt waits out the hover-open delay —
+  // re-dispatching sooner would just restart it.
   const hover = (el: HTMLElement) =>
-    vi.waitFor(() => {
-      el.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", bubbles: true }));
-      expect(tip()).not.toBeNull();
-    });
+    vi.waitFor(
+      async () => {
+        el.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", bubbles: true }));
+        await expect.poll(tip, { timeout: 900 }).not.toBeNull();
+      },
+      { timeout: 4000 },
+    );
 
   async function renderOne(description: string, onpick: (cmd: SlashCommand) => void = () => {}) {
     render(SlashCommandMenu, {

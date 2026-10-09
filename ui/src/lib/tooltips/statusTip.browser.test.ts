@@ -9,6 +9,13 @@ import { page } from "vitest/browser";
 let cleanup: (() => void) | undefined;
 afterEach(() => cleanup?.());
 
+// Hover opens after a rest delay; wait it out and return the open panel.
+async function hoverOpen(node: HTMLElement) {
+  node.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+  await expect.poll(() => document.querySelector(".status-tip:popover-open")).not.toBeNull();
+  return document.querySelector<HTMLElement>(".status-tip")!;
+}
+
 describe("structured statusTip", () => {
   it("does not open from programmatic focus", async () => {
     const node = document.createElement("button");
@@ -41,9 +48,7 @@ describe("structured statusTip", () => {
       node.remove();
     };
     expect(node.getAttribute("aria-description")).toContain("Next turn: 1.2 units");
-    node.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
-    const panel = document.querySelector<HTMLElement>(".status-tip")!;
-    expect(panel.matches(":popover-open")).toBe(true);
+    const panel = await hoverOpen(node);
     expect(panel.querySelector("img")).toBeNull();
     expect(panel.textContent).toContain(content.summary);
     expect(panel.querySelector(".tooltip-title")?.textContent).toBe(content.title);
@@ -64,7 +69,7 @@ describe("structured statusTip", () => {
 describe("statusTip via use:", () => {
   // Regression: once the panel existed, update() (run inside Svelte's tracked action effect)
   // wrote bodyProps.content and read it back → effect_update_depth_exceeded froze the page.
-  it("updates a shown structured tip without looping", () => {
+  it("updates a shown structured tip without looping", async () => {
     const target = document.createElement("div");
     document.body.append(target);
     const harness = mount(StatusTipHarness, { target }) as unknown as {
@@ -76,8 +81,7 @@ describe("statusTip via use:", () => {
     };
     flushSync();
     const trigger = target.querySelector<HTMLElement>("[data-testid=tip-trigger]")!;
-    trigger.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
-    const panel = document.querySelector<HTMLElement>(".status-tip")!;
+    const panel = await hoverOpen(trigger);
     expect(panel.textContent).toContain("1.2 units");
     expect(() => {
       harness.setUnits("2.4");
@@ -107,18 +111,46 @@ describe("statusTip list-row options", () => {
     node.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
     expect(document.querySelector(".status-tip")).toBeNull();
 
-    node.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+    const panel = await hoverOpen(node);
     node.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
-    const panel = document.querySelector<HTMLElement>(".status-tip")!;
     expect(panel.matches(":popover-open")).toBe(true);
     node.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "mouse" }));
     await expect.poll(() => panel.matches(":popover-open")).toBe(false);
   });
 
+  it("hover opens only after the pointer rests; a pass-through never opens", async () => {
+    const node = mountTrigger({ text: "Details" });
+    node.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+    node.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "mouse" }));
+    await new Promise((r) => setTimeout(r, 650));
+    expect(document.querySelector(".status-tip")).toBeNull();
+
+    node.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+    await new Promise((r) => setTimeout(r, 200));
+    expect(document.querySelector(".status-tip")).toBeNull();
+    await expect
+      .poll(() => document.querySelector(".status-tip")?.matches(":popover-open"))
+      .toBe(true);
+  });
+
+  it("a click opens at once, without the hover delay", () => {
+    const node = mountTrigger({ text: "Details" });
+    node.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    expect(document.querySelector(".status-tip")?.matches(":popover-open")).toBe(true);
+  });
+
+  it("destroy during a pending hover open creates no panel", async () => {
+    const node = mountTrigger({ text: "Details" });
+    node.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+    cleanup?.();
+    cleanup = undefined;
+    await new Promise((r) => setTimeout(r, 650));
+    expect(document.querySelector(".status-tip")).toBeNull();
+  });
+
   it("placement:right — the panel sits to the right of the trigger", async () => {
     const node = mountTrigger({ text: "Details", placement: "right" });
-    node.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
-    const panel = document.querySelector<HTMLElement>(".status-tip")!;
+    const panel = await hoverOpen(node);
     await expect
       .poll(() => panel.getBoundingClientRect().left)
       .toBeGreaterThanOrEqual(node.getBoundingClientRect().right);

@@ -34,13 +34,20 @@ export interface StatusTipParams {
 // the server), so a plain counter is safe — no SSR/hydration id collision concern.
 let uid = 0;
 
+// Hover intent: the pointer must rest this long on a trigger before its tip opens.
+// Herd rows pack many chips side by side, and instant tips covered the row the
+// operator was reaching for.
+const HOVER_OPEN_DELAY_MS = 500;
+
 /**
  * Explanation-only tooltip for the session-card status chips.
  *
  * Raises the trigger above the full-card `.unit-hit` overlay (inline
  * `position:relative; z-index:1`) so hover/tap reach the chip instead of the
  * overlay, and reveals a styled, **non-interactive** `role="tooltip"` popover:
- *  - hover (fine pointer) opens a transient tooltip; a genuine pointer click
+ *  - hover (fine pointer) opens a transient tooltip once the pointer has rested
+ *    `HOVER_OPEN_DELAY_MS` on the trigger (a pass-through sweep across a crowded
+ *    row fires nothing); focus and click open at once. A genuine pointer click
  *    **pins** it so it survives `pointerleave` (a real affordance, not a fleeting
  *    hover) — dismissed by outside-click / Esc / scroll.
  *  - every open path is idempotent and `click` never toggles, so a touch tap's
@@ -91,6 +98,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
   let stopAnchor: (() => void) | null = null;
   let nodeListeners = false;
   let closeTimer: ReturnType<typeof setTimeout> | null = null;
+  let openTimer: ReturnType<typeof setTimeout> | null = null;
 
   function panelClass() {
     return [
@@ -147,6 +155,19 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
     }, 140);
   }
 
+  function cancelOpen() {
+    if (openTimer === null) return;
+    clearTimeout(openTimer);
+    openTimer = null;
+  }
+  function scheduleOpen() {
+    cancelOpen();
+    openTimer = setTimeout(() => {
+      openTimer = null;
+      show();
+    }, HOVER_OPEN_DELAY_MS);
+  }
+
   function onDocPointerDown(e: PointerEvent) {
     const t = e.target as Node;
     if (node.contains(t) || pop?.contains(t)) return;
@@ -162,6 +183,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
   }
 
   function show() {
+    cancelOpen();
     cancelClose();
     if (open) return;
     ensurePopover();
@@ -180,6 +202,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
   }
 
   function hide() {
+    cancelOpen();
     cancelClose();
     pinned = false;
     if (!open) return;
@@ -194,10 +217,14 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
 
   function onPointerEnter(e: PointerEvent) {
     if (e.pointerType === "touch") return;
-    show();
+    // Already open (pointer back from the panel): just cancel the pending close.
+    if (open) show();
+    else scheduleOpen();
   }
   function onPointerLeave(e: PointerEvent) {
-    if (e.pointerType === "touch" || pinned) return;
+    if (e.pointerType === "touch") return;
+    cancelOpen();
+    if (pinned) return;
     // Deferred, not immediate: the pointer may be on its way *into* the panel.
     scheduleClose();
   }

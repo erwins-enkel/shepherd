@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
   import AutomationSettings from "./AutomationSettings.svelte";
-  import type { Session, DrainStatus } from "$lib/types";
+  import type { Session, DrainStatus } from "#lib/types.js";
 
   let {
     repoPath,

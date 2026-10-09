@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { HerdFilter } from "$lib/components/herd-partition";
-  import { lensGlyph } from "$lib/components/herd/lens-glyphs";
-  import { m } from "$lib/paraglide/messages";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import type { HerdFilter } from "#lib/components/herd-partition.js";
+  import { lensGlyph } from "#lib/components/herd/lens-glyphs.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
 
   let {
     filter = $bindable<HerdFilter>(),

@@ -1,21 +1,21 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { reviews, repoConfig, planGates } from "$lib/reviews.svelte";
-  import { infoTips } from "$lib/info-tips.svelte";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import { ApiError, getSettings, openRepoBrowser } from "$lib/api";
-  import { toasts } from "$lib/toasts.svelte";
-  import { DOCS_URL } from "$lib/build-info";
+  import { m } from "#lib/paraglide/messages.js";
+  import { reviews, repoConfig, planGates } from "#lib/reviews.svelte.js";
+  import { infoTips } from "#lib/info-tips.svelte.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import { ApiError, getSettings, openRepoBrowser } from "#lib/api.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { DOCS_URL } from "#lib/build-info.js";
   import AutomationInfoTip from "./automation-settings/AutomationInfoTip.svelte";
   import InfoTip from "./InfoTip.svelte";
-  import { sharedBrowserExplanation } from "$lib/tooltips/explanations";
+  import { sharedBrowserExplanation } from "#lib/tooltips/explanations.js";
   import AutomationDetail from "./automation-settings/AutomationDetail.svelte";
   import AutomationRepoFields from "./automation-settings/AutomationRepoFields.svelte";
   import AutomationDrainFields from "./automation-settings/AutomationDrainFields.svelte";
   import BrowserAllowedHosts from "./automation-settings/BrowserAllowedHosts.svelte";
   import "./automation-settings/automation-fields.css";
   import { onMount } from "svelte";
-  import type { Session, SandboxProfile, DrainStatus } from "$lib/types";
+  import type { Session, SandboxProfile, DrainStatus } from "#lib/types.js";
 
   let {
     repoPath,

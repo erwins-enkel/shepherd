@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import { m } from "#lib/paraglide/messages.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
 
   export type TallyStatus = "running" | "idle" | "blocked";
 

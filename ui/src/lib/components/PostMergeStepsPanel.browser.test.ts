@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { PostMergeSteps, OwedFocusSnapshot } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { PostMergeSteps, OwedFocusSnapshot } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 // Mock api so the store's tick/dismiss never hit the network; capture calls.
 const setManualStepDone = vi.fn(
@@ -19,8 +19,8 @@ const dismissManualSteps = vi.fn(async (sessionId: string): Promise<PostMergeSte
   ...record({ sessionId }),
   clearedAt: Date.now(),
 }));
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     getOutstandingManualSteps: vi.fn(async () => []),
@@ -29,8 +29,8 @@ vi.mock("$lib/api", async (importOriginal) => {
   };
 });
 
-const { postMergeSteps } = await import("$lib/post-merge-steps.svelte");
-const { projectIcons } = await import("$lib/projectIcons.svelte");
+const { postMergeSteps } = await import("#lib/post-merge-steps.svelte.js");
+const { projectIcons } = await import("#lib/projectIcons.svelte.js");
 const PostMergeStepsPanel = (await import("./PostMergeStepsPanel.svelte")).default;
 
 function record(p: Partial<PostMergeSteps> & { sessionId: string }): PostMergeSteps {

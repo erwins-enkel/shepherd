@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
-import type { Settings as SettingsPayload, DiagnosticCheck } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { Settings as SettingsPayload, DiagnosticCheck } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 import {
   getSettings,
   createAccessToken,
@@ -18,18 +18,18 @@ import {
   putDefaultEffort,
   putEngineEffort,
   putUpNextReadiness,
-} from "$lib/api";
-import { toasts } from "$lib/toasts.svelte";
-import { roleTitle } from "$lib/settings-search";
-import { configuredModelLabel } from "$lib/model-label";
-import { effortLabel } from "$lib/effort-guidance";
-import { issueRef } from "$lib/issue-ref.svelte";
+} from "#lib/api.js";
+import { toasts } from "#lib/toasts.svelte.js";
+import { roleTitle } from "#lib/settings-search.js";
+import { configuredModelLabel } from "#lib/model-label.js";
+import { effortLabel } from "#lib/effort-guidance.js";
+import { issueRef } from "#lib/issue-ref.svelte.js";
 
 // Mock the API so Settings never hits the network. The settings GET is seeded to
 // land on api-key mode WITH a key configured, so the api-key block + Verify button
 // render; each test then drives verifyApiKey / putAnthropicApiKey.
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     getSettings: vi.fn(),
@@ -73,8 +73,8 @@ vi.mock("$lib/api", async (importOriginal) => {
 
 // The Notifications panel probes this browser's push state on mount; stub it to a quiet,
 // unsupported, unsubscribed state so no test touches navigator.serviceWorker.
-vi.mock("$lib/push", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/push")>();
+vi.mock("#lib/push.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/push.js")>();
   return {
     ...actual,
     pushState: vi.fn(async () => ({
@@ -865,7 +865,7 @@ describe("Settings search", () => {
     // group, so both the badge and the auto-expand behavior are exercised.
     // Expected counts come from the same index the app derives them from, so
     // copy edits can't desync this test.
-    const { matchCount, sectionSearchRows } = await import("$lib/settings-search");
+    const { matchCount, sectionSearchRows } = await import("#lib/settings-search.js");
     const query = "recap";
     const expected = matchCount(sectionSearchRows({}).codingAgents, query);
     expect(expected).toBeGreaterThan(0);
@@ -902,7 +902,7 @@ describe("Settings search", () => {
     // A Device-only term: matches its indexed rows, so the Device rail badge
     // must light AND drilling in must show in-pane highlights — the four kept
     // panels receive the query even though their internals weren't rebuilt.
-    const { matchCount, sectionSearchRows } = await import("$lib/settings-search");
+    const { matchCount, sectionSearchRows } = await import("#lib/settings-search.js");
     const query = "contrast";
     const expected = matchCount(sectionSearchRows({}).device, query);
     expect(expected).toBeGreaterThan(0);
@@ -924,7 +924,7 @@ describe("Settings search", () => {
     await page.viewport(1280, 900);
     await mountCodingAgents();
 
-    const { matchCount, sectionSearchRows } = await import("$lib/settings-search");
+    const { matchCount, sectionSearchRows } = await import("#lib/settings-search.js");
     const query = "saved";
     const expected = matchCount(sectionSearchRows({}).steers, query);
     expect(expected).toBeGreaterThan(0);

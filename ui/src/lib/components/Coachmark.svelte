@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { anchorPopover } from "$lib/floating-anchor";
-  import { coachTargets } from "$lib/actions/coachTarget.svelte";
-  import { m } from "$lib/paraglide/messages";
-  import GlossaryText from "$lib/components/GlossaryText.svelte";
+  import { anchorPopover } from "#lib/floating-anchor.js";
+  import { coachTargets } from "#lib/actions/coachTarget.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import GlossaryText from "#lib/components/GlossaryText.svelte";
 
   let {
     targetId,

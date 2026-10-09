@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import PluginLoadedCard from "./PluginLoadedCard.svelte";
-import type { PluginInfo, PluginUINode } from "$lib/types";
+import type { PluginInfo, PluginUINode } from "#lib/types.js";
 
 // iPhone 14 Pro Max. The settings pane (.pbody) pads 18px either side, so a plugin
 // card gets 394px — the width the reported overflow was measured against.

@@ -1,4 +1,4 @@
-import type { HerdFilter } from "$lib/components/herd-partition";
+import type { HerdFilter } from "#lib/components/herd-partition.js";
 
 /** Canonical glyph per herd lens — the SINGLE source shared by the HerdLensStrip
  *  (the rail's lens switcher) and the CommandBar's lens rows, so the two icon sets

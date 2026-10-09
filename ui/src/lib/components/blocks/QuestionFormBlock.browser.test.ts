@@ -7,8 +7,8 @@ import QuestionFormBlock from "./QuestionFormBlock.svelte";
 const answerPlanQuestions = vi.fn<
   (id: string, answers: unknown[]) => Promise<{ delivered: boolean }>
 >(async () => ({ delivered: true }));
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     answerPlanQuestions: (...a: unknown[]) =>

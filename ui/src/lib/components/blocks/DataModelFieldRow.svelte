@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { VisualBlock } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import type { VisualBlock } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   type Field = Extract<VisualBlock, { type: "data-model" }>["entities"][number]["fields"][number];
 

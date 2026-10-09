@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { parseGlossary } from "$lib/glossary-parse";
+  import { parseGlossary } from "#lib/glossary-parse.js";
   import GlossaryTerm from "./GlossaryTerm.svelte";
 
   const { text }: { text: string } = $props();

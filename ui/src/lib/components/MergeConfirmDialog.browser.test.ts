@@ -5,7 +5,7 @@ import { userEvent } from "vitest/browser";
 import "../../app.css";
 import MergeConfirmDialog from "./MergeConfirmDialog.svelte";
 import { CONFIRM_ARM_MS, type MergeConfirmContext } from "./merge-confirm";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 
 function ctx(over: Partial<MergeConfirmContext> = {}): MergeConfirmContext {
   return {

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { terminalOwnerTitle } from "$lib/terminal-client";
-  import type { LoginRequest, TerminalClientInfo } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { answerLoginRequest } from "$lib/login-request";
+  import { terminalOwnerTitle } from "#lib/terminal-client.js";
+  import type { LoginRequest, TerminalClientInfo } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { answerLoginRequest } from "#lib/login-request.js";
 
   let {
     tab,

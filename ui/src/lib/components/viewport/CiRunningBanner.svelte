@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { GitState } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { ciBannerState } from "$lib/ci-banner";
+  import type { GitState } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { ciBannerState } from "#lib/ci-banner.js";
 
   // Non-blocking "CI is running" signal: a bottom strip over the terminal, above
   // the steer bar — the SAME spot as ReviewInFlightBanner, so status/automation

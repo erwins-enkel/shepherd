@@ -1,9 +1,9 @@
 <script lang="ts">
-  import type { BuildQueue, BuildStep, BuildStepStatus, Session } from "$lib/types";
-  import { getBuildQueue, putBuildQueue, approveBuildQueue, replySession } from "$lib/api";
-  import { m } from "$lib/paraglide/messages";
-  import { buildQueueCollapse } from "$lib/build-queue-collapse.svelte";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import type { BuildQueue, BuildStep, BuildStepStatus, Session } from "#lib/types.js";
+  import { getBuildQueue, putBuildQueue, approveBuildQueue, replySession } from "#lib/api.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { buildQueueCollapse } from "#lib/build-queue-collapse.svelte.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
 
   let {
     sessionId,

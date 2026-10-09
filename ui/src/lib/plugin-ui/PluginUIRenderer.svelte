@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { PluginUINode } from "$lib/types";
+  import type { PluginUINode } from "#lib/types.js";
   import { PLUGIN_UI_REGISTRY } from "./registry";
   import UnknownNodeTile from "./UnknownNodeTile.svelte";
 

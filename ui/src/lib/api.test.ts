@@ -10,7 +10,7 @@ import {
   getPlanDraft,
 } from "./api";
 
-vi.mock("$lib/auth.svelte", () => ({
+vi.mock("#lib/auth.svelte.js", () => ({
   auth: { unauthenticated: false, checked: false },
 }));
 

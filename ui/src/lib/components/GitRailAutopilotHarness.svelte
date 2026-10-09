@@ -12,7 +12,7 @@
 -->
 <script lang="ts">
   import GitRail from "./GitRail.svelte";
-  import type { Session, SessionStatus } from "$lib/types";
+  import type { Session, SessionStatus } from "#lib/types.js";
 
   let {
     sessionId,

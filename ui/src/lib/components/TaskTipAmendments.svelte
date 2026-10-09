@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { TaskAmendment } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import type { TaskAmendment } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   // The AMENDMENTS row of the Viewport's task tooltip (#2225). Its own component rather than three
   // more branches inline: the Viewport template is already at its complexity ceiling, and a list

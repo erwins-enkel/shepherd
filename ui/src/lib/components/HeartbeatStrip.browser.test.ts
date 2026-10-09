@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../app.css";
-import type { SessionActivity } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { SessionActivity } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 import HeartbeatStrip from "./HeartbeatStrip.svelte";
 
 afterEach(() => {

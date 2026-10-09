@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { Issue } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { relativeAge } from "$lib/format";
-  import { clock } from "$lib/now.svelte";
+  import type { Issue } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { relativeAge } from "#lib/format.js";
+  import { clock } from "#lib/now.svelte.js";
 
   // Small anchored, non-blocking preview of an issue — a "little more" than the row
   // shows: number · author · age, title, all labels, and the body (plain text,

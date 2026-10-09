@@ -2,9 +2,9 @@
   // The confirmation before Shepherd runs `gh auth setup-git`: exactly which lines land in
   // the global git config, who that affects, and how to undo it. Shared by the refused-clone
   // panel and the clone dialog's up-front note.
-  import { setupGitViaGh, type GitHelperInfo } from "$lib/api";
-  import { GH_SETUP_CONFIG, GH_SETUP_UNDO } from "$lib/clone-access";
-  import { m } from "$lib/paraglide/messages";
+  import { setupGitViaGh, type GitHelperInfo } from "#lib/api.js";
+  import { GH_SETUP_CONFIG, GH_SETUP_UNDO } from "#lib/clone-access.js";
+  import { m } from "#lib/paraglide/messages.js";
   import "./clone-access.css";
 
   let {

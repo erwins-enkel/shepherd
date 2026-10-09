@@ -1,8 +1,8 @@
 // What the clone dialog shows after a refused GitHub clone, derived from the server's
 // access diagnosis (GET /api/github/access). The list comes from gh, the clone from git's
 // own credential helper — these name which side failed and what can fix it.
-import type { GithubAccess, GitHelperKind } from "$lib/api";
-import { m } from "$lib/paraglide/messages";
+import type { GithubAccess, GitHelperKind } from "#lib/api.js";
+import { m } from "#lib/paraglide/messages.js";
 
 /**
  * - `mismatch`: gh may read the repo, git's credential may not — the fixable case.

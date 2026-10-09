@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { listWorkflowRuns } from "$lib/api";
-  import { pollWhileVisible } from "$lib/visibility";
-  import type { WorkflowRun } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import { listWorkflowRuns } from "#lib/api.js";
+  import { pollWhileVisible } from "#lib/visibility.js";
+  import type { WorkflowRun } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
   import ActionRunRow from "./ActionRunRow.svelte";
   import RepoLink from "./RepoLink.svelte";
 

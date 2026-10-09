@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { deriveStage, STAGE_ORDER, PR_INDEX, REVIEW_INDEX } from "./stage";
-import type { GitState, ReviewVerdict, ChecksState } from "$lib/types";
+import type { GitState, ReviewVerdict, ChecksState } from "#lib/types.js";
 
 function git(over: Partial<GitState>): GitState {
   return {

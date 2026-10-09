@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { deleteApnsConfig } from "$lib/api";
-  import type { ApnsStatus } from "$lib/types";
+  import { deleteApnsConfig } from "#lib/api.js";
+  import type { ApnsStatus } from "#lib/types.js";
   import NotificationsApnsForm from "./NotificationsApnsForm.svelte";
   import "./settings-controls.css";
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // The iOS-push part of Settings → Notifications (#2696): what is wrong (an unusable key, the
   // last APNs refusal), what is on file — never the key itself — and replace / remove. With no

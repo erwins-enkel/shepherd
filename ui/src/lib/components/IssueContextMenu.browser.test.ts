@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { Issue, Steer } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { Issue, Steer } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 import IssueContextMenu from "./IssueContextMenu.svelte";
 import IssueDetailsPopover from "./IssueDetailsPopover.svelte";
 

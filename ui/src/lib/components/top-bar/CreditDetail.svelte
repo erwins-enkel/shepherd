@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { formatReset, relativeAge } from "$lib/format";
-  import type { CreditWindow } from "$lib/types";
+  import { m } from "#lib/paraglide/messages.js";
+  import { formatReset, relativeAge } from "#lib/format.js";
+  import type { CreditWindow } from "#lib/types.js";
 
   let {
     credits,

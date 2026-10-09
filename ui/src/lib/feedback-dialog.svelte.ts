@@ -1,4 +1,4 @@
-import type { FeedbackKind } from "$lib/feedback-link";
+import type { FeedbackKind } from "#lib/feedback-link.js";
 
 // Shared store for the feedback modal. Call openFeedback(kind) to open it;
 // closeFeedback() to dismiss. Mount <FeedbackDialog> once in +page.svelte and

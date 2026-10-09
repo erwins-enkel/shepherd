@@ -2,9 +2,9 @@
   // The clone dialog's up-front note: the repo list comes from gh, but git clones with its
   // own credential helper — say so before a private repo fails, and offer to align them
   // (`gh auth setup-git`, confirmed via GhSetupConfirm). Dismissal is per device.
-  import type { GitHelperInfo } from "$lib/api";
-  import { helperLabel } from "$lib/clone-access";
-  import { m } from "$lib/paraglide/messages";
+  import type { GitHelperInfo } from "#lib/api.js";
+  import { helperLabel } from "#lib/clone-access.js";
+  import { m } from "#lib/paraglide/messages.js";
   import GhSetupConfirm from "./GhSetupConfirm.svelte";
   import "./clone-access.css";
 

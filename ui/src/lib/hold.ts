@@ -1,4 +1,4 @@
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 import type { HoldCode, HoldReason } from "./types";
 
 const HOLD_LINE: Record<HoldCode, (hold: HoldReason) => string> = {

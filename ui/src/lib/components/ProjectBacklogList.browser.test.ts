@@ -3,8 +3,8 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import ProjectBacklogList from "./ProjectBacklogList.svelte";
-import type { BacklogProject } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { BacklogProject } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 function project(path: string, hidden = false): BacklogProject {
   return {

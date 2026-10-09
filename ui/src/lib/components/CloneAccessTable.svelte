@@ -2,9 +2,9 @@
   // Both credentials behind one refused GitHub clone, side by side: what git cloned with
   // (refused), and whether gh is signed in and may read/push the repo. `access` null = the gh
   // check is still running.
-  import type { GithubAccess } from "$lib/api";
-  import { helperLabel } from "$lib/clone-access";
-  import { m } from "$lib/paraglide/messages";
+  import type { GithubAccess } from "#lib/api.js";
+  import { helperLabel } from "#lib/clone-access.js";
+  import { m } from "#lib/paraglide/messages.js";
   import "./clone-access.css";
 
   let {

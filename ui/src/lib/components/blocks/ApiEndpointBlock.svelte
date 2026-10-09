@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { VisualBlock } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import type { VisualBlock } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
   import InferredBadge from "./InferredBadge.svelte";
   import ApiParamRow from "./ApiParamRow.svelte";
   import ApiResponseRow from "./ApiResponseRow.svelte";

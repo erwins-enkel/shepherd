@@ -8,7 +8,7 @@ import {
   mergeConfirmPayload,
   mergeRefusalResponsibility,
 } from "./merge-confirm";
-import type { GitState, PullRequest } from "$lib/types";
+import type { GitState, PullRequest } from "#lib/types.js";
 
 function git(over: Partial<GitState> = {}): GitState {
   return {

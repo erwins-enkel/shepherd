@@ -1,22 +1,22 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import type { GaugeKey } from "../usage-gauges";
-  import type { UpdateStatus, DiagnosticState, UsageLimits } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { theme, type ThemePref } from "$lib/theme.svelte";
-  import ThemeIcon from "$lib/components/ThemeIcon.svelte";
+  import type { UpdateStatus, DiagnosticState, UsageLimits } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { theme, type ThemePref } from "#lib/theme.svelte.js";
+  import ThemeIcon from "#lib/components/ThemeIcon.svelte";
   import GearMenuUsage from "./GearMenuUsage.svelte";
   import GearIdent from "./GearIdent.svelte";
   import GearHaltHero from "./GearHaltHero.svelte";
   import GearGroupHead from "./GearGroupHead.svelte";
   import GearRow from "./GearRow.svelte";
   import GearAttentionRows from "./GearAttentionRows.svelte";
-  import { REPO_URL, DOCS_URL, MAC_APP_DOWNLOAD_URL } from "$lib/build-info";
-  import { isMacOSPlatform } from "$lib/platform";
-  import type { FeedbackKind } from "$lib/feedback-link";
+  import { REPO_URL, DOCS_URL, MAC_APP_DOWNLOAD_URL } from "#lib/build-info.js";
+  import { isMacOSPlatform } from "#lib/platform.js";
+  import type { FeedbackKind } from "#lib/feedback-link.js";
   import { fly } from "svelte/transition";
-  import { dialog } from "$lib/a11yDialog";
-  import { portal } from "$lib/portal";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { portal } from "#lib/portal.js";
 
   // Quick theme controls surfaced directly in the gear menu on mobile — the desktop
   // ActionBar carries these, but on phone it hides them, leaving Settings → Device the

@@ -3,7 +3,7 @@ import { director } from "./director";
 import { demoState } from "./state";
 import { bus } from "./bus";
 import { ptyStream } from "./pty/stream";
-import type { WsEvent } from "$lib/types";
+import type { WsEvent } from "#lib/types.js";
 
 /** Collect every bus frame emitted from subscription time until `unsub()`. */
 function collectBus() {

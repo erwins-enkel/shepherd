@@ -12,7 +12,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import TopBar from "./TopBar.svelte";
-  import type { Session, UsageLimits, UpdateStatus } from "$lib/types";
+  import type { Session, UsageLimits, UpdateStatus } from "#lib/types.js";
 
   let {
     sessions,

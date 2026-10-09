@@ -10,12 +10,12 @@
     Steer,
     TaskRunDefaults,
     TaskRunSeed,
-  } from "$lib/types";
+  } from "#lib/types.js";
   import { MediaQuery } from "svelte/reactivity";
-  import { m } from "$lib/paraglide/messages";
-  import { dialog } from "$lib/a11yDialog";
-  import { backlogLayout, clampModalWidth, clampModalHeight } from "$lib/backlog-layout.svelte";
-  import { createResizeDrag } from "$lib/resize-drag";
+  import { m } from "#lib/paraglide/messages.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { backlogLayout, clampModalWidth, clampModalHeight } from "#lib/backlog-layout.svelte.js";
+  import { createResizeDrag } from "#lib/resize-drag.js";
   import BacklogView from "./BacklogView.svelte";
 
   let {

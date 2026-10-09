@@ -1,15 +1,20 @@
 <script lang="ts">
-  import type { PullRequest } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { ApiError, MergeRefusedError, mergeBacklogPr, requestDependabotRebase } from "$lib/api";
+  import type { PullRequest } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import {
+    ApiError,
+    MergeRefusedError,
+    mergeBacklogPr,
+    requestDependabotRebase,
+  } from "#lib/api.js";
   import { basename } from "./learnings-drawer";
   import { mergeConfirmFromPr } from "./merge-confirm";
   import { MergeConfirmFlow } from "./merge-confirm-flow.svelte";
   import MergeConfirmHost from "./MergeConfirmHost.svelte";
   import { showRebaseOffer } from "./pr-row";
-  import { isConflicting } from "$lib/pr-conflict";
-  import { relativeAge } from "$lib/format";
-  import { clock } from "$lib/now.svelte";
+  import { isConflicting } from "#lib/pr-conflict.js";
+  import { relativeAge } from "#lib/format.js";
+  import { clock } from "#lib/now.svelte.js";
 
   let {
     repoPath,

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { dialog } from "$lib/a11yDialog";
+  import { dialog } from "#lib/a11yDialog.js";
 
   // Mobile bottom sheet used for the Engine+Guards groups and the repo·branch context
   // sheet. Blocking dialog → shared `.scrim` backdrop (dim + blur) per the design

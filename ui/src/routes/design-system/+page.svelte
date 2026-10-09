@@ -15,22 +15,22 @@
   // +layout.svelte already inits the theme globally for every route; the toggles
   // below just read/drive the shared controller.
   import { setContext } from "svelte";
-  import { theme } from "$lib/theme.svelte";
-  import { INFO_TIPS_FORCE } from "$lib/info-tips.svelte";
-  import IssueFilterPopover from "$lib/components/IssueFilterPopover.svelte";
-  import IssueLabelChips from "$lib/components/IssueLabelChips.svelte";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
-  import { coldResumeExplanation } from "$lib/tooltips/explanations";
-  import type { TooltipExplanation } from "$lib/tooltips/content";
-  import GlossaryText from "$lib/components/GlossaryText.svelte";
-  import { labelChipStyle } from "$lib/label-color";
+  import { theme } from "#lib/theme.svelte.js";
+  import { INFO_TIPS_FORCE } from "#lib/info-tips.svelte.js";
+  import IssueFilterPopover from "#lib/components/IssueFilterPopover.svelte";
+  import IssueLabelChips from "#lib/components/IssueLabelChips.svelte";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import { coldResumeExplanation } from "#lib/tooltips/explanations.js";
+  import type { TooltipExplanation } from "#lib/tooltips/content.js";
+  import GlossaryText from "#lib/components/GlossaryText.svelte";
+  import { labelChipStyle } from "#lib/label-color.js";
   // Graphical plugin-UI widgets (issue #1189). Unlike the static meter demo, these
   // widgets compute SVG geometry from props — a static copy would drift. Import the
   // real components via PluginUIRenderer so the showcase exercises the actual dispatch path.
-  import PluginUIRenderer from "$lib/plugin-ui/PluginUIRenderer.svelte";
-  import IntegratedEpicRow from "$lib/components/IntegratedEpicRow.svelte";
-  import type { CompletedEpic } from "$lib/types";
-  import type { PluginUINode } from "$lib/types";
+  import PluginUIRenderer from "#lib/plugin-ui/PluginUIRenderer.svelte";
+  import IntegratedEpicRow from "#lib/components/IntegratedEpicRow.svelte";
+  import type { CompletedEpic } from "#lib/types.js";
+  import type { PluginUINode } from "#lib/types.js";
 
   const epicExample: CompletedEpic = {
     repoPath: "/demo/checkout",
@@ -253,7 +253,7 @@ input, select, textarea {
   const demoLabelStyle2 = labelChipStyle("#7057ff");
   const demoLabelStyle3 = labelChipStyle("#a2eeef");
 
-  const labelChipMarkup = `import { labelChipStyle } from "$lib/label-color";
+  const labelChipMarkup = `import { labelChipStyle } from "#lib/label-color.js";
 
 <span class="label-chip" class:hued={style !== null} style={style}>bug</span>
 
@@ -478,8 +478,8 @@ input, select, textarea {
   }
 }`;
 
-  const tooltipMarkup = `import { statusTip } from "$lib/tooltips/statusTip.svelte";
-import type { TooltipExplanation } from "$lib/tooltips/content";
+  const tooltipMarkup = `import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+import type { TooltipExplanation } from "#lib/tooltips/content.js";
 
 const explanation: TooltipExplanation = {
   title: m.my_tooltip_title(),
@@ -1379,7 +1379,7 @@ const explanation: TooltipExplanation = {
       <strong>When:</strong> collapsing a set of related list filters into a compact
       <em>Filters · N</em> control — e.g. the issue lists in the Repos pane and New Task. Uses the
       native <code>popover="manual"</code> top-layer together with the <code>anchorPopover</code>
-      recipe from <code>$lib/floating-anchor</code> (same pattern as InfoTip). Non-modal, small,
+      recipe from <code>#lib/floating-anchor</code> (same pattern as InfoTip). Non-modal, small,
       anchored: no scrim, dismiss on Esc or outside pointerdown.
       <strong>When not:</strong> don't use for a single toggle (prefer an inline chip or checkbox) or
       for a modal dialog (use the scrim recipe above).

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { DrainRunSummary, Epic, EpicSummary, Issue, Steer } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { relativeAge } from "$lib/format";
-  import { clock } from "$lib/now.svelte";
+  import type { DrainRunSummary, Epic, EpicSummary, Issue, Steer } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { relativeAge } from "#lib/format.js";
+  import { clock } from "#lib/now.svelte.js";
   import { chipFor, epicRole, queuePosition, slotHeldBy, stateLabel } from "../epic-panel";
   import { activate, type IssueListRow } from "../issues-panel";
   import IssueMenuLayer from "../IssueMenuLayer.svelte";

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { Epic, EpicChild, EpicChildState, EpicSummary } from "$lib/types";
+import type { Epic, EpicChild, EpicChildState, EpicSummary } from "#lib/types.js";
 
 const { default: EpicBadge } = await import("./EpicBadge.svelte");
 

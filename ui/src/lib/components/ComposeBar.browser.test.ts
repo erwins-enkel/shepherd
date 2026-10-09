@@ -2,15 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import { getCommands, getVoiceStatus, transcribeAudio } from "$lib/api";
-import { m } from "$lib/paraglide/messages";
-import type { SlashCommand } from "$lib/types";
+import { getCommands, getVoiceStatus, transcribeAudio } from "#lib/api.js";
+import { m } from "#lib/paraglide/messages.js";
+import type { SlashCommand } from "#lib/types.js";
 
 // Mock the API so the compose sheet renders deterministically with no network. Mocking
 // getVoiceStatus/transcribeAudio also lets the tests prove that a discarded recording is
 // NEVER uploaded (the teardown guarantee).
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     getCommands: vi.fn(),

@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../app.css";
-import type { SubagentEntry } from "$lib/types";
+import type { SubagentEntry } from "#lib/types.js";
 
 const { default: SubagentFanout } = await import("./SubagentFanout.svelte");
 

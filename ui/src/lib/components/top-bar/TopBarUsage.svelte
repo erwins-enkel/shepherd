@@ -1,14 +1,14 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
   import type {
     CreditWindow,
     ModelWeekWindow,
     ObservedLimitWindows,
     ProviderFailoverStatus,
-  } from "$lib/types";
-  import type { ProviderFailoverOffer } from "$lib/provider-capacity";
-  import type { UsageProviderSnapshot } from "$lib/types";
-  import { formatTokenLabel } from "$lib/format";
+  } from "#lib/types.js";
+  import type { ProviderFailoverOffer } from "#lib/provider-capacity.js";
+  import type { UsageProviderSnapshot } from "#lib/types.js";
+  import { formatTokenLabel } from "#lib/format.js";
   import {
     gaugeColor,
     modelDisplayName,

@@ -4,8 +4,8 @@
   // identity row only mirrors the ON state as a passive pip). Keeping the a11y
   // label, on/off title, action and label text here means placements can't drift.
   // The *visibility gate* stays with the parent (GitRail's fetched git state).
-  import { setReadyToMerge } from "$lib/api";
-  import { m } from "$lib/paraglide/messages";
+  import { setReadyToMerge } from "#lib/api.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let {
     sessionId,

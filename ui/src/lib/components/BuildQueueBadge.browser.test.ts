@@ -2,12 +2,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { BuildQueue, BuildStep, BuildStepStatus, GitState, Session } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { BuildQueue, BuildStep, BuildStepStatus, GitState, Session } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 const { default: BuildQueueBadge } = await import("./BuildQueueBadge.svelte");
-const { buildQueues } = await import("$lib/buildQueues.svelte");
-const { buildQueueCollapse } = await import("$lib/build-queue-collapse.svelte");
+const { buildQueues } = await import("#lib/buildQueues.svelte.js");
+const { buildQueueCollapse } = await import("#lib/build-queue-collapse.svelte.js");
 
 type BadgeProps = {
   sessionId: string;

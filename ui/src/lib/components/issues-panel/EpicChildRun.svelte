@@ -1,8 +1,15 @@
 <script lang="ts">
-  import type { DrainStatus, Epic, EpicChild, GitState, Session, SessionStatus } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { modelOptionLabel } from "$lib/model-guidance";
-  import { effortLabel } from "$lib/effort-guidance";
+  import type {
+    DrainStatus,
+    Epic,
+    EpicChild,
+    GitState,
+    Session,
+    SessionStatus,
+  } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { modelOptionLabel } from "#lib/model-guidance.js";
+  import { effortLabel } from "#lib/effort-guidance.js";
   import { slotHeldBy, type EpicRunTone } from "../epic-panel";
   import { childPrUrl, childView, openBlockers } from "../epic-child";
   import RunPanel from "./RunPanel.svelte";

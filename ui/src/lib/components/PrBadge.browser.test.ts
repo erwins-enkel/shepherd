@@ -3,8 +3,8 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import PrBadge from "./PrBadge.svelte";
-import { m } from "$lib/paraglide/messages";
-import type { GitState } from "$lib/types";
+import { m } from "#lib/paraglide/messages.js";
+import type { GitState } from "#lib/types.js";
 
 function git(over: Partial<GitState> = {}): GitState {
   return {
@@ -286,7 +286,7 @@ describe("PrBadge", () => {
   });
 
   it("surfaces a merge failure as an alert toast", async () => {
-    const { toasts } = await import("$lib/toasts.svelte");
+    const { toasts } = await import("#lib/toasts.svelte.js");
     const info = vi.spyOn(toasts, "info");
     const fetch = vi.fn(
       async () => new Response(JSON.stringify({ error: "boom" }), { status: 500 }),

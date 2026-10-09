@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { cdp, page } from "vitest/browser";
 import "../../app.css";
-import { overwriteGetLocale } from "$lib/paraglide/runtime";
+import { overwriteGetLocale } from "#lib/paraglide/runtime.js";
 import type {
   Issue,
   RepoConfig,
@@ -11,11 +11,11 @@ import type {
   SpawnPhase,
   SpawnProgress,
   Steer,
-} from "$lib/types";
-import { m } from "$lib/paraglide/messages";
-import { steers } from "$lib/steers.svelte";
-import { viewerCache } from "$lib/viewer-cache.svelte";
-import { expectMinPx } from "$lib/test-support/geometry";
+} from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
+import { steers } from "#lib/steers.svelte.js";
+import { viewerCache } from "#lib/viewer-cache.svelte.js";
+import { expectMinPx } from "#lib/test-support/geometry.js";
 import {
   listIssues,
   getEpics,
@@ -32,11 +32,11 @@ import {
   composeTaskBrief,
   cancelSpawn,
   ApiError,
-} from "$lib/api";
+} from "#lib/api.js";
 
 // Mock the API so the issue picker renders deterministically with no network.
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     listIssues: vi.fn(),
@@ -1548,7 +1548,7 @@ describe("NewTask repo shortcuts", () => {
   });
 
   // ⌥1/⌥2/⌥3 used to jump to recent repos. They now switch the MODE, per the
-  // keymap registry ($lib/keymap/newTask.ts). ⌥[ / ⌥] and ⌥R still cover repo
+  // keymap registry (#lib/keymap/newTask.ts). ⌥[ / ⌥] and ⌥R still cover repo
   // switching, so only the digit tier moved.
   it("Alt+2 switches to research mode and leaves the repo alone", async () => {
     render(NewTask, { props: base({ initialRepoPath: repoA.path }) });

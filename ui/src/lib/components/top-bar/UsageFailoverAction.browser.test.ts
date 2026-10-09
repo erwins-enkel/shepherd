@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import UsageFailoverAction from "./UsageFailoverAction.svelte";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 
 const OFFER = { from: "codex", to: "claude", fromFreePct: 23, toFreePct: 79 } as const;
 const ACTIVE = { active: true, from: "codex", current: "claude" } as const;

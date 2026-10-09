@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { Session } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { codexAutopilotUnavailable } from "$lib/format";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
+  import type { Session } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { codexAutopilotUnavailable } from "#lib/format.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
 
   // `tip` (Herd card only): swap the native title for the styled statusTip tooltip.
   let {
@@ -19,7 +19,7 @@
   );
 </script>
 
-<!-- Keep in sync with autopilotBadgeShown() in $lib/format — both must list the same states or card status-badge suppression desyncs. -->
+<!-- Keep in sync with autopilotBadgeShown() in #lib/format — both must list the same states or card status-badge suppression desyncs. -->
 {#if session.autopilotPaused}
   <span
     class="ap-paused"

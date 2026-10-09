@@ -1,6 +1,6 @@
-import { prReadinessBlock } from "$lib/pr-ready";
+import { prReadinessBlock } from "#lib/pr-ready.js";
 import type { GitState } from "../types";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 
 /** Badge text for a session's PR state, or null when there is nothing to show.
  *  Both an absent entry and the `none` state render nothing; only open/merged/closed

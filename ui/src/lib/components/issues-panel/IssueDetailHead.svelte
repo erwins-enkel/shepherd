@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { relativeAge } from "$lib/format";
-  import { clock } from "$lib/now.svelte";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import { m } from "#lib/paraglide/messages.js";
+  import { relativeAge } from "#lib/format.js";
+  import { clock } from "#lib/now.svelte.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import type { EpicOthersFlag } from "../issues-panel";
   import type { EpicRole } from "../epic-panel";
   import EpicRoleBadge from "./EpicRoleBadge.svelte";

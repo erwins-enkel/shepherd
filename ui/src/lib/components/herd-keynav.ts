@@ -1,4 +1,4 @@
-import type { Session, GitState, Epic } from "$lib/types";
+import type { Session, GitState, Epic } from "#lib/types.js";
 import {
   partitionSessions,
   shownSessions,
@@ -237,7 +237,7 @@ export function isSettingsChord(e: KeyboardEvent): boolean {
 }
 
 /** Display hint for the settings chord — ⌘, on Mac platforms, Ctrl+, elsewhere.
- *  Pure formatter: callers pass `isMacPlatform()` from $lib/platform. */
+ *  Pure formatter: callers pass `isMacPlatform()` from #lib/platform. */
 export function settingsChordHint(mac: boolean): string {
   return mac ? "⌘," : "Ctrl+,";
 }

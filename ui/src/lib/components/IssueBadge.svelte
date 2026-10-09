@@ -1,9 +1,9 @@
 <script lang="ts">
-  import type { Session, GitState } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { issueRef } from "$lib/issue-ref.svelte";
-  import { issuePeek } from "$lib/issue-peek.svelte";
-  import { anchorPopover } from "$lib/floating-anchor";
+  import type { Session, GitState } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { issueRef } from "#lib/issue-ref.svelte.js";
+  import { issuePeek } from "#lib/issue-peek.svelte.js";
+  import { anchorPopover } from "#lib/floating-anchor.js";
   import IssuePeekCard from "./IssuePeekCard.svelte";
 
   let {

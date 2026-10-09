@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { criticBadgeLabel, addressRoundInfo, criticChip, criticTitle } from "./critic-badge";
-import type { ReviewVerdict, ReviewSummaryCode } from "$lib/types";
+import type { ReviewVerdict, ReviewSummaryCode } from "#lib/types.js";
 
 const base: ReviewVerdict = {
   sessionId: "s1",

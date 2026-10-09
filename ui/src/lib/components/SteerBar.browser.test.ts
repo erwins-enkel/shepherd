@@ -3,17 +3,17 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import { tick } from "svelte";
 import "../../app.css";
-import type { Steer } from "$lib/types";
+import type { Steer } from "#lib/types.js";
 
 // Mock api so the steer-send path never fires a real network call.
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return { ...actual, replySession: vi.fn(async () => undefined) };
 });
 
 const { default: SteerBar } = await import("./SteerBar.svelte");
-const { steers } = await import("$lib/steers.svelte");
-const api = await import("$lib/api");
+const { steers } = await import("#lib/steers.svelte.js");
+const api = await import("#lib/api.js");
 
 const LABELS_KEY = "shepherd:steer-labels";
 const COACH_KEY = "shepherd:steer-coach-seen";

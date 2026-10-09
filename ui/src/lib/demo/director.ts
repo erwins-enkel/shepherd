@@ -19,7 +19,7 @@
 // EVERY timer is tracked and cleared in `stopAll()` — nothing leaks past teardown
 // or a reset.
 
-import type { WsEvent, SessionActivity } from "$lib/types";
+import type { WsEvent, SessionActivity } from "#lib/types.js";
 import { bus } from "./bus";
 import { demoState } from "./state";
 import { ptyStream } from "./pty/stream";

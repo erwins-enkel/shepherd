@@ -2,8 +2,8 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { Session } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { Session } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 const { default: CliBadge } = await import("./CliBadge.svelte");
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // The plain-issue assignee pill (#1694), extracted from IssueRow so that row's
   // <template> stays under the fallow Tier-1 complexity bar (mirrors EpicOthersPill).

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // Instrument toggle on the setting-row control column: OFF/ON status text,
   // then a 30×16 track (40×22 on mobile) with a square knob. ON = amber knob,

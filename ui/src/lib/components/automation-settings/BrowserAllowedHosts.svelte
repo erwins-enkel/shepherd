@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { repoConfig } from "$lib/reviews.svelte";
-  import { checkBrowserHost } from "$lib/browser-hosts";
-  import { browserAllowedHostsExplanation } from "$lib/tooltips/explanations";
+  import { m } from "#lib/paraglide/messages.js";
+  import { repoConfig } from "#lib/reviews.svelte.js";
+  import { checkBrowserHost } from "#lib/browser-hosts.js";
+  import { browserAllowedHostsExplanation } from "#lib/tooltips/explanations.js";
   import InfoTip from "../InfoTip.svelte";
   import "./automation-fields.css";
 

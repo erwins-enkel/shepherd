@@ -4,7 +4,7 @@
   // then renders the descriptor tree through the normal recursive renderer. A thin wrapper so
   // the plugin id flows to descendants without prop-drilling through every container node.
   import { setContext } from "svelte";
-  import type { PluginUINode } from "$lib/types";
+  import type { PluginUINode } from "#lib/types.js";
   import { PLUGIN_FORM_CONTEXT, PLUGIN_ID_CONTEXT, type PluginFormScope } from "./context";
   import PluginUIRenderer from "./PluginUIRenderer.svelte";
 

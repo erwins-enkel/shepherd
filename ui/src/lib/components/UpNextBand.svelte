@@ -1,5 +1,5 @@
 <script module lang="ts">
-  import type { UpNextItem } from "$lib/types";
+  import type { UpNextItem } from "#lib/types.js";
 
   /** One tinted band: the cross-repo priority tier, or one label (bug, enhancement, …, none).
    *  tone is the CSS color the band and its heading are tinted with. */
@@ -16,10 +16,10 @@
 </script>
 
 <script lang="ts">
-  import { formatAgo } from "$lib/format";
-  import { clock } from "$lib/now.svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { upNextKey, upNextUi } from "$lib/up-next-ui.svelte";
+  import { formatAgo } from "#lib/format.js";
+  import { clock } from "#lib/now.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { upNextKey, upNextUi } from "#lib/up-next-ui.svelte.js";
   import IssueLabelChips from "./IssueLabelChips.svelte";
 
   // One Up Next band: its fold-toggle heading and its rows. A row's checkbox ticks it for the

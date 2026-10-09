@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { SlashCommand } from "$lib/types";
+import type { SlashCommand } from "#lib/types.js";
 
 // Direct unit seam for the recommendation's decision logic: getCommands is mocked so the four
 // inventory statuses (and the generation guard) are observable without a component.
-vi.mock("$lib/api", () => ({ getCommands: vi.fn() }));
+vi.mock("#lib/api.js", () => ({ getCommands: vi.fn() }));
 
-import { getCommands } from "$lib/api";
+import { getCommands } from "#lib/api.js";
 import {
   hasVideoAttachment,
   VIDEO_BRIEF_SKILL_NAME,

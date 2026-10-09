@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Epic } from "$lib/types";
+  import type { Epic } from "#lib/types.js";
   import HerdGroup from "./HerdGroup.svelte";
   import type { HerdRowCtx } from "./HerdGroup.svelte";
   import EpicGroupHeader from "../EpicGroupHeader.svelte";
@@ -7,7 +7,7 @@
   type EpicGroupEntry = {
     key: string;
     epic: Epic;
-    sessions: import("$lib/types").Session[];
+    sessions: import("#lib/types.js").Session[];
   };
 
   let {
@@ -20,7 +20,7 @@
   }: {
     groups: EpicGroupEntry[];
     collapsedKeys: Set<string>;
-    cuesFor: (g: { key: string; sessions: import("$lib/types").Session[] }) => {
+    cuesFor: (g: { key: string; sessions: import("#lib/types.js").Session[] }) => {
       ciFailed: number;
       needsRework: number;
       branchProtectionBlocked: number;

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { GithubRateLimit, GhRateBucket } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { gaugeColor } from "$lib/components/usage-gauges";
-  import { formatResetIn } from "$lib/format";
+  import type { GithubRateLimit, GhRateBucket } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { gaugeColor } from "#lib/components/usage-gauges.js";
+  import { formatResetIn } from "#lib/format.js";
 
   const { data }: { data: GithubRateLimit } = $props();
 

@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import type { Session } from "$lib/types";
-  import { modelLabel } from "$lib/model-label";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { Session } from "#lib/types.js";
+  import { modelLabel } from "#lib/model-label.js";
   import HerdGroup from "./HerdGroup.svelte";
   import type { HerdRowCtx } from "./HerdGroup.svelte";
   import type { ExperimentGroup } from "../experiment-grouping";

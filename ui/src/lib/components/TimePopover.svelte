@@ -1,13 +1,13 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import type { Session, GitState, SessionActivity, SteerLogEntry } from "$lib/types";
-  import { elapsed, formatAgo, waitTier } from "$lib/format";
-  import { checksCleared } from "$lib/checks-cleared";
-  import { m } from "$lib/paraglide/messages";
-  import type { Pulse } from "$lib/session-pulse";
-  import { pulseExplanation } from "$lib/pulse-text";
-  import { steerLogs } from "$lib/steerLogs.svelte";
-  import TooltipBody from "$lib/tooltips/TooltipBody.svelte";
+  import type { Session, GitState, SessionActivity, SteerLogEntry } from "#lib/types.js";
+  import { elapsed, formatAgo, waitTier } from "#lib/format.js";
+  import { checksCleared } from "#lib/checks-cleared.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { Pulse } from "#lib/session-pulse.js";
+  import { pulseExplanation } from "#lib/pulse-text.js";
+  import { steerLogs } from "#lib/steerLogs.svelte.js";
+  import TooltipBody from "#lib/tooltips/TooltipBody.svelte";
 
   let {
     session,

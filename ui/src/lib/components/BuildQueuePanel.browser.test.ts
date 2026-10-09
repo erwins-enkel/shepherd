@@ -3,15 +3,15 @@ import { render } from "vitest-browser-svelte";
 import { tick, type ComponentProps } from "svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
-import type { BuildQueue } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
-import { getLocale, setLocale } from "$lib/paraglide/runtime";
-import { putBuildQueue, approveBuildQueue, replySession } from "$lib/api";
-import { buildQueueCollapse } from "$lib/build-queue-collapse.svelte";
+import type { BuildQueue } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
+import { getLocale, setLocale } from "#lib/paraglide/runtime.js";
+import { putBuildQueue, approveBuildQueue, replySession } from "#lib/api.js";
+import { buildQueueCollapse } from "#lib/build-queue-collapse.svelte.js";
 
 // Mock the API so no real network calls are made.
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     replySession: vi.fn(async () => {}),

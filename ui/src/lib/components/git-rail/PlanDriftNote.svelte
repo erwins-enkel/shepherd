@@ -8,8 +8,8 @@
   // Its own component rather than an {#if} in GitRail's markup: that template sits at the Tier-1
   // Svelte complexity bar, where a branch nested this deep costs far more than the two lines it
   // renders (see .fallowrc.jsonc thresholdOverrides).
-  import type { ReviewVerdict } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import type { ReviewVerdict } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   const { verdict }: { verdict: ReviewVerdict } = $props();
 

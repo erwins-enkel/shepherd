@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { getLocale, locales, setLocale, localeName, localeCode } from "$lib/i18n";
-  import type { Locale } from "$lib/i18n";
+  import { m } from "#lib/paraglide/messages.js";
+  import { getLocale, locales, setLocale, localeName, localeCode } from "#lib/i18n.js";
+  import type { Locale } from "#lib/i18n.js";
 
   let open = $state(false);
   const current = getLocale();

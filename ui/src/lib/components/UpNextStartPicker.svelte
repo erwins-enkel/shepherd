@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import type { UpNextStarter } from "$lib/up-next-start.svelte";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { UpNextStarter } from "#lib/up-next-start.svelte.js";
   import ModelCliPicker from "./new-task/ModelCliPicker.svelte";
 
   // The anchored CLI picker an UpNextStarter opens when several providers are ready.

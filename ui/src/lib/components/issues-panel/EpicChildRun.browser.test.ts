@@ -2,8 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../../app.css";
 import EpicChildRun from "./EpicChildRun.svelte";
-import type { DrainStatus, Epic, EpicChild, GitState, Session } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { DrainStatus, Epic, EpicChild, GitState, Session } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 const P = 30;
 

@@ -4,10 +4,10 @@
     UsageProjection,
     UsageHistoryResponse,
     UsageProviderSnapshot,
-  } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { gaugeList, gaugeColor, modelWeekList } from "$lib/components/usage-gauges";
-  import { formatResetIn } from "$lib/format";
+  } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { gaugeList, gaugeColor, modelWeekList } from "#lib/components/usage-gauges.js";
+  import { formatResetIn } from "#lib/format.js";
   import { formatUnits } from "./format";
   import Sparkline from "./Sparkline.svelte";
   import ModelWeekGauge from "./ModelWeekGauge.svelte";

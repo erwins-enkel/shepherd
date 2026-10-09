@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { dialog } from "$lib/a11yDialog";
-  import { m } from "$lib/paraglide/messages";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { m } from "#lib/paraglide/messages.js";
   import { CONFIRM_ARM_MS, isMergeTakeover, type MergeTrainItem } from "./merge-confirm";
 
   let {

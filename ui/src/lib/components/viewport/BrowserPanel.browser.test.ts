@@ -2,12 +2,12 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../../app.css";
-import type { Session } from "$lib/types";
+import type { Session } from "#lib/types.js";
 
 const openRepoBrowser = vi.fn().mockResolvedValue({ ok: true, url: "about:blank" });
 const resolveLoginRequest = vi.fn().mockResolvedValue(undefined);
-vi.mock("$lib/api", async (orig) => ({
-  ...(await orig<typeof import("$lib/api")>()),
+vi.mock("#lib/api.js", async (orig) => ({
+  ...(await orig<typeof import("#lib/api.js")>()),
   openRepoBrowser: (...a: unknown[]) => openRepoBrowser(...a),
   resolveLoginRequest: (...a: unknown[]) => resolveLoginRequest(...a),
 }));

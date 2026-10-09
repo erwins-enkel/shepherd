@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { formatReset, formatResetIn, relativeAge } from "$lib/format";
-  import { m } from "$lib/paraglide/messages";
-  import type { LimitWindow, ObservedLimitWindow } from "$lib/types";
+  import { formatReset, formatResetIn, relativeAge } from "#lib/format.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { LimitWindow, ObservedLimitWindow } from "#lib/types.js";
   import { gaugeColor } from "../usage-gauges";
 
   let {

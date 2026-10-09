@@ -1,14 +1,14 @@
 <script lang="ts">
-  import { getDiff, getDiffAnnotations } from "$lib/api";
-  import { pollWhileVisible } from "$lib/visibility";
-  import { diffTotals } from "$lib/diff";
-  import { diffView } from "$lib/diff-view.svelte";
-  import { fileSignature } from "$lib/pierre-diff";
+  import { getDiff, getDiffAnnotations } from "#lib/api.js";
+  import { pollWhileVisible } from "#lib/visibility.js";
+  import { diffTotals } from "#lib/diff.js";
+  import { diffView } from "#lib/diff-view.svelte.js";
+  import { fileSignature } from "#lib/pierre-diff.js";
   import { SvelteMap } from "svelte/reactivity";
-  import type { DiffResult, DiffAgentAnnotation } from "$lib/types";
-  import DiffFileSidebar from "$lib/components/DiffFileSidebar.svelte";
-  import DiffFileStack from "$lib/components/DiffFileStack.svelte";
-  import { m } from "$lib/paraglide/messages";
+  import type { DiffResult, DiffAgentAnnotation } from "#lib/types.js";
+  import DiffFileSidebar from "#lib/components/DiffFileSidebar.svelte";
+  import DiffFileStack from "#lib/components/DiffFileStack.svelte";
+  import { m } from "#lib/paraglide/messages.js";
 
   let { sessionId }: { sessionId: string } = $props();
 

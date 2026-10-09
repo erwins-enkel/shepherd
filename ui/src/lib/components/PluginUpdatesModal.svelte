@@ -1,9 +1,9 @@
 <script lang="ts">
-  import type { PluginUpdatesStatus, PluginUpdateInfo } from "$lib/types";
-  import { dialog } from "$lib/a11yDialog";
-  import { m } from "$lib/paraglide/messages";
-  import { applyPluginUpdate } from "$lib/api";
-  import RestartShepherdDialog from "$lib/components/RestartShepherdDialog.svelte";
+  import type { PluginUpdatesStatus, PluginUpdateInfo } from "#lib/types.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { applyPluginUpdate } from "#lib/api.js";
+  import RestartShepherdDialog from "#lib/components/RestartShepherdDialog.svelte";
 
   let {
     status,

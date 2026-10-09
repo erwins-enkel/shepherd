@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { dialog } from "$lib/a11yDialog";
-  import { m } from "$lib/paraglide/messages";
-  import { putSettings } from "$lib/api";
-  import DiagnoseRows from "$lib/components/DiagnoseRows.svelte";
-  import DirPicker from "$lib/components/DirPicker.svelte";
-  import type { DiagnosticCheck, DirListing } from "$lib/types";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { putSettings } from "#lib/api.js";
+  import DiagnoseRows from "#lib/components/DiagnoseRows.svelte";
+  import DirPicker from "#lib/components/DirPicker.svelte";
+  import type { DiagnosticCheck, DirListing } from "#lib/types.js";
 
   let {
     checks,

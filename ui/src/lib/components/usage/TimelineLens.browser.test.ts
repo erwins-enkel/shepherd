@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
-import type { UsageTimeline, UsageTimelineHour } from "$lib/types";
+import type { UsageTimeline, UsageTimelineHour } from "#lib/types.js";
 
 const { default: TimelineLens } = await import("./TimelineLens.svelte");
 

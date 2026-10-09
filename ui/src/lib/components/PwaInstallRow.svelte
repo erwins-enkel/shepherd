@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { pwaRowState, type PwaRowState } from "$lib/pwa";
-  import { pwaDocLink } from "$lib/diagnostics-docs";
+  import { m } from "#lib/paraglide/messages.js";
+  import { pwaRowState, type PwaRowState } from "#lib/pwa.js";
+  import { pwaDocLink } from "#lib/diagnostics-docs.js";
 
   // Client-only: install/standalone state isn't knowable on the server, so this row
   // is rendered independently of the /api/diagnostics snapshot (issue #662). It

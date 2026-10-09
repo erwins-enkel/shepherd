@@ -2,12 +2,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { tick } from "svelte";
 import "../../app.css";
-import type { Steer } from "$lib/types";
+import type { Steer } from "#lib/types.js";
 
 // Stub the api so mount never hits the network: getCommands feeds the slash menu, and
 // putSteers is a spy the tests inspect (getSteers is skipped — the store is pre-loaded).
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     getCommands: vi.fn(async () => ({ commands: [] })),
@@ -16,10 +16,10 @@ vi.mock("$lib/api", async (importOriginal) => {
 });
 
 const { default: SteersEditor } = await import("./SteersEditor.svelte");
-const { steers } = await import("$lib/steers.svelte");
-const { repos } = await import("$lib/repos.svelte");
-const { toasts } = await import("$lib/toasts.svelte");
-const { putSteers } = await import("$lib/api");
+const { steers } = await import("#lib/steers.svelte.js");
+const { repos } = await import("#lib/repos.svelte.js");
+const { toasts } = await import("#lib/toasts.svelte.js");
+const { putSteers } = await import("#lib/api.js");
 const putSpy = vi.mocked(putSteers);
 
 const steer = (p: Partial<Steer>): Steer => ({

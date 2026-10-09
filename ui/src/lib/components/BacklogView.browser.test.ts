@@ -2,15 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import { overwriteGetLocale } from "$lib/paraglide/runtime";
-import { m } from "$lib/paraglide/messages";
-import { listIssues, getEpics, getEpic } from "$lib/api";
-import type { BacklogPayload, Issue } from "$lib/types";
+import { overwriteGetLocale } from "#lib/paraglide/runtime.js";
+import { m } from "#lib/paraglide/messages.js";
+import { listIssues, getEpics, getEpic } from "#lib/api.js";
+import type { BacklogPayload, Issue } from "#lib/types.js";
 import BacklogView from "./BacklogView.svelte";
 import BacklogOverlay from "./BacklogOverlay.svelte";
 
-vi.mock("$lib/api", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("$lib/api")>()),
+vi.mock("#lib/api.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("#lib/api.js")>()),
   listIssues: vi.fn(),
   getEpics: vi.fn(),
   getEpic: vi.fn(),

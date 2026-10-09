@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import AddRepoMenu from "./AddRepoMenu.svelte";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 
 // A real, connected trigger button: the menu measures its rect for positioning
 // and restores focus to it on close (mirrors RedrawMenu's test harness).

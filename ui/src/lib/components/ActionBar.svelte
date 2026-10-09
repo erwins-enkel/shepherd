@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { theme, type ThemePref } from "$lib/theme.svelte";
-  import { m } from "$lib/paraglide/messages";
-  import LanguageSwitcher from "$lib/components/LanguageSwitcher.svelte";
-  import ThemeIcon from "$lib/components/ThemeIcon.svelte";
-  import { REPO, REPO_URL, sha, version, commitUrl } from "$lib/build-info";
-  import HerdSegRow from "$lib/components/herd/HerdSegRow.svelte";
-  import type { HerdFilter } from "$lib/components/herd-partition";
+  import { theme, type ThemePref } from "#lib/theme.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import LanguageSwitcher from "#lib/components/LanguageSwitcher.svelte";
+  import ThemeIcon from "#lib/components/ThemeIcon.svelte";
+  import { REPO, REPO_URL, sha, version, commitUrl } from "#lib/build-info.js";
+  import HerdSegRow from "#lib/components/herd/HerdSegRow.svelte";
+  import type { HerdFilter } from "#lib/components/herd-partition.js";
 
   // Two explicit theme choices; "system" stays the implicit default (followed on
   // first load + on OS changes until the operator picks one). The old third slot

@@ -9,9 +9,9 @@
     OwedFocusSnapshot,
     AgentProvider,
     LivenessState,
-  } from "$lib/types";
-  import type { HerdStore } from "$lib/store.svelte";
-  import type { BlockState } from "$lib/triage";
+  } from "#lib/types.js";
+  import type { HerdStore } from "#lib/store.svelte.js";
+  import type { BlockState } from "#lib/triage.js";
   import HerdGroup from "./herd/HerdGroup.svelte";
   import type { HerdRowCtx } from "./herd/HerdGroup.svelte";
   import HerdLensStrip from "./herd/HerdLensStrip.svelte";
@@ -20,7 +20,7 @@
   import HerdDoneList from "./herd/HerdDoneList.svelte";
   import HerdEmptyState from "./herd/HerdEmptyState.svelte";
   import IntegratedEpicsBand from "./IntegratedEpicsBand.svelte";
-  import { deriveIntegratedEpicStatus } from "$lib/integrated-epic-status";
+  import { deriveIntegratedEpicStatus } from "#lib/integrated-epic-status.js";
   import PostMergeStepsPanel from "./PostMergeStepsPanel.svelte";
   import UpNextPanel from "./UpNextPanel.svelte";
   import {
@@ -32,12 +32,12 @@
   import { groupSessionsByEpic } from "./epic-grouping";
   import { groupSessionsByExperiment } from "./experiment-grouping";
   import { collectReadyPrs } from "./merge-train";
-  import { displayStatus } from "$lib/display-status";
-  import { modelsMixed, providersMixed } from "$lib/session-env";
+  import { displayStatus } from "#lib/display-status.js";
+  import { modelsMixed, providersMixed } from "#lib/session-env.js";
   import { isReworkRunning as isReworkRunningSession } from "./rework-running";
-  import { reviews, planGates } from "$lib/reviews.svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { postMergeSteps, owedRecordsForRepo } from "$lib/post-merge-steps.svelte";
+  import { reviews, planGates } from "#lib/reviews.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { postMergeSteps, owedRecordsForRepo } from "#lib/post-merge-steps.svelte.js";
   import { EMPTY_REPO_FILTER } from "./queue-strip";
 
   let {

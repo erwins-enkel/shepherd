@@ -8,7 +8,7 @@
   // half-typed "1." or "-" as the empty string — writing that back would delete the character
   // the operator just typed. Holding the raw TEXT locally and mapping to a number only on the
   // way to the form scope keeps typing intact while still submitting a real JSON number.
-  import type { PluginUINode } from "$lib/types";
+  import type { PluginUINode } from "#lib/types.js";
   import { noAutofill } from "./autofill";
   import { pluginField } from "./field.svelte";
 

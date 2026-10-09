@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { Session } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import type { Session } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let { session }: { session: Session } = $props();
 

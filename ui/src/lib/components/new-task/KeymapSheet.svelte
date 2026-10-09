@@ -1,18 +1,18 @@
 <script lang="ts">
   // The full key card (`?`). Generated entirely from the registry — every row,
   // every group, in registry order. Nothing here is hand-maintained; adding a
-  // shortcut to $lib/keymap/newTask.ts adds it to this card.
+  // shortcut to #lib/keymap/newTask.ts adds it to this card.
   //
   // It is a blocking surface (focus trap + aria-modal), so per .claude/rules/ui-design-system.md it
   // carries the canonical dim+blur backdrop rather than floating bare — the
   // static design reference shows it without one, but every other Shepherd
   // modal dims what it covers and this is no different.
 
-  import { dialog } from "$lib/a11yDialog";
-  import { chordLabel } from "$lib/keymap/chord";
-  import { keymapByZone, zoneLabel } from "$lib/keymap/newTask";
-  import type { NewTaskKeymapCtx } from "$lib/keymap/types";
-  import { m } from "$lib/paraglide/messages";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { chordLabel } from "#lib/keymap/chord.js";
+  import { keymapByZone, zoneLabel } from "#lib/keymap/newTask.js";
+  import type { NewTaskKeymapCtx } from "#lib/keymap/types.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let { ctx, onclose }: { ctx: NewTaskKeymapCtx; onclose: () => void } = $props();
 

@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { GitState, Session } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { reviews } from "$lib/reviews.svelte";
+  import type { GitState, Session } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { reviews } from "#lib/reviews.svelte.js";
   import { deriveStage, STAGE_ORDER, type Stage } from "../stage";
 
   // Labelled phase bar of an epic child's session (#2622): Planning → Implementing → PR →

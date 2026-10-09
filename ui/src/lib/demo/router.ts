@@ -11,7 +11,13 @@
 // instead of one long branchy switch.
 
 import { demoState } from "./state";
-import type { AgentProvider, CreateInput, IssueRef, SandboxProfile, UsageRange } from "$lib/types";
+import type {
+  AgentProvider,
+  CreateInput,
+  IssueRef,
+  SandboxProfile,
+  UsageRange,
+} from "#lib/types.js";
 import { DEMO_VIEWER } from "./seed-constants";
 
 function json(data: unknown, status = 200): Response {

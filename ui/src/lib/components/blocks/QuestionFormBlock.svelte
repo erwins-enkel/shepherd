@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { VisualBlock, RawAnswer } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { answerPlanQuestions } from "$lib/api";
+  import type { VisualBlock, RawAnswer } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { answerPlanQuestions } from "#lib/api.js";
 
   // Three modes. `answerCtx` present → interactive, answers POST to the planning-phase plan gate.
   // `onanswer` present → interactive, answers are handed to the PARENT instead (the New Task

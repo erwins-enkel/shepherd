@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
   import AddRepoMenu from "./AddRepoMenu.svelte";
 
   // "+ Add repo" trigger for the Backlog repos panel. Owns the popover open state

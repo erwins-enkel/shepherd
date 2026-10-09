@@ -3,8 +3,8 @@
   // Viewport's decommission button runs, so the command-bar verb can't silently orphan a running
   // dev server. It owns its own presence check so AppOverlays' template stays a flat list of
   // overlays (its <template> sits at the Tier-1 complexity bar; one more {#if} there tips it).
-  import LeftoverDialog from "$lib/components/LeftoverDialog.svelte";
-  import type { Leftover } from "$lib/types";
+  import LeftoverDialog from "#lib/components/LeftoverDialog.svelte";
+  import type { Leftover } from "#lib/types.js";
 
   let {
     leftovers,

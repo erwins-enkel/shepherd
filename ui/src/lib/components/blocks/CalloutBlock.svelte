@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { VisualBlock, CalloutTone } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import type { VisualBlock, CalloutTone } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
   let { block }: { block: Extract<VisualBlock, { type: "callout" }> } = $props();
 
   const TONE_COLOR: Record<CalloutTone, string> = {

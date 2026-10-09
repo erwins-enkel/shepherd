@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { putSettings } from "$lib/api";
-  import DirPicker from "$lib/components/DirPicker.svelte";
-  import { type DirListing } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import { putSettings } from "#lib/api.js";
+  import DirPicker from "#lib/components/DirPicker.svelte";
+  import { type DirListing } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
   import HighlightText from "./HighlightText.svelte";
 
   let {

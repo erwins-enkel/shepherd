@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
   import {
     gaugeColor,
     providerCapacityRows,
     selectedProviderCapacity,
-  } from "$lib/components/usage-gauges";
-  import { formatReset } from "$lib/format";
-  import type { AgentProvider, UsageLimits } from "$lib/types";
+  } from "#lib/components/usage-gauges.js";
+  import { formatReset } from "#lib/format.js";
+  import type { AgentProvider, UsageLimits } from "#lib/types.js";
 
   // Compact capacity line for the selected engine: `CX·WK [gauge] 92% free  all ▾`.
   // Window selection (hottest = lowest remaining) and the stale flag come from

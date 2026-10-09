@@ -1,4 +1,4 @@
-import type { GitState, MergeMethod, MergeResponsibility, PullRequest } from "$lib/types";
+import type { GitState, MergeMethod, MergeResponsibility, PullRequest } from "#lib/types.js";
 
 /** How long after the dialog opens its confirm button stays disabled (#2299).
  *

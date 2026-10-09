@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { listIssues, getEpics, getEpic } from "$lib/api";
-  import { steers } from "$lib/steers.svelte";
-  import { repos } from "$lib/repos.svelte";
-  import { steerAppliesToRepo } from "$lib/steer-scope";
+  import { listIssues, getEpics, getEpic } from "#lib/api.js";
+  import { steers } from "#lib/steers.svelte.js";
+  import { repos } from "#lib/repos.svelte.js";
+  import { steerAppliesToRepo } from "#lib/steer-scope.js";
   import type {
     Issue,
     IssueFetchAttempt,
@@ -14,8 +14,8 @@
     Session,
     TaskRunDefaults,
     TaskRunSeed,
-  } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
   import {
     filterIssues,
     hideOthersExceptFlaggedEpics,
@@ -39,10 +39,10 @@
   } from "./issues-panel";
   import { childAsIssue, openBlockers } from "./epic-child";
   import { progress } from "./epic-panel";
-  import { issuesFilter } from "$lib/issues-filter.svelte";
-  import { viewerCache } from "$lib/viewer-cache.svelte";
-  import { backlogRefresh } from "$lib/backlog-refresh.svelte";
-  import { clock } from "$lib/now.svelte";
+  import { issuesFilter } from "#lib/issues-filter.svelte.js";
+  import { viewerCache } from "#lib/viewer-cache.svelte.js";
+  import { backlogRefresh } from "#lib/backlog-refresh.svelte.js";
+  import { clock } from "#lib/now.svelte.js";
   import IssueListRows from "./issues-panel/IssueListRows.svelte";
   import IssueDetail from "./issues-panel/IssueDetail.svelte";
   import EpicsListHeading from "./issues-panel/EpicsListHeading.svelte";

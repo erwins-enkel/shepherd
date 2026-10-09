@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { Epic, EpicSummary, Issue } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import type { Epic, EpicSummary, Issue } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
   import { chipFor, progress, type EpicRole } from "../epic-panel";
   import { activate } from "../issues-panel";
   import EpicRoleBadge from "./EpicRoleBadge.svelte";

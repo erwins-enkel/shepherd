@@ -1,11 +1,11 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { dialog } from "$lib/a11yDialog";
-  import { m } from "$lib/paraglide/messages";
-  import { diagnoseEpic, importEpic } from "$lib/api";
-  import type { EpicDiagnosis, EpicDiagnosisFinding, EpicDiagnosisSeverity } from "$lib/types";
-  import { toasts } from "$lib/toasts.svelte";
-  import { DOCS_URL } from "$lib/build-info";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { diagnoseEpic, importEpic } from "#lib/api.js";
+  import type { EpicDiagnosis, EpicDiagnosisFinding, EpicDiagnosisSeverity } from "#lib/types.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { DOCS_URL } from "#lib/build-info.js";
 
   let { repoPath, parent, onclose }: { repoPath: string; parent: number; onclose: () => void } =
     $props();

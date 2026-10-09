@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { render } from "vitest-browser-svelte";
 import CodexReleaseNotes from "./CodexReleaseNotes.svelte";
-import { renderCodexReleaseMarkdown } from "$lib/codex-release-notes-renderer";
+import { renderCodexReleaseMarkdown } from "#lib/codex-release-notes-renderer.js";
 
 const hostileMarkdown = `
 ![diagram](https://tracker.invalid/pixel.png)

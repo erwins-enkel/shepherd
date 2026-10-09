@@ -3,8 +3,8 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import EpicPanel from "./EpicPanel.svelte";
-import type { Epic, EpicChild } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { Epic, EpicChild } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 function child(over: Partial<EpicChild>): EpicChild {
   return {
@@ -27,8 +27,8 @@ const api = vi.hoisted(() => ({
   importEpic: vi.fn(async () => ({})),
 }));
 
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return { ...actual, ...api };
 });
 

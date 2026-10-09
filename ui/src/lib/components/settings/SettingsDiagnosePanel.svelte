@@ -1,13 +1,13 @@
 <script lang="ts">
   import { onMount, untrack } from "svelte";
-  import { getDiagnostics, fixDiagnostic } from "$lib/api";
-  import { type DiagnosticCheck } from "$lib/types";
-  import DiagnoseRows from "$lib/components/DiagnoseRows.svelte";
-  import PwaInstallRow from "$lib/components/PwaInstallRow.svelte";
-  import { toasts } from "$lib/toasts.svelte";
-  import { m } from "$lib/paraglide/messages";
+  import { getDiagnostics, fixDiagnostic } from "#lib/api.js";
+  import { type DiagnosticCheck } from "#lib/types.js";
+  import DiagnoseRows from "#lib/components/DiagnoseRows.svelte";
+  import PwaInstallRow from "#lib/components/PwaInstallRow.svelte";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
   import HighlightText from "./HighlightText.svelte";
-  import { unresolvedFixKey, type UnresolvedFixKey } from "$lib/diagnostics-copy";
+  import { unresolvedFixKey, type UnresolvedFixKey } from "#lib/diagnostics-copy.js";
 
   // Exhaustive key→message map. Typing it as a Record over the closed `UnresolvedFixKey` union is
   // what keeps `unresolvedFixKey` honest: adding a branch there without a message here fails the

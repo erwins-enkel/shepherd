@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { UsageBreakdown, UsageTaskBreakdown } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import InfoTip from "$lib/components/InfoTip.svelte";
+  import type { UsageBreakdown, UsageTaskBreakdown } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import InfoTip from "#lib/components/InfoTip.svelte";
   import UsageBar from "./UsageBar.svelte";
   import SplitBar from "./SplitBar.svelte";
   import { formatPct, formatUnits } from "./format";

@@ -1,4 +1,4 @@
-import { getLocale } from "$lib/i18n";
+import { getLocale } from "#lib/i18n.js";
 
 const JSON_HEADERS = { "content-type": "application/json" };
 

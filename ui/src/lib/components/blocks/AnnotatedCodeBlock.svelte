@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { VisualBlock } from "$lib/types";
+  import type { VisualBlock } from "#lib/types.js";
   import CodeBlock from "./CodeBlock.svelte";
 
   let { block }: { block: Extract<VisualBlock, { type: "annotated-code" }> } = $props();

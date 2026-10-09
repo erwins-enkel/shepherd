@@ -1,10 +1,10 @@
 <script lang="ts">
-  import type { GitState, Session } from "$lib/types";
-  import { reviews } from "$lib/reviews.svelte";
+  import type { GitState, Session } from "#lib/types.js";
+  import { reviews } from "#lib/reviews.svelte.js";
   import { deriveStage, STAGE_ORDER, PR_INDEX, REVIEW_INDEX, type Stage } from "./stage";
-  import type { ChecksState } from "$lib/types";
-  import { anchorPopover } from "$lib/floating-anchor";
-  import { m } from "$lib/paraglide/messages";
+  import type { ChecksState } from "#lib/types.js";
+  import { anchorPopover } from "#lib/floating-anchor.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let {
     sessionId,

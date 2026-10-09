@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { controlKeys, type ControlKey, type ControlGroup } from "$lib/controlKeys";
+  import { m } from "#lib/paraglide/messages.js";
+  import { controlKeys, type ControlKey, type ControlGroup } from "#lib/controlKeys.js";
 
   // `include` renders only the listed groups (omit for all); `scroll=false`
   // fits content instead of growing+scrolling, for a fixed edge cluster. This

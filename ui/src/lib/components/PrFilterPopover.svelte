@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { anchorPopover } from "$lib/floating-anchor";
-  import { prsFilter } from "$lib/prs-filter.svelte";
-  import { m } from "$lib/paraglide/messages";
+  import { anchorPopover } from "#lib/floating-anchor.js";
+  import { prsFilter } from "#lib/prs-filter.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   // authors: distinct option set for the repo-scoped author filter (computed by the
   //   parent from the raw PR list). selectedAuthor is the current selection; the parent

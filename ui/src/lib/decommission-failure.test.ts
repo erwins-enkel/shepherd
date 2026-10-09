@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { ApiError } from "$lib/api";
-import { m } from "$lib/paraglide/messages";
+import { ApiError } from "#lib/api.js";
+import { m } from "#lib/paraglide/messages.js";
 import { describeDecommissionFailure } from "./decommission-failure";
 
 const reasonOf = (r: ReturnType<typeof describeDecommissionFailure>) => r.detail.reason;

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // Small anchored, non-blocking popover listing the terminal-redraw repair
   // variants (squished-history fix candidates — see PR; the losing variants get

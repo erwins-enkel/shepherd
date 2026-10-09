@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { createProject, getCommands, getGithubOwners } from "$lib/api";
-  import type { RepoEntry } from "$lib/types";
-  import { dialog } from "$lib/a11yDialog";
-  import { m } from "$lib/paraglide/messages";
-  import { commandInsertable, commandProviders } from "$lib/slash";
+  import { createProject, getCommands, getGithubOwners } from "#lib/api.js";
+  import type { RepoEntry } from "#lib/types.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { commandInsertable, commandProviders } from "#lib/slash.js";
   import { onMount } from "svelte";
 
   // Slug rule mirrors src/validate.ts PROJECT_SLUG_RE exactly.

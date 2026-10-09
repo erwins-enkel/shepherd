@@ -2,8 +2,8 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
-import { m } from "$lib/paraglide/messages";
-import { statusLabel } from "$lib/format";
+import { m } from "#lib/paraglide/messages.js";
+import { statusLabel } from "#lib/format.js";
 
 const { default: StatusPip } = await import("./StatusPip.svelte");
 const runningAria = m.statuspip_status_aria({ status: statusLabel("running") });

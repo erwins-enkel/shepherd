@@ -1,8 +1,13 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import type { AgentProvider } from "$lib/types";
-  import { startVariant, startComparison, replaceSessionAgent, type HandoffMode } from "$lib/api";
-  import { toasts } from "$lib/toasts.svelte";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { AgentProvider } from "#lib/types.js";
+  import {
+    startVariant,
+    startComparison,
+    replaceSessionAgent,
+    type HandoffMode,
+  } from "#lib/api.js";
+  import { toasts } from "#lib/toasts.svelte.js";
   import ModelCliPicker from "./new-task/ModelCliPicker.svelte";
 
   // Owns the comparison-action picker end to end: the parent's card-menu / Compare-button handlers

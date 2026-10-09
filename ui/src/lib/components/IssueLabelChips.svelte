@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { labelChipStyle } from "$lib/label-color";
-  import { m } from "$lib/paraglide/messages";
+  import { labelChipStyle } from "#lib/label-color.js";
+  import { m } from "#lib/paraglide/messages.js";
   import { ACTIVE_LABEL } from "./issues-panel";
 
   // all: every label, wrapping — for rows that give labels their own line (Up Next); the

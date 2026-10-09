@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
-import type { CompletedEpic } from "$lib/types";
+import type { CompletedEpic } from "#lib/types.js";
 
 const { default: IntegratedEpicsBand } = await import("./IntegratedEpicsBand.svelte");
 

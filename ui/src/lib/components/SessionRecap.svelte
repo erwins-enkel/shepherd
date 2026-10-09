@@ -1,10 +1,10 @@
 <script lang="ts">
-  import type { Session } from "$lib/types";
-  import type { RecapVerdict } from "$lib/types";
-  import { recaps } from "$lib/recaps.svelte";
-  import { regenerateRecap } from "$lib/api";
-  import { m } from "$lib/paraglide/messages";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import type { Session } from "#lib/types.js";
+  import type { RecapVerdict } from "#lib/types.js";
+  import { recaps } from "#lib/recaps.svelte.js";
+  import { regenerateRecap } from "#lib/api.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import VisualReview from "./VisualReview.svelte";
 
   let {

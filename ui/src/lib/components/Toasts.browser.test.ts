@@ -2,14 +2,14 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import { tick } from "svelte";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 // MUST import the stylesheet: the inset is calc()'d from the design tokens
 // (--mobile-actionbar-hit/-pad/--actionbar-border, all defined in app.css).
 // Without it the calc is invalid and getComputedStyle().bottom is `auto`, not px.
 import "../../app.css";
 
 const { default: Toasts } = await import("./Toasts.svelte");
-const { toasts } = await import("$lib/toasts.svelte");
+const { toasts } = await import("#lib/toasts.svelte.js");
 
 function toastsBottomPx(): number {
   const el = document.querySelector(".toasts") as HTMLElement;

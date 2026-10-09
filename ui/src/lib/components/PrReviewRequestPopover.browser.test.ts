@@ -2,14 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { PrReviewerOptions } from "$lib/api";
-import { m } from "$lib/paraglide/messages";
+import type { PrReviewerOptions } from "#lib/api.js";
+import { m } from "#lib/paraglide/messages.js";
 
 const getPrReviewers = vi.fn();
 const requestPrReview = vi.fn();
 
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return { ...actual, getPrReviewers, requestPrReview };
 });
 

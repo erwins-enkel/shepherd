@@ -1,6 +1,6 @@
 <script lang="ts">
   import EmptyHerd from "../EmptyHerd.svelte";
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   let {
     mode,

@@ -2,7 +2,7 @@
  * Pure logic extracted from BacklogView.svelte and ProjectRow.svelte —
  * unit-testable without a DOM.
  */
-import type { BacklogPayload, BacklogProject } from "$lib/types";
+import type { BacklogPayload, BacklogProject } from "#lib/types.js";
 
 /**
  * Format a count for display: number as-is, null as the em-dash placeholder

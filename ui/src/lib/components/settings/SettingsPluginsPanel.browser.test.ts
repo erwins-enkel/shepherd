@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import SettingsPluginsPanel from "./SettingsPluginsPanel.svelte";
-import type { PluginInfo, InstalledPlugin, PluginUpdatesStatus } from "$lib/types";
+import type { PluginInfo, InstalledPlugin, PluginUpdatesStatus } from "#lib/types.js";
 
 function plugin(overrides: Partial<PluginInfo> = {}): PluginInfo {
   return {

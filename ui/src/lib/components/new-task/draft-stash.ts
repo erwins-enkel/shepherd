@@ -1,4 +1,4 @@
-import type { AgentProvider, Issue, SandboxProfile } from "$lib/types";
+import type { AgentProvider, Issue, SandboxProfile } from "#lib/types.js";
 
 /** How long a dismissed New Task draft stays restorable. */
 export const DRAFT_TTL_MS = 120_000;

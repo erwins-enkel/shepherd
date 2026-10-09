@@ -1,12 +1,12 @@
 <script lang="ts">
-  import { getActivity, getDiff } from "$lib/api";
-  import { pollWhileVisible } from "$lib/visibility";
-  import { glyph, clock, groupActivity } from "$lib/activity";
-  import type { ActivityKind } from "$lib/activity";
-  import { diffToFileTree } from "$lib/diff";
-  import type { ActivityEntry, DiffResult } from "$lib/types";
-  import FileTreeBlock from "$lib/components/blocks/FileTreeBlock.svelte";
-  import { m } from "$lib/paraglide/messages";
+  import { getActivity, getDiff } from "#lib/api.js";
+  import { pollWhileVisible } from "#lib/visibility.js";
+  import { glyph, clock, groupActivity } from "#lib/activity.js";
+  import type { ActivityKind } from "#lib/activity.js";
+  import { diffToFileTree } from "#lib/diff.js";
+  import type { ActivityEntry, DiffResult } from "#lib/types.js";
+  import FileTreeBlock from "#lib/components/blocks/FileTreeBlock.svelte";
+  import { m } from "#lib/paraglide/messages.js";
 
   let { sessionId }: { sessionId: string } = $props();
 

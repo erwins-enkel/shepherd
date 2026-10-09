@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { VisualBlock } from "$lib/types";
+  import type { VisualBlock } from "#lib/types.js";
 
   let {
     resp,

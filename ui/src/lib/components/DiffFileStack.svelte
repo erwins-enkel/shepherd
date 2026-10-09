@@ -12,9 +12,9 @@
   // Pierre's async render settles to correct any estimate delta.
   import { tick } from "svelte";
   import { SvelteSet, SvelteMap } from "svelte/reactivity";
-  import type { DiffFile, DiffAgentAnnotation } from "$lib/types";
-  import { fileSignature, estimateHeight } from "$lib/pierre-diff";
-  import { m } from "$lib/paraglide/messages";
+  import type { DiffFile, DiffAgentAnnotation } from "#lib/types.js";
+  import { fileSignature, estimateHeight } from "#lib/pierre-diff.js";
+  import { m } from "#lib/paraglide/messages.js";
   import PierreDiff from "./PierreDiff.svelte";
 
   let {

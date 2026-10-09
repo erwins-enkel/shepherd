@@ -1,8 +1,8 @@
-import type { HandleClientError } from "@sveltejs/kit";
-import { installDemoBackend } from "$lib/demo/install";
-import { director } from "$lib/demo/director";
-import { startCommandBarShowcase } from "$lib/demo/showcase";
-import { classifyClientError, errorText } from "$lib/client-error";
+import type { HandleClientError } from "@sveltejs/kit/hooks";
+import { installDemoBackend } from "#lib/demo/install.js";
+import { director } from "#lib/demo/director.js";
+import { startCommandBarShowcase } from "#lib/demo/showcase.js";
+import { classifyClientError, errorText } from "#lib/client-error.js";
 
 /**
  * Without this hook SvelteKit renders its own unstyled fallback for any non-`HttpError` thrown on

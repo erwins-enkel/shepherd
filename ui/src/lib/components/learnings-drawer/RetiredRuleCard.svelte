@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import type { Learning } from "$lib/types";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { Learning } from "#lib/types.js";
   import type { LearningsCtx } from "./ctx";
 
   let {

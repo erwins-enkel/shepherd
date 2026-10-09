@@ -1,10 +1,10 @@
 <script lang="ts">
-  import type { DocAgentRun } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { anchorPopover } from "$lib/floating-anchor";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import { formatAgo } from "$lib/format";
-  import { clock } from "$lib/now.svelte";
+  import type { DocAgentRun } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { anchorPopover } from "#lib/floating-anchor.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import { formatAgo } from "#lib/format.js";
+  import { clock } from "#lib/now.svelte.js";
 
   let {
     act,

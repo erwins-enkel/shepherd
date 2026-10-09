@@ -3,16 +3,16 @@ import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import PlanPanel from "./PlanPanel.svelte";
-import type { PlanGate, Session } from "$lib/types";
-import { planGates, spawnNotices } from "$lib/reviews.svelte";
-import { reviewPlan, retrySpawnNotice, getPlanDraft } from "$lib/api";
-import { m } from "$lib/paraglide/messages";
-import { DOCS_URL } from "$lib/build-info";
+import type { PlanGate, Session } from "#lib/types.js";
+import { planGates, spawnNotices } from "#lib/reviews.svelte.js";
+import { reviewPlan, retrySpawnNotice, getPlanDraft } from "#lib/api.js";
+import { m } from "#lib/paraglide/messages.js";
+import { DOCS_URL } from "#lib/build-info.js";
 
 // Mock api so the panel's release/review calls never hit the network, keeping the
 // rest of the module intact (the reviews store imports other api exports).
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     releasePlanGate: vi.fn(async () => {}),

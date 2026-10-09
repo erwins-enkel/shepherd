@@ -10,7 +10,7 @@
 
 import type { Session, GitState, PlanGate } from "./types";
 import { displayStatus } from "./display-status";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 
 export type Severity = "red" | "amber" | "green" | "none";
 

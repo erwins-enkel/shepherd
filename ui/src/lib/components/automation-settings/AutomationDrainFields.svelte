@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { repoConfig } from "$lib/reviews.svelte";
+  import { m } from "#lib/paraglide/messages.js";
+  import { repoConfig } from "#lib/reviews.svelte.js";
   import { clampCap, clampCeiling, sanitizeLabel } from "../git-rail-drain";
   import "./automation-fields.css";
 

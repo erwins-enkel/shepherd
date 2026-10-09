@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { VisualBlock, FileTreeEntry, FileTreeChange } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import type { VisualBlock, FileTreeEntry, FileTreeChange } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let { block }: { block: Extract<VisualBlock, { type: "file-tree" }> } = $props();
 

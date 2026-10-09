@@ -1,8 +1,8 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../../app.css";
-import { m } from "$lib/paraglide/messages";
-import { formatTokenLabel } from "$lib/format";
+import { m } from "#lib/paraglide/messages.js";
+import { formatTokenLabel } from "#lib/format.js";
 import ModelsLens from "./ModelsLens.svelte";
 
 afterEach(() => {

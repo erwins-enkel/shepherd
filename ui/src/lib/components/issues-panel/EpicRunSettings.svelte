@@ -1,11 +1,15 @@
 <script lang="ts">
-  import { AGENT_PROVIDERS, type AgentProvider, type Epic } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { updateEpic } from "$lib/api";
-  import { toasts } from "$lib/toasts.svelte";
-  import { providerModels, modelAvailableForProvider } from "$lib/provider-models";
-  import { providerEfforts, effortLabel, effortAvailableForProvider } from "$lib/effort-guidance";
-  import { modelOptionLabel } from "$lib/model-guidance";
+  import { AGENT_PROVIDERS, type AgentProvider, type Epic } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { updateEpic } from "#lib/api.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { providerModels, modelAvailableForProvider } from "#lib/provider-models.js";
+  import {
+    providerEfforts,
+    effortLabel,
+    effortAvailableForProvider,
+  } from "#lib/effort-guidance.js";
+  import { modelOptionLabel } from "#lib/model-guidance.js";
 
   // Footer of the epic run area (#2620): the CLI / model / effort the epic's children spawn with.
   // Moved unchanged from EpicPanel's control bar, dependencies included (a provider change drops

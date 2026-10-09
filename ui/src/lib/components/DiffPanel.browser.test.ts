@@ -2,15 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { DiffFile, DiffResult } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
-import { getDiff } from "$lib/api";
-import { diffView } from "$lib/diff-view.svelte";
+import type { DiffFile, DiffResult } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
+import { getDiff } from "#lib/api.js";
+import { diffView } from "#lib/diff-view.svelte.js";
 
 // Mock only the network: getDiff. Everything below the panel (sidebar, lazy
 // stack, the diffView store) is exercised for real.
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     getDiff: vi.fn(),

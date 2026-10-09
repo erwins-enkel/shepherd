@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { Epic, EpicSummary } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import type { Epic, EpicSummary } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let {
     summary,

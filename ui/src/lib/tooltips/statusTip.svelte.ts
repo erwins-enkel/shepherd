@@ -2,7 +2,7 @@ import { mount, unmount, untrack } from "svelte";
 import TooltipBody from "./TooltipBody.svelte";
 import { tooltipText, type TooltipContent } from "./content";
 import type { Action } from "svelte/action";
-import { anchorPopover } from "$lib/floating-anchor";
+import { anchorPopover } from "#lib/floating-anchor.js";
 import type { Placement } from "@floating-ui/dom";
 
 export interface StatusTipParams {

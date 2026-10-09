@@ -6,8 +6,8 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../app.css";
-import type { Session, SessionActivity } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { Session, SessionActivity } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 const { default: UnitRow } = await import("./UnitRow.svelte");
 const { default: SessionStatusBar } = await import("./SessionStatusBar.svelte");

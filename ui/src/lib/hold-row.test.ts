@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { rowState, rowHold, type RowState } from "./hold-row";
 import { holdLine } from "./hold";
-import { m } from "$lib/paraglide/messages";
-import type { HoldReason, PlanGate, Session } from "$lib/types";
+import { m } from "#lib/paraglide/messages.js";
+import type { HoldReason, PlanGate, Session } from "#lib/types.js";
 
 const sess = (o: Partial<Session>): Session =>
   ({

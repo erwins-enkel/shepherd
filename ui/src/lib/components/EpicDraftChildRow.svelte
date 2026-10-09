@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { EpicDraftChild } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import MarkdownBody from "$lib/components/MarkdownBody.svelte";
+  import type { EpicDraftChild } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import MarkdownBody from "#lib/components/MarkdownBody.svelte";
 
   let {
     child,

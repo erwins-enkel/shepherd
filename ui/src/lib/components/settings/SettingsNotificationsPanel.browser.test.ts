@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
-import { m } from "$lib/paraglide/messages";
-import type { ApnsStatus, PushDevice } from "$lib/types";
+import { m } from "#lib/paraglide/messages.js";
+import type { ApnsStatus, PushDevice } from "#lib/types.js";
 import {
   ApiError,
   getApnsConfig,
@@ -12,10 +12,10 @@ import {
   testPushDevice,
   deletePushDevice,
   updatePushDevice,
-} from "$lib/api";
+} from "#lib/api.js";
 
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     getApnsConfig: vi.fn(),
@@ -29,8 +29,8 @@ vi.mock("$lib/api", async (importOriginal) => {
 });
 
 // No navigator.serviceWorker in these tests: this browser reads as unsupported.
-vi.mock("$lib/push", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/push")>();
+vi.mock("#lib/push.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/push.js")>();
   return {
     ...actual,
     pushState: vi.fn(async () => ({

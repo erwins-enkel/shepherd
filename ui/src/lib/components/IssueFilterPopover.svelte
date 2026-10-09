@@ -1,10 +1,10 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { anchorPopover } from "$lib/floating-anchor";
-  import { issuesFilter } from "$lib/issues-filter.svelte";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { labelChipStyle } from "$lib/label-color";
+  import { anchorPopover } from "#lib/floating-anchor.js";
+  import { issuesFilter } from "#lib/issues-filter.svelte.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { labelChipStyle } from "#lib/label-color.js";
 
   // showMine: when false the "mine & unassigned" row is NOT rendered (viewer unknown).
   // coachTargets: when true, the trigger carries use:coachTarget={"issue-filters"}.

@@ -1,11 +1,11 @@
 <script lang="ts">
   import { tick } from "svelte";
   import type { RepoChip } from "./queue-strip";
-  import { getRepoWeb } from "$lib/api";
-  import type { ForgeKind } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import { getRepoWeb } from "#lib/api.js";
+  import type { ForgeKind } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
   import { basename } from "./learnings-drawer";
-  import { projectIcons } from "$lib/projectIcons.svelte";
+  import { projectIcons } from "#lib/projectIcons.svelte.js";
   import { chipRailVisible, chipHasTelemetry, pausedText } from "./queue-strip";
   import RepoChipTelemetry from "./repo-switcher/RepoChipTelemetry.svelte";
   import { longPress } from "./longpress";

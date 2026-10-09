@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { formatAgo } from "$lib/format";
-  import { bucketStrip } from "$lib/heartbeat";
-  import { anchorPopover } from "$lib/floating-anchor";
-  import { m } from "$lib/paraglide/messages";
-  import type { SessionActivity } from "$lib/types";
+  import { formatAgo } from "#lib/format.js";
+  import { bucketStrip } from "#lib/heartbeat.js";
+  import { anchorPopover } from "#lib/floating-anchor.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { SessionActivity } from "#lib/types.js";
 
   let {
     activity,

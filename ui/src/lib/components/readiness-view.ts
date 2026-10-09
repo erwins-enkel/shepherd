@@ -1,7 +1,7 @@
 // Pure logic for the Backlog "Readiness" panel — kept out of the .svelte file so
 // it's unit-testable without a DOM. The scorecard data itself comes from the
 // server (`/api/readiness`); these helpers only shape it for display + actions.
-import type { GuardrailCheck, ReadinessReport } from "$lib/types";
+import type { GuardrailCheck, ReadinessReport } from "#lib/types.js";
 
 export type ScoreBand = "low" | "fair" | "good" | "strong";
 

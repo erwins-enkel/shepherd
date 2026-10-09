@@ -7,9 +7,9 @@ import type {
   UsageProjection,
   UsageHistoryResponse,
   UsageProviderSnapshot,
-} from "$lib/types";
-import { m } from "$lib/paraglide/messages";
-import { formatTokenLabel } from "$lib/format";
+} from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
+import { formatTokenLabel } from "#lib/format.js";
 
 const BASE = Date.now();
 const H = 3_600_000;

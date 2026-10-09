@@ -17,25 +17,25 @@
     SessionUsage,
     SubagentEntry,
     UsageLimits,
-  } from "$lib/types";
+  } from "#lib/types.js";
   import {
     STATUS_COLOR,
     statusLabel,
     formatTokens,
     canResume,
     isStrandedLiveness,
-  } from "$lib/format";
-  import { prRailHue } from "$lib/pr-ready";
-  import { displayStatus } from "$lib/display-status";
-  import { projectIcons } from "$lib/projectIcons.svelte";
+  } from "#lib/format.js";
+  import { prRailHue } from "#lib/pr-ready.js";
+  import { displayStatus } from "#lib/display-status.js";
+  import { projectIcons } from "#lib/projectIcons.svelte.js";
   import { hotterGauge, gaugeColor } from "./usage-gauges";
-  import { connectPty, type PtyConn } from "$lib/pty";
-  import { theme, xtermTheme, xtermMinContrast } from "$lib/theme.svelte";
-  import { terminalFontSize, FONT_MIN, FONT_MAX } from "$lib/terminal-font-size.svelte";
-  import { uiScale } from "$lib/ui-scale.svelte";
+  import { connectPty, type PtyConn } from "#lib/pty.js";
+  import { theme, xtermTheme, xtermMinContrast } from "#lib/theme.svelte.js";
+  import { terminalFontSize, FONT_MIN, FONT_MAX } from "#lib/terminal-font-size.svelte.js";
+  import { uiScale } from "#lib/ui-scale.svelte.js";
   import { tick, untrack } from "svelte";
   import { SvelteMap } from "svelte/reactivity";
-  import { attachmentPastePayload } from "$lib/attachment-paste";
+  import { attachmentPastePayload } from "#lib/attachment-paste.js";
   import {
     getSessionUsage,
     getTodo,
@@ -50,61 +50,61 @@
     getCommands,
     getVoiceStatus,
     scratchpadDownloadUrl,
-  } from "$lib/api";
-  import { imageFilesFromItems } from "$lib/clipboard";
-  import { trimTrailingWhitespace } from "$lib/terminalSelection";
-  import { composeKeystrokes } from "$lib/compose";
-  import { findCommandLinks } from "$lib/slashLinks";
-  import { oscLinkHandler, openTerminalLink } from "$lib/terminalLinks";
-  import { createTypingCounter } from "$lib/terminal-input";
-  import { shouldForwardEscape } from "$lib/terminalEscape";
+  } from "#lib/api.js";
+  import { imageFilesFromItems } from "#lib/clipboard.js";
+  import { trimTrailingWhitespace } from "#lib/terminalSelection.js";
+  import { composeKeystrokes } from "#lib/compose.js";
+  import { findCommandLinks } from "#lib/slashLinks.js";
+  import { oscLinkHandler, openTerminalLink } from "#lib/terminalLinks.js";
+  import { createTypingCounter } from "#lib/terminal-input.js";
+  import { shouldForwardEscape } from "#lib/terminalEscape.js";
   import { altComboKey, isPtySuppressedChord } from "./herd-keynav";
-  import { detectNotesKey } from "$lib/notesAffordance";
-  import { hasCodexQuestionsHint } from "$lib/codexQuestionsAffordance";
-  import { isScrolledAwayFromBottom, SCROLL_UP_PX } from "$lib/scrollAffordance";
-  import { pollWhileVisible } from "$lib/visibility";
-  import TodoPanel from "$lib/components/TodoPanel.svelte";
-  import ActivityFeed from "$lib/components/ActivityFeed.svelte";
-  import SubagentFanout from "$lib/components/SubagentFanout.svelte";
-  import DiffPanel from "$lib/components/DiffPanel.svelte";
+  import { detectNotesKey } from "#lib/notesAffordance.js";
+  import { hasCodexQuestionsHint } from "#lib/codexQuestionsAffordance.js";
+  import { isScrolledAwayFromBottom, SCROLL_UP_PX } from "#lib/scrollAffordance.js";
+  import { pollWhileVisible } from "#lib/visibility.js";
+  import TodoPanel from "#lib/components/TodoPanel.svelte";
+  import ActivityFeed from "#lib/components/ActivityFeed.svelte";
+  import SubagentFanout from "#lib/components/SubagentFanout.svelte";
+  import DiffPanel from "#lib/components/DiffPanel.svelte";
   import FilesPanel from "./viewport/FilesPanel.svelte";
-  import { enterKey } from "$lib/controlKeys";
+  import { enterKey } from "#lib/controlKeys.js";
   import { lockAxis, paneSwipeAction, type Axis } from "./swipe";
-  import GitRail from "$lib/components/GitRail.svelte";
-  import AutopilotBadge from "$lib/components/AutopilotBadge.svelte";
-  import PlanGateBadge from "$lib/components/PlanGateBadge.svelte";
-  import { reviews, planGates, repoConfig } from "$lib/reviews.svelte";
-  import { recaps } from "$lib/recaps.svelte";
-  import { amendments } from "$lib/amendments.svelte";
-  import TaskTipAmendments from "$lib/components/TaskTipAmendments.svelte";
-  import { toasts } from "$lib/toasts.svelte";
-  import SteerBar from "$lib/components/SteerBar.svelte";
-  import SessionStatusBar from "$lib/components/SessionStatusBar.svelte";
-  import ComposeBar from "$lib/components/ComposeBar.svelte";
-  import LeftoverDialog from "$lib/components/LeftoverDialog.svelte";
-  import BuildQueuePanel from "$lib/components/BuildQueuePanel.svelte";
-  import EpicDraftPanel from "$lib/components/EpicDraftPanel.svelte";
-  import EpicDraftModal from "$lib/components/EpicDraftModal.svelte";
-  import { epicDrafts } from "$lib/epic-draft.svelte";
-  import SessionRecap from "$lib/components/SessionRecap.svelte";
+  import GitRail from "#lib/components/GitRail.svelte";
+  import AutopilotBadge from "#lib/components/AutopilotBadge.svelte";
+  import PlanGateBadge from "#lib/components/PlanGateBadge.svelte";
+  import { reviews, planGates, repoConfig } from "#lib/reviews.svelte.js";
+  import { recaps } from "#lib/recaps.svelte.js";
+  import { amendments } from "#lib/amendments.svelte.js";
+  import TaskTipAmendments from "#lib/components/TaskTipAmendments.svelte";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import SteerBar from "#lib/components/SteerBar.svelte";
+  import SessionStatusBar from "#lib/components/SessionStatusBar.svelte";
+  import ComposeBar from "#lib/components/ComposeBar.svelte";
+  import LeftoverDialog from "#lib/components/LeftoverDialog.svelte";
+  import BuildQueuePanel from "#lib/components/BuildQueuePanel.svelte";
+  import EpicDraftPanel from "#lib/components/EpicDraftPanel.svelte";
+  import EpicDraftModal from "#lib/components/EpicDraftModal.svelte";
+  import { epicDrafts } from "#lib/epic-draft.svelte.js";
+  import SessionRecap from "#lib/components/SessionRecap.svelte";
   import ViewportTermBanners from "./viewport/ViewportTermBanners.svelte";
   import ReviewInFlightBanner from "./viewport/ReviewInFlightBanner.svelte";
   import CiRunningBanner from "./viewport/CiRunningBanner.svelte";
   import AutoMergeBanner from "./viewport/AutoMergeBanner.svelte";
-  import { ciBannerState } from "$lib/ci-banner";
+  import { ciBannerState } from "#lib/ci-banner.js";
   import ViewportTermControls from "./viewport/ViewportTermControls.svelte";
   import ViewportTabBar from "./viewport/ViewportTabBar.svelte";
   import BrowserPanel from "./viewport/BrowserPanel.svelte";
   import ViewportHeaderActions from "./viewport/ViewportHeaderActions.svelte";
   import ClipboardPill from "./viewport/ClipboardPill.svelte";
-  import { handleOsc52 } from "$lib/osc52";
-  import type { BuildQueue, LoginRequest } from "$lib/types";
+  import { handleOsc52 } from "#lib/osc52.js";
+  import type { BuildQueue, LoginRequest } from "#lib/types.js";
   import AttachmentChip from "./new-task/AttachmentChip.svelte";
-  import { ATTACHMENTS_DIR, computeHasFiles } from "$lib/session-files";
-  import { m } from "$lib/paraglide/messages";
-  import { modelLabel } from "$lib/model-label";
-  import { effortLabel } from "$lib/effort-guidance";
-  import { buildPreviewUrl } from "$lib/previewUrl";
+  import { ATTACHMENTS_DIR, computeHasFiles } from "#lib/session-files.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { modelLabel } from "#lib/model-label.js";
+  import { effortLabel } from "#lib/effort-guidance.js";
+  import { buildPreviewUrl } from "#lib/previewUrl.js";
   import { longPress } from "./longpress";
 
   // Enter pinned in the thumb zone — locale-reactive for its accessible name.
@@ -901,7 +901,7 @@
   // and a branch-protection `blocked` PR (in a repo requiring approvals that is EVERY open
   // PR, so amber would light the whole repo). CI still in flight stays neutral too unless
   // the PR conflicts — a conflicting PR's checks can never clear, so it can't wait for them.
-  // The rule itself lives in $lib/pr-ready so the whole matrix is unit-testable without
+  // The rule itself lives in #lib/pr-ready so the whole matrix is unit-testable without
   // mounting this component.
   // Known limitation: there is no critic-pending field, so prClear goes green on CI
   // success even before the critic posts (latestReview undefined) — "ready to merge" can

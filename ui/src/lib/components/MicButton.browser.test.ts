@@ -2,13 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import { getVoiceStatus, transcribeAudio } from "$lib/api";
-import { m } from "$lib/paraglide/messages";
+import { getVoiceStatus, transcribeAudio } from "#lib/api.js";
+import { m } from "#lib/paraglide/messages.js";
 
 // Mock the API so engine detection is deterministic and so the tests can prove a discarded
 // recording is never uploaded.
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     getVoiceStatus: vi.fn(),

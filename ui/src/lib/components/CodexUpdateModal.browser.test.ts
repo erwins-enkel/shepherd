@@ -2,10 +2,10 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { CodexReleaseNotesResult, CodexUpdateStatus } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { CodexReleaseNotesResult, CodexUpdateStatus } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
-vi.mock("$lib/api", async (orig) => ({
+vi.mock("#lib/api.js", async (orig) => ({
   ...((await orig()) as object),
   applyCodexUpdate: vi.fn(() => new Promise(() => {})),
 }));

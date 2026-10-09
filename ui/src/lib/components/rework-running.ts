@@ -1,7 +1,7 @@
-import type { PlanGate, ReviewVerdict, Session } from "$lib/types";
-import { displayStatus } from "$lib/display-status";
-import { planStallStatus } from "$lib/plan-status";
-import { addressStallStatus } from "$lib/review-status";
+import type { PlanGate, ReviewVerdict, Session } from "#lib/types.js";
+import { displayStatus } from "#lib/display-status.js";
+import { planStallStatus } from "#lib/plan-status.js";
+import { addressStallStatus } from "#lib/review-status.js";
 
 export type ReworkRunningSignals = {
   planGate?: PlanGate;

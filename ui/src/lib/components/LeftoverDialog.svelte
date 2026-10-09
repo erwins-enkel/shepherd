@@ -1,8 +1,8 @@
 <script lang="ts">
   import { SvelteSet } from "svelte/reactivity";
-  import type { Leftover } from "$lib/types";
-  import { dialog } from "$lib/a11yDialog";
-  import { m } from "$lib/paraglide/messages";
+  import type { Leftover } from "#lib/types.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let {
     leftovers,

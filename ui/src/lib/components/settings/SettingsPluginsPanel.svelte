@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
   import HighlightText from "./HighlightText.svelte";
   import {
     getInstalledPlugins,
@@ -9,20 +9,20 @@
     activatePlugin,
     checkPluginUpdates,
     applyPluginUpdate,
-  } from "$lib/api";
+  } from "#lib/api.js";
   import type {
     PluginInfo,
     InstalledPlugin,
     PluginUpdatesStatus,
     PluginUpdateInfo,
-  } from "$lib/types";
+  } from "#lib/types.js";
   import PluginLoadedCard from "./PluginLoadedCard.svelte";
   import PluginUpdateNote, {
     type PluginApplyOutcome,
     type PluginCheckedNote,
   } from "./PluginUpdateNote.svelte";
   import PluginConfirmDialog from "./PluginConfirmDialog.svelte";
-  import RestartShepherdDialog from "$lib/components/RestartShepherdDialog.svelte";
+  import RestartShepherdDialog from "#lib/components/RestartShepherdDialog.svelte";
 
   let {
     plugins = [],

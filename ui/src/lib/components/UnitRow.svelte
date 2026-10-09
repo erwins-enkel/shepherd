@@ -15,9 +15,15 @@
 </script>
 
 <script lang="ts">
-  import type { Session, GitState, SessionActivity, HoldReason, LivenessState } from "$lib/types";
-  import { STATUS_COLOR, canResume, canRelaunch, isStrandedLiveness } from "$lib/format";
-  import { displayStatus } from "$lib/display-status";
+  import type {
+    Session,
+    GitState,
+    SessionActivity,
+    HoldReason,
+    LivenessState,
+  } from "#lib/types.js";
+  import { STATUS_COLOR, canResume, canRelaunch, isStrandedLiveness } from "#lib/format.js";
+  import { displayStatus } from "#lib/display-status.js";
   import {
     resumeSession,
     resumeFailureMessage,
@@ -29,7 +35,7 @@
     mergePr,
     interruptSession,
     MergeRefusedError,
-  } from "$lib/api";
+  } from "#lib/api.js";
   import { prMergeAvailable } from "./pr-badge";
   import { basename } from "./learnings-drawer";
   import { mergeConfirmFromGit } from "./merge-confirm";
@@ -43,26 +49,26 @@
   import TimePopover from "./TimePopover.svelte";
   import HeartbeatStrip from "./HeartbeatStrip.svelte";
   import Stepper from "./Stepper.svelte";
-  import { reviews, planGates } from "$lib/reviews.svelte";
-  import { toasts } from "$lib/toasts.svelte";
-  import { projectIcons } from "$lib/projectIcons.svelte";
-  import { openBrowserPopout } from "$lib/browserView";
-  import { m } from "$lib/paraglide/messages";
-  import { formatTokens } from "$lib/format";
-  import { formatUnits } from "$lib/components/usage/format";
-  import { isColdResume } from "$lib/cold-resume";
-  import { sessionEnvironment } from "$lib/session-env";
-  import { coldResumeExplanation } from "$lib/tooltips/explanations";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
+  import { reviews, planGates } from "#lib/reviews.svelte.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { projectIcons } from "#lib/projectIcons.svelte.js";
+  import { openBrowserPopout } from "#lib/browserView.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { formatTokens } from "#lib/format.js";
+  import { formatUnits } from "#lib/components/usage/format.js";
+  import { isColdResume } from "#lib/cold-resume.js";
+  import { sessionEnvironment } from "#lib/session-env.js";
+  import { coldResumeExplanation } from "#lib/tooltips/explanations.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import { onDestroy, untrack } from "svelte";
   import UnitRowRight from "./unit-row/UnitRowRight.svelte";
   import PulseLine from "./PulseLine.svelte";
-  import { sessionPulse } from "$lib/session-pulse";
-  import { buildQueues } from "$lib/buildQueues.svelte";
-  import { steerLogs } from "$lib/steerLogs.svelte";
-  import { rowHold } from "$lib/hold-row";
-  import { holdAwaitsOperator } from "$lib/hold";
-  import { checksCleared } from "$lib/checks-cleared";
+  import { sessionPulse } from "#lib/session-pulse.js";
+  import { buildQueues } from "#lib/buildQueues.svelte.js";
+  import { steerLogs } from "#lib/steerLogs.svelte.js";
+  import { rowHold } from "#lib/hold-row.js";
+  import { holdAwaitsOperator } from "#lib/hold.js";
+  import { checksCleared } from "#lib/checks-cleared.js";
   import {
     REVEAL_PX,
     snapOffset,

@@ -2,13 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { ReviewVerdict } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
-import { retrySpawnNotice } from "$lib/api";
+import type { ReviewVerdict } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
+import { retrySpawnNotice } from "#lib/api.js";
 
 // Mock api so the reviews store's load() never fires real network calls.
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     getReviews: vi.fn(async () => ({})),
@@ -18,7 +18,7 @@ vi.mock("$lib/api", async (importOriginal) => {
 });
 
 const { default: CriticBadge } = await import("./CriticBadge.svelte");
-const { reviews, spawnNotices } = await import("$lib/reviews.svelte");
+const { reviews, spawnNotices } = await import("#lib/reviews.svelte.js");
 
 const NOW = 2_000_000;
 

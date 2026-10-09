@@ -3,8 +3,8 @@ import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import EpicDiagnoseEntry from "./EpicDiagnoseEntry.svelte";
-import { m } from "$lib/paraglide/messages";
-import type { EpicDiagnosis, RepoEntry } from "$lib/types";
+import { m } from "#lib/paraglide/messages.js";
+import type { EpicDiagnosis, RepoEntry } from "#lib/types.js";
 
 // EpicDiagnoseEntry calls listRepos() on mount; the child EpicDiagnosisModal calls
 // diagnoseEpic() on mount. Stub both so the flow runs without a server. Everything else
@@ -12,7 +12,7 @@ import type { EpicDiagnosis, RepoEntry } from "$lib/types";
 const listRepos = vi.fn<() => Promise<{ repos: RepoEntry[]; recentWindowDays: number }>>();
 const diagnoseEpic = vi.fn<(repo: string, parent: number) => Promise<EpicDiagnosis>>();
 
-vi.mock("$lib/api", async (orig) => ({
+vi.mock("#lib/api.js", async (orig) => ({
   ...((await orig()) as object),
   listRepos: (...a: unknown[]) => listRepos(...(a as [])),
   diagnoseEpic: (...a: unknown[]) => diagnoseEpic(...(a as [string, number])),

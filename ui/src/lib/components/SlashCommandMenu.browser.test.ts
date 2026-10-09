@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../app.css";
-import type { SlashCommand } from "$lib/types";
+import type { SlashCommand } from "#lib/types.js";
 
 const { default: SlashCommandMenu } = await import("./SlashCommandMenu.svelte");
 

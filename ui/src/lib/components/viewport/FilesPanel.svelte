@@ -6,13 +6,13 @@
     getWorktreeListing,
     worktreeDownloadUrl,
     ApiError,
-  } from "$lib/api";
-  import type { ScratchEntry, ScratchListing } from "$lib/types";
-  import { ATTACHMENTS_DIR } from "$lib/session-files";
-  import { m } from "$lib/paraglide/messages";
-  import { relativeAge } from "$lib/format";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import InfoTip from "$lib/components/InfoTip.svelte";
+  } from "#lib/api.js";
+  import type { ScratchEntry, ScratchListing } from "#lib/types.js";
+  import { ATTACHMENTS_DIR } from "#lib/session-files.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { relativeAge } from "#lib/format.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import InfoTip from "#lib/components/InfoTip.svelte";
   import { untrack } from "svelte";
 
   // Read/upload browser of the session's scratchpad subtree (#1164, #1258). Click a directory to

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Component } from "svelte";
-  import type { VisualBlock } from "$lib/types";
+  import type { VisualBlock } from "#lib/types.js";
   import RichTextBlock from "./blocks/RichTextBlock.svelte";
   import CalloutBlock from "./blocks/CalloutBlock.svelte";
   import FileTreeBlock from "./blocks/FileTreeBlock.svelte";
@@ -14,7 +14,7 @@
   import MermaidBlock from "./blocks/MermaidBlock.svelte";
   import WireframeBlock from "./blocks/WireframeBlock.svelte";
   import QuestionFormBlock from "./blocks/QuestionFormBlock.svelte";
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // `answerCtx` (plan gate, planning phase only) makes question-form blocks interactive; absent in
   // read-only contexts (recap / Done panels), where the form renders disabled.

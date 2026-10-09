@@ -1,11 +1,11 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
-  import { dialog } from "$lib/a11yDialog";
-  import { m } from "$lib/paraglide/messages";
-  import { getLocale } from "$lib/i18n";
-  import { releaseDates } from "$lib/build-info";
-  import type { FeatureAnnouncement } from "$lib/feature-announcements";
-  import GlossaryText from "$lib/components/GlossaryText.svelte";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { getLocale } from "#lib/i18n.js";
+  import { releaseDates } from "#lib/build-info.js";
+  import type { FeatureAnnouncement } from "#lib/feature-announcements.js";
+  import GlossaryText from "#lib/components/GlossaryText.svelte";
 
   let {
     entries,

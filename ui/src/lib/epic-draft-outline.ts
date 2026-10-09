@@ -1,4 +1,4 @@
-import type { EpicDraftChild } from "$lib/types";
+import type { EpicDraftChild } from "#lib/types.js";
 
 /** One heading-delimited part of a Markdown body. `title` is null for text before the first heading. */
 export interface MarkdownSection {

@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../../app.css";
 import HerdLensStrip from "./HerdLensStrip.svelte";
-import { overwriteGetLocale } from "$lib/paraglide/runtime";
+import { overwriteGetLocale } from "#lib/paraglide/runtime.js";
 
 const base = {
   filter: "all" as const,

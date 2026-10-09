@@ -1,14 +1,14 @@
 <script lang="ts">
-  import { steers } from "$lib/steers.svelte";
-  import { repos } from "$lib/repos.svelte";
-  import { steerAppliesToRepo } from "$lib/steer-scope";
-  import { replySession } from "$lib/api";
-  import { toasts } from "$lib/toasts.svelte";
-  import { fitLabels } from "$lib/fit-labels";
-  import { m } from "$lib/paraglide/messages";
-  import SteerMenu from "$lib/components/SteerMenu.svelte";
-  import ControlBar from "$lib/components/ControlBar.svelte";
-  import type { AgentProvider, Steer } from "$lib/types";
+  import { steers } from "#lib/steers.svelte.js";
+  import { repos } from "#lib/repos.svelte.js";
+  import { steerAppliesToRepo } from "#lib/steer-scope.js";
+  import { replySession } from "#lib/api.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { fitLabels } from "#lib/fit-labels.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import SteerMenu from "#lib/components/SteerMenu.svelte";
+  import ControlBar from "#lib/components/ControlBar.svelte";
+  import type { AgentProvider, Steer } from "#lib/types.js";
 
   let {
     focusedId,

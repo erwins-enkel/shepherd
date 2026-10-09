@@ -5,9 +5,9 @@ import type {
   EpicChild,
   EpicChildState,
   EpicRunEnd,
-} from "$lib/types";
-import { m } from "$lib/paraglide/messages";
-import { formatReset } from "$lib/format";
+} from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
+import { formatReset } from "#lib/format.js";
 import { pausedText } from "./queue-strip";
 
 export type ChipTone = "done" | "review" | "running" | "ready" | "muted";

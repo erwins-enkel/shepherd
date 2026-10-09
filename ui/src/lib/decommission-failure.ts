@@ -1,7 +1,7 @@
-import { ApiError } from "$lib/api";
-import type { DecommissionStep } from "$lib/decommission-commit";
-import { m } from "$lib/paraglide/messages";
-import type { ToastDetail } from "$lib/toasts.svelte";
+import { ApiError } from "#lib/api.js";
+import type { DecommissionStep } from "#lib/decommission-commit.js";
+import { m } from "#lib/paraglide/messages.js";
+import type { ToastDetail } from "#lib/toasts.svelte.js";
 
 export interface DecommissionFailure {
   /** Reason line + "What happened" / "What you can do" / server-message sections for the toast. */

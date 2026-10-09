@@ -1,9 +1,9 @@
 <script lang="ts">
   import { getContext } from "svelte";
-  import { anchorPopover } from "$lib/floating-anchor";
-  import { infoTips, INFO_TIPS_FORCE } from "$lib/info-tips.svelte";
-  import TooltipBody from "$lib/tooltips/TooltipBody.svelte";
-  import type { TooltipContent } from "$lib/tooltips/content";
+  import { anchorPopover } from "#lib/floating-anchor.js";
+  import { infoTips, INFO_TIPS_FORCE } from "#lib/info-tips.svelte.js";
+  import TooltipBody from "#lib/tooltips/TooltipBody.svelte";
+  import type { TooltipContent } from "#lib/tooltips/content.js";
 
   // A small circular "i" affordance that reveals an explanation in a floating
   // tooltip — opens above the icon on hover/focus (fine pointer) and tap-toggles

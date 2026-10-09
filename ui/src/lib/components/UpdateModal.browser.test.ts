@@ -2,17 +2,17 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { DeployState, DirtyStatus, UpdateStatus } from "$lib/types";
+import type { DeployState, DirtyStatus, UpdateStatus } from "#lib/types.js";
 
-vi.mock("$lib/api", async (orig) => ({
+vi.mock("#lib/api.js", async (orig) => ({
   ...((await orig()) as object),
   applyUpdate: vi.fn(() => new Promise(() => {})),
   getUpdateDirty: vi.fn(async () => ({ dirty: false, dirtyFiles: [], dirtyCount: 0, sig: null })),
 }));
 
 import UpdateModal from "./UpdateModal.svelte";
-import { theme } from "$lib/theme.svelte";
-import { applyUpdate, getUpdateDirty } from "$lib/api";
+import { theme } from "#lib/theme.svelte.js";
+import { applyUpdate, getUpdateDirty } from "#lib/api.js";
 
 const mockApply = applyUpdate as unknown as ReturnType<typeof vi.fn>;
 const mockDirty = getUpdateDirty as unknown as ReturnType<typeof vi.fn>;

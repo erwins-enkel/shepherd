@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onDestroy, tick } from "svelte";
-  import type { PostMergeSteps, OwedFocusSnapshot } from "$lib/types";
-  import { postMergeSteps, owedRecordsForRepo } from "$lib/post-merge-steps.svelte";
-  import { projectIcons } from "$lib/projectIcons.svelte";
+  import type { PostMergeSteps, OwedFocusSnapshot } from "#lib/types.js";
+  import { postMergeSteps, owedRecordsForRepo } from "#lib/post-merge-steps.svelte.js";
+  import { projectIcons } from "#lib/projectIcons.svelte.js";
   import { basename } from "./learnings-drawer";
-  import { formatAgo } from "$lib/format";
-  import { clock } from "$lib/now.svelte";
-  import { m } from "$lib/paraglide/messages";
+  import { formatAgo } from "#lib/format.js";
+  import { clock } from "#lib/now.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
   import { EMPTY_REPO_FILTER } from "./queue-strip";
 
   let {

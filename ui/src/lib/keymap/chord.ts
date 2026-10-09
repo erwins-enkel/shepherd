@@ -6,7 +6,7 @@
 // The ARIA form is specified by WAI-ARIA and is NOT localizable; the visible
 // form is, hence the message keys for the modifier names.
 
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 import type { Chord } from "./types";
 
 /** True when this event is the chord. Matches on `code` (physical key) by

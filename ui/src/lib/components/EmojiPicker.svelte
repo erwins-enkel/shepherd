@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { dialog } from "$lib/a11yDialog";
-  import { searchEmoji, isSingleEmoji } from "$lib/emoji";
+  import { m } from "#lib/paraglide/messages.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { searchEmoji, isSingleEmoji } from "#lib/emoji.js";
 
   let {
     value,

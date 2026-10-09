@@ -3,10 +3,10 @@ import { tick } from "svelte";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
-import type { EpicDraft } from "$lib/types";
-import { epicDrafts } from "$lib/epic-draft.svelte";
-import { expectMinPx } from "$lib/test-support/geometry";
-import { m } from "$lib/paraglide/messages";
+import type { EpicDraft } from "#lib/types.js";
+import { epicDrafts } from "#lib/epic-draft.svelte.js";
+import { expectMinPx } from "#lib/test-support/geometry.js";
+import { m } from "#lib/paraglide/messages.js";
 import EpicDraftModal from "./EpicDraftModal.svelte";
 
 function longDraft(sessionId: string): EpicDraft {

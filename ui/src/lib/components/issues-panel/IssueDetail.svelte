@@ -9,10 +9,10 @@
     Steer,
     TaskRunDefaults,
     TaskRunSeed,
-  } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { importEpic } from "$lib/api";
-  import { toasts } from "$lib/toasts.svelte";
+  } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { importEpic } from "#lib/api.js";
+  import { toasts } from "#lib/toasts.svelte.js";
   import { assignedOthers, epicFlagForOthers, type IssueSelection } from "../issues-panel";
   import { epicRole, queuePosition, stateLabel } from "../epic-panel";
   import EpicPanel from "../EpicPanel.svelte";

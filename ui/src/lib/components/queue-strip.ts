@@ -1,5 +1,5 @@
 import type { AutoMergeStatus, DrainStatus, Learning, RepoInjectable, Session } from "../types";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 import { droppedCount } from "./learnings-drawer";
 import { sortBlocked, type BlockState } from "../triage";
 import { displayStatus } from "../display-status";

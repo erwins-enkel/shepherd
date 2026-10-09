@@ -1,8 +1,8 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import type { HTMLAttributes } from "svelte/elements";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
-  import type { TooltipContent } from "$lib/tooltips/content";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import type { TooltipContent } from "#lib/tooltips/content.js";
   import type { EpicRunTone } from "../epic-panel";
 
   // The set-apart run area at the top of the backlog reading detail (#2620, #2622): a caption,

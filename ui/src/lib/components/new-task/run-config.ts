@@ -1,7 +1,11 @@
-import { MODELS_BY_PROVIDER, type AgentProvider, type ProviderTokenConstraint } from "$lib/types";
-import { promoDefaultModel } from "$lib/fable-promo";
-import { isFableModel, modelAvailableForProvider } from "$lib/provider-models";
-import { effortAvailableForProvider } from "$lib/effort-guidance";
+import {
+  MODELS_BY_PROVIDER,
+  type AgentProvider,
+  type ProviderTokenConstraint,
+} from "#lib/types.js";
+import { promoDefaultModel } from "#lib/fable-promo.js";
+import { isFableModel, modelAvailableForProvider } from "#lib/provider-models.js";
+import { effortAvailableForProvider } from "#lib/effort-guidance.js";
 
 /** Picker preselect for a model SETTING ("auto" | "default" | <alias>): explicit setting wins,
  *  else the fresh-client promo (Claude) / "default" (Codex); any Fable entry (alias or pinned id)

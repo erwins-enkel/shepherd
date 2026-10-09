@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import type { MergeSuggestion } from "$lib/types";
-  import { projectIcons } from "$lib/projectIcons.svelte";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { MergeSuggestion } from "#lib/types.js";
+  import { projectIcons } from "#lib/projectIcons.svelte.js";
   import {
     basename,
     repoAnchorId,

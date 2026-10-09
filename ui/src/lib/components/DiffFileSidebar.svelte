@@ -3,9 +3,9 @@
   // Wide: a vertical list. Narrow (<=768px): the same rows collapse to a
   // horizontally-scrollable chip strip (CSS-only; one markup). Purely a
   // files -> rows mapping + selection callback — no business logic.
-  import type { DiffFile } from "$lib/types";
-  import { pathParts } from "$lib/diff-path";
-  import { m } from "$lib/paraglide/messages";
+  import type { DiffFile } from "#lib/types.js";
+  import { pathParts } from "#lib/diff-path.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let {
     files,

@@ -1,23 +1,23 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import { modelOptionLabel } from "$lib/model-guidance";
-  import ModelGuidance from "$lib/components/ModelGuidance.svelte";
-  import GlossaryText from "$lib/components/GlossaryText.svelte";
+  import { m } from "#lib/paraglide/messages.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import { modelOptionLabel } from "#lib/model-guidance.js";
+  import ModelGuidance from "#lib/components/ModelGuidance.svelte";
+  import GlossaryText from "#lib/components/GlossaryText.svelte";
   import EngineCapacityLine from "./EngineCapacityLine.svelte";
   import InstrumentToggle from "./InstrumentToggle.svelte";
   import GuardTimeline from "./GuardTimeline.svelte";
-  import type { GuardRepoConfig } from "$lib/guard-timeline";
+  import type { GuardRepoConfig } from "#lib/guard-timeline.js";
   import {
     AGENT_PROVIDERS,
     type AgentProvider,
     type ProviderTokenConstraint,
     type SandboxProfile,
     type UsageLimits,
-  } from "$lib/types";
-  import { providerModels, modelAvailableForProvider } from "$lib/provider-models";
-  import { providerEfforts, effortLabel } from "$lib/effort-guidance";
+  } from "#lib/types.js";
+  import { providerModels, modelAvailableForProvider } from "#lib/provider-models.js";
+  import { providerEfforts, effortLabel } from "#lib/effort-guidance.js";
 
   // The single settings-content owner: ENGINE + GUARDS groups, rendered in the desktop
   // rail or inside the mobile engine sheet — exactly one instance is mounted at a time

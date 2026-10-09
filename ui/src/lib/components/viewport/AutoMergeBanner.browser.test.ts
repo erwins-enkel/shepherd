@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../../app.css";
-import { m } from "$lib/paraglide/messages";
-import { reviews, repoConfig } from "$lib/reviews.svelte";
-import type { AutoMergeStatus, GitState, MergeWaitCode } from "$lib/types";
+import { m } from "#lib/paraglide/messages.js";
+import { reviews, repoConfig } from "#lib/reviews.svelte.js";
+import type { AutoMergeStatus, GitState, MergeWaitCode } from "#lib/types.js";
 import AutoMergeBanner from "./AutoMergeBanner.svelte";
 
 const ID = "s1";

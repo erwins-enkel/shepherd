@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { dialog } from "$lib/a11yDialog";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import { startPreview as apiStartPreview } from "$lib/api";
-  import { toasts } from "$lib/toasts.svelte";
+  import { m } from "#lib/paraglide/messages.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import { startPreview as apiStartPreview } from "#lib/api.js";
+  import { toasts } from "#lib/toasts.svelte.js";
   import { SvelteMap } from "svelte/reactivity";
-  import type { Session } from "$lib/types";
+  import type { Session } from "#lib/types.js";
 
   type Tab = "term" | "todo" | "activity" | "diff" | "files" | "preview" | "browser";
 

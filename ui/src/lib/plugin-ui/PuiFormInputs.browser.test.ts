@@ -12,7 +12,7 @@ import { tick } from "svelte";
 import "../../app.css";
 import PluginUIRoot from "./PluginUIRoot.svelte";
 import PuiTextInput from "./PuiTextInput.svelte";
-import type { PluginUINode } from "$lib/types";
+import type { PluginUINode } from "#lib/types.js";
 
 const ROUTE = { method: "POST", path: "config" };
 

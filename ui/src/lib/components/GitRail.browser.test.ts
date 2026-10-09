@@ -2,13 +2,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render as rawRender } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { GitState, ReviewVerdict } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { GitState, ReviewVerdict } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
-// GitRail loads PR state from $lib/api.gitState on mount; mock it to a populated
+// GitRail loads PR state from #lib/api.gitState on mount; mock it to a populated
 // open PR so the rail renders its full button set (PR link + CI dot + Merge +
 // automation pill + ReadyToggle) without a backend. Mock ALL named exports
-// GitRail imports from $lib/api so the import resolves.
+// GitRail imports from #lib/api so the import resolves.
 const openPrState: GitState = {
   kind: "github",
   state: "open",
@@ -56,8 +56,8 @@ const reviewPlanFn = vi.fn(
       "started" | "skipped" | "plan-unavailable" | "error-spawn" | "error-worktree" | "error-auth",
 );
 
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     gitState: gitStateFn,
@@ -76,12 +76,12 @@ vi.mock("$lib/api", async (importOriginal) => {
 // Mock the shared toast store so the manual-review handler's fail-closed/skipped
 // toasts can be asserted without rendering the real toast UI.
 const toastsInfo = vi.fn();
-vi.mock("$lib/toasts.svelte", () => ({
+vi.mock("#lib/toasts.svelte.js", () => ({
   toasts: { info: toastsInfo },
 }));
 
 // Mock pull-offer so the combined decommission+update action doesn't issue real fetch calls.
-vi.mock("$lib/pull-offer", () => ({ pullMainAndToast: vi.fn() }));
+vi.mock("#lib/pull-offer.js", () => ({ pullMainAndToast: vi.fn() }));
 
 // Import the component AFTER the mock is registered.
 const { default: GitRail } = await import("./GitRail.svelte");
@@ -92,9 +92,9 @@ const { default: GitRailAutopilotHarness } = await import("./GitRailAutopilotHar
 // mirroring the critic (reviews) store. Imported from the same module the
 // component reads so toggling it reactively updates the rendered pill.
 // repoConfig drives the critic-enabled flag the manual-review button gates on.
-const { planGates, reviews, repoConfig } = await import("$lib/reviews.svelte");
+const { planGates, reviews, repoConfig } = await import("#lib/reviews.svelte.js");
 // Mocked pull-offer fn — imported for assertions in the post-merge suite.
-const { pullMainAndToast } = await import("$lib/pull-offer");
+const { pullMainAndToast } = await import("#lib/pull-offer.js");
 
 const mounted: Array<{ unmount: () => void | Promise<void> }> = [];
 async function render(
@@ -1794,7 +1794,7 @@ describe("GitRail — post-merge decommission offer", () => {
 
   it("remote-forge merge (non-isolated) shows plain decommission offer with the merged session id", async () => {
     // mergePr returns a github-kind merged status; baseProps has isolated unset (→ false)
-    const { mergePr: mergePrMock } = await import("$lib/api");
+    const { mergePr: mergePrMock } = await import("#lib/api.js");
     (mergePrMock as ReturnType<typeof vi.fn>).mockResolvedValue({
       kind: "github",
       state: "merged",
@@ -1835,7 +1835,7 @@ describe("GitRail — post-merge decommission offer", () => {
   });
 
   it("remote-forge merge (isolated) shows combo decommission & update offer", async () => {
-    const { mergePr: mergePrMock } = await import("$lib/api");
+    const { mergePr: mergePrMock } = await import("#lib/api.js");
     (mergePrMock as ReturnType<typeof vi.fn>).mockResolvedValue({
       kind: "github",
       state: "merged",
@@ -1885,7 +1885,7 @@ describe("GitRail — post-merge decommission offer", () => {
     // Regression: GitRail is reused across session switches (no {#key} wrapper in Viewport).
     // Merging session A (repoPath "/repo"), then switching to session B (repoPath "/other")
     // within the 15s toast window must still FF "/repo", not "/other".
-    const { mergePr: mergePrMock } = await import("$lib/api");
+    const { mergePr: mergePrMock } = await import("#lib/api.js");
     (mergePrMock as ReturnType<typeof vi.fn>).mockResolvedValue({
       kind: "github",
       state: "merged",
@@ -1949,7 +1949,7 @@ describe("GitRail — post-merge decommission offer", () => {
     // the FF target. Merging an isolated session, then switching to a NON-isolated session
     // within the 15s window, must still fast-forward (captured isolated=true wins) rather
     // than reading the rebound live flag and silently skipping the pull.
-    const { mergePr: mergePrMock } = await import("$lib/api");
+    const { mergePr: mergePrMock } = await import("#lib/api.js");
     (mergePrMock as ReturnType<typeof vi.fn>).mockResolvedValue({
       kind: "github",
       state: "merged",
@@ -1999,7 +1999,7 @@ describe("GitRail — post-merge decommission offer", () => {
   });
 
   it("local-forge merge → no decommission offer action", async () => {
-    const { mergePr: mergePrMock } = await import("$lib/api");
+    const { mergePr: mergePrMock } = await import("#lib/api.js");
     (mergePrMock as ReturnType<typeof vi.fn>).mockResolvedValue({
       kind: "local",
       state: "merged",

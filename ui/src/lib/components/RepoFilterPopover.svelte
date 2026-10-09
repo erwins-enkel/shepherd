@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { anchorPopover } from "$lib/floating-anchor";
-  import { m } from "$lib/paraglide/messages";
+  import { anchorPopover } from "#lib/floating-anchor.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   // Repo-list filters ("Has issues" / "Has PRs") behind a funnel icon next to the repo
   // search — the /design-system "Filter popover" recipe, like PrFilterPopover. The parent

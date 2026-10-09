@@ -5,7 +5,7 @@ import {
   planEdited,
   planGateChip,
 } from "./plan-gate-badge";
-import type { PlanGate, Session } from "$lib/types";
+import type { PlanGate, Session } from "#lib/types.js";
 
 const baseGate: PlanGate = {
   sessionId: "s1",

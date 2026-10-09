@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
-  import type { SubagentEntry } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import type { SubagentEntry } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   // The full per-session roster map (store.subagents), threaded like store.activity /
   // store.workingBlocked. We derive this session's roster from it so the section stays

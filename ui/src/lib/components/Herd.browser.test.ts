@@ -6,10 +6,10 @@ import Herd from "./Herd.svelte";
 import { railOrder } from "./herd-keynav";
 import { GROUP_KEY_BY_STAGE } from "./herd-partition";
 import { isReworkRunning } from "./rework-running";
-import { reviews, planGates } from "$lib/reviews.svelte";
-import { postMergeSteps } from "$lib/post-merge-steps.svelte";
-import { expectMinPx } from "$lib/test-support/geometry";
-import { m } from "$lib/paraglide/messages";
+import { reviews, planGates } from "#lib/reviews.svelte.js";
+import { postMergeSteps } from "#lib/post-merge-steps.svelte.js";
+import { expectMinPx } from "#lib/test-support/geometry.js";
+import { m } from "#lib/paraglide/messages.js";
 import type {
   CompletedEpic,
   Session,
@@ -18,7 +18,7 @@ import type {
   EpicChild,
   PostMergeSteps,
   ReviewVerdict,
-} from "$lib/types";
+} from "#lib/types.js";
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -895,7 +895,7 @@ describe("Herd epic-child preview badge", () => {
   });
 
   it("renders the Preview badge for an epic-grouped child session with a live preview port", async () => {
-    const epicChild = (number: number): import("$lib/types").EpicChild => ({
+    const epicChild = (number: number): import("#lib/types.js").EpicChild => ({
       number,
       title: `child ${number}`,
       url: "",
@@ -908,7 +908,7 @@ describe("Herd epic-child preview badge", () => {
       issueClosed: false,
       claimed: false,
     });
-    const epic = (children: import("$lib/types").EpicChild[]): import("$lib/types").Epic => ({
+    const epic = (children: import("#lib/types.js").EpicChild[]): import("#lib/types.js").Epic => ({
       repoPath: "/repo/a",
       parentIssueNumber: 100,
       parentTitle: "Big epic",

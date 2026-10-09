@@ -1,6 +1,6 @@
-import { listIssues } from "$lib/api";
-import type { Issue, IssueFetchAttempt } from "$lib/types";
-import { viewerCache } from "$lib/viewer-cache.svelte";
+import { listIssues } from "#lib/api.js";
+import type { Issue, IssueFetchAttempt } from "#lib/types.js";
+import { viewerCache } from "#lib/viewer-cache.svelte.js";
 
 /**
  * Single issue-data owner for the New Task modal: PromptSources' panel and the inline

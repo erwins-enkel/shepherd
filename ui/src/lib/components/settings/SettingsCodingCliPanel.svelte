@@ -13,16 +13,16 @@
     putAnthropicApiKey,
     verifyApiKey,
     type EngineEffortKey,
-  } from "$lib/api";
-  import { verifyFailureMessage } from "$lib/verify-key";
-  import { configuredModelLabel } from "$lib/model-label";
-  import { modelGuidanceAlias, modelOptionLabel } from "$lib/model-guidance";
+  } from "#lib/api.js";
+  import { verifyFailureMessage } from "#lib/verify-key.js";
+  import { configuredModelLabel } from "#lib/model-label.js";
+  import { modelGuidanceAlias, modelOptionLabel } from "#lib/model-guidance.js";
   import {
     effortLabel,
     effortAvailableForProvider,
     providerEfforts,
     effortBelowHigh,
-  } from "$lib/effort-guidance";
+  } from "#lib/effort-guidance.js";
   import {
     AGENT_PROVIDERS,
     EFFORTS,
@@ -30,7 +30,7 @@
     PREMIUM_MODELS,
     type AgentProvider,
     type Settings,
-  } from "$lib/types";
+  } from "#lib/types.js";
   import {
     ROLE_BASES,
     type RoleBase,
@@ -38,15 +38,15 @@
     roleHint,
     codingCliRows,
     matchCount,
-  } from "$lib/settings-search";
-  import ModelGuidance from "$lib/components/ModelGuidance.svelte";
+  } from "#lib/settings-search.js";
+  import ModelGuidance from "#lib/components/ModelGuidance.svelte";
   import SettingRow from "./SettingRow.svelte";
   import SettingToggle from "./SettingToggle.svelte";
   import SettingsGroup from "./SettingsGroup.svelte";
   import HighlightText from "./HighlightText.svelte";
   import "./settings-controls.css";
-  import { toasts } from "$lib/toasts.svelte";
-  import { m } from "$lib/paraglide/messages";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   // The Coding CLI section: GLOBAL DEFAULTS as aligned label/control rows, then
   // DEFAULT PER ENGINE — one always-visible card per CLI (model, effort, auth) —

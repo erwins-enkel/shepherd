@@ -1,12 +1,12 @@
 <script lang="ts">
-  import type { Session, SessionActivity, SessionUsage } from "$lib/types";
-  import { providerLabel } from "$lib/reviewer-env";
-  import { sessionEnvironment } from "$lib/session-env";
-  import { formatTokens, elapsedCoarse } from "$lib/format";
-  import { formatUnits } from "$lib/components/usage/format";
-  import { isColdResume } from "$lib/cold-resume";
-  import { clock } from "$lib/now.svelte";
-  import { m } from "$lib/paraglide/messages";
+  import type { Session, SessionActivity, SessionUsage } from "#lib/types.js";
+  import { providerLabel } from "#lib/reviewer-env.js";
+  import { sessionEnvironment } from "#lib/session-env.js";
+  import { formatTokens, elapsedCoarse } from "#lib/format.js";
+  import { formatUnits } from "#lib/components/usage/format.js";
+  import { isColdResume } from "#lib/cold-resume.js";
+  import { clock } from "#lib/now.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
   import GlossaryText from "./GlossaryText.svelte";
 
   // `activity` is the LIVE runtime-identity carrier: the poller persists what it observes, but that

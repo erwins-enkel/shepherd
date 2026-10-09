@@ -1,4 +1,4 @@
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 import type { RecapEvidenceKind, RecapSkip, RecapSkipParams } from "./types";
 
 /** Localized landed-work evidence clause for a recap-skip body. Built from the typed kind (+ optional

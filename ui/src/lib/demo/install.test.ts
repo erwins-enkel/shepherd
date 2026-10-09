@@ -3,7 +3,7 @@ import { installDemoBackend } from "./install";
 import { EventsSocket } from "./events";
 import { PtySocket } from "./pty/socket";
 import { bus } from "./bus";
-import type { WsEvent } from "$lib/types";
+import type { WsEvent } from "#lib/types.js";
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 

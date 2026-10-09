@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { UsageTimeline } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import InfoTip from "$lib/components/InfoTip.svelte";
+  import type { UsageTimeline } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import InfoTip from "#lib/components/InfoTip.svelte";
   import { formatUnits } from "./format";
 
   const { timeline }: { timeline: UsageTimeline } = $props();

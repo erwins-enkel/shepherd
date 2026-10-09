@@ -5,7 +5,7 @@ import {
   flattenByStage,
   GROUP_KEY_BY_STAGE,
 } from "./herd-partition";
-import type { Session, GitState, SessionStatus } from "$lib/types";
+import type { Session, GitState, SessionStatus } from "#lib/types.js";
 
 function session(id: string, readyToMerge = false, status: SessionStatus = "running"): Session {
   return {

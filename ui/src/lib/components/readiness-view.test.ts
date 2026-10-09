@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { scoreBand, adoptList, haveList, buildAdoptPrompt } from "./readiness-view";
-import type { GuardrailCheck, ReadinessReport } from "$lib/types";
+import type { GuardrailCheck, ReadinessReport } from "#lib/types.js";
 
 function check(id: GuardrailCheck["id"], present: boolean, weight: number): GuardrailCheck {
   return { id, present, weight, evidence: present ? ["marker"] : [] };

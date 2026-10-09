@@ -1,14 +1,14 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import type { Steer } from "$lib/types";
-  import { steers } from "$lib/steers.svelte";
-  import { repos } from "$lib/repos.svelte";
-  import { steerAppliesToRepo } from "$lib/steer-scope";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
-  import type { TooltipExplanation } from "$lib/tooltips/content";
-  import { upNext } from "$lib/up-next.svelte";
-  import { findUpNextItem, upNextKey, upNextUi } from "$lib/up-next-ui.svelte";
-  import { UpNextStarter, type UpNextLaunchContext } from "$lib/up-next-start.svelte";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { Steer } from "#lib/types.js";
+  import { steers } from "#lib/steers.svelte.js";
+  import { repos } from "#lib/repos.svelte.js";
+  import { steerAppliesToRepo } from "#lib/steer-scope.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import type { TooltipExplanation } from "#lib/tooltips/content.js";
+  import { upNext } from "#lib/up-next.svelte.js";
+  import { findUpNextItem, upNextKey, upNextUi } from "#lib/up-next-ui.svelte.js";
+  import { UpNextStarter, type UpNextLaunchContext } from "#lib/up-next-start.svelte.js";
   import IssueDetailHead from "./issues-panel/IssueDetailHead.svelte";
   import MarkdownBody from "./MarkdownBody.svelte";
   import UpNextStartPicker from "./UpNextStartPicker.svelte";

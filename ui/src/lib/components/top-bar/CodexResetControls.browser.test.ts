@@ -2,10 +2,10 @@ import { beforeEach, expect, it, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import CodexResetControls from "./CodexResetControls.svelte";
-import { m } from "$lib/paraglide/messages";
-import type { CodexResetStatus } from "$lib/types";
-import { redeemCodexReset, setCodexResetAutomation } from "$lib/api";
-vi.mock("$lib/api", () => ({ redeemCodexReset: vi.fn(), setCodexResetAutomation: vi.fn() }));
+import { m } from "#lib/paraglide/messages.js";
+import type { CodexResetStatus } from "#lib/types.js";
+import { redeemCodexReset, setCodexResetAutomation } from "#lib/api.js";
+vi.mock("#lib/api.js", () => ({ redeemCodexReset: vi.fn(), setCodexResetAutomation: vi.fn() }));
 const status = (over: Partial<CodexResetStatus> = {}): CodexResetStatus => ({
   autoEnabled: false,
   state: "ready",

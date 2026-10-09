@@ -1,9 +1,9 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
-  import { dialog } from "$lib/a11yDialog";
-  import { m } from "$lib/paraglide/messages";
-  import type { InjectableRule, Learning, RepoInjectable, MergeSuggestion } from "$lib/types";
-  import { learnings } from "$lib/learnings.svelte";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { InjectableRule, Learning, RepoInjectable, MergeSuggestion } from "#lib/types.js";
+  import { learnings } from "#lib/learnings.svelte.js";
   import {
     repoAnchorId,
     mergeRepoGroups,

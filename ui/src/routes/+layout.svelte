@@ -2,15 +2,15 @@
   import "../app.css";
   import { onMount } from "svelte";
   import { page } from "$app/state";
-  import { theme } from "$lib/theme.svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { auth } from "$lib/auth.svelte";
-  import { getMe } from "$lib/api";
-  import Login from "$lib/components/Login.svelte";
+  import { theme } from "#lib/theme.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { auth } from "#lib/auth.svelte.js";
+  import { getMe } from "#lib/api.js";
+  import Login from "#lib/components/Login.svelte";
   // Demo-only marketing chrome (Task 7). __DEMO__ is a compile-time constant
   // (vite `define`), so the `{#if __DEMO__}` guard below dead-code-eliminates
   // both this import and the component from a production build.
-  import DemoRibbon from "$lib/demo/DemoRibbon.svelte";
+  import DemoRibbon from "#lib/demo/DemoRibbon.svelte";
 
   let { children } = $props();
 

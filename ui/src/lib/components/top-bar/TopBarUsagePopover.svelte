@@ -1,14 +1,14 @@
 <script lang="ts">
-  import { dialog } from "$lib/a11yDialog";
-  import { compactTokens, formatReset, formatResetIn, relativeAge } from "$lib/format";
-  import { m } from "$lib/paraglide/messages";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { compactTokens, formatReset, formatResetIn, relativeAge } from "#lib/format.js";
+  import { m } from "#lib/paraglide/messages.js";
   import type {
     CreditWindow,
     ModelWeekWindow,
     ObservedLimitWindow,
     ObservedLimitWindows,
     UsageProviderSnapshot,
-  } from "$lib/types";
+  } from "#lib/types.js";
   import {
     codexGaugeList,
     gaugeColor,
@@ -18,8 +18,8 @@
     type Gauge,
     type HottestCapacityWindow,
   } from "../usage-gauges";
-  import type { ProviderFailoverOffer } from "$lib/provider-capacity";
-  import type { ProviderFailoverStatus } from "$lib/types";
+  import type { ProviderFailoverOffer } from "#lib/provider-capacity.js";
+  import type { ProviderFailoverStatus } from "#lib/types.js";
   import CodexResetControls from "./CodexResetControls.svelte";
   import CreditDetail from "./CreditDetail.svelte";
   import UsageFailoverAction from "./UsageFailoverAction.svelte";

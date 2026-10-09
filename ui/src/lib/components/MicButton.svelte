@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { createDictation } from "$lib/dictation.svelte";
+  import { m } from "#lib/paraglide/messages.js";
+  import { createDictation } from "#lib/dictation.svelte.js";
 
   // Reusable dictation mic for any text field — mount it directly AFTER the field inside any
   // block container; no position:relative needed on the host. A zero-height in-flow anchor

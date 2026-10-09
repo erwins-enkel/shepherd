@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { epicDrafts } from "$lib/epic-draft.svelte";
-  import { m } from "$lib/paraglide/messages";
+  import { epicDrafts } from "#lib/epic-draft.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let {
     sessionId,

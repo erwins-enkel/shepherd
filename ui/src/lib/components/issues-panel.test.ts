@@ -32,7 +32,7 @@ import {
   labelCounts,
   runningIssues,
 } from "./issues-panel";
-import type { Issue, EpicSummary, EpicChild } from "$lib/types";
+import type { Issue, EpicSummary, EpicChild } from "#lib/types.js";
 
 function issue(
   number: number,

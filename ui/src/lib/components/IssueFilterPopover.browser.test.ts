@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../app.css";
-import { m } from "$lib/paraglide/messages";
-import { issuesFilter } from "$lib/issues-filter.svelte";
+import { m } from "#lib/paraglide/messages.js";
+import { issuesFilter } from "#lib/issues-filter.svelte.js";
 
 const { default: IssueFilterPopover } = await import("./IssueFilterPopover.svelte");
 

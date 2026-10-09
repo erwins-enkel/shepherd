@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { reviews, spawnNotices } from "$lib/reviews.svelte";
+  import { reviews, spawnNotices } from "#lib/reviews.svelte.js";
   import { criticChip, addressRoundInfo, criticTitle } from "./critic-badge";
-  import { clock } from "$lib/now.svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
-  import { firstSafeHttpUrl } from "$lib/url";
-  import { anchorPopover } from "$lib/floating-anchor";
+  import { clock } from "#lib/now.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import { firstSafeHttpUrl } from "#lib/url.js";
+  import { anchorPopover } from "#lib/floating-anchor.js";
   import CriticSpawnFailure from "./CriticSpawnFailure.svelte";
 
   // `tip` (Herd card only): swap the native title for the styled tooltip, and —

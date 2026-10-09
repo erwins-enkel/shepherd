@@ -1,16 +1,16 @@
 <script lang="ts">
-  import type { Session } from "$lib/types";
-  import { planGates, spawnNotices } from "$lib/reviews.svelte";
+  import type { Session } from "#lib/types.js";
+  import { planGates, spawnNotices } from "#lib/reviews.svelte.js";
   import { composePlanGateTooltip, planGateChip, planGateStalledNow } from "./plan-gate-badge";
   import PlanPanel from "./PlanPanel.svelte";
   import PlanGateMenu from "./PlanGateMenu.svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { environmentLabel } from "$lib/reviewer-env";
-  import { replySession, reviewPlan, isPlanReviewError } from "$lib/api";
-  import { toasts } from "$lib/toasts.svelte";
-  import { clock } from "$lib/now.svelte";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import { m } from "#lib/paraglide/messages.js";
+  import { environmentLabel } from "#lib/reviewer-env.js";
+  import { replySession, reviewPlan, isPlanReviewError } from "#lib/api.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { clock } from "#lib/now.svelte.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
 
   // allowView (default true): whether to surface the read-only "view"/PLAN chip during
   // execution. The dense session-list surface (UnitRow) passes false so this chip

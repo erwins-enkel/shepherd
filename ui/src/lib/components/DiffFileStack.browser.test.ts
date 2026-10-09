@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { m } from "$lib/paraglide/messages";
-import type { DiffFile } from "$lib/types";
+import { m } from "#lib/paraglide/messages.js";
+import type { DiffFile } from "#lib/types.js";
 import DiffFileStack from "./DiffFileStack.svelte";
 
 // BROWSER project: DiffFileStack mounts real <PierreDiff> hosts, which need a DOM.

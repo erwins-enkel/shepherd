@@ -1,9 +1,9 @@
 <script lang="ts">
-  import type { DiagnosticCheck } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { DOC_LINKS } from "$lib/diagnostics-docs";
+  import type { DiagnosticCheck } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { DOC_LINKS } from "#lib/diagnostics-docs.js";
   import GlossaryText from "./GlossaryText.svelte";
-  import { dialog } from "$lib/a11yDialog";
+  import { dialog } from "#lib/a11yDialog.js";
   import { SvelteSet } from "svelte/reactivity";
 
   let {

@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { CAPTURE_EXTENSION_URL } from "$lib/build-info";
+  import { m } from "#lib/paraglide/messages.js";
+  import { CAPTURE_EXTENSION_URL } from "#lib/build-info.js";
 
   let {
     onnew,

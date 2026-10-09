@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 import {
   activeMergeTrain,
   chipHasTelemetry,

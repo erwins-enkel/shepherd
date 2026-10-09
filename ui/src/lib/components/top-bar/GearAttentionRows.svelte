@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import type { UpdateStatus, DiagnosticState } from "$lib/types";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { UpdateStatus, DiagnosticState } from "#lib/types.js";
   import GearRow from "./GearRow.svelte";
 
   // Attention rows (diagnostics / updates / What's-New), shared by the mobile sheet and

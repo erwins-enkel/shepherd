@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // Manual re-scrape of `/usage`. Shared by the desktop popover and the mobile sheet so it lives at
   // the Claude-section level (not inside the credits block) — a hidden/absent credits gauge must not

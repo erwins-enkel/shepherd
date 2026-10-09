@@ -5,7 +5,7 @@
   // Carries the autofill guard's `name` + vendor opt-outs but NO `autocomplete` (issue #1978):
   // the attribute does not apply to `type="checkbox"`, and a manager that toggles a
   // "remember me" box is answering to the opt-outs, not to `autocomplete`.
-  import type { PluginUINode } from "$lib/types";
+  import type { PluginUINode } from "#lib/types.js";
   import { noAutofill } from "./autofill";
   import { pluginField } from "./field.svelte";
 

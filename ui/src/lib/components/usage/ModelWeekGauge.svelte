@@ -1,8 +1,8 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { formatResetIn } from "$lib/format";
-  import { gaugeColor, modelDisplayName } from "$lib/components/usage-gauges";
-  import type { ModelWeekWindow } from "$lib/types";
+  import { m } from "#lib/paraglide/messages.js";
+  import { formatResetIn } from "#lib/format.js";
+  import { gaugeColor, modelDisplayName } from "#lib/components/usage-gauges.js";
+  import type { ModelWeekWindow } from "#lib/types.js";
 
   // A per-model weekly sub-limit ("Current week (Fable)") as its own passthrough bar. Deliberately
   // NOT a gaugeList Gauge — it carries a nullable resetAt + its own staleness and must never feed

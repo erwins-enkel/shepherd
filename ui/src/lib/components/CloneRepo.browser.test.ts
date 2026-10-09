@@ -9,16 +9,16 @@ import {
   type GithubRepo,
   type GithubReposResult,
   type GitHelperInfo,
-} from "$lib/api";
-import type { RepoEntry } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+} from "#lib/api.js";
+import type { RepoEntry } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 const getGithubRepos = vi.fn<() => Promise<GithubReposResult>>();
 const cloneRepo = vi.fn<(url: string) => Promise<RepoEntry>>();
 const getGithubAccess = vi.fn<(url: string) => Promise<GithubAccess>>();
 const setupGitViaGh = vi.fn<() => Promise<GitHelperInfo>>();
 
-vi.mock("$lib/api", async (orig) => ({
+vi.mock("#lib/api.js", async (orig) => ({
   ...((await orig()) as object),
   getGithubRepos: () => getGithubRepos(),
   cloneRepo: (url: string) => cloneRepo(url),

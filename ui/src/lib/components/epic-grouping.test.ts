@@ -1,6 +1,6 @@
 import { test, expect } from "vitest";
 import { groupSessionsByEpic as groupSessionsByEpicRaw } from "./epic-grouping";
-import type { Session, GitState, Epic, EpicChild, SessionStatus } from "$lib/types";
+import type { Session, GitState, Epic, EpicChild, SessionStatus } from "#lib/types.js";
 
 function session(
   id: string,

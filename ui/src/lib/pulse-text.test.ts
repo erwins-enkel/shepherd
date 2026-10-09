@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 import { pulseExplanation } from "./pulse-text";
 import { sessionPulse } from "./session-pulse";
 import type { GitState, Session, SteerLogEntry, WorkflowJob } from "./types";

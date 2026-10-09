@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // Collapsed per-CLI group as a ROW, not a box (5a spec): ▸ caret, uppercase
   // name, right-aligned "N settings" count; expands in place. Controlled by the

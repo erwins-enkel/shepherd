@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { UsageLimits } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { formatTokenLabel } from "$lib/format";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import type { UsageLimits } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { formatTokenLabel } from "#lib/format.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
   import {
     codexGaugeList,
     codexTokenUsage,

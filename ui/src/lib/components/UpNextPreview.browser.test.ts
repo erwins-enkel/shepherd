@@ -2,16 +2,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
-import type { Steer, UpNextItem, UpNextSnapshot } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
-import { upNext } from "$lib/up-next.svelte";
-import { upNextUi } from "$lib/up-next-ui.svelte";
-import type { UpNextLaunchContext } from "$lib/up-next-start.svelte";
-import { steers } from "$lib/steers.svelte";
-import { startUpNext } from "$lib/api";
+import type { Steer, UpNextItem, UpNextSnapshot } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
+import { upNext } from "#lib/up-next.svelte.js";
+import { upNextUi } from "#lib/up-next-ui.svelte.js";
+import type { UpNextLaunchContext } from "#lib/up-next-start.svelte.js";
+import { steers } from "#lib/steers.svelte.js";
+import { startUpNext } from "#lib/api.js";
 
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     startUpNext: vi.fn(async () => ({ created: [], held: [], errors: [] })),

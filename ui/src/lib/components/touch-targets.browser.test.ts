@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
-import { overwriteGetLocale } from "$lib/paraglide/runtime";
-import type { BuildQueue, GitState, PlanGate, ReviewVerdict, Session } from "$lib/types";
+import { overwriteGetLocale } from "#lib/paraglide/runtime.js";
+import type { BuildQueue, GitState, PlanGate, ReviewVerdict, Session } from "#lib/types.js";
 
 // Runs in the `browser-touch` vitest project (ui/vite.config.ts), the only one with
 // `hasTouch: true` — without it `@media (pointer: coarse)` never matches and every
@@ -25,8 +25,8 @@ import type { BuildQueue, GitState, PlanGate, ReviewVerdict, Session } from "$li
 // Every exception must be named HERE, with its justification, which is what makes the exception
 // list itself the audit trail.
 
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     getReviews: vi.fn(async () => ({})),
@@ -42,9 +42,9 @@ const { default: UnitRow } = await import("./UnitRow.svelte");
 const { default: TopBarTallies } = await import("./top-bar/TopBarTallies.svelte");
 const { default: ActionBar } = await import("./ActionBar.svelte");
 const { default: ReposSheet } = await import("./ReposSheet.svelte");
-const { reviews, planGates, repoConfig } = await import("$lib/reviews.svelte");
-const { buildQueues } = await import("$lib/buildQueues.svelte");
-const { projectIcons } = await import("$lib/projectIcons.svelte");
+const { reviews, planGates, repoConfig } = await import("#lib/reviews.svelte.js");
+const { buildQueues } = await import("#lib/buildQueues.svelte.js");
+const { projectIcons } = await import("#lib/projectIcons.svelte.js");
 
 /** iOS HIG 44x44 — the binding floor here: Shepherd runs as an iPhone PWA. Material's 48x48 is
  *  the aspiration (met where vertical budget allows, e.g. sheet rows), not this gate. */

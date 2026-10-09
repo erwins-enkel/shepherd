@@ -1,18 +1,18 @@
 <script module lang="ts">
   import { relaunchOverrides } from "./relaunch-payload";
   import { amendTargetState } from "./amend-target";
-  import { cleanTerminalCreateInput } from "$lib/format";
+  import { cleanTerminalCreateInput } from "#lib/format.js";
 </script>
 
 <script lang="ts">
   import { onMount, tick, untrack } from "svelte";
   import { MediaQuery, SvelteSet } from "svelte/reactivity";
-  import { HerdStore } from "$lib/store.svelte";
-  import { bootstrapBuildQueues } from "$lib/build-queue-bootstrap";
-  import { raceSpawnCompletion } from "$lib/spawn-completion";
-  import type { SettingsSectionId } from "$lib/settings-search";
-  import { createTabSignal, deriveTabState } from "$lib/tab-signal.svelte";
-  import { tabTicker } from "$lib/tab-ticker.svelte";
+  import { HerdStore } from "#lib/store.svelte.js";
+  import { bootstrapBuildQueues } from "#lib/build-queue-bootstrap.js";
+  import { raceSpawnCompletion } from "#lib/spawn-completion.js";
+  import type { SettingsSectionId } from "#lib/settings-search.js";
+  import { createTabSignal, deriveTabState } from "#lib/tab-signal.svelte.js";
+  import { tabTicker } from "#lib/tab-ticker.svelte.js";
   import {
     listSessions,
     createSession,
@@ -64,7 +64,7 @@
     updateHeld,
     invokePluginRoute,
     mergePr,
-  } from "$lib/api";
+  } from "#lib/api.js";
   import type {
     AgentProvider,
     CompletedEpic,
@@ -84,30 +84,30 @@
     Steer,
     TaskRunDefaults,
     TaskRunSeed,
-  } from "$lib/types";
-  import { sortBlocked } from "$lib/triage";
-  import { displayStatus } from "$lib/display-status";
-  import { steers } from "$lib/steers.svelte";
-  import { projectIcons } from "$lib/projectIcons.svelte";
-  import { repos } from "$lib/repos.svelte";
-  import { reviews, planGates, spawnNotices, repoConfig } from "$lib/reviews.svelte";
-  import { openPreviewInNewTab } from "$lib/previewOpen";
-  import { recaps } from "$lib/recaps.svelte";
-  import { amendments } from "$lib/amendments.svelte";
-  import { upNext } from "$lib/up-next.svelte";
-  import { claudeUsageHoldLikely } from "$lib/provider-capacity";
-  import { doneSessions } from "$lib/done.svelte";
+  } from "#lib/types.js";
+  import { sortBlocked } from "#lib/triage.js";
+  import { displayStatus } from "#lib/display-status.js";
+  import { steers } from "#lib/steers.svelte.js";
+  import { projectIcons } from "#lib/projectIcons.svelte.js";
+  import { repos } from "#lib/repos.svelte.js";
+  import { reviews, planGates, spawnNotices, repoConfig } from "#lib/reviews.svelte.js";
+  import { openPreviewInNewTab } from "#lib/previewOpen.js";
+  import { recaps } from "#lib/recaps.svelte.js";
+  import { amendments } from "#lib/amendments.svelte.js";
+  import { upNext } from "#lib/up-next.svelte.js";
+  import { claudeUsageHoldLikely } from "#lib/provider-capacity.js";
+  import { doneSessions } from "#lib/done.svelte.js";
   import {
     doneRailIds,
     doneSessionsForRepoFilter,
     nextDoneSelectedId,
     resolveDoneSelected,
-  } from "$lib/done-filter";
-  import { postMergeSteps as postMergeStepsStore } from "$lib/post-merge-steps.svelte";
-  import { learnings } from "$lib/learnings.svelte";
-  import TopBar from "$lib/components/TopBar.svelte";
-  import { basename, shouldCloseLearningsDrawer } from "$lib/components/learnings-drawer";
-  import Herd from "$lib/components/Herd.svelte";
+  } from "#lib/done-filter.js";
+  import { postMergeSteps as postMergeStepsStore } from "#lib/post-merge-steps.svelte.js";
+  import { learnings } from "#lib/learnings.svelte.js";
+  import TopBar from "#lib/components/TopBar.svelte";
+  import { basename, shouldCloseLearningsDrawer } from "#lib/components/learnings-drawer.js";
+  import Herd from "#lib/components/Herd.svelte";
   import {
     railOrder,
     railLocationsOf,
@@ -115,27 +115,27 @@
     cycleId,
     nthId,
     altComboKey,
-  } from "$lib/components/herd-keynav";
-  import { createJumpHandlers } from "$lib/components/herd-jump";
-  import { needsCentering, scrollParentOf } from "$lib/components/herd-reveal";
-  import { normalizeEpicCollapse } from "$lib/components/herd-epic-collapse";
-  import { isReworkRunning as isReworkRunningSession } from "$lib/components/rework-running";
-  import { buildCommands } from "$lib/command-registry";
-  import type { HerdFilter } from "$lib/components/herd-partition";
+  } from "#lib/components/herd-keynav.js";
+  import { createJumpHandlers } from "#lib/components/herd-jump.js";
+  import { needsCentering, scrollParentOf } from "#lib/components/herd-reveal.js";
+  import { normalizeEpicCollapse } from "#lib/components/herd-epic-collapse.js";
+  import { isReworkRunning as isReworkRunningSession } from "#lib/components/rework-running.js";
+  import { buildCommands } from "#lib/command-registry.js";
+  import type { HerdFilter } from "#lib/components/herd-partition.js";
   import {
     collectReadyPrs,
     isMerging,
     mergeTrainCreateInput,
     pickTrainRepo,
-  } from "$lib/components/merge-train";
-  import Viewport from "$lib/components/Viewport.svelte";
-  import DoneRecapPanel from "$lib/components/DoneRecapPanel.svelte";
-  import UpNextPreview from "$lib/components/UpNextPreview.svelte";
-  import type { KickoffChoice } from "$lib/components/NewProject.svelte";
-  import ActionBar from "$lib/components/ActionBar.svelte";
-  import ReposSheet from "$lib/components/ReposSheet.svelte";
-  import QueueStrip from "$lib/components/QueueStrip.svelte";
-  import RepoSwitcher from "$lib/components/RepoSwitcher.svelte";
+  } from "#lib/components/merge-train.js";
+  import Viewport from "#lib/components/Viewport.svelte";
+  import DoneRecapPanel from "#lib/components/DoneRecapPanel.svelte";
+  import UpNextPreview from "#lib/components/UpNextPreview.svelte";
+  import type { KickoffChoice } from "#lib/components/NewProject.svelte";
+  import ActionBar from "#lib/components/ActionBar.svelte";
+  import ReposSheet from "#lib/components/ReposSheet.svelte";
+  import QueueStrip from "#lib/components/QueueStrip.svelte";
+  import RepoSwitcher from "#lib/components/RepoSwitcher.svelte";
   import {
     firstCurateRepo,
     globalLearningsCounts,
@@ -144,45 +144,45 @@
     repoChipRows,
     staleFilterRepos,
     followRepoFilter,
-  } from "$lib/components/queue-strip";
-  import BacklogView from "$lib/components/BacklogView.svelte";
-  import AppOverlays from "$lib/components/page/AppOverlays.svelte";
-  import ExperimentPicker from "$lib/components/ExperimentPicker.svelte";
-  import type { ExperimentPickerState } from "$lib/components/ExperimentPicker.svelte";
-  import FeedbackDialog from "$lib/components/FeedbackDialog.svelte";
-  import TelemetryConsent from "$lib/components/TelemetryConsent.svelte";
-  import Toasts from "$lib/components/Toasts.svelte";
-  import { registerSW, onSelectSession, onOpenLearnings } from "$lib/push";
-  import { onLaunchLink, sessionIdFromLink } from "$lib/launch-link";
-  import { toasts } from "$lib/toasts.svelte";
-  import { m } from "$lib/paraglide/messages";
-  import type { FeatureAnnouncement } from "$lib/feature-announcements";
-  import { featureAnnouncements, FABLE_FEATURE_ID } from "$lib/feature-announcements";
-  import { resolveFableArrival } from "$lib/fable-arrival";
-  import { featureDiscovery } from "$lib/featureDiscovery.svelte";
-  import { computeNewEntries } from "$lib/feature-gate";
-  import { version } from "$lib/build-info";
-  import { sidebarCollapse, sidebarShouldCollapse } from "$lib/sidebar-collapse.svelte";
-  import { herdWidth } from "$lib/herd-width.svelte";
-  import { backlogRefresh } from "$lib/backlog-refresh.svelte";
+  } from "#lib/components/queue-strip.js";
+  import BacklogView from "#lib/components/BacklogView.svelte";
+  import AppOverlays from "#lib/components/page/AppOverlays.svelte";
+  import ExperimentPicker from "#lib/components/ExperimentPicker.svelte";
+  import type { ExperimentPickerState } from "#lib/components/ExperimentPicker.svelte";
+  import FeedbackDialog from "#lib/components/FeedbackDialog.svelte";
+  import TelemetryConsent from "#lib/components/TelemetryConsent.svelte";
+  import Toasts from "#lib/components/Toasts.svelte";
+  import { registerSW, onSelectSession, onOpenLearnings } from "#lib/push.js";
+  import { onLaunchLink, sessionIdFromLink } from "#lib/launch-link.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { FeatureAnnouncement } from "#lib/feature-announcements.js";
+  import { featureAnnouncements, FABLE_FEATURE_ID } from "#lib/feature-announcements.js";
+  import { resolveFableArrival } from "#lib/fable-arrival.js";
+  import { featureDiscovery } from "#lib/featureDiscovery.svelte.js";
+  import { computeNewEntries } from "#lib/feature-gate.js";
+  import { version } from "#lib/build-info.js";
+  import { sidebarCollapse, sidebarShouldCollapse } from "#lib/sidebar-collapse.svelte.js";
+  import { herdWidth } from "#lib/herd-width.svelte.js";
+  import { backlogRefresh } from "#lib/backlog-refresh.svelte.js";
   // Side-effect-free (no top-level DOM/timer work) — tree-shakes out of non-demo
   // builds along with every other __DEMO__-guarded reference below.
-  import { commandBarShowcase } from "$lib/demo/showcase";
+  import { commandBarShowcase } from "#lib/demo/showcase.js";
   import { steersSettingsOpen } from "./steers-settings-open";
   import {
     createDecommissionCommit,
     type DecommissionCommit,
     type DecommissionPrAction,
     type DecommissionRequest,
-  } from "$lib/decommission-commit";
-  import { describeDecommissionFailure } from "$lib/decommission-failure";
+  } from "#lib/decommission-commit.js";
+  import { describeDecommissionFailure } from "#lib/decommission-failure.js";
   import {
     isMergeConfirmRefusal,
     mergeConfirmFromGit,
     mergeConfirmPayload,
     mergeRefusalResponsibility,
     type MergeTrainItem,
-  } from "$lib/components/merge-confirm";
+  } from "#lib/components/merge-confirm.js";
 
   const store = new HerdStore();
 
@@ -333,7 +333,7 @@
   // Cmd/Ctrl+K quick-switcher over sessions/repos/lenses (#1334). Opened from
   // onShortcut before the modifier/typing bails so it fires even over the terminal.
   let showCommandBar = $state(false);
-  // Demo-only scripted-showcase seed (see $lib/demo/showcase.ts) — forwarded to
+  // Demo-only scripted-showcase seed (see #lib/demo/showcase.ts) — forwarded to
   // CommandBar's `initialFilter`. Stays "" on the real ⌘K path.
   let demoCommandFilter = $state("");
   // Mirror the one-shot showcase store into local state — guarded so the whole

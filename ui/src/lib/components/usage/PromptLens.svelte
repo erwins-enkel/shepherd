@@ -2,10 +2,10 @@
   // Spawn-prompt budget (issue #1999) — the INPUT-side counterpart to the Spend/Overhead lenses.
   // Those attribute what a session cost after the fact and cannot say which part of the assembled
   // prompt bought it; this shows the payload itself, block by block, as it was measured at spawn.
-  import type { PromptBudgetRecord } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import InfoTip from "$lib/components/InfoTip.svelte";
-  import GlossaryText from "$lib/components/GlossaryText.svelte";
+  import type { PromptBudgetRecord } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import InfoTip from "#lib/components/InfoTip.svelte";
+  import GlossaryText from "#lib/components/GlossaryText.svelte";
   import UsageBar from "./UsageBar.svelte";
   import { formatPct } from "./format";
 

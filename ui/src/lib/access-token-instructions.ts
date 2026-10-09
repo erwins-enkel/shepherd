@@ -1,5 +1,5 @@
-import { m } from "$lib/paraglide/messages";
-import type { AccessToken } from "$lib/types";
+import { m } from "#lib/paraglide/messages.js";
+import type { AccessToken } from "#lib/types.js";
 
 /** A handoff must not silently point the receiving agent at its own loopback interface. */
 export function normalizeAgentServerUrl(value: string): string | null {

@@ -2,8 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../../app.css";
 import RepoOverview from "./RepoOverview.svelte";
-import type { DrainStatus, Epic, EpicSummary, Issue } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { DrainStatus, Epic, EpicSummary, Issue } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 const B = 20;
 const A = 10;

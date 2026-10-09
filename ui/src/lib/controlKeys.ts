@@ -2,7 +2,7 @@
 // the raw byte sequence injected into the PTY (same path as term.onData).
 // Single source of truth — append here to add keys, no structural change.
 
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 
 // Visual grouping for the bar: keys in the same group sit together in one
 // "well" (Gestalt common-region), with a wider gap between groups so a glance

@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { DiffFile } from "$lib/types";
-  import { theme, type Resolved } from "$lib/theme.svelte";
-  import { m } from "$lib/paraglide/messages";
+  import type { DiffFile } from "#lib/types.js";
+  import { theme, type Resolved } from "#lib/theme.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let { file }: { file: DiffFile } = $props();
 
@@ -31,7 +31,7 @@
     if (!open || file.binary || file.truncated || flatLines.length === 0) return;
     if (html && htmlTheme === resolved) return;
     let alive = true;
-    import("$lib/highlight")
+    import("#lib/highlight.js")
       .then(({ highlightLines }) =>
         highlightLines(
           flatLines.map((l) => l.content),

@@ -1362,7 +1362,7 @@ export interface Session {
    *  resumes. All three move together; null/absent means there is no current park to price
    *  (running, never parked, Codex, or no usable transcript record).
    *
-   *  Read through `isColdResume()` / `coldResumeUnits()` in `$lib/cold-resume` rather than
+   *  Read through `isColdResume()` / `coldResumeUnits()` in `#lib/cold-resume.js` rather than
    *  directly — the threshold and the parked-only rule belong in one place, so the Herd row and
    *  the status bar cannot disagree about one session. */
   contextTokens?: number | null;

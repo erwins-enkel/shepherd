@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { EpicChild } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
+  import type { EpicChild } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
   import { chipFor, stateLabel } from "../epic-panel";
   import { childUnlocks } from "../epic-child";
 

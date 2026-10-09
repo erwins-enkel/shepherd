@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { recentRepos, RECENT_LIMIT } from "./recentRepos";
-import type { RepoEntry } from "$lib/types";
+import type { RepoEntry } from "#lib/types.js";
 
 function repo(name: string, recentAgentCount?: number, lastUsedAt?: number): RepoEntry {
   return {

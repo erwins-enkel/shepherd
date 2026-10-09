@@ -3,8 +3,8 @@
  * Mirrors issues-panel.ts. Each `hide*` helper fails open (returns every PR
  * unchanged) when its flag is false, so a disabled filter never hides anything.
  */
-import { isConflicting } from "$lib/pr-conflict";
-import type { PullRequest } from "$lib/types";
+import { isConflicting } from "#lib/pr-conflict.js";
+import type { PullRequest } from "#lib/types.js";
 
 /**
  * Narrow a PR list to hide drafts (`isDraft`). Fails open when `on` is false.

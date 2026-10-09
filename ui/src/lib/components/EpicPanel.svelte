@@ -1,12 +1,12 @@
 <script lang="ts">
-  import type { DrainRunSummary, Epic } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { importEpic } from "$lib/api";
+  import type { DrainRunSummary, Epic } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { importEpic } from "#lib/api.js";
   import { chipFor, progress, slotHeldBy, stateLabel } from "./epic-panel";
-  import { toasts } from "$lib/toasts.svelte";
+  import { toasts } from "#lib/toasts.svelte.js";
   import EpicHandsOffIntro from "./EpicHandsOffIntro.svelte";
   import EpicDiagnosisModal from "./EpicDiagnosisModal.svelte";
-  import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
 
   // An epic's children and structural warnings. Its run controls (state, Start/Pause, mode,
   // CLI/model/effort) live in the detail's run area, EpicRunControl (#2620).

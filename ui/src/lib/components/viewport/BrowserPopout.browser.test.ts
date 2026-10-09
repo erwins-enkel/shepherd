@@ -2,13 +2,13 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
-import type { LoginRequest, Session } from "$lib/types";
+import type { LoginRequest, Session } from "#lib/types.js";
 
 const listSessions = vi.fn<() => Promise<Session[]>>();
 const loginRequestStates = vi.fn<() => Promise<Record<string, LoginRequest>>>();
 const resolveLoginRequest = vi.fn<() => Promise<void>>();
-vi.mock("$lib/api", async (orig) => ({
-  ...(await orig<typeof import("$lib/api")>()),
+vi.mock("#lib/api.js", async (orig) => ({
+  ...(await orig<typeof import("#lib/api.js")>()),
   listSessions: () => listSessions(),
   loginRequestStates: () => loginRequestStates(),
   resolveLoginRequest: () => resolveLoginRequest(),

@@ -12,7 +12,7 @@
  * delegates to these functions.
  */
 import { describe, it, expect } from "vitest";
-import { newtask_pr_review_template } from "$lib/paraglide/messages";
+import { newtask_pr_review_template } from "#lib/paraglide/messages.js";
 import {
   formatCount,
   isPinned,
@@ -28,7 +28,7 @@ import {
   splitHidden,
   RECENT_LIMIT,
 } from "./backlog-view";
-import type { BacklogPayload, BacklogProject } from "$lib/types";
+import type { BacklogPayload, BacklogProject } from "#lib/types.js";
 
 function project(
   path: string,

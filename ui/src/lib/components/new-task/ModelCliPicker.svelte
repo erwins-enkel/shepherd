@@ -1,13 +1,22 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { modelOptionLabel } from "$lib/model-guidance";
-  import ModelGuidance from "$lib/components/ModelGuidance.svelte";
-  import { AGENT_PROVIDERS, CODEX_MODELS, type AgentProvider, type UsageLimits } from "$lib/types";
-  import { providerModels, modelAvailableForProvider } from "$lib/provider-models";
-  import { providerEfforts, effortLabel, effortAvailableForProvider } from "$lib/effort-guidance";
-  import type { HandoffMode } from "$lib/api";
+  import { m } from "#lib/paraglide/messages.js";
+  import { modelOptionLabel } from "#lib/model-guidance.js";
+  import ModelGuidance from "#lib/components/ModelGuidance.svelte";
+  import {
+    AGENT_PROVIDERS,
+    CODEX_MODELS,
+    type AgentProvider,
+    type UsageLimits,
+  } from "#lib/types.js";
+  import { providerModels, modelAvailableForProvider } from "#lib/provider-models.js";
+  import {
+    providerEfforts,
+    effortLabel,
+    effortAvailableForProvider,
+  } from "#lib/effort-guidance.js";
+  import type { HandoffMode } from "#lib/api.js";
   import { codexGaugeList, codexTokenUsage, gaugeColor, gaugeList } from "../usage-gauges";
-  import { formatResetIn, formatTokenLabel } from "$lib/format";
+  import { formatResetIn, formatTokenLabel } from "#lib/format.js";
 
   type Choice = {
     agentProvider: AgentProvider;

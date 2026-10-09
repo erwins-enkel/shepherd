@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { FileDiff } from "@pierre/diffs";
-import { theme } from "$lib/theme.svelte";
+import { theme } from "#lib/theme.svelte.js";
 import PierreDiff from "./PierreDiff.svelte";
 
 // BROWSER project: PierreDiff drives @pierre/diffs' vanilla FileDiff, which needs

@@ -1,13 +1,13 @@
 <script lang="ts">
   import { SvelteSet } from "svelte/reactivity";
-  import type { Session } from "$lib/types";
-  import { steers } from "$lib/steers.svelte";
-  import { repos } from "$lib/repos.svelte";
-  import { steerAppliesToRepo } from "$lib/steer-scope";
-  import { broadcast as apiBroadcast } from "$lib/api";
-  import { toasts } from "$lib/toasts.svelte";
-  import { dialog } from "$lib/a11yDialog";
-  import { m } from "$lib/paraglide/messages";
+  import type { Session } from "#lib/types.js";
+  import { steers } from "#lib/steers.svelte.js";
+  import { repos } from "#lib/repos.svelte.js";
+  import { steerAppliesToRepo } from "#lib/steer-scope.js";
+  import { broadcast as apiBroadcast } from "#lib/api.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { m } from "#lib/paraglide/messages.js";
 
   let { sessions, onclose }: { sessions: Session[]; onclose: () => void } = $props();
 

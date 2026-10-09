@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { VisualBlock } from "$lib/types";
+  import type { VisualBlock } from "#lib/types.js";
   import DiffFileBlock from "../DiffFileBlock.svelte";
 
   let { block }: { block: Extract<VisualBlock, { type: "diff" }> } = $props();

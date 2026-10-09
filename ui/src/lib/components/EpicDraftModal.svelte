@@ -1,15 +1,15 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import { dialog } from "$lib/a11yDialog";
-  import { epicDrafts } from "$lib/epic-draft.svelte";
-  import { replySession, archiveSession } from "$lib/api";
-  import { approveEpic } from "$lib/epic-approve";
-  import { toasts } from "$lib/toasts.svelte";
-  import { m } from "$lib/paraglide/messages";
-  import { childWaves, splitMarkdownSections } from "$lib/epic-draft-outline";
-  import EpicDraftToc from "$lib/components/EpicDraftToc.svelte";
-  import EpicDraftDocument from "$lib/components/EpicDraftDocument.svelte";
+  import { dialog } from "#lib/a11yDialog.js";
+  import { epicDrafts } from "#lib/epic-draft.svelte.js";
+  import { replySession, archiveSession } from "#lib/api.js";
+  import { approveEpic } from "#lib/epic-approve.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { childWaves, splitMarkdownSections } from "#lib/epic-draft-outline.js";
+  import EpicDraftToc from "#lib/components/EpicDraftToc.svelte";
+  import EpicDraftDocument from "#lib/components/EpicDraftDocument.svelte";
 
   let {
     sessionId,

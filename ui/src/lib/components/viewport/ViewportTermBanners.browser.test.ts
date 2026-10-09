@@ -4,17 +4,17 @@ import { page } from "vitest/browser";
 import "../../../app.css";
 
 const resolveLoginRequest = vi.fn().mockResolvedValue(undefined);
-vi.mock("$lib/api", async (orig) => ({
-  ...(await orig<typeof import("$lib/api")>()),
+vi.mock("#lib/api.js", async (orig) => ({
+  ...(await orig<typeof import("#lib/api.js")>()),
   resolveLoginRequest: (...a: unknown[]) => resolveLoginRequest(...a),
 }));
 const toastInfo = vi.fn();
-vi.mock("$lib/toasts.svelte", async (orig) => {
-  const mod = await orig<typeof import("$lib/toasts.svelte")>();
+vi.mock("#lib/toasts.svelte.js", async (orig) => {
+  const mod = await orig<typeof import("#lib/toasts.svelte.js")>();
   return { ...mod, toasts: { ...mod.toasts, info: (...a: unknown[]) => toastInfo(...a) } };
 });
 
-const { ApiError } = await import("$lib/api");
+const { ApiError } = await import("#lib/api.js");
 const { default: ViewportTermBanners } = await import("./ViewportTermBanners.svelte");
 
 const AUTH_URL =
@@ -153,7 +153,7 @@ describe("current terminal owner", () => {
 
 describe("terminal owner on a narrow screen", () => {
   it("keeps the German title and takeover action readable at phone width", async () => {
-    const { getLocale, setLocale } = await import("$lib/paraglide/runtime");
+    const { getLocale, setLocale } = await import("#lib/paraglide/runtime.js");
     const previous = getLocale();
     try {
       setLocale("de", { reload: false });

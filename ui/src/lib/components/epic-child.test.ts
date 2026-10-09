@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { childAsIssue, childPrUrl, childUnlocks, childView, openBlockers } from "./epic-child";
-import type { EpicChild, EpicChildState, Issue } from "$lib/types";
+import type { EpicChild, EpicChildState, Issue } from "#lib/types.js";
 
 function child(number: number, state: EpicChildState, blockedBy: number[] = []): EpicChild {
   return {

@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { ActivityEntry, DiffResult } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
+import type { ActivityEntry, DiffResult } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
 
 const EMPTY_DIFF: DiffResult = {
   base: "main",
@@ -15,8 +15,8 @@ const EMPTY_DIFF: DiffResult = {
 };
 
 // Mock the API so no real network calls are made.
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     getActivity: vi.fn(async (): Promise<ActivityEntry[]> => []),
@@ -32,7 +32,7 @@ vi.mock("$lib/api", async (importOriginal) => {
 });
 
 // Mock pollWhileVisible: just call fn immediately, skip interval setup.
-vi.mock("$lib/visibility", () => ({
+vi.mock("#lib/visibility.js", () => ({
   pollWhileVisible: (fn: () => void) => {
     fn();
     return () => {};
@@ -41,7 +41,7 @@ vi.mock("$lib/visibility", () => ({
 
 const { default: ActivityFeed } = await import("./ActivityFeed.svelte");
 
-import { getActivity, getDiff } from "$lib/api";
+import { getActivity, getDiff } from "#lib/api.js";
 
 const mockGetActivity = vi.mocked(getActivity);
 const mockGetDiff = vi.mocked(getDiff);

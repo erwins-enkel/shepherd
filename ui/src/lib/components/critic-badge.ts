@@ -1,5 +1,5 @@
 import type { ReviewVerdict, ReviewDecision, ReviewSummaryCode } from "../types";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 import { addressStallStatus } from "../review-status";
 
 const NO_VERDICT_REASON: Record<ReviewSummaryCode, () => string> = {

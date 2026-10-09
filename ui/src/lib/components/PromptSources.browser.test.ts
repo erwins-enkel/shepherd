@@ -2,15 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { Issue, SlashCommand } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
-import { listIssues, getCommands } from "$lib/api";
-import { expectMinPx } from "$lib/test-support/geometry";
-import { issuesFilter } from "$lib/issues-filter.svelte";
+import type { Issue, SlashCommand } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
+import { listIssues, getCommands } from "#lib/api.js";
+import { expectMinPx } from "#lib/test-support/geometry.js";
+import { issuesFilter } from "#lib/issues-filter.svelte.js";
 
 // Mock the API so no network fires; each test seeds the data it needs.
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     listIssues: vi.fn(),

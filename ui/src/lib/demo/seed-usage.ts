@@ -38,7 +38,7 @@ import type {
   DeliveryTaskRow,
   GithubRateLimit,
   PromptBudgetRecord,
-} from "$lib/types";
+} from "#lib/types.js";
 import { STOREFRONT, API, NOW, HOUR, DAY } from "./seed-constants";
 
 /** The seeded session behind a usage row.

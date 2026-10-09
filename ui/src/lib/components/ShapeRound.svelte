@@ -1,7 +1,7 @@
 <script lang="ts">
   import QuestionFormBlock from "./blocks/QuestionFormBlock.svelte";
-  import { m } from "$lib/paraglide/messages";
-  import type { RawAnswer, ShapeRound } from "$lib/types";
+  import { m } from "#lib/paraglide/messages.js";
+  import type { RawAnswer, ShapeRound } from "#lib/types.js";
   import type { ShapeFailure } from "./new-task/shape";
 
   // One component, three states, because they occupy the same slot in the New Task card and the

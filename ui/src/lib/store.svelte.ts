@@ -42,11 +42,11 @@ import { upNext } from "./up-next.svelte";
 import { learnings } from "./learnings.svelte";
 import { toasts } from "./toasts.svelte";
 import { reviveStranded as apiReviveStranded } from "./api";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 import { buildQueues as buildQueuesStore } from "./buildQueues.svelte";
 import { epicDrafts as epicDraftsStore } from "./epic-draft.svelte";
 import { postMergeSteps as postMergeStepsStore } from "./post-merge-steps.svelte";
-import { SAFE_ID, safeMerge, setKey, setPathKey } from "./safe-keys";
+import { SAFE_ID, dropKey, safeMerge, setKey, setPathKey } from "./safe-keys";
 
 /** Only follow http(s) URLs when opening a link from event-carried data — a `javascript:`
  *  (or other-scheme) value would be an open-redirect / script-execution vector
@@ -1135,18 +1135,6 @@ export class HerdStore {
       ws?.close();
     };
   }
-}
-
-/** Immutably drop `rec[id]`.
- *
- *  DELIBERATELY UNGUARDED, unlike its {@link setKey} sibling. A `delete` can never create or
- *  redirect a prototype under any key, so a key check would add no safety — while a REJECTED key
- *  would silently fail to delete, pinning a session as "Reviewing…" or leaving a stale verdict on
- *  screen. Not an oversight: guarding here can only break deletion. */
-function dropKey<T>(rec: Record<string, T>, id: string): Record<string, T> {
-  const copy = { ...rec };
-  delete copy[id];
-  return copy;
 }
 
 export function wsUrl(path: string): string {

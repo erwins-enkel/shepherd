@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import TopBarSearch from "./TopBarSearch.svelte";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 
 describe("TopBarSearch", () => {
   it("renders a button named by the search aria-label", async () => {

@@ -4,7 +4,7 @@ import {
   errorText,
   RELOAD_GUARD_KEY,
   shouldAutoReload,
-} from "$lib/client-error";
+} from "#lib/client-error.js";
 
 /** Minimal in-memory stand-in for `sessionStorage`. */
 function fakeStorage(initial: Record<string, string> = {}) {

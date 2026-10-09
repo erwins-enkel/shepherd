@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
-import type { Issue, RepoConfig, RepoEntry, SlashCommand } from "$lib/types";
-import { m } from "$lib/paraglide/messages";
-import { expectMinPx } from "$lib/test-support/geometry";
+import type { Issue, RepoConfig, RepoEntry, SlashCommand } from "#lib/types.js";
+import { m } from "#lib/paraglide/messages.js";
+import { expectMinPx } from "#lib/test-support/geometry.js";
 import {
   listIssues,
   getEpics,
@@ -15,14 +15,14 @@ import {
   listRepos,
   branchStatus,
   getCommands,
-} from "$lib/api";
+} from "#lib/api.js";
 import { VIDEO_BRIEF_SKILL_NAME } from "./video-skill.svelte";
 
 /** Pinned here, beside the anchor assertion — the component owns the literal. */
 const VIDEO_BRIEF_SKILL_URL = "https://github.com/erwins-enkel/skills/tree/main/skills/video-brief";
 
-vi.mock("$lib/api", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("$lib/api")>();
+vi.mock("#lib/api.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("#lib/api.js")>();
   return {
     ...actual,
     listIssues: vi.fn(),

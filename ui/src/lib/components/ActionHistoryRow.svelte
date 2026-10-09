@@ -1,9 +1,9 @@
 <script lang="ts">
-  import type { WorkflowRun, WorkflowJob } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { listRunJobs } from "$lib/api";
-  import { relativeAge } from "$lib/format";
-  import { clock } from "$lib/now.svelte";
+  import type { WorkflowRun, WorkflowJob } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { listRunJobs } from "#lib/api.js";
+  import { relativeAge } from "#lib/format.js";
+  import { clock } from "#lib/now.svelte.js";
 
   let { repoPath, run }: { repoPath: string; run: WorkflowRun } = $props();
 

@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { m } from "$lib/paraglide/messages";
-  import { redeemCodexReset, setCodexResetAutomation } from "$lib/api";
-  import type { CodexResetStatus } from "$lib/types";
-  import type { TooltipExplanation } from "$lib/tooltips/content";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
+  import { m } from "#lib/paraglide/messages.js";
+  import { redeemCodexReset, setCodexResetAutomation } from "#lib/api.js";
+  import type { CodexResetStatus } from "#lib/types.js";
+  import type { TooltipExplanation } from "#lib/tooltips/content.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
 
   let { status }: { status: CodexResetStatus } = $props();
   let pending = $state(false);

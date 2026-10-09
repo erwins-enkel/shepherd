@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import EmojiPicker from "./EmojiPicker.svelte";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 
 describe("EmojiPicker — custom emoji Set button", () => {
   it("Set commits a pasted emoji", async () => {

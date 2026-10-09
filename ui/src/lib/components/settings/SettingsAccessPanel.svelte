@@ -6,17 +6,17 @@
     revokeAccessToken,
     listRepos,
     updateAccessTokenRepositories,
-  } from "$lib/api";
-  import type { AccessToken, Settings, TokenScope, RepoEntry } from "$lib/types";
+  } from "#lib/api.js";
+  import type { AccessToken, Settings, TokenScope, RepoEntry } from "#lib/types.js";
   import TokenRepositoryPicker from "./TokenRepositoryPicker.svelte";
   import {
     buildAccessTokenInstructions,
     normalizeAgentServerUrl,
-  } from "$lib/access-token-instructions";
+  } from "#lib/access-token-instructions.js";
   import HighlightText from "./HighlightText.svelte";
-  import GlossaryText from "$lib/components/GlossaryText.svelte";
+  import GlossaryText from "#lib/components/GlossaryText.svelte";
   import "./settings-controls.css";
-  import { m } from "$lib/paraglide/messages";
+  import { m } from "#lib/paraglide/messages.js";
 
   // Access section (#2082): named machine bearer tokens, minted here and copied into whatever
   // client needs them (an Asyar/Raycast extension, the Capture extension, a cron job). The

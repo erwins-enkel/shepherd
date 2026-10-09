@@ -4,10 +4,10 @@ import { page } from "vitest/browser";
 import { tick } from "svelte";
 import "../../app.css";
 import AutomationSettings from "./AutomationSettings.svelte";
-import { infoTips } from "$lib/info-tips.svelte";
-import { m } from "$lib/paraglide/messages";
-import { repoConfig } from "$lib/reviews.svelte";
-import { toasts } from "$lib/toasts.svelte";
+import { infoTips } from "#lib/info-tips.svelte.js";
+import { m } from "#lib/paraglide/messages.js";
+import { repoConfig } from "#lib/reviews.svelte.js";
+import { toasts } from "#lib/toasts.svelte.js";
 
 afterEach(() => infoTips.set(false));
 

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../../app.css";
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 import InstrumentToggle from "./InstrumentToggle.svelte";
 
 // Direct component seam for the Guards switch row. The accessibility contract:

@@ -8,10 +8,10 @@ import type {
   UsageProjection,
   UsageRange,
   UsageTimeline,
-} from "$lib/types";
-import { formatTokenLabel } from "$lib/format";
-import { m } from "$lib/paraglide/messages";
-import * as api from "$lib/api";
+} from "#lib/types.js";
+import { formatTokenLabel } from "#lib/format.js";
+import { m } from "#lib/paraglide/messages.js";
+import * as api from "#lib/api.js";
 
 const BASE = Date.now();
 const H = 3_600_000;
@@ -118,8 +118,8 @@ const inlineDelivery = {
   tasks: [],
 };
 
-vi.mock("$lib/api", async () => {
-  const { mockBreakdown } = await import("$lib/usage-mock");
+vi.mock("#lib/api.js", async () => {
+  const { mockBreakdown } = await import("#lib/usage-mock.js");
   return {
     redeemCodexReset: vi.fn(),
     setCodexResetAutomation: vi.fn(),

@@ -1,8 +1,8 @@
 <script lang="ts">
-  import type { SessionStatus } from "$lib/types";
-  import { STATUS_COLOR, statusLabel } from "$lib/format";
-  import { m } from "$lib/paraglide/messages";
-  import { statusTip } from "$lib/tooltips/statusTip.svelte";
+  import type { SessionStatus } from "#lib/types.js";
+  import { STATUS_COLOR, statusLabel } from "#lib/format.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   let {
     status,
     ready = false,

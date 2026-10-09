@@ -1,4 +1,4 @@
-import type { AgentProvider } from "$lib/types";
+import type { AgentProvider } from "#lib/types.js";
 
 export type ReadinessBlocker =
   "empty_prompt" | "no_repo" | "base_missing" | "repairing" | "uploading" | "submitting";

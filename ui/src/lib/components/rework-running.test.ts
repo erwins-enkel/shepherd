@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { isReworkRunning } from "./rework-running";
-import type { PlanGate, ReviewVerdict, Session } from "$lib/types";
+import type { PlanGate, ReviewVerdict, Session } from "#lib/types.js";
 
 const NOW = 1_000_000_000_000;
 

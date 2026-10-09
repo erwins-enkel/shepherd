@@ -1,6 +1,6 @@
-import { isConflicting } from "$lib/pr-conflict";
-import { checksCleared } from "$lib/checks-cleared";
-import type { GitState } from "$lib/types";
+import { isConflicting } from "#lib/pr-conflict.js";
+import { checksCleared } from "#lib/checks-cleared.js";
+import type { GitState } from "#lib/types.js";
 
 /** The single reason an open PR is NOT merge-ready, or null when nothing blocks it.
  *  First-match in declaration order; see the per-branch notes below for why that order. */

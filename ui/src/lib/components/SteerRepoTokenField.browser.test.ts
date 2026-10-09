@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { tick } from "svelte";
 import "../../app.css";
-import type { RepoEntry } from "$lib/types";
+import type { RepoEntry } from "#lib/types.js";
 import SteerRepoTokenField from "./SteerRepoTokenField.svelte";
 
 function r(name: string, extra: Partial<RepoEntry> = {}): RepoEntry {

@@ -4,11 +4,11 @@
   // from context (PluginUIRoot), never from node props — that is what scopes the request to
   // the plugin's own namespace. `label`/`confirm` are verbatim plugin DATA (never i18n).
   import { getContext } from "svelte";
-  import type { PluginUINode } from "$lib/types";
-  import { m } from "$lib/paraglide/messages";
-  import { invokePluginRoute } from "$lib/api";
-  import { toasts } from "$lib/toasts.svelte";
-  import { dialog } from "$lib/a11yDialog";
+  import type { PluginUINode } from "#lib/types.js";
+  import { m } from "#lib/paraglide/messages.js";
+  import { invokePluginRoute } from "#lib/api.js";
+  import { toasts } from "#lib/toasts.svelte.js";
+  import { dialog } from "#lib/a11yDialog.js";
   import { toneColor } from "./tones";
   import { PLUGIN_FORM_CONTEXT, PLUGIN_ID_CONTEXT, type PluginFormScope } from "./context";
 

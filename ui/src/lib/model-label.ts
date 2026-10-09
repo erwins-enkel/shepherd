@@ -1,4 +1,4 @@
-import { m } from "$lib/paraglide/messages";
+import { m } from "#lib/paraglide/messages.js";
 
 /**
  * Friendly display label for a model alias — the RECORD label.

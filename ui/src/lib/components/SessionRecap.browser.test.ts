@@ -3,9 +3,9 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import SessionRecap from "./SessionRecap.svelte";
-import { recaps } from "$lib/recaps.svelte";
-import { m } from "$lib/paraglide/messages";
-import type { Session, Recap } from "$lib/types";
+import { recaps } from "#lib/recaps.svelte.js";
+import { m } from "#lib/paraglide/messages.js";
+import type { Session, Recap } from "#lib/types.js";
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {

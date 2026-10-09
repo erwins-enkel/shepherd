@@ -1,12 +1,12 @@
 <script lang="ts">
-  import type { UpNextItem, UpNextSection } from "$lib/types";
-  import { upNext } from "$lib/up-next.svelte";
-  import { upNextKey as keyOf, upNextUi } from "$lib/up-next-ui.svelte";
-  import { UpNextStarter, type UpNextLaunchContext } from "$lib/up-next-start.svelte";
-  import { refreshUpNext } from "$lib/api";
-  import { formatAgo } from "$lib/format";
-  import { clock } from "$lib/now.svelte";
-  import { m } from "$lib/paraglide/messages";
+  import type { UpNextItem, UpNextSection } from "#lib/types.js";
+  import { upNext } from "#lib/up-next.svelte.js";
+  import { upNextKey as keyOf, upNextUi } from "#lib/up-next-ui.svelte.js";
+  import { UpNextStarter, type UpNextLaunchContext } from "#lib/up-next-start.svelte.js";
+  import { refreshUpNext } from "#lib/api.js";
+  import { formatAgo } from "#lib/format.js";
+  import { clock } from "#lib/now.svelte.js";
+  import { m } from "#lib/paraglide/messages.js";
   import { SvelteSet } from "svelte/reactivity";
   import { EMPTY_REPO_FILTER } from "./queue-strip";
   import { onMount } from "svelte";

@@ -2,10 +2,10 @@
   // Browser View pop-out (#2896): the session's BrowserPanel full-window in its own browser tab,
   // no HUD chrome. Same cookie auth (the layout gate) and the same token-gated view socket; the
   // server lets one view per session stream, so opening this takes over from the HUD panel.
-  import { m } from "$lib/paraglide/messages";
-  import { listSessions, loginRequestStates } from "$lib/api";
-  import { HerdStore } from "$lib/store.svelte";
-  import type { Session } from "$lib/types";
+  import { m } from "#lib/paraglide/messages.js";
+  import { listSessions, loginRequestStates } from "#lib/api.js";
+  import { HerdStore } from "#lib/store.svelte.js";
+  import type { Session } from "#lib/types.js";
   import BrowserPanel from "./BrowserPanel.svelte";
   import Toasts from "../Toasts.svelte";
 

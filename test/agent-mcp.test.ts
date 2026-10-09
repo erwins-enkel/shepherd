@@ -9,14 +9,17 @@ import {
   applyEpicDraft,
   applyQueueStep,
   applyQueueWrite,
+  githubBudget,
   handleMcpRequest,
   hasAgentTools,
   isNonCodeMode,
   sessionCapabilities,
   MCP_PROTOCOL_VERSION,
   type AgentControlDeps,
+  type GithubBackoff,
 } from "../src/agent-control";
 import { SessionStore } from "../src/store";
+import type { RateLimitSnapshot } from "../src/forge/rate-limit";
 import type { GitState } from "../src/forge/types";
 import { EventHub } from "../src/events";
 import { LoginRequestService } from "../src/login-request";
@@ -588,7 +591,122 @@ test("self_status: PR/CI, review verdict and plan gate, with critic text fenced"
 test("self_status with nothing recorded reads null blocks", async () => {
   const { deps, sessionId } = harness();
   const { payload } = toolPayload(await call(deps, sessionId, "self_status", {}));
-  expect(payload).toMatchObject({ pr: null, review: null, planGate: null });
+  expect(payload).toMatchObject({ pr: null, review: null, planGate: null, github: null });
+});
+
+// ── GitHub budget (#2860) ────────────────────────────────────────────────────
+
+const NOW = Date.parse("2026-10-09T12:00:00.000Z");
+const MIN = 60_000;
+const iso = (ms: number) => new Date(ms).toISOString();
+
+/** A tracker snapshot: unblocked and reading-less unless overridden. */
+function snap(over: Partial<RateLimitSnapshot> = {}): RateLimitSnapshot {
+  return { remaining: null, resetAt: null, pausedUntil: null, blocked: false, ...over };
+}
+
+function backoff(over: Partial<GithubBackoff> = {}): GithubBackoff {
+  return { graphql: snap(), restRead: snap(), restWrite: snap(), ...over };
+}
+
+test("githubBudget: a GraphQL limit error reads remaining 0 and blocks until the real reset", () => {
+  // The limit error opened a 60s probe window; the last in-query reading (still this window) said
+  // 2,772 — stale the moment the 403 arrived.
+  const budget = githubBudget(
+    backoff({
+      graphql: snap({
+        remaining: 2772,
+        resetAt: NOW + 40 * MIN,
+        pausedUntil: NOW + MIN,
+        blocked: true,
+      }),
+    }),
+    NOW,
+  );
+  expect(budget).toEqual({
+    blockedUntil: iso(NOW + 40 * MIN),
+    graphql: { remaining: 0, resetAt: iso(NOW + 40 * MIN), pausedUntil: iso(NOW + MIN) },
+    restRead: { pausedUntil: null },
+    restWrite: { pausedUntil: null },
+  });
+});
+
+test("githubBudget: a reading from an expired window is no reading at all", () => {
+  const blocked = githubBudget(
+    backoff({
+      graphql: snap({
+        remaining: 12,
+        resetAt: NOW - 5 * MIN,
+        pausedUntil: NOW + MIN,
+        blocked: true,
+      }),
+    }),
+    NOW,
+  );
+  expect(blocked.graphql).toEqual({ remaining: 0, resetAt: null, pausedUntil: iso(NOW + MIN) });
+  expect(blocked.blockedUntil).toBe(iso(NOW + MIN));
+
+  const healthy = githubBudget(
+    backoff({ graphql: snap({ remaining: 12, resetAt: NOW - 5 * MIN }) }),
+    NOW,
+  );
+  expect(healthy.graphql).toEqual({ remaining: null, resetAt: null, pausedUntil: null });
+});
+
+test("githubBudget: no backoff reports the current reading and blocks nothing", () => {
+  const budget = githubBudget(
+    backoff({
+      graphql: snap({ remaining: 3100, resetAt: NOW + 20 * MIN }),
+      // A cooldown that lapsed without a success to clear it is not a block.
+      restRead: snap({ pausedUntil: NOW - MIN }),
+    }),
+    NOW,
+  );
+  expect(budget).toEqual({
+    blockedUntil: null,
+    graphql: { remaining: 3100, resetAt: iso(NOW + 20 * MIN), pausedUntil: null },
+    restRead: { pausedUntil: null },
+    restWrite: { pausedUntil: null },
+  });
+});
+
+test("githubBudget: REST read/write backoffs block until the later of their windows", () => {
+  const budget = githubBudget(
+    backoff({
+      restRead: snap({ pausedUntil: NOW + 4 * MIN, blocked: true }),
+      restWrite: snap({ pausedUntil: NOW + 15 * MIN, blocked: true }),
+    }),
+    NOW,
+  );
+  expect(budget.restRead).toEqual({ pausedUntil: iso(NOW + 4 * MIN) });
+  expect(budget.restWrite).toEqual({ pausedUntil: iso(NOW + 15 * MIN) });
+  expect(budget.blockedUntil).toBe(iso(NOW + 15 * MIN));
+  expect(budget.graphql).toEqual({ remaining: null, resetAt: null, pausedUntil: null });
+});
+
+test("self_status carries the github block from the injected backoff trackers", async () => {
+  const { deps, sessionId } = harness();
+  const resetAt = Date.now() + 30 * MIN;
+  const withBudget: AgentControlDeps = {
+    ...deps,
+    githubBackoff: () =>
+      backoff({
+        graphql: snap({ remaining: 50, resetAt, pausedUntil: resetAt, blocked: true }),
+      }),
+  };
+  const { payload } = toolPayload(await call(withBudget, sessionId, "self_status", {}));
+  expect(payload.github).toEqual({
+    blockedUntil: iso(resetAt),
+    graphql: { remaining: 0, resetAt: iso(resetAt), pausedUntil: iso(resetAt) },
+    restRead: { pausedUntil: null },
+    restWrite: { pausedUntil: null },
+  });
+});
+
+test("the self_status description tells the agent where the GitHub reset lives", () => {
+  const { deps, sessionId } = harness();
+  const tool = agentTools(deps, sessionId).find((t) => t.name === "self_status")!;
+  expect(tool.description).toContain("github.blockedUntil");
 });
 
 test("a plain session calling a read tool is a -32602 protocol error", async () => {

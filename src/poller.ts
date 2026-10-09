@@ -775,10 +775,10 @@ export class StatusPoller {
         const agent = matched.get(s.id) ?? null;
         if (!agent) this.reapGone(s);
         else this.reconcileAgent(s, agent);
-        // Best-effort seed of a live Codex session's provider-native id (no-op unless it's an isolated
-        // Codex session that hasn't been seeded yet). Rescanning $CODEX_HOME every tick for a session
-        // that never matches is wasteful, so an applicable miss backs off exponentially (see below).
-        // tick() runs on a bare setInterval — never throw.
+        // Best-effort seed of a live Codex session's provider-native id (no-op unless it's a
+        // launch-marked Codex session that hasn't been seeded yet). Rescanning $CODEX_HOME every
+        // tick for a session that never matches is wasteful, so an applicable miss backs off
+        // exponentially (see below). tick() runs on a bare setInterval — never throw.
         if (agent && this.captureCodexSessionId) {
           this.maybeCaptureCodexSessionId(s);
         }

@@ -573,25 +573,27 @@ test("GET /api/sessions/:id/activity resolves the transcript under spawnAccountD
 
 // ── Codex activity (#1992) ───────────────────────────────────────────────────────────────────
 // A Codex session writes NO ~/.claude/projects JSONL; its transcript is a rollout under
-// $CODEX_HOME, located by the session's launch-unique worktree cwd. Every fixture below is
+// $CODEX_HOME, located by the session's native id (`providerSessionId`). Every fixture below is
 // written ONLY there (config.claudeProjectsDir points at an empty dir), so a non-empty body is
 // reachable through exactly one code path — asserting "entries came back" cannot fail open.
 
 const CODEX_WT = "/wt-codex";
 
 interface RolloutSpec {
-  name: string;
+  /** The conversation's native id — names the file the way Codex does. */
+  id: string;
   cwd?: string;
   source?: string;
   /** Becomes the entry's `summary`, so each rollout is identifiable in the response. */
   cmd?: string;
-  /** Seconds; defaults to now (inside the session's createdAt − skew window). */
+  /** Seconds; defaults to now. */
   mtimeSec?: number;
 }
 
-/** Seed a temp $CODEX_HOME with rollout jsonl files (session_meta header + one tool call). */
+/** Seed a temp $CODEX_HOME with rollout jsonl files (session_meta header, one tool call and one
+ *  assistant message), each named `rollout-<ts>-<id>.jsonl` like Codex's own. */
 function seedCodexHome(rollouts: RolloutSpec[]): string {
-  const home = join(tmpRoot, `codex-home-${rollouts.map((r) => r.name).join("-")}`);
+  const home = join(tmpRoot, `codex-home-${rollouts.map((r) => r.id).join("-")}`);
   const sessions = join(home, "sessions");
   mkdirSync(sessions, { recursive: true });
   for (const r of rollouts) {
@@ -599,27 +601,35 @@ function seedCodexHome(rollouts: RolloutSpec[]): string {
       JSON.stringify({
         timestamp: "2026-08-01T10:00:00.000Z",
         type: "session_meta",
-        payload: { session_id: `id-${r.name}`, cwd: r.cwd ?? CODEX_WT, source: r.source ?? "cli" },
+        payload: { id: r.id, cwd: r.cwd ?? CODEX_WT, source: r.source ?? "cli" },
       }),
       JSON.stringify({
         timestamp: "2026-08-01T10:00:20.000Z",
         type: "response_item",
         payload: {
           type: "custom_tool_call",
-          call_id: `call-${r.name}`,
+          call_id: `call-${r.id}`,
           name: "exec",
           input: `const r = await tools.exec_command({cmd:${JSON.stringify(r.cmd ?? "echo hi")},workdir:"${CODEX_WT}"});`,
         },
       }),
+      JSON.stringify({
+        timestamp: "2026-08-01T10:00:30.000Z",
+        type: "response_item",
+        payload: {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: `done: ${r.cmd ?? "echo hi"}` }],
+        },
+      }),
     ];
-    const path = join(sessions, r.name);
+    const path = join(sessions, `rollout-2026-08-01T10-00-00-${r.id}.jsonl`);
     writeFileSync(path, lines.join("\n") + "\n");
     if (r.mtimeSec !== undefined) utimesSync(path, r.mtimeSec, r.mtimeSec);
   }
   return home;
 }
 
-/** Run `fn` with $CODEX_HOME seeded and claudeProjectsDir pointed at an empty dir, restoring both. */
 async function withCodexHome(rollouts: RolloutSpec[], fn: () => Promise<void>): Promise<void> {
   const home = seedCodexHome(rollouts);
   const emptyProjects = join(tmpRoot, "empty-projects-codex");
@@ -642,6 +652,7 @@ const CODEX_SESSION = {
   worktreePath: CODEX_WT,
   agentProvider: "codex" as const,
   claudeSessionId: "c0ffee00-0000-4000-8000-0000000000c0",
+  providerSessionId: "mine",
 };
 
 async function activityOf(app: ReturnType<typeof makeApp>, id: string) {
@@ -653,7 +664,7 @@ async function activityOf(app: ReturnType<typeof makeApp>, id: string) {
 test("GET /api/sessions/:id/activity reads a Codex session's rollout under $CODEX_HOME", async () => {
   const deps = makeDeps();
   const app = makeApp(deps);
-  await withCodexHome([{ name: "rollout-mine.jsonl", cmd: "bun test ./test" }], async () => {
+  await withCodexHome([{ id: "mine", cmd: "bun test ./test" }], async () => {
     const s = deps.store.create(CODEX_SESSION);
     const entries = await activityOf(app, s.id);
     expect(entries.map((e) => [e.tool, e.summary])).toEqual([["exec", "$ bun test ./test"]]);
@@ -665,50 +676,58 @@ test("GET /api/sessions/:id/activity: the SAME fixture yields [] for a claude se
   // that ignores agentProvider, would surface the rollout here.
   const deps = makeDeps();
   const app = makeApp(deps);
-  await withCodexHome([{ name: "rollout-mine.jsonl", cmd: "bun test ./test" }], async () => {
+  await withCodexHome([{ id: "mine", cmd: "bun test ./test" }], async () => {
     const s = deps.store.create({ ...CODEX_SESSION, agentProvider: "claude" as const });
     expect(await activityOf(app, s.id)).toEqual([]);
   });
 });
 
-test("GET /api/sessions/:id/activity: two cli rollouts share the cwd → the NEWER wins", async () => {
-  // The post-restore shape: a relaunch writes a new rollout under the same worktree cwd. This is
-  // why the read uses findCodexRollout's newest-wins rule and NOT CodexRolloutResolver, whose
-  // unique-candidate rule would resolve nothing here for the rest of the session's life.
+test("GET /api/sessions/:id/activity: a non-isolated session reads ITS rollout, not a newer sibling's", async () => {
+  // The shared checkout's cwd also hosts siblings and the operator's own codex runs; a newer
+  // rollout there must never be shown in place of the conversation the native id names.
   const deps = makeDeps();
   const app = makeApp(deps);
   const nowSec = Math.floor(Date.now() / 1000);
   await withCodexHome(
     [
-      { name: "rollout-before-restore.jsonl", cmd: "old run", mtimeSec: nowSec - 120 },
-      { name: "rollout-after-restore.jsonl", cmd: "new run", mtimeSec: nowSec - 10 },
+      { id: "mine", cmd: "my run", mtimeSec: nowSec - 120 },
+      { id: "sibling", cmd: "sibling run", mtimeSec: nowSec - 10 },
     ],
     async () => {
-      const s = deps.store.create(CODEX_SESSION);
-      expect((await activityOf(app, s.id)).map((e) => e.summary)).toEqual(["$ new run"]);
+      const s = deps.store.create({ ...CODEX_SESSION, isolated: false });
+      expect((await activityOf(app, s.id)).map((e) => e.summary)).toEqual(["$ my run"]);
     },
   );
 });
 
-test("GET /api/sessions/:id/activity: a non-isolated Codex session yields []", async () => {
-  // Its cwd is the shared repo checkout — also used by siblings, relaunches and the operator's own
-  // codex runs — so no rollout is attributable to this row. restore() refuses for the same reason.
+test("GET /api/sessions/:id/activity: no native id yet → [] even with a rollout in its cwd", async () => {
   const deps = makeDeps();
   const app = makeApp(deps);
-  await withCodexHome([{ name: "rollout-shared.jsonl", cmd: "someone else" }], async () => {
-    const s = deps.store.create({ ...CODEX_SESSION, isolated: false });
+  await withCodexHome([{ id: "someone", cmd: "someone else" }], async () => {
+    const s = deps.store.create({ ...CODEX_SESSION, providerSessionId: "" });
     expect(await activityOf(app, s.id)).toEqual([]);
   });
 });
 
-test("GET /api/sessions/:id/activity never adopts a reviewer's (source=exec) rollout", async () => {
+test("GET /api/sessions/:id/messages reads a non-isolated Codex session's rollout by native id", async () => {
   const deps = makeDeps();
   const app = makeApp(deps);
+  const nowSec = Math.floor(Date.now() / 1000);
   await withCodexHome(
-    [{ name: "rollout-reviewer.jsonl", source: "exec", cmd: "critic run" }],
+    [
+      { id: "mine", cmd: "my run", mtimeSec: nowSec - 120 },
+      { id: "sibling", cmd: "sibling run", mtimeSec: nowSec - 10 },
+    ],
     async () => {
-      const s = deps.store.create(CODEX_SESSION);
-      expect(await activityOf(app, s.id)).toEqual([]);
+      const s = deps.store.create({ ...CODEX_SESSION, isolated: false });
+      const res = await app.fetch(new Request(`http://x/api/sessions/${s.id}/messages`));
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as {
+        messages: Array<{ text: string }>;
+        unavailable: unknown;
+      };
+      expect(body.unavailable).toBeNull();
+      expect(body.messages.map((m) => m.text)).toEqual(["done: my run"]);
     },
   );
 });

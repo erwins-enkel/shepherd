@@ -36,7 +36,11 @@ test("default probe emits Codex runtime model and effort via session:activity", 
   const rolloutPath = join(dir, "rollout.jsonl");
   try {
     const store = new SessionStore(":memory:");
-    const session = store.create({ ...baseSession, agentProvider: "codex" });
+    const session = store.create({
+      ...baseSession,
+      agentProvider: "codex",
+      providerSessionId: "rollout-1",
+    });
     const events: Array<{ event: string; data: { id: string; activity: unknown } }> = [];
     let clock = Date.parse("2026-09-07T10:10:00.000Z");
     const records = [
@@ -49,7 +53,7 @@ test("default probe emits Codex runtime model and effort via session:activity", 
     writeFileSync(rolloutPath, records.map((record) => JSON.stringify(record)).join("\n"));
     const locator = new CodexTranscriptLocator({
       now: () => clock,
-      find: () => ({ id: "rollout-1", path: rolloutPath }),
+      find: (id) => (id === "rollout-1" ? rolloutPath : null),
     });
     const herdr = withListAsync({
       list: (): HerdrAgent[] => [

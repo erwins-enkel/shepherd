@@ -88,8 +88,9 @@ function dedupeRolloutCandidates(paths: string[], extra: RolloutCandidate[]): Ro
 
 /**
  * Every rollout file under `$CODEX_HOME/sessions`, newest-first by mtime, with NO count cap — the
- * complete set. Callers that only want the freshest few must slice themselves. `findCodexSessionId`
- * relies on the full list so a busy machine can't push a session's own rollout past a limit.
+ * complete set. Callers that only want the freshest few must slice themselves.
+ * `findCodexLaunchSessionId` relies on the full list so a busy machine can't push a session's own
+ * rollout past a limit.
  */
 export function listRolloutFiles(home = codexHome()): RolloutCandidate[] {
   const root = join(home, "sessions");

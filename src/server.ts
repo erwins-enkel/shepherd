@@ -2974,8 +2974,8 @@ async function sessionActivityRead(id: string, deps: AppDeps): Promise<Response>
   // Provider dispatch (#1992): a Codex session writes no ~/.claude/projects JSONL at all, so
   // resolving one would yield a path that never exists — which degrades to [] and leaves the
   // Activity tab silently empty. Its transcript is a rollout under $CODEX_HOME, located by the
-  // session's launch-unique worktree cwd (null for a non-isolated session: the shared checkout
-  // cwd can't be attributed to one row, same stance `restore()` takes — see the locator).
+  // session's native id in either checkout mode (none captured yet → [], never a cwd guess; see
+  // the locator).
   if ((s.agentProvider ?? "claude") === "codex") {
     const rollout = codexTranscripts(deps).pathFor(s);
     return json(rollout ? await codexSessionActivity(rollout) : []);

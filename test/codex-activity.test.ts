@@ -317,22 +317,17 @@ describe("codexSessionActivity", () => {
 });
 
 describe("CodexTranscriptLocator", () => {
-  const SESSION = {
-    id: "sess-1",
-    worktreePath: "/wt/task-1",
-    createdAt: 10_000_000,
-    isolated: true,
-  };
+  const SESSION = { providerSessionId: "roll-a" };
 
   /** Controllable clock + a spy-able finder — no filesystem in the loop. */
-  function harness(found: { id: string; path: string } | null) {
+  function harness(found: string | null) {
     let now = 0;
     let result = found;
-    const calls: Array<{ worktreePath: string; notBeforeMs: number }> = [];
+    const calls: string[] = [];
     const locator = new CodexTranscriptLocator({
       now: () => now,
-      find: (worktreePath, notBeforeMs) => {
-        calls.push({ worktreePath, notBeforeMs });
+      find: (id) => {
+        calls.push(id);
         return result;
       },
     });
@@ -342,53 +337,44 @@ describe("CodexTranscriptLocator", () => {
       advance: (ms: number) => {
         now += ms;
       },
-      setResult: (r: { id: string; path: string } | null) => {
+      setResult: (r: string | null) => {
         result = r;
       },
     };
   }
 
-  const HIT = { id: "roll-a", path: "/codex/rollout-a.jsonl" };
+  const HIT = "/codex/rollout-2026-08-01T10-00-00-roll-a.jsonl";
 
-  test("resolves through find() and memoises — the 5s poll does not rescan", () => {
+  test("resolves through find() and memoises — the 5s poll does not rewalk", () => {
     const h = harness(HIT);
-    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
+    expect(h.locator.pathFor(SESSION)).toBe(HIT);
     h.advance(5_000);
-    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
+    expect(h.locator.pathFor(SESSION)).toBe(HIT);
     h.advance(5_000);
-    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
-    expect(h.calls.length).toBe(1);
+    expect(h.locator.pathFor(SESSION)).toBe(HIT);
+    expect(h.calls).toEqual(["roll-a"]);
   });
 
-  test("scans with the createdAt mtime floor, minus the clock-skew allowance", () => {
+  test("past the TTL it re-derives — a moved rollout is picked up", () => {
     const h = harness(HIT);
-    h.locator.pathFor(SESSION);
-    expect(h.calls[0]).toEqual({
-      worktreePath: SESSION.worktreePath,
-      notBeforeMs: SESSION.createdAt - 5 * 60_000,
-    });
-  });
-
-  test("past the TTL it re-derives — a restore's NEW rollout is picked up", () => {
-    const h = harness(HIT);
-    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
-    const next = { id: "roll-b", path: "/codex/rollout-b.jsonl" };
-    h.setResult(next);
-    h.advance(29_000); // still inside the TTL → stale path, no rescan
-    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
+    expect(h.locator.pathFor(SESSION)).toBe(HIT);
+    const moved = "/codex/archived/rollout-2026-08-01T10-00-00-roll-a.jsonl";
+    h.setResult(moved);
+    h.advance(29_000); // still inside the TTL → cached path, no rewalk
+    expect(h.locator.pathFor(SESSION)).toBe(HIT);
     h.advance(2_000); // 31s > TTL
-    expect(h.locator.pathFor(SESSION)).toBe(next.path);
+    expect(h.locator.pathFor(SESSION)).toBe(moved);
     expect(h.calls.length).toBe(2);
   });
 
   test("misses back off exponentially, capped, and clear on a later hit", () => {
     const h = harness(null);
-    expect(h.locator.pathFor(SESSION)).toBeNull(); // scan 1 → backoff 2s
+    expect(h.locator.pathFor(SESSION)).toBeNull(); // walk 1 → backoff 2s
     h.advance(1_000);
-    expect(h.locator.pathFor(SESSION)).toBeNull(); // inside backoff → no scan
+    expect(h.locator.pathFor(SESSION)).toBeNull(); // inside backoff → no walk
     expect(h.calls.length).toBe(1);
     h.advance(1_000);
-    expect(h.locator.pathFor(SESSION)).toBeNull(); // scan 2 → backoff 4s
+    expect(h.locator.pathFor(SESSION)).toBeNull(); // walk 2 → backoff 4s
     expect(h.calls.length).toBe(2);
 
     // widen past the cap: 8s, 16s→capped 15s, …
@@ -398,43 +384,38 @@ describe("CodexTranscriptLocator", () => {
     }
     expect(h.calls.length).toBe(6);
 
-    // a rollout finally appears: the next attempt after the cap resolves and drops the backoff
+    // the rollout finally appears: the next attempt after the cap resolves and drops the backoff
     h.setResult(HIT);
     h.advance(15_000);
-    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
-    h.setResult(null); // a hit is memoised, so no rescan can undo it inside the TTL
+    expect(h.locator.pathFor(SESSION)).toBe(HIT);
+    h.setResult(null); // a hit is memoised, so no rewalk can undo it inside the TTL
     h.advance(1_000);
-    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
+    expect(h.locator.pathFor(SESSION)).toBe(HIT);
     expect(h.calls.length).toBe(7);
   });
 
-  test("non-isolated session → null without ever scanning (cwd is unattributable)", () => {
+  test("no native id yet → null without ever looking (nothing is guessed from the cwd)", () => {
     const h = harness(HIT);
-    expect(h.locator.pathFor({ ...SESSION, isolated: false })).toBeNull();
+    expect(h.locator.pathFor({ providerSessionId: "" })).toBeNull();
+    expect(h.locator.pathFor({ providerSessionId: undefined })).toBeNull();
     expect(h.calls.length).toBe(0);
   });
 
   test("reset() drops both the memoised hit and the backoff", () => {
     const h = harness(HIT);
-    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
-    h.locator.reset(SESSION.id);
-    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
+    expect(h.locator.pathFor(SESSION)).toBe(HIT);
+    h.locator.reset(SESSION.providerSessionId);
+    expect(h.locator.pathFor(SESSION)).toBe(HIT);
     expect(h.calls.length).toBe(2);
   });
 
-  test("caches per session id — two sessions never share a resolution", () => {
+  test("caches per native id — a re-captured id never reuses the old conversation's path", () => {
     const h = harness(HIT);
-    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
-    const other = {
-      id: "sess-2",
-      worktreePath: "/wt/task-2",
-      createdAt: 20_000_000,
-      isolated: true,
-    };
-    const b = { id: "roll-b", path: "/codex/rollout-b.jsonl" };
+    expect(h.locator.pathFor(SESSION)).toBe(HIT);
+    const b = "/codex/rollout-2026-08-02T10-00-00-roll-b.jsonl";
     h.setResult(b);
-    expect(h.locator.pathFor(other)).toBe(b.path);
-    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
-    expect(h.calls.length).toBe(2);
+    expect(h.locator.pathFor({ providerSessionId: "roll-b" })).toBe(b);
+    expect(h.locator.pathFor(SESSION)).toBe(HIT);
+    expect(h.calls).toEqual(["roll-a", "roll-b"]);
   });
 });

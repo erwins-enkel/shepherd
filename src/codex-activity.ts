@@ -5,12 +5,7 @@ import { readTranscriptTail, type ActivityEntry } from "./activity";
 import { readActivitySignal, signalFrom, type SessionActivity } from "./activity-signal";
 import { snapshotFrom, type ActivitySnapshot } from "./stall";
 import { codexHome, listRolloutFiles } from "./codex-usage";
-import {
-  CODEX_ID_SKEW_MS,
-  findCodexRollout,
-  readSessionMeta,
-  type CodexRollout,
-} from "./codex-session-id";
+import { findCodexRolloutById, readSessionMeta } from "./codex-session-id";
 import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
 import type { AgentProvider, Session } from "./types";
 
@@ -607,81 +602,83 @@ export async function reviewerUsage(
   return readSessionUsage(worktreePath, trackingId);
 }
 
-// ── Task-session transcript locating + reading (issue #1992) ────────────────
+// ── Task-session transcript locating + reading (issues #1992, #1267) ────────
 //
 // The reviewer readers above resolve an `exec` spawn's rollout through
 // `CodexRolloutResolver` (unique-cwd, fail-safe). A TASK session is different in kind: it is
-// interactive (`source: "cli"`) and long-lived, so a restore/relaunch writes a NEW rollout under
-// the SAME worktree cwd and the unique-candidate rule would resolve nothing for the rest of the
-// session's life. Task sessions therefore use `findCodexRollout`'s newest-wins rule — the same one
-// `restore()` and the poller's id capture already rely on.
+// interactive and long-lived, and in a non-isolated checkout its cwd is shared with siblings and the
+// operator's own `codex` runs. So a task session's rollout is located ONLY by the native id its
+// launch marker proved (`providerSessionId`) — the same id `codex resume` targets, so the transcript
+// shown is always the conversation that would be resumed. No id yet → nothing to show.
 
-/** How long a proven rollout path is reused before re-deriving. Bounds how long a just-restored
- *  session can still be read from its PREVIOUS rollout; file CONTENT is re-read on every request
- *  regardless, so live output is never stale. */
+/** How long a proven rollout path is reused before re-deriving. File CONTENT is re-read on every
+ *  request regardless, so live output is never stale; the re-derive only notices a moved file. */
 const ROLLOUT_TTL_MS = 30_000;
-/** Miss backoff: the scan is sync FS work on the single event loop (a full miss reads every
- *  rollout header), and the Activity tab polls every 5s. Capped well below the reviewer
- *  resolver's 60s so a just-started session's tab fills within one cap at worst. */
+/** Miss backoff: the lookup is sync FS work on the single event loop (a walk of the rollout tree),
+ *  and the Activity tab polls every 5s. Capped well below the reviewer resolver's 60s so a
+ *  just-started session's tab fills within one cap at worst. */
 const ROLLOUT_MISS_BASE_MS = 2_000;
 const ROLLOUT_MISS_CAP_MS = 15_000;
 
 export interface CodexTranscriptLocatorDeps {
-  /** Injected for tests; production is `findCodexRollout` over the real `$CODEX_HOME`. */
-  find: (worktreePath: string, notBeforeMs: number) => CodexRollout | null;
+  /** Injected for tests; production is `findCodexRolloutById` over the real `$CODEX_HOME`. */
+  find: (providerSessionId: string) => string | null;
   now: () => number;
 }
 
 /**
  * Where a Codex TASK session's rollout lives, with a positive TTL cache and a miss backoff so the
- * Activity tab's 5s poll can't rescan `$CODEX_HOME` on every request. One instance per app (see
+ * Activity tab's 5s poll can't rewalk `$CODEX_HOME` on every request. One instance per app (see
  * `AppDeps.codexTranscripts`); pure process state, safe to lose on restart.
  *
- * NON-ISOLATED sessions always yield null: they run in the shared repo checkout, whose cwd is also
- * used by sibling sessions, relaunches and the operator's own `codex` runs, so no rollout can be
- * attributed to one row. `resolveCodexRestoreId` refuses restore for exactly this reason (#1175) —
- * showing another session's conversation would be worse than showing nothing.
+ * Resolves by `providerSessionId` alone, in either checkout mode: a native id names exactly one
+ * conversation, so there is nothing to mis-attribute. A session whose id isn't captured yet yields
+ * null — showing a guessed conversation would be worse than showing nothing.
  */
 export class CodexTranscriptLocator {
-  // Both maps are keyed by session id and hold two words per entry; they grow only with the number
-  // of distinct Codex sessions whose transcript was read since boot, so no eviction is warranted.
+  // Both maps are keyed by native id and hold two words per entry; they grow only with the number
+  // of distinct Codex conversations whose transcript was read since boot, so no eviction is warranted.
   private hits = new Map<string, { path: string; at: number }>();
   private misses = new Map<string, { nextAt: number; count: number }>();
 
   constructor(
-    private deps: CodexTranscriptLocatorDeps = { find: findCodexRollout, now: () => Date.now() },
+    private deps: CodexTranscriptLocatorDeps = {
+      find: (id) => findCodexRolloutById(id),
+      now: () => Date.now(),
+    },
   ) {}
 
   /** The session's rollout path, or null when it is unresolvable (or being backed off). */
-  pathFor(s: Pick<Session, "id" | "worktreePath" | "createdAt" | "isolated">): string | null {
-    if (!s.isolated) return null;
+  pathFor(s: Pick<Session, "providerSessionId">): string | null {
+    const id = s.providerSessionId;
+    if (!id) return null;
 
     const now = this.deps.now();
-    const hit = this.hits.get(s.id);
+    const hit = this.hits.get(id);
     if (hit) {
       if (now - hit.at < ROLLOUT_TTL_MS) return hit.path;
-      this.hits.delete(s.id); // expired → re-derive below (a restore may have moved the rollout)
+      this.hits.delete(id); // expired → re-derive below
     }
 
-    const miss = this.misses.get(s.id);
+    const miss = this.misses.get(id);
     if (miss && now < miss.nextAt) return null;
 
-    const found = this.deps.find(s.worktreePath, s.createdAt - CODEX_ID_SKEW_MS);
+    const found = this.deps.find(id);
     if (!found) {
       const count = (miss?.count ?? 0) + 1;
       const delay = Math.min(ROLLOUT_MISS_BASE_MS * 2 ** (count - 1), ROLLOUT_MISS_CAP_MS);
-      this.misses.set(s.id, { nextAt: now + delay, count });
+      this.misses.set(id, { nextAt: now + delay, count });
       return null;
     }
-    this.misses.delete(s.id);
-    this.hits.set(s.id, { path: found.path, at: now });
-    return found.path;
+    this.misses.delete(id);
+    this.hits.set(id, { path: found, at: now });
+    return found;
   }
 
-  /** Drop a session's cached resolution + backoff (tests; a caller that knows the rollout moved). */
-  reset(id: string): void {
-    this.hits.delete(id);
-    this.misses.delete(id);
+  /** Drop a conversation's cached resolution + backoff (tests; a caller that knows it moved). */
+  reset(providerSessionId: string): void {
+    this.hits.delete(providerSessionId);
+    this.misses.delete(providerSessionId);
   }
 }
 

@@ -26,8 +26,9 @@ export interface IntegratedEpicStatus {
   canRepairCi: boolean;
   repairKind: "conflicts" | "ci" | null;
   /** #2872: why a red landing is the operator's turn — automation exhausted, the agent repair is
-   *  off with Auto-Drain, or an agent repair already ran and CI is still red. Null off `ci-failed`. */
-  ciVariant: "exhausted" | "drain-off" | "after-repair" | null;
+   *  off with Auto-Drain, an agent repair already ran and CI is still red, or the forge supports
+   *  neither reruns nor agent repair (non-GitHub). Null off `ci-failed`. */
+  ciVariant: "exhausted" | "drain-off" | "after-repair" | "unsupported" | null;
   /** #2872: which automatic stage Shepherd is still on while `ci-retrying`; null otherwise. */
   ciRetrying: "reruns" | "repair" | null;
 }
@@ -67,7 +68,13 @@ function automationActing(a: LandingCiAutomation | undefined): boolean {
   return !!a && [a.reruns.status, a.repair.status].some((s) => s === "pending" || s === "running");
 }
 
+/** The server reruns and repairs landing CI on GitHub only (it refuses repair-ci elsewhere). */
+function forgeUnsupported(epic: CompletedEpic): boolean {
+  return epic.landingCiAutomation?.reruns.skipReason === "no-github";
+}
+
 function ciVariant(epic: CompletedEpic): IntegratedEpicStatus["ciVariant"] {
+  if (forgeUnsupported(epic)) return "unsupported";
   const repair = epic.landingCiAutomation?.repair;
   if (repair?.status === "done") return "after-repair";
   if (repair?.skipReason === "auto-drain-off") return "drain-off";
@@ -106,10 +113,12 @@ export function deriveIntegratedEpicStatus(
       epic.landingState === "open" &&
       !epic.landingRepairing &&
       (epic.landingRebasePauseReason === "conflict" || epic.landingMergeable === false),
-    // The server only repairs a terminally red PR — not one whose rerun is still in flight.
+    // The server only repairs a terminally red PR — not one whose rerun is still in flight — and
+    // only on GitHub.
     canRepairCi:
       (situation === "ci-failed" || situation === "ci-retrying") &&
-      epic.landingChecks === "failure",
+      epic.landingChecks === "failure" &&
+      !forgeUnsupported(epic),
     ciVariant: situation === "ci-failed" ? ciVariant(epic) : null,
     ciRetrying:
       situation !== "ci-retrying"

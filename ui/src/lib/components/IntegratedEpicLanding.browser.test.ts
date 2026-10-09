@@ -338,8 +338,8 @@ describe("#2872 red landing CI", () => {
       ciProps(
         red(
           automation(
-            { status: "skipped", skipReason: "no-github" },
-            { status: "skipped", skipReason: "no-github" },
+            { status: "skipped", skipReason: "draft-mode" },
+            { status: "skipped", skipReason: "draft-mode" },
           ),
         ),
       ),
@@ -347,7 +347,33 @@ describe("#2872 red landing CI", () => {
     await expect
       .element(page.getByText("Shepherd has tried everything automatic – now it's your turn."))
       .toBeInTheDocument();
+    expect(stage("reruns").textContent).toContain("skipped – Draft mode is on");
+  });
+
+  it("a non-GitHub forge: no repair button, View checks stays the primary action", async () => {
+    await render(
+      IntegratedEpicLanding,
+      ciProps(
+        red(
+          automation(
+            { status: "skipped", skipReason: "no-github" },
+            { status: "skipped", skipReason: "no-github" },
+          ),
+        ),
+      ),
+    );
+    await expect
+      .element(
+        page.getByText(
+          "At least one check is red. Fix it in the landing PR before the epic can land.",
+        ),
+      )
+      .toBeInTheDocument();
     expect(stage("reruns").textContent).toContain("skipped – GitHub only");
+    expect(button("Fix CI failures")).toBeUndefined();
+    const checks = document.querySelector<HTMLAnchorElement>('a[href$="/pull/55/checks"]')!;
+    expect(checks.classList.contains("primary")).toBe(true);
+    expect(document.querySelector(".repair-hint")).toBeNull();
   });
 
   it("a failed start is shown inline", async () => {

@@ -131,7 +131,9 @@
             ? m.integrated_epics_body_ci_after_repair()
             : status.ciVariant === "drain-off"
               ? m.integrated_epics_body_ci_drain_off()
-              : m.integrated_epics_body_ci_exhausted(),
+              : status.ciVariant === "unsupported"
+                ? m.integrated_epics_body_ci_failed()
+                : m.integrated_epics_body_ci_exhausted(),
         label: m.integrated_epics_status_ci_failed(),
         reason: m.integrated_epics_land_not_ready_ci_failing(),
       }),
@@ -337,10 +339,15 @@
             >{m.integrated_epics_view_checks()}</a
           >
         {/if}
-      {:else if status.situation === "ci-retrying" && checksUrl}
+      {:else if (status.situation === "ci-retrying" || status.situation === "ci-failed") && checksUrl}
+        <!-- No agent repair here (rerun in flight, or a non-GitHub forge): checks are the action. -->
         <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-        <a class="gbtn" href={checksUrl} target="_blank" rel="noopener noreferrer"
-          >{m.integrated_epics_view_checks()}</a
+        <a
+          class="gbtn"
+          class:primary={status.situation === "ci-failed"}
+          href={checksUrl}
+          target="_blank"
+          rel="noopener noreferrer">{m.integrated_epics_view_checks()}</a
         >
       {:else if status.situation === "repairing" && repairSessionId}
         <button class="gbtn" type="button" onclick={() => onopensession(repairSessionId)}

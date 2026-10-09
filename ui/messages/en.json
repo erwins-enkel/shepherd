@@ -5666,6 +5666,7 @@
   "integrated_epics_body_ci_retrying_repair": "The re-runs didn't fix it. Nothing for you to do yet.",
   "integrated_epics_status_ci_retrying": "Shepherd retrying",
   "integrated_epics_body_ci_exhausted": "Shepherd has tried everything automatic – now it's your turn.",
+  "integrated_epics_body_ci_failed": "At least one check is red. Fix it in the landing PR before the epic can land.",
   "integrated_epics_body_ci_drain_off": "Shepherd won't start an agent here on its own – it's your call.",
   "integrated_epics_heading_ci_after_repair": "CI is still red after the repair",
   "integrated_epics_body_ci_after_repair": "The agent pushed a fix, but a check is still red. See what it tried, or start a new attempt.",

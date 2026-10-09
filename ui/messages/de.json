@@ -5666,6 +5666,7 @@
   "integrated_epics_body_ci_retrying_repair": "Die Neustarts haben nicht gereicht. Du musst noch nichts tun.",
   "integrated_epics_status_ci_retrying": "Shepherd versucht es",
   "integrated_epics_body_ci_exhausted": "Shepherd hat alles Automatische versucht – jetzt bist du dran.",
+  "integrated_epics_body_ci_failed": "Mindestens ein Check ist rot. Behebe das im Landing-PR – erst dann lässt sich das Epic landen.",
   "integrated_epics_body_ci_drain_off": "Shepherd startet hier keinen Agenten von selbst – du entscheidest.",
   "integrated_epics_heading_ci_after_repair": "CI ist nach der Reparatur weiter rot",
   "integrated_epics_body_ci_after_repair": "Der Agent hat einen Fix gepusht, aber ein Check ist noch rot. Sieh nach, was er versucht hat, oder starte einen neuen Versuch.",

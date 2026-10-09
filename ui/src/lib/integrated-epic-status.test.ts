@@ -109,8 +109,8 @@ describe("deriveIntegratedEpicStatus", () => {
       [automation({}, { status: "done", used: 1 }), "after-repair"],
       [
         automation(
-          { status: "skipped", skipReason: "no-github" },
-          { status: "skipped", skipReason: "no-github" },
+          { status: "skipped", skipReason: "draft-mode" },
+          { status: "skipped", skipReason: "draft-mode" },
         ),
         "exhausted",
       ],
@@ -121,6 +121,18 @@ describe("deriveIntegratedEpicStatus", () => {
         turn: "your-turn",
         canRepairCi: true,
         ciVariant,
+      });
+    });
+
+    it("a non-GitHub forge → ci-failed without the repair button (the server refuses it there)", () => {
+      const a = automation(
+        { status: "skipped", skipReason: "no-github" },
+        { status: "skipped", skipReason: "no-github" },
+      );
+      expect(deriveIntegratedEpicStatus(red(a))).toMatchObject({
+        situation: "ci-failed",
+        canRepairCi: false,
+        ciVariant: "unsupported",
       });
     });
   });

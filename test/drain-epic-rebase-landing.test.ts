@@ -295,9 +295,12 @@ const row = (h: Harness) => h.store.listEpicCompleted(REPO)[0]!;
 /** Invoke the private rebase pass directly so prStatus call counts are isolated to it
  *  (tick() also runs autoLandLandingPrsForRepo, which reads prStatus). */
 function callRebasePass(h: Harness): Promise<void> {
-  return (
-    h.drain as unknown as { rebaseStuckLandingPrsForRepo: (repoPath: string) => Promise<void> }
-  ).rebaseStuckLandingPrsForRepo(REPO);
+  const drain = h.drain as unknown as {
+    landingPrs: { beginTick(): void };
+    rebaseStuckLandingPrsForRepo: (repoPath: string) => Promise<void>;
+  };
+  drain.landingPrs.beginTick(); // each call stands for its own drain tick (#2873)
+  return drain.rebaseStuckLandingPrsForRepo(REPO);
 }
 
 describe("rebaseStuckLandingPrsForRepo (#1071)", () => {

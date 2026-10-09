@@ -6,6 +6,8 @@
 import { test, expect } from "bun:test";
 import { OpenPrSnapshotService, SNAPSHOT_TTL_MS } from "../src/open-pr-snapshot";
 import { graphRateLimit } from "../src/forge/rate-limit";
+import { GithubReadCache } from "../src/github-read-cache";
+import { SessionStore } from "../src/store";
 import type { GitForge, OpenPrSnapshot, PrStatus } from "../src/forge/types";
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -437,4 +439,58 @@ test("invalidate: no-op for incapable forges (null slug / no listOpenPrSnapshot)
   expect(() => svc.invalidate(noMethod)).not.toThrow();
   expect(nullSlug.calls).toBe(0);
   expect(noMethod.calls).toBe(0);
+});
+
+test("peekCurrent: the cached snapshot with its fetch time, never fetching", async () => {
+  let now = 1_000;
+  const svc = new OpenPrSnapshotService(() => now);
+  const forge = makeForge();
+
+  expect(svc.peekCurrent(forge)).toBeNull(); // nothing cached yet
+  const snap = await svc.get(forge);
+  now = 5_000;
+  expect(svc.peekCurrent(forge)).toEqual({ at: 1_000, value: snap! });
+  expect(forge.calls).toBe(1);
+});
+
+test("peekCurrent: without a fingerprint, an entry past SNAPSHOT_TTL_MS is not current", async () => {
+  let now = 0;
+  const svc = new OpenPrSnapshotService(() => now);
+  const forge = makeForge();
+  await svc.get(forge);
+  now = SNAPSHOT_TTL_MS - 1;
+  expect(svc.peekCurrent(forge)).not.toBeNull();
+  now = SNAPSHOT_TTL_MS;
+  expect(svc.peekCurrent(forge)).toBeNull();
+  expect(svc.peek(forge)).not.toBeNull(); // peek still serves it
+  expect(forge.calls).toBe(1);
+});
+
+test("peekCurrent: with a fingerprint, current until the PR key moves — whatever the age", async () => {
+  let now = 0;
+  const cache = new GithubReadCache(new SessionStore(":memory:"), { now: () => now });
+  const fingerprint = (prsUpdatedAt: string) =>
+    cache.put("fingerprint", "org/repo", null, {
+      openIssues: 0,
+      issuesUpdatedAt: "",
+      openPrs: 1,
+      prsUpdatedAt,
+      ciState: "",
+    });
+  fingerprint("t1");
+  const svc = new OpenPrSnapshotService(() => now, 6, cache);
+  const forge = makeForge();
+  await svc.get(forge);
+
+  now = 60 * 60_000; // far past SNAPSHOT_TTL_MS
+  expect(svc.peekCurrent(forge)?.at).toBe(0);
+  fingerprint("t2");
+  expect(svc.peekCurrent(forge)).toBeNull();
+  expect(forge.calls).toBe(1);
+});
+
+test("peekCurrent: null for incapable forges", () => {
+  const svc = new OpenPrSnapshotService();
+  expect(svc.peekCurrent(makeForge(null))).toBeNull();
+  expect(svc.peekCurrent(makeForge("org/repo", { noSnapshot: true }))).toBeNull();
 });

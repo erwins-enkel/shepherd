@@ -77,6 +77,8 @@ import {
 import { readEpicStructureByParts } from "./forge/epic-structure";
 import { config } from "./config";
 import { rebaseLandingBranch, isUnionDriverRegistered } from "./landing-rebase";
+import { LandingPrReads } from "./landing-pr-reads";
+import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import type { NotifyInput } from "./push";
 
 /** #645 (c): re-scan the host for stray `epic/*` branches at most this often per epic. The
@@ -361,6 +363,13 @@ export interface DrainDeps {
    *  composition — skip their GitHub work instead of spawning `gh` into another 403. Absent → never
    *  blocked. */
   restWritesBlocked?: () => boolean;
+  /** #2873: the repo's PR fingerprint key (→ the pr-poller's repoFreshness), or null without
+   *  fingerprint coverage. While it holds, a settled landing PR is not re-read. Absent → no reuse
+   *  across ticks (still one read per tick). */
+  prFreshness?: (repoPath: string) => string | null;
+  /** #2873: the shared open-PR snapshot; a current one may answer a settled landing PR's read.
+   *  Absent → per-head reads only. */
+  openPrSnapshot?: Pick<OpenPrSnapshotService, "peekCurrent">;
 }
 
 /** A forge that implements the whole stacked-PR surface (#2068). `unstack` is part of it because
@@ -495,11 +504,23 @@ export class DrainService {
   private rebaseLandingBranch: typeof rebaseLandingBranch;
   /** #1071: injectable seam; defaults to the real isUnionDriverRegistered import. */
   private isDriverRegistered: (repoPath: string) => Promise<boolean>;
+  /** #2873: the landing passes' shared landing-PR read (one per tick; settled PRs left alone). */
+  private readonly landingPrs: LandingPrReads;
 
   constructor(private deps: DrainDeps) {
     this.now = deps.now ?? Date.now;
     this.issuesTtlMs = deps.issuesTtlMs ?? 10_000;
-    this.rebaseLandingBranch = deps.rebaseLandingBranch ?? rebaseLandingBranch;
+    this.landingPrs = new LandingPrReads({
+      now: this.now,
+      freshness: deps.prFreshness,
+      snapshot: deps.openPrSnapshot,
+    });
+    // Every rebase may force-push the integration branch → its landing PR must be read afresh.
+    const rebase = deps.rebaseLandingBranch ?? rebaseLandingBranch;
+    this.rebaseLandingBranch = (repoPath, branch, defaultBranch, rebaseDeps) =>
+      rebase(repoPath, branch, defaultBranch, rebaseDeps).finally(() =>
+        this.landingPrs.invalidate(repoPath, branch),
+      );
     this.isDriverRegistered = deps.isDriverRegistered ?? isUnionDriverRegistered;
   }
 
@@ -2297,7 +2318,7 @@ export class DrainService {
         // 7. Idempotency: prStatus reads `--state all`, so a prior open/merged/CLOSED draft on
         //    this head all early-return here. A closed draft is NOT re-opened mid-run (respect
         //    the operator's close; re-open-at-completion is Task 3, not here).
-        const existing = await forge.prStatus(branch);
+        const existing = await this.landingPrs.read(repoPath, forge, branch);
         if (existing.state !== "none") return;
 
         // 8. buildEpic returns null for a repo with no epic structure — guard before use.
@@ -2372,8 +2393,8 @@ export class DrainService {
     const branch = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
     if (branch === null) return;
 
-    // c. Check current PR state.
-    const pr = await forge.prStatus(branch);
+    // c. Check current PR state (#2873: shared with the other landing passes of this tick).
+    const pr = await this.landingPrs.read(repoPath, forge, branch);
     if (pr.state !== "open") return;
 
     // d. Compute stuck flags.
@@ -2675,7 +2696,7 @@ export class DrainService {
     // A live repair session owns this branch: don't rerun CI on the commits it is pushing, and don't
     // dispatch a second repair session. (Also fences rebase/auto-land — see those passes.)
     if (this.hasLiveRepairSession(repoPath, branch)) return;
-    const pr = await forge.prStatus(branch);
+    const pr = await this.landingPrs.read(repoPath, forge, branch);
     if (pr.state !== "open" || pr.isDraft) return;
     // Only a TERMINAL failure on an otherwise-mergeable, not-behind PR. behind/conflicting → the rebase
     // pass; pending/none/success → nothing to rerun.
@@ -2707,7 +2728,10 @@ export class DrainService {
       await this.maybeDispatchLandingRepair(repoPath, parent, prNumber, pr, branch, row);
       return;
     }
-    await rerunWorkflowRun(runId, { failedOnly: true });
+    // The re-run sets the checks pending without moving the PR fingerprint: read afresh next tick.
+    await rerunWorkflowRun(runId, { failedOnly: true }).finally(() =>
+      this.landingPrs.invalidate(repoPath, branch),
+    );
     this.deps.store.setEpicLandingRerun(repoPath, parent, {
       head,
       count: used + 1,
@@ -2869,6 +2893,8 @@ export class DrainService {
         landingRepair: true,
       });
       this.repairSpawnCooldown.delete(cooldownKey);
+      // The session will push to the branch: once it lets go, read the landing PR afresh.
+      this.landingPrs.invalidate(repoPath, input.branch);
     } catch (err) {
       // Refusal (hold/egress/transient): back off; the caller does NOT burn its lifetime attempt.
       this.repairSpawnCooldown.set(cooldownKey, this.now());
@@ -3194,7 +3220,7 @@ export class DrainService {
     if (this.hasLiveRepairSession(repoPath, branch)) return;
     let pr: PrStatus;
     try {
-      pr = await forge.prStatus(branch);
+      pr = await this.landingPrs.read(repoPath, forge, branch);
     } catch (err) {
       console.warn(`[drain] auto-land prStatus failed for ${repoPath}#${parentIssueNumber}:`, err);
       return; // fail-closed
@@ -3217,6 +3243,9 @@ export class DrainService {
     } catch (err) {
       await this.handleAutoLandMergeError(forge, repoPath, parentIssueNumber, branch, key, pr, err);
       return;
+    } finally {
+      // Merged or not, the attempt may have moved the PR: read it afresh next tick.
+      this.landingPrs.invalidate(repoPath, branch);
     }
     this.landMergeFail.delete(key); // success clears any backoff
     this.reconcileAutoLand(repoPath, parentIssueNumber, "merged", pr);
@@ -4222,6 +4251,7 @@ export class DrainService {
 
   /** Periodic sweep (~30s): catches newly-labeled issues + resumed usage windows. */
   async tick(): Promise<void> {
+    this.landingPrs.beginTick();
     const epicChildRepos = this.reposWithEpicChildInFlight();
     for (const repoPath of this.deps.repos()) {
       // #1401: backfill missed epic-integration rows BEFORE the pump so a stalled epic
@@ -4234,8 +4264,9 @@ export class DrainService {
       }
       // #1664: pre-warm the epic landing PR as an early draft (opt-in). Placed AFTER reconcile so a
       // child integrated earlier this tick is already in listEpicIntegratedDetails. Flag-gated +
-      // running-only + GitHub-only; ~1 prStatus/tick per running flagged epic while the draft is
-      // open (NOT zero — unlike the completed-row passes). UNGATED by drain, like its neighbors.
+      // running-only + GitHub-only; its draft read is the landing passes' shared one (#2873), so a
+      // settled open draft is re-read only when the PR fingerprint moves or every 15 min, a draft
+      // with running CI once per tick. UNGATED by drain, like its neighbors.
       // #2069: link child PRs into the epic's stack. Placed AFTER reconcile (so a child integrated
       // earlier this tick is already out of the live set) and BEFORE the pump, so a stack composed
       // now is visible to this tick's spawn decisions. Flag-gated + running-only + throttled →

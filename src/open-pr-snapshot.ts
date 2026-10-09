@@ -82,6 +82,17 @@ export class OpenPrSnapshotService {
     return entry.value;
   }
 
+  /**
+   * Cache-only: the cached snapshot and when it was fetched, but only while {@link isCurrent}
+   * holds for it (same PR fingerprint, or inside SNAPSHOT_TTL_MS without one). Never fetches.
+   */
+  peekCurrent(forge: GitForge): { at: number; value: OpenPrSnapshot } | null {
+    if (!this.isCapable(forge)) return null;
+    const entry = this.entry(forge);
+    if (!entry || !this.isCurrent(forge, entry.value)) return null;
+    return { at: entry.at, value: entry.value };
+  }
+
   /** A preserved or superseded fetch must not certify session state under a newer key. */
   isCurrent(forge: GitForge, snapshot: OpenPrSnapshot): boolean {
     const entry = this.entry(forge);

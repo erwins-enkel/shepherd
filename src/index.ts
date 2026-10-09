@@ -1637,6 +1637,14 @@ function autonomousWorkInFlight(): boolean {
 const warm = (): boolean => presence.hasClients() || autonomousWorkInFlight();
 
 const openPrSnapshot = new OpenPrSnapshotService(undefined, undefined, githubReadCache);
+// A repo's PR fingerprint key (+ own-write revision), or null without fingerprint coverage. The
+// pr-poller and the drain's landing-PR reads (#2873) re-read a settled PR only when it moves.
+const prFreshness = (path: string): string | null => {
+  const forge = resolveForge(path);
+  if (forge?.kind !== "github" || !forge.slug) return null;
+  const key = githubReadCache.contentKey("prs", forge.slug);
+  return key === null ? null : `${key}|${githubReadCache.revision(forge.slug)}`;
+};
 const prPoller = new PrPoller(
   store,
   resolveForge,
@@ -1655,12 +1663,7 @@ const prPoller = new PrPoller(
   undefined, // batchOpenRatio (default)
   undefined, // noneRecheckMs (default)
   openPrSnapshot, // shared per-repo open-PR snapshot cache (PRs tab reuses the poller's fetch)
-  (path) => {
-    const forge = resolveForge(path);
-    if (forge?.kind !== "github" || !forge.slug) return null;
-    const key = githubReadCache.contentKey("prs", forge.slug);
-    return key === null ? null : `${key}|${githubReadCache.revision(forge.slug)}`;
-  },
+  prFreshness,
   githubReadCache,
 );
 deferredStarts.push(() => {
@@ -2726,6 +2729,10 @@ const drain = new DrainService({
   notify: (input) => push.notify(input),
   // #2805: periodic REST writes (landing CI re-run, stack composition) skip during a write backoff.
   restWritesBlocked: () => restWriteRateLimit.blocked(),
+  // #2873: a settled landing PR is re-read only when the PR fingerprint moves (or every 15 min);
+  // a current open-PR snapshot can answer it without a per-head lookup.
+  prFreshness,
+  openPrSnapshot,
 });
 
 // Drive the drain's archived/review handling off the poller events. `session:git`/`session:status`

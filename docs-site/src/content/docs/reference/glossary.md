@@ -157,8 +157,8 @@ units, not raw token counts, reflect true usage.
 
 ### Cold cache
 
-A session's prompt cache expires after a stretch of inactivity — one hour on a
-Claude subscription, five minutes on an API key. Once it has, the next turn
+A session's prompt cache expires after an hour without activity — five minutes
+while a Claude subscription is drawing on usage credits. Once it has, the next turn
 re-sends the whole conversation at the cache-write rate instead of reading it
 back cheaply, which makes that single turn many times more expensive than the
 turns around it. A parked session that has gone cold carries a warn chip in The

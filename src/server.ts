@@ -252,7 +252,10 @@ import {
   anyLiveRepairSession,
   computeLandingReady,
   enrichLandingEpics,
+  findLiveRepairSession,
   type CompletedEpic,
+  type LandingAutomationContext,
+  type LandingAutomationRow,
 } from "./completed-epic";
 import {
   completedEpicScopeRepos,
@@ -9051,6 +9054,28 @@ function landingPrStatus(deps: AppDeps, repoPath: string, branch: string): Promi
   return value;
 }
 
+/** #2872: the drain's landing-automation gate inputs for one repo + the session lookups the repair
+ *  stage needs — fed to enrichLandingEpics so the card's stages mirror what the drain will do. */
+function landingAutomationContext(
+  deps: AppDeps,
+  repoPath: string,
+  integrationBranch: string,
+  now: number,
+): LandingAutomationContext {
+  const cfg = deps.store.getRepoConfig(repoPath);
+  return {
+    draftMode: cfg.draftMode,
+    autoMergeEnabled: cfg.autoMergeEnabled,
+    autoDrainEnabled: cfg.autoDrainEnabled,
+    epicRunning: deps.store.getEpicRun(repoPath)?.status === "running",
+    liveRepair: findLiveRepairSession(deps.store.list(), repoPath, integrationBranch, now),
+    sessionVisible: (id) => {
+      const s = deps.store.get(id);
+      return s !== null && s.status !== "archived";
+    },
+  };
+}
+
 // GET /api/epics/completed[?repo=] — durable completed-epics band. Primarily pure-DB; for a repo
 // no fingerprint covers it also runs a bounded, best-effort, fail-safe reconcile (auto-dismiss
 // confidently-closed parents + backfill an all-merged idle run that never got recorded). Always
@@ -9086,7 +9111,8 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
   // Re-query post-reconcile so the response reflects dismiss + backfill.
   const dbRows = deps.store.listEpicCompleted(repoFilter);
   const baseRows: Array<
-    CompletedEpic & { repoPath: string; parentIssueNumber: number; completedAt: number }
+    CompletedEpic &
+      LandingAutomationRow & { repoPath: string; parentIssueNumber: number; completedAt: number }
   > = dbRows.map((row) => {
     // landingAttempts, landingRebaseCount, landingRebaseDriverMisses are internal counters,
     // not part of the CompletedEpic response. landingRebasePauseReason is API-facing and passes through.
@@ -9119,10 +9145,28 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
     hasLiveRepairSession: (repoPath, integrationBranch) =>
       anyLiveRepairSession(deps.store.list(), repoPath, integrationBranch, nowMs),
     prStatus: (repoPath, branch) => landingPrStatus(deps, repoPath, branch),
+    automation: (repoPath, integrationBranch) =>
+      landingAutomationContext(deps, repoPath, integrationBranch, nowMs),
     now: nowMs,
   });
 
-  return json(baseRows);
+  // #2872: the raw automation counters are folded into landingCiAutomation — not part of the response.
+  return json(
+    baseRows.map((row) => {
+      const {
+        landingRerunHead,
+        landingRerunCount,
+        landingRerunUnavailable,
+        landingRepairSessionId,
+        ...rest
+      } = row;
+      void landingRerunHead;
+      void landingRerunCount;
+      void landingRerunUnavailable;
+      void landingRepairSessionId;
+      return rest;
+    }),
+  );
 }
 
 // POST /api/epics/completed/dismiss — body { repo, parent }. Dismiss one completed epic + emit.

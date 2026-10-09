@@ -113,6 +113,38 @@ describe("EpicFlowGraph", () => {
     expect(page.getByRole("button", { name: /^#\d+/ }).all()).toHaveLength(7);
   });
 
+  // The reading view gives the graph a full row (#2950): wide or stacked is a property of the
+  // width it is given, not of the window.
+  it("goes by its own width: the diagram from 480px up, the list below, whatever the window", async () => {
+    render(EpicFlowGraph, { epic: epic(EXAMPLE) });
+    const host = document.querySelector<HTMLElement>(".flow")!.parentElement!;
+
+    host.style.width = "520px";
+    await expect.poll(() => document.querySelector(".canvas")).not.toBeNull();
+    expect(document.querySelector(".stage-list")).toBeNull();
+
+    host.style.width = "440px";
+    await expect.poll(() => document.querySelector(".stage-list")).not.toBeNull();
+    expect(document.querySelector(".canvas")).toBeNull();
+
+    host.style.width = "";
+    await expect.poll(() => document.querySelector(".canvas")).not.toBeNull();
+  });
+
+  it("stretches up to four stages over the width it is given", async () => {
+    render(EpicFlowGraph, { epic: epic(EXAMPLE) });
+    const host = document.querySelector<HTMLElement>(".flow")!.parentElement!;
+    host.style.width = "960px";
+
+    const canvas = () => document.querySelector<HTMLElement>(".canvas")!;
+    const scroll = () => document.querySelector<HTMLElement>(".scroll")!;
+    // Settles once the measured 960px replaces the window's width.
+    await expect
+      .poll(() => scroll().clientWidth <= 960 && scroll().scrollWidth <= scroll().clientWidth)
+      .toBe(true);
+    expect(canvas().offsetWidth).toBeGreaterThan(800);
+  });
+
   it("omits the slot hint when no stage has two open children", async () => {
     const chain = [child(1, [], "merged"), child(2, [1], "ready"), child(3, [2], "blocked")];
     render(EpicFlowGraph, { epic: epic(chain) });

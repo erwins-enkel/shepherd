@@ -32,6 +32,11 @@
   //                   description;
   //  - epic child   → head (← Epic #n), its run area (#2622: standing / session / merged),
   //                   then the description.
+  // Wide enough (WIDE_FROM), a single issue and an epic use the width (#2950): text on the left
+  // (the description, ≤ 760px), controls on the right (Aufgabe / Abarbeitung + time, 300–340px);
+  // an epic's flow graph spans the full row above them. Narrower, everything stacks in the order
+  // listed above. The width is measured, not queried (`container-type` would re-anchor the
+  // `position: fixed` menus and dialogs inside EpicRunControl to the container).
   let {
     repoPath,
     selection,
@@ -92,6 +97,11 @@
   } = $props();
 
   let showDiag = $state(false);
+
+  /** The reading view's width from which text and controls sit side by side. */
+  const WIDE_FROM = 760;
+  let viewWidth = $state(0);
+  const wide = $derived(viewWidth >= WIDE_FROM && selection.kind !== "child");
 
   // The epic's clocks tick each second while it can still move: until it landed. A landed one
   // still reads the current time once per record, for its dates.
@@ -178,73 +188,85 @@
   );
 </script>
 
-<article class="issue-detail" aria-label={head.title}>
+<article class="issue-detail" aria-label={head.title} bind:clientWidth={viewWidth}>
   <IssueDetailHead {...head} {assign} {othersFlag} {menu} {role} {position} />
 
-  {#if selection.kind === "single"}
-    <IssueTaskBox
-      {repoPath}
-      issue={selection.issue}
-      session={issueSession?.(selection.issue.number) ?? null}
-      defaults={taskDefaults}
-      bind:run
-      {issueActions}
-      onstart={() => onstart(selection.issue)}
-      onquick={onquick ? (a) => onquick(selection.issue, a) : undefined}
-      {onopensession}
-    />
-  {:else if selection.kind === "epic"}
-    <!-- A direct child of the article, so it stays pinned across the child list AND the
-         description (a sticky box only sticks within its parent). -->
-    {#if epic}
-      <EpicRunControl
-        {repoPath}
-        parent={selection.issue.number}
-        {epic}
-        {drain}
-        {othersFlag}
-        {titleFor}
-        {epicSummaryFor}
-        {onselectepic}
-        {onopensession}
-        {onopenautomation}
-      />
-    {/if}
-    {#if epic}
-      <EpicTimingDetail {epic} {nowMs} slots={drain?.max ?? null} {onopenautomation} />
-    {/if}
-    {#if epic}<EpicFlowGraph {epic} {sessionInfo} onselect={selectFlowChild} />{/if}
-    <div class="epic-host" data-epic-panel>
-      {#if epic}
-        <EpicPanel
+  <div class="detail-body" class:wide class:has-flow={selection.kind === "epic" && epic}>
+    {#if selection.kind === "single"}
+      <div class="aside">
+        <IssueTaskBox
+          {repoPath}
+          issue={selection.issue}
+          session={issueSession?.(selection.issue.number) ?? null}
+          defaults={taskDefaults}
+          bind:run
+          {issueActions}
+          onstart={() => onstart(selection.issue)}
+          onquick={onquick ? (a) => onquick(selection.issue, a) : undefined}
+          {onopensession}
+        />
+      </div>
+    {:else if selection.kind === "epic" && epic}
+      <!-- The run area stays pinned (sticky) across the child list AND the description: a sticky
+           box only sticks within its parent, so this wrapper is the full height of the row
+           (wide) or dissolves into the body (stacked). -->
+      <div class="aside">
+        <EpicRunControl
           {repoPath}
           parent={selection.issue.number}
           {epic}
-          runSummary={drain?.runSummary ?? null}
-          headActions={false}
-          {nowMs}
+          {drain}
+          {othersFlag}
+          {titleFor}
+          {epicSummaryFor}
+          {onselectepic}
+          {onopensession}
+          {onopenautomation}
         />
-      {:else}
-        <div class="muted">{m.common_loading()}</div>
-      {/if}
-    </div>
-  {:else if selection.kind === "child" && epic}
-    {@const parent = selection.parent}
-    {@const child = selection.child}
-    <EpicChildRun
-      {child}
-      {epic}
-      {drain}
-      {live}
-      {titleFor}
-      onstartanyway={onstartchild ? () => onstartchild(parent, child.number) : undefined}
-      onselectepic={onselectepic ? () => onselectepic(parent) : undefined}
-      onselectchild={onselectchild ? (n) => onselectchild(parent, n) : undefined}
-      {onopensession}
-    />
-  {/if}
+        <EpicTimingDetail {epic} {nowMs} slots={drain?.max ?? null} {onopenautomation} />
+      </div>
+      <div class="flow-row">
+        <EpicFlowGraph {epic} {sessionInfo} onselect={selectFlowChild} />
+      </div>
+    {/if}
 
-  <MarkdownBody source={selection.kind === "child" ? selection.child.body : selection.issue.body} />
+    <div class="main">
+      {#if selection.kind === "epic"}
+        <div class="epic-host" data-epic-panel>
+          {#if epic}
+            <EpicPanel
+              {repoPath}
+              parent={selection.issue.number}
+              {epic}
+              runSummary={drain?.runSummary ?? null}
+              headActions={false}
+              {nowMs}
+            />
+          {:else}
+            <div class="muted">{m.common_loading()}</div>
+          {/if}
+        </div>
+      {:else if selection.kind === "child" && epic}
+        {@const parent = selection.parent}
+        {@const child = selection.child}
+        <EpicChildRun
+          {child}
+          {epic}
+          {drain}
+          {live}
+          {titleFor}
+          onstartanyway={onstartchild ? () => onstartchild(parent, child.number) : undefined}
+          onselectepic={onselectepic ? () => onselectepic(parent) : undefined}
+          onselectchild={onselectchild ? (n) => onselectchild(parent, n) : undefined}
+          {onopensession}
+        />
+      {/if}
+
+      <MarkdownBody
+        source={selection.kind === "child" ? selection.child.body : selection.issue.body}
+      />
+    </div>
+  </div>
 </article>
 
 {#if showDiag}
@@ -258,6 +280,57 @@
     gap: 14px;
     min-width: 0;
     padding: 14px 18px 24px;
+  }
+
+  .detail-body {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+  }
+  .main {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
+  }
+  /* Stacked: the wrapper dissolves, so its boxes are items of the body column. */
+  .aside {
+    display: contents;
+  }
+
+  /* Wide: text left (≤ 760px), controls right (300–340px); the third track soaks up the rest, so
+     the flow graph's full-row span is the whole reading width. */
+  .detail-body.wide {
+    display: grid;
+    grid-template-columns: minmax(0, 760px) minmax(300px, 340px) minmax(0, 1fr);
+    align-items: start;
+    gap: 14px 0;
+  }
+  .wide .main {
+    grid-column: 1;
+    grid-row: 1;
+    padding-right: 24px;
+  }
+  .wide .aside {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+  }
+  .wide.has-flow .flow-row {
+    grid-column: 1 / -1;
+    grid-row: 1;
+  }
+  .wide.has-flow .main,
+  .wide.has-flow .aside {
+    grid-row: 2;
+  }
+  /* The run area pins beside the description: its wrapper is as tall as the row. */
+  .wide.has-flow .aside {
+    align-self: stretch;
   }
 
   /* EpicPanel draws its own panel ground; the host adds the hairline frame. */

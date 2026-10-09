@@ -1,3 +1,5 @@
+import adapter from "@sveltejs/adapter-static";
+import { vitePreprocess } from "@sveltejs/vite-plugin-svelte";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -48,6 +50,10 @@ function releaseDates(): Record<string, string> {
 
 const backendPort = process.env.SHEPHERD_PORT ?? 7330;
 
+// Demo builds (SHEPHERD_DEMO=1) write to a separate output dir so `build:demo`
+// can never clobber the prod `build/` bundle.
+const outDir = process.env.SHEPHERD_DEMO === "1" ? "build-demo" : "build";
+
 export default defineConfig({
   define: {
     __GIT_SHA__: JSON.stringify(gitSha()),
@@ -62,7 +68,10 @@ export default defineConfig({
       strategy: ["localStorage", "preferredLanguage", "baseLocale"],
     }),
     tailwindcss(),
-    sveltekit(),
+    sveltekit({
+      preprocess: vitePreprocess(),
+      adapter: adapter({ pages: outDir, assets: outDir, fallback: "index.html" }),
+    }),
   ],
   server: {
     port: 5174,

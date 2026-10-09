@@ -61,7 +61,7 @@ export class CountsService {
   private readonly resolveForgeCached: (repoPath: string) => GitForge | null;
   /** TTL read-through cache: repoPath → {at, value}. */
   private readonly cache = new Map<string, CacheEntry>();
-  /** Single-flight: repoPath → in-flight Promise. */
+  /** Single-flight: forge slug (or repoPath when none) → in-flight Promise. */
   private readonly inflight = new Map<string, Promise<RepoCounts>>();
   /** Bounds simultaneous fetches across both the request path and the warmer. */
   private readonly gate: Semaphore;
@@ -132,7 +132,7 @@ export class CountsService {
 
   private entry(repoPath: string): CacheEntry | null {
     const slug = this.githubSlug(repoPath);
-    const entry = this.cache.get(repoPath);
+    const entry = this.cache.get(slug ?? repoPath);
     if (slug && this.readCache) {
       if (
         entry?.negative &&
@@ -174,13 +174,15 @@ export class CountsService {
 
   private load(repoPath: string, preserveOnError = false): Promise<RepoCounts> {
     const slug = this.githubSlug(repoPath);
+    // Two local clones of one GitHub repo share one fetch: key by slug, fall back to path.
+    const key = slug ?? repoPath;
     const revision = slug ? this.readCache?.revision(slug) : undefined;
     if (slug) {
-      if (revision !== this.revisions.get(repoPath)) this.inflight.delete(repoPath);
-      this.revisions.set(repoPath, revision ?? 0);
+      if (revision !== this.revisions.get(key)) this.inflight.delete(key);
+      this.revisions.set(key, revision ?? 0);
     }
     const fpKey = slug ? (this.readCache?.contentKey("counts", slug) ?? null) : null;
-    const existing = this.inflight.get(repoPath);
+    const existing = this.inflight.get(key);
     if (existing) return existing;
 
     const promise = this.gate
@@ -188,25 +190,25 @@ export class CountsService {
       .then(
         (v) => {
           if (
-            this.inflight.get(repoPath) === promise &&
+            this.inflight.get(key) === promise &&
             (!slug || revision === this.readCache?.revision(slug))
           ) {
-            this.cache.set(repoPath, { at: this.now(), value: v, contentKey: fpKey });
+            this.cache.set(key, { at: this.now(), value: v, contentKey: fpKey });
             if (slug) this.readCache?.put("counts", slug, fpKey, v);
-            this.inflight.delete(repoPath);
+            this.inflight.delete(key);
           }
           return v;
         },
         () => {
           const current =
-            this.inflight.get(repoPath) === promise &&
+            this.inflight.get(key) === promise &&
             (!slug || revision === this.readCache?.revision(slug));
-          if (this.inflight.get(repoPath) === promise) this.inflight.delete(repoPath);
+          if (this.inflight.get(key) === promise) this.inflight.delete(key);
           const prev = this.entry(repoPath);
           if (preserveOnError && prev && !slug) return prev.value;
           const value = preserveOnError && prev ? prev.value : NULL_COUNTS;
           if (current)
-            this.cache.set(repoPath, {
+            this.cache.set(key, {
               at: this.now(),
               value,
               contentKey: fpKey,
@@ -215,7 +217,7 @@ export class CountsService {
           return value;
         },
       );
-    this.inflight.set(repoPath, promise);
+    this.inflight.set(key, promise);
     return promise;
   }
 

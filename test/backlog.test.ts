@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { CountsService } from "../src/backlog";
+import { GithubReadCache, type GithubCacheStore } from "../src/github-read-cache";
 import type { GhRunner } from "../src/forge/github";
 import type { ForgeMap } from "../src/forge/types";
 
@@ -621,5 +622,37 @@ test("CountsService: null forge re-resolves after origin is added past the TTL (
   const after = await svc.refresh(repoDir);
   expect(after.openIssues).toBe(12);
   expect(after.openPRs).toBe(2);
+  expect(calls.filter((c) => c.includes("graphql")).length).toBe(1);
+});
+
+// Two local clones of one GitHub repo → one fetch (single-flight keyed by slug, #2879)
+test("CountsService: two clones of one slug share one in-flight fetch", async () => {
+  const a = gitInit(join(tmpBase, "clone-a"), "https://github.com/o/shared");
+  const b = gitInit(join(tmpBase, "clone-b"), "https://github.com/o/shared");
+  const rows: never[] = [];
+  const store = {
+    listGithubReadCache: () => rows,
+    putGithubReadCache: () => {},
+    deleteGithubReadCache: () => {},
+  } as unknown as GithubCacheStore;
+  const calls: string[][] = [];
+  const run: GhRunner = async (args) => {
+    calls.push(args);
+    return JSON.stringify({
+      data: { repository: { issues: { totalCount: 4 }, pullRequests: { totalCount: 1 } } },
+    });
+  };
+  const svc = new CountsService(
+    {},
+    run,
+    fetch,
+    6,
+    undefined,
+    undefined,
+    new GithubReadCache(store),
+  );
+  const [r1, r2] = await Promise.all([svc.refresh(a), svc.refresh(b)]);
+  expect(r1.openIssues).toBe(4);
+  expect(r2.openIssues).toBe(4);
   expect(calls.filter((c) => c.includes("graphql")).length).toBe(1);
 });

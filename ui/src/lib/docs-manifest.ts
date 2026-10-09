@@ -27,7 +27,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Hands-off epics",
     path: "/hands-off-epics/",
     keywords:
-      'the automation-pane settings that let an epic drain end-to-end without operator intervention, and the blockers that will still legitimately stop it. recommended settings plan gate is hands-off-safe — keep it on sign-off authority — leave it on "human" what still stops a hands-off epic starting the epic when the landing pr\'s ci is red',
+      'the automation-pane settings that let an epic drain end-to-end without operator intervention, and the blockers that will still legitimately stop it. recommended settings plan gate is hands-off-safe — keep it on sign-off authority — leave it on "human" what still stops a hands-off epic starting the epic how long will this epic take? the epic clock agent time and waiting time how the forecast is built range and confidence why the first estimate is wide the "faster with n slots" hint when the landing pr\'s ci is red',
   },
   {
     title: "Operating Shepherd",
@@ -87,7 +87,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Concepts & glossary",
     path: "/reference/glossary/",
     keywords:
-      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic plan gate autopilot task amendment critic merge train rework first-pass rate first-push ci green plan drift maintain loop band inferred lightweight repo trial weighted units cold cache reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane shared browser handoff login spawn prompt access token token scope industry terms pr ci telemetry lead time inode",
+      "the shepherd-specific and industry terms used throughout the app and these docs. shepherd concepts epic epic clock agent time plan gate autopilot task amendment critic merge train rework first-pass rate first-push ci green plan drift maintain loop band inferred lightweight repo trial weighted units cold cache reasoning effort satellite pass host capacity herdr runtime hygiene sandbox membrane shared browser handoff login spawn prompt access token token scope industry terms pr ci telemetry lead time inode",
   },
   {
     title: "Project house rules",

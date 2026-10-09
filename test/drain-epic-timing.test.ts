@@ -141,6 +141,8 @@ describe("buildEpic attaches the epic clock and per-child timing", () => {
       status: "idle",
     });
     expect(epic!.timing).toMatchObject({ startedAt: null, pausedAt: null, idleMs: 0 });
+    // No delivery facts and no measured child: nothing to forecast from.
+    expect(epic!.forecast).toBeNull();
   });
 
   test("the completion emit carries the stopped clock and the landing start", async () => {
@@ -163,5 +165,58 @@ describe("buildEpic attaches the epic clock and per-child timing", () => {
       pausedAt: T0 + 45 * MIN,
       landingStartedAt: T0 + 45 * MIN,
     });
+  });
+});
+
+describe("buildEpic attaches the forecast", () => {
+  test("priced from the repo's lead time and this epic's merges; the drift anchor persists once", async () => {
+    const h = harness([sub(320, false), sub(321, false), sub(322, false)]);
+    // An earlier task in the repo took 60 min.
+    h.store.upsertDeliveryFact({
+      sessionId: "earlier",
+      repoPath: REPO,
+      desig: "",
+      issueNumber: 900,
+      createdAt: T0 - 120 * MIN,
+      mergedAt: T0 - 60 * MIN,
+      now: T0,
+    });
+    at(0);
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+    });
+    const build = async () => (await h.drain.buildEpic(REPO, h.store.getEpicRun(REPO)!))!;
+
+    at(2);
+    expect((await build()).forecast).toMatchObject({ confidence: "very-low", firstFinishAt: null });
+    expect(h.store.getEpicClock(REPO, PARENT)!.firstFinishAt).toBeNull();
+
+    at(5);
+    const s = childSession(h.store, 320);
+    at(30);
+    h.store.recordEpicIntegrated(REPO, PARENT, 320);
+    at(31);
+    h.store.archive(s.id, "merged"); // a 26-min delivery fact: repo median (60 + 26) / 2 = 43
+    at(60);
+    const first = (await build()).forecast!;
+    // Step = mean(43, 43, 25); #321 and #322 through the one default slot; 20-min landing.
+    expect(first).toMatchObject({
+      stepMs: 37 * MIN,
+      epicSamples: 1,
+      repoSamples: 2,
+      confidence: "low",
+      finishAt: T0 + (60 + 2 * 37 + 20) * MIN,
+      firstFinishAt: T0 + (60 + 2 * 37 + 20) * MIN,
+    });
+    expect(h.store.getEpicClock(REPO, PARENT)!.firstFinishAt).toBe(first.finishAt);
+
+    at(70);
+    const later = (await build()).forecast!;
+    expect(later.finishAt).toBe(T0 + (70 + 2 * 37 + 20) * MIN);
+    expect(later.firstFinishAt).toBe(first.finishAt);
+    expect(h.store.getEpicClock(REPO, PARENT)!.firstFinishAt).toBe(first.finishAt);
   });
 });

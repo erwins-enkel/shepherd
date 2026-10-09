@@ -20,6 +20,8 @@ import {
 } from "./drain-core";
 import { assembleEpic } from "./epic-model";
 import { withEpicTiming } from "./epic-timing";
+import { forecastEpic } from "./epic-forecast";
+import { repoLeadTime } from "./delivery-metrics";
 import {
   epicIntegrationBranch as epicBranchName,
   epicParentFromBranch,
@@ -281,6 +283,9 @@ export interface DrainDeps {
     | "getEpicRunEnd"
     | "getEpicClock"
     | "listDeliveryFactsForIssues"
+    | "listMergedDeliveryFacts"
+    | "recordEpicFirstFinish"
+    | "listEpicLandingDurations"
     | "listEpicQueue"
     | "shiftEpicQueue"
     | "getOrInitEpicIntegrationBranch"
@@ -725,17 +730,21 @@ export class DrainService {
     return this.timeEpic(repoPath, runEnd ? { ...epic, runEnd } : epic, all, integratedDetails);
   }
 
-  /** Attach the epic clock and per-child start/end (see {@link withEpicTiming}). Every session of
-   *  the repo is a candidate — live or archived, auto or not: any session on a child issue is work
-   *  on it. Callers that already hold the session list or integrated rows pass them in. */
+  /** Attach the epic clock and per-child start/end (see {@link withEpicTiming}), then the forecast
+   *  (see {@link forecastEpic}). Every session of the repo is a candidate — live or archived, auto
+   *  or not: any session on a child issue is work on it. Callers that already hold the session list
+   *  or integrated rows pass them in. The first forecast after the first merge is persisted as the
+   *  epic's drift anchor. */
   private timeEpic(
     repoPath: string,
     epic: Epic,
     all = this.deps.store.list(),
     integrated = this.deps.store.listEpicIntegratedDetails(repoPath, epic.parentIssueNumber),
   ): Epic {
-    return withEpicTiming(epic, {
-      clock: this.deps.store.getEpicClock(repoPath, epic.parentIssueNumber),
+    const now = this.now();
+    const clock = this.deps.store.getEpicClock(repoPath, epic.parentIssueNumber);
+    const timed = withEpicTiming(epic, {
+      clock,
       sessions: all
         .filter((s) => s.repoPath === repoPath)
         .map((s) => ({
@@ -749,8 +758,25 @@ export class DrainService {
         epic.children.map((c) => c.number),
       ),
       integratedAt: new Map(integrated.map((d) => [d.childNumber, d.mergedAt])),
-      now: this.now(),
+      now,
     });
+    const forecast = forecastEpic(timed, {
+      repoLeadTime: repoLeadTime(this.deps.store, repoPath, now),
+      maxAuto: this.deps.store.getRepoConfig(repoPath).maxAuto,
+      // What the drain's cap counts (buildState's autoSessions).
+      slotsUsed: all.filter((s) => s.repoPath === repoPath && s.auto && s.status !== "archived")
+        .length,
+      landingMs: this.deps.store.listEpicLandingDurations(repoPath),
+      firstFinishAt: clock?.firstFinishAt ?? null,
+      now,
+    });
+    if (clock && clock.firstFinishAt == null && forecast?.firstFinishAt != null)
+      this.deps.store.recordEpicFirstFinish(
+        repoPath,
+        epic.parentIssueNumber,
+        forecast.firstFinishAt,
+      );
+    return { ...timed, forecast };
   }
 
   /** On-demand structural diagnosis for one epic parent (GET /api/epic/diagnose). Reuses the

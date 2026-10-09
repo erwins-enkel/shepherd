@@ -254,6 +254,20 @@ function incidents(
   return rows.map((r) => ({ kind: r.kind, occurrences: r.occurrences, sessions: r.sessions }));
 }
 
+/** One repo's `DeliveryStats.leadTimeMs` over the `30d` window — the median the epic forecast
+ *  (src/epic-forecast.ts) prices a child at. Folded through `statsFor`, so it is exactly the lens's
+ *  number for that repo. */
+export function repoLeadTime(
+  store: Pick<SessionStore, "listMergedDeliveryFacts">,
+  repoPath: string,
+  now: number,
+): DeliverySample {
+  const facts = store
+    .listMergedDeliveryFacts(rangeCutoff("30d", now))
+    .filter((f) => f.repoPath === repoPath);
+  return statsFor(facts.map((f) => toTaskView(f, EMPTY_ROUNDS))).leadTimeMs;
+}
+
 /**
  * Delivery indicators for a window (#2151 R1) — first-pass rate, rework cycles, plan rework,
  * time-to-first-review, lead time and repeat incidents.

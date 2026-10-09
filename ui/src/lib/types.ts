@@ -1158,6 +1158,9 @@ export interface Epic {
   runEnd?: EpicRunEnd;
   /** The epic clock; absent from older servers. */
   timing?: EpicTiming;
+  /** When the epic lands; null when there is no data to forecast from, or once it landed. Absent
+   *  from older servers. */
+  forecast?: EpicForecast | null;
 }
 /** The epic clock (mirrors src/epic-core.ts), epoch ms. It runs only while the epic's run is
  *  running; running time is `(pausedAt ?? now) − startedAt − pausedMs`. */
@@ -1174,6 +1177,46 @@ export interface EpicTiming {
   agentMs: number;
   /** Running-clock time when no child session was alive. */
   idleMs: number;
+}
+/** How much the forecast rests on the epic's own measured children (mirrors src/epic-core.ts). No
+ *  data at all is not a rung: the epic then carries `forecast: null`. */
+export type EpicForecastConfidence = "very-low" | "low" | "medium" | "high";
+/** One child still to finish, as the forecast schedules it (epoch ms). */
+export interface EpicChildForecast {
+  number: number;
+  /** Its real start once in flight; null while the epic's clock is stopped. */
+  projectedStart: number | null;
+  /** Null while the epic's clock is stopped. */
+  projectedEnd: number | null;
+  /** In flight for more than 1.5× the step estimate. */
+  overrun: boolean;
+}
+/** When the epic lands and how sure that is (mirrors src/epic-core.ts), epoch ms. While the epic's
+ *  clock is stopped (paused, idle) nothing is absolute: only `remainingMsFromResume`. */
+export interface EpicForecast {
+  /** When the landing PR is projected to merge; null while the clock is stopped. */
+  finishAt: number | null;
+  /** The range, from the p25 / p75 step durations; null while the clock is stopped. */
+  finishLow: number | null;
+  finishHigh: number | null;
+  /** While the clock is stopped: ms from a resume to the landing; else null. */
+  remainingMsFromResume: number | null;
+  confidence: EpicForecastConfidence;
+  /** The per-child estimate: the epic's measured children blended with the repo's median. */
+  stepMs: number;
+  /** The landing estimate: the repo's past epic landings, else 20 min. */
+  landingMs: number;
+  /** The epic's children with a measured duration. */
+  epicSamples: number;
+  /** Tasks behind the repo's median lead time (0 when it has none). */
+  repoSamples: number;
+  /** The first forecast made after the first child merged — the drift anchor. */
+  firstFinishAt: number | null;
+  /** The finish with one more agent slot; set only when that saves ≥ 15 min and a `ready` child
+   *  waits on the cap. */
+  fasterWithSlots: { slots: number; finishAt: number; savedMs: number } | null;
+  /** Every child not yet merged, in epic order. */
+  children: EpicChildForecast[];
 }
 /** Why an epic stopped leading its repo (mirrors src/epic-core.ts). `via` names the access token
  *  that made the request, null for the UI. */

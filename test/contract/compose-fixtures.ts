@@ -208,5 +208,32 @@ export function epic(run: EpicRun): Epic {
       agentMs: 600_000,
       idleMs: 400_000,
     },
+    forecast: {
+      finishAt: 1_780_006_000_000,
+      finishLow: 1_780_004_500_000,
+      finishHigh: 1_780_008_000_000,
+      remainingMsFromResume: null,
+      confidence: "very-low",
+      stepMs: 3_600_000,
+      landingMs: 1_200_000,
+      epicSamples: 0,
+      repoSamples: 12,
+      firstFinishAt: null,
+      fasterWithSlots: null,
+      children: [
+        {
+          number: 413,
+          projectedStart: 1_780_000_000_000,
+          projectedEnd: 1_780_001_200_000,
+          overrun: false,
+        },
+        {
+          number: 414,
+          projectedStart: 1_780_001_200_000,
+          projectedEnd: 1_780_004_800_000,
+          overrun: false,
+        },
+      ],
+    },
   };
 }

@@ -3736,6 +3736,11 @@ components:
         run: { $ref: "#/components/schemas/EpicRun" }
         runEnd: { $ref: "#/components/schemas/EpicRunEnd" }
         timing: { $ref: "#/components/schemas/EpicTiming" }
+        forecast:
+          {
+            "oneOf": [{ "$ref": "#/components/schemas/EpicForecast" }, { "type": "null" }],
+            description: "When the epic lands; null when there is no data to forecast from, or once it landed. Always sent by the current server; optional so an older server stays valid.",
+          }
     EpicTiming:
       type: object
       additionalProperties: true
@@ -3763,6 +3768,108 @@ components:
         landedAt: { type: [integer, "null"], description: When the landing PR merged. }
         agentMs: { type: integer, description: Sum of child session wall time. }
         idleMs: { type: integer, description: Running-clock time when no child session was alive. }
+    EpicForecastConfidence:
+      type: string
+      x-shepherd-open-enum: true
+      enum: [very-low, low, medium, high]
+    EpicChildForecast:
+      type: object
+      additionalProperties: true
+      description: One child still to finish, as the forecast schedules it (epoch ms).
+      required: [number, projectedStart, projectedEnd, overrun]
+      properties:
+        number: { type: integer }
+        projectedStart:
+          {
+            type: [integer, "null"],
+            description: Its real start once in flight; null while the epic's clock is stopped.,
+          }
+        projectedEnd:
+          { type: [integer, "null"], description: Null while the epic's clock is stopped. }
+        overrun: { type: boolean, description: In flight for more than 1.5× the step estimate. }
+    EpicForecastWhatIf:
+      type: object
+      additionalProperties: true
+      description: The finish with one more agent slot.
+      required: [slots, finishAt, savedMs]
+      properties:
+        slots: { type: integer }
+        finishAt: { type: integer, description: Epoch ms. }
+        savedMs: { type: integer }
+    EpicForecast:
+      type: object
+      additionalProperties: true
+      description: >-
+        When the epic lands and how sure that is (EpicForecast in src/epic-core.ts, computed by
+        src/epic-forecast.ts), epoch milliseconds throughout. While the epic's clock is stopped
+        (paused, idle) nothing is absolute: finishAt, finishLow and finishHigh are null and
+        remainingMsFromResume carries the time from a resume to the landing. confidence says how
+        much it rests on the epic's own measured children: very-low = the repo median alone, low =
+        one own sample, medium = two or three, high = four or more, or half the children merged.
+        No data at all is not a rung — the Epic then carries forecast null.
+      required:
+        [
+          finishAt,
+          finishLow,
+          finishHigh,
+          remainingMsFromResume,
+          confidence,
+          stepMs,
+          landingMs,
+          epicSamples,
+          repoSamples,
+          firstFinishAt,
+          fasterWithSlots,
+          children,
+        ]
+      properties:
+        finishAt:
+          {
+            type: [integer, "null"],
+            description: When the landing PR is projected to merge; null while the clock is stopped.,
+          }
+        finishLow:
+          { type: [integer, "null"], description: The early end of the range (p25 step durations). }
+        finishHigh:
+          { type: [integer, "null"], description: The late end of the range (p75 step durations). }
+        remainingMsFromResume:
+          {
+            type: [integer, "null"],
+            description: "While the clock is stopped, ms from a resume to the landing; else null.",
+          }
+        confidence: { $ref: "#/components/schemas/EpicForecastConfidence" }
+        stepMs:
+          {
+            type: integer,
+            description: The per-child estimate — the epic's measured children blended with the repo's median lead time.,
+          }
+        landingMs:
+          {
+            type: integer,
+            description: "The landing estimate — the repo's past epic landings, else 20 min.",
+          }
+        epicSamples: { type: integer, description: This epic's children with a measured duration. }
+        repoSamples:
+          {
+            type: integer,
+            description: Tasks behind the repo's median lead time (0 when it has none).,
+          }
+        firstFinishAt:
+          {
+            type: [integer, "null"],
+            description: The first forecast made after the first child merged — the drift anchor.,
+          }
+        fasterWithSlots:
+          {
+            "oneOf": [{ "$ref": "#/components/schemas/EpicForecastWhatIf" }, { "type": "null" }],
+            description: "Set only when one more slot saves at least 15 min and a ready child waits on the cap.",
+          }
+        children:
+          {
+            type: array,
+            items: { $ref: "#/components/schemas/EpicChildForecast" },
+            description: "Every child not yet merged, in epic order.",
+          }
     EpicRunEnd:
       type: object
       additionalProperties: true

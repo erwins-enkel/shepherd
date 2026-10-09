@@ -1129,6 +1129,10 @@ export interface EpicChild {
   prNumber: number | null;
   issueClosed: boolean;
   claimed: boolean;
+  /** Epoch ms work on the child began; null when unknown. Absent from older servers. */
+  startedAt?: number | null;
+  /** Epoch ms the child was done; null while not done or when unknown. Absent from older servers. */
+  endedAt?: number | null;
 }
 export interface EpicRun {
   repoPath: string;
@@ -1152,6 +1156,24 @@ export interface Epic {
   run: EpicRun;
   /** Why the epic last stopped leading; absent while it leads or when nothing was recorded. */
   runEnd?: EpicRunEnd;
+  /** The epic clock; absent from older servers. */
+  timing?: EpicTiming;
+}
+/** The epic clock (mirrors src/epic-core.ts), epoch ms. It runs only while the epic's run is
+ *  running; running time is `(pausedAt ?? now) − startedAt − pausedMs`. */
+export interface EpicTiming {
+  /** Null when the epic never ran. */
+  startedAt: number | null;
+  /** When the clock last stopped (pause, end, supersede or completion); null while it runs. */
+  pausedAt: number | null;
+  /** Time the clock stood still before its latest resume. */
+  pausedMs: number;
+  landingStartedAt: number | null;
+  landedAt: number | null;
+  /** Sum of child session wall time. */
+  agentMs: number;
+  /** Running-clock time when no child session was alive. */
+  idleMs: number;
 }
 /** Why an epic stopped leading its repo (mirrors src/epic-core.ts). `via` names the access token
  *  that made the request, null for the UI. */

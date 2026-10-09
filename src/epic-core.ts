@@ -27,6 +27,13 @@ export interface EpicChild {
    *  PR lands). Satisfies dependencies the same as issueClosed. */
   integrationMerged: boolean;
   claimed: boolean;
+  /** When work on this child began: the earliest `createdAt` of its sessions (its delivery fact's
+   *  once the session row is pruned); null when unknown. Set by `buildEpic`; optional so the many
+   *  EpicChild test fixtures stay valid. */
+  startedAt?: number | null;
+  /** When this child was done: its `epic_integrated` stamp, else the `mergedAt` of its delivery
+   *  fact; null while it is not done, or when unknown. Set by `buildEpic` (see `startedAt`). */
+  endedAt?: number | null;
 }
 /** Persisted `epic_run` store row (stands alone; repoPath/parentIssueNumber are intentionally self-contained, not a duplication bug). */
 export interface EpicRun {
@@ -56,6 +63,38 @@ export interface EpicRunEnd {
   successor: number | null;
   at: number;
   via: string | null;
+}
+
+/** Persisted `epic_clock` row: one per epic, keyed `(repoPath, parentIssueNumber)` like
+ *  `epic_branch`, so it survives supersession and landing. The clock runs only while the epic's run
+ *  is `running`; every other transition (pause, end, supersede, complete) stops it. */
+export interface EpicClock {
+  /** The first transition to `running`. */
+  startedAt: number;
+  /** When the clock last stopped; null while it runs. */
+  pausedAt: number | null;
+  /** Closed stops `[from, to]`, oldest first — a resume closes the open one. */
+  pauses: [number, number][];
+  /** When the last child integrated and the epic→default landing flow began. */
+  landingStartedAt: number | null;
+  /** When the landing PR merged (observed, like `DeliveryFact.mergedAt`). */
+  landedAt: number | null;
+}
+
+/** The epic clock as the Epic payload carries it (epoch ms). Running time is
+ *  `(pausedAt ?? now) − startedAt − pausedMs`. */
+export interface EpicTiming {
+  /** Null when the epic never ran. */
+  startedAt: number | null;
+  pausedAt: number | null;
+  /** Time the clock stood still (paused, ended or superseded) before its latest resume. */
+  pausedMs: number;
+  landingStartedAt: number | null;
+  landedAt: number | null;
+  /** Sum of child session wall time. */
+  agentMs: number;
+  /** Running-clock time when no child session of this epic was alive. */
+  idleMs: number;
 }
 
 /** Pure: does replacing the repo's run `prev` with `next` end an epic's lead, and why? An epic
@@ -122,6 +161,8 @@ export interface Epic {
   run: EpicRun;
   /** Why the epic last stopped leading; absent while it leads or when nothing was recorded. */
   runEnd?: EpicRunEnd;
+  /** The epic clock. Set by `buildEpic`; optional so the many Epic test fixtures stay valid. */
+  timing?: EpicTiming;
 }
 
 /** Child lifecycle state from its issue/session/PR facts. `done` = the set of member

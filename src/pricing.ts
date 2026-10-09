@@ -178,11 +178,15 @@ export function dollars(
 
 // ── Cold-resume estimate (#2042) ─────────────────────────────────────────────
 
-/** The cache TTL that applies to a session's MAIN conversation. Claude Code requests the one-hour
- *  TTL only on a Claude subscription within the plan's included usage; an api key (or a cloud
- *  provider) gets five minutes. Subagents are always on 5m and are irrelevant here — a resume
- *  re-sends the main conversation. */
+/** A prompt-cache TTL. Subagents are always on 5m and are irrelevant here — a resume re-sends the
+ *  main conversation. */
 export type CacheTtl = "5m" | "1h";
+
+/** The cache TTL a Shepherd session's MAIN conversation runs on, in both auth modes (#1159). Claude
+ *  Code requests the one-hour TTL by itself only on a Claude subscription within the plan's
+ *  included usage; in api-key mode `spawnSettingsOverlay` asks for it via `promptCacheTtl`. A
+ *  subscription drawing on usage credits still drops to 5m — the one case this overstates. */
+export const MAIN_SESSION_CACHE_TTL: CacheTtl = "1h";
 
 /**
  * Tokens of a resumed session's prefix that stay cached even after its conversation has gone cold.

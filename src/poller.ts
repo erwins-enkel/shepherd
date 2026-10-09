@@ -34,7 +34,7 @@ import {
 } from "./activity-signal";
 import { readTranscriptTail } from "./activity";
 import { detectAuthUrl, detectPendingAuthUrl, detectLoginAuthUrl } from "./auth-url";
-import { isApiKeyMode } from "./spawn-auth";
+import { MAIN_SESSION_CACHE_TTL } from "./pricing";
 import { statSync } from "node:fs";
 import { classifyHalt, assistantSideText } from "./usage-halt";
 import type { UsageLimits } from "./usage-limits";
@@ -231,9 +231,10 @@ function readAuthUrl(s: Session): string | null {
  * not the session's historically dominant model, and not the configured `model` (null whenever the
  * operator left the picker on default). Falls back to the persisted observed identity.
  *
- * TTL follows auth mode: Claude Code requests the 1h cache only on a subscription; an api key gets
- * 5m. Both under-warn rather than over-warn if the real TTL is shorter (plan overage, or an
- * operator's own promptCacheTtl), which is the safe direction.
+ * TTL is the main session's in both auth modes (MAIN_SESSION_CACHE_TTL: a subscription gets the
+ * hour by default, api-key mode asks for it in the spawn overlay). It under-warns rather than
+ * over-warns if the real TTL is shorter (plan overage, or an operator's own TTL override), which is
+ * the safe direction.
  */
 function readParkedResumeSignal(s: Session): ResumeSignal | null {
   if ((s.agentProvider ?? "claude") === "codex" || !s.claudeSessionId) return null;
@@ -244,7 +245,7 @@ function readParkedResumeSignal(s: Session): ResumeSignal | null {
     return null; // transcript absent/unreadable — nothing to price
   }
   const model = claudeRuntimeIdentity(text).runtimeModel ?? s.runtimeModel ?? null;
-  return resumeSignalFrom(text.split("\n"), model, isApiKeyMode() ? "5m" : "1h");
+  return resumeSignalFrom(text.split("\n"), model, MAIN_SESSION_CACHE_TTL);
 }
 
 /** Transcript mtime for the resting-auth probe (default `authMtime` seam). Missing/unreadable

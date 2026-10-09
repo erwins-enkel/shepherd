@@ -28,6 +28,19 @@ export interface StatusTipParams {
    * neither opens nor pins the tip, so hover/keyboard focus stay the only open paths.
    */
   pinOnClick?: boolean;
+  /**
+   * The session status panel's surface for a structured explanation: a ~560px panel whose
+   * sections flow into columns (TooltipBody `wide`). For an overview with several sections.
+   */
+  panel?: boolean;
+  /**
+   * The trigger's click opens another view (it navigates). The click then always reaches the
+   * trigger's handler and closes the tip, so the tip can't float over where it leads — it
+   * overrides `stopClickPropagation` and `pinOnClick`. Touch has no hover, so there the first
+   * tap on a closed tip opens and pins it instead of acting (the click stops here); the next
+   * tap acts.
+   */
+  navigates?: boolean;
 }
 
 // Module-scoped counter for unique popover ids. Client-only (actions never run on
@@ -86,13 +99,18 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
   params,
 ) => {
   let pop: HTMLDivElement | null = null;
-  const bodyProps = $state<{ content: TooltipContent }>({ content: "" });
+  const bodyProps = $state<{ content: TooltipContent; wide: boolean }>({
+    content: "",
+    wide: false,
+  });
   let body: ReturnType<typeof mount> | null = null;
   let stopClickPropagation = true;
   let still = false;
   let wide = false;
   let placement: Placement = "bottom";
   let pinOnClick = true;
+  let navigates = false;
+  let lastPointerType = "";
   let open = false;
   let pinned = false;
   let stopAnchor: (() => void) | null = null;
@@ -106,6 +124,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
       still && "status-tip-still",
       typeof bodyProps.content !== "string" && "status-tip-explanation",
       (wide || typeof bodyProps.content !== "string") && "status-tip-wide",
+      bodyProps.wide && "status-tip-panel",
     ]
       .filter(Boolean)
       .join(" ");
@@ -237,7 +256,19 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
   function onBlur() {
     hide();
   }
+  function onPointerDown(e: PointerEvent) {
+    lastPointerType = e.pointerType;
+  }
   function onClick(e: MouseEvent) {
+    if (navigates) {
+      // A keyboard click (detail 0) acts at once; only a real touch tap previews first.
+      if (e.detail > 0 && lastPointerType === "touch" && !open) {
+        e.stopPropagation();
+        show();
+        pinned = true;
+      } else hide();
+      return;
+    }
     if (stopClickPropagation) e.stopPropagation(); // read-only chips never select the row
     if (!pinOnClick) return;
     show();
@@ -276,6 +307,8 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
     wide = next.wide ?? false;
     placement = next.placement ?? "bottom";
     pinOnClick = next.pinOnClick ?? true;
+    navigates = next.navigates ?? false;
+    bodyProps.wide = next.panel ?? false;
     if (pop) {
       pop.className = panelClass();
     }
@@ -295,6 +328,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
       node.addEventListener("focus", onFocus);
       node.addEventListener("blur", onBlur);
       node.addEventListener("click", onClick);
+      node.addEventListener("pointerdown", onPointerDown);
     }
   }
 
@@ -307,6 +341,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
       node.removeEventListener("focus", onFocus);
       node.removeEventListener("blur", onBlur);
       node.removeEventListener("click", onClick);
+      node.removeEventListener("pointerdown", onPointerDown);
     }
     if (body) {
       void unmount(body);

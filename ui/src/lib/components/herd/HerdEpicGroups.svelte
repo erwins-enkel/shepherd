@@ -16,6 +16,7 @@
     cuesFor,
     onepic,
     oncollapsetoggle,
+    slotsFor = () => null,
     ctx,
   }: {
     groups: EpicGroupEntry[];
@@ -29,15 +30,21 @@
     };
     onepic?: (repoPath: string, issueNumber: number) => void;
     oncollapsetoggle?: (key: string) => void;
+    /** A repo's agent slots (its drain cap); null when unknown. */
+    slotsFor?: (repoPath: string) => number | null;
     ctx: HerdRowCtx;
   } = $props();
 </script>
 
-{#each groups as g (g.key)}
+{#each groups as g, i (g.key)}
+  <!-- Only the first badge anchors the coachmark: coachTargets keys one node per id. -->
   <EpicGroupHeader
     epic={g.epic}
     collapsed={collapsedKeys.has(g.key)}
     cues={cuesFor(g)}
+    nowMs={ctx.nowMs}
+    slots={slotsFor(g.epic.repoPath)}
+    coachId={i === 0 ? "epic-timing" : ""}
     ontoggle={() => oncollapsetoggle?.(g.key)}
     {onepic}
   />

@@ -156,3 +156,74 @@ describe("statusTip list-row options", () => {
       .toBeGreaterThanOrEqual(node.getBoundingClientRect().right);
   });
 });
+
+describe("statusTip panel and navigates", () => {
+  const explanation: TooltipExplanation = {
+    title: "Epic #158 running for 2 h 22 min",
+    summary: "1 of 5 steps merged.",
+    sections: [
+      { label: "Time", text: "", rows: [{ text: "Started", aside: "10:21" }] },
+      { label: "Steps", text: "", rows: [{ text: "#160 Baseline", tone: "ok" }], full: true },
+    ],
+    footer: ["Click opens the epic in Repos."],
+  };
+
+  // Svelte delegates `onclick` to the root, so the trigger's own action reaches a listener
+  // above it — a click stopped on the node never gets there.
+  function mountNavigating() {
+    const node = document.createElement("button");
+    node.textContent = "EPIC 1/5";
+    document.body.append(node);
+    const acted: number[] = [];
+    const onDocClick = () => acted.push(1);
+    document.addEventListener("click", onDocClick);
+    const action = statusTip(node, { text: explanation, panel: true, navigates: true });
+    cleanup = () => {
+      action?.destroy?.();
+      document.removeEventListener("click", onDocClick);
+      node.remove();
+    };
+    return { node, acted };
+  }
+  const tap = (node: HTMLElement) => {
+    node.dispatchEvent(new PointerEvent("pointerdown", { pointerType: "touch", bubbles: true }));
+    node.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+  };
+
+  it("panel: the status-panel surface, with sections in columns and a full-width section", async () => {
+    const { node } = mountNavigating();
+    const panel = await hoverOpen(node);
+    expect(panel.classList.contains("status-tip-panel")).toBe(true);
+    expect(panel.querySelector(".tooltip-body.wide")).not.toBeNull();
+    expect(panel.querySelector(".tooltip-section.full")?.textContent).toContain("#160 Baseline");
+    expect(panel.querySelector(".tooltip-footer")?.textContent).toContain("Click opens");
+  });
+
+  it("navigates: a mouse click reaches the action and closes the hovered tip", async () => {
+    const { node, acted } = mountNavigating();
+    const panel = await hoverOpen(node);
+    node.dispatchEvent(new PointerEvent("pointerdown", { pointerType: "mouse", bubbles: true }));
+    node.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
+    expect(acted).toHaveLength(1);
+    expect(panel.matches(":popover-open")).toBe(false);
+  });
+
+  it("navigates: the first touch tap previews the tip, the second acts", () => {
+    const { node, acted } = mountNavigating();
+    tap(node);
+    expect(acted).toHaveLength(0);
+    const panel = document.querySelector<HTMLElement>(".status-tip")!;
+    expect(panel.matches(":popover-open")).toBe(true);
+    tap(node);
+    expect(acted).toHaveLength(1);
+    expect(panel.matches(":popover-open")).toBe(false);
+  });
+
+  it("navigates: a keyboard click acts at once, even after an earlier touch", () => {
+    const { node, acted } = mountNavigating();
+    node.dispatchEvent(new PointerEvent("pointerdown", { pointerType: "touch", bubbles: true }));
+    node.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 0 }));
+    expect(acted).toHaveLength(1);
+    expect(document.querySelector(".status-tip")).toBeNull();
+  });
+});

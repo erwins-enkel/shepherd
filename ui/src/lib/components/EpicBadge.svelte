@@ -1,18 +1,35 @@
 <script lang="ts">
   import type { Epic, EpicSummary } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
+  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import { coachTarget } from "#lib/actions/coachTarget.svelte.js";
+  import {
+    epicMeter,
+    epicPlainExplanation,
+    epicTimingExplanation,
+    type EpicMeterTone,
+  } from "#lib/epic-timing-text.js";
 
   let {
     summary,
     live = undefined,
     repoPath,
     issueNumber,
+    nowMs,
+    slots = null,
+    coachId = "",
     onepic,
   }: {
     summary?: EpicSummary;
     live?: Epic;
     repoPath: string;
     issueNumber: number;
+    /** The Herd's tick — the hover panel's epic clock runs on it. */
+    nowMs: number;
+    /** The repo's agent slots, for the forecast's basis line; null when unknown. */
+    slots?: number | null;
+    /** Coachmark anchor id ("" = none; only ONE badge may claim an id). */
+    coachId?: string;
     onepic?: (repoPath: string, issueNumber: number) => void;
   } = $props();
 
@@ -30,8 +47,18 @@
         : { total: 0, merged: 0 },
   );
 
-  // Progress meter width — derived from merged/total, never hardcoded. Guard divide-by-zero.
-  const pct = $derived(counts.total > 0 ? (counts.merged / counts.total) * 100 : 0);
+  // One meter segment per child, in epic order; the summary only knows the counts.
+  const segments = $derived<EpicMeterTone[]>(
+    live
+      ? epicMeter(live.children)
+      : Array.from({ length: counts.total }, (_, i) => (i < counts.merged ? "merged" : "rest")),
+  );
+
+  const explanation = $derived(
+    live
+      ? epicTimingExplanation({ epic: live, nowMs, slots })
+      : epicPlainExplanation({ number: issueNumber, ...counts }),
+  );
 
   function handleClick(e: MouseEvent) {
     e.stopPropagation();
@@ -42,21 +69,19 @@
 <button
   type="button"
   class="epic-badge"
-  style="--epic-pct: {pct}%"
-  title={m.epic_badge_open_title({
-    number: issueNumber,
-    merged: counts.merged,
-    total: counts.total,
-  })}
   aria-label={m.epic_badge_open_aria({
     number: issueNumber,
     merged: counts.merged,
     total: counts.total,
   })}
+  use:statusTip={{ text: explanation, panel: true, navigates: true }}
+  use:coachTarget={coachId}
   onclick={handleClick}
 >
   <span class="epic-label">{m.epic_badge({ merged: counts.merged, total: counts.total })}</span>
-  <span class="epic-meter" aria-hidden="true"><span class="epic-fill"></span></span>
+  <span class="epic-meter" aria-hidden="true">
+    {#each segments as tone, i (i)}<span class="epic-seg seg-{tone}"></span>{/each}
+  </span>
 </button>
 
 <style>
@@ -82,18 +107,23 @@
   .epic-badge:focus-visible {
     background: color-mix(in srgb, var(--color-blue) 12%, transparent);
   }
+  /* One segment per child, as wide as the label: blue merged, amber in flight, line the rest. */
   .epic-meter {
-    display: block;
+    display: flex;
+    gap: 1px;
     height: 2px;
     width: 100%;
-    background: var(--color-line);
-    border-radius: 2px;
-    overflow: hidden;
   }
-  .epic-fill {
-    display: block;
-    height: 100%;
-    width: var(--epic-pct);
+  .epic-seg {
+    flex: 1 1 0;
+    min-width: 0;
+    border-radius: 1px;
+    background: var(--color-line-bright);
+  }
+  .seg-merged {
     background: var(--color-blue);
+  }
+  .seg-running {
+    background: var(--color-amber);
   }
 </style>

@@ -767,6 +767,16 @@ a.issue-list-title:hover {
   padding: 12px 14px;
 }
 
+/* statusTip `panel: true` — the session status panel's surface (TimePopover's has-pulse width):
+   sections flow into columns. Must stay after the two rules above to win. Height-bounded and
+   scrollable like the wide variant, for an epic with many steps. */
+.status-tip-panel[popover] {
+  width: min(560px, calc(100vw - 16px));
+  max-width: none;
+  max-height: min(70vh, 620px);
+  padding: 12px 14px 10px;
+}
+
 /* Actionable dialog (critic Open PR): a click-pinned column of explanation + link. */
 .status-tip-dialog[popover]:popover-open {
   display: flex;

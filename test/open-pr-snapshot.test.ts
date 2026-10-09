@@ -15,7 +15,7 @@ function blockGraphql(): void {
 }
 
 function unblockGraphql(): void {
-  graphRateLimit.note({ remaining: 1000, resetAt: Date.now() + 60_000 });
+  graphRateLimit.noteSuccess();
 }
 
 function makeSnapshot(id = 1, source?: OpenPrSnapshot["source"]): OpenPrSnapshot {

@@ -5734,5 +5734,19 @@
   "tooltip_sandbox_autonomous": "Autonom",
   "tooltip_sandbox_autonomous_body": "Standard plus Egress-Allowlist (Anthropic + der Forge-Host); anderer ausgehender Verkehr wird blockiert.",
   "tooltip_sandbox_tokens": "Bleibt lesbar",
-  "tooltip_sandbox_tokens_body": "Die gh-/claude-Auth-Tokens."
+  "tooltip_sandbox_tokens_body": "Die gh-/claude-Auth-Tokens.",
+  "github_lens_split_own": "Shepherd-Server {rate}/h",
+  "github_lens_split_other": "alles andere auf diesem Konto {rate}/h",
+  "github_lens_split_measuring": "Messe, wie viel davon Shepherd selbst verbraucht — braucht etwa 5 Minuten Messwerte in diesem Fenster.",
+  "github_lens_foreign_title": "Andere Werkzeuge verbrauchen ~{rate} Punkte/h dieses Kontingents",
+  "github_lens_foreign_summary": "GitHub rechnet jedes Token deines Kontos auf dasselbe GraphQL-Kontingent an, von jedem Rechner und jeder App. Shepherds Hintergrund-Aktualisierung pausiert deshalb früher, um Luft zu lassen.",
+  "github_lens_foreign_sources": "Wahrscheinliche Quellen",
+  "github_lens_foreign_source_agents": "Die eigenen gh-Aufrufe deiner Agenten — sie laufen außerhalb des Shepherd-Servers",
+  "github_lens_foreign_source_machines": "gh auf einem anderen Rechner, angemeldet mit diesem Konto",
+  "github_lens_foreign_source_apps": "Cloud-Coding-Agenten, IDE-Integrationen oder Review-Bots, die in deinem Namen handeln",
+  "github_lens_foreign_next": "Prüfen",
+  "github_lens_foreign_link_apps": "Autorisierte Apps",
+  "github_lens_foreign_link_log": "Sicherheitsprotokoll",
+  "feat_github_budget_split_title": "Sieh, wer dein GitHub-Kontingent verbraucht",
+  "feat_github_budget_split_body": "Der GitHub-Tab im Verbrauch teilt das GraphQL-Kontingent jetzt auf: was der Shepherd-Server pro Stunde verbraucht und was alles andere auf deinem Konto verbraucht. Verbrauchen andere Werkzeuge viel, nennt er die wahrscheinlichen Quellen und verlinkt deine autorisierten Apps und dein Sicherheitsprotokoll."
 }

@@ -137,6 +137,7 @@ vi.mock("#lib/api.js", async () => {
         backoff: { remaining: 0, resetAt: BASE + H, pausedUntil: BASE + H, blocked: true },
         restBackoff: { remaining: null, resetAt: null, pausedUntil: null, blocked: false },
         restWriteBackoff: { remaining: null, resetAt: null, pausedUntil: null, blocked: false },
+        graphqlSplit: null,
       }),
     ),
     getPromptBudgets: vi.fn(() => Promise.resolve(inlinePromptBudgets)),

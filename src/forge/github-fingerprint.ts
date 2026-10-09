@@ -9,7 +9,7 @@
  * of those moved — see `RepoFingerprintService`.
  */
 import type { GhRunner } from "./github";
-import { type BucketRateLimit, graphRateLimit } from "./rate-limit";
+import { RATE_LIMIT_SELECTION } from "./github-spend";
 
 /** What one repo looked like at the last fingerprint. Empty strings mean "none" (a repo with no
  *  issues, no PRs, or no CI rollup on its default branch). */
@@ -60,7 +60,7 @@ export function buildFingerprintArgs(slugs: string[]): string[] {
     fields.push(`r${i}:repository(owner:$o${i},name:$n${i}){${REPO_SELECTION}}`);
     args.push("-f", `o${i}=${owner}`, "-f", `n${i}=${name}`);
   });
-  const query = `query(${vars.join(",")}){${fields.join(" ")} rateLimit{cost remaining used resetAt}}`;
+  const query = `query(${vars.join(",")}){${fields.join(" ")} ${RATE_LIMIT_SELECTION}}`;
   args.push("-f", `query=${query}`);
   return args;
 }
@@ -126,14 +126,13 @@ async function fetchChunk(run: GhRunner, slugs: string[]): Promise<FingerprintRe
 }
 
 /**
- * Fingerprint `slugs` in chunks of {@link FINGERPRINT_CHUNK}, feeding each `rateLimit` reading
- * into the GraphQL tracker. A failed chunk omits its slugs; if every chunk fails, the first
- * error is rethrown.
+ * Fingerprint `slugs` in chunks of {@link FINGERPRINT_CHUNK}. The shared runner feeds each chunk's
+ * `rateLimit` reading to the GraphQL tracker. A failed chunk omits its slugs; if every chunk
+ * fails, the first error is rethrown.
  */
 export async function fetchRepoFingerprints(
   run: GhRunner,
   slugs: string[],
-  rl: BucketRateLimit = graphRateLimit,
 ): Promise<FingerprintResult> {
   const fingerprints = new Map<string, RepoFingerprint | null>();
   let rateLimit: FingerprintRateLimit | null = null;
@@ -157,7 +156,6 @@ export async function fetchRepoFingerprints(
     if (res.rateLimit) {
       cost += res.rateLimit.cost;
       rateLimit = { ...res.rateLimit, cost };
-      rl.note({ remaining: res.rateLimit.remaining, resetAt: res.rateLimit.resetAt });
     }
   }
   if (chunks.length > 0 && failed === chunks.length) throw firstErr;

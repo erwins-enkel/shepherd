@@ -18,6 +18,7 @@
  * REST calls 403 (#2662), or REST writes 403 while reads go through (#2805).
  */
 
+import { graphqlSpend, type GraphqlSpendSplit } from "./github-spend";
 import {
   graphRateLimit,
   restRateLimit,
@@ -38,7 +39,8 @@ export interface GhRateBucket {
 }
 
 /** Snapshot of the GitHub rate-limit buckets relevant to Shepherd, plus the
- *  GraphQL and REST read/write backoff state that gates background work. */
+ *  GraphQL and REST read/write backoff state that gates background work and the
+ *  GraphQL spend split. */
 export interface GithubRateLimitPayload {
   /** REST bucket (`resources.core`). Null if the response lacked it. */
   rest: GhRateBucket | null;
@@ -57,6 +59,9 @@ export interface GithubRateLimitPayload {
   /** Shepherd's REST write backoff state (#2805) — while `blocked`, periodic background
    *  writes (CI re-runs, epic stack updates) are skipped; reads and operator writes run. */
   restWriteBackoff: RateLimitSnapshot;
+  /** The current GraphQL window split into the Shepherd server's own spend and everything else
+   *  on the account (#2840); null before an in-query reading of a live window. */
+  graphqlSplit: GraphqlSpendSplit | null;
 }
 
 type GhRun = (args: string[]) => Promise<string>;
@@ -83,8 +88,8 @@ function parseBucket(raw: unknown): GhRateBucket | null {
 
 /**
  * Fetch the current GitHub REST + GraphQL + search rate-limit buckets via
- * `gh api rate_limit`, cached for {@link TTL_MS}. The backoff snapshots are
- * always read live (they're free). Throws if `gh` fails or returns unparseable JSON.
+ * `gh api rate_limit`, cached for {@link TTL_MS}. The backoff snapshots and the
+ * spend split are always read live (they're free). Throws if `gh` fails or returns unparseable JSON.
  *
  * @param run  injected `gh` runner (production passes the shared async runner).
  * @param now  injectable clock for deterministic tests.
@@ -95,13 +100,14 @@ export async function fetchGithubRateLimit(
 ): Promise<GithubRateLimitPayload> {
   const t = now();
   if (cache && t - cache.at < TTL_MS) {
-    // Refresh only the (free) backoff views so a cached buckets reading still
-    // reflects a backoff that engaged since the last `gh` call.
+    // Refresh only the (free) backoff and split views so a cached buckets reading
+    // still reflects a backoff that engaged since the last `gh` call.
     return {
       ...cache.payload,
       backoff: graphRateLimit.snapshot(),
       restBackoff: restRateLimit.snapshot(),
       restWriteBackoff: restWriteRateLimit.snapshot(),
+      graphqlSplit: graphqlSpend.split(),
     };
   }
 
@@ -116,6 +122,7 @@ export async function fetchGithubRateLimit(
     backoff: graphRateLimit.snapshot(),
     restBackoff: restRateLimit.snapshot(),
     restWriteBackoff: restWriteRateLimit.snapshot(),
+    graphqlSplit: graphqlSpend.split(),
   };
   cache = { at: t, payload };
   return payload;

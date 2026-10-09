@@ -5734,5 +5734,19 @@
   "tooltip_sandbox_autonomous": "Autonomous",
   "tooltip_sandbox_autonomous_body": "Standard plus the egress allowlist (Anthropic + the forge host); other outbound traffic is blocked.",
   "tooltip_sandbox_tokens": "Still readable",
-  "tooltip_sandbox_tokens_body": "The gh/claude auth tokens."
+  "tooltip_sandbox_tokens_body": "The gh/claude auth tokens.",
+  "github_lens_split_own": "Shepherd server {rate}/h",
+  "github_lens_split_other": "everything else on this account {rate}/h",
+  "github_lens_split_measuring": "Measuring how much of this is Shepherd's own — needs about 5 minutes of readings in this window.",
+  "github_lens_foreign_title": "Other tools spend ~{rate} points/h of this budget",
+  "github_lens_foreign_summary": "GitHub counts every token on your account against the same GraphQL budget, from any machine or app. Shepherd's background refresh pauses earlier to leave room.",
+  "github_lens_foreign_sources": "Likely sources",
+  "github_lens_foreign_source_agents": "Your agents' own gh calls — they run outside the Shepherd server",
+  "github_lens_foreign_source_machines": "gh signed in to this account on another machine",
+  "github_lens_foreign_source_apps": "Cloud coding agents, IDE integrations or review bots acting as you",
+  "github_lens_foreign_next": "Check",
+  "github_lens_foreign_link_apps": "Authorized apps",
+  "github_lens_foreign_link_log": "Security log",
+  "feat_github_budget_split_title": "See who spends your GitHub budget",
+  "feat_github_budget_split_body": "The GitHub tab in Usage now splits the GraphQL budget into what the Shepherd server spends and what everything else on your account spends, per hour. When other tools spend a lot, it names the likely sources and links to your authorized apps and security log."
 }

@@ -20,6 +20,7 @@ function gh(over: Partial<GithubRateLimit> = {}): GithubRateLimit {
     backoff: backoff(),
     restBackoff: backoff(),
     restWriteBackoff: backoff(),
+    graphqlSplit: null,
     ...over,
   };
 }

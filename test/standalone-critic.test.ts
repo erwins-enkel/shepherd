@@ -18,7 +18,7 @@ beforeEach(() => {
 
 afterEach(() => {
   __setApiKeyConfigDirProvisionForTest(null);
-  graphRateLimit.note({ remaining: 1000, resetAt: Date.now() + 60_000 });
+  graphRateLimit.noteSuccess();
 });
 
 async function withAuth<T>(

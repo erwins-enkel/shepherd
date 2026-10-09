@@ -5,7 +5,6 @@ import {
   FINGERPRINT_CHUNK,
   parseFingerprintResponse,
 } from "../../src/forge/github-fingerprint";
-import { BucketRateLimit } from "../../src/forge/rate-limit";
 
 const RATE = { cost: 1, remaining: 4321, used: 679, resetAt: "2026-10-05T10:00:00Z" };
 
@@ -42,7 +41,7 @@ test("buildFingerprintArgs: one aliased query with string variables per repo plu
   expect(query).toContain("r0:repository(owner:$o0,name:$n0)");
   expect(query).toContain("r1:repository(owner:$o1,name:$n1)");
   expect(query).toContain("orderBy:{field:UPDATED_AT,direction:DESC}");
-  expect(query).toContain("rateLimit{cost remaining used resetAt}");
+  expect(query).toContain("rateLimit{cost used remaining resetAt}");
 });
 
 test("parseFingerprintResponse: maps aliases back to slugs, null for an unreadable repo", () => {
@@ -81,18 +80,16 @@ test("parseFingerprintResponse: an empty repo (no issues, no PRs, no rollup) sti
   expect(rateLimit).toBeNull();
 });
 
-test("fetchRepoFingerprints: N ≤ chunk size is one gh call; the reading reaches the tracker", async () => {
+test("fetchRepoFingerprints: N ≤ chunk size is one gh call", async () => {
   const calls: string[][] = [];
-  const rl = new BucketRateLimit();
   const run = async (args: string[]) => {
     calls.push(args);
     return JSON.stringify({ data: { r0: repoNode({}), r1: repoNode({}), rateLimit: RATE } });
   };
-  const { fingerprints, rateLimit } = await fetchRepoFingerprints(run, ["a/b", "c/d"], rl);
+  const { fingerprints, rateLimit } = await fetchRepoFingerprints(run, ["a/b", "c/d"]);
   expect(calls).toHaveLength(1);
   expect([...fingerprints.keys()]).toEqual(["a/b", "c/d"]);
   expect(rateLimit?.remaining).toBe(4321);
-  expect(rl.snapshot().remaining).toBe(4321);
 });
 
 test("fetchRepoFingerprints: chunks above FINGERPRINT_CHUNK and sums the cost", async () => {
@@ -107,11 +104,7 @@ test("fetchRepoFingerprints: chunks above FINGERPRINT_CHUNK and sums the cost", 
     for (let i = 0; i < n; i++) data[`r${i}`] = repoNode({});
     return JSON.stringify({ data });
   };
-  const { fingerprints, rateLimit } = await fetchRepoFingerprints(
-    run,
-    slugs,
-    new BucketRateLimit(),
-  );
+  const { fingerprints, rateLimit } = await fetchRepoFingerprints(run, slugs);
   expect(calls).toHaveLength(2);
   expect(fingerprints.size).toBe(FINGERPRINT_CHUNK + 1);
   expect(fingerprints.get(`o/r${FINGERPRINT_CHUNK}`)).not.toBeNull();
@@ -127,11 +120,7 @@ test("fetchRepoFingerprints: a gh exit carrying partial data (one NOT_FOUND alia
     });
     throw Object.assign(new Error("exit 1"), { stdout, stderr: "gh: Could not resolve" });
   };
-  const { fingerprints } = await fetchRepoFingerprints(
-    run,
-    ["a/b", "a/gone"],
-    new BucketRateLimit(),
-  );
+  const { fingerprints } = await fetchRepoFingerprints(run, ["a/b", "a/gone"]);
   expect(fingerprints.get("a/b")).not.toBeNull();
   expect(fingerprints.get("a/gone")).toBeNull();
 });
@@ -147,16 +136,14 @@ test("fetchRepoFingerprints: a failed chunk omits its slugs; every chunk failing
     for (let i = 0; i < count; i++) data[`r${i}`] = repoNode({});
     return JSON.stringify({ data });
   };
-  const { fingerprints } = await fetchRepoFingerprints(run, slugs, new BucketRateLimit());
+  const { fingerprints } = await fetchRepoFingerprints(run, slugs);
   expect(fingerprints.size).toBe(FINGERPRINT_CHUNK);
   expect(fingerprints.has(`o/r${FINGERPRINT_CHUNK}`)).toBe(false);
 
   const failing = async () => {
     throw Object.assign(new Error("rate limit"), { stderr: "API rate limit exceeded" });
   };
-  await expect(fetchRepoFingerprints(failing, ["a/b"], new BucketRateLimit())).rejects.toThrow(
-    "rate limit",
-  );
+  await expect(fetchRepoFingerprints(failing, ["a/b"])).rejects.toThrow("rate limit");
 });
 
 test("fetchRepoFingerprints: no slugs → no gh call", async () => {
@@ -165,7 +152,7 @@ test("fetchRepoFingerprints: no slugs → no gh call", async () => {
     called = true;
     return "{}";
   };
-  const { fingerprints } = await fetchRepoFingerprints(run, [], new BucketRateLimit());
+  const { fingerprints } = await fetchRepoFingerprints(run, []);
   expect(called).toBe(false);
   expect(fingerprints.size).toBe(0);
 });

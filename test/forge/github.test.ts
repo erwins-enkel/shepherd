@@ -24,7 +24,7 @@ function blockGraphql(): void {
 }
 
 function unblockGraphql(): void {
-  graphRateLimit.note({ remaining: 1000, resetAt: Date.now() + 60_000 });
+  graphRateLimit.noteSuccess();
 }
 
 const ISSUE_CREATED_AT = "2024-01-01T00:00:00Z";

@@ -432,6 +432,20 @@ export function buildIssueRows(
   return [...rows, ...singles];
 }
 
+/**
+ * An epic child's title without the prefix that only repeats its epic — `Stack-Angleichung
+ * (#158): Foo` inside epic #158 reads `Foo` in the list, where the group header already names
+ * the epic. Strips up to and including the first `(#<parent>):`; any other title (another
+ * epic's number, no prefix, nothing left after the prefix) is returned unchanged.
+ */
+export function stripEpicPrefix(title: string, parent: number): string {
+  const marker = `(#${parent}):`;
+  const at = title.indexOf(marker);
+  if (at === -1) return title;
+  const rest = title.slice(at + marker.length).trim();
+  return rest === "" ? title : rest;
+}
+
 /** Enter / Space on a focused list option (a click can focus a tabindex=-1 row) selects it —
  *  the keyboard twin of the row's click; ↑/↓ bubble on to the listbox. */
 export function activate(e: KeyboardEvent, select: () => void): void {

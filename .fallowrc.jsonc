@@ -41,7 +41,6 @@
     "ui/src/app.d.ts",
     "ui/src/app.html",
     "ui/src/app.css",
-    "ui/svelte.config.js",
     "ui/vite.config.ts",
     "ui/scripts/**/*.mjs",
     "extension/manifest.config.ts",

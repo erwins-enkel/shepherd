@@ -19,6 +19,7 @@ import {
   type RunSummary,
 } from "./drain-core";
 import { assembleEpic } from "./epic-model";
+import { withEpicTiming } from "./epic-timing";
 import {
   epicIntegrationBranch as epicBranchName,
   epicParentFromBranch,
@@ -276,6 +277,8 @@ export interface DrainDeps {
     | "getEpicRun"
     | "setEpicRun"
     | "getEpicRunEnd"
+    | "getEpicClock"
+    | "listDeliveryFactsForIssues"
     | "listEpicQueue"
     | "shiftEpicQueue"
     | "getOrInitEpicIntegrationBranch"
@@ -604,8 +607,8 @@ export class DrainService {
       openIssuesTruncated = open.length >= 200;
     }
     const prSnap = this.deps.prCache.snapshot();
-    const sessions = this.deps.store
-      .list()
+    const all = this.deps.store.list();
+    const sessions = all
       .filter(
         (x) =>
           x.repoPath === repoPath && x.auto && x.issueNumber != null && x.status !== "archived",
@@ -624,8 +627,12 @@ export class DrainService {
       epicBranchName(run.parentIssueNumber, parentTitle),
     );
     // (b) recorded merge base per integrated child (null bases — legacy rows — are skipped).
+    const integratedDetails = this.deps.store.listEpicIntegratedDetails(
+      repoPath,
+      run.parentIssueNumber,
+    );
     const integratedBases = new Map<number, string>();
-    for (const d of this.deps.store.listEpicIntegratedDetails(repoPath, run.parentIssueNumber)) {
+    for (const d of integratedDetails) {
       if (d.mergedBase) integratedBases.set(d.childNumber, d.mergedBase);
     }
     // (c) throttled host scan for stray epic/* refs that reference this epic.
@@ -694,7 +701,35 @@ export class DrainService {
         ? probe
         : assembleEpic({ ...base, baseMismatches: liveMismatches });
     const runEnd = this.deps.store.getEpicRunEnd(repoPath, run.parentIssueNumber);
-    return runEnd ? { ...epic, runEnd } : epic;
+    return this.timeEpic(repoPath, runEnd ? { ...epic, runEnd } : epic, all, integratedDetails);
+  }
+
+  /** Attach the epic clock and per-child start/end (see {@link withEpicTiming}). Every session of
+   *  the repo is a candidate — live or archived, auto or not: any session on a child issue is work
+   *  on it. Callers that already hold the session list or integrated rows pass them in. */
+  private timeEpic(
+    repoPath: string,
+    epic: Epic,
+    all = this.deps.store.list(),
+    integrated = this.deps.store.listEpicIntegratedDetails(repoPath, epic.parentIssueNumber),
+  ): Epic {
+    return withEpicTiming(epic, {
+      clock: this.deps.store.getEpicClock(repoPath, epic.parentIssueNumber),
+      sessions: all
+        .filter((s) => s.repoPath === repoPath)
+        .map((s) => ({
+          id: s.id,
+          issueNumber: s.issueNumber,
+          createdAt: s.createdAt,
+          endedAt: s.status === "archived" ? (s.archivedAt ?? s.updatedAt) : null,
+        })),
+      facts: this.deps.store.listDeliveryFactsForIssues(
+        repoPath,
+        epic.children.map((c) => c.number),
+      ),
+      integratedAt: new Map(integrated.map((d) => [d.childNumber, d.mergedAt])),
+      now: this.now(),
+    });
   }
 
   /** On-demand structural diagnosis for one epic parent (GET /api/epic/diagnose). Reuses the
@@ -1512,8 +1547,9 @@ export class DrainService {
       const completedRun = { ...epicRun, status: "idle" as const };
       this.deps.store.setEpicRun(completedRun, { completed: true });
       // Emit a final epic:update reflecting the completed/idle state before
-      // the next buildState sees idle and stops emitting epicParent.
-      this.emitEpicIfChanged(repoPath, { ...epic, run: completedRun });
+      // the next buildState sees idle and stops emitting epicParent — re-timed, so it carries
+      // the stopped clock and the landing start the completion just recorded.
+      this.emitEpicIfChanged(repoPath, this.timeEpic(repoPath, { ...epic, run: completedRun }));
       this.deps.telemetry?.event("epic_drained", { childCount: epic.children.length });
       this.promoteQueuedEpic(repoPath);
       return true;

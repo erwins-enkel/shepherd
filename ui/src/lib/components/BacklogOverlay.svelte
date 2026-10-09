@@ -115,6 +115,10 @@
     if (mobile || e.repeat || e.isComposing || e.defaultPrevented) return;
     if (e.ctrlKey || e.metaKey || e.altKey || e.key.toLowerCase() !== "r") return;
     if (isTyping(e.target)) return;
+    // A modal nested in the card (epic diagnosis, supersede confirm — rendered inline,
+    // not portaled) owns the keyboard: its key must not open the switcher over it.
+    const modal = e.target instanceof Element ? e.target.closest('[aria-modal="true"]') : null;
+    if (modal && modal !== cardEl) return;
     e.preventDefault();
     view?.openSwitcher();
   }

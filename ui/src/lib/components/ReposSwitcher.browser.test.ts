@@ -388,6 +388,20 @@ describe("R shortcut", () => {
     expect(q(".rs-pop")).toBeNull();
   });
 
+  it("ignores R from a modal nested inside the card (e.g. the epic dialogs)", async () => {
+    await render(BacklogOverlay, props());
+    const nested = document.createElement("div");
+    nested.setAttribute("role", "dialog");
+    nested.setAttribute("aria-modal", "true");
+    nested.innerHTML = '<button type="button">confirm</button>';
+    q(".body")!.append(nested);
+    const e = key(nested.querySelector("button")!, "r");
+    await tick();
+    expect(e.defaultPrevented).toBe(false);
+    expect(q(".rs-pop")).toBeNull();
+    nested.remove();
+  });
+
   it("stays on the card: a key aimed at another overlay never opens it", async () => {
     await render(BacklogOverlay, props());
     key(document.body, "r");

@@ -99,6 +99,11 @@ jobs:
         with:
           bun-version: latest
 
+      # package.json engines.bun is the dev/test floor pre-push enforces locally (#2916);
+      # fails if a pin here ever drops below it.
+      - name: Bun version floor
+        run: bun run check:bun-version
+
       - name: Install (root)
         uses: ./.github/actions/bun-install-retry
 

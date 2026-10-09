@@ -5,6 +5,9 @@
   "type": "module",
   "private": true,
   "license": "BUSL-1.1",
+  "engines": {
+    "bun": ">=1.4.2"
+  },
   "scripts": {
     "test": "bun test ./test",
     "test:contract": "bun test ./test/contract",
@@ -27,6 +30,7 @@
     "check:announcement-versions": "node scripts/check-announcement-versions.mjs",
     "check:model-mirror": "node scripts/check-model-mirror.mjs",
     "check:fallow-pin": "node scripts/check-fallow-pin.mjs",
+    "check:bun-version": "bun scripts/check-bun-version.ts",
     "check:env-schema": "VARLOCK_TELEMETRY_DISABLED=1 varlock audit src scripts deploy",
     "check:env-schema-docs": "node scripts/check-env-schema-docs.mjs",
     "next-version": "node scripts/next-version.mjs",

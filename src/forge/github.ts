@@ -31,6 +31,13 @@ import {
   restRateLimit,
   restWriteRateLimit,
 } from "./rate-limit";
+import {
+  graphqlSpend,
+  parseInQueryRateLimit,
+  porcelainCost,
+  withRateLimit,
+  type GraphqlSpendLedger,
+} from "./github-spend";
 import { issuesFreshness } from "./repo-freshness";
 import { readEpicStructureByParts } from "./epic-structure";
 import { Semaphore } from "../semaphore";
@@ -416,7 +423,10 @@ const execGh: GhRunner = async (args) => {
  *  - while the REST read backoff is engaged, REST READS fail fast with a rate-limit error
  *    instead of spawning `gh` into another 403. Writes and GraphQL calls always run: an
  *    operator's write surfaces its own error, and background writers consult
- *    {@link restWriteRateLimit} themselves.
+ *    {@link restWriteRateLimit} themselves;
+ *  - every GraphQL-bucket call is charged to the spend ledger, and each in-query `rateLimit`
+ *    reading goes to the GraphQL tracker and, if it is of the tracker's window, the ledger
+ *    (#2840) — the one place readings enter either.
  * Each engagement logs the call and the first stderr line that tripped it.
  * Errors are always re-thrown, so callers' fallbacks and error handling are unchanged.
  * Everything is injectable for tests; production uses {@link sharedGhRunner}.
@@ -428,12 +438,14 @@ export function makeGhRunner(
     graph?: BucketRateLimit;
     rest?: BucketRateLimit;
     restWrite?: BucketRateLimit;
+    spend?: GraphqlSpendLedger;
   } = {},
 ): GhRunner {
   const exec = opts.exec ?? execGh;
   const graph = opts.graph ?? graphRateLimit;
   const rest = opts.rest ?? restRateLimit;
   const restWrite = opts.restWrite ?? restWriteRateLimit;
+  const spend = opts.spend ?? graphqlSpend;
   const gate = new Semaphore(opts.maxConcurrent ?? GH_MAX_CONCURRENCY);
   return (args) =>
     timedAsync(`gh ${args[0]}`, () =>
@@ -443,20 +455,50 @@ export function makeGhRunner(
         // doesn't spawn into it either.
         if (restRead && rest.blocked()) throw restBackoffError(args, rest);
         const restBucket = restRead ? rest : isRestBucketCall(args) ? restWrite : null;
+        const graphql = isGraphqlBucketCall(args);
         try {
           const out = await exec(args);
           restBucket?.noteSuccess();
+          if (graphql) chargeGraphql(args, out, graph, spend);
           return out;
         } catch (err) {
           if (isRateLimitError(err)) {
             const stderr = String((err as Record<string, unknown>)?.stderr ?? "");
-            const bucket = isGraphqlBucketCall(args) ? graph : restBucket;
+            const bucket = graphql ? graph : restBucket;
             bucket?.noteLimitError(parseRetryAfter(stderr), limitCause(args, stderr));
+          } else if (graphql && (err as NodeJS.ErrnoException | null)?.code !== "ENOENT") {
+            // GitHub answered (an error, or partial data next to one) — and charged for it.
+            const stdout = (err as { stdout?: unknown } | null)?.stdout;
+            chargeGraphql(args, typeof stdout === "string" ? stdout : null, graph, spend);
           }
           throw err;
         }
       }),
     );
+}
+
+/**
+ * Charge a finished GraphQL-bucket call (#2840): own `gh api graphql` queries at their in-query
+ * `rateLimit.cost`, porcelain calls at the measured table. Then hand the query's reading to the
+ * tracker, and to the ledger only if the tracker took it as its window's. Charging first puts a
+ * query's own cost inside the interval its reading closes.
+ */
+function chargeGraphql(
+  args: string[],
+  stdout: string | null,
+  graph: BucketRateLimit,
+  spend: GraphqlSpendLedger,
+): void {
+  if (args[0] !== "api") {
+    spend.noteOwnSpend(porcelainCost(args, stdout));
+    return;
+  }
+  const rl = stdout ? parseInQueryRateLimit(stdout) : null;
+  spend.noteOwnSpend(rl?.cost ?? 1);
+  if (!rl) return;
+  if (graph.note({ remaining: rl.remaining, resetAt: rl.resetAt }) && rl.used !== null) {
+    spend.noteReading({ used: rl.used, resetAt: rl.resetAt });
+  }
 }
 
 /** What tripped a backoff, for its "engaged" log: the call (never its flag values) and the
@@ -936,7 +978,7 @@ export class GithubForge implements GitForge {
         "-F",
         `name=${name}`,
         "-f",
-        "query=query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN){totalCount} pullRequests(states:OPEN, first:100){ totalCount nodes{ author{login} title headRefName } } defaultBranchRef{target{... on Commit{statusCheckRollup{state}}}}} rateLimit{ remaining resetAt }}",
+        `query=${withRateLimit("query($owner:String!,$name:String!){repository(owner:$owner,name:$name){issues(states:OPEN){totalCount} pullRequests(states:OPEN, first:100){ totalCount nodes{ author{login} title headRefName } } defaultBranchRef{target{... on Commit{statusCheckRollup{state}}}}}}")}`,
       ]);
     } catch (err) {
       if (isRateLimitError(err)) return this.listBacklogCountsRest();
@@ -958,20 +1000,8 @@ export class GithubForge implements GitForge {
             target?: { statusCheckRollup?: { state?: string } | null } | null;
           } | null;
         };
-        /** Top-level `rateLimit` selection — tracks GraphQL bucket consumption. */
-        rateLimit?: { remaining?: number; resetAt?: string };
       };
     };
-
-    // Feed the rateLimit reading into the shared backoff tracker so we can
-    // pause pollers before the bucket empties. Guard against malformed values.
-    const rl = json.data?.rateLimit;
-    if (typeof rl?.remaining === "number" && typeof rl?.resetAt === "string") {
-      const resetAtMs = Date.parse(rl.resetAt);
-      if (Number.isFinite(resetAtMs)) {
-        graphRateLimit.note({ remaining: rl.remaining, resetAt: resetAtMs });
-      }
-    }
 
     const repo = json.data?.repository;
     const issues = repo?.issues?.totalCount;
@@ -1245,7 +1275,7 @@ export class GithubForge implements GitForge {
         "api",
         "graphql",
         "-f",
-        `query=query($owner:String!,$repo:String!,$num:Int!){repository(owner:$owner,name:$repo){issue(number:$num){${GQL_ISSUE_FIELDS}}}}`,
+        `query=${withRateLimit(`query($owner:String!,$repo:String!,$num:Int!){repository(owner:$owner,name:$repo){issue(number:$num){${GQL_ISSUE_FIELDS}}}}`)}`,
         "-F",
         `owner=${owner}`,
         "-F",
@@ -1412,7 +1442,7 @@ export class GithubForge implements GitForge {
     });
     args.push(
       "-f",
-      `query=query(${vars.join(",")}){repository(owner:$owner,name:$name){${fields.join(" ")}}}`,
+      `query=${withRateLimit(`query(${vars.join(",")}){repository(owner:$owner,name:$name){${fields.join(" ")}}}`)}`,
     );
     let out: string;
     try {
@@ -2129,7 +2159,12 @@ export class GithubForge implements GitForge {
   /** `gh api graphql {viewer{login}}` — the GraphQL-bucket transport for
    *  {@link currentUser}. */
   private async currentUserGraphql(): Promise<string | null> {
-    const out = await this.run(["api", "graphql", "-f", "query=query{viewer{login}}"]);
+    const out = await this.run([
+      "api",
+      "graphql",
+      "-f",
+      `query=${withRateLimit("query{viewer{login}}")}`,
+    ]);
     const json = JSON.parse(out || "null") as { data?: { viewer?: { login?: string } } } | null;
     return json?.data?.viewer?.login?.trim() || null;
   }
@@ -2998,7 +3033,7 @@ export class GithubForge implements GitForge {
             "-F",
             `num=${parentNumber}`,
             "-f",
-            `query=${EPIC_STRUCTURE_QUERY}`,
+            `query=${withRateLimit(EPIC_STRUCTURE_QUERY)}`,
           ]),
         );
         return { structure, complete: true };
@@ -3198,7 +3233,7 @@ export class GithubForge implements GitForge {
           "-f",
           `name=${name}`,
           "-f",
-          `query=${query}`,
+          `query=${withRateLimit(query)}`,
         ];
         if (endCursor !== null) args.push("-f", `endCursor=${endCursor}`);
         const pageInfo = collectLinkedIssuesPage(await this.run(args), linked);
@@ -3294,7 +3329,7 @@ export class GithubForge implements GitForge {
           "-f",
           `name=${name}`,
           "-f",
-          `query=${query}`,
+          `query=${withRateLimit(query)}`,
         ];
         // Thread the cursor as a raw string (-f): the opaque base64 cursor must not be
         // type-coerced by gh. Page 1 omits it so $endCursor defaults to null in GraphQL.

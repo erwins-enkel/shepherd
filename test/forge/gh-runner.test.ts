@@ -8,6 +8,7 @@ import { describe, it, expect, spyOn, beforeEach, afterEach } from "bun:test";
 import { makeGhRunner } from "../../src/forge/github";
 import { BucketRateLimit, isRateLimitError } from "../../src/forge/rate-limit";
 import { classifyGhError } from "../../src/forge/gh-attempt";
+import { GraphqlSpendLedger } from "../../src/forge/github-spend";
 
 const REST_403 = "gh: API rate limit exceeded for user ID 1. (HTTP 403)";
 
@@ -24,6 +25,7 @@ function harness(
   const rest = tracker("REST read");
   const restWrite = tracker("REST write");
   const graph = new BucketRateLimit({ now: () => t });
+  const spend = new GraphqlSpendLedger({ now: () => t });
   const execs: string[][] = [];
   // GitHub limits REST reads and writes on separate counters (#2805): each can be down alone.
   let readDown = true;
@@ -45,6 +47,7 @@ function harness(
     rest,
     restWrite,
     graph,
+    spend,
     maxConcurrent: opts.maxConcurrent,
   });
   return {
@@ -52,6 +55,7 @@ function harness(
     rest,
     restWrite,
     graph,
+    spend,
     execs,
     advance: (ms: number) => (t += ms),
     restUp: () => (readDown = writeDown = false),
@@ -240,5 +244,110 @@ describe("makeGhRunner — concurrency cap (#2656)", () => {
     await Promise.all(calls);
     expect(h.execs).toHaveLength(20);
     expect(peak).toBe(4);
+  });
+});
+
+describe("makeGhRunner — GraphQL spend (#2840)", () => {
+  const RESET = "1970-01-01T01:00:00Z";
+  const reading = (used: number, cost = 1, resetAt = RESET) =>
+    JSON.stringify({
+      data: { viewer: { login: "x" }, rateLimit: { cost, used, remaining: 5000 - used, resetAt } },
+    });
+  const rows = (n: number) => JSON.stringify(Array.from({ length: n }, (_, i) => ({ number: i })));
+  let warnSpy: ReturnType<typeof spyOn>;
+  beforeEach(() => {
+    warnSpy = spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  /** Runs the calls in order — each answering with its own output — then reads the split. */
+  async function split(calls: Array<[string[], () => string]>) {
+    const queue = calls.map(([, out]) => out);
+    const h = harness({ exec: async () => queue.shift()!() });
+    for (const [args] of calls) {
+      await h.run(args).catch(() => undefined);
+      h.advance(10_000);
+    }
+    return { h, split: h.spend.split() };
+  }
+
+  it("charges an own query its in-query cost and closes the interval with its reading", async () => {
+    const q = [
+      "api",
+      "graphql",
+      "-f",
+      "query=query{viewer{login} rateLimit{cost used remaining resetAt}}",
+    ];
+    const { h, split: s } = await split([
+      [q, () => reading(100)],
+      [q, () => reading(150, 3)],
+    ]);
+    expect(s).toMatchObject({ ownPoints: 3, otherPoints: 47 });
+    expect(h.graph.snapshot().remaining).toBe(4850);
+  });
+
+  it("charges porcelain calls by the measured table", async () => {
+    const q = ["api", "graphql", "-f", "query=…"];
+    const issues = ["issue", "list", "--repo", "o/r", "--json", "number,body", "--limit", "200"];
+    const snapshot = [
+      "pr",
+      "list",
+      "--repo",
+      "o/r",
+      "--json",
+      "number,statusCheckRollup",
+      "--limit",
+      "20",
+    ];
+    const { split: s } = await split([
+      [q, () => reading(100)],
+      [issues, () => rows(40)],
+      [snapshot, () => rows(3)],
+      [q, () => reading(110)],
+    ]);
+    // 2 (issue list page of 100) + 1 (snapshot page of 20) + 1 (the closing query)
+    expect(s).toMatchObject({ ownPoints: 4, otherPoints: 6 });
+  });
+
+  it("does not charge a rate-limited call or REST calls", async () => {
+    const q = ["api", "graphql", "-f", "query=…"];
+    const { split: s } = await split([
+      [q, () => reading(100)],
+      [
+        ["pr", "view", "1"],
+        () => {
+          throw ghError("GraphQL: API rate limit exceeded");
+        },
+      ],
+      [["api", "repos/o/r/pulls"], () => "[]"],
+      [q, () => reading(101)],
+    ]);
+    expect(s).toMatchObject({ ownPoints: 1, otherPoints: 0 });
+  });
+
+  it("charges a failed GraphQL call GitHub answered, and reads its partial data", async () => {
+    const q = ["api", "graphql", "-f", "query=…"];
+    const partial = () => {
+      throw Object.assign(new Error("exit 1"), { stdout: reading(120, 2), stderr: "NOT_FOUND" });
+    };
+    const { split: s } = await split([
+      [q, () => reading(100)],
+      [q, partial],
+    ]);
+    expect(s).toMatchObject({ ownPoints: 2, otherPoints: 18 });
+  });
+
+  it("a reading from another counter reaches neither the tracker nor the ledger", async () => {
+    const q = ["api", "graphql", "-f", "query=…"];
+    const { h, split: s } = await split([
+      [q, () => reading(100)],
+      [q, () => reading(158, 1, "1970-01-01T00:20:00Z")],
+      [q, () => reading(110)],
+    ]);
+    expect(h.graph.snapshot()).toMatchObject({ remaining: 4890, resetAt: Date.parse(RESET) });
+    // The ignored query still cost Shepherd its point.
+    expect(s).toMatchObject({ ownPoints: 2, otherPoints: 8 });
   });
 });

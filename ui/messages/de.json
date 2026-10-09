@@ -5814,5 +5814,11 @@
   "epic_tip_dur_h_min": "{h} h {m} min",
   "epic_tip_dur_d_h": "{d} T {h} h",
   "epic_tip_range": "Spanne",
-  "epic_tip_range_value": "{low}–{high}"
+  "epic_tip_range_value": "{low}–{high}",
+  "gloss_epic_clock_term": "Epic-Uhr",
+  "gloss_epic_clock_def": "Misst, wie lange ein Epic läuft. Sie läuft nur, solange das Epic läuft, und steht, während es pausiert oder angehalten ist.",
+  "gloss_agent_time_term": "Agentenzeit",
+  "gloss_agent_time_def": "Die summierte Laufzeit aller Agenten-Sitzungen an den Teilschritten eines Epics. Parallele Agenten zählen jeweils voll, daher kann sie länger sein als die Laufzeit des Epics.",
+  "feat_epic_timing_title": "Sehen, wie lange ein Epic läuft und wann es landet",
+  "feat_epic_timing_body": "Fahr über das EPIC-Badge: wie lange die [[epic-clock|Epic-Uhr]] läuft, die [[agent-time|Agentenzeit]] dahinter, wann das Epic voraussichtlich landet und wie sicher das ist, und wo jeder Teilschritt steht. Der Balken im Badge zeigt jetzt, welcher Teilschritt gerade läuft."
 }

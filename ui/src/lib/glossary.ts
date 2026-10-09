@@ -54,6 +54,18 @@ const glossary: readonly GlossaryTerm[] = [
     explanation: agentSlotExplanation,
   },
   {
+    id: "epic-clock",
+    kind: "internal",
+    termKey: "gloss_epic_clock_term",
+    bodyKey: "gloss_epic_clock_def",
+  },
+  {
+    id: "agent-time",
+    kind: "internal",
+    termKey: "gloss_agent_time_term",
+    bodyKey: "gloss_agent_time_def",
+  },
+  {
     id: "reasoning-effort",
     kind: "internal",
     termKey: "gloss_reasoning_effort_term",

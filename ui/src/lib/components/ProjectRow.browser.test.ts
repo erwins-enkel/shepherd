@@ -114,8 +114,8 @@ describe("ProjectRow compact counts", () => {
     // over the row would re-enter it and reopen the tip after the leave.
     row.style.cssText += "position:fixed;left:-1000px;top:120px;width:200px";
     row.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+    await expect.poll(() => document.querySelector(".status-tip:popover-open")).not.toBeNull();
     const panel = document.querySelector<HTMLElement>(".status-tip")!;
-    expect(panel.matches(":popover-open")).toBe(true);
     row.dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 }));
     expect(onselect).toHaveBeenCalledTimes(1);
     row.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "mouse" }));

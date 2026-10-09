@@ -152,7 +152,7 @@ describe("card ↔ status bar parity", () => {
     // read the rendered text, so this asserts the card's own string and not the bar's.
     const meta = document.querySelector(".meta-environment") as HTMLElement;
     meta.dispatchEvent(new PointerEvent("pointerenter", { bubbles: true }));
-    await new Promise((r) => setTimeout(r, 400));
+    await expect.poll(() => document.querySelector(".status-tip")).not.toBeNull();
     const cardTip = (document.querySelector(".status-tip") as HTMLElement).textContent;
     document.body.innerHTML = "";
 

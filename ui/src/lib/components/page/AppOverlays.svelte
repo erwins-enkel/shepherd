@@ -6,6 +6,8 @@
   import { repos } from "#lib/repos.svelte.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { capacitySuggestedProvider } from "#lib/provider-capacity.js";
+  import { EMPTY_REPO_FILTER } from "#lib/components/queue-strip.js";
+  import { resolveFilterPaths } from "#lib/components/backlog-view.js";
   import { basename } from "#lib/components/learnings-drawer.js";
   import {
     approveLearning,
@@ -212,6 +214,7 @@
     onaddfork,
     onaddnewproject,
     backlogSelectPath,
+    backlogRepoFilter = EMPTY_REPO_FILTER,
     onbacklogclose,
     onbacklogopensession,
     pendingTrain,
@@ -369,6 +372,9 @@
     onaddfork: () => void;
     onaddnewproject: () => void;
     backlogSelectPath: string | null;
+    /** The dashboard's repo filter (session real paths), resolved to backlog paths for the
+     *  Repos dialog's entry. */
+    backlogRepoFilter?: ReadonlySet<string>;
     onbacklogclose: () => void;
     /** Open a session from the Repos dialog's epic run area (#2620): close it, jump there. */
     onbacklogopensession: (sessionId: string) => void;
@@ -393,11 +399,9 @@
   // in <script> rather than the overlay template (keeps this template's synthetic
   // complexity under the Tier-1 bar).
   const newTaskInitialRepo = $derived(composeRepoPath ?? repoFilter ?? undefined);
-  const backlogInitialRepo = $derived(
-    backlogSelectPath ??
-      repos.entries.find((entry) => entry.realPath === repoFilter)?.path ??
-      repoFilter,
-  );
+  // The dashboard filter as backlog paths: one repo opens the Repos dialog in it, several
+  // narrow its repo grid. Kept apart from backlogSelectPath (an explicit entry).
+  const backlogFilterPaths = $derived(resolveFilterPaths(backlogRepoFilter, repos.entries));
   const newTaskInitialBaseBranch = $derived(composeBaseBranch ?? undefined);
   const newTaskInitialIssue = $derived(composeIssue ?? undefined);
   const newTaskInitialPrompt = $derived(composePrompt ?? undefined);
@@ -769,7 +773,8 @@
     {onaddclone}
     {onaddfork}
     {onaddnewproject}
-    selectPath={backlogInitialRepo}
+    selectPath={backlogSelectPath}
+    filterPaths={backlogFilterPaths}
     onclose={onbacklogclose}
     onopensession={onbacklogopensession}
     sessionInfo={backlogSessionInfo}

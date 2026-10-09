@@ -54,6 +54,8 @@ function props(over: Partial<Record<string, unknown>> = {}) {
     onaddclone: noop,
     onaddfork: noop,
     onaddnewproject: noop,
+    // The dashboard filter names `echo`: the dialog opens in it (nothing else preselects).
+    filterPaths: ["/r/echo"],
     ...over,
   };
 }
@@ -90,7 +92,7 @@ describe("Repos header", () => {
     await render(BacklogOverlay, props());
     const trigger = q(".rs-trigger")!;
     expect(trigger.querySelector(".rs-owner")?.textContent).toBe("erwins-enkel");
-    expect(trigger.querySelector(".rs-name")?.textContent?.trim()).toBe("echo"); // pinned → seeded
+    expect(trigger.querySelector(".rs-name")?.textContent?.trim()).toBe("echo"); // filter → seeded
     expect(trigger.textContent).toContain("▾");
     expect(trigger.getAttribute("aria-keyshortcuts")).toBe("R");
     expect(trigger.getAttribute("aria-haspopup")).toBe("dialog");
@@ -100,7 +102,7 @@ describe("Repos header", () => {
   });
 
   it("asks to choose a repo when none is open", async () => {
-    await render(BacklogOverlay, props({ payload: payload({ pinnedPath: null }) }));
+    await render(BacklogOverlay, props({ filterPaths: [] }));
     expect(q(".rs-trigger .rs-name")?.textContent?.trim()).toBe(m.repos_switcher_choose());
     expect(q(".rs-trigger .rs-owner")).toBeNull();
   });
@@ -121,7 +123,7 @@ describe("Repos header", () => {
   });
 
   it("drops the open repo from the chips (and backfills the next recent)", async () => {
-    await render(BacklogOverlay, props({ payload: payload({ pinnedPath: "/r/alpha" }) }));
+    await render(BacklogOverlay, props({ filterPaths: ["/r/alpha"] }));
     expect(names(".rh-chip", ".rh-chip-name")).toEqual(["bravo", "charlie", "delta"]);
   });
 
@@ -141,7 +143,7 @@ describe("Repos header", () => {
   });
 
   it("disables Fast-forward with no repo open", async () => {
-    await render(BacklogOverlay, props({ payload: payload({ pinnedPath: null }) }));
+    await render(BacklogOverlay, props({ filterPaths: [] }));
     expect((q(".rh .ff-btn") as HTMLButtonElement).disabled).toBe(true);
   });
 

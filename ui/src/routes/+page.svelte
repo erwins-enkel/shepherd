@@ -3668,6 +3668,7 @@
   onaddfork={addRepoFork}
   onaddnewproject={addRepoNewProject}
   {backlogSelectPath}
+  backlogRepoFilter={repoFilter}
   onbacklogclose={() => {
     showBacklog = false;
     backlogSelectPath = null;

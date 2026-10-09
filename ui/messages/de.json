@@ -900,7 +900,6 @@
   "newtask_pr_review_template": "Prüfe PR #{number} wie beschrieben.\n{url}",
   "backlog_loading": "Repos werden geladen…",
   "backlog_no_forge_repos": "Keine Forge-Projekte",
-  "backlog_select_a_project": "Projekt auswählen",
   "backlog_filter_has_issues": "Hat Issues",
   "backlog_filter_has_prs": "Hat PRs",
   "backlog_filter_none_match": "Keine Repos entsprechen dem Filter",
@@ -5886,5 +5885,15 @@
   "repos_switcher_tile_counts": "{issues} Issues · {prs} PRs",
   "repos_switcher_hint": "↵ öffnen · ↑↓ wählen · Esc schließen",
   "feat_repos_switcher_title": "Repos im Kopf von „Repos“ wechseln",
-  "feat_repos_switcher_body": "Die Repo-Liste in Repos belegt keine Spalte mehr. Klicke im Kopf auf den Repo-Namen (oder drücke R), um zu suchen, zu filtern und aus den zuletzt bearbeiteten und allen Repos zu wählen, oder springe mit den Chips daneben direkt in ein zuletzt bearbeitetes Repo. Fast-Forward sitzt jetzt ebenfalls im Kopf."
+  "feat_repos_switcher_body": "Die Repo-Liste in Repos belegt keine Spalte mehr. Klicke im Kopf auf den Repo-Namen (oder drücke R), um zu suchen, zu filtern und aus den zuletzt bearbeiteten und allen Repos zu wählen, oder springe mit den Chips daneben direkt in ein zuletzt bearbeitetes Repo. Fast-Forward sitzt jetzt ebenfalls im Kopf.",
+  "repos_grid_search": "Repos filtern – tippen genügt",
+  "repos_grid_sort_aria": "Repos sortieren",
+  "repos_grid_sort_issues": "Nach offenen Issues",
+  "repos_grid_sort_name": "Nach Name",
+  "repos_grid_recent": "Zuletzt bearbeitet",
+  "repos_grid_counts_actions": "{issues} Issues · {prs} PRs · {actions} Actions",
+  "repos_grid_filtered": "{count} Repos aus dem Dashboard-Filter",
+  "repos_head_from_filter": "aus Dashboard-Filter",
+  "feat_repos_grid_title": "Repos startet mit einem Repo-Raster",
+  "feat_repos_grid_body": "Ohne Dashboard-Filter – oder mit mehreren gefilterten Repos – wählt Repos kein Repo mehr vor, sondern öffnet ein Raster: tippen zum Filtern, nach offenen Issues sortieren, ein Repo mit ↵ oder den Pfeiltasten öffnen. Ist genau ein Repo gefiltert, öffnet es direkt dieses Repo, markiert mit „aus Dashboard-Filter“."
 }

@@ -43,6 +43,7 @@
     onaddfork,
     onaddnewproject,
     selectPath = null,
+    filterPaths = [],
     taskDefaults = undefined,
     onopensession = undefined,
     sessionInfo = undefined,
@@ -64,6 +65,8 @@
     onaddnewproject: () => void;
     /** Repo to auto-select after a successful add (forwarded to BacklogView). */
     selectPath?: string | null;
+    /** Backlog paths of the repos filtered on the dashboard (forwarded to BacklogView). */
+    filterPaths?: string[];
     /** Live epic record from the store, threaded to BacklogView → IssuesPanel. */
     epics?: Record<string, Epic>;
     /** PR identity keys (`${repoPath}#${number}`) owned by a running merge train,
@@ -186,6 +189,7 @@
         {onaddfork}
         {onaddnewproject}
         {selectPath}
+        {filterPaths}
         {epics}
         {inTrainPrs}
         {target}

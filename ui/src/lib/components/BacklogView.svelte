@@ -19,6 +19,7 @@
   import { triggerDocAgent, getDocAgentRuns } from "#lib/api.js";
   import ProjectBacklogList from "./ProjectBacklogList.svelte";
   import ReposHead from "./ReposHead.svelte";
+  import ReposGrid from "./ReposGrid.svelte";
   import ReposSwitcher from "./ReposSwitcher.svelte";
   import AddRepoButton from "./AddRepoButton.svelte";
   import BacklogTabBar from "./backlog-view/BacklogTabBar.svelte";
@@ -59,6 +60,7 @@
     onaddfork,
     onaddnewproject,
     selectPath = null,
+    filterPaths = [],
     taskDefaults = undefined,
     onopensession = undefined,
     sessionInfo = undefined,
@@ -112,6 +114,11 @@
      *  to the Issues tab once per distinct value. Filters are cleared first so a
      *  brand-new (zero issues/PRs) repo isn't excluded from the visible list. */
     selectPath?: string | null;
+    /** Backlog paths of the repos filtered on the dashboard. Exactly one opens the dialog
+     *  in that repo (once per mount, behind the "from dashboard filter" badge); none or
+     *  several leave nothing selected, so the desktop dialog opens on the repo grid —
+     *  narrowed to the filtered repos when there are several. */
+    filterPaths?: string[];
     /** Open a session from the epic run area's slot holders (#2620). Omitted → no link. */
     onopensession?: (sessionId: string) => void;
     /** A session and its PR state from the store, by id — an epic child's session view. */
@@ -188,9 +195,9 @@
     }
   }
 
-  // selectedPath: initialized from pinnedPath once payload arrives;
-  // user selection is not clobbered (only set when currently null).
-  // Shared across tabs so switching Issues ↔ PRs keeps the chosen project.
+  // selectedPath: null until a repo is picked (the desktop dialog shows the repo grid
+  // meanwhile) or an entry seeds one — the dashboard filter, an EPIC badge, a just-added
+  // repo. Shared across tabs so switching Issues ↔ PRs keeps the chosen project.
   let selectedPath = $state<string | null>(null);
 
   // Repo-list scope (chips + search live in the list — ProjectBacklogList on mobile,
@@ -224,7 +231,8 @@
   const allSplit = $derived(
     payload ? splitHidden(payload.projects, repoConfig.hidden) : { visible: [], hidden: [] },
   );
-  // Other recently-worked-on repos for the header chips (same ranking as the picker).
+  // Other recently-worked-on repos for the header chips (same ranking as the picker). Not
+  // shown while the repo grid is up: its "Recently edited" tiles are the same shortcut.
   const headerRecents = $derived(
     partitionRecents(allSplit.visible.filter((p) => p.path !== selectedPath)).recents,
   );
@@ -246,36 +254,34 @@
   // actionsTabLabel helper (its single source of truth), so markup + tests agree.
   let actionsState = $derived(actionsTabState(selected));
 
-  // Use untrack to read selectedPath without subscribing to it, so that
-  // dismissDetail() (which sets selectedPath = null) does not re-fire this
-  // effect and immediately re-seed the overlay from pinnedPath.
-  //
-  // Desktop only: pre-seeding fills the always-visible detail pane harmlessly.
-  // On mobile the detail is a full-screen overlay that hides the project list
-  // and the tab toggle, so auto-seeding would drop the user straight into a
-  // repo's items on load — skip it and let mobile open from the list on tap.
-  //
-  // Skip the seed when the pinned repo is hidden — otherwise it would open a repo
-  // the user parked. allSplit is read untracked so a hide toggle alone never
-  // auto-seeds; seeding stays tied to payload/pinned changes.
-  //
-  // A seed honours the active filter chip too (same rule as a repo pick, via
-  // tabForFilters), e.g. a payload that arrives while "has PRs" is on opens the
-  // pinned repo on the PRs tab. The chips are read untracked so this effect's
-  // dependencies stay payload/pinned only; the selectedPath === null guard above
-  // means a poll can never re-tab a selection the user is already reading.
+  // Exactly one repo filtered on the dashboard opens the dialog in that repo; no filter
+  // or several leave nothing selected (desktop shows the repo grid, mobile the list).
+  // Applied once per mount — the dialog remounts per open, and a later dashboard-filter
+  // change (e.g. the new-task follow) must not yank a repo the user is reading. Runs
+  // before the target / selectPath effects below, so an explicit entry wins and clears
+  // `filterSeededPath`.
+  let filterSeededPath = $state<string | null>(null);
+  let filterSeedDone = false;
   $effect(() => {
-    const pinned = payload?.pinnedPath;
-    if (
-      pinned &&
-      !mobile &&
-      untrack(() => selectedPath === null && allSplit.visible.some((p) => p.path === pinned))
-    ) {
-      selectedPath = pinned;
-      const tab = untrack(() => tabForFilters({ hasIssues, hasPRs }));
-      if (tab) activeTab = tab;
-    }
+    if (filterSeedDone) return;
+    filterSeedDone = true;
+    if (filterPaths.length !== 1) return;
+    selectedPath = filterPaths[0];
+    filterSeededPath = filterPaths[0];
+    activeTab = "issues";
   });
+  // The badge next to the switcher explains why this repo is open, until the user picks another.
+  const fromFilter = $derived(
+    !mobile && filterSeededPath !== null && selectedPath === filterSeededPath,
+  );
+
+  // The repo grid: visible repos, narrowed to the dashboard filter when it names several.
+  // A narrowing that matches nothing (filtered repos gone from the backlog) falls back to
+  // all repos rather than a blank dialog.
+  const gridScope = $derived(
+    filterPaths.length >= 2 ? allSplit.visible.filter((p) => filterPaths.includes(p.path)) : [],
+  );
+  const gridProjects = $derived(gridScope.length > 0 ? gridScope : allSplit.visible);
 
   // Desktop: if the selected repo is gone from the payload (removed), drop the
   // selection so the detail pane can't keep showing it. Chips/search/hide are NOT
@@ -309,6 +315,7 @@
     const key = `${target.repoPath}#${target.issueNumber}`;
     if (key === untrack(() => appliedTargetKey)) return; // already applied
     appliedTargetKey = key;
+    filterSeededPath = null;
     selectedPath = target.repoPath;
     activeTab = "issues";
   });
@@ -333,6 +340,7 @@
     hasIssues = false;
     hasPRs = false;
     query = "";
+    filterSeededPath = null;
     selectedPath = path;
     activeTab = "issues";
   });
@@ -346,6 +354,7 @@
   // Re-applied on EVERY click while a chip is on — switching to Actions manually
   // and then picking another repo lands on that chip's tab again.
   function handleSelect(path: string) {
+    filterSeededPath = null;
     selectedPath = path;
     const tab = tabForFilters({ hasIssues, hasPRs });
     if (tab) activeTab = tab;
@@ -373,10 +382,11 @@
          the dialog's old "REPOS" title bar and the repo sidebar (mobile keeps both). -->
     {#if payload && payload.projects.length > 0}
       <ReposHead
-        recents={headerRecents}
+        recents={selectedPath === null ? [] : headerRecents}
         onselect={handleSelect}
         onff={handleFf}
         ffDisabled={ffInFlight || selectedPath === null}
+        {fromFilter}
         {onclose}
       >
         <ReposSwitcher
@@ -500,6 +510,17 @@
         </div>
       </div>
     {/if}
+  {:else if selectedPath === null}
+    <!-- desktop, nothing selected: the repo grid, full width, instead of list + reading view -->
+    <ReposGrid
+      projects={gridProjects}
+      {drain}
+      filteredCount={gridScope.length}
+      onselect={handleSelect}
+      {onaddclone}
+      {onaddfork}
+      {onaddnewproject}
+    />
   {:else}
     <!-- desktop: the tab bar sits ABOVE the detail pane — the repo choice lives in the
          header's switcher, the tabs only switch the selected repo's detail content. -->
@@ -521,32 +542,26 @@
         ondocagent={handleDocAgent}
       />
       <div class="detail-pane">
-        {#if selectedPath !== null}
-          <BacklogTabContent
-            {activeTab}
-            {selectedPath}
-            {onissue}
-            {onquick}
-            {oninject}
-            {onpr}
-            {onlaunchtrain}
-            {onadopt}
-            {epics}
-            {inTrainPrs}
-            {target}
-            {drain}
-            {taskDefaults}
-            {onopensession}
-            {sessionInfo}
-            {issueSession}
-            {ondraftepic}
-            onopenautomation={() => (activeTab = "automation")}
-          />
-        {:else}
-          <div class="detail-empty">
-            <span class="detail-empty-label">{m.backlog_select_a_project()}</span>
-          </div>
-        {/if}
+        <BacklogTabContent
+          {activeTab}
+          {selectedPath}
+          {onissue}
+          {onquick}
+          {oninject}
+          {onpr}
+          {onlaunchtrain}
+          {onadopt}
+          {epics}
+          {inTrainPrs}
+          {target}
+          {drain}
+          {taskDefaults}
+          {onopensession}
+          {sessionInfo}
+          {issueSession}
+          {ondraftepic}
+          onopenautomation={() => (activeTab = "automation")}
+        />
       </div>
     </div>
   {/if}
@@ -613,20 +628,6 @@
     overflow: hidden;
     display: flex;
     flex-direction: column;
-  }
-
-  .detail-empty {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-
-  .detail-empty-label {
-    font-size: var(--fs-meta);
-    letter-spacing: 0.14em;
-    text-transform: uppercase;
-    color: var(--color-faint);
   }
 
   /* ── mobile layout ── */

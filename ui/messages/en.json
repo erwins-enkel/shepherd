@@ -900,7 +900,6 @@
   "newtask_pr_review_template": "Review PR #{number} as described.\n{url}",
   "backlog_loading": "Loading repos…",
   "backlog_no_forge_repos": "No forge-backed projects",
-  "backlog_select_a_project": "Select a project",
   "backlog_filter_has_issues": "Has issues",
   "backlog_filter_has_prs": "Has PRs",
   "backlog_filter_none_match": "No repos match the filter",
@@ -5886,5 +5885,15 @@
   "repos_switcher_tile_counts": "{issues} Issues · {prs} PRs",
   "repos_switcher_hint": "↵ open · ↑↓ select · Esc close",
   "feat_repos_switcher_title": "Switch repos from the Repos header",
-  "feat_repos_switcher_body": "The repo list in Repos no longer takes a column. Click the repo name in the header (or press R) to search, filter and pick from your recent and all repos, or jump straight to a recent one with the chips next to it. Fast-forward now sits in the header too."
+  "feat_repos_switcher_body": "The repo list in Repos no longer takes a column. Click the repo name in the header (or press R) to search, filter and pick from your recent and all repos, or jump straight to a recent one with the chips next to it. Fast-forward now sits in the header too.",
+  "repos_grid_search": "Filter repos – just type",
+  "repos_grid_sort_aria": "Sort repos",
+  "repos_grid_sort_issues": "By open issues",
+  "repos_grid_sort_name": "By name",
+  "repos_grid_recent": "Recently edited",
+  "repos_grid_counts_actions": "{issues} Issues · {prs} PRs · {actions} Actions",
+  "repos_grid_filtered": "{count} repos from the dashboard filter",
+  "repos_head_from_filter": "from dashboard filter",
+  "feat_repos_grid_title": "Repos opens on a repo grid",
+  "feat_repos_grid_body": "Without a dashboard filter — or with several repos filtered — Repos no longer preselects a repo. It opens on a grid instead: type to filter, sort by open issues, and open a repo with ↵ or the arrow keys. With exactly one repo filtered it opens straight in that repo, marked \"from dashboard filter\"."
 }

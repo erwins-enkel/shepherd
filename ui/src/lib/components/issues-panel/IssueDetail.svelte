@@ -19,6 +19,7 @@
   import EpicRunControl from "./EpicRunControl.svelte";
   import EpicChildRun from "./EpicChildRun.svelte";
   import EpicFlowGraph from "./EpicFlowGraph.svelte";
+  import EpicTimingDetail from "./EpicTimingDetail.svelte";
   import EpicDiagnosisModal from "../EpicDiagnosisModal.svelte";
   import MarkdownBody from "../MarkdownBody.svelte";
   import IssueDetailHead from "./IssueDetailHead.svelte";
@@ -26,8 +27,9 @@
 
   // Reading detail of the backlog Issues tab (#2617) for the selected list entry:
   //  - single issue → head, the "Aufgabe" box, then the rendered description;
-  //  - epic         → head (⋯ menu: Import / Diagnose), the sticky run area (#2620), the flow
-  //                   graph (#2621), the EpicPanel's children, then the description;
+  //  - epic         → head (⋯ menu: Import / Diagnose), the sticky run area (#2620), its time
+  //                   (#2939), the flow graph (#2621), the EpicPanel's children, then the
+  //                   description;
   //  - epic child   → head (← Epic #n), its run area (#2622: standing / session / merged),
   //                   then the description.
   let {
@@ -90,6 +92,20 @@
   } = $props();
 
   let showDiag = $state(false);
+
+  // The epic's clocks tick each second while it can still move: until it landed. A landed one
+  // still reads the current time once per record, for its dates.
+  let nowMs = $state(Date.now());
+  const ticking = $derived(
+    selection.kind === "epic" && epic?.timing != null && epic.timing.landedAt == null,
+  );
+  $effect(() => {
+    void epic;
+    nowMs = Date.now();
+    if (!ticking) return;
+    const timer = setInterval(() => (nowMs = Date.now()), 1000);
+    return () => clearInterval(timer);
+  });
 
   /** A flow-graph node click selects that child of the shown epic in the list (#2621). */
   function selectFlowChild(child: number) {
@@ -194,6 +210,9 @@
         {onopenautomation}
       />
     {/if}
+    {#if epic}
+      <EpicTimingDetail {epic} {nowMs} slots={drain?.max ?? null} {onopenautomation} />
+    {/if}
     {#if epic}<EpicFlowGraph {epic} {sessionInfo} onselect={selectFlowChild} />{/if}
     <div class="epic-host" data-epic-panel>
       {#if epic}
@@ -203,6 +222,7 @@
           {epic}
           runSummary={drain?.runSummary ?? null}
           headActions={false}
+          {nowMs}
         />
       {:else}
         <div class="muted">{m.common_loading()}</div>

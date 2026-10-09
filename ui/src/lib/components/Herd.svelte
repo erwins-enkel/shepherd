@@ -5,6 +5,7 @@
     SessionActivity,
     Epic,
     CompletedEpic,
+    DrainStatus,
     HoldReason,
     OwedFocusSnapshot,
     AgentProvider,
@@ -55,6 +56,7 @@
     onopenbrowser = undefined,
     epics = {},
     onepic = undefined,
+    drain = {},
     activeEpicKeys = new Set(),
     collapsedKeys = new Set(),
     oncollapsetoggle = undefined,
@@ -134,6 +136,9 @@
     epics?: Record<string, Epic>;
     // an epic group header's badge was clicked → open the backlog
     onepic?: (repoPath: string, issueNumber: number) => void;
+    // live drain status keyed by repoPath (store.drain) — the epic badge's forecast names the
+    // repo's agent slots
+    drain?: Record<string, DrainStatus>;
     // keys (`${repoPath}#${parentIssueNumber}`) of currently-active epics — only these
     // group their child sessions under an epic headline; others stay in the lifecycle list
     activeEpicKeys?: Set<string>;
@@ -777,6 +782,7 @@
         {cuesFor}
         {onepic}
         {oncollapsetoggle}
+        slotsFor={(repoPath) => drain[repoPath]?.max ?? null}
         ctx={rowCtx}
       />
       <HerdExperimentGroups groups={experimentGrouped.groups} {oncompare} ctx={rowCtx} />

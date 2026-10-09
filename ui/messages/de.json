@@ -1288,7 +1288,6 @@
   "feat_native_sub_issues_body": "Issues mit nativen GitHub-Teilaufgaben (ohne Markdown-Checkliste) zeigen jetzt in Repos ein TEILAUFGABEN-Badge, das wie Epics auf- und zugeklappt werden kann.",
   "feat_session_epic_badge_title": "Epics in deinen Sessions erkennen",
   "feat_session_epic_badge_body": "Eine Session, die an einem Tracking-Issue arbeitet, zeigt jetzt ein EPIC-Badge mit Live-Fortschritt der Unter-Issues — klick es an, um das Epic in Repos zu öffnen.",
-  "epic_badge_open_title": "Epic #{number}: {merged}/{total} Unteraufgaben erledigt — in Repos öffnen",
   "epic_badge_open_aria": "Epic #{number} in Repos öffnen ({merged} von {total} Unteraufgaben erledigt)",
   "readiness_g_dependency_automation_title": "Abhängigkeits-Automatisierung (Dependabot/Renovate)",
   "readiness_g_dependency_automation_removes": "Ohne sie häufen sich Abhängigkeits-Updates als manuelle Fleißarbeit an, statt als automatische PRs, die du nur noch prüfst und mergst.",

@@ -8,6 +8,9 @@
     epic,
     collapsed,
     cues,
+    nowMs,
+    slots = null,
+    coachId = "",
     ontoggle,
     onepic,
   }: {
@@ -22,6 +25,12 @@
       ready: number;
       blocked: number;
     };
+    /** The Herd's tick, for the badge's epic clock. */
+    nowMs: number;
+    /** The repo's agent slots; null when unknown. */
+    slots?: number | null;
+    /** The badge's coachmark anchor id ("" = none). */
+    coachId?: string;
     ontoggle: () => void;
     // an epic badge was clicked → open the backlog on this repo, scrolled to the epic
     onepic?: (repoPath: string, issueNumber: number) => void;
@@ -54,7 +63,15 @@
     <span class="num">#{epic.parentIssueNumber}</span>
   </button>
 
-  <EpicBadge live={epic} repoPath={epic.repoPath} issueNumber={epic.parentIssueNumber} {onepic} />
+  <EpicBadge
+    live={epic}
+    repoPath={epic.repoPath}
+    issueNumber={epic.parentIssueNumber}
+    {nowMs}
+    {slots}
+    {coachId}
+    {onepic}
+  />
 
   <span class="cues">
     {#if cues.ciFailed > 0}

@@ -5,9 +5,10 @@
   import { activate } from "../issues-panel";
   import EpicRoleBadge from "./EpicRoleBadge.svelte";
 
-  // Compact epic header of the backlog list (#2617): chevron, number, title (ellipsis), a
-  // segmented progress bar and "m/n". Segments are per child (tinted by state) once the epic's
-  // record is loaded; before that they come from the list summary (merged vs. rest).
+  // Compact epic header of the backlog list (#2617), two lines: chevron, number and the wrapping
+  // title on top; below it the role badge, a segmented progress bar and "m/n". Segments are per
+  // child (tinted by state) once the epic's record is loaded; before that they come from the list
+  // summary (merged vs. rest).
   let {
     issue,
     summary = undefined,
@@ -57,37 +58,41 @@
   onclick={onselect}
   onkeydown={(e) => activate(e, onselect)}
 >
-  <button
-    class="chevron epic-toggle"
-    type="button"
-    tabindex="-1"
-    aria-expanded={expanded}
-    aria-label={expanded
-      ? m.epic_badge_collapse_aria({ parent: issue.number })
-      : m.epic_badge_expand_aria({ parent: issue.number })}
-    onclick={(e) => {
-      e.stopPropagation();
-      ontoggle();
-    }}>{expanded ? "▾" : "▸"}</button
-  >
-  <span class="num" id={`epic-issue-row-${issue.number}`}>#{issue.number}</span>
-  <span class="title issue-title">{issue.title}</span>
-  {#if role}<EpicRoleBadge {role} {position} />{/if}
-  {#if counts.total > 0}
-    <span class="bar" aria-hidden="true">
-      {#each segments as tone, i (i)}<span class="seg seg-{tone}"></span>{/each}
-    </span>
-  {/if}
-  <span class="count" title={m.epic_progress({ merged: counts.merged, total: counts.total })}
-    >{counts.merged}/{counts.total}</span
-  >
+  <div class="line">
+    <button
+      class="chevron epic-toggle"
+      type="button"
+      tabindex="-1"
+      aria-expanded={expanded}
+      aria-label={expanded
+        ? m.epic_badge_collapse_aria({ parent: issue.number })
+        : m.epic_badge_expand_aria({ parent: issue.number })}
+      onclick={(e) => {
+        e.stopPropagation();
+        ontoggle();
+      }}>{expanded ? "▾" : "▸"}</button
+    >
+    <span class="num" id={`epic-issue-row-${issue.number}`}>#{issue.number}</span>
+    <span class="title issue-title">{issue.title}</span>
+  </div>
+  <div class="line sub">
+    {#if role}<EpicRoleBadge {role} {position} />{/if}
+    {#if counts.total > 0}
+      <span class="bar" aria-hidden="true">
+        {#each segments as tone, i (i)}<span class="seg seg-{tone}"></span>{/each}
+      </span>
+    {/if}
+    <span class="count" title={m.epic_progress({ merged: counts.merged, total: counts.total })}
+      >{counts.merged}/{counts.total}</span
+    >
+  </div>
 </div>
 
 <style>
   .epic-row {
     display: flex;
-    align-items: center;
-    gap: 6px;
+    flex-direction: column;
+    gap: 3px;
     min-width: 0;
     padding: 5px 8px 5px 4px;
     border: 1px solid color-mix(in srgb, var(--status-running) 30%, var(--color-line));
@@ -104,6 +109,18 @@
     border-color: var(--status-running);
     background: color-mix(in oklab, var(--status-running) 16%, var(--color-inset));
     color: var(--color-ink-bright);
+  }
+
+  .line {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+  }
+  /* Status line, indented under the title (past the chevron). */
+  .sub {
+    align-items: center;
+    padding-left: 24px;
   }
 
   .chevron {
@@ -126,16 +143,15 @@
   .title {
     flex: 1;
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
 
   .bar {
-    flex: none;
     display: flex;
+    flex: 1;
     gap: 1px;
-    width: 64px;
+    min-width: 40px;
+    max-width: 140px;
     height: 6px;
   }
   .seg {
@@ -174,6 +190,9 @@
     .chevron {
       width: 32px;
       min-height: 32px;
+    }
+    .sub {
+      padding-left: 38px;
     }
   }
 </style>

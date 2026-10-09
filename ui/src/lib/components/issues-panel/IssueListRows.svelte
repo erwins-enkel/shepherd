@@ -2,9 +2,10 @@
   import type { DrainRunSummary, Epic, EpicSummary, Issue, Steer } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { relativeAge } from "#lib/format.js";
+  import { labelChipStyle } from "#lib/label-color.js";
   import { clock } from "#lib/now.svelte.js";
   import { chipFor, epicRole, queuePosition, slotHeldBy, stateLabel } from "../epic-panel";
-  import { activate, type IssueListRow } from "../issues-panel";
+  import { ACTIVE_LABEL, activate, stripEpicPrefix, type IssueListRow } from "../issues-panel";
   import IssueMenuLayer from "../IssueMenuLayer.svelte";
   import { issueMenuTrigger } from "../issue-menu-trigger";
   import EpicHeaderRow from "./EpicHeaderRow.svelte";
@@ -39,12 +40,13 @@
     ontoggle: (n: number) => void;
   } = $props();
 
-  // "#12 · label · 3d" — number, first label (when any), age.
-  function metaLine(issue: Issue): string {
-    const label = issue.labels?.[0];
-    const age = relativeAge(issue.createdAt, clock.current);
-    return [`#${issue.number}`, ...(label ? [label] : []), age].join(" · ");
-  }
+  /** Meta-line separator — rendered via a variable so its spaces survive Svelte's whitespace
+   *  trimming at block and element edges. */
+  const SEP = " · ";
+  // The label the meta line names: the first one, except the drain's claim label — a running
+  // issue says so with its own "läuft" segment.
+  const metaLabel = (issue: Issue) => issue.labels?.find((l) => l !== ACTIVE_LABEL);
+  const metaAge = (issue: Issue) => relativeAge(issue.createdAt, clock.current);
 
   const firstSingle = $derived(rows.find((r) => r.kind === "single")?.key ?? null);
 
@@ -108,14 +110,20 @@
         aria-label={stateLabel(row.child.state)}
         title={stateLabel(row.child.state)}
       ></span>
-      <span class="num">#{row.child.number}</span>
-      <span class="title">{row.child.title}</span>
-      {#if slot}
-        <span class="slot">{m.epic_slot_held({ index: slot.index, max: slot.max })}</span>
-      {/if}
+      <span class="child-body">
+        <span class="child-line">
+          <span class="num">#{row.child.number}</span>
+          <span class="title">{stripEpicPrefix(row.child.title, row.parent)}</span>
+        </span>
+        {#if slot}
+          <span class="status">{m.epic_slot_held({ index: slot.index, max: slot.max })}</span>
+        {/if}
+      </span>
     </div>
   {:else}
     {@const issue = row.issue}
+    {@const label = metaLabel(issue)}
+    {@const hue = label ? labelChipStyle(issue.labelColors?.[label] ?? "") : null}
     {#if row.key === firstSingle}
       <div class="section-heading" role="presentation">{m.issuespanel_singles_heading()}</div>
     {/if}
@@ -131,13 +139,15 @@
       use:issueMenuTrigger={{ onopen: (x, y, node) => openMenu(issue, x, y, node) }}
     >
       <span class="title issue-title">{issue.title}</span>
+      <!-- SEP is a variable on purpose: a literal separator loses its spaces at block/element edges. -->
       <span class="meta"
-        >{#if running?.(issue)}<span
-            class="dot dot-running"
-            role="img"
-            aria-label={m.issuetask_state_claimed()}
-            title={m.issuetask_state_claimed()}
-          ></span>{/if}{metaLine(issue)}</span
+        >#{issue.number}{#if running?.(issue)}{SEP}<span class="dot dot-running" aria-hidden="true"
+          ></span>{m.issuelist_running()}{/if}{#if label}{SEP}<span
+            class="label-dot"
+            class:hued={hue !== null}
+            style={hue}
+            aria-hidden="true"
+          ></span>{label}{/if}{SEP}{metaAge(issue)}</span
       >
     </div>
   {/if}
@@ -186,7 +196,7 @@
   /* Children hang under their epic header on a leading rail (as in EpicPanel). */
   .child-row {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 6px;
     margin-left: 12px;
     padding: 3px 8px;
@@ -204,6 +214,10 @@
     height: 7px;
     border-radius: 50%;
     background: var(--color-muted);
+  }
+  /* Beside the first text line of a child row (which may wrap below it). */
+  .child-row > .dot {
+    margin-top: 0.45em;
   }
   .dot-done {
     background: var(--status-done);
@@ -227,29 +241,35 @@
     font-size: var(--fs-micro);
   }
 
-  /* Two lines before the ellipsis (#2638): the list column is narrow, one line cut most titles. */
+  /* Titles wrap in full — the list column is narrow and a cut title can't be told apart from
+     its neighbour; long unbroken names (branches, paths) break instead of overflowing. */
   .title {
-    flex: 1;
     min-width: 0;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-    line-clamp: 2;
-    overflow: hidden;
     overflow-wrap: anywhere;
   }
 
-  /* "holds slot i/m" (#2620): neutral — the dot beside the number carries the state color. */
-  .slot {
-    flex: none;
-    padding: 0 5px;
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
-    color: var(--color-muted);
+  .child-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 1px;
+    min-width: 0;
+  }
+  .child-line {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    min-width: 0;
+  }
+  .child-line .title {
+    flex: 1;
+  }
+
+  /* "hält Platz i/m" (#2620) under the title: neutral — the dot beside the number carries the
+     state color. */
+  .status {
+    color: var(--color-faint);
     font-size: var(--fs-micro);
-    letter-spacing: 0.08em;
-    text-transform: uppercase;
-    white-space: nowrap;
   }
 
   .section-heading {
@@ -268,21 +288,33 @@
     padding: 4px 8px;
     font-size: var(--fs-base);
   }
-  .single-row .title {
-    flex: none;
-  }
   .meta {
-    overflow: hidden;
     color: var(--color-faint);
     font-size: var(--fs-micro);
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
   }
-  /* Running marker leading the meta line: the child rows' dot, set inline. */
+  /* Running marker in the meta line: the child rows' dot, set inline. */
   .meta .dot {
     display: inline-block;
     margin-right: 5px;
     vertical-align: middle;
+  }
+  /* The label's own hue as a dot (the sanctioned forge-colour exception, as the overview's
+     label rows); neutral when the forge sends no colour. */
+  .label-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    margin-right: 5px;
+    border-radius: 50%;
+    background: var(--color-muted);
+    vertical-align: middle;
+  }
+  .label-dot.hued {
+    background: var(--lc-text-d);
+  }
+  :global([data-theme="light"]) .label-dot.hued {
+    background: var(--lc-text-l);
   }
 
   @media (max-width: 768px), (pointer: coarse) {

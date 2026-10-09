@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
+import { page } from "vitest/browser";
 import "../../../app.css";
 import RepoOverview from "./RepoOverview.svelte";
 import type { DrainStatus, Epic, EpicSummary, Issue } from "#lib/types.js";
@@ -225,5 +226,86 @@ describe("RepoOverview (#2622)", () => {
     expect(oldest.getAttribute("aria-pressed")).toBe("true");
     oldest.click();
     expect(ontoggleoldest).toHaveBeenCalledOnce();
+  });
+
+  describe("the wide reading view (#2950)", () => {
+    const facts = {
+      running: [{ issue: issue(160), sessionId: "s160", desig: "TASK-160", hidden: false }],
+      labels: [
+        { label: "bug", count: 3 },
+        { label: "docs", count: 1 },
+      ],
+      stale: { stale: 2, total: 3, oldest: { issue: issue(3), days: 152 } },
+    };
+    const rect = (el: Element | null) => el!.getBoundingClientRect();
+
+    it("shows Jetzt · Als nächstes · Danach side by side", async () => {
+      await page.viewport(1100, 800);
+      render(RepoOverview, {
+        repoName: "shepherd",
+        epics: [summaryOf(A, 1, 3), summaryOf(B, 0, 2)],
+        ...quiet,
+        drain: drain(),
+        leadingRecord: leading(),
+        titleFor,
+        onselect: vi.fn(),
+      });
+      const steps = [...run().querySelectorAll<HTMLElement>(".steps > li")];
+      expect(steps).toHaveLength(3);
+      const [now, next, after] = steps.map(rect);
+      expect(Math.abs(now.top - next.top)).toBeLessThan(2);
+      expect(Math.abs(next.top - after.top)).toBeLessThan(2);
+      expect(now.right).toBeLessThanOrEqual(next.left);
+      expect(next.right).toBeLessThanOrEqual(after.left);
+    });
+
+    it("below them: running and idle on the left, open-by-label on the right", async () => {
+      await page.viewport(1100, 800);
+      render(RepoOverview, {
+        repoName: "shepherd",
+        epics: [],
+        ...quiet,
+        ...facts,
+        titleFor,
+        onselect: vi.fn(),
+      });
+      const [left, right] = [...root().querySelectorAll<HTMLElement>(".facts > .facts-col")];
+      expect(left.querySelector(".run-row")).not.toBeNull();
+      expect(left.textContent).toContain(
+        m.repooverview_stale_count({ stale: 2, total: 3, days: 90 }),
+      );
+      expect(left.querySelector(".label-row")).toBeNull();
+      expect(right.querySelectorAll(".label-row")).toHaveLength(2);
+      expect(rect(left).right).toBeLessThanOrEqual(rect(right).left);
+      expect(Math.abs(rect(left).top - rect(right).top)).toBeLessThan(2);
+    });
+
+    it("stacks the two columns in a narrow reading view", async () => {
+      await page.viewport(520, 800);
+      render(RepoOverview, {
+        repoName: "shepherd",
+        epics: [],
+        ...quiet,
+        ...facts,
+        titleFor,
+        onselect: vi.fn(),
+      });
+      const [left, right] = [...root().querySelectorAll<HTMLElement>(".facts > .facts-col")];
+      expect(rect(left).bottom).toBeLessThanOrEqual(rect(right).top);
+    });
+
+    it("renders the columns for running issues alone", async () => {
+      await page.viewport(1100, 800);
+      render(RepoOverview, {
+        repoName: "shepherd",
+        epics: [],
+        ...quiet,
+        running: facts.running,
+        titleFor,
+        onselect: vi.fn(),
+      });
+      expect(root().querySelectorAll(".facts > .facts-col")).toHaveLength(1);
+      expect(root().querySelector(".facts .run-row")).not.toBeNull();
+    });
   });
 });

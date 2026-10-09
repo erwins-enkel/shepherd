@@ -18,9 +18,9 @@
   // The reading detail with nothing selected (#2622): what is happening in this repo. The run
   // area "Abarbeitung im Repo" (which epic leads, its Now → Next → After steps, epics winding
   // down, the agent-slot cap), then every epic with its role and progress. Below that, what the
-  // list beside it can't say (#2638): what runs right now (even when the list's filters hide
-  // it), open issues per label as list filters, what has lain untouched, and the next step.
-  // No second issue list — the list is right there.
+  // list beside it can't say (#2638), in two columns (#2950): left what runs right now (even
+  // when the list's filters hide it) and what has lain untouched, right the open issues per
+  // label as list filters; then the next step. No second issue list — the list is right there.
 
   let {
     repoPath,
@@ -179,92 +179,96 @@
     </section>
   {/if}
 
-  {#if running.length}
-    <section class="group" aria-label={m.repooverview_running({ count: running.length })}>
-      <h3 class="group-head">{m.repooverview_running({ count: running.length })}</h3>
-      <ul class="running">
-        {#each running as r (r.issue.number)}
-          <li class="run-row">
-            <span class="run-dot" aria-hidden="true"></span>
-            <span class="run-text">
-              <span class="run-title"
-                ><span class="num">#{r.issue.number}</span> {r.issue.title}</span
-              >
-              <span class="faint">{runningMeta(r)}</span>
-            </span>
-            {#if r.sessionId && onopensession}
-              {@const id = r.sessionId}
-              <button class="gbtn" type="button" onclick={() => onopensession(id)}
-                >{m.epic_run_open_session()}</button
-              >
-            {/if}
-          </li>
-        {/each}
-      </ul>
-    </section>
-  {/if}
-
-  {#if labels.length || stale.total}
+  {#if running.length || labels.length || stale.total}
     <div class="facts">
-      {#if labels.length}
-        <section class="group" aria-label={m.repooverview_labels()}>
-          <h3 class="group-head">{m.repooverview_labels()}</h3>
-          <ul class="labels">
-            {#each labels as { label, count } (label)}
-              {@const hue = labelChipStyle(labelColors[label] ?? "")}
-              <li>
-                <button
-                  class="label-row"
-                  class:hued={hue !== null}
-                  style={hue}
-                  type="button"
-                  aria-label={m.repooverview_label_filter({ label, count })}
-                  onclick={() => onfilterlabel(label)}
-                >
-                  <span class="label-name"><span class="label-dot"></span>{label}</span>
-                  <span class="bar" aria-hidden="true"
-                    ><span class="fill label-fill" style:width="{(count / maxLabelCount) * 100}%"
-                    ></span></span
-                  >
-                  <span class="label-count">{count}</span>
-                </button>
-              </li>
-            {/each}
-          </ul>
-          <p class="note">{m.repooverview_labels_hint()}</p>
-        </section>
-      {/if}
-
-      {#if stale.total}
-        <section class="group" aria-label={m.repooverview_stale()}>
-          <h3 class="group-head">{m.repooverview_stale()}</h3>
-          <p class="stale-count">
-            {m.repooverview_stale_count({
-              stale: stale.stale,
-              total: stale.total,
-              days: STALE_DAYS,
-            })}
-          </p>
-          <span class="bar" aria-hidden="true"
-            ><span class="fill stale-fill" style:width="{(stale.stale / stale.total) * 100}%"
-            ></span></span
-          >
-          {#if stale.oldest}
-            <p class="note">
-              {m.repooverview_oldest({
-                number: stale.oldest.issue.number,
-                title: stale.oldest.issue.title,
-                days: stale.oldest.days,
-              })}
-            </p>
+      {#if running.length || stale.total}
+        <div class="facts-col">
+          {#if running.length}
+            <section class="group" aria-label={m.repooverview_running({ count: running.length })}>
+              <h3 class="group-head">{m.repooverview_running({ count: running.length })}</h3>
+              <ul class="running">
+                {#each running as r (r.issue.number)}
+                  <li class="run-row">
+                    <span class="run-dot" aria-hidden="true"></span>
+                    <span class="run-text">
+                      <span class="run-title"
+                        ><span class="num">#{r.issue.number}</span> {r.issue.title}</span
+                      >
+                      <span class="faint">{runningMeta(r)}</span>
+                    </span>
+                    {#if r.sessionId && onopensession}
+                      {@const id = r.sessionId}
+                      <button class="gbtn" type="button" onclick={() => onopensession(id)}
+                        >{m.epic_run_open_session()}</button
+                      >
+                    {/if}
+                  </li>
+                {/each}
+              </ul>
+            </section>
           {/if}
-          <button
-            class="gbtn oldest"
-            type="button"
-            aria-pressed={oldestFirst}
-            onclick={ontoggleoldest}>{m.issuespanel_oldest_first()}</button
-          >
-        </section>
+          {#if stale.total}
+            <section class="group" aria-label={m.repooverview_stale()}>
+              <h3 class="group-head">{m.repooverview_stale()}</h3>
+              <p class="stale-count">
+                {m.repooverview_stale_count({
+                  stale: stale.stale,
+                  total: stale.total,
+                  days: STALE_DAYS,
+                })}
+              </p>
+              <span class="bar" aria-hidden="true"
+                ><span class="fill stale-fill" style:width="{(stale.stale / stale.total) * 100}%"
+                ></span></span
+              >
+              {#if stale.oldest}
+                <p class="note">
+                  {m.repooverview_oldest({
+                    number: stale.oldest.issue.number,
+                    title: stale.oldest.issue.title,
+                    days: stale.oldest.days,
+                  })}
+                </p>
+              {/if}
+              <button
+                class="gbtn oldest"
+                type="button"
+                aria-pressed={oldestFirst}
+                onclick={ontoggleoldest}>{m.issuespanel_oldest_first()}</button
+              >
+            </section>
+          {/if}
+        </div>
+      {/if}
+      {#if labels.length}
+        <div class="facts-col">
+          <section class="group" aria-label={m.repooverview_labels()}>
+            <h3 class="group-head">{m.repooverview_labels()}</h3>
+            <ul class="labels">
+              {#each labels as { label, count } (label)}
+                {@const hue = labelChipStyle(labelColors[label] ?? "")}
+                <li>
+                  <button
+                    class="label-row"
+                    class:hued={hue !== null}
+                    style={hue}
+                    type="button"
+                    aria-label={m.repooverview_label_filter({ label, count })}
+                    onclick={() => onfilterlabel(label)}
+                  >
+                    <span class="label-name"><span class="label-dot"></span>{label}</span>
+                    <span class="bar" aria-hidden="true"
+                      ><span class="fill label-fill" style:width="{(count / maxLabelCount) * 100}%"
+                      ></span></span
+                    >
+                    <span class="label-count">{count}</span>
+                  </button>
+                </li>
+              {/each}
+            </ul>
+            <p class="note">{m.repooverview_labels_hint()}</p>
+          </section>
+        </div>
       {/if}
     </div>
   {/if}
@@ -400,11 +404,19 @@
     overflow-wrap: anywhere;
   }
 
-  /* Labels | what lies, side by side while there is room. */
+  /* Two columns while there is room (#2950): what runs and what lies on the left, the open
+     issues per label on the right. One column when the reading view is narrow. */
   .facts {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    align-items: start;
     gap: 14px 28px;
+  }
+  .facts-col {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    min-width: 0;
   }
   .labels {
     display: flex;

@@ -99,7 +99,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Keyboard shortcuts",
     path: "/reference/keyboard-shortcuts/",
     keywords:
-      "drive the shepherd dashboard from the keyboard — the command bar, session switching, and terminal keys. command bar session & herd navigation switch sessions while the terminal is focused terminal new task",
+      "drive the shepherd dashboard from the keyboard — the command bar, session switching, and terminal keys. command bar session & herd navigation repos dialog switch sessions while the terminal is focused terminal new task",
   },
   {
     title: "Plugins",

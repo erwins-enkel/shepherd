@@ -347,7 +347,6 @@
   "slash_menu_label": "slash commands",
   "slash_menu_empty": "no matching commands",
   "repos_resize_modal": "Drag to resize the Repos window · double-click to reset",
-  "repos_resize_sidebar": "Drag to resize the repository list · double-click to reset",
   "reposelect_placeholder": "select a repo…",
   "reposelect_filter_placeholder": "filter…",
   "reposelect_no_matches": "no matches",
@@ -5877,5 +5876,15 @@
   "epicdetail_basis_order_parallel": "Order from the dependencies; with {slots} [[agent-slot|agent slots]] up to {slots} steps run at once. Plus ~{landing} for the landing: epic PR to main, CI, merge.",
   "epicdetail_basis_range": "The range narrows with every finished step. While the epic is paused, the [[epic-clock|epic clock]] stands still.",
   "epicdetail_col_duration": "Duration",
-  "epicdetail_dur_forecast": "~{dur} · forecast"
+  "epicdetail_dur_forecast": "~{dur} · forecast",
+  "repos_head_recent": "Recent",
+  "repos_head_chip_aria": "Open {repo} ({count} open issues)",
+  "repos_switcher_choose": "Choose repo",
+  "repos_switcher_aria": "Switch repo — current: {repo}",
+  "repos_switcher_dialog_aria": "Switch repo",
+  "repos_switcher_all": "All repos",
+  "repos_switcher_tile_counts": "{issues} Issues · {prs} PRs",
+  "repos_switcher_hint": "↵ open · ↑↓ select · Esc close",
+  "feat_repos_switcher_title": "Switch repos from the Repos header",
+  "feat_repos_switcher_body": "The repo list in Repos no longer takes a column. Click the repo name in the header (or press R) to search, filter and pick from your recent and all repos, or jump straight to a recent one with the chips next to it. Fast-forward now sits in the header too."
 }

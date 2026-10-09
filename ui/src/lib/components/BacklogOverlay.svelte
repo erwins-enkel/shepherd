@@ -18,6 +18,13 @@
   import { createResizeDrag } from "#lib/resize-drag.js";
   import BacklogView from "./BacklogView.svelte";
 
+  // Typing in a field must never trigger the `R` shortcut (mirrors +page's isTyping).
+  function isTyping(el: EventTarget | null): boolean {
+    if (!(el instanceof HTMLElement)) return false;
+    const tag = el.tagName;
+    return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || el.isContentEditable;
+  }
+
   let {
     payload,
     mobile,
@@ -99,6 +106,18 @@
 
   let cardEl = $state<HTMLElement>();
   let modalResizing = $state(false);
+  let view = $state<ReturnType<typeof BacklogView>>();
+
+  // `R` opens the repo switcher (desktop). Scoped to the card, not `window`: the page's
+  // global `r` (open Repos) stands down while any overlay is open, and a New Task opened
+  // over this dialog must not see the key. Plain key only, never mid-typing / mid-IME.
+  function onCardKeydown(e: KeyboardEvent) {
+    if (mobile || e.repeat || e.isComposing || e.defaultPrevented) return;
+    if (e.ctrlKey || e.metaKey || e.altKey || e.key.toLowerCase() !== "r") return;
+    if (isTyping(e.target)) return;
+    e.preventDefault();
+    view?.openSwitcher();
+  }
 
   const startModalResize = createResizeDrag<{ x: number; y: number; w: number; h: number }>({
     axis: "both",
@@ -136,16 +155,23 @@
     role="dialog"
     aria-modal="true"
     aria-label={m.actionbar_backlog()}
+    tabindex="-1"
     use:dialog={{ onclose }}
+    onkeydown={onCardKeydown}
   >
-    <div class="chead">
-      <span class="micro">{m.actionbar_backlog()}</span>
-      <button type="button" class="x" onclick={onclose} aria-label={m.common_close()}>✕</button>
-    </div>
+    {#if mobile}
+      <!-- desktop's title bar is BacklogView's repo-switcher header -->
+      <div class="chead">
+        <span class="micro">{m.actionbar_backlog()}</span>
+        <button type="button" class="x" onclick={onclose} aria-label={m.common_close()}>✕</button>
+      </div>
+    {/if}
     <div class="body">
       <BacklogView
+        bind:this={view}
         {payload}
         {mobile}
+        {onclose}
         {onissue}
         {onquick}
         {oninject}

@@ -1,6 +1,5 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { MediaQuery } from "svelte/reactivity";
   import type {
     BacklogPayload,
     DocAgentOutcome,
@@ -19,18 +18,25 @@
   import { toasts } from "#lib/toasts.svelte.js";
   import { triggerDocAgent, getDocAgentRuns } from "#lib/api.js";
   import ProjectBacklogList from "./ProjectBacklogList.svelte";
+  import ReposHead from "./ReposHead.svelte";
+  import ReposSwitcher from "./ReposSwitcher.svelte";
   import AddRepoButton from "./AddRepoButton.svelte";
   import BacklogTabBar from "./backlog-view/BacklogTabBar.svelte";
   import BacklogTabContent from "./backlog-view/BacklogTabContent.svelte";
-  import { actionsTabState, filterProjects, splitHidden, tabForFilters } from "./backlog-view";
+  import {
+    actionsTabState,
+    filterProjects,
+    partitionRecents,
+    splitHidden,
+    tabForFilters,
+  } from "./backlog-view";
   import { repoConfig } from "#lib/reviews.svelte.js";
   import { pullMainAndToast } from "#lib/pull-offer.js";
-  import { backlogLayout, clampSidebarWidth } from "#lib/backlog-layout.svelte.js";
-  import { createResizeDrag } from "#lib/resize-drag.js";
 
   let {
     payload,
     mobile,
+    onclose = () => {},
     onissue,
     onquick = undefined,
     oninject = undefined,
@@ -61,6 +67,9 @@
   }: {
     payload: BacklogPayload | null;
     mobile: boolean;
+    /** Closes the Repos dialog — the ✕ in the desktop header. (Mobile's ✕ is the
+     *  title bar BacklogOverlay still owns.) */
+    onclose?: () => void;
     onissue: (repoPath: string, issue: Issue, run?: TaskRunSeed) => void;
     /** Quick-launch an issue with the configured standard command, skipping the
      *  New Task dialog. Omitted → no quick button is shown on the issues. */
@@ -114,40 +123,6 @@
     /** Global run defaults for the Issues tab's task box (CLI / model / effort pre-fill). */
     taskDefaults?: TaskRunDefaults;
   } = $props();
-
-  // ── Desktop repository-sidebar resize (issue #1787) ─────────────────────────
-  // Shared drag lifecycle (createResizeDrag) — see BacklogOverlay. The separator
-  // lives in .desktop-split (a non-scrolling position:relative wrapper) at the
-  // track boundary, so drag adjusts only the repo-list width; the 1fr detail
-  // column absorbs the rest. Gated on !mobile && fine-pointer.
-  const coarse = new MediaQuery("(pointer: coarse)");
-  const sbResizable = $derived(!mobile && !coarse.current);
-  const sidebarStyle = $derived(
-    sbResizable && backlogLayout.sidebar !== null
-      ? `--repos-sidebar:${backlogLayout.sidebar}px`
-      : undefined,
-  );
-
-  let splitEl = $state<HTMLElement>();
-  let masterEl = $state<HTMLElement>();
-  let sbResizing = $state(false);
-
-  const startSidebarResize = createResizeDrag<{ x: number; w: number; splitW: number }>({
-    axis: "x",
-    onActive: (a) => (sbResizing = a),
-    onStart: (e) => {
-      if (!sbResizable || !splitEl || !masterEl) return null;
-      return {
-        x: e.clientX,
-        w: masterEl.getBoundingClientRect().width,
-        splitW: splitEl.getBoundingClientRect().width,
-      };
-    },
-    onDrag: (e, c) =>
-      backlogLayout.setSidebar(clampSidebarWidth(c.w + (e.clientX - c.x), c.splitW)),
-    onCommit: () => backlogLayout.commitSidebar(),
-    onReset: () => backlogLayout.resetSidebar(),
-  });
 
   type Tab = "issues" | "prs" | "actions" | "readiness" | "automation";
   let activeTab = $state<Tab>("issues");
@@ -218,9 +193,10 @@
   // Shared across tabs so switching Issues ↔ PRs keeps the chosen project.
   let selectedPath = $state<string | null>(null);
 
-  // Repo-list filter (chips + search input live in ProjectBacklogList, state
-  // owned here so the selection effects below can stay in sync with what the
-  // list actually shows).
+  // Repo-list scope (chips + search live in the list — ProjectBacklogList on mobile,
+  // the ReposSwitcher popover on desktop). State is owned here so both lists and the
+  // selection effects share it. On desktop the scope only narrows the popover's list;
+  // it never deselects the open repo (see the drop effect below).
   let hasIssues = $state(false);
   let hasPRs = $state(false);
   let query = $state("");
@@ -242,10 +218,16 @@
   const hiddenCount = $derived(
     payload ? splitHidden(payload.projects, repoConfig.hidden).hidden.length : 0,
   );
-  // Repos actually on screen = visible list ∪ any revealed hidden rows. The drop
-  // effect uses this so hiding the selected repo with Show-hidden ON keeps its
-  // (now dimmed) row + detail, while OFF removes the row and drops the selection.
-  const onScreenPaths = $derived(new Set([...visibleProjects, ...shownHidden].map((p) => p.path)));
+  // Hidden/visible partition of ALL repos, independent of the scope above — what the
+  // header's "Zuletzt" chips and the pinned auto-seed draw from, so typing in the
+  // switcher's search can't change them.
+  const allSplit = $derived(
+    payload ? splitHidden(payload.projects, repoConfig.hidden) : { visible: [], hidden: [] },
+  );
+  // Other recently-worked-on repos for the header chips (same ranking as the picker).
+  const headerRecents = $derived(
+    partitionRecents(allSplit.visible.filter((p) => p.path !== selectedPath)).recents,
+  );
 
   function handleHide(path: string) {
     const p = payload?.projects.find((q) => q.path === path);
@@ -273,16 +255,13 @@
   // and the tab toggle, so auto-seeding would drop the user straight into a
   // repo's items on load — skip it and let mobile open from the list on tap.
   //
-  // Skip the seed when the filter currently hides the pinned repo — otherwise it
-  // would re-select a repo absent from the list (and fight the clear effect
-  // below on every poll). visibleProjects is read untracked so a filter toggle
-  // alone never auto-seeds; seeding stays tied to payload/pinned changes.
+  // Skip the seed when the pinned repo is hidden — otherwise it would open a repo
+  // the user parked. allSplit is read untracked so a hide toggle alone never
+  // auto-seeds; seeding stays tied to payload/pinned changes.
   //
-  // A re-seed honours the active filter chip too (same rule as a row click, via
-  // tabForFilters). Without this, turning "has PRs" on with a no-PR repo selected
-  // drops that selection (the on-screen effect below) and the next payload update
-  // re-seeds the pinned repo on a stale Issues tab — the exact state the chip
-  // redirect exists to prevent. The chips are read untracked so this effect's
+  // A seed honours the active filter chip too (same rule as a repo pick, via
+  // tabForFilters), e.g. a payload that arrives while "has PRs" is on opens the
+  // pinned repo on the PRs tab. The chips are read untracked so this effect's
   // dependencies stay payload/pinned only; the selectedPath === null guard above
   // means a poll can never re-tab a selection the user is already reading.
   $effect(() => {
@@ -290,7 +269,7 @@
     if (
       pinned &&
       !mobile &&
-      untrack(() => selectedPath === null && visibleProjects.some((p) => p.path === pinned))
+      untrack(() => selectedPath === null && allSplit.visible.some((p) => p.path === pinned))
     ) {
       selectedPath = pinned;
       const tab = untrack(() => tabForFilters({ hasIssues, hasPRs }));
@@ -298,14 +277,19 @@
     }
   });
 
-  // Desktop: if the currently selected repo is no longer on screen (an active
-  // filter narrowed it out, or it was hidden while Show-hidden is off), drop the
-  // selection so the detail pane can't keep showing an off-list repo. A repo
-  // hidden while Show-hidden is ON stays on screen (dimmed) → keeps its detail.
-  // Mobile selects from the visible list and can't toggle filters while the detail
-  // overlay covers the list, so it never needs this.
+  // Desktop: if the selected repo is gone from the payload (removed), drop the
+  // selection so the detail pane can't keep showing it. Chips/search/hide are NOT
+  // grounds for dropping: the repo list is a transient popover now, so narrowing it
+  // (or parking the open repo) must not blank the detail the user is reading.
+  // Mobile selects from the visible list and can't touch it while the detail overlay
+  // covers the list, so it never needs this.
   $effect(() => {
-    if (!mobile && selectedPath !== null && !onScreenPaths.has(selectedPath)) {
+    if (
+      !mobile &&
+      payload &&
+      selectedPath !== null &&
+      !payload.projects.some((p) => p.path === selectedPath)
+    ) {
       selectedPath = null;
     }
   });
@@ -333,8 +317,8 @@
   // panel). Applied once per distinct value (appliedSelectPath read untracked so
   // the effect depends only on `selectPath`). A brand-new repo has zero issues/PRs
   // and won't match an active search, so the filter chips + query are cleared first
-  // — otherwise filterProjects would drop it from visibleProjects and the desktop
-  // drop-effect above would immediately clear this selection. Switch to Issues so
+  // — otherwise filterProjects would drop it from visibleProjects and the new repo
+  // would be missing from the list the user just added it to. Switch to Issues so
   // its detail pane opens (on mobile this opens the full-screen detail overlay,
   // which is the desired outcome of an explicit add action).
   let appliedSelectPath = $state<string | null>(null);
@@ -367,6 +351,15 @@
     if (tab) activeTab = tab;
   }
 
+  let switcher = $state<ReturnType<typeof ReposSwitcher>>();
+
+  /** Open the desktop repo switcher (the dialog's `R` shortcut). No-op on mobile or
+   *  when there are no repos to switch between. */
+  export function openSwitcher() {
+    if (mobile || !payload || payload.projects.length === 0) return;
+    switcher?.openPanel();
+  }
+
   // On mobile, a set selectedPath means the detail overlay is open.
   // Clearing it goes back to the project list.
   function dismissDetail() {
@@ -375,6 +368,44 @@
 </script>
 
 <div class="backlog-view" class:mobile class:flow>
+  {#if !mobile}
+    <!-- desktop header: the repo switcher + recents + Fast-forward + close, replacing
+         the dialog's old "REPOS" title bar and the repo sidebar (mobile keeps both). -->
+    {#if payload && payload.projects.length > 0}
+      <ReposHead
+        recents={headerRecents}
+        onselect={handleSelect}
+        onff={handleFf}
+        ffDisabled={ffInFlight || selectedPath === null}
+        {onclose}
+      >
+        <ReposSwitcher
+          bind:this={switcher}
+          {selected}
+          projects={visibleProjects}
+          hiddenProjects={shownHidden}
+          {hiddenCount}
+          {showHidden}
+          pinnedPath={payload.pinnedPath}
+          {selectedPath}
+          {hasIssues}
+          {hasPRs}
+          {query}
+          ontoggleissues={() => (hasIssues = !hasIssues)}
+          ontoggleprs={() => (hasPRs = !hasPRs)}
+          ontogglehidden={() => (showHidden = !showHidden)}
+          onsearch={(q) => (query = q)}
+          onselect={handleSelect}
+          onhide={handleHide}
+          {onaddclone}
+          {onaddfork}
+          {onaddnewproject}
+        />
+      </ReposHead>
+    {:else}
+      <ReposHead {onclose} />
+    {/if}
+  {/if}
   {#if payload === null}
     <!-- loading state -->
     <div class="state-full">
@@ -470,99 +501,53 @@
       </div>
     {/if}
   {:else}
-    <!-- desktop: side-by-side master / detail, with the tab bar sitting ABOVE the
-         detail pane (not the whole view) — the project list on the left is shared
-         across tabs, so the tabs only switch the selected repo's detail content;
-         keeping them inside the detail column makes that hierarchy legible. -->
-    <div
-      class="desktop-split"
-      class:sb-resizing={sbResizing}
-      bind:this={splitEl}
-      style={sidebarStyle}
-    >
-      <div class="master-pane" bind:this={masterEl}>
-        <ProjectBacklogList
-          projects={visibleProjects}
-          hiddenProjects={shownHidden}
-          {hiddenCount}
-          {showHidden}
-          pinnedPath={payload.pinnedPath}
-          {selectedPath}
-          {hasIssues}
-          {hasPRs}
-          {query}
-          ontoggleissues={() => (hasIssues = !hasIssues)}
-          ontoggleprs={() => (hasPRs = !hasPRs)}
-          ontogglehidden={() => (showHidden = !showHidden)}
-          onsearch={(q) => (query = q)}
-          onselect={handleSelect}
-          onhide={handleHide}
-          {onaddclone}
-          {onaddfork}
-          {onaddnewproject}
-        />
+    <!-- desktop: the tab bar sits ABOVE the detail pane — the repo choice lives in the
+         header's switcher, the tabs only switch the selected repo's detail content. -->
+    <div class="detail-column">
+      <BacklogTabBar
+        variant="desktop"
+        {activeTab}
+        {selected}
+        {actionsState}
+        {ffInFlight}
+        {selectedPath}
+        {docAgentEnabled}
+        {docAgentAct}
+        {docAgentRunning}
+        {docAgentRuns}
+        showFf={false}
+        onselecttab={(t) => (activeTab = t)}
+        onff={handleFf}
+        ondocagent={handleDocAgent}
+      />
+      <div class="detail-pane">
+        {#if selectedPath !== null}
+          <BacklogTabContent
+            {activeTab}
+            {selectedPath}
+            {onissue}
+            {onquick}
+            {oninject}
+            {onpr}
+            {onlaunchtrain}
+            {onadopt}
+            {epics}
+            {inTrainPrs}
+            {target}
+            {drain}
+            {taskDefaults}
+            {onopensession}
+            {sessionInfo}
+            {issueSession}
+            {ondraftepic}
+            onopenautomation={() => (activeTab = "automation")}
+          />
+        {:else}
+          <div class="detail-empty">
+            <span class="detail-empty-label">{m.backlog_select_a_project()}</span>
+          </div>
+        {/if}
       </div>
-      <div class="detail-column">
-        <BacklogTabBar
-          variant="desktop"
-          {activeTab}
-          {selected}
-          {actionsState}
-          {ffInFlight}
-          {selectedPath}
-          {docAgentEnabled}
-          {docAgentAct}
-          {docAgentRunning}
-          {docAgentRuns}
-          onselecttab={(t) => (activeTab = t)}
-          onff={handleFf}
-          ondocagent={handleDocAgent}
-        />
-        <div class="detail-pane">
-          {#if selectedPath !== null}
-            <BacklogTabContent
-              {activeTab}
-              {selectedPath}
-              {onissue}
-              {onquick}
-              {oninject}
-              {onpr}
-              {onlaunchtrain}
-              {onadopt}
-              {epics}
-              {inTrainPrs}
-              {target}
-              {drain}
-              {taskDefaults}
-              {onopensession}
-              {sessionInfo}
-              {issueSession}
-              {ondraftepic}
-              onopenautomation={() => (activeTab = "automation")}
-            />
-          {:else}
-            <div class="detail-empty">
-              <span class="detail-empty-label">{m.backlog_select_a_project()}</span>
-            </div>
-          {/if}
-        </div>
-      </div>
-      {#if sbResizable}
-        <!-- Vertical separator (issue #1787): an abs-positioned child of the
-             non-scrolling .desktop-split wrapper, sitting at the track boundary
-             (left: var(--repos-sidebar)). NOT a child of the scrolling
-             .master-pane, which would clip it / scroll it away. Drag to resize
-             the repo list, double-click to reset — see startSidebarResize. -->
-        <div
-          class="repo-splitter"
-          class:dragging={sbResizing}
-          role="separator"
-          aria-orientation="vertical"
-          aria-label={m.repos_resize_sidebar()}
-          title={m.repos_resize_sidebar()}
-          onpointerdown={startSidebarResize}
-        ></div>
-      {/if}
     </div>
   {/if}
 </div>
@@ -612,80 +597,10 @@
     color: var(--color-faint);
   }
 
-  /* ── desktop split layout ── */
-  /* position:relative hosts the abs-positioned .repo-splitter (issue #1787). The
-     first track reads var(--repos-sidebar, 232px) — a concrete default, kept narrow
-     so the Issues list + reading view get the width (#2619) — so the grid boundary
-     and the separator's `left` read from one shared variable and can't drift. */
-  .desktop-split {
-    display: grid;
-    grid-template-columns: var(--repos-sidebar, 232px) 1fr;
-    position: relative;
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-  }
-  /* During a sidebar drag: kill text selection + force the resize cursor. */
-  .desktop-split.sb-resizing {
-    user-select: none;
-    cursor: col-resize;
-  }
-  /* Vertical splitter: ~12px hit strip centred on the master/detail boundary.
-     A 2px hairline (::after) is invisible at rest and brightens on hover/drag —
-     mirrors the Herd splitter. */
-  .repo-splitter {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: var(--repos-sidebar, 232px);
-    width: 12px;
-    transform: translateX(-50%);
-    cursor: col-resize;
-    z-index: 5;
-    touch-action: none;
-  }
-  .repo-splitter::after {
-    content: "";
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: 50%;
-    width: 2px;
-    transform: translateX(-50%);
-    background: transparent;
-    transition: background 0.12s ease;
-  }
-  .repo-splitter:hover::after,
-  .repo-splitter:focus-visible::after,
-  .repo-splitter.dragging::after {
-    background: var(--color-line-bright);
-  }
-  .repo-splitter:focus-visible {
-    outline: none;
-  }
-
-  /* No bottom padding: the list's sticky "+ Add repo" foot must sit flush on the
-     pane's bottom edge, and brings its own padding. */
-  .master-pane {
-    border-right: 1px solid var(--color-line);
-    overflow-y: auto;
-    padding: 0 4px;
-  }
-
-  .master-pane::-webkit-scrollbar {
-    width: 4px;
-  }
-  .master-pane::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  .master-pane::-webkit-scrollbar-thumb {
-    background: var(--color-faint);
-    border-radius: 2px;
-  }
-
-  /* Right column: tab bar stacked above the detail content, so the tabs read as
-     controlling this pane rather than the whole view. */
+  /* Desktop detail: tab bar stacked above the detail content, filling the dialog
+     below the header (the repo list is the header popover, not a column). */
   .detail-column {
+    flex: 1;
     display: flex;
     flex-direction: column;
     min-height: 0;
@@ -713,7 +628,6 @@
     text-transform: uppercase;
     color: var(--color-faint);
   }
-  /* Both tabs share the split / master / detail / overlay chrome above. */
 
   /* ── mobile layout ── */
   .mobile-master {

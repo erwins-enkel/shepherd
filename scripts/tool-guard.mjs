@@ -395,7 +395,10 @@ function readsRateLimit(w) {
   if (w[0] !== "gh" || w[1] !== "api") return false;
   for (let i = 2; i < w.length; i++) {
     if (GH_API_VALUE_FLAGS.has(w[i])) i++;
-    else if (!w[i].startsWith("-")) return w[i] === "rate_limit" || w[i] === "/rate_limit";
+    else if (!w[i].startsWith("-")) {
+      const endpoint = unquote(w[i]);
+      return endpoint === "rate_limit" || endpoint === "/rate_limit";
+    }
   }
   return false;
 }

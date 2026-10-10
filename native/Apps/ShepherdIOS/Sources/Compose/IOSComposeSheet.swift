@@ -184,9 +184,9 @@ struct IOSComposeContent: View {
             Spacer(minLength: 8)
             if rendering { languageLabel }
             else {
-                Menu {
+                StableMenu(value: voice.locale) {
                     Button("DE") { voice.locale = "de-DE" }; Button("EN") { voice.locale = "en-US" }
-                } label: { languageLabel }
+                } label: { languageLabel }.equatable()
                     .disabled(voice.active).accessibilityLabel(L.t("native_compose_voice_language"))
             }
         }.padding(.horizontal, 16).padding(.vertical, 12).overlay(alignment: .bottom) { Rectangle().fill(ComposePalette.line).frame(height: 1) }
@@ -223,44 +223,55 @@ struct IOSComposeContent: View {
     }
     /// One tap opens the repo list itself; ImageRenderer cannot draw a Menu, so renders get the bare chip.
     @ViewBuilder private var repoChip: some View {
-        let label = Text(verbatim: "\(repoName) ▾").lineLimit(typeSize.isAccessibilitySize ? nil : 1).frame(maxWidth: .infinity, alignment: .leading)
+        let menu = repoMenu
+        let label = Text(verbatim: "\(menu.label) ▾").lineLimit(menu.wraps ? nil : 1).frame(maxWidth: .infinity, alignment: .leading)
         if rendering { Button {} label: { label } }
-        else { Menu { repoOptions } label: { label }.menuStyle(.button).menuOrder(.fixed) }
-    }
-    @ViewBuilder private var repoOptions: some View {
-        let recent = RepoRecency.recent(repos, sessions: store.sessions)
-        let stamps = RepoRecency.lastUsed(repos, sessions: store.sessions)
-        if recent.isEmpty {
-            allRepoOptions
-        } else {
-            Section(L.t("native_compose_repo_recent")) {
-                ForEach(recent, id: \.path) { repo in repoOption(repo, age: stamps[repo.path].map { RepoRecency.age($0) }) }
-            }
-            Menu(L.t("native_compose_repo_all")) { allRepoOptions }
-        }
-    }
-    /// Several servers: one entry per repo, labelled with the servers that carry it.
-    @ViewBuilder private var allRepoOptions: some View {
-        if let repoCatalogue {
-            ForEach(repoCatalogue.choices) { choice in
-                Button {
-                    repoCatalogue.pick(choice)
-                    if let local = repos.first(where: { IOSComposeRepoChoice.key($0) == choice.key }) { model.repoPath = local.path }
-                } label: {
-                    Text(verbatim: choice.name)
-                    Text(verbatim: repoCatalogue.serverNames(choice))
-                    if choice.key == repoCatalogue.selectedKey { Image(systemName: "checkmark") }
+        else {
+            StableMenu(value: menu) {
+                if menu.recent.isEmpty {
+                    allRepoOptions(menu)
+                } else {
+                    Section(L.t("native_compose_repo_recent")) {
+                        ForEach(menu.recent) { entry in repoOption(entry) { model.repoPath = entry.id } }
+                    }
+                    Menu(L.t("native_compose_repo_all")) { allRepoOptions(menu) }
                 }
-            }
-        } else {
-            ForEach(RepoRecency.alphabetical(repos), id: \.path) { repoOption($0, age: nil) }
+            } label: { label }.equatable().menuStyle(.button).menuOrder(.fixed)
         }
     }
-    private func repoOption(_ option: Repo, age: String?) -> some View {
-        Button { model.repoPath = option.path } label: {
-            Text(verbatim: option.name)
-            if let age { Text(verbatim: age) }
-            if option.path == model.repoPath { Image(systemName: "checkmark") }
+    /// Everything the repo menu shows, so it re-renders only when one of these changes.
+    struct RepoMenu: Equatable {
+        struct Entry: Equatable, Identifiable { let id: String; let name: String; let detail: String?; let checked: Bool }
+        let label: String
+        let wraps: Bool
+        let recent: [Entry]
+        let all: [Entry]
+    }
+    private var repoMenu: RepoMenu {
+        let stamps = RepoRecency.lastUsed(repos, sessions: store.sessions)
+        let recent = RepoRecency.recent(repos, sessions: store.sessions).map {
+            RepoMenu.Entry(id: $0.path, name: $0.name, detail: stamps[$0.path].map { RepoRecency.age($0) }, checked: $0.path == model.repoPath)
+        }
+        // Several servers: one entry per repo, labelled with the servers that carry it.
+        let all = repoCatalogue.map { catalogue in
+            catalogue.choices.map { RepoMenu.Entry(id: $0.key, name: $0.name, detail: catalogue.serverNames($0), checked: $0.key == catalogue.selectedKey) }
+        } ?? RepoRecency.alphabetical(repos).map { RepoMenu.Entry(id: $0.path, name: $0.name, detail: nil, checked: $0.path == model.repoPath) }
+        return RepoMenu(label: repoName, wraps: typeSize.isAccessibilitySize, recent: recent, all: all)
+    }
+    private func allRepoOptions(_ menu: RepoMenu) -> some View {
+        ForEach(menu.all) { entry in
+            repoOption(entry) {
+                guard let repoCatalogue else { model.repoPath = entry.id; return }
+                if let choice = repoCatalogue.choices.first(where: { $0.key == entry.id }) { repoCatalogue.pick(choice) }
+                if let local = repos.first(where: { IOSComposeRepoChoice.key($0) == entry.id }) { model.repoPath = local.path }
+            }
+        }
+    }
+    private func repoOption(_ entry: RepoMenu.Entry, pick: @escaping () -> Void) -> some View {
+        Button(action: pick) {
+            Text(verbatim: entry.name)
+            if let detail = entry.detail { Text(verbatim: detail) }
+            if entry.checked { Image(systemName: "checkmark") }
         }
     }
     @ViewBuilder private var modeBar: some View {
@@ -301,12 +312,12 @@ struct IOSComposeContent: View {
     }
     @ViewBuilder private var attachmentMenu: some View {
         if rendering { attachmentLabel }
-        else { Menu {
+        else { StableMenu(value: true) {
             Button { photos = true } label: { Label(L.t("native_compose_photos"), systemImage: "photo") }
             Button { files = true } label: { Label(L.t("native_compose_files"), systemImage: "doc") }
             Button { pasteImage() } label: { Label(L.t("native_compose_paste_clipboard"), systemImage: "doc.on.clipboard") }
             Button { options = .commands } label: { Label(L.t("promptsources_commands_tab"), systemImage: "command") }
-        } label: { attachmentLabel }
+        } label: { attachmentLabel }.equatable()
             .accessibilityLabel(L.t("native_compose_attach")).accessibilityIdentifier("compose.attach").disabled(voice.active || autoStart.armed) }
     }
     private var attachmentLabel: some View {

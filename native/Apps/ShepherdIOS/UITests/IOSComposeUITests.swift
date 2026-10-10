@@ -129,6 +129,31 @@ final class IOSComposeUITests: XCTestCase {
         XCTAssertTrue(entry.waitForExistence(timeout: 5)); entry.tap()
         XCTAssertTrue(app.staticTexts["Kein Bild in der Zwischenablage — kopiere zuerst ein Bild."].waitForExistence(timeout: 5))
     }
+    /// Live status pushes re-render the composer; one tap on a menu entry must still land.
+    func testMenusAcceptFirstTapWhileStoreChurns() {
+        UIPasteboard.general.items = []
+        app.launchArguments += ["-ShepherdComposeChurnFixture"]
+        app.launch()
+        let attach = app.buttons["compose.attach"]
+        XCTAssertTrue(attach.waitForExistence(timeout: 10)); attach.tap()
+        let entry = app.buttons["Aus Zwischenablage"]
+        XCTAssertTrue(entry.waitForExistence(timeout: 5)); entry.press(forDuration: 0.3)
+        XCTAssertTrue(app.staticTexts["Kein Bild in der Zwischenablage — kopiere zuerst ein Bild."].waitForExistence(timeout: 5))
+        let language = app.buttons["Diktatsprache"].firstMatch
+        XCTAssertTrue(language.waitForExistence(timeout: 5)); language.tap()
+        let english = app.buttons["EN"]
+        XCTAssertTrue(english.waitForExistence(timeout: 5)); english.press(forDuration: 0.3)
+        XCTAssertTrue(app.staticTexts["EN ▾"].waitForExistence(timeout: 5))
+        let repo = app.buttons["compose.repo"]
+        XCTAssertTrue(repo.waitForExistence(timeout: 5)); repo.tap()
+        XCTAssertTrue(app.staticTexts["Zuletzt benutzt"].waitForExistence(timeout: 5))
+        let all = app.buttons["Alle Repos"]
+        XCTAssertTrue(all.waitForExistence(timeout: 5)); all.press(forDuration: 0.3)
+        let alpha = app.buttons.matching(NSPredicate(format: "label BEGINSWITH 'alpha'")).firstMatch
+        XCTAssertTrue(alpha.waitForExistence(timeout: 5)); alpha.press(forDuration: 0.3)
+        let picked = expectation(for: NSPredicate(format: "value == 'alpha'"), evaluatedWith: repo)
+        wait(for: [picked], timeout: 5)
+    }
     /// The pickers render out of process, so the signal is the prompt they cover, not their contents.
     private func assertAttachItemCoversCompose(_ item: String) {
         app.launch()

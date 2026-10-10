@@ -5277,6 +5277,482 @@
         }
       }
     },
+    "guardtl_divider": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Danach, per Repo-Einstellung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "After that, per repo setting"
+          }
+        }
+      }
+    },
+    "guardtl_head_nogate_auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Aufgabe: Shepherd zieht ohne Rückfragen durch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This task: Shepherd carries on without asking"
+          }
+        }
+      }
+    },
+    "guardtl_head_nogate_auto_codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Aufgabe: Shepherd macht ohne Rückfrage weiter — sobald die Codex-Unterhaltung zugeordnet ist"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This task: Shepherd carries on without asking — once the Codex conversation is identified"
+          }
+        }
+      }
+    },
+    "guardtl_head_nogate_manual": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Aufgabe: kein Planungshalt, aber jeder Stopp wartet auf dich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This task: no planning stop, but every stop waits for you"
+          }
+        }
+      }
+    },
+    "guardtl_head_plan_auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Aufgabe: nur Rückfragen zum Plan, danach zieht Shepherd durch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This task: questions about the plan, then Shepherd carries on"
+          }
+        }
+      }
+    },
+    "guardtl_head_plan_auto_codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Aufgabe: Fragen zum Plan, danach macht Shepherd weiter — sobald die Codex-Unterhaltung zugeordnet ist"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This task: questions about the plan, then Shepherd carries on — once the Codex conversation is identified"
+          }
+        }
+      }
+    },
+    "guardtl_head_plan_manual": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Aufgabe: du planst mit und gibst jeden Schritt frei"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This task: you plan along and approve every step"
+          }
+        }
+      }
+    },
+    "guardtl_marker_auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auto"
+          }
+        }
+      }
+    },
+    "guardtl_marker_conditional": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bedingt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Conditional"
+          }
+        }
+      }
+    },
+    "guardtl_marker_you": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You"
+          }
+        }
+      }
+    },
+    "guardtl_open_automation": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Automatisierungs-Einstellungen für dieses Repo öffnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open automation settings for this repo"
+          }
+        }
+      }
+    },
+    "guardtl_step_critic_auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd arbeitet Critic-Befunde selbst ab, bis zum Rundenlimit; danach kommen sie zu dir"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd works through critic findings itself, up to the round limit; after that they come to you"
+          }
+        }
+      }
+    },
+    "guardtl_step_critic_manual": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Critic prüft, sobald CI grün ist; was er findet, kommt zu dir"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The critic reviews once CI is green; anything it finds comes to you"
+          }
+        }
+      }
+    },
+    "guardtl_step_critic_off": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Keine automatische Code-Prüfung — du reviewst selbst"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No automatic code review — you review it yourself"
+          }
+        }
+      }
+    },
+    "guardtl_step_grill": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent recherchiert und stellt dir Rückfragen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent researches and asks you questions"
+          }
+        }
+      }
+    },
+    "guardtl_step_merge_train": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Merge-Train landet den PR, solange CI grün ist, der Branch aktuell und konfliktfrei bleibt, der Critic nichts blockiert und keine manuellen Schritte offen sind"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The merge train lands the PR, as long as CI is green, the branch stays current and conflict-free, the critic doesn’t block and no manual steps are open"
+          }
+        }
+      }
+    },
+    "guardtl_step_merge_train_codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Merge-Train landet den PR, solange CI grün ist, der Branch aktuell und konfliktfrei bleibt, der Critic nichts blockiert, keine manuellen Schritte offen sind und Shepherd dieser Aufgabe eine isolierte Worktree geben konnte"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The merge train lands the PR, as long as CI is green, the branch stays current and conflict-free, the critic doesn’t block, no manual steps are open and Shepherd could give this task an isolated worktree"
+          }
+        }
+      }
+    },
+    "guardtl_step_merge_you_automerge": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full-Auto-Merge ist aus — du mergst selbst"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Full-auto merge is off — you merge yourself"
+          }
+        }
+      }
+    },
+    "guardtl_step_merge_you_autopilot": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot ist aus — du mergst selbst"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autopilot is off — you merge yourself"
+          }
+        }
+      }
+    },
+    "guardtl_step_merge_you_draft": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Draft-Modus ist an — du mergst selbst"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Draft mode is on — you merge yourself"
+          }
+        }
+      }
+    },
+    "guardtl_step_merge_you_epic": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic-Branch als Basis — der Merge-Train trägt ihn nie, du mergst selbst"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic branch as base — the merge train never carries it, so you merge yourself"
+          }
+        }
+      }
+    },
+    "guardtl_step_release_auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd gibt die Ausführung frei"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd releases it into execution"
+          }
+        }
+      }
+    },
+    "guardtl_step_release_auto_codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd gibt die Ausführung frei, sobald die Codex-Unterhaltung zugeordnet und die Anweisung zugestellt ist — sonst bleibt der Plan für dich angehalten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd releases it into execution once the Codex conversation is identified and the instruction is delivered — otherwise the plan stays stopped for you"
+          }
+        }
+      }
+    },
+    "guardtl_step_release_you": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du gibst die Ausführung frei („Los“)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You release it into execution (“Go”)"
+          }
+        }
+      }
+    },
+    "guardtl_step_review": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Prüf-Agent zerlegt den Plan — trägt er nach dem Rundenlimit immer noch nicht, kommt er zu dir"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A reviewer agent picks the plan apart — if it still doesn’t hold after the round limit, it comes to you"
+          }
+        }
+      }
+    },
+    "guardtl_step_topr_auto": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd treibt durch Routine-Stopps bis zum offenen PR"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd drives through routine stops to an open PR"
+          }
+        }
+      }
+    },
+    "guardtl_step_topr_auto_codex": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd führt durch Routine-Stopps bis zum offenen PR, sobald die Codex-Unterhaltung zugeordnet ist — sonst wartet es auf dich"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shepherd drives routine stops to an open PR once the Codex conversation is identified — otherwise it waits for you"
+          }
+        }
+      }
+    },
+    "guardtl_step_topr_you": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jeder Stopp wartet auf dich, bis der PR offen ist"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Every stop waits for you, until the PR is open"
+          }
+        }
+      }
+    },
     "halt_all_aria": {
       "comment": "%1$@ = count",
       "extractionState": "manual",
@@ -7045,6 +7521,60 @@
           "stringUnit": {
             "state": "translated",
             "value": "Spawned for issue #%1$@"
+          }
+        }
+      }
+    },
+    "issuerow_assigned_notice": {
+      "comment": "%1$@ = who",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zugewiesen an %1$@ – du kannst trotzdem starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Assigned to %1$@ — you can still start"
+          }
+        }
+      }
+    },
+    "issuerow_assigned_pill": {
+      "comment": "%1$@ = who",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "zugewiesen an %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "assigned to %1$@"
+          }
+        }
+      }
+    },
+    "issuerow_blocked_on": {
+      "comment": "%1$@ = deps",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "blockiert durch %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "blocked on %1$@"
           }
         }
       }
@@ -9766,6 +10296,23 @@
         }
       }
     },
+    "native_compose_code_caption": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Code ändern und einen Pull Request öffnen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change code and open a pull request."
+          }
+        }
+      }
+    },
     "native_compose_dictation_deferred": {
       "extractionState": "manual",
       "localizations": {
@@ -9847,6 +10394,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Switching apps briefly is fine — don't close the app."
+          }
+        }
+      }
+    },
+    "native_compose_keymap_server": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server wählen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose server"
           }
         }
       }
@@ -10068,6 +10632,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "All repos"
+          }
+        }
+      }
+    },
+    "native_compose_repo_default_unknown": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo-Standard nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo default unavailable"
           }
         }
       }
@@ -20089,6 +20670,23 @@
         }
       }
     },
+    "newtask_attach_label": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anhängen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attach"
+          }
+        }
+      }
+    },
     "newtask_autopilot_hint": {
       "extractionState": "manual",
       "localizations": {
@@ -20102,6 +20700,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "Drive this task autonomously through to a PR. Turn off to discuss, iterate and approve each step yourself. Defaults to this repo's Autopilot setting."
+          }
+        }
+      }
+    },
+    "newtask_autopilot_repo_default_off": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo-Standard: aus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo default: off"
+          }
+        }
+      }
+    },
+    "newtask_autopilot_repo_default_on": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo-Standard: an"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repo default: on"
           }
         }
       }
@@ -20187,6 +20819,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Remaining capacity across all engines"
+          }
+        }
+      }
+    },
+    "newtask_char_count": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ Zeichen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ chars"
           }
         }
       }
@@ -20324,6 +20974,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Effort"
+          }
+        }
+      }
+    },
+    "newtask_group_engine": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Engine"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Engine"
           }
         }
       }
@@ -20530,6 +21197,24 @@
           "stringUnit": {
             "state": "translated",
             "value": "Creating…"
+          }
+        }
+      }
+    },
+    "newtask_issue_blocked_notice": {
+      "comment": "%1$@ = deps",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wartet noch auf %1$@ — die Aufgabe startet trotzdem."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Still waiting on %1$@ — the task starts anyway."
           }
         }
       }
@@ -26807,6 +27492,312 @@
           "stringUnit": {
             "state": "translated",
             "value": "Clean terminals need a newer herdr — update herdr and retry"
+          }
+        }
+      }
+    },
+    "tooltip_mode_epic_draft": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entwurf"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Draft"
+          }
+        }
+      }
+    },
+    "tooltip_mode_epic_draft_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Übergeordnetes Issue, untergeordnete Issues und ihr Abhängigkeits-DAG. Kein Code."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A parent issue, child issues and their dependency DAG. No code."
+          }
+        }
+      }
+    },
+    "tooltip_mode_epic_github": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "GitHub"
+          }
+        }
+      }
+    },
+    "tooltip_mode_epic_github_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nichts wird auf GitHub geschrieben, bis du den Entwurf genehmigst."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing is written to GitHub until you approve the draft."
+          }
+        }
+      }
+    },
+    "tooltip_mode_epic_summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geführtes Ausarbeiten einer groben Idee zu einem prüfbaren Epic-Entwurf."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guided shaping of a rough idea into a reviewable epic draft."
+          }
+        }
+      }
+    },
+    "tooltip_mode_epic_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic-Modus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Epic mode"
+          }
+        }
+      }
+    },
+    "tooltip_mode_plain_dropped": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entfällt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dropped"
+          }
+        }
+      }
+    },
+    "tooltip_mode_plain_dropped_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kein Plan-Gate, keine Build-Queue, kein Autopilot, keine Shepherd-Direktiven im Prompt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No plan gate, no build queue, no autopilot, no Shepherd directives in the prompt."
+          }
+        }
+      }
+    },
+    "tooltip_mode_plain_kept": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bleibt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kept"
+          }
+        }
+      }
+    },
+    "tooltip_mode_plain_kept_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree, Branch und Tab wie gewohnt."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Worktree, branch and tab as usual."
+          }
+        }
+      }
+    },
+    "tooltip_mode_plain_summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent läuft wie im nackten CLI."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent runs as the bare CLI would."
+          }
+        }
+      }
+    },
+    "tooltip_mode_plain_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plain-Modus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plain mode"
+          }
+        }
+      }
+    },
+    "tooltip_mode_research_guards": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schutzmechanismen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Guards"
+          }
+        }
+      }
+    },
+    "tooltip_mode_research_guards_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan-Gate und Autopilot gelten hier nicht und sind deaktiviert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Plan gate and autopilot don't apply and are disabled."
+          }
+        }
+      }
+    },
+    "tooltip_mode_research_output": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ergebnis"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Output"
+          }
+        }
+      }
+    },
+    "tooltip_mode_research_output_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Bericht-PR oder ein GitHub-Issue. Keine Code-Änderungen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A report PR or a GitHub issue. No code changes."
+          }
+        }
+      }
+    },
+    "tooltip_mode_research_summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent recherchiert im Web und berichtet, statt Code zu ändern."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent researches the web and reports back instead of changing code."
+          }
+        }
+      }
+    },
+    "tooltip_mode_research_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recherche-Modus"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Research mode"
           }
         }
       }

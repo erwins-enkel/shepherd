@@ -160,6 +160,7 @@ public final class AppModel {
             return storedSheet
         }
         set {
+            if newValue != .newSession { pendingComposeHandover = nil }
             let previous = storedSheet
             withMutation(keyPath: \.sheet) { storedSheet = newValue }
             // Only a *window-bound* sheet closing re-routes. Dismissing
@@ -170,6 +171,7 @@ public final class AppModel {
         }
     }
     @ObservationIgnored private var storedSheet: AppSheet?
+    var pendingComposeHandover: ComposeHandover?
     public var selectedSessionID: String?
     /// A sign-out whose server-side revoke failed, in operator-facing words.
     ///
@@ -521,6 +523,9 @@ public final class AppModel {
 
         activationGeneration &+= 1
         let generation = activationGeneration
+        if pendingComposeHandover?.generation != generation || pendingComposeHandover?.profileID != profile.id {
+            pendingComposeHandover = nil
+        }
         credentialRecovery?.cancel()
         credentialRecovery = nil
         credentialAccessWarning = nil
@@ -591,6 +596,12 @@ public final class AppModel {
 
     public func retryCredentialAccess() async {
         guard let profile = activeProfile else { return }
+        // A credential retry continues the same compose hand-over. Unrelated activations
+        // still discard it; a prompt must survive an unavailable or delayed Keychain read.
+        if store == nil, let pending = pendingComposeHandover, pending.profileID == profile.id {
+            pendingComposeHandover = .init(profileID: profile.id, generation: activationGeneration &+ 1,
+                                          prompt: pending.prompt)
+        }
         await activate(profile)
     }
 
@@ -1163,6 +1174,7 @@ public final class AppModel {
 
     /// Internal, not private: the unit tests end an activation directly.
     func teardown() {
+        pendingComposeHandover = nil
         credentialRecovery?.cancel()
         credentialRecovery = nil
         credentialAccessWarning = nil

@@ -24,6 +24,13 @@ and copy-paste usage live at `/design-system`. Preserve hover-to-panel reading,
 Escape dismissal, keyboard/touch access and viewport-safe wrapping when changing
 an explanation surface. Longer instructions belong in a disclosure or docs.
 
+**Every iOS build distributed through TestFlight must include build-specific release notes in
+App Store Connect's `What to Test` field**, readable in the TestFlight app. This applies to
+nightly, after-merge, manual and preview uploads. Summarize changes since the previous
+distributed build, fixes and relevant testing instructions; a GitHub changelog or CI artifact
+alone does not satisfy this requirement. Verify the notes on the matching version/build before
+considering the release complete. See [the TestFlight release checklist](native/docs/testflight-ios.md#release-notes-required-for-every-build).
+
 ## Verify
 
 **Always `bun run test`, never bare `bun test`.** Root's script scopes to `./test`; `ui/` and

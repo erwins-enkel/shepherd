@@ -55,6 +55,17 @@ final class IOSMergedServerPresentationTests: XCTestCase {
         let stale = IOSMergedSessionPresentation.merge([a, b], selectedRepos: ["/gone"])
         XCTAssertTrue(stale.repos.isEmpty); XCTAssertEqual(stale.tallies.total, 3)
     }
+    func testSameRepoOnTwoServersIsOneChipAndFiltersBoth() {
+        let a = source(profile("studio"), sessions: [session("a", created: 1, repo: "/Users/kai/shepherd")])
+        let b = source(profile("laptop"), sessions: [session("b", created: 2, repo: "/home/moe/shepherd"),
+            session("c", created: 3, repo: "/home/moe/other")])
+        let merged = IOSMergedSessionPresentation.merge([a, b], selectedRepos: [])
+        XCTAssertEqual(merged.chips.map(\.name), ["other", "shepherd"])
+        XCTAssertEqual(merged.chips.map(\.count), [1, 2])
+        let filtered = IOSMergedSessionPresentation.merge([a, b], selectedRepos: [merged.chips[1].path])
+        XCTAssertEqual(filtered.groups.flatMap(\.rows).map(\.session.id), ["a", "b"])
+        XCTAssertEqual(filtered.repos, ["/Users/kai/shepherd", "/home/moe/shepherd"])
+    }
     func testFinishedAndOwedMergeUseTheirExistingSortKeys() {
         let a = profile("studio"), b = profile("laptop")
         var old = session("same", created: 10, status: .archived); old.archivedAt = 100

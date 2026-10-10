@@ -23,11 +23,14 @@ enum IOSMergedSessionPresentation {
         let record: PostMergeSteps
         var id: IOSSessionIdentity { .init(profileID: profile.id, sessionID: record.sessionId) }
     }
+    /// One chip per repo name: the same repo checked out on several servers lives at
+    /// different paths, but the operator filters by repo, and cards show the server.
     struct Chip: Identifiable {
-        let path: String
+        let paths: [String]
         let count: Int
+        var path: String { paths[0] }
         var name: String { (path as NSString).lastPathComponent }
-        var id: String { path }
+        var id: String { name }
     }
     struct Tallies { var active = 0; var idle = 0; var blocked = 0; var total = 0 }
     struct Group: Identifiable {
@@ -61,7 +64,9 @@ enum IOSMergedSessionPresentation {
         for session in sources.flatMap(\.sessions) where session.status.known != .archived {
             counts[session.repoPath, default: 0] += 1
         }
-        let repos = selectedRepos.intersection(counts.keys)
+        func name(_ path: String) -> String { (path as NSString).lastPathComponent }
+        let names = Set(selectedRepos.map(name))
+        let repos = Set(counts.keys.filter { names.contains(name($0)) })
         func shown(_ path: String) -> Bool { repos.isEmpty || repos.contains(path) }
         var tallies = Tallies()
         for session in sources.flatMap(\.rendered) where session.status.known != .archived && shown(session.repoPath) {
@@ -135,8 +140,10 @@ enum IOSMergedSessionPresentation {
             return $0.id < $1.id
         }
         return Snapshot(epicGroups: epicGroups, groups: groups, finished: finished, owed: owed,
-            chips: counts.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-                .map { Chip(path: $0, count: counts[$0]!) }, repos: repos, tallies: tallies)
+            chips: Dictionary(grouping: counts.keys.sorted(), by: name)
+                .sorted { $0.key.localizedStandardCompare($1.key) == .orderedAscending }
+                .map { Chip(paths: $0.value, count: $0.value.reduce(0) { $0 + counts[$1]! }) },
+            repos: repos, tallies: tallies)
     }
 
     @MainActor static func snapshot(_ hub: IOSServerHub) -> Snapshot {

@@ -2,10 +2,9 @@ import ShepherdAppCore
 import ShepherdKit
 import SwiftUI
 
-/// Task 9 supplies the live hold advisory; this view does not depend on the capacity meter.
+/// Per-task sandbox override; the full explanation lives in hover help.
 struct SandboxPicker: View {
     @Bindable var model: ComposeModel
-    let holdLikely: Bool
 
     var selection: Binding<Components.Schemas.SandboxProfile?> {
         Binding(get: { model.sandboxProfile }, set: { profile in
@@ -15,7 +14,8 @@ struct SandboxPicker: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(verbatim: L.t("newtask_sandbox_label")).font(.caption).foregroundStyle(.secondary)
             Picker(L.t("newtask_sandbox_label"), selection: selection) {
                 Text(verbatim: L.t("newtask_sandbox_default"))
                     .tag(Optional<Components.Schemas.SandboxProfile>.none)
@@ -28,18 +28,8 @@ struct SandboxPicker: View {
                     .disabled(model.sandboxLocked)
             }
             .accessibilityIdentifier("compose.sandbox")
-            Text(verbatim: L.t("newtask_sandbox_hint"))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            if model.research {
-                Text(verbatim: L.t("newtask_research_sandbox_note"))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("compose.researchSandboxNote")
-            }
-            CodexAlphaWarning(provider: model.provider, holdLikely: holdLikely)
+            .pickerStyle(.menu).labelsHidden()
+            .help(L.t("newtask_sandbox_hint"))
         }
     }
 }

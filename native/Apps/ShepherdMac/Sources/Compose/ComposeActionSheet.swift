@@ -9,11 +9,13 @@ struct ComposeActionSheet: View {
     let store: SessionStore
     let app: AppModel
     let activation: Int
+    var issue: Issue?
     @Environment(\.dismiss) private var dismiss
     @State private var copiedPrompt: String?
     @State private var actions: ComposeActions
 
-    init(mode: ComposeActions.Action, session: Session?, store: SessionStore, app: AppModel, activation: Int) {
+    init(mode: ComposeActions.Action, session: Session?, store: SessionStore, app: AppModel, activation: Int, issue: Issue? = nil) {
+        self.issue = issue
         self.mode = mode; self.session = session; self.store = store; self.app = app; self.activation = activation
         _actions = State(initialValue: ComposeActions(provider: session?.agentProvider ?? .claude))
     }
@@ -25,6 +27,7 @@ struct ComposeActionSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text(verbatim: mode.title).font(.title2.bold())
+            if let issue { Text(verbatim: "#\(issue.number) · \(issue.title)").foregroundStyle(.secondary) }
             if let session { Text(verbatim: session.name).foregroundStyle(.secondary) }
             if mode == .steers {
                 if actions.loaded { ComposeSteersEditor(actions: actions, repos: store.repos) }

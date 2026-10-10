@@ -13,6 +13,8 @@ struct ModelGuidanceView: View {
             }
             Text(verbatim: guidance.detail)
                 .font(.caption)
+                .lineLimit(2)
+                .help(guidance.detail)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("compose.model.guidance")

@@ -8,6 +8,12 @@ struct ComposeSheet: View {
         if let store = app.store {
             ComposeSheetContent(app: app, store: store, activation: app.activationGeneration)
                 .id(app.activationGeneration)
+        } else {
+            VStack(spacing: 16) {
+                ProgressView(L.t("common_loading"))
+                if let warning = app.credentialAccessWarning { Text(verbatim: warning) }
+                Button(L.t("common_cancel")) { app.sheet = nil }.keyboardShortcut(.cancelAction)
+            }.frame(width: 1040, height: 400)
         }
     }
 }
@@ -20,7 +26,10 @@ struct ComposeSheetContent: View {
     @State private var submission = ComposeSubmission()
     @State private var revealing = false
     @State private var keyCard = false
-    @State private var steers = false
+    @State private var steersIssue: Issue?
+    @State private var serverPickerOpen = false
+    @State private var repoConfig: RepoConfig?
+    @State private var repoConfigLoading = false
     @FocusedValue(\.composeEditingText) private var editingText
 
     init(app: AppModel, store: SessionStore, activation: Int, model: ComposeModel? = nil) {
@@ -39,59 +48,68 @@ struct ComposeSheetContent: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(verbatim: L.t("newtask_title")).font(.title2.bold())
                 Spacer()
-                Button(L.t("steerbar_edit")) { steers = true }.disabled(submission.busy)
                 Button { keyCard = true } label: { Image(systemName: "questionmark.circle") }
                     .accessibilityLabel(L.t("keymap_sheet_aria"))
+                    .modifier(ComposeKeycap(ids: ["sheet"]))
                 Button { app.sheet = nil } label: { Image(systemName: "xmark") }
                     .accessibilityLabel(L.t("common_cancel"))
                     .keyboardShortcut(.cancelAction).disabled(submission.busy)
                     .modifier(ComposeKeycap(ids: ["close"]))
             }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    RepoBranchRow(model: model, repos: repos, sessions: store.sessions).modifier(ComposeKeycap(ids: ["repo", "branch"]))
-                    IssuePickerView(model: model).modifier(ComposeKeycap(ids: ["issue-filter", "sources-tab"]))
-                    ModeTabs(model: model).modifier(ComposeKeycap(ids: ["mode-code", "mode-research", "mode-epic", "mode-plain"]))
-                    ComposePromptEditor(model: model).modifier(ComposeKeycap(ids: ["focus-prompt", "issue-token", "command-token", "paste-image"]))
-                    EnginePicker(model: model).modifier(ComposeKeycap(ids: ["engine"]))
-                    CapacityLine(provider: model.provider)
-                    ModelPicker(model: model).modifier(ComposeKeycap(ids: ["model"]))
-                    SandboxPicker(model: model, holdLikely: holdLikely)
-                    GuardToggles(model: model).modifier(ComposeKeycap(ids: ["plan-gate", "autopilot"]))
-                    AttachmentsRow(model: model.attachments, choosingFiles: $model.choosingFiles)
-                        .modifier(ComposeKeycap(ids: ["attach"]))
-                    ShapeRoundView(model: model)
-                    Text(verbatim: L.t("native_compose_dictation_deferred")).font(.caption).foregroundStyle(.secondary)
+            .padding(20)
+            Divider()
+            HStack(alignment: .top, spacing: 0) {
+                ScrollView {
+                    ComposeLeftColumn(app: app, model: model, repos: repos, sessions: store.sessions,
+                                      serverPickerOpen: $serverPickerOpen, editSteers: { steersIssue = $0 })
+                        .padding(20)
+                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                Divider()
+                ScrollView {
+                    ComposeRail(model: model, holdLikely: holdLikely, repoConfig: repoConfig, repoConfigLoading: repoConfigLoading,
+                                openAutomation: openAutomation).padding(20)
                 }
-                .padding(.trailing, 6)
-                .disabled(submission.busy)
-                .opacity(revealing ? 0.6 : 1)
+                .frame(width: 340)
+                .frame(maxHeight: .infinity)
+                .background(Color.primary.opacity(0.035))
             }
-            if let audit = app.liveRequestAudit { LiveRequestAuditView(audit: audit) }
-            if submission.slow { spawnPanel }
-            if let failure = submission.recoveryFailure { BackendRecoveryPanel(failure: failure) }
-            if let message = submission.message { Text(verbatim: message).font(.callout).textSelection(.enabled) }
-            ComposeFooter(readiness: readiness, repoName: repo?.name, branch: model.repoBranches, held: revealing, submit: submit)
+            .disabled(submission.busy || keyCard || steersIssue != nil)
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                if let audit = app.liveRequestAudit { LiveRequestAuditView(audit: audit) }
+                if submission.slow { spawnPanel }
+                if let failure = submission.recoveryFailure { BackendRecoveryPanel(failure: failure) }
+                if let message = submission.message { Text(verbatim: message).font(.callout).textSelection(.enabled) }
+                ComposeFooter(readiness: readiness, repoName: repo?.name, branch: model.repoBranches, held: revealing, serverName: app.profiles.count > 1 ? app.activeProfile?.name : nil,
+                              shortcutsBlocked: keyCard || steersIssue != nil, submit: submit)
+            }.padding(20)
         }
         .environment(\.composeReveal, revealing)
-        .padding(20).frame(width: 740)
-        .frame(minHeight: 500, idealHeight: 780, maxHeight: 780)
+        .frame(minWidth: 900, idealWidth: 1040, maxWidth: 1040)
+        .frame(minHeight: 400, idealHeight: 780, maxHeight: 780)
+        .background(Color(nsColor: .windowBackgroundColor))
         .background { shortcuts }
         .onModifierKeysChanged(mask: .command) { _, keys in revealing = keys.contains(.command) }
         .onKeyPress(characters: CharacterSet(charactersIn: "?")) { _ in
             guard ComposeKeymap.canDispatch("sheet", editingText: editingText == true) else { return .ignored }
             keyCard = true; return .handled
         }
-        .sheet(isPresented: $steers) {
-            ComposeActionSheet(mode: .steers, session: nil, store: store, app: app, activation: activation)
+        .sheet(isPresented: Binding(get: { steersIssue != nil }, set: { if !$0 { steersIssue = nil } })) {
+            if let issue = steersIssue {
+                ComposeActionSheet(mode: .steers, session: nil, store: store, app: app, activation: activation, issue: issue)
+            }
         }
         .sheet(isPresented: $keyCard) { ComposeKeyCard { keyCard = false } }
         .interactiveDismissDisabled(submission.busy)
-        .onAppear { seedRepo() }
+        .onAppear {
+            if let prompt = app.consumeComposePrompt(activation: activation) { model.prompt = prompt }
+            seedRepo()
+        }
+        .task(id: model.repoPath) { await loadRepoGuards() }
         .onChange(of: store.settings, initial: true) { _, settings in
             if let settings { model.runDefaults = ComposeRunConfig.defaults(from: settings) }
         }
@@ -99,6 +117,25 @@ struct ComposeSheetContent: View {
         .onDisappear { submission.teardown(); model.teardown() }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("compose.sheet")
+    }
+
+    private func openAutomation() {
+        guard current else { return }
+        app.extension(SettingsModel.self)?.selectRepo(model.repoPath, client: store.client)
+        SettingsPresentation.shared.requestPane("workspace")
+    }
+
+    private func loadRepoGuards() async {
+        let path = model.repoPath
+        repoConfig = nil
+        repoConfigLoading = !path.isEmpty
+        model.applyRepoGuardDefaults(planGate: false, autopilot: false)
+        guard !path.isEmpty else { return }
+        let config = try? await store.client.getRepoConfig(repo: path)
+        guard !Task.isCancelled, current, model.repoPath == path else { return }
+        repoConfig = config
+        repoConfigLoading = false
+        if let config { model.applyRepoGuardDefaults(planGate: config.planGateEnabled, autopilot: config.autopilotEnabled) }
     }
 
     private func seedRepo() {
@@ -123,22 +160,17 @@ struct ComposeSheetContent: View {
             && ComposeKeymap.canDispatch($0.id, editingText: false) }) { entry in
             Button { dispatch(entry.id) } label: { EmptyView() }
                 .keyboardShortcut(entry.chord!.equivalent, modifiers: entry.chord!.modifiers)
-                .disabled(submission.busy || keyCard)
+                .disabled(submission.busy || keyCard || steersIssue != nil)
                 .hidden().accessibilityHidden(true)
         }
-        // The single CTA owns plain Return; this bridge owns its documented ⌘↵ chord.
-        if !readiness.dualCTA {
-            Button { submit(false) } label: { EmptyView() }
-                .keyboardShortcut(.return, modifiers: .command)
-                .disabled(!readiness.canSubmit || keyCard)
-                .hidden().accessibilityHidden(true)
-        }
+
     }
 
     private func dispatch(_ id: String) {
         switch id {
         case "focus-prompt": model.requestFocus("prompt")
         case "attach": if !model.attachments.hasOutstandingUploads { model.choosingFiles = true }
+        case "server": if app.profiles.count > 1 { serverPickerOpen = true }
         case "repo": model.openRepoPicker()
         case "branch": model.openBranchPicker()
         case "repo-prev": model.cycleRepo(-1, repos: repos)

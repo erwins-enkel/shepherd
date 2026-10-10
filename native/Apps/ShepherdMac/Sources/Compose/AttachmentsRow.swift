@@ -5,38 +5,62 @@ import UniformTypeIdentifiers
 struct AttachmentsRow: View {
     @Bindable var model: AttachmentModel
     @Binding var choosingFiles: Bool
+    let composer: ComposeModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 Button { choosingFiles = true } label: {
-                    Label(L.t("newtask_attach_image"), systemImage: "paperclip")
+                    Label(L.t("newtask_attach_label"), systemImage: "paperclip")
                 }
-                if let status = model.status {
+                .disabled(model.hasOutstandingUploads)
+                .help(L.t("newtask_attach_aria"))
+                .modifier(ComposeKeycap(ids: ["attach"]))
+                if composer.shapingOffered {
+                    Button { Task { await composer.startShaping() } } label: {
+                        Label(L.t("newtask_shape_label"), systemImage: "sparkles")
+                    }
+                    .disabled(composer.shapeBlocker != nil)
+                    .accessibilityLabel(L.t("newtask_shape_aria"))
+                    .accessibilityIdentifier("compose-shape")
+                    .help(L.t("newtask_shape_hint"))
+                }
+                Spacer(minLength: 4)
+                Text(verbatim: L.t("newtask_char_count", String(composer.prompt.utf16.count)))
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
+            if let status = model.status {
+                HStack {
                     if status.phase == .transferring || status.phase == .finishing {
                         ProgressView(value: Double(status.percent), total: 100).frame(width: 90)
                     }
                     Text(verbatim: status.line).monospacedDigit()
                 }
             }
-            ForEach(model.rows) { row in
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack {
-                        Image(systemName: row.path == nil ? "doc" : "checkmark.circle")
-                        Text(verbatim: row.file.name).lineLimit(1)
-                        if row.state == .failed {
-                            Button(L.t("common_retry")) { model.retry(row.id) }
+            if !model.rows.isEmpty {
+                ScrollView(.horizontal) {
+                    HStack(alignment: .top, spacing: 6) {
+                        ForEach(model.rows) { row in
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack {
+                                    Image(systemName: row.path == nil ? "doc" : "checkmark.circle")
+                                    Text(verbatim: row.file.name).lineLimit(1).frame(maxWidth: 180)
+                                    if row.state == .failed {
+                                        Button(L.t("common_retry")) { model.retry(row.id) }
+                                    }
+                                    Button { model.remove(row.id) } label: {
+                                        Image(systemName: "xmark.circle.fill")
+                                    }
+                                    .buttonStyle(.plain)
+                                    .accessibilityLabel(L.t("newtask_remove_image_aria"))
+                                }
+                                .padding(6)
+                                .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
+                                if let error = row.error {
+                                    Text(verbatim: error).font(.caption).foregroundStyle(.red)
+                                }
+                            }
                         }
-                        Button { model.remove(row.id) } label: {
-                            Image(systemName: "xmark.circle.fill")
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(L.t("newtask_remove_image_aria"))
-                    }
-                    .padding(6)
-                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 6))
-                    if let error = row.error {
-                        Text(verbatim: error).font(.caption).foregroundStyle(.red)
                     }
                 }
             }

@@ -3,7 +3,7 @@ import Foundation
 import ShepherdKit
 import SwiftUI
 
-/// The complete model · effort row and its cost/fit explanation. The sheet mounts this in Task 9.
+/// Provider-aware model selection with compact cost and fit guidance.
 struct ModelPicker: View {
     @Bindable var model: ComposeModel
     @FocusState private var pickerFocused: Bool
@@ -28,7 +28,6 @@ struct ModelPicker: View {
                     if model.focusTarget == "model" { pickerFocused = true }
                 }
                 .accessibilityIdentifier("compose.model")
-                EffortPicker(model: model)
             }
             ModelGuidanceView(guidance: .value(provider: model.provider, model: model.model))
         }

@@ -6,6 +6,7 @@ import EpicRunControl from "./EpicRunControl.svelte";
 import type { DrainRunSummary, DrainStatus, Epic, EpicChild, EpicSummary } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 import { formatReset } from "#lib/format.js";
+import { toasts } from "#lib/toasts.svelte.js";
 
 const api = vi.hoisted(() => ({
   updateEpic: vi.fn(async () => ({})),
@@ -15,6 +16,7 @@ const api = vi.hoisted(() => ({
   getEpic: vi.fn(async () => {
     throw new Error("not needed");
   }),
+  getDrain: vi.fn(async (): Promise<DrainStatus[]> => []),
 }));
 
 vi.mock("#lib/api.js", async (importOriginal) => {
@@ -118,6 +120,8 @@ beforeEach(() => {
   api.unqueueEpic.mockClear();
   api.approveEpicNext.mockClear();
   api.getEpic.mockClear();
+  api.getDrain.mockReset();
+  api.getDrain.mockResolvedValue([]);
 });
 
 describe("EpicRunControl — acceptance scenario (#2620)", () => {
@@ -171,7 +175,6 @@ describe("EpicRunControl — acceptance scenario (#2620)", () => {
       .element(page.getByRole("dialog", { name: m.epic_supersede_title({ epic: A }) }))
       .toBeInTheDocument();
     expect(api.updateEpic).not.toHaveBeenCalled();
-    await page.getByRole("radio", { name: m.epic_supersede_now() }).click();
     await page.getByRole("button", { name: m.epic_supersede_confirm() }).click();
     expect(api.updateEpic).toHaveBeenCalledWith("/repo", A, { status: "running" });
     expect(page.getByRole("dialog").query()).toBeNull();
@@ -245,7 +248,6 @@ describe("EpicRunControl actions", () => {
     expect(page.getByText(m.epic_run_step_next()).query()).toBeNull();
     expect(page.getByRole("button", { name: m.epic_run_more() }).query()).toBeNull();
     await page.getByRole("button", { name: m.epic_start() }).click();
-    await page.getByRole("radio", { name: m.epic_supersede_now() }).click();
     await page.getByRole("button", { name: m.epic_supersede_confirm() }).click();
     expect(api.updateEpic).toHaveBeenCalledWith("/repo", 99, { status: "running" });
   });
@@ -469,27 +471,48 @@ describe("EpicRunControl supersede confirmation (#2623)", () => {
 });
 
 describe("EpicRunControl epic queue (#2624)", () => {
-  it("Start while another epic leads queues it by default — nothing is superseded", async () => {
+  it("with a leader, a non-queued epic offers Queue beside Start; Queue needs no dialog", async () => {
     render(EpicRunControl, {
       repoPath: "/repo",
       parent: 99,
       epic: epic(99, { status: "idle" }),
-      drain: drain({ runSummary: summary({ queued: [50] }) }),
+      drain: drain(),
       titleFor,
     });
 
-    await page.getByRole("button", { name: m.epic_start() }).click();
-    // Behind the queue's tail (#50), not the leader.
-    await expect
-      .element(page.getByRole("radio", { name: m.epic_queue_option({ after: 50 }) }))
-      .toBeChecked();
-    await page.getByRole("button", { name: m.epic_queue_confirm() }).click();
+    await expect.element(page.getByRole("button", { name: m.epic_start() })).toBeInTheDocument();
+    await page.getByRole("button", { name: m.epic_queue(), exact: true }).click();
+    expect(api.queueEpic).toHaveBeenCalledTimes(1);
     expect(api.queueEpic).toHaveBeenCalledWith("/repo", 99);
     expect(api.updateEpic).not.toHaveBeenCalled();
     expect(page.getByRole("dialog").query()).toBeNull();
   });
 
-  it("choosing 'supersede now' keeps today's start", async () => {
+  it("no Queue for the leading epic itself", async () => {
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: B,
+      epic: epic(B),
+      drain: drain(),
+      titleFor,
+    });
+    await expect.element(page.getByRole("button", { name: m.epic_pause() })).toBeInTheDocument();
+    expect(page.getByRole("button", { name: m.epic_queue(), exact: true }).query()).toBeNull();
+  });
+
+  it("no Queue without a leader", async () => {
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: 99,
+      epic: epic(99, { status: "idle" }),
+      drain: drain({ runSummary: summary({ leadingEpic: null }) }),
+      titleFor,
+    });
+    await expect.element(page.getByRole("button", { name: m.epic_start() })).toBeInTheDocument();
+    expect(page.getByRole("button", { name: m.epic_queue(), exact: true }).query()).toBeNull();
+  });
+
+  it("Start under a leader supersedes after confirming — no queue choice", async () => {
     render(EpicRunControl, {
       repoPath: "/repo",
       parent: 99,
@@ -499,7 +522,8 @@ describe("EpicRunControl epic queue (#2624)", () => {
     });
 
     await page.getByRole("button", { name: m.epic_start() }).click();
-    await page.getByRole("radio", { name: m.epic_supersede_now() }).click();
+    await expect.element(page.getByRole("dialog")).toBeInTheDocument();
+    expect(page.getByRole("radio").query()).toBeNull();
     await page.getByRole("button", { name: m.epic_supersede_confirm() }).click();
     expect(api.updateEpic).toHaveBeenCalledWith("/repo", 99, { status: "running" });
     expect(api.queueEpic).not.toHaveBeenCalled();
@@ -521,10 +545,75 @@ describe("EpicRunControl epic queue (#2624)", () => {
     await page.getByRole("button", { name: m.epic_unqueue() }).click();
     expect(api.unqueueEpic).toHaveBeenCalledWith("/repo", 99);
 
-    // Start on a queued epic only offers superseding — it is queued already.
+    // Queued already: no Queue button; Start only offers superseding.
+    expect(page.getByRole("button", { name: m.epic_queue(), exact: true }).query()).toBeNull();
     await page.getByRole("button", { name: m.epic_start() }).click();
     await expect.element(page.getByRole("dialog")).toBeInTheDocument();
     expect(page.getByRole("radio").query()).toBeNull();
+  });
+});
+
+// #2972: Start without a loaded runSummary never supersedes blind.
+describe("EpicRunControl — Start before the run picture loads (#2972)", () => {
+  const unloaded = () => ({
+    repoPath: "/repo",
+    parent: 99,
+    epic: epic(99, { status: "idle" }),
+    drain: null,
+    titleFor,
+  });
+
+  it("asks the server first; another leader opens the dialog instead of starting", async () => {
+    api.getDrain.mockResolvedValue([drain()]);
+    render(EpicRunControl, unloaded());
+
+    await page.getByRole("button", { name: m.epic_start() }).click();
+    await expect
+      .element(page.getByRole("dialog", { name: m.epic_supersede_title({ epic: 99 }) }))
+      .toBeInTheDocument();
+    expect(api.getDrain).toHaveBeenCalledTimes(1);
+    expect(api.updateEpic).not.toHaveBeenCalled();
+    await page.getByRole("button", { name: m.epic_supersede_confirm() }).click();
+    expect(api.updateEpic).toHaveBeenCalledWith("/repo", 99, { status: "running" });
+  });
+
+  it("starts directly when the repo has no drain status (nothing leads)", async () => {
+    api.getDrain.mockResolvedValue([drain({ repoPath: "/other" })]);
+    render(EpicRunControl, unloaded());
+
+    await page.getByRole("button", { name: m.epic_start() }).click();
+    await vi.waitFor(() =>
+      expect(api.updateEpic).toHaveBeenCalledWith("/repo", 99, { status: "running" }),
+    );
+    expect(page.getByRole("dialog").query()).toBeNull();
+  });
+
+  it("a failed check sends nothing and says so", async () => {
+    api.getDrain.mockRejectedValue(new Error("down"));
+    render(EpicRunControl, unloaded());
+
+    await page.getByRole("button", { name: m.epic_start() }).click();
+    await vi.waitFor(() => expect(api.getDrain).toHaveBeenCalled());
+    await vi.waitFor(() =>
+      expect(toasts.items.some((t) => t.text === m.epic_update_failed())).toBe(true),
+    );
+    expect(api.updateEpic).not.toHaveBeenCalled();
+    expect(page.getByRole("dialog").query()).toBeNull();
+  });
+
+  it("Start is disabled while the check is pending", async () => {
+    let resolve!: (v: DrainStatus[]) => void;
+    api.getDrain.mockReturnValue(new Promise<DrainStatus[]>((r) => (resolve = r)));
+    render(EpicRunControl, unloaded());
+
+    const startBtn = page.getByRole("button", { name: m.epic_start() });
+    await startBtn.click();
+    await expect.element(startBtn).toBeDisabled();
+    expect(api.updateEpic).not.toHaveBeenCalled();
+    resolve([drain()]);
+    await expect.element(page.getByRole("dialog")).toBeInTheDocument();
+    await expect.element(startBtn).toBeEnabled();
+    expect(api.updateEpic).not.toHaveBeenCalled();
   });
 });
 

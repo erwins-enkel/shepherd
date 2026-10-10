@@ -141,12 +141,14 @@ export function agentSlotExplanation(): TooltipExplanation {
   };
 }
 
-/** "One epic leads at a time" (#2620): a new start supersedes, the old epic winds down. */
+/** "One epic leads at a time" (#2620): another epic queues behind the leader (#2624) or a start
+ *  supersedes it, and the old epic winds down. */
 export function epicLeadExplanation(): TooltipExplanation {
   return {
     title: m.tooltip_epic_lead_title(),
     summary: m.tooltip_epic_lead_summary(),
     sections: [
+      { label: m.tooltip_epic_lead_queue(), text: m.tooltip_epic_lead_queue_body() },
       { label: m.tooltip_epic_lead_previous(), text: m.tooltip_epic_lead_previous_body() },
       { label: m.tooltip_epic_lead_slots(), text: m.tooltip_epic_lead_slots_body() },
     ],

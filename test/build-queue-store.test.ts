@@ -249,6 +249,42 @@ test("forward-fill: marking a later step active also back-fills earlier pending"
   expect(after.map((x) => x.status)).toEqual(["done", "done", "active"]);
 });
 
+test("forward-fill: advancing completes earlier ACTIVE steps — one active at a time (TASK-3177)", () => {
+  const s = mk();
+  const sess = s.create(base);
+  const q = s.replaceBuildQueue(sess.id, [
+    { title: "Step 1" },
+    { title: "Step 2" },
+    { title: "Step 3" },
+    { title: "Step 4" },
+    { title: "Step 5" },
+  ]);
+  const [s1, s2, , s4] = q.steps.map((x) => x.id);
+
+  // The live call sequence: each step marked active on start, never done.
+  s.setBuildStepStatus(sess.id, s1!, "active");
+  s.setBuildStepStatus(sess.id, s2!, "active");
+  s.setBuildStepStatus(sess.id, s4!, "active");
+
+  expect(s.getBuildQueue(sess.id).steps.map((x) => x.status)).toEqual([
+    "done",
+    "done",
+    "done",
+    "active",
+    "pending",
+  ]);
+});
+
+test("forward-fill: marking a later step done completes an earlier active step", () => {
+  const s = mk();
+  const sess = s.create(base);
+  const q = s.replaceBuildQueue(sess.id, [{ title: "Step A" }, { title: "Step B" }]);
+  const [a, b] = q.steps.map((x) => x.id);
+  s.setBuildStepStatus(sess.id, a!, "active");
+  s.setBuildStepStatus(sess.id, b!, "done");
+  expect(s.getBuildQueue(sess.id).steps.map((x) => x.status)).toEqual(["done", "done"]);
+});
+
 test("forward-fill: an explicitly skipped earlier step is preserved, not flipped to done", () => {
   const s = mk();
   const sess = s.create(base);

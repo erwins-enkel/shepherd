@@ -7230,13 +7230,15 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
    * changed (unchanged contract; the cascade below is additive).
    *
    * Monotonic forward-fill: when a step is advanced to `active` or `done`, every EARLIER
-   * step still `pending` is auto-completed to `done`, in the same transaction. The
+   * step still `pending` or `active` is auto-completed to `done`, in the same transaction. The
    * build-queue contract is ordered execution ("work the steps in order"), so reaching
    * step N implies steps before it are done — this keeps the displayed status from lagging
    * actual progress even when the agent under-reports (e.g. marks a later step but never
-   * the earlier ones). Deterministic and server-side: needs zero agent compliance.
+   * the earlier ones, or marks each step `active` on start but batches every `done` at the
+   * end — which otherwise stacks several ACTIVE steps). Advancing leaves no earlier step `active`.
+   * Deterministic and server-side: needs zero agent compliance.
    *
-   * Strictly monotonic + safe: only `pending → done`, only at LOWER positions; never
+   * Strictly monotonic + safe: only `pending|active → done`, only at LOWER positions; never
    * un-completes a step, never touches later steps, and never overrides `skipped` (an
    * explicit terminal state the agent sets to drop a step). A step the agent silently
    * jumped over (left `pending`) is treated as `done` — the reasonable default under the
@@ -7260,7 +7262,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         if (row) {
           this.db.run(
             `UPDATE build_queue_steps SET status = 'done', updatedAt = ?
-             WHERE sessionId = ? AND position < ? AND status = 'pending'`,
+             WHERE sessionId = ? AND position < ? AND status IN ('pending', 'active')`,
             [now, sessionId, row.position],
           );
         }

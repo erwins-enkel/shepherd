@@ -1,7 +1,8 @@
 // Build-queue reconciliation nudge — the settled-idle BACKSTOP to the deterministic
 // forward-fill cascade in store.setBuildStepStatus.
 //
-// Forward-fill keeps the queue fresh whenever the agent posts ANY step transition. This
+// Forward-fill keeps the queue fresh whenever the agent posts ANY step transition (it completes
+// earlier pending AND active steps, so an agent that never posts `done` still shows one active). This
 // service covers the one shape forward-fill cannot: an agent that posted NOTHING at all,
 // so the queue is stuck "all pending" while real work has happened. When such a session
 // settles idle, we inject ONE reminder steer asking it to post its progress (which then

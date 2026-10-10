@@ -396,8 +396,8 @@ const QUEUE_STEP: McpTool = {
   description:
     "Set one build-queue step's status. Call it the moment you start a step (active) and again " +
     "the moment you finish it (done) — never batch the updates at the end; the operator's view of " +
-    "your progress is these calls. Advancing a step auto-completes earlier pending ones. Returns " +
-    "the full queue.",
+    "your progress is these calls. Advancing a step auto-completes earlier pending and active " +
+    "ones. Returns the full queue.",
   inputSchema: {
     type: "object",
     properties: {

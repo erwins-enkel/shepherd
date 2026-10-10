@@ -8894,11 +8894,20 @@ async function handleEpicPut({ req, parts, url, deps, token }: Ctx): Promise<Res
   const epic = await deps.drain.buildEpic(dir, merged);
   if (epic) deps.events?.emit("epic:update", epic);
   await emitSupersededLeader(deps, deps.drain, dir, leader, merged);
-  if (saved.promoted != null) {
-    const started = await deps.drain.buildEpic(dir, runForParent(deps.store, dir, saved.promoted));
-    if (started) deps.events?.emit("epic:update", started);
-  }
+  await emitPromoted(deps, deps.drain, dir, saved.promoted);
   return json(epic ?? { ok: true });
+}
+
+/** Stopping the leader started the queue head `promoted` (#2973): announce it like a start. */
+async function emitPromoted(
+  deps: AppDeps,
+  drain: NonNullable<AppDeps["drain"]>,
+  dir: string,
+  promoted: number | null,
+): Promise<void> {
+  if (promoted == null) return;
+  const started = await drain.buildEpic(dir, runForParent(deps.store, dir, promoted));
+  if (started) deps.events?.emit("epic:update", started);
 }
 
 /** A start over `leader` superseded it: re-emit it so an open view of it learns why it stopped. */

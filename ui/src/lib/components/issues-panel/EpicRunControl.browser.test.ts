@@ -270,6 +270,36 @@ describe("EpicRunControl actions", () => {
     expect(api.updateEpic).toHaveBeenCalledWith("/repo", B, { status: "idle" });
   });
 
+  it("Stop names the queued epic that starts next (#2973)", async () => {
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: B,
+      epic: epic(B),
+      drain: drain({ runSummary: summary({ queued: [50, 60] }) }),
+      titleFor,
+    });
+
+    await page.getByRole("button", { name: m.epic_run_more() }).click();
+    await expect
+      .element(page.getByRole("menuitem", { name: m.epic_stop() }))
+      .toHaveAttribute("title", m.epic_stop_promotes_title({ epic: 50 }));
+  });
+
+  it("Stop carries no promote hint with an empty queue", async () => {
+    render(EpicRunControl, {
+      repoPath: "/repo",
+      parent: B,
+      epic: epic(B),
+      drain: drain(),
+      titleFor,
+    });
+
+    await page.getByRole("button", { name: m.epic_run_more() }).click();
+    await expect
+      .element(page.getByRole("menuitem", { name: m.epic_stop() }))
+      .not.toHaveAttribute("title");
+  });
+
   it("waiting for approval offers an inline approve on the next step", async () => {
     render(EpicRunControl, {
       repoPath: "/repo",

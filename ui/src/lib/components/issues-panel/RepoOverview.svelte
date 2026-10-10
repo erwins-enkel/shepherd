@@ -14,10 +14,12 @@
   import RunPanel from "./RunPanel.svelte";
   import EpicRunSteps from "./EpicRunSteps.svelte";
   import EpicRoleBadge from "./EpicRoleBadge.svelte";
+  import EpicQueueList from "./EpicQueueList.svelte";
 
   // The reading detail with nothing selected (#2622): what is happening in this repo. The run
   // area "Abarbeitung im Repo" (which epic leads, its Now → Next → After steps, epics winding
-  // down, the agent-slot cap), then every epic with its role and progress. Below that, what the
+  // down, landing repairs that hold no slot, the agent-slot cap and the reorderable epic queue,
+  // #2973), then every epic with its role and progress. Below that, what the
   // list beside it can't say (#2638), in two columns (#2950): left what runs right now (even
   // when the list's filters hide it) and what has lain untouched, right the open issues per
   // label as list filters; then the next step. No second issue list — the list is right there.
@@ -80,7 +82,9 @@
     if (leading == null) {
       return {
         text: m.repooverview_none_leading(),
-        tone: summary && summary.slots.used > 0 ? "run" : "quiet",
+        // Landing repairs hold no slot (#2973) but still run.
+        tone:
+          summary && (summary.slots.used > 0 || summary.landingRepairs?.length) ? "run" : "quiet",
       };
     }
     if (!record) return { text: m.repooverview_leading_only({ epic: leading }), tone: "run" };
@@ -104,6 +108,11 @@
   );
   function rank(role: ReturnType<typeof epicRole>): number {
     return role === "leading" ? 0 : role === "winding" ? 1 : role === "queued" ? 2 : 3;
+  }
+
+  // Queue rows name the epic by its list entry, else by whatever the host knows.
+  function epicTitle(parent: number): string | null {
+    return epics.find((e) => e.parentIssueNumber === parent)?.parentTitle ?? titleFor(parent);
   }
 
   const maxLabelCount = $derived(Math.max(1, ...labels.map((l) => l.count)));
@@ -144,6 +153,21 @@
         })}
       </p>
     {/each}
+    {#each summary?.landingRepairs ?? [] as r (r.sessionId)}
+      <p class="note" data-landing-repair>
+        {r.epicParent != null
+          ? m.repooverview_landing_repair({ epic: r.epicParent })
+          : m.repooverview_landing_repair_desig({ desig: r.desig })}
+      </p>
+    {/each}
+    {#if summary?.queued?.length}
+      <EpicQueueList
+        {repoPath}
+        queued={summary.queued}
+        titleFor={epicTitle}
+        onselect={(n) => onselect(epicKey(n))}
+      />
+    {/if}
     <p class="note">{m.repooverview_hint()}</p>
   </RunPanel>
 

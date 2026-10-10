@@ -9,6 +9,27 @@ dispatched manually. It archives
 for 14 days, with no upload. Signing runs only on the macOS GitHub Actions runner;
 never run it against an operator's login keychain.
 
+## Release notes (required for every build)
+
+Every iOS build made available through TestFlight must carry release notes in its
+build-specific **What to Test** field in App Store Connect, so testers can read them
+in the TestFlight app. This applies to nightly, after-merge, manual and preview
+uploads, including internal testing.
+
+1. Prepare concise notes describing changes since the previous distributed build:
+   new features, fixes and any relevant testing instructions or known limitations.
+   Include the version and build number so the notes identify the tested build.
+2. After processing, select the matching build under App Store Connect → Shepherd
+   for Agents → TestFlight and save the notes in **What to Test** before making it
+   available to testers. The current workflow uploads the IPA only; the release
+   operator must set the notes for automatic uploads as well.
+3. Verify that the notes are saved on the matching version/build and readable in
+   the TestFlight app. An upload alone does not complete the release; a GitHub
+   changelog, PR description or CI artifact alone does not satisfy this check.
+
+See Apple's [internal tester instructions](https://developer.apple.com/help/app-store-connect/test-a-beta-version/add-internal-testers/)
+for the build-specific **What to Test** field.
+
 ## Signing configuration
 
 Set repository variable `APPLE_TEAM_ID` (`3WSC8JG6J4`) and these Actions secrets:

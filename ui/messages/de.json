@@ -1819,6 +1819,7 @@
   "feat_build_queue_collapse_title": "Build-Queue einklappen",
   "feat_build_queue_collapse_body": "Die Build-Queue kann jetzt zu einer einzelnen Leiste eingeklappt werden, damit sie das Terminal nicht mehr verdeckt. Klicke auf den Pfeil in der Kopfzeile, um sie ein- oder auszuklappen.",
   "queuebadge_label": "{resolved}/{total}",
+  "queuebadge_meter_label": "Queue",
   "queuebadge_title": "Build-Queue: {resolved} von {total} Schritten erledigt",
   "queuebadge_aria": "Build-Queue: {resolved} von {total} Schritten erledigt",
   "queuebadge_stale_title": "Build-Queue: {total} Schritte, Fortschritt nicht gemeldet – Agent arbeitet, hat aber den Schrittstatus nicht aktualisiert",

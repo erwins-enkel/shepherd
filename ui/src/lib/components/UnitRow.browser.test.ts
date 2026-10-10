@@ -33,6 +33,7 @@ const { reviews, planGates, repoConfig } = await import("#lib/reviews.svelte.js"
 const { releasePlanGate, reviewPlan, resumeQuota, retryCi, mergePr, interruptSession } =
   await import("#lib/api.js");
 const { toasts } = await import("#lib/toasts.svelte.js");
+const { buildQueues } = await import("#lib/buildQueues.svelte.js");
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -194,7 +195,8 @@ describe("UnitRow desktop badge layout", () => {
     const badges = [...host.querySelectorAll<HTMLElement>(".u-badges > *")].filter(
       (el) => el.getBoundingClientRect().width > 0,
     );
-    expect(badges).toHaveLength(loaded ? 5 : 3);
+    // PREVIEW rides in the strip as its first segment.
+    expect(badges).toHaveLength((loaded ? 5 : 3) + (preview ? 1 : 0));
     return { badges, onselect };
   }
 
@@ -233,18 +235,90 @@ describe("UnitRow desktop badge layout", () => {
     });
   }
 
-  it.each([
-    { width: 361, flow: false },
-    { width: 320, flow: true },
-  ])("preserves the vertical rail outside compact desktop (%j)", async ({ width, flow }) => {
-    host.classList.toggle("flow", flow);
+  it.each([361, 380])("lays the badges out as one strip on desktop at %ipx", async (width) => {
+    const { badges } = await mountRow(width);
+    for (const badge of badges.slice(1)) {
+      expect(Math.abs(centerY(badge) - centerY(badges[0]))).toBeLessThanOrEqual(1);
+    }
+    const clock = host.querySelector<HTMLElement>(".elapsed")!.getBoundingClientRect();
+    expect(clock.bottom).toBeLessThanOrEqual(badges[0].getBoundingClientRect().top);
+    const meta = host.querySelector<HTMLElement>(".meta")!.getBoundingClientRect();
+    expect(meta.top).toBeGreaterThanOrEqual(badges.at(-1)!.getBoundingClientRect().bottom);
+  });
+
+  it.each([320, 390])("keeps the phone list's rail beside the content at %ipx", async (width) => {
+    host.classList.add("flow");
     const { badges } = await mountRow(width);
     for (let i = 1; i < badges.length; i++) {
       expect(badges[i].getBoundingClientRect().top).toBeGreaterThanOrEqual(
         badges[i - 1].getBoundingClientRect().bottom,
       );
     }
+    const name = host.querySelector<HTMLElement>(".u-top")!.getBoundingClientRect();
+    expect(badges[0].getBoundingClientRect().left).toBeGreaterThan(name.left);
+    expect(badges[0].getBoundingClientRect().top).toBeLessThan(name.bottom);
   });
+
+  it("clips the divider of the segment that starts a wrapped line", async () => {
+    const { badges } = await mountRow(244, true, true);
+    const strip = host.querySelector<HTMLElement>(".u-badges")!.getBoundingClientRect();
+    const right = host.querySelector<HTMLElement>(".u-right")!.getBoundingClientRect();
+    // the strip reaches left past its row by exactly one divider + gutter …
+    expect(strip.left).toBeLessThan(right.left);
+    // … so every line-leading segment's border sits outside the visible row
+    const lineStarts = badges.filter((b, i) => i === 0 || centerY(b) > centerY(badges[i - 1]) + 1);
+    expect(lineStarts.length).toBeGreaterThan(1);
+    for (const b of lineStarts) {
+      expect(b.getBoundingClientRect().left).toBeLessThan(right.left);
+    }
+  });
+
+  it("says the build queue once: the strip drops it while the activity line shows the step", async () => {
+    const id = "queue-dedup";
+    const steps = [
+      { id: "1", title: "first", status: "done" as const, position: 0 },
+      { id: "2", title: "second", status: "active" as const, position: 1 },
+    ];
+    buildQueues.map = { [id]: { sessionId: id, approved: true, steps } };
+    const props = { selected: false, nowMs: 60_000, onselect: vi.fn() };
+    const { rerender } = await render(UnitRow, {
+      target: host,
+      props: { ...props, session: session({ id, status: "running" }) },
+    });
+    await expect.element(page.getByText(m.pulse_step_of({ index: 2, total: 2 }))).toBeVisible();
+    expect(host.querySelector(".queue-badge")).toBeNull();
+    // idle: no live step on the activity line → the queue segment is back
+    await rerender({ ...props, session: session({ id, status: "idle" }) });
+    await expect.element(page.getByText("1/2")).toBeVisible();
+    buildQueues.map = {};
+  });
+
+  it.each([
+    { flow: false, position: "absolute" },
+    { flow: true, position: "relative" },
+  ])(
+    "parks the decommission ✕ out of the strip's flow, above the row overlay (%j)",
+    async ({ flow, position }) => {
+      host.classList.toggle("flow", flow);
+      host.style.width = "380px";
+      await render(UnitRow, {
+        target: host,
+        props: {
+          session: session({ id: "decom" }),
+          selected: false,
+          nowMs: 60_000,
+          onselect: vi.fn(),
+          ondecommission: vi.fn(),
+        },
+      });
+      const decom = host.querySelector<HTMLElement>(".row-decom")!;
+      const style = getComputedStyle(decom);
+      // desktop: out of flow, so no blank line above the strip; phone: in the rail but still
+      // raised — either way z-index 1 keeps it clickable over .unit-hit
+      expect(style.position).toBe(position);
+      expect(style.zIndex).toBe("1");
+    },
+  );
 
   it("keeps the compact issue link reachable above the row overlay", async () => {
     const { onselect } = await mountRow(360);

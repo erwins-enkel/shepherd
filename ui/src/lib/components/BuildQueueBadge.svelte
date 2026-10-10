@@ -15,6 +15,7 @@
     selected,
     onselect,
     tip = false,
+    hideWhenStepLive = false,
   }: {
     sessionId: string;
     // D4 (docs/design/mobile-herd): on a coarse pointer this badge is a READ-ONLY readout,
@@ -27,6 +28,9 @@
     selected: boolean;
     onselect: (id: string) => void;
     tip?: boolean;
+    /** The card's activity line already reads "Step N/M" off this same queue — say it once.
+     *  Hides the badge unless the queue is drifted, the one state the line can't show. */
+    hideWhenStepLive?: boolean;
   } = $props();
 
   const queue = $derived(buildQueues.map[sessionId] ?? null);
@@ -35,6 +39,9 @@
     queue?.steps.filter((s) => s.status === "done" || s.status === "skipped").length ?? 0,
   );
   const pct = $derived(total > 0 ? (resolved / total) * 100 : 0);
+  // One cell per step reads at a glance up to a dozen; past that the cells get too small to
+  // count, so the meter becomes one proportional bar.
+  const MAX_CELLS = 12;
 
   // "Working but unreported": the agent is past planning (or has an open PR
   // already up, which only happens mid/post-implementation) yet EVERY step
@@ -68,13 +75,25 @@
   }
 </script>
 
-{#if total > 0}
+{#snippet meter()}
+  <span class="queue-key">{m.queuebadge_meter_label()}</span>
+  {#if total <= MAX_CELLS}
+    <span class="queue-cells" aria-hidden="true"
+      >{#each { length: total }, i (i)}<i class:on={!drifted && i < resolved}></i>{/each}</span
+    >
+  {:else}
+    <span class="queue-bar" aria-hidden="true"><i style="width: {drifted ? 0 : pct}%"></i></span>
+  {/if}
+  <span class="queue-label">{drifted ? `⚠ ${total}` : m.queuebadge_label({ resolved, total })}</span
+  >
+{/snippet}
+
+{#if total > 0 && !(hideWhenStepLive && !drifted)}
   {#if !interactive}
     <!-- D4: coarse pointer — read-only readout; the queue panel opens from the detail screen. -->
     <span
       class="queue-badge"
       class:queue-badge--stale={drifted}
-      style={drifted ? undefined : `--queue-pct: ${pct}%`}
       role="img"
       aria-label={drifted
         ? m.queuebadge_stale_aria({ total })
@@ -92,9 +111,7 @@
           }
         : null}
     >
-      <span class="queue-label"
-        >{drifted ? `⚠ ${total}` : m.queuebadge_label({ resolved, total })}</span
-      >
+      {@render meter()}
     </span>
   {:else if drifted}
     <button
@@ -110,13 +127,12 @@
         ? { text: m.queuebadge_stale_title({ total }), stopClickPropagation: false }
         : null}
     >
-      <span class="queue-label">⚠ {total}</span>
+      {@render meter()}
     </button>
   {:else}
     <button
       type="button"
       class="queue-badge"
-      style="--queue-pct: {pct}%"
       onclick={activate}
       title={tip ? undefined : m.queuebadge_title({ resolved, total })}
       aria-expanded={expanded}
@@ -127,68 +143,75 @@
         ? { text: m.queuebadge_title({ resolved, total }), stopClickPropagation: false }
         : null}
     >
-      <span class="queue-label">{m.queuebadge_label({ resolved, total })}</span>
+      {@render meter()}
     </button>
   {/if}
 {/if}
 
 <style>
-  /* Single-row badge matching its siblings (PREVIEW / REWORK / status badges):
-     same outline idiom, same height. Progress is shown as a subtle amber wash
-     filling the badge box left→right to --queue-pct (hard-edged gradient stop),
-     so there's no extra meter row to make this badge taller than the others. */
+  /* A segment of the card's telemetry strip: a faint key, a segment meter (one cell per step,
+     amber = resolved) and the count. No box of its own — the strip's dividers separate it. */
   .queue-badge {
     display: inline-flex;
     align-items: center;
+    gap: 6px;
     flex: none;
     font-size: var(--fs-micro);
-    letter-spacing: 0.12em;
+    letter-spacing: 0.1em;
     text-transform: uppercase;
-    font-weight: 600;
     font-family: inherit;
+    line-height: inherit;
     margin: 0;
-    padding: 1px 6px;
-    border: 1px solid var(--color-amber);
-    border-radius: 2px;
-    color: var(--color-amber);
+    padding: 0;
+    border: 0;
+    color: var(--color-muted);
     white-space: nowrap;
-    overflow: hidden;
     cursor: pointer;
-    background: linear-gradient(
-      to right,
-      color-mix(in srgb, var(--color-amber) 22%, transparent) var(--queue-pct),
-      transparent var(--queue-pct)
-    );
+    background: transparent;
   }
-
+  span.queue-badge {
+    cursor: default;
+  }
   .queue-badge:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
+    outline: 1px solid var(--color-amber);
+    outline-offset: 1px;
   }
-
-  /* STALE (drifted): agent is working but hasn't posted step status, so every
-     step still reads `pending`. A left-fill wash at 0% would look identical to
-     "nothing started" — actively misleading — so this state drops --queue-pct
-     entirely in favor of a moving diagonal stripe: same amber hue (still
-     "attention", never red/green), but a texture that reads as "unknown/in
-     motion" rather than a measured 0%. */
-  .queue-badge--stale {
-    background: repeating-linear-gradient(
-      -45deg,
-      color-mix(in srgb, var(--color-amber) 22%, transparent) 0,
-      color-mix(in srgb, var(--color-amber) 22%, transparent) 4px,
-      transparent 4px,
-      transparent 8px
-    );
-    animation: queue-badge-stale-scroll 1.2s linear infinite;
+  .queue-key {
+    color: var(--color-faint);
   }
-
-  @keyframes queue-badge-stale-scroll {
-    from {
-      background-position: 0 0;
-    }
-    to {
-      background-position: 16px 0;
-    }
+  .queue-cells {
+    display: inline-flex;
+    gap: 2px;
+  }
+  .queue-cells i {
+    width: 4px;
+    height: 7px;
+    background: var(--color-line-bright);
+  }
+  .queue-cells i.on {
+    background: var(--color-amber);
+  }
+  .queue-bar {
+    position: relative;
+    width: 48px;
+    height: 7px;
+    background: var(--color-line-bright);
+  }
+  .queue-bar i {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: var(--color-amber);
+  }
+  /* STALE (drifted): the agent is working but hasn't posted step status, so every step still
+     reads `pending`. Empty cells alone would look identical to "nothing started" — actively
+     misleading — so the cells go hollow (unknown, not measured-zero) and the count turns into
+     an amber ⚠ total. */
+  .queue-badge--stale .queue-cells i,
+  .queue-badge--stale .queue-bar {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--color-line-bright);
+  }
+  .queue-badge--stale .queue-label {
+    color: var(--color-amber);
   }
 </style>

@@ -239,6 +239,7 @@ test("GET /api/drain passes runSummary through unchanged", async () => {
         max: 1,
         holders: [{ sessionId: "s1", desig: "TASK-01", issueNumber: 101, epicParent: 100 }],
       },
+      landingRepairs: [],
       next: [201],
       after: [202],
       queued: [300],

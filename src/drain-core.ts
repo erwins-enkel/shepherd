@@ -95,6 +95,17 @@ export interface AutoSessionView {
    *  legacy unstamped row the number its `epic/<#>-…` base branch names; null for a non-epic
    *  session. Read only by {@link buildRunSummary}; no drain decision looks at it. */
   epicParent: number | null;
+  /** A landing-repair session (CI repair / conflict rework on an epic's landing PR, #2973): it
+   *  holds no agent slot — the cap and the run picture's slots leave it out — but retires and
+   *  trips trouble holds like any other auto session. LANDING_REPAIR_CAP bounds them. */
+  landingRepair: boolean;
+}
+
+/** The auto sessions that hold an agent slot — all but landing repairs (#2973). */
+export function slotHolders<T extends Pick<AutoSessionView, "landingRepair">>(
+  sessions: readonly T[],
+): T[] {
+  return sessions.filter((s) => !s.landingRepair);
 }
 
 /** Everything `computeNext` needs about ONE repo, assembled by the side-effect harness. */
@@ -276,10 +287,9 @@ function troubleHold(state: DrainRepoState): HoldReason | null {
 }
 
 function capHold(state: DrainRepoState): HoldReason | null {
-  if (state.autoSessions.length < state.maxAuto) return null;
-  const awaiting = state.autoSessions.find((s) =>
-    awaitingSignoff(s, state.draftMode, state.signoffAuthority),
-  );
+  const holding = slotHolders(state.autoSessions);
+  if (holding.length < state.maxAuto) return null;
+  const awaiting = holding.find((s) => awaitingSignoff(s, state.draftMode, state.signoffAuthority));
   return awaiting
     ? { code: "awaiting_signoff", detail: awaiting.desig }
     : { code: "cap", detail: String(state.maxAuto) };
@@ -382,6 +392,14 @@ export function computeNext(state: DrainRepoState): DrainDecision {
   };
 }
 
+/** An auto session as the run picture shows it. */
+export interface RunSummaryHolder {
+  sessionId: string;
+  desig: string;
+  issueNumber: number | null;
+  epicParent: number | null;
+}
+
 /** Read-only picture of how one repo's drain is running, shipped on `DrainStatus.runSummary`. */
 export interface RunSummary {
   /** The epic_run parent while that run is running/paused; null in label mode or when idle. */
@@ -392,19 +410,16 @@ export interface RunSummary {
   slots: {
     used: number;
     max: number;
-    holders: {
-      sessionId: string;
-      desig: string;
-      issueNumber: number | null;
-      epicParent: number | null;
-    }[];
+    holders: RunSummaryHolder[];
   };
+  /** Landing-repair sessions in flight (#2973) — outside `slots`, since they hold none. */
+  landingRepairs: RunSummaryHolder[];
   /** Not-yet-mapped candidates in the order `computeNext` would pick them. */
   next: number[];
   /** Open epic children directly blocked by `next[0]`; [] in label mode. */
   after: number[];
   /** Epics queued behind the leading one (#2624), head first — the head starts once the leader
-   *  completes. */
+   *  completes or is stopped (#2973). */
   queued: number[];
 }
 
@@ -424,9 +439,14 @@ export interface RunSummaryInput {
   queued: number[];
 }
 
+function summaryHolder(s: AutoSessionView): RunSummaryHolder {
+  return { sessionId: s.id, desig: s.desig, issueNumber: s.issueNumber, epicParent: s.epicParent };
+}
+
 /** Pure: shape the {@link RunSummary} from the facts `Drain.buildState` already gathered. */
 export function buildRunSummary(input: RunSummaryInput): RunSummary {
-  const { leadingEpic, autoSessions, epicChildren } = input;
+  const { leadingEpic, epicChildren } = input;
+  const autoSessions = slotHolders(input.autoSessions);
   const byEpic = new Map<number, number[]>();
   for (const s of autoSessions) {
     if (s.epicParent == null || s.epicParent === leadingEpic) continue;
@@ -454,13 +474,9 @@ export function buildRunSummary(input: RunSummaryInput): RunSummary {
     slots: {
       used: autoSessions.length,
       max: input.maxAuto,
-      holders: autoSessions.map((s) => ({
-        sessionId: s.id,
-        desig: s.desig,
-        issueNumber: s.issueNumber,
-        epicParent: s.epicParent,
-      })),
+      holders: autoSessions.map(summaryHolder),
     },
+    landingRepairs: input.autoSessions.filter((s) => s.landingRepair).map(summaryHolder),
     next,
     after,
     queued: input.queued,

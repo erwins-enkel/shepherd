@@ -11,6 +11,7 @@ import { issueSpawnPrompt } from "./issue-spawn-prompt";
 import {
   ACTIVE_LABEL,
   buildRunSummary,
+  slotHolders,
   computeNext,
   selectCandidates,
   type AutoSessionView,
@@ -33,6 +34,7 @@ import {
   selectEpicCandidates,
   type Epic,
   type EpicChild,
+  type EpicQueueEntry,
   type EpicRun,
   type EpicStackContext,
 } from "./epic-core";
@@ -764,8 +766,9 @@ export class DrainService {
       repoLeadTime: repoLeadTime(this.deps.store, repoPath, now),
       maxAuto: this.deps.store.getRepoConfig(repoPath).maxAuto,
       // What the drain's cap counts (buildState's autoSessions).
-      slotsUsed: all.filter((s) => s.repoPath === repoPath && s.auto && s.status !== "archived")
-        .length,
+      slotsUsed: all.filter(
+        (s) => s.repoPath === repoPath && s.auto && s.status !== "archived" && !s.landingRepair,
+      ).length,
       landingMs: this.deps.store.listEpicLandingDurations(repoPath),
       firstFinishAt: clock?.firstFinishAt ?? null,
       now,
@@ -933,6 +936,7 @@ export class DrainService {
           isDraft: snapshot[s.id]?.isDraft ?? false,
           fullAuto: isFullAuto(s, cfg),
           epicParent: sessionEpicParent(s),
+          landingRepair: !!s.landingRepair,
         };
       });
     const mappedIssueNumbers = new Set(
@@ -1521,7 +1525,7 @@ export class DrainService {
       reason: hold?.code ?? null,
       detail: hold?.detail ?? null,
       queued,
-      inFlight: state.autoSessions.length,
+      inFlight: slotHolders(state.autoSessions).length,
       max: state.maxAuto,
       epicParent: state.epicParent,
       runSummary: state.runSummary,
@@ -1606,12 +1610,13 @@ export class DrainService {
     }
   }
 
-  /** #2624: the leading epic just completed — start the queue's head with ITS stored settings
-   *  (never `defaultEpicRun`, which would reset them). An attended approval belonged to the
-   *  finished epic, so it does not carry over. */
-  private promoteQueuedEpic(repoPath: string): void {
+  /** #2624: the leading epic just completed — or, #2973, the operator stopped it — start the
+   *  queue's head with ITS stored settings (never `defaultEpicRun`, which would reset them). An
+   *  attended approval belonged to the finished epic, so it does not carry over. Returns the
+   *  promoted entry; null when the queue was empty. */
+  promoteQueuedEpic(repoPath: string): EpicQueueEntry | null {
     const next = this.deps.store.shiftEpicQueue(repoPath);
-    if (!next) return;
+    if (!next) return null;
     this.approvedNext.delete(repoPath);
     this.deps.store.setEpicRun({ ...queuedEpicRun(next), status: "running" });
     // A re-queued epic that completed (or falsely completed) before is starting again — same
@@ -1619,6 +1624,7 @@ export class DrainService {
     if (this.deps.store.clearEpicCompletedOnRestart(repoPath, next.parentIssueNumber))
       this.deps.emitEpicCompletedCleared?.({ repoPath, parentIssueNumber: next.parentIssueNumber });
     console.info(`[drain] ${repoPath}: queued epic #${next.parentIssueNumber} starts`);
+    return next;
   }
 
   /**
@@ -4278,7 +4284,10 @@ export class DrainService {
   private emitStatus(status: DrainStatus): void {
     const summary = status.runSummary;
     const live = !!summary && (summary.leadingEpic != null || summary.windingDown.length > 0);
-    const child = !!summary && summary.slots.holders.some((h) => h.epicParent != null);
+    const child =
+      !!summary &&
+      (summary.slots.holders.some((h) => h.epicParent != null) ||
+        summary.landingRepairs.length > 0);
     if (live || child) this.shownRuns.set(status.repoPath, { live, child });
     else this.shownRuns.delete(status.repoPath);
     this.deps.emitStatus(status);

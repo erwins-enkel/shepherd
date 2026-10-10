@@ -86,3 +86,25 @@ test("removeEpicQueueEntry drops one entry and reports whether it was queued", (
   s.enqueueEpic({ ...base, repoPath: "/a", parentIssueNumber: 1 });
   expect(parents(s, "/a")).toEqual([2, 1]);
 });
+
+test("reorderEpicQueue puts the queue in the given order; the head shifts first (#2973)", () => {
+  const s = new SessionStore(":memory:");
+  for (const n of [1, 2, 3]) s.enqueueEpic({ ...base, repoPath: "/a", parentIssueNumber: n });
+  s.enqueueEpic({ ...base, repoPath: "/b", parentIssueNumber: 9 });
+  expect(s.reorderEpicQueue("/a", [3, 1, 2])).toBe(true);
+  expect(parents(s, "/a")).toEqual([3, 1, 2]);
+  expect(parents(s, "/b")).toEqual([9]);
+  expect(s.shiftEpicQueue("/a")!.parentIssueNumber).toBe(3);
+  s.enqueueEpic({ ...base, repoPath: "/a", parentIssueNumber: 4 });
+  expect(parents(s, "/a")).toEqual([1, 2, 4]);
+});
+
+test("reorderEpicQueue refuses an order that is not the queue's permutation", () => {
+  const s = new SessionStore(":memory:");
+  for (const n of [1, 2]) s.enqueueEpic({ ...base, repoPath: "/a", parentIssueNumber: n });
+  expect(s.reorderEpicQueue("/a", [2])).toBe(false);
+  expect(s.reorderEpicQueue("/a", [2, 1, 3])).toBe(false);
+  expect(s.reorderEpicQueue("/a", [2, 2])).toBe(false);
+  expect(s.reorderEpicQueue("/a", [2, 3])).toBe(false);
+  expect(parents(s, "/a")).toEqual([1, 2]);
+});

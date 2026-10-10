@@ -27,6 +27,7 @@ export const drain: DrainStatus = {
       max: 2,
       holders: [{ sessionId: "a", desig: "TASK-1", issueNumber: 101, epicParent: 100 }],
     },
+    landingRepairs: [{ sessionId: "r", desig: "TASK-2", issueNumber: null, epicParent: 90 }],
     next: [201],
     after: [202],
     queued: [300],

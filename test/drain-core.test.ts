@@ -47,6 +47,7 @@ function autoSession(over: Partial<AutoSessionView> = {}): AutoSessionView {
     findings: [],
     fullAuto: false,
     epicParent: null,
+    landingRepair: false,
     ...over,
   };
 }
@@ -116,6 +117,35 @@ describe("computeNext", () => {
     );
     expect(d.kind).toBe("hold");
     expect((d as any).reason.code).toBe("cap");
+  });
+
+  test("a landing repair holds no slot: maxAuto=1 + repair in flight → the promoted epic spawns (#2973)", () => {
+    const d = computeNext(
+      state({
+        maxAuto: 1,
+        autoSessions: [
+          autoSession({ id: "r", issueNumber: null, epicParent: 30, landingRepair: true }),
+        ],
+        candidates: [issue(41)],
+        epicParent: 40,
+        epicIntegrationBranch: "epic/40-next",
+      }),
+    );
+    expect(d).toMatchObject({ kind: "spawn", issue: { number: 41 }, epicParent: 40 });
+  });
+
+  test("a landing repair beside a slot holder still leaves the cap at the holder count", () => {
+    const d = computeNext(
+      state({
+        maxAuto: 1,
+        autoSessions: [
+          autoSession({ id: "a" }),
+          autoSession({ id: "r", issueNumber: null, landingRepair: true }),
+        ],
+        candidates: [issue(2)],
+      }),
+    );
+    expect(d).toEqual({ kind: "hold", reason: { code: "cap", detail: "1" } });
   });
 
   test("usage at/over ceiling → hold usage with pct detail", () => {
@@ -909,6 +939,33 @@ describe("buildRunSummary", () => {
     epicChildren: [],
     queued: [] as number[],
   };
+
+  test("a landing repair is outside slots and winding down, listed in landingRepairs (#2973)", () => {
+    const r = buildRunSummary({
+      ...base,
+      leadingEpic: 200,
+      maxAuto: 1,
+      autoSessions: [
+        autoSession({
+          id: "r",
+          desig: "TASK-07",
+          issueNumber: null,
+          epicParent: 100,
+          landingRepair: true,
+        }),
+        autoSession({ id: "b", desig: "TASK-08", issueNumber: 201, epicParent: 200 }),
+      ],
+    });
+    expect(r.slots).toEqual({
+      used: 1,
+      max: 1,
+      holders: [{ sessionId: "b", desig: "TASK-08", issueNumber: 201, epicParent: 200 }],
+    });
+    expect(r.windingDown).toEqual([]);
+    expect(r.landingRepairs).toEqual([
+      { sessionId: "r", desig: "TASK-07", issueNumber: null, epicParent: 100 },
+    ]);
+  });
 
   test("supersession: B leads, A's still-running child winds down and holds the slot", () => {
     const A = 100;

@@ -6,7 +6,7 @@ import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
 import { validateEpicRunPatch } from "../src/validate";
-import type { Epic, EpicChild, EpicRun } from "../src/epic-core";
+import { queuedEpicRun, type Epic, type EpicChild, type EpicRun } from "../src/epic-core";
 import type { EpicDiagnosis } from "../src/epic-diagnosis";
 
 // ── validateEpicRunPatch unit tests ──────────────────────────────────────────
@@ -2234,6 +2234,109 @@ describe("POST|DELETE /api/epic/queue", () => {
       model: "opus",
     });
     expect(queuedParents(store)).toEqual([]);
+  });
+});
+
+// ── #2973: stopping the leader promotes the queue head ────────────────────────
+
+describe("PUT /api/epic status idle on the leader promotes the queue", () => {
+  const stop = (parent: number, status: "idle" | "paused" = "idle") =>
+    new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=${parent}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ status }),
+    });
+  // Stands in for DrainService.promoteQueuedEpic (covered in drain.test.ts).
+  function promotingHarness() {
+    const promotes: string[] = [];
+    let ticks = 0;
+    const h = harness({
+      drainOverrides: {
+        tick: async () => {
+          ticks++;
+        },
+        promoteQueuedEpic: (repoPath) => {
+          promotes.push(repoPath);
+          const next = h.store.shiftEpicQueue(repoPath);
+          if (next) h.store.setEpicRun({ ...queuedEpicRun(next), status: "running" });
+          return next;
+        },
+      },
+    });
+    h.store.setEpicRun({
+      repoPath: repoDir,
+      parentIssueNumber: 100,
+      mode: "auto",
+      status: "running",
+    });
+    return { ...h, promotes, ticks: () => ticks };
+  }
+
+  test("stopping the leader starts the queue head with its stored settings", async () => {
+    const { app, store, emitted, promotes, ticks } = promotingHarness();
+    store.enqueueEpic({
+      repoPath: repoDir,
+      parentIssueNumber: 200,
+      mode: "attended",
+      agentProvider: "claude",
+      model: "opus",
+      effort: "high",
+    });
+    store.enqueueEpic({ repoPath: repoDir, parentIssueNumber: 300, mode: "auto" });
+    const res = await app.fetch(stop(100));
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as Epic).run).toMatchObject({
+      parentIssueNumber: 100,
+      status: "idle",
+    });
+    expect(promotes).toEqual([repoDir]);
+    expect(store.getEpicRun(repoDir)).toMatchObject({
+      parentIssueNumber: 200,
+      status: "running",
+      mode: "attended",
+      agentProvider: "claude",
+      model: "opus",
+      effort: "high",
+    });
+    expect(store.getEpicRunEnd(repoDir, 100)?.cause).toBe("ended");
+    expect(store.listEpicQueue(repoDir).map((e) => e.parentIssueNumber)).toEqual([300]);
+    const updates = (emitted as Epic[]).map((e) => e.parentIssueNumber);
+    expect(updates).toEqual([100, 200]);
+    expect(ticks()).toBe(1);
+  });
+
+  test("an empty queue leaves the stopped leader idle", async () => {
+    const { app, store, promotes } = promotingHarness();
+    expect((await app.fetch(stop(100))).status).toBe(200);
+    expect(promotes).toEqual([repoDir]);
+    expect(store.getEpicRun(repoDir)).toMatchObject({ parentIssueNumber: 100, status: "idle" });
+  });
+
+  test("pausing the leader, or stopping an already idle run, does not promote", async () => {
+    const { app, store, promotes } = promotingHarness();
+    store.enqueueEpic({ repoPath: repoDir, parentIssueNumber: 200, mode: "auto" });
+    await app.fetch(stop(100, "paused"));
+    expect(promotes).toEqual([]);
+    store.setEpicRun({ repoPath: repoDir, parentIssueNumber: 100, mode: "auto", status: "idle" });
+    await app.fetch(stop(100));
+    expect(promotes).toEqual([]);
+    expect(store.listEpicQueue(repoDir).map((e) => e.parentIssueNumber)).toEqual([200]);
+  });
+
+  test("starting another epic over the leader supersedes it and leaves the queue behind", async () => {
+    const { app, store, promotes } = promotingHarness();
+    store.enqueueEpic({ repoPath: repoDir, parentIssueNumber: 200, mode: "auto" });
+    const res = await app.fetch(
+      new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=400`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ status: "running" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(promotes).toEqual([]);
+    expect(store.getEpicRun(repoDir)?.parentIssueNumber).toBe(400);
+    expect(store.listEpicQueue(repoDir).map((e) => e.parentIssueNumber)).toEqual([200]);
   });
 });
 

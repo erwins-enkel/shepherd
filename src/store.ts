@@ -2543,6 +2543,24 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return changes > 0;
   }
 
+  /** Put the repo's queue in `order` (#2973). `order` must name exactly the queued epics, once
+   *  each — else nothing changes and false comes back (the queue moved under the caller). */
+  reorderEpicQueue(repoPath: string, order: readonly number[]): boolean {
+    return this.db.transaction(() => {
+      const queued = this.listEpicQueue(repoPath).map((e) => e.parentIssueNumber);
+      const wanted = new Set(order);
+      if (wanted.size !== order.length || queued.length !== order.length) return false;
+      if (!queued.every((n) => wanted.has(n))) return false;
+      order.forEach((parent, i) =>
+        this.db.run(
+          `UPDATE epic_queue SET position = ? WHERE repoPath = ? AND parentIssueNumber = ?`,
+          [i + 1, repoPath, parent],
+        ),
+      );
+      return true;
+    })();
+  }
+
   /** Take the queue's head off and return it; null when the queue is empty. */
   shiftEpicQueue(repoPath: string): EpicQueueEntry | null {
     return this.db.transaction(() => {

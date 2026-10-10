@@ -186,7 +186,9 @@ still stand.
   tmpfs root, and a `bash -c` script running a `$VAR` command with a `{…,…}`
   argument — Claude Code can't check that shape and asks a bypass-immune
   "runs rm" approval (anthropics/claude-code#99630), so the guard denies it at
-  once with a rewrite. It is a **local `command` hook**, not the fail-open HTTP ingest
+  once with a rewrite. It also denies `gh api rate_limit`, which misreports the
+  account's GitHub budget, and points the agent at the `self_status` tool, which
+  carries Shepherd's real budget (#2860). It is a **local `command` hook**, not the fail-open HTTP ingest
   transport, precisely so the deny still holds for unattended sessions whose
   `--clearenv` membrane 401s the restricted ingress. Its script is bound RO into
   the membrane (`agentSupportPaths` → `agentSupportFlags`, `src/sandbox.ts`),

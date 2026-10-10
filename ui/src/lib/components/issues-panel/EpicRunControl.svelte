@@ -7,7 +7,7 @@
     EpicSummary,
   } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { updateEpic, approveEpicNext, queueEpic, unqueueEpic } from "#lib/api.js";
+  import { updateEpic, approveEpicNext, queueEpic, unqueueEpic, getDrain } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
   import { epicRunStateExplanation } from "#lib/tooltips/explanations.js";
   import {
@@ -79,6 +79,8 @@
     const leader = drain?.runSummary?.leadingEpic ?? null;
     return leader === parent ? null : leader;
   });
+  // #2972: another epic leads and this one is not queued yet — offer queueing beside Start.
+  const canQueue = $derived(!running && otherLeader != null && position == null);
   const stopped = $derived(
     runState.kind === "winding" || runState.kind === "superseded" || runState.kind === "ended",
   );
@@ -147,22 +149,45 @@
   // per repo) — ask first (#2623). The only UI path that sends `status: "running"`. The run
   // picture is captured on click, so the dialog neither vanishes nor reopens with the next tick.
   let confirming = $state<{ leader: number; summary: DrainRunSummary } | null>(null);
+  // Asking the server who leads, because no run picture is loaded yet (#2972).
+  let checking = $state(false);
 
-  function start() {
-    const summary = drain?.runSummary;
+  // Never supersede blind: without a loaded runSummary, fetch the repo's drain status first. A
+  // repo missing from GET /api/drain has nothing leading. "error" = could not tell.
+  async function freshSummary(): Promise<DrainRunSummary | null | "error"> {
+    checking = true;
+    try {
+      const all = await getDrain();
+      return all.find((d) => d.repoPath === repoPath)?.runSummary ?? null;
+    } catch {
+      return "error";
+    } finally {
+      checking = false;
+    }
+  }
+
+  async function start() {
+    if (checking) return;
+    const summary = drain?.runSummary ?? (await freshSummary());
+    if (summary === "error") {
+      updateFailed();
+      return;
+    }
     const leader = summary?.leadingEpic ?? null;
     if (summary && leader != null && leader !== parent) confirming = { leader, summary };
     else setStatus("running");
   }
 
-  // Queue behind the leader (#2624, the dialog's recommended choice) or supersede it now.
-  function confirmStart(choice: "queue" | "supersede") {
+  function supersede() {
     confirming = null;
-    if (choice === "supersede") setStatus("running");
-    else
-      queueEpic(repoPath, parent).catch(() =>
-        toasts.info(m.epic_queue_failed(), { alert: true, key: "epic-queue-fail" }),
-      );
+    setStatus("running");
+  }
+
+  // Queue behind the leader (#2624) — starts on its own once the epic ahead is complete.
+  function queue() {
+    queueEpic(repoPath, parent).catch(() =>
+      toasts.info(m.epic_queue_failed(), { alert: true, key: "epic-queue-fail" }),
+    );
   }
 
   function unqueue() {
@@ -223,6 +248,11 @@
         >{m.epic_unqueue()}</button
       >
     {/if}
+    {#if canQueue}
+      <button class="gbtn" type="button" title={m.epic_queue_title()} onclick={queue}
+        >{m.epic_queue()}</button
+      >
+    {/if}
     {#if running}
       <button
         class="gbtn"
@@ -231,16 +261,33 @@
         onclick={() => setStatus("paused")}>{m.epic_pause()}</button
       >
     {:else if role === "winding" && otherLeader == null}
-      <button class="gbtn" type="button" title={m.epic_run_restart_title()} onclick={start}
-        >{m.epic_run_restart()}</button
+      <button
+        class="gbtn"
+        type="button"
+        title={m.epic_run_restart_title()}
+        disabled={checking}
+        aria-busy={checking}
+        onclick={start}>{m.epic_run_restart()}</button
       >
     {:else if role === "winding"}
-      <button class="gbtn" type="button" title={m.epic_run_rejoin_title()} onclick={start}
-        >{m.epic_run_rejoin()}</button
+      <button
+        class="gbtn"
+        type="button"
+        title={m.epic_run_rejoin_title()}
+        disabled={checking}
+        aria-busy={checking}
+        onclick={start}>{m.epic_run_rejoin()}</button
       >
     {:else}
-      <button class="gbtn" type="button" title={m.epic_start_title()} onclick={start}
-        >{m.epic_start()}</button
+      <button
+        class="gbtn"
+        type="button"
+        title={otherLeader != null
+          ? m.epic_start_supersede_title({ leader: otherLeader })
+          : m.epic_start_title()}
+        disabled={checking}
+        aria-busy={checking}
+        onclick={start}>{m.epic_start()}</button
       >
     {/if}
     {#if menuItems.length}
@@ -315,9 +362,7 @@
     {parent}
     leader={confirming.leader}
     summary={confirming.summary}
-    queueable={queuePosition(confirming.summary, parent) == null}
-    behind={queuedBehind(confirming.summary, parent) ?? confirming.leader}
-    onconfirm={confirmStart}
+    onconfirm={supersede}
     onclose={() => (confirming = null)}
     {onopenautomation}
   />
@@ -395,6 +440,10 @@
   .gbtn[aria-expanded="true"] {
     border-color: var(--color-amber);
     color: var(--color-amber);
+  }
+  .gbtn:disabled {
+    cursor: progress;
+    opacity: 0.6;
   }
   .gbtn:focus-visible {
     outline: none;

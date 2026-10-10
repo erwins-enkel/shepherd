@@ -125,7 +125,6 @@ describe("EpicSupersedeDialog (#2623)", () => {
     expect(p.onconfirm).not.toHaveBeenCalled();
     await page.getByRole("button", { name: m.epic_supersede_confirm() }).click();
     expect(p.onconfirm).toHaveBeenCalledTimes(1);
-    expect(p.onconfirm).toHaveBeenCalledWith("supersede");
   });
 
   it("'Change agent slots' closes and opens the automation settings", async () => {
@@ -161,39 +160,13 @@ describe("EpicSupersedeDialog (#2623)", () => {
   });
 });
 
-describe("EpicSupersedeDialog — queue option (#2624)", () => {
-  it("preselects 'queue after' and confirms with Queue", async () => {
-    api.getEpic.mockResolvedValue(leaderEpic);
-    const p = props({ queueable: true, behind: A });
-    render(EpicSupersedeDialog, p);
-
-    const queue = page.getByRole("radio", { name: m.epic_queue_option({ after: A }) });
-    await expect.element(queue).toBeChecked();
-    await expect
-      .element(page.getByText(m.epic_queue_option_body({ epic: B, after: A })))
-      .toBeInTheDocument();
-    expect(page.getByRole("button", { name: m.epic_supersede_confirm() }).query()).toBeNull();
-    await page.getByRole("button", { name: m.epic_queue_confirm() }).click();
-    expect(p.onconfirm).toHaveBeenCalledWith("queue");
-  });
-
-  it("choosing 'supersede now' switches the main button to Supersede", async () => {
-    api.getEpic.mockResolvedValue(leaderEpic);
-    const p = props({ queueable: true, behind: 30 });
-    render(EpicSupersedeDialog, p);
-
-    await expect
-      .element(page.getByRole("radio", { name: m.epic_queue_option({ after: 30 }) }))
-      .toBeInTheDocument();
-    await page.getByRole("radio", { name: m.epic_supersede_now() }).click();
-    await page.getByRole("button", { name: m.epic_supersede_confirm() }).click();
-    expect(p.onconfirm).toHaveBeenCalledWith("supersede");
-  });
-
-  it("without the queue option there are no radios", async () => {
+describe("EpicSupersedeDialog — supersede only (#2972)", () => {
+  it("offers no queue choice — queueing is the run area's own button", async () => {
     api.getEpic.mockResolvedValue(leaderEpic);
     render(EpicSupersedeDialog, props());
     await expect.element(page.getByRole("dialog")).toBeInTheDocument();
     expect(page.getByRole("radio").query()).toBeNull();
+    expect(page.getByRole("button", { name: m.epic_queue(), exact: true }).query()).toBeNull();
+    await expect.element(page.getByText(m.epic_supersede_now())).toBeInTheDocument();
   });
 });

@@ -4012,10 +4012,15 @@ components:
           items:
             type: integer
         queued:
-          description: Epics queued behind the leading one, head first; the head starts once the leader completes. Always sent by the current server; optional so an older server stays valid.
+          description: Epics queued behind the leading one, head first; the head starts once the leader completes or is stopped. Always sent by the current server; optional so an older server stays valid.
           type: array
           items:
             type: integer
+        landingRepairs:
+          description: Landing-repair sessions in flight (CI repair / conflict rework of an epic landing PR). They hold no agent slot, so slots leaves them out. Always sent by the current server; optional so an older server stays valid.
+          type: array
+          items:
+            $ref: "#/components/schemas/DrainSlotHolder"
     DrainWindingDownEpic:
       type: object
       additionalProperties: true
@@ -4066,6 +4071,28 @@ components:
           type:
             - integer
             - "null"
+    EpicQueueReorderRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - order
+      properties:
+        order:
+          description: Every queued epic's parent issue number, new head first.
+          type: array
+          items:
+            type: integer
+            minimum: 1
+    EpicQueueReorderResult:
+      type: object
+      additionalProperties: true
+      required:
+        - queued
+      properties:
+        queued:
+          type: array
+          items:
+            type: integer
     DrainQueuedItem:
       type: object
       additionalProperties: true
@@ -9756,7 +9783,7 @@ paths:
   /api/epic/queue:
     post:
       operationId: queueEpic
-      description: Queue this epic behind the repo's leading (running or paused) epic, at the tail, with its remembered settings (else the defaults). Queueing an already queued epic keeps its place. The queue head starts on its own, with its stored settings, once the leader completes.
+      description: Queue this epic behind the repo's leading (running or paused) epic, at the tail, with its remembered settings (else the defaults). Queueing an already queued epic keeps its place. The queue head starts on its own, with its stored settings, once the leader completes or is stopped.
       parameters:
         - name: repo
           in: query
@@ -9826,6 +9853,48 @@ paths:
                 $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "503":
+          description: error is "drain unavailable".
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    put:
+      operationId: reorderEpicQueue
+      description: Put the repo's epic queue in a new order. `order` must name exactly the queued epics, once each; the new head starts next.
+      parameters:
+        - name: repo
+          in: query
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EpicQueueReorderRequest"
+      responses:
+        "200":
+          description: The queue in its new order.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EpicQueueReorderResult"
+        "400":
+          description: error is "invalid repo" or "order must be an array of positive integers".
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: error is "queue changed" — order is not the current queue; re-read it.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "503":
           description: error is "drain unavailable".
           content:

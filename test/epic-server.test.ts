@@ -2237,6 +2237,52 @@ describe("POST|DELETE /api/epic/queue", () => {
   });
 });
 
+describe("PUT /api/epic/queue (reorder, #2973)", () => {
+  const reorder = (body: unknown, repo = encRepo(repoDir)) =>
+    new Request(`http://x/api/epic/queue?repo=${repo}`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  const queue = (store: SessionStore, ...parents: number[]) => {
+    for (const n of parents)
+      store.enqueueEpic({ repoPath: repoDir, parentIssueNumber: n, mode: "auto" });
+  };
+
+  test("puts the queue in the new order and kicks the drain", async () => {
+    let ticks = 0;
+    const { app, store } = harness({
+      drainOverrides: {
+        tick: async () => {
+          ticks++;
+        },
+      },
+    });
+    queue(store, 200, 300, 400);
+    const res = await app.fetch(reorder({ order: [400, 200, 300] }));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ queued: [400, 200, 300] });
+    expect(store.shiftEpicQueue(repoDir)?.parentIssueNumber).toBe(400);
+    expect(ticks).toBe(1);
+  });
+
+  test("409 when the order is not the current queue", async () => {
+    const { app, store } = harness();
+    queue(store, 200, 300);
+    const res = await app.fetch(reorder({ order: [300] }));
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "queue changed" });
+    expect(store.listEpicQueue(repoDir).map((e) => e.parentIssueNumber)).toEqual([200, 300]);
+  });
+
+  test("400 on a bad repo or body", async () => {
+    const { app } = harness();
+    expect((await app.fetch(reorder({ order: [1] }, "/nope"))).status).toBe(400);
+    for (const body of [null, [], {}, { order: "1" }, { order: [0] }, { order: [1.5] }])
+      expect((await app.fetch(reorder(body))).status).toBe(400);
+  });
+});
+
 // ── #2973: stopping the leader promotes the queue head ────────────────────────
 
 describe("PUT /api/epic status idle on the leader promotes the queue", () => {

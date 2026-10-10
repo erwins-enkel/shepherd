@@ -230,6 +230,13 @@ describe("epic", () => {
       );
       await call(method, template, `${template}${q()}`, 401, body, false);
     }
+    const reorder = `/api/epic/queue?repo=${encodeURIComponent(s.validRepo)}`;
+    expect(await call("PUT", "/api/epic/queue", reorder, 503, { order: [] })).toEqual({
+      error: "drain unavailable",
+    });
+    await call("PUT", "/api/epic/queue", `/api/epic/queue?repo=/etc`, 400, { order: [] });
+    await call("PUT", "/api/epic/queue", reorder, 400, { order: [0] });
+    await call("PUT", "/api/epic/queue", reorder, 401, { order: [] }, false);
   });
 
   test("get, patch and approve-next answer the assembled epic, or ok when it vanished", async () => {
@@ -358,12 +365,22 @@ describe("epic", () => {
       });
       const queued = (await call("POST", "/api/epic/queue", qq(413), 200)) as Epic;
       expect(queued.run).toMatchObject({ parentIssueNumber: 413, status: "idle" });
+      await call("POST", "/api/epic/queue", qq(414), 200);
+      const reorder = `/api/epic/queue?repo=${encodeURIComponent(s.validRepo)}`;
+      expect(await call("PUT", "/api/epic/queue", reorder, 200, { order: [414, 413] })).toEqual({
+        queued: [414, 413],
+      });
+      expect(await call("PUT", "/api/epic/queue", reorder, 409, { order: [413] })).toEqual({
+        error: "queue changed",
+      });
+      await call("DELETE", "/api/epic/queue", qq(414), 200);
       const dequeued = (await call("DELETE", "/api/epic/queue", qq(413), 200)) as Epic;
       expect(dequeued.run.parentIssueNumber).toBe(413);
       expect(s.deps.store.listEpicQueue(s.validRepo)).toEqual([]);
     } finally {
       s.deps.drain = previousDrain;
       s.deps.store.removeEpicQueueEntry(s.validRepo, 413);
+      s.deps.store.removeEpicQueueEntry(s.validRepo, 414);
       s.deps.store.setEpicRun({
         repoPath: s.validRepo,
         parentIssueNumber: 412,

@@ -28,6 +28,27 @@ These fire when the dashboard body has focus — not while typing in a field.
 | `r` | Open the Repos / backlog view |
 | `Enter` | Return keyboard focus to the terminal |
 
+## Repos dialog
+
+Inside the Repos dialog on desktop (opened with `r` above), the repo name in the header opens the repo switcher.
+
+| Keys | Action |
+| --- | --- |
+| `r` | Open the repo switcher (not while typing in a field) |
+| `↓` / `↑` | In the switcher: move from the search into the list and between repos |
+| `Enter` | Open the first match from the search, or the focused repo |
+| `Esc` | Close the switcher (clears the search first, if it has text) — the dialog stays open |
+
+When no repo is open — no dashboard filter, or several repos filtered — the dialog shows a repo grid instead, with the search focused.
+
+| Keys | Action |
+| --- | --- |
+| *(typing)* | Filter the repos |
+| `↓` | From the search, move into the grid |
+| `←` / `→` / `↑` / `↓` | Move between repos in the grid; `↑` from the first row returns to the search |
+| `Enter` | Open the first match from the search, or the focused repo |
+| `Esc` | Clear the search if it has text, otherwise close the dialog |
+
 ## Switch sessions while the terminal is focused
 
 Except for `Alt+↑` / `Alt+↓`, the Alt combos work even while the terminal owns the keyboard, so you can move around the herd without leaving the active session. On macOS the modifier is ⌥ Option, and matching is on the physical key (Option changes the character that would be typed).

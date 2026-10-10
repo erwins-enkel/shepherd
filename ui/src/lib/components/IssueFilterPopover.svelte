@@ -27,6 +27,7 @@
     keycap = undefined,
     shortcut = undefined,
     showSubIssuesToggle = true,
+    iconOnly = false,
   }: {
     showMine: boolean;
     coachTargets?: boolean;
@@ -44,6 +45,9 @@
     /** Offer "hide sub-issues". False where the host already lists sub-issues only inside
      *  their epic (the backlog Issues tab, #2617), so the toggle would do nothing there. */
     showSubIssuesToggle?: boolean;
+    /** Funnel icon (+ the active count) instead of the "Filters" label — for a host too narrow
+     *  for the labelled chip (the backlog list column). */
+    iconOnly?: boolean;
   } = $props();
 
   // Show the Author section at >=2 authors OR whenever a selection is set — the OR-guard
@@ -145,22 +149,31 @@
 
 <button
   bind:this={btnEl}
-  class={["filter-chip", { active: open || activeCount > 0 }]}
+  class={["filter-chip", { active: open || activeCount > 0, "icon-only": iconOnly }]}
   type="button"
   aria-haspopup="dialog"
   aria-expanded={open}
   aria-controls={popoverId}
   aria-label={m.issue_filter_button_aria({ count: activeCount })}
   aria-keyshortcuts={shortcut}
+  title={iconOnly ? m.issue_filter_button() : undefined}
   onclick={() => (open = !open)}
   use:coachTarget={coachTargets ? "issue-filters" : ""}
 >
-  {m.issue_filter_button()}
+  {#if iconOnly}
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+      <path d="M1.5 2.5h11L8.25 7.4v3.6l-2.5 1.2V7.4L1.5 2.5Z" stroke="currentColor" />
+    </svg>
+  {:else}
+    {m.issue_filter_button()}
+  {/if}
   {#if activeCount > 0}
     <span class="badge" aria-hidden="true">{activeCount}</span>
   {/if}
-  {#if keycap}{@render keycap()}{:else}
-    <span class="chevron" aria-hidden="true">▾</span>
+  {#if !iconOnly}
+    {#if keycap}{@render keycap()}{:else}
+      <span class="chevron" aria-hidden="true">▾</span>
+    {/if}
   {/if}
 </button>
 
@@ -298,6 +311,14 @@
 
   .filter-chip:hover {
     color: var(--color-ink);
+  }
+
+  /* Icon-only: a square-ish button with a hairline, so it reads as a control beside a field. */
+  .filter-chip.icon-only {
+    justify-content: center;
+    min-width: 30px;
+    padding: 0 7px;
+    border-color: var(--color-line);
   }
 
   .filter-chip.active {

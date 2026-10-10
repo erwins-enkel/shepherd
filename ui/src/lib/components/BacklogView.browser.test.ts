@@ -183,3 +183,40 @@ describe("mobile backlog issue scrolling", () => {
     },
   );
 });
+
+// ── desktop entry: the dashboard filter decides between a repo and the grid ──
+describe("desktop entry", () => {
+  const desktop = (over: Record<string, unknown> = {}) => ({
+    ...props(3),
+    mobile: false,
+    ...over,
+  });
+  const triggerName = () =>
+    document.querySelector(".rs-trigger .rs-name")?.textContent?.trim() ?? null;
+
+  it("no filter: the repo grid, with nothing selected and the page's focus left alone", async () => {
+    await page.viewport(1280, 900);
+    await render(BacklogView, desktop());
+    expect(document.querySelectorAll(".rg-tile")).toHaveLength(3);
+    expect(document.querySelector(".tab-bar")).toBeNull();
+    expect(triggerName()).toBe(m.repos_switcher_choose());
+    // Standalone (the empty-herd panel) there is no dialog: the search must not grab focus.
+    expect(document.activeElement).not.toBe(document.querySelector(".rg-search"));
+  });
+
+  it("exactly one filtered repo: opens in it with the dashboard-filter badge", async () => {
+    await page.viewport(1280, 900);
+    await render(BacklogView, desktop({ filterPaths: ["/repo-1"] }));
+    expect(triggerName()).toBe("repo-1");
+    expect(document.querySelector(".rg")).toBeNull();
+    expect(document.querySelector(".rh-badge")?.textContent).toBe(m.repos_head_from_filter());
+  });
+
+  it("the pinned repo no longer preselects anything", async () => {
+    await page.viewport(1280, 900);
+    const input = desktop();
+    await render(BacklogView, { ...input, payload: { ...input.payload, pinnedPath: "/repo-0" } });
+    expect(triggerName()).toBe(m.repos_switcher_choose());
+    expect(document.querySelector(".rg")).not.toBeNull();
+  });
+});

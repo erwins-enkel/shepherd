@@ -217,6 +217,7 @@ describe("AppOverlays — Repos selection", () => {
     const props = baseProps();
     props.showBacklog = true;
     props.repoFilter = "/repos/filtered";
+    props.backlogRepoFilter = new Set(["/repos/filtered"]);
     repos.entries = [
       {
         name: "filtered",
@@ -244,9 +245,49 @@ describe("AppOverlays — Repos selection", () => {
 
     render(AppOverlays, props);
 
-    await expect.element(page.getByText("filtered-link", { exact: true })).toBeVisible();
-    expect(document.querySelectorAll(".project-row")).toHaveLength(2);
+    // The header switcher names the open repo; its popover lists both and marks it.
+    await expect
+      .poll(() => document.querySelector(".rs-trigger .rs-name")?.textContent?.trim())
+      .toBe("filtered-link");
+    document.querySelector<HTMLButtonElement>(".rs-trigger")!.click();
+    await expect.poll(() => document.querySelectorAll(".project-row").length).toBe(2);
     expect(document.querySelector(".project-row.sel .row-name")?.textContent).toBe("filtered-link");
+  });
+
+  it("narrows the repo grid to several filtered repos, resolving real paths", async () => {
+    const props = baseProps();
+    props.showBacklog = true;
+    props.repoFilter = null; // several repos filtered → no single active repo
+    props.backlogRepoFilter = new Set(["/real/one", "/repos/two"]);
+    repos.entries = [
+      { name: "one", path: "/repos/one-link", display: "/repos/one-link", realPath: "/real/one" },
+    ];
+    props.backlog = {
+      pinnedPath: "/repos/three",
+      projects: ["/repos/one-link", "/repos/two", "/repos/three"].map((path) => ({
+        path,
+        display: path,
+        slug: null,
+        kind: "github",
+        openIssues: 1,
+        openPRs: 0,
+        prKinds: null,
+        workflows: null,
+        ciStatus: null,
+        hidden: false,
+      })),
+      totals: { openIssues: 3, openPRs: 0 },
+    } satisfies BacklogPayload;
+
+    render(AppOverlays, props);
+
+    await expect.poll(() => document.querySelectorAll(".rg-tile").length).toBe(2);
+    expect(
+      [...document.querySelectorAll(".rg-tile .rg-name")].map((n) => n.textContent?.trim()).sort(),
+    ).toEqual(["one-link", "two"]);
+    expect(document.querySelector(".rs-trigger .rs-name")?.textContent?.trim()).toBe(
+      m.repos_switcher_choose(),
+    );
   });
 });
 

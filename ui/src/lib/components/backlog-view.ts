@@ -2,7 +2,7 @@
  * Pure logic extracted from BacklogView.svelte and ProjectRow.svelte —
  * unit-testable without a DOM.
  */
-import type { BacklogPayload, BacklogProject } from "#lib/types.js";
+import type { BacklogPayload, BacklogProject, DrainStatus } from "#lib/types.js";
 
 /**
  * Format a count for display: number as-is, null as the em-dash placeholder
@@ -95,6 +95,18 @@ export const RECENT_LIMIT = 3;
  *  mirrors ProjectRow so the recents tie-break sorts by the visible name. */
 function projectName(p: BacklogProject): string {
   return p.path.replace(/\/+$/, "").split("/").pop() || p.slug || p.display;
+}
+
+/**
+ * The switcher trigger's two lines: the repo name a row displays and, when the
+ * slug is `owner/repo`, the owner shown small above it. `owner` is `null` when
+ * the slug carries no owner segment (non-forge / not yet resolved).
+ */
+export function repoOwnerName(p: BacklogProject): { owner: string | null; name: string } {
+  const slug = p.slug ?? "";
+  const slash = slug.lastIndexOf("/");
+  const owner = slash > 0 ? slug.slice(0, slash) : null;
+  return { owner, name: projectName(p) };
 }
 
 /**
@@ -209,4 +221,91 @@ export function tabForFilters(opts: {
   if (opts.hasIssues) return "issues";
   if (opts.hasPRs) return "prs";
   return null;
+}
+
+/**
+ * The dashboard's repo filter as backlog project paths. The filter holds session real
+ * paths while a backlog project's `path` is the raw `repoRoot/name` form, so a repo
+ * known to `entries` maps `realPath → path`; an unknown one passes through unchanged
+ * (the dialog then drops it if the backlog doesn't list it). Order kept, duplicates dropped.
+ */
+export function resolveFilterPaths(
+  filter: Iterable<string>,
+  entries: readonly { path: string; realPath: string }[],
+): string[] {
+  const out = new Set<string>();
+  for (const p of filter) out.add(entries.find((e) => e.realPath === p)?.path ?? p);
+  return [...out];
+}
+
+/** How the repo grid orders "All repos": most open issues first, or by name. */
+export type RepoSort = "issues" | "name";
+
+/** A sorted copy. `issues`: open issues descending, unknown counts last, name as tie-break. */
+export function sortProjects(
+  projects: readonly BacklogProject[],
+  sort: RepoSort,
+): BacklogProject[] {
+  const byName = (a: BacklogProject, b: BacklogProject) =>
+    projectName(a).localeCompare(projectName(b));
+  if (sort === "name") return [...projects].sort(byName);
+  return [...projects].sort((a, b) => (b.openIssues ?? -1) - (a.openIssues ?? -1) || byName(a, b));
+}
+
+/** A repo's share (0..1) of the largest open-issue count — the grid's size bar. */
+export function sizeShare(count: number | null, max: number): number {
+  if (count === null || max <= 0) return 0;
+  return Math.min(1, Math.max(0, count / max));
+}
+
+/** What a repo's drain is doing, for the grid tile's state line. */
+export type RepoRunState =
+  | { kind: "paused" }
+  | { kind: "epic"; epic: number; inFlight: number; max: number }
+  | { kind: "running"; inFlight: number; max: number };
+
+/**
+ * Paused > a leading epic > agents in flight; `null` when the drain is off or idle
+ * (a disabled drain says nothing worth a line on a tile).
+ */
+export function repoRunState(d: DrainStatus | null | undefined): RepoRunState | null {
+  if (!d || !d.enabled) return null;
+  if (d.paused) return { kind: "paused" };
+  const epic = d.runSummary?.leadingEpic ?? null;
+  if (epic !== null) return { kind: "epic", epic, inFlight: d.inFlight, max: d.max };
+  if (d.inFlight > 0) return { kind: "running", inFlight: d.inFlight, max: d.max };
+  return null;
+}
+
+interface Box {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * The tile to land on when ↑ (`dir = -1`) or ↓ (`1`) is pressed in the repo grid: among
+ * the boxes wholly above/below `from`, the nearest row, then the box whose centre is
+ * closest horizontally. `null` at the first/last row.
+ */
+export function nearestInDirection(
+  boxes: readonly Box[],
+  from: number,
+  dir: 1 | -1,
+): number | null {
+  const f = boxes[from];
+  if (!f) return null;
+  const candidates = boxes
+    .map((b, i) => ({ b, i }))
+    .filter(({ b }) => (dir === 1 ? b.top >= f.top + f.height : b.top + b.height <= f.top));
+  if (candidates.length === 0) return null;
+  const rowGap = ({ b }: { b: Box }) => (dir === 1 ? b.top - f.top : f.top - b.top);
+  const nearestRow = Math.min(...candidates.map(rowGap));
+  const centre = (b: Box) => b.left + b.width / 2;
+  const row = candidates.filter((c) => rowGap(c) - nearestRow < 2);
+  const best = row.reduce((a, c) =>
+    Math.abs(centre(c.b) - centre(f)) < Math.abs(centre(a.b) - centre(f)) ? c : a,
+  );
+  return best.i;
 }

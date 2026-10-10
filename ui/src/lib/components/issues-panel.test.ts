@@ -26,6 +26,7 @@ import {
   buildIssueRows,
   stepSelection,
   resolveSelection,
+  stripEpicPrefix,
   lastChange,
   sortOldestFirst,
   staleSummary,
@@ -724,5 +725,30 @@ describe("repo overview helpers (#2638)", () => {
       { issue: issues[0], sessionId: null, desig: null, hidden: true },
       { issue: issues[1], sessionId: "s2", desig: "TASK-02", hidden: false },
     ]);
+  });
+});
+
+describe("stripEpicPrefix", () => {
+  it("drops a prefix that only repeats the epic's number", () => {
+    expect(stripEpicPrefix("Stack-Angleichung (#158): Foo bar", 158)).toBe("Foo bar");
+    expect(stripEpicPrefix("Epic (#158):Foo", 158)).toBe("Foo");
+  });
+
+  it("strips only the first prefix of a title with more colons", () => {
+    expect(stripEpicPrefix("Stack (#158): fix(ui): wrap", 158)).toBe("fix(ui): wrap");
+  });
+
+  it("leaves other epics' numbers, bare numbers and unprefixed titles alone", () => {
+    expect(stripEpicPrefix("Stack-Angleichung (#158): Foo", 99)).toBe(
+      "Stack-Angleichung (#158): Foo",
+    );
+    expect(stripEpicPrefix("Stack-Angleichung (#158) Foo", 158)).toBe(
+      "Stack-Angleichung (#158) Foo",
+    );
+    expect(stripEpicPrefix("Plain title", 158)).toBe("Plain title");
+  });
+
+  it("keeps the whole title when nothing is left after the prefix", () => {
+    expect(stripEpicPrefix("Stack (#158):  ", 158)).toBe("Stack (#158):  ");
   });
 });

@@ -154,6 +154,7 @@ function harness(opts?: {
     buildEpic: async (repoPath, run) => makeEpic(repoPath, run.parentIssueNumber, run),
     diagnoseEpic: async (_repoPath, run) => makeDiagnosis(run.parentIssueNumber),
     approveEpicNext: () => {},
+    promoteQueuedEpic: () => null,
     tick: async () => {},
   };
 
@@ -692,6 +693,7 @@ describe("GET /api/epics", () => {
         buildEpic: async () => null,
         diagnoseEpic: async () => null,
         approveEpicNext: () => {},
+        promoteQueuedEpic: () => null,
         tick: async () => {},
       },
       resolveForge: () =>
@@ -1330,6 +1332,7 @@ function completedHarness(opts?: {
     buildEpic: async (repoPath, run) => makeEpic(repoPath, run.parentIssueNumber, run),
     diagnoseEpic: async (_repoPath, run) => makeDiagnosis(run.parentIssueNumber),
     approveEpicNext: () => {},
+    promoteQueuedEpic: () => null,
     tick: async () => {},
   };
   const drain =

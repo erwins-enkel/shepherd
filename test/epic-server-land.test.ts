@@ -76,6 +76,7 @@ function landHarness(resolveForge?: AppDeps["resolveForge"]): {
     buildEpic: async () => null,
     diagnoseEpic: async () => null,
     approveEpicNext: () => {},
+    promoteQueuedEpic: () => null,
     tick: async () => {},
   };
 
@@ -348,6 +349,7 @@ describe("POST /api/epics/completed/resolve-conflicts", () => {
       buildEpic: async () => null,
       diagnoseEpic: async () => null,
       approveEpicNext: () => {},
+      promoteQueuedEpic: () => null,
       tick: async () => {},
       ...(resolve
         ? {
@@ -438,6 +440,7 @@ describe("POST /api/epics/completed/repair-ci", () => {
       buildEpic: async () => null,
       diagnoseEpic: async () => null,
       approveEpicNext: () => {},
+      promoteQueuedEpic: () => null,
       tick: async () => {},
       ...(repair
         ? {

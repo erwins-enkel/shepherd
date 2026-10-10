@@ -66,6 +66,18 @@ describe("EpicQueueList (#2973)", () => {
       .toBeInTheDocument();
   });
 
+  it("undoing a saved move before the live queue catches up still saves (stale prop)", async () => {
+    mount();
+    await down(10).click();
+    await expect.poll(rowOrder).toEqual([20, 10, 30]);
+    await expect.poll(() => api.reorderEpicQueue.mock.calls.length).toBe(1);
+    // The `queued` prop still says [10, 20, 30]; moving back must not count as "dropped in place".
+    await up(10).click();
+    await expect.poll(() => api.reorderEpicQueue.mock.calls.length).toBe(2);
+    expect(api.reorderEpicQueue).toHaveBeenLastCalledWith("/repo", [10, 20, 30]);
+    await expect.poll(rowOrder).toEqual([10, 20, 30]);
+  });
+
   it("moving to the end keeps focus on the row via its other button", async () => {
     mount();
     await down(20).click();

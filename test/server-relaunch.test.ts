@@ -154,6 +154,7 @@ function harness(opts: {
       buildEpic: async () => null,
       diagnoseEpic: async () => null,
       approveEpicNext: () => {},
+      promoteQueuedEpic: () => null,
       tick: async () => {},
     },
   };
@@ -365,6 +366,7 @@ test("concurrent second relaunch of the same id → 409, no double-spawn", async
       buildEpic: async () => null,
       diagnoseEpic: async () => null,
       approveEpicNext: () => {},
+      promoteQueuedEpic: () => null,
       tick: async () => {},
     },
     prCache: { drop: () => {} } as unknown as AppDeps["prCache"],

@@ -37,6 +37,9 @@
   let inFlight = 0;
   // Only the latest request's outcome may touch the order — an older one is stale.
   let seq = 0;
+  // The order the server last confirmed, until a live queue supersedes it — the `queued` prop
+  // trails a reorder until the drain re-emits its status.
+  let confirmed: readonly number[] | null = null;
   let announce = $state("");
   let listEl = $state<HTMLOListElement>();
 
@@ -44,7 +47,10 @@
   $effect(() => {
     void queued;
     untrack(() => {
-      if (!dragging && inFlight === 0) local = null;
+      if (!dragging && inFlight === 0) {
+        local = null;
+        confirmed = null;
+      }
     });
   });
 
@@ -52,10 +58,12 @@
   const sameOrder = (a: readonly number[], b: readonly number[]) =>
     a.length === b.length && a.every((n, i) => n === b[i]);
 
+  const confirmedItems = () => confirmed?.map((id) => ({ id })) ?? null;
+
   async function commit(order: number[]) {
     // Dropped in place. Not while a request is pending: its order is not live yet.
-    if (inFlight === 0 && sameOrder(order, queued)) {
-      local = null;
+    if (inFlight === 0 && sameOrder(order, confirmed ?? queued)) {
+      local = confirmedItems();
       return;
     }
     local = order.map((id) => ({ id }));
@@ -63,10 +71,13 @@
     inFlight++;
     try {
       const res = await reorderEpicQueue(repoPath, order);
-      if (mine === seq) local = res.queued.map((id) => ({ id }));
+      if (mine === seq) {
+        confirmed = res.queued;
+        local = res.queued.map((id) => ({ id }));
+      }
     } catch {
-      // Back to the live queue — the order before the move, unless it changed meanwhile.
-      if (mine === seq) local = null;
+      // Back to the last known server order — the one before the move, unless it changed meanwhile.
+      if (mine === seq) local = confirmedItems();
       toasts.info(m.epicqueue_reorder_failed(), { alert: true, key: "epic-queue-reorder-fail" });
     } finally {
       inFlight--;

@@ -245,6 +245,7 @@ describe("epic", () => {
     let ticks = 0;
     const approved: string[] = [];
     s.deps.drain = {
+      promoteQueuedEpic: () => null,
       buildEpic: async (_dir: string, run: EpicRun) => (found ? fx.epic(run) : null),
       approveEpicNext: (dir: string) => {
         approved.push(dir);
@@ -299,6 +300,7 @@ describe("epic", () => {
   test("patch refuses to stop or pause an epic that does not lead; a start records why the leader stopped", async () => {
     const previousDrain = s.deps.drain;
     s.deps.drain = {
+      promoteQueuedEpic: () => null,
       buildEpic: async (dir: string, run: EpicRun) => {
         const runEnd = s.deps.store.getEpicRunEnd(dir, run.parentIssueNumber);
         return runEnd ? { ...fx.epic(run), runEnd } : fx.epic(run);
@@ -345,6 +347,7 @@ describe("epic", () => {
   test("queue answers 409 without a leader, else the assembled epic; unqueue always answers", async () => {
     const previousDrain = s.deps.drain;
     s.deps.drain = {
+      promoteQueuedEpic: () => null,
       buildEpic: async (_dir: string, run: EpicRun) => fx.epic(run),
       tick: async () => {},
     } as unknown as NonNullable<typeof s.deps.drain>;

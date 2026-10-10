@@ -697,8 +697,8 @@ export interface AppDeps {
     /** Operator approves the next epic-attended spawn for the given repo. */
     approveEpicNext(repoPath: string): void;
     /** #2973: start the repo's epic-queue head with its stored settings (the operator stopped the
-     *  leader); null when the queue is empty. Optional — absent in tests that don't need it. */
-    promoteQueuedEpic?(repoPath: string): import("./epic-core").EpicQueueEntry | null;
+     *  leader); null when the queue is empty. */
+    promoteQueuedEpic(repoPath: string): import("./epic-core").EpicQueueEntry | null;
     /** Drive one pump cycle across all drain-enabled repos. */
     tick(): Promise<void>;
     /** #1841: operator-triggered conflict rework for a conflicting epic landing PR
@@ -8834,7 +8834,7 @@ function saveEpicRunPatch(
     merged.status === "running" &&
     store.clearEpicCompletedOnRestart(merged.repoPath, merged.parentIssueNumber);
   // #2973: stopping the leader hands the repo to the queue's head, as its completion does.
-  const promoted = endsLeader ? (drain.promoteQueuedEpic?.(merged.repoPath) ?? null) : null;
+  const promoted = endsLeader ? drain.promoteQueuedEpic(merged.repoPath) : null;
   if (promoted) kickDrainOnEpicChange(drain, "running");
   else if (patch.status !== undefined || merged.status === "running")
     kickDrainOnEpicChange(drain, merged.status);

@@ -20,7 +20,7 @@ afterEach(() => rmSync(tmpRoot, { recursive: true, force: true }));
 function harness(
   drain?: Omit<
     NonNullable<AppDeps["drain"]>,
-    "retainClaim" | "buildEpic" | "diagnoseEpic" | "approveEpicNext" | "tick"
+    "retainClaim" | "buildEpic" | "diagnoseEpic" | "approveEpicNext" | "promoteQueuedEpic" | "tick"
   >,
 ): {
   app: ReturnType<typeof makeApp>;
@@ -41,6 +41,7 @@ function harness(
           buildEpic: async () => null,
           diagnoseEpic: async () => null,
           approveEpicNext: () => {},
+          promoteQueuedEpic: () => null,
           tick: async () => {},
         }
       : undefined,

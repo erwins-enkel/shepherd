@@ -94,7 +94,7 @@ describe("BuildQueueBadge", () => {
     await expect.element(page.getByText("4/5")).toBeInTheDocument();
   });
 
-  it("background fill reflects resolved/total via --queue-pct", async () => {
+  it("meter lights one cell per resolved step", async () => {
     // 4/5 = 80%
     buildQueues.map = {
       s1: queue(true, [
@@ -106,12 +106,11 @@ describe("BuildQueueBadge", () => {
       ]),
     };
     renderBadge({ sessionId: "s1", planPhase: "executing" });
-    const badge = document.querySelector(".queue-badge") as HTMLElement;
-    expect(badge).not.toBeNull();
-    expect(badge.style.getPropertyValue("--queue-pct")).toBe("80%");
+    expect(document.querySelectorAll(".queue-cells i")).toHaveLength(5);
+    expect(document.querySelectorAll(".queue-cells i.on")).toHaveLength(4);
   });
 
-  it("all resolved (all done) → shows 5/5 with 100% fill", async () => {
+  it("all resolved (all done) → shows 5/5 with every cell lit", async () => {
     buildQueues.map = {
       s1: queue(true, [
         step("done", "1"),
@@ -123,8 +122,7 @@ describe("BuildQueueBadge", () => {
     };
     renderBadge({ sessionId: "s1", planPhase: "executing" });
     await expect.element(page.getByText("5/5")).toBeInTheDocument();
-    const badge = document.querySelector(".queue-badge") as HTMLElement;
-    expect(badge.style.getPropertyValue("--queue-pct")).toBe("100%");
+    expect(document.querySelectorAll(".queue-cells i.on")).toHaveLength(5);
   });
 
   it("all resolved via mix of done+skipped → shows 5/5", async () => {
@@ -286,5 +284,43 @@ describe("BuildQueueBadge — drifted (working but unreported)", () => {
     // resolved/total label rather than asserting synchronously.
     await expect.element(page.getByText("0/3")).toBeInTheDocument();
     expect(document.querySelector(".queue-badge--stale")).toBeNull();
+  });
+
+  it("past a dozen steps the cells give way to one proportional bar", async () => {
+    const steps = Array.from({ length: 16 }, (_, i) =>
+      step(i < 4 ? "done" : "pending", String(i + 1)),
+    );
+    buildQueues.map = { s1: queue(true, steps) };
+    renderBadge({ sessionId: "s1", planPhase: "executing" });
+    await expect.element(page.getByText("4/16")).toBeInTheDocument();
+    expect(document.querySelector(".queue-cells")).toBeNull();
+    const fill = document.querySelector<HTMLElement>(".queue-bar i")!;
+    expect(fill.style.width).toBe("25%");
+  });
+
+  it("hideWhenStepLive hides a reporting queue — the activity line already shows the step", async () => {
+    buildQueues.map = { s1: queue(true, [step("done", "1"), step("active", "2")]) };
+    render(BuildQueueBadge, {
+      sessionId: "s1",
+      planPhase: "executing",
+      selected: false,
+      onselect: () => {},
+      hideWhenStepLive: true,
+    });
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    expect(document.querySelector(".queue-badge")).toBeNull();
+  });
+
+  it("hideWhenStepLive still shows a drifted queue — the one state the line can't show", async () => {
+    buildQueues.map = { s1: queue(true, [step("pending", "1"), step("pending", "2")]) };
+    render(BuildQueueBadge, {
+      sessionId: "s1",
+      planPhase: "executing",
+      selected: false,
+      onselect: () => {},
+      hideWhenStepLive: true,
+    });
+    await expect.element(page.getByText("⚠ 2")).toBeInTheDocument();
+    expect(document.querySelector(".queue-badge--stale")).not.toBeNull();
   });
 });

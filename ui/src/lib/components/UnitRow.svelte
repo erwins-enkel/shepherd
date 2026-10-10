@@ -572,6 +572,8 @@
   // A bare "working" without a queue step says nothing the status pip doesn't — no line then.
   const showPulseLine = $derived(!!pulse && (pulse.state !== "working" || !!pulse.step));
   const linePulse = $derived(showPulseLine ? pulse : null);
+  // The line is showing the queue's live "Step N/M" — the badge strip then skips the queue segment.
+  const queueStepLive = $derived(!!linePulse?.step);
   // The steer log has no push: re-read it whenever a steer is likely to have just happened —
   // the session's status, its CI rollup or its PR head moved. Keyed on a primitive so a fresh
   // session object with the same values doesn't refetch. Finished sessions need none.
@@ -1076,6 +1078,7 @@
       previewChoiceOpen={previewChoice?.anchor != null}
       onpreviewchoice={togglePreviewChoice}
       {showCli}
+      {queueStepLive}
       bind:elapsedEl
     />
 
@@ -1235,13 +1238,15 @@
   .unit {
     position: relative;
     display: grid;
-    grid-template-columns: 16px 1fr auto;
-    /* meta (desig · session) drops to a full-width footer row so it no longer
-       fights the name for horizontal space — on a compact sidebar the right
-       rail used to win and crush the name to an ellipsis stub */
+    grid-template-columns: 16px 1fr;
+    /* One column beside the pip at every width: the badge strip (`right`, rendered by
+       UnitRowRight) is its own full-width row beneath the name+prompt, and the clock is
+       pinned to the top-right corner. A right-hand badge rail used to stack taller than the
+       content beside it and set the card height — and crushed the name to an ellipsis stub. */
     grid-template-areas:
-      "pip main right"
-      "pip meta meta";
+      "pip main"
+      "pip right"
+      "pip meta";
     column-gap: 12px;
     row-gap: 3px;
     align-items: start;
@@ -1257,15 +1262,15 @@
     transition: opacity 0.18s ease;
   }
 
-  /* Live rows insert a dedicated full-width `act` track between main and meta so
-     the heartbeat spans main+right (identical width on every card, independent of
-     the badge column). Non-live rows keep the 2-row template above — no extra
+  /* Live rows insert a dedicated full-width `act` track for the heartbeat between
+     main and the badge strip. Non-live rows keep the template above — no extra
      track / row-gap. */
   .unit.has-activity {
     grid-template-areas:
-      "pip main  right"
-      "pip act   act"
-      "pip meta  meta";
+      "pip main"
+      "pip act"
+      "pip right"
+      "pip meta";
   }
 
   /* deferred decommission: row is doomed but still listed during the undo
@@ -1493,11 +1498,20 @@
     min-width: 0;
   }
 
+  /* Reserve room on the name row so a long name ellipsizes BEFORE the pinned clock
+     rather than sliding under it (the clock still paints over the name —
+     pointer-events stops event capture, not painting). 72px clears realistic
+     elapsed() widths incl. the multi-day forms "29d 23h" / "100d 23h" (8
+     tabular chars) + the right offset. elapsed() has no day cap, so a
+     pathological 1000d+ run (9+ chars) would still overflow — accepted: such a
+     session is unreachable in practice and it degrades gracefully (the name
+     just paints under the clock). */
   .u-top {
     display: flex;
     align-items: baseline;
     gap: 0;
     min-width: 0;
+    padding-right: 72px;
   }
 
   /* configured project emoji standing in for the repo line */
@@ -1824,6 +1838,27 @@
     }
   }
 
+  /* Phone list: the badges stay a rail BESIDE the content instead of a strip beneath it. With
+     the prompt clamped to one line the rail rides alongside name/prompt/meta at no height cost,
+     whereas a strip would add a full row to every card (~100px → ~125px, 7.2 → 5.8 cards per
+     screen). UnitRowRight renders the rail de-boxed, same segments as the desktop strip. */
+  :global(.units.flow) .unit {
+    grid-template-columns: 16px 1fr auto;
+    grid-template-areas:
+      "pip main right"
+      "pip meta meta";
+  }
+  :global(.units.flow) .unit.has-activity {
+    grid-template-areas:
+      "pip main right"
+      "pip act  act"
+      "pip meta meta";
+  }
+  /* the clock rides at the foot of the rail here, not pinned over the name row */
+  :global(.units.flow) .u-top {
+    padding-right: 0;
+  }
+
   /* Card diet for the phone list (D10, docs/design/mobile-herd). The two-line prompt was sized to
      fill the vertical space the badge rail occupied — with the rail capped at two badges (see
      UnitRowRight) that space is gone, so the second line would only pad the row. One line plus
@@ -1885,42 +1920,6 @@
        intent. */
     .meta-stepper {
       display: none;
-    }
-  }
-
-  /* Desktop Herd sidebar (never the mobile .units.flow list): drop the badge/
-     status rail to its own full-width row beneath the name+prompt so a wide
-     badge (e.g. the critic chip) can't crush the name to an ellipsis stub. The
-     sidebar is always ≤360px (routes/+page.svelte .grid minmax(244,288)/(300,
-     360)), so this is the sidebar's standing layout; the container query is a
-     future-proof guard against any hypothetical wide non-flow herd. Scoped to
-     :not(.flow) so the wider mobile flow list is genuinely untouched (no
-     360-vs-375 cliff). */
-  @container herd (max-width: 360px) {
-    :global(.units:not(.flow)) .unit {
-      grid-template-columns: 16px 1fr;
-      grid-template-areas:
-        "pip main"
-        "pip right"
-        "pip meta";
-    }
-    :global(.units:not(.flow)) .unit.has-activity {
-      grid-template-areas:
-        "pip main"
-        "pip act"
-        "pip right"
-        "pip meta";
-    }
-    /* Reserve room on the name row so a long name ellipsizes BEFORE the clock
-       rather than sliding under it (the clock still paints over the name —
-       pointer-events stops event capture, not painting). 72px clears realistic
-       elapsed() widths incl. the multi-day forms "29d 23h" / "100d 23h" (8
-       tabular chars) + the right offset. elapsed() has no day cap, so a
-       pathological 1000d+ run (9+ chars) would still overflow — accepted: such a
-       session is unreachable in practice and it degrades gracefully (the name
-       just paints under the clock, same tradeoff as everywhere else here). */
-    :global(.units:not(.flow)) .u-top {
-      padding-right: 72px;
     }
   }
 </style>

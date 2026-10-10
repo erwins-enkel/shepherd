@@ -36,6 +36,7 @@
     previewChoiceOpen = false,
     onpreviewchoice,
     showCli = true,
+    queueStepLive = false,
     elapsedEl = $bindable(),
   }: {
     session: Session;
@@ -60,6 +61,9 @@
     /** Render the CLI chip. False when every session on display runs the same CLI — see
      *  providersMixed. Defaults to true for rows rendered outside a list. */
     showCli?: boolean;
+    /** The activity line is showing the build queue's live "Step N/M" — the queue segment
+     *  steps aside so the card says it once. */
+    queueStepLive?: boolean;
     elapsedEl?: HTMLSpanElement;
   } = $props();
 
@@ -137,55 +141,6 @@
       {decom === "armed" ? "✕?" : "✕"}
     </button>
   {/if}
-  {#if previewPort != null}
-    <!-- Live preview available (server reports a bound listener). Selecting +
-         opening the pane is an action distinct from the row's own select, so
-         this is an actionable control; rendered as role=button (not a nested
-         <button>, which would be invalid inside the row's own button) with
-         stopPropagation so the row's select doesn't also fire. -->
-    <span class="preview-wrap" bind:this={previewWrapEl}>
-      {#if coarsePointer}
-        <!-- D4: touch — a read-only marker. The preview opens from the detail screen's
-             preview tab, which the card tap already reaches. -->
-        <span
-          class="preview-badge preview-badge--readonly"
-          class:preview-badge--degraded={previewServeFailed}
-          role="img"
-          aria-label={previewServeFailed
-            ? m.unitrow_preview_badge_degraded()
-            : m.unitrow_preview_badge()}
-          use:statusTip={{
-            text: previewServeFailed
-              ? m.unitrow_preview_badge_degraded()
-              : m.unitrow_preview_badge(),
-          }}>{m.unitrow_preview_badge()}</span
-        >
-      {:else}
-        <span
-          class="preview-badge"
-          class:preview-badge--degraded={previewServeFailed}
-          class:preview-badge--busy={previewBusy}
-          role="button"
-          tabindex={previewBusy ? -1 : 0}
-          aria-busy={previewBusy}
-          aria-disabled={previewBusy}
-          aria-expanded={previewOpenMode === "ask" ? previewChoiceOpen : undefined}
-          title={previewBusy
-            ? m.unitrow_preview_loading()
-            : previewServeFailed
-              ? m.unitrow_preview_badge_degraded()
-              : m.unitrow_preview_badge()}
-          onclick={onPreviewActivate}
-          onkeydown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              onPreviewActivate(e);
-            }
-          }}>{m.unitrow_preview_badge()}</span
-        >
-      {/if}
-    </span>
-  {/if}
   <!-- D4 (docs/design/mobile-herd): on a coarse pointer every badge below that has a click of its
        own is a READ-ONLY readout. Six ~15px tap targets stacked in one card cannot meet iOS HIG
        44x44 (several miss even the hard WCAG 2.5.8 floor of 24x24), and inflating them would push
@@ -194,6 +149,55 @@
        BuildQueuePanel / the preview tab carry the same controls at a conformant size, and the
        issue chip's own href is reachable from the session's issue link there. -->
   <div class="u-badges">
+    {#if previewPort != null}
+      <!-- Live preview available (server reports a bound listener). Selecting +
+           opening the pane is an action distinct from the row's own select, so
+           this is an actionable control; rendered as role=button (not a nested
+           <button>, which would be invalid inside the row's own button) with
+           stopPropagation so the row's select doesn't also fire. -->
+      <span class="preview-wrap" bind:this={previewWrapEl}>
+        {#if coarsePointer}
+          <!-- D4: touch — a read-only marker. The preview opens from the detail screen's
+               preview tab, which the card tap already reaches. -->
+          <span
+            class="preview-badge preview-badge--readonly"
+            class:preview-badge--degraded={previewServeFailed}
+            role="img"
+            aria-label={previewServeFailed
+              ? m.unitrow_preview_badge_degraded()
+              : m.unitrow_preview_badge()}
+            use:statusTip={{
+              text: previewServeFailed
+                ? m.unitrow_preview_badge_degraded()
+                : m.unitrow_preview_badge(),
+            }}>{m.unitrow_preview_badge()}</span
+          >
+        {:else}
+          <span
+            class="preview-badge"
+            class:preview-badge--degraded={previewServeFailed}
+            class:preview-badge--busy={previewBusy}
+            role="button"
+            tabindex={previewBusy ? -1 : 0}
+            aria-busy={previewBusy}
+            aria-disabled={previewBusy}
+            aria-expanded={previewOpenMode === "ask" ? previewChoiceOpen : undefined}
+            title={previewBusy
+              ? m.unitrow_preview_loading()
+              : previewServeFailed
+                ? m.unitrow_preview_badge_degraded()
+                : m.unitrow_preview_badge()}
+            onclick={onPreviewActivate}
+            onkeydown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onPreviewActivate(e);
+              }
+            }}>{m.unitrow_preview_badge()}</span
+          >
+        {/if}
+      </span>
+    {/if}
     {#if showCli}<CliBadge {session} />{/if}
     <ResearchBadge {session} tip />
     <TerminalBadge {session} tip />
@@ -212,6 +216,7 @@
       {onselect}
       tip
       interactive={!coarsePointer}
+      hideWhenStepLive={queueStepLive}
     />
     <PlanGateBadge
       {session}
@@ -315,23 +320,100 @@
 </div>
 
 <style>
-  /* The badge stack, separated from the clock so a touch cap can apply to the badges alone. */
-  .u-badges {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    align-items: flex-end;
-    min-width: 0;
-  }
-
+  /* The badge strip: one full-width row beneath the name+prompt, set off by a hairline rule
+     like an instrument readout. Segments carry no box of their own — a hairline divider
+     separates them, and only the text (or a lead glyph) carries a hue, so a busy card no
+     longer reads as a wall of amber outlines. */
   .u-right {
     grid-area: right;
-    text-align: right;
+    min-width: 0;
+    margin-top: 2px;
+    padding-top: 5px;
+    border-top: 1px solid var(--color-line);
+  }
+  /* No segment rendered → no rule. (Only the chrome goes: the pinned clock and ✕ live in
+     .u-right too, so the box itself must stay.) */
+  .u-right:not(
+    :has(
+      .u-badges
+        > :global(
+          :is(
+            .cli-badge,
+            .research-badge,
+            .terminal-badge,
+            .issue-badge,
+            .pr-badge,
+            .csf-badge,
+            .critic-badge,
+            .queue-badge,
+            .pg-badge,
+            .ap-paused,
+            .ap-complete,
+            .ap-unavailable,
+            .badge,
+            .preview-wrap
+          )
+        )
+    )
+  ) {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+  }
+  /* Every segment carries a leading divider + gutter; the strip pulls itself left by exactly
+     that width and clips horizontally, so the divider of whichever segment starts a line
+     (the first, or one that wrapped) falls outside and only the dividers BETWEEN segments
+     show. `clip` (not `hidden`) keeps the y-axis visible — focus rings stay whole — and the
+     badges' popovers live in the native top layer, out of the clip's reach. */
+  .u-badges {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-    align-items: flex-end;
-    flex-shrink: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: 4px;
+    min-width: 0;
+    margin-left: -10px;
+    overflow-x: clip;
+    line-height: 1.5;
+  }
+  .u-right
+    .u-badges
+    > :global(
+      :is(
+        .cli-badge,
+        .research-badge,
+        .terminal-badge,
+        .issue-badge,
+        .pr-badge,
+        .csf-badge,
+        .critic-badge,
+        .queue-badge,
+        .pg-badge,
+        .ap-paused,
+        .ap-complete,
+        .ap-unavailable,
+        .badge,
+        .preview-wrap
+      )
+    ) {
+    padding: 0 9px;
+    border: 0;
+    border-left: 1px solid var(--color-line);
+    border-radius: 0;
+    background: transparent;
+    font-size: var(--fs-micro);
+    line-height: inherit;
+  }
+  /* Interactive segments: with no box to fill, hover underlines and focus draws an outline
+     around the text instead of the old inset ring. */
+  .u-right .u-badges > :global(:is(button, a, [role="button"])):hover {
+    background: transparent;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+  .u-right .u-badges > :global(:is(button, a, [role="button"])):focus-visible {
+    box-shadow: none;
+    outline: 1px solid var(--color-amber);
+    outline-offset: 1px;
   }
 
   /* Raise the interactive badge above the overlay so it's clickable. A DESCENDANT selector, not
@@ -454,100 +536,94 @@
     animation: merge-pulse 1.5s ease-in-out infinite;
   }
 
-  /* SANDBOX (confined): a quiet informational badge — slate reads as "noted, parked"
-     (done-state hue), not actionable. Outlined to set it apart from plain text badges. */
+  /* SANDBOX (confined): a quiet informational segment — slate reads as "noted, parked"
+     (done-state hue), not actionable. */
   .badge.sandbox {
-    padding: 1px 6px;
-    border: 1px solid var(--color-slate);
-    border-radius: 2px;
     color: var(--color-slate);
   }
-  /* SANDBOX (warn): degraded sandbox or an unattended agent running unconfined —
-     amber = attention/degraded (NOT red, reserved for a blocked session). */
-  .badge.sandbox-warn {
-    padding: 1px 6px;
-    border: 1px solid var(--color-amber);
-    border-radius: 2px;
-    color: var(--color-amber);
-  }
-
-  /* QUOTA STALLED: session blocked on quota exhaustion — amber attention, same idiom
-     as sandbox-warn; needs a human to resume/take over/abandon. */
+  /* SANDBOX (warn) + QUOTA STALLED: degraded sandbox, an unattended agent running unconfined, or
+     a quota stall. The label stays muted and an amber ⚠ glyph carries the warning (amber =
+     attention/degraded, NOT red, reserved for a blocked session) — a standing condition, not
+     a call to act, so it must not shout like the states that need a human now. */
+  .badge.sandbox-warn,
   .badge.quota-stalled {
-    padding: 1px 6px;
-    border: 1px solid var(--color-amber);
-    border-radius: 2px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .badge.sandbox-warn::before,
+  .badge.quota-stalled::before {
+    content: "⚠";
     color: var(--color-amber);
-    font-weight: 600;
+    letter-spacing: 0;
   }
 
-  /* NO count cap on the badge stack — deliberately, after review (#2273).
-     A two-badge cap bought ~6px per card, and no ordering makes it safe: the stack's document
-     order is not an attention ranking (autopilot and the sandbox chips sit AFTER the critic
-     verdict and the plan gate), so "keep the first two" drops the state and "keep the last two"
-     drops the critic verdict and plan gate in favour of a sandbox chip — on the one surface whose
-     whole job is showing what needs a human now. The cap would also have hidden the issue peek
-     that #2278 had just made interactive.
-
-     The height the cap was protecting is recovered by the two changes below instead, which cost
-     nothing but padding: the clock drops a rung and the stack gap tightens. A card with many
-     badges is taller than one with few, which is honest — the rail is showing more. */
-  /* Phone list: the clock drops to the micro rung — the type scale's documented floor for "the
-     tightest metadata", and it is a readout, never a tap target. Together with the tighter stack
-     gap it brings the rail to ~59px, just under the ~59.5px content column beside it, so the
-     content sets the card height again. That is the difference between 6.4 and 6.8 cards. */
-  :global(.units.flow) .u-badges {
-    gap: 2px;
-  }
-  :global(.units.flow) .elapsed {
-    font-size: var(--fs-micro);
-  }
-
+  /* The clock is pinned to the card's top-right, aligned with the name row (.u-top reserves
+     the gutter). pointer-events is none (MANDATORY, not cosmetic): .elapsed paints above the
+     .unit-hit overlay (it's later in the DOM), so without this it would swallow row-select
+     clicks in the top-right corner and starve onHitMove's mousemove — breaking the
+     TimePopover hover trigger. none passes events through to the overlay while
+     getBoundingClientRect() still measures the clock for the bounds test + popover anchor. */
   .elapsed {
+    position: absolute;
+    top: 11px;
+    right: 14px;
+    pointer-events: none;
     color: var(--color-ink);
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.08em;
   }
+  /* The decommission ✕ is invisible-but-keyboard-focusable (opacity:0 + pointer-events:none
+     from the base .row-decom rule, NOT display:none) so it stays in the tab order and reveals
+     on hover/focus. Absolute and out of flow, parked just below the pinned clock in the right
+     gutter (on the prompt's first line). The prompt reserves no right gutter, so a very long
+     first line can run under the ✕ — acceptable: it is hover-only, tiny, and sits over muted
+     secondary text. The child combinator is load-bearing: it lifts the rule above the
+     `.u-right :global(button)` raise (position: relative), which would otherwise win and drop
+     the ✕ back into flow as a blank line above the strip. */
+  .u-right > .row-decom {
+    position: absolute;
+    top: 30px;
+    right: 12px;
+  }
 
-  @container herd (max-width: 360px) {
-    /* badge rail → left-aligned, wrapping horizontal strip on its own row */
-    :global(.units:not(.flow)) .u-right,
-    :global(.units:not(.flow)) .u-badges {
-      flex-direction: row;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: flex-start;
-      text-align: left;
-      gap: 6px;
-    }
-    /* Pin the elapsed clock to the card's top-right, aligned with the name row,
-       instead of letting it ride along in the own-row badge strip. pointer-events
-       is none (MANDATORY, not cosmetic): .elapsed paints above the .unit-hit
-       overlay (it's later in the DOM), so without this it would swallow row-select
-       clicks in the top-right corner and starve onHitMove's mousemove — breaking
-       the TimePopover hover trigger. none passes events through to the overlay
-       while getBoundingClientRect() still measures the clock for the bounds test
-       + popover anchor. */
-    :global(.units:not(.flow)) .elapsed {
-      position: absolute;
-      top: 11px;
-      right: 14px;
-      pointer-events: none;
-    }
-    /* The decommission ✕ is invisible-but-keyboard-focusable (opacity:0 +
-       pointer-events:none from the base .row-decom rule, NOT display:none) so it
-       stays in the tab order and reveals on hover/focus. Keep it absolute and out
-       of flow, parked just below the pinned clock in the right gutter (on the
-       prompt's first line) so it clears the clock and doesn't indent the badge
-       strip. top: 30px = the clock's top: 11px + ~one clock line-height, dropping
-       the ✕ just under the clock onto the prompt's first line. Unlike .u-top, .u-sub
-       (the prompt) reserves no right gutter, so a very long prompt's first line can
-       run under the ✕ — acceptable: the ✕ is hover-only, tiny, and sits over muted
-       secondary text, so it merely paints over (same as the clock-over-name case). */
-    :global(.units:not(.flow)) .row-decom {
-      position: absolute;
-      top: 30px;
-      right: 12px;
-    }
+  /* Phone list: a de-boxed RAIL beside the content, not a strip beneath it (see UnitRow's
+     .units.flow grid) — the one-line prompt leaves the rail's height free there. Same segments,
+     stacked right-aligned: no rule, no dividers, no clip. The clock rides at the foot of the
+     rail and drops to the micro rung — the type scale's documented floor for "the tightest
+     metadata"; it is a readout, never a tap target. */
+  :global(.units.flow) .u-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 0;
+    text-align: right;
+  }
+  :global(.units.flow) .u-badges {
+    flex-direction: column;
+    align-items: flex-end;
+    row-gap: 2px;
+    margin-left: 0;
+    overflow-x: visible;
+  }
+  :global(.units.flow) .u-right .u-badges > :global(*) {
+    padding: 0;
+    border-left: 0;
+  }
+  :global(.units.flow) .elapsed {
+    position: static;
+  }
+  /* back in the rail's flow, but still relative: the raise rule's z-index must keep the ✕
+     above the .unit-hit overlay, or a click on it would select the row instead */
+  :global(.units.flow) .u-right > .row-decom {
+    position: relative;
+    top: auto;
+    right: auto;
+  }
+  :global(.units.flow) .elapsed {
+    font-size: var(--fs-micro);
   }
 </style>

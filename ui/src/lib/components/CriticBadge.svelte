@@ -3,7 +3,7 @@
   import { criticChip, addressRoundInfo, criticTitle } from "./critic-badge";
   import { clock } from "#lib/now.svelte.js";
   import { m } from "#lib/paraglide/messages.js";
-  import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
+  import { statusTip, HOVER_OPEN_DELAY_MS } from "#lib/tooltips/statusTip.svelte.js";
   import { firstSafeHttpUrl } from "#lib/url.js";
   import { anchorPopover } from "#lib/floating-anchor.js";
   import CriticSpawnFailure from "./CriticSpawnFailure.svelte";
@@ -168,25 +168,42 @@
     };
   });
 
+  // Hover intent, same rest delay as statusTip: a pass-through sweep never opens the tip.
+  let openTimer: ReturnType<typeof setTimeout> | null = null;
+  function cancelOpen() {
+    if (openTimer === null) return;
+    clearTimeout(openTimer);
+    openTimer = null;
+  }
+  $effect(() => cancelOpen);
+
   function close() {
+    cancelOpen();
     if (surface === "dialog") btnEl?.focus();
     surface = "none";
   }
   function onEnter(e: PointerEvent) {
     if (e.pointerType === "touch" || surface === "dialog") return;
-    surface = "tip";
+    cancelOpen();
+    openTimer = setTimeout(() => {
+      openTimer = null;
+      if (surface === "none") surface = "tip";
+    }, HOVER_OPEN_DELAY_MS);
   }
   function onLeave(e: PointerEvent) {
     if (e.pointerType === "touch") return;
+    cancelOpen();
     if (surface === "tip") surface = "none";
   }
   function onFocus() {
+    cancelOpen();
     if (surface !== "dialog") surface = "tip";
   }
   function onBlur() {
     if (surface === "tip") surface = "none";
   }
   function onClick(e: MouseEvent) {
+    cancelOpen();
     e.stopPropagation();
     surface = "dialog"; // real activation → the click-pinned dialog with the link
   }

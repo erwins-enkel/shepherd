@@ -322,6 +322,60 @@ describe("CriticBadge tip mode (card) — Open PR dialog + URL safety", () => {
   });
 });
 
+describe("CriticBadge tip mode (card) — hover-open delay", () => {
+  const tipOpen = () => document.querySelector(".status-tip:popover-open");
+  const dialogOpen = () => document.querySelector(".status-tip-dialog:popover-open");
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const trigger = () => {
+    reviews.map = {
+      s1: v({ addressRound: 0, decision: "commented", url: "https://verdict/pr/1" }),
+    };
+    render(CriticBadge, { sessionId: "s1", tip: true });
+    return document.querySelector("button.critic-trigger") as HTMLButtonElement;
+  };
+  const enter = (el: HTMLElement) =>
+    el.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+  const leave = (el: HTMLElement) =>
+    el.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "mouse" }));
+
+  it("hover opens only after the pointer rests", async () => {
+    const btn = trigger();
+    enter(btn);
+    await wait(200);
+    expect(tipOpen()).toBeNull();
+    await expect.poll(tipOpen).not.toBeNull();
+  });
+
+  it("a pass-through never opens", async () => {
+    const btn = trigger();
+    // The suite shares one real CDP cursor; if it rests over the chip the browser fires a
+    // trusted pointerenter that re-arms the timer (see StatusPip.browser.test.ts). Release it.
+    btn.addEventListener("pointerenter", (e) => {
+      if (e.isTrusted) leave(btn);
+    });
+    enter(btn);
+    leave(btn);
+    await wait(650);
+    expect(tipOpen()).toBeNull();
+  });
+
+  it("keyboard focus opens at once", async () => {
+    const btn = trigger();
+    btn.focus();
+    await vi.waitFor(() => expect(tipOpen()).not.toBeNull(), { timeout: 100 });
+  });
+
+  it("a click during a pending hover opens the dialog, never the tip", async () => {
+    const btn = trigger();
+    enter(btn);
+    btn.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(dialogOpen()).not.toBeNull());
+    await wait(650);
+    expect(tipOpen()).toBeNull();
+    expect(dialogOpen()).not.toBeNull();
+  });
+});
+
 // ── #1944: a REFUSED critic spawn must be visible and recoverable ─────────────
 //
 // The gap this closes: with no prior verdict, `criticChip` returns {kind:"none"}, CriticBadge's

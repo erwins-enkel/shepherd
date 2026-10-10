@@ -62,7 +62,21 @@ struct IOSComposeFixtureView: View {
                     value.1.attachments.addFiles([.init(name: "fixture.txt", data: Data("Attachment fixture".utf8))])
                 }
                 fixture = value
+                if ProcessInfo.processInfo.arguments.contains("-ShepherdComposeChurnFixture") { await churn(value.0) }
             }
+        }
+    }
+    /// Stands in for a busy server: live status pushes re-render the composer while its menus are open.
+    private func churn(_ store: SessionStore) async {
+        let decoder = JSONDecoder()
+        guard let session = try? decoder.decode(Session.self, from: Data(IOSComposeFixtureTransport.sessionJSON.utf8)) else { return }
+        store.apply(.sessionNew(session))
+        var running = false
+        while !Task.isCancelled {
+            running.toggle()
+            let json = #"{"id":"compose-created","status":"\#(running ? "running" : "idle")"}"#
+            if let event = try? decoder.decode(Components.Schemas.SessionStatusEvent.self, from: Data(json.utf8)) { store.apply(.sessionStatus(event)) }
+            try? await Task.sleep(for: .milliseconds(100))
         }
     }
 }
@@ -91,7 +105,9 @@ final class IOSComposeFixtureTransport: URLProtocol, @unchecked Sendable {
         case "/api/health": json = #"{"ok":true,"version":"2.1.0"}"#
         case "/api/diagnostics": json = #"{"checks":[{"id":"claude","state":"ok","hintKey":"fixture"},{"id":"codex","state":"ok","hintKey":"fixture"}],"generatedAt":0,"overall":"ok"}"#
         case "/api/settings": json = #"{"repoRoot":"/fixtures","repoRootDisplay":"/fixtures","firstRunPending":false,"defaultModel":"sonnet","defaultEffort":"medium","defaultAgentProvider":"claude","authMode":"subscription","operatorLanguage":"de"}"#
-        case "/api/repos": json = #"{"repos":[{"name":"shepherd","path":"/fixtures/shepherd","display":"shepherd","realPath":"/fixtures/shepherd","isFork":false,"hidden":false}],"recentWindowDays":14}"#
+        case "/api/repos":
+            let alpha = ProcessInfo.processInfo.arguments.contains("-ShepherdComposeChurnFixture") ? #",{"name":"alpha","path":"/fixtures/alpha","display":"alpha","realPath":"/fixtures/alpha","isFork":false,"hidden":false}"# : ""
+            json = #"{"repos":[{"name":"shepherd","path":"/fixtures/shepherd","display":"shepherd","realPath":"/fixtures/shepherd","isFork":false,"hidden":false}\#(alpha)],"recentWindowDays":14}"#
         case "/api/branches": json = #"{"branches":["main"],"current":"main","default":"main"}"#
         case "/api/branch-status": json = #"{"behind":0,"ahead":0,"diverged":false,"hasUpstream":true,"localExists":true}"#
         case "/api/issues": json = #"{"slug":"owner/shepherd","webUrl":"https://example.invalid","issues":[{"number":412,"title":"Add tests","body":"Test the settings","url":"https://example.invalid/412","labels":[],"createdAt":1700000000000,"assignees":[],"author":"operator"}],"viewer":"operator"}"#

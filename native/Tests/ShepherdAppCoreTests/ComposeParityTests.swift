@@ -73,6 +73,43 @@ extension CoreSeamTests {
             }
         }
 
+        @Test(arguments: [false, true])
+        func designReturningToCodeAppliesLateDefaults(respectChoice: Bool) {
+            let model = ComposeModelTests.composer()
+            defer { model.teardown() }
+            model.repoBranches.allowsStatusProbe = false
+            model.repoPath = "/repo"
+            if respectChoice { model.planGateTouched = true }
+            model.prompt = "/design a layout"
+            #expect(model.mode == .plain)
+            model.applyRepoGuardDefaults(planGate: true, autopilot: true)
+            model.prompt = "Build the layout"
+            #expect(model.mode == .code)
+            #expect(model.planGateEnabled == !respectChoice)
+            #expect(model.autopilotEnabled)
+            let request = model.createRequest(baseBranch: "main")
+            #expect(request?.planGateEnabled == (respectChoice ? false : nil))
+            #expect(request?.autopilotEnabled == nil)
+        }
+
+        @Test func unresolvedDefaultsStayUnknownUntilLoadedAndResetPerRepo() throws {
+            let model = ComposeModelTests.composer()
+            defer { model.teardown() }
+            model.repoBranches.allowsStatusProbe = false
+            model.repoPath = "/first"; model.prompt = "Task"
+            #expect(model.effectivePlanGate == nil && model.effectiveAutopilot == nil)
+            let unresolved = try #require(model.createRequest(baseBranch: "main"))
+            #expect(unresolved.planGateEnabled == nil && unresolved.autopilotEnabled == nil)
+            model.applyRepoGuardDefaults(planGate: true, autopilot: true)
+            #expect(model.effectivePlanGate == true && model.effectiveAutopilot == true)
+            model.repoPath = "/second"
+            #expect(model.effectivePlanGate == nil && model.effectiveAutopilot == nil)
+            model.planGateTouched = true; model.planGateEnabled = false
+            #expect(model.effectivePlanGate == false && model.effectiveAutopilot == nil)
+            model.applyRepoGuardDefaults(planGate: true, autopilot: true)
+            #expect(model.effectivePlanGate == false && model.effectiveAutopilot == true)
+        }
+
         private func withApp(_ run: (AppModel) async throws -> Void) async throws {
             let suite = "ComposeHandoverTests.\(UUID())"
             let defaults = try #require(UserDefaults(suiteName: suite))
@@ -125,6 +162,43 @@ extension CoreSeamTests {
                 await app.retryCredentialAccess()
                 #expect(app.store != nil && app.sheet == .newSession)
                 #expect(app.consumeComposePrompt(activation: app.activationGeneration) == "Preserve through retry")
+            }
+        }
+
+        @Test(arguments: [false, true])
+        func composeHandoverSurvivesTargetAuthentication(local: Bool) async throws {
+            try await withApp { app in
+                let a = try app.addRemoteProfile(name: "A", address: "https://a.fixture.invalid")
+                let b = local ? app.addLocalProfile(port: 19999)
+                    : try app.addRemoteProfile(name: "B", address: "https://b.fixture.invalid")
+                await app.activate(a); app.sheet = .newSession
+                app.credentialProbe = { _, _ in nil }
+                await app.activateForCompose(b, prompt: "Keep through login")
+                if !local {
+                    #expect(app.consumeComposePrompt(activation: app.activationGeneration) == "Keep through login")
+                    app.updateComposeHandoverPrompt("Edited before login", activation: app.activationGeneration)
+                    app.routeSheet(for: .needsLogin, profile: b)
+                }
+                #expect(app.sheet == .login(b))
+                #expect(app.pendingComposeHandover?.prompt == (local ? "Keep through login" : "Edited before login"))
+                app.login = { _, _, _ in }
+                app.credentialProbe = { _, _ in StoredCredential(token: "test", tokenId: "test") }
+                try await app.signIn(profile: b, password: "fixture")
+                #expect(app.sheet == .newSession)
+                #expect(app.consumeComposePrompt(activation: app.activationGeneration) == (local ? "Keep through login" : "Edited before login"))
+            }
+        }
+
+        @Test(arguments: [false, true])
+        func authenticationCancellationOrUnrelatedSwitchDiscardsPrompt(switchAway: Bool) async throws {
+            try await withApp { app in
+                let a = try app.addRemoteProfile(name: "A", address: "https://a.fixture.invalid")
+                let b = app.addLocalProfile(port: 19999)
+                await app.activate(a); app.sheet = .newSession
+                app.credentialProbe = { _, _ in nil }
+                await app.activateForCompose(b, prompt: "Discard this")
+                if switchAway { await app.activate(a) } else { app.sheet = nil }
+                #expect(app.pendingComposeHandover == nil)
             }
         }
 

@@ -2,10 +2,23 @@ import ShepherdKit
 
 extension ComposeModel {
     /// macOS opts into repo defaults. Untouched flags still submit nil (inherit).
-    /// A late config response cannot override an operator choice or re-enable non-Code guards.
+    /// Cache even in Plain: automatic /design preselection can return to Code later.
     public func applyRepoGuardDefaults(planGate: Bool, autopilot: Bool) {
-        guard !modeLocked else { return }
-        if !planGateTouched { planGateEnabled = planGate }
-        if !autopilotTouched { autopilotEnabled = autopilot }
+        repoGuardDefaults = (planGate, autopilot)
+        reapplyRepoGuardDefaults()
+    }
+
+    func reapplyRepoGuardDefaults() {
+        guard !modeLocked, let defaults = repoGuardDefaults else { return }
+        if !planGateTouched { planGateEnabled = defaults.planGate }
+        if !autopilotTouched { autopilotEnabled = defaults.autopilot }
+    }
+
+    /// nil means the effective inherited value is unresolved, not disabled.
+    public var effectivePlanGate: Bool? {
+        planGateTouched ? planGateEnabled : repoGuardDefaults?.planGate
+    }
+    public var effectiveAutopilot: Bool? {
+        autopilotTouched ? autopilotEnabled : repoGuardDefaults?.autopilot
     }
 }

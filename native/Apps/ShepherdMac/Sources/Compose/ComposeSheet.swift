@@ -11,7 +11,11 @@ struct ComposeSheet: View {
         } else {
             VStack(spacing: 16) {
                 ProgressView(L.t("common_loading"))
-                if let warning = app.credentialAccessWarning { Text(verbatim: warning) }
+                if let warning = app.credentialAccessWarning {
+                    Text(verbatim: warning)
+                    Button(L.t("common_retry")) { Task { await app.retryCredentialAccess() } }
+                        .accessibilityIdentifier("compose.retryCredentials")
+                }
                 Button(L.t("common_cancel")) { app.sheet = nil }.keyboardShortcut(.cancelAction)
             }.frame(width: 1040, height: 400)
         }
@@ -30,6 +34,14 @@ struct ComposeSheetContent: View {
     @State private var serverPickerOpen = false
     @State private var repoConfig: RepoConfig?
     @State private var repoConfigLoading = false
+    @State private var repoConfigPath = ""
+    private var currentRepoConfig: RepoConfig? { repoConfigPath == model.repoPath ? repoConfig : nil }
+    @State private var repoConfigRetry = 0
+
+    private struct RepoGuardLoad: Equatable {
+        let path: String
+        let retry: Int
+    }
     @FocusedValue(\.composeEditingText) private var editingText
 
     init(app: AppModel, store: SessionStore, activation: Int, model: ComposeModel? = nil) {
@@ -70,8 +82,8 @@ struct ComposeSheetContent: View {
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
                 Divider()
                 ScrollView {
-                    ComposeRail(model: model, holdLikely: holdLikely, repoConfig: repoConfig, repoConfigLoading: repoConfigLoading,
-                                openAutomation: openAutomation).padding(20)
+                    ComposeRail(model: model, holdLikely: holdLikely, repoConfig: currentRepoConfig, repoConfigLoading: repoConfigLoading,
+                                retryRepoDefaults: { repoConfigRetry += 1 }, openAutomation: openAutomation).padding(20)
                 }
                 .frame(width: 340)
                 .frame(maxHeight: .infinity)
@@ -109,7 +121,10 @@ struct ComposeSheetContent: View {
             if let prompt = app.consumeComposePrompt(activation: activation) { model.prompt = prompt }
             seedRepo()
         }
-        .task(id: model.repoPath) { await loadRepoGuards() }
+        .task(id: RepoGuardLoad(path: model.repoPath, retry: repoConfigRetry)) { await loadRepoGuards() }
+        .onChange(of: model.prompt) { _, prompt in
+            app.updateComposeHandoverPrompt(prompt, activation: activation)
+        }
         .onChange(of: store.settings, initial: true) { _, settings in
             if let settings { model.runDefaults = ComposeRunConfig.defaults(from: settings) }
         }
@@ -128,8 +143,8 @@ struct ComposeSheetContent: View {
     private func loadRepoGuards() async {
         let path = model.repoPath
         repoConfig = nil
+        repoConfigPath = path
         repoConfigLoading = !path.isEmpty
-        model.applyRepoGuardDefaults(planGate: false, autopilot: false)
         guard !path.isEmpty else { return }
         let config = try? await store.client.getRepoConfig(repo: path)
         guard !Task.isCancelled, current, model.repoPath == path else { return }

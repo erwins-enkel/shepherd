@@ -160,7 +160,12 @@ public final class AppModel {
             return storedSheet
         }
         set {
-            if newValue != .newSession { pendingComposeHandover = nil }
+            // Authentication for the hand-over target is a continuation, not cancellation.
+            switch newValue {
+            case .newSession: break
+            case .login(let profile) where profile.id == pendingComposeHandover?.profileID: break
+            default: pendingComposeHandover = nil
+            }
             let previous = storedSheet
             withMutation(keyPath: \.sheet) { storedSheet = newValue }
             // Only a *window-bound* sheet closing re-routes. Dismissing
@@ -172,6 +177,7 @@ public final class AppModel {
     }
     @ObservationIgnored private var storedSheet: AppSheet?
     var pendingComposeHandover: ComposeHandover?
+    var composeHandoverConsumedGeneration: Int?
     public var selectedSessionID: String?
     /// A sign-out whose server-side revoke failed, in operator-facing words.
     ///
@@ -598,10 +604,7 @@ public final class AppModel {
         guard let profile = activeProfile else { return }
         // A credential retry continues the same compose hand-over. Unrelated activations
         // still discard it; a prompt must survive an unavailable or delayed Keychain read.
-        if store == nil, let pending = pendingComposeHandover, pending.profileID == profile.id {
-            pendingComposeHandover = .init(profileID: profile.id, generation: activationGeneration &+ 1,
-                                          prompt: pending.prompt)
-        }
+        if store == nil { continueComposeHandover(for: profile) }
         await activate(profile)
     }
 
@@ -648,6 +651,7 @@ public final class AppModel {
         }
 
         self.store = store
+        if pendingComposeHandover?.profileID == profile.id { sheet = .newSession }
         // After the store exists and before anything consumes events, so an
         // extension is in place for the first frame the store publishes.
         makeExtensions(store: store)
@@ -879,6 +883,7 @@ public final class AppModel {
             Log.connect.info("a newer activation won; not switching back")
             return
         }
+        continueComposeHandover(for: profile)
         await activate(profile)
     }
 
@@ -1117,7 +1122,8 @@ public final class AppModel {
     /// `.newSession` sheet is window-bound, not profile-bound, and stays.
     private func clearProfileBoundSheet() {
         switch sheet {
-        case .login, .firstRun: sheet = nil
+        case .login, .firstRun:
+            sheet = pendingComposeHandover == nil ? nil : .newSession
         case .newSession, .none: break
         }
     }
@@ -1160,14 +1166,19 @@ public final class AppModel {
     }
 
     /// A 401 opens the login sheet; a pending first run opens the folder picker.
-    /// An already-open sheet is never replaced — the operator is mid-task in it.
+    /// An in-flight compose hand-over yields to its target's login and resumes afterward.
+    /// Other open sheets keep their place while the operator is mid-task.
     func routeSheet(for state: ConnectionState, profile: ServerProfile) {
         switch state {
         case .needsLogin:
-            if sheet == nil { sheet = .login(profile) }
+            if sheet == nil || (sheet == .newSession && pendingComposeHandover?.profileID == profile.id) {
+                sheet = .login(profile)
+            }
         case .firstRunPending:
             if sheet == nil { sheet = .firstRun }
-        case .idle, .connecting, .live, .offline:
+        case .live:
+            if composeHandoverConsumedGeneration == activationGeneration { pendingComposeHandover = nil }
+        case .idle, .connecting, .offline:
             break
         }
     }

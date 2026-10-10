@@ -7,6 +7,7 @@ struct ComposeRail: View {
     let holdLikely: Bool
     let repoConfig: RepoConfig?
     let repoConfigLoading: Bool
+    let retryRepoDefaults: () -> Void
     let openAutomation: () -> Void
 
     var body: some View {
@@ -35,7 +36,7 @@ struct ComposeRail: View {
             }
             if !model.modeLocked {
                 Divider()
-                GuardToggles(model: model, repoConfig: repoConfig, repoConfigLoading: repoConfigLoading, openAutomation: openAutomation)
+                GuardToggles(model: model, repoConfig: repoConfig, repoConfigLoading: repoConfigLoading, retryRepoDefaults: retryRepoDefaults, openAutomation: openAutomation)
             }
         }
         .pickerStyle(.menu)

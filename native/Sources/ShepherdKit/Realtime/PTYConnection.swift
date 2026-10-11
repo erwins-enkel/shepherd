@@ -19,6 +19,9 @@ public actor PTYConnection {
     case superseded
     /// 4001: the session has no live agent. Nothing to reattach to.
     case gone
+    /// 4002: the session runs on a connected machine the server cannot reach right now (#2764).
+    /// Nothing to reattach to until that session's connection reports connected again.
+    case machineUnreachable
     /// Too many attaches died instantly — herdr is down, not busy. Mirrors the
     /// fast-fail heuristic in `ui/src/lib/pty.ts`.
     case unreachable
@@ -38,6 +41,7 @@ public actor PTYConnection {
   /// Contract `x-shepherd-pty.closeCodes` / `.resizePrefix`.
   static let supersededCode = 4000
   static let goneCode = 4001
+  static let machineUnreachableCode = 4002
   static let resizePrefix = "\u{0}resize:"
   /// A socket that died within this long of opening never carried a session.
   static let fastFailWindow: Duration = .seconds(4)
@@ -64,8 +68,8 @@ public actor PTYConnection {
   private var task: URLSessionWebSocketTask?
   private var pump: Task<Void, Never>?
   private var stopped = true
-  /// A terminal verdict was delivered (`.superseded`, `.gone`, `.unreachable`)
-  /// and only an explicit `takeOver()` may reopen the socket. Separate from
+  /// A terminal verdict was delivered (`.superseded`, `.gone`, `.unreachable`,
+  /// `.machineUnreachable`) and only an explicit `takeOver()` may reopen the socket. Separate from
   /// `stopped` for the reason `ui/src/lib/pty.ts` keeps `parked` separate: a
   /// view whose `.task`/`onAppear` runs again calls `start()`, and a `start()`
   /// that re-attached here would restart the takeover war the park just ended.
@@ -639,6 +643,12 @@ public actor PTYConnection {
     }
     if closeCode == Self.goneCode {
       park(.gone)
+      return
+    }
+    // A bridged terminal whose machine is out of reach: retrying would only be refused again,
+    // so it parks until the caller sees the machine back (`ui/src/lib/pty.ts` does the same).
+    if closeCode == Self.machineUnreachableCode {
+      park(.machineUnreachable)
       return
     }
 

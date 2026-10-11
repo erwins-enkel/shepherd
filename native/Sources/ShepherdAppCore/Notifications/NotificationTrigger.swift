@@ -167,6 +167,11 @@ struct NotificationTrigger {
             // body reserved were written on the assumption that the counterpart existed, and are
             // not added.
             return []
+
+        case .mirrored:
+            // A session on another machine: that machine's own Shepherd notifies for it, and the
+            // store hands these frames to no tap anyway (#2768).
+            return []
         }
     }
 

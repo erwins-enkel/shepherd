@@ -19,6 +19,55 @@ struct ServerEventTests {
     #expect(snapshot.owners.additionalProperties["b"]?.kind.rawValue == "future")
   }
 
+  @Test("a session frame carrying host is wrapped as mirrored around its usual decoding")
+  func mirroredSessionFrames() throws {
+    let host = #"{"instanceId":"mac","name":"MacBook","platform":"macos"}"#
+    let connection = #"{"state":"disconnected","since":1790000000000}"#
+    let status = try decode(
+      #"{"event":"session:status","data":{"id":"a","status":"blocked","host":\#(host),"connection":\#(connection)}}"#)
+    guard case .mirrored(let statusHost, .sessionStatus(let payload)) = status else {
+      Issue.record("expected a mirrored sessionStatus, got \(status)")
+      return
+    }
+    #expect(statusHost.instanceId == "mac")
+    #expect(statusHost.name == "MacBook")
+    #expect(statusHost.platform.known == .macos)
+    #expect(payload.status.known == .blocked)
+
+    let archived = try decode(#"{"event":"session:archived","data":{"id":"a","host":\#(host)}}"#)
+    guard case .mirrored(_, .sessionArchived(let gone)) = archived else {
+      Issue.record("expected a mirrored sessionArchived, got \(archived)")
+      return
+    }
+    #expect(gone.id == "a")
+
+    let git = try decode(#"{"event":"session:git","data":{"id":"a","host":\#(host)}}"#)
+    guard case .mirrored(_, .unknown(let name, _)) = git else {
+      Issue.record("expected a mirrored unknown frame, got \(git)")
+      return
+    }
+    #expect(name == "session:git")
+  }
+
+  @Test("frames without host, and non-session frames, are never mirrored")
+  func localFramesAreNotMirrored() throws {
+    let local = try decode(#"{"event":"session:status","data":{"id":"a","status":"idle"}}"#)
+    guard case .sessionStatus = local else {
+      Issue.record("expected a plain sessionStatus, got \(local)")
+      return
+    }
+    let remote = try decode(
+      #"{"event":"remote:sessions","data":{"instanceId":"mac","sessions":[],"host":{"instanceId":"mac","name":"MacBook","platform":"macos"}}}"#)
+    guard case .unknown(let name, let payload) = remote else {
+      Issue.record("expected remote:sessions as an unknown frame, got \(remote)")
+      return
+    }
+    #expect(name == "remote:sessions")
+    let event = try JSONDecoder().decode(RemoteSessionsEvent.self, from: try #require(payload))
+    #expect(event.instanceId == "mac")
+    #expect(event.sessions.isEmpty)
+  }
+
   @Test("session:new carries the whole generated Session")
   func sessionNew() throws {
     let payload = String(decoding: try Fixtures.sessionJSON(id: "a", name: "alpha"), as: UTF8.self)

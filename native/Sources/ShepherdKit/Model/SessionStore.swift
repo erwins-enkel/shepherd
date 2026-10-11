@@ -28,7 +28,9 @@ public enum ConnectionState: Sendable, Equatable {
 ///
 /// Event application mirrors `ui/src/lib/store.svelte.ts::apply` for the eight
 /// events in the contract, so the native client and the web UI cannot disagree
-/// about what a push means. `@MainActor` because every property here drives UI.
+/// about what a push means — including its split of sessions mirrored from
+/// connected machines into `remoteSessions` (`ui/src/lib/remote-sessions.ts`).
+/// `@MainActor` because every property here drives UI.
 ///
 /// Two ways to use it:
 /// - `init(profile:credentials:)` + `start()` — self-driving. The store builds
@@ -41,7 +43,14 @@ public enum ConnectionState: Sendable, Equatable {
 public final class SessionStore {
   /// True after this activation has accepted its first snapshot, including an empty list.
   public private(set) var hasLoadedSessions = false
+  /// This server's own sessions. Never one mirrored from a connected machine.
   public private(set) var sessions: [Session] = []
+  /// Sessions mirrored from connected machines (#2762): read-only references the server marks
+  /// with `host` and `connection`, in the order it lists them. Kept apart from `sessions`, like
+  /// the web store's `remoteSessions`, so nothing that acts on this server's own sessions — the
+  /// action bar, notifications, merge, queues, steers — ever sees one. A disconnected machine's
+  /// sessions stay here with their last known state; `remote:sessions` replaces a machine's set.
+  public private(set) var remoteSessions: [Session] = []
   /// Blocked sessions, keyed by session id. Absent means not blocked.
   public private(set) var blocks: [String: Components.Schemas.BlockReason] = [:]
   public private(set) var settings: Settings?
@@ -165,6 +174,11 @@ public final class SessionStore {
 
   public func session(id: String) -> Session? {
     sessions.first { $0.id == id }
+  }
+
+  /// A session mirrored from a connected machine, or `nil` — including for this server's own.
+  public func remoteSession(id: String) -> Session? {
+    remoteSessions.first { $0.id == id }
   }
 
   // MARK: - Lifecycle
@@ -494,7 +508,9 @@ public final class SessionStore {
       // A refresh that started later already installed a newer snapshot;
       // these three lists are the older read of the same server.
       guard generation == snapshotGeneration else { return }
-      self.sessions = loadedSessions
+      // `GET /api/sessions` appends the mirrored references after the local sessions.
+      self.sessions = loadedSessions.filter { $0.host == nil }
+      self.remoteSessions = loadedSessions.filter { $0.host != nil }
       hasLoadedSessions = true
       self.settings = loadedSettings
       self.repos = loadedRepos.repos
@@ -577,6 +593,10 @@ public final class SessionStore {
 
   private func applyNow(_ event: ServerEvent) {
     switch event {
+    case .mirrored(_, let frame):
+      // Applied to the mirrored list only and, unlike every other frame, handed to no tap.
+      applyMirrored(frame)
+      return
     case .terminalOwners(let snapshot):
       terminalOwners = snapshot.owners.additionalProperties
     case .terminalOwnersUnavailable:
@@ -610,6 +630,11 @@ public final class SessionStore {
       usageLimits = limits
     case .unknown(let name, let payload):
       // Core owns Session mutations; stream taps observe the patched session below.
+      if name == "remote:sessions" {
+        // About mirrored sessions only, so no tap sees it either.
+        replaceRemoteSessions(payload)
+        return
+      }
       if name == "session:plangate", let payload,
          let event = try? JSONDecoder().decode(Components.Schemas.SessionPlanGateEvent.self, from: payload),
          let phase = event.planPhase {
@@ -630,6 +655,7 @@ public final class SessionStore {
     }
 
     // Every frame the store applies, decoded or not, reaches the taps here —
+    // except the two about mirrored sessions, which returned above —
     // AFTER the switch above has mutated state, structurally: a tap consumer
     // that reads `sessions` (or any other published property) the moment it
     // receives this event sees state that already includes it.
@@ -650,14 +676,68 @@ public final class SessionStore {
     mutate(&sessions[index])
   }
 
+  // MARK: - Mirrored sessions
+
+  /// What a frame about a mirrored session changes: only what a read-only view shows, the web
+  /// store's `applyMirroredFrame`. Every other mirrored frame is consumed here and dropped — the
+  /// next `remote:sessions` snapshot carries its effect.
+  private func applyMirrored(_ frame: ServerEvent) {
+    switch frame {
+    case .sessionNew(let session):
+      upsertRemote(session)
+    case .sessionStatus(let payload):
+      patchRemote(id: payload.id) {
+        $0.status = payload.status
+        if let flag = payload.hasScratchpadFiles { $0.hasScratchpadFiles = flag }
+      }
+    case .sessionRenamed(let payload):
+      patchRemote(id: payload.id) {
+        $0.name = payload.name
+        $0.branch = payload.branch
+      }
+    case .sessionArchived(let payload):
+      remoteSessions.removeAll { $0.id == payload.id }
+    default:
+      break
+    }
+  }
+
+  /// `remote:sessions`: one machine's whole mirrored set replaces what was held for it — an
+  /// empty set once the machine is removed. Only annotated sessions are kept.
+  private func replaceRemoteSessions(_ payload: Data?) {
+    guard let payload,
+          let event = try? JSONDecoder().decode(RemoteSessionsEvent.self, from: payload) else {
+      ShepherdLog.store.debug("ignoring a remote:sessions frame that does not decode")
+      return
+    }
+    remoteSessions = remoteSessions.filter { $0.host?.instanceId != event.instanceId }
+      + event.sessions.filter { $0.host != nil }
+  }
+
+  private func upsertRemote(_ session: Session) {
+    if let index = remoteSessions.firstIndex(where: { $0.id == session.id }) {
+      remoteSessions[index] = session
+    } else {
+      remoteSessions.append(session)
+    }
+  }
+
+  private func patchRemote(id: String, _ mutate: (inout Session) -> Void) {
+    guard let index = remoteSessions.firstIndex(where: { $0.id == id }) else { return }
+    mutate(&remoteSessions[index])
+  }
+
   // MARK: - Commands
 
   @discardableResult
   public func create(_ input: CreateSessionRequest) async throws -> CreateOutcome {
     do {
       let outcome = try await client.createSession(input)
-      // Insert optimistically so the list moves before session:new lands.
-      if case .created(let session) = outcome { addSession(session) }
+      // Insert optimistically so the list moves before session:new lands. A task started on a
+      // connected machine comes back annotated with `host` and belongs to the mirrored list.
+      if case .created(let session) = outcome {
+        if session.host == nil { addSession(session) } else { upsertRemote(session) }
+      }
       lastError = nil
       return outcome
     } catch {

@@ -32,6 +32,23 @@ struct ShepherdClientReadTests {
     #expect(server.requests().last?.headers["Authorization"] == nil)
   }
 
+  @Test("instance identity decodes, and a server without the route is not found")
+  func instanceIdentity() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    server.stub(
+      "GET", "/api/instance", status: 200,
+      json: Data(#"{"instanceId":"0b6f2c1e","name":"MacBook","version":"1.70.0","federationApi":1,"platform":"macos","arch":"arm64","capabilities":null}"#.utf8))
+    let (client, _) = try makeClient(server)
+
+    let identity = try await client.instance()
+    #expect(identity.instanceId == "0b6f2c1e")
+    #expect(identity.platform.known == .macos)
+
+    server.stub("GET", "/api/instance", status: 404, json: try Fixtures.errorJSON("not found"))
+    await #expect(throws: ShepherdError.self) { _ = try await client.instance() }
+  }
+
   @Test("the stored token reaches the wire")
   func sendsBearer() async throws {
     let server = FakeShepherdServer()

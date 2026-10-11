@@ -362,6 +362,26 @@ struct PTYConnectionTests {
     await connection.stop()
   }
 
+  @Test("close 4002 parks a bridged terminal whose machine is unreachable")
+  func machineUnreachableParks() async throws {
+    let server = try FakePTYServer()
+    defer { server.stop() }
+    let connection = makeConnection(server)
+    let (lifecycle, reader) = collect(await connection.lifecycle())
+    defer { reader.cancel() }
+
+    await connection.start()
+    #expect(try await eventually { server.connectionCount() == 1 })
+    server.close(code: 4002)
+
+    #expect(try await eventually { lifecycle.all().contains(.closed(.machineUnreachable)) })
+    // Retrying would only be refused again; the caller re-attaches once the machine is back.
+    #expect(
+      try await eventually(timeout: .milliseconds(400)) { server.connectionCount() > 1 } == false)
+    #expect(!lifecycle.all().contains(.detached))
+    await connection.stop()
+  }
+
   @Test("takeOver re-attaches after a 4000")
   func takeOverReattaches() async throws {
     let server = try FakePTYServer()

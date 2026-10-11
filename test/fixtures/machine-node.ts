@@ -3,9 +3,10 @@
  * (test/machines-two-instances.test.ts, issue #2769). Run with `bun test/fixtures/machine-node.ts`.
  *
  * Real: the HTTP/WebSocket server (`serve`), auth gate and access tokens, the SQLite store, and the
- * machines wiring exactly as src/index.ts builds it — RemoteInstanceService (started),
- * RemoteSessionMirror following each probe through `onChange` — plus the dispatcher, forwarding and
- * terminal bridge src/server.ts builds from them. Stubbed: the agent. `SessionService.create` makes
+ * machines wiring as src/index.ts builds it — RemoteInstanceService (started), RemoteSessionMirror
+ * following each probe through `onChange`, and the RemoteDispatcher (injected as `remoteDispatch`)
+ * reconciling unconfirmed hand-offs after each probe — plus the forwarding and terminal bridge
+ * src/server.ts builds from them. Stubbed: the agent. `SessionService.create` makes
  * a real git worktree and commits the "agent's work" in it; reply, interrupt and archive only record
  * that they ran. Every stub call appends one JSON line to `<root>/agent.jsonl`, so the test can tell
  * on which machine something ran. The terminal runs through the real PtyBridge and node-pty against
@@ -28,6 +29,7 @@ import { config } from "../../src/config";
 import { AccessTokenService } from "../../src/access-tokens";
 import { RemoteInstanceService } from "../../src/remote-instances/service";
 import { RemoteSessionMirror } from "../../src/remote-instances/sessions";
+import { RemoteDispatcher } from "../../src/remote-instances/dispatch";
 import { instanceIdentity, setInstanceName } from "../../src/remote-instances/identity";
 import type { GitForge } from "../../src/forge/types";
 import type { CreateSessionInput } from "../../src/types";
@@ -132,6 +134,17 @@ const remoteSessions = new RemoteSessionMirror({
   recheckDelaysMs: Array<number>(200).fill(100),
 });
 remoteInstances.onChange((instanceId) => remoteSessions.sync(instanceId));
+const remoteDispatch = new RemoteDispatcher({ store, instances: remoteInstances, events });
+remoteInstances.onChange((instanceId) => {
+  remoteDispatch
+    .reconcile(instanceId)
+    .catch((err: unknown) =>
+      console.warn(
+        "[remote-dispatch] reconcile failed:",
+        err instanceof Error ? err.message : String(err),
+      ),
+    );
+});
 
 setInstanceName(store, process.env.MACHINE_NODE_NAME ?? null);
 const token = existsSync(tokenFile)
@@ -147,6 +160,7 @@ const deps: AppDeps = {
   accessTokens,
   remoteInstances,
   remoteSessions,
+  remoteDispatch,
   resolveForge: ((path: string) => (path === checkout ? forge : null)) as AppDeps["resolveForge"],
   usageLimits: {
     limits: () => ({

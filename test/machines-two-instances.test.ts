@@ -245,6 +245,14 @@ function agentLog(node: Node): Json[] {
 
 const ops = (node: Node, op: string) => agentLog(node).filter((e) => e.op === op);
 
+/** Hand-offs from `node` that no machine has confirmed yet — what its herd shows as "start status
+ *  unknown". */
+async function unconfirmed(node: Node): Promise<Json[]> {
+  const res = await api(node, "GET", "/api/remote-dispatches");
+  expect(res.status).toBe(200);
+  return res.body.dispatches as Json[];
+}
+
 async function until<T>(
   read: () => Promise<T> | T,
   ok: (v: T) => boolean,
@@ -393,15 +401,19 @@ describe("manual assignment across two Shepherd processes", () => {
         dispatchId: "hand-off-1",
         host: { instanceId: m.instanceId },
       });
-      // It did arrive and start on M.
+      // It did arrive and start on M; C lists it as a start whose status is unknown.
       const started = ops(m, "create");
       expect(started).toHaveLength(before + 1);
       expect(started.at(-1)).toMatchObject({ prompt: "port the settings screen" });
+      expect(
+        (await unconfirmed(c)).map(({ state, host, summary }) => [state, host.instanceId, summary]),
+      ).toEqual([["unknown", m.instanceId, "port the settings screen"]]);
 
       const again = await startOn(c, m, "port the settings screen", "hand-off-1");
       expect(again.status).toBe(201);
       expect(again.body.id).toBe(started.at(-1)!.id);
       expect(again.body.host).toMatchObject({ instanceId: m.instanceId });
+      expect(await unconfirmed(c)).toEqual([]);
       const third = await startOn(c, m, "port the settings screen", "hand-off-1");
       expect(third.body.id).toBe(again.body.id);
       expect(ops(m, "create")).toHaveLength(before + 1);
@@ -535,13 +547,15 @@ describe("manual assignment across two Shepherd processes", () => {
   );
 
   test(
-    "coordinator restart: machine, sessions and pending hand-offs survive a crash of C",
+    "coordinator restart: machine, sessions and a lost hand-off survive a crash of C",
     async () => {
       net.failNextCreate();
       const lost = await startOn(c, m, "after a crash", "hand-off-2");
       expect(lost.status).toBe(504);
       const startedOnM = ops(m, "create").at(-1)!;
       expect(startedOnM.prompt).toBe("after a crash");
+      expect((await unconfirmed(c)).map((d) => d.state)).toEqual(["unknown"]);
+      const creates = ops(m, "create").length;
 
       await stopNode(c, "SIGKILL");
       const port = c.port;
@@ -559,7 +573,13 @@ describe("manual assignment across two Shepherd processes", () => {
             (id) => l.find((s) => s.id === id)?.connection?.state === "connected",
           ),
       );
-      const creates = ops(m, "create").length;
+      // The restarted C asks M what became of the lost hand-off on its first probe, before any
+      // client sends it again: M started it, so it is settled — nothing is sent a second time.
+      await until(
+        () => unconfirmed(c),
+        (l) => l.length === 0,
+      );
+      expect(ops(m, "create")).toHaveLength(creates);
       const retried = await startOn(c, m, "after a crash", "hand-off-2");
       expect(retried.status).toBe(201);
       expect(retried.body.id).toBe(startedOnM.id);

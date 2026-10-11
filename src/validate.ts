@@ -616,7 +616,8 @@ function validateTerminalCreate(
 /**
  * `remote` (#2763): the task runs on a connected machine, which checks paths itself. `repoPath`
  * then names THIS machine's checkout only to identify the project, so it is confined to repoRoot
- * but not required to exist; attachments are refused — they are not sent to other machines yet.
+ * but not required to exist. Attachments are THIS machine's staged files, checked like any create's
+ * (#2766): the dispatcher uploads them to the machine right before it sends the task.
  */
 function validateCreateLaunchFields(
   obj: Record<string, unknown>,
@@ -634,9 +635,6 @@ function validateCreateLaunchFields(
     : validateRepoPath(obj.repoPath, root);
   if (!repoPath.ok) return repoPath;
 
-  if (remote && Array.isArray(obj.images) && obj.images.length > 0) {
-    return err("attachments are not sent to other machines yet");
-  }
   const images = validateImages(obj.images, root);
   if (!images.ok) return images;
 

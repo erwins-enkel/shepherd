@@ -88,6 +88,8 @@ export function runOnFailureMessage(err: unknown, machine: string): string | nul
   switch (err.code) {
     case "remote_rejected":
       return m.newtask_runon_rejected({ machine, reason: err.message });
+    case "remote_upload_failed":
+      return m.newtask_runon_upload_failed({ machine, reason: err.message });
     case "remote_target_unavailable":
       return m.newtask_runon_unavailable({ machine });
     case "remote_target_unreleased":

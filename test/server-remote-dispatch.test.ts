@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore } from "../src/store";
@@ -14,6 +14,7 @@ import { RemoteDispatcher } from "../src/remote-instances/dispatch";
 import { CapabilityService } from "../src/remote-instances/capability-probe";
 import type { FetchLike } from "../src/remote-instances/client";
 import { validateCreate } from "../src/validate";
+import { stagingDir } from "../src/uploads";
 import { WorktreeMissingBaseError } from "../src/worktree";
 import type { CreateSessionInput, Session } from "../src/types";
 import type { GitForge } from "../src/forge/types";
@@ -195,6 +196,19 @@ function create(
     headers,
     body: JSON.stringify(body),
   });
+}
+
+/** Stage a file on `node` the way New Task does (`POST /api/uploads`); its staged path. */
+async function stage(node: Node, content: string, name: string): Promise<string> {
+  const form = new FormData();
+  form.append("file", new File([content], name, { type: "image/png" }));
+  const res = await fetch(`${node.base}/api/uploads`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${node.token}` },
+    body: form,
+  });
+  expect(res.status).toBe(200);
+  return ((await res.json()) as { path: string }).path;
 }
 
 async function until<T>(read: () => Promise<T> | T, ok: (v: T) => boolean, ms = 2_000): Promise<T> {
@@ -406,7 +420,7 @@ describe("starting a task on a connected machine", () => {
     expect(linux.created).toEqual([]);
   });
 
-  test("an unknown machine, attachments and a clean terminal are refused before anything is sent", async () => {
+  test("an unknown machine, an unstaged attachment and a clean terminal are refused before anything is sent", async () => {
     const linux = startNode("app");
     const mac = startNode("app-mac");
     const macId = await connect(linux, mac);
@@ -464,6 +478,94 @@ describe("starting a task on a connected machine", () => {
     );
     expect(linux.created).toHaveLength(2);
     expect(linux.created[1]).not.toHaveProperty("target");
+    expect(mac.created).toEqual([]);
+  });
+
+  // #2766: attachments travel with the task — uploaded right before it is sent, never twice.
+  test("an attachment reaches the machine's staging, and the task names the machine's copy", async () => {
+    const linux = startNode("app");
+    const mac = startNode("app-mac");
+    const macId = await connect(linux, mac);
+    const staged = await stage(linux, "PNG-BYTES", "shot.png");
+
+    const res = await create(linux, {
+      ...task(linux, { images: [staged], attachmentNames: ["Login screen.png"] }),
+      target: { instanceId: macId },
+    });
+    expect(res.status).toBe(201);
+    expect(linux.created).toEqual([]);
+    expect(mac.created).toHaveLength(1);
+    const input = mac.created[0] as CreateSessionInput & { images: string[] };
+    // The machine's own staged copy — it passed the machine's own attachment checks to get here.
+    expect(input.images).toHaveLength(1);
+    expect(input.images[0]).not.toBe(staged);
+    expect(input.images[0]!.startsWith(stagingDir(root))).toBe(true);
+    expect(readFileSync(input.images[0]!, "utf8")).toBe("PNG-BYTES");
+    expect(input).toMatchObject({ attachmentNames: ["Login screen.png"] });
+  });
+
+  test("a retry after a lost answer uploads nothing twice and is no 409", async () => {
+    const linux = startNode("app");
+    const mac = startNode("app-mac");
+    const macId = await connect(linux, mac);
+    const staged = await stage(linux, "PNG-BYTES", "shot.png");
+
+    let uploads = 0;
+    let drop = true;
+    const lossy: FetchLike = async (input, init) => {
+      if (input.endsWith("/api/uploads")) uploads++;
+      const res = await fetch(input, init);
+      if (drop && input.endsWith("/api/sessions")) {
+        drop = false;
+        await res.body?.cancel();
+        throw new TypeError("connection reset after the request was sent");
+      }
+      return res;
+    };
+    linux.deps.remoteDispatch = new RemoteDispatcher({
+      store: linux.deps.store,
+      instances: linux.deps.remoteInstances,
+      fetch: lossy,
+    });
+
+    const body = {
+      ...task(linux, { images: [staged], attachmentNames: ["shot.png"] }),
+      target: { instanceId: macId },
+    };
+    expect((await create(linux, body, { key: "ui-attempt-1" })).status).toBe(504);
+    expect(mac.created).toHaveLength(1);
+
+    const again = await create(linux, body, { key: "ui-attempt-1" });
+    expect(again.status).toBe(201);
+    expect(uploads).toBe(1);
+    expect(mac.created).toHaveLength(1);
+  });
+
+  test("an attachment that does not reach the machine starts nothing, there or here", async () => {
+    const linux = startNode("app");
+    const mac = startNode("app-mac");
+    const macId = await connect(linux, mac);
+    const staged = await stage(linux, "PNG-BYTES", "shot.png");
+    mac.deps.maxUploadBytes = 1;
+
+    const body = {
+      ...task(linux, { images: [staged], attachmentNames: ["shot.png"] }),
+      target: { instanceId: macId },
+    };
+    const res = await create(linux, body, { key: "ui-attempt-1" });
+    expect(res.status).toBe(502);
+    expect(await res.json()).toMatchObject({
+      code: "remote_upload_failed",
+      error: "attachment 1 of 1: the machine answered 413 (file too large)",
+      host: { instanceId: macId },
+    });
+    expect(mac.created).toEqual([]);
+    expect(linux.created).toEqual([]);
+
+    // Ended for good under that key: the same answer, nothing sent.
+    mac.deps.maxUploadBytes = undefined;
+    const again = await create(linux, body, { key: "ui-attempt-1" });
+    expect(again.status).toBe(502);
     expect(mac.created).toEqual([]);
   });
 });

@@ -47,6 +47,30 @@ beforeEach(() => {
 
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
+// #2766: attachments for a connected machine are THIS machine's staged files, checked like any
+// create's — the dispatcher uploads them to the machine.
+test("remote mode checks attachments against this machine's staging", () => {
+  const staging = stagingDir(root);
+  mkdirSync(staging, { recursive: true });
+  const shot = join(staging, "a1b2.png");
+  writeFileSync(shot, "png");
+  const base = { repoPath: join(root, "only-on-the-mac"), baseBranch: "main", prompt: "go" };
+  const r = validateCreate({ ...base, images: [shot], attachmentNames: ["shot.png"] }, root, {
+    remote: true,
+  });
+  expect(r.ok).toBe(true);
+  if (r.ok && r.value.terminal !== true) {
+    expect(r.value.images).toEqual([shot]);
+    expect(r.value.attachmentNames).toEqual(["shot.png"]);
+  }
+  const outside = join(root, "elsewhere.png");
+  writeFileSync(outside, "png");
+  expect(validateCreate({ ...base, images: [outside] }, root, { remote: true })).toEqual({
+    ok: false,
+    error: "attachment must be inside the staging dir",
+  });
+});
+
 // #2763: a task for a connected machine is validated like any create, but the machine checks the
 // paths itself — repoPath only names this machine's checkout of the project.
 test("remote mode confines repoPath without requiring it to exist here", () => {
@@ -61,12 +85,8 @@ test("remote mode confines repoPath without requiring it to exist here", () => {
   });
 });
 
-test("remote mode refuses attachments and the clean terminal, and still checks the rest", () => {
+test("remote mode refuses the clean terminal, and still checks the rest", () => {
   const base = { repoPath: validRepo, baseBranch: "main", prompt: "go" };
-  expect(validateCreate({ ...base, images: ["/x.png"] }, root, { remote: true })).toEqual({
-    ok: false,
-    error: "attachments are not sent to other machines yet",
-  });
   expect(validateCreate({ ...base, images: [] }, root, { remote: true }).ok).toBe(true);
   expect(validateCreate({ repoPath: validRepo, terminal: true }, root, { remote: true }).ok).toBe(
     false,

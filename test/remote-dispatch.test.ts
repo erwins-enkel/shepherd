@@ -1,4 +1,7 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { SessionStore } from "../src/store";
 import type { FetchLike } from "../src/remote-instances/client";
 import { RemoteDispatcher, type RemoteSubmit } from "../src/remote-instances/dispatch";
@@ -40,6 +43,10 @@ interface Call {
   method: string;
   headers: Record<string, string>;
   body: unknown;
+  /** The JSON text as sent, for a JSON POST. */
+  raw: string | null;
+  /** The multipart body, for an upload. */
+  form: FormData | null;
 }
 
 type Answer = Response | Error | ((call: Call) => Response | Error);
@@ -54,6 +61,8 @@ function scripted(posts: Answer[], repos: Answer = reposAnswer("/Users/kai/dev/a
       method: init.method ?? "GET",
       headers: init.headers as Record<string, string>,
       body: typeof init.body === "string" ? JSON.parse(init.body) : null,
+      raw: typeof init.body === "string" ? init.body : null,
+      form: init.body instanceof FormData ? init.body : null,
     };
     calls.push(call);
     let answer = input.endsWith("/api/repos") ? repos : posts.shift();
@@ -62,7 +71,13 @@ function scripted(posts: Answer[], repos: Answer = reposAnswer("/Users/kai/dev/a
     if (answer instanceof Error) throw answer;
     return answer;
   };
-  return { fetch, calls, posts: () => calls.filter((c) => c.method === "POST") };
+  return {
+    fetch,
+    calls,
+    posts: () => calls.filter((c) => c.method === "POST"),
+    uploads: () => calls.filter((c) => c.url.endsWith("/api/uploads")),
+    creates: () => calls.filter((c) => c.url.endsWith("/api/sessions")),
+  };
 }
 
 function reposAnswer(path: string): Response {
@@ -275,6 +290,7 @@ describe("RemoteDispatcher", () => {
       httpStatus: null,
       createdAt: 1,
       updatedAt: 1,
+      uploads: null,
     });
     expect(await dispatcher.submit(submit())).toMatchObject({ kind: "started" });
     expect(net.posts()[0]!.headers["idempotency-key"]).toBe("d-1");
@@ -365,5 +381,158 @@ describe("RemoteDispatcher", () => {
       reason: "removed",
     });
     expect(net.posts()).toHaveLength(1);
+  });
+});
+
+// #2766: a task's attachments reach the machine right before the task does, and only once.
+describe("RemoteDispatcher attachments", () => {
+  const HOST = { instanceId: MAC, name: "MacBook", platform: "macos" };
+  const MAC_STAGING = "/Users/kai/dev/.shepherd-uploads-staging";
+  let dir: string;
+  let shot: string;
+  let spec: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "shepherd-remote-uploads-"));
+    shot = join(dir, "0b5e-shot.png");
+    spec = join(dir, "7c1d-spec.pdf");
+    writeFileSync(shot, "PNG-BYTES");
+    writeFileSync(spec, "PDF-BYTES");
+  });
+
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  const uploaded = (name: string) => Response.json({ path: `${MAC_STAGING}/${name}` });
+
+  function withAttachments(images: string[]): RemoteSubmit {
+    const attachmentNames = images.map((_, i) => `Attachment ${i + 1}.png`);
+    return submit({ body: { ...BODY, images, attachmentNames } });
+  }
+
+  test("each file goes to the machine's staging first, and the task names the machine's copies", async () => {
+    const net = scripted([uploaded("m-1.png"), uploaded("m-2.pdf"), session("s-1")]);
+    const { store, dispatcher } = setup(net.fetch);
+    const outcome = await dispatcher.submit(withAttachments([shot, spec]));
+    expect(outcome).toMatchObject({ kind: "started", session: { id: "s-1" } });
+
+    expect(net.calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      "GET http://mac.test/api/repos",
+      "POST http://mac.test/api/uploads",
+      "POST http://mac.test/api/uploads",
+      "POST http://mac.test/api/sessions",
+    ]);
+    // As it goes over the wire: the bytes and the extension — not this machine's staged name.
+    const wire = await Promise.all(net.uploads().map((c) => new Response(c.form).text()));
+    expect(wire.map((w) => w.match(/name="file"; filename="([^"]*)"/)?.[1])).toEqual([
+      "attachment.png",
+      "attachment.pdf",
+    ]);
+    for (const w of wire) expect(w).not.toContain(basename(shot));
+    expect(wire[0]).toContain("PNG-BYTES");
+    expect(wire[1]).toContain("PDF-BYTES");
+    for (const w of wire) expect(w).not.toContain(dir);
+    expect(net.uploads()[0]!.headers.authorization).toBe(`Bearer token-${MAC}`);
+
+    const [create] = net.creates();
+    expect(create!.body).toEqual({
+      ...BODY,
+      repoPath: "/Users/kai/dev/app",
+      images: [`${MAC_STAGING}/m-1.png`, `${MAC_STAGING}/m-2.pdf`],
+      attachmentNames: ["Attachment 1.png", "Attachment 2.png"],
+    });
+    // No path of this machine reaches the other one.
+    expect(create!.raw).not.toContain(dir);
+    expect(JSON.parse(store.getRemoteDispatchByKey("key-1")!.uploads!)).toEqual([
+      `${MAC_STAGING}/m-1.png`,
+      `${MAC_STAGING}/m-2.pdf`,
+    ]);
+  });
+
+  test("a retry after no answer uploads nothing again and sends the very same text", async () => {
+    const net = scripted([uploaded("m-1.png"), new TypeError("socket closed"), session("s-1")]);
+    const { dispatcher } = setup(net.fetch);
+    expect(await dispatcher.submit(withAttachments([shot]))).toMatchObject({ kind: "unknown" });
+    expect(await dispatcher.submit(withAttachments([shot]))).toMatchObject({ kind: "started" });
+
+    expect(net.uploads()).toHaveLength(1);
+    const [a, b] = net.creates();
+    // Byte-identical, so the machine's own idempotency check (#2761) replays instead of a 409.
+    expect(b!.raw).toBe(a!.raw);
+    expect(b!.headers["idempotency-key"]).toBe(a!.headers["idempotency-key"]);
+  });
+
+  test("concurrent duplicates share one upload", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const net = scripted([uploaded("m-1.png"), session("s-1")]);
+    const slow: FetchLike = async (input, init) => {
+      if (input.endsWith("/api/uploads")) await gate;
+      return net.fetch(input, init);
+    };
+    const { dispatcher } = setup(slow);
+    const one = dispatcher.submit(withAttachments([shot]));
+    await Bun.sleep(5);
+    const two = dispatcher.submit(withAttachments([shot]));
+    release();
+    const [a, b] = await Promise.all([one, two]);
+    expect(a).toEqual(b);
+    expect(net.uploads()).toHaveLength(1);
+    expect(net.creates()).toHaveLength(1);
+  });
+
+  test("a file the machine refuses ends the dispatch before the task is sent, for good", async () => {
+    const net = scripted([
+      uploaded("m-1.png"),
+      Response.json({ error: "file too large" }, { status: 413 }),
+    ]);
+    const { store, dispatcher } = setup(net.fetch);
+    const failed = {
+      kind: "upload_failed" as const,
+      host: HOST,
+      reason: "attachment 2 of 2: the machine answered 413 (file too large)",
+    };
+    expect(await dispatcher.submit(withAttachments([shot, spec]))).toEqual(failed);
+    expect(net.creates()).toEqual([]);
+    expect(store.getRemoteDispatchByKey("key-1")).toMatchObject({
+      state: "upload_failed",
+      code: "remote_upload_failed",
+      reason: failed.reason,
+      httpStatus: 413,
+      uploads: null,
+    });
+
+    // The same key again: the refusal, with nothing sent or uploaded.
+    const before = net.calls.length;
+    expect(await dispatcher.submit(withAttachments([shot, spec]))).toEqual(failed);
+    expect(net.calls).toHaveLength(before);
+  });
+
+  test("no answer to an upload, or a staged file that is gone, fails the same way", async () => {
+    const down = scripted([new TypeError("down")]);
+    expect(await setup(down.fetch).dispatcher.submit(withAttachments([shot]))).toEqual({
+      kind: "upload_failed",
+      host: HOST,
+      reason: "attachment 1 of 1: no answer from the machine (network)",
+    });
+    expect(down.creates()).toEqual([]);
+
+    const gone = scripted([]);
+    const missing = join(dir, "swept.png");
+    expect(await setup(gone.fetch).dispatcher.submit(withAttachments([missing]))).toEqual({
+      kind: "upload_failed",
+      host: HOST,
+      reason: "attachment 1 of 1 is no longer staged here",
+    });
+    expect(gone.posts()).toEqual([]);
+  });
+
+  test("a task without attachments goes out exactly as stored", async () => {
+    const net = scripted([session("s-1")]);
+    const { store, dispatcher } = setup(net.fetch);
+    await dispatcher.submit(submit());
+    const row = store.getRemoteDispatchByKey("key-1")!;
+    expect(net.creates()[0]!.raw).toBe(row.wireBody);
+    expect(row.uploads).toBeNull();
+    expect(net.uploads()).toEqual([]);
   });
 });

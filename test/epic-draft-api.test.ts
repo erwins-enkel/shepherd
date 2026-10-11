@@ -249,8 +249,9 @@ test("slowRequestTimeoutSec budgets the known-slow routes and leaves others on t
   expect(sec("POST", "/api/sessions/abc-123/scratchpad/upload/extra")).toBeNull();
   expect(sec("POST", "/api/sessions/abc-123/epic-draft")).toBeNull();
   expect(sec("POST", "/api/sessions/abc-123/epic-draft/approve/extra")).toBeNull();
-  // #2763: a create — above all one sent to a connected machine — waits for a whole spawn.
-  expect(sec("POST", "/api/sessions")).toBe(150);
+  // #2763: a create — above all one sent to a connected machine — waits for a whole spawn, and
+  // (#2766) first for its attachments' upload to that machine.
+  expect(sec("POST", "/api/sessions")).toBe(255);
   expect(sec("GET", "/api/sessions")).toBeNull();
   expect(sec("GET", "/api/prs/merge")).toBeNull();
   expect(sec("POST", "/api/sessions/abc-123/merge")).toBeNull(); // the real path carries /git/

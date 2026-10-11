@@ -247,6 +247,8 @@ describe("readiness at acceptance (POST /api/sessions)", () => {
       code: "missing_capabilities",
       error: "missing capabilities: xcode (other_platform)",
     });
+    // The replay comes from the dispatch record: error and code, no structured list (documented).
+    expect(retry.body).not.toHaveProperty("missing");
     expect((await call(a, "GET", "/api/dispatches/order-1")).body).toMatchObject({
       state: "failed",
       code: "missing_capabilities",

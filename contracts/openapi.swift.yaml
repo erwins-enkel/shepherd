@@ -7588,7 +7588,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "422":
-          description: "The base branch (or the requested baseCommit) does not resolve to a commit in the repo, or this instance does not meet a requirement (code `missing_capabilities`; `missing` lists each unmet `{capability, reason}` and `error` names them). With a target also: the machine refused the task (remote_rejected — `error` is its reason, `remoteStatus`/`remoteCode` its answer, `host` the machine), no connected machine has that ID (remote_target_unknown), the machine has no checkout of the project (remote_project_missing) or the repo has no forge identity (remote_project_unknown)."
+          description: "The base branch (or the requested baseCommit) does not resolve to a commit in the repo, or this instance does not meet a requirement (code `missing_capabilities`; `error` names each unmet capability and its reason, and `missing` lists them as `{capability, reason}`). A keyed retry (Idempotency-Key) replays the refusal from the dispatch record with `error` and `code` only, without `missing`. With a target also: the machine refused the task (remote_rejected — `error` is its reason, `remoteStatus`/`remoteCode` its answer, `host` the machine), no connected machine has that ID (remote_target_unknown), the machine has no checkout of the project (remote_project_missing) or the repo has no forge identity (remote_project_unknown)."
           content:
             application/json:
               schema:

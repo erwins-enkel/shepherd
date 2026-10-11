@@ -421,12 +421,13 @@ describe("RemoteDispatcher attachments", () => {
       "POST http://mac.test/api/uploads",
       "POST http://mac.test/api/sessions",
     ]);
-    // As it goes over the wire: the bytes, and only the stored name — never this machine's path.
+    // As it goes over the wire: the bytes and the extension — not this machine's staged name.
     const wire = await Promise.all(net.uploads().map((c) => new Response(c.form).text()));
     expect(wire.map((w) => w.match(/name="file"; filename="([^"]*)"/)?.[1])).toEqual([
-      basename(shot),
-      basename(spec),
+      "attachment.png",
+      "attachment.pdf",
     ]);
+    for (const w of wire) expect(w).not.toContain(basename(shot));
     expect(wire[0]).toContain("PNG-BYTES");
     expect(wire[1]).toContain("PDF-BYTES");
     for (const w of wire) expect(w).not.toContain(dir);

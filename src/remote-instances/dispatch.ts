@@ -24,7 +24,7 @@
  * the task may be running there, and only the same dispatch may ask again.
  */
 import { randomUUID } from "node:crypto";
-import { basename } from "node:path";
+import { extname } from "node:path";
 import type { SessionStore } from "../store";
 import {
   type FetchLike,
@@ -255,8 +255,8 @@ export class RemoteDispatcher {
   }
 
   /** Each staged file to the machine's staging, in order; the first that does not get there stops
-   *  it. Only the stored name (a UUID and a safe extension) travels with the bytes — the name the
-   *  operator gave it is `attachmentNames`, which the task carries anyway. */
+   *  it. Only its extension travels with the bytes (the machine stores it under a fresh name) —
+   *  not this machine's staged name; the operator's name for it is in `attachmentNames`. */
   private async upload(images: string[], creds: RemoteTarget): Promise<string[] | UploadFailure> {
     const paths: string[] = [];
     for (const [i, local] of images.entries()) {
@@ -265,7 +265,7 @@ export class RemoteDispatcher {
       if (!(await file.exists())) {
         return { reason: `${which} is no longer staged here`, httpStatus: null };
       }
-      const res = await postRemoteFile(creds, "/api/uploads", file, basename(local), {
+      const res = await postRemoteFile(creds, "/api/uploads", file, `attachment${extname(local)}`, {
         fetch: this.fetch,
         timeoutMs: REMOTE_UPLOAD_TIMEOUT_MS,
       });

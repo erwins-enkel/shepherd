@@ -79,7 +79,9 @@ struct SessionListView: View {
             git: herd?.git ?? [:], finished: queues?.finishedSessions ?? [], owed: merge?.snapshot.owed ?? [])], selectedRepos: model.activeRepos)
     }
     private func setLens(_ value: HerdLens) { if let hub { hub.setLens(value) } else { model.lens = value } }
-    private func toggleRepo(_ path: String) { if let hub { hub.toggleRepo(path) } else { model.toggleRepo(path, additive: false) } }
+    private func toggleRepo(_ paths: Set<String>) {
+        if let hub { hub.toggleRepo(paths) } else { model.selectedRepos = model.activeRepos == paths ? [] : paths }
+    }
     private func toggleCollapsed(_ stage: HerdStage) { if let hub { hub.toggleCollapsed(stage) } else { model.toggleCollapsed(stage) } }
     private func selectRow(_ id: IOSSessionIdentity) { if let hub { hub.select(id) } else { select(id.sessionID) } }
     private var queues: QueuesModel? { app.extension(QueuesModel.self) }
@@ -206,7 +208,7 @@ struct SessionListView: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(L.t("repo_switcher_label"))
-            .accessibilityValue(activeRepos.sorted().map { ($0 as NSString).lastPathComponent }.joined(separator: ", "))
+            .accessibilityValue(Set(activeRepos.map { ($0 as NSString).lastPathComponent }).sorted().joined(separator: ", "))
             .accessibilityIdentifier("show-repos")
             if app.liveRequestAudit == nil { newTaskButton(bottom: true) }
         }
@@ -325,8 +327,8 @@ struct SessionListView: View {
         ScrollView(.horizontal) {
             HStack(spacing: 6) {
                 ForEach(chips) { chip in
-                    let selected = activeRepos.contains(chip.path)
-                    Button { toggleRepo(chip.path) } label: {
+                    let selected = !activeRepos.isEmpty && chip.paths.isSuperset(of: activeRepos)
+                    Button { toggleRepo(chip.paths) } label: {
                         HStack(spacing: 5) {
                             Text(verbatim: chip.name)
                             Text(verbatim: String(chip.count)).monospacedDigit()

@@ -808,6 +808,7 @@
 "native_ios_steers_sent" = "Sent: %1$@";
 "native_ios_steers_swipe_hint" = "Swipe right to return to the terminal";
 "native_ios_steers_title" = "Steers";
+"native_ios_terminal_accept_suggestion" = "Accept suggestion (Tab)";
 "native_ios_terminal_dialog_keys" = "Answer keys";
 "native_ios_terminal_dialog_type" = "Type an answer";
 "native_ios_terminal_focus" = "Focus on the terminal";

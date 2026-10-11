@@ -343,8 +343,17 @@ struct IOSTerminalHostView: UIViewRepresentable {
             // getLine is display-relative: local history on screen is not the live dialog.
             if !view.agentOwnsScroll, view.canScroll, view.scrollPosition < 1 { return }
             let terminal = view.getTerminal()
-            model.screenChanged((0..<terminal.rows).map {
+            let rows = (0..<terminal.rows).map {
                 terminal.getLine(row: $0)?.translateToString(trimRight: true) ?? ""
+            }
+            model.screenChanged(rows, suggestion: IOSTerminalSuggestion.text(rows) { row in
+                guard let line = terminal.getLine(row: row) else { return [] }
+                // A wide character's trailing cell has width 0 and carries no character.
+                return (0..<line.count).map { line[$0] }.filter { $0.width > 0 }.map {
+                    let character = $0.getCharacter()
+                    return IOSTerminalSuggestion.Cell(character: character == "\0" ? " " : character,
+                        dim: $0.attribute.style.contains(.dim))
+                }
             })
         }
 

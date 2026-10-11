@@ -41,6 +41,7 @@ struct IOSTerminalReplyBar: View {
                             .frame(width: 44, height: 44)
                     }
                 }
+                if !model.showsWriting && model.offersSuggestion { suggestionKey }
                 Group {
                     if model.showsWriting { accessoryKeys }
                     else if let steerChips { steerChips }
@@ -200,6 +201,25 @@ struct IOSTerminalReplyBar: View {
         .disabled(!model.canAttach)
         .accessibilityLabel(L.t("newtask_attach_aria"))
         .accessibilityIdentifier("terminal-attach")
+    }
+
+    /// Claude's dim follow-up suggestion is accepted with Tab, without opening the keyboard.
+    private var suggestionKey: some View {
+        Button { model.sendKey(.tab) } label: {
+            HStack(spacing: 5) {
+                Text(verbatim: IOSTerminalKey.tab.keycap)
+                Image(systemName: "arrow.right.to.line")
+            }
+            .font(.system(.subheadline, design: .monospaced))
+            .padding(.horizontal, 12).frame(height: 32)
+            .background(ComposePalette.amber.opacity(0.12), in: Capsule())
+            .overlay(Capsule().stroke(ComposePalette.amber))
+        }
+        .foregroundStyle(ComposePalette.amber)
+        .frame(minHeight: 44).padding(.trailing, 6)
+        .accessibilityLabel(L.t("native_ios_terminal_accept_suggestion"))
+        .accessibilityValue(model.suggestion ?? "")
+        .accessibilityIdentifier("terminal-accept-suggestion")
     }
 
     private var accessoryKeys: some View {

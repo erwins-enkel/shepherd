@@ -85,18 +85,9 @@ struct TerminalSteerFooter: View {
         .onDisappear { allOpen = false; delivery.reset(); command.clear() }
     }
 
+    // The recap verdict + headline live in the action bar below, which shows on every tab.
     private func statusRow(_ session: Session) -> some View {
-        let recap = app.extension(ActionsModel.self)?.recap(for: sessionID)
-        return HStack(spacing: 8) {
-            if let content = RecapLine.content(for: recap) {
-                if !content.verdict.isEmpty {
-                    let tint = ShepherdPalette.badgeTint(RecapLine.tint(for: recap?.verdict))
-                    Text(verbatim: content.verdict.uppercased()).font(.caption.weight(.semibold))
-                        .padding(.horizontal, 7).padding(.vertical, 3)
-                        .foregroundStyle(tint).background(tint.opacity(0.12), in: Capsule())
-                }
-                Text(verbatim: content.headline).lineLimit(1).truncationMode(.tail)
-            }
+        HStack(spacing: 8) {
             Spacer(minLength: 8)
             TimelineView(.periodic(from: .now, by: 30)) { context in
                 let parts = [SessionStatusStyle.providerLabel(session.agentProvider),

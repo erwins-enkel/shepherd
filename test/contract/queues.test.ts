@@ -114,6 +114,8 @@ describe("held queue", () => {
     expect(stored.required).toEqual(core.required);
     expect(stored.additionalProperties).toBe(true);
     for (const [name, schema] of Object.entries(core.properties)) {
+      // A task for a connected machine (#2763) is held THERE, never here: no stored input has one.
+      if (name === "target") continue;
       expect(stored.properties[name], name).toEqual(schema);
     }
   });

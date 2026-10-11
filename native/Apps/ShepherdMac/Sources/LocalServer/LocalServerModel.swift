@@ -41,6 +41,32 @@ enum LocalServerCopy {
         case .healthTimeout: L.t("native_local_error_health_timeout")
         }
     }
+
+    static func tailnetReason(_ reason: TailnetUnavailableReason) -> String {
+        switch reason {
+        case .cliMissing: L.t("native_local_tailnet_cli_missing")
+        case .notConnected: L.t("native_local_tailnet_not_connected")
+        case .httpsDisabled: L.t("native_local_tailnet_https_disabled")
+        }
+    }
+
+    static func tailnetFailure(_ failure: TailnetExposureFailure, port: Int) -> String {
+        switch failure {
+        case .unavailable(let reason): tailnetReason(reason)
+        case .portTaken: L.t("native_local_tailnet_port_taken", String(port))
+        case .commandFailed(let code): L.t("native_local_tailnet_failed", String(code))
+        case .notApplied: L.t("native_local_tailnet_not_applied")
+        }
+    }
+}
+
+/// Where the panel sends the operator to mint the token another Shepherd connects with.
+enum LocalTokenTarget: Equatable {
+    /// The native Access pane, which mints against the active profile — this server.
+    case accessSettings
+    /// This server's own web UI: the active profile is another server (or none), and
+    /// a token minted there would be for the wrong machine.
+    case webUI(URL)
 }
 
 /// The Welcome panel's view model. App-lifetime, because the panel exists before
@@ -115,6 +141,12 @@ final class LocalServerModel {
     /// into `state` would hide Stop/Restart/Connect for a server that works.
     private(set) var updateFailure: LocalServerFailure?
     private(set) var isCheckingUpdate = false
+    /// What `tailscale serve` does for this server's port; nil until first read.
+    private(set) var tailnet: TailnetExposureStatus?
+    private(set) var tailnetBusy = false
+    private(set) var tailnetFailure: TailnetExposureFailure?
+    private var tailnetGeneration = 0
+    private let tailnetExposure: LocalTailnetExposure
     private var updateCheckGeneration = 0
     private var lastUpdateCheckAttempt: Date?
     private var updateTask: Task<Void, Never>?
@@ -153,11 +185,17 @@ final class LocalServerModel {
         updateNow: @escaping @Sendable () -> Date = { Date() },
         updateMonitorClock: any SupervisorClock = SystemSupervisorClock(),
         bunVersion: @escaping @Sendable (URL) async -> String? = { await LocalServerEnvironment.probeBunVersion($0) },
+        tailnet: LocalTailnetExposure? = nil,
         clock: any SupervisorClock = SystemSupervisorClock()
     ) {
         self.environment = environment
-        self.updatesAllowed = !(isolated || LaunchEnvironment.configuration().isIsolated)
+        let isolatedLaunch = isolated || LaunchEnvironment.configuration().isIsolated
+        self.updatesAllowed = !isolatedLaunch
             || (allowTemporaryUpdates && environment.isTemporaryUpdateEnvironment)
+        // Automated launches must never read or change the operator's serve config.
+        self.tailnetExposure = tailnet ?? (isolatedLaunch
+            ? LocalTailnetExposure(environment: environment, locate: { nil })
+            : LocalTailnetExposure(environment: environment))
         self.discoverExternal = discoverExternal ?? {
             if let probeExternal {
                 return await probeExternal() ? .init(ok: true, version: "unknown") : nil
@@ -431,7 +469,12 @@ final class LocalServerModel {
 
     private static func allowsAutomaticUpdates(_ profile: ServerProfile?, endpoint: URL) -> Bool {
         guard let profile else { return true } // Welcome has no active profile.
-        return profile.mode == .local && profile.baseURL.scheme == endpoint.scheme
+        return targetsEndpoint(profile, endpoint: endpoint)
+    }
+
+    /// The profile is this supervisor's own loopback endpoint, not another server.
+    static func targetsEndpoint(_ profile: ServerProfile, endpoint: URL) -> Bool {
+        profile.mode == .local && profile.baseURL.scheme == endpoint.scheme
             && profile.baseURL.port == endpoint.port
             && ["127.0.0.1", "localhost", "::1"].contains(profile.baseURL.host(percentEncoded: false) ?? "")
             && ["", "/"].contains(profile.baseURL.path)
@@ -584,6 +627,47 @@ final class LocalServerModel {
             do { try deployment?.rollback() }
             catch { Log.app.error("Could not restore backend on quit: \(String(describing: error))") }
         }
+    }
+
+    /// Reads the serve config for this port. Panel-driven only (appear and Recheck):
+    /// nothing polls Tailscale in the background.
+    func refreshTailnet() async {
+        guard !tailnetBusy else { return }
+        tailnetGeneration += 1
+        let expected = tailnetGeneration
+        let status = await tailnetExposure.status()
+        guard tailnetGeneration == expected, !tailnetBusy else { return }
+        tailnet = status
+    }
+
+    /// The tailnet switch. Toggling never restarts the server: the mapping sits in
+    /// front of the loopback listener, so loopback stays up throughout. After a
+    /// failure the status is re-read, so the switch never shows a state the serve
+    /// config does not have.
+    func setTailnetExposure(_ exposed: Bool) async {
+        guard !tailnetBusy else { return }
+        tailnetBusy = true
+        tailnetGeneration += 1
+        tailnetFailure = nil
+        defer { tailnetBusy = false }
+        let result: Result<TailnetExposureStatus, TailnetExposureFailure>
+        if exposed {
+            result = await tailnetExposure.enable(log: log)
+        } else {
+            result = await tailnetExposure.disable(log: log)
+        }
+        await pullLog()
+        switch result {
+        case .success(let status): tailnet = status
+        case .failure(let failure):
+            tailnetFailure = failure
+            tailnet = await tailnetExposure.status()
+        }
+    }
+
+    func tokenTarget(activeProfile: ServerProfile?) -> LocalTokenTarget {
+        guard let activeProfile, Self.targetsEndpoint(activeProfile, endpoint: baseURL) else { return .webUI(baseURL) }
+        return .accessSettings
     }
 
     func acknowledgeExternalServer() {

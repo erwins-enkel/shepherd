@@ -90,7 +90,10 @@ struct RootView: View {
         #endif
     }
     @ViewBuilder private var selectedDetail: some View {
-        if let id = app.selectedSessionID,
+        if let id = app.selectedSessionID, let remote = app.store?.remoteSession(id: id) {
+            IOSRemoteSessionDetailView(session: remote)
+                .id(id)
+        } else if let id = app.selectedSessionID,
            let session = app.store?.session(id: id) ?? app.extension(QueuesModel.self)?.finishedSessions.first(where: { $0.id == id }),
            let detail = app.extension(DetailModel.self),
            let terminals = app.extension(IOSTerminalController.self) {

@@ -45,6 +45,8 @@ struct SessionRow: View {
                             : L.t("unitrow_repo_filter_aria", copy.repository))
                         .accessibilityIdentifier("session-repo-\(session.id)")
                 } else { repository(copy.repository) }
+                // A session mirrored from a connected machine names that machine (#2768).
+                MachineBadge(session: session, now: Int(Date.now.timeIntervalSince1970 * 1_000))
                 Spacer(minLength: 0)
                 Text(verbatim: SessionStatusStyle.label(session.status))
                     .modifier(ShepherdMonoFont(label: true, weight: .bold))
@@ -56,6 +58,13 @@ struct SessionRow: View {
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("session-prompt-\(session.id)")
+            if let line = RemoteSessionCopy.disconnectedLine(
+                session, now: Int(Date.now.timeIntervalSince1970 * 1_000)) {
+                Text(verbatim: line)
+                    .modifier(ShepherdMonoFont(label: true))
+                    .foregroundStyle(ShepherdPalette.amber)
+                    .accessibilityIdentifier("session-disconnected-\(session.id)")
+            }
             if let note = copy.note, !note.isEmpty {
                 Text(verbatim: note)
                     .modifier(ShepherdMonoFont(label: true))
@@ -65,7 +74,7 @@ struct SessionRow: View {
                     .accessibilityIdentifier("session-note-\(session.id)")
             }
             Button { showsDetails = true } label: {
-                Text(verbatim: session.desig + " · " + copy.environment)
+                Text(verbatim: RemoteSessionCopy.qualifiedDesig(session) + " · " + copy.environment)
                     .modifier(ShepherdMonoFont(label: true))
                     .foregroundStyle(ShepherdPalette.muted)
                     .lineLimit(2)
@@ -103,7 +112,7 @@ struct SessionRow: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text(verbatim: L.t("native_session_details_title")).font(.headline)
-                Text(verbatim: session.desig + " · " + session.name).font(.subheadline)
+                Text(verbatim: RemoteSessionCopy.qualifiedDesig(session) + " · " + session.name).font(.subheadline)
                 detailSection(L.t("newtask_repo_label"), text: session.repoPath)
                 let start = Date(timeIntervalSince1970: Double(session.createdAt) / 1_000)
                     .formatted(date: .abbreviated, time: .shortened)

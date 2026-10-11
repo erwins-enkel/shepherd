@@ -90,6 +90,7 @@ jobs:
             test/proc-probes-darwin.integration.test.ts \
             test/proc-probes-darwin.macos.test.ts \
             test/preview.test.ts \
+            test/capability-probe-xcode.test.ts \
             test/capability-probe-xcode.macos.test.ts
 
       - name: Full root suite (manual baseline)

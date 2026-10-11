@@ -842,7 +842,7 @@ components:
         - instanceId
         - name
         - platform
-      description: Set only on a session mirrored from a connected machine. Absent on this instance's own sessions. A `session:*` frame about a mirrored session carries the same `host` and `connection`. Its actions and reads under `/api/sessions/{id}` are forwarded to the machine when they are on the forwarded list (reply, interrupt, archive and its leftovers, go, answer-plan-questions, rename, amendments, autopilot, automerge, ready, diff and its annotations, messages, activity, usage, worktree and scratchpad listings, downloads and upload); any other route answers 409 `remote_unsupported`, an id more than one machine reports 409 `remote_ambiguous`, and a machine that gives no usable answer 502 `machine_unreachable`, `machine_timeout` or `machine_unauthorized`.
+      description: "Set only on a session mirrored from a connected machine. Absent on this instance's own sessions. A `session:*` frame about a mirrored session carries the same `host` and `connection`. Its actions and reads under `/api/sessions/{id}` are forwarded to the machine when they are on the forwarded list (reply, interrupt, archive and its leftovers, go, answer-plan-questions, rename, amendments, autopilot, automerge, ready, diff and its annotations, messages, activity, usage, worktree and scratchpad listings, downloads and upload, and the preview: its start, stop and where it opens, a URL on the machine's own host); any other route answers 409 `remote_unsupported`, an id more than one machine reports 409 `remote_ambiguous`, and a machine that gives no usable answer 502 `machine_unreachable`, `machine_timeout` or `machine_unauthorized`."
       properties:
         instanceId:
           type: string

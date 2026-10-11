@@ -15,6 +15,7 @@
   import { tabTicker } from "#lib/tab-ticker.svelte.js";
   import {
     listSessions,
+    listRemoteDispatches,
     createSession,
     archiveSession,
     closePr,
@@ -528,6 +529,10 @@
         ? store.remoteSessions.filter((s) => displayStatus(s, {}, {}) === statusFilter)
         : store.remoteSessions,
   );
+  // Tasks whose start on a machine is unknown (#2774) are no sessions: they show only unfiltered.
+  const herdRemoteDispatches = $derived(
+    repoFilter.size || statusFilter ? [] : store.remoteDispatches,
+  );
   // Display name of the active filter for the herd's empty-state copy: null when unfiltered,
   // the basename for a single repo, "N repos" for a multi-selection.
   const repoFilterName = $derived(
@@ -950,6 +955,14 @@
       .catch(() => {});
   }
 
+  /** Tasks whose start on a machine is unknown (#2774): `remote:dispatch` is push-on-change only,
+   *  so a change while the socket was down is only seen by re-reading the list. */
+  function refreshRemoteDispatches() {
+    listRemoteDispatches()
+      .then((list) => store.setRemoteDispatches(list))
+      .catch(() => {});
+  }
+
   function refreshBuildQueues() {
     bootstrapBuildQueues({
       getBuildQueues,
@@ -974,6 +987,7 @@
     listSessions()
       .then((list) => store.setAll(list))
       .catch(() => {});
+    refreshRemoteDispatches();
     getUsageLimits()
       .then((r) => store.setUsageLimits(r.limits))
       .catch(() => {});
@@ -1880,6 +1894,7 @@
         else if (!selectedId && store.sessions[0]) selectedId = store.sessions[0].id;
       })
       .catch(() => {});
+    refreshRemoteDispatches();
     getUsageLimits()
       .then((r) => store.setUsageLimits(r.limits))
       .catch(() => {});
@@ -2332,7 +2347,19 @@
    *  right away, before the mirror relays the machine's own frame — and since its repo is that
    *  machine's checkout, the repo filter does not follow it. */
   async function submitOnMachine(taskInput: CreateInput, dispatchKey: string | undefined) {
-    const r = await createSession(taskInput, undefined, dispatchKey);
+    // Sent, but no answer (#2774): this Shepherd follows it up, and the herd shows it as "start
+    // status unknown" in that machine's group — the dialog has nothing left to do. A network error
+    // on the way HERE stays with the dialog's Retry: the task may never have reached this Shepherd.
+    const r = await createSession(taskInput, undefined, dispatchKey).catch((err: unknown) => {
+      if (err instanceof ApiError && err.code === "remote_dispatch_unknown") return null;
+      throw err;
+    });
+    if (r === null) {
+      toasts.info(m.toast_dispatch_unknown());
+      showNew = false;
+      resetCompose();
+      return;
+    }
     if ("held" in r) {
       toasts.info(m.toast_task_held_on({ machine: r.host?.name ?? "" }));
     } else {
@@ -3171,6 +3198,7 @@
               showSettings = true;
             }}
             flow={true}
+            remoteDispatches={herdRemoteDispatches}
             bind:filter={herdFilter}
             workingBlocked={store.workingBlocked}
             backgroundBusy={store.backgroundBusy}
@@ -3373,6 +3401,7 @@
               collapsedStageKeys={collapsedStages}
               onstagecollapsetoggle={toggleStageCollapse}
               touch={touch.current}
+              remoteDispatches={herdRemoteDispatches}
               completedEpics={completedEpicsShown}
               ondismissepic={onDismissEpic}
               onlandepic={onLandEpic}

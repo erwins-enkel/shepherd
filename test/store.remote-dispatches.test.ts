@@ -55,6 +55,43 @@ describe("remote_dispatches", () => {
     });
   });
 
+  test("open dispatches are the unconfirmed ones, oldest first, readable by id", () => {
+    const store = new SessionStore(":memory:");
+    store.insertRemoteDispatch(
+      row({ id: "d-3", clientKey: "k-3", state: "unknown", createdAt: 3 }),
+    );
+    store.insertRemoteDispatch(
+      row({ id: "d-1", clientKey: "k-1", state: "sending", createdAt: 1 }),
+    );
+    store.insertRemoteDispatch(
+      row({ id: "d-2", clientKey: "k-2", state: "started", createdAt: 2 }),
+    );
+    store.insertRemoteDispatch(
+      row({ id: "d-4", clientKey: "k-4", state: "canceling", createdAt: 4 }),
+    );
+    store.insertRemoteDispatch(
+      row({ id: "d-5", clientKey: "k-5", state: "canceled", createdAt: 5 }),
+    );
+    expect(store.listOpenRemoteDispatches().map((r) => r.id)).toEqual(["d-1", "d-3", "d-4"]);
+    expect(store.getRemoteDispatch("d-2")).toMatchObject({ clientKey: "k-2", state: "started" });
+    expect(store.getRemoteDispatch("nope")).toBeNull();
+  });
+
+  test("a cancel marks only an unconfirmed dispatch, and settles from there", () => {
+    const store = new SessionStore(":memory:");
+    store.insertRemoteDispatch(row({ state: "unknown" }));
+    store.insertRemoteDispatch(row({ id: "d-2", clientKey: "key-2", state: "started" }));
+    expect(store.markRemoteDispatchCanceling("d-1", 5)).toBe(true);
+    expect(store.markRemoteDispatchCanceling("d-2", 5)).toBe(false);
+    expect(store.markRemoteDispatchCanceling("d-1", 6)).toBe(false);
+    expect(store.getRemoteDispatch("d-1")).toMatchObject({ state: "canceling", updatedAt: 5 });
+    expect(store.getRemoteDispatch("d-2")!.state).toBe("started");
+
+    store.settleRemoteDispatch("d-1", { ...none, state: "canceled" }, 7);
+    store.settleRemoteDispatch("d-1", { ...none, state: "unknown" }, 8);
+    expect(store.getRemoteDispatch("d-1")).toMatchObject({ state: "canceled", updatedAt: 7 });
+  });
+
   test("where the attachments landed is written once and kept", () => {
     const store = new SessionStore(":memory:");
     store.insertRemoteDispatch(row());

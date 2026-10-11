@@ -1690,6 +1690,31 @@ export interface ClearMergedResult {
   machines: (MachineOutcome & { requested: string[]; cleared: string[] })[];
 }
 
+/** A task sent to a connected machine (#2774), mirrors RemoteDispatchView in
+ *  src/remote-instances/dispatch.ts. The herd shows it while `unknown` (no answer came back, it may
+ *  be running there) or `canceling`; every other state means it was settled. */
+export interface RemoteDispatch {
+  id: string;
+  state:
+    | "sending"
+    | "unknown"
+    | "canceling"
+    | "started"
+    | "held"
+    | "rejected"
+    | "upload_failed"
+    | "canceled";
+  host: SessionHost;
+  /** The issue title, else the prompt's first line. */
+  summary: string;
+  sessionId?: string;
+  heldId?: string;
+  reason?: string;
+  code?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 /** A manual operator step parsed from a PR's shepherd:manual-steps carrier (#1059). Mirrors the
  *  server `ManualStep` shape in src/manual-steps.ts. */
 export interface ManualStep {
@@ -2751,6 +2776,8 @@ export type WsEvent =
   /** Replaces every session mirrored from one machine (#2762): after each snapshot, on a
    *  connection change, and with `[]` when the machine is removed. */
   | { event: "remote:sessions"; data: { instanceId: string; sessions: Session[] } }
+  /** A task sent to a machine that no machine had confirmed changed state (#2774). */
+  | { event: "remote:dispatch"; data: RemoteDispatch }
   | {
       event: "session:experiment";
       data: { id: string; experimentId: string | null; experimentRole: ExperimentRole | null };

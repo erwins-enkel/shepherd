@@ -55,7 +55,29 @@ describe("HerdLensStrip header bits", () => {
     frame.style.width = "300px";
     document.body.appendChild(frame);
     render(HerdLensStrip, { props: { ...base, collapsible: true }, target: frame });
-    expect(frame.querySelector("#herd-collapse-btn")).not.toBeNull();
+    const btn = frame.querySelector<HTMLElement>("#herd-collapse-btn");
+    expect(btn).not.toBeNull();
+    // shares the lens row (no row of its own) but is not one of the lenses
+    const lens = frame.querySelector<HTMLElement>(".lens")!;
+    expect(
+      Math.abs(btn!.getBoundingClientRect().top - lens.getBoundingClientRect().top),
+    ).toBeLessThanOrEqual(1);
+    expect(btn!.closest('[role="group"]')).toBeNull();
+  });
+
+  it("keeps five lenses on one row, DE labels unclipped, beside the collapse control", async () => {
+    overwriteGetLocale(() => "de");
+    const frame = document.createElement("div");
+    // the touch-wide sidebar column (.grid.compact caps it at 288px)
+    frame.style.width = "288px";
+    document.body.appendChild(frame);
+    render(HerdLensStrip, { props: { ...base, collapsible: true }, target: frame });
+    const lenses = [...frame.querySelectorAll<HTMLElement>(".lens")];
+    const top = lenses[0].getBoundingClientRect().top;
+    for (const lens of lenses) expect(lens.getBoundingClientRect().top).toBe(top);
+    for (const lb of frame.querySelectorAll<HTMLElement>(".lens .lb")) {
+      expect(lb.scrollWidth).toBeLessThanOrEqual(lb.clientWidth);
+    }
   });
 
   it("renders the status chip only when a status filter is active", async () => {

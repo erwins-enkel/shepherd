@@ -330,14 +330,15 @@ once. Name your submission with an `Idempotency-Key` as above: a retry with the 
 key and body goes out again to the **same** machine — never to another one — and
 a different body under that key is `409 dispatch_payload_mismatch`.
 
-| Outcome                                   | Answer                                                                                            |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Started there                             | `201` with the machine's session, plus `host` and `connection`                                    |
-| Held there (its usage hold)               | `200 { held: true, id, count, host }` — `id` and `count` are the machine's                        |
-| The machine refused it                    | `422 { code: "remote_rejected", error: <its reason>, remoteStatus, remoteCode?, host }`           |
-| Sent, but no answer came back             | `504 { code: "remote_dispatch_unknown", dispatchId, host }` — send again with that key            |
-| Not connected right now (nothing sent)    | `409 { code: "remote_target_unavailable", reason }`                                               |
-| No such machine / no checkout of the repo | `422` with `remote_target_unknown` / `remote_project_missing` (`remote_project_unknown`: no slug) |
+| Outcome                                   | Answer                                                                                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Started there                             | `201` with the machine's session, plus `host` and `connection`                                         |
+| Held there (its usage hold)               | `200 { held: true, id, count, host }` — `id` and `count` are the machine's                             |
+| The machine refused it                    | `422 { code: "remote_rejected", error: <its reason>, remoteStatus, remoteCode?, host }`                |
+| Sent, but no answer came back             | `504 { code: "remote_dispatch_unknown", dispatchId, host }` — send again with that key                 |
+| Not connected right now (nothing sent)    | `409 { code: "remote_target_unavailable", reason }`                                                    |
+| No such machine / no checkout of the repo | `422` with `remote_target_unknown` / `remote_project_missing` (`remote_project_unknown`: no slug)      |
+| Platform not released (Windows)           | `422 { code: "remote_target_unreleased", reason: <platform> }` — listed in Settings, never sent a task |
 
 `504` means the task **may be running** on the machine. Sending it again with the
 same key is always safe: the machine replays what became of it and never starts it

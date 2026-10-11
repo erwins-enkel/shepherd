@@ -193,6 +193,32 @@ describe("Run on (#2763)", () => {
     expect(input.prompt).toBe("port the settings screen");
   });
 
+  const windows = () =>
+    machine({
+      instanceId: "win-1",
+      name: "WinBox",
+      info: { version: "2.2.0", federationApi: 1, platform: "windows", arch: "x64" },
+      released: false,
+    });
+
+  it("never offers a Windows machine (not released, #2770)", async () => {
+    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [windows(), machine()] });
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repo.path } });
+    await expect.poll(() => runOnSelect()?.options.length).toBe(2);
+    expect([...runOnSelect()!.options].map((o) => o.value)).not.toContain("win-1");
+  });
+
+  it("with only a Windows machine connected the dialog is unchanged", async () => {
+    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [windows()] });
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: { onsubmit, initialRepoPath: repo.path } });
+    await typePrompt("do it");
+    await submit();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(runOnSelect()).toBeNull();
+    expect(onsubmit.mock.calls[0]![0].target).toBeUndefined();
+  });
+
   it("says when no connected machine has the project", async () => {
     vi.mocked(listRemoteInstances).mockResolvedValue({
       instances: [machine({ projects: ["acme/other"] })],

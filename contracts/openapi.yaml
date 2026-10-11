@@ -5621,8 +5621,10 @@ paths:
             with `error` and `code` only, without `missing`.
             With a target also: the machine refused the task (remote_rejected — `error` is its
             reason, `remoteStatus`/`remoteCode` its answer, `host` the machine), no connected
-            machine has that ID (remote_target_unknown), the machine has no checkout of the project
-            (remote_project_missing) or the repo has no forge identity (remote_project_unknown).
+            machine has that ID (remote_target_unknown), the machine's platform is not released for
+            tasks (remote_target_unreleased — `reason` is the platform, e.g. windows), the machine has
+            no checkout of the project (remote_project_missing) or the repo has no forge identity
+            (remote_project_unknown).
           content:
             application/json:
               schema:

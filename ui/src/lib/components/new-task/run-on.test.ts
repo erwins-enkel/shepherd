@@ -47,6 +47,19 @@ describe("Run on machines (#2763)", () => {
     expect(runOnMachines([machine({ projects: null })], "acme/app")).toEqual([]);
   });
 
+  it("never offers a machine whose platform is not released (Windows, #2770)", () => {
+    const windows = machine({
+      instanceId: "w1",
+      info: { version: "2.2.0", federationApi: 1, platform: "windows", arch: "x64" },
+      released: false,
+    });
+    expect(runOnMachines([windows, machine()], "acme/app").map((x) => x.instanceId)).toEqual([
+      "m1",
+    ]);
+    expect(runOnMachines([windows], "acme/app")).toEqual([]);
+    expect(connectedMachines([windows])).toEqual([]);
+  });
+
   it("labels a machine with its platform once it is known", () => {
     expect(machineLabel(machine())).toBe("MacBook (macOS)");
     expect(machineLabel(machine({ info: null }))).toBe("MacBook");
@@ -105,6 +118,9 @@ describe("runOnFailureMessage (#2763)", () => {
     );
     expect(runOnFailureMessage(err("remote_target_unavailable"), "MacBook")).toBe(
       m.newtask_runon_unavailable({ machine: "MacBook" }),
+    );
+    expect(runOnFailureMessage(err("remote_target_unreleased"), "MacBook")).toBe(
+      m.newtask_runon_unreleased({ machine: "MacBook" }),
     );
     expect(runOnFailureMessage(err("remote_project_missing"), "MacBook")).toBe(
       m.newtask_runon_project_missing({ machine: "MacBook" }),

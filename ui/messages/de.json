@@ -6039,6 +6039,7 @@
   "newtask_runon_unknown": "Keine Antwort von {machine} – die Aufgabe läuft dort womöglich schon. Erneut versuchen schickt dieselbe Aufgabe noch einmal an {machine}; sie startet nie doppelt.",
   "newtask_runon_rejected": "{machine} hat die Aufgabe abgelehnt: {reason}",
   "newtask_runon_unavailable": "{machine} ist gerade nicht erreichbar – es wurde nichts gestartet.",
+  "newtask_runon_unreleased": "{machine} läuft auf einer Plattform, die für Aufgaben noch nicht freigegeben ist – es wurde nichts gestartet.",
   "newtask_runon_project_missing": "{machine} hat dieses Projekt nicht ausgecheckt – es wurde nichts gestartet.",
   "newtask_runon_gone": "{machine} ist nicht mehr verbunden – es wurde nichts gestartet.",
   "newtask_runon_project_unknown": "Dieses Projekt hat keine Forge-Identität, deshalb kann es kein anderer Rechner ausführen.",

@@ -3187,6 +3187,10 @@ const REMOTE_REFUSAL: Record<RemoteRefusalCode, { status: number; error: string 
     status: 409,
     error: "the machine is not reachable right now; nothing was started",
   },
+  remote_target_unreleased: {
+    status: 422,
+    error: "the machine's platform is not released for tasks yet; nothing was started",
+  },
   remote_project_missing: { status: 422, error: "the machine has no checkout of this project" },
   dispatch_payload_mismatch: {
     status: 409,

@@ -299,6 +299,17 @@ describe("RemoteDispatcher", () => {
         "remote_target_unavailable",
       ],
       [
+        "a connected machine whose platform is not released (Windows, #2770)",
+        [
+          machine(MAC, {
+            info: { version: "2.2.0", federationApi: 1, platform: "windows", arch: "x64" },
+            released: false,
+          }),
+        ],
+        undefined,
+        "remote_target_unreleased",
+      ],
+      [
         "a machine without the project",
         [machine(MAC, { projects: ["acme/other"] })],
         undefined,
@@ -326,6 +337,21 @@ describe("RemoteDispatcher", () => {
         expect(store.getRemoteDispatchByKey("key-1")).toBeNull();
       });
     }
+  });
+
+  test("a Windows machine is refused with its platform as the reason, before its repos are read", async () => {
+    const net = scripted([]);
+    const windows = machine(MAC, {
+      info: { version: "2.2.0", federationApi: 1, platform: "windows", arch: "x64" },
+      released: false,
+    });
+    const { dispatcher } = setup(net.fetch, [windows]);
+    expect(await dispatcher.submit(submit())).toEqual({
+      kind: "refused",
+      code: "remote_target_unreleased",
+      reason: "windows",
+    });
+    expect(net.calls).toHaveLength(0);
   });
 
   test("a stored dispatch whose machine was removed is refused, never sent elsewhere", async () => {

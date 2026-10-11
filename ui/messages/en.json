@@ -6039,6 +6039,7 @@
   "newtask_runon_unknown": "No answer from {machine} — the task may have started there. Retry sends the same task to {machine} again; it never starts twice.",
   "newtask_runon_rejected": "{machine} declined the task: {reason}",
   "newtask_runon_unavailable": "{machine} isn't reachable right now — nothing was started.",
+  "newtask_runon_unreleased": "{machine} runs on a platform that isn't released for tasks yet — nothing was started.",
   "newtask_runon_project_missing": "{machine} has no checkout of this project — nothing was started.",
   "newtask_runon_gone": "{machine} is no longer connected — nothing was started.",
   "newtask_runon_project_unknown": "This project has no forge identity, so no other machine can run it.",

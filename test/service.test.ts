@@ -47,7 +47,7 @@ import type { SandboxProfile } from "../src/sandbox";
 import { agentMcpConfigArg, agentTools } from "../src/agent-control";
 import { operatorLanguageBlock } from "../src/operator-language";
 import { agentSkillsArgs } from "../src/agent-skills";
-import { WorktreeRestoreError } from "../src/worktree";
+import { WorktreeMissingBaseError, WorktreeRestoreError } from "../src/worktree";
 import { HOUSE_RULES_TAG } from "../src/house-rules";
 import { config, parseKillSwitch, parseTrimAutoContext } from "../src/config";
 import { MAX_IMAGES } from "../src/validate";
@@ -122,6 +122,88 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
   ]);
   expect(s.claudeSessionId).toMatch(/^[0-9a-f-]{36}$/);
   expect(store.get(s.id)?.claudeSessionId).toBe(s.claudeSessionId);
+});
+
+/** A create-path service whose worktree reports `head` as the new worktree's HEAD, recording
+ *  every worktree call so a test can see which base was used and whether anything was rolled back. */
+function baseCommitHarness(head: string | null) {
+  const store = new SessionStore(":memory:");
+  const calls = { ensureBaseRef: 0, ensureCommit: [] as string[], createBase: "", removed: 0 };
+  const service = new SessionService({
+    store,
+    namer: async () => "base-commit",
+    worktree: {
+      ensureBaseRef: async () => {
+        calls.ensureBaseRef++;
+        return stubBaseRef({ baseRef: "f".repeat(40) });
+      },
+      ensureCommit: async (_repo: string, sha: string) => {
+        calls.ensureCommit.push(sha);
+      },
+      branchExists: () => false,
+      create: (_repo: string, base: string) => {
+        calls.createBase = base;
+        return {
+          worktreePath: "/wt/base-commit",
+          branch: "shepherd/base-commit",
+          isolated: true,
+          baseCommit: head,
+        };
+      },
+      remove: () => {
+        calls.removed++;
+      },
+    } as any,
+    herdr: {
+      start: async (_name: string, cwd: string) => ({
+        terminalId: "term_b",
+        cwd,
+        agent: "claude",
+        agentStatus: "working",
+        paneId: "p",
+        tabId: "t",
+        workspaceId: "w",
+      }),
+      list: () => [],
+    } as any,
+  });
+  const input = {
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "base it",
+    model: null,
+    images: [],
+  };
+  return { store, service, calls, input };
+}
+
+test("createSession: records the worktree's HEAD as the session's base commit (#2761)", async () => {
+  const head = "c".repeat(40);
+  const { store, service, calls, input } = baseCommitHarness(head);
+  const s = await service.create(input);
+  expect(calls.ensureBaseRef).toBe(1);
+  expect(calls.createBase).toBe("f".repeat(40)); // the freshened upstream tip, as before
+  expect(s.baseCommit).toBe(head);
+  expect(store.get(s.id)?.baseCommit).toBe(head);
+});
+
+test("createSession: an explicit base commit is used as-is, never freshened (#2761)", async () => {
+  const sha = "d".repeat(40);
+  const { store, service, calls, input } = baseCommitHarness(sha);
+  const s = await service.create({ ...input, baseCommit: sha });
+  expect(calls.ensureBaseRef).toBe(0);
+  expect(calls.ensureCommit).toEqual([sha]);
+  expect(calls.createBase).toBe(sha);
+  expect(s.baseBranch).toBe("main"); // still the PR target
+  expect(store.get(s.id)?.baseCommit).toBe(sha);
+});
+
+test("createSession: a worktree that did not land on the explicit commit fails and rolls back", async () => {
+  const { store, service, calls, input } = baseCommitHarness("e".repeat(40));
+  const err = await service.create({ ...input, baseCommit: "d".repeat(40) }).catch((e) => e);
+  expect(err).toBeInstanceOf(WorktreeMissingBaseError);
+  expect(calls.removed).toBe(1);
+  expect(store.list()).toHaveLength(0);
 });
 
 test("createSession: emits session_created telemetry exactly once with primitive-only props", async () => {
@@ -2831,6 +2913,7 @@ test("archive without a reaper just closes the session (no leftover handling)", 
     namer: async () => "x",
     worktree: {
       ensureBaseRef: async () => stubBaseRef(),
+      ensureCommit: async () => {},
       create: () => ({}) as any,
       remove: () => {},
       branchExists: () => false,
@@ -2874,6 +2957,7 @@ test("leftovers proxies to the reaper for the session; [] for unknown id", () =>
     namer: async () => "x",
     worktree: {
       ensureBaseRef: async () => stubBaseRef(),
+      ensureCommit: async () => {},
       create: () => ({}) as any,
       remove: () => {},
       branchExists: () => false,
@@ -2923,6 +3007,7 @@ test("archive reaps only the selected leftovers, re-detected (no trusting raw cl
     namer: async () => "x",
     worktree: {
       ensureBaseRef: async () => stubBaseRef(),
+      ensureCommit: async () => {},
       create: () => ({}) as any,
       remove: () => {},
       branchExists: () => false,
@@ -2969,6 +3054,7 @@ test("archive with no reap keys never calls the reaper", async () => {
     namer: async () => "x",
     worktree: {
       ensureBaseRef: async () => stubBaseRef(),
+      ensureCommit: async () => {},
       create: () => ({}) as any,
       remove: () => {},
       branchExists: () => false,

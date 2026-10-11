@@ -37,3 +37,13 @@ _Avoid_: sandboxed browser, restricted attach
 **Browser View**:
 The operator's live, interactive picture of the Shared Browser inside the HUD.
 _Avoid_: screencast, remote desktop, VNC
+
+### Task submission
+
+**Dispatch**:
+One task submission sent with an `Idempotency-Key`, accepted at most once; its outcome (pending, started, held, failed) survives restarts and is read back by that key.
+_Avoid_: job, order, request (overloaded)
+
+**Base Commit**:
+The commit a session's worktree was actually created from; an explicitly requested one is used as-is, never freshened to the branch tip.
+_Avoid_: base sha, start commit

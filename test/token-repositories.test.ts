@@ -38,7 +38,11 @@ test("repository policy: method and full leaf must match, including normalized s
   const policy = (method: string, path: string) =>
     repositoryRoutePolicy(method, new URL(`http://localhost${path}`));
   expect(policy("GET", "/api//sessions/abc/activity/")).toEqual({ kind: "session", id: "abc" });
+  expect(policy("GET", "/api/dispatches/k1")).toEqual({ kind: "dispatch", id: "k1" });
+  expect(policy("DELETE", "/api/dispatches/k1")).toEqual({ kind: "dispatch", id: "k1" });
   for (const [method, path] of [
+    ["POST", "/api/dispatches/k1"],
+    ["GET", "/api/dispatches/k1/extra"],
     ["POST", "/api/settings"],
     ["GET", "/api/sessions/clear-merged"],
     ["POST", "/api/sessions/abc/constructor"],

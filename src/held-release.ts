@@ -15,7 +15,10 @@ import type { UsageLimits } from "./usage-limits";
 
 export interface HeldReleaseDeps {
   codexCapacity?: (taskId?: string) => Promise<boolean>;
-  store: Pick<SessionStore, "listHeldTasks" | "removeHeldTask" | "countHeldTasks">;
+  store: Pick<
+    SessionStore,
+    "listHeldTasks" | "removeHeldTask" | "countHeldTasks" | "markHeldDispatchStarted"
+  >;
   service: { create(input: CreateSessionInput): Promise<Session> };
   usageLimits: { limits(now: number): UsageLimits };
   events: { emit(event: string, data: unknown): void };
@@ -66,6 +69,7 @@ export async function releaseHeldTasks(
       // appears in the Herd live; the held:changed badge update follows below.
       deps.events.emit("session:new", s);
       deps.store.removeHeldTask(task.id);
+      deps.store.markHeldDispatchStarted(task.id, s.id);
       released++;
       // A human linked an issue before the task was held: stamp the drain claim now that it's
       // spawning, matching handleSessionCreate/heldSpawn — so the board reflects it's being

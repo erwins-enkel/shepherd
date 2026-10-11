@@ -37,6 +37,10 @@ export interface Session {
   prompt: string;
   repoPath: string;
   baseBranch: string;
+  /** The commit the session's worktree was actually created from (#2761) — its HEAD right after
+   *  `git worktree add`, before the agent commits anything. null for a non-git repo, a clean
+   *  terminal, or a row that predates the column. Optional so pre-existing fixtures need no change. */
+  baseCommit?: string | null;
   branch: string | null; // null when cwd fallback
   worktreePath: string;
   isolated: boolean;
@@ -330,6 +334,10 @@ export interface StandardCreateInput {
   terminal?: false;
   repoPath: string;
   baseBranch: string;
+  /** An explicitly requested base commit (full hex sha, #2761). When set the worktree is created
+   *  at exactly this commit — never freshened to `baseBranch`'s upstream tip; `baseBranch` stays
+   *  the PR target. Absent → the base is resolved from `baseBranch` as usual. */
+  baseCommit?: string;
   prompt: string;
   agentProvider?: AgentProvider;
   model: string | null; // null = provider default (no --model flag)
@@ -1579,6 +1587,35 @@ export interface HeldTask {
   /** Hold reason: `'usage'` = usage-gate hold; `'capacity'` = plugin-refused (no account). */
   reason: "usage" | "capacity";
 }
+
+/** Outcome states of a keyed submission (#2761, `src/dispatch.ts`). */
+export const DISPATCH_STATES = ["pending", "started", "held", "failed"] as const;
+export type DispatchState = (typeof DISPATCH_STATES)[number];
+
+/** One `Idempotency-Key` submission of `POST /api/sessions`, persisted before anything runs. */
+export interface DispatchRecord {
+  id: string;
+  state: DispatchState;
+  /** sha256 of the canonical request body; null for an id cancelled before it ever arrived. */
+  payloadHash: string | null;
+  repoPath: string | null;
+  sessionId: string | null;
+  heldId: string | null;
+  /** Why a `failed` dispatch failed (the create's error text). */
+  reason: string | null;
+  /** Machine-readable failure code, when there is one. */
+  code: string | null;
+  /** HTTP status the failed create answered, replayed to a retry. */
+  httpStatus: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** How a settled dispatch ended — the fields `settleDispatch` writes over a `pending` row. */
+export type DispatchOutcome = Pick<
+  DispatchRecord,
+  "state" | "sessionId" | "heldId" | "reason" | "code" | "httpStatus"
+>;
 
 // ── per-session usage snapshot ────────────────────────────────────────────────
 

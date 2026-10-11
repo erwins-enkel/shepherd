@@ -41,6 +41,9 @@ const MATRIX: readonly {
   { method: "POST", path: "/api/held/h1/spawn", allowed: ["submit", "full"] },
   { method: "PATCH", path: "/api/held/h1", allowed: ["submit", "full"] },
   { method: "DELETE", path: "/api/held/h1", allowed: ["submit", "full"] },
+  // #2761: the outcome of a keyed create, and withdrawing one that has not arrived
+  { method: "GET", path: "/api/dispatches/k1", allowed: ["submit", "full"] },
+  { method: "DELETE", path: "/api/dispatches/k1", allowed: ["submit", "full"] },
   { method: "POST", path: "/api/uploads", allowed: ["submit", "full"] },
   { method: "POST", path: "/api/issues", allowed: ["submit", "full"] },
   // full-only: the terminal, and a sample of the reach a v1 token had
@@ -133,6 +136,9 @@ test("no prefix matching: a sub-path does not inherit its parent's scope", () =>
   // …and the held id patterns match exactly one segment, so a deeper path is full-only.
   expect(scopeAllows("submit", "POST", "/api/held/h1/spawn/extra")).toBe(false);
   expect(scopeAllows("submit", "DELETE", "/api/held/h1/extra")).toBe(false);
+  expect(scopeAllows("submit", "GET", "/api/dispatches/k1/extra")).toBe(false);
+  expect(scopeAllows("submit", "GET", "/api/dispatches")).toBe(false);
+  expect(scopeAllows("submit", "POST", "/api/dispatches/k1")).toBe(false);
 });
 
 test("the method is part of the key: the right path with the wrong verb is refused", () => {

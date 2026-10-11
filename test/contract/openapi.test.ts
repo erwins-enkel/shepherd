@@ -9,7 +9,7 @@ import { RESIZE_PREFIX } from "../../src/operator-activity";
 import { SANDBOX_PROFILES } from "../../src/sandbox";
 import { PTY_GONE_CODE, PTY_SUPERSEDED_CODE, type AppDeps } from "../../src/server";
 import { TOKEN_SCOPES } from "../../src/token-scopes";
-import { AGENT_PROVIDERS, EFFORTS } from "../../src/types";
+import { AGENT_PROVIDERS, DISPATCH_STATES, EFFORTS } from "../../src/types";
 import { WorktreeMissingBaseError } from "../../src/worktree";
 import * as fx from "./event-fixtures";
 import {
@@ -566,6 +566,163 @@ describe("sessions", () => {
   });
 });
 
+// Idempotent acceptance (#2761): a keyed POST /api/sessions runs at most once, and
+// /api/dispatches/{id} reports or withdraws it. Every declared status of both operations is
+// exercised here (the coverage gate below checks), plus the outcomes the issue pins: a replay is
+// the same session, a hold later released reads as started, a withdrawn key never starts.
+describe("dispatches", () => {
+  const send = (key: string, body: Record<string, unknown>) =>
+    fetch(`${s.baseUrl}/api/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...bearer(token), "Idempotency-Key": key },
+      body: JSON.stringify({ repoPath: s.validRepo, baseBranch: "main", ...body }),
+    });
+  const dispatch = (key: string, method = "GET") =>
+    fetch(`${s.baseUrl}/api/dispatches/${key}`, { method, headers: bearer(token) });
+
+  test("a keyed create is replayed, not repeated; a different body is 409", async () => {
+    const key = `contract-${crypto.randomUUID()}`;
+    const first = await send(key, { prompt: "keyed" });
+    const created = (await validateResponse("POST", "/api/sessions", first)) as { id: string };
+    expect(first.status).toBe(201);
+    const before = s.deps.store.list().length;
+
+    const again = await send(key, { prompt: "keyed" });
+    expect(again.status).toBe(201);
+    expect(again.headers.get("Idempotent-Replayed")).toBe("true");
+    expect(((await validateResponse("POST", "/api/sessions", again)) as { id: string }).id).toBe(
+      created.id,
+    );
+    const other = await send(key, { prompt: "a different task" });
+    expect(other.status).toBe(409);
+    expect(await validateResponse("POST", "/api/sessions", other)).toMatchObject({
+      code: "dispatch_payload_mismatch",
+    });
+    expect(s.deps.store.list().length).toBe(before);
+
+    const got = await dispatch(key);
+    expect(got.status).toBe(200);
+    expect(await validateResponse("GET", "/api/dispatches/{id}", got)).toMatchObject({
+      id: key,
+      state: "started",
+      sessionId: created.id,
+    });
+    // Once arrived it can't be withdrawn here: 409 with the current dispatch.
+    const late = await dispatch(key, "DELETE");
+    expect(late.status).toBe(409);
+    expect(await validateResponse("DELETE", "/api/dispatches/{id}", late)).toMatchObject({
+      code: "dispatch_arrived",
+      dispatch: { state: "started" },
+    });
+  });
+
+  test("a held dispatch turns started when the hold is released", async () => {
+    const saved = s.stubs.usageLimits.limits;
+    s.stubs.usageLimits.limits = (now: number) => ({
+      ...saved(now),
+      session5h: { pct: config.usageHoldPct + 5, resetAt: now + 3_600_000 },
+    });
+    const key = `contract-${crypto.randomUUID()}`;
+    let heldId: string | undefined;
+    try {
+      const res = await send(key, { prompt: "held dispatch" });
+      expect(res.status).toBe(200);
+      heldId = ((await validateResponse("POST", "/api/sessions", res)) as { id: string }).id;
+      const held = await dispatch(key);
+      expect(await validateResponse("GET", "/api/dispatches/{id}", held)).toMatchObject({
+        state: "held",
+        heldId,
+      });
+    } finally {
+      s.stubs.usageLimits.limits = saved;
+    }
+    const spawned = await fetch(`${s.baseUrl}/api/held/${heldId}/spawn`, {
+      method: "POST",
+      headers: bearer(token),
+    });
+    expect(spawned.status).toBe(201);
+    const session = (await spawned.json()) as { id: string };
+    const started = await dispatch(key);
+    expect(await validateResponse("GET", "/api/dispatches/{id}", started)).toMatchObject({
+      state: "started",
+      sessionId: session.id,
+      heldId,
+    });
+  });
+
+  test("a withdrawn key never starts; unknown is 404, malformed is 400", async () => {
+    const key = `contract-${crypto.randomUUID()}`;
+    const missing = await dispatch(key);
+    await validateResponse("GET", "/api/dispatches/{id}", missing);
+    expect(missing.status).toBe(404);
+
+    const withdrawn = await dispatch(key, "DELETE");
+    expect(withdrawn.status).toBe(200);
+    expect(await validateResponse("DELETE", "/api/dispatches/{id}", withdrawn)).toMatchObject({
+      state: "failed",
+      code: "dispatch_canceled",
+    });
+    const before = s.deps.store.list().length;
+    const late = await send(key, { prompt: "arrives late" });
+    expect(late.status).toBe(409);
+    expect(await validateResponse("POST", "/api/sessions", late)).toMatchObject({
+      code: "dispatch_canceled",
+    });
+    expect(s.deps.store.list().length).toBe(before);
+
+    for (const method of ["GET", "DELETE"]) {
+      const bad = await dispatch("-not-a-key", method);
+      await validateResponse(method, "/api/dispatches/{id}", bad);
+      expect(bad.status).toBe(400);
+    }
+  });
+
+  test("the session carries the base commit it was created from; an explicit one is used as-is", async () => {
+    const head = "c".repeat(40);
+    const pinned = "d".repeat(40);
+    const savedCreate = s.stubs.worktree.create;
+    const bases: string[] = [];
+    s.stubs.worktree.ensureCommit = async () => {};
+    s.stubs.worktree.create = (_repo: string, base: string) => {
+      bases.push(base);
+      return {
+        worktreePath: "/wt",
+        branch: "shepherd/x",
+        isolated: true,
+        baseCommit: base === pinned ? pinned : head,
+      };
+    };
+    try {
+      const res = await send(`contract-${crypto.randomUUID()}`, { prompt: "base commit" });
+      const created = (await validateResponse("POST", "/api/sessions", res)) as {
+        id: string;
+        baseCommit: string;
+      };
+      expect(created.baseCommit).toBe(head);
+      const read = await fetch(`${s.baseUrl}/api/sessions/${created.id}`, {
+        headers: bearer(token),
+      });
+      expect(await validateResponse("GET", "/api/sessions/{id}", read)).toMatchObject({
+        baseCommit: head,
+      });
+
+      const explicit = await send(`contract-${crypto.randomUUID()}`, {
+        prompt: "pinned base",
+        baseCommit: pinned,
+      });
+      expect(explicit.status).toBe(201);
+      expect(await validateResponse("POST", "/api/sessions", explicit)).toMatchObject({
+        baseBranch: "main",
+        baseCommit: pinned,
+      });
+      expect(bases.at(-1)).toBe(pinned);
+    } finally {
+      s.stubs.worktree.create = savedCreate;
+      delete s.stubs.worktree.ensureCommit;
+    }
+  });
+});
+
 describe("usage snapshots", () => {
   for (const [name, limits] of fx.usageCases) {
     test(`GET /api/usage/limits: ${name}`, async () => {
@@ -883,6 +1040,7 @@ describe("contract structure", () => {
     expect(members("AgentProvider")).toEqual([...AGENT_PROVIDERS]);
     expect(members("Effort")).toEqual([...EFFORTS]);
     expect(members("SandboxProfile")).toEqual([...SANDBOX_PROFILES]);
+    expect(members("DispatchState")).toEqual([...DISPATCH_STATES]);
   });
 
   test("every component schema is referenced at least once", () => {

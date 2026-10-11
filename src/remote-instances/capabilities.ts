@@ -32,6 +32,9 @@ export type Capability = (typeof CAPABILITIES)[number];
 /**
  * Why a capability is not available. `other_platform` = it belongs to another platform (Xcode on
  * Linux); `not_probed` = it exists on this platform but this build does not check it yet.
+ * `command_line_tools_only` = the active developer directory is the Command Line Tools, not Xcode;
+ * `license_not_accepted` = Xcode's license has not been agreed to; `no_simulator` = no iOS
+ * simulator device is available.
  */
 export type CapabilityReason =
   | "not_installed"
@@ -43,14 +46,19 @@ export type CapabilityReason =
   | "sdk_not_found"
   | "sdk_incomplete"
   | "no_backend"
-  | "no_egress";
+  | "no_egress"
+  | "license_not_accepted"
+  | "command_line_tools_only"
+  | "no_simulator";
 
 /** One vocabulary entry's verdict. `reason` is a CapabilityReason, or whatever code a newer
- *  machine reported; null when `ok`. */
+ *  machine reported; null when `ok`. `detail` is language-neutral data about what was found — a
+ *  version such as `16.4 (16F6)` for Xcode — and absent when there is none. */
 export interface CapabilityCheck {
   id: Capability;
   ok: boolean;
   reason: string | null;
+  detail?: string;
 }
 
 /** A probe result: one check per vocabulary entry, stamped when the probe finished. */
@@ -138,8 +146,15 @@ export function describeMissing(missing: readonly MissingCapability[]): string {
 function parseCheck(raw: unknown): CapabilityCheck | "unknown" | null {
   if (!isRecord(raw) || typeof raw.id !== "string" || typeof raw.ok !== "boolean") return null;
   if (raw.reason !== null && typeof raw.reason !== "string") return null;
+  if (raw.detail != null && typeof raw.detail !== "string") return null;
   if (!isCapability(raw.id)) return "unknown";
-  return { id: raw.id, ok: raw.ok, reason: raw.ok ? null : (raw.reason ?? "probe_failed") };
+  const check: CapabilityCheck = {
+    id: raw.id,
+    ok: raw.ok,
+    reason: raw.ok ? null : (raw.reason ?? "probe_failed"),
+  };
+  if (typeof raw.detail === "string") check.detail = raw.detail;
+  return check;
 }
 
 /**

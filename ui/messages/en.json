@@ -6153,7 +6153,7 @@
   "gloss_capability_term": "capability",
   "gloss_capability_def": "Something a Shepherd has verified it can run, checked as the user it runs as: its platform, the agent CLIs it has installed and logged in (Claude Code, Codex), the Android SDK, Xcode and its sandbox profiles. Each Shepherd checks again every 5 minutes and whenever it accepts a task that requires a capability; a missing one is refused by name. A check older than 15 minutes is marked stale.",
   "feat_machine_capabilities_title": "See what each machine can actually run",
-  "feat_machine_capabilities_body": "Settings → Machines now lists every machine's verified capabilities: platform, Claude Code and Codex (installed and logged in), Android SDK and sandbox profiles, with the age of the last check and a Stale marker. A task that names requirements is checked again by the machine when it accepts it and refused if one is missing. Windows machines are shown but not released for tasks yet.",
+  "feat_machine_capabilities_body": "Settings → Machines now lists every machine's verified capabilities: platform, Claude Code and Codex (installed and logged in), on a Mac Xcode with its version, SDKs and iOS simulators (license accepted), Android SDK and sandbox profiles, with the age of the last check and a Stale marker. A task that names requirements is checked again by the machine when it accepts it and refused if one is missing. Windows machines are shown but not released for tasks yet.",
   "newtask_runon_upload_failed": "The attachments didn't reach {machine}, so nothing was started: {reason}",
   "feat_run_on_attachments_title": "Attachments go along to another machine",
   "feat_run_on_attachments_body": "Screenshots and files you attach travel with a task you run on another machine: Shepherd uploads them right before it hands the task over, and the agent there finds them in its worktree. If one can't be sent, the task doesn't start and the dialog says why.",
@@ -6171,5 +6171,8 @@
   "toast_cleared_merged_partial": "Decommissioned {count} merged sessions — no answer from {machines}, their sessions are not cleared",
   "toast_clear_merged_unchecked": "Couldn't check {machines} for merged sessions — theirs aren't included",
   "feat_machine_actions_title": "Steer, stop and archive sessions on other machines",
-  "feat_machine_actions_body": "A session on a connected machine is no longer just a readout: steer it, stop it, archive it and read its activity, diff and files right here — each action is sent to the machine and runs there. Clearing merged sessions covers your machines too, and says which ones didn't answer."
+  "feat_machine_actions_body": "A session on a connected machine is no longer just a readout: steer it, stop it, archive it and read its activity, diff and files right here — each action is sent to the machine and runs there. Clearing merged sessions covers your machines too, and says which ones didn't answer.",
+  "settings_machines_cap_reason_license_not_accepted": "license not accepted",
+  "settings_machines_cap_reason_command_line_tools_only": "only the Command Line Tools are selected",
+  "settings_machines_cap_reason_no_simulator": "no simulator device"
 }

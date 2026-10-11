@@ -192,11 +192,13 @@ export interface InstanceIdentity {
 }
 
 /** Mirrors CapabilityCheck in src/remote-instances/capabilities.ts (#2770). `id` is a vocabulary
- *  entry (`agent:claude`, `android-sdk`, …); `reason` a machine code, null when `ok`. */
+ *  entry (`agent:claude`, `android-sdk`, …); `reason` a machine code, null when `ok`; `detail` the
+ *  language-neutral version the machine found (`16.4 (16F6)` for Xcode, #2771), if any. */
 export interface CapabilityCheck {
   id: string;
   ok: boolean;
   reason: string | null;
+  detail?: string | null;
 }
 
 /** What a Shepherd verified it can run: one check per vocabulary entry, with the probe's age and

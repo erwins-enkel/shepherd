@@ -136,7 +136,10 @@ components:
         reason:
           type: string
           nullable: true
-          description: Why the capability is unavailable (not_installed, not_logged_in, timeout, probe_failed, other_platform, not_probed, sdk_not_found, sdk_incomplete, no_backend, no_egress); null when ok.
+          description: Why the capability is unavailable (not_installed, not_logged_in, timeout, probe_failed, other_platform, not_probed, sdk_not_found, sdk_incomplete, no_backend, no_egress, license_not_accepted, command_line_tools_only, no_simulator); null when ok.
+        detail:
+          type: string
+          description: Language-neutral data about what the probe found, absent when there is none — the macOS version on platform:macos ("15.5 (24F74)"), the Xcode version on xcode ("16.4 (16F6)"), the SDK versions on sdk:macos and sdk:ios, and the iOS runtime versions with an available simulator device on ios-simulator ("18.5, 26.0").
     Capability:
       type: string
     Error:

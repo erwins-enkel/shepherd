@@ -3253,6 +3253,7 @@
             session={selectedRemote}
             {nowMs}
             terminalOwners={store.terminalOwners}
+            previewTick={store.remotePreviewTick[selectedRemote.id]}
             onback={() => (mobileScreen = "list")}
             ondecommission={onarchive}
             onedit={openSteersEditor}
@@ -3430,6 +3431,7 @@
             session={selectedRemote}
             {nowMs}
             terminalOwners={store.terminalOwners}
+            previewTick={store.remotePreviewTick[selectedRemote.id]}
             ondecommission={onarchive}
             onedit={openSteersEditor}
           />

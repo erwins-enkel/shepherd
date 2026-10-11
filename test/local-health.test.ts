@@ -56,12 +56,13 @@ test("a proxied request never sees the local identity, even on a loopback bind",
     localInstanceID: "launch-marker",
     dbPath: "/tmp/state/shepherd.db",
   });
-  for (const [name, value] of [
+  const forwarded: Array<[string, string]> = [
     ["X-Forwarded-Host", "mac.example.ts.net:7330"],
     ["X-Forwarded-For", "100.64.0.7"],
     ["X-Forwarded-Proto", "https"],
     ["Forwarded", "for=100.64.0.7;proto=https"],
-  ]) {
+  ];
+  for (const [name, value] of forwarded) {
     const response = await health("GET", { [name]: value });
     expect(response.status).toBe(200);
     expect(await response.json()).not.toHaveProperty("localInstall");

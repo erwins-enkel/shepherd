@@ -1,4 +1,5 @@
-import { test, expect } from "bun:test";
+import { afterEach, describe, test, expect } from "bun:test";
+import { config } from "../src/config";
 import { makeApp, type AppDeps } from "../src/server";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
@@ -441,4 +442,66 @@ test("preview/start: missing content-type → 415", async () => {
     }),
   );
   expect(res.status).toBe(415);
+});
+
+// ── GET /api/sessions/:id/preview (#2767) ─────────────────────────────────────
+
+describe("GET /api/sessions/:id/preview", () => {
+  const saved = { previewHost: config.previewHost, previewAutoServe: config.previewAutoServe };
+  afterEach(() => Object.assign(config, saved));
+
+  /** One session, with the preview/serve state `state` gives for its id. */
+  function reachApp(
+    state: (id: string) => {
+      preview?: Record<string, SessionPreviewState>;
+      serve?: Record<string, "ok" | "failed">;
+      denied?: boolean;
+    } = () => ({}),
+  ) {
+    const store = new SessionStore(":memory:");
+    const id = makeSession(store);
+    const { preview = {}, serve = {}, denied = false } = state(id);
+    const deps: AppDeps = {
+      store,
+      service: {} as AppDeps["service"],
+      events: new EventHub(),
+      usageLimits: { limits: () => ({}) } as any,
+      preview: { snapshot: () => preview },
+      previewServe: { snapshot: () => serve, permissionDenied: () => denied },
+    };
+    return { app: makeApp(deps), id };
+  }
+
+  const read = async (app: ReturnType<typeof makeApp>, id: string) =>
+    app.fetch(new Request(`http://x/api/sessions/${id}/preview`));
+
+  test("a served slot answers with this instance's host and slot", async () => {
+    Object.assign(config, { previewHost: "node.example.ts.net", previewAutoServe: true });
+    const { app, id } = reachApp((id) => ({
+      preview: { [id]: { previewPort: 4102 } },
+      serve: { [id]: "ok" },
+    }));
+    const res = await read(app, id);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      bound: true,
+      url: "https://node.example.ts.net:4102/",
+      unavailable: null,
+    });
+  });
+
+  test("refused serve config is reported for a session with nothing bound", async () => {
+    Object.assign(config, { previewHost: "node.example.ts.net", previewAutoServe: true });
+    const { app, id } = reachApp(() => ({ denied: true }));
+    expect(await (await read(app, id)).json()).toEqual({
+      bound: false,
+      url: null,
+      unavailable: "serve_denied",
+    });
+  });
+
+  test("unknown session id → 404", async () => {
+    const { app } = reachApp();
+    expect((await read(app, "ghost-id")).status).toBe(404);
+  });
 });

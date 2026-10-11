@@ -98,6 +98,7 @@ import type {
   PushDevice,
   PushTestResult,
   TokenScope,
+  PreviewReach,
 } from "./types";
 import type { MergeConfirmPayload } from "#lib/components/merge-confirm.js";
 import { m } from "#lib/paraglide/messages.js";
@@ -1940,6 +1941,15 @@ export async function resolveLoginRequest(
 export async function subagentStates(): Promise<Record<string, SubagentEntry[]>> {
   const r = await fetch("/api/subagents");
   if (!r.ok) throw await failed(r, "subagent states");
+  return r.json();
+}
+
+/** Where a session's preview opens (#2767). For a session on a connected machine the server
+ *  forwards this to the machine, which answers with a URL on its OWN host and slot; a failure
+ *  carries the server's `code` (`machine_unreachable`, …) for `remoteActionMessage`. */
+export async function getPreviewReach(id: string): Promise<PreviewReach> {
+  const r = await fetch(`/api/sessions/${id}/preview`);
+  if (!r.ok) throw await failed(r, "preview");
   return r.json();
 }
 

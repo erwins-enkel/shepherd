@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   lastKnownLabel,
   machineGroups,
+  mirroredPreviewChange,
   platformName,
   qualifiedDesig,
   reduceRemoteSessions,
@@ -47,6 +48,22 @@ describe("remote sessions (#2762)", () => {
       ["MacBook", ["a", "c"]],
       ["Studio", ["b"]],
     ]);
+  });
+
+  test("a machine's preview frames name the session, never pass on its port (#2767)", () => {
+    const frame = { id: "a", previewPort: 4100, host: HOST, connection: LIVE };
+    expect(mirroredPreviewChange({ event: "session:preview", data: frame })).toBe("a");
+    expect(
+      mirroredPreviewChange({
+        event: "session:preview-serve",
+        data: { id: "a", serve: "ok", host: HOST },
+      }),
+    ).toBe("a");
+    // A local frame and any other mirrored frame are not preview changes of a machine.
+    expect(
+      mirroredPreviewChange({ event: "session:preview", data: { id: "l", previewPort: 1 } }),
+    ).toBeNull();
+    expect(mirroredPreviewChange({ event: "session:status", data: s("a") })).toBeNull();
   });
 
   test("frames without host are left to the local store", () => {

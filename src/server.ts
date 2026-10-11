@@ -190,7 +190,7 @@ import { buildUsageBreakdown } from "./usage-breakdown";
 import { buildDeliveryMetrics } from "./delivery-metrics";
 import { buildUsageTimeline } from "./usage-timeline";
 import { isApiKeyMode } from "./spawn-auth";
-import { detectDevCommand } from "./preview";
+import { detectDevCommand, previewReach } from "./preview";
 import { SharedBrowserError } from "./shared-browser";
 import { gateBrowserView, openBrowserView, type BrowserViewSession } from "./browser-view";
 import {
@@ -564,8 +564,9 @@ export interface AppDeps {
     startScript(scriptPath: string, worktreePath: string): Promise<void>;
   };
   /** Tailscale serve registration status per session slot; absent when auto-serve is
-   *  disabled or tailscale is unavailable. Merged into /api/preview responses. */
-  previewServe?: { snapshot(): Record<string, "ok" | "failed"> };
+   *  disabled or tailscale is unavailable. Merged into /api/preview responses. `permissionDenied`
+   *  is the serve service's refused-serve-config latch, read by `GET /api/sessions/:id/preview`. */
+  previewServe?: { snapshot(): Record<string, "ok" | "failed">; permissionDenied?(): boolean };
   /** Web Push delivery; absent in tests that don't exercise notifications. */
   push?: Pick<PushService, "publicKey" | "subscribe" | "unsubscribe" | "apnsEnabled" | "testSend">;
   /** APNs credentials behind Settings → Notifications (#2696); absent in tests that skip them. */
@@ -4259,6 +4260,27 @@ async function handlePreviewStart({ req, parts, deps }: Ctx): Promise<Response |
   return sendLegacyPreviewStart(id, s, deps, detectedCommand, probesUnavailable);
 }
 
+// GET /api/sessions/:id/preview — where this session's preview opens from another device, or why
+// it does not (#2767): `PreviewReach`, built from THIS instance's tailnet host and slot. A
+// coordinator forwards it for a session mirrored from a connected machine, so a machine's slot only
+// ever reaches another Shepherd's client inside a URL naming that machine.
+//   unknown id → 404 { error: "not found" }
+function handlePreviewReach({ req, parts, deps }: Ctx): Response | null {
+  if (!(req.method === "GET" && parts[2] && parts[3] === "preview" && parts[4] === undefined))
+    return null;
+  const id = parts[2];
+  if (!deps.store.get(id)) return json({ error: "not found" }, 404);
+  return json(
+    previewReach({
+      previewPort: deps.preview?.snapshot()[id]?.previewPort ?? null,
+      host: config.previewHost,
+      autoServe: config.previewAutoServe,
+      serve: deps.previewServe?.snapshot()[id],
+      denied: deps.previewServe?.permissionDenied?.() ?? false,
+    }),
+  );
+}
+
 // POST /api/sessions/:id/preview/stop — force-stop the previewed dev server.
 // Signals the worktree dev-server process (SIGKILL) to terminate and reclaim RAM.
 // The preview clears via the poller sweep once the port stops listening (that
@@ -5270,6 +5292,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionRecapRegenerate,
     handlePreviewStart,
     handlePreviewStop,
+    handlePreviewReach,
     handleSessionRename,
     handleSessionResume,
     handleSessionReady,

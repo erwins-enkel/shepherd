@@ -92,6 +92,9 @@ describe("allowlist", () => {
     ["GET", "scratchpad"],
     ["GET", "scratchpad/download"],
     ["POST", "scratchpad/upload"],
+    ["GET", "preview"],
+    ["POST", "preview/start"],
+    ["POST", "preview/stop"],
   ])("%s %s is forwarded", (method, leaf) => {
     expect(forwardedLeaf(method, parts(leaf))).toBe(leaf);
   });
@@ -106,7 +109,9 @@ describe("allowlist", () => {
     ["POST", "git/merge"],
     ["GET", "git"],
     ["POST", "review-pr"],
-    ["POST", "preview/start"],
+    ["GET", "preview/start"],
+    ["POST", "preview"],
+    ["POST", "preview/relay"],
     ["PUT", "queue"],
     ["POST", "hooks"],
     ["GET", "steer-log"],

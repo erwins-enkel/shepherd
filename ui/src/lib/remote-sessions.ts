@@ -94,6 +94,16 @@ function applyMirroredFrame(list: Session[], event: string, data: Session): Sess
 }
 
 /**
+ * The id of the mirrored session whose machine just reported a preview change (#2767), or null.
+ * Only the change is taken from the frame, never its `previewPort`: that is the machine's slot, not
+ * one of this server's, so the caller re-reads where the preview opens instead.
+ */
+export function mirroredPreviewChange(ev: { event: string; data: unknown }): string | null {
+  if (ev.event !== "session:preview" && ev.event !== "session:preview-serve") return null;
+  return isMirroredFrame(ev.data) ? ev.data.id : null;
+}
+
+/**
  * The remote list after `ev`, or `null` when `ev` is not about mirrored sessions (the caller then
  * applies it as a local frame). `remote:sessions` replaces one machine's set; a `session:*` frame
  * whose data carries `host` is consumed here even when it changes nothing, so it can never fall

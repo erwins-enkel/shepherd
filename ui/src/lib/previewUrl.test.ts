@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildPreviewUrl } from "./previewUrl";
+import { buildPreviewUrl, remotePreviewUrl } from "./previewUrl";
 
 const PORT = 8001;
 
@@ -96,5 +96,28 @@ describe("buildPreviewUrl — fallback branch", () => {
     expect(buildPreviewUrl(null, { protocol: "http:", hostname: "myhost.example.com" }, PORT)).toBe(
       "http://myhost.example.com:8001/",
     );
+  });
+});
+
+describe("remotePreviewUrl — a connected machine's preview URL (#2767)", () => {
+  it("passes an https URL on the machine's host", () => {
+    expect(remotePreviewUrl("https://macbook.example.ts.net:4100/")).toBe(
+      "https://macbook.example.ts.net:4100/",
+    );
+  });
+
+  it.each([
+    ["javascript:alert(1)"],
+    ["http://macbook.example.ts.net:4100/"],
+    ["https://user:pw@macbook.example.ts.net:4100/"],
+    ["data:text/html,hi"],
+    ["not a url"],
+    [""],
+  ])("refuses %s", (url) => {
+    expect(remotePreviewUrl(url)).toBeNull();
+  });
+
+  it("refuses a missing URL", () => {
+    expect(remotePreviewUrl(null)).toBeNull();
   });
 });

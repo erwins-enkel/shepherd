@@ -1,5 +1,7 @@
 import type {
   Session,
+  ClearMergedPreview,
+  ClearMergedResult,
   CreateInput,
   HouseRuleRelevanceMode,
   HeldTask,
@@ -612,24 +614,18 @@ export async function archiveSession(id: string, reap?: string[]): Promise<void>
 }
 
 /** Merged-branch session ids + aggregate leftover count, for the clear-all confirm modal.
- *  `probesUnavailable` ⇒ that count is "unknown", not "zero" (see `getLeftovers`). */
-export async function getMergedClearable(): Promise<{
-  ids: string[];
-  leftovers: number;
-  /** Leftover count per merged id, so the modal can total just the subset it clears. */
-  leftoversById: Record<string, number>;
-  probesUnavailable: boolean;
-}> {
+ *  `probesUnavailable` ⇒ that count is "unknown", not "zero" (see `getLeftovers`). The ids include
+ *  connected machines' merged sessions; `machines` says which machines answered (#2765). */
+export async function getMergedClearable(): Promise<ClearMergedPreview> {
   const r = await fetch("/api/sessions/clear-merged");
   if (!r.ok) throw await failed(r, "merged clearable");
   return r.json();
 }
 
 /** Archive every merged-branch session (the given ids), terminating their leftover
- *  subprocesses. The server re-validates each id is merged before archiving. */
-export async function clearMerged(
-  ids: string[],
-): Promise<{ cleared: string[]; leftovers: number }> {
+ *  subprocesses. The server re-validates each id is merged before archiving; ids of sessions on a
+ *  connected machine are cleared there, with one outcome per machine (#2765). */
+export async function clearMerged(ids: string[]): Promise<ClearMergedResult> {
   const r = await fetch("/api/sessions/clear-merged", {
     method: "POST",
     headers: JSON_HEADERS,

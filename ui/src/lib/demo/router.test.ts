@@ -78,6 +78,7 @@ describe("polished GET handlers return the shape api.ts consumes", () => {
       leftovers: 0,
       leftoversById: { deps: 0, envflag: 0 },
       probesUnavailable: false,
+      machines: [],
     });
   });
 
@@ -149,13 +150,18 @@ describe("mutation handlers call the mutator and return the caller's shape", () 
   it("POST /api/sessions/clear-merged with no ids clears nothing", async () => {
     const r = await handleApi("POST", u("/api/sessions/clear-merged"), { ids: [] });
     expect(r.status).toBe(200);
-    expect(await r.json()).toEqual({ cleared: [], leftovers: 0 });
+    expect(await r.json()).toEqual({ cleared: [], leftovers: 0, partial: false, machines: [] });
   });
 
   it("POST /api/sessions/clear-merged archives the merged session and it disappears", async () => {
     const r = await handleApi("POST", u("/api/sessions/clear-merged"), { ids: ["deps"] });
     expect(r.status).toBe(200);
-    expect(await r.json()).toEqual({ cleared: ["deps"], leftovers: 0 });
+    expect(await r.json()).toEqual({
+      cleared: ["deps"],
+      leftovers: 0,
+      partial: false,
+      machines: [],
+    });
     expect(demoState.sessions().find((s) => s.id === "deps")).toBeUndefined();
     // re-querying the clearable set now returns envflag only — deps is gone, not re-offered.
     expect((await get("/api/sessions/clear-merged")).body).toEqual({
@@ -163,12 +169,13 @@ describe("mutation handlers call the mutator and return the caller's shape", () 
       leftovers: 0,
       leftoversById: { envflag: 0 },
       probesUnavailable: false,
+      machines: [],
     });
   });
 
   it("POST /api/sessions/clear-merged ignores an id that isn't actually merged", async () => {
     const r = await handleApi("POST", u("/api/sessions/clear-merged"), { ids: ["coupon"] });
-    expect(await r.json()).toEqual({ cleared: [], leftovers: 0 });
+    expect(await r.json()).toEqual({ cleared: [], leftovers: 0, partial: false, machines: [] });
     expect(demoState.sessions().find((s) => s.id === "coupon")).toBeDefined();
   });
 

@@ -1970,10 +1970,17 @@ describe("UnitRow mirrored session (#2762)", () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  it("names its machine, qualifies its label and offers no action", async () => {
+  const contextMenu = () =>
+    page
+      .getByRole("button", { name: m.unit_open_aria({ name: "remote one" }) })
+      .element()
+      .dispatchEvent(
+        new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+      );
+
+  it("names its machine and qualifies its label without reading this machine", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
-    const onselect = vi.fn();
-    render(UnitRow, { session: remote(), selected: false, nowMs: Date.now(), onselect });
+    render(UnitRow, { session: remote(), selected: false, nowMs: Date.now(), onselect: () => {} });
 
     await expect
       .element(page.getByRole("img", { name: m.remote_runs_on({ machine: "MacBook" }) }))
@@ -1983,13 +1990,56 @@ describe("UnitRow mirrored session (#2762)", () => {
     await expect
       .element(page.getByRole("button", { name: m.taskid_button_title({ desig: "TASK-07" }) }))
       .not.toBeInTheDocument();
+    // Nothing about it is read from this machine.
+    expect(fetchSpy.mock.calls.some(([url]) => String(url).includes("/api/sessions/r1"))).toBe(
+      false,
+    );
+  });
 
-    const hit = page.getByRole("button", { name: m.unit_open_aria({ name: "remote one" }) });
-    hit
-      .element()
-      .dispatchEvent(
-        new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
-      );
+  it("offers only what its machine is sent — Stop and Decommission — while connected (#2765)", async () => {
+    const ondecommission = vi.fn();
+    render(UnitRow, {
+      session: remote({ claudeSessionId: "c1" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      ondecommission,
+      // Callbacks a machine group never passes; even if one did, the remote menu ignores them.
+      onrename: () => {},
+      onamend: () => {},
+    });
+
+    contextMenu();
+    await expect.element(page.getByRole("menu")).toBeInTheDocument();
+    const items = page
+      .getByRole("menuitem")
+      .elements()
+      .map((el) => el.textContent?.trim());
+    expect(items).toEqual([`⎋${m.cardmenu_stop()}`, `✕${m.cardmenu_decommission()}`]);
+    await page.getByRole("menuitem", { name: m.cardmenu_stop() }).click();
+    expect(interruptSession).toHaveBeenCalledWith("r1");
+
+    // The ✕ arms, then archives through the page's decommission. Native clicks: the ✕ is only
+    // revealed on hover, which the activity strip's cells sit over in this bare render.
+    const decom = page.getByRole("button", { name: m.viewport_decommission_aria() });
+    await expect.element(decom).not.toHaveAttribute("aria-disabled");
+    (decom.element() as HTMLElement).click();
+    const confirm = page.getByRole("button", { name: m.viewport_confirm_decommission() });
+    await expect.element(confirm).toBeInTheDocument();
+    (confirm.element() as HTMLElement).click();
+    expect(ondecommission).toHaveBeenCalledWith("r1");
+  });
+
+  it("offers no action while its machine is disconnected, and says why", async () => {
+    const onselect = vi.fn();
+    render(UnitRow, {
+      session: remote({ connection: { state: "disconnected", since: Date.now() } }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect,
+    });
+
+    contextMenu();
     await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
 
     // The ✕ is there but disabled, with the reason in its tooltip; a click does nothing.
@@ -1999,14 +2049,8 @@ describe("UnitRow mirrored session (#2762)", () => {
       m.tooltip_remote_actions_body({ machine: "MacBook" }),
     );
     // A native click: Playwright (rightly) refuses to click an aria-disabled control.
-    await hit.hover();
     (decom.element() as HTMLElement).click();
     expect(onselect).not.toHaveBeenCalled();
-
-    // Nothing about it is read from this machine.
-    expect(fetchSpy.mock.calls.some(([url]) => String(url).includes("/api/sessions/r1"))).toBe(
-      false,
-    );
   });
 
   it("says when its machine is unreachable, with the last known time", async () => {

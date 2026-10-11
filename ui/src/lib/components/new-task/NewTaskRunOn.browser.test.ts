@@ -19,8 +19,8 @@ import {
 } from "#lib/api.js";
 
 // "Run on" in the New Task dialog (#2763): only there while a machine is connected, offering the
-// machines that have the project, carrying the target and a dispatch key into the submit, and
-// retrying an unanswered send under the same key.
+// machines that have the project, carrying the target, a dispatch key and any attachments (#2766)
+// into the submit, and retrying an unanswered send under the same key.
 
 vi.mock("#lib/api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("#lib/api.js")>();
@@ -228,9 +228,10 @@ describe("Run on (#2763)", () => {
     expect(runOnSelect()!.disabled).toBe(true);
   });
 
-  it("blocks attachments for another machine, with the reason", async () => {
+  // #2766: attachments travel with the task; the server uploads them to the machine.
+  it("sends attachments along to another machine", async () => {
     vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [machine()] });
-    const onsubmit = vi.fn();
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
     render(NewTask, {
       props: {
         onsubmit,
@@ -240,9 +241,33 @@ describe("Run on (#2763)", () => {
     });
     await typePrompt("look at this");
     await pickMachine("mac-1");
-    await expect.element(page.getByText(m.newtask_readiness_remote_attachments())).toBeVisible();
-    expect(document.querySelector<HTMLButtonElement>("button.run")!.disabled).toBe(true);
-    expect(onsubmit).not.toHaveBeenCalled();
+    await submit();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    const input = onsubmit.mock.calls[0]![0];
+    expect(input.target).toEqual({ instanceId: "mac-1" });
+    expect(input.images).toEqual(["/staged/shot.png"]);
+    expect(input.attachmentNames).toEqual(["shot.png"]);
+  });
+
+  it("names the machine when an attachment did not reach it", async () => {
+    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [machine()] });
+    const reason = "attachment 1 of 1: the machine answered 413 (file too large)";
+    const onsubmit = vi
+      .fn()
+      .mockRejectedValueOnce(new ApiError(502, reason, "remote_upload_failed", true));
+    render(NewTask, {
+      props: {
+        onsubmit,
+        initialRepoPath: repo.path,
+        initialImages: [{ path: "/staged/shot.png", name: "shot.png" }],
+      },
+    });
+    await typePrompt("look at this");
+    await pickMachine("mac-1");
+    await submit();
+    await expect
+      .element(page.getByText(m.newtask_runon_upload_failed({ machine: "MacBook", reason })))
+      .toBeVisible();
   });
 
   it("retries an unanswered send under the same key, and names the machine", async () => {

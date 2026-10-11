@@ -1107,7 +1107,6 @@
       issueSeeded: activeIssue != null,
       repoResolved: !!repoPath.trim(),
       baseMissing,
-      remoteAttachments: runOn !== null && images.length > 0,
       repairing: repairingBase,
       uploading: hasOutstandingUploads,
       submitting,
@@ -1200,8 +1199,6 @@
         return m.newtask_readiness_no_repo();
       case "base_missing":
         return m.newtask_readiness_base_missing();
-      case "remote_attachments":
-        return m.newtask_readiness_remote_attachments();
       case "repairing":
         return m.newtask_readiness_repairing();
       case "uploading":

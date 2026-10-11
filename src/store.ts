@@ -1330,12 +1330,13 @@ const DISPATCHES_DDL = `CREATE TABLE IF NOT EXISTS dispatches (
 
 /** Tasks this Shepherd sent to a connected machine (#2763, src/remote-instances/dispatch.ts): stored
  *  BEFORE they are sent, so a retry goes out again under the same `id` to the same `instanceId`.
- *  `clientKey` is the submitter's Idempotency-Key; `id` is what the machine receives as its own. */
+ *  `clientKey` is the submitter's Idempotency-Key; `id` is what the machine receives as its own.
+ *  `uploads` (#2766): the machine's paths for the task's attachments, once uploaded. */
 const REMOTE_DISPATCHES_DDL = `CREATE TABLE IF NOT EXISTS remote_dispatches (
   id TEXT PRIMARY KEY, clientKey TEXT NOT NULL UNIQUE, instanceId TEXT NOT NULL,
   payloadHash TEXT NOT NULL, wireBody TEXT NOT NULL, state TEXT NOT NULL,
   sessionId TEXT, heldId TEXT, reason TEXT, code TEXT, httpStatus INTEGER,
-  createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL)`;
+  createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, uploads TEXT)`;
 
 /**
  * Fresh-install DDL for `reviewer_spawns`. Exported so the fresh-schema path can be tested in
@@ -2020,6 +2021,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     }
     this.db.run(DISPATCHES_DDL);
     this.db.run(REMOTE_DISPATCHES_DDL);
+    // A table created before #2766 has no `uploads`; a fresh one already does (no write here).
+    this.addMissingColumns("remote_dispatches", { uploads: "TEXT" });
     // Commits the whole bootstrap (see the BEGIN above). No try/ROLLBACK: a throw here escapes the
     // constructor, so no caller ever holds this store, and SQLite discards the open transaction
     // when the handle is finalized. Deliberately no wrapping block — that would re-indent the
@@ -2159,8 +2162,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return (
       this.db.run(
         `INSERT INTO remote_dispatches (id, clientKey, instanceId, payloadHash, wireBody, state,
-           sessionId, heldId, reason, code, httpStatus, createdAt, updatedAt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+           sessionId, heldId, reason, code, httpStatus, createdAt, updatedAt, uploads)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
         [
           row.id,
           row.clientKey,
@@ -2175,6 +2178,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           row.httpStatus,
           row.createdAt,
           row.updatedAt,
+          row.uploads,
         ],
       ).changes === 1
     );
@@ -2185,10 +2189,19 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       (this.db
         .query(
           `SELECT id, clientKey, instanceId, payloadHash, wireBody, state, sessionId, heldId,
-                  reason, code, httpStatus, createdAt, updatedAt
+                  reason, code, httpStatus, createdAt, updatedAt, uploads
            FROM remote_dispatches WHERE clientKey = ?`,
         )
         .get(clientKey) as RemoteDispatchRow | null) ?? null
+    );
+  }
+
+  /** Remember where a dispatch's attachments landed on its machine (#2766) — once: every later
+   *  send of it reuses these paths, so it is never uploaded twice and its body never changes. */
+  setRemoteDispatchUploads(id: string, uploads: string, now = Date.now()): void {
+    this.db.run(
+      `UPDATE remote_dispatches SET uploads = ?, updatedAt = ? WHERE id = ? AND uploads IS NULL`,
+      [uploads, now, id],
     );
   }
 

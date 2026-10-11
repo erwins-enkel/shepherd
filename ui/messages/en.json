@@ -6101,7 +6101,6 @@
   "newtask_runon_machine": "{machine} ({platform})",
   "newtask_runon_none": "No connected machine has this project checked out — it runs here.",
   "newtask_runon_notice": "Starts on {machine} from {base} as pushed to origin — local changes that aren't pushed are not there.",
-  "newtask_readiness_remote_attachments": "Attachments can't go to another machine yet — remove them or run here",
   "newtask_runon_starting": "Starting on {machine}",
   "newtask_runon_unknown": "No answer from {machine} — the task may have started there. Retry sends the same task to {machine} again; it never starts twice.",
   "newtask_runon_rejected": "{machine} declined the task: {reason}",
@@ -6115,13 +6114,13 @@
   "tooltip_runon_code": "Code",
   "tooltip_runon_code_body": "The machine starts from the base branch as it is on origin. Commits and changes you haven't pushed are not there.",
   "tooltip_runon_attachments": "Attachments",
-  "tooltip_runon_attachments_body": "Not sent to other machines yet. Remove them, or run the task here.",
+  "tooltip_runon_attachments_body": "Uploaded to the machine right before the task is sent, so they are in the session's worktree there. If one can't be sent, the task doesn't start.",
   "tooltip_runon_failure": "If it can't start",
   "tooltip_runon_failure_body": "Nothing ever moves to another machine on its own. A refusal or a hold there is shown with its reason; if no answer comes back, Retry sends the same task to the same machine.",
   "remote_detail_base": "Base",
   "remote_detail_sandbox": "Sandbox",
   "feat_run_on_machine_title": "Start a task on another machine",
-  "feat_run_on_machine_body": "With a machine connected, New Task has a Run on choice next to the branch. Pick a machine that has the project checked out and the whole session starts there — worktree, agent, builds and tests — and shows up in your herd labelled with it. It starts from the branch as pushed to origin, so push first. Attachments stay with tasks run here for now.",
+  "feat_run_on_machine_body": "With a machine connected, New Task has a Run on choice next to the branch. Pick a machine that has the project checked out and the whole session starts there — worktree, agent, builds and tests — and shows up in your herd labelled with it. It starts from the branch as pushed to origin, so push first.",
   "newtask_runon_unreleased": "{machine} runs on a platform that isn't released for tasks yet — nothing was started.",
   "settings_machines_caps_checked": "[[capability|Capabilities]] · checked {ago} ago",
   "settings_machines_caps_none": "No [[capability|capabilities]] reported yet.",
@@ -6154,5 +6153,8 @@
   "gloss_capability_term": "capability",
   "gloss_capability_def": "Something a Shepherd has verified it can run, checked as the user it runs as: its platform, the agent CLIs it has installed and logged in (Claude Code, Codex), the Android SDK, Xcode and its sandbox profiles. Each Shepherd checks again every 5 minutes and whenever it accepts a task that requires a capability; a missing one is refused by name. A check older than 15 minutes is marked stale.",
   "feat_machine_capabilities_title": "See what each machine can actually run",
-  "feat_machine_capabilities_body": "Settings → Machines now lists every machine's verified capabilities: platform, Claude Code and Codex (installed and logged in), Android SDK and sandbox profiles, with the age of the last check and a Stale marker. A task that names requirements is checked again by the machine when it accepts it and refused if one is missing. Windows machines are shown but not released for tasks yet."
+  "feat_machine_capabilities_body": "Settings → Machines now lists every machine's verified capabilities: platform, Claude Code and Codex (installed and logged in), Android SDK and sandbox profiles, with the age of the last check and a Stale marker. A task that names requirements is checked again by the machine when it accepts it and refused if one is missing. Windows machines are shown but not released for tasks yet.",
+  "newtask_runon_upload_failed": "The attachments didn't reach {machine}, so nothing was started: {reason}",
+  "feat_run_on_attachments_title": "Attachments go along to another machine",
+  "feat_run_on_attachments_body": "Screenshots and files you attach travel with a task you run on another machine: Shepherd uploads them right before it hands the task over, and the agent there finds them in its worktree. If one can't be sent, the task doesn't start and the dialog says why."
 }

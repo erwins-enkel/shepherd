@@ -3286,18 +3286,21 @@ async function createOnMachine(
       422,
     );
   }
+  // Attachments go as the files validated above (#2766); the dispatcher uploads them there.
+  const images = result.value.terminal === true ? [] : result.value.images;
   const outcome = await remoteDispatcher(deps).submit({
     clientKey: req.clientKey,
     instanceId: req.instanceId,
     project,
-    body: req.body,
+    body: images.length > 0 ? { ...req.body, images } : req.body,
     payloadHash: payloadHash(req.raw),
   });
   return remoteOutcomeResponse(outcome);
 }
 
 /** What a client sees of a remote dispatch: the machine's session or hold annotated with `host`,
- *  its refusal with the reason, or "no answer" with the key to send it again under. */
+ *  its refusal with the reason, attachments that did not get there (nothing was sent), or "no
+ *  answer" with the key to send it again under. */
 function remoteOutcomeResponse(o: RemoteOutcome): Response {
   switch (o.kind) {
     case "started":
@@ -3325,6 +3328,8 @@ function remoteOutcomeResponse(o: RemoteOutcome): Response {
         },
         504,
       );
+    case "upload_failed":
+      return json({ error: o.reason, code: "remote_upload_failed", host: o.host }, 502);
     case "refused": {
       const { status, error } = REMOTE_REFUSAL[o.code];
       return json({ error, code: o.code, ...(o.reason && { reason: o.reason }) }, status);
@@ -10529,9 +10534,10 @@ export const slowRequestTimeoutSec = (req: Request, url: URL): number | null => 
   // still running — the same bogus failure described for epic approve above.
   if (url.pathname === "/api/shape") return 255;
   // A create waits for the worktree and the agent's boot — and one sent to a connected machine
-  // (#2763) for that machine's whole create, up to REMOTE_CREATE_TIMEOUT_MS. Cut at 10s, the
-  // answer would be lost for a start that is still running.
-  if (/^\/api\/sessions\/?$/.test(url.pathname)) return 150;
+  // (#2763) for the upload of its attachments (#2766) and that machine's whole create, up to
+  // REMOTE_CREATE_TIMEOUT_MS. Cut at 10s, the answer would be lost for a start that is still
+  // running. Bun's maximum: a longer hand-off loses only the answer, never the dispatch.
+  if (/^\/api\/sessions\/?$/.test(url.pathname)) return 255;
   if (url.pathname === "/api/uploads") return 120;
   if (/^\/api\/sessions\/[^/]+\/scratchpad\/upload$/.test(url.pathname)) return 120;
   if (url.pathname === "/api/prs/merge") return MERGE_ROUTE_TIMEOUT_SEC;

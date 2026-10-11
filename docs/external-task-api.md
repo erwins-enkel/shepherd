@@ -320,8 +320,8 @@ Absent, or naming this instance's own ID, the task runs here as before.
   sandbox, issue, base branch and commit, `force`). The machine checks paths, its
   own usage hold and its sandbox; a missing sandbox there shows on the session as
   `sandboxDegraded`.
-- Attachments (`images`) are not sent to other machines yet (`400`), and a clean
-  terminal (`terminal: true`) cannot take a target.
+- Attachments (`images`, staged here through `POST /api/uploads`) travel with the
+  task: see below. A clean terminal (`terminal: true`) cannot take a target.
 - It needs the same scope and repository grant as starting the task here.
 
 Shepherd stores the task **before** it sends it and sends it under a dispatch ID
@@ -336,6 +336,7 @@ a different body under that key is `409 dispatch_payload_mismatch`.
 | Held there (its usage hold)               | `200 { held: true, id, count, host }` — `id` and `count` are the machine's                             |
 | The machine refused it                    | `422 { code: "remote_rejected", error: <its reason>, remoteStatus, remoteCode?, host }`                |
 | Sent, but no answer came back             | `504 { code: "remote_dispatch_unknown", dispatchId, host }` — send again with that key                 |
+| An attachment did not reach the machine   | `502 { code: "remote_upload_failed", error: <which and why>, host }` — nothing was sent                |
 | Not connected right now (nothing sent)    | `409 { code: "remote_target_unavailable", reason }`                                                    |
 | No such machine / no checkout of the repo | `422` with `remote_target_unknown` / `remote_project_missing` (`remote_project_unknown`: no slug)      |
 | Platform not released (Windows)           | `422 { code: "remote_target_unreleased", reason: <platform> }` — listed in Settings, never sent a task |
@@ -343,6 +344,17 @@ a different body under that key is `409 dispatch_payload_mismatch`.
 `504` means the task **may be running** on the machine. Sending it again with the
 same key is always safe: the machine replays what became of it and never starts it
 a second time (`src/remote-instances/dispatch.ts`).
+
+Attachments are uploaded to the machine's own `POST /api/uploads` **right before**
+the task is sent, and the task then names the machine's staged copies — never a
+path of this Shepherd. The machine puts them into the session's worktree
+(`.shepherd-uploads/`) and lists them in the prompt, exactly as for a task started
+there; `attachmentNames` travel unchanged. The machine's paths are stored with the
+dispatch, so a retry with the same key uploads nothing again and sends the very
+same body. If an attachment does not get there — the machine refuses it, does not
+answer, or it is no longer staged here — the task is not sent at all (`502
+remote_upload_failed`), and it is never sent under that key; submit it again under
+a new key to upload afresh.
 
 ## Usage-aware hold gate
 

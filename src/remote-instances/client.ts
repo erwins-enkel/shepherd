@@ -1,9 +1,11 @@
 /**
  * The one place a Shepherd talks HTTP to another Shepherd (issue #2759). Everything that reaches a
  * connected machine — the connection probe, the session mirror's snapshot (#2762), the hand-off of
- * a new task (#2763) — goes through `getRemoteJson` / `postRemoteJson` here, so the timeout, the
- * redirect policy and the failure vocabulary live in exactly one spot. (The mirror's live `/events` socket is the one non-HTTP channel; it
- * lives in `sessions.ts` and carries the token the same way: only in the `Authorization` header.)
+ * a new task (#2763) and its attachments (#2766) — goes through `getRemoteJson` /
+ * `postRemoteJson` / `postRemoteFile` here, so the timeout, the redirect policy and the failure
+ * vocabulary live in exactly one spot. (The mirror's live `/events` socket is the one non-HTTP
+ * channel; it lives in `sessions.ts` and carries the token the same way: only in the
+ * `Authorization` header.)
  *
  * The bearer token is a credential for ANOTHER machine. It goes into the `Authorization` header
  * and nowhere else: nothing here logs, throws or returns it, and redirects are never followed
@@ -143,21 +145,48 @@ export type RemotePostResult =
 
 /** Authenticated POST of a JSON body (already serialized) to `path` on a machine. Never throws.
  *  Same rules as `getRemoteJson`: the token only in `Authorization`, redirects not followed. */
-export async function postRemoteJson(
+export function postRemoteJson(
   target: RemoteTarget,
   path: string,
   body: string,
   opts: RemoteRequestOptions & { headers?: Record<string, string> } = {},
+): Promise<RemotePostResult> {
+  return postRemote(target, path, body, opts, {
+    ...opts.headers,
+    "content-type": "application/json",
+  });
+}
+
+/** Authenticated multipart POST of one file (field `file`) to `path` on a machine — how a task's
+ *  attachments reach it (#2766). Never throws; same rules as `postRemoteJson`. */
+export function postRemoteFile(
+  target: RemoteTarget,
+  path: string,
+  file: Blob,
+  filename: string,
+  opts: RemoteRequestOptions = {},
+): Promise<RemotePostResult> {
+  const form = new FormData();
+  form.append("file", file, filename);
+  // No content-type: fetch sets multipart/form-data with its boundary.
+  return postRemote(target, path, form, opts, {});
+}
+
+async function postRemote(
+  target: RemoteTarget,
+  path: string,
+  body: BodyInit,
+  opts: RemoteRequestOptions,
+  headers: Record<string, string>,
 ): Promise<RemotePostResult> {
   let res: Response;
   try {
     res = await (opts.fetch ?? defaultFetch)(`${target.url}${path}`, {
       method: "POST",
       headers: {
-        ...opts.headers,
+        ...headers,
         authorization: `Bearer ${target.token}`,
         accept: "application/json",
-        "content-type": "application/json",
       },
       body,
       redirect: "manual",

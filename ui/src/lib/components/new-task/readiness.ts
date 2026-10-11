@@ -1,13 +1,7 @@
 import type { AgentProvider } from "#lib/types.js";
 
 export type ReadinessBlocker =
-  | "empty_prompt"
-  | "no_repo"
-  | "base_missing"
-  | "remote_attachments"
-  | "repairing"
-  | "uploading"
-  | "submitting";
+  "empty_prompt" | "no_repo" | "base_missing" | "repairing" | "uploading" | "submitting";
 
 export type ReadinessAdvisory = "checking" | "diverged" | "behind" | "hold_likely";
 
@@ -18,8 +12,6 @@ export interface ReadinessInput {
   issueSeeded: boolean;
   repoResolved: boolean;
   baseMissing: boolean;
-  /** Attachments on a task set to run on a connected machine — not sent there yet (#2763). */
-  remoteAttachments: boolean;
   repairing: boolean;
   uploading: boolean;
   submitting: boolean;
@@ -48,7 +40,6 @@ function deriveBlocker(i: ReadinessInput): ReadinessBlocker | null {
   if (i.repairing) return "repairing";
   if (!i.repoResolved) return "no_repo";
   if (i.baseMissing) return "base_missing";
-  if (i.remoteAttachments) return "remote_attachments";
   if (i.promptEmpty && !i.issueSeeded) return "empty_prompt";
   return null;
 }

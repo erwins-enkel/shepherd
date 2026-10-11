@@ -57,7 +57,7 @@ struct SessionListView: View {
         }
         .onChange(of: selectionIDs) { _, _ in
             for owner in hub?.connected ?? [app] {
-                owner.reconcileSelection(against: (owner.store?.sessions.map(\.id) ?? []) + (owner.store?.remoteSessions.map(\.id) ?? []) + (owner.extension(QueuesModel.self)?.finishedSessions.map(\.id) ?? []))
+                owner.reconcileSelection(against: Self.listedSessions(of: owner).map(\.id))
             }
         }
     }
@@ -91,11 +91,18 @@ struct SessionListView: View {
     }
     private var owed: [PostMergeSteps] { presentation.owed.map(\.record) }
     private var selectionIDs: [String] {
-        (hub?.connected ?? [app]).flatMap { owner in
-            (owner.store?.sessions.map { "\(ObjectIdentifier(owner))-\($0.id)" } ?? [])
-                + (owner.store?.remoteSessions.map { "\(ObjectIdentifier(owner))-\($0.id)" } ?? [])
-                + (owner.extension(QueuesModel.self)?.finishedSessions.map { "\(ObjectIdentifier(owner))-\($0.id)" } ?? [])
+        (hub?.connected ?? [app]).flatMap { owner -> [String] in
+            let prefix = "\(ObjectIdentifier(owner))-"
+            return Self.listedSessions(of: owner).map { prefix + $0.id }
         }
+    }
+    /// Every session a server lists: its own, those it mirrors from connected machines (#2768)
+    /// and its finished ones.
+    private static func listedSessions(of owner: AppModel) -> [Session] {
+        var sessions: [Session] = owner.store?.sessions ?? []
+        sessions += owner.store?.remoteSessions ?? []
+        sessions += owner.extension(QueuesModel.self)?.finishedSessions ?? []
+        return sessions
     }
 
     private func content(now: Int) -> some View {

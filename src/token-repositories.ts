@@ -38,7 +38,7 @@ export function repositoryAllows(
 
 export type RepositoryRoute =
   | { kind: "collection" | "body" | "bootstrap" | "upload" }
-  | { kind: "session" | "held" | "task"; id: string }
+  | { kind: "session" | "held" | "task" | "dispatch"; id: string }
   | { kind: "repo"; path: string };
 
 const COLLECTION_READS = new Set([
@@ -149,6 +149,8 @@ function resourceRoutePolicy(method: string, parts: string[]): RepositoryRoute |
       return ["PATCH ", "DELETE ", "POST spawn"].includes(`${method} ${leaf}`)
         ? { kind: "held", id }
         : null;
+    case "dispatches":
+      return ["GET ", "DELETE "].includes(`${method} ${leaf}`) ? { kind: "dispatch", id } : null;
     case "sessions":
       return sessionRoutePolicy(method, id, leaf);
     default:

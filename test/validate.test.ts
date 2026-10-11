@@ -61,6 +61,29 @@ test("valid input returns ok with value", () => {
   }
 });
 
+test("validateCreate accepts an explicit full base commit and rejects anything else (#2761)", () => {
+  const ok = (baseCommit: unknown) =>
+    validateCreate({ repoPath: validRepo, baseBranch: "main", prompt: "go", baseCommit }, root);
+  for (const sha of ["a".repeat(40), "0123456789abcdef".repeat(4)]) {
+    const r = ok(sha);
+    expect(r.ok).toBe(true);
+    if (r.ok && r.value.terminal !== true) expect(r.value.baseCommit).toBe(sha);
+  }
+  // absent / null → unset, so the base is resolved from baseBranch as before
+  const none = ok(null);
+  expect(none.ok && none.value.terminal !== true && none.value.baseCommit).toBeUndefined();
+  for (const bad of ["abc1234", "A".repeat(40), "g".repeat(40), "a".repeat(41), "main", 7]) {
+    expect(ok(bad)).toEqual({
+      ok: false,
+      error: "baseCommit must be a full lowercase hex commit id",
+    });
+  }
+  // the clean-terminal arm has no base at all
+  expect(
+    validateCreate({ repoPath: validRepo, terminal: true, baseCommit: "a".repeat(40) }, root),
+  ).toEqual({ ok: false, error: "unknown key: baseCommit" });
+});
+
 test("validateCreate accepts index-aligned attachment names and visible launch checkbox state", () => {
   const dir = stagingDir(root);
   mkdirSync(dir, { recursive: true });

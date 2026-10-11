@@ -94,6 +94,10 @@ const SUBMIT_PATTERNS: readonly (readonly [string, RegExp])[] = [
   ["POST", /^\/api\/held\/[^/]+\/spawn$/],
   ["PATCH", /^\/api\/held\/[^/]+$/],
   ["DELETE", /^\/api\/held\/[^/]+$/],
+  // The outcome of a keyed `POST /api/sessions` (#2761): a submitter learns what became of work it
+  // handed in, or withdraws a submission that has not arrived. Neither touches a running session.
+  ["GET", /^\/api\/dispatches\/[^/]+$/],
+  ["DELETE", /^\/api\/dispatches\/[^/]+$/],
 ];
 
 /**

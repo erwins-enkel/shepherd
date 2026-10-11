@@ -4,7 +4,8 @@
 (`native/`) and the `shepherd` CLI (epic #2487) may use. Swift models and client stubs, and the
 CLI's Rust client, are generated from it; nothing about the server is hand-typed on either side.
 
-**What it covers.** Health and version, password login and access tokens, the first-run settings
+**What it covers.** Health and version, instance identity (`GET /api/instance`, the machine
+connection handshake), password login and access tokens, the first-run settings
 handshake, sessions (list, detail, create, archive, interrupt), repos, the `/events` WebSocket
 catalogue and the `/pty/{id}` terminal protocol. Everything else the web UI does is out of the
 contract until a native or CLI feature needs it.

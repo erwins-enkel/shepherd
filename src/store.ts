@@ -2010,6 +2010,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
+  deleteSetting(key: string): void {
+    this.db.run(`DELETE FROM settings WHERE key = ?`, [key]);
+  }
+
   // ── access_tokens (named machine bearer tokens, issue #2082) ─────────────
   // Persistence only: minting, hashing and verification live in AccessTokenService
   // (src/access-tokens.ts), which holds the hot-path lookup map in memory.

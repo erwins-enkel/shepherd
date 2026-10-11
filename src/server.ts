@@ -97,6 +97,11 @@ import {
   parseMintRequest,
   type VerifiedToken,
 } from "./access-tokens";
+import {
+  instanceIdentity,
+  parseInstanceNamePatch,
+  setInstanceName,
+} from "./remote-instances/identity";
 import { scopeAllows } from "./token-scopes";
 import { resolvePlanAnswers, planAnswerSteerText, type RawAnswer } from "./plan-gate";
 import { slugifyManual } from "./namer";
@@ -1270,6 +1275,24 @@ async function handleAccessTokens({ req, parts, deps }: Ctx): Promise<Response |
     return json({ ok: true });
   }
   return null; // unreachable given `matched`, but keeps the handler total
+}
+
+// ── instance identity (issue #2759) ────────────────────────────────────────
+// GET is what a coordinator reads when it connects this Shepherd as a machine; the token-scope
+// policy leaves it `full`-only (deny-by-default). Renaming this instance is operator-only.
+
+async function handleInstance({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "instance" || parts[2]) return null;
+  if (req.method === "GET") return json(instanceIdentity(deps.store));
+  if (req.method !== "PATCH") return null;
+  const sessErr = requireOperatorSession(req);
+  if (sessErr) return sessErr;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const parsed = parseInstanceNamePatch(await req.json().catch(() => null));
+  if ("error" in parsed) return json(parsed, 400);
+  setInstanceName(deps.store, parsed.name);
+  return json(instanceIdentity(deps.store));
 }
 
 function handleGitSnapshot({ req, parts, deps, token }: Ctx): Response | null {
@@ -9495,6 +9518,7 @@ const ROUTE_HANDLERS = [
   handleLogout,
   handleMe,
   handleAccessTokens,
+  handleInstance,
   handlePing,
   handleHealth,
   handleTerminalTransport,

@@ -10,7 +10,12 @@
  * 2. The dispatch is stored (`remote_dispatches`) BEFORE it is sent: the machine it goes to, the
  *    exact body, and a dispatch ID generated here — never the client's key, so keys two clients
  *    happen to share can never collide at the machine.
- * 3. `POST /api/sessions` on the machine with `Idempotency-Key: <dispatch ID>` (#2761): however
+ * 3. Attachments (#2766), right before it is sent: each staged file goes to the machine's
+ *    `POST /api/uploads` and `images` then names the machine's copies, never a path of this one.
+ *    Those paths are stored with the dispatch, so every later send of it reuses them — nothing is
+ *    uploaded twice and the body the machine sees never changes. An attachment that does not get
+ *    there ends the dispatch before it is sent (`upload_failed`): under that key nothing starts.
+ * 4. `POST /api/sessions` on the machine with `Idempotency-Key: <dispatch ID>` (#2761): however
  *    often it arrives, the machine starts it at most once and replays the outcome.
  *
  * A retry (same client key) goes out again with the stored body, under the same dispatch ID, to the
@@ -19,13 +24,16 @@
  * the task may be running there, and only the same dispatch may ask again.
  */
 import { randomUUID } from "node:crypto";
+import { basename } from "node:path";
 import type { SessionStore } from "../store";
 import {
   type FetchLike,
   type RemotePostResult,
+  type RemoteTarget,
   getRemoteJson,
   isRecord,
   parseProjectPath,
+  postRemoteFile,
   postRemoteJson,
 } from "./client";
 import type { RemoteInstanceService } from "./service";
@@ -34,8 +42,13 @@ import { type SessionHost, hostNames } from "./sessions";
 /** A create waits for the machine's worktree and agent boot; the coordinator waits that long too. */
 const REMOTE_CREATE_TIMEOUT_MS = 120_000;
 
-/** `sending` = stored, no answer yet; `unknown` = sent, no answer — it may have started. */
-type RemoteDispatchState = "sending" | "started" | "held" | "rejected" | "unknown";
+/** Per attachment: as long as the machine's own `/api/uploads` lets one take. */
+const REMOTE_UPLOAD_TIMEOUT_MS = 120_000;
+
+/** `sending` = stored, no answer yet; `unknown` = sent, no answer — it may have started;
+ *  `upload_failed` = an attachment did not reach the machine, so the task was never sent. */
+type RemoteDispatchState =
+  "sending" | "started" | "held" | "rejected" | "unknown" | "upload_failed";
 
 /** A row as it sits in SQLite. */
 export interface RemoteDispatchRow {
@@ -46,7 +59,8 @@ export interface RemoteDispatchRow {
   instanceId: string;
   /** sha256 of the submitter's canonical body, `target` included. */
   payloadHash: string;
-  /** Exactly what is POSTed to the machine — every retry sends this same text. */
+  /** Exactly what is POSTed to the machine — every retry sends this same text — except `images`:
+   *  here this machine's staged files, swapped for `uploads` when it is sent (#2766). */
   wireBody: string;
   state: RemoteDispatchState;
   sessionId: string | null;
@@ -56,6 +70,9 @@ export interface RemoteDispatchRow {
   httpStatus: number | null;
   createdAt: number;
   updatedAt: number;
+  /** JSON array: the machine's path of each of `images`, index-aligned. Set once, by the first
+   *  send, before it POSTs the task; null until then and for a task without attachments. */
+  uploads: string | null;
 }
 
 export type RemoteDispatchOutcome = Pick<
@@ -69,7 +86,8 @@ export interface RemoteSubmit {
   instanceId: string;
   /** Forge slug (`owner/repo`) of the project, the identity it is matched on. */
   project: string;
-  /** The validated create body without `target`; `repoPath` is replaced by the machine's path. */
+  /** The validated create body without `target`; `repoPath` is replaced by the machine's path.
+   *  `images`, if any, are this machine's staged files (validated real paths). */
   body: Record<string, unknown>;
   /** Hash of the submitter's whole body. */
   payloadHash: string;
@@ -93,11 +111,22 @@ export type RemoteOutcome =
       remoteCode: string | null;
     }
   | { kind: "unknown"; host: SessionHost; dispatchKey: string }
+  | { kind: "upload_failed"; host: SessionHost; reason: string }
   | { kind: "refused"; code: RemoteRefusalCode; reason: string | null };
+
+/** Why an attachment did not reach the machine; `httpStatus` when the machine answered. */
+interface UploadFailure {
+  reason: string;
+  httpStatus: number | null;
+}
 
 type Store = Pick<
   SessionStore,
-  "getRemoteInstance" | "insertRemoteDispatch" | "getRemoteDispatchByKey" | "settleRemoteDispatch"
+  | "getRemoteInstance"
+  | "insertRemoteDispatch"
+  | "getRemoteDispatchByKey"
+  | "setRemoteDispatchUploads"
+  | "settleRemoteDispatch"
 >;
 type Instances = Pick<RemoteInstanceService, "get" | "list">;
 
@@ -140,6 +169,7 @@ export class RemoteDispatcher {
       ...NO_OUTCOME,
       createdAt: at,
       updatedAt: at,
+      uploads: null,
     };
     if (!this.store.insertRemoteDispatch(row)) {
       // A concurrent submit with the same key stored its row first: this is a retry of that one.
@@ -169,6 +199,12 @@ export class RemoteDispatcher {
     if (row.payloadHash !== payloadHash) {
       return Promise.resolve(refused("dispatch_payload_mismatch"));
     }
+    // Ended before it was sent (#2766): it never goes out under this key, so its machine has
+    // nothing to replay — the refusal is.
+    if (row.state === "upload_failed") {
+      const host = this.host(row.instanceId);
+      return Promise.resolve({ kind: "upload_failed", host, reason: row.reason ?? "" });
+    }
     return this.inflight.get(row.id) ?? this.track(row);
   }
 
@@ -182,7 +218,9 @@ export class RemoteDispatcher {
   private async send(row: RemoteDispatchRow): Promise<RemoteOutcome> {
     const creds = this.store.getRemoteInstance(row.instanceId);
     if (!creds) return refused("remote_target_unavailable", "removed");
-    const res = await postRemoteJson(creds, "/api/sessions", row.wireBody, {
+    const wire = await this.wireText(row, creds);
+    if (typeof wire !== "string") return this.uploadFailed(row, wire);
+    const res = await postRemoteJson(creds, "/api/sessions", wire, {
       fetch: this.fetch,
       timeoutMs: REMOTE_CREATE_TIMEOUT_MS,
       headers: { "idempotency-key": row.id },
@@ -194,6 +232,75 @@ export class RemoteDispatcher {
     if (record.state === "started" || record.state === "held") console.log(line);
     else console.warn(line);
     return outcome;
+  }
+
+  /** The text to POST (#2766): `wireBody`, its attachments swapped for the machine's copies —
+   *  uploaded now, right before the task is sent, or the ones an earlier send of this dispatch
+   *  uploaded. A task without attachments goes out exactly as stored. */
+  private async wireText(
+    row: RemoteDispatchRow,
+    creds: RemoteTarget,
+  ): Promise<string | UploadFailure> {
+    const body = JSON.parse(row.wireBody) as Record<string, unknown>;
+    const images = Array.isArray(body.images) ? (body.images as string[]) : [];
+    if (images.length === 0) return row.wireBody;
+    let uploads = row.uploads;
+    if (uploads === null) {
+      const uploaded = await this.upload(images, creds);
+      if (!Array.isArray(uploaded)) return uploaded;
+      uploads = JSON.stringify(uploaded);
+      this.store.setRemoteDispatchUploads(row.id, uploads, this.now());
+    }
+    return JSON.stringify({ ...body, images: JSON.parse(uploads) as string[] });
+  }
+
+  /** Each staged file to the machine's staging, in order; the first that does not get there stops
+   *  it. Only the stored name (a UUID and a safe extension) travels with the bytes — the name the
+   *  operator gave it is `attachmentNames`, which the task carries anyway. */
+  private async upload(images: string[], creds: RemoteTarget): Promise<string[] | UploadFailure> {
+    const paths: string[] = [];
+    for (const [i, local] of images.entries()) {
+      const which = `attachment ${i + 1} of ${images.length}`;
+      const file = Bun.file(local);
+      if (!(await file.exists())) {
+        return { reason: `${which} is no longer staged here`, httpStatus: null };
+      }
+      const res = await postRemoteFile(creds, "/api/uploads", file, basename(local), {
+        fetch: this.fetch,
+        timeoutMs: REMOTE_UPLOAD_TIMEOUT_MS,
+      });
+      if (res.kind === "no_answer") {
+        return { reason: `${which}: no answer from the machine (${res.reason})`, httpStatus: null };
+      }
+      const body = isRecord(res.body) ? res.body : {};
+      if (res.status !== 200 || typeof body.path !== "string" || !body.path) {
+        const why = typeof body.error === "string" ? ` (${body.error})` : "";
+        return {
+          reason: `${which}: the machine answered ${res.status}${why}`,
+          httpStatus: res.status,
+        };
+      }
+      paths.push(body.path);
+    }
+    return paths;
+  }
+
+  /** An attachment did not get there: the task was not sent, and is never sent under this key. */
+  private uploadFailed(row: RemoteDispatchRow, failure: UploadFailure): RemoteOutcome {
+    const host = this.host(row.instanceId);
+    this.store.settleRemoteDispatch(
+      row.id,
+      {
+        ...NO_OUTCOME,
+        state: "upload_failed",
+        reason: failure.reason,
+        code: "remote_upload_failed",
+        httpStatus: failure.httpStatus,
+      },
+      this.now(),
+    );
+    console.warn(`[remote-dispatch] ${host.name}: upload_failed (${failure.reason})`);
+    return { kind: "upload_failed", host, reason: failure.reason };
   }
 
   /** What the machine's answer means. Only an HTTP answer from the machine settles a dispatch; a

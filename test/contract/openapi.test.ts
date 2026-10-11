@@ -494,7 +494,7 @@ describe("sessions", () => {
   // #2763: a create with a target is handed to the remote dispatcher; each of its outcomes keeps
   // to the declared shapes. The dispatcher is stubbed — the network side is covered end to end in
   // test/server-remote-dispatch.test.ts.
-  test("POST /api/sessions with a target starts (201), holds (200), refuses (422) or is unknown (504) on the machine", async () => {
+  test("POST /api/sessions with a target starts (201), holds (200), refuses (422), fails its attachments (502) or is unknown (504) on the machine", async () => {
     const host = {
       instanceId: "0b6f2c1e-7c1d-4e53-9d1a-3c1f2e4b5a6d",
       name: "MacBook",
@@ -514,6 +514,7 @@ describe("sessions", () => {
       { kind: "held", id: "held-1", count: 2, host },
       { kind: "rejected", host, reason: "base missing", remoteStatus: 422, remoteCode: null },
       { kind: "unknown", host, dispatchKey: "key-1" },
+      { kind: "upload_failed", host, reason: "attachment 1 of 1: the machine answered 413" },
       { kind: "refused", code: "remote_target_unavailable", reason: "timeout" },
     ];
     const savedForge = s.stubs.resolveForge.forge;

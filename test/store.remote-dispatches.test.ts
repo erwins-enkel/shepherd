@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,6 +24,7 @@ function row(over: Partial<RemoteDispatchRow> = {}): RemoteDispatchRow {
     httpStatus: null,
     createdAt: 1,
     updatedAt: 1,
+    uploads: null,
     ...over,
   };
 }
@@ -51,6 +53,42 @@ describe("remote_dispatches", () => {
       sessionId: "s-1",
       updatedAt: 6,
     });
+  });
+
+  test("where the attachments landed is written once and kept", () => {
+    const store = new SessionStore(":memory:");
+    store.insertRemoteDispatch(row());
+    store.setRemoteDispatchUploads("d-1", '["/mac/a.png"]', 5);
+    store.setRemoteDispatchUploads("d-1", '["/mac/other.png"]', 6);
+    expect(store.getRemoteDispatchByKey("key-1")).toMatchObject({
+      uploads: '["/mac/a.png"]',
+      updatedAt: 5,
+    });
+  });
+
+  test("a table from before #2766 gains the uploads column", () => {
+    const dir = mkdtempSync(join(tmpdir(), "shepherd-remote-dispatch-"));
+    try {
+      const path = join(dir, "shepherd.db");
+      const old = new Database(path);
+      old.run(`CREATE TABLE remote_dispatches (
+        id TEXT PRIMARY KEY, clientKey TEXT NOT NULL UNIQUE, instanceId TEXT NOT NULL,
+        payloadHash TEXT NOT NULL, wireBody TEXT NOT NULL, state TEXT NOT NULL,
+        sessionId TEXT, heldId TEXT, reason TEXT, code TEXT, httpStatus INTEGER,
+        createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL)`);
+      old.run(`INSERT INTO remote_dispatches VALUES
+        ('d-0', 'key-0', 'm-1', 'h', '{}', 'started', 's-0', NULL, NULL, NULL, NULL, 1, 1)`);
+      old.close();
+      const store = new SessionStore(path);
+      expect(store.getRemoteDispatchByKey("key-0")).toMatchObject({
+        state: "started",
+        uploads: null,
+      });
+      expect(store.insertRemoteDispatch(row({ uploads: '["/mac/a.png"]' }))).toBe(true);
+      expect(store.getRemoteDispatchByKey("key-1")!.uploads).toBe('["/mac/a.png"]');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("a stored dispatch survives reopening the database", () => {

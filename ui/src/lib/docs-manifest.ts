@@ -30,10 +30,16 @@ export const DOCS_PAGES: readonly DocsPage[] = [
       'the automation-pane settings that let an epic drain end-to-end without operator intervention, and the blockers that will still legitimately stop it. recommended settings plan gate is hands-off-safe — keep it on sign-off authority — leave it on "human" what still stops a hands-off epic starting the epic queueing the next epic how long will this epic take? the epic clock agent time and waiting time how the forecast is built range and confidence why the first estimate is wide the "faster with n slots" hint when the landing pr\'s ci is red',
   },
   {
+    title: "Run tasks on another machine",
+    path: "/machines/",
+    keywords:
+      "connect another shepherd as a machine — linux and macos setup, the trust decision, limits and an end-to-end checklist. how it works prepare each machine make it reachable in your tailnet create a token on the machine connect it start a task on a machine work with its sessions the trust decision limits test a branch on two machines check a two-machine setup end to end",
+  },
+  {
     title: "Operating Shepherd",
     path: "/operating/",
     keywords:
-      "run shepherd as a systemd service, expose it over tailscale, and deploy code changes. run as a systemd user service restart from the ui if the hud freezes expose it over the network deploy a code change backups & restore preview detection agent clis managed by mise the claude code install row claude code version and model support agent launch inside the sandbox host tuning — tmpfs inodes host tuning — resource guardrails add a limit (one click) add a limit (copy-paste) herdr restarts and the task limit operator assistant open it what it reads the approval model when herdr is down new conversation",
+      "run shepherd as a systemd service, expose it over tailscale, and deploy code changes. run as a systemd user service restart from the ui if the hud freezes expose it over the network connect another machine deploy a code change backups & restore preview detection agent clis managed by mise the claude code install row claude code version and model support agent launch inside the sandbox host tuning — tmpfs inodes host tuning — resource guardrails add a limit (one click) add a limit (copy-paste) herdr restarts and the task limit operator assistant open it what it reads the approval model when herdr is down new conversation",
   },
   {
     title: "CI Watch",

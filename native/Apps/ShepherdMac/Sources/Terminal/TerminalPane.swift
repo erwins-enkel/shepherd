@@ -9,6 +9,9 @@ struct TerminalPane: View {
     let sessionID: String
     let app: AppModel
     let activation: Int
+    /// Set for a session mirrored from a connected machine (#2768): its terminal is bridged
+    /// through this server, but its steers and recovery belong to that machine.
+    var machine: SessionHost? = nil
     @State private var focusRequest = 0
     /// Debounces the `.connecting` card; see its own doc comment.
     @State private var connectingOverlay = ConnectingOverlayDebouncer()
@@ -17,11 +20,15 @@ struct TerminalPane: View {
         VStack(spacing: 0) {
             ZStack {
                 TerminalHostView(model: model, focusRequest: focusRequest)
-                    .accessibilityLabel(L.t("native_terminal_tab_title"))
+                    .accessibilityLabel(machine.map { L.t("remote_terminal_aria", $0.name) }
+                        ?? L.t("native_terminal_tab_title"))
                 overlay
             }
-            Divider()
-            TerminalSteerFooter(store: store, sessionID: sessionID, app: app, activation: activation)
+            // Saved steers go through this server's `/reply`, which a mirrored session has not.
+            if machine == nil {
+                Divider()
+                TerminalSteerFooter(store: store, sessionID: sessionID, app: app, activation: activation)
+            }
         }
         // The tab-body identifier every other detail tab carries (`detail-tab-activity`,
         // `-diff`, `-files`, `-git`, `-prompt`). The tab BUTTONS carry no accessibility name on
@@ -65,12 +72,33 @@ struct TerminalPane: View {
     /// `TerminalSessionModel.apply(_:)` routes `.closed(.superseded)` to
     /// `.superseded` and `.closed(.stopped)` to `.idle` before a `.closed`
     /// event ever reaches the generic `.ended(closure)` phase — so only
-    /// `.gone` and `.unreachable` are actually reachable here. `default`
+    /// `.gone`, `.unreachable` and, for a mirrored session's bridged terminal,
+    /// `.machineUnreachable` are actually reachable here. `default`
     /// (rather than naming `.superseded`/`.stopped` again) keeps this switch
     /// exhaustive over `PTYConnection.Closure` without implying either one can
     /// happen.
     @ViewBuilder
     private func endedCard(for closure: PTYConnection.Closure) -> some View {
+        if let machine, closure == .machineUnreachable {
+            // Reopens by itself once the machine is back (`machineConnectionChanged`).
+            statusCard(
+                title: L.t("native_remote_terminal_lost_title", machine.name),
+                body: L.t("native_remote_terminal_lost_body", machine.name),
+                action: (L.t("native_recovery_reopen"), { model.takeOver() }),
+                systemImage: "network.slash")
+        } else if let machine, closure == .gone {
+            // Resuming is that machine's to do; nothing here may start the agent instead.
+            statusCard(
+                title: L.t("native_terminal_ended_title"),
+                body: L.t("native_remote_terminal_ended_body", machine.name),
+                action: nil, systemImage: nil)
+        } else {
+            localEndedCard(for: closure)
+        }
+    }
+
+    @ViewBuilder
+    private func localEndedCard(for closure: PTYConnection.Closure) -> some View {
         VStack(spacing: 8) {
             BackendRecoveryPanel(failure: closure == .gone ? .sessionGone : model.recoveryFailure,
                 reopen: {

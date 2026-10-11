@@ -1,6 +1,7 @@
 import { describe, expect, test, beforeAll, afterAll } from "bun:test";
 import { RESIZE_PREFIX } from "../../src/operator-activity";
 import { PTY_GONE_CODE, PTY_SUPERSEDED_CODE } from "../../src/server";
+import { PTY_MACHINE_UNREACHABLE_CODE } from "../../src/remote-instances/terminal";
 import {
   bearer,
   collectEvents,
@@ -104,6 +105,7 @@ describe("x-shepherd-pty documents what the native client relies on", () => {
     expect(pty.resizePrefix).toBe(RESIZE_PREFIX);
     expect(pty.closeCodes.superseded).toBe(PTY_SUPERSEDED_CODE);
     expect(pty.closeCodes.gone).toBe(PTY_GONE_CODE);
+    expect(pty.closeCodes.machineUnreachable).toBe(PTY_MACHINE_UNREACHABLE_CODE);
   });
 
   test("an unknown session id is refused before the upgrade", async () => {

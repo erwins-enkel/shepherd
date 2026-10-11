@@ -6089,5 +6089,9 @@
   "feat_machine_capabilities_body": "Settings → Machines now lists every machine's verified capabilities: platform, Claude Code and Codex (installed and logged in), Android SDK and sandbox profiles, with the age of the last check and a Stale marker. A task that names requirements is checked again by the machine when it accepts it and refused if one is missing. Windows machines are shown but not released for tasks yet.",
   "newtask_runon_upload_failed": "The attachments didn't reach {machine}, so nothing was started: {reason}",
   "feat_run_on_attachments_title": "Attachments go along to another machine",
-  "feat_run_on_attachments_body": "Screenshots and files you attach travel with a task you run on another machine: Shepherd uploads them right before it hands the task over, and the agent there finds them in its worktree. If one can't be sent, the task doesn't start and the dialog says why."
+  "feat_run_on_attachments_body": "Screenshots and files you attach travel with a task you run on another machine: Shepherd uploads them right before it hands the task over, and the agent there finds them in its worktree. If one can't be sent, the task doesn't start and the dialog says why.",
+  "native_remote_terminal_lost_title": "{machine} is unreachable",
+  "native_remote_terminal_lost_body": "{machine} can't be reached. The terminal reopens by itself once the machine is back.",
+  "native_remote_terminal_ended_body": "The session on {machine} no longer has a running agent. Its output is frozen; resume it in the Shepherd on {machine}.",
+  "native_ios_remote_actions_body": "This app shows the session as {machine} reports it. Its terminal, steering, stopping, archiving and merging are not offered here yet, and nothing is run on this server in their place — open the Shepherd on {machine} for those."
 }

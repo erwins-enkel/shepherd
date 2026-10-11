@@ -66,7 +66,7 @@ struct MainWindow: View {
         // A session archived anywhere else arrives as an event that removes the
         // row; the selection has to follow it out, or the toolbar keeps offering
         // commands for a session that is gone.
-        .onChange(of: sessions.map(\.id)) { _, ids in
+        .onChange(of: listedIDs) { _, ids in
             model.reconcileSelection(against: ids)
             if selectedSession == nil { confirmingArchive = false }
         }
@@ -77,9 +77,20 @@ struct MainWindow: View {
 
     private var sessions: [Session] { model.store?.sessions ?? [] }
 
+    /// Every selectable session: this server's own and those mirrored from connected machines.
+    private var listedIDs: [String] { sessions.map(\.id) + (model.store?.remoteSessions.map(\.id) ?? []) }
+
     private var selectedSession: Session? {
         guard let id = model.selectedSessionID else { return nil }
-        return sessions.first { $0.id == id }
+        return sessions.first { $0.id == id } ?? model.store?.remoteSession(id: id)
+    }
+
+    /// Why a toolbar command is off for a session on another machine (#2768): the coordinator
+    /// has no route for it, and nothing is run here in its place. `nil` for a local session.
+    private var mirroredReason: String? {
+        guard let session = selectedSession, RemoteSessionCopy.isMirrored(session),
+              let host = session.host else { return nil }
+        return L.t("tooltip_remote_actions_body", host.name)
     }
 
     private var sidebar: some View {
@@ -144,6 +155,7 @@ struct MainWindow: View {
             // Only for a selected session against a live store — a quick action
             // has nothing to act on otherwise.
             if let session = selectedSession,
+               !RemoteSessionCopy.isMirrored(session),
                let store = model.store,
                let actions = ActionBarSlot.content {
                 actions(session, store, model)
@@ -192,8 +204,8 @@ struct MainWindow: View {
             } label: {
                 Label(L.t("native_toolbar_interrupt"), systemImage: "stop.circle")
             }
-            .help(L.t("native_toolbar_interrupt"))
-            .disabled(selectedSession == nil || command.busy)
+            .help(mirroredReason ?? L.t("native_toolbar_interrupt"))
+            .disabled(selectedSession == nil || mirroredReason != nil || command.busy)
             .accessibilityIdentifier("toolbar-interrupt")
 
             Button {
@@ -201,8 +213,8 @@ struct MainWindow: View {
             } label: {
                 Label(L.t("native_toolbar_archive"), systemImage: "archivebox")
             }
-            .help(L.t("native_toolbar_archive"))
-            .disabled(selectedSession == nil || command.busy)
+            .help(mirroredReason ?? L.t("native_toolbar_archive"))
+            .disabled(selectedSession == nil || mirroredReason != nil || command.busy)
             .accessibilityIdentifier("toolbar-archive")
         }
     }
@@ -210,7 +222,7 @@ struct MainWindow: View {
     static func openComposer(_ model: AppModel) { model.sheet = .newSession }
 
     private func interruptSelected() {
-        guard let store = model.store, let id = model.selectedSessionID else { return }
+        guard let store = model.store, let id = model.selectedSessionID, mirroredReason == nil else { return }
         Task {
             await command.run(
                 { try await store.interrupt(id: id) },

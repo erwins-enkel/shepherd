@@ -6089,5 +6089,9 @@
   "feat_machine_capabilities_body": "Einstellungen → Rechner zeigt jetzt die geprüften Fähigkeiten jedes Rechners: Plattform, Claude Code und Codex (installiert und angemeldet), Android-SDK und Sandbox-Profile, mit dem Alter der letzten Prüfung und einer Markierung für veraltete Angaben. Eine Aufgabe mit Anforderungen prüft der Rechner bei Annahme erneut und lehnt sie ab, wenn etwas fehlt. Windows-Rechner werden angezeigt, sind für Aufgaben aber noch nicht freigegeben.",
   "newtask_runon_upload_failed": "Die Anhänge sind nicht bei {machine} angekommen, deshalb wurde nichts gestartet: {reason}",
   "feat_run_on_attachments_title": "Anhänge gehen mit auf den anderen Rechner",
-  "feat_run_on_attachments_body": "Screenshots und Dateien, die du anhängst, reisen mit einer Aufgabe auf einen anderen Rechner: Shepherd lädt sie direkt vor der Übergabe hoch, und der Agent dort findet sie in seinem Worktree. Lässt sich einer nicht senden, startet die Aufgabe nicht, und der Dialog sagt warum."
+  "feat_run_on_attachments_body": "Screenshots und Dateien, die du anhängst, reisen mit einer Aufgabe auf einen anderen Rechner: Shepherd lädt sie direkt vor der Übergabe hoch, und der Agent dort findet sie in seinem Worktree. Lässt sich einer nicht senden, startet die Aufgabe nicht, und der Dialog sagt warum.",
+  "native_remote_terminal_lost_title": "{machine} ist nicht erreichbar",
+  "native_remote_terminal_lost_body": "{machine} ist nicht erreichbar. Das Terminal öffnet sich von selbst wieder, sobald der Rechner zurück ist.",
+  "native_remote_terminal_ended_body": "Die Session auf {machine} hat keinen laufenden Agenten mehr. Ihre Ausgabe ist eingefroren; setze sie im Shepherd auf {machine} fort.",
+  "native_ios_remote_actions_body": "Diese App zeigt die Session so, wie {machine} sie meldet. Terminal, Steuern, Stoppen, Archivieren und Mergen gibt es hier noch nicht, und nichts davon wird stellvertretend auf diesem Server ausgeführt – öffne dafür den Shepherd auf {machine}."
 }

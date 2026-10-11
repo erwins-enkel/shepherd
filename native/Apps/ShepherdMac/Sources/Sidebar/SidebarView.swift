@@ -27,6 +27,7 @@ struct SidebarView: View {
         // doubling the partition pass on every repaint for no reason.
         let chips = model.chips
         let groups = model.groups
+        let machines = model.machineGroups
 
         return VStack(spacing: 0) {
             HeaderStrip(model: model)
@@ -46,7 +47,7 @@ struct SidebarView: View {
             if let panel = QueuesPanels.panel(for: model.lens) {
                 panel().id(model.lens)
             } else {
-                list(groups, selection: $app.selectedSessionID, now: now)
+                list(groups, machines: machines, selection: $app.selectedSessionID, now: now)
             }
         }
         .modifier(SessionContextHost(controller: contextMenu))
@@ -127,8 +128,10 @@ struct SidebarView: View {
     }
 
     @ViewBuilder
-    private func list(_ groups: [HerdGroup], selection: Binding<String?>, now: Int) -> some View {
-        if groups.isEmpty {
+    private func list(
+        _ groups: [HerdGroup], machines: [HerdMachineGroup], selection: Binding<String?>, now: Int
+    ) -> some View {
+        if groups.isEmpty, machines.isEmpty {
             ContentUnavailableView(
                 SidebarCopy.empty(lens: model.lens, repos: model.activeRepos),
                 systemImage: "tray")
@@ -143,6 +146,10 @@ struct SidebarView: View {
                         block: { model.block(for: $0) },
                         contextMenu: contextMenu,
                         onToggle: { model.toggleCollapsed(group.stage) })
+                }
+                // Sessions of connected machines, after this server's own (#2768).
+                ForEach(machines) { machine in
+                    HerdMachineGroupView(group: machine, now: now)
                 }
             }
             .scrollContentBackground(.hidden)

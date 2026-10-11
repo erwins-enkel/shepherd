@@ -80,6 +80,11 @@ public final class TerminalSessionModel {
     /// Only `takeOver()` clears it, because only the operator can decide to
     /// reclaim the terminal.
     private var parked: Phase?
+    /// The `since` of the machine link a mirrored session's terminal last heard about, and the
+    /// one current when it ended as `.machineUnreachable` (#2768). A later change of it to
+    /// connected is the machine coming back — compared, never read as a clock.
+    private var machineSince: Int?
+    private var endedMachineSince: Int?
 
     /// How the latest fresh attach went, phase by phase, for the latency
     /// indicator. Deliberately unobserved: it changes per output chunk during
@@ -255,6 +260,16 @@ public final class TerminalSessionModel {
         }
     }
 
+    /// The link to the machine a mirrored session runs on changed. A terminal that ended because
+    /// that machine was unreachable re-attaches by itself once the link is back — the web's
+    /// `RemoteTerminal` rule; until then nothing reconnects.
+    public func machineConnectionChanged(_ connection: SessionConnection) {
+        machineSince = connection.since
+        guard phase == .ended(.machineUnreachable), connection.state.known == .connected,
+              connection.since != endedMachineSince else { return }
+        takeOver()
+    }
+
     public func send(_ bytes: Data) {
         // SwiftTerm also calls this for device-status/cursor queries in replayed output.
         // Suppress all input during isolated live smoke, including those automatic replies.
@@ -351,6 +366,7 @@ public final class TerminalSessionModel {
             phase = .idle
         case .closed(let closure):
             phase = .ended(closure)
+            if closure == .machineUnreachable { endedMachineSince = machineSince }
             recoveryFailure = BackendRecovery.classify(serverReachable: nil, diagnostics: nil, closure: closure)
             if closure == .unreachable, let recovery {
                 let mine = generation

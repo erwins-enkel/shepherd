@@ -12663,6 +12663,23 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"theTailnetSwitchAddsAndRemovesTheServeMapping() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerModelTests.swift\",\"MacSeamTests.LocalServerModelTests\",\"tokensAreMintedNativelyOnlyForTheSupervisedProfile() async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"everyTailnetExplanationHasCopy()\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"theTailnetSwitchFollowsTheServeConfig()\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/LocalServerPanelTests.swift\",\"MacSeamTests.LocalServerPanelStateTests\",\"theTailnetSwitchFollowsTheServeConfig()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RemoteSessionsTests.swift\",\"CoreSeamTests.RemoteSessionsTests\",\"aMirroredSessionIsLabelledWithItsMachine()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RemoteSessionsTests.swift\",\"CoreSeamTests.RemoteSessionsTests\",\"aTerminalWhoseMachineWasUnreachableReattachesOnlyWhenItIsBack() async\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RemoteSessionsTests.swift\",\"CoreSeamTests.RemoteSessionsTests\",\"lastKnownIsAClockTimeTodayAndADateBefore()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RemoteSessionsTests.swift\",\"CoreSeamTests.RemoteSessionsTests\",\"machineGroupsFollowFirstAppearanceAndSkipLocalSessions()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RemoteSessionsTests.swift\",\"CoreSeamTests.RemoteSessionsTests\",\"onlyADisconnectedMachineGetsTheLastKnownLine() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RemoteSessionsTests.swift\",\"CoreSeamTests.RemoteSessionsTests\",\"theExplanationNamesTheMachineTheLinkAndTheActions() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RemoteSessionsTests.swift\",\"CoreSeamTests.RemoteSessionsTests\",\"theSidebarShowsMachineGroupsInTheAllLensOnly()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/RemoteSessionsTests.swift\",\"CoreSeamTests.RemoteSessionsTests\",\"theTerminalControllerKeepsAMirroredSessionsModel() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/PTYConnectionTests.swift\",\"PTYConnectionTests\",\"machineUnreachableParks() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ServerEventTests.swift\",\"ServerEventTests\",\"localFramesAreNotMirrored() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ServerEventTests.swift\",\"ServerEventTests\",\"mirroredSessionFrames() throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreRemoteTests.swift\",\"SessionStoreRemoteTests\",\"createdOnAMachineIsMirrored() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreRemoteTests.swift\",\"SessionStoreRemoteTests\",\"mirroredFrameDuringLoadIsReplayed() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreRemoteTests.swift\",\"SessionStoreRemoteTests\",\"mirroredFramesStayOutOfTaps() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreRemoteTests.swift\",\"SessionStoreRemoteTests\",\"remoteSessionsReplacesOneMachine() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/SessionStoreRemoteTests.swift\",\"SessionStoreRemoteTests\",\"snapshotSplitsMirroredSessions() async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientReadTests.swift\",\"ShepherdClientReadTests\",\"instanceIdentity() async throws\"]"
   ]
 }

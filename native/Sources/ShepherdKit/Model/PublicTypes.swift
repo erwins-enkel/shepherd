@@ -14,6 +14,12 @@ public typealias CreateSessionRequest = Components.Schemas.CreateSessionRequest
 public typealias AgentProvider = Components.Schemas.AgentProvider
 public typealias Effort = Components.Schemas.Effort
 public typealias Health = Components.Schemas.Health
+// Sessions mirrored from connected machines (#2762) and the identity GET /api/instance reports.
+public typealias SessionHost = Components.Schemas.SessionHost
+public typealias SessionConnection = Components.Schemas.SessionConnection
+public typealias RemoteSessionsEvent = Components.Schemas.RemoteSessionsEvent
+public typealias InstanceIdentity = Components.Schemas.InstanceIdentity
+public typealias InstancePlatform = Components.Schemas.InstancePlatform
 
 // The closed enum each named open enum splits off (see OpenEnum.swift).
 // Switch on `<wrapper>.known` and get one of these back.
@@ -22,6 +28,7 @@ public typealias HerdrStateKnown = Components.Schemas.HerdrStateKnown
 public typealias SessionArchiveReasonKnown = Components.Schemas.SessionArchiveReasonKnown
 public typealias ExperimentRoleKnown = Components.Schemas.ExperimentRoleKnown
 public typealias EventNameKnown = Components.Schemas.EventNameKnown
+public typealias InstancePlatformKnown = Components.Schemas.InstancePlatformKnown
 
 // Hand-written public types. These are declared in the files named below, not
 // aliased here — a typealias of a type to itself does not compile — but they are

@@ -219,8 +219,20 @@
     action();
   }
 
+  // Stopping the leader starts the queue's head (#2973) — the Stop item says which.
+  const promotes = $derived(
+    drain?.runSummary?.leadingEpic === parent ? drain.runSummary.queued?.[0] : undefined,
+  );
   const menuItems = $derived([
-    ...(canEnd ? [{ label: m.epic_stop(), onselect: () => pick(endEpic) }] : []),
+    ...(canEnd
+      ? [
+          {
+            label: m.epic_stop(),
+            title: promotes == null ? undefined : m.epic_stop_promotes_title({ epic: promotes }),
+            onselect: () => pick(endEpic),
+          },
+        ]
+      : []),
     ...(canApprove ? [{ label: m.epic_approve_next(), onselect: () => pick(approveNext) }] : []),
   ]);
 </script>

@@ -1983,7 +1983,36 @@ describe("drain epic mode", () => {
     expect(h.store.listEpicQueue(REPO)).toHaveLength(2);
   });
 
-  test("queue: a manually ended leader does not promote", async () => {
+  test("queue: promoteQueuedEpic starts the head with its stored settings, without the old approval (#2973)", async () => {
+    const { h, NEXT } = queueHarness(false);
+    h.drain.approveEpicNext(REPO);
+    h.store.setEpicRun({ repoPath: REPO, parentIssueNumber: PARENT, mode: "auto", status: "idle" });
+    h.store.enqueueEpic({
+      repoPath: REPO,
+      parentIssueNumber: NEXT,
+      mode: "attended",
+      agentProvider: "claude",
+      model: "opus",
+      effort: "high",
+    });
+    expect(h.drain.promoteQueuedEpic(REPO)?.parentIssueNumber).toBe(NEXT);
+    expect(h.store.getEpicRun(REPO)).toEqual({
+      repoPath: REPO,
+      parentIssueNumber: NEXT,
+      mode: "attended",
+      status: "running",
+      agentProvider: "claude",
+      model: "opus",
+      effort: "high",
+    });
+    expect(h.store.listEpicQueue(REPO)).toEqual([]);
+    await h.drain.pump(REPO);
+    // Attended and the stopped leader's approval dropped: nothing spawns on its own.
+    expect(h.creates).toHaveLength(0);
+    expect(h.drain.promoteQueuedEpic(REPO)).toBeNull();
+  });
+
+  test("queue: the pump does not promote behind a manually ended leader (the stop route does)", async () => {
     const { h, NEXT } = queueHarness(true);
     h.store.setEpicRun({ repoPath: REPO, parentIssueNumber: PARENT, mode: "auto", status: "idle" });
     h.store.enqueueEpic({ repoPath: REPO, parentIssueNumber: NEXT, mode: "auto" });

@@ -696,6 +696,9 @@ export interface AppDeps {
     diagnoseEpic(repoPath: string, run: EpicRun): Promise<EpicDiagnosis | null>;
     /** Operator approves the next epic-attended spawn for the given repo. */
     approveEpicNext(repoPath: string): void;
+    /** #2973: start the repo's epic-queue head with its stored settings (the operator stopped the
+     *  leader); null when the queue is empty. */
+    promoteQueuedEpic(repoPath: string): import("./epic-core").EpicQueueEntry | null;
     /** Drive one pump cycle across all drain-enabled repos. */
     tick(): Promise<void>;
     /** #1841: operator-triggered conflict rework for a conflicting epic landing PR
@@ -8803,7 +8806,13 @@ function stopsAnotherEpicsLead(
   return !!leader && leader.parentIssueNumber !== parentIssueNumber;
 }
 
-// Returns true when a start cleared the epic's stale completion (the band must drop it).
+interface SavedEpicRunPatch {
+  /** A start cleared the epic's stale completion (the band must drop it). */
+  cleared: boolean;
+  /** The queue head that started because this patch stopped the leader (#2973). */
+  promoted: number | null;
+}
+
 function saveEpicRunPatch(
   store: AppDeps["store"],
   drain: NonNullable<AppDeps["drain"]>,
@@ -8811,20 +8820,25 @@ function saveEpicRunPatch(
   patch: EpicRunPatch,
   place: EpicSettingsPlace,
   via: string | null,
-): boolean {
+): SavedEpicRunPatch {
   if (patch.status === undefined && place !== "run") {
     if (place === "queue") store.updateEpicQueueSettings(merged);
     else store.setEpicSettings(merged);
-    return false;
+    return { cleared: false, promoted: null };
   }
   if (place === "queue") store.removeEpicQueueEntry(merged.repoPath, merged.parentIssueNumber);
+  const endsLeader =
+    place === "run" && merged.status === "idle" && !!leadingRun(store, merged.repoPath);
   store.setEpicRun(merged, { via });
   const cleared =
     merged.status === "running" &&
     store.clearEpicCompletedOnRestart(merged.repoPath, merged.parentIssueNumber);
-  if (patch.status !== undefined || merged.status === "running")
+  // #2973: stopping the leader hands the repo to the queue's head, as its completion does.
+  const promoted = endsLeader ? drain.promoteQueuedEpic(merged.repoPath) : null;
+  if (promoted) kickDrainOnEpicChange(drain, "running");
+  else if (patch.status !== undefined || merged.status === "running")
     kickDrainOnEpicChange(drain, merged.status);
-  return cleared;
+  return { cleared, promoted: promoted?.parentIssueNumber ?? null };
 }
 
 /** The name of the access token behind a request, recorded as who ended or superseded an epic;
@@ -8874,12 +8888,26 @@ async function handleEpicPut({ req, parts, url, deps, token }: Ctx): Promise<Res
   if (merged === null) return json({ error: "invalid epic run patch" }, 400);
   const leader = leadingRun(deps.store, dir);
   const via = requestTokenName(deps.store, token);
-  if (saveEpicRunPatch(deps.store, deps.drain, merged, patch, place, via))
+  const saved = saveEpicRunPatch(deps.store, deps.drain, merged, patch, place, via);
+  if (saved.cleared)
     deps.events?.emit("epic:completed-cleared", { repoPath: dir, parentIssueNumber: parentNumber });
   const epic = await deps.drain.buildEpic(dir, merged);
   if (epic) deps.events?.emit("epic:update", epic);
   await emitSupersededLeader(deps, deps.drain, dir, leader, merged);
+  await emitPromoted(deps, deps.drain, dir, saved.promoted);
   return json(epic ?? { ok: true });
+}
+
+/** Stopping the leader started the queue head `promoted` (#2973): announce it like a start. */
+async function emitPromoted(
+  deps: AppDeps,
+  drain: NonNullable<AppDeps["drain"]>,
+  dir: string,
+  promoted: number | null,
+): Promise<void> {
+  if (promoted == null) return;
+  const started = await drain.buildEpic(dir, runForParent(deps.store, dir, promoted));
+  if (started) deps.events?.emit("epic:update", started);
 }
 
 /** A start over `leader` superseded it: re-emit it so an open view of it learns why it stopped. */
@@ -8955,6 +8983,29 @@ async function handleEpicQueue({ req, parts, url, deps }: Ctx): Promise<Response
   const epic = await deps.drain.buildEpic(dir, runForParent(deps.store, dir, parentNumber));
   if (epic) deps.events?.emit("epic:update", epic);
   return json(epic ?? { ok: true });
+}
+
+function parseQueueOrder(body: unknown): number[] | null {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return null;
+  const order = (body as { order?: unknown }).order;
+  if (!Array.isArray(order) || order.length > 1000) return null;
+  return order.every((n) => Number.isInteger(n) && (n as number) > 0) ? (order as number[]) : null;
+}
+
+// PUT /api/epic/queue?repo= {order} — put the repo's epic queue in a new order (#2973). `order`
+// must name exactly the queued epics; a 409 tells a stale client to re-read the queue.
+async function handleEpicQueueReorder({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "PUT" && parts[0] === "api" && parts[1] === "epic" && parts[2] === "queue"))
+    return null;
+  if (parts[3]) return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const order = parseQueueOrder(await req.json().catch(() => null));
+  if (!order) return json({ error: "order must be an array of positive integers" }, 400);
+  if (!deps.drain) return json({ error: "drain unavailable" }, 503);
+  if (!deps.store.reorderEpicQueue(dir, order)) return json({ error: "queue changed" }, 409);
+  kickDrain(deps.drain, "queue reorder");
+  return json({ queued: deps.store.listEpicQueue(dir).map((e) => e.parentIssueNumber) });
 }
 
 // POST /api/epic/approve-next?repo=&parent= — approve the next attended epic spawn.
@@ -9484,6 +9535,7 @@ const ROUTE_HANDLERS = [
   handleEpicDiagnose,
   handleEpicPut,
   handleEpicQueue,
+  handleEpicQueueReorder,
   handleRepoConfig,
   handleRepoBrowserOpen,
   handleRepoRoles,

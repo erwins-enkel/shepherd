@@ -106,6 +106,18 @@ in-flight work running and resumes on its own — and only a few are **terminal*
 Shepherd spawns the first ready child immediately, then drains the rest as their dependencies
 complete, landing one aggregate PR at the end.
 
+### Queueing the next epic
+
+One epic leads per repo. To line up more, press **Queue** on another epic while one leads. The
+queued epics are listed under **Warteschlange** in the repo's run area — drag them by the grip, or
+use the ↑/↓ buttons, to change the order. The head of the queue starts on its own, with its own
+settings, as soon as the leader has all children merged into its integration branch (its landing
+PR may still be open) — or when you **Stop** the leader. Pausing the leader keeps the queue
+waiting; starting a different epic puts that one in front of the queue.
+
+A landing-PR repair session (CI repair or conflict rework) does not take one of the repo's agent
+slots, so the next epic's first child can start while the previous epic is still landing.
+
 ## How long will this epic take?
 
 Hover an epic's **EPIC** badge in the Herd to see how long it has run and when it is forecast to

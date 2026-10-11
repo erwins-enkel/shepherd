@@ -1088,6 +1088,14 @@ export interface DrainStatus {
   runSummary?: DrainRunSummary;
 }
 
+/** A live drain session in the run summary — a slot holder or a landing repair. */
+export interface DrainRunSession {
+  sessionId: string;
+  desig: string;
+  issueNumber: number | null;
+  epicParent: number | null;
+}
+
 /** Mirrors src/drain-core.ts → RunSummary. */
 export interface DrainRunSummary {
   /** The running/paused epic's parent; null in label mode. */
@@ -1097,18 +1105,17 @@ export interface DrainRunSummary {
   slots: {
     used: number;
     max: number;
-    holders: {
-      sessionId: string;
-      desig: string;
-      issueNumber: number | null;
-      epicParent: number | null;
-    }[];
+    holders: DrainRunSession[];
   };
+  /** Landing-repair sessions (CI repair / conflict rework of an epic's landing PR, #2973) — they
+   *  hold no slot, so they are not in `slots`. Absent from older servers. */
+  landingRepairs?: DrainRunSession[];
   /** Next startable issue #s in drain order — also while the epic is paused. */
   next: number[];
   /** Open epic children directly blocked by next[0]. */
   after: number[];
-  /** Epics queued behind the leading one, head first (#2624); absent from older servers. */
+  /** Epics queued behind the leading one, head first (#2624); the head starts once the leader
+   *  completes or is stopped (#2973). Absent from older servers. */
   queued?: number[];
 }
 

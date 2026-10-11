@@ -3127,6 +3127,21 @@ export async function unqueueEpic(repoPath: string, parent: number): Promise<Epi
   return r.json();
 }
 
+/** Reorder the repo's epic queue (#2973): `order` holds every queued epic, new head first.
+ *  409 when it isn't exactly the current queue (it changed meanwhile). */
+export async function reorderEpicQueue(
+  repoPath: string,
+  order: number[],
+): Promise<{ queued: number[] }> {
+  const r = await fetch(`/api/epic/queue?repo=${encodeURIComponent(repoPath)}`, {
+    method: "PUT",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ order }),
+  });
+  if (!r.ok) throw await failed(r, "reorder epic queue");
+  return r.json();
+}
+
 export async function approveEpicNext(repoPath: string, parent: number): Promise<Epic> {
   const r = await fetch(
     `/api/epic/approve-next?repo=${encodeURIComponent(repoPath)}&parent=${parent}`,

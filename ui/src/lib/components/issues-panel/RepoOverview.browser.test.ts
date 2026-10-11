@@ -127,6 +127,54 @@ describe("RepoOverview (#2622)", () => {
     expect(onopenautomation).toHaveBeenCalledOnce();
   });
 
+  it("names landing repairs (no slot) and lists the epic queue in order (#2973)", async () => {
+    const onselect = vi.fn();
+    const d = drain();
+    d.runSummary = {
+      ...d.runSummary!,
+      queued: [30, 40],
+      landingRepairs: [
+        { sessionId: "s-land", desig: "TASK-90", issueNumber: null, epicParent: 30 },
+        { sessionId: "s-orphan", desig: "TASK-91", issueNumber: null, epicParent: null },
+      ],
+    };
+    render(RepoOverview, {
+      repoName: "shepherd",
+      epics: [summaryOf(A, 1, 3), summaryOf(B, 0, 2), summaryOf(30, 0, 1)],
+      ...quiet,
+      drain: d,
+      titleFor: (n: number) => (n === 40 ? "Forty from host" : null),
+      onselect,
+    });
+    const repairs = [...run().querySelectorAll("[data-landing-repair]")].map((n) =>
+      n.textContent?.trim(),
+    );
+    expect(repairs).toEqual([
+      m.repooverview_landing_repair({ epic: 30 }),
+      m.repooverview_landing_repair_desig({ desig: "TASK-91" }),
+    ]);
+    const rows = [...run().querySelectorAll<HTMLElement>(".queue .row")];
+    expect(rows.map((r) => r.dataset.epic)).toEqual(["30", "40"]);
+    // Title from the epic list, else from the host's lookup.
+    expect(rows[0].textContent).toContain("Epic 30");
+    expect(rows[1].textContent).toContain("Forty from host");
+    rows[1].querySelector<HTMLButtonElement>(".name")!.click();
+    expect(onselect).toHaveBeenCalledWith("e:40");
+  });
+
+  it("shows no queue without queued epics", async () => {
+    render(RepoOverview, {
+      repoName: "shepherd",
+      epics: [],
+      ...quiet,
+      drain: drain(),
+      titleFor,
+      onselect: vi.fn(),
+    });
+    expect(run().querySelector(".queue")).toBeNull();
+    expect(run().querySelector("[data-landing-repair]")).toBeNull();
+  });
+
   it("lists epics with role and progress (leading first) and selects on click", async () => {
     const onselect = vi.fn();
     render(RepoOverview, {

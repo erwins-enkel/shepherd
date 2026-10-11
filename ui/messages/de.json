@@ -5900,5 +5900,17 @@
   "feat_repos_grid_body": "Ohne Dashboard-Filter – oder mit mehreren gefilterten Repos – wählt Repos kein Repo mehr vor, sondern öffnet ein Raster: tippen zum Filtern, nach offenen Issues sortieren, ein Repo mit ↵ oder den Pfeiltasten öffnen. Ist genau ein Repo gefiltert, öffnet es direkt dieses Repo, markiert mit „aus Dashboard-Filter“.",
   "native_compose_keymap_server": "Server wählen",
   "native_compose_code_caption": "Code ändern und einen Pull Request öffnen.",
-  "native_compose_repo_default_unknown": "Repo-Standard nicht verfügbar"
+  "native_compose_repo_default_unknown": "Repo-Standard nicht verfügbar",
+  "repooverview_landing_repair": "Landing-Reparatur für Epic #{epic} läuft (belegt keinen Agenten-Platz)",
+  "repooverview_landing_repair_desig": "Landing-Reparatur {desig} läuft (belegt keinen Agenten-Platz)",
+  "epicqueue_heading": "Warteschlange",
+  "epicqueue_hint": "Ziehen oder ↑ / ↓ ändert die Reihenfolge. Das erste startet, sobald das führende Epic fertig ist oder beendet wird.",
+  "epicqueue_drag_aria": "Epic #{epic} ziehen, um die Reihenfolge zu ändern",
+  "epicqueue_up_aria": "Epic #{epic} nach oben schieben",
+  "epicqueue_down_aria": "Epic #{epic} nach unten schieben",
+  "epicqueue_moved": "Epic #{epic} steht jetzt an Position {position} von {count}",
+  "epicqueue_reorder_failed": "Epic-Warteschlange konnte nicht umsortiert werden",
+  "epic_stop_promotes_title": "Danach startet Epic #{epic} aus der Warteschlange",
+  "feat_epic_queue_reorder_title": "Epic-Warteschlange umsortieren",
+  "feat_epic_queue_reorder_body": "Unter Repos → Issues listet die Abarbeitung im Repo die eingereihten Epics in Reihenfolge — ziehen oder ↑ / ↓ bestimmt, welches als Nächstes startet. Wer das führende Epic beendet, startet jetzt das erste aus der Warteschlange, und eine Landing-Reparatur belegt keinen Agenten-Platz mehr."
 }

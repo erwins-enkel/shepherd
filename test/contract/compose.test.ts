@@ -230,6 +230,13 @@ describe("epic", () => {
       );
       await call(method, template, `${template}${q()}`, 401, body, false);
     }
+    const reorder = `/api/epic/queue?repo=${encodeURIComponent(s.validRepo)}`;
+    expect(await call("PUT", "/api/epic/queue", reorder, 503, { order: [] })).toEqual({
+      error: "drain unavailable",
+    });
+    await call("PUT", "/api/epic/queue", `/api/epic/queue?repo=/etc`, 400, { order: [] });
+    await call("PUT", "/api/epic/queue", reorder, 400, { order: [0] });
+    await call("PUT", "/api/epic/queue", reorder, 401, { order: [] }, false);
   });
 
   test("get, patch and approve-next answer the assembled epic, or ok when it vanished", async () => {
@@ -238,6 +245,7 @@ describe("epic", () => {
     let ticks = 0;
     const approved: string[] = [];
     s.deps.drain = {
+      promoteQueuedEpic: () => null,
       buildEpic: async (_dir: string, run: EpicRun) => (found ? fx.epic(run) : null),
       approveEpicNext: (dir: string) => {
         approved.push(dir);
@@ -292,6 +300,7 @@ describe("epic", () => {
   test("patch refuses to stop or pause an epic that does not lead; a start records why the leader stopped", async () => {
     const previousDrain = s.deps.drain;
     s.deps.drain = {
+      promoteQueuedEpic: () => null,
       buildEpic: async (dir: string, run: EpicRun) => {
         const runEnd = s.deps.store.getEpicRunEnd(dir, run.parentIssueNumber);
         return runEnd ? { ...fx.epic(run), runEnd } : fx.epic(run);
@@ -338,6 +347,7 @@ describe("epic", () => {
   test("queue answers 409 without a leader, else the assembled epic; unqueue always answers", async () => {
     const previousDrain = s.deps.drain;
     s.deps.drain = {
+      promoteQueuedEpic: () => null,
       buildEpic: async (_dir: string, run: EpicRun) => fx.epic(run),
       tick: async () => {},
     } as unknown as NonNullable<typeof s.deps.drain>;
@@ -358,12 +368,22 @@ describe("epic", () => {
       });
       const queued = (await call("POST", "/api/epic/queue", qq(413), 200)) as Epic;
       expect(queued.run).toMatchObject({ parentIssueNumber: 413, status: "idle" });
+      await call("POST", "/api/epic/queue", qq(414), 200);
+      const reorder = `/api/epic/queue?repo=${encodeURIComponent(s.validRepo)}`;
+      expect(await call("PUT", "/api/epic/queue", reorder, 200, { order: [414, 413] })).toEqual({
+        queued: [414, 413],
+      });
+      expect(await call("PUT", "/api/epic/queue", reorder, 409, { order: [413] })).toEqual({
+        error: "queue changed",
+      });
+      await call("DELETE", "/api/epic/queue", qq(414), 200);
       const dequeued = (await call("DELETE", "/api/epic/queue", qq(413), 200)) as Epic;
       expect(dequeued.run.parentIssueNumber).toBe(413);
       expect(s.deps.store.listEpicQueue(s.validRepo)).toEqual([]);
     } finally {
       s.deps.drain = previousDrain;
       s.deps.store.removeEpicQueueEntry(s.validRepo, 413);
+      s.deps.store.removeEpicQueueEntry(s.validRepo, 414);
       s.deps.store.setEpicRun({
         repoPath: s.validRepo,
         parentIssueNumber: 412,

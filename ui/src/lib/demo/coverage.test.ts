@@ -263,6 +263,7 @@ const INVENTORY: readonly Entry[] = [
   post("/api/epic/approve-next", `/api/epic/approve-next?repo=${r}&parent=100`),
   post("/api/epic/queue", `/api/epic/queue?repo=${r}&parent=100`),
   { method: "DELETE", path: "/api/epic/queue", url: `/api/epic/queue?repo=${r}&parent=100` },
+  { method: "PUT", path: "/api/epic/queue", url: `/api/epic/queue?repo=${r}`, body: { order: [] } },
   post("/api/sessions/:p/reply", `/api/sessions/${PROBE}/reply`, { text: "go on" }),
   { method: "PUT", path: "/api/sessions/:p/autopilot", url: `/api/sessions/${PROBE}/autopilot` },
   post("/api/sessions/:p/review-plan", `/api/sessions/${PROBE}/review-plan`),

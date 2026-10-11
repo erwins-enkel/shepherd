@@ -84,7 +84,9 @@ public struct LocalTailnetExposure: Sendable {
   public init(environment: LocalServerEnvironment, locate: (@Sendable () -> URL?)? = nil, run: Runner? = nil) {
     self.port = environment.port
     self.locate = locate ?? { environment.locateTailscale() }
-    let commandEnvironment = Self.commandEnvironment(environment.childEnvironment())
+    // The app's own environment, not `childEnvironment()`: the CLI needs none of the
+    // server settings or secrets `~/.shepherd/env` may hold.
+    let commandEnvironment = Self.commandEnvironment(ProcessInfo.processInfo.environment)
     self.run = run ?? { executable, arguments, timeout in
       await Self.runProcess(executable, arguments, environment: commandEnvironment, timeout: timeout)
     }
@@ -253,10 +255,11 @@ public struct LocalTailnetExposure: Sendable {
     var exit = exits.makeAsyncIterator()
     let code = await exit.next() ?? 127
     deadline.cancel()
-    let timedOut = await deadline.value && code != 0
+    let fired = await deadline.value
     let stdoutData = await output.value
-    let stderrText = String(decoding: await errors.value, as: UTF8.self)
-    return TailscaleCommandResult(exitCode: timedOut ? 124 : code, stdout: stdoutData, stderr: stderrText)
+    let stderrData = await errors.value
+    return TailscaleCommandResult(exitCode: fired && code != 0 ? 124 : code, stdout: stdoutData,
+                                  stderr: String(decoding: stderrData, as: UTF8.self))
   }
 
   private static func collect(_ handle: FileHandle, limit: Int = 1 << 20) async -> Data {

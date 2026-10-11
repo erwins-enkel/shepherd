@@ -97,10 +97,13 @@ extension MacSeamTests {
         for reason in [TailnetUnavailableReason.cliMissing, .notConnected, .httpsDisabled] {
             #expect(!LocalServerCopy.tailnetReason(reason).hasPrefix("native_"))
         }
-        for failure in [TailnetExposureFailure.portTaken, .commandFailed(exitCode: 1), .notApplied,
-                        .unavailable(.httpsDisabled)] {
-            #expect(!LocalServerCopy.tailnetFailure(failure, port: 7330).hasPrefix("native_"))
+        for failure in [TailnetExposureFailure.commandFailed(exitCode: 1), .notApplied] {
+            #expect(LocalServerCopy.tailnetFailure(failure)?.hasPrefix("native_") == false)
         }
+        // Explained by the re-read status note instead; never said twice.
+        #expect(LocalServerCopy.tailnetFailure(.portTaken) == nil)
+        #expect(LocalServerCopy.tailnetFailure(.unavailable(.httpsDisabled)) == nil)
+        #expect(!L.t("native_local_tailnet_port_taken", "7330").hasPrefix("native_"))
         for key in ["native_local_tailnet_toggle", "native_local_tailnet_summary", "native_local_tailnet_checking",
                     "native_local_tailnet_url_label", "native_local_tailnet_copy", "native_local_tailnet_token_steps",
                     "native_local_tailnet_token_create", "native_local_tailnet_trust_label",

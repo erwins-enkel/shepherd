@@ -50,12 +50,13 @@ enum LocalServerCopy {
         }
     }
 
-    static func tailnetFailure(_ failure: TailnetExposureFailure, port: Int) -> String {
+    /// Only what the re-read status cannot say: `.unavailable` and `.portTaken`
+    /// already show as the switch's own note after a failed change.
+    static func tailnetFailure(_ failure: TailnetExposureFailure) -> String? {
         switch failure {
-        case .unavailable(let reason): tailnetReason(reason)
-        case .portTaken: L.t("native_local_tailnet_port_taken", String(port))
         case .commandFailed(let code): L.t("native_local_tailnet_failed", String(code))
         case .notApplied: L.t("native_local_tailnet_not_applied")
+        case .unavailable, .portTaken: nil
         }
     }
 }
@@ -638,6 +639,7 @@ final class LocalServerModel {
         let status = await tailnetExposure.status()
         guard tailnetGeneration == expected, !tailnetBusy else { return }
         tailnet = status
+        tailnetFailure = nil
     }
 
     /// The tailnet switch. Toggling never restarts the server: the mapping sits in

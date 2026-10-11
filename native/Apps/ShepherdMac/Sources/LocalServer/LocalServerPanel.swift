@@ -379,8 +379,8 @@ struct LocalServerPanel: View {
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("local-tailnet-note")
             }
-            if let failure = model.tailnetFailure {
-                Text(verbatim: LocalServerCopy.tailnetFailure(failure, port: model.tailnet?.port ?? 0))
+            if let failure = model.tailnetFailure, let message = LocalServerCopy.tailnetFailure(failure) {
+                Text(verbatim: message)
                     .font(.caption).foregroundStyle(.orange)
                     .fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("local-tailnet-failure")

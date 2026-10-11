@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  availableCapabilities,
   connectErrorMessage,
   machineHint,
   machineStatusLabel,
   machineStatusTone,
+  missingCapabilities,
   platformLabel,
 } from "./machines";
+import type { CapabilityCheck } from "./types";
 import { m } from "#lib/paraglide/messages.js";
 
 describe("machines copy", () => {
@@ -54,6 +57,42 @@ describe("machines copy", () => {
       m.settings_machines_status_unreachable(),
     );
     expect(connectErrorMessage("http_500", null)).toBe(m.settings_machines_error_generic());
+  });
+
+  it("capability chips carry the version the machine found; Xcode's reasons are named", () => {
+    const report = (checks: CapabilityCheck[]) => ({
+      vocabulary: 1,
+      probedAt: 0,
+      ageMs: 0,
+      stale: false,
+      checks,
+    });
+    expect(
+      availableCapabilities(
+        report([
+          { id: "platform:macos", ok: true, reason: null, detail: "15.5 (24F74)" },
+          { id: "xcode", ok: true, reason: null, detail: "16.4 (16F6)" },
+          { id: "agent:claude", ok: true, reason: null },
+        ]),
+      ),
+    ).toEqual([
+      `${m.settings_machines_platform_macos()} 15.5 (24F74)`,
+      `${m.settings_machines_cap_xcode()} 16.4 (16F6)`,
+      m.settings_machines_cap_agent_claude(),
+    ]);
+    expect(
+      missingCapabilities(
+        report([
+          { id: "xcode", ok: false, reason: "license_not_accepted", detail: "16.4 (16F6)" },
+          { id: "sdk:ios", ok: false, reason: "command_line_tools_only" },
+          { id: "ios-simulator", ok: false, reason: "no_simulator" },
+        ]),
+      ),
+    ).toEqual([
+      `${m.settings_machines_cap_xcode()} (${m.settings_machines_cap_reason_license_not_accepted()})`,
+      `${m.settings_machines_cap_sdk_ios()} (${m.settings_machines_cap_reason_command_line_tools_only()})`,
+      `${m.settings_machines_cap_ios_simulator()} (${m.settings_machines_cap_reason_no_simulator()})`,
+    ]);
   });
 
   it("platform names", () => {

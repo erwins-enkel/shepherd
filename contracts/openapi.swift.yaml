@@ -52,6 +52,46 @@ components:
           type: string
         instanceID:
           type: string
+    InstanceIdentity:
+      type: object
+      additionalProperties: true
+      required:
+        - instanceId
+        - name
+        - version
+        - federationApi
+        - platform
+        - arch
+      description: This Shepherd as another Shepherd sees it when connecting it as a machine.
+      properties:
+        instanceId:
+          type: string
+          description: Generated once and persisted, so it is stable across restarts. Not the per-launch localInstall.instanceID marker of /api/health.
+        name:
+          type: string
+          description: Operator-chosen display name; defaults to the host name.
+        version:
+          type: string
+          description: Root package.json version of the running server.
+        federationApi:
+          type: integer
+          minimum: 1
+          description: Federation API level. Two Shepherds are compatible as machines only when both report the same value.
+        platform:
+          $ref: "#/components/schemas/InstancePlatform"
+        arch:
+          type: string
+          description: CPU architecture as the server runtime reports it (x64, arm64, ...).
+    InstancePlatform:
+      anyOf:
+        - $ref: "#/components/schemas/InstancePlatformKnown"
+        - type: string
+    InstancePlatformKnown:
+      type: string
+      enum:
+        - linux
+        - macos
+        - windows
     Error:
       type: object
       additionalProperties: true
@@ -7099,6 +7139,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/AuthenticatedIdentity"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/instance:
+    get:
+      operationId: getInstance
+      description: This instance's identity for machine connections. Needs a full-scope credential without a repository restriction.
+      responses:
+        "200":
+          description: Instance identity.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InstanceIdentity"
         "401":
           $ref: "#/components/responses/Unauthorized"
   /api/access-tokens:

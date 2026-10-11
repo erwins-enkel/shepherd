@@ -284,6 +284,13 @@ const glossary: readonly GlossaryTerm[] = [
     termKey: "gloss_token_scope_term",
     bodyKey: "gloss_token_scope_def",
   },
+  {
+    // Internal: a connected Shepherd instance (#2759), not a host in the generic sense.
+    id: "machine",
+    kind: "internal",
+    termKey: "gloss_machine_term",
+    bodyKey: "gloss_machine_def",
+  },
 ];
 
 export const glossaryById = new Map<string, GlossaryTerm>(glossary.map((term) => [term.id, term]));

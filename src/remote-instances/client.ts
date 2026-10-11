@@ -1,0 +1,164 @@
+/**
+ * The one place a Shepherd talks HTTP to another Shepherd (issue #2759). Everything that reaches a
+ * connected machine — today the connection probe, later session mirroring and hand-off — goes
+ * through `getRemoteJson` here, so the timeout, the redirect policy and the failure vocabulary live in
+ * exactly one spot.
+ *
+ * The bearer token is a credential for ANOTHER machine. It goes into the `Authorization` header
+ * and nowhere else: nothing here logs, throws or returns it, and redirects are never followed
+ * (`redirect: "manual"`), so the header cannot be replayed to wherever a 3xx points.
+ */
+import { FEDERATION_API_VERSION, INSTANCE_NAME_MAX, type InstanceIdentity } from "./identity";
+
+/** Per request. A probe makes three, so a dead machine costs at most ~15 s. */
+const REMOTE_REQUEST_TIMEOUT_MS = 5_000;
+
+export type ProbeFailure =
+  | { status: "unreachable"; reason: "timeout" | "network" | "redirect" | "bad_response" }
+  | { status: "unauthorized"; reason: "token_rejected" | "token_scope" | "token_restricted" }
+  | { status: "incompatible"; reason: "api_missing" | "api_version" };
+
+export type ProbeOutcome =
+  { status: "connected"; info: InstanceIdentity; projects: string[] } | ProbeFailure;
+
+export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
+
+/** Where a machine lives and the credential it accepts. */
+export interface RemoteTarget {
+  url: string;
+  token: string;
+}
+
+export interface RemoteRequestOptions {
+  fetch?: FetchLike;
+  timeoutMs?: number;
+}
+
+type RemoteGetResult = { ok: true; body: unknown } | { ok: false; failure: ProbeFailure };
+
+const BAD_RESPONSE: ProbeFailure = { status: "unreachable", reason: "bad_response" };
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+const defaultFetch: FetchLike = (input, init) => fetch(input, init);
+
+/** A non-2xx answer, classified. 403 is the scope gate (`insufficient_scope`); 404 means the
+ *  route does not exist there, i.e. a Shepherd too old for this. */
+function statusFailure(status: number): ProbeFailure {
+  if (status >= 300 && status < 400) return { status: "unreachable", reason: "redirect" };
+  if (status === 401) return { status: "unauthorized", reason: "token_rejected" };
+  if (status === 403) return { status: "unauthorized", reason: "token_scope" };
+  if (status === 404) return { status: "incompatible", reason: "api_missing" };
+  return BAD_RESPONSE;
+}
+
+/** Authenticated GET of `path` on a machine, parsed as JSON. Never throws. Module-private until a
+ *  second caller (session mirroring, #2762) needs it. */
+async function getRemoteJson(
+  target: RemoteTarget,
+  path: string,
+  opts: RemoteRequestOptions = {},
+): Promise<RemoteGetResult> {
+  let res: Response;
+  try {
+    res = await (opts.fetch ?? defaultFetch)(`${target.url}${path}`, {
+      headers: { authorization: `Bearer ${target.token}`, accept: "application/json" },
+      redirect: "manual",
+      signal: AbortSignal.timeout(opts.timeoutMs ?? REMOTE_REQUEST_TIMEOUT_MS),
+    });
+  } catch (err) {
+    const timedOut =
+      err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+    return {
+      ok: false,
+      failure: { status: "unreachable", reason: timedOut ? "timeout" : "network" },
+    };
+  }
+  if (!res.ok) {
+    await res.body?.cancel().catch(() => {});
+    return { ok: false, failure: statusFailure(res.status) };
+  }
+  try {
+    return { ok: true, body: await res.json() };
+  } catch {
+    return { ok: false, failure: BAD_RESPONSE };
+  }
+}
+
+/**
+ * A machine needs a token that reaches everything: scope `full` and no repository restriction
+ * (#2712). `GET /api/me` answers for every scope and restriction, so it names the problem exactly.
+ * No `access` block means the env `SHEPHERD_TOKEN`, which is always unrestricted.
+ */
+function grantFailure(me: Record<string, unknown>): ProbeFailure | null {
+  if (!isRecord(me.access)) return null;
+  if (me.access.scope !== undefined && me.access.scope !== "full") {
+    return { status: "unauthorized", reason: "token_scope" };
+  }
+  if (Array.isArray(me.access.repoPaths)) {
+    return { status: "unauthorized", reason: "token_restricted" };
+  }
+  return null;
+}
+
+const IDENTITY_STRINGS = ["name", "version", "platform", "arch"] as const;
+
+function parseIdentity(body: unknown): InstanceIdentity | null {
+  if (!isRecord(body) || typeof body.instanceId !== "string" || !UUID_RE.test(body.instanceId)) {
+    return null;
+  }
+  if (!Number.isInteger(body.federationApi)) return null;
+  if (!IDENTITY_STRINGS.every((key) => typeof body[key] === "string")) return null;
+  return {
+    instanceId: body.instanceId,
+    name: (body.name as string).slice(0, INSTANCE_NAME_MAX),
+    version: body.version as string,
+    federationApi: body.federationApi as number,
+    platform: body.platform as string,
+    arch: body.arch as string,
+  };
+}
+
+/** Project identity is the forge slug; a repo without one is not a project another machine can
+ *  be matched on. Hidden repos count — hiding is a picker preference, not absence. */
+function parseProjects(body: unknown): string[] | null {
+  if (!isRecord(body) || !Array.isArray(body.repos)) return null;
+  const slugs = body.repos.flatMap((repo: unknown) =>
+    isRecord(repo) && typeof repo.remoteSlug === "string" && repo.remoteSlug
+      ? [repo.remoteSlug]
+      : [],
+  );
+  return [...new Set(slugs)].sort();
+}
+
+/**
+ * Check a machine end to end: the token's reach (`/api/me`), its identity and federation level
+ * (`/api/instance`), and its projects (`/api/repos`). Stops at the first failure.
+ */
+export async function probeRemote(
+  target: RemoteTarget,
+  opts: RemoteRequestOptions = {},
+): Promise<ProbeOutcome> {
+  const me = await getRemoteJson(target, "/api/me", opts);
+  if (!me.ok) return me.failure;
+  if (!isRecord(me.body)) return BAD_RESPONSE;
+  const grant = grantFailure(me.body);
+  if (grant) return grant;
+
+  const instance = await getRemoteJson(target, "/api/instance", opts);
+  if (!instance.ok) return instance.failure;
+  const info = parseIdentity(instance.body);
+  if (!info) return BAD_RESPONSE;
+  if (info.federationApi !== FEDERATION_API_VERSION) {
+    return { status: "incompatible", reason: "api_version" };
+  }
+
+  const repos = await getRemoteJson(target, "/api/repos", opts);
+  if (!repos.ok) return repos.failure;
+  const projects = parseProjects(repos.body);
+  return projects ? { status: "connected", info, projects } : BAD_RESPONSE;
+}

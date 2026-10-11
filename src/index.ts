@@ -56,6 +56,7 @@ import { SessionService } from "./service";
 import { LearningsService } from "./learnings-service";
 import { RepoConfigService } from "./repo-config-service";
 import { AccessTokenService } from "./access-tokens";
+import { RemoteInstanceService } from "./remote-instances/service";
 import { StatusPoller } from "./poller";
 import { PrPoller } from "./pr-poller";
 import { resolveDiffBase } from "./diff-base";
@@ -1067,6 +1068,10 @@ const repoConfigSvc = new RepoConfigService(store);
 // SQLite BEFORE the first request reaches checkAuth, and so the auth gate and the management
 // routes share one instance — a revocation through the routes must invalidate the gate's map.
 const accessTokenSvc = new AccessTokenService(store);
+// Connected machines (#2759): the periodic probe is a background subsystem, so it waits for the
+// first-run gate like the others. No machine connected ⇒ every round is a no-op without a request.
+const remoteInstances = new RemoteInstanceService({ store });
+deferredStarts.push(() => remoteInstances.start());
 
 // Build-queue reconciliation nudge: settled-idle backstop to the forward-fill cascade in
 // store.setBuildStepStatus. Steers a drifted, settled-idle session to post its progress.
@@ -3947,6 +3952,7 @@ const appDeps: AppDeps = {
   learnings: learningsSvc,
   repoConfig: repoConfigSvc,
   accessTokens: accessTokenSvc,
+  remoteInstances,
   events,
   pluginRegistry,
   pluginsDir: config.pluginsDir,

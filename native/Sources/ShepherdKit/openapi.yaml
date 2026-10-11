@@ -872,7 +872,7 @@ components:
       additionalProperties: false
       required:
         - instanceId
-      description: The connected machine a new task runs on, by the instance ID GET /api/remote-instances lists. The WHOLE session starts there; nothing starts here. This instance's own ID means here. repoPath then names this instance's checkout only to identify the project (its forge slug); the machine must be connected and have that project checked out, and runs the task in its own checkout. The task is stored before it is sent, and a retry (same Idempotency-Key) only ever goes to the same machine. Attachments (images) are not sent to other machines yet.
+      description: The connected machine a new task runs on, by the instance ID GET /api/remote-instances lists. The WHOLE session starts there; nothing starts here. This instance's own ID means here. repoPath then names this instance's checkout only to identify the project (its forge slug); the machine must be connected and have that project checked out, and runs the task in its own checkout. The task is stored before it is sent, and a retry (same Idempotency-Key) only ever goes to the same machine. Attachments (images, staged here) are uploaded to the machine right before the task is sent and travel as its own staged copies; a retry reuses those uploads.
       properties:
         instanceId:
           type: string
@@ -7594,7 +7594,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "502":
-          description: Create failed downstream (git or the agent runner).
+          description: "Create failed downstream (git or the agent runner). With a target also: an attachment did not reach the machine, so the task was not sent and nothing started (remote_upload_failed — `error` says which and why, `host` the machine); it is never sent under that Idempotency-Key."
           content:
             application/json:
               schema:

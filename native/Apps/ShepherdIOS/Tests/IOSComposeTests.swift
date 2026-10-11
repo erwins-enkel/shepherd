@@ -25,17 +25,27 @@ final class IOSComposeTests: XCTestCase {
         try launch.credentials.save(.init(token: "fixture-token", tokenId: "fixture"), for: profile.credentialKey)
         await app.activate(profile)
         let store = try XCTUnwrap(app.store)
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while !store.hasLoadedSessions, ContinuousClock.now < deadline { await Task.yield() }
-        XCTAssertTrue(store.hasLoadedSessions)
+        try await loadSessions(store)
         let recovery = try XCTUnwrap(app.extension(BackendRecoveryModel.self))
         await recovery.refresh()
         store.apply(.usageLimits(.init(session5h: .init(pct: 80, resetAt: 0), week: nil,
             perModelWeek: [], credits: nil, stale: false, calibratedAt: nil, subscriptionOnly: false)))
         let usageDeadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while SessionSignals.usageLimits(for: app)?.session5h?.pct != 80, ContinuousClock.now < usageDeadline { await Task.yield() }
+        while SessionSignals.usageLimits(for: app)?.session5h?.pct != 80, ContinuousClock.now < usageDeadline { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertEqual(SessionSignals.usageLimits(for: app)?.session5h?.pct, 80)
         return (app, store)
+    }
+    /// The store's own runner may stall on a slow runner, so re-drive refresh until sessions land (#2853).
+    private func loadSessions(_ store: SessionStore) async throws {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(60))
+        while ContinuousClock.now < deadline {
+            try? await store.refresh()
+            if store.hasLoadedSessions { return }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+        XCTAssertTrue(store.hasLoadedSessions, """
+            connection=\(String(describing: store.connection)) lastError=\(String(describing: store.lastError))
+            """)
     }
     private func freshContent(app: AppModel, store: SessionStore) -> IOSComposeContent {
         let voice = DictationController(engine: FakeDictationEngine(), getText: { "" }, setText: { _ in })
@@ -128,7 +138,7 @@ final class IOSComposeTests: XCTestCase {
         store.apply(.unknown(name: "diagnostics:status", payload: Data(IOSMultiServerFixtureTransport.readyDiagnostics.utf8)))
         let recovery = try XCTUnwrap(app.extension(BackendRecoveryModel.self))
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while recovery.diagnostics?.checks.count != 2, ContinuousClock.now < deadline { await Task.yield() }
+        while recovery.diagnostics?.checks.count != 2, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
         XCTAssertEqual(recovery.diagnostics?.checks.count, 2)
         content.model.runDefaults = ComposeRunConfig.defaults(from: store.settings)
         XCTAssertEqual(content.model.provider, .claude)

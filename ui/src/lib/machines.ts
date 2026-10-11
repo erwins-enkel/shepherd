@@ -105,14 +105,20 @@ const CAPABILITY_REASON: Record<string, () => string> = {
   sdk_incomplete: m.settings_machines_cap_reason_sdk_incomplete,
   no_backend: m.settings_machines_cap_reason_no_backend,
   no_egress: m.settings_machines_cap_reason_no_egress,
+  license_not_accepted: m.settings_machines_cap_reason_license_not_accepted,
+  command_line_tools_only: m.settings_machines_cap_reason_command_line_tools_only,
+  no_simulator: m.settings_machines_cap_reason_no_simulator,
 };
 
 /** A capability a newer server might add reads as its raw id. */
 const capabilityLabel = (id: string) => CAPABILITY[id]?.() ?? id;
 
-/** Names of the capabilities the machine verified, in vocabulary order. */
+/** Names of the capabilities the machine verified, in vocabulary order, each with the version the
+ *  machine found ("Xcode 16.4 (16F6)") when it reported one. */
 export function availableCapabilities(report: CapabilityReport): string[] {
-  return report.checks.filter((c) => c.ok).map((c) => capabilityLabel(c.id));
+  return report.checks
+    .filter((c) => c.ok)
+    .map((c) => (c.detail ? `${capabilityLabel(c.id)} ${c.detail}` : capabilityLabel(c.id)));
 }
 
 /** "Codex (not logged in)" per unavailable capability. Entries that belong to another platform

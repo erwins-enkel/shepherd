@@ -6088,7 +6088,7 @@
   "gloss_capability_term": "Fähigkeit",
   "gloss_capability_def": "Etwas, das ein Shepherd nachweislich ausführen kann, geprüft unter dem Benutzer, als der er läuft: seine Plattform, installierte und angemeldete Agent-CLIs (Claude Code, Codex), das Android-SDK, Xcode und seine Sandbox-Profile. Jeder Shepherd prüft alle 5 Minuten erneut und jedes Mal, wenn er eine Aufgabe annimmt, die eine Fähigkeit verlangt; fehlt sie, lehnt er die Aufgabe mit Namen ab. Eine Prüfung, die älter als 15 Minuten ist, gilt als veraltet.",
   "feat_machine_capabilities_title": "Sehen, was jeder Rechner wirklich ausführen kann",
-  "feat_machine_capabilities_body": "Einstellungen → Rechner zeigt jetzt die geprüften Fähigkeiten jedes Rechners: Plattform, Claude Code und Codex (installiert und angemeldet), Android-SDK und Sandbox-Profile, mit dem Alter der letzten Prüfung und einer Markierung für veraltete Angaben. Eine Aufgabe mit Anforderungen prüft der Rechner bei Annahme erneut und lehnt sie ab, wenn etwas fehlt. Windows-Rechner werden angezeigt, sind für Aufgaben aber noch nicht freigegeben.",
+  "feat_machine_capabilities_body": "Einstellungen → Rechner zeigt jetzt die geprüften Fähigkeiten jedes Rechners: Plattform, Claude Code und Codex (installiert und angemeldet), auf einem Mac Xcode mit Version, SDKs und iOS-Simulatoren (Lizenz akzeptiert), Android-SDK und Sandbox-Profile, mit dem Alter der letzten Prüfung und einer Markierung für veraltete Angaben. Eine Aufgabe mit Anforderungen prüft der Rechner bei Annahme erneut und lehnt sie ab, wenn etwas fehlt. Windows-Rechner werden angezeigt, sind für Aufgaben aber noch nicht freigegeben.",
   "newtask_runon_upload_failed": "Die Anhänge sind nicht bei {machine} angekommen, deshalb wurde nichts gestartet: {reason}",
   "feat_run_on_attachments_title": "Anhänge gehen mit auf den anderen Rechner",
   "feat_run_on_attachments_body": "Screenshots und Dateien, die du anhängst, reisen mit einer Aufgabe auf einen anderen Rechner: Shepherd lädt sie direkt vor der Übergabe hoch, und der Agent dort findet sie in seinem Worktree. Lässt sich einer nicht senden, startet die Aufgabe nicht, und der Dialog sagt warum.",
@@ -6104,5 +6104,8 @@
   "toast_cleared_merged_partial": "{count} gemergte Sessions stillgelegt – keine Antwort von {machines}, deren Sessions bleiben bestehen",
   "toast_clear_merged_unchecked": "Keine Antwort von {machines} – deren gemergte Sessions fehlen in der Liste",
   "feat_machine_actions_title": "Sessions auf anderen Rechnern steuern, stoppen und archivieren",
-  "feat_machine_actions_body": "Eine Session auf einem verbundenen Rechner ist nicht mehr nur eine Anzeige: Steuere sie, stoppe sie, archiviere sie und lies Aktivität, Diff und Dateien direkt hier – jede Aktion geht an den Rechner und läuft dort. Gemergte Sessions aufräumen erfasst deine Rechner mit und sagt, welche nicht geantwortet haben."
+  "feat_machine_actions_body": "Eine Session auf einem verbundenen Rechner ist nicht mehr nur eine Anzeige: Steuere sie, stoppe sie, archiviere sie und lies Aktivität, Diff und Dateien direkt hier – jede Aktion geht an den Rechner und läuft dort. Gemergte Sessions aufräumen erfasst deine Rechner mit und sagt, welche nicht geantwortet haben.",
+  "settings_machines_cap_reason_license_not_accepted": "Lizenz nicht akzeptiert",
+  "settings_machines_cap_reason_command_line_tools_only": "nur die Command Line Tools ausgewählt",
+  "settings_machines_cap_reason_no_simulator": "kein Simulator-Gerät"
 }

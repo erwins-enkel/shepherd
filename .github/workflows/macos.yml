@@ -6,6 +6,11 @@ name: macOS probes
 # assertions that are unfalsifiable anywhere else: $TMPDIR path resolution (macOS
 # /var→/private/var symlinks), the lsof cwd↔port JOIN on real Apple lsof, and
 # AGENT_COMMS equivalence against a real `claude`-named process.
+#
+# It is also the only real-Xcode evidence for the macOS capability probe (#2771):
+# the live test checks the probe against the runner's Xcode, SDKs and simulators,
+# and the recorder's output is uploaded as the `xcode-fixture` artifact — the
+# same file scripts/record-xcode-fixtures.ts writes for test/fixtures/xcode/.
 
 on:
   pull_request:
@@ -19,6 +24,11 @@ on:
       - "src/diagnostics.ts"
       - "test/proc-probes-darwin*.test.ts"
       - "test/preview.test.ts"
+      - "src/remote-instances/capability-probe.ts"
+      - "scripts/record-xcode-fixtures.ts"
+      - "test/capability-probe-xcode*.test.ts"
+      - "test/helpers/xcode-fixture.ts"
+      - "test/fixtures/xcode/**"
       - ".github/workflows/macos.yml"
   # Manual full-suite baseline on a macOS runner (the operator-requested one-off).
   workflow_dispatch:
@@ -55,9 +65,23 @@ jobs:
       - name: Install (root)
         uses: ./.github/actions/bun-install-retry
 
-      # Targeted probe + preview tests. The `.macos.test.ts` assertions self-gate on
-      # process.platform === "darwin", so here (real macOS) they actually run; the
-      # parser/integration tests exercise the darwin backend on real Apple lsof.
+      # Before the tests, so the recording is uploaded even when a test fails.
+      - name: Record an Xcode fixture
+        run: |
+          bun scripts/record-xcode-fixtures.ts \
+            "$RUNNER_TEMP/xcode-fixture/github-macos-latest.json" \
+            --source "GitHub Actions macos-latest (run ${{ github.run_id }})"
+
+      - name: Upload the Xcode fixture
+        uses: actions/upload-artifact@v7
+        with:
+          name: xcode-fixture
+          path: ${{ runner.temp }}/xcode-fixture/
+
+      # Targeted probe, preview and Xcode capability tests. The `.macos.test.ts`
+      # assertions self-gate on process.platform === "darwin", so here (real macOS)
+      # they actually run; the parser/integration tests exercise the darwin backend
+      # on real Apple lsof.
       - name: Probe + preview tests
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.full_suite) }}
         run: |
@@ -65,7 +89,9 @@ jobs:
             test/proc-probes-darwin.test.ts \
             test/proc-probes-darwin.integration.test.ts \
             test/proc-probes-darwin.macos.test.ts \
-            test/preview.test.ts
+            test/preview.test.ts \
+            test/capability-probe-xcode.test.ts \
+            test/capability-probe-xcode.macos.test.ts
 
       - name: Full root suite (manual baseline)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_suite }}

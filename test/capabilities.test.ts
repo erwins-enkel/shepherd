@@ -120,6 +120,19 @@ describe("parseCapabilityReport", () => {
     expect(parseCapabilityReport(report, 0)?.checks).toHaveLength(CAPABILITIES.length);
   });
 
+  test("keeps a check's detail and leaves an absent or null one out", () => {
+    const checks = [
+      { id: "platform:macos", ok: true, reason: null, detail: "15.5 (24F74)" },
+      { id: "xcode", ok: false, reason: "not_installed", detail: null },
+      { id: "sdk:ios", ok: false, reason: "not_installed" },
+    ];
+    expect(parseCapabilityReport(wire({ checks }), 0)?.checks).toEqual([
+      { id: "platform:macos", ok: true, reason: null, detail: "15.5 (24F74)" },
+      { id: "xcode", ok: false, reason: "not_installed" },
+      { id: "sdk:ios", ok: false, reason: "not_installed" },
+    ]);
+  });
+
   test("an absent or malformed report is null, never partially trusted", () => {
     expect(parseCapabilityReport(undefined, 0)).toBeNull();
     expect(parseCapabilityReport(null, 0)).toBeNull();
@@ -127,6 +140,8 @@ describe("parseCapabilityReport", () => {
     expect(parseCapabilityReport(wire({ ageMs: "1" }), 0)).toBeNull();
     expect(parseCapabilityReport(wire({ checks: "x" }), 0)).toBeNull();
     expect(parseCapabilityReport(wire({ checks: [{ id: "xcode", ok: "yes" }] }), 0)).toBeNull();
+    const badDetail = [{ id: "xcode", ok: true, reason: null, detail: { version: "16.4" } }];
+    expect(parseCapabilityReport(wire({ checks: badDetail }), 0)).toBeNull();
   });
 });
 

@@ -368,7 +368,7 @@ describe("starting a task on a connected machine", () => {
     const linux = startNode("app");
     const mac = startNode("app-mac");
     const macId = await connect(linux, mac);
-    // The machine probes a host with claude only (#2770): no Android SDK, no codex.
+    // The machine probes a host with claude only (#2770): no Android SDK, no codex, no Xcode.
     mac.deps.capabilities = new CapabilityService({
       platform: "macos",
       env: {},
@@ -386,7 +386,7 @@ describe("starting a task on a connected machine", () => {
 
     const res = await create(linux, {
       ...task(linux),
-      requirements: ["agent:claude", "android-sdk"],
+      requirements: ["agent:claude", "android-sdk", "xcode"],
       target: { instanceId: macId },
     });
     expect(res.status).toBe(422);
@@ -394,7 +394,7 @@ describe("starting a task on a connected machine", () => {
       code: "remote_rejected",
       remoteStatus: 422,
       remoteCode: "missing_capabilities",
-      error: "missing capabilities: android-sdk (sdk_not_found)",
+      error: "missing capabilities: android-sdk (sdk_not_found), xcode (not_installed)",
       host: { instanceId: macId },
     });
     expect(mac.created).toEqual([]);

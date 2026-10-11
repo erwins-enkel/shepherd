@@ -78,6 +78,7 @@ import { normalizeRepoDefaultEffortSetting } from "./default-effort";
 import { sanitizeScopeGlobs } from "./house-rules";
 import { decodeStoredRepoPaths, type AccessTokenRow } from "./access-tokens";
 import type { RemoteInstanceRow } from "./remote-instances/service";
+import type { RemoteDispatchOutcome, RemoteDispatchRow } from "./remote-instances/dispatch";
 import {
   epicRunEnding,
   type EpicClock,
@@ -1326,6 +1327,15 @@ const DISPATCHES_DDL = `CREATE TABLE IF NOT EXISTS dispatches (
   sessionId TEXT, heldId TEXT, reason TEXT, code TEXT, httpStatus INTEGER,
   createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL)`;
 
+/** Tasks this Shepherd sent to a connected machine (#2763, src/remote-instances/dispatch.ts): stored
+ *  BEFORE they are sent, so a retry goes out again under the same `id` to the same `instanceId`.
+ *  `clientKey` is the submitter's Idempotency-Key; `id` is what the machine receives as its own. */
+const REMOTE_DISPATCHES_DDL = `CREATE TABLE IF NOT EXISTS remote_dispatches (
+  id TEXT PRIMARY KEY, clientKey TEXT NOT NULL UNIQUE, instanceId TEXT NOT NULL,
+  payloadHash TEXT NOT NULL, wireBody TEXT NOT NULL, state TEXT NOT NULL,
+  sessionId TEXT, heldId TEXT, reason TEXT, code TEXT, httpStatus INTEGER,
+  createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL)`;
+
 /**
  * Fresh-install DDL for `reviewer_spawns`. Exported so the fresh-schema path can be tested in
  * isolation — running this ALONE (without migrateReviewerSpawnColumns) must already yield every
@@ -1375,8 +1385,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // is sub-second, so the worst-case wait is a brief, bounded stall — not a crash. Keep equal to
     // BUSY_TIMEOUT_MS in scripts/backup.ts.
     this.db.run("PRAGMA busy_timeout = 5000");
-    // Everything below is ONE transaction. A fresh open fires 156 write statements: 46
-    // CREATE TABLE IF NOT EXISTS (44 here, REVIEWER_SPAWNS_DDL, DISPATCHES_DDL, and terminal_claims inside
+    // Everything below is ONE transaction. A fresh open fires 157 write statements: 47
+    // CREATE TABLE IF NOT EXISTS (44 here, REVIEWER_SPAWNS_DDL, DISPATCHES_DDL,
+    // REMOTE_DISPATCHES_DDL, and terminal_claims inside
     // migrateSessionColumns), 14 index creations (13 here plus that method's partial unique
     // index), 90 ALTER TABLE column adds behind PRAGMA table_info probes, and 3 seed INSERTs.
     // Each one left to autocommit pays SQLite's full rollback-journal fsync cycle — 310ms per open
@@ -2007,6 +2018,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       this.db.run(`ALTER TABLE session_usage ADD COLUMN claudeSessionId TEXT NOT NULL DEFAULT ''`);
     }
     this.db.run(DISPATCHES_DDL);
+    this.db.run(REMOTE_DISPATCHES_DDL);
     // Commits the whole bootstrap (see the BEGIN above). No try/ROLLBACK: a throw here escapes the
     // constructor, so no caller ever holds this store, and SQLite discards the open transaction
     // when the handle is finalized. Deliberately no wrapping block — that would re-indent the
@@ -2133,6 +2145,59 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   deleteRemoteInstance(instanceId: string): boolean {
     return (
       this.db.run(`DELETE FROM remote_instances WHERE instanceId = ?`, [instanceId]).changes > 0
+    );
+  }
+
+  // ── remote_dispatches (tasks sent to connected machines, issue #2763) ──────
+  // Persistence only: sending, retrying and the outcome rules live in RemoteDispatcher
+  // (src/remote-instances/dispatch.ts).
+
+  /** Store a dispatch before it is sent. False when its client key (or id) is already taken — the
+   *  caller then reads the row that won. */
+  insertRemoteDispatch(row: RemoteDispatchRow): boolean {
+    return (
+      this.db.run(
+        `INSERT INTO remote_dispatches (id, clientKey, instanceId, payloadHash, wireBody, state,
+           sessionId, heldId, reason, code, httpStatus, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`,
+        [
+          row.id,
+          row.clientKey,
+          row.instanceId,
+          row.payloadHash,
+          row.wireBody,
+          row.state,
+          row.sessionId,
+          row.heldId,
+          row.reason,
+          row.code,
+          row.httpStatus,
+          row.createdAt,
+          row.updatedAt,
+        ],
+      ).changes === 1
+    );
+  }
+
+  getRemoteDispatchByKey(clientKey: string): RemoteDispatchRow | null {
+    return (
+      (this.db
+        .query(
+          `SELECT id, clientKey, instanceId, payloadHash, wireBody, state, sessionId, heldId,
+                  reason, code, httpStatus, createdAt, updatedAt
+           FROM remote_dispatches WHERE clientKey = ?`,
+        )
+        .get(clientKey) as RemoteDispatchRow | null) ?? null
+    );
+  }
+
+  /** Record what the machine answered. Only over a row still `sending` or `unknown`: a known
+   *  outcome is never downgraded by a later retry that got no answer. */
+  settleRemoteDispatch(id: string, o: RemoteDispatchOutcome, now = Date.now()): void {
+    this.db.run(
+      `UPDATE remote_dispatches SET state = ?, sessionId = ?, heldId = ?, reason = ?, code = ?,
+         httpStatus = ?, updatedAt = ? WHERE id = ? AND state IN ('sending', 'unknown')`,
+      [o.state, o.sessionId, o.heldId, o.reason, o.code, o.httpStatus, now, id],
     );
   }
 

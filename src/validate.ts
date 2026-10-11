@@ -194,14 +194,22 @@ export function validateReplaceAgentChoice(body: unknown):
   };
 }
 
-/** repoPath — required non-empty string, confined to repoRoot, existing directory. */
-function validateRepoPath(value: unknown, root: string): Field<string> {
+/** repoPath resolved and confined to the repoRoot — without touching the filesystem. */
+function confineRepoPath(value: unknown, root: string): Field<string> {
   if (typeof value !== "string" || value.length === 0) {
     return err("repoPath must be a non-empty string");
   }
   const resolved = resolve(expandHome(value));
   const inside = resolved === root || resolved.startsWith(root + sep);
   if (!inside) return err("repoPath must be inside the configured repoRoot");
+  return field(resolved);
+}
+
+/** repoPath — required non-empty string, confined to repoRoot, existing directory. */
+function validateRepoPath(value: unknown, root: string): Field<string> {
+  const confined = confineRepoPath(value, root);
+  if (!confined.ok) return confined;
+  const resolved = confined.value;
   try {
     if (!statSync(resolved).isDirectory()) return err("repoPath must be a directory");
   } catch {
@@ -523,7 +531,11 @@ export function validateForkTarget(value: unknown): Field<{ repo: string; name: 
 }
 
 /** Pure validator — no side-effects beyond fs.statSync for the repoPath check. */
-export function validateCreate(body: unknown, repoRoot: string): Result {
+export function validateCreate(
+  body: unknown,
+  repoRoot: string,
+  opts: { remote?: boolean } = {},
+): Result {
   if (body === null || typeof body !== "object" || Array.isArray(body)) {
     return err("body must be a non-null object");
   }
@@ -533,6 +545,7 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   // the terminal payload has its own, stricter key set, and the standard arm keeps its
   // required prompt/baseBranch untouched (no weakening of ordinary creates).
   if (obj.terminal !== undefined) {
+    if (opts.remote) return err("a clean terminal runs on this machine only");
     if (obj.terminal !== true) return err("terminal must be true when present");
     return validateTerminalCreate(obj, repoRoot);
   }
@@ -556,7 +569,7 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   if (!effort.ok) return effort;
 
   const root = resolve(expandHome(repoRoot));
-  const launch = validateCreateLaunchFields(obj, root);
+  const launch = validateCreateLaunchFields(obj, root, opts.remote === true);
   if (!launch.ok) return launch;
 
   const options = validateOptions(obj);
@@ -596,9 +609,15 @@ function validateTerminalCreate(obj: Record<string, unknown>, repoRoot: string):
   return { ok: true, value: { terminal: true, repoPath: repoPath.value } };
 }
 
+/**
+ * `remote` (#2763): the task runs on a connected machine, which checks paths itself. `repoPath`
+ * then names THIS machine's checkout only to identify the project, so it is confined to repoRoot
+ * but not required to exist; attachments are refused — they are not sent to other machines yet.
+ */
 function validateCreateLaunchFields(
   obj: Record<string, unknown>,
   root: string,
+  remote: boolean,
 ): Field<{
   repoPath: string;
   images: string[];
@@ -606,9 +625,14 @@ function validateCreateLaunchFields(
   issueRef: IssueRef | undefined;
   launchUiState: LaunchUiState | undefined;
 }> {
-  const repoPath = validateRepoPath(obj.repoPath, root);
+  const repoPath = remote
+    ? confineRepoPath(obj.repoPath, root)
+    : validateRepoPath(obj.repoPath, root);
   if (!repoPath.ok) return repoPath;
 
+  if (remote && Array.isArray(obj.images) && obj.images.length > 0) {
+    return err("attachments are not sent to other machines yet");
+  }
   const images = validateImages(obj.images, root);
   if (!images.ok) return images;
 

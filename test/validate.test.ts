@@ -47,6 +47,37 @@ beforeEach(() => {
 
 afterEach(() => rmSync(root, { recursive: true, force: true }));
 
+// #2763: a task for a connected machine is validated like any create, but the machine checks the
+// paths itself — repoPath only names this machine's checkout of the project.
+test("remote mode confines repoPath without requiring it to exist here", () => {
+  const body = { repoPath: join(root, "only-on-the-mac"), baseBranch: "main", prompt: "go" };
+  expect(validateCreate(body, root)).toEqual({ ok: false, error: "repoPath does not exist" });
+  const r = validateCreate(body, root, { remote: true });
+  expect(r.ok).toBe(true);
+  if (r.ok && r.value.terminal !== true) expect(r.value.repoPath).toBe(body.repoPath);
+  expect(validateCreate({ ...body, repoPath: "/etc" }, root, { remote: true })).toEqual({
+    ok: false,
+    error: "repoPath must be inside the configured repoRoot",
+  });
+});
+
+test("remote mode refuses attachments and the clean terminal, and still checks the rest", () => {
+  const base = { repoPath: validRepo, baseBranch: "main", prompt: "go" };
+  expect(validateCreate({ ...base, images: ["/x.png"] }, root, { remote: true })).toEqual({
+    ok: false,
+    error: "attachments are not sent to other machines yet",
+  });
+  expect(validateCreate({ ...base, images: [] }, root, { remote: true }).ok).toBe(true);
+  expect(validateCreate({ repoPath: validRepo, terminal: true }, root, { remote: true }).ok).toBe(
+    false,
+  );
+  expect(validateCreate({ ...base, effort: "huge" }, root, { remote: true }).ok).toBe(false);
+  expect(validateCreate({ ...base, target: { instanceId: "x" } }, root, { remote: true })).toEqual({
+    ok: false,
+    error: "unknown key: target",
+  });
+});
+
 test("valid input returns ok with value", () => {
   const r = validateCreate(
     { repoPath: validRepo, baseBranch: "main", prompt: "do the thing" },

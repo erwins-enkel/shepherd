@@ -1,8 +1,8 @@
 /**
  * The one place a Shepherd talks HTTP to another Shepherd (issue #2759). Everything that reaches a
- * connected machine — the connection probe, the session mirror's snapshot (#2762), later hand-off —
- * goes through `getRemoteJson` here, so the timeout, the redirect policy and the failure vocabulary
- * live in exactly one spot. (The mirror's live `/events` socket is the one non-HTTP channel; it
+ * connected machine — the connection probe, the session mirror's snapshot (#2762), the hand-off of
+ * a new task (#2763) — goes through `getRemoteJson` / `postRemoteJson` here, so the timeout, the
+ * redirect policy and the failure vocabulary live in exactly one spot. (The mirror's live `/events` socket is the one non-HTTP channel; it
  * lives in `sessions.ts` and carries the token the same way: only in the `Authorization` header.)
  *
  * The bearer token is a credential for ANOTHER machine. It goes into the `Authorization` header
@@ -123,6 +123,55 @@ function parseIdentity(body: unknown): InstanceIdentity | null {
     platform: body.platform as string,
     arch: body.arch as string,
   };
+}
+
+/** What a POST to a machine came back with. `answered` = something sent an HTTP response (`body`
+ *  is null when it was not JSON); `no_answer` = the request may or may not have arrived. */
+export type RemotePostResult =
+  | { kind: "answered"; status: number; body: unknown }
+  | { kind: "no_answer"; reason: "timeout" | "network" };
+
+/** Authenticated POST of a JSON body (already serialized) to `path` on a machine. Never throws.
+ *  Same rules as `getRemoteJson`: the token only in `Authorization`, redirects not followed. */
+export async function postRemoteJson(
+  target: RemoteTarget,
+  path: string,
+  body: string,
+  opts: RemoteRequestOptions & { headers?: Record<string, string> } = {},
+): Promise<RemotePostResult> {
+  let res: Response;
+  try {
+    res = await (opts.fetch ?? defaultFetch)(`${target.url}${path}`, {
+      method: "POST",
+      headers: {
+        ...opts.headers,
+        authorization: `Bearer ${target.token}`,
+        accept: "application/json",
+        "content-type": "application/json",
+      },
+      body,
+      redirect: "manual",
+      signal: AbortSignal.timeout(opts.timeoutMs ?? REMOTE_REQUEST_TIMEOUT_MS),
+    });
+  } catch (err) {
+    const timedOut =
+      err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+    return { kind: "no_answer", reason: timedOut ? "timeout" : "network" };
+  }
+  const parsed: unknown = await res.json().catch(() => null);
+  return { kind: "answered", status: res.status, body: parsed };
+}
+
+/** The path of the machine's checkout of `slug` in its `GET /api/repos` body — the first match, so
+ *  the choice is stable when a machine has one project checked out twice. */
+export function parseProjectPath(body: unknown, slug: string): string | null {
+  if (!isRecord(body) || !Array.isArray(body.repos)) return null;
+  for (const repo of body.repos as unknown[]) {
+    if (isRecord(repo) && repo.remoteSlug === slug && typeof repo.path === "string" && repo.path) {
+      return repo.path;
+    }
+  }
+  return null;
 }
 
 /** Project identity is the forge slug; a repo without one is not a project another machine can

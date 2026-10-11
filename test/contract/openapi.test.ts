@@ -11,6 +11,7 @@ import { PTY_GONE_CODE, PTY_SUPERSEDED_CODE, type AppDeps } from "../../src/serv
 import { TOKEN_SCOPES } from "../../src/token-scopes";
 import { AGENT_PROVIDERS, DISPATCH_STATES, EFFORTS } from "../../src/types";
 import { WorktreeMissingBaseError } from "../../src/worktree";
+import type { RemoteOutcome } from "../../src/remote-instances/dispatch";
 import * as fx from "./event-fixtures";
 import {
   bearer,
@@ -26,6 +27,7 @@ import {
   securedOperations,
   startContractServer,
   validateEvent,
+  validateRequest,
   validateResponse,
   withAuth,
   type ContractServer,
@@ -503,6 +505,55 @@ describe("sessions", () => {
       expect(res.status).toBe(502);
     } finally {
       s.stubs.herdr.start = saved;
+    }
+  });
+
+  // #2763: a create with a target is handed to the remote dispatcher; each of its outcomes keeps
+  // to the declared shapes. The dispatcher is stubbed — the network side is covered end to end in
+  // test/server-remote-dispatch.test.ts.
+  test("POST /api/sessions with a target starts (201), holds (200), refuses (422) or is unknown (504) on the machine", async () => {
+    const host = {
+      instanceId: "0b6f2c1e-7c1d-4e53-9d1a-3c1f2e4b5a6d",
+      name: "MacBook",
+      platform: "macos",
+    };
+    const machineSession = await createSession("on the machine");
+    const outcomes: RemoteOutcome[] = [
+      {
+        kind: "started",
+        session: {
+          ...machineSession,
+          id: "remote-1",
+          host,
+          connection: { state: "connected", since: 1 },
+        },
+      },
+      { kind: "held", id: "held-1", count: 2, host },
+      { kind: "rejected", host, reason: "base missing", remoteStatus: 422, remoteCode: null },
+      { kind: "unknown", host, dispatchKey: "key-1" },
+      { kind: "refused", code: "remote_target_unavailable", reason: "timeout" },
+    ];
+    const savedForge = s.stubs.resolveForge.forge;
+    s.stubs.resolveForge.forge = { slug: "acme/app" };
+    try {
+      for (const outcome of outcomes) {
+        s.deps.remoteDispatch = { submit: async () => outcome };
+        const body = { prompt: "remote", target: { instanceId: host.instanceId } };
+        validateRequest("POST", "/api/sessions", {
+          repoPath: s.validRepo,
+          baseBranch: "main",
+          ...body,
+        });
+        const res = await post(body);
+        const answer = (await validateResponse("POST", "/api/sessions", res)) as Record<
+          string,
+          unknown
+        >;
+        if (outcome.kind !== "refused") expect(answer.host).toEqual(host);
+      }
+    } finally {
+      s.deps.remoteDispatch = undefined;
+      s.stubs.resolveForge.forge = savedForge;
     }
   });
 

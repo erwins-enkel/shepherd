@@ -63,6 +63,19 @@
     <dd title={session.repoPath}>{basename(session.repoPath)}</dd>
     <dt>{m.remote_detail_branch()}</dt>
     <dd>{session.branch ?? session.baseBranch}</dd>
+    {#if session.baseCommit}
+      <!-- The commit the machine actually started from (#2763): its origin, not this checkout. -->
+      <dt>{m.remote_detail_base()}</dt>
+      <dd class="base" title={session.baseCommit}>
+        {session.baseBranch} @ {session.baseCommit.slice(0, 7)}
+      </dd>
+    {/if}
+    {#if session.sandboxDegraded}
+      <dt>{m.remote_detail_sandbox()}</dt>
+      <dd class="degraded" use:statusTip={{ text: m.session_sandbox_degraded_title() }}>
+        {m.session_sandbox_degraded_label()}
+      </dd>
+    {/if}
   </dl>
   <h3 class="label">{m.remote_detail_task()}</h3>
   <p class="prompt">{session.prompt}</p>
@@ -144,6 +157,12 @@
     margin: 0;
     color: var(--color-ink);
     overflow-wrap: anywhere;
+  }
+  .facts dd.base {
+    font-family: var(--font-mono);
+  }
+  .facts dd.degraded {
+    color: var(--status-warn);
   }
   .label {
     margin: 0;

@@ -1615,6 +1615,8 @@ export interface Session {
   host?: SessionHost;
   /** The link to `host`; present exactly when `host` is. */
   connection?: SessionConnection;
+  /** The commit the worktree was actually created on (#2761); absent on rows that predate it. */
+  baseCommit?: string | null;
 }
 
 /** The connected machine a mirrored session runs on (#2762). `name` is unique among machines. */
@@ -2898,6 +2900,8 @@ export interface StandardCreateInput {
   epicAuthoring?: boolean; // epic-authoring task kind; absent → false (guided EPIC-draft shaping)
   plain?: boolean; // plain task kind; absent → false (agent without guards)
   mergeTrainPrs?: number[]; // merge-train participant PR numbers; server marks them "merging" on create
+  /** Run on this connected machine instead of here (#2763); absent → this machine. */
+  target?: { instanceId: string };
 }
 
 /** A task that was held (not immediately spawned) because usage was too high.
@@ -2914,6 +2918,8 @@ export interface HeldResult {
   held: true;
   id: string;
   count: number;
+  /** Set when the task was held on a connected machine (#2763) — `id`/`count` are that machine's. */
+  host?: SessionHost;
 }
 
 /** Selectable Claude model aliases; null = Claude's own default.

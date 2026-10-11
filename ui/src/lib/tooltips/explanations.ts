@@ -350,6 +350,20 @@ export function operatorAssistantExplanation(): TooltipExplanation {
   };
 }
 
+/** New Task "Run on" (#2763): where the session starts, what the machine has of the code, and what
+ *  happens when it cannot start there. */
+export function runOnExplanation(): TooltipExplanation {
+  return {
+    title: m.tooltip_runon_title(),
+    summary: m.tooltip_runon_summary(),
+    sections: [
+      { label: m.tooltip_runon_code(), text: m.tooltip_runon_code_body() },
+      { label: m.tooltip_runon_attachments(), text: m.tooltip_runon_attachments_body() },
+      { label: m.tooltip_runon_failure(), text: m.tooltip_runon_failure_body() },
+    ],
+  };
+}
+
 /** A session mirrored from a connected machine (#2762): where it runs, the state of the link, and
  *  why its actions are not offered here. Shared by the machine badge and every disabled action. */
 export function remoteSessionExplanation(

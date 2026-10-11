@@ -590,12 +590,28 @@ components:
         since:
           type: integer
           description: When this state began (ms). For `disconnected`, when the shown data was last current.
+    TaskTarget:
+      type: object
+      additionalProperties: false
+      required: [instanceId]
+      description: >-
+        The connected machine a new task runs on, by the instance ID GET /api/remote-instances
+        lists. The WHOLE session starts there; nothing starts here. This instance's own ID means
+        here. repoPath then names this instance's checkout only to identify the project (its
+        forge slug); the machine must be connected and have that project checked out, and runs the
+        task in its own checkout. The task is stored before it is sent, and a retry (same
+        Idempotency-Key) only ever goes to the same machine. Attachments (images) are not sent to
+        other machines yet.
+      properties:
+        instanceId: { type: string }
     CreateSessionRequest:
       type: object
       additionalProperties: false
       required: [repoPath, baseBranch, prompt]
       properties:
         repoPath: { type: string }
+        target:
+          $ref: "#/components/schemas/TaskTarget"
         baseBranch: { type: string }
         baseCommit:
           type: [string, "null"]
@@ -655,12 +671,16 @@ components:
     HeldTask:
       type: object
       additionalProperties: true
-      description: The usage hold tripped — the task was queued instead of spawned.
+      description: >-
+        The usage hold tripped — the task was queued instead of spawned. With `host` it was held
+        on that connected machine (`id` and `count` are that machine's).
       required: [held, id, count]
       properties:
         held: { type: boolean, const: true }
         id: { type: string }
         count: { type: integer }
+        host:
+          $ref: "#/components/schemas/SessionHost"
     DispatchState:
       type: string
       enum: [pending, started, held, failed]
@@ -5558,7 +5578,10 @@ paths:
           $ref: "#/components/responses/Unauthorized"
     post:
       operationId: createSession
-      description: Creates and spawns a session, or answers 200 with a held task when the usage hold trips (force overrides the hold).
+      description: >-
+        Creates and spawns a session, or answers 200 with a held task when the usage hold trips
+        (force overrides the hold). With `target` the session is started on that connected machine
+        instead: the 201 session and the 200 held task then carry `host`, and nothing starts here.
       parameters:
         - name: X-Shepherd-Spawn-Id
           in: header
@@ -5616,19 +5639,35 @@ paths:
             First run pending, name taken, worktree occupied, or herdr restart required (see
             code). With an Idempotency-Key also: the key was used with a different body
             (dispatch_payload_mismatch), was withdrawn before it arrived (dispatch_canceled), or
-            its first start was cut off by a restart (dispatch_interrupted).
+            its first start was cut off by a restart (dispatch_interrupted). With a target also:
+            the machine is not reachable right now and nothing was sent
+            (remote_target_unavailable, `reason` says why).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "422":
-          description: The base branch (or the requested baseCommit) does not resolve to a commit in the repo.
+          description: >-
+            The base branch (or the requested baseCommit) does not resolve to a commit in the repo.
+            With a target also: the machine refused the task (remote_rejected — `error` is its
+            reason, `remoteStatus`/`remoteCode` its answer, `host` the machine), no connected
+            machine has that ID (remote_target_unknown), the machine has no checkout of the project
+            (remote_project_missing) or the repo has no forge identity (remote_project_unknown).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "502":
           description: Create failed downstream (git or the agent runner).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: >-
+            With a target: the task was sent but no answer came back, so it may have started on
+            the machine (remote_dispatch_unknown). Send it again with the Idempotency-Key in
+            `dispatchId` — it goes to the same machine and never starts twice.
           content:
             application/json:
               schema:

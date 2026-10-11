@@ -16,6 +16,7 @@
     composeTaskBrief,
     cancelSpawn,
     getIssue,
+    listRemoteInstances,
     ApiError,
   } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
@@ -26,6 +27,7 @@
     type IssueRef,
     type AgentProvider,
     type ProviderTokenConstraint,
+    type RemoteInstance,
     type RepoEntry,
     type SandboxProfile,
     type SlashCommand,
@@ -73,6 +75,7 @@
     epicModeExplanation,
     plainModeExplanation,
     researchModeExplanation,
+    runOnExplanation,
   } from "#lib/tooltips/explanations.js";
   import { viewerCache } from "#lib/viewer-cache.svelte.js";
   import { assignedOthers } from "./issues-panel";
@@ -97,6 +100,15 @@
   import { hasVideoAttachment, VideoSkillInventory } from "./new-task/video-skill.svelte";
   import type { UsageLimits } from "#lib/types.js";
   import { stashDraft, takeDraft } from "./new-task/draft-stash";
+  import {
+    connectedMachines,
+    machineLabel,
+    machineSend,
+    pendingAfter,
+    runOnFailureMessage,
+    runOnMachines,
+    type PendingSend,
+  } from "./new-task/run-on";
 
   type TaskAttachment = {
     path: string;
@@ -170,6 +182,10 @@
       force?: boolean;
       /** Correlates this create with its `spawn:progress` events + the cancel route. */
       spawnId?: string;
+      /** The connected machine to start on (#2763); absent = this machine. */
+      target?: { instanceId: string };
+      /** Transport, like `spawnId`: the Idempotency-Key of a send to a machine. */
+      dispatchKey?: string;
     }) => Promise<void> | void;
     onclose?: () => void;
     onclone?: () => void;
@@ -462,9 +478,14 @@
    *  a dropped WS connection costs the phase name, never the elapsed counter. */
   const spawnStatusText = $derived(
     submitting
-      ? `${spawn ? phaseLabel(spawn.phase) : m.newtask_spawning()} · ${clock(spawnElapsedMs)}`
-      : m.newtask_spawning(),
+      ? `${spawn ? phaseLabel(spawn.phase) : spawningLabel()} · ${clock(spawnElapsedMs)}`
+      : spawningLabel(),
   );
+
+  /** "starting…", or which machine it is starting on (#2763) — that machine reports no phases here. */
+  function spawningLabel(): string {
+    return sendingTo ? m.newtask_runon_starting({ machine: sendingTo.name }) : m.newtask_spawning();
+  }
 
   /** Ask the server to abandon this start. A `false` answer means the agent came up first, so the
    *  spawn is completing after all — re-enable the button rather than pretend it stopped. */
@@ -484,6 +505,24 @@
   let recentRepoWindowDays = $state(0);
   const selectedRepo = $derived(repos.find((r) => r.path === repoPath));
   const selectedRepoName = $derived(selectedRepo?.name ?? "");
+
+  // ── Run on (#2763) ──────────────────────────────────────────────────────────
+  // Plain new tasks only, and only while a machine is connected: without one the dialog is
+  // exactly what it was. Offered are the connected machines with this project checked out.
+  let machines = $state<RemoteInstance[]>([]);
+  /** The operator's pick; null = this machine. Read through `runOn`, which drops a pick the
+   *  current repo cannot run on. */
+  let runOnId = $state<string | null>(null);
+  const runOnAvailable = $derived(!editHeld && !relaunch && connectedMachines(machines).length > 0);
+  const runOnOptions = $derived(runOnMachines(machines, selectedRepo?.remoteSlug));
+  const runOn = $derived(
+    runOnAvailable ? (runOnOptions.find((x) => x.instanceId === runOnId) ?? null) : null,
+  );
+  /** The machine the in-flight create was sent to — the spawn panel names it. */
+  let sendingTo = $state<RemoteInstance | null>(null);
+  /** The last send to a machine that went unanswered: retrying the same task reuses its key. */
+  let pendingSend: PendingSend | null = null;
+
   // ONE repo-aware seeded-issue predicate: feeds readiness, the submit guard, the
   // template materialization, and the issueRef payload — they can never disagree.
   const activeIssue = $derived(issueRef && repoPath === attachedRepoPath ? issueRef : null);
@@ -714,6 +753,12 @@
           repoPath = defaultRepoPath(list.filter((repo) => !repo.hidden)) || list[0]!.path;
       })
       .catch(() => {});
+    // Run on (#2763): no machines (or no answer) leaves the dialog as it always was.
+    if (!editHeld && !relaunch) {
+      listRemoteInstances()
+        .then(({ instances }) => (machines = Array.isArray(instances) ? instances : []))
+        .catch(() => {});
+    }
     // Focus the prompt so the user can type immediately when the dialog opens.
     promptInput?.focus();
     promptInput?.setSelectionRange(prompt.length, prompt.length);
@@ -1062,12 +1107,14 @@
       issueSeeded: activeIssue != null,
       repoResolved: !!repoPath.trim(),
       baseMissing,
+      remoteAttachments: runOn !== null && images.length > 0,
       repairing: repairingBase,
       uploading: hasOutstandingUploads,
       submitting,
       upstreamLoading,
       upstream: upstream ? { diverged: upstream.diverged, behind: upstream.behind } : null,
-      holdLikely,
+      // A machine judges its own usage hold (#2763); this one's forecast says nothing about it.
+      holdLikely: holdLikely && runOn === null,
       provider: agentProvider,
     }),
   );
@@ -1153,6 +1200,8 @@
         return m.newtask_readiness_no_repo();
       case "base_missing":
         return m.newtask_readiness_base_missing();
+      case "remote_attachments":
+        return m.newtask_readiness_remote_attachments();
       case "repairing":
         return m.newtask_readiness_repairing();
       case "uploading":
@@ -1737,6 +1786,7 @@
       epicAuthoring,
       plain,
       force: force || undefined,
+      target: runOn ? { instanceId: runOn.instanceId } : undefined,
     };
   }
 
@@ -1783,22 +1833,17 @@
     spawnStartedAt = Date.now();
     spawnNow = spawnStartedAt;
     spawnCanceled = false;
+    const input = buildSpawnInput(finalPrompt, force, id);
+    // A send to a machine (#2763) carries a key; an unanswered one is retried under the same key
+    // while the task is unchanged, so it never starts twice there.
+    const send = machineSend(runOn, pendingSend, input);
+    sendingTo = runOn;
     try {
-      await onsubmit(buildSpawnInput(finalPrompt, force, id));
+      await onsubmit(send ? { ...input, dispatchKey: send.key } : input);
+      pendingSend = null;
     } catch (err) {
-      if (isSpawnCanceled(err)) {
-        // The operator's own doing, and the server already rolled the worktree back. Say so
-        // plainly and leave the prompt standing rather than raising an error.
-        spawnCanceled = true;
-      } else if (err instanceof ApiError && err.code === "herdr_restart_required") {
-        herdrRepairRequired = true;
-        error = m.newtask_herdr_restart();
-      } else if (isPreviewBlocked(err)) {
-        error = (err as Error).message;
-      } else {
-        error = spawnFailureMessage(err);
-        retry = () => doSpawn(force, uploadQueueRevision);
-      }
+      pendingSend = pendingAfter(send, err);
+      showSpawnFailure(err, force, send?.machine.name ?? null);
     } finally {
       // Clear submitting on every path (matters for the error path: the dialog stays
       // open showing the error and the buttons must re-enable for a retry).
@@ -1806,6 +1851,28 @@
       spawnId = null;
       spawnStartedAt = 0;
       spawnCanceling = false;
+      sendingTo = null;
+    }
+  }
+
+  /** What the dialog shows for a failed create. A start on a machine names it (#2763). */
+  function showSpawnFailure(err: unknown, force: boolean, machine: string | null) {
+    const machineError = machine === null ? null : runOnFailureMessage(err, machine);
+    if (machineError) {
+      error = machineError;
+      retry = () => doSpawn(force, uploadQueueRevision);
+    } else if (isSpawnCanceled(err)) {
+      // The operator's own doing, and the server already rolled the worktree back. Say so
+      // plainly and leave the prompt standing rather than raising an error.
+      spawnCanceled = true;
+    } else if (err instanceof ApiError && err.code === "herdr_restart_required") {
+      herdrRepairRequired = true;
+      error = m.newtask_herdr_restart();
+    } else if (isPreviewBlocked(err)) {
+      error = (err as Error).message;
+    } else {
+      error = spawnFailureMessage(err);
+      retry = () => doSpawn(force, uploadQueueRevision);
     }
   }
 
@@ -1850,8 +1917,11 @@
     if (!uploadsSettledSince(expectedUploadRevision)) return;
     // Editing a held task isn't a create — skip the brand-new-repo automation-confirm
     // interstitial; just persist the edit.
+    // A task for another machine (#2763) runs under THAT machine's repo settings, so this one's
+    // first-task confirmation does not apply to it.
     if (
       !editHeld &&
+      runOn === null &&
       agentProvider === "claude" &&
       configLoaded &&
       !repoConfig.isAutomationConfirmed(repo)
@@ -1948,6 +2018,21 @@
     }}
     ondrop={onDrop}
   >
+    {#snippet runOnSelect(cls?: string, tip = false)}
+      <select
+        class={cls}
+        aria-label={m.newtask_runon_label()}
+        use:statusTip={tip ? { text: runOnExplanation(), wide: true, ...modeTip } : null}
+        value={runOn?.instanceId ?? ""}
+        disabled={runOnOptions.length === 0}
+        onchange={(e) => (runOnId = e.currentTarget.value || null)}
+      >
+        <option value="">{m.newtask_runon_here()}</option>
+        {#each runOnOptions as machine (machine.instanceId)}
+          <option value={machine.instanceId}>{machineLabel(machine)}</option>
+        {/each}
+      </select>
+    {/snippet}
     {#snippet draftNotice()}
       <span class="draft-tag">{m.newtask_draft_restored()}</span>
       <button type="button" class="tool-btn" onclick={ondiscarddraft}
@@ -2119,6 +2204,13 @@
                   <span class="chev" aria-hidden="true">▾</span>
                 {/if}
               </span>
+              {#if runOnAvailable}
+                <span class="ctx-from">{m.newtask_runon_on()}</span>
+                <span class="branch-chip">
+                  {@render runOnSelect(undefined, true)}
+                  <span class="chev" aria-hidden="true">▾</span>
+                </span>
+              {/if}
             </div>
           {/if}
 
@@ -2144,6 +2236,14 @@
               >
             {:else if baseMissing}
               <BaseRepairNotice repairing={repairingBase} onrepair={repairInitialCommit} />
+            {/if}
+
+            {#if runOn}
+              <span class="nt-upstream"
+                >{m.newtask_runon_notice({ machine: runOn.name, base: baseBranch })}</span
+              >
+            {:else if runOnAvailable && runOnOptions.length === 0}
+              <span class="nt-upstream">{m.newtask_runon_none()}</span>
             {/if}
 
             <!-- `agentProvider` is safe as the label: a provider flip re-runs the effect above in
@@ -2488,9 +2588,7 @@
             <div class="spawn" role="status" aria-label={m.newtask_spawn_progress_aria()}>
               <span class="spawn-note">{m.newtask_spawn_slow()}</span>
               <div class="spawn-now">
-                <span class="spawn-phase"
-                  >{spawn ? phaseLabel(spawn.phase) : m.newtask_spawning()}</span
-                >
+                <span class="spawn-phase">{spawn ? phaseLabel(spawn.phase) : spawningLabel()}</span>
                 <span class="spawn-clock">{clock(spawnElapsedMs)}</span>
               </div>
               {#if spawn}
@@ -2507,16 +2605,20 @@
                   </ul>
                 {/if}
               {/if}
-              {#if spawnStale}
-                <p class="spawn-stale">{m.newtask_spawn_stale()}</p>
+              <!-- A start on another machine (#2763) is that machine's: no cancel route here, and
+                   its create may legitimately outlast the local "stuck in transit" mark. -->
+              {#if !sendingTo}
+                {#if spawnStale}
+                  <p class="spawn-stale">{m.newtask_spawn_stale()}</p>
+                {/if}
+                <button
+                  type="button"
+                  class="spawn-cancel"
+                  disabled={spawnCanceling}
+                  onclick={cancelCurrentSpawn}
+                  >{spawnCanceling ? m.newtask_spawn_canceling() : m.newtask_spawn_cancel()}</button
+                >
               {/if}
-              <button
-                type="button"
-                class="spawn-cancel"
-                disabled={spawnCanceling}
-                onclick={cancelCurrentSpawn}
-                >{spawnCanceling ? m.newtask_spawn_canceling() : m.newtask_spawn_cancel()}</button
-              >
             </div>
           {/if}
           {#if spawnCanceled}
@@ -2804,6 +2906,10 @@
               bind:value={baseBranch}
               placeholder={m.newtask_branch_placeholder()}
             />
+          {/if}
+          {#if runOnAvailable}
+            <span class="field-label">{m.newtask_runon_label()}</span>
+            {@render runOnSelect("ctx-branch-select")}
           {/if}
         </div>
       </MobileEngineSheet>

@@ -142,6 +142,8 @@ extension ShepherdClient {
             case .conflict(let conflict): throw ShepherdError.fromConflict(try conflict.body.json)
             case .unprocessableContent(let bad): throw ShepherdError.unprocessable(try bad.body.json.error)
             case .badGateway(let bad): throw ShepherdError.upstreamFailure(try bad.body.json.error)
+            // A task sent to a connected machine got no answer (remote_dispatch_unknown, #2763).
+            case .gatewayTimeout(let timeout): throw ShepherdError.fromUpstream(try timeout.body.json)
             case .undocumented(let code, _):
                 throw ShepherdError.fromUndocumented(statusCode: code, route: "createSession")
             }

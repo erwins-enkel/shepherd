@@ -104,14 +104,13 @@ extension MacSeamTests {
         #expect(LocalServerCopy.tailnetFailure(.portTaken) == nil)
         #expect(LocalServerCopy.tailnetFailure(.unavailable(.httpsDisabled)) == nil)
         #expect(!L.t("native_local_tailnet_port_taken", "7330").hasPrefix("native_"))
-        for key in ["native_local_tailnet_toggle", "native_local_tailnet_summary", "native_local_tailnet_checking",
+        let keys: [StaticString] = ["native_local_tailnet_toggle", "native_local_tailnet_summary", "native_local_tailnet_checking",
                     "native_local_tailnet_url_label", "native_local_tailnet_copy", "native_local_tailnet_token_steps",
                     "native_local_tailnet_token_create", "native_local_tailnet_trust_label",
                     "native_local_tailnet_trust_allows_title", "native_local_tailnet_trust_allows_body",
                     "native_local_tailnet_trust_storage_title", "native_local_tailnet_trust_storage_body",
-                    "native_local_tailnet_trust_reach_title", "native_local_tailnet_trust_reach_body"] {
-            #expect(!L.t(key).hasPrefix("native_"))
-        }
+                    "native_local_tailnet_trust_reach_title", "native_local_tailnet_trust_reach_body"]
+        for key in keys { #expect(!L.t(key).hasPrefix("native_")) }
         #expect(!L.t("native_local_tailnet_other_fronts", "mac.tailnet.ts.net:443").hasPrefix("native_"))
     }
 

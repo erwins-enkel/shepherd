@@ -13,6 +13,8 @@ struct LocalServerPanelState: Equatable {
     var updateBehind = 0
     var checkingUpdate = false
     var updateFailed = false
+    var tailnet: TailnetExposureStatus? = nil
+    var tailnetBusy = false
 
     var statusText: String { LocalServerCopy.label(for: state) }
     private var isFailed: Bool { if case .failed = state { return true }; return false }
@@ -54,6 +56,20 @@ struct LocalServerPanelState: Equatable {
     var canRestart: Bool { !busy && showsRestart }
     var canConnect: Bool { !busy && (state.isRunning || (state == .externallyManaged && externalAcknowledged)) }
     var isBusyState: Bool { busy || state == .installing || state == .starting || state == .upgradingBun || state == .updating }
+
+    /// Reaching the server from another machine only makes sense once there is one.
+    var showsTailnet: Bool { state != .notInstalled && state != .installing }
+    var tailnetAvailable: Bool {
+        if case .available? = tailnet?.availability { return true }
+        return false
+    }
+    /// Off is always offered for the app's own mapping; on needs the port to be free.
+    var canToggleTailnet: Bool {
+        guard !tailnetBusy, tailnetAvailable, let tailnet else { return false }
+        return tailnet.exposed || !tailnet.portTaken
+    }
+    /// The URL and token steps belong to a live mapping only.
+    var showsTailnetConnection: Bool { tailnetAvailable && tailnet?.exposed == true }
 }
 
 /// Fills `WelcomeSlots.localPanel`: status, the four lifecycle buttons, the
@@ -70,7 +86,8 @@ struct LocalServerPanel: View {
     private var panel: LocalServerPanelState {
         LocalServerPanelState(state: model.state, busy: model.busy, externalAcknowledged: model.externalAcknowledged,
             managesUpdates: model.canManageUpdates, updateBehind: model.updateStatus?.behind ?? 0,
-            checkingUpdate: model.isCheckingUpdate, updateFailed: model.updateFailure != nil)
+            checkingUpdate: model.isCheckingUpdate, updateFailed: model.updateFailure != nil,
+            tailnet: model.tailnet, tailnetBusy: model.tailnetBusy)
     }
 
     var body: some View {
@@ -85,9 +102,11 @@ struct LocalServerPanel: View {
             if panel.showsUpdate { updateNotice }
             if panel.showsUpdateCheck { updateCheckControls }
             controls
+            if panel.showsTailnet { tailnetSection }
             logDisclosure
         }
         .task { await model.refresh() }
+        .task { await model.refreshTailnet() }
         .accessibilityIdentifier("welcome-local-panel")
         .accessibilityElement(children: .contain)
         .alert(L.t("native_local_update_confirm_title"), isPresented: $confirmingUpdate) {
@@ -331,6 +350,104 @@ struct LocalServerPanel: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(!panel.canConnect)
                 .accessibilityIdentifier("local-connect")
+        }
+    }
+
+    /// Opt-in reach from another Shepherd over Tailscale. The switch shows the serve
+    /// config as it is, not a remembered preference.
+    private var tailnetSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle(isOn: Binding(
+                get: { model.tailnet?.exposed == true },
+                set: { exposed in Task { await model.setTailnetExposure(exposed) } }
+            )) {
+                HStack(spacing: 6) {
+                    Text(verbatim: L.t("native_local_tailnet_toggle")).font(.callout.weight(.semibold))
+                    if model.tailnetBusy { ProgressView().controlSize(.small) }
+                }
+            }
+            .toggleStyle(.switch)
+            .disabled(!panel.canToggleTailnet)
+            .accessibilityIdentifier("local-tailnet-toggle")
+            Text(verbatim: L.t("native_local_tailnet_summary"))
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if model.tailnet == nil {
+                Text(verbatim: L.t("native_local_tailnet_checking")).font(.caption).foregroundStyle(.secondary)
+            } else if let note = tailnetNote {
+                Text(verbatim: note).font(.caption).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("local-tailnet-note")
+            }
+            if let failure = model.tailnetFailure, let message = LocalServerCopy.tailnetFailure(failure) {
+                Text(verbatim: message)
+                    .font(.caption).foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("local-tailnet-failure")
+            }
+            if panel.showsTailnetConnection, let url = model.tailnet?.url { tailnetConnection(url) }
+            if let fronts = model.tailnet?.otherFronts, !fronts.isEmpty {
+                Text(verbatim: L.t("native_local_tailnet_other_fronts", fronts.joined(separator: ", ")))
+                    .font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Button(L.t("native_local_recheck")) { Task { await model.refreshTailnet() } }
+                .buttonStyle(.borderless).disabled(model.tailnetBusy)
+                .accessibilityIdentifier("local-tailnet-recheck")
+        }
+        .padding(10)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+        .accessibilityIdentifier("local-tailnet")
+        .accessibilityElement(children: .contain)
+    }
+
+    /// Why the switch cannot be used right now, if it cannot.
+    private var tailnetNote: String? {
+        guard let tailnet = model.tailnet else { return nil }
+        if case .unavailable(let reason) = tailnet.availability { return LocalServerCopy.tailnetReason(reason) }
+        if tailnet.portTaken && !tailnet.exposed {
+            return L.t("native_local_tailnet_port_taken", String(tailnet.port))
+        }
+        return nil
+    }
+
+    private func tailnetConnection(_ url: URL) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(verbatim: L.t("native_local_tailnet_url_label")).font(.caption.weight(.semibold))
+            HStack {
+                Text(verbatim: url.absoluteString)
+                    .font(.system(.callout, design: .monospaced))
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("local-tailnet-url")
+                Button(L.t("native_local_tailnet_copy")) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(url.absoluteString, forType: .string)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityIdentifier("local-tailnet-copy")
+            }
+            Text(verbatim: L.t("native_local_tailnet_token_steps"))
+                .font(.caption).fixedSize(horizontal: false, vertical: true)
+            Button(L.t("native_local_tailnet_token_create")) {
+                switch model.tokenTarget(activeProfile: app.activeProfile) {
+                case .accessSettings: SettingsPresentation.shared.requestPane("access")
+                case .webUI(let url): NSWorkspace.shared.open(url)
+                }
+            }
+            .accessibilityIdentifier("local-tailnet-token")
+            DisclosureGroup(L.t("native_local_tailnet_trust_label")) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(verbatim: L.t("native_local_tailnet_trust_allows_title")).fontWeight(.semibold)
+                    Text(verbatim: L.t("native_local_tailnet_trust_allows_body"))
+                    Text(verbatim: L.t("native_local_tailnet_trust_storage_title")).fontWeight(.semibold)
+                    Text(verbatim: L.t("native_local_tailnet_trust_storage_body"))
+                    Text(verbatim: L.t("native_local_tailnet_trust_reach_title")).fontWeight(.semibold)
+                    Text(verbatim: L.t("native_local_tailnet_trust_reach_body"))
+                }
+                .font(.caption).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityIdentifier("local-tailnet-trust")
         }
     }
 

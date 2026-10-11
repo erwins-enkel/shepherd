@@ -93,6 +93,37 @@ actor LocalUpdateMonitorClock: SupervisorClock {
     func tick() { ticks.continuation.yield(()) }
 }
 
+/// A scripted `tailscale` for the panel's tailnet switch: a connected node with an
+/// HTTPS certificate whose serve config holds the app's mapping once a mutation applies.
+private final class TailnetScript: Sendable {
+    let calls = Mutex<[[String]]>([])
+    let mapped = Mutex(false)
+    let mutationApplies: Bool
+    init(mutationApplies: Bool = true) { self.mutationApplies = mutationApplies }
+
+    func exposure(_ environment: LocalServerEnvironment) -> LocalTailnetExposure {
+        LocalTailnetExposure(environment: environment, locate: { URL(fileURLWithPath: "/usr/local/bin/tailscale") },
+                             run: { _, arguments, _ in self.handle(arguments, port: environment.port) })
+    }
+
+    private func handle(_ arguments: [String], port: Int) -> TailscaleCommandResult {
+        calls.withLock { $0.append(arguments) }
+        if arguments.first == "status" {
+            let json = #"{"BackendState":"Running","Self":{"DNSName":"mac.tailnet.ts.net."},"CertDomains":["mac.tailnet.ts.net"]}"#
+            return TailscaleCommandResult(exitCode: 0, stdout: Data(json.utf8))
+        }
+        if arguments == ["serve", "status", "--json"] {
+            let isMapped = mapped.withLock { $0 }
+            let json = isMapped
+                ? #"{"TCP":{"\#(port)":{"HTTPS":true}},"Web":{"mac.tailnet.ts.net:\#(port)":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:\#(port)"}}}}}"#
+                : "{}"
+            return TailscaleCommandResult(exitCode: 0, stdout: Data(json.utf8))
+        }
+        if mutationApplies { mapped.withLock { $0 = arguments.last != "off" } }
+        return TailscaleCommandResult(exitCode: 0, stdout: Data("ok\n".utf8))
+    }
+}
+
 private struct ImmediateUpdateHealthClock: SupervisorClock {
     var now: Date { Date() }
     func sleep(for seconds: TimeInterval) async throws { await Task.yield() }
@@ -1523,6 +1554,67 @@ extension MacSeamTests {
 
         #expect(cancelled.withLock { $0 })  // `onCancel` runs synchronously
         #expect(await settle(until: { !model.busy }))
+    }
+
+    @Test func theTailnetSwitchAddsAndRemovesTheServeMapping() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = LocalServerEnvironment(home: home)
+        let script = TailnetScript()
+        let model = LocalServerModel(environment: environment, probeExternal: { false },
+                                     tailnet: script.exposure(environment))
+        #expect(model.tailnet == nil)
+        await model.refreshTailnet()
+        #expect(model.tailnet?.availability == .available(host: "mac.tailnet.ts.net"))
+        #expect(model.tailnet?.exposed == false)
+
+        await model.setTailnetExposure(true)
+        #expect(model.tailnet?.exposed == true)
+        #expect(model.tailnetFailure == nil)
+        #expect(!model.tailnetBusy)
+        #expect(model.tailnet?.url?.absoluteString == "https://mac.tailnet.ts.net:\(environment.port)")
+        #expect(model.logLines.contains { $0.hasPrefix("$ tailscale serve --bg --yes --https=\(environment.port)") })
+
+        await model.setTailnetExposure(false)
+        #expect(model.tailnet?.exposed == false)
+        #expect(script.calls.withLock { $0 }.contains(["serve", "--yes", "--https=\(environment.port)", "off"]))
+    }
+
+    @Test func aTailnetChangeThatDidNotApplyIsReportedAndReRead() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let environment = LocalServerEnvironment(home: home)
+        let model = LocalServerModel(environment: environment, probeExternal: { false },
+                                     tailnet: TailnetScript(mutationApplies: false).exposure(environment))
+        await model.setTailnetExposure(true)
+        #expect(model.tailnetFailure == .notApplied)
+        #expect(model.tailnet?.exposed == false)
+        #expect(!model.tailnetBusy)
+    }
+
+    /// Automated launches must never read or change the operator's serve config,
+    /// even on a Mac where Tailscale is installed.
+    @Test func anIsolatedModelNeverLooksForTailscale() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let model = LocalServerModel(environment: LocalServerEnvironment(home: home), isolated: true,
+                                     probeExternal: { false })
+        await model.refreshTailnet()
+        #expect(model.tailnet?.availability == .unavailable(.cliMissing))
+        await model.setTailnetExposure(true)
+        #expect(model.tailnetFailure == .unavailable(.cliMissing))
+    }
+
+    /// A token minted through a remote active profile would be for the wrong server.
+    @Test func tokensAreMintedNativelyOnlyForTheSupervisedProfile() async throws {
+        let home = try tempHome(); defer { try? FileManager.default.removeItem(at: home) }
+        let model = LocalServerModel(environment: LocalServerEnvironment(home: home), probeExternal: { false })
+        let endpoint = model.baseURL
+        #expect(model.tokenTarget(activeProfile: ServerProfile(name: "Mac", baseURL: endpoint, mode: .local))
+            == .accessSettings)
+        #expect(model.tokenTarget(activeProfile: nil) == .webUI(endpoint))
+        #expect(model.tokenTarget(activeProfile: ServerProfile(name: "Linux", baseURL: endpoint, mode: .remote))
+            == .webUI(endpoint))
+        let elsewhere = URL(string: "https://moes-tavern.example.ts.net")!
+        #expect(model.tokenTarget(activeProfile: ServerProfile(name: "Linux", baseURL: elsewhere, mode: .local))
+            == .webUI(endpoint))
     }
 }
 }

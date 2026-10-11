@@ -58,6 +58,13 @@ health identity. Use **Stop** or **Restart** in the local-server panel to stop t
 Servers started elsewhere remain externally managed. The generated password is offered only
 when this app run starts the server, never when adopting one already running.
 
+The server answers only on `127.0.0.1` by default. **Reachable in your tailnet** in the same panel
+puts `tailscale serve` in front of that loopback port, so another Shepherd can connect to this Mac
+over HTTPS with a Full access token minted here. The server keeps listening on loopback only, and
+turning the switch off removes the mapping again. See
+[Reach the local server from your tailnet](https://github.com/erwins-enkel/shepherd/blob/main/native/docs/getting-started.md#reach-the-local-server-from-your-tailnet)
+for requirements, the trust decision and a two-machine test from a branch checkout.
+
 ### Installer environment knobs
 
 | Variable | Default | Purpose |

@@ -220,7 +220,9 @@ public struct LocalServerEnvironment: Sendable {
   /// This process's environment, then `~/.shepherd/env` (operator overrides win
   /// over ours), then the two we insist on: `HOME` so the child finds the same
   /// state dir, and `SHEPHERD_HOST` pinned to loopback so supervising a server
-  /// can never expose it on a LAN.
+  /// can never expose it on a LAN. Tailnet reach is opt-in and goes through
+  /// `LocalTailnetExposure` (`tailscale serve` in front of this loopback port),
+  /// never through this pin.
   public func spawnEnvironment(bun: URL) -> [String: String] {
     childEnvironment(prepending: [bun.deletingLastPathComponent().path])
   }
@@ -255,6 +257,21 @@ public struct LocalServerEnvironment: Sendable {
     guard let value = Int(resolvedValues["SHEPHERD_PORT"] ?? "7330"), (1...65535).contains(value)
     else { return 7330 }
     return value
+  }
+
+  /// Tailscale's App Store and Standalone builds ship their CLI inside the app
+  /// bundle; only the optional "CLI integration" puts `tailscale` on a PATH.
+  public static let tailscaleAppBinary = "/Applications/Tailscale.app/Contents/MacOS/Tailscale"
+
+  /// The same search as Bun and the runner, then the app bundle. The bundle binary
+  /// needs `TAILSCALE_BE_CLI=1` to act as the CLI (see `LocalTailnetExposure`).
+  public func locateTailscale() -> URL? {
+    for directory in pathEntries + bunFallbacks {
+      let candidate = URL(fileURLWithPath: directory).appendingPathComponent("tailscale")
+      if fileManager.isExecutableFile(atPath: candidate.path) { return candidate }
+    }
+    return fileManager.isExecutableFile(atPath: Self.tailscaleAppBinary)
+      ? URL(fileURLWithPath: Self.tailscaleAppBinary) : nil
   }
 
   public func locateRunner() -> URL? {

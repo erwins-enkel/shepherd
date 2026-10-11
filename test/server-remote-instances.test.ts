@@ -10,6 +10,7 @@ import { config } from "../src/config";
 import { signCookie, hashPassword, SESSION_COOKIE } from "../src/operator-auth";
 import type { FetchLike } from "../src/remote-instances/client";
 import { RemoteInstanceService } from "../src/remote-instances/service";
+import { CapabilityService } from "../src/remote-instances/capability-probe";
 
 // Connected machines (#2759) through the real routes: two Shepherds in one process, each with its
 // own store, reach each other through `makeApp` — so the target's real auth seam, `/api/me`,
@@ -187,6 +188,35 @@ describe("connected machines", () => {
     expect((listed.body.instances as { instanceId: string }[]).map((i) => i.instanceId)).toEqual([
       bId as string,
     ]);
+  });
+
+  test("a machine's verified capabilities reach the coordinator through the real routes", async () => {
+    const a = makeInstance("a.test");
+    const b = makeInstance("b.test", "acme/mac-app");
+    // b probes a fixed Linux host: only claude, installed and logged in (#2770).
+    b.deps.capabilities = new CapabilityService({
+      platform: "linux",
+      env: {},
+      home: "/nonexistent",
+      codexBin: "codex",
+      readdir: () => null,
+      detectSandbox: () => ({ backend: false, egress: false }),
+      exec: async (cmd, args) => ({
+        code: cmd === "claude" ? 0 : null,
+        stdout: args[0] === "auth" ? JSON.stringify({ loggedIn: true }) : "",
+        timedOut: false,
+        notFound: cmd !== "claude",
+      }),
+    });
+    await call(b, "POST", "/api/instance/capabilities");
+    const res = await connect(a, "http://b.test", (await mint(b)).token);
+    expect(res.status).toBe(201);
+    const caps = (res.body.instance as { capabilities: { stale: boolean; checks: unknown[] } })
+      .capabilities;
+    expect(caps.stale).toBe(false);
+    expect(caps.checks).toContainEqual({ id: "agent:claude", ok: true, reason: null });
+    expect(caps.checks).toContainEqual({ id: "agent:codex", ok: false, reason: "not_installed" });
+    expect(res.body.instance).toMatchObject({ released: true });
   });
 
   test("connecting an instance to itself is refused", async () => {

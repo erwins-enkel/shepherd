@@ -25,7 +25,7 @@ describe("PulseLine", () => {
     const { container } = await render(PulseLine, { pulse: waiting, id: "u-pulse-x" });
     const text = container.textContent ?? "";
     expect(text).toContain(m.pulse_state_waiting_ci());
-    expect(text).toContain(m.pulse_minutes_of({ elapsed: 9, typical: 43 }));
+    expect(text).toContain(m.pulse_minutes_of({ elapsed: 9, typical: "~43" }));
     expect(text).toContain(`Release-Gate · ${m.pulse_green_of({ green: 6, total: 7 })}`);
     expect(text).toContain(m.pulse_ci_fix_no_loop({ count: 1 }));
     const fill = container.querySelector<HTMLElement>(".p-bar > span")!;

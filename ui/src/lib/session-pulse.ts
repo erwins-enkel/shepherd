@@ -18,8 +18,16 @@ import type {
 export type PulseState =
   "needs_you" | "looping" | "ci_failed" | "ci_overdue" | "waiting_ci" | "working";
 
-/** A running job counts as overdue past this multiple of its usual duration. */
-export const OVERDUE_FACTOR = 1.5;
+/** A running job counts as overdue past this multiple of its usual duration… */
+const OVERDUE_FACTOR = 1.5;
+/** …and at least this far past it: the poller sees a short job finish only on its next sweep
+ *  (15s, 120s when cold), so a seconds-long job would otherwise read overdue every run. */
+const OVERDUE_MIN_SLACK_MS = 3 * 60_000;
+
+/** Elapsed time after which a job with usual duration `typicalMs` reads as overdue. */
+export function overdueAfterMs(typicalMs: number): number {
+  return typicalMs + Math.max(typicalMs * (OVERDUE_FACTOR - 1), OVERDUE_MIN_SLACK_MS);
+}
 /** This many CI-fix steers in a row, with CI still not green, reads as going in circles. */
 const LOOP_RUN = 3;
 
@@ -84,7 +92,7 @@ function activeStep(queue: BuildQueue | undefined): Pulse["step"] {
   return { index: ordered.indexOf(active) + 1, total: steps.length, title: active.title };
 }
 
-/** Running jobs: the most overdue one if any is past OVERDUE_FACTOR, else the one expected to
+/** Running jobs: the most overdue one if any is past overdueAfterMs, else the one expected to
  *  finish last (no usual time known → the one running longest). */
 function runningFocus(
   jobs: WorkflowJob[],
@@ -92,10 +100,13 @@ function runningFocus(
 ): { job: WorkflowJob; overdue: boolean } | null {
   const running = jobs.filter((j) => j.state === "pending" && j.startedAt != null);
   if (running.length === 0) return null;
-  const overrun = (j: WorkflowJob) =>
-    j.typicalMs ? (nowMs - j.startedAt!) / j.typicalMs : Number.NEGATIVE_INFINITY;
-  const worst = running.reduce((a, b) => (overrun(b) > overrun(a) ? b : a));
-  if (overrun(worst) > OVERDUE_FACTOR) return { job: worst, overdue: true };
+  const overrun = (j: WorkflowJob) => (nowMs - j.startedAt!) / j.typicalMs!;
+  const late = running.filter(
+    (j) => j.typicalMs && nowMs - j.startedAt! > overdueAfterMs(j.typicalMs),
+  );
+  if (late.length) {
+    return { job: late.reduce((a, b) => (overrun(b) > overrun(a) ? b : a)), overdue: true };
+  }
   const eta = (j: WorkflowJob) => (j.typicalMs ? j.startedAt! + j.typicalMs : -j.startedAt!);
   const timed = running.filter((j) => j.typicalMs);
   const last = (timed.length ? timed : running).reduce((a, b) => (eta(b) > eta(a) ? b : a));

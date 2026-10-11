@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { m } from "#lib/paraglide/messages.js";
-import { pulseExplanation } from "./pulse-text";
+import { pulseExplanation, typicalMinutes } from "./pulse-text";
 import { sessionPulse } from "./session-pulse";
 import type { GitState, Session, SteerLogEntry, WorkflowJob } from "./types";
 
@@ -51,9 +51,18 @@ describe("pulseExplanation", () => {
     expect(e.sections[0]!.rows![0]).toEqual({
       text: "CI / Release-Gate",
       tone: "run",
-      aside: m.pulse_minutes_of({ elapsed: 9, typical: 43 }),
+      aside: m.pulse_minutes_of({ elapsed: 9, typical: "~43" }),
     });
     expect(e.sections[2]!.rows).toEqual([{ text: m.pulse_loop_none(), tone: "ok" }]);
+  });
+
+  it("shows a sub-minute usual time as <1 min and the 3 min overdue floor", () => {
+    const quick: WorkflowJob = { ...gate, startedAt: NOW - MIN, typicalMs: 9_000 };
+    const e = explain([quick]);
+    expect(e.sections[0]!.rows![0]!.aside).toBe("1 / <1 min");
+    expect(typicalMinutes(43 * MIN)).toBe("~43");
+    const next = e.sections.find((s) => s.label === m.pulse_section_next())!;
+    expect(next.rows!.at(-1)!.text).toBe(m.pulse_next_overdue({ limit: 3 }));
   });
 
   it("caps the CI list, keeping red and running jobs and summarising the green rest", () => {

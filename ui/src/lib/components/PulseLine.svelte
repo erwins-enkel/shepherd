@@ -1,7 +1,7 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
   import type { Pulse } from "#lib/session-pulse.js";
-  import { pulseLabel } from "#lib/pulse-text.js";
+  import { pulseLabel, typicalMinutes } from "#lib/pulse-text.js";
 
   // The card's "now" line: the session's progress verdict in one glance — what it is doing or
   // waiting on, how long against the usual, and whether Shepherd is re-steering in circles.
@@ -13,7 +13,10 @@
   function metricOf(p: Pulse, timed: boolean): string {
     const job = p.job;
     if (timed && job?.typicalMs)
-      return m.pulse_minutes_of({ elapsed: min(job.elapsedMs!), typical: min(job.typicalMs) });
+      return m.pulse_minutes_of({
+        elapsed: min(job.elapsedMs!),
+        typical: typicalMinutes(job.typicalMs),
+      });
     if (timed) return m.pulse_minutes({ elapsed: min(job!.elapsedMs!) });
     if (p.state === "looping") return m.pulse_ci_fix_count({ count: p.ciFixRun });
     if (p.step) return m.pulse_step_of({ index: p.step.index, total: p.step.total });

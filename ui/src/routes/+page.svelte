@@ -1274,6 +1274,10 @@
   // foldable) that opted in — gives the terminal full width. Mouse desktops and
   // phones (handled by the mobile branch) never collapse.
   const canCollapse = $derived(touch.current && !mobile.current);
+  // The repo rail rides in the top chrome on a mouse desktop only. Touch-wide moves it into the
+  // sidebar column (above the lens strip) so the terminal starts right under the TopBar; the
+  // phone keeps it in the REPOS sheet. Derived so the markup stays branch-light (see below).
+  const railInChrome = $derived(!mobile.current && !touch.current);
   const sidebarCollapsed = $derived(
     sidebarShouldCollapse(touch.current, mobile.current, sidebarCollapse.collapsed),
   );
@@ -2949,9 +2953,26 @@
 
 <svelte:window onkeydown={onShortcut} />
 
+<!-- One guarded rail, rendered from two places (top chrome on a mouse desktop, sidebar column on
+     touch-wide) so the page template carries a single branch for it. -->
+{#snippet repoRail(show: boolean)}
+  {#if show}
+    <RepoSwitcher
+      chips={repoChips}
+      {repoFilter}
+      {pinnedRepo}
+      mobile={mobile.current}
+      onrepofilter={applyRepoFilter}
+      onpinrepo={setPinnedRepo}
+      oncleanterminal={openCleanTerminal}
+    />
+  {/if}
+{/snippet}
+
 <div
   class="shell"
   class:mobile={mobile.current}
+  class:touch-wide={canCollapse}
   class:list={mobile.current && mobileScreen === "list"}
 >
   <!-- a11y: a single top-level heading for the app shell, visually hidden via the
@@ -3018,20 +3039,11 @@
         }}
         settingsChordAllowed={() => !anyOverlayOpen()}
       />
-      <!-- The repo rail is desktop/tablet chrome only. On a phone it cost 48px of the screen's
+      <!-- The repo rail is mouse-desktop chrome only. On a phone it cost 48px of the screen's
            top edge for three 10px labels and put a filter out of thumb reach; it now lives in the
-           REPOS sheet, one tap from the bottom bar (D14, docs/design/mobile-herd). -->
-      {#if !mobile.current}
-        <RepoSwitcher
-          chips={repoChips}
-          {repoFilter}
-          {pinnedRepo}
-          mobile={mobile.current}
-          onrepofilter={applyRepoFilter}
-          onpinrepo={setPinnedRepo}
-          oncleanterminal={openCleanTerminal}
-        />
-      {/if}
+           REPOS sheet, one tap from the bottom bar (D14, docs/design/mobile-herd). Touch-wide
+           renders it in the sidebar column instead (see .herd-col). -->
+      {@render repoRail(railInChrome)}
       <QueueStrip autoMerge={store.autoMerge} onselect={jumpToSession} />
     </header>
   {/if}
@@ -3236,7 +3248,8 @@
             onclick={toggleSidebar}>›</button
           >
         {:else}
-          <div class="herd-col" bind:this={herdColEl}>
+          <div class="herd-col" class:with-rail={canCollapse} bind:this={herdColEl}>
+            {@render repoRail(canCollapse)}
             <Herd
               sessions={herdSessions}
               filteredRepo={repoFilterName}
@@ -3747,6 +3760,14 @@
     height: 100dvh;
     box-sizing: border-box;
   }
+  /* Touch-wide (unfolded foldable, tablet): the desktop's 22px edge padding and 14px gaps are
+     sized for a tall monitor; on a ~750px-tall fold they were the top of the screen's dead air.
+     Safe-area insets still win where present. */
+  .shell.touch-wide {
+    padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right))
+      max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+    gap: 10px;
+  }
   /* Demo-only: the marketing ribbon (demo/DemoRibbon.svelte) is fixed to the
      viewport bottom and would overlay the desktop bottom bar (New Task etc.).
      Reserve its height so the shell ends above it. `--demo-ribbon-h` is set ONLY
@@ -3789,6 +3810,16 @@
     display: grid;
     min-height: 0;
     min-width: 0;
+  }
+  /* Touch-wide: the repo rail stacks above the Herd panel in the sidebar column; the panel
+     takes the remaining height. */
+  .herd-col.with-rail {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  .herd-col.with-rail > :global(.panel) {
+    flex: 1;
   }
   /* Splitter: ~12px hit strip centred on the 14px grid gap at the sidebar's
      right edge (right:0 of .herd-col is the sidebar edge; gap midpoint is +7px).

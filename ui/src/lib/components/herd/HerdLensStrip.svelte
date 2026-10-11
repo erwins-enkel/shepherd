@@ -34,10 +34,92 @@
      sets its OWN container (container-type: inline-size) — the `herd` container lives on the
      sibling .units subtree and is unreachable here — so a @container query can shrink the
      label font at narrow widths, keeping full labels legible below the 300px floor.
-     The status chip (top-bar tally) and the touch-wide collapse control, which the old
-     inline row carried, are rehomed to thin rows below / above the strip. -->
-{#if collapsible}
-  <div class="collapse-row">
+     The status chip (top-bar tally), which the old inline row carried, is rehomed to a thin
+     row below the strip; the touch-wide collapse control is a trailing cell of the strip's row. -->
+<div class="lens-row">
+  <div class="lens-strip" role="group" aria-label={m.herd_lenses_label()}>
+    <button
+      type="button"
+      class="lens lens-next"
+      class:on={statusFilter == null && filter === "next"}
+      title={m.herd_next_title()}
+      aria-pressed={statusFilter == null && filter === "next"}
+      use:coachTarget={"up-next-lens"}
+      onclick={() => {
+        filter = "next";
+        onstatusfilter?.(null);
+      }}
+    >
+      <span class="ic" aria-hidden="true">{lensGlyph.next}</span>
+      <span class="lb">{m.herd_seg_next()}</span>
+    </button>
+    <button
+      type="button"
+      class="lens"
+      class:on={statusFilter == null && filter === "all"}
+      title={m.herd_all_title()}
+      aria-pressed={statusFilter == null && filter === "all"}
+      onclick={() => {
+        filter = "all";
+        onstatusfilter?.(null);
+      }}
+    >
+      <span class="ic" aria-hidden="true">{lensGlyph.all}</span>
+      <span class="lb">{m.herd_seg_all()}</span>
+    </button>
+    <button
+      type="button"
+      class="lens"
+      class:on={statusFilter == null && filter === "ready"}
+      title={m.herd_ready_title()}
+      aria-pressed={statusFilter == null && filter === "ready"}
+      onclick={() => {
+        filter = "ready";
+        onstatusfilter?.(null);
+      }}
+    >
+      <span class="ic" aria-hidden="true">{lensGlyph.ready}</span>
+      <span class="lb">{m.herd_seg_ready()}</span>
+    </button>
+    <button
+      type="button"
+      class="lens"
+      class:on={statusFilter == null && filter === "done"}
+      title={m.herd_done_title()}
+      aria-pressed={statusFilter == null && filter === "done"}
+      use:coachTarget={"done-lens"}
+      onclick={() => {
+        filter = "done";
+        onstatusfilter?.(null);
+      }}
+    >
+      <span class="ic" aria-hidden="true">{lensGlyph.done}</span>
+      <span class="lb">{m.herd_seg_done()}</span>
+    </button>
+    <button
+      type="button"
+      class="lens lens-owed"
+      class:on={statusFilter == null && filter === "owed"}
+      title={owedCount > 0 ? m.herd_owed_count({ count: owedCount }) : m.herd_owed_title()}
+      aria-pressed={statusFilter == null && filter === "owed"}
+      use:coachTarget={"owed-lens"}
+      onclick={() => {
+        filter = "owed";
+        onstatusfilter?.(null);
+      }}
+    >
+      <span class="ic" aria-hidden="true">{lensGlyph.owed}</span>
+      <span class="lb">{m.herd_seg_owed()}</span>
+      {#if owedCount > 0}
+        <span class="owed-badge" aria-label={m.herd_owed_count({ count: owedCount })}
+          >{owedBadge}</span
+        >
+      {/if}
+    </button>
+  </div>
+  {#if collapsible}
+    <!-- Touch-wide-only collapse control: a trailing cell on the lens row (not a lens, so it sits
+       outside the lens group) rather than a row of its own, which cost the column ~24px. -->
     <button
       id="herd-collapse-btn"
       type="button"
@@ -46,88 +128,7 @@
       aria-label={m.herd_collapse()}
       onclick={() => oncollapse?.()}>‹</button
     >
-  </div>
-{/if}
-
-<div class="lens-strip" role="group" aria-label={m.herd_lenses_label()}>
-  <button
-    type="button"
-    class="lens lens-next"
-    class:on={statusFilter == null && filter === "next"}
-    title={m.herd_next_title()}
-    aria-pressed={statusFilter == null && filter === "next"}
-    use:coachTarget={"up-next-lens"}
-    onclick={() => {
-      filter = "next";
-      onstatusfilter?.(null);
-    }}
-  >
-    <span class="ic" aria-hidden="true">{lensGlyph.next}</span>
-    <span class="lb">{m.herd_seg_next()}</span>
-  </button>
-  <button
-    type="button"
-    class="lens"
-    class:on={statusFilter == null && filter === "all"}
-    title={m.herd_all_title()}
-    aria-pressed={statusFilter == null && filter === "all"}
-    onclick={() => {
-      filter = "all";
-      onstatusfilter?.(null);
-    }}
-  >
-    <span class="ic" aria-hidden="true">{lensGlyph.all}</span>
-    <span class="lb">{m.herd_seg_all()}</span>
-  </button>
-  <button
-    type="button"
-    class="lens"
-    class:on={statusFilter == null && filter === "ready"}
-    title={m.herd_ready_title()}
-    aria-pressed={statusFilter == null && filter === "ready"}
-    onclick={() => {
-      filter = "ready";
-      onstatusfilter?.(null);
-    }}
-  >
-    <span class="ic" aria-hidden="true">{lensGlyph.ready}</span>
-    <span class="lb">{m.herd_seg_ready()}</span>
-  </button>
-  <button
-    type="button"
-    class="lens"
-    class:on={statusFilter == null && filter === "done"}
-    title={m.herd_done_title()}
-    aria-pressed={statusFilter == null && filter === "done"}
-    use:coachTarget={"done-lens"}
-    onclick={() => {
-      filter = "done";
-      onstatusfilter?.(null);
-    }}
-  >
-    <span class="ic" aria-hidden="true">{lensGlyph.done}</span>
-    <span class="lb">{m.herd_seg_done()}</span>
-  </button>
-  <button
-    type="button"
-    class="lens lens-owed"
-    class:on={statusFilter == null && filter === "owed"}
-    title={owedCount > 0 ? m.herd_owed_count({ count: owedCount }) : m.herd_owed_title()}
-    aria-pressed={statusFilter == null && filter === "owed"}
-    use:coachTarget={"owed-lens"}
-    onclick={() => {
-      filter = "owed";
-      onstatusfilter?.(null);
-    }}
-  >
-    <span class="ic" aria-hidden="true">{lensGlyph.owed}</span>
-    <span class="lb">{m.herd_seg_owed()}</span>
-    {#if owedCount > 0}
-      <span class="owed-badge" aria-label={m.herd_owed_count({ count: owedCount })}
-        >{owedBadge}</span
-      >
-    {/if}
-  </button>
+  {/if}
 </div>
 
 {#if statusFilter != null}
@@ -146,25 +147,31 @@
 {/if}
 
 <style>
-  /* Touch-wide-only collapse control, rehomed above the strip (the old inline row carried
-     it). Only rendered when `collapsible` — i.e. touch-primary wide devices. */
-  .collapse-row {
+  /* The strip and the touch-wide collapse cell share one row and one bottom hairline. */
+  .lens-row {
     display: flex;
-    justify-content: flex-end;
-    padding: 2px 8px;
     border-bottom: 1px solid var(--color-line);
   }
   .collapse-inline {
+    flex: none;
+    width: 32px;
     border: 0;
+    border-left: 1px solid var(--color-line);
     background: none;
     color: var(--color-muted);
     cursor: pointer;
+    font-family: inherit;
     font-size: var(--fs-lg);
     line-height: 1;
-    padding: 2px 6px;
+    padding: 0;
+    transition: color 0.12s ease;
   }
   .collapse-inline:hover {
     color: var(--color-ink);
+  }
+  .collapse-inline:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 
   .lens-strip {
@@ -175,7 +182,8 @@
     /* five lenses on one row down to the 300px sidebar floor (5×44=220 ≤ inner width);
        wraps only well below that floor (<220) */
     grid-template-columns: repeat(auto-fit, minmax(44px, 1fr));
-    border-bottom: 1px solid var(--color-line);
+    flex: 1;
+    min-width: 0;
   }
   .lens {
     min-width: 0;

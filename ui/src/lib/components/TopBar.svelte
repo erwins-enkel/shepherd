@@ -879,7 +879,7 @@
 
 <!-- CR credit gauge + detail: extracted to top-bar/ children (#855). -->
 
-<div class="hud bracket" class:mobile bind:this={hudEl}>
+<div class="hud bracket" class:mobile class:touch={touch && !mobile} bind:this={hudEl}>
   <div class="logo">SHEP<b>HERD</b></div>
   {#if !mobile && !touch}
     <!-- hidden on phones AND unfolded foldables: the label crowds the bar and
@@ -1162,6 +1162,12 @@
   }
   .conn .dot.on {
     color: var(--color-ink-bright);
+  }
+  /* Touch-wide (unfolded foldable, tablet): same reasoning as .hud.mobile's 5px — every control
+     already carries a 44px touch floor, so 12px of vertical padding was only air at the top of a
+     short screen. Horizontal padding is unchanged. */
+  .hud.touch {
+    padding-block: 5px;
   }
   .hud.mobile {
     /* wrap instead of overflowing: on fold-cover (~280px) and phones the

@@ -71,9 +71,68 @@ components:
         arch:
           type: string
           description: CPU architecture as the server runtime reports it (x64, arm64, ...).
+        capabilities:
+          description: The last capability probe; null until the first one finished. Absent on servers older than this field.
+          oneOf:
+            - $ref: "#/components/schemas/InstanceCapabilities"
+            - type: "null"
     InstancePlatform:
       type: string
       enum: [linux, macos, windows]
+      x-shepherd-open-enum: true
+    InstanceCapabilities:
+      type: object
+      additionalProperties: true
+      required: [vocabulary, probedAt, ageMs, stale, checks]
+      description: What this instance verified it can run, probed under its own service user. Re-probed every 5 minutes, on demand and for every create that carries requirements.
+      properties:
+        vocabulary:
+          type: integer
+          minimum: 1
+          description: Version of the capability vocabulary the checks use.
+        probedAt:
+          type: integer
+          description: Epoch milliseconds when the probe finished, on this instance's clock.
+        ageMs:
+          type: integer
+          minimum: 0
+          description: Milliseconds since probedAt when this response was built. A caller on another machine adds it to its own clock instead of trusting probedAt across clocks.
+        stale:
+          type: boolean
+          description: True when the probe is older than 15 minutes.
+        checks:
+          type: array
+          description: One verdict per vocabulary entry.
+          items:
+            $ref: "#/components/schemas/CapabilityCheck"
+    CapabilityCheck:
+      type: object
+      additionalProperties: true
+      required: [id, ok, reason]
+      properties:
+        id:
+          $ref: "#/components/schemas/Capability"
+        ok:
+          type: boolean
+        reason:
+          type: [string, "null"]
+          description: Why the capability is unavailable (not_installed, not_logged_in, timeout, probe_failed, other_platform, not_probed, sdk_not_found, sdk_incomplete, no_backend, no_egress); null when ok.
+    Capability:
+      type: string
+      enum:
+        - platform:linux
+        - platform:macos
+        - platform:windows
+        - xcode
+        - sdk:macos
+        - sdk:ios
+        - ios-simulator
+        - android-sdk
+        - agent:claude
+        - agent:codex
+        - sandbox:trusted
+        - sandbox:standard
+        - sandbox:autonomous
       x-shepherd-open-enum: true
     Error:
       type: object
@@ -5262,7 +5321,7 @@ paths:
   /api/instance:
     get:
       operationId: getInstance
-      description: This instance's identity for machine connections. Needs a full-scope credential without a repository restriction.
+      description: This instance's identity and verified capabilities for machine connections. Needs a full-scope credential without a repository restriction.
       responses:
         "200":
           description: Instance identity.

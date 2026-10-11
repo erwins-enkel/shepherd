@@ -113,6 +113,7 @@ import {
   parseInstanceNamePatch,
   setInstanceName,
 } from "./remote-instances/identity";
+import { CapabilityService } from "./remote-instances/capability-probe";
 import {
   RemoteInstanceService,
   parseConnectRequest,
@@ -426,6 +427,10 @@ export interface AppDeps {
   /** Sends new tasks to connected machines (#2763). Same memo-slot contract as
    *  `remoteInstances`: the `remoteDispatcher(deps)` accessor lazily builds one over it. */
   remoteDispatch?: Pick<RemoteDispatcher, "submit">;
+  /** This instance's verified capabilities (#2770). Same memo-slot contract: the
+   *  `capabilities(deps)` accessor lazily builds an unstarted one (no probe until asked);
+   *  `index.ts` injects the started singleton that re-probes every 5 minutes. */
+  capabilities?: CapabilityService;
   /** Locates a Codex session's rollout for the transcript reads (issue #1992), with the TTL cache
    *  + miss backoff that keeps the Activity tab's 5s poll off the `$CODEX_HOME` tree. Optional for
    *  the same reason as the two above — the `codexTranscripts(deps)` accessor lazily builds one. */
@@ -917,6 +922,9 @@ function remoteDispatcher(deps: AppDeps): Pick<RemoteDispatcher, "submit"> {
     instances: remoteInstances(deps),
   }));
 }
+function capabilities(deps: AppDeps): CapabilityService {
+  return (deps.capabilities ??= new CapabilityService());
+}
 
 /**
  * Requests that pass the gate UN-credentialed (issue #1079). Scoped deliberately tight:
@@ -1341,10 +1349,21 @@ async function handleAccessTokens({ req, parts, deps }: Ctx): Promise<Response |
 // ── instance identity (issue #2759) ────────────────────────────────────────
 // GET is what a coordinator reads when it connects this Shepherd as a machine; the token-scope
 // policy leaves it `full`-only (deny-by-default). Renaming this instance is operator-only.
+// It carries the last capability report (#2770): null before the first probe, and
+// `POST /api/instance/capabilities` re-probes on demand (also `full`-only by default).
+
+function instanceBody(deps: AppDeps) {
+  return { ...instanceIdentity(deps.store), capabilities: capabilities(deps).report() };
+}
 
 async function handleInstance({ req, parts, deps }: Ctx): Promise<Response | null> {
-  if (parts[0] !== "api" || parts[1] !== "instance" || parts[2]) return null;
-  if (req.method === "GET") return json(instanceIdentity(deps.store));
+  if (parts[0] !== "api" || parts[1] !== "instance") return null;
+  if (req.method === "POST" && parts[2] === "capabilities" && !parts[3]) {
+    await capabilities(deps).refresh();
+    return json(instanceBody(deps));
+  }
+  if (parts[2]) return null;
+  if (req.method === "GET") return json(instanceBody(deps));
   if (req.method !== "PATCH") return null;
   const sessErr = requireOperatorSession(req);
   if (sessErr) return sessErr;
@@ -1353,7 +1372,7 @@ async function handleInstance({ req, parts, deps }: Ctx): Promise<Response | nul
   const parsed = parseInstanceNamePatch(await req.json().catch(() => null));
   if ("error" in parsed) return json(parsed, 400);
   setInstanceName(deps.store, parsed.name);
-  return json(instanceIdentity(deps.store));
+  return json(instanceBody(deps));
 }
 
 // ── connected machines (issue #2759) ───────────────────────────────────────

@@ -7,6 +7,7 @@ import { SessionService } from "../../src/service";
 import { EventHub } from "../../src/events";
 import type { AppDeps } from "../../src/server";
 import { config } from "../../src/config";
+import { CapabilityService } from "../../src/remote-instances/capability-probe";
 
 /** A seedable snapshot dep: the harness hands the route a live read of `rows`, and a test mutates
  *  `rows` in place for the duration of one request. Same contract as `stubs.herdr` — mutate, make
@@ -162,11 +163,32 @@ export function makeContractDeps(): ContractDeps {
   const autoMerge = { rows: [] as unknown[] };
   const resolveForge = { forge: null as unknown | null };
   const shapeTask = { impl: null as ((...args: never[]) => Promise<unknown>) | null };
+  // A fixed Linux host for the capability probe (#2770): claude installed and logged in, nothing
+  // else. Every seam is injected, so no binary is spawned and no sandbox self-test runs.
+  const capabilities = new CapabilityService({
+    platform: "linux",
+    env: {},
+    home: tmpRoot,
+    codexBin: "codex",
+    readdir: () => null,
+    detectSandbox: () => ({ backend: false, egress: false }),
+    exec: async (cmd, args) => {
+      const loggedIn = cmd === "claude" && args[0] === "auth";
+      const found = cmd === "claude";
+      return {
+        code: found ? 0 : null,
+        stdout: loggedIn ? JSON.stringify({ loggedIn: true }) : "",
+        timedOut: false,
+        notFound: !found,
+      };
+    },
+  });
   const deps: AppDeps = {
     store,
     service,
     events,
     usageLimits,
+    capabilities,
     distiller: { distillNow: async () => {} },
     // A WHOLE `PrCache` (src/pr-poller.ts:14-20), not just `snapshot()`. `resolveGitState`
     // calls `deps.prCache?.get(id)` and `.set(id, git)` on the /review-pr, /git and PR-open

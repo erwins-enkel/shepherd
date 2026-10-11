@@ -92,6 +92,22 @@ describe("instance", () => {
     expect(first.federationApi).toBe(1);
     expect((await read()).instanceId).toBe(first.instanceId);
   });
+
+  // Both arms of the nullable `capabilities` (#2770): null before the first probe, then a report.
+  test("GET /api/instance carries the capability report once a probe finished", async () => {
+    const read = async () => {
+      const res = await fetch(`${s.baseUrl}/api/instance`, { headers: bearer(token) });
+      return (await validateResponse("GET", "/api/instance", res)) as {
+        capabilities: { stale: boolean; checks: { id: string; ok: boolean }[] } | null;
+      };
+    };
+    expect((await read()).capabilities).toBeNull();
+    await s.deps.capabilities!.refresh();
+    const { capabilities } = await read();
+    expect(capabilities?.stale).toBe(false);
+    expect(capabilities?.checks).toHaveLength(13);
+    expect(capabilities?.checks.find((c) => c.id === "agent:claude")?.ok).toBe(true);
+  });
 });
 
 describe("auth", () => {

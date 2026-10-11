@@ -163,6 +163,27 @@ describe("connectPty", () => {
     vi.useRealTimers();
   });
 
+  it("stops for good when the session's machine is unreachable (close 4002)", () => {
+    vi.useFakeTimers();
+    const onEnded = vi.fn();
+    const { conn, last } = make(
+      () => {},
+      () => {},
+      onEnded,
+    );
+    last().open();
+
+    last().gone(4002); // the coordinator can't reach the machine running the session
+    expect(onEnded).toHaveBeenCalledTimes(1);
+    expect(onEnded).toHaveBeenCalledWith("machine");
+
+    vi.advanceTimersByTime(5000);
+    expect(FakeWs.instances).toHaveLength(1); // no retry loop against a machine that is gone
+    conn.poke();
+    expect(FakeWs.instances).toHaveLength(1);
+    vi.useRealTimers();
+  });
+
   it("ends after repeated instant attach failures (herdr server gone)", () => {
     vi.useFakeTimers();
     const onEnded = vi.fn();

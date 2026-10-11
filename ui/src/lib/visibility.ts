@@ -20,3 +20,23 @@ export function pollWhileVisible(fn: () => void, ms: number): () => void {
     document.removeEventListener("visibilitychange", onVisibility);
   };
 }
+
+/**
+ * Run `fn` whenever the operator comes back to the page: the tab turns visible again, or iOS
+ * Safari restores it from the bfcache (`pageshow` with `persisted`, which doesn't always fire
+ * visibilitychange). Returns a disposer.
+ */
+export function onPageReturn(fn: () => void): () => void {
+  const onVisible = () => {
+    if (document.visibilityState === "visible") fn();
+  };
+  const onPageShow = (e: PageTransitionEvent) => {
+    if (e.persisted) fn();
+  };
+  document.addEventListener("visibilitychange", onVisible);
+  window.addEventListener("pageshow", onPageShow);
+  return () => {
+    document.removeEventListener("visibilitychange", onVisible);
+    window.removeEventListener("pageshow", onPageShow);
+  };
+}

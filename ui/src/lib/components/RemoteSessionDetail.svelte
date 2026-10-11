@@ -1,24 +1,34 @@
 <script lang="ts">
-  import type { Session } from "#lib/types.js";
+  import type { Session, TerminalClientInfo } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { statusLabel } from "#lib/format.js";
-  import { qualifiedDesig } from "#lib/remote-sessions.js";
+  import { isMirrored, qualifiedDesig } from "#lib/remote-sessions.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
   import { remoteSessionExplanation } from "#lib/tooltips/explanations.js";
   import StatusPip from "./StatusPip.svelte";
   import MachineBadge from "./MachineBadge.svelte";
   import RemoteConnectionNote from "./RemoteConnectionNote.svelte";
+  import RemoteTerminal from "./RemoteTerminal.svelte";
   import { basename } from "./learnings-drawer";
 
   // The detail of a session mirrored from a connected machine (#2762), mounted in place of the
-  // Viewport: what the machine reports, and nothing that reads or acts on this machine — no
-  // terminal, no per-session reads. Its actions are shown disabled, each explaining why.
+  // Viewport: what the machine reports, and its live terminal, which this server bridges to the
+  // machine (#2764). Nothing reads or acts on this machine — no per-session reads. Its other
+  // actions are shown disabled, each explaining why.
   let {
     session,
     nowMs,
+    terminalOwners = null,
     onback = undefined,
-  }: { session: Session; nowMs: number; onback?: () => void } = $props();
+  }: {
+    session: Session;
+    nowMs: number;
+    /** Who holds each terminal, the machines' included; null until the event stream reports. */
+    terminalOwners?: Record<string, TerminalClientInfo> | null;
+    onback?: () => void;
+  } = $props();
 
+  const mirrored = $derived(isMirrored(session) ? session : null);
   const tip = $derived(
     session.host && session.connection
       ? remoteSessionExplanation(session.host, session.connection, nowMs)
@@ -66,6 +76,14 @@
       >
     {/each}
   </div>
+  {#if mirrored}
+    {#key mirrored.id}
+      <RemoteTerminal
+        session={mirrored}
+        owner={terminalOwners === null ? undefined : (terminalOwners[mirrored.id] ?? null)}
+      />
+    {/key}
+  {/if}
 </section>
 
 <style>
@@ -73,7 +91,9 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
+    flex: 1;
     min-width: 0;
+    min-height: 0;
     padding: 16px;
     border: 1px solid var(--color-line);
     background: var(--color-panel);
@@ -134,6 +154,9 @@
     color: var(--color-muted);
   }
   .prompt {
+    /* the terminal below gets the room; a long task scrolls in place */
+    max-height: 7.5em;
+    overflow-y: auto;
     margin: 0;
     white-space: pre-wrap;
     overflow-wrap: anywhere;

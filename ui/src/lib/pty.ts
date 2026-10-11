@@ -27,6 +27,16 @@ const PTY_SUPERSEDED_CODE = 4000;
 // PTY_GONE_CODE in src/server.ts.
 const PTY_GONE_CODE = 4001;
 
+// Server closes a pty WS with this code when the session runs on a connected
+// machine that can't be reached (#2764). Reconnecting here can't help until the
+// machine is back, so we stop and let the caller say which machine is gone.
+// Keep in sync with PTY_MACHINE_UNREACHABLE_CODE in src/remote-instances/terminal.ts.
+const PTY_MACHINE_UNREACHABLE_CODE = 4002;
+
+/** Why a connection stopped for good: the agent exited ("gone"), herdr is down
+ *  ("unreachable"), or the session's machine can't be reached ("machine"). */
+export type PtyEndReason = "gone" | "unreachable" | "machine";
+
 export interface PtyConn {
   send(data: string): void;
   resize(c: number, r: number): void;
@@ -55,10 +65,11 @@ export function connectPty(
   // fired when the connection stops for good and never reconnects. "gone" = the
   // herdr agent itself exited (user quit claude); "unreachable" = attaches keep
   // dying right after opening, most likely herdr is down (e.g. its server was
-  // stopped by a failed update). A socket that never opens (network down, PWA
-  // resume) is Shepherd being unreachable, never this — it just keeps retrying.
+  // stopped by a failed update); "machine" = the connected machine running the
+  // session can't be reached. A socket that never opens (network down, PWA
+  // resume) is Shepherd being unreachable, never any of these — it just keeps retrying.
   // The caller shows a Resume vs. Reconnect affordance accordingly.
-  onEnded: (reason: "gone" | "unreachable") => void = () => {},
+  onEnded: (reason: PtyEndReason) => void = () => {},
   makeWs: (path: string) => WebSocket = (p) => new WebSocket(wsUrl(p)),
 ): PtyConn {
   let ws: WebSocket;
@@ -136,6 +147,13 @@ export function connectPty(
       if (e && e.code === PTY_GONE_CODE) {
         stopped = true;
         onEnded("gone");
+        return;
+      }
+      // the session's machine is unreachable → stop; the caller re-attaches once
+      // the machine is back
+      if (e && e.code === PTY_MACHINE_UNREACHABLE_CODE) {
+        stopped = true;
+        onEnded("machine");
         return;
       }
       // conn.close() / a terminal state already stopped us → don't revive

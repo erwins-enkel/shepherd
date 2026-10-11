@@ -113,6 +113,7 @@ import {
   parseInstanceNamePatch,
   setInstanceName,
 } from "./remote-instances/identity";
+import { describeMissing } from "./remote-instances/capabilities";
 import { CapabilityService } from "./remote-instances/capability-probe";
 import {
   RemoteInstanceService,
@@ -3107,6 +3108,19 @@ async function handleSpawnCancel({ req, parts }: Ctx): Promise<Response | null> 
   return json({ canceled: outcome === "canceled" });
 }
 
+/** Readiness at acceptance (#2770): a create that names requirements is checked against a fresh
+ *  probe of this instance. Any unmet one is refused by name (422) — nothing is held or started. */
+async function refuseMissingCapabilities(
+  value: CreateSessionInput,
+  deps: AppDeps,
+): Promise<Response | null> {
+  const requirements = "requirements" in value ? value.requirements : undefined;
+  if (!requirements) return null;
+  const missing = await capabilities(deps).verify(requirements);
+  if (missing.length === 0) return null;
+  return json({ error: describeMissing(missing), code: "missing_capabilities", missing }, 422);
+}
+
 // POST /api/sessions — create a session.
 async function handleSessionCreate(ctx: Ctx): Promise<Response | null> {
   const { req, parts, deps, token } = ctx;
@@ -3268,6 +3282,11 @@ async function createValidatedSession(
   value: CreateSessionInput,
   deps: AppDeps,
 ): Promise<Response> {
+  // Readiness (#2770) first, inside a keyed dispatch: a refusal settles the key like any failed
+  // start, so a retry replays it (error and code intact) rather than re-checking a used key.
+  const refused = await refuseMissingCapabilities(value, deps);
+  if (refused) return refused;
+
   // Clean-terminal union arm: no usage-hold gate (a bare shell spends no agent budget) and no
   // issue claim — straight to create. Singleton/preflight conflicts map to 409 in
   // createErrorResponse (terminal_exists carries existingId so the UI can focus it).

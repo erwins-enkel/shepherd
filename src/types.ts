@@ -4,6 +4,7 @@ import type { VisualBlock } from "./visual-blocks";
 import type { ManualStep } from "./manual-steps";
 import type { PromptBlockMeasure } from "./prompt-budget";
 import type { TaskAmendment } from "./task-amendments";
+import type { Capability } from "./remote-instances/capabilities";
 
 export type HerdrState = "idle" | "working" | "blocked" | "done" | "unknown";
 export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived";
@@ -365,6 +366,9 @@ export interface StandardCreateInput {
   plain?: boolean;
   /** PR numbers selected for this TRAIN session; absent → null. */
   mergeTrainPrs?: number[];
+  /** #2770: capabilities this instance must have — sorted, deduplicated, never empty. Checked by a
+   *  fresh probe when POST /api/sessions accepts the request; the spawn itself ignores them. */
+  requirements?: Capability[];
   /** #2225: standing operator task amendments CARRIED from a session this spawn continues
    *  (relaunch / provider replace). ARGV-ONLY — folded into the spawn prompt by
    *  `composePromptArg` and never persisted: the rows are copied separately, and baking them into

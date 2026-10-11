@@ -179,3 +179,96 @@ describe("capabilities on /api/instance", () => {
     expect(a.probe.runs).toBe(0);
   });
 });
+
+describe("readiness at acceptance (POST /api/sessions)", () => {
+  const create = (i: Instance, extra: Record<string, unknown> = {}) =>
+    call(i, "POST", "/api/sessions", {
+      repoPath: join(repoRoot, "app"),
+      baseBranch: "main",
+      prompt: "build it",
+      ...extra,
+    });
+
+  test("a missing requirement is refused by name and nothing starts or is held", async () => {
+    const a = makeInstance();
+    const res = await create(a, { requirements: ["android-sdk", "agent:codex", "agent:claude"] });
+    expect(res.status).toBe(422);
+    expect(res.body).toEqual({
+      error: "missing capabilities: agent:codex (not_logged_in), android-sdk (sdk_not_found)",
+      code: "missing_capabilities",
+      missing: [
+        { capability: "agent:codex", reason: "not_logged_in" },
+        { capability: "android-sdk", reason: "sdk_not_found" },
+      ],
+    });
+    expect(a.created).toEqual([]);
+    expect(a.deps.store.countHeldTasks()).toBe(0);
+  });
+
+  test("met requirements are checked against a fresh probe, then the task starts", async () => {
+    const a = makeInstance();
+    await call(a, "POST", "/api/instance/capabilities");
+    const res = await create(a, { requirements: ["platform:linux", "agent:claude"] });
+    expect(res.status).toBe(201);
+    expect(a.probe.runs).toBe(2);
+    expect(a.created).toHaveLength(1);
+    expect(a.created[0]).toMatchObject({ requirements: ["agent:claude", "platform:linux"] });
+  });
+
+  test("a Linux instance refuses Xcode work because the capability belongs to macOS", async () => {
+    const a = makeInstance();
+    const res = await create(a, { requirements: ["xcode"] });
+    expect(res.status).toBe(422);
+    expect(res.body.missing).toEqual([{ capability: "xcode", reason: "other_platform" }]);
+    expect(a.created).toEqual([]);
+  });
+
+  test("a keyed create that is refused settles its key; a retry replays the refusal", async () => {
+    const a = makeInstance();
+    const keyed = { ...operator(), "idempotency-key": "order-1" };
+    const body = { repoPath: join(repoRoot, "app"), baseBranch: "main", prompt: "x" };
+    const first = await call(
+      a,
+      "POST",
+      "/api/sessions",
+      { ...body, requirements: ["xcode"] },
+      keyed,
+    );
+    expect(first.status).toBe(422);
+    const retry = await call(
+      a,
+      "POST",
+      "/api/sessions",
+      { ...body, requirements: ["xcode"] },
+      keyed,
+    );
+    expect(retry.status).toBe(422);
+    expect(retry.body).toMatchObject({
+      code: "missing_capabilities",
+      error: "missing capabilities: xcode (other_platform)",
+    });
+    expect((await call(a, "GET", "/api/dispatches/order-1")).body).toMatchObject({
+      state: "failed",
+      code: "missing_capabilities",
+    });
+    expect(a.created).toEqual([]);
+  });
+
+  test("an unknown capability is a 400 and probes nothing", async () => {
+    const a = makeInstance();
+    const res = await create(a, { requirements: ["gpu"] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe("unknown capability: gpu");
+    expect(a.probe.runs).toBe(0);
+    expect(a.created).toEqual([]);
+  });
+
+  test("without requirements nothing is probed and the create runs as before", async () => {
+    const a = makeInstance();
+    expect((await create(a)).status).toBe(201);
+    expect((await create(a, { requirements: [] })).status).toBe(201);
+    expect(a.probe.runs).toBe(0);
+    expect(a.created).toHaveLength(2);
+    expect((a.created[1] as { requirements?: unknown }).requirements).toBeUndefined();
+  });
+});

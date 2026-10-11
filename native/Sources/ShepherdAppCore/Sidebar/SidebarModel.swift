@@ -55,6 +55,7 @@ public final class SidebarModel: AppExtension {
     /// initializer, which makes the `activationGeneration` guard in `refresh()` a no-op there.
     @ObservationIgnored private weak var app: AppModel?
     @ObservationIgnored private var offlineSessions: [Session] = []
+    @ObservationIgnored private var offlineRemoteSessions: [Session] = []
     /// Bumped by every `refresh()`; a snapshot whose generation is no longer the newest is dropped
     /// rather than installed — the rule `SessionStore.refresh()` already uses. This guards races
     /// BETWEEN this model's own refreshes; `app.activationGeneration` (checked in `refresh()`)
@@ -192,6 +193,15 @@ public final class SidebarModel: AppExtension {
 
     public var groups: [HerdGroup] {
         HerdPartition.groups(sessions, now: now(), gitStage: gitStage, inReview: inReview)
+    }
+
+    /// Sessions mirrored from connected machines, one read-only group per machine after the local
+    /// groups (#2768). Only in the All lens — the others are about what to act on here, and these
+    /// cannot be acted on from this server — and never narrowed by the repo filter, whose chips
+    /// name this server's checkouts (`HerdMachineGroups.svelte`).
+    public var machineGroups: [HerdMachineGroup] {
+        guard lens == .all else { return [] }
+        return HerdMachineGroup.groups(store?.remoteSessions ?? offlineRemoteSessions)
     }
 
     public var tallies: HerdTallies {
@@ -463,6 +473,8 @@ public final class SidebarModel: AppExtension {
     #if DEBUG
         /// Stands in for the store when the model was built without one.
         func install(sessions: [Session]) { offlineSessions = sessions }
+        /// Stands in for the store's mirrored sessions when the model was built without one.
+        func install(remoteSessions: [Session]) { offlineRemoteSessions = remoteSessions }
         /// Arms a one-shot "a newer refresh landed while yours was in flight".
         func armStaleGeneration() { staleOnce = true }
     #endif

@@ -47,8 +47,16 @@ enum IOSSessionListPresentation {
         if (questionsUnanswered && session.planPhase?.known == .planning) || session.autopilotPaused || block?.shape.known == .yesNo {
             badges.append(.init(id: "answer", text: L.t("hold_cta_answer"), tint: .blue))
         }
-        let summary = recap?.state.known == .ready ? recap?.headline : activity?.summary
-        var metadata = [session.desig]
+        // A session mirrored from a connected machine names it, and says when its link is down
+        // (#2768): the status shown is then the last one known.
+        if let host = session.host, session.connection != nil {
+            let offline = RemoteSessionCopy.isDisconnected(session.connection)
+            badges.insert(.init(id: "machine", text: (offline ? "⚠ " : "") + host.name,
+                tint: offline ? .orange : .gray), at: 0)
+        }
+        let summary = RemoteSessionCopy.disconnectedLine(session, now: now)
+            ?? (recap?.state.known == .ready ? recap?.headline : activity?.summary)
+        var metadata = [RemoteSessionCopy.qualifiedDesig(session)]
         if let model = activity?.runtimeModel ?? session.runtimeModel ?? session.model, !model.isEmpty {
             metadata.append(modelLabel(model))
         }

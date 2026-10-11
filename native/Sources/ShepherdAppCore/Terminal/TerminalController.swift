@@ -21,9 +21,10 @@ public final class TerminalController: AppExtension {
     /// `TerminalSessionModel` is its own `@Observable`.
     @ObservationIgnored
     private var models: [String: TerminalSessionModel] = [:]
-    /// Re-arms on every `store.sessions` mutation and prunes models for
-    /// sessions that no longer exist. `@ObservationIgnored`: plumbing, not
-    /// state anything renders.
+    /// Re-arms on every `store.sessions` or `store.remoteSessions` mutation and
+    /// prunes models for sessions that no longer exist — a mirrored session's
+    /// terminal is bridged through this store too (#2768). `@ObservationIgnored`:
+    /// plumbing, not state anything renders.
     @ObservationIgnored
     private var pruneWatcher: Task<Void, Never>?
 
@@ -79,7 +80,7 @@ public final class TerminalController: AppExtension {
         Task { @MainActor in
             var current: Set<String>?
             while !Task.isCancelled {
-                let ids = Set(store.sessions.map(\.id))
+                let ids = Set(store.sessions.map(\.id) + store.remoteSessions.map(\.id))
                 if ids != current {
                     current = ids
                     onChange(ids)
@@ -94,7 +95,7 @@ public final class TerminalController: AppExtension {
         }
     }
 
-    /// Suspends until `store.sessions` is written — **or** until the calling
+    /// Suspends until `store.sessions` or `store.remoteSessions` is written — **or** until the calling
     /// task is cancelled.
     ///
     /// That second exit is the whole point. A bare `withCheckedContinuation`
@@ -119,6 +120,7 @@ public final class TerminalController: AppExtension {
             bufferingPolicy: .bufferingNewest(1))
         withObservationTracking {
             _ = store.sessions
+            _ = store.remoteSessions
         } onChange: {
             sink.yield(())
             sink.finish()

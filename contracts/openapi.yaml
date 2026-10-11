@@ -649,6 +649,22 @@ components:
         since:
           type: integer
           description: When this state began (ms). For `disconnected`, when the shown data was last current.
+    RemoteSessionsEvent:
+      type: object
+      additionalProperties: true
+      required: [instanceId, sessions]
+      description: >-
+        The whole current set of sessions mirrored from one connected machine. Sent on every
+        snapshot of that machine, every change of its connection and its removal (then with an
+        empty list). A client replaces that machine's sessions with `sessions`.
+      properties:
+        instanceId:
+          type: string
+          description: The machine's instance ID, as in each session's `host.instanceId`.
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Session"
     TaskTarget:
       type: object
       additionalProperties: false
@@ -9080,6 +9096,11 @@ x-shepherd-events:
   operator-assistant:update:
     description: The Operator Assistant's row was created, resumed or replaced. Deliberately not session:new, so the row never joins the herd; its status changes still arrive as session:status.
     schema: { $ref: "#/components/schemas/OperatorAssistantSession" }
+  remote:sessions:
+    description: >-
+      Replaces the sessions mirrored from one connected machine (every one carries `host` and
+      `connection`). Not sent on a `host=local` socket.
+    schema: { $ref: "#/components/schemas/RemoteSessionsEvent" }
   # ── stream: terminal ──
   terminal:owners:
     description: Full current PTY owners by session id. Sent on events connect, ownership changes and active presence reports. An absent id has no owner; unknown metadata still denotes a connected owner. Clients discard freshness when disconnected.
@@ -9204,7 +9225,7 @@ x-shepherd-events:
       $ref: "#/components/schemas/DiagnosticsSnapshot"
   # ── /stream: settings ──
 x-shepherd-pty:
-  description: WebSocket /pty/{id}?cols=&rows=. Same auth gate and origin check as HTTP; the bearer goes on the upgrade request. An unknown session id is answered 404 before the upgrade. cols/rows set the attach size so the first paint matches the client's viewport. On attach the server replays the pane's scrollback, so a client must clear its own buffer on every (re)attach rather than appending. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded and the loser must NOT reconnect (both would bump each other forever). closeCodes.gone means the session no longer has a live agent and no reattach can succeed. Any other close is transient; clients retry with backoff.
+  description: WebSocket /pty/{id}?cols=&rows=. Same auth gate and origin check as HTTP; the bearer goes on the upgrade request. An unknown session id is answered 404 before the upgrade. cols/rows set the attach size so the first paint matches the client's viewport. On attach the server replays the pane's scrollback, so a client must clear its own buffer on every (re)attach rather than appending. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded and the loser must NOT reconnect (both would bump each other forever). closeCodes.gone means the session no longer has a live agent and no reattach can succeed. closeCodes.machineUnreachable means the session runs on a connected machine this server cannot reach right now; clients do not retry until that session's connection reports connected again. Any other close is transient; clients retry with backoff.
   # Optional clientKind/clientPlatform use TerminalClientInfo values; missing/invalid values normalize independently to unknown. Display only, never authorization.
   path: /pty/{id}
   query: [cols, rows, clientKind, clientPlatform]
@@ -9212,3 +9233,4 @@ x-shepherd-pty:
   closeCodes:
     superseded: 4000
     gone: 4001
+    machineUnreachable: 4002

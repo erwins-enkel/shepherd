@@ -13432,6 +13432,24 @@
         }
       }
     },
+    "native_ios_remote_actions_body": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese App zeigt die Session so, wie %1$@ sie meldet. Terminal, Steuern, Stoppen, Archivieren und Mergen gibt es hier noch nicht, und nichts davon wird stellvertretend auf diesem Server ausgeführt – öffne dafür den Shepherd auf %1$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This app shows the session as %1$@ reports it. Its terminal, steering, stopping, archiving and merging are not offered here yet, and nothing is run on this server in their place — open the Shepherd on %1$@ for those."
+          }
+        }
+      }
+    },
     "native_ios_remove_body": {
       "extractionState": "manual",
       "localizations": {
@@ -17086,6 +17104,60 @@
           "stringUnit": {
             "state": "translated",
             "value": "Connection needs checking"
+          }
+        }
+      }
+    },
+    "native_remote_terminal_ended_body": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Session auf %1$@ hat keinen laufenden Agenten mehr. Ihre Ausgabe ist eingefroren; setze sie im Shepherd auf %1$@ fort."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The session on %1$@ no longer has a running agent. Its output is frozen; resume it in the Shepherd on %1$@."
+          }
+        }
+      }
+    },
+    "native_remote_terminal_lost_body": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ist nicht erreichbar. Das Terminal öffnet sich von selbst wieder, sobald der Rechner zurück ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ can't be reached. The terminal reopens by itself once the machine is back."
+          }
+        }
+      }
+    },
+    "native_remote_terminal_lost_title": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ist nicht erreichbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is unreachable"
           }
         }
       }
@@ -25994,6 +26066,282 @@
         }
       }
     },
+    "remote_detail_actions_aria": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktionen – für Sessions auf anderen Rechnern hier nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actions — not available here for sessions on other machines"
+          }
+        }
+      }
+    },
+    "remote_detail_archive": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archivieren"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archive"
+          }
+        }
+      }
+    },
+    "remote_detail_base": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Basis"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Base"
+          }
+        }
+      }
+    },
+    "remote_detail_branch": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Branch"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Branch"
+          }
+        }
+      }
+    },
+    "remote_detail_repo": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Repository"
+          }
+        }
+      }
+    },
+    "remote_detail_sandbox": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox"
+          }
+        }
+      }
+    },
+    "remote_detail_status": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Status"
+          }
+        }
+      }
+    },
+    "remote_detail_steer": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steuern"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer"
+          }
+        }
+      }
+    },
+    "remote_detail_stop": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stoppen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop"
+          }
+        }
+      }
+    },
+    "remote_detail_task": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aufgabe"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Task"
+          }
+        }
+      }
+    },
+    "remote_disconnected_line": {
+      "comment": "%1$@ = time",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung getrennt – letzter Stand %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnected – last known %1$@"
+          }
+        }
+      }
+    },
+    "remote_group_aria": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessions auf %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessions on %1$@"
+          }
+        }
+      }
+    },
+    "remote_runs_on": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Läuft auf %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Runs on %1$@"
+          }
+        }
+      }
+    },
+    "remote_state_connected": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "verbunden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "connected"
+          }
+        }
+      }
+    },
+    "remote_state_disconnected": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "getrennt"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "disconnected"
+          }
+        }
+      }
+    },
+    "remote_terminal_aria": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal auf %1$@"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal on %1$@"
+          }
+        }
+      }
+    },
     "repo_filter_active_aria": {
       "comment": "%1$@ = repo",
       "extractionState": "manual",
@@ -26579,6 +26927,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sandbox off"
+          }
+        }
+      }
+    },
+    "session_sandbox_degraded_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Angeforderte Sandbox nicht verfügbar — dieser Agent läuft ohne Einschränkung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requested sandbox unavailable — this agent is running unconfined."
           }
         }
       }
@@ -28499,6 +28864,111 @@
           "stringUnit": {
             "state": "translated",
             "value": "Research mode"
+          }
+        }
+      }
+    },
+    "tooltip_remote_actions": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktionen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actions"
+          }
+        }
+      }
+    },
+    "tooltip_remote_actions_body": {
+      "comment": "%1$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Terminal funktioniert wie lokal: Was du tippst, erreicht den Agenten auf %1$@. Steuern, Stoppen, Archivieren und Mergen gibt es hier noch nicht, und nichts davon wird stellvertretend auf diesem Rechner ausgeführt – öffne dafür den Shepherd auf %1$@."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The terminal works as it does locally: what you type reaches the agent on %1$@. Steering, stopping, archiving and merging are not offered here yet, and nothing is ever run on this machine in their place — open the Shepherd on %1$@ for those."
+          }
+        }
+      }
+    },
+    "tooltip_remote_connected_body": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbunden – Statusänderungen kommen live an."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connected — status changes arrive live."
+          }
+        }
+      }
+    },
+    "tooltip_remote_connection": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verbindung"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connection"
+          }
+        }
+      }
+    },
+    "tooltip_remote_disconnected_body": {
+      "comment": "%1$@ = time, %2$@ = machine",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Getrennt seit %1$@. Der gezeigte Status ist der letzte bekannte: Ein Verbindungsabbruch ist kein Ende, die Session aktualisiert sich, sobald %2$@ wieder erreichbar ist."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnected since %1$@. The status shown is the last one known: a lost connection is not an end, and the session updates once %2$@ is reachable again."
+          }
+        }
+      }
+    },
+    "tooltip_remote_summary": {
+      "comment": "%1$@ = machine, %2$@ = platform",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Session läuft auf %1$@ (%2$@), einem verbundenen Shepherd. Sie wird hier so gezeigt, wie dieser Rechner sie meldet; auf diesem Rechner läuft davon nichts."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This session runs on %1$@ (%2$@), a connected Shepherd. It is shown here as that machine reports it; nothing of it runs on this one."
           }
         }
       }

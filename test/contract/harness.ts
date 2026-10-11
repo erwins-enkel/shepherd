@@ -21,7 +21,7 @@ export interface Contract {
     path: string;
     query: string[];
     resizePrefix: string;
-    closeCodes: { superseded: number; gone: number };
+    closeCodes: { superseded: number; gone: number; machineUnreachable: number };
   };
 }
 interface EventDecl {

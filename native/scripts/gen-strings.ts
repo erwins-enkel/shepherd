@@ -1900,6 +1900,41 @@ export const KEYS_SETTINGS: readonly string[] = [
 ];
 
 /**
+ * Machines (#2768): sessions mirrored from connected machines — the machine badge, the
+ * connection line, the machine groups, the read-only detail and its terminal. Everything
+ * without the `native_` prefix is the web's own copy for the same surfaces. Keep alphabetical.
+ */
+export const KEYS_MACHINES: readonly string[] = [
+  "native_ios_remote_actions_body",
+  "native_remote_terminal_ended_body",
+  "native_remote_terminal_lost_body",
+  "native_remote_terminal_lost_title",
+  "remote_detail_actions_aria",
+  "remote_detail_archive",
+  "remote_detail_base",
+  "remote_detail_branch",
+  "remote_detail_repo",
+  "remote_detail_sandbox",
+  "remote_detail_status",
+  "remote_detail_steer",
+  "remote_detail_stop",
+  "remote_detail_task",
+  "remote_disconnected_line",
+  "remote_group_aria",
+  "remote_runs_on",
+  "remote_state_connected",
+  "remote_state_disconnected",
+  "remote_terminal_aria",
+  "session_sandbox_degraded_title",
+  "tooltip_remote_actions",
+  "tooltip_remote_actions_body",
+  "tooltip_remote_connected_body",
+  "tooltip_remote_connection",
+  "tooltip_remote_disconnected_body",
+  "tooltip_remote_summary",
+];
+
+/**
  * The manifest the catalog is generated from. Order here does not reach the
  * output — `build()` sorts before emitting — but is fixed so the concatenation
  * is easy to assert.
@@ -1929,6 +1964,7 @@ export const KEYS: readonly string[] = [
   ...KEYS_QUEUES,
   ...KEYS_COMPOSE,
   ...KEYS_SETTINGS,
+  ...KEYS_MACHINES,
 ];
 
 /**

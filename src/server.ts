@@ -113,6 +113,8 @@ import {
   parseInstanceNamePatch,
   setInstanceName,
 } from "./remote-instances/identity";
+import { describeMissing } from "./remote-instances/capabilities";
+import { CapabilityService } from "./remote-instances/capability-probe";
 import {
   RemoteInstanceService,
   parseConnectRequest,
@@ -426,6 +428,10 @@ export interface AppDeps {
   /** Sends new tasks to connected machines (#2763). Same memo-slot contract as
    *  `remoteInstances`: the `remoteDispatcher(deps)` accessor lazily builds one over it. */
   remoteDispatch?: Pick<RemoteDispatcher, "submit">;
+  /** This instance's verified capabilities (#2770). Same memo-slot contract: the
+   *  `capabilities(deps)` accessor lazily builds an unstarted one (no probe until asked);
+   *  `index.ts` injects the started singleton that re-probes every 5 minutes. */
+  capabilities?: CapabilityService;
   /** Locates a Codex session's rollout for the transcript reads (issue #1992), with the TTL cache
    *  + miss backoff that keeps the Activity tab's 5s poll off the `$CODEX_HOME` tree. Optional for
    *  the same reason as the two above — the `codexTranscripts(deps)` accessor lazily builds one. */
@@ -917,6 +923,9 @@ function remoteDispatcher(deps: AppDeps): Pick<RemoteDispatcher, "submit"> {
     instances: remoteInstances(deps),
   }));
 }
+function capabilities(deps: AppDeps): CapabilityService {
+  return (deps.capabilities ??= new CapabilityService());
+}
 
 /**
  * Requests that pass the gate UN-credentialed (issue #1079). Scoped deliberately tight:
@@ -1341,10 +1350,21 @@ async function handleAccessTokens({ req, parts, deps }: Ctx): Promise<Response |
 // ── instance identity (issue #2759) ────────────────────────────────────────
 // GET is what a coordinator reads when it connects this Shepherd as a machine; the token-scope
 // policy leaves it `full`-only (deny-by-default). Renaming this instance is operator-only.
+// It carries the last capability report (#2770): null before the first probe, and
+// `POST /api/instance/capabilities` re-probes on demand (also `full`-only by default).
+
+function instanceBody(deps: AppDeps) {
+  return { ...instanceIdentity(deps.store), capabilities: capabilities(deps).report() };
+}
 
 async function handleInstance({ req, parts, deps }: Ctx): Promise<Response | null> {
-  if (parts[0] !== "api" || parts[1] !== "instance" || parts[2]) return null;
-  if (req.method === "GET") return json(instanceIdentity(deps.store));
+  if (parts[0] !== "api" || parts[1] !== "instance") return null;
+  if (req.method === "POST" && parts[2] === "capabilities" && !parts[3]) {
+    await capabilities(deps).refresh();
+    return json(instanceBody(deps));
+  }
+  if (parts[2]) return null;
+  if (req.method === "GET") return json(instanceBody(deps));
   if (req.method !== "PATCH") return null;
   const sessErr = requireOperatorSession(req);
   if (sessErr) return sessErr;
@@ -1353,7 +1373,7 @@ async function handleInstance({ req, parts, deps }: Ctx): Promise<Response | nul
   const parsed = parseInstanceNamePatch(await req.json().catch(() => null));
   if ("error" in parsed) return json(parsed, 400);
   setInstanceName(deps.store, parsed.name);
-  return json(instanceIdentity(deps.store));
+  return json(instanceBody(deps));
 }
 
 // ── connected machines (issue #2759) ───────────────────────────────────────
@@ -3088,6 +3108,19 @@ async function handleSpawnCancel({ req, parts }: Ctx): Promise<Response | null> 
   return json({ canceled: outcome === "canceled" });
 }
 
+/** Readiness at acceptance (#2770): a create that names requirements is checked against a fresh
+ *  probe of this instance. Any unmet one is refused by name (422) — nothing is held or started. */
+async function refuseMissingCapabilities(
+  value: CreateSessionInput,
+  deps: AppDeps,
+): Promise<Response | null> {
+  const requirements = "requirements" in value ? value.requirements : undefined;
+  if (!requirements) return null;
+  const missing = await capabilities(deps).verify(requirements);
+  if (missing.length === 0) return null;
+  return json({ error: describeMissing(missing), code: "missing_capabilities", missing }, 422);
+}
+
 // POST /api/sessions — create a session.
 async function handleSessionCreate(ctx: Ctx): Promise<Response | null> {
   const { req, parts, deps, token } = ctx;
@@ -3153,6 +3186,10 @@ const REMOTE_REFUSAL: Record<RemoteRefusalCode, { status: number; error: string 
   remote_target_unavailable: {
     status: 409,
     error: "the machine is not reachable right now; nothing was started",
+  },
+  remote_target_unreleased: {
+    status: 422,
+    error: "the machine's platform is not released for tasks yet; nothing was started",
   },
   remote_project_missing: { status: 422, error: "the machine has no checkout of this project" },
   dispatch_payload_mismatch: {
@@ -3249,6 +3286,11 @@ async function createValidatedSession(
   value: CreateSessionInput,
   deps: AppDeps,
 ): Promise<Response> {
+  // Readiness (#2770) first, inside a keyed dispatch: a refusal settles the key like any failed
+  // start, so a retry replays it (error and code intact) rather than re-checking a used key.
+  const refused = await refuseMissingCapabilities(value, deps);
+  if (refused) return refused;
+
   // Clean-terminal union arm: no usage-hold gate (a bare shell spends no agent budget) and no
   // issue claim — straight to create. Singleton/preflight conflicts map to 409 in
   // createErrorResponse (terminal_exists carries existingId so the UI can focus it).

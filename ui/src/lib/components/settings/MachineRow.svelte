@@ -8,6 +8,7 @@
     platformLabel,
   } from "#lib/machines.js";
   import { formatAgo } from "#lib/format.js";
+  import MachineCapabilities from "./MachineCapabilities.svelte";
   import { m } from "#lib/paraglide/messages.js";
 
   // One connected machine (#2759): who it is, whether this Shepherd can reach it right now, and —
@@ -93,6 +94,9 @@
       <span class="mch-badge mch-{tone}" data-status={machine.status}
         >{machineStatusLabel(machine.status)}</span
       >
+      {#if machine.info && !machine.released}
+        <span class="mch-badge" data-released="false">{m.settings_machines_not_released()}</span>
+      {/if}
     </span>
     <span class="mch-meta mch-mono">{machine.url}</span>
     {#if machine.info}
@@ -101,7 +105,13 @@
         <span class="mch-mono" title={machine.instanceId}>{machine.instanceId.slice(0, 8)}</span>
       </span>
     {/if}
+    {#if machine.info && !machine.released}
+      <p class="mch-hint">
+        {m.settings_machines_not_released_hint({ platform: platformLabel(machine.info.platform) })}
+      </p>
+    {/if}
     {#if hint}<p class="mch-hint" class:mch-err={tone === "bad"}>{hint}</p>{/if}
+    {#if machine.info}<MachineCapabilities report={machine.capabilities} />{/if}
     <span class="mch-meta">
       {seen}{#if machine.tokenHint}{seen ? " · " : ""}<span class="mch-mono"
           >{m.settings_machines_token({ hint: machine.tokenHint })}</span

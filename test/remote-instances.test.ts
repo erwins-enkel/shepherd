@@ -161,6 +161,7 @@ describe("probeRemote", () => {
         arch: "arm64",
       },
       projects: ["acme/app", "erwins-enkel/shepherd"],
+      capabilities: null,
     });
     expect(fetch.calls.map((c) => c.url)).toEqual([
       "http://mac.test:7330/api/me",
@@ -340,6 +341,8 @@ describe("RemoteInstanceService", () => {
         arch: "arm64",
       },
       projects: ["acme/app", "erwins-enkel/shepherd"],
+      capabilities: null,
+      released: true,
     });
     expect(JSON.stringify(instance)).not.toContain(TOKEN);
     expect(store.getRemoteInstance(REMOTE_ID)?.token).toBe(TOKEN);
@@ -396,6 +399,77 @@ describe("RemoteInstanceService", () => {
       info: { version: "2.1.0" },
       projects: ["acme/app", "erwins-enkel/shepherd"],
     });
+  });
+
+  // ── capabilities and platform release (#2770) ──
+
+  const capabilityReport = (over: Record<string, unknown> = {}) => ({
+    vocabulary: 1,
+    probedAt: 999_999_999_999, // the machine's own clock: never trusted across machines
+    ageMs: 30_000,
+    stale: false,
+    checks: [
+      { id: "platform:macos", ok: true, reason: null },
+      { id: "agent:claude", ok: true, reason: null },
+      { id: "xcode", ok: false, reason: "not_probed" },
+    ],
+    ...over,
+  });
+
+  test("carries the machine's capabilities, re-based onto this clock and aged here", async () => {
+    let t = 100_000;
+    const remote = fakeShepherd();
+    remote.instance = { ...(remote.instance as object), capabilities: capabilityReport() };
+    const { svc } = setup(remote, () => t);
+    const { instance } = (await svc.connect(connectReq)) as { instance: RemoteInstanceSummary };
+    expect(instance.capabilities).toMatchObject({ probedAt: 70_000, ageMs: 30_000, stale: false });
+    expect(instance.capabilities?.checks.find((c) => c.id === "agent:claude")?.ok).toBe(true);
+    t = 70_000 + 15 * 60_000 + 1;
+    expect(svc.list()[0]?.capabilities?.stale).toBe(true);
+  });
+
+  test("a machine out of reach keeps its last capabilities, which turn stale", async () => {
+    let t = 100_000;
+    const remote = fakeShepherd();
+    remote.instance = { ...(remote.instance as object), capabilities: capabilityReport() };
+    const { svc } = setup(remote, () => t);
+    await svc.connect(connectReq);
+    t = 70_000 + 20 * 60_000;
+    remote.status = { "/api/me": 401 };
+    const checked = await svc.check(REMOTE_ID);
+    expect(checked).toMatchObject({ status: "unauthorized", capabilities: { probedAt: 70_000 } });
+    expect(checked?.capabilities?.stale).toBe(true);
+  });
+
+  test("an older machine without capabilities, or a garbled report, stays connected", async () => {
+    for (const capabilities of [undefined, { checks: "garbled" }]) {
+      const remote = fakeShepherd();
+      remote.instance = { ...(remote.instance as object), capabilities };
+      const { svc } = setup(remote);
+      const result = await svc.connect(connectReq);
+      expect(result).toMatchObject({ ok: true, instance: { status: "connected" } });
+      expect((result as { instance: RemoteInstanceSummary }).instance.capabilities).toBeNull();
+    }
+  });
+
+  test("a Windows machine is listed but not released for tasks", async () => {
+    const remote = fakeShepherd();
+    remote.instance = { ...(remote.instance as object), platform: "windows", arch: "x64" };
+    const { svc } = setup(remote);
+    await svc.connect(connectReq);
+    expect(svc.list()).toHaveLength(1);
+    expect(svc.list()[0]).toMatchObject({
+      status: "connected",
+      info: { platform: "windows" },
+      released: false,
+    });
+  });
+
+  test("a machine whose platform is not known yet is not released", async () => {
+    const { svc, store } = setup();
+    await svc.connect(connectReq);
+    const fresh = new RemoteInstanceService({ store, fetch: stubFetch(fakeShepherd()) });
+    expect(fresh.list()[0]).toMatchObject({ status: "checking", info: null, released: false });
   });
 
   test("a different instance answering at the address is flagged and not adopted", async () => {

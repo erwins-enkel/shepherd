@@ -11,6 +11,7 @@ import { AccessTokenService } from "../src/access-tokens";
 import { RemoteInstanceService } from "../src/remote-instances/service";
 import { RemoteSessionMirror } from "../src/remote-instances/sessions";
 import { RemoteDispatcher } from "../src/remote-instances/dispatch";
+import { CapabilityService } from "../src/remote-instances/capability-probe";
 import type { FetchLike } from "../src/remote-instances/client";
 import { validateCreate } from "../src/validate";
 import { WorktreeMissingBaseError } from "../src/worktree";
@@ -346,6 +347,62 @@ describe("starting a task on a connected machine", () => {
       error: expect.stringContaining('base ref "main" does not resolve'),
       host: { instanceId: macId },
     });
+    expect(linux.created).toEqual([]);
+  });
+
+  test("the machine checks the task's requirements itself and refuses a missing one by name", async () => {
+    const linux = startNode("app");
+    const mac = startNode("app-mac");
+    const macId = await connect(linux, mac);
+    // The machine probes a host with claude only (#2770): no Android SDK, no codex.
+    mac.deps.capabilities = new CapabilityService({
+      platform: "macos",
+      env: {},
+      home: "/nonexistent",
+      codexBin: "codex",
+      readdir: () => null,
+      detectSandbox: () => ({ backend: false, egress: false }),
+      exec: async (cmd, args) => ({
+        code: cmd === "claude" ? 0 : null,
+        stdout: args[0] === "auth" ? JSON.stringify({ loggedIn: true }) : "",
+        timedOut: false,
+        notFound: cmd !== "claude",
+      }),
+    });
+
+    const res = await create(linux, {
+      ...task(linux),
+      requirements: ["agent:claude", "android-sdk"],
+      target: { instanceId: macId },
+    });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toMatchObject({
+      code: "remote_rejected",
+      remoteStatus: 422,
+      remoteCode: "missing_capabilities",
+      error: "missing capabilities: android-sdk (sdk_not_found)",
+      host: { instanceId: macId },
+    });
+    expect(mac.created).toEqual([]);
+    expect(linux.created).toEqual([]);
+  });
+
+  test("a machine whose platform is not released (Windows) is refused and sent nothing", async () => {
+    const linux = startNode("app");
+    const win = startNode("app-win");
+    const winId = await connect(linux, win);
+    // The coordinator sees it as Windows: the release gate (#2770) applies before any send.
+    const instances = linux.deps.remoteInstances;
+    const get = instances.get.bind(instances);
+    instances.get = (id: string) => {
+      const m = get(id);
+      return m && m.info ? { ...m, info: { ...m.info, platform: "windows" }, released: false } : m;
+    };
+
+    const res = await create(linux, { ...task(linux), target: { instanceId: winId } });
+    expect(res.status).toBe(422);
+    expect(await res.json()).toMatchObject({ code: "remote_target_unreleased", reason: "windows" });
+    expect(win.created).toEqual([]);
     expect(linux.created).toEqual([]);
   });
 

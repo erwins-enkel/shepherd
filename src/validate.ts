@@ -23,6 +23,7 @@ import { modelCompatibleWithProvider } from "./default-model";
 import { stagingDir } from "./uploads";
 import { parseRemote } from "./forge/remote";
 import { isSandboxProfile, SANDBOX_PROFILES, type SandboxProfile } from "./sandbox";
+import { type Capability, parseRequirements } from "./remote-instances/capabilities";
 import { normalizeHost } from "./egress";
 
 /** Expand a leading `~` / `~/` to the user's home dir (the UI suggests `~/<repo>/…`). */
@@ -59,6 +60,7 @@ const ALLOWED_KEYS = new Set([
   "plain",
   "mergeTrainPrs",
   "baseCommit",
+  "requirements",
   "force", // transport-only: bypass hold gate; not forwarded to CreateSessionInput
 ]);
 
@@ -668,6 +670,7 @@ function validateOptions(obj: Record<string, unknown>): Field<{
   plain: boolean;
   mergeTrainPrs: number[] | undefined;
   baseCommit: string | undefined;
+  requirements: Capability[] | undefined;
 }> {
   const planGateEnabled = validatePlanGateEnabled(obj.planGateEnabled);
   if (!planGateEnabled.ok) return planGateEnabled;
@@ -692,6 +695,8 @@ function validateOptions(obj: Record<string, unknown>): Field<{
 
   const baseCommit = validateBaseCommit(obj.baseCommit);
   if (!baseCommit.ok) return baseCommit;
+  const requirements = parseRequirements(obj.requirements);
+  if (requirements && "error" in requirements) return err(requirements.error);
 
   return field({
     planGateEnabled: planGateEnabled.value,
@@ -702,6 +707,7 @@ function validateOptions(obj: Record<string, unknown>): Field<{
     plain: plain.value,
     mergeTrainPrs: mergeTrainPrs.value,
     baseCommit: baseCommit.value,
+    requirements,
   });
 }
 

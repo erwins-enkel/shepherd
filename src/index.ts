@@ -56,6 +56,7 @@ import { SessionService } from "./service";
 import { LearningsService } from "./learnings-service";
 import { RepoConfigService } from "./repo-config-service";
 import { AccessTokenService } from "./access-tokens";
+import { CapabilityService } from "./remote-instances/capability-probe";
 import { RemoteInstanceService } from "./remote-instances/service";
 import { RemoteSessionMirror } from "./remote-instances/sessions";
 import { StatusPoller } from "./poller";
@@ -1077,6 +1078,10 @@ deferredStarts.push(() => remoteInstances.start());
 // mirror, anything else marks its sessions disconnected. Held apart from `store`, never on `events`.
 const remoteSessions = new RemoteSessionMirror({ store, instances: remoteInstances });
 remoteInstances.onChange((instanceId) => remoteSessions.sync(instanceId));
+// Verified capabilities (#2770): local probes only (no outbound connection), every 5 minutes once
+// the first-run gate opens. GET /api/instance serves the result; creates with requirements re-probe.
+const capabilities = new CapabilityService();
+deferredStarts.push(() => capabilities.start());
 
 // Build-queue reconciliation nudge: settled-idle backstop to the forward-fill cascade in
 // store.setBuildStepStatus. Steers a drifted, settled-idle session to post its progress.
@@ -3959,6 +3964,7 @@ const appDeps: AppDeps = {
   accessTokens: accessTokenSvc,
   remoteInstances,
   remoteSessions,
+  capabilities,
   events,
   pluginRegistry,
   pluginsDir: config.pluginsDir,

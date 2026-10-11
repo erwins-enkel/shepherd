@@ -78,6 +78,7 @@ export interface RemoteSubmit {
 export type RemoteRefusalCode =
   | "remote_target_unknown"
   | "remote_target_unavailable"
+  | "remote_target_unreleased"
   | "remote_project_missing"
   | "dispatch_payload_mismatch";
 
@@ -156,6 +157,8 @@ export class RemoteDispatcher {
     if (machine.status !== "connected") {
       return refused("remote_target_unavailable", machine.reason ?? machine.status);
     }
+    // A platform not cleared to run tasks (Windows, #2770) is listed but never sent a task.
+    if (!machine.released) return refused("remote_target_unreleased", machine.info?.platform);
     if (!machine.projects?.includes(req.project)) return refused("remote_project_missing");
     const repos = await getRemoteJson(creds, "/api/repos", { fetch: this.fetch });
     if (!repos.ok) return refused("remote_target_unavailable", repos.failure.reason);

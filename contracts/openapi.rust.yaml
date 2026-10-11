@@ -84,7 +84,60 @@ components:
         arch:
           type: string
           description: CPU architecture as the server runtime reports it (x64, arm64, ...).
+        capabilities:
+          description: The last capability probe; null until the first one finished. Absent on servers older than this field.
+          allOf:
+            - $ref: "#/components/schemas/InstanceCapabilities"
+          nullable: true
     InstancePlatform:
+      type: string
+    InstanceCapabilities:
+      type: object
+      additionalProperties: true
+      required:
+        - vocabulary
+        - probedAt
+        - ageMs
+        - stale
+        - checks
+      description: What this instance verified it can run, probed under its own service user. Re-probed every 5 minutes, on demand and for every create that carries requirements.
+      properties:
+        vocabulary:
+          type: integer
+          minimum: 1
+          description: Version of the capability vocabulary the checks use.
+        probedAt:
+          type: integer
+          description: Epoch milliseconds when the probe finished, on this instance's clock.
+        ageMs:
+          type: integer
+          minimum: 0
+          description: Milliseconds since probedAt when this response was built. A caller on another machine adds it to its own clock instead of trusting probedAt across clocks.
+        stale:
+          type: boolean
+          description: True when the probe is older than 15 minutes.
+        checks:
+          type: array
+          description: One verdict per vocabulary entry.
+          items:
+            $ref: "#/components/schemas/CapabilityCheck"
+    CapabilityCheck:
+      type: object
+      additionalProperties: true
+      required:
+        - id
+        - ok
+        - reason
+      properties:
+        id:
+          $ref: "#/components/schemas/Capability"
+        ok:
+          type: boolean
+        reason:
+          type: string
+          nullable: true
+          description: Why the capability is unavailable (not_installed, not_logged_in, timeout, probe_failed, other_platform, not_probed, sdk_not_found, sdk_incomplete, no_backend, no_egress); null when ok.
+    Capability:
       type: string
     Error:
       type: object
@@ -809,6 +862,12 @@ components:
           description: Display names for `images`, positionally. The server rejects a length mismatch with 400 (src/validate.ts:287-291).
         launchUiState:
           $ref: "#/components/schemas/LaunchUiState"
+        requirements:
+          type: array
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/Capability"
+          description: Capabilities this instance must have. They are verified by a fresh probe when the request is accepted; a missing one answers 422 with code missing_capabilities and nothing starts.
     ArchiveSessionRequest:
       type: object
       additionalProperties: false
@@ -4040,6 +4099,12 @@ components:
           description: Display names for `images`, positionally. The server rejects a length mismatch with 400 (src/validate.ts:287-291).
         launchUiState:
           $ref: "#/components/schemas/LaunchUiState"
+        requirements:
+          type: array
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/Capability"
+          description: Capabilities this instance must have. They are verified by a fresh probe when the request is accepted; a missing one answers 422 with code missing_capabilities and nothing starts.
         auto:
           type: boolean
       description: Stored StandardCreateInput. Mirrors the core create request fields, but also carries server-owned fields such as auto from Up Next. The core request is closed and cannot validate this stored response. PATCH still accepts the core CreateSessionRequest.
@@ -6605,7 +6670,7 @@ paths:
   /api/instance:
     get:
       operationId: getInstance
-      description: This instance's identity for machine connections. Needs a full-scope credential without a repository restriction.
+      description: This instance's identity and verified capabilities for machine connections. Needs a full-scope credential without a repository restriction.
       responses:
         "200":
           description: Instance identity.
@@ -6860,7 +6925,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "422":
-          description: "The base branch (or the requested baseCommit) does not resolve to a commit in the repo. With a target also: the machine refused the task (remote_rejected — `error` is its reason, `remoteStatus`/`remoteCode` its answer, `host` the machine), no connected machine has that ID (remote_target_unknown), the machine has no checkout of the project (remote_project_missing) or the repo has no forge identity (remote_project_unknown)."
+          description: "The base branch (or the requested baseCommit) does not resolve to a commit in the repo, or this instance does not meet a requirement (code `missing_capabilities`; `error` names each unmet capability and its reason, and `missing` lists them as `{capability, reason}`). A keyed retry (Idempotency-Key) replays the refusal from the dispatch record with `error` and `code` only, without `missing`. With a target also: the machine refused the task (remote_rejected — `error` is its reason, `remoteStatus`/`remoteCode` its answer, `host` the machine), no connected machine has that ID (remote_target_unknown), the machine's platform is not released for tasks (remote_target_unreleased — `reason` is the platform, e.g. windows), the machine has no checkout of the project (remote_project_missing) or the repo has no forge identity (remote_project_unknown)."
           content:
             application/json:
               schema:

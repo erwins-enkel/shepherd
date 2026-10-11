@@ -17,6 +17,12 @@ import {
   isSingleKeyBody,
   parseOptionalName,
 } from "./identity";
+import {
+  type CapabilityReport,
+  type CapabilitySnapshot,
+  capabilityReport,
+  platformReleased,
+} from "./capabilities";
 import { type FetchLike, type ProbeOutcome, isRecord, probeRemote } from "./client";
 
 const REMOTE_PROBE_INTERVAL_MS = 60_000;
@@ -57,6 +63,12 @@ export interface RemoteInstanceSummary {
   lastSeenAt: number | null;
   info: MachineInfo | null;
   projects: string[] | null;
+  /** The machine's verified capabilities (#2770) from the last successful probe, aged on this
+   *  clock; null when it has not reported any. */
+  capabilities: CapabilityReport | null;
+  /** Whether the machine's platform is cleared to run tasks. Windows is listed but not released;
+   *  pickers must offer only released machines. False while the platform is unknown. */
+  released: boolean;
 }
 
 interface ProbeState {
@@ -66,6 +78,7 @@ interface ProbeState {
   lastSeenAt: number | null;
   info: MachineInfo | null;
   projects: string[] | null;
+  capabilities: CapabilitySnapshot | null;
 }
 
 export interface ConnectRequest {
@@ -174,7 +187,7 @@ export class RemoteInstanceService {
 
   /** Probe the target first and store it only once it answers as a compatible, distinct machine. */
   async connect(req: ConnectRequest): Promise<ConnectResult> {
-    const outcome = await probeRemote(req, { fetch: this.fetch });
+    const outcome = await probeRemote(req, { fetch: this.fetch, now: this.now });
     if (outcome.status !== "connected") {
       return { ok: false, error: `remote_${outcome.status}`, reason: outcome.reason };
     }
@@ -253,7 +266,7 @@ export class RemoteInstanceService {
   }
 
   private async runProbe(row: RemoteInstanceRow): Promise<void> {
-    const outcome = await probeRemote(row, { fetch: this.fetch });
+    const outcome = await probeRemote(row, { fetch: this.fetch, now: this.now });
     // Removed (or re-added) while the probe was out: its result belongs to nobody.
     const current = this.store.getRemoteInstance(row.instanceId);
     if (!current || current.createdAt !== row.createdAt) return;
@@ -268,7 +281,8 @@ export class RemoteInstanceService {
     this.apply(current, outcome);
   }
 
-  /** Record a probe result. A failure keeps the last successful info/projects ("last seen"). */
+  /** Record a probe result. A failure keeps the last successful info/projects/capabilities
+   *  ("last seen"); the capabilities keep ageing, so a machine out of reach turns stale. */
   private apply(row: RemoteInstanceRow, outcome: ProbeOutcome | { status: "identity_mismatch" }) {
     const prev = this.states.get(row.instanceId);
     const at = this.now();
@@ -281,6 +295,7 @@ export class RemoteInstanceService {
             lastSeenAt: at,
             info: machineInfo(outcome.info),
             projects: outcome.projects,
+            capabilities: outcome.capabilities,
           }
         : {
             status: outcome.status,
@@ -289,6 +304,7 @@ export class RemoteInstanceService {
             lastSeenAt: prev?.lastSeenAt ?? null,
             info: prev?.info ?? null,
             projects: prev?.projects ?? null,
+            capabilities: prev?.capabilities ?? null,
           };
     this.states.set(row.instanceId, next);
     this.notify(row.instanceId);
@@ -318,6 +334,8 @@ export class RemoteInstanceService {
       lastSeenAt: state?.lastSeenAt ?? null,
       info: state?.info ?? null,
       projects: state?.projects ?? null,
+      capabilities: state?.capabilities ? capabilityReport(state.capabilities, this.now()) : null,
+      released: state?.info ? platformReleased(state.info.platform) : false,
     };
   }
 }

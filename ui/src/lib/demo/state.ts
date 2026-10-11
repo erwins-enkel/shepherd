@@ -365,6 +365,28 @@ export const demoState = {
     federationApi: 1,
     platform: "linux",
     arch: "x64",
+    // A plausible Linux host's capability report (#2770), checked two minutes ago.
+    capabilities: {
+      vocabulary: 1,
+      probedAt: Date.now() - 120_000,
+      ageMs: 120_000,
+      stale: false,
+      checks: [
+        { id: "platform:linux", ok: true, reason: null },
+        { id: "platform:macos", ok: false, reason: "other_platform" },
+        { id: "platform:windows", ok: false, reason: "other_platform" },
+        { id: "xcode", ok: false, reason: "other_platform" },
+        { id: "sdk:macos", ok: false, reason: "other_platform" },
+        { id: "sdk:ios", ok: false, reason: "other_platform" },
+        { id: "ios-simulator", ok: false, reason: "other_platform" },
+        { id: "android-sdk", ok: false, reason: "sdk_not_found" },
+        { id: "agent:claude", ok: true, reason: null },
+        { id: "agent:codex", ok: true, reason: null },
+        { id: "sandbox:trusted", ok: true, reason: null },
+        { id: "sandbox:standard", ok: true, reason: null },
+        { id: "sandbox:autonomous", ok: false, reason: "no_egress" },
+      ],
+    },
   }),
 
   /** GET /api/remote-instances — the demo connects no machines. `{ instances: [] }`, never `{}`:

@@ -92,6 +92,22 @@ describe("instance", () => {
     expect(first.federationApi).toBe(1);
     expect((await read()).instanceId).toBe(first.instanceId);
   });
+
+  // Both arms of the nullable `capabilities` (#2770): null before the first probe, then a report.
+  test("GET /api/instance carries the capability report once a probe finished", async () => {
+    const read = async () => {
+      const res = await fetch(`${s.baseUrl}/api/instance`, { headers: bearer(token) });
+      return (await validateResponse("GET", "/api/instance", res)) as {
+        capabilities: { stale: boolean; checks: { id: string; ok: boolean }[] } | null;
+      };
+    };
+    expect((await read()).capabilities).toBeNull();
+    await s.deps.capabilities!.refresh();
+    const { capabilities } = await read();
+    expect(capabilities?.stale).toBe(false);
+    expect(capabilities?.checks).toHaveLength(13);
+    expect(capabilities?.checks.find((c) => c.id === "agent:claude")?.ok).toBe(true);
+  });
 });
 
 describe("auth", () => {
@@ -433,6 +449,31 @@ describe("sessions", () => {
     } finally {
       s.stubs.worktree.ensureBaseRef = saved;
     }
+  });
+
+  // Readiness at acceptance (#2770): the harness probes a fixed Linux host (src: test/contract/
+  // deps.ts), so platform:linux is met and xcode is not — refused with its reason, nothing spawned.
+  test("POST /api/sessions checks requirements: met spawns (201), missing is 422", async () => {
+    const ajv = new Ajv2020({ strict: false, allErrors: true });
+    ajv.addSchema(loadContract() as unknown as object, "contract");
+    const validate = ajv.compile({ $ref: "contract#/components/schemas/CreateSessionRequest" });
+    const body = { repoPath: s.validRepo, baseBranch: "main", prompt: "needs linux" };
+    expect(validate({ ...body, requirements: ["platform:linux"] })).toBe(true);
+
+    const met = await post({ prompt: "needs linux", requirements: ["platform:linux"] });
+    await validateResponse("POST", "/api/sessions", met);
+    expect(met.status).toBe(201);
+
+    const before = s.deps.store.list().length;
+    const missing = await post({ prompt: "needs xcode", requirements: ["xcode"] });
+    const refused = (await validateResponse("POST", "/api/sessions", missing)) as {
+      code: string;
+      missing: unknown[];
+    };
+    expect(missing.status).toBe(422);
+    expect(refused.code).toBe("missing_capabilities");
+    expect(refused.missing).toEqual([{ capability: "xcode", reason: "other_platform" }]);
+    expect(s.deps.store.list().length).toBe(before);
   });
 
   // Anything else create throws is a downstream failure: 502.

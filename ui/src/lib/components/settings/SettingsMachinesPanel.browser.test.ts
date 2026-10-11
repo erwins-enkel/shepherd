@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import SettingsMachinesPanel from "./SettingsMachinesPanel.svelte";
-import type { InstanceIdentity, RemoteInstance } from "#lib/types.js";
+import type { CapabilityReport, InstanceIdentity, RemoteInstance } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
 
 const SELF: InstanceIdentity = {
@@ -32,6 +32,27 @@ function machine(over: Partial<RemoteInstance> = {}): RemoteInstance {
     lastSeenAt: Date.now() - 5_000,
     info: { version: "2.1.0", federationApi: 1, platform: "macos", arch: "arm64" },
     projects: ["acme/app", "erwins-enkel/shepherd"],
+    capabilities: null,
+    released: true,
+    ...over,
+  };
+}
+
+/** A capability report (#2770) where `ok` lists the verified ids and `missing` maps the rest. */
+function report(
+  ok: string[],
+  missing: Record<string, string>,
+  over: Partial<CapabilityReport> = {},
+): CapabilityReport {
+  return {
+    vocabulary: 1,
+    probedAt: Date.now() - 180_000,
+    ageMs: 180_000,
+    stale: false,
+    checks: [
+      ...ok.map((id) => ({ id, ok: true, reason: null })),
+      ...Object.entries(missing).map(([id, reason]) => ({ id, ok: false, reason })),
+    ],
     ...over,
   };
 }
@@ -40,6 +61,7 @@ const jsonRes = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
 function stubApi(opts: {
+  self?: InstanceIdentity;
   machines?: RemoteInstance[];
   connect?: (body: Record<string, unknown>) => { payload: unknown; status: number };
 }) {
@@ -50,9 +72,13 @@ function stubApi(opts: {
     const method = init?.method ?? "GET";
     const body = init?.body ? String(init.body) : "";
     calls.push({ url, method, body });
+    const self = opts.self ?? SELF;
     if (url === "/api/instance") {
-      if (method === "PATCH") return jsonRes({ ...SELF, name: JSON.parse(body).name ?? SELF.name });
-      return jsonRes(SELF);
+      if (method === "PATCH") return jsonRes({ ...self, name: JSON.parse(body).name ?? self.name });
+      return jsonRes(self);
+    }
+    if (url === "/api/instance/capabilities" && method === "POST") {
+      return jsonRes({ ...self, capabilities: report(["platform:linux", "agent:codex"], {}) });
     }
     if (url === "/api/remote-instances" && method === "POST") {
       const { payload, status } = opts.connect!(JSON.parse(body));
@@ -158,5 +184,93 @@ describe("SettingsMachinesPanel", () => {
     expect(calls.some((c) => c.method === "DELETE" && c.url.endsWith(target.instanceId))).toBe(
       true,
     );
+  });
+
+  it("shows this Shepherd's capabilities with their age and re-checks them on demand", async () => {
+    const calls = stubApi({
+      self: {
+        ...SELF,
+        capabilities: report(["platform:linux", "agent:claude", "sandbox:trusted"], {
+          "agent:codex": "not_logged_in",
+          "android-sdk": "sdk_not_found",
+          xcode: "other_platform",
+        }),
+      },
+    });
+    render(SettingsMachinesPanel);
+    const caps = page.getByText(m.settings_machines_cap_agent_claude(), { exact: true });
+    await expect.element(caps).toBeVisible();
+    expect(document.querySelector("[data-capabilities]")?.textContent).toContain("3m");
+    // Exactly codex and the SDK: Xcode belongs to another platform, so on Linux it is not missing.
+    const missing = `${m.settings_machines_cap_agent_codex()} (${m.settings_machines_cap_reason_not_logged_in()}) · ${m.settings_machines_cap_android_sdk()} (${m.settings_machines_cap_reason_sdk_not_found()})`;
+    await expect
+      .element(page.getByText(m.settings_machines_caps_missing({ list: missing })))
+      .toBeVisible();
+    expect(document.querySelector("[data-stale]")).toBeNull();
+
+    await page.getByRole("button", { name: m.settings_machines_caps_check() }).click();
+    await expect
+      .element(page.getByText(m.settings_machines_cap_agent_codex(), { exact: true }))
+      .toBeVisible();
+    expect(calls.some((c) => c.method === "POST" && c.url === "/api/instance/capabilities")).toBe(
+      true,
+    );
+  });
+
+  it("marks a machine's stale capabilities and says nothing was reported by an older one", async () => {
+    stubApi({
+      machines: [
+        machine({
+          name: "Mac stale",
+          capabilities: report(
+            ["platform:macos", "agent:claude"],
+            {},
+            { stale: true, ageMs: 1_200_000 },
+          ),
+        }),
+        machine({ name: "Mac old", capabilities: null }),
+      ],
+    });
+    render(SettingsMachinesPanel);
+    await expect.element(page.getByText("Mac stale")).toBeVisible();
+    const stale = document.querySelector("[data-stale]");
+    expect(stale?.textContent?.trim()).toBe(m.settings_machines_caps_stale());
+    await expect.element(page.getByText(m.settings_machines_caps_stale_hint())).toBeVisible();
+    expect(stale?.closest("[data-capabilities]")?.textContent).toContain("20m");
+    // This Shepherd (no report in the stub) and "Mac old" both say nothing was reported. The text
+    // after the glossary marker identifies that line (the term's tooltip body is in the DOM too).
+    const noneTail = m.settings_machines_caps_none().split("]]").pop()!;
+    const blocks = [...document.querySelectorAll("[data-capabilities]")];
+    expect(blocks).toHaveLength(3);
+    expect(blocks.filter((b) => b.textContent?.includes(noneTail))).toHaveLength(2);
+  });
+
+  it("shows a Windows machine as not released", async () => {
+    stubApi({
+      machines: [
+        machine({
+          name: "Win box",
+          info: { version: "2.1.0", federationApi: 1, platform: "windows", arch: "x64" },
+          released: false,
+        }),
+        machine({ name: "Mac fine" }),
+      ],
+    });
+    render(SettingsMachinesPanel);
+    await expect.element(page.getByText("Win box")).toBeVisible();
+    const badges = document.querySelectorAll('[data-released="false"]');
+    expect(badges).toHaveLength(1);
+    expect(badges[0]?.textContent?.trim()).toBe(m.settings_machines_not_released());
+    const row = document.querySelector(`[data-machine] .mch-name`);
+    expect(row?.textContent).toBe("Win box");
+    await expect
+      .element(
+        page.getByText(
+          m.settings_machines_not_released_hint({
+            platform: m.settings_machines_platform_windows(),
+          }),
+        ),
+      )
+      .toBeVisible();
   });
 });

@@ -67,6 +67,18 @@ describe("sessionPulse", () => {
     });
   });
 
+  it("gives a short job at least 3 min past its usual time before calling it overdue", () => {
+    const quick = (elapsedMs: number): WorkflowJob => ({
+      name: "CI / cli",
+      state: "pending",
+      startedAt: NOW - elapsedMs,
+      typicalMs: 9_000,
+    });
+    expect(pulse({ git: openPr([quick(MIN)]) })?.state).toBe("waiting_ci");
+    expect(pulse({ git: openPr([quick(3 * MIN + 9_000)]) })?.state).toBe("waiting_ci");
+    expect(pulse({ git: openPr([quick(3 * MIN + 10_000)]) })?.state).toBe("ci_overdue");
+  });
+
   it("without a usual time it still waits, without an ETA", () => {
     const p = pulse({ git: openPr([gate(9)]) });
     expect(p?.state).toBe("waiting_ci");

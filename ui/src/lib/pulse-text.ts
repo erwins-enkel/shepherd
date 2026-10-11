@@ -1,8 +1,8 @@
 import { m } from "#lib/paraglide/messages.js";
 import type { TooltipExplanation, TooltipRow, TooltipSection } from "#lib/tooltips/content.js";
 import {
-  OVERDUE_FACTOR,
   ciRows,
+  overdueAfterMs,
   steerTally,
   timeline,
   type Pulse,
@@ -31,6 +31,8 @@ export function pulseLabel(state: PulseState): string {
 
 const ROW_CAP = 6;
 const minutes = (ms: number) => Math.max(0, Math.round(ms / 60_000));
+/** A usual duration for `{typical}` in "… min" copy: "<1" under a minute, else "~N". */
+export const typicalMinutes = (ms: number) => (ms < 60_000 ? "<1" : `~${minutes(ms)}`);
 const clock = (ts: number) =>
   new Date(ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
 /** A finished job's duration: "45s" under a minute, else "m:ss" (untranslated, like elapsed()). */
@@ -72,7 +74,7 @@ function pulseSummary(p: Pulse): string {
       return m.pulse_summary_overdue({
         job: job!.short,
         elapsed: minutes(job!.elapsedMs ?? 0),
-        typical: minutes(job!.typicalMs ?? 0),
+        typical: typicalMinutes(job!.typicalMs ?? 0),
       });
     case "waiting_ci":
       if (!job || job.elapsedMs == null) return m.pulse_summary_waiting_plain();
@@ -81,7 +83,7 @@ function pulseSummary(p: Pulse): string {
             ...counts,
             job: job.short,
             elapsed: minutes(job.elapsedMs),
-            typical: minutes(job.typicalMs),
+            typical: typicalMinutes(job.typicalMs),
             eta: clock(p.etaMs),
           })
         : m.pulse_summary_waiting({ ...counts, job: job.short, elapsed: minutes(job.elapsedMs) });
@@ -105,7 +107,10 @@ function ciSection(p: Pulse, git: GitState | undefined, nowMs: number): TooltipS
     aside:
       r.elapsedMs != null
         ? r.typicalMs
-          ? m.pulse_minutes_of({ elapsed: minutes(r.elapsedMs), typical: minutes(r.typicalMs) })
+          ? m.pulse_minutes_of({
+              elapsed: minutes(r.elapsedMs),
+              typical: typicalMinutes(r.typicalMs),
+            })
           : m.pulse_minutes({ elapsed: minutes(r.elapsedMs) })
         : r.durationMs != null
           ? duration(r.durationMs)
@@ -176,7 +181,7 @@ function nextSection(p: Pulse): TooltipSection {
           ...(p.job?.typicalMs
             ? [
                 {
-                  text: m.pulse_next_overdue({ limit: minutes(p.job.typicalMs * OVERDUE_FACTOR) }),
+                  text: m.pulse_next_overdue({ limit: minutes(overdueAfterMs(p.job.typicalMs)) }),
                   tone: "warn" as const,
                 },
               ]

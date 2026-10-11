@@ -185,6 +185,26 @@ export interface InstanceIdentity {
   federationApi: number;
   platform: string;
   arch: string;
+  /** Last capability probe (#2770); null before the first one, absent from older servers. */
+  capabilities?: CapabilityReport | null;
+}
+
+/** Mirrors CapabilityCheck in src/remote-instances/capabilities.ts (#2770). `id` is a vocabulary
+ *  entry (`agent:claude`, `android-sdk`, …); `reason` a machine code, null when `ok`. */
+export interface CapabilityCheck {
+  id: string;
+  ok: boolean;
+  reason: string | null;
+}
+
+/** What a Shepherd verified it can run: one check per vocabulary entry, with the probe's age and
+ *  the server's stale verdict at response time. */
+export interface CapabilityReport {
+  vocabulary: number;
+  probedAt: number;
+  ageMs: number;
+  stale: boolean;
+  checks: CapabilityCheck[];
 }
 
 /** Mirrors RemoteInstanceStatus in src/remote-instances/service.ts. */
@@ -211,6 +231,10 @@ export interface RemoteInstance {
   info: { version: string; federationApi: number; platform: string; arch: string } | null;
   /** Forge slugs (`owner/repo`) of the machine's checkouts. */
   projects: string[] | null;
+  /** The machine's verified capabilities from the last successful check; null if none reported. */
+  capabilities: CapabilityReport | null;
+  /** False for platforms not cleared to run tasks (Windows) and while the platform is unknown. */
+  released: boolean;
 }
 
 export interface Settings {

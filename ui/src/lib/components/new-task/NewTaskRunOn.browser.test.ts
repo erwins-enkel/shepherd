@@ -100,6 +100,8 @@ function machine(over: Partial<RemoteInstance> = {}): RemoteInstance {
     lastSeenAt: 1,
     info: { version: "2.2.0", federationApi: 1, platform: "macos", arch: "arm64" },
     projects: ["acme/app"],
+    capabilities: null,
+    released: true,
     ...over,
   };
 }

@@ -405,6 +405,7 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
   // in INVENTORY; installing a plugin or applying an update has nothing to act on here.
   "settings, plugin + update actions": [
     "/api/access-tokens/:p",
+    "/api/instance/capabilities",
     "/api/remote-instances/:p",
     "/api/remote-instances/:p/check",
     "/api/push/devices/:p",

@@ -1,10 +1,16 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { getInstance, listRemoteInstances, renameInstance } from "#lib/api.js";
+  import {
+    checkInstanceCapabilities,
+    getInstance,
+    listRemoteInstances,
+    renameInstance,
+  } from "#lib/api.js";
   import type { InstanceIdentity, RemoteInstance } from "#lib/types.js";
   import { platformLabel } from "#lib/machines.js";
   import MachineRow from "./MachineRow.svelte";
   import MachineConnectForm from "./MachineConnectForm.svelte";
+  import MachineCapabilities from "./MachineCapabilities.svelte";
   import HighlightText from "./HighlightText.svelte";
   import GlossaryText from "#lib/components/GlossaryText.svelte";
   import "./settings-controls.css";
@@ -13,7 +19,8 @@
 
   // Settings → Machines (#2759): this Shepherd's own identity, the other Shepherds it is connected
   // to, and the form to connect one. Mounted only while the section is shown, and only then does it
-  // poll — the server checks every machine once a minute; this just picks up the result.
+  // poll — the server checks every machine once a minute; this just picks up the result. Its own
+  // identity is polled too, so the age of its capability check (#2770) stays current.
   let { query = "" }: { query?: string } = $props();
 
   const POLL_MS = 10_000;
@@ -24,6 +31,8 @@
   let nameDraft = $state("");
   let savingName = $state(false);
   let nameError = $state("");
+  let checkingCaps = $state(false);
+  let capsError = $state("");
 
   let machines = $state<RemoteInstance[]>([]);
   let loading = $state(true);
@@ -63,6 +72,19 @@
     machines = machines.filter((x) => x.instanceId !== instanceId);
   }
 
+  async function checkCapabilities() {
+    if (checkingCaps) return;
+    checkingCaps = true;
+    capsError = "";
+    try {
+      self = await checkInstanceCapabilities();
+    } catch {
+      capsError = m.settings_machines_caps_check_failed();
+    } finally {
+      checkingCaps = false;
+    }
+  }
+
   function startRename() {
     nameDraft = self?.name ?? "";
     nameError = "";
@@ -87,7 +109,10 @@
   onMount(() => {
     void loadSelf();
     void loadMachines();
-    const timer = setInterval(() => void loadMachines(), POLL_MS);
+    const timer = setInterval(() => {
+      void loadSelf();
+      void loadMachines();
+    }, POLL_MS);
     return () => clearInterval(timer);
   });
 </script>
@@ -107,6 +132,7 @@
       <dt>{m.settings_machines_platform_label()}</dt>
       <dd>{platformLabel(self.platform)} · {self.arch}</dd>
     </dl>
+    <MachineCapabilities report={self.capabilities} />
     {#if editingName}
       <form class="mch-form" onsubmit={saveName}>
         <label class="mch-fld">
@@ -135,9 +161,15 @@
         <button type="button" class="set-gbtn" onclick={startRename}
           >{m.settings_machines_rename()}</button
         >
+        <button type="button" class="set-gbtn" disabled={checkingCaps} onclick={checkCapabilities}
+          >{checkingCaps
+            ? m.settings_machines_status_checking()
+            : m.settings_machines_caps_check()}</button
+        >
       </div>
     {/if}
     {#if nameError}<p class="mch-hint mch-err" role="alert">{nameError}</p>{/if}
+    {#if capsError}<p class="mch-hint mch-err" role="alert">{capsError}</p>{/if}
   {:else if selfFailed}
     <p class="mch-hint mch-err" role="alert">{m.settings_machines_self_load_failed()}</p>
   {:else}

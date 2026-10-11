@@ -5,22 +5,25 @@
   import UnitRow from "../UnitRow.svelte";
   import { machineGroups, platformName } from "#lib/remote-sessions.js";
 
-  // Sessions mirrored from connected machines (#2762): one read-only group per machine, after
-  // the local lifecycle groups. Only in the "all" lens — the others are about what to act on
-  // here, and these sessions cannot be acted on from this machine. The rows get no action
-  // callbacks; UnitRow's remote mode shows the machine and why its actions are not offered.
+  // Sessions mirrored from connected machines (#2762): one group per machine, after the local
+  // lifecycle groups. Only in the "all" lens — the others are about what to act on here. A row
+  // gets the one action callback this server forwards to its machine (#2765), decommission
+  // (archive), and only while that machine is connected; UnitRow's remote mode adds Stop and
+  // otherwise shows the machine and why its other actions are not offered.
   let {
     sessions,
     filter,
     selectedId,
     nowMs,
     onselect,
+    ondecommission = undefined,
   }: {
     sessions: Session[];
     filter: HerdFilter;
     selectedId: string | null;
     nowMs: number;
     onselect: (id: string) => void;
+    ondecommission?: (id: string) => void;
   } = $props();
 
   const groups = $derived(filter === "all" ? machineGroups(sessions) : []);
@@ -38,7 +41,13 @@
       >
     </div>
     {#each group.sessions as session (session.id)}
-      <UnitRow {session} selected={session.id === selectedId} {nowMs} {onselect} />
+      <UnitRow
+        {session}
+        selected={session.id === selectedId}
+        {nowMs}
+        {onselect}
+        ondecommission={group.connection.state === "connected" ? ondecommission : undefined}
+      />
     {/each}
   </section>
 {/each}

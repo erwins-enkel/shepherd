@@ -5,7 +5,9 @@ import {
   platformName,
   qualifiedDesig,
   reduceRemoteSessions,
+  remoteActionMessage,
 } from "./remote-sessions";
+import { m } from "#lib/paraglide/messages.js";
 import type { Session } from "./types";
 
 const HOST = { instanceId: "m1", name: "MacBook", platform: "macos" };
@@ -67,5 +69,23 @@ describe("remote sessions (#2762)", () => {
       data: { id: "z", status: "idle", host: HOST, connection: LIVE },
     });
     expect(next).toEqual([]);
+  });
+});
+
+describe("remoteActionMessage (#2765)", () => {
+  const machine = "MacBook";
+  test.each([
+    ["machine_unreachable", m.remote_action_unreachable({ machine })],
+    ["machine_timeout", m.remote_action_timeout({ machine })],
+    ["machine_unauthorized", m.remote_action_unauthorized({ machine })],
+    ["remote_unsupported", m.remote_action_unsupported({ machine })],
+  ])("explains %s", (code, text) => {
+    expect(remoteActionMessage({ code }, machine)).toBe(text);
+  });
+
+  test("leaves the machine's own answers and other failures to the caller", () => {
+    expect(remoteActionMessage({ code: "in_progress" }, machine)).toBeNull();
+    expect(remoteActionMessage(new Error("boom"), machine)).toBeNull();
+    expect(remoteActionMessage(null, machine)).toBeNull();
   });
 });

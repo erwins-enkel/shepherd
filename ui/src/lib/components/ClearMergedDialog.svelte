@@ -3,6 +3,7 @@
   import { dialog } from "#lib/a11yDialog.js";
   import { m } from "#lib/paraglide/messages.js";
   import { basename } from "./learnings-drawer";
+  import { qualifiedDesig } from "#lib/remote-sessions.js";
   import { scopeClearMerged, sumLeftovers } from "./clear-merged-scope";
 
   let {
@@ -13,7 +14,8 @@
     onclose,
     onconfirm,
   }: {
-    /** Every merged session the server would clear, across all repos. */
+    /** Every merged session the server would clear, across all repos — those on connected machines
+     *  (#2765) included, labelled with their machine. */
     sessions: Session[];
     /** Leftover subprocesses per listed session id, totalled over the batch each action clears. */
     leftovers: Record<string, number>;
@@ -78,7 +80,7 @@
       <div class="rows">
         {#each scope.inside as s (s.id)}
           <div class="row">
-            <span class="desig">{s.desig}</span>
+            <span class="desig">{qualifiedDesig(s)}</span>
             <span class="nm">{s.name}</span>
           </div>
         {/each}
@@ -116,7 +118,7 @@
           <div class="rows nested">
             {#each scope.outside as s (s.id)}
               <div class="row">
-                <span class="desig">{s.desig}</span>
+                <span class="desig">{qualifiedDesig(s)}</span>
                 <span class="nm">{s.name}</span>
                 <span class="repo">{basename(s.repoPath)}</span>
               </div>

@@ -1657,6 +1657,33 @@ export interface SessionConnection {
   since: number;
 }
 
+/** One connected machine's part of a collective action (#2765). `ok: false` = it gave no usable
+ *  answer (`reason` says why), so its sessions are not covered by the result. */
+export interface MachineOutcome {
+  instanceId: string;
+  name: string;
+  ok: boolean;
+  reason?: string;
+}
+
+/** `GET /api/sessions/clear-merged`: the merged sessions here and on every machine that answered. */
+export interface ClearMergedPreview {
+  ids: string[];
+  leftovers: number;
+  /** Leftover count per merged id, so the modal can total just the subset it clears. */
+  leftoversById: Record<string, number>;
+  probesUnavailable: boolean;
+  machines: (MachineOutcome & { ids: string[] })[];
+}
+
+/** `POST /api/sessions/clear-merged`. `partial` = a machine gave no usable answer. */
+export interface ClearMergedResult {
+  cleared: string[];
+  leftovers: number;
+  partial: boolean;
+  machines: (MachineOutcome & { requested: string[]; cleared: string[] })[];
+}
+
 /** A manual operator step parsed from a PR's shepherd:manual-steps carrier (#1059). Mirrors the
  *  server `ManualStep` shape in src/manual-steps.ts. */
 export interface ManualStep {

@@ -836,7 +836,14 @@
         />
       {/each}
     {/if}
-    <HerdMachineGroups sessions={remoteSessions} {filter} {selectedId} {nowMs} {onselect} />
+    <HerdMachineGroups
+      sessions={remoteSessions}
+      {filter}
+      {selectedId}
+      {nowMs}
+      {onselect}
+      {ondecommission}
+    />
     {#if !epicNeedsOperator}{@render integratedEpics()}{/if}
   </div>
 </div>

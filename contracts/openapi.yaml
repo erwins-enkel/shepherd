@@ -622,9 +622,15 @@ components:
       additionalProperties: true
       required: [instanceId, name, platform]
       description: >-
-        Set only on a session mirrored from a connected machine (read-only; actions on it are not
-        offered). Absent on this instance's own sessions. A `session:*` frame about a mirrored
-        session carries the same `host` and `connection`.
+        Set only on a session mirrored from a connected machine. Absent on this instance's own
+        sessions. A `session:*` frame about a mirrored session carries the same `host` and
+        `connection`. Its actions and reads under `/api/sessions/{id}` are forwarded to the machine
+        when they are on the forwarded list (reply, interrupt, archive and its leftovers, go,
+        answer-plan-questions, rename, amendments, autopilot, automerge, ready, diff and its
+        annotations, messages, activity, usage, worktree and scratchpad listings, downloads and
+        upload); any other route answers 409 `remote_unsupported`, an id more than one machine
+        reports 409 `remote_ambiguous`, and a machine that gives no usable answer 502
+        `machine_unreachable`, `machine_timeout` or `machine_unauthorized`.
       properties:
         instanceId:
           type: string
@@ -3176,6 +3182,11 @@ components:
             type: integer
         probesUnavailable:
           type: boolean
+        machines:
+          description: One entry per connected machine asked; `ids` above include the merged sessions of those that answered.
+          type: array
+          items:
+            $ref: "#/components/schemas/ClearMergedMachinePreview"
     ClearMergedRequest:
       type: object
       additionalProperties: false
@@ -3199,6 +3210,57 @@ components:
             type: string
         leftovers:
           type: integer
+        partial:
+          description: True when a connected machine gave no usable answer; its requested sessions are not covered by `cleared`.
+          type: boolean
+        machines:
+          description: One outcome per connected machine asked; empty without machines.
+          type: array
+          items:
+            $ref: "#/components/schemas/ClearMergedMachineResult"
+    ClearMergedMachinePreview:
+      type: object
+      additionalProperties: true
+      required: [instanceId, name, ok, ids]
+      description: A connected machine's merged sessions, as the preview asked it.
+      properties:
+        instanceId:
+          type: string
+        name:
+          type: string
+        ok:
+          type: boolean
+        reason:
+          description: Why the machine gave no usable answer (`disconnected`, `timeout`, `network`, `token_rejected`, …).
+          type: string
+        ids:
+          type: array
+          items:
+            type: string
+    ClearMergedMachineResult:
+      type: object
+      additionalProperties: true
+      required: [instanceId, name, ok, requested, cleared]
+      description: What clearing did on one connected machine.
+      properties:
+        instanceId:
+          type: string
+        name:
+          type: string
+        ok:
+          type: boolean
+        reason:
+          description: Why the machine gave no usable answer (`disconnected`, `timeout`, `network`, `token_rejected`, …).
+          type: string
+        requested:
+          description: The ids sent to the machine; empty when the request named none (its whole merged set).
+          type: array
+          items:
+            type: string
+        cleared:
+          type: array
+          items:
+            type: string
     SessionAutomergeEvent:
       type: object
       additionalProperties: true

@@ -287,13 +287,19 @@ Shepherd cannot connect itself. Each machine keeps running its own sessions, and
 they appear live in this Shepherd's herd, grouped under the machine they run on
 and labelled with it (for example `MacBook · TASK-07`). A session's terminal opens
 here as well and works as it does locally — this Shepherd passes it through to the
-machine with the machine's token, and only callers with full access reach it; its
-other actions are not offered here yet. If a machine becomes unreachable, its
-sessions stay with their last known state and are marked disconnected, and an open
-terminal says so and reopens once the machine is back; a session disappears only
-once its machine no longer reports it. A new task can be started on a machine that
-has its project checked out — **Run on** in the New Task dialog — and then the whole
-session runs there, from the branch as pushed to origin.
+machine with the machine's token, and only callers with full access reach it.
+Steering, stopping and archiving a session, and reading its activity, diff and
+files (including uploads to its scratchpad), work the same way: this Shepherd
+checks the caller's access as for a local session, sends the request to the
+machine, and the machine runs it. Its other actions — merging, relaunching,
+resuming, reviews, previews — are not offered here yet and are refused, never run
+on this machine instead. Clearing merged sessions covers the connected machines
+too and names any machine that did not answer. If a machine becomes unreachable,
+its sessions stay with their last known state and are marked disconnected, nothing
+is sent to it, and an open terminal says so and reopens once the machine is back;
+a session disappears only once its machine no longer reports it. A new task can be
+started on a machine that has its project checked out — **Run on** in the New Task
+dialog — and then the whole session runs there, from the branch as pushed to origin.
 
 ### Capability
 

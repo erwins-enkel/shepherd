@@ -9,36 +9,57 @@
   import MachineBadge from "./MachineBadge.svelte";
   import RemoteConnectionNote from "./RemoteConnectionNote.svelte";
   import RemoteTerminal from "./RemoteTerminal.svelte";
+  import ActivityFeed from "./ActivityFeed.svelte";
+  import DiffPanel from "./DiffPanel.svelte";
+  import FilesPanel from "./viewport/FilesPanel.svelte";
+  import RemoteSessionActions from "./remote-session/RemoteSessionActions.svelte";
   import { basename } from "./learnings-drawer";
 
   // The detail of a session mirrored from a connected machine (#2762), mounted in place of the
-  // Viewport: what the machine reports, and its live terminal, which this server bridges to the
-  // machine (#2764). Nothing reads or acts on this machine — no per-session reads. Its other
-  // actions are shown disabled, each explaining why.
+  // Viewport: what the machine reports, its live terminal (bridged by this server, #2764), and the
+  // actions and reads this server forwards to the machine (#2765) — steer, stop, archive, and the
+  // Activity / Diff / Files tabs. Every one of them runs on the machine. While it is disconnected
+  // only the terminal tab (which says so) and the disabled, explained actions remain.
   let {
     session,
     nowMs,
     terminalOwners = null,
     onback = undefined,
+    ondecommission = undefined,
+    onedit = undefined,
   }: {
     session: Session;
     nowMs: number;
     /** Who holds each terminal, the machines' included; null until the event stream reports. */
     terminalOwners?: Record<string, TerminalClientInfo> | null;
     onback?: () => void;
+    /** Archive the session on its machine — the page's undo-windowed decommission. */
+    ondecommission?: (id: string, reap?: string[]) => void;
+    /** Open this Shepherd's steers editor (the steer bar's pencil). */
+    onedit?: (steerId?: string) => void;
   } = $props();
 
   const mirrored = $derived(isMirrored(session) ? session : null);
+  const live = $derived(session.connection?.state === "connected");
   const tip = $derived(
     session.host && session.connection
       ? remoteSessionExplanation(session.host, session.connection, nowMs)
       : null,
   );
-  const actions = $derived([
-    m.remote_detail_steer(),
-    m.remote_detail_stop(),
-    m.remote_detail_archive(),
-  ]);
+
+  type Tab = "term" | "activity" | "diff" | "files";
+  const TABS: { id: Tab; label: () => string }[] = [
+    { id: "term", label: m.viewport_terminal_tab },
+    { id: "activity", label: m.viewport_activity_tab },
+    { id: "diff", label: m.viewport_diff_tab },
+    { id: "files", label: m.viewport_files_tab },
+  ];
+  // The chosen tab belongs to the session it was chosen on: another session — or a lost link,
+  // which leaves nothing to read — shows the terminal again.
+  let chosen = $state<{ id: string; tab: Tab }>({ id: "", tab: "term" });
+  const tab = $derived(live && chosen.id === session.id ? chosen.tab : "term");
+  const panelId = $derived(`remote-panel-${session.id}`);
+  const tabId = (t: Tab) => `remote-tab-${session.id}-${t}`;
 </script>
 
 <section class="remote-detail" aria-label={qualifiedDesig(session)}>
@@ -79,24 +100,47 @@
   </dl>
   <h3 class="label">{m.remote_detail_task()}</h3>
   <p class="prompt">{session.prompt}</p>
-  <div class="actions" role="group" aria-label={m.remote_detail_actions_aria()}>
-    {#each actions as label (label)}
+  {#if mirrored && tip}
+    <!-- Keyed: an Archive armed on one session must never confirm another. -->
+    {#key mirrored.id}
+      <RemoteSessionActions session={mirrored} {tip} {ondecommission} {onedit} />
+    {/key}
+  {/if}
+  <div class="tabs" role="tablist" aria-label={m.viewport_tablist_aria()}>
+    {#each TABS as t (t.id)}
       <button
         type="button"
-        class="gbtn"
-        aria-disabled="true"
-        use:statusTip={tip ? { text: tip, wide: true } : null}>{label}</button
+        class="tab"
+        class:active={tab === t.id}
+        role="tab"
+        id={tabId(t.id)}
+        aria-selected={tab === t.id}
+        aria-controls={panelId}
+        disabled={!live && t.id !== "term"}
+        onclick={() => (chosen = { id: session.id, tab: t.id })}>{t.label()}</button
       >
     {/each}
   </div>
-  {#if mirrored}
-    {#key mirrored.id}
-      <RemoteTerminal
-        session={mirrored}
-        owner={terminalOwners === null ? undefined : (terminalOwners[mirrored.id] ?? null)}
-      />
-    {/key}
-  {/if}
+  <div class="panel" id={panelId} role="tabpanel" aria-labelledby={tabId(tab)}>
+    {#if mirrored}
+      <!-- Kept mounted (hidden) under the other tabs, so its socket and scrollback survive. -->
+      <div class="term" hidden={tab !== "term"}>
+        {#key mirrored.id}
+          <RemoteTerminal
+            session={mirrored}
+            owner={terminalOwners === null ? undefined : (terminalOwners[mirrored.id] ?? null)}
+          />
+        {/key}
+      </div>
+    {/if}
+    {#if tab === "activity"}
+      <ActivityFeed sessionId={session.id} />
+    {:else if tab === "diff"}
+      <DiffPanel sessionId={session.id} />
+    {:else if tab === "files"}
+      <FilesPanel sessionId={session.id} />
+    {/if}
+  </div>
 </section>
 
 <style>
@@ -181,29 +225,50 @@
     overflow-wrap: anywhere;
     color: var(--color-ink);
   }
-  .actions {
+  .tabs {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: 2px;
   }
-  /* The canonical .gbtn recipe (/design-system), disabled through aria-disabled so it keeps
-     focus and hover — and with them the tooltip that says why. */
-  .gbtn {
+  /* The Viewport tab strip's recipe (viewport/ViewportTabBar). */
+  .tab {
     background: transparent;
-    border: 1px solid var(--color-line);
+    border: 1px solid transparent;
     border-radius: 2px;
     color: var(--color-muted);
     font-family: var(--font-mono);
     font-size: var(--fs-meta);
-    letter-spacing: 0.08em;
+    letter-spacing: 0.1em;
     padding: 2px 8px;
+    cursor: pointer;
   }
-  .gbtn:focus-visible {
+  .tab:hover:not(:disabled) {
+    color: var(--color-ink);
+  }
+  .tab:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
-  .gbtn[aria-disabled="true"] {
+  .tab.active {
+    color: var(--color-ink-bright);
+    border-color: var(--color-line-bright);
+    background: var(--color-inset);
+  }
+  .tab:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+  .panel {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 240px;
+  }
+  .term {
+    display: flex;
+    flex: 1 1 auto;
+  }
+  .term[hidden] {
+    display: none;
   }
 </style>

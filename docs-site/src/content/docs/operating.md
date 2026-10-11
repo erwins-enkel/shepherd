@@ -94,6 +94,15 @@ Per-deployment overrides (password, token, repo root, alternate hosts) go in
 `~/.shepherd/env` (`KEY=value` lines), read by the unit if present. See
 [Configuration](/reference/configuration/) for the full list.
 
+## Connect another machine
+
+Another Shepherd, for example the one on your MacBook, can run tasks you start
+here: connect it under **Settings → Machines** with its tailnet address and a
+Full access token created on it. The whole session then runs on that machine,
+and its sessions show up in your herd. Setup for Linux and macOS, the trust
+decision, the limits and an end-to-end checklist:
+[Run tasks on another machine](/machines/).
+
 ## Deploy a code change
 
 The unit runs from the working tree, so to deploy local changes in one shot

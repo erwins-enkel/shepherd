@@ -10,8 +10,9 @@
 //   bun scripts/record-xcode-fixtures.ts test/fixtures/xcode/macbook.json --source "MacBook"
 //
 // It then prints this Mac's live capability snapshot (verdicts and versions only). The home
-// directory is redacted to `~` in what it records; still read the file for anything personal (a
-// simulator named after someone) before committing it.
+// directory is redacted to `~` in what it records, also in the slash-escaped form simctl's JSON
+// prints; still read the file for anything personal (a simulator named after someone) before
+// committing it.
 
 import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -57,9 +58,11 @@ function value(cmd: string, args: readonly string[]): string | null {
   return run.code === 0 ? run.stdout.trim() || null : null;
 }
 
-function redact(text: string): string {
-  const home = homedir();
-  return home.length > 1 ? text.replaceAll(home, "~") : text;
+/** `home` as `~`, both as written and in the slash-escaped form `simctl list -j` prints its
+ *  `dataPath`/`logPath` in (`\/Users\/name\/Library/…`), so no account name is recorded. */
+export function redact(text: string, home = homedir()): string {
+  if (home.length <= 1) return text;
+  return text.replaceAll(home, "~").replaceAll(home.replaceAll("/", "\\/"), "~");
 }
 
 function compareVersions(a: string, b: string): number {

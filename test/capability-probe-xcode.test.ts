@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { redact } from "../scripts/record-xcode-fixtures";
 import { probeCapabilities } from "../src/remote-instances/capability-probe";
 import {
   expectedView,
@@ -23,6 +24,25 @@ describe("macOS probe against recorded Xcode output", () => {
     test(`${name} (${recording.source})`, async () => {
       const snap = await probeCapabilities(recordingDeps(recording));
       expect(macosView(snap.checks)).toEqual(expectedView(recording.expected));
+    });
+  }
+});
+
+describe("recordings never carry an account's home directory", () => {
+  test("the recorder redacts it as written and as simctl's JSON escapes it", () => {
+    const simctl = String.raw`"dataPath" : "\/Users\/kai\/Library\/Developer\/CoreSimulator"`;
+    expect(redact(simctl, "/Users/kai")).toBe(
+      String.raw`"dataPath" : "~\/Library\/Developer\/CoreSimulator"`,
+    );
+    expect(redact("/Users/kai/Library/Logs", "/Users/kai")).toBe("~/Library/Logs");
+  });
+
+  for (const { name, recording } of recordings) {
+    test(name, () => {
+      for (const run of Object.values(recording.commands)) {
+        // `/Users/<name>` plain or slash-escaped; /Users/Shared belongs to no one.
+        expect(`${run.stdout}\n${run.stderr}`).not.toMatch(/\\?\/Users\\?\/(?!Shared\b)\w/);
+      }
     });
   }
 });

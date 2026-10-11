@@ -2,6 +2,7 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import type { FetchLike } from "../src/remote-instances/client";
 import type { RemoteInstanceRow, RemoteInstanceSummary } from "../src/remote-instances/service";
 import { type OpenSocket, RemoteSessionMirror, hostNames } from "../src/remote-instances/sessions";
+import type { OpenTerminalSocket } from "../src/remote-instances/terminal";
 
 const B = "0b6f2c1e-7c1d-4e53-9d1a-3c1f2e4b5a6d";
 const C = "1c7f3d2f-8d2e-4f64-8e2b-4d2f3f5c6b7e";
@@ -61,6 +62,7 @@ function setup(opts: { snapshot?: () => unknown | Promise<Response> } = {}) {
     snapshot: opts.snapshot ?? (() => [s1, s2]),
   };
   const sockets: FakeSocket[] = [];
+  const terminals: { url: string; headers: Record<string, string>; closed: boolean }[] = [];
   const requests: { url: string; init: RequestInit }[] = [];
   const checks: string[] = [];
   const fetch: FetchLike = async (url, init) => {
@@ -92,6 +94,11 @@ function setup(opts: { snapshot?: () => unknown | Promise<Response> } = {}) {
     },
     fetch,
     openSocket,
+    openTerminalSocket: ((url, headers) => {
+      const terminal = { url, headers, closed: false };
+      terminals.push(terminal);
+      return { send: () => {}, close: () => (terminal.closed = true) };
+    }) satisfies OpenTerminalSocket,
     now: () => now,
     recheckDelaysMs: [1, 1],
   });
@@ -102,6 +109,7 @@ function setup(opts: { snapshot?: () => unknown | Promise<Response> } = {}) {
     mirror,
     state,
     sockets,
+    terminals,
     requests,
     checks,
     events,
@@ -325,6 +333,85 @@ describe("session mirror", () => {
     expect(t.requests.every((r) => !r.url.includes(TOKEN))).toBe(true);
     expect(JSON.stringify(t.events)).not.toContain(TOKEN);
     expect(JSON.stringify(t.mirror.list())).not.toContain(TOKEN);
+  });
+});
+
+describe("terminals of mirrored sessions (#2764)", () => {
+  const attach = { cols: 90, rows: 30, clientKind: "browser", clientPlatform: "linux" };
+  function sink() {
+    const closes: (number | undefined)[] = [];
+    return { closes, send: () => {}, close: (code?: number) => void closes.push(code) };
+  }
+
+  test("a live machine's session bridges to its /pty/:id with the token in the header only", async () => {
+    const t = setup();
+    await t.live();
+    expect(t.mirror.has("s1")).toBe(true);
+    expect(t.mirror.has("nope")).toBe(false);
+    const caller = sink();
+    t.mirror.openTerminal("s1", caller, attach);
+    expect(t.terminals).toHaveLength(1);
+    expect(t.terminals[0]!.url).toBe(
+      "ws://b.test:7777/pty/s1?cols=90&rows=30&clientKind=browser&clientPlatform=linux",
+    );
+    expect(t.terminals[0]!.headers).toEqual({ authorization: `Bearer ${TOKEN}` });
+    expect(caller.closes).toEqual([]);
+  });
+
+  test("an unknown session or a disconnected machine closes as unreachable without a socket", async () => {
+    const t = setup();
+    const socket = await t.live();
+    const unknown = sink();
+    t.mirror.openTerminal("nope", unknown, attach);
+    expect(unknown.closes).toEqual([4002]);
+    socket.on.close();
+    expect(t.mirror.has("s1")).toBe(true); // still shown, as disconnected
+    const offline = sink();
+    t.mirror.openTerminal("s1", offline, attach);
+    expect(offline.closes).toEqual([4002]);
+    expect(t.terminals).toEqual([]);
+  });
+
+  test("a lost link or a removed machine ends its open terminals", async () => {
+    const t = setup();
+    const socket = await t.live();
+    const first = sink();
+    t.mirror.openTerminal("s1", first, attach);
+    socket.on.close();
+    expect(first.closes).toEqual([4002]);
+    expect(t.terminals[0]!.closed).toBe(true);
+
+    await t.live();
+    const second = sink();
+    t.mirror.openTerminal("s2", second, attach);
+    t.state.machines = [];
+    t.mirror.sync(B);
+    expect(second.closes).toEqual([4002]);
+    expect(t.terminals[1]!.closed).toBe(true);
+  });
+
+  test("the machine's terminal owners are relayed and forgotten when it drops", async () => {
+    const t = setup();
+    const socket = await t.live();
+    t.events.length = 0;
+    send(socket, "terminal:owners", {
+      owners: {
+        s1: { kind: "mac-app", platform: "macos" },
+        s2: { kind: 7, platform: "linux" },
+        s3: "browser",
+      },
+    });
+    expect(t.mirror.terminalOwners()).toEqual({ s1: { kind: "mac-app", platform: "macos" } });
+    expect(t.events).toEqual([
+      ["terminal:owners", { owners: { s1: { kind: "mac-app", platform: "macos" } } }],
+    ]);
+    send(socket, "terminal:owners", { owners: {} });
+    expect(t.mirror.terminalOwners()).toEqual({});
+    send(socket, "terminal:owners", { owners: { s2: { kind: "browser", platform: "linux" } } });
+    t.events.length = 0;
+    socket.on.close();
+    expect(t.mirror.terminalOwners()).toEqual({});
+    expect(t.events).toContainEqual(["terminal:owners", { owners: {} }]);
   });
 });
 

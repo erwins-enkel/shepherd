@@ -3199,6 +3199,7 @@
           <RemoteSessionDetail
             session={selectedRemote}
             {nowMs}
+            terminalOwners={store.terminalOwners}
             onback={() => (mobileScreen = "list")}
           />
         </div>
@@ -3370,7 +3371,11 @@
             <div class="empty">{m.herd_done_empty()}</div>
           {/if}
         {:else if selectedRemote}
-          <RemoteSessionDetail session={selectedRemote} {nowMs} />
+          <RemoteSessionDetail
+            session={selectedRemote}
+            {nowMs}
+            terminalOwners={store.terminalOwners}
+          />
         {:else if store.sessions.length === 0}
           <BacklogView
             payload={backlog}

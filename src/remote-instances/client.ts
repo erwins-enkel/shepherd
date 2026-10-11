@@ -11,8 +11,9 @@
  */
 import { FEDERATION_API_VERSION, INSTANCE_NAME_MAX, type InstanceIdentity } from "./identity";
 
-/** Per request. A probe makes three, so a dead machine costs at most ~15 s. */
-const REMOTE_REQUEST_TIMEOUT_MS = 5_000;
+/** Per request. A probe makes three, so a dead machine costs at most ~15 s. Also bounds how long
+ *  a bridged terminal (#2764) waits for the machine's socket to open. */
+export const REMOTE_REQUEST_TIMEOUT_MS = 5_000;
 
 export type ProbeFailure =
   | { status: "unreachable"; reason: "timeout" | "network" | "redirect" | "bad_response" }

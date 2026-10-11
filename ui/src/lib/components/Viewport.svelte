@@ -1,9 +1,7 @@
 <script lang="ts">
-  import "@xterm/xterm/css/xterm.css";
-  import { Terminal, type IBufferLine, type IBufferCell } from "@xterm/xterm";
-  import { FitAddon } from "@xterm/addon-fit";
-  import { WebLinksAddon } from "@xterm/addon-web-links";
-  import { WebglAddon } from "@xterm/addon-webgl";
+  import type { Terminal, IBufferLine, IBufferCell } from "@xterm/xterm";
+  import type { FitAddon } from "@xterm/addon-fit";
+  import { openXterm, repaintXterm } from "#lib/xterm-setup.js";
   import type {
     TerminalClientInfo,
     DrainStatus,
@@ -29,8 +27,8 @@
   import { displayStatus } from "#lib/display-status.js";
   import { projectIcons } from "#lib/projectIcons.svelte.js";
   import { hotterGauge, gaugeColor } from "./usage-gauges";
-  import { connectPty, type PtyConn } from "#lib/pty.js";
-  import { theme, xtermTheme, xtermMinContrast } from "#lib/theme.svelte.js";
+  import { connectPty, type PtyConn, type PtyEndReason } from "#lib/pty.js";
+  import { theme } from "#lib/theme.svelte.js";
   import { terminalFontSize, FONT_MIN, FONT_MAX } from "#lib/terminal-font-size.svelte.js";
   import { uiScale } from "#lib/ui-scale.svelte.js";
   import { tick, untrack } from "svelte";
@@ -55,14 +53,13 @@
   import { trimTrailingWhitespace } from "#lib/terminalSelection.js";
   import { composeKeystrokes } from "#lib/compose.js";
   import { findCommandLinks } from "#lib/slashLinks.js";
-  import { oscLinkHandler, openTerminalLink } from "#lib/terminalLinks.js";
   import { createTypingCounter } from "#lib/terminal-input.js";
   import { shouldForwardEscape } from "#lib/terminalEscape.js";
   import { altComboKey, isPtySuppressedChord } from "./herd-keynav";
   import { detectNotesKey } from "#lib/notesAffordance.js";
   import { hasCodexQuestionsHint } from "#lib/codexQuestionsAffordance.js";
   import { isScrolledAwayFromBottom, SCROLL_UP_PX } from "#lib/scrollAffordance.js";
-  import { pollWhileVisible } from "#lib/visibility.js";
+  import { onPageReturn, pollWhileVisible } from "#lib/visibility.js";
   import TodoPanel from "#lib/components/TodoPanel.svelte";
   import ActivityFeed from "#lib/components/ActivityFeed.svelte";
   import SubagentFanout from "#lib/components/SubagentFanout.svelte";
@@ -379,9 +376,10 @@
   let parked = $state(false);
   // true once the connection stopped for good — show a recovery prompt. endReason
   // splits the two cases: "gone" = the agent exited (offer provider resume),
-  // "unreachable" = herdr itself is down (offer a plain re-attach).
+  // "unreachable" = herdr itself is down (offer a plain re-attach). ("machine" is
+  // only ever sent for a session on a connected machine, never one shown here.)
   let ended = $state(false);
-  let endReason = $state<"gone" | "unreachable">("gone");
+  let endReason = $state<PtyEndReason>("gone");
   let resuming = $state(false);
   let resumeFailed = $state(false);
   let resumeFailure = $state("");
@@ -1702,63 +1700,13 @@
     // effect below.
     const initialFont =
       (untrack(() => terminalFontSize.size) ?? termFontDefault) * untrack(() => uiScale.value);
-    const term = new Terminal({
-      fontFamily: "'JetBrains Mono', monospace",
-      fontSize: initialFont,
-      theme: xtermTheme(initialTheme),
-      minimumContrastRatio: xtermMinContrast(initialTheme),
-      cursorBlink: true,
-      // Mirror terminal output into xterm's hidden ARIA live region so screen
-      // readers can follow the live agent session (the .term-mount region label
-      // alone names the area but exposes none of its scrolling content).
-      screenReaderMode: true,
-      // Claude Code runs as a TUI with mouse tracking on, which hands mouse drags
-      // to the app instead of selecting text. xterm lets a modifier force local
-      // selection anyway — Shift on Linux/Windows, Option (⌥) on macOS — but the
-      // macOS path only works when this option is enabled (default off). Without
-      // it, Mac users can't select terminal text at all while an agent is running.
-      macOptionClickForcesSelection: true,
-      // OSC 8 hyperlinks (Claude Code's `PR #…` badge) open on a plain tap/click like the
-      // linkified URLs below, instead of xterm's default confirm() warning.
-      linkHandler: oscLinkHandler,
-    });
+    const { term, fit } = openXterm(el, { fontSize: initialFont, theme: initialTheme });
     termRef = term;
-
-    const fit = new FitAddon();
     fitRef = fit;
-    term.loadAddon(fit);
-    // Linkify URLs in the terminal so they're tappable — on a phone a plain-text
-    // URL can't be opened at all (no text-selection affordance inside xterm's
-    // canvas), and even on desktop a click beats copy-paste. Plain tap/click
-    // opens in a new tab; noopener so the opened page can't reach back via
-    // window.opener.
-    term.loadAddon(new WebLinksAddon((_event, uri) => openTerminalLink(uri)));
-    term.open(el);
-    fit.fit();
 
     // Count operator input arriving through xterm's helper textarea (typing, IME,
     // paste, dropped text). Only valid after open() — that's when the textarea exists.
     const typingCounter = createTypingCounter(term, bumpOperatorInput);
-
-    // WebGL renderer. The default DOM renderer flows text with a per-glyph
-    // letter-spacing derived from a fractional cell width; at a non-integer
-    // fontSize (12.5) on a HiDPI display (devicePixelRatio 2) xterm's glyph
-    // measurement and its computed cell width disagree by half a device pixel,
-    // so the rendered text drifts ~0.25px/char off the hit-test grid and the
-    // selection lands a few characters short by the end of a long line. The
-    // WebGL renderer rasterizes each glyph into its exact grid cell (no flowed
-    // text, no letter-spacing), so text, the selection overlay and mouse
-    // hit-testing all share one grid. Loaded after open() as the addon requires.
-    // Guarded: if WebGL is unavailable (context creation throws, or is lost and
-    // unrecoverable) we dispose it and fall back to the DOM renderer rather than
-    // leaving the terminal blank.
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => webgl.dispose());
-      term.loadAddon(webgl);
-    } catch (err) {
-      console.warn("webgl renderer unavailable; using DOM renderer", err);
-    }
 
     // assign the local first; reading the `conn` $state back inside this effect
     // would make the effect depend on a value it writes → infinite update loop
@@ -2021,16 +1969,8 @@
     window.addEventListener("keydown", onWindowKeydown, true);
 
     // mobile freezes backgrounded tabs and drops the WS; nudge a reconnect when
-    // the tab returns. pageshow+persisted covers iOS Safari's bfcache restore,
-    // which doesn't always fire visibilitychange.
-    const onVisible = () => {
-      if (document.visibilityState === "visible") c.poke();
-    };
-    const onPageShow = (e: PageTransitionEvent) => {
-      if (e.persisted) c.poke();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("pageshow", onPageShow);
+    // the tab returns (including iOS Safari's bfcache restore).
+    const offPageReturn = onPageReturn(() => c.poke());
 
     // tap-to-focus opens the mobile keyboard — skip when the tap was a scroll drag
     let dragged = false;
@@ -2308,8 +2248,7 @@
       disposed = true; // stops a pending document.fonts.ready remeasure after teardown
       codexQuestions = false;
       window.removeEventListener("keydown", onWindowKeydown, true);
-      document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("pageshow", onPageShow);
+      offPageReturn();
       el?.removeEventListener("click", onTap);
       el?.removeEventListener("mousedown", onTermMouseDown, true);
       document.removeEventListener("mouseup", onDocMouseUp);
@@ -2337,13 +2276,7 @@
 
   // repaint the live terminal when the active theme changes (no recreation)
   $effect(() => {
-    const resolved = theme.resolved;
-    const highContrast = theme.contrast;
-    const term = termRef;
-    if (!term) return;
-    term.options.theme = xtermTheme(resolved);
-    term.options.minimumContrastRatio = xtermMinContrast(resolved, highContrast);
-    term.refresh(0, Math.max(0, term.rows - 1));
+    if (termRef) repaintXterm(termRef);
   });
 
   // Live-apply the terminal font size. Mirrors the theme effect: mutate the

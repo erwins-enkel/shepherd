@@ -560,6 +560,11 @@ components:
           type: string
         baseBranch:
           type: string
+        baseCommit:
+          type:
+            - string
+            - "null"
+          description: "The commit the session's worktree was actually created from — its HEAD right after the worktree was added. null for a non-git repo, a clean terminal, or a session that predates the field; absent from servers older than #2761."
         branch:
           type:
             - string
@@ -725,6 +730,12 @@ components:
           type: string
         baseBranch:
           type: string
+        baseCommit:
+          type:
+            - string
+            - "null"
+          pattern: ^(?:[0-9a-f]{40}|[0-9a-f]{64})$
+          description: Create the worktree at exactly this commit (full lowercase hex id) instead of freshening baseBranch to its upstream tip. Fetched from origin when missing; 422 when it cannot be used. baseBranch stays the PR target. null or absent = resolve from baseBranch.
         prompt:
           type: string
           minLength: 1
@@ -799,6 +810,44 @@ components:
         id:
           type: string
         count:
+          type: integer
+    DispatchState:
+      anyOf:
+        - $ref: "#/components/schemas/DispatchStateKnown"
+        - type: string
+    DispatchStateKnown:
+      type: string
+      enum:
+        - pending
+        - started
+        - held
+        - failed
+    Dispatch:
+      type: object
+      additionalProperties: true
+      description: The outcome of a POST /api/sessions submitted with an Idempotency-Key. pending = the start is still running; started = sessionId spawned; held = parked as held task heldId (it turns started when the hold is released); failed = it will never start (reason, code).
+      required:
+        - id
+        - state
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+        state:
+          $ref: "#/components/schemas/DispatchState"
+        sessionId:
+          type: string
+        heldId:
+          type: string
+        reason:
+          type: string
+        code:
+          type: string
+          description: Machine-readable failure code when there is one — dispatch_canceled (withdrawn before it arrived), dispatch_interrupted (a restart cut the start off), held_discarded, or the create's own code (e.g. spawn_canceled).
+        createdAt:
+          type: integer
+        updatedAt:
           type: integer
     Repo:
       type: object
@@ -4328,6 +4377,12 @@ components:
           type: string
         baseBranch:
           type: string
+        baseCommit:
+          type:
+            - string
+            - "null"
+          pattern: ^(?:[0-9a-f]{40}|[0-9a-f]{64})$
+          description: Create the worktree at exactly this commit (full lowercase hex id) instead of freshening baseBranch to its upstream tip. Fetched from origin when missing; 422 when it cannot be used. baseBranch stays the PR target. null or absent = resolve from baseBranch.
         prompt:
           type: string
           minLength: 1
@@ -7306,6 +7361,12 @@ paths:
           description: Client-chosen correlation id for this create. With a valid one the caller receives live `spawn:progress` frames and may cancel through POST /api/spawns/{id}/cancel; without one the spawn still runs and is still measured. Deliberately a header and not a body field (src/server.ts:2400-2404) — a usage hold persists the BODY, so a spawn id there would be replayed stale when the held task is finally spawned. Header names are case-insensitive; the server compares lowercase.
           schema:
             type: string
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: "Client-chosen id that makes this submission run at most once (#2761). Reserved before the hold gate and the spawn, and kept across restarts: a retry or a concurrent duplicate with the same key and the same body gets the first outcome replayed (marked `Idempotent-Replayed: true`) — the session (201) or the held task (200) — without a second spawn, and a failed outcome is final for its key. The same key with a different body is 409. Matches ^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$, optionally double-quoted (structured-field string); anything else is 400. Outcome: GET /api/dispatches/{id}."
+          schema:
+            type: string
       requestBody:
         required: true
         content:
@@ -7334,13 +7395,13 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":
-          description: First run pending, name taken, worktree occupied, or herdr restart required (see code).
+          description: "First run pending, name taken, worktree occupied, or herdr restart required (see code). With an Idempotency-Key also: the key was used with a different body (dispatch_payload_mismatch), was withdrawn before it arrived (dispatch_canceled), or its first start was cut off by a restart (dispatch_interrupted)."
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "422":
-          description: The base branch does not resolve to a ref in the repo.
+          description: The base branch (or the requested baseCommit) does not resolve to a commit in the repo.
           content:
             application/json:
               schema:
@@ -7456,6 +7517,62 @@ paths:
                 $ref: "#/components/schemas/RepoList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/dispatches/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The Idempotency-Key a POST /api/sessions was (or will be) sent with.
+        schema:
+          type: string
+    get:
+      operationId: getDispatch
+      description: What became of a keyed submission. A key still pending with no start running (the server restarted mid-start) reads as failed with code dispatch_interrupted; it is never re-spawned.
+      responses:
+        "200":
+          description: The dispatch.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dispatch"
+        "400":
+          description: Malformed id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: The key never arrived — sending it again (same key, same body) is safe.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    delete:
+      operationId: cancelDispatch
+      description: Make sure the key never starts a session. An unknown key is reserved as withdrawn (failed, dispatch_canceled), so a late arrival with it is refused instead of started; an already-failed key stays failed. Idempotent.
+      responses:
+        "200":
+          description: The key can no longer start; the dispatch is returned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dispatch"
+        "400":
+          description: Malformed id.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: The key already arrived (pending, started or held) — code dispatch_arrived, with the current dispatch under `dispatch`. Archive the session or discard the held task instead.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/sessions/{id}/reply:
     parameters:
       - name: id

@@ -502,6 +502,7 @@
   // Day count the server computed recentAgentCount over; drives the picker's label.
   let recentRepoWindowDays = $state(0);
   const selectedRepo = $derived(repos.find((r) => r.path === repoPath));
+  const selectedRepoName = $derived(selectedRepo?.name ?? "");
 
   // ── Run on (#2763) ──────────────────────────────────────────────────────────
   // Plain new tasks only, and only while a machine is connected: without one the dialog is
@@ -519,7 +520,7 @@
   let sendingTo = $state<RemoteInstance | null>(null);
   /** The last send to a machine that went unanswered: retrying the same task reuses its key. */
   let pendingSend: PendingSend | null = null;
-  const selectedRepoName = $derived(selectedRepo?.name ?? "");
+
   // ONE repo-aware seeded-issue predicate: feeds readiness, the submit guard, the
   // template materialization, and the issueRef payload — they can never disagree.
   const activeIssue = $derived(issueRef && repoPath === attachedRepoPath ? issueRef : null);
@@ -1992,10 +1993,11 @@
     }}
     ondrop={onDrop}
   >
-    {#snippet runOnSelect(cls?: string)}
+    {#snippet runOnSelect(cls?: string, tip = false)}
       <select
         class={cls}
         aria-label={m.newtask_runon_label()}
+        use:statusTip={tip ? { text: runOnExplanation(), wide: true, ...modeTip } : null}
         value={runOn?.instanceId ?? ""}
         disabled={runOnOptions.length === 0}
         onchange={(e) => (runOnId = e.currentTarget.value || null)}
@@ -2179,8 +2181,8 @@
               </span>
               {#if runOnAvailable}
                 <span class="ctx-from">{m.newtask_runon_on()}</span>
-                <span class="branch-chip" use:statusTip={{ text: runOnExplanation(), wide: true }}>
-                  {@render runOnSelect()}
+                <span class="branch-chip">
+                  {@render runOnSelect(undefined, true)}
                   <span class="chev" aria-hidden="true">▾</span>
                 </span>
               {/if}

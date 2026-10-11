@@ -175,6 +175,8 @@ describe("Run on (#2763)", () => {
       "MacBook (macOS)",
     ]);
 
+    // Its explanation rides the select itself, so focus and assistive tech reach it.
+    expect(runOnSelect()!.getAttribute("aria-description")).toContain(m.tooltip_runon_summary());
     await pickMachine("mac-1");
     await expect
       .element(page.getByText(m.newtask_runon_notice({ machine: "MacBook", base: "main" })))

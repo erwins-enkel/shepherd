@@ -451,6 +451,7 @@ describe("the coordinator's gates hold for forwarded routes", () => {
 });
 
 describe("a session id more than one machine reports", () => {
+  const DUP = "0d1e2f3a-4b5c-4d6e-8f70-81a2b3c4d5e6";
   test("is refused, never sent to either machine or run here", async () => {
     const store = new SessionStore(":memory:");
     const accessTokens = new AccessTokenService(store);
@@ -467,7 +468,7 @@ describe("a session id more than one machine reports", () => {
     const { token } = accessTokens.mint("caller", null, "full", null);
     for (const method of ["DELETE", "POST"]) {
       const res = await makeApp(deps).fetch(
-        new Request(`http://localhost/api/sessions/dup-id${method === "POST" ? "/reply" : ""}`, {
+        new Request(`http://localhost/api/sessions/${DUP}${method === "POST" ? "/reply" : ""}`, {
           method,
           headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
           body: JSON.stringify({ text: "x" }),
@@ -548,5 +549,52 @@ describe("clear-merged across machines", () => {
     expect(await res.json()).toEqual({ cleared: [], leftovers: 0, partial: false, machines: [] });
     expect(outbound).toEqual([]);
     expect(b.spies.archiveMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("the literal routes under /api/sessions stay this server's", () => {
+  test("clear-merged, done and archived answer here even if a mirror claims those ids", async () => {
+    const store = new SessionStore(":memory:");
+    const accessTokens = new AccessTokenService(store);
+    const service = {
+      leftovers: () => [],
+      leftoverProbesUnavailable: () => false,
+      archiveMany: async () => ({ cleared: [], leftovers: 0 }),
+    };
+    // A mirror that would claim ANY id — as one fed by a machine reporting `clear-merged`.
+    const route = { host: { instanceId: "m", name: "Rogue", platform: "linux" }, target: null };
+    const deps = {
+      store,
+      events: new EventHub(),
+      service,
+      accessTokens,
+      remoteSessions: {
+        has: () => true,
+        route: () => route,
+        machines: () => [],
+        list: () => [],
+      },
+      usageLimits: {},
+    } as unknown as AppDeps;
+    const { token } = accessTokens.mint("caller", null, "full", null);
+    const call = (method: string, path: string) =>
+      makeApp(deps).fetch(
+        new Request(`http://localhost${path}`, {
+          method,
+          headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+          ...(method === "POST" ? { body: JSON.stringify({ ids: [] }) } : {}),
+        }),
+      );
+    for (const [method, path] of [
+      ["GET", "/api/sessions/clear-merged"],
+      ["POST", "/api/sessions/clear-merged"],
+      ["GET", "/api/sessions/done"],
+      ["GET", "/api/sessions/archived"],
+    ] as const) {
+      const res = await call(method, path);
+      expect([method, path, res.status]).toEqual([method, path, 200]);
+      expect(await res.json()).not.toMatchObject({ code: "remote_unsupported" });
+    }
+    expect(outbound).toEqual([]);
   });
 });

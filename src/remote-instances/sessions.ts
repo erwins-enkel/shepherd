@@ -29,7 +29,7 @@
  * and nowhere else: not into a URL, a frame or a log line.
  */
 import type { SessionStore } from "../store";
-import { type FetchLike, getRemoteJson, isRecord, type RemoteTarget } from "./client";
+import { type FetchLike, getRemoteJson, isRecord, type RemoteTarget, UUID_RE } from "./client";
 import type { RemoteInstanceService, RemoteInstanceSummary } from "./service";
 import {
   type OpenTerminalSocket,
@@ -122,11 +122,13 @@ const openWebSocket: OpenSocket = (url, headers, on) => {
   return ws;
 };
 
-/** A machine's own session: a record with an ID and no `host` (a `host` means it is itself a
- *  mirrored reference, which is never passed on). */
+/** A machine's own session: a record with a UUID as its ID and no `host` (a `host` means it is
+ *  itself a mirrored reference, which is never passed on). Every Shepherd mints session IDs with
+ *  `randomUUID`; anything else is refused, so a machine can never report an ID that reads as one of
+ *  this server's literal routes under `/api/sessions/` (`clear-merged`, `done`, `archived`, #2765). */
 function asRow(value: unknown): RemoteRow | null {
-  if (!isRecord(value) || typeof value.id !== "string" || !value.id || "host" in value) return null;
-  return value as RemoteRow;
+  if (!isRecord(value) || typeof value.id !== "string" || "host" in value) return null;
+  return UUID_RE.test(value.id) ? (value as RemoteRow) : null;
 }
 
 function parseSnapshot(body: unknown): RemoteRow[] | null {

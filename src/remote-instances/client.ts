@@ -52,7 +52,8 @@ type RemoteGetResult = { ok: true; body: unknown } | { ok: false; failure: Probe
 
 const BAD_RESPONSE: ProbeFailure = { status: "unreachable", reason: "bad_response" };
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** An instance ID — and a session ID, which every Shepherd mints the same way (`randomUUID`). */
+export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

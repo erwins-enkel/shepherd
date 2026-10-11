@@ -41,8 +41,14 @@ function row(over: Partial<RemoteInstanceRow> = {}): RemoteInstanceRow {
   };
 }
 
-const s1 = { id: "s1", desig: "TASK-07", name: "login", status: "running" };
-const s2 = { id: "s2", desig: "TASK-08", name: "docs", status: "idle" };
+// Session IDs as every Shepherd mints them (randomUUID) — the mirror holds nothing else (#2765).
+const S1 = "5f0e8a52-1c2d-4e3f-8a4b-000000000001";
+const S2 = "5f0e8a52-1c2d-4e3f-8a4b-000000000002";
+const S3 = "5f0e8a52-1c2d-4e3f-8a4b-000000000003";
+const LATE = "5f0e8a52-1c2d-4e3f-8a4b-00000000000f";
+
+const s1 = { id: S1, desig: "TASK-07", name: "login", status: "running" };
+const s2 = { id: S2, desig: "TASK-08", name: "docs", status: "idle" };
 
 interface FakeSocket {
   url: string;
@@ -170,24 +176,24 @@ describe("session mirror", () => {
     const t = setup();
     const socket = await t.live();
     t.events.length = 0;
-    const s3 = { id: "s3", desig: "TASK-09", name: "new", status: "running" };
+    const s3 = { id: S3, desig: "TASK-09", name: "new", status: "running" };
     send(socket, "session:new", s3);
-    send(socket, "session:status", { id: "s1", status: "idle" });
-    send(socket, "session:renamed", { id: "s2", name: "docs v2", branch: "b" });
-    send(socket, "session:archived", { id: "s3" });
-    send(socket, "session:git", { id: "s1", git: { state: "open" } });
+    send(socket, "session:status", { id: S1, status: "idle" });
+    send(socket, "session:renamed", { id: S2, name: "docs v2", branch: "b" });
+    send(socket, "session:archived", { id: S3 });
+    send(socket, "session:git", { id: S1, git: { state: "open" } });
     expect(t.mirror.list().map(({ id, status, name }) => ({ id, status, name }))).toEqual([
-      { id: "s1", status: "idle", name: "login" },
-      { id: "s2", status: "idle", name: "docs v2" },
+      { id: S1, status: "idle", name: "login" },
+      { id: S2, status: "idle", name: "docs v2" },
     ]);
     const host = { instanceId: B, name: "MacBook", platform: "macos" };
     const connection = { state: "connected" as const, since: 1_000 };
     expect(t.events).toEqual([
       ["session:new", { ...s3, host, connection }],
-      ["session:status", { id: "s1", status: "idle", host, connection }],
-      ["session:renamed", { id: "s2", name: "docs v2", branch: "b", host, connection }],
-      ["session:archived", { id: "s3", host, connection }],
-      ["session:git", { id: "s1", git: { state: "open" }, host, connection }],
+      ["session:status", { id: S1, status: "idle", host, connection }],
+      ["session:renamed", { id: S2, name: "docs v2", branch: "b", host, connection }],
+      ["session:archived", { id: S3, host, connection }],
+      ["session:git", { id: S1, git: { state: "open" }, host, connection }],
     ]);
   });
 
@@ -196,16 +202,29 @@ describe("session mirror", () => {
       snapshot: () => [s1, { id: "x", host: { instanceId: C, name: "C", platform: "linux" } }],
     });
     const socket = await t.live();
-    expect(t.mirror.list().map((s) => s.id)).toEqual(["s1"]);
+    expect(t.mirror.list().map((s) => s.id)).toEqual([S1]);
     t.events.length = 0;
-    send(socket, "usage:limits", { id: "s1" });
+    send(socket, "usage:limits", { id: S1 });
     send(socket, "held:changed", { count: 3 });
     send(socket, "session:new", { id: "y", host: { instanceId: C } });
     send(socket, "session:status", { status: "idle" });
     socket.on.message("{not json");
     socket.on.message(new Uint8Array([1, 2]));
     expect(t.events).toEqual([]);
-    expect(t.mirror.list().map((s) => s.id)).toEqual(["s1"]);
+    expect(t.mirror.list().map((s) => s.id)).toEqual([S1]);
+  });
+
+  test("an ID that is not a UUID is never held — it could read as a route here (#2765)", async () => {
+    const t = setup({
+      snapshot: () => [s1, { ...s2, id: "clear-merged" }, { ...s2, id: "done" }],
+    });
+    const socket = await t.live();
+    send(socket, "session:new", { ...s2, id: "archived" });
+    expect(t.mirror.list().map((s) => s.id)).toEqual([S1]);
+    for (const id of ["clear-merged", "done", "archived"]) {
+      expect(t.mirror.has(id)).toBe(false);
+      expect(t.mirror.route(id)).toBeNull();
+    }
   });
 
   test("frames that arrive during the snapshot are replayed on top of it", async () => {
@@ -220,19 +239,19 @@ describe("session mirror", () => {
     t.mirror.sync(B);
     const socket = t.sockets[0]!;
     socket.on.open();
-    send(socket, "session:status", { id: "s1", status: "idle" });
-    send(socket, "session:archived", { id: "s2" });
+    send(socket, "session:status", { id: S1, status: "idle" });
+    send(socket, "session:archived", { id: S2 });
     release();
     await flush();
     expect(t.mirror.list().map(({ id, status }) => ({ id, status }))).toEqual([
-      { id: "s1", status: "idle" },
+      { id: S1, status: "idle" },
     ]);
   });
 
   test("a lost socket keeps the sessions as disconnected and re-probes", async () => {
     const t = setup();
     const socket = await t.live();
-    send(socket, "session:status", { id: "s1", status: "idle" });
+    send(socket, "session:status", { id: S1, status: "idle" });
     t.tick(5_000);
     t.events.length = 0;
     socket.on.close();
@@ -240,8 +259,8 @@ describe("session mirror", () => {
     expect(
       t.mirror.list().map(({ id, status, connection }) => ({ id, status, connection })),
     ).toEqual([
-      { id: "s1", status: "idle", connection: disconnected },
-      { id: "s2", status: "idle", connection: disconnected },
+      { id: S1, status: "idle", connection: disconnected },
+      { id: S2, status: "idle", connection: disconnected },
     ]);
     expect(t.events).toEqual([["remote:sessions", { instanceId: B, sessions: t.mirror.list() }]]);
     await Bun.sleep(5);
@@ -280,8 +299,8 @@ describe("session mirror", () => {
     expect(t.sockets).toHaveLength(1);
     expect(t.mirror.list().every((s) => s.connection.state === "disconnected")).toBe(true);
     // A frame from the closed socket no longer counts.
-    send(socket, "session:new", { id: "late" });
-    expect(t.mirror.list().map((s) => s.id)).toEqual(["s1", "s2"]);
+    send(socket, "session:new", { id: LATE });
+    expect(t.mirror.list().map((s) => s.id)).toEqual([S1, S2]);
   });
 
   test("a probe while live re-snapshots, so drift heals each round", async () => {
@@ -291,7 +310,7 @@ describe("session mirror", () => {
     t.mirror.sync(B);
     await flush();
     expect(t.sockets).toHaveLength(1);
-    expect(t.mirror.list().map((s) => s.id)).toEqual(["s2"]);
+    expect(t.mirror.list().map((s) => s.id)).toEqual([S2]);
   });
 
   test("a failed snapshot counts as a lost connection", async () => {
@@ -330,7 +349,7 @@ describe("session mirror", () => {
   test("the token never lands in a URL or a relayed frame", async () => {
     const t = setup();
     const socket = await t.live();
-    send(socket, "session:status", { id: "s1", status: "idle" });
+    send(socket, "session:status", { id: S1, status: "idle" });
     expect(socket.url).not.toContain(TOKEN);
     expect(t.requests.every((r) => !r.url.includes(TOKEN))).toBe(true);
     expect(JSON.stringify(t.events)).not.toContain(TOKEN);
@@ -348,13 +367,13 @@ describe("terminals of mirrored sessions (#2764)", () => {
   test("a live machine's session bridges to its /pty/:id with the token in the header only", async () => {
     const t = setup();
     await t.live();
-    expect(t.mirror.has("s1")).toBe(true);
+    expect(t.mirror.has(S1)).toBe(true);
     expect(t.mirror.has("nope")).toBe(false);
     const caller = sink();
-    t.mirror.openTerminal("s1", caller, attach);
+    t.mirror.openTerminal(S1, caller, attach);
     expect(t.terminals).toHaveLength(1);
     expect(t.terminals[0]!.url).toBe(
-      "ws://b.test:7777/pty/s1?cols=90&rows=30&clientKind=browser&clientPlatform=linux",
+      `ws://b.test:7777/pty/${S1}?cols=90&rows=30&clientKind=browser&clientPlatform=linux`,
     );
     expect(t.terminals[0]!.headers).toEqual({ authorization: `Bearer ${TOKEN}` });
     expect(caller.closes).toEqual([]);
@@ -367,9 +386,9 @@ describe("terminals of mirrored sessions (#2764)", () => {
     t.mirror.openTerminal("nope", unknown, attach);
     expect(unknown.closes).toEqual([4002]);
     socket.on.close();
-    expect(t.mirror.has("s1")).toBe(true); // still shown, as disconnected
+    expect(t.mirror.has(S1)).toBe(true); // still shown, as disconnected
     const offline = sink();
-    t.mirror.openTerminal("s1", offline, attach);
+    t.mirror.openTerminal(S1, offline, attach);
     expect(offline.closes).toEqual([4002]);
     expect(t.terminals).toEqual([]);
   });
@@ -378,14 +397,14 @@ describe("terminals of mirrored sessions (#2764)", () => {
     const t = setup();
     const socket = await t.live();
     const first = sink();
-    t.mirror.openTerminal("s1", first, attach);
+    t.mirror.openTerminal(S1, first, attach);
     socket.on.close();
     expect(first.closes).toEqual([4002]);
     expect(t.terminals[0]!.closed).toBe(true);
 
     await t.live();
     const second = sink();
-    t.mirror.openTerminal("s2", second, attach);
+    t.mirror.openTerminal(S2, second, attach);
     t.state.machines = [];
     t.mirror.sync(B);
     expect(second.closes).toEqual([4002]);
@@ -425,7 +444,7 @@ describe("routes of mirrored sessions (#2765)", () => {
     const t = setup();
     expect(t.mirror.machines()).toEqual([]); // never synced: nothing to reach
     await t.live();
-    expect(t.mirror.route("s1")).toEqual({ host, target });
+    expect(t.mirror.route(S1)).toEqual({ host, target });
     expect(t.mirror.route("nope")).toBeNull();
     expect(t.mirror.machines()).toEqual([{ host, target }]);
   });
@@ -434,7 +453,7 @@ describe("routes of mirrored sessions (#2765)", () => {
     const t = setup();
     const socket = await t.live();
     socket.on.close();
-    expect(t.mirror.route("s2")).toEqual({ host, target: null });
+    expect(t.mirror.route(S2)).toEqual({ host, target: null });
     expect(t.mirror.machines()).toEqual([{ host, target: null }]);
   });
 
@@ -446,8 +465,8 @@ describe("routes of mirrored sessions (#2765)", () => {
     t.mirror.sync(C);
     t.sockets.at(-1)!.on.open();
     await flush();
-    expect(t.mirror.has("s1")).toBe(true);
-    expect(t.mirror.route("s1")).toBeNull();
+    expect(t.mirror.has(S1)).toBe(true);
+    expect(t.mirror.route(S1)).toBeNull();
   });
 
   test("a removed machine routes nothing", async () => {
@@ -455,7 +474,7 @@ describe("routes of mirrored sessions (#2765)", () => {
     await t.live();
     t.state.machines = [];
     t.mirror.sync(B);
-    expect(t.mirror.route("s1")).toBeNull();
+    expect(t.mirror.route(S1)).toBeNull();
     expect(t.mirror.machines()).toEqual([]);
   });
 });

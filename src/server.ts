@@ -1534,12 +1534,15 @@ async function handleRemoteSessionRoute({
   token,
   agentIngress,
 }: Ctx): Promise<Response | null> {
-  if (parts[0] !== "api" || parts[1] !== "sessions" || !parts[2]) return null;
-  if (!deps.remoteSessions?.has(parts[2]) || deps.store.get(parts[2])) return null;
+  if (parts[0] !== "api" || parts[1] !== "sessions") return null;
+  // Session IDs only: a literal segment (`clear-merged`, `done`, `archived`) is this server's own
+  // route, whatever a machine reports (the mirror holds UUIDs alone; this is the second fence).
+  const id = parts[2] ?? "";
+  if (!SESSION_ID_RE.test(id) || !deps.remoteSessions?.has(id) || deps.store.get(id)) return null;
   // An agent acts on its own session, which is never another machine's; and a repository grant
   // names local paths only, so a restricted token reaches no mirrored session (as in its listing).
   if (agentIngress || (token && token.repoPaths !== null)) return json({ error: "not found" }, 404);
-  const route = deps.remoteSessions.route(parts[2]);
+  const route = deps.remoteSessions.route(id);
   if (!route) {
     return json(
       { error: "more than one connected machine reports this session", code: "remote_ambiguous" },

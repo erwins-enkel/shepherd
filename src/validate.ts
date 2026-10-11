@@ -544,11 +544,7 @@ export function validateCreate(
   // Clean-terminal union arm (TerminalCreateInput): branch BEFORE the standard allowlist —
   // the terminal payload has its own, stricter key set, and the standard arm keeps its
   // required prompt/baseBranch untouched (no weakening of ordinary creates).
-  if (obj.terminal !== undefined) {
-    if (opts.remote) return err("a clean terminal runs on this machine only");
-    if (obj.terminal !== true) return err("terminal must be true when present");
-    return validateTerminalCreate(obj, repoRoot);
-  }
+  if (obj.terminal !== undefined) return validateTerminalCreate(obj, repoRoot, opts.remote);
   for (const key of Object.keys(obj)) {
     if (!ALLOWED_KEYS.has(key)) return err(`unknown key: ${key}`);
   }
@@ -600,7 +596,13 @@ const TERMINAL_ALLOWED_KEYS = new Set(["repoPath", "terminal"]);
 /** The clean-terminal arm of the create union: exactly `{ repoPath, terminal: true }` — a stray
  *  `prompt`/`baseBranch`/anything else is an unknown-key rejection, never a silently-ignored
  *  field (the arm has no such members to carry it in). */
-function validateTerminalCreate(obj: Record<string, unknown>, repoRoot: string): Result {
+function validateTerminalCreate(
+  obj: Record<string, unknown>,
+  repoRoot: string,
+  remote = false,
+): Result {
+  if (obj.terminal !== true) return err("terminal must be true when present");
+  if (remote) return err("a clean terminal runs on this machine only");
   for (const key of Object.keys(obj)) {
     if (!TERMINAL_ALLOWED_KEYS.has(key)) return err(`unknown key: ${key}`);
   }

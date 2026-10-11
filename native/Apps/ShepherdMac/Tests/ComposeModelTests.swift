@@ -64,7 +64,7 @@ extension MacSeamTests {
         let store = SessionStore(client: client)
         let model = Self.composer()
         let host = NSHostingView(rootView: ComposeSheetContent(app: app, store: store, activation: 0, model: model))
-        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 740, height: 780),
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 1040, height: 780),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.contentView = host
         window.orderFront(nil)

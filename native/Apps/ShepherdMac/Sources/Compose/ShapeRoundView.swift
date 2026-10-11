@@ -2,24 +2,13 @@ import ShepherdAppCore
 import ShepherdKit
 import SwiftUI
 
-/// Mounted by the compose sheet next to attachments; no session exists during this round.
+/// Clarifying-round result directly below the prompt; no session exists during this round.
 struct ShapeRoundView: View {
     @Bindable var model: ComposeModel
 
     var body: some View {
         #if os(macOS)
         VStack(alignment: .leading, spacing: 12) {
-            if model.shapingOffered {
-                Button {
-                    Task { await model.startShaping() }
-                } label: {
-                    Label(L.t("newtask_shape_label"), systemImage: "sparkles")
-                }
-                .disabled(model.shapeBlocker != nil)
-                .accessibilityLabel(L.t("newtask_shape_aria"))
-                .accessibilityIdentifier("compose-shape")
-                .help(L.t("newtask_shape_hint"))
-            }
             if model.shaping.visible {
                 ShapeRoundBody(model: model.shaping) { answers in
                     await model.useBrief(answers)

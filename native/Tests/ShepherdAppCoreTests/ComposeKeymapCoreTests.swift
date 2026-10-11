@@ -16,7 +16,12 @@ extension CoreSeamTests {
     }
 
     @Test func registryMatchesWebAndHasNoDuplicateChords() {
+        #if os(macOS)
+        #expect(ComposeKeymap.entries.count == 27)
+        #expect(ComposeKeymap.entry("server").chord == .init("s", .option))
+        #else
         #expect(ComposeKeymap.entries.count == 26)
+        #endif
         let chords = ComposeKeymap.entries.compactMap(\.chord)
         #expect(Set(chords).count == chords.count)
         #expect(ComposeKeymap.entry("model").chord == .init("m", .option))

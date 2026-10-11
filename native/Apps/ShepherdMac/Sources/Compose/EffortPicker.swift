@@ -18,12 +18,15 @@ struct EffortPicker: View {
     }
 
     var body: some View {
-        Picker(L.t("newtask_effort_label"), selection: $model.effort) {
-            ForEach(options, id: \.self) { value in
-                Text(verbatim: Self.label(value)).tag(value)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(verbatim: L.t("newtask_effort_label")).font(.caption).foregroundStyle(.secondary)
+            Picker(L.t("newtask_effort_label"), selection: $model.effort) {
+                ForEach(options, id: \.self) { value in
+                    Text(verbatim: Self.label(value)).tag(value)
+                }
             }
+            .pickerStyle(.menu).labelsHidden()
+            .accessibilityIdentifier("compose.effort")
         }
-        .pickerStyle(.menu)
-        .accessibilityIdentifier("compose.effort")
     }
 }

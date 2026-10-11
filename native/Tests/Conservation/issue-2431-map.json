@@ -4590,7 +4590,9 @@
         "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeKeymapCoreTests.swift\",\"CoreSeamTests.ComposeKeymapTests\",\"registryMatchesWebAndHasNoDuplicateChords()\"]"
       ],
       "reason": "Shared scenario moved to ShepherdAppCoreTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "fixture: Operator-requested macOS-only ⌥S server picker entry in the compose keymap raises the macOS registry count to 27 and asserts its chord; the iOS count of 26, the no-duplicate-chords check and the ⌥M model check are retained."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeKeymapTests.swift\",\"ComposeKeymapTests\",\"spawnFramesRequireActiveCorrelationAndGeneration() async throws\"]",
@@ -5084,7 +5086,9 @@
         "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeShapeTests.swift\",\"MacSeamTests.ComposeShapeTests\",\"sandboxControlSerializesProfilesAndOmitsRepoDefault(_ mode: ComposeMode) throws\"]"
       ],
       "reason": "Mac view/adapter/host/live scenario retained in ShepherdTests; enclosing serialized seam suite added, original actor/suite/Test traits retained.",
-      "assertionChanges": []
+      "assertionChanges": [
+        "current-module: SandboxPicker dropped its holdLikely parameter when the operator-requested two-column compose redesign moved the sandbox explanation into hover help; the construction call loses that argument, every serialization assertion is unchanged."
+      ]
     },
     {
       "oldID": "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeShapeTests.swift\",\"ComposeShapeTests\",\"sandboxMatrixPreservesEveryAllowedProfile(_ mode: ComposeMode) throws\"]",
@@ -12619,6 +12623,20 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/SessionRowContentTests.swift\",\"MacSeamTests.SessionRowContentTests\",\"runtimeTelemetryWinsIndependentlyForModelAndEffort()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"capacityPreselectionMatchesTheWebDialog() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"capacityPreselectionUsesTheWebHoldThresholdAndRawWindows() throws\"]",
-    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"initialProviderSeedsItsModelAndSurvivesSettingsReconciliation() throws\"]"
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeModelCoreTests.swift\",\"CoreSeamTests.ComposeModelTests\",\"initialProviderSeedsItsModelAndSurvivesSettingsReconciliation() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeParityTests.swift\",\"CoreSeamTests.ComposeParityTests\",\"authenticationCancellationOrUnrelatedSwitchDiscardsPrompt(switchAway: Bool) async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeParityTests.swift\",\"CoreSeamTests.ComposeParityTests\",\"closingOrAnotherActivationDropsTheHandover() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeParityTests.swift\",\"CoreSeamTests.ComposeParityTests\",\"composeHandoverSurvivesTargetAuthentication(local: Bool) async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeParityTests.swift\",\"CoreSeamTests.ComposeParityTests\",\"credentialRetryContinuesThePendingPrompt() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeParityTests.swift\",\"CoreSeamTests.ComposeParityTests\",\"defaultsKeepInheritanceAndRespectTouchedFlagsAndModes() throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeParityTests.swift\",\"CoreSeamTests.ComposeParityTests\",\"designReturningToCodeAppliesLateDefaults(respectChoice: Bool)\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeParityTests.swift\",\"CoreSeamTests.ComposeParityTests\",\"repoTimelineNeverPromisesUnconditionalPostPRWork()\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeParityTests.swift\",\"CoreSeamTests.ComposeParityTests\",\"serverHandoverPreservesPromptOnceAndResetsServerContext() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeParityTests.swift\",\"CoreSeamTests.ComposeParityTests\",\"timelineCoversEveryToggleAndProvider(planGate: Bool, autopilot: Bool)\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeParityTests.swift\",\"CoreSeamTests.ComposeParityTests\",\"unresolvedDefaultsStayUnknownUntilLoadedAndResetPerRepo() throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeFooterKeyboardTests.swift\",\"MacSeamTests.ComposeFooterKeyboardTests\",\"returnInsertsNewlineAndCommandReturnSubmitsOnce(holdLikely: Bool) async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeLayoutTests.swift\",\"MacSeamTests.ComposeLayoutTests\",\"columnsKeepFooterVisible(width: CGFloat, height: CGFloat) async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeRecoveryTests.swift\",\"MacSeamTests.ComposeRecoveryTests\",\"credentialFailureHasUsableRetryInsideCompose() async throws\"]",
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeRecoveryTests.swift\",\"MacSeamTests.ComposeRecoveryTests\",\"unknownDefaultsNeverPresentManualTimeline(loading: Bool) async throws\"]"
   ]
 }

@@ -3,7 +3,7 @@ import ShepherdAppCore
 import ShepherdKit
 import SwiftUI
 
-/// Task 9 supplies the store's repos and binds the four shortcuts to ComposeModel's actions.
+/// Repository/base-branch controls and their inline upstream state.
 struct RepoBranchRow: View {
     @Bindable var model: ComposeModel
     let repos: [Repo]
@@ -32,10 +32,11 @@ struct RepoBranchRow: View {
                 Button(action: model.openRepoPicker) {
                     HStack {
                         Text(verbatim: L.t("newtask_repo_label"))
-                        Text(verbatim: repoName).lineLimit(1)
+                        Text(verbatim: repoName).lineLimit(1).frame(maxWidth: 180)
                         Image(systemName: "chevron.down")
                     }
                 }
+                .modifier(ComposeKeycap(ids: ["repo"]))
                 .accessibilityLabel(L.t("newtask_repo_label"))
                 .accessibilityIdentifier("compose.repo")
                 .background(RepoMenuAnchor(presented: branch.presentedPicker == .repo, menu: repoMenu,
@@ -43,10 +44,11 @@ struct RepoBranchRow: View {
                 Text(verbatim: L.t("newtask_chip_from")).foregroundStyle(.secondary)
                 Button(action: model.openBranchPicker) {
                     HStack {
-                        Text(verbatim: branch.baseBranch)
+                        Text(verbatim: branch.baseBranch).lineLimit(1).frame(maxWidth: 160)
                         Image(systemName: "chevron.down")
                     }
                 }
+                .modifier(ComposeKeycap(ids: ["branch"]))
                 .accessibilityLabel(L.t("newtask_branch_label"))
                 .accessibilityIdentifier("compose.branch")
                 .popover(isPresented: presented(.branch)) {
@@ -74,17 +76,9 @@ struct RepoBranchRow: View {
                         }
                     }.padding().frame(minWidth: 240)
                 }
+                upstreamStatus.font(.caption).frame(maxWidth: .infinity, alignment: .leading)
             }
             .disabled(branch.repairingBase)
-            if branch.upstreamLoading {
-                Text(verbatim: L.t("newtask_upstream_checking")).foregroundStyle(.secondary)
-            } else if let status = branch.upstream, status.diverged {
-                Text(verbatim: L.t("newtask_upstream_diverged", String(status.behind), String(status.ahead), branch.baseBranch))
-                    .foregroundStyle(.orange)
-            } else if let status = branch.upstream, status.behind > 0 {
-                Text(verbatim: L.t("newtask_upstream_behind", String(status.behind)))
-                    .foregroundStyle(.secondary)
-            }
             if branch.baseMissing {
                 Text(verbatim: L.t("newtask_readiness_base_missing"))
                     .foregroundStyle(.red)
@@ -102,4 +96,17 @@ struct RepoBranchRow: View {
             }
         }
     }
+    @ViewBuilder private var upstreamStatus: some View {
+        let branch = model.repoBranches
+        if branch.upstreamLoading {
+            Text(verbatim: L.t("newtask_upstream_checking")).foregroundStyle(.secondary)
+        } else if let status = branch.upstream, status.diverged {
+            Text(verbatim: L.t("newtask_upstream_diverged", String(status.behind), String(status.ahead), branch.baseBranch))
+                .foregroundStyle(.orange)
+        } else if let status = branch.upstream, status.behind > 0 {
+            Text(verbatim: L.t("newtask_upstream_behind", String(status.behind)))
+                .foregroundStyle(.secondary)
+        }
+    }
+
 }

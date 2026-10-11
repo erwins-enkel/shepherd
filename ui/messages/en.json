@@ -5897,5 +5897,8 @@
   "repos_grid_filtered": "{count} repos from the dashboard filter",
   "repos_head_from_filter": "from dashboard filter",
   "feat_repos_grid_title": "Repos opens on a repo grid",
-  "feat_repos_grid_body": "Without a dashboard filter — or with several repos filtered — Repos no longer preselects a repo. It opens on a grid instead: type to filter, sort by open issues, and open a repo with ↵ or the arrow keys. With exactly one repo filtered it opens straight in that repo, marked \"from dashboard filter\"."
+  "feat_repos_grid_body": "Without a dashboard filter — or with several repos filtered — Repos no longer preselects a repo. It opens on a grid instead: type to filter, sort by open issues, and open a repo with ↵ or the arrow keys. With exactly one repo filtered it opens straight in that repo, marked \"from dashboard filter\".",
+  "native_compose_keymap_server": "Choose server",
+  "native_compose_code_caption": "Change code and open a pull request.",
+  "native_compose_repo_default_unknown": "Repo default unavailable"
 }

@@ -5897,5 +5897,8 @@
   "repos_grid_filtered": "{count} Repos aus dem Dashboard-Filter",
   "repos_head_from_filter": "aus Dashboard-Filter",
   "feat_repos_grid_title": "Repos startet mit einem Repo-Raster",
-  "feat_repos_grid_body": "Ohne Dashboard-Filter – oder mit mehreren gefilterten Repos – wählt Repos kein Repo mehr vor, sondern öffnet ein Raster: tippen zum Filtern, nach offenen Issues sortieren, ein Repo mit ↵ oder den Pfeiltasten öffnen. Ist genau ein Repo gefiltert, öffnet es direkt dieses Repo, markiert mit „aus Dashboard-Filter“."
+  "feat_repos_grid_body": "Ohne Dashboard-Filter – oder mit mehreren gefilterten Repos – wählt Repos kein Repo mehr vor, sondern öffnet ein Raster: tippen zum Filtern, nach offenen Issues sortieren, ein Repo mit ↵ oder den Pfeiltasten öffnen. Ist genau ein Repo gefiltert, öffnet es direkt dieses Repo, markiert mit „aus Dashboard-Filter“.",
+  "native_compose_keymap_server": "Server wählen",
+  "native_compose_code_caption": "Code ändern und einen Pull Request öffnen.",
+  "native_compose_repo_default_unknown": "Repo-Standard nicht verfügbar"
 }

@@ -12,6 +12,7 @@ public final class ComposeModel {
         didSet {
             guard oldValue != repoPath else { return }
             shaping.discard()
+            repoGuardDefaults = nil
             repoBranches.selectRepo(repoPath)
             generation += 1
             listing = nil; issues = []; commandListings = [:]; commandErrors = [:]; epicParents = []; subIssues = []
@@ -42,6 +43,7 @@ public final class ComposeModel {
     public var research = false { didSet { if oldValue != research { shaping.discard() } } }
     var epicAuthoring = false { didSet { if oldValue != epicAuthoring { shaping.discard() } } }
     var plain = false { didSet { if oldValue != plain { shaping.discard() } } }
+    var repoGuardDefaults: (planGate: Bool, autopilot: Bool)?
     public var planGateEnabled = false
     public var planGateTouched = false
     public var autopilotEnabled = false
@@ -251,6 +253,7 @@ public final class ComposeModel {
         } else if !wantsPlain, designPreselected {
             plain = false
             designPreselected = false
+            reapplyRepoGuardDefaults()
         }
     }
 

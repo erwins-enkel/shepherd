@@ -36,7 +36,7 @@ extension MacSeamTests {
         defer { m.teardown() }
         m.repoPath = "/repo"; m.prompt = "Do the task"
         m.setMode(mode)
-        let picker = SandboxPicker(model: m, holdLikely: false)
+        let picker = SandboxPicker(model: m)
         for profile in [Components.Schemas.SandboxProfile.trusted, .standard, .autonomous] {
             picker.selection.wrappedValue = profile
             let json = try encodedRequest(m)

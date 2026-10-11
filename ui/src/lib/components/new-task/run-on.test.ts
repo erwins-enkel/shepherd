@@ -133,6 +133,22 @@ describe("runOnFailureMessage (#2763)", () => {
     );
   });
 
+  // #2766: an attachment that did not reach the machine — nothing was started.
+  it("names the machine and what failed when an attachment did not get there", () => {
+    const err = new ApiError(
+      502,
+      "attachment 1 of 1: the machine answered 413",
+      "remote_upload_failed",
+      true,
+    );
+    expect(runOnFailureMessage(err, "MacBook")).toBe(
+      m.newtask_runon_upload_failed({
+        machine: "MacBook",
+        reason: "attachment 1 of 1: the machine answered 413",
+      }),
+    );
+  });
+
   it("leaves other failures to the dialog's generic message", () => {
     expect(
       runOnFailureMessage(new ApiError(409, "x", "spawn_canceled", true), "MacBook"),

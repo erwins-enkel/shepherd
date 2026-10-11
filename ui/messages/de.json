@@ -6034,7 +6034,6 @@
   "newtask_runon_machine": "{machine} ({platform})",
   "newtask_runon_none": "Kein verbundener Rechner hat dieses Projekt ausgecheckt – es läuft hier.",
   "newtask_runon_notice": "Startet auf {machine} ab {base}, wie es auf origin liegt – nicht gepushte lokale Änderungen fehlen dort.",
-  "newtask_readiness_remote_attachments": "Anhänge können noch nicht an einen anderen Rechner gehen – entferne sie oder führe hier aus",
   "newtask_runon_starting": "Startet auf {machine}",
   "newtask_runon_unknown": "Keine Antwort von {machine} – die Aufgabe läuft dort womöglich schon. Erneut versuchen schickt dieselbe Aufgabe noch einmal an {machine}; sie startet nie doppelt.",
   "newtask_runon_rejected": "{machine} hat die Aufgabe abgelehnt: {reason}",
@@ -6049,13 +6048,13 @@
   "tooltip_runon_code": "Code",
   "tooltip_runon_code_body": "Der Rechner startet vom Basisbranch, wie er auf origin liegt. Commits und Änderungen, die du nicht gepusht hast, fehlen dort.",
   "tooltip_runon_attachments": "Anhänge",
-  "tooltip_runon_attachments_body": "Werden noch nicht an andere Rechner gesendet. Entferne sie oder führe die Aufgabe hier aus.",
+  "tooltip_runon_attachments_body": "Werden direkt vor dem Senden der Aufgabe auf den Rechner hochgeladen und liegen dort im Worktree der Session. Lässt sich einer nicht senden, startet die Aufgabe nicht.",
   "tooltip_runon_failure": "Wenn sie nicht startet",
   "tooltip_runon_failure_body": "Nichts wandert je von selbst auf einen anderen Rechner. Eine Ablehnung oder ein Zurückhalten dort wird mit Grund angezeigt; kommt keine Antwort, schickt Erneut versuchen dieselbe Aufgabe an denselben Rechner.",
   "remote_detail_base": "Basis",
   "remote_detail_sandbox": "Sandbox",
   "feat_run_on_machine_title": "Eine Aufgabe auf einem anderen Rechner starten",
-  "feat_run_on_machine_body": "Ist ein Rechner verbunden, bietet Neue Aufgabe neben dem Branch die Wahl Ausführen auf. Wähle einen Rechner, auf dem das Projekt ausgecheckt ist, und die ganze Session startet dort – Worktree, Agent, Builds und Tests – und erscheint mit ihm bezeichnet in deiner Herde. Sie startet vom Branch, wie er auf origin liegt, also vorher pushen. Anhänge bleiben vorerst Aufgaben vorbehalten, die hier laufen.",
+  "feat_run_on_machine_body": "Ist ein Rechner verbunden, bietet Neue Aufgabe neben dem Branch die Wahl Ausführen auf. Wähle einen Rechner, auf dem das Projekt ausgecheckt ist, und die ganze Session startet dort – Worktree, Agent, Builds und Tests – und erscheint mit ihm bezeichnet in deiner Herde. Sie startet vom Branch, wie er auf origin liegt, also vorher pushen.",
   "settings_machines_caps_checked": "[[capability|Fähigkeiten]] · geprüft vor {ago}",
   "settings_machines_caps_none": "Noch keine [[capability|Fähigkeiten]] gemeldet.",
   "settings_machines_caps_missing": "Fehlt: {list}",
@@ -6087,5 +6086,8 @@
   "gloss_capability_term": "Fähigkeit",
   "gloss_capability_def": "Etwas, das ein Shepherd nachweislich ausführen kann, geprüft unter dem Benutzer, als der er läuft: seine Plattform, installierte und angemeldete Agent-CLIs (Claude Code, Codex), das Android-SDK, Xcode und seine Sandbox-Profile. Jeder Shepherd prüft alle 5 Minuten erneut und jedes Mal, wenn er eine Aufgabe annimmt, die eine Fähigkeit verlangt; fehlt sie, lehnt er die Aufgabe mit Namen ab. Eine Prüfung, die älter als 15 Minuten ist, gilt als veraltet.",
   "feat_machine_capabilities_title": "Sehen, was jeder Rechner wirklich ausführen kann",
-  "feat_machine_capabilities_body": "Einstellungen → Rechner zeigt jetzt die geprüften Fähigkeiten jedes Rechners: Plattform, Claude Code und Codex (installiert und angemeldet), Android-SDK und Sandbox-Profile, mit dem Alter der letzten Prüfung und einer Markierung für veraltete Angaben. Eine Aufgabe mit Anforderungen prüft der Rechner bei Annahme erneut und lehnt sie ab, wenn etwas fehlt. Windows-Rechner werden angezeigt, sind für Aufgaben aber noch nicht freigegeben."
+  "feat_machine_capabilities_body": "Einstellungen → Rechner zeigt jetzt die geprüften Fähigkeiten jedes Rechners: Plattform, Claude Code und Codex (installiert und angemeldet), Android-SDK und Sandbox-Profile, mit dem Alter der letzten Prüfung und einer Markierung für veraltete Angaben. Eine Aufgabe mit Anforderungen prüft der Rechner bei Annahme erneut und lehnt sie ab, wenn etwas fehlt. Windows-Rechner werden angezeigt, sind für Aufgaben aber noch nicht freigegeben.",
+  "newtask_runon_upload_failed": "Die Anhänge sind nicht bei {machine} angekommen, deshalb wurde nichts gestartet: {reason}",
+  "feat_run_on_attachments_title": "Anhänge gehen mit auf den anderen Rechner",
+  "feat_run_on_attachments_body": "Screenshots und Dateien, die du anhängst, reisen mit einer Aufgabe auf einen anderen Rechner: Shepherd lädt sie direkt vor der Übergabe hoch, und der Agent dort findet sie in seinem Worktree. Lässt sich einer nicht senden, startet die Aufgabe nicht, und der Dialog sagt warum."
 }

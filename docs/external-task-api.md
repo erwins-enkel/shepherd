@@ -300,6 +300,47 @@ archive the session or discard the held task instead. Both routes need the
 **Submit** scope, and a repository-limited token sees a dispatch only in its
 granted repositories (`src/dispatch.ts`, `src/server.ts`).
 
+### Running on a connected machine (`target`)
+
+A Shepherd with connected machines (**Settings → Machines**) can start a task on
+one of them instead of here: add
+`"target": { "instanceId": "<machine id>" }` to the body (the ID from
+`GET /api/remote-instances`). The **whole** session then runs on that machine —
+worktree, agent, builds and tests — and nothing starts here; it shows up in this
+Shepherd's `GET /api/sessions` with `host` set, through the machine's mirror.
+Absent, or naming this instance's own ID, the task runs here as before.
+
+- `repoPath` still names **this** Shepherd's checkout, but only to identify the
+  project by its forge slug (`owner/repo`). The machine must be connected and have
+  that project checked out; it runs the task in its own checkout, from the base
+  branch as pushed to origin — unpushed local changes are not there.
+- Every other field travels unchanged (prompt, mode, plan gate, autopilot,
+  sandbox, issue, base branch and commit, `force`). The machine checks paths, its
+  own usage hold and its sandbox; a missing sandbox there shows on the session as
+  `sandboxDegraded`.
+- Attachments (`images`) are not sent to other machines yet (`400`), and a clean
+  terminal (`terminal: true`) cannot take a target.
+- It needs the same scope and repository grant as starting the task here.
+
+Shepherd stores the task **before** it sends it and sends it under a dispatch ID
+of its own as the machine's `Idempotency-Key`, so the machine starts it at most
+once. Name your submission with an `Idempotency-Key` as above: a retry with the same
+key and body goes out again to the **same** machine — never to another one — and
+a different body under that key is `409 dispatch_payload_mismatch`.
+
+| Outcome                                   | Answer                                                                                            |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Started there                             | `201` with the machine's session, plus `host` and `connection`                                    |
+| Held there (its usage hold)               | `200 { held: true, id, count, host }` — `id` and `count` are the machine's                        |
+| The machine refused it                    | `422 { code: "remote_rejected", error: <its reason>, remoteStatus, remoteCode?, host }`           |
+| Sent, but no answer came back             | `504 { code: "remote_dispatch_unknown", dispatchId, host }` — send again with that key            |
+| Not connected right now (nothing sent)    | `409 { code: "remote_target_unavailable", reason }`                                               |
+| No such machine / no checkout of the repo | `422` with `remote_target_unknown` / `remote_project_missing` (`remote_project_unknown`: no slug) |
+
+`504` means the task **may be running** on the machine. Sending it again with the
+same key is always safe: the machine replays what became of it and never starts it
+a second time (`src/remote-instances/dispatch.ts`).
+
 ## Usage-aware hold gate
 
 Shepherd can **queue** newly submitted tasks instead of spawning them when account

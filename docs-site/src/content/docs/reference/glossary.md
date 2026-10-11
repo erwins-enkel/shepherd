@@ -283,8 +283,9 @@ machine with the machine's token, and only callers with full access reach it; it
 other actions are not offered here yet. If a machine becomes unreachable, its
 sessions stay with their last known state and are marked disconnected, and an open
 terminal says so and reopens once the machine is back; a session disappears only
-once its machine no longer reports it. The connection is the groundwork for running
-each task on the machine that has the tools it needs.
+once its machine no longer reports it. A new task can be started on a machine that
+has its project checked out — **Run on** in the New Task dialog — and then the whole
+session runs there, from the branch as pushed to origin.
 
 ## Industry terms
 

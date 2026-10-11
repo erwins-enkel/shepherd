@@ -1441,6 +1441,25 @@ export interface SessionPreviewState {
   serve?: "ok" | "failed";
 }
 
+/** Why a session's preview is not reachable from other devices (#2767). `not_served`: this
+ *  instance has no tailnet name, so its previews stay on loopback; `serve_denied`: tailscale
+ *  refused it the serve configuration; `serve_failed`: this slot's mapping failed; `serve_pending`:
+ *  the mapping has not settled yet. */
+export type PreviewUnavailable = "not_served" | "serve_denied" | "serve_failed" | "serve_pending";
+
+/**
+ * Where a session's preview can be opened, as the instance RUNNING the session sees it (#2767) —
+ * `GET /api/sessions/:id/preview`, which a coordinator forwards for a session mirrored from a
+ * connected machine. The instance builds `url` from its own tailnet host and its own slot, so no
+ * other Shepherd ever has to interpret its port. `unavailable` may be set while nothing is bound:
+ * an instance that cannot publish previews at all says so before one is started.
+ */
+export interface PreviewReach {
+  bound: boolean;
+  url: string | null;
+  unavailable: PreviewUnavailable | null;
+}
+
 /** Emitted by TailscaleServeService when a slot's `tailscale serve` mapping
  *  settles. Distinct from SessionPreviewEvent to avoid a register/emit feedback
  *  loop. serve: "ok"|"failed" after register, null after release. */

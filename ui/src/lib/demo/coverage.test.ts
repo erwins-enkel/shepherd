@@ -333,7 +333,8 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
   ],
 
   // Session reads behind a tab or affordance no seeded session opens: no session carries
-  // an amendment, an epic draft, a diff annotation or a downloadable file.
+  // an amendment, an epic draft, a diff annotation or a downloadable file, and the demo
+  // connects no machines, so no session opens a remote preview (#2767).
   "session reads with no seeded subject": [
     "/api/sessions/:p/amendments",
     "/api/sessions/:p/amendments/:p",
@@ -343,6 +344,7 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/sessions/:p/scratchpad/download",
     "/api/sessions/:p/scratchpad/upload",
     "/api/sessions/:p/worktree/download",
+    "/api/sessions/:p/preview",
   ],
 
   // Learnings mutations. The lens itself IS seeded and reads fine; approving, dismissing

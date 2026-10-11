@@ -4012,7 +4012,10 @@ const appDeps: AppDeps = {
     snapshot: () => previewService.snapshot(),
     devPortFor: (id) => previewService.devPortFor(id),
   },
-  previewServe: { snapshot: () => tailscaleServe.snapshot() },
+  previewServe: {
+    snapshot: () => tailscaleServe.snapshot(),
+    permissionDenied: () => tailscaleServe.permissionDenied(),
+  },
   push,
   apnsSettings,
   presence,

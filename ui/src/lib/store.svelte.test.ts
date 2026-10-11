@@ -1733,6 +1733,26 @@ test("frames about mirrored sessions never reach the local sessions or a side ma
   expect(s.sessions.map((x) => x.id)).toEqual(["local"]);
 });
 
+test("a machine's preview frames bump its tick and never become a port here (#2767)", () => {
+  const s = new HerdStore();
+  s.setAll([session("local"), mirrored("r1")]);
+  s.apply({ event: "session:preview", data: { id: "local", previewPort: 4100 } });
+  const annotate = { host: HOST, connection: LIVE };
+  s.apply({
+    event: "session:preview",
+    data: { id: "r1", previewPort: 4100, ...annotate } as never,
+  });
+  s.apply({
+    event: "session:preview-serve",
+    data: { id: "r1", serve: "ok", ...annotate } as never,
+  });
+  expect(s.remotePreviewTick.r1).toBe(2);
+  // The machine's slot 4100 is not this server's: only the local session holds a port.
+  expect(s.preview).toEqual({ local: 4100 });
+  expect(s.previewServe.r1).toBeUndefined();
+  expect(s.remotePreviewTick.local).toBeUndefined();
+});
+
 test("remote:sessions replaces one machine's sessions and leaves the others (#2762)", () => {
   const s = new HerdStore();
   const other = { instanceId: "m2", name: "Studio", platform: "linux" };

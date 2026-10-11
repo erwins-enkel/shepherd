@@ -13,17 +13,20 @@
   import DiffPanel from "./DiffPanel.svelte";
   import FilesPanel from "./viewport/FilesPanel.svelte";
   import RemoteSessionActions from "./remote-session/RemoteSessionActions.svelte";
+  import RemotePreview from "./remote-session/RemotePreview.svelte";
   import { basename } from "./learnings-drawer";
 
   // The detail of a session mirrored from a connected machine (#2762), mounted in place of the
   // Viewport: what the machine reports, its live terminal (bridged by this server, #2764), and the
-  // actions and reads this server forwards to the machine (#2765) — steer, stop, archive, and the
-  // Activity / Diff / Files tabs. Every one of them runs on the machine. While it is disconnected
-  // only the terminal tab (which says so) and the disabled, explained actions remain.
+  // actions and reads this server forwards to the machine (#2765) — steer, stop, archive, the
+  // Activity / Diff / Files tabs, and the Preview the machine serves itself (#2767). Every one of
+  // them runs on the machine. While it is disconnected only the terminal tab (which says so) and
+  // the disabled, explained actions remain.
   let {
     session,
     nowMs,
     terminalOwners = null,
+    previewTick = 0,
     onback = undefined,
     ondecommission = undefined,
     onedit = undefined,
@@ -32,6 +35,8 @@
     nowMs: number;
     /** Who holds each terminal, the machines' included; null until the event stream reports. */
     terminalOwners?: Record<string, TerminalClientInfo> | null;
+    /** Bumped whenever the machine reports a change of this session's preview (#2767). */
+    previewTick?: number;
     onback?: () => void;
     /** Archive the session on its machine — the page's undo-windowed decommission. */
     ondecommission?: (id: string, reap?: string[]) => void;
@@ -47,12 +52,13 @@
       : null,
   );
 
-  type Tab = "term" | "activity" | "diff" | "files";
+  type Tab = "term" | "activity" | "diff" | "files" | "preview";
   const TABS: { id: Tab; label: () => string }[] = [
     { id: "term", label: m.viewport_terminal_tab },
     { id: "activity", label: m.viewport_activity_tab },
     { id: "diff", label: m.viewport_diff_tab },
     { id: "files", label: m.viewport_files_tab },
+    { id: "preview", label: m.viewport_preview_tab },
   ];
   // The chosen tab belongs to the session it was chosen on: another session — or a lost link,
   // which leaves nothing to read — shows the terminal again.
@@ -139,6 +145,10 @@
       <DiffPanel sessionId={session.id} />
     {:else if tab === "files"}
       <FilesPanel sessionId={session.id} />
+    {:else if tab === "preview" && mirrored}
+      {#key mirrored.id}
+        <RemotePreview session={mirrored} tick={previewTick} />
+      {/key}
     {/if}
   </div>
 </section>

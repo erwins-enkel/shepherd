@@ -56,6 +56,9 @@ vi.mock("#lib/api.js", async (importOriginal) => {
     })),
     getDiffAnnotations: vi.fn(async () => ({ notes: [] })),
     getScratchpadListing: vi.fn(async () => ({ path: "", parent: null, entries: [] })),
+    getPreviewReach: vi.fn(async () => ({ bound: false, url: null, unavailable: null })),
+    startPreview: vi.fn(async () => ({ ok: true, command: "bun run dev", mode: "local" })),
+    stopPreview: vi.fn(async () => ({ killed: 1 })),
   };
 });
 const api = await import("#lib/api.js");
@@ -70,6 +73,9 @@ afterEach(() => {
     api.getActivity,
     api.getDiff,
     api.getScratchpadListing,
+    api.getPreviewReach,
+    api.startPreview,
+    api.stopPreview,
   ])
     vi.mocked(fn).mockClear();
 });
@@ -230,7 +236,12 @@ describe("RemoteSessionDetail (#2762)", () => {
         m.tooltip_remote_forwarded_body({ machine: "MacBook" }),
       );
     }
-    for (const tab of [m.viewport_activity_tab(), m.viewport_diff_tab(), m.viewport_files_tab()])
+    for (const tab of [
+      m.viewport_activity_tab(),
+      m.viewport_diff_tab(),
+      m.viewport_files_tab(),
+      m.viewport_preview_tab(),
+    ])
       await expect.element(page.getByRole("tab", { name: tab })).toBeDisabled();
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(api.interruptSession).not.toHaveBeenCalled();
@@ -258,5 +269,120 @@ describe("RemoteSessionDetail (#2762)", () => {
     render(RemoteSessionDetail, { session: remote(), nowMs: Date.now(), onback });
     await page.getByRole("button", { name: m.viewport_back_aria() }).click();
     expect(onback).toHaveBeenCalled();
+  });
+});
+
+describe("RemoteSessionDetail preview (#2767)", () => {
+  const SERVED = { bound: true, url: "https://macbook.example.ts.net:4100/", unavailable: null };
+
+  async function openPreview(props: Record<string, unknown> = {}) {
+    const view = render(RemoteSessionDetail, { session: remote(), nowMs: Date.now(), ...props });
+    await page.getByRole("tab", { name: m.viewport_preview_tab() }).click();
+    return view;
+  }
+
+  it("starts the dev server on the machine", async () => {
+    await openPreview();
+    await expect
+      .element(page.getByText(m.remote_preview_none({ machine: "MacBook" })))
+      .toBeInTheDocument();
+    // The agent is working, so the start takes a confirming second click.
+    await page.getByRole("button", { name: m.viewport_preview_start() }).click();
+    expect(api.startPreview).not.toHaveBeenCalled();
+    await page.getByRole("button", { name: m.viewport_preview_start_confirm_working() }).click();
+    expect(api.startPreview).toHaveBeenCalledWith("r1", undefined);
+    await expect
+      .element(page.getByText(m.remote_preview_starting({ machine: "MacBook" })))
+      .toBeInTheDocument();
+  });
+
+  it("asks for the command when the machine can't detect one", async () => {
+    vi.mocked(api.startPreview).mockResolvedValueOnce({ needCommand: true });
+    await openPreview({ session: remote({ status: "idle" }) });
+    await page.getByRole("button", { name: m.viewport_preview_start() }).click();
+    await page.getByRole("textbox", { name: m.viewport_preview_command_prompt() }).fill("pnpm dev");
+    await page.getByRole("button", { name: m.viewport_preview_command_send() }).click();
+    expect(api.startPreview).toHaveBeenLastCalledWith("r1", "pnpm dev");
+  });
+
+  it("opens the machine's own preview URL and stops it after a confirm", async () => {
+    vi.mocked(api.getPreviewReach).mockResolvedValue(SERVED);
+    await openPreview();
+    const frame = page.getByTitle(m.viewport_preview_tab());
+    await expect.element(frame).toHaveAttribute("src", SERVED.url);
+    await expect
+      .element(page.getByRole("link", { name: m.viewport_preview_open_new_tab() }))
+      .toHaveAttribute("href", SERVED.url);
+    await expect
+      .element(
+        page.getByText(
+          m.remote_preview_served_by({ machine: "MacBook", host: "macbook.example.ts.net:4100" }),
+        ),
+      )
+      .toBeInTheDocument();
+
+    await page.getByRole("button", { name: m.viewport_preview_stop() }).click();
+    expect(api.stopPreview).not.toHaveBeenCalled();
+    await page.getByRole("button", { name: m.viewport_preview_stop_confirm() }).click();
+    expect(api.stopPreview).toHaveBeenCalledWith("r1");
+    vi.mocked(api.getPreviewReach).mockResolvedValue({
+      bound: false,
+      url: null,
+      unavailable: null,
+    });
+  });
+
+  it("re-reads where the preview opens when the machine reports a change", async () => {
+    const session = remote();
+    const view = await openPreview({ session, previewTick: 0 });
+    await vi.waitFor(() => expect(api.getPreviewReach).toHaveBeenCalledTimes(1));
+    // A status frame hands the detail a new session object: not a preview change.
+    await view.rerender({ session: { ...session, status: "idle" }, previewTick: 0 });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(api.getPreviewReach).toHaveBeenCalledTimes(1);
+    vi.mocked(api.getPreviewReach).mockResolvedValueOnce(SERVED);
+    await view.rerender({ previewTick: 1 });
+    await expect.element(page.getByTitle(m.viewport_preview_tab())).toBeInTheDocument();
+    expect(api.getPreviewReach).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["not_served", false],
+    ["serve_denied", false],
+    ["serve_failed", true],
+  ] as const)("explains %s instead of offering a URL", async (unavailable, bound) => {
+    vi.mocked(api.getPreviewReach).mockResolvedValueOnce({ bound, url: null, unavailable });
+    await openPreview();
+    const text = {
+      not_served: m.remote_preview_not_served,
+      serve_denied: m.remote_preview_serve_denied,
+      serve_failed: m.remote_preview_serve_failed,
+    }[unavailable]({ machine: "MacBook" });
+    await expect.element(page.getByText(text)).toBeInTheDocument();
+    expect(page.getByTitle(m.viewport_preview_tab()).query()).toBeNull();
+    expect(page.getByRole("link", { name: m.viewport_preview_open_new_tab() }).query()).toBeNull();
+  });
+
+  it("never opens a URL that is not plain https", async () => {
+    vi.mocked(api.getPreviewReach).mockResolvedValueOnce({
+      bound: true,
+      url: "javascript:alert(1)",
+      unavailable: null,
+    });
+    await openPreview();
+    await expect
+      .element(page.getByText(m.remote_preview_load_failed({ machine: "MacBook" })))
+      .toBeInTheDocument();
+    expect(page.getByTitle(m.viewport_preview_tab()).query()).toBeNull();
+  });
+
+  it("names a machine that can't be reached", async () => {
+    vi.mocked(api.getPreviewReach).mockRejectedValueOnce(
+      new api.ApiError(502, "MacBook is not reachable", "machine_unreachable", true),
+    );
+    await openPreview();
+    await expect
+      .element(page.getByText(m.remote_action_unreachable({ machine: "MacBook" })))
+      .toBeInTheDocument();
   });
 });

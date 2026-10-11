@@ -58,6 +58,11 @@ const FORWARDED: ReadonlySet<string> = new Set([
   "GET scratchpad",
   "GET scratchpad/download",
   "POST scratchpad/upload",
+  // The preview (#2767): the machine starts and stops its own dev server and says where its
+  // preview opens — a URL on ITS tailnet host and slot, never a port for this server to bind.
+  "GET preview",
+  "POST preview/start",
+  "POST preview/stop",
 ]);
 
 /** Request headers the machine needs to read the body and shape the answer; nothing else passes. */

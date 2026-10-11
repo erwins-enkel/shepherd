@@ -6,7 +6,9 @@ import {
   resolveDevPort,
   detectDevCommand,
   makeRelayHandlers,
+  previewReach,
   type FsAccessors,
+  type PreviewReachInput,
 } from "../src/preview";
 import {
   scanListeningPortsByWorktree,
@@ -1495,4 +1497,74 @@ test("PreviewService: stopAll() clears its maps even when one server.stop() thro
   broken.stopReal(); // stopAll could not reach it; close it here or the port leaks
   expect((svc as any).listeners.size).toBe(0);
   expect((svc as any).slotOwner.size).toBe(0);
+});
+
+// ── previewReach (#2767) ──────────────────────────────────────────────────────
+
+const reach = (over: Partial<PreviewReachInput>) =>
+  previewReach({
+    previewPort: 4101,
+    host: "macbook.example.ts.net",
+    autoServe: true,
+    serve: "ok",
+    denied: false,
+    ...over,
+  });
+
+test("previewReach: a served slot opens at THIS instance's host and slot", () => {
+  expect(reach({})).toEqual({
+    bound: true,
+    url: "https://macbook.example.ts.net:4101/",
+    unavailable: null,
+  });
+  expect(reach({ host: "linux.example.ts.net", previewPort: 4100 }).url).toBe(
+    "https://linux.example.ts.net:4100/",
+  );
+});
+
+test("previewReach: with auto-serve off the operator maps slots, so a bound slot is offered", () => {
+  expect(reach({ autoServe: false, serve: undefined, denied: true })).toEqual({
+    bound: true,
+    url: "https://macbook.example.ts.net:4101/",
+    unavailable: null,
+  });
+});
+
+test("previewReach: no tailnet host → not_served, bound or not, never a URL", () => {
+  expect(reach({ host: null })).toEqual({ bound: true, url: null, unavailable: "not_served" });
+  expect(reach({ host: null, previewPort: null, serve: undefined })).toEqual({
+    bound: false,
+    url: null,
+    unavailable: "not_served",
+  });
+});
+
+test("previewReach: refused serve config is explained before and after a start", () => {
+  expect(reach({ previewPort: null, serve: undefined, denied: true })).toEqual({
+    bound: false,
+    url: null,
+    unavailable: "serve_denied",
+  });
+  expect(reach({ serve: "failed", denied: true }).unavailable).toBe("serve_denied");
+});
+
+test("previewReach: a failed or unsettled mapping has no URL", () => {
+  expect(reach({ serve: "failed" })).toEqual({
+    bound: true,
+    url: null,
+    unavailable: "serve_failed",
+  });
+  expect(reach({ serve: undefined })).toEqual({
+    bound: true,
+    url: null,
+    unavailable: "serve_pending",
+  });
+});
+
+test("previewReach: nothing bound and nothing wrong → no preview, no reason", () => {
+  expect(reach({ previewPort: null, serve: undefined })).toEqual({
+    bound: false,
+    url: null,
+    unavailable: null,
+  });
 });

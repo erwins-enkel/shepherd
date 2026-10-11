@@ -1659,6 +1659,16 @@ export interface SessionConnection {
   since: number;
 }
 
+/** `GET /api/sessions/:id/preview` (#2767): where a session's preview opens, as the instance
+ *  running it answers — for a mirrored session, the machine, through this server. `url` names that
+ *  instance's own tailnet host and slot; `unavailable` says why there is none (also while nothing
+ *  is bound, when the instance cannot publish previews at all). */
+export interface PreviewReach {
+  bound: boolean;
+  url: string | null;
+  unavailable: "not_served" | "serve_denied" | "serve_failed" | "serve_pending" | null;
+}
+
 /** One connected machine's part of a collective action (#2765). `ok: false` = it gave no usable
  *  answer (`reason` says why), so its sessions are not covered by the result. */
 export interface MachineOutcome {

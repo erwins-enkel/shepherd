@@ -631,7 +631,8 @@ components:
         when they are on the forwarded list (reply, interrupt, archive and its leftovers, go,
         answer-plan-questions, rename, amendments, autopilot, automerge, ready, diff and its
         annotations, messages, activity, usage, worktree and scratchpad listings, downloads and
-        upload); any other route answers 409 `remote_unsupported`, an id more than one machine
+        upload, and the preview: its start, stop and where it opens, a URL on the machine's own
+        host); any other route answers 409 `remote_unsupported`, an id more than one machine
         reports 409 `remote_ambiguous`, and a machine that gives no usable answer 502
         `machine_unreachable`, `machine_timeout` or `machine_unauthorized`.
       properties:

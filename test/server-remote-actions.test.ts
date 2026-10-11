@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,7 +13,7 @@ import { RemoteInstanceService } from "../src/remote-instances/service";
 import { RemoteSessionMirror } from "../src/remote-instances/sessions";
 import { sessionScratchpadDir } from "../src/tmp-sweep";
 import type { GitState } from "../src/forge/types";
-import type { Session } from "../src/types";
+import type { Session, SessionPreviewState } from "../src/types";
 
 // Actions on a session that runs on a connected machine, sent to the coordinator (#2765): two or
 // three real Shepherd servers in one process, each with its own store, auth gate and tokens. Only
@@ -63,6 +63,8 @@ beforeEach(() => {
     cookieSecret: config.cookieSecret,
     token: config.token,
     host: config.host,
+    previewHost: config.previewHost,
+    previewAutoServe: config.previewAutoServe,
   };
   root = mkdtempSync(join(tmpdir(), "shepherd-remote-actions-"));
   repo = join(root, "app");
@@ -372,6 +374,102 @@ describe("what is not forwarded", () => {
     const res = await call(a, "POST", `/api/sessions/${remote.id}/interrupt`);
     expect(res.status).toBe(502);
     expect(await res.json()).toMatchObject({ code: "machine_unreachable", reason: "disconnected" });
+    untouched(a);
+  });
+});
+
+describe("the preview of a mirrored session (#2767)", () => {
+  /** `b` previews `remote` on slot 4100 once started: its launcher finds a dev server on 5173, and
+   *  binding emits the `session:preview` frame its mirror on `a` relays. */
+  function previewOnMachine(b: Node) {
+    const bound: Record<string, SessionPreviewState> = {};
+    const ensure = (id: string, devPort: number) => {
+      expect(devPort).toBe(5173);
+      bound[id] = { previewPort: 4100 };
+      b.deps.events.emit("session:preview", { id, previewPort: 4100 });
+      return 4100;
+    };
+    const machine = {
+      ensure: mock(ensure),
+      findDevPort: mock(async () => 5173),
+      stop: spyOn(b.deps.service, "stopPreview").mockReturnValue({ result: "stopped", killed: 1 }),
+    };
+    spyOn(b.deps.service, "refreshForStop").mockResolvedValue();
+    Object.assign(b.deps, {
+      preview: { snapshot: () => bound, ensure: machine.ensure },
+      previewServe: {
+        snapshot: () => Object.fromEntries(Object.keys(bound).map((id) => [id, "ok"])),
+      },
+      previewLauncher: {
+        findDevPort: machine.findDevPort,
+        scriptExists: async () => false,
+        scriptPath: async () => null,
+        ensureScript: async () => null,
+        startScript: async () => {},
+      },
+    });
+    return machine;
+  }
+
+  test("starts and stops on the machine and opens at the machine's own host and slot", async () => {
+    Object.assign(config, { previewHost: "machine.example.ts.net", previewAutoServe: true });
+    const { a, b, remote } = await pair();
+    const machine = previewOnMachine(b);
+    // The coordinator previews a session of its own on the SAME slot number.
+    const localEnsure = mock(() => 4100);
+    Object.assign(a.deps, {
+      preview: { snapshot: () => ({ "local-1": { previewPort: 4100 } }), ensure: localEnsure },
+    });
+
+    const relayed: [string, unknown][] = [];
+    a.deps.remoteSessions.subscribe((event, data) => relayed.push([event, data]));
+
+    const start = await call(a, "POST", `/api/sessions/${remote.id}/preview/start`, { json: {} });
+    expect(start.status).toBe(200);
+    expect(await start.json()).toMatchObject({ ok: true, mode: "local", alreadyRunning: true });
+    expect(machine.findDevPort).toHaveBeenCalledWith(repo, remote.id);
+    expect(machine.ensure).toHaveBeenCalledWith(remote.id, 5173);
+    // The machine's frame reaches dashboards through the mirror, marked as the machine's.
+    const frame = await until(
+      () => relayed.find(([event]) => event === "session:preview"),
+      (f) => f !== undefined,
+    );
+    expect(frame![1]).toMatchObject({ id: remote.id, host: { instanceId: expect.any(String) } });
+
+    const reach = await call(a, "GET", `/api/sessions/${remote.id}/preview`);
+    expect(reach.status).toBe(200);
+    expect(await reach.json()).toEqual({
+      bound: true,
+      url: "https://machine.example.ts.net:4100/",
+      unavailable: null,
+    });
+
+    const stop = await call(a, "POST", `/api/sessions/${remote.id}/preview/stop`);
+    expect(stop.status).toBe(200);
+    expect(await stop.json()).toEqual({ killed: 1 });
+    expect(machine.stop).toHaveBeenCalledWith(remote.id, "SIGKILL");
+
+    // Nothing of the machine's preview became the coordinator's: no slot bound, no port in its
+    // snapshot, no `session:preview` on its own hub (where tailscale serve would pick it up).
+    expect(localEnsure).not.toHaveBeenCalled();
+    const snapshot = await call(a, "GET", "/api/preview");
+    expect(await snapshot.json()).toEqual({ "local-1": { previewPort: 4100 } });
+    untouched(a);
+  });
+
+  test("a machine that cannot publish previews is explained, never given a URL", async () => {
+    Object.assign(config, { previewHost: "machine.example.ts.net", previewAutoServe: true });
+    const { a, b, remote } = await pair();
+    Object.assign(b.deps, {
+      preview: { snapshot: () => ({}) },
+      previewServe: { snapshot: () => ({}), permissionDenied: () => true },
+    });
+    const denied = await call(a, "GET", `/api/sessions/${remote.id}/preview`);
+    expect(await denied.json()).toEqual({ bound: false, url: null, unavailable: "serve_denied" });
+
+    config.previewHost = null;
+    const unserved = await call(a, "GET", `/api/sessions/${remote.id}/preview`);
+    expect(await unserved.json()).toEqual({ bound: false, url: null, unavailable: "not_served" });
     untouched(a);
   });
 });

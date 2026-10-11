@@ -49,7 +49,7 @@ import { buildQueues as buildQueuesStore } from "./buildQueues.svelte";
 import { epicDrafts as epicDraftsStore } from "./epic-draft.svelte";
 import { postMergeSteps as postMergeStepsStore } from "./post-merge-steps.svelte";
 import { SAFE_ID, dropKey, safeMerge, setKey, setPathKey } from "./safe-keys";
-import { reduceRemoteSessions } from "./remote-sessions";
+import { mirroredPreviewChange, reduceRemoteSessions } from "./remote-sessions";
 
 /** Only follow http(s) URLs when opening a link from event-carried data — a `javascript:`
  *  (or other-scheme) value would be an open-redirect / script-execution vector
@@ -155,6 +155,10 @@ export class HerdStore {
    *  server's `session:preview` event. A present, non-null value is the single
    *  source of truth for "this agent has a live preview"; absent/null = none. */
   preview = $state<Record<string, number | null>>({});
+  /** Bumped per mirrored session whenever its machine reports a preview change (#2767); the remote
+   *  detail re-reads where the preview opens. Holds no port: a machine's slot is never this
+   *  server's, so it stays out of `preview`. */
+  remotePreviewTick = $state<Record<string, number>>({});
   /** Live per-session tailscale-serve registration status (sessionId → "ok"|"failed"),
    *  pushed by the server's `session:preview-serve` event and merged from the
    *  /api/preview bootstrap. "failed" → the preview is reachable on loopback only
@@ -510,8 +514,16 @@ export class HerdStore {
 
   apply(ev: WsEvent) {
     const remote = reduceRemoteSessions(this.remoteSessions, ev);
-    if (remote) this.remoteSessions = remote;
-    else this.applyLocal(ev);
+    if (!remote) return this.applyLocal(ev);
+    this.remoteSessions = remote;
+    const previewed = mirroredPreviewChange(ev);
+    if (previewed) {
+      this.remotePreviewTick = setKey(
+        this.remotePreviewTick,
+        previewed,
+        (this.remotePreviewTick[previewed] ?? 0) + 1,
+      );
+    }
   }
 
   private applyLocal(ev: WsEvent) {

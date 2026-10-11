@@ -100,9 +100,9 @@
   import { stashDraft, takeDraft } from "./new-task/draft-stash";
   import {
     connectedMachines,
-    dispatchKeyFor,
-    isUnansweredSend,
     machineLabel,
+    machineSend,
+    pendingAfter,
     runOnFailureMessage,
     runOnMachines,
     type PendingSend,
@@ -1813,33 +1813,14 @@
     const input = buildSpawnInput(finalPrompt, force, id);
     // A send to a machine (#2763) carries a key; an unanswered one is retried under the same key
     // while the task is unchanged, so it never starts twice there.
-    const machine = runOn;
-    sendingTo = machine;
-    const payload = machine ? JSON.stringify({ ...input, spawnId: undefined }) : "";
-    const dispatchKey = machine ? dispatchKeyFor(pendingSend, payload) : undefined;
+    const send = machineSend(runOn, pendingSend, input);
+    sendingTo = runOn;
     try {
-      await onsubmit(machine ? { ...input, dispatchKey } : input);
+      await onsubmit(send ? { ...input, dispatchKey: send.key } : input);
       pendingSend = null;
     } catch (err) {
-      pendingSend =
-        machine && dispatchKey && isUnansweredSend(err) ? { key: dispatchKey, payload } : null;
-      const machineError = machine ? runOnFailureMessage(err, machine.name) : null;
-      if (machineError) {
-        error = machineError;
-        retry = () => doSpawn(force, uploadQueueRevision);
-      } else if (isSpawnCanceled(err)) {
-        // The operator's own doing, and the server already rolled the worktree back. Say so
-        // plainly and leave the prompt standing rather than raising an error.
-        spawnCanceled = true;
-      } else if (err instanceof ApiError && err.code === "herdr_restart_required") {
-        herdrRepairRequired = true;
-        error = m.newtask_herdr_restart();
-      } else if (isPreviewBlocked(err)) {
-        error = (err as Error).message;
-      } else {
-        error = spawnFailureMessage(err);
-        retry = () => doSpawn(force, uploadQueueRevision);
-      }
+      pendingSend = pendingAfter(send, err);
+      showSpawnFailure(err, force, send?.machine.name ?? null);
     } finally {
       // Clear submitting on every path (matters for the error path: the dialog stays
       // open showing the error and the buttons must re-enable for a retry).
@@ -1848,6 +1829,27 @@
       spawnStartedAt = 0;
       spawnCanceling = false;
       sendingTo = null;
+    }
+  }
+
+  /** What the dialog shows for a failed create. A start on a machine names it (#2763). */
+  function showSpawnFailure(err: unknown, force: boolean, machine: string | null) {
+    const machineError = machine === null ? null : runOnFailureMessage(err, machine);
+    if (machineError) {
+      error = machineError;
+      retry = () => doSpawn(force, uploadQueueRevision);
+    } else if (isSpawnCanceled(err)) {
+      // The operator's own doing, and the server already rolled the worktree back. Say so
+      // plainly and leave the prompt standing rather than raising an error.
+      spawnCanceled = true;
+    } else if (err instanceof ApiError && err.code === "herdr_restart_required") {
+      herdrRepairRequired = true;
+      error = m.newtask_herdr_restart();
+    } else if (isPreviewBlocked(err)) {
+      error = (err as Error).message;
+    } else {
+      error = spawnFailureMessage(err);
+      retry = () => doSpawn(force, uploadQueueRevision);
     }
   }
 

@@ -56,6 +56,28 @@ export function dispatchKeyFor(
   return pending?.payload === payload ? pending.key : fresh();
 }
 
+/** One attempt to start a task on a machine: where, under which key, and the task as sent. */
+export interface MachineSend extends PendingSend {
+  machine: RemoteInstance;
+}
+
+/** The send of `input` to `machine` (null = it starts here). The key is the unanswered one's
+ *  again while the task is unchanged; the spawn id is per attempt, so it is not part of the task. */
+export function machineSend(
+  machine: RemoteInstance | null,
+  pending: PendingSend | null,
+  input: object,
+): MachineSend | null {
+  if (!machine) return null;
+  const payload = JSON.stringify({ ...input, spawnId: undefined });
+  return { machine, key: dispatchKeyFor(pending, payload), payload };
+}
+
+/** What the next attempt may reuse after `send` failed with `err`: only an unanswered send. */
+export function pendingAfter(send: MachineSend | null, err: unknown): PendingSend | null {
+  return send && isUnansweredSend(err) ? { key: send.key, payload: send.payload } : null;
+}
+
 /** What the dialog says when `machine` could not start the task, or null when the failure is not
  *  about the machine (the dialog's generic message applies). */
 export function runOnFailureMessage(err: unknown, machine: string): string | null {

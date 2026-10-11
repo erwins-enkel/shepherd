@@ -7,6 +7,8 @@ import {
   dispatchKeyFor,
   isUnansweredSend,
   machineLabel,
+  machineSend,
+  pendingAfter,
   runOnFailureMessage,
   runOnMachines,
 } from "./run-on";
@@ -65,6 +67,28 @@ describe("dispatch keys (#2763)", () => {
     expect(isUnansweredSend(new TypeError("Failed to fetch"))).toBe(true);
     expect(isUnansweredSend(new ApiError(422, "x", "remote_rejected", true))).toBe(false);
     expect(isUnansweredSend(new Error("x"))).toBe(false);
+  });
+});
+
+describe("machine sends (#2763)", () => {
+  it("is null for a task that starts here", () => {
+    expect(machineSend(null, null, { prompt: "a" })).toBeNull();
+  });
+
+  it("keeps the key across attempts of the same task, whatever the spawn id", () => {
+    const first = machineSend(machine(), null, { prompt: "a", spawnId: "s1" })!;
+    const pending = pendingAfter(first, new ApiError(504, "x", "remote_dispatch_unknown", true));
+    const again = machineSend(machine(), pending, { prompt: "a", spawnId: "s2" })!;
+    expect(again.key).toBe(first.key);
+    expect(machineSend(machine(), pending, { prompt: "b", spawnId: "s3" })!.key).not.toBe(
+      first.key,
+    );
+  });
+
+  it("forgets the key after an answered failure", () => {
+    const send = machineSend(machine(), null, { prompt: "a" })!;
+    expect(pendingAfter(send, new ApiError(422, "x", "remote_rejected", true))).toBeNull();
+    expect(pendingAfter(null, new TypeError("x"))).toBeNull();
   });
 });
 

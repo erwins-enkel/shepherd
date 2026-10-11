@@ -5739,7 +5739,10 @@ paths:
             its first start was cut off by a restart (dispatch_interrupted). With a target also:
             the machine is not reachable right now and nothing was sent
             (remote_target_unavailable, `reason` says why), or the task was canceled before the
-            machine confirmed it and never starts under that key (remote_dispatch_canceled).
+            machine confirmed it and never starts under that key (remote_dispatch_canceled), or it
+            was canceled here but the machine has not confirmed the cancel yet — the task may have
+            reached it first and be running there; it is not sent again
+            (remote_dispatch_cancel_pending).
           content:
             application/json:
               schema:
@@ -5953,7 +5956,8 @@ paths:
       operationId: listRemoteDispatches
       description: >-
         Tasks this instance sent to connected machines that no machine has confirmed yet: start
-        status unknown, or a cancel on its way. Oldest first; only machines still connected here.
+        status unknown, or a cancel on its way. Oldest first; only machines still registered here
+        (connected or not).
         remote:dispatch announces every change of one, including the one that resolves it.
       responses:
         "200":
@@ -5977,7 +5981,8 @@ paths:
         Cancel a task no machine has confirmed: the machine's DELETE /api/dispatches/{id} makes
         sure it never starts there, even if the task arrives late. Until the cancel reaches the
         machine nothing sends the task again, and a retry under its Idempotency-Key is refused
-        (remote_dispatch_canceled). Idempotent.
+        (remote_dispatch_cancel_pending while the cancel is on its way, remote_dispatch_canceled
+        once the machine confirmed it). Idempotent.
       responses:
         "200":
           description: Canceled — it never starts on the machine.
@@ -5996,7 +6001,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
-          description: No such dispatch, or its machine is no longer connected here.
+          description: No such dispatch, or its machine was removed here.
           content:
             application/json:
               schema:

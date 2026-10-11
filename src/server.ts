@@ -3323,7 +3323,8 @@ async function createOnMachine(
 
 /** What a client sees of a remote dispatch: the machine's session or hold annotated with `host`,
  *  its refusal with the reason, attachments that did not get there (nothing was sent), "no
- *  answer" with the key to send it again under, or that it was canceled before it was confirmed. */
+ *  answer" with the key to send it again under, or that it was canceled — for good, or with the
+ *  cancel still on its way to the machine. */
 function remoteOutcomeResponse(o: RemoteOutcome): Response {
   switch (o.kind) {
     case "started":
@@ -3358,6 +3359,15 @@ function remoteOutcomeResponse(o: RemoteOutcome): Response {
         {
           error: `this task was canceled before ${o.host.name} confirmed it; it never starts under this Idempotency-Key`,
           code: "remote_dispatch_canceled",
+          host: o.host,
+        },
+        409,
+      );
+    case "cancel_pending":
+      return json(
+        {
+          error: `this task was canceled here, but ${o.host.name} has not confirmed the cancel yet: if the task reached it first, it may be running there. It is not sent again; GET /api/remote-dispatches shows how it ends`,
+          code: "remote_dispatch_cancel_pending",
           host: o.host,
         },
         409,

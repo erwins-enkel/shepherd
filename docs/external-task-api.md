@@ -337,6 +337,7 @@ a different body under that key is `409 dispatch_payload_mismatch`.
 | The machine refused it                    | `422 { code: "remote_rejected", error: <its reason>, remoteStatus, remoteCode?, host }`                |
 | Sent, but no answer came back             | `504 { code: "remote_dispatch_unknown", dispatchId, host }` — start status unknown, see below          |
 | Canceled before the machine confirmed it  | `409 { code: "remote_dispatch_canceled", host }` — it never starts under that key                      |
+| Canceled, cancel not yet confirmed        | `409 { code: "remote_dispatch_cancel_pending", host }` — not sent again, but may run there             |
 | An attachment did not reach the machine   | `502 { code: "remote_upload_failed", error: <which and why>, host }` — nothing was sent                |
 | Not connected right now (nothing sent)    | `409 { code: "remote_target_unavailable", reason }`                                                    |
 | No such machine / no checkout of the repo | `422` with `remote_target_unknown` / `remote_project_missing` (`remote_project_unknown`: no slug)      |

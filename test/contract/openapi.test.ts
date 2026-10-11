@@ -520,6 +520,7 @@ describe("sessions", () => {
       { kind: "unknown", host, dispatchKey: "key-1" },
       { kind: "upload_failed", host, reason: "attachment 1 of 1: the machine answered 413" },
       { kind: "canceled", host },
+      { kind: "cancel_pending", host },
       { kind: "refused", code: "remote_target_unavailable", reason: "timeout" },
     ];
     const savedForge = s.stubs.resolveForge.forge;

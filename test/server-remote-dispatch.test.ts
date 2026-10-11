@@ -835,6 +835,10 @@ describe("start status unknown", () => {
     expect(res.status).toBe(202);
     expect(await res.json()).toMatchObject({ state: "canceling" });
     expect((await remoteDispatches(linux)).map((x) => x.state)).toEqual(["canceling"]);
+    // Until the machine confirms the cancel, a retry is told so — never that it cannot start.
+    const pending = await create(linux, body, { key: "ui-attempt-1" });
+    expect(pending.status).toBe(409);
+    expect(await pending.json()).toMatchObject({ code: "remote_dispatch_cancel_pending" });
 
     down = false;
     await linux.deps.remoteInstances.check(macId);

@@ -171,6 +171,7 @@ export type RemoteOutcome =
   | { kind: "unknown"; host: SessionHost; dispatchKey: string }
   | { kind: "upload_failed"; host: SessionHost; reason: string }
   | { kind: "canceled"; host: SessionHost }
+  | { kind: "cancel_pending"; host: SessionHost }
   | { kind: "refused"; code: RemoteRefusalCode; reason: string | null };
 
 /** Why an attachment did not reach the machine; `httpStatus` when the machine answered. */
@@ -254,8 +255,9 @@ export class RemoteDispatcher {
     this.now = deps.now ?? Date.now;
   }
 
-  /** Dispatches no machine has confirmed yet, of machines still connected here — what the herd
-   *  shows as "start status unknown". A send in flight here is left out: its answer is coming. */
+  /** Dispatches no machine has confirmed yet, of machines still registered here (connected or
+   *  not) — what the herd shows as "start status unknown". A send in flight here is left out: its
+   *  answer is coming. */
   list(): RemoteDispatchView[] {
     const machines = new Set(this.instances.list().map((m) => m.instanceId));
     return this.store
@@ -365,14 +367,14 @@ export class RemoteDispatcher {
     }
     const current = this.adopt(this.store.getRemoteDispatch(row.id) ?? row);
     // Ended before it was sent (#2766), or cancelled (#2774): it never goes out under this key
-    // again, so its machine has nothing to replay — the refusal is.
+    // again, so its machine has nothing to replay — the refusal is. A cancel the machine has not
+    // confirmed yet promises nothing: the task may have reached it first and be running there.
+    const host = this.host(row.instanceId);
     if (current.state === "upload_failed") {
-      const host = this.host(row.instanceId);
       return { kind: "upload_failed", host, reason: current.reason ?? "" };
     }
-    if (current.state === "canceling" || current.state === "canceled") {
-      return { kind: "canceled", host: this.host(row.instanceId) };
-    }
+    if (current.state === "canceled") return { kind: "canceled", host };
+    if (current.state === "canceling") return { kind: "cancel_pending", host };
     return this.inflight.get(row.id) ?? this.track(current);
   }
 

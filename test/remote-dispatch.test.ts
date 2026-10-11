@@ -627,10 +627,13 @@ describe("RemoteDispatcher start status unknown", () => {
       kind: "canceling",
       dispatch: { state: "canceling" },
     });
-    expect(await dispatcher.submit(submit())).toEqual({ kind: "canceled", host: HOST });
+    // Not confirmed yet: it may have reached the machine first, so a retry is promised nothing —
+    // and is not sent either.
+    expect(await dispatcher.submit(submit())).toEqual({ kind: "cancel_pending", host: HOST });
     await dispatcher.reconcile(MAC);
     expect(net.calls.map((c) => c.method)).toEqual(["DELETE", "DELETE"]);
     expect(store.getRemoteDispatch("d-1")!.state).toBe("canceled");
+    expect(await dispatcher.submit(submit())).toEqual({ kind: "canceled", host: HOST });
   });
 
   test("a machine that is not connected gets the cancel later, without a request now", async () => {

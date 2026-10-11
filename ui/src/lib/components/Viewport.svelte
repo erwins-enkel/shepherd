@@ -27,7 +27,7 @@
   import { displayStatus } from "#lib/display-status.js";
   import { projectIcons } from "#lib/projectIcons.svelte.js";
   import { hotterGauge, gaugeColor } from "./usage-gauges";
-  import { connectPty, type PtyConn } from "#lib/pty.js";
+  import { connectPty, type PtyConn, type PtyEndReason } from "#lib/pty.js";
   import { theme } from "#lib/theme.svelte.js";
   import { terminalFontSize, FONT_MIN, FONT_MAX } from "#lib/terminal-font-size.svelte.js";
   import { uiScale } from "#lib/ui-scale.svelte.js";
@@ -376,9 +376,10 @@
   let parked = $state(false);
   // true once the connection stopped for good — show a recovery prompt. endReason
   // splits the two cases: "gone" = the agent exited (offer provider resume),
-  // "unreachable" = herdr itself is down (offer a plain re-attach).
+  // "unreachable" = herdr itself is down (offer a plain re-attach). ("machine" is
+  // only ever sent for a session on a connected machine, never one shown here.)
   let ended = $state(false);
-  let endReason = $state<"gone" | "unreachable">("gone");
+  let endReason = $state<PtyEndReason>("gone");
   let resuming = $state(false);
   let resumeFailed = $state(false);
   let resumeFailure = $state("");

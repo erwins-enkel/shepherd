@@ -151,6 +151,30 @@ describe("current terminal owner", () => {
   });
 });
 
+describe("ended terminal: reconnect", () => {
+  it("names the unreachable machine of a remote session and re-attaches on tap (#2764)", async () => {
+    const reattach = vi.fn();
+    await render(ViewportTermBanners, {
+      ...baseProps,
+      ended: true,
+      endReason: "machine",
+      machine: "MacBook",
+      reattach,
+    });
+    const button = page.getByRole("button", { name: /Reconnect.*MacBook can't be reached/ });
+    await expect.element(button).toBeInTheDocument();
+    await button.click();
+    expect(reattach).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the herdr copy when herdr itself is down", async () => {
+    await render(ViewportTermBanners, { ...baseProps, ended: true, endReason: "unreachable" });
+    await expect
+      .element(page.getByRole("button", { name: /Reconnect.*herdr is down/ }))
+      .toBeInTheDocument();
+  });
+});
+
 describe("terminal owner on a narrow screen", () => {
   it("keeps the German title and takeover action readable at phone width", async () => {
     const { getLocale, setLocale } = await import("#lib/paraglide/runtime.js");

@@ -3,6 +3,7 @@
   import type { LoginRequest, TerminalClientInfo } from "#lib/types.js";
   import { m } from "#lib/paraglide/messages.js";
   import { answerLoginRequest } from "#lib/login-request.js";
+  import type { PtyEndReason } from "#lib/pty.js";
 
   let {
     tab,
@@ -11,6 +12,7 @@
     owner = undefined,
     ended,
     endReason,
+    machine = null,
     resuming,
     resumeFailed,
     resumeFailure = "",
@@ -32,7 +34,9 @@
     parked: boolean;
     owner?: TerminalClientInfo | null;
     ended: boolean;
-    endReason: "gone" | "unreachable";
+    endReason: PtyEndReason;
+    /** The connected machine a remote session runs on (#2764) — named when it can't be reached. */
+    machine?: string | null;
     resuming: boolean;
     resumeFailed: boolean;
     resumeFailure?: string;
@@ -170,12 +174,17 @@
     <span class="parked-sub">{m.viewport_parked_sub()}</span>
   </button>
 {/if}
-{#if ended && !parked && tab === "term" && endReason === "unreachable"}
-  <!-- herdr is down, not the agent — re-attach (no claudeSessionId needed) -->
+{#if ended && !parked && tab === "term" && endReason !== "gone"}
+  <!-- herdr is down, or the session's machine can't be reached — not the agent: re-attach
+       (no claudeSessionId needed) -->
   <button class="parked resume" type="button" onclick={reattach}>
     <span class="parked-icon" aria-hidden="true">↻</span>
     <span class="parked-title">{m.viewport_reconnect_title()}</span>
-    <span class="parked-sub">{m.viewport_reconnect_sub()}</span>
+    <span class="parked-sub"
+      >{endReason === "machine"
+        ? m.remote_terminal_lost_sub({ machine: machine ?? "" })
+        : m.viewport_reconnect_sub()}</span
+    >
   </button>
 {:else if ended && !parked && tab === "term" && resumable}
   <button class="parked resume" type="button" onclick={() => resumeSession()} disabled={resuming}>

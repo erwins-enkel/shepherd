@@ -9,7 +9,7 @@ import type { Session, SessionConnection, SessionHost } from "./types";
 /** A remote session with its annotation guaranteed. */
 export type MirroredSession = Session & { host: SessionHost; connection: SessionConnection };
 
-function isMirrored(s: Pick<Session, "host" | "connection">): s is MirroredSession {
+export function isMirrored(s: Pick<Session, "host" | "connection">): s is MirroredSession {
   return !!s.host && !!s.connection;
 }
 

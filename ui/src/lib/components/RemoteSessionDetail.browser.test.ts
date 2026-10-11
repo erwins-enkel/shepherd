@@ -2,10 +2,22 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
+import { connectPty } from "#lib/pty.js";
 import RemoteSessionDetail from "./RemoteSessionDetail.svelte";
 import { m } from "#lib/paraglide/messages.js";
 import { statusLabel } from "#lib/format.js";
 import type { Session } from "#lib/types.js";
+
+// The terminal's socket is the server's business (bridged to the machine); here it is a spy.
+vi.mock("#lib/pty.js", () => ({
+  connectPty: vi.fn(() => ({
+    send: vi.fn(),
+    resize: vi.fn(),
+    close: vi.fn(),
+    poke: vi.fn(),
+    takeover: vi.fn(),
+  })),
+}));
 
 const host = { instanceId: "m1", name: "MacBook", platform: "macos" };
 
@@ -26,9 +38,21 @@ function remote(over: Partial<Session> = {}): Session {
   } as Session;
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.mocked(connectPty).mockClear();
+});
 
 describe("RemoteSessionDetail (#2762)", () => {
+  it("opens the session's terminal, bridged through this server (#2764)", async () => {
+    render(RemoteSessionDetail, { session: remote(), nowMs: Date.now(), terminalOwners: {} });
+    await expect
+      .element(page.getByRole("region", { name: m.remote_terminal_aria({ machine: "MacBook" }) }))
+      .toBeInTheDocument();
+    await vi.waitFor(() => expect(connectPty).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(connectPty).mock.calls[0]![0]).toBe("r1");
+  });
+
   it("shows what the machine reports and disables every action, saying why", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     render(RemoteSessionDetail, { session: remote(), nowMs: Date.now() });

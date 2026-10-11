@@ -260,6 +260,21 @@
       "9",
       "10",
       "11"
+    ],
+    "CoreSeamTests.ComposeParityTests/timelineCoversEveryToggleAndProvider": [
+      "false, false",
+      "false, true",
+      "true, false",
+      "true, true"
+    ],
+    "CoreSeamTests.ComposeParityTests/designReturningToCodeAppliesLateDefaults": ["false", "true"],
+    "CoreSeamTests.ComposeParityTests/composeHandoverSurvivesTargetAuthentication": [
+      "false",
+      "true"
+    ],
+    "CoreSeamTests.ComposeParityTests/authenticationCancellationOrUnrelatedSwitchDiscardsPrompt": [
+      "false",
+      "true"
     ]
   }
 }

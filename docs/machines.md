@@ -92,8 +92,12 @@ project checked out and run a platform released for tasks (Linux, macOS).
 - The machine starts from the base branch **as pushed to origin**. Push first.
 - Attachments are uploaded to the machine right before the task is sent. If one can't be sent, the
   task doesn't start.
-- A refusal or a hold on the machine is shown with its reason. If no answer comes back, **Retry**
-  sends the same task to the same machine; it never starts twice and never goes elsewhere.
+- A refusal or a hold on the machine is shown with its reason.
+- If no answer comes back, the task shows as **Start status unknown** in that machine's group of
+  the herd. Shepherd asks the machine as soon as it can be reached, also after a restart of your
+  Shepherd, and then about once a minute. It then shows the session, or sends the same task again
+  if it never arrived. It never starts twice and never goes elsewhere. Until the machine confirms
+  it, you can cancel it.
 
 From a script, send `target: { instanceId }` with the create request and an `Idempotency-Key`
 ([External Task API](external-task-api.md)).

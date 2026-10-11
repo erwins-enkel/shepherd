@@ -211,13 +211,23 @@ export class RemoteInstanceService {
 
   start(): void {
     if (this.timer) return;
-    void this.probeAll();
-    this.timer = setInterval(() => void this.probeAll(), REMOTE_PROBE_INTERVAL_MS);
+    this.round();
+    this.timer = setInterval(() => this.round(), REMOTE_PROBE_INTERVAL_MS);
   }
 
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+  }
+
+  /** A timer tick: probes never throw, but a store error must log, not float as a rejection. */
+  private round(): void {
+    this.probeAll().catch((err: unknown) =>
+      console.warn(
+        "[remote-instances] check round failed:",
+        err instanceof Error ? err.message : String(err),
+      ),
+    );
   }
 
   private probe(row: RemoteInstanceRow): Promise<void> {

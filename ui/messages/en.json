@@ -5063,6 +5063,7 @@
   "native_ios_detail_branch": "Branch",
   "native_ios_terminal_font_size": "Terminal font size",
   "native_ios_terminal_accept_suggestion": "Accept suggestion (Tab)",
+  "native_ios_terminal_submit_draft": "Send terminal input (Enter)",
   "native_ios_terminal_font_points": "{size} pt",
   "native_ios_terminal_hint": "Live session output. Scroll to read earlier output.",
   "native_ios_terminal_latest": "Latest output",

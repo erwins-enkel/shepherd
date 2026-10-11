@@ -818,6 +818,7 @@
 "native_ios_terminal_hint" = "Live-Ausgabe der Sitzung. Scrolle, um frühere Ausgaben zu lesen.";
 "native_ios_terminal_latest" = "Neueste Ausgabe";
 "native_ios_terminal_reply" = "Antworten";
+"native_ios_terminal_submit_draft" = "Terminal-Eingabe absenden (Enter)";
 "native_ios_terminal_superseded_body" = "Ein anderes Gerät ist mit diesem Terminal verbunden. Übernehmen gibt es an dieses iPhone oder iPad zurück und trennt das andere Gerät.";
 "native_ios_usage_warning" = "%1$@: %2$@%% verbraucht";
 "native_ios_welcome_subtitle" = "Verbinde dich mit einem Shepherd-Server, um deine Sitzungen zu verfolgen.";

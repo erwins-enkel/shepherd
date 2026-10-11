@@ -14050,6 +14050,23 @@
         }
       }
     },
+    "native_ios_terminal_submit_draft": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminal-Eingabe absenden (Enter)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Send terminal input (Enter)"
+          }
+        }
+      }
+    },
     "native_ios_terminal_superseded_body": {
       "extractionState": "manual",
       "localizations": {

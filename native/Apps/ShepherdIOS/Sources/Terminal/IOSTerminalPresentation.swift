@@ -32,6 +32,10 @@ final class IOSTerminalPresentation {
     private(set) var suggestion: String?
     /// Tab accepts the suggestion; a dialog's caret row is never one.
     var offersSuggestion: Bool { suggestion != nil && !dialogOpen && canSendInput }
+    /// Text typed into Claude's input box but not yet sent (see `IOSTerminalSuggestion.draft`).
+    private(set) var terminalDraft: String?
+    /// Enter submits the terminal's draft; a local draft has its own send button.
+    var offersSubmit: Bool { terminalDraft != nil && !dialogOpen && canSendInput && !hasDraft }
     private(set) var voice: DictationController?
     private(set) var audioEngine: IOSDictationEngine?
     @ObservationIgnored private let readActions: () -> IOSSessionActionState?
@@ -199,6 +203,7 @@ final class IOSTerminalPresentation {
         rendererReady = false
         dialogOpen = false
         suggestion = nil
+        terminalDraft = nil
         reconcile()
         session.onOutput = nil
         session.onClear = nil
@@ -244,14 +249,16 @@ final class IOSTerminalPresentation {
         resetAgentScroll()
         dialogOpen = false
         suggestion = nil
+        terminalDraft = nil
     }
 
     /// The renderer's visible rows after output settled. Assigns only on change, so steady
     /// output does not invalidate the views that swap on it.
-    func screenChanged(_ rows: [String], suggestion: String? = nil) {
+    func screenChanged(_ rows: [String], suggestion: String? = nil, draft: String? = nil) {
         let open = IOSTerminalDialog.isOpen(rows)
         if open != dialogOpen { dialogOpen = open }
         if suggestion != self.suggestion { self.suggestion = suggestion }
+        if draft != terminalDraft { terminalDraft = draft }
     }
 
     /// The reply bar presents a photo, file or camera picker. Presenting takes the draft's focus

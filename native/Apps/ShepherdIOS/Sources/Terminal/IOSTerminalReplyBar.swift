@@ -42,6 +42,7 @@ struct IOSTerminalReplyBar: View {
                     }
                 }
                 if !model.showsWriting && model.offersSuggestion { suggestionKey }
+                if model.offersSubmit { submitKey }
                 Group {
                     if model.showsWriting { accessoryKeys }
                     else if let steerChips { steerChips }
@@ -220,6 +221,25 @@ struct IOSTerminalReplyBar: View {
         .accessibilityLabel(L.t("native_ios_terminal_accept_suggestion"))
         .accessibilityValue(model.suggestion ?? "")
         .accessibilityIdentifier("terminal-accept-suggestion")
+    }
+
+    /// Text typed into the terminal's own input box is sent with Enter, with or without the keyboard.
+    private var submitKey: some View {
+        Button { model.sendKey(.enter) } label: {
+            HStack(spacing: 5) {
+                Text(verbatim: IOSTerminalKey.enter.keycap)
+                Image(systemName: "arrow.up")
+            }
+            .font(.system(.subheadline, design: .monospaced))
+            .padding(.horizontal, 12).frame(height: 32)
+            .background(ComposePalette.amber.opacity(0.12), in: Capsule())
+            .overlay(Capsule().stroke(ComposePalette.amber))
+        }
+        .foregroundStyle(ComposePalette.amber)
+        .frame(minHeight: 44).padding(.trailing, 6)
+        .accessibilityLabel(L.t("native_ios_terminal_submit_draft"))
+        .accessibilityValue(model.terminalDraft ?? "")
+        .accessibilityIdentifier("terminal-submit-draft")
     }
 
     private var accessoryKeys: some View {

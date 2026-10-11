@@ -1,4 +1,4 @@
-import type { Session, SessionConnection, SessionHost } from "./types";
+import type { RemoteDispatch, Session, SessionConnection, SessionHost } from "./types";
 import { m } from "#lib/paraglide/messages.js";
 
 /**
@@ -51,18 +51,43 @@ export function lastKnownLabel(since: number, nowMs: number): string {
 
 export interface MachineGroup {
   host: SessionHost;
-  connection: SessionConnection;
+  /** null for a machine with only tasks it has not confirmed (#2774): no session says how its
+   *  link is. */
+  connection: SessionConnection | null;
   sessions: MirroredSession[];
+  /** Tasks sent to it whose start it has not confirmed, shown before its sessions. */
+  dispatches: RemoteDispatch[];
 }
 
-/** One group per machine, in the order the machines' sessions first appear. */
-export function machineGroups(remote: readonly Session[]): MachineGroup[] {
+/** One group per machine, in the order the machines' sessions first appear; a machine with only
+ *  unconfirmed tasks follows them. */
+export function machineGroups(
+  remote: readonly Session[],
+  dispatches: readonly RemoteDispatch[] = [],
+): MachineGroup[] {
   const groups = new Map<string, MachineGroup>();
   for (const s of remote) {
     if (!isMirrored(s)) continue;
     const group = groups.get(s.host.instanceId);
     if (group) group.sessions.push(s);
-    else groups.set(s.host.instanceId, { host: s.host, connection: s.connection, sessions: [s] });
+    else
+      groups.set(s.host.instanceId, {
+        host: s.host,
+        connection: s.connection,
+        sessions: [s],
+        dispatches: [],
+      });
+  }
+  for (const d of dispatches) {
+    const group = groups.get(d.host.instanceId);
+    if (group) group.dispatches.push(d);
+    else
+      groups.set(d.host.instanceId, {
+        host: d.host,
+        connection: null,
+        sessions: [],
+        dispatches: [d],
+      });
   }
   return [...groups.values()];
 }

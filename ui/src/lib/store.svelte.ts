@@ -32,6 +32,7 @@ import type {
   DocAgentOutcome,
   HoldReason,
   LoginRequest,
+  RemoteDispatch,
 } from "./types";
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
@@ -48,6 +49,7 @@ import { epicDrafts as epicDraftsStore } from "./epic-draft.svelte";
 import { postMergeSteps as postMergeStepsStore } from "./post-merge-steps.svelte";
 import { SAFE_ID, dropKey, safeMerge, setKey, setPathKey } from "./safe-keys";
 import { mirroredPreviewChange, reduceRemoteSessions } from "./remote-sessions";
+import { reduceRemoteDispatches, resolvedMessage } from "./remote-dispatches";
 
 /** Only follow http(s) URLs when opening a link from event-carried data — a `javascript:`
  *  (or other-scheme) value would be an open-redirect / script-execution vector
@@ -67,6 +69,9 @@ export class HerdStore {
    *  that acts on a local session — or keys a side map by its id — ever sees one. Only the herd's
    *  machine groups and the remote detail read them. */
   remoteSessions = $state<Session[]>([]);
+  /** Tasks sent to connected machines whose start no machine has confirmed (#2774); bootstrapped
+   *  via GET /api/remote-dispatches, kept live by `remote:dispatch`. Shown in the machine groups. */
+  remoteDispatches = $state<RemoteDispatch[]>([]);
   blocks = $state<Record<string, BlockState>>({});
   connected = $state(false);
   terminalOwners = $state<Record<string, TerminalClientInfo> | null>(null);
@@ -474,7 +479,21 @@ export class HerdStore {
     if (!this.byId(s.id)) this.sessions = [...this.sessions, s];
   }
 
+  setRemoteDispatches(list: RemoteDispatch[]) {
+    this.remoteDispatches = list;
+  }
+
+  /** A shown task that resolved leaves the herd — its session, if it started, is in the machine's
+   *  group already — and a toast says how it ended. */
+  private applyRemoteDispatch(d: RemoteDispatch) {
+    const { list, resolved } = reduceRemoteDispatches(this.remoteDispatches, d);
+    this.remoteDispatches = list;
+    const message = resolved && resolvedMessage(resolved);
+    if (message) toasts.info(message.text, { alert: message.alert });
+  }
+
   apply(ev: WsEvent) {
+    if (ev.event === "remote:dispatch") return this.applyRemoteDispatch(ev.data);
     const remote = reduceRemoteSessions(this.remoteSessions, ev);
     if (!remote) return this.applyLocal(ev);
     this.remoteSessions = remote;

@@ -10,6 +10,7 @@
     OwedFocusSnapshot,
     AgentProvider,
     LivenessState,
+    RemoteDispatch,
   } from "#lib/types.js";
   import type { HerdStore } from "#lib/store.svelte.js";
   import type { BlockState } from "#lib/triage.js";
@@ -45,6 +46,7 @@
   let {
     sessions,
     remoteSessions = [],
+    remoteDispatches = [],
     selectedId,
     jumpFlashId = null,
     nowMs,
@@ -117,6 +119,8 @@
     sessions: Session[];
     // sessions mirrored from connected machines (#2762) — read-only, one group per machine
     remoteSessions?: Session[];
+    /** Tasks sent to connected machines that no machine confirmed (#2774), in their groups. */
+    remoteDispatches?: RemoteDispatch[];
     selectedId: string | null;
     // The session a global jump (command bar, deep link, notification) just landed on —
     // its row flashes for ~1.5s so the operator's eye finds it after the rail scrolls.
@@ -812,6 +816,7 @@
     {/if}
     <HerdMachineGroups
       sessions={remoteSessions}
+      dispatches={remoteDispatches}
       {filter}
       {selectedId}
       {nowMs}

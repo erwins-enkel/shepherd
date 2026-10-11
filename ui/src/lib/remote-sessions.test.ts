@@ -66,6 +66,24 @@ describe("remote sessions (#2762)", () => {
     expect(mirroredPreviewChange({ event: "session:status", data: s("a") })).toBeNull();
   });
 
+  test("tasks a machine has not confirmed lead its group; a machine with only those gets one", () => {
+    const studio = { ...HOST, instanceId: "m2", name: "Studio" };
+    const dispatch = (id: string, host = HOST) =>
+      ({ id, state: "unknown", host, summary: "x", createdAt: 1, updatedAt: 1 }) as const;
+    const groups = machineGroups([s("a")], [dispatch("d1"), dispatch("d2", studio)]);
+    expect(
+      groups.map((g) => [
+        g.host.name,
+        g.connection,
+        g.dispatches.map((x) => x.id),
+        g.sessions.map((x) => x.id),
+      ]),
+    ).toEqual([
+      ["MacBook", LIVE, ["d1"], ["a"]],
+      ["Studio", null, ["d2"], []],
+    ]);
+  });
+
   test("frames without host are left to the local store", () => {
     expect(reduceRemoteSessions([], { event: "session:new", data: { id: "l" } })).toBeNull();
     expect(reduceRemoteSessions([], { event: "usage:limits", data: { host: HOST } })).toBeNull();

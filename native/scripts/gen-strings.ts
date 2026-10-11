@@ -263,6 +263,7 @@ export const KEYS_IOS_TERMINAL: readonly string[] = [
   "native_ios_detail_info",
   "native_ios_detail_path",
   "native_ios_detail_task",
+  "native_ios_terminal_accept_suggestion",
   "native_ios_terminal_dialog_keys",
   "native_ios_terminal_dialog_type",
   "native_ios_terminal_focus",

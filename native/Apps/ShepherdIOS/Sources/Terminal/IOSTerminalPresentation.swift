@@ -28,6 +28,10 @@ final class IOSTerminalPresentation {
     private(set) var replyError: String?
     /// A Claude selection dialog is on screen (see `IOSTerminalDialog`).
     private(set) var dialogOpen = false
+    /// Claude's dim follow-up suggestion on the empty prompt (see `IOSTerminalSuggestion`).
+    private(set) var suggestion: String?
+    /// Tab accepts the suggestion; a dialog's caret row is never one.
+    var offersSuggestion: Bool { suggestion != nil && !dialogOpen && canSendInput }
     private(set) var voice: DictationController?
     private(set) var audioEngine: IOSDictationEngine?
     @ObservationIgnored private let readActions: () -> IOSSessionActionState?
@@ -194,6 +198,7 @@ final class IOSTerminalPresentation {
         suspendDictation()
         rendererReady = false
         dialogOpen = false
+        suggestion = nil
         reconcile()
         session.onOutput = nil
         session.onClear = nil
@@ -238,13 +243,15 @@ final class IOSTerminalPresentation {
     func replayWillBegin() {
         resetAgentScroll()
         dialogOpen = false
+        suggestion = nil
     }
 
     /// The renderer's visible rows after output settled. Assigns only on change, so steady
     /// output does not invalidate the views that swap on it.
-    func screenChanged(_ rows: [String]) {
+    func screenChanged(_ rows: [String], suggestion: String? = nil) {
         let open = IOSTerminalDialog.isOpen(rows)
         if open != dialogOpen { dialogOpen = open }
+        if suggestion != self.suggestion { self.suggestion = suggestion }
     }
 
     /// The reply bar presents a photo, file or camera picker. Presenting takes the draft's focus

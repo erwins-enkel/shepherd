@@ -763,6 +763,62 @@ final class IOSTerminalTests: XCTestCase {
         presentation.rendererUnmounted()
     }
 
+    func testDimTextOnTheEmptyPromptIsASuggestion() {
+        let border = String(repeating: "─", count: 20)
+        func cells(_ text: String, dim: Bool) -> [IOSTerminalSuggestion.Cell] {
+            text.map { IOSTerminalSuggestion.Cell(character: $0, dim: dim) }
+        }
+        func read(_ rows: [String], prompt: [IOSTerminalSuggestion.Cell]) -> String? {
+            IOSTerminalSuggestion.text(rows) { _ in prompt }
+        }
+        let rows = ["❯ Earlier prompt", "⏺ Done.", border, "❯ ja, dann aufs iPhone", border, "  Opus 5.5"]
+        let suggestion = cells("❯ ", dim: false) + cells("ja, dann aufs iPhone", dim: true)
+        XCTAssertEqual(read(rows, prompt: suggestion), "ja, dann aufs iPhone")
+        // The cursor may repaint the first character without the dim attribute.
+        let cursor = cells("❯ j", dim: false) + cells("a, dann aufs iPhone", dim: true)
+        XCTAssertEqual(read(rows, prompt: cursor), "ja, dann aufs iPhone")
+        // A typed draft and an empty prompt are not suggestions.
+        XCTAssertNil(read(rows, prompt: cells("❯ ja, dann aufs iPhone", dim: false)))
+        XCTAssertNil(read(["❯ ", border], prompt: cells("❯ ", dim: false)))
+        // A dim caret row outside the input box (a sent prompt in the transcript) is not one.
+        XCTAssertNil(read(["❯ ja", "⏺ Done."], prompt: cells("❯ ", dim: false) + cells("ja", dim: true)))
+
+        let pty = IOSFixturePTY()
+        let core = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
+        let presentation = IOSTerminalPresentation(session: core, reply: { _ in })
+        presentation.screenChanged(rows, suggestion: "ja")
+        XCTAssertEqual(presentation.suggestion, "ja")
+        presentation.replayWillBegin()
+        XCTAssertNil(presentation.suggestion)
+    }
+
+    func testRendererReadsClaudesDimSuggestionAndOffersTab() async {
+        let pty = IOSFixturePTY()
+        let session = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
+        let presentation = IOSTerminalPresentation(session: session, reply: { _ in })
+        let coordinator = IOSTerminalHostView.Coordinator(model: presentation)
+        let view = IOSWatchingTerminalView(frame: CGRect(x: 0, y: 0, width: 390, height: 400),
+            font: .monospacedSystemFont(ofSize: 12, weight: .regular))
+        view.terminalDelegate = coordinator
+        coordinator.bind(view)
+        presentation.visibilityChanged(visible: true, active: true)
+        pty.emit(.attached)
+        await settle { session.phase == .live }
+        let border = String(repeating: "─", count: 30)
+        // Claude Code's own bytes: the suggestion is SGR 2 right after the caret.
+        pty.emit("⏺ Done.\r\n\(border)\r\n❯ \u{1b}[0m\u{1b}[2mpush und PR erstellen\u{1b}[0m\r\n\(border)\r\n  Opus 5.5")
+        await settle { presentation.suggestion == "push und PR erstellen" }
+        XCTAssertTrue(presentation.offersSuggestion)
+        presentation.sendKey(.tab)
+        XCTAssertEqual(pty.sent.last, Data("\t".utf8))
+        // Accepted: the same text is now a plain draft.
+        pty.emit("\u{1b}[2J\u{1b}[H\(border)\r\n❯ push und PR erstellen\r\n\(border)")
+        await settle { presentation.suggestion == nil }
+        XCTAssertFalse(presentation.offersSuggestion)
+        coordinator.cancelScreenScan()
+        presentation.rendererUnmounted()
+    }
+
     func testRenderFixtureImages() async throws {
         // SwiftUI ImageRenderer cannot draw a UIViewRepresentable. Inject text output
         // into the same production detail chrome; live UIKit feed is tested above.

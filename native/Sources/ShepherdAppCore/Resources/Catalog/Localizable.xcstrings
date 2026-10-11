@@ -13879,6 +13879,23 @@
         }
       }
     },
+    "native_ios_terminal_accept_suggestion": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschlag übernehmen (Tab)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accept suggestion (Tab)"
+          }
+        }
+      }
+    },
     "native_ios_terminal_dialog_keys": {
       "extractionState": "manual",
       "localizations": {

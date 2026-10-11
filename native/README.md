@@ -58,6 +58,9 @@ The app is an **early preview**, already usable day to day. Available today:
   stages, repo and state filters and usage meters. Cards open task details, review results and
   session actions, and flag costly resumes after the prompt cache expires.
 - **Session detail:** activity, diff, files, git and the live terminal.
+- **Connected machines:** sessions running on a machine connected to your server appear in a group
+  of their own, labelled with that machine and the state of its connection; their terminal opens
+  here too.
 - **Review and merge:** plan gates, pull-request actions, review requests and merge automation.
 - **Starting work:** a new-task composer that starts from an issue, plus held tasks, Up Next and
   the Done panel.

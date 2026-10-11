@@ -1035,6 +1035,67 @@ components:
           type: integer
         updatedAt:
           type: integer
+    RemoteDispatchState:
+      anyOf:
+        - $ref: "#/components/schemas/RemoteDispatchStateKnown"
+        - type: string
+    RemoteDispatchStateKnown:
+      type: string
+      enum:
+        - sending
+        - unknown
+        - canceling
+        - started
+        - held
+        - rejected
+        - upload_failed
+        - canceled
+    RemoteDispatch:
+      type: object
+      additionalProperties: true
+      description: "A task this instance sent to a connected machine (POST /api/sessions with a target), as GET /api/remote-dispatches lists it and remote:dispatch announces it. unknown = it was sent but no answer came back, so it may be running there (start status unknown); this instance asks the machine after every check that finds it connected and settles it, or sends the same task again to the same machine if it never arrived. canceling = canceled here, the cancel reaches the machine as soon as it answers. started (sessionId), held (heldId on that machine), rejected (reason, code — e.g. dispatch_interrupted: the machine restarted mid-start), canceled (it never starts there), upload_failed (an attachment did not get there; never sent). sending = being sent right now."
+      required:
+        - id
+        - state
+        - host
+        - summary
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          description: The dispatch ID — what the machine received as its Idempotency-Key.
+        state:
+          $ref: "#/components/schemas/RemoteDispatchState"
+        host:
+          $ref: "#/components/schemas/SessionHost"
+        summary:
+          type: string
+          description: The task's issue title, else the first line of its prompt (at most 120 characters).
+        sessionId:
+          type: string
+          description: The session on the machine, once started.
+        heldId:
+          type: string
+          description: The held task on the machine, once held.
+        reason:
+          type: string
+        code:
+          type: string
+        createdAt:
+          type: integer
+        updatedAt:
+          type: integer
+    RemoteDispatchList:
+      type: object
+      additionalProperties: true
+      required:
+        - dispatches
+      properties:
+        dispatches:
+          type: array
+          items:
+            $ref: "#/components/schemas/RemoteDispatch"
     Repo:
       type: object
       additionalProperties: true
@@ -7665,7 +7726,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":
-          description: "First run pending, name taken, worktree occupied, or herdr restart required (see code). With an Idempotency-Key also: the key was used with a different body (dispatch_payload_mismatch), was withdrawn before it arrived (dispatch_canceled), or its first start was cut off by a restart (dispatch_interrupted). With a target also: the machine is not reachable right now and nothing was sent (remote_target_unavailable, `reason` says why)."
+          description: "First run pending, name taken, worktree occupied, or herdr restart required (see code). With an Idempotency-Key also: the key was used with a different body (dispatch_payload_mismatch), was withdrawn before it arrived (dispatch_canceled), or its first start was cut off by a restart (dispatch_interrupted). With a target also: the machine is not reachable right now and nothing was sent (remote_target_unavailable, `reason` says why), or the task was canceled before the machine confirmed it and never starts under that key (remote_dispatch_canceled)."
           content:
             application/json:
               schema:
@@ -7683,7 +7744,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "504":
-          description: "With a target: the task was sent but no answer came back, so it may have started on the machine (remote_dispatch_unknown). Send it again with the Idempotency-Key in `dispatchId` — it goes to the same machine and never starts twice."
+          description: "With a target: the task was sent but no answer came back, so it may have started on the machine (remote_dispatch_unknown — start status unknown). This instance keeps asking the machine and settles it (GET /api/remote-dispatches, remote:dispatch). Sending it again with the Idempotency-Key in `dispatchId` is safe too — it goes to the same machine and never starts twice."
           content:
             application/json:
               schema:
@@ -7845,6 +7906,57 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "409":
           description: The key already arrived (pending, started or held) — code dispatch_arrived, with the current dispatch under `dispatch`. Archive the session or discard the held task instead.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /api/remote-dispatches:
+    get:
+      operationId: listRemoteDispatches
+      description: "Tasks this instance sent to connected machines that no machine has confirmed yet: start status unknown, or a cancel on its way. Oldest first; only machines still connected here. remote:dispatch announces every change of one, including the one that resolves it."
+      responses:
+        "200":
+          description: The unconfirmed dispatches.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteDispatchList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/remote-dispatches/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The dispatch ID, as GET /api/remote-dispatches lists it.
+        schema:
+          type: string
+    delete:
+      operationId: cancelRemoteDispatch
+      description: "Cancel a task no machine has confirmed: the machine's DELETE /api/dispatches/{id} makes sure it never starts there, even if the task arrives late. Until the cancel reaches the machine nothing sends the task again, and a retry under its Idempotency-Key is refused (remote_dispatch_canceled). Idempotent."
+      responses:
+        "200":
+          description: Canceled — it never starts on the machine.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteDispatch"
+        "202":
+          description: "The machine is out of reach: the cancel (state canceling) is delivered as soon as it answers."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RemoteDispatch"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No such dispatch, or its machine is no longer connected here.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: "Not cancelable (remote_dispatch_not_cancelable): it is being sent right now, or the machine already has it — `dispatch` (a RemoteDispatch) says what it is now."
           content:
             application/json:
               schema:
@@ -11497,6 +11609,10 @@ x-shepherd-events:
     description: Replaces the sessions mirrored from one connected machine (every one carries `host` and `connection`). Not sent on a `host=local` socket.
     schema:
       $ref: "#/components/schemas/RemoteSessionsEvent"
+  remote:dispatch:
+    description: "A task sent to a connected machine that no machine had confirmed changed state: it became unknown (no answer), a cancel was requested, or it resolved (started, held, rejected, canceled). The whole current RemoteDispatch; a client shows it while its state is unknown or canceling and drops it otherwise. Not sent for a task the machine confirmed right away."
+    schema:
+      $ref: "#/components/schemas/RemoteDispatch"
   terminal:owners:
     description: Full current PTY owners by session id. Sent on events connect, ownership changes and active presence reports. An absent id has no owner; unknown metadata still denotes a connected owner. Clients discard freshness when disconnected.
     schema:

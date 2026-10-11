@@ -48,6 +48,8 @@ import type {
   StandardCreateInput,
   DirListing,
   AccessToken,
+  InstanceIdentity,
+  RemoteInstance,
   ApnsStatus,
   PushDevice,
   PluginUpdatesStatus,
@@ -354,6 +356,20 @@ export const demoState = {
   /** GET /api/access-tokens — the demo mints no machine tokens, so the empty list is a true
    *  zero. `{ tokens: [] }`, never `{}`: SettingsAccessPanel reads `tokens.length`. */
   accessTokens: (): { tokens: AccessToken[] } => ({ tokens: [] }),
+
+  /** GET /api/instance — Settings → Machines' "This Shepherd" block. A fixed demo identity. */
+  instance: (): InstanceIdentity => ({
+    instanceId: "00000000-0000-4000-8000-000000000000",
+    name: "demo",
+    version: "0.0.0-demo",
+    federationApi: 1,
+    platform: "linux",
+    arch: "x64",
+  }),
+
+  /** GET /api/remote-instances — the demo connects no machines. `{ instances: [] }`, never `{}`:
+   *  SettingsMachinesPanel reads `instances`. */
+  remoteInstances: (): { instances: RemoteInstance[] } => ({ instances: [] }),
 
   /** GET /api/push/apns/config — the demo server has no APNs key, so iOS push reads as not set
    *  up; the key itself is never part of this shape anyway. */

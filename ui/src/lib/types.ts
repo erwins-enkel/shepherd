@@ -175,6 +175,44 @@ export interface AccessToken {
  *  Duplicated by hand because `ui/` cannot import from the server package. */
 export type TokenScope = "read" | "submit" | "full";
 
+/** This Shepherd's identity as other machines see it (`GET /api/instance`, #2759). Mirrors
+ *  `InstanceIdentity` in src/remote-instances/identity.ts. `platform` is linux | macos | windows,
+ *  or the raw host platform for anything else. */
+export interface InstanceIdentity {
+  instanceId: string;
+  name: string;
+  version: string;
+  federationApi: number;
+  platform: string;
+  arch: string;
+}
+
+/** Mirrors RemoteInstanceStatus in src/remote-instances/service.ts. */
+export type RemoteInstanceStatus =
+  "checking" | "connected" | "unreachable" | "unauthorized" | "incompatible" | "identity_mismatch";
+
+/** A connected machine as the server reports it (#2759) — never the token itself. */
+export interface RemoteInstance {
+  instanceId: string;
+  /** `label` when set, else `reportedName`. */
+  name: string;
+  label: string | null;
+  reportedName: string;
+  url: string;
+  /** Last 4 token characters, matching the target's access-token list; null for short tokens. */
+  tokenHint: string | null;
+  createdAt: number;
+  status: RemoteInstanceStatus;
+  /** Machine code refining a non-connected status (timeout, token_restricted, api_version, …). */
+  reason: string | null;
+  checkedAt: number | null;
+  /** Last successful check; `info` and `projects` come from it. */
+  lastSeenAt: number | null;
+  info: { version: string; federationApi: number; platform: string; arch: string } | null;
+  /** Forge slugs (`owner/repo`) of the machine's checkouts. */
+  projects: string[] | null;
+}
+
 export interface Settings {
   repoRoot: string;
   repoRootDisplay: string;

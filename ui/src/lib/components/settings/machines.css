@@ -1,0 +1,182 @@
+/* Shared chrome for Settings → Machines (#2759): the panel, its rows and the connect form.
+   Global like settings-controls.css, so every class is namespaced `mch-` to stay clear of other
+   components' scoped recipes. Tokens only. */
+.mch-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mch-micro {
+  font-size: var(--fs-meta);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.mch-hint {
+  color: var(--color-faint);
+  font-size: var(--fs-meta);
+  margin: 0;
+}
+.mch-hint.mch-err {
+  color: var(--color-red);
+}
+.mch-hint.mch-warn {
+  color: var(--color-warn);
+}
+.mch-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  margin-top: 4px;
+}
+.mch-fld {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 220px;
+  min-width: 0;
+}
+.mch-lbl {
+  font-size: var(--fs-micro);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+.mch-txt {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--color-line-bright);
+  background: var(--color-inset);
+  color: var(--color-ink-bright);
+  font: inherit;
+  font-size: var(--fs-base);
+  padding: 6px 10px;
+  border-radius: 2px;
+  min-height: 36px;
+}
+.mch-txt:focus {
+  outline: none;
+  border-color: var(--color-amber);
+}
+.mch-txt:disabled {
+  opacity: 0.5;
+}
+.mch-run {
+  border: 1px solid var(--color-amber);
+  color: var(--color-amber);
+  background: transparent;
+  padding: 9px 14px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font: inherit;
+  font-size: var(--fs-meta);
+  cursor: pointer;
+}
+.mch-run:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.mch-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 4px 16px;
+  margin: 0;
+  font-size: var(--fs-meta);
+}
+.mch-facts dt {
+  color: var(--color-muted);
+}
+.mch-facts dd {
+  margin: 0;
+  color: var(--color-ink-bright);
+  overflow-wrap: anywhere;
+}
+.mch-mono {
+  font-family: var(--font-mono);
+}
+.mch-list {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.mch-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 12px 0;
+  border-top: 1px solid var(--color-line);
+}
+.mch-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 260px;
+}
+.mch-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mch-name {
+  color: var(--color-ink-bright);
+  font-size: var(--fs-base);
+  overflow-wrap: anywhere;
+}
+.mch-meta {
+  font-size: var(--fs-meta);
+  color: var(--color-faint);
+  overflow-wrap: anywhere;
+}
+.mch-badge {
+  display: inline-block;
+  border: 1px solid var(--color-line-bright);
+  color: var(--color-muted);
+  font-size: var(--fs-micro);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 0 5px;
+  border-radius: 2px;
+}
+.mch-badge.mch-ok {
+  border-color: var(--status-running);
+  color: var(--status-running);
+}
+.mch-badge.mch-warn {
+  border-color: var(--status-warn);
+  color: var(--status-warn);
+}
+.mch-badge.mch-bad {
+  border-color: var(--status-blocked);
+  color: var(--status-blocked);
+}
+.mch-projects summary {
+  cursor: pointer;
+  font-size: var(--fs-meta);
+  color: var(--color-ink);
+}
+.mch-projects ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-meta);
+  color: var(--color-muted);
+}
+.mch-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .mch-txt {
+    min-height: 44px;
+    font-size: var(--fs-lg);
+  }
+}

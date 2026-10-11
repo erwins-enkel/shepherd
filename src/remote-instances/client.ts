@@ -1,7 +1,7 @@
 /**
  * The one place a Shepherd talks HTTP to another Shepherd (issue #2759). Everything that reaches a
  * connected machine — today the connection probe, later session mirroring and hand-off — goes
- * through `getRemoteJson`, so the timeout, the redirect policy and the failure vocabulary live in
+ * through `getRemoteJson` here, so the timeout, the redirect policy and the failure vocabulary live in
  * exactly one spot.
  *
  * The bearer token is a credential for ANOTHER machine. It goes into the `Authorization` header
@@ -11,7 +11,7 @@
 import { FEDERATION_API_VERSION, INSTANCE_NAME_MAX, type InstanceIdentity } from "./identity";
 
 /** Per request. A probe makes three, so a dead machine costs at most ~15 s. */
-export const REMOTE_REQUEST_TIMEOUT_MS = 5_000;
+const REMOTE_REQUEST_TIMEOUT_MS = 5_000;
 
 export type ProbeFailure =
   | { status: "unreachable"; reason: "timeout" | "network" | "redirect" | "bad_response" }
@@ -34,7 +34,7 @@ export interface RemoteRequestOptions {
   timeoutMs?: number;
 }
 
-export type RemoteGetResult = { ok: true; body: unknown } | { ok: false; failure: ProbeFailure };
+type RemoteGetResult = { ok: true; body: unknown } | { ok: false; failure: ProbeFailure };
 
 const BAD_RESPONSE: ProbeFailure = { status: "unreachable", reason: "bad_response" };
 
@@ -56,8 +56,9 @@ function statusFailure(status: number): ProbeFailure {
   return BAD_RESPONSE;
 }
 
-/** Authenticated GET of `path` on a machine, parsed as JSON. Never throws. */
-export async function getRemoteJson(
+/** Authenticated GET of `path` on a machine, parsed as JSON. Never throws. Module-private until a
+ *  second caller (session mirroring, #2762) needs it. */
+async function getRemoteJson(
   target: RemoteTarget,
   path: string,
   opts: RemoteRequestOptions = {},

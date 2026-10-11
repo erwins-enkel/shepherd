@@ -19,7 +19,7 @@ import {
 } from "./identity";
 import { type FetchLike, type ProbeOutcome, isRecord, probeRemote } from "./client";
 
-export const REMOTE_PROBE_INTERVAL_MS = 60_000;
+const REMOTE_PROBE_INTERVAL_MS = 60_000;
 
 const TOKEN_RE = /^\S{1,1024}$/;
 

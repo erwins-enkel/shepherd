@@ -112,14 +112,16 @@
         <label class="mch-fld">
           <span class="mch-lbl">{m.settings_machines_name_label()}</span>
           <input
-            class="mch-txt"
+            class="pui-input"
             type="text"
             bind:value={nameDraft}
             maxlength="64"
             disabled={savingName}
           />
         </label>
-        <button type="submit" class="mch-run" disabled={savingName}>{m.common_save()}</button>
+        <button type="submit" class="set-gbtn mch-primary" disabled={savingName}
+          >{m.common_save()}</button
+        >
         <button
           type="button"
           class="set-gbtn"

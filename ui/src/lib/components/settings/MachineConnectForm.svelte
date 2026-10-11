@@ -55,7 +55,7 @@
     <label class="mch-fld">
       <span class="mch-lbl">{m.settings_machines_url_label()}</span>
       <input
-        class="mch-txt"
+        class="pui-input"
         type="url"
         bind:value={url}
         required
@@ -67,7 +67,7 @@
     <label class="mch-fld">
       <span class="mch-lbl">{m.settings_machines_token_label()}</span>
       <input
-        class="mch-txt"
+        class="pui-input"
         type="password"
         bind:value={token}
         required
@@ -78,11 +78,17 @@
     </label>
     <label class="mch-fld">
       <span class="mch-lbl">{m.settings_machines_label_label()}</span>
-      <input class="mch-txt" type="text" bind:value={label} maxlength="64" disabled={connecting} />
+      <input
+        class="pui-input"
+        type="text"
+        bind:value={label}
+        maxlength="64"
+        disabled={connecting}
+      />
     </label>
     <button
       type="submit"
-      class="mch-run"
+      class="set-gbtn mch-primary"
       disabled={connecting || url.trim() === "" || token.trim() === ""}
     >
       {connecting ? m.settings_machines_connecting() : m.settings_machines_connect_button()}

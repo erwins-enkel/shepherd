@@ -1321,6 +1321,9 @@ const CONNECT_ERROR_STATUS: Record<ConnectError, number> = {
   already_connected: 409,
 };
 
+const instanceOr404 = (instance: unknown) =>
+  instance ? json({ instance }) : json({ error: "not found" }, 404);
+
 async function connectRemoteInstance(req: Request, svc: RemoteInstanceService): Promise<Response> {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
@@ -1343,33 +1346,46 @@ async function patchRemoteInstance(
   if (ctErr) return ctErr;
   const parsed = parseLabelPatch(await req.json().catch(() => null));
   if ("error" in parsed) return json(parsed, 400);
-  const instance = svc.rename(id, parsed.label);
-  return instance ? json({ instance }) : json({ error: "not found" }, 404);
+  return instanceOr404(svc.rename(id, parsed.label));
+}
+
+type RemoteInstanceRoute = "list" | "connect" | "patch" | "delete" | "check";
+
+/** `METHOD shape` → route; anything else falls through to the dispatch tail's 404 rather than
+ *  answering 403 here, which would advertise the route group to an unauthenticated caller. */
+const REMOTE_INSTANCE_ROUTES: Record<string, RemoteInstanceRoute> = {
+  "GET ": "list",
+  "POST ": "connect",
+  "PATCH :id": "patch",
+  "DELETE :id": "delete",
+  "POST :id/check": "check",
+};
+
+function remoteInstanceRoute(method: string, parts: string[]): RemoteInstanceRoute | null {
+  if (parts[0] !== "api" || parts[1] !== "remote-instances" || parts[4]) return null;
+  const shape = parts[2] ? (parts[3] ? `:id/${parts[3]}` : ":id") : "";
+  return REMOTE_INSTANCE_ROUTES[`${method} ${shape}`] ?? null;
 }
 
 async function handleRemoteInstances({ req, parts, deps }: Ctx): Promise<Response | null> {
-  if (parts[0] !== "api" || parts[1] !== "remote-instances" || parts[4]) return null;
-  const [id, leaf] = [parts[2], parts[3]];
-  const method = req.method;
-  // Unmatched shapes fall through to the dispatch tail's 404 rather than answering 403 here.
-  const matched = !id
-    ? ["GET", "POST"].includes(method)
-    : leaf
-      ? leaf === "check" && method === "POST"
-      : ["PATCH", "DELETE"].includes(method);
-  if (!matched) return null;
+  const route = remoteInstanceRoute(req.method, parts);
+  if (!route) return null;
   const sessErr = requireOperatorSession(req);
   if (sessErr) return sessErr;
   const svc = remoteInstances(deps);
-  if (!id)
-    return method === "GET" ? json({ instances: svc.list() }) : connectRemoteInstance(req, svc);
-  if (leaf === "check") {
-    const instance = await svc.check(id);
-    return instance ? json({ instance }) : json({ error: "not found" }, 404);
+  const id = parts[2] ?? "";
+  switch (route) {
+    case "list":
+      return json({ instances: svc.list() });
+    case "connect":
+      return connectRemoteInstance(req, svc);
+    case "patch":
+      return patchRemoteInstance(req, svc, id);
+    case "delete":
+      return svc.remove(id) ? json({ ok: true }) : json({ error: "not found" }, 404);
+    case "check":
+      return instanceOr404(await svc.check(id));
   }
-  if (method === "DELETE")
-    return svc.remove(id) ? json({ ok: true }) : json({ error: "not found" }, 404);
-  return patchRemoteInstance(req, svc, id);
 }
 
 function handleGitSnapshot({ req, parts, deps, token }: Ctx): Response | null {

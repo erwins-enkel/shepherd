@@ -43,39 +43,19 @@
   text-transform: uppercase;
   color: var(--color-muted);
 }
-.mch-txt {
+/* Inputs use the global `.pui-input` field recipe (app.css); here they only fill their column. */
+.mch-fld .pui-input {
   width: 100%;
   box-sizing: border-box;
-  border: 1px solid var(--color-line-bright);
-  background: var(--color-inset);
-  color: var(--color-ink-bright);
-  font: inherit;
-  font-size: var(--fs-base);
-  padding: 6px 10px;
-  border-radius: 2px;
-  min-height: 36px;
 }
-.mch-txt:focus {
-  outline: none;
+.mch-fld .pui-input:disabled {
+  opacity: 0.5;
+}
+/* The one primary action per form: the settings ghost button (`.set-gbtn`), amber-edged. */
+.set-gbtn.mch-primary {
   border-color: var(--color-amber);
-}
-.mch-txt:disabled {
-  opacity: 0.5;
-}
-.mch-run {
-  border: 1px solid var(--color-amber);
   color: var(--color-amber);
-  background: transparent;
-  padding: 9px 14px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  font: inherit;
-  font-size: var(--fs-meta);
-  cursor: pointer;
-}
-.mch-run:disabled {
-  opacity: 0.5;
-  cursor: default;
+  padding: 6px 12px;
 }
 .mch-facts {
   display: grid;
@@ -175,7 +155,7 @@
 }
 
 @media (max-width: 768px) {
-  .mch-txt {
+  .mch-fld .pui-input {
     min-height: 44px;
     font-size: var(--fs-lg);
   }

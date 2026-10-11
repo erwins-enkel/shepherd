@@ -126,7 +126,7 @@
             >{m.settings_machines_label_aria({ name: machine.reportedName })}</span
           >
           <input
-            class="mch-txt"
+            class="pui-input"
             type="text"
             bind:value={labelDraft}
             maxlength="64"
@@ -134,7 +134,8 @@
             placeholder={machine.reportedName}
           />
         </label>
-        <button type="submit" class="mch-run" disabled={busy}>{m.common_save()}</button>
+        <button type="submit" class="set-gbtn mch-primary" disabled={busy}>{m.common_save()}</button
+        >
         <button type="button" class="set-gbtn" disabled={busy} onclick={() => (editing = false)}
           >{m.common_cancel()}</button
         >

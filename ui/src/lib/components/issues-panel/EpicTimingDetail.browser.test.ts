@@ -258,4 +258,21 @@ describe("EpicTimingDetail — phone width", () => {
     const root = document.documentElement;
     expect(root.scrollWidth).toBeLessThanOrEqual(root.clientWidth);
   });
+
+  it("keeps its sticky labels under the host's sticky run area", async () => {
+    await page.viewport(360, 740);
+    // Stands in for RunPanel's sticky z-index 2, earlier in the DOM like in IssueDetail.
+    const cover = document.createElement("div");
+    cover.style.cssText = "position: fixed; inset: 0; z-index: 2;";
+    document.body.prepend(cover);
+    try {
+      render(EpicTimingDetail, { epic: epic(), nowMs: NOW, slots: 1 });
+      await expect.element(page.getByText("Running for")).toBeInTheDocument();
+      const label = q('[data-row="#160"] .label')!;
+      const r = label.getBoundingClientRect();
+      expect(document.elementFromPoint(r.left + 4, r.top + r.height / 2)).toBe(cover);
+    } finally {
+      cover.remove();
+    }
+  });
 });

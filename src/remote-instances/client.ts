@@ -9,6 +9,7 @@
  * and nowhere else: nothing here logs, throws or returns it, and redirects are never followed
  * (`redirect: "manual"`), so the header cannot be replayed to wherever a 3xx points.
  */
+import { type CapabilitySnapshot, parseCapabilityReport } from "./capabilities";
 import { FEDERATION_API_VERSION, INSTANCE_NAME_MAX, type InstanceIdentity } from "./identity";
 
 /** Per request. A probe makes three, so a dead machine costs at most ~15 s. Also bounds how long
@@ -21,7 +22,14 @@ export type ProbeFailure =
   | { status: "incompatible"; reason: "api_missing" | "api_version" };
 
 export type ProbeOutcome =
-  { status: "connected"; info: InstanceIdentity; projects: string[] } | ProbeFailure;
+  | {
+      status: "connected";
+      info: InstanceIdentity;
+      projects: string[];
+      /** The machine's capability report re-based onto this clock; null when it sends none. */
+      capabilities: CapabilitySnapshot | null;
+    }
+  | ProbeFailure;
 
 export type FetchLike = (input: string, init: RequestInit) => Promise<Response>;
 
@@ -34,6 +42,8 @@ export interface RemoteTarget {
 export interface RemoteRequestOptions {
   fetch?: FetchLike;
   timeoutMs?: number;
+  /** This instance's clock, for re-basing the machine's capability report. */
+  now?: () => number;
 }
 
 type RemoteGetResult = { ok: true; body: unknown } | { ok: false; failure: ProbeFailure };
@@ -207,9 +217,15 @@ export async function probeRemote(
   if (info.federationApi !== FEDERATION_API_VERSION) {
     return { status: "incompatible", reason: "api_version" };
   }
+  // A missing or malformed report never fails the probe: the machine is reachable, its
+  // capabilities are just unknown (#2770).
+  const capabilities = parseCapabilityReport(
+    (instance.body as Record<string, unknown>).capabilities,
+    (opts.now ?? Date.now)(),
+  );
 
   const repos = await getRemoteJson(target, "/api/repos", opts);
   if (!repos.ok) return repos.failure;
   const projects = parseProjects(repos.body);
-  return projects ? { status: "connected", info, projects } : BAD_RESPONSE;
+  return projects ? { status: "connected", info, projects, capabilities } : BAD_RESPONSE;
 }

@@ -9,12 +9,14 @@ import type { RemoteInstance } from "#lib/types.js";
  * machine is connected, so without machines the dialog is exactly what it was.
  */
 
+/** Connected machines released for tasks: a Windows machine is listed in Settings but never
+ *  offered here (#2770), so with only such a machine connected the dialog stays unchanged. */
 export function connectedMachines(machines: readonly RemoteInstance[]): RemoteInstance[] {
-  return machines.filter((machine) => machine.status === "connected");
+  return machines.filter((machine) => machine.status === "connected" && machine.released);
 }
 
-/** The machines a task for this project can start on: connected, with the project (its forge slug)
- *  checked out. A repo without a slug cannot be matched on another machine. */
+/** The machines a task for this project can start on: connected and released, with the project
+ *  (its forge slug) checked out. A repo without a slug cannot be matched on another machine. */
 export function runOnMachines(
   machines: readonly RemoteInstance[],
   slug: string | undefined,
@@ -88,6 +90,8 @@ export function runOnFailureMessage(err: unknown, machine: string): string | nul
       return m.newtask_runon_rejected({ machine, reason: err.message });
     case "remote_target_unavailable":
       return m.newtask_runon_unavailable({ machine });
+    case "remote_target_unreleased":
+      return m.newtask_runon_unreleased({ machine });
     case "remote_project_missing":
       return m.newtask_runon_project_missing({ machine });
     case "remote_target_unknown":

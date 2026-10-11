@@ -408,6 +408,7 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
   "Device pairing": ["/api/pairing-codes"],
   "settings, plugin + update actions": [
     "/api/access-tokens/:p",
+    "/api/instance/capabilities",
     "/api/remote-instances/:p",
     "/api/remote-instances/:p/check",
     "/api/push/devices/:p",

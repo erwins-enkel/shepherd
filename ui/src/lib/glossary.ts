@@ -297,6 +297,14 @@ const glossary: readonly GlossaryTerm[] = [
     termKey: "gloss_machine_term",
     bodyKey: "gloss_machine_def",
   },
+  {
+    // Internal: a capability a Shepherd verified under its own service user (#2770), the
+    // vocabulary its machine choice is built on — not a capability in the generic sense.
+    id: "capability",
+    kind: "internal",
+    termKey: "gloss_capability_term",
+    bodyKey: "gloss_capability_def",
+  },
 ];
 
 export const glossaryById = new Map<string, GlossaryTerm>(glossary.map((term) => [term.id, term]));

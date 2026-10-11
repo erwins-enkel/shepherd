@@ -23,6 +23,8 @@ function machine(over: Partial<RemoteInstanceSummary> = {}): RemoteInstanceSumma
     lastSeenAt: 1,
     info: { version: "2.2.0", federationApi: 1, platform: "macos", arch: "arm64" },
     projects: [],
+    capabilities: null,
+    released: true,
     ...over,
   };
 }

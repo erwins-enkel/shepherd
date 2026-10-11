@@ -295,6 +295,21 @@ once its machine no longer reports it. A new task can be started on a machine th
 has its project checked out — **Run on** in the New Task dialog — and then the whole
 session runs there, from the branch as pushed to origin.
 
+### Capability
+
+Something a Shepherd has verified it can run, checked as the user it runs as
+rather than inferred from its platform: its platform (`platform:linux`,
+`platform:macos`, `platform:windows`), Xcode and its SDKs and simulator, the
+Android SDK, the agent CLIs it has installed **and** logged in (`agent:claude`,
+`agent:codex`) and the sandbox profiles it can enforce (`sandbox:trusted`,
+`sandbox:standard`, `sandbox:autonomous`). Each Shepherd checks every 5 minutes
+and on demand, and serves the result with its age on `GET /api/instance`;
+**Settings → Machines** shows it per [machine](#machine) and marks a check older
+than 15 minutes as stale. A task created with `requirements` is checked again by
+the receiving Shepherd when it accepts the task, and refused with each missing
+capability named — stale information never starts a task. Windows machines are
+listed but not released for tasks until platform compatibility is proven.
+
 ## Industry terms
 
 ### PR

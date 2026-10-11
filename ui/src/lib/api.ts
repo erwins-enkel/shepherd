@@ -928,6 +928,13 @@ export async function renameInstance(name: string | null): Promise<InstanceIdent
   return r.json();
 }
 
+/** Re-probe this Shepherd's capabilities now (#2770); answers the identity with the fresh report. */
+export async function checkInstanceCapabilities(): Promise<InstanceIdentity> {
+  const r = await fetch("/api/instance/capabilities", { method: "POST" });
+  if (!r.ok) throw await failed(r, "check capabilities");
+  return r.json();
+}
+
 export const listRemoteInstances = (): Promise<{ instances: RemoteInstance[] }> =>
   getJson("/api/remote-instances", "machines");
 

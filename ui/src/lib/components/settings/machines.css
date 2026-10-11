@@ -148,6 +148,28 @@
   font-size: var(--fs-meta);
   color: var(--color-muted);
 }
+/* Verified capabilities (#2770): a check line, chips for what is available, a missing line. */
+.mch-caps {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 4px;
+}
+.mch-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.mch-chip {
+  border: 1px solid var(--color-line-bright);
+  border-radius: 2px;
+  padding: 0 5px;
+  font-size: var(--fs-micro);
+  color: var(--color-ink);
+}
 .mch-actions {
   display: flex;
   gap: 8px;

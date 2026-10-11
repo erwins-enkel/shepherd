@@ -119,7 +119,7 @@ import {
   parseLabelPatch,
   type ConnectError,
 } from "./remote-instances/service";
-import type { RemoteSessionMirror } from "./remote-instances/sessions";
+import type { RemoteSessionMirror, RemoteTerminal } from "./remote-instances/sessions";
 import { scopeAllows } from "./token-scopes";
 import { resolvePlanAnswers, planAnswerSteerText, type RawAnswer } from "./plan-gate";
 import { slugifyManual } from "./namer";
@@ -411,8 +411,12 @@ export interface AppDeps {
    *  injects the started singleton that runs the periodic probe. */
   remoteInstances?: RemoteInstanceService;
   /** Sessions mirrored from connected machines (#2762) — read-only references held apart from
-   *  `store`. Absent ⇒ `GET /api/sessions` and `/events` carry local sessions only. */
-  remoteSessions?: Pick<RemoteSessionMirror, "list" | "subscribe">;
+   *  `store` — and their terminals, bridged to the machine at `/pty/:id` (#2764). Absent ⇒
+   *  `GET /api/sessions`, `/events` and `/pty/:id` carry local sessions only. */
+  remoteSessions?: Pick<
+    RemoteSessionMirror,
+    "list" | "subscribe" | "has" | "terminalOwners" | "openTerminal"
+  >;
   /** Locates a Codex session's rollout for the transcript reads (issue #1992), with the TTL cache
    *  + miss backoff that keeps the Activity tab's 5s poll off the `$CODEX_HOME` tree. Optional for
    *  the same reason as the two above — the `codexTranscripts(deps)` accessor lazily builds one. */
@@ -10034,6 +10038,16 @@ type WsData = (
       pendingInput?: string[];
       awaitingFirstFrame?: boolean;
     }
+  | {
+      /** The terminal of a session mirrored from a connected machine (#2764), bridged there. The
+       *  machine owns attach and takeover, so none of the local terminal maps ever see it. */
+      kind: "remote-pty";
+      client: ReturnType<typeof parseTerminalClient>;
+      id: string;
+      cols: number;
+      rows: number;
+      terminal?: RemoteTerminal;
+    }
 ) & {
   tokenId?: string;
   authUnsub?: () => void;
@@ -10208,14 +10222,20 @@ export function serve(deps: AppDeps, port: number) {
       ),
     ),
   });
+  // A dashboard also sees who holds the terminals of mirrored sessions, as their machines report
+  // it (#2764). A peer's `?host=local` socket gets this instance's own owners only, so two machines
+  // connected to each other never pass owners back and forth; `tokenMap` drops the remote ids for a
+  // repository-restricted token, since they name no local session.
   const sendTerminalOwners = (ws: ServerWebSocket<WsData>) => {
     if (!socketAuthorized(ws)) return;
     const token = ws.data.tokenId ? accessTokens(deps).current(ws.data.tokenId) : null;
+    const remote =
+      ws.data.kind === "events" && !ws.data.localOnly ? deps.remoteSessions?.terminalOwners() : {};
     ws.send(
       JSON.stringify({
         event: "terminal:owners",
         data: {
-          owners: tokenMap(token, deps, terminalOwners().owners),
+          owners: tokenMap(token, deps, { ...remote, ...terminalOwners().owners }),
         },
       }),
     );
@@ -10233,7 +10253,12 @@ export function serve(deps: AppDeps, port: number) {
     const allowed =
       token &&
       scopeAllows(token.scope, "GET", wsAuthPath(ws.data)) &&
-      (ws.data.kind === "events" || tokenSessionAllowed(token, deps, ws.data.id));
+      (ws.data.kind === "events" ||
+        // A mirrored session has no local repository to grant: like its listing, its terminal is
+        // for unrestricted tokens only.
+        (ws.data.kind === "remote-pty"
+          ? token.repoPaths === null
+          : tokenSessionAllowed(token, deps, ws.data.id)));
     if (!allowed) closeTokenSocket(ws);
     return !!allowed;
   }
@@ -10251,6 +10276,8 @@ export function serve(deps: AppDeps, port: number) {
   }
 
   function sendTokenEvent(ws: ServerWebSocket<WsData>, event: string, data: unknown): void {
+    // Local or a machine's (#2764): each socket gets the merged map its token and kind may see.
+    if (event === "terminal:owners") return sendTerminalOwners(ws);
     if (!socketAuthorized(ws)) return;
     const token = ws.data.tokenId ? accessTokens(deps).current(ws.data.tokenId) : null;
     if (token && token.repoPaths !== null) {
@@ -10259,10 +10286,7 @@ export function serve(deps: AppDeps, port: number) {
           count: deps.store.listHeldTasks().filter((h) => tokenRepoAllowed(token, h.input.repoPath))
             .length,
         };
-      else if (event === "terminal:owners") {
-        sendTerminalOwners(ws);
-        return;
-      } else if (!filterRepositoryEvent(event, data, (id) => tokenSessionAllowed(token, deps, id)))
+      else if (!filterRepositoryEvent(event, data, (id) => tokenSessionAllowed(token, deps, id)))
         return;
     }
     ws.send(JSON.stringify({ event, data }));
@@ -10288,7 +10312,6 @@ export function serve(deps: AppDeps, port: number) {
     id: string,
   ): Response | undefined {
     const s = deps.store.get(id);
-    if (!s) return new Response("no session", { status: 404 });
     // attach at the client's actual terminal size so the very first paint
     // matches; otherwise herdr renders the pane at the default 100×30 and the
     // view stays mis-sized until a follow-up resize forces a TUI repaint.
@@ -10296,6 +10319,13 @@ export function serve(deps: AppDeps, port: number) {
       url.searchParams.get("cols"),
       url.searchParams.get("rows"),
     );
+    // A session mirrored from a connected machine (#2764): its terminal is bridged there once the
+    // socket opens. Reached only past checkAuth's `full` scope gate and the repository boundary.
+    if (!s && deps.remoteSessions?.has(id)) {
+      const client = parseTerminalClient(url.searchParams);
+      return upgradeWith(req, server, { kind: "remote-pty", tokenId, id, cols, rows, client });
+    }
+    if (!s) return new Response("no session", { status: 404 });
     return upgradeWith(req, server, {
       kind: "pty",
       tokenId,
@@ -10466,6 +10496,20 @@ export function serve(deps: AppDeps, port: number) {
       sb.open(data.cols, data.rows);
     }
   }
+  // A mirrored session's terminal (#2764): bridged to its machine, which attaches it, enforces the
+  // single owner and reports gone — its close codes reach this socket unchanged. An unreachable
+  // machine closes it with PTY_MACHINE_UNREACHABLE_CODE; nothing is ever attached locally instead.
+  function openRemotePtySocket(ws: ServerWebSocket<WsData & { kind: "remote-pty" }>): void {
+    const { id, cols, rows, client } = ws.data;
+    const sink = {
+      send: (data: string | Uint8Array) => {
+        if (socketAuthorized(ws)) ws.send(data);
+      },
+      close: (code?: number, reason?: string) => ws.close(code, reason),
+    };
+    const attach = { cols, rows, clientKind: client.kind, clientPlatform: client.platform };
+    ws.data.terminal = deps.remoteSessions?.openTerminal(id, sink, attach);
+  }
   // Presence frame: the page reports focus+visibility so push delivery
   // can suppress OS banners while a window is actively in use.
   function onEventsMessage(ws: ServerWebSocket<WsData>, msg: string | Buffer): void {
@@ -10539,6 +10583,8 @@ export function serve(deps: AppDeps, port: number) {
           }
         } else if (ws.data.kind === "browser-view") {
           openBrowserViewSocket(ws as ServerWebSocket<WsData & { kind: "browser-view" }>);
+        } else if (ws.data.kind === "remote-pty") {
+          openRemotePtySocket(ws as ServerWebSocket<WsData & { kind: "remote-pty" }>);
         } else {
           openPtySocket(ws as ServerWebSocket<WsData & { kind: "pty" }>);
         }
@@ -10551,6 +10597,8 @@ export function serve(deps: AppDeps, port: number) {
             ws as ServerWebSocket<WsData & { kind: "browser-view" }>,
             msg,
           );
+        // Verbatim, text or binary: the machine's own pty handler reads the frame.
+        if (ws.data.kind === "remote-pty") return ws.data.terminal?.write(msg);
         markPtyEvent("in");
         const frame = typeof msg === "string" ? msg : msg.toString();
         // Stamp the operator-activity seam only for genuine keystrokes — the same
@@ -10571,6 +10619,8 @@ export function serve(deps: AppDeps, port: number) {
           // only drop ownership if still the owner (a newer view may have taken over)
           if (browserViewOwners.get(ws.data.id) === ws) browserViewOwners.delete(ws.data.id);
           ws.data.view?.close();
+        } else if (ws.data.kind === "remote-pty") {
+          ws.data.terminal?.close();
         } else {
           // only drop ownership if we're still the owner (a newer client may have
           // already claimed this terminal before our close fired)

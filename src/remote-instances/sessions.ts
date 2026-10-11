@@ -4,7 +4,7 @@
  * SessionStore, so `store.list()` — and with it every poller, reaper, autopilot, drain, critic and
  * plan-gate loop — never sees them; and their frames go out through this class's own listener set,
  * never through the server's EventHub, so no server-side subscriber reacts to them either. Only the
- * `/events` socket handler and `GET /api/sessions` read from here.
+ * `/events` socket handler, `GET /api/sessions` and the `/pty/:id` bridge (#2764) read from here.
  *
  * Per machine: open `/events?host=local` with the stored token, then take a snapshot of
  * `GET /api/sessions?host=local` and replay the frames that arrived while it was in flight.
@@ -18,12 +18,24 @@
  * connection error is not an end. Reconnecting always goes through a probe first, so a URL that
  * now answers as a different instance can never be mirrored under this one's ID.
  *
- * The token goes into the `Authorization` header of the socket upgrade and the snapshot request,
+ * Terminals (#2764): `openTerminal` bridges a caller's `/pty/:id` socket to the session's machine
+ * (`terminal.ts`), but only while that machine's link is live — a reference shown as disconnected
+ * has no terminal, and a link that drops or a machine that is removed ends its open terminals. The
+ * machine's own `terminal:owners` frames ride the same `/events` socket and are relayed, so a
+ * parked client here names the device that took the terminal over, wherever it is.
+ *
+ * The token goes into the `Authorization` header of the socket upgrades and the snapshot request,
  * and nowhere else: not into a URL, a frame or a log line.
  */
 import type { SessionStore } from "../store";
 import { type FetchLike, getRemoteJson, isRecord } from "./client";
 import type { RemoteInstanceService, RemoteInstanceSummary } from "./service";
+import {
+  type OpenTerminalSocket,
+  RemoteTerminalBridge,
+  type TerminalAttach,
+  type TerminalSink,
+} from "./terminal";
 
 /** Backoff for re-probing a machine whose socket dropped; the regular 60 s round takes over after. */
 const RECHECK_DELAYS_MS = [2_000, 5_000, 15_000, 30_000];
@@ -44,6 +56,15 @@ export interface SessionConnection {
 }
 
 export type MirroredSession = RemoteRow & { host: SessionHost; connection: SessionConnection };
+
+/** Who holds a session's terminal on its machine, as that machine reports it. */
+export interface TerminalClient {
+  kind: string;
+  platform: string;
+}
+
+/** A bridged terminal, as the `/pty/:id` socket handler drives it. */
+export type RemoteTerminal = Pick<RemoteTerminalBridge, "write" | "close">;
 
 type Listener = (event: string, data: unknown) => void;
 
@@ -75,6 +96,10 @@ interface Link {
   open: boolean;
   /** Frames received while a snapshot request is in flight, replayed on top of it. */
   buffer: [string, RemoteRow][] | null;
+  /** The machine's current terminal owners; empty while the socket is not live. */
+  owners: Record<string, TerminalClient>;
+  /** Terminals bridged to this machine right now. */
+  terminals: Set<RemoteTerminalBridge>;
   attempt: number;
   retry: ReturnType<typeof setTimeout> | null;
 }
@@ -105,7 +130,7 @@ function parseSnapshot(body: unknown): RemoteRow[] | null {
   });
 }
 
-function parseFrame(raw: unknown): { event: string; data: RemoteRow } | null {
+function parseFrame(raw: unknown): { event: string; data: unknown } | null {
   if (typeof raw !== "string") return null;
   let frame: unknown;
   try {
@@ -113,11 +138,20 @@ function parseFrame(raw: unknown): { event: string; data: RemoteRow } | null {
   } catch {
     return null;
   }
-  if (!isRecord(frame) || typeof frame.event !== "string" || !frame.event.startsWith("session:")) {
-    return null;
+  return isRecord(frame) && typeof frame.event === "string"
+    ? { event: frame.event, data: frame.data }
+    : null;
+}
+
+/** A `terminal:owners` payload: session ID → client. Only string kind/platform pass through. */
+function parseOwners(data: unknown): Record<string, TerminalClient> {
+  if (!isRecord(data) || !isRecord(data.owners)) return {};
+  const owners: Record<string, TerminalClient> = {};
+  for (const [id, client] of Object.entries(data.owners)) {
+    if (isRecord(client) && typeof client.kind === "string" && typeof client.platform === "string")
+      owners[id] = { kind: client.kind, platform: client.platform };
   }
-  const data = asRow(frame.data);
-  return data ? { event: frame.event, data } : null;
+  return owners;
 }
 
 /** Display names that are unique across machines: a name two machines share gets the first four
@@ -142,6 +176,7 @@ export class RemoteSessionMirror {
   private readonly instances: Instances;
   private readonly fetch: FetchLike | undefined;
   private readonly openSocket: OpenSocket;
+  private readonly openTerminalSocket: OpenTerminalSocket | undefined;
   private readonly now: () => number;
   private readonly recheckDelays: number[];
 
@@ -150,6 +185,7 @@ export class RemoteSessionMirror {
     instances: Instances;
     fetch?: FetchLike;
     openSocket?: OpenSocket;
+    openTerminalSocket?: OpenTerminalSocket;
     now?: () => number;
     recheckDelaysMs?: number[];
   }) {
@@ -157,6 +193,7 @@ export class RemoteSessionMirror {
     this.instances = deps.instances;
     this.fetch = deps.fetch;
     this.openSocket = deps.openSocket ?? openWebSocket;
+    this.openTerminalSocket = deps.openTerminalSocket;
     this.now = deps.now ?? Date.now;
     this.recheckDelays = deps.recheckDelaysMs ?? RECHECK_DELAYS_MS;
   }
@@ -166,10 +203,38 @@ export class RemoteSessionMirror {
     return [...this.links.values()].flatMap((link) => this.refs(link));
   }
 
-  /** Receives relayed `session:*` frames (annotated) and `remote:sessions` replacements. */
+  /** Receives relayed `session:*` frames (annotated), `remote:sessions` replacements and
+   *  `terminal:owners` (the machines' merged owners) whenever a machine's owners change. */
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** True when `sessionId` is a mirrored session (connected or not). */
+  has(sessionId: string): boolean {
+    return this.linkOf(sessionId) !== undefined;
+  }
+
+  /** Every live machine's terminal owners, by session ID (session IDs are global UUIDs). */
+  terminalOwners(): Record<string, TerminalClient> {
+    return Object.assign({}, ...[...this.links.values()].map((link) => link.owners));
+  }
+
+  /**
+   * Bridge a caller's `/pty/:id` socket to the session's machine. Only a live link has a target:
+   * otherwise (unknown session, machine disconnected) the caller is closed as unreachable at once.
+   */
+  openTerminal(sessionId: string, sink: TerminalSink, attach: TerminalAttach): RemoteTerminal {
+    const link = this.linkOf(sessionId);
+    const row = link?.open ? this.store.getRemoteInstance(link.instanceId) : null;
+    const bridge: RemoteTerminalBridge = new RemoteTerminalBridge(row, sessionId, sink, attach, {
+      openSocket: this.openTerminalSocket,
+      onDone: () => link?.terminals.delete(bridge),
+    });
+    // Tracked before open: a bridge without a target ends inside open() and untracks itself.
+    link?.terminals.add(bridge);
+    bridge.open();
+    return bridge;
   }
 
   /** Follow a machine's current state — called after each of its probes, renames and removal. */
@@ -200,6 +265,8 @@ export class RemoteSessionMirror {
         buffer: null,
         attempt: 0,
         retry: null,
+        owners: {},
+        terminals: new Set(),
       };
       this.links.set(machine.instanceId, link);
     }
@@ -276,9 +343,16 @@ export class RemoteSessionMirror {
   private receive(link: Link, raw: unknown): void {
     const frame = parseFrame(raw);
     if (!frame) return;
-    if (link.buffer) link.buffer.push([frame.event, frame.data]);
-    else this.patch(link, frame.event, frame.data);
-    this.emit(frame.event, this.annotate(link, frame.data));
+    if (frame.event === "terminal:owners") {
+      // Always the machine's full current map, so it never needs the snapshot buffer.
+      link.owners = parseOwners(frame.data);
+      return this.emitOwners();
+    }
+    const data = frame.event.startsWith("session:") ? asRow(frame.data) : null;
+    if (!data) return;
+    if (link.buffer) link.buffer.push([frame.event, data]);
+    else this.patch(link, frame.event, data);
+    this.emit(frame.event, this.annotate(link, data));
   }
 
   /** Keep the held copy current for what `GET /api/sessions` serves. Other frames only relay; the
@@ -300,11 +374,20 @@ export class RemoteSessionMirror {
     link.socket = null;
     link.open = false;
     socket?.close();
+    this.endTerminals(link);
     if (link.connection?.state === "connected") {
       link.connection = { state: "disconnected", since: this.now() };
       this.publish(link);
     }
     this.scheduleRecheck(link);
+  }
+
+  /** A machine that is no longer live has no terminals here and no known owners. */
+  private endTerminals(link: Link, announce = true): void {
+    for (const terminal of [...link.terminals]) terminal.abort();
+    if (Object.keys(link.owners).length === 0) return;
+    link.owners = {};
+    if (announce) this.emitOwners();
   }
 
   private scheduleRecheck(link: Link): void {
@@ -327,7 +410,16 @@ export class RemoteSessionMirror {
     link.socketToken = null;
     link.socket = null;
     socket?.close();
+    this.endTerminals(link, announce);
     if (announce) this.emit("remote:sessions", { instanceId, sessions: [] });
+  }
+
+  private linkOf(sessionId: string): Link | undefined {
+    return [...this.links.values()].find((link) => link.sessions.has(sessionId));
+  }
+
+  private emitOwners(): void {
+    this.emit("terminal:owners", { owners: this.terminalOwners() });
   }
 
   private publish(link: Link): void {

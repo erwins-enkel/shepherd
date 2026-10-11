@@ -121,13 +121,22 @@ import {
   parseLabelPatch,
   type ConnectError,
 } from "./remote-instances/service";
-import type { RemoteSessionMirror, RemoteTerminal } from "./remote-instances/sessions";
+import type {
+  MachineRoute,
+  RemoteSessionMirror,
+  RemoteTerminal,
+} from "./remote-instances/sessions";
 import {
   RemoteDispatcher,
   type RemoteOutcome,
   type RemoteRefusalCode,
 } from "./remote-instances/dispatch";
 import { isRecord } from "./remote-instances/client";
+import {
+  clearMergedAcross,
+  clearMergedSummaryAcross,
+  forwardSessionRequest,
+} from "./remote-instances/forward";
 import { scopeAllows } from "./token-scopes";
 import { resolvePlanAnswers, planAnswerSteerText, type RawAnswer } from "./plan-gate";
 import { slugifyManual } from "./namer";
@@ -419,11 +428,12 @@ export interface AppDeps {
    *  injects the started singleton that runs the periodic probe. */
   remoteInstances?: RemoteInstanceService;
   /** Sessions mirrored from connected machines (#2762) — read-only references held apart from
-   *  `store` — and their terminals, bridged to the machine at `/pty/:id` (#2764). Absent ⇒
-   *  `GET /api/sessions`, `/events` and `/pty/:id` carry local sessions only. */
+   *  `store` — their terminals, bridged to the machine at `/pty/:id` (#2764), and the routes their
+   *  forwarded actions take (#2765). Absent ⇒ `GET /api/sessions`, `/events`, `/pty/:id` and the
+   *  session routes carry local sessions only. */
   remoteSessions?: Pick<
     RemoteSessionMirror,
-    "list" | "subscribe" | "has" | "terminalOwners" | "openTerminal"
+    "list" | "subscribe" | "has" | "terminalOwners" | "openTerminal" | "route" | "machines"
   >;
   /** Sends new tasks to connected machines (#2763). Same memo-slot contract as
    *  `remoteInstances`: the `remoteDispatcher(deps)` accessor lazily builds one over it. */
@@ -1105,7 +1115,15 @@ function requireJsonContentType(req: Request): Response | null {
 // return `null` (not a 404) for sub-routes it doesn't own so a later handler
 // can claim them.
 
-type Ctx = { req: Request; parts: string[]; url: URL; deps: AppDeps; token?: VerifiedToken | null };
+type Ctx = {
+  req: Request;
+  parts: string[];
+  url: URL;
+  deps: AppDeps;
+  token?: VerifiedToken | null;
+  /** The request came through the loopback agent ingress (`makeAgentIngressApp`), not the gate. */
+  agentIngress?: boolean;
+};
 
 /** A token cannot promote a path, body or an unrelated id into repository authority. */
 function tokenRepoAllowed(token: VerifiedToken | null | undefined, path: string): boolean {
@@ -1500,6 +1518,35 @@ function handleBackgroundBusySnapshot({ req, parts, deps }: Ctx): Response | nul
     return json(deps.backgroundBusy?.snapshot() ?? {});
   }
   return null;
+}
+
+/**
+ * `/api/sessions/:id…` for a session mirrored from a connected machine (#2765): forwarded to that
+ * machine (allowlisted routes) or refused with an explanation (all others) — never run here. Reached
+ * only past `checkAuth` (scope) and `requestBoundaryError` (origin, repository boundary), so the
+ * caller's reach is exactly what it is for a local session. A local session with the same id wins.
+ */
+async function handleRemoteSessionRoute({
+  req,
+  parts,
+  url,
+  deps,
+  token,
+  agentIngress,
+}: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "sessions" || !parts[2]) return null;
+  if (!deps.remoteSessions?.has(parts[2]) || deps.store.get(parts[2])) return null;
+  // An agent acts on its own session, which is never another machine's; and a repository grant
+  // names local paths only, so a restricted token reaches no mirrored session (as in its listing).
+  if (agentIngress || (token && token.repoPaths !== null)) return json({ error: "not found" }, 404);
+  const route = deps.remoteSessions.route(parts[2]);
+  if (!route) {
+    return json(
+      { error: "more than one connected machine reports this session", code: "remote_ambiguous" },
+      409,
+    );
+  }
+  return forwardSessionRequest(req, url, parts, route);
 }
 
 // POST /api/revive-stranded → operator-initiated "revive all": force-resume every currently-stranded
@@ -3507,8 +3554,12 @@ async function handleSessionSteerLog({ req, parts, deps }: Ctx): Promise<Respons
  * restricted to repositories, whose grants name local paths only.
  */
 function mirroredSessions(url: URL, deps: AppDeps, token: VerifiedToken | null | undefined) {
-  if (url.searchParams.get("host") === "local" || (token && token.repoPaths !== null)) return [];
-  return deps.remoteSessions?.list() ?? [];
+  return reachesMachines(url, token) ? (deps.remoteSessions?.list() ?? []) : [];
+}
+
+/** Whether a request reaches the sessions of connected machines — see `mirroredSessions`. */
+function reachesMachines(url: URL, token: VerifiedToken | null | undefined): boolean {
+  return url.searchParams.get("host") !== "local" && (!token || token.repoPaths === null);
 }
 
 /** `GET /api/sessions`: the active local sessions the caller may see, then mirrored ones. */
@@ -3735,34 +3786,70 @@ function mergedSessionIds(deps: AppDeps): string[] {
 //     before the generic :id handlers so the literal "clear-merged" segment is never
 //     mistaken for a session id — including a 405 on DELETE/PUT so it can't fall
 //     through to handleSessionDelete and emit a spurious archived event.
-async function handleSessionsClearMerged({ req, parts, deps }: Ctx): Promise<Response | null> {
+// Across machines (#2765): both verbs also ask every connected machine for its own part
+// (`?host=local` there, so mutually connected machines never loop) and answer `machines` — one
+// outcome per machine. GET's ids include the reachable machines' merged sessions; POST hands each
+// machine the requested ids that are its sessions (all of its merged set when `ids` is absent),
+// and `partial` is true when a machine gave no usable answer.
+async function handleSessionsClearMerged({
+  req,
+  parts,
+  url,
+  deps,
+  token,
+}: Ctx): Promise<Response | null> {
   if (parts[2] !== "clear-merged" || parts[3]) return null;
   const merged = new Set(mergedSessionIds(deps));
+  const machines = reachesMachines(url, token) ? (deps.remoteSessions?.machines() ?? []) : [];
   if (req.method === "GET") {
     const ids = [...merged];
     const leftoversById = Object.fromEntries(
       ids.map((id) => [id, deps.service.leftovers(id).length]),
     );
     const leftovers = ids.reduce((n, id) => n + leftoversById[id]!, 0);
-    return json({
-      ids,
-      leftovers,
-      leftoversById,
-      probesUnavailable: deps.service.leftoverProbesUnavailable(),
-    });
+    const probesUnavailable = deps.service.leftoverProbesUnavailable();
+    return json(
+      await clearMergedSummaryAcross(
+        { ids, leftovers, leftoversById, probesUnavailable },
+        machines,
+      ),
+    );
   }
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
   const body = (await req.json().catch(() => null)) as { ids?: unknown } | null;
-  const requested = Array.isArray(body?.ids)
+  const explicit = Array.isArray(body?.ids)
     ? (body!.ids as unknown[]).filter((x): x is string => typeof x === "string")
-    : [...merged];
+    : null;
+  const requested = explicit ?? [...merged];
   const target = requested.filter((id) => merged.has(id)); // merged-only, no matter what was sent
   const { cleared, leftovers } = await deps.service.archiveMany(target, "merged");
   for (const id of cleared) {
     deps.prCache?.drop(id);
     deps.events.emit("session:archived", { id });
   }
-  return json({ cleared, leftovers });
+  // `machines` is empty when this request may not reach them (`?host=local`, a restricted token):
+  // then no id is handed to a machine either.
+  const groups =
+    explicit === null
+      ? machines.map((route) => ({ route, ids: null }))
+      : machines.length > 0
+        ? idsByMachine(explicit, deps)
+        : [];
+  return json(await clearMergedAcross({ cleared, leftovers }, groups));
+}
+
+/** The ids that name a session mirrored from a machine, grouped per machine. A local session
+ *  with the same id wins, as on every session route. */
+function idsByMachine(ids: string[], deps: AppDeps): { route: MachineRoute; ids: string[] }[] {
+  const groups = new Map<string, { route: MachineRoute; ids: string[] }>();
+  for (const id of ids) {
+    const route = deps.store.get(id) ? null : deps.remoteSessions?.route(id);
+    if (!route) continue;
+    const group = groups.get(route.host.instanceId);
+    if (group) group.ids.push(id);
+    else groups.set(route.host.instanceId, { route, ids: [id] });
+  }
+  return [...groups.values()];
 }
 
 // DELETE /api/sessions/:id — archive. An optional `{reap: string[]}` body lists the
@@ -9893,6 +9980,9 @@ const ROUTE_HANDLERS = [
   handleAccessTokens,
   handleInstance,
   handleRemoteInstances,
+  // Before every handler that matches `/api/sessions/:id…`: a mirrored session's id must never
+  // reach a local handler, which would act on a session this instance does not have (#2765).
+  handleRemoteSessionRoute,
   handlePing,
   handleHealth,
   handleTerminalTransport,
@@ -10030,7 +10120,7 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
 
       const url = new URL(req.url);
       const parts = url.pathname.split("/").filter(Boolean); // ["api","sessions",":id"]
-      const ctx: Ctx = { req, parts, url, deps, token };
+      const ctx: Ctx = { req, parts, url, deps, token, agentIngress: !!opts.skipAuth };
       const boundaryErr = requestBoundaryError(ctx);
       if (boundaryErr) return boundaryErr;
 

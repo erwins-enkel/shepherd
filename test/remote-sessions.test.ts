@@ -417,6 +417,49 @@ describe("terminals of mirrored sessions (#2764)", () => {
   });
 });
 
+describe("routes of mirrored sessions (#2765)", () => {
+  const host = { instanceId: B, name: "MacBook", platform: "macos" };
+  const target = { url: "http://b.test:7777", token: TOKEN };
+
+  test("a mirrored session routes to its live machine; an unknown one has no route", async () => {
+    const t = setup();
+    expect(t.mirror.machines()).toEqual([]); // never synced: nothing to reach
+    await t.live();
+    expect(t.mirror.route("s1")).toEqual({ host, target });
+    expect(t.mirror.route("nope")).toBeNull();
+    expect(t.mirror.machines()).toEqual([{ host, target }]);
+  });
+
+  test("a disconnected machine keeps its route but without a target", async () => {
+    const t = setup();
+    const socket = await t.live();
+    socket.on.close();
+    expect(t.mirror.route("s2")).toEqual({ host, target: null });
+    expect(t.mirror.machines()).toEqual([{ host, target: null }]);
+  });
+
+  test("a session two machines both report routes nowhere", async () => {
+    const t = setup();
+    t.state.machines = [machine(), machine({ instanceId: C, name: "Studio" })];
+    t.state.rows.set(C, row({ instanceId: C, url: "http://c.test:7777" }));
+    await t.live();
+    t.mirror.sync(C);
+    t.sockets.at(-1)!.on.open();
+    await flush();
+    expect(t.mirror.has("s1")).toBe(true);
+    expect(t.mirror.route("s1")).toBeNull();
+  });
+
+  test("a removed machine routes nothing", async () => {
+    const t = setup();
+    await t.live();
+    t.state.machines = [];
+    t.mirror.sync(B);
+    expect(t.mirror.route("s1")).toBeNull();
+    expect(t.mirror.machines()).toEqual([]);
+  });
+});
+
 describe("hostNames", () => {
   test("names stay as they are unless two machines share one", () => {
     expect(

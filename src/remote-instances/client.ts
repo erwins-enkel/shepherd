@@ -1,11 +1,11 @@
 /**
  * The one place a Shepherd talks HTTP to another Shepherd (issue #2759). Everything that reaches a
  * connected machine — the connection probe, the session mirror's snapshot (#2762), the hand-off of
- * a new task (#2763) and its attachments (#2766) — goes through `getRemoteJson` /
- * `postRemoteJson` / `postRemoteFile` here, so the timeout, the redirect policy and the failure
- * vocabulary live in exactly one spot. (The mirror's live `/events` socket is the one non-HTTP
- * channel; it lives in `sessions.ts` and carries the token the same way: only in the
- * `Authorization` header.)
+ * a new task (#2763) and its attachments (#2766), the forwarded session actions (#2765) — goes
+ * through `getRemoteJson` / `postRemoteJson` / `postRemoteFile` / `requestRemote` here, so the
+ * timeout, the redirect policy and the failure vocabulary live in exactly one spot. (The mirror's
+ * live `/events` socket is the one non-HTTP channel; it lives in `sessions.ts` and carries the
+ * token the same way: only in the `Authorization` header.)
  *
  * The bearer token is a credential for ANOTHER machine. It goes into the `Authorization` header
  * and nowhere else: nothing here logs, throws or returns it, and redirects are never followed
@@ -101,6 +101,49 @@ export async function getRemoteJson(
   } catch {
     return { ok: false, failure: BAD_RESPONSE };
   }
+}
+
+type RemoteRequestResult = { ok: true; response: Response } | { ok: false; failure: ProbeFailure };
+
+/**
+ * Authenticated request of `path` on a machine with the response left unread, so a forwarded
+ * answer (#2765) streams through — a download included. The timeout covers the wait for the
+ * response headers only. Never throws.
+ *
+ * A redirect, 401 and 403 come back as failures, never as a response: this server always holds a
+ * full, unrestricted token, so either status means that token lost its reach on the machine —
+ * and a 401 handed to a caller here would read as the caller's own login having expired.
+ */
+export async function requestRemote(
+  target: RemoteTarget,
+  path: string,
+  init: { method: string; headers?: Record<string, string>; body?: ArrayBuffer | string },
+  opts: RemoteRequestOptions = {},
+): Promise<RemoteRequestResult> {
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), opts.timeoutMs ?? REMOTE_REQUEST_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await (opts.fetch ?? defaultFetch)(`${target.url}${path}`, {
+      method: init.method,
+      headers: { ...init.headers, authorization: `Bearer ${target.token}` },
+      body: init.body,
+      redirect: "manual",
+      signal: abort.signal,
+    });
+  } catch {
+    return {
+      ok: false,
+      failure: { status: "unreachable", reason: abort.signal.aborted ? "timeout" : "network" },
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+  if ((res.status >= 300 && res.status < 400) || res.status === 401 || res.status === 403) {
+    await res.body?.cancel().catch(() => {});
+    return { ok: false, failure: statusFailure(res.status) };
+  }
+  return { ok: true, response: res };
 }
 
 /**

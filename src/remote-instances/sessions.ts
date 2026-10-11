@@ -4,7 +4,8 @@
  * SessionStore, so `store.list()` — and with it every poller, reaper, autopilot, drain, critic and
  * plan-gate loop — never sees them; and their frames go out through this class's own listener set,
  * never through the server's EventHub, so no server-side subscriber reacts to them either. Only the
- * `/events` socket handler, `GET /api/sessions` and the `/pty/:id` bridge (#2764) read from here.
+ * `/events` socket handler, `GET /api/sessions`, the `/pty/:id` bridge (#2764) and the forwarded
+ * session actions (`route`/`machines`, #2765 — see `forward.ts`) read from here.
  *
  * Per machine: open `/events?host=local` with the stored token, then take a snapshot of
  * `GET /api/sessions?host=local` and replay the frames that arrived while it was in flight.
@@ -28,7 +29,7 @@
  * and nowhere else: not into a URL, a frame or a log line.
  */
 import type { SessionStore } from "../store";
-import { type FetchLike, getRemoteJson, isRecord } from "./client";
+import { type FetchLike, getRemoteJson, isRecord, type RemoteTarget } from "./client";
 import type { RemoteInstanceService, RemoteInstanceSummary } from "./service";
 import {
   type OpenTerminalSocket,
@@ -61,6 +62,12 @@ export type MirroredSession = RemoteRow & { host: SessionHost; connection: Sessi
 export interface TerminalClient {
   kind: string;
   platform: string;
+}
+
+/** A machine, and where to reach it while its link is live (`target` null otherwise). */
+export interface MachineRoute {
+  host: SessionHost;
+  target: RemoteTarget | null;
 }
 
 /** A bridged terminal, as the `/pty/:id` socket handler drives it. */
@@ -213,6 +220,22 @@ export class RemoteSessionMirror {
   /** True when `sessionId` is a mirrored session (connected or not). */
   has(sessionId: string): boolean {
     return this.linkOf(sessionId) !== undefined;
+  }
+
+  /**
+   * Where an action on a mirrored session goes (#2765): its machine, and the machine's address and
+   * token while the link is live. `target` is null while the machine is disconnected — nothing is
+   * sent then. Null for a session no machine reports — and for one that more than one machine
+   * reports (a cloned or misbehaving machine), so an action never lands on the wrong one.
+   */
+  route(sessionId: string): MachineRoute | null {
+    const links = [...this.links.values()].filter((link) => link.sessions.has(sessionId));
+    return links.length === 1 ? this.routeOf(links[0]!) : null;
+  }
+
+  /** Every machine that has reported its sessions at least once — the collective actions' reach. */
+  machines(): MachineRoute[] {
+    return [...this.links.values()].filter((link) => link.connection).map((l) => this.routeOf(l));
   }
 
   /** Every live machine's terminal owners, by session ID (session IDs are global UUIDs). */
@@ -416,6 +439,11 @@ export class RemoteSessionMirror {
 
   private linkOf(sessionId: string): Link | undefined {
     return [...this.links.values()].find((link) => link.sessions.has(sessionId));
+  }
+
+  private routeOf(link: Link): MachineRoute {
+    const row = link.open ? this.store.getRemoteInstance(link.instanceId) : null;
+    return { host: link.host, target: row ? { url: row.url, token: row.token } : null };
   }
 
   private emitOwners(): void {

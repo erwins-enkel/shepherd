@@ -581,6 +581,9 @@ describe("sessions", () => {
       // A relayed frame about a mirrored session carries the same annotation.
       validateEvent("session:new", ref);
       validateEvent("session:status", { id: ref.id, status: "idle", host, connection });
+      // A machine's whole mirrored set, and the empty set once it is removed.
+      validateEvent("remote:sessions", { instanceId: host.instanceId, sessions: [ref] });
+      validateEvent("remote:sessions", { instanceId: host.instanceId, sessions: [] });
     } finally {
       s.deps.remoteSessions = undefined;
     }

@@ -69,6 +69,7 @@
 "cardmenu_stop_title" = "Sendet Esc an diese Sitzung — bricht nur den laufenden Zug ab";
 "cardmenu_stop_toast" = "%1$@ gestoppt";
 "clearmerged_confirm" = "%1$@ stilllegen";
+"clearmerged_desc" = "Diese %1$@ Sessions liegen auf gemergten Branches. Beim Stilllegen wird jeder Agent gestoppt, sein Worktree entfernt und der gemergte Branch gelöscht.";
 "clearmerged_leftovers" = "%1$@ Hintergrundprozesse dieser Sessions werden ebenfalls beendet.";
 "clearmerged_probes_unavailable" = "Shepherd kann auf diesem Host keine laufenden Prozesse erkennen. Hintergrundprozesse dieser Sessions werden daher nicht aufgeführt und laufen möglicherweise weiter. Siehe Diagnose.";
 "clearmerged_title" = "Gemergte Sessions stilllegen";
@@ -353,6 +354,8 @@
 "herd_changes_requested_group" = "Änderungen angefordert (%1$@)";
 "herd_ci_failed_group" = "CI fehlgeschlagen (%1$@)";
 "herd_ci_running_group" = "CI läuft (%1$@)";
+"herd_clear_merged_action" = "Alle stilllegen";
+"herd_clear_merged_title" = "Alle gemergten Sessions stilllegen und ihren Branch löschen";
 "herd_done_empty" = "Noch keine abgeschlossenen Sitzungen.";
 "herd_done_title" = "Abgeschlossene (archivierte) Sitzungen und ihre Zusammenfassungen anzeigen";
 "herd_draft_awaiting_signoff_group" = "Entwurf: wartet auf Freigabe (%1$@)";
@@ -1595,6 +1598,7 @@
 "toast_broadcast_delivered" = "Broadcast hat %1$@ Agenten sofort gesteuert.";
 "toast_broadcast_result" = "Broadcast · %1$@ sofort gesteuert, %2$@ bei beschäftigten Agenten in Warteschlange (wird nach aktuellem Zug ausgeführt), %3$@ nicht erreichbar.";
 "toast_broadcast_skipped_terminals" = "%1$@ Terminal-Session(s) übersprungen — Terminals erhalten keine Steers";
+"toast_clear_merged_failed" = "Gemergte Sessions konnten nicht stillgelegt werden";
 "toast_held_edit_saved" = "Zurückgehaltene Aufgabe aktualisiert.";
 "toast_renamed" = "Umbenannt in %1$@";
 "toast_retry_done" = "Wiederholen gesendet · %1$@ fortgesetzt · %2$@ gesteuert / %3$@";

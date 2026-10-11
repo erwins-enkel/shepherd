@@ -1219,6 +1219,24 @@
         }
       }
     },
+    "clearmerged_desc": {
+      "comment": "%1$@ = count",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese %1$@ Sessions liegen auf gemergten Branches. Beim Stilllegen wird jeder Agent gestoppt, sein Worktree entfernt und der gemergte Branch gelöscht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These %1$@ sessions are on merged branches. Decommissioning them stops each agent, removes its worktree, and deletes the merged branch."
+          }
+        }
+      }
+    },
     "clearmerged_leftovers": {
       "comment": "%1$@ = count",
       "extractionState": "manual",
@@ -6082,6 +6100,40 @@
           "stringUnit": {
             "state": "translated",
             "value": "CI running (%1$@)"
+          }
+        }
+      }
+    },
+    "herd_clear_merged_action": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle stilllegen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decommission all"
+          }
+        }
+      }
+    },
+    "herd_clear_merged_title": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle gemergten Sessions stilllegen und ihren Branch löschen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Decommission every merged-branch session and delete its branch"
           }
         }
       }
@@ -27352,6 +27404,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "%1$@ terminal session(s) skipped — terminals receive no steers"
+          }
+        }
+      }
+    },
+    "toast_clear_merged_failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gemergte Sessions konnten nicht stillgelegt werden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't decommission merged sessions"
           }
         }
       }

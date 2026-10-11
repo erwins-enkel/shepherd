@@ -13,6 +13,8 @@ struct SessionListView: View {
     @State private var showingRepos = false
     @State private var explainingStage: HerdStage?
     @State private var explanationTitle = ""
+    @State private var clearingMerged: [IOSMergedSessionPresentation.Row] = []
+    @State private var clearMergedBusy = false
     @Environment(\.horizontalSizeClass) private var sizeClass
     private var layout: IOSSessionListLayout { .init(sizeClass: sizeClass) }
 
@@ -42,6 +44,14 @@ struct SessionListView: View {
                 .presentationDetents([.medium, .large])
                 .preferredColorScheme(.dark)
             }
+        }
+        .confirmationDialog(L.t("clearmerged_title"),
+            isPresented: Binding(get: { !clearingMerged.isEmpty }, set: { if !$0 { clearingMerged = [] } }),
+            titleVisibility: .visible, presenting: clearingMerged) { rows in
+            Button(L.t("clearmerged_confirm", String(rows.count)), role: .destructive) { Task { await clearMerged(rows) } }
+            Button(L.t("common_cancel"), role: .cancel) {}
+        } message: { rows in
+            Text(verbatim: L.t("clearmerged_desc", String(rows.count)))
         }
         .navigationTitle("")
         .toolbar(.hidden, for: .navigationBar)
@@ -146,7 +156,7 @@ struct SessionListView: View {
                     }
                     ForEach(groups) { group in
                         if let heading = group.heading {
-                            groupHeader(group.stage, title: heading)
+                            groupHeader(group.stage, title: heading, rows: group.rows)
                         }
                         if group.stage == .active || !collapsedStages.contains(group.stage) {
                             ForEach(group.rows) { row in card(row, showCli: showCli, now: now) }
@@ -350,7 +360,7 @@ struct SessionListView: View {
         .accessibilityLabel(L.t("repo_switcher_label"))
     }
 
-    private func groupHeader(_ stage: HerdStage, title: String) -> some View {
+    private func groupHeader(_ stage: HerdStage, title: String, rows: [IOSMergedSessionPresentation.Row]) -> some View {
         let collapsed = collapsedStages.contains(stage)
         return HStack(spacing: 0) {
             Button { toggleCollapsed(stage) } label: {
@@ -366,6 +376,17 @@ struct SessionListView: View {
             .accessibilityAddTraits(.isHeader)
             .accessibilityValue(collapsed ? L.t("native_ios_group_collapsed") : L.t("native_ios_group_expanded"))
             .accessibilityIdentifier("herd-group-\(stage.rawValue)")
+            if stage == .merged, !rows.isEmpty, rows.allSatisfy({ canWrite(owner(for: $0)) }) {
+                Button { clearingMerged = rows } label: {
+                    Text(verbatim: L.t("herd_clear_merged_action").uppercased())
+                        .padding(.horizontal, 8).frame(minHeight: 44).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(SessionListStyle.amber)
+                .disabled(clearMergedBusy)
+                .accessibilityHint(Text(verbatim: L.t("herd_clear_merged_title")))
+                .accessibilityIdentifier("herd-clear-merged")
+            }
             if IOSSessionListPresentation.groupHelp(stage) != nil {
                 Button { explanationTitle = title; explainingStage = stage } label: {
                     Image(systemName: "info.circle")
@@ -401,6 +422,28 @@ struct SessionListView: View {
             .environment(app)
             .listRowInsets(EdgeInsets(top: 0, leading: leading, bottom: 0, trailing: 10))
             .listRowBackground(SessionListStyle.background).listRowSeparator(.hidden)
+    }
+
+    private func owner(for row: IOSMergedSessionPresentation.Row) -> AppModel { hub?.models[row.profile.id] ?? app }
+    private func canWrite(_ owner: AppModel) -> Bool { owner.store != nil && owner.allowsTerminalInput && owner.liveRequestAudit == nil }
+
+    /// Decommissions the merged group per server. Each server re-validates the ids against
+    /// its own merged set, so a stale list can never archive a still-live session.
+    private func clearMerged(_ rows: [IOSMergedSessionPresentation.Row]) async {
+        guard !clearMergedBusy else { return }
+        clearMergedBusy = true
+        defer { clearMergedBusy = false }
+        refreshError = nil
+        for (_, serverRows) in Dictionary(grouping: rows, by: { $0.profile.id }) {
+            let owner = owner(for: serverRows[0])
+            guard canWrite(owner), let store = owner.store else { continue }
+            do {
+                _ = try await store.client.clearMergedSessions(body: .init(ids: serverRows.map(\.session.id)))
+                try? await store.refresh()
+            } catch {
+                refreshError = "\(L.t("toast_clear_merged_failed")): \(ShepherdErrorCopy.message(error))"
+            }
+        }
     }
 
     private func empty(_ text: String) -> some View {

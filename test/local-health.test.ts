@@ -7,8 +7,8 @@ const original = { ...config };
 afterEach(() => Object.assign(config, original));
 // Health is public and uses no session/service dependency. No listener or daemon is started.
 const app = makeApp({} as AppDeps);
-async function health(method = "GET") {
-  return app.fetch(new Request("http://localhost/api/health", { method }));
+async function health(method = "GET", headers: Record<string, string> = {}) {
+  return app.fetch(new Request("http://localhost/api/health", { method, headers }));
 }
 
 test("health omits local paths unless explicitly opted in on loopback", async () => {
@@ -44,4 +44,28 @@ test("opted-in health reports actual runtime directory and configured database",
 test("loopback opt-in without a launch marker does not disclose paths", async () => {
   Object.assign(config, { host: "::1", localSupervision: true, localInstanceID: "" });
   expect(await (await health()).json()).not.toHaveProperty("localInstall");
+});
+
+test("a proxied request never sees the local identity, even on a loopback bind", async () => {
+  // `tailscale serve` in front of the loopback port delivers tailnet requests over loopback too;
+  // it always sets X-Forwarded-Host and keeps the client's Host header, so only the forwarding
+  // headers tell a direct local caller from a tailnet peer.
+  Object.assign(config, {
+    host: "127.0.0.1",
+    localSupervision: true,
+    localInstanceID: "launch-marker",
+    dbPath: "/tmp/state/shepherd.db",
+  });
+  const forwarded: Array<[string, string]> = [
+    ["X-Forwarded-Host", "mac.example.ts.net:7330"],
+    ["X-Forwarded-For", "100.64.0.7"],
+    ["X-Forwarded-Proto", "https"],
+    ["Forwarded", "for=100.64.0.7;proto=https"],
+  ];
+  for (const [name, value] of forwarded) {
+    const response = await health("GET", { [name]: value });
+    expect(response.status).toBe(200);
+    expect(await response.json()).not.toHaveProperty("localInstall");
+  }
+  expect(await (await health()).json()).toHaveProperty("localInstall");
 });

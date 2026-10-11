@@ -68,6 +68,52 @@ extension MacSeamTests {
         #expect(!LocalServerPanelState(state: .stopped, busy: false, managesUpdates: true).showsUpdate)
     }
 
+    @Test func theTailnetSwitchFollowsTheServeConfig() {
+        let host = TailnetAvailability.available(host: "mac.tailnet.ts.net")
+        func panel(_ tailnet: TailnetExposureStatus?, busy: Bool = false,
+                   state: LocalServerState = .running(pid: 1)) -> LocalServerPanelState {
+            LocalServerPanelState(state: state, busy: false, tailnet: tailnet, tailnetBusy: busy)
+        }
+        #expect(!panel(nil).canToggleTailnet && !panel(nil).showsTailnetConnection)
+        for reason in [TailnetUnavailableReason.cliMissing, .notConnected, .httpsDisabled] {
+            let unavailable = panel(TailnetExposureStatus(availability: .unavailable(reason), port: 7330))
+            #expect(!unavailable.canToggleTailnet && !unavailable.showsTailnetConnection)
+        }
+        let off = panel(TailnetExposureStatus(availability: host, port: 7330))
+        #expect(off.canToggleTailnet && !off.showsTailnetConnection)
+        let on = panel(TailnetExposureStatus(availability: host, exposed: true, port: 7330))
+        #expect(on.canToggleTailnet && on.showsTailnetConnection)
+        #expect(!panel(TailnetExposureStatus(availability: host, portTaken: true, port: 7330)).canToggleTailnet)
+        #expect(!panel(TailnetExposureStatus(availability: host, exposed: true, port: 7330), busy: true).canToggleTailnet)
+        for state in [LocalServerState.stopped, .running(pid: 1), .externallyManaged, .failed(.exited(code: 1))] {
+            #expect(panel(nil, state: state).showsTailnet)
+        }
+        for state in [LocalServerState.notInstalled, .installing] {
+            #expect(!panel(nil, state: state).showsTailnet)
+        }
+    }
+
+    @Test func everyTailnetExplanationHasCopy() {
+        for reason in [TailnetUnavailableReason.cliMissing, .notConnected, .httpsDisabled] {
+            #expect(!LocalServerCopy.tailnetReason(reason).hasPrefix("native_"))
+        }
+        for failure in [TailnetExposureFailure.commandFailed(exitCode: 1), .notApplied] {
+            #expect(LocalServerCopy.tailnetFailure(failure)?.hasPrefix("native_") == false)
+        }
+        // Explained by the re-read status note instead; never said twice.
+        #expect(LocalServerCopy.tailnetFailure(.portTaken) == nil)
+        #expect(LocalServerCopy.tailnetFailure(.unavailable(.httpsDisabled)) == nil)
+        #expect(!L.t("native_local_tailnet_port_taken", "7330").hasPrefix("native_"))
+        let keys: [StaticString] = ["native_local_tailnet_toggle", "native_local_tailnet_summary", "native_local_tailnet_checking",
+                    "native_local_tailnet_url_label", "native_local_tailnet_copy", "native_local_tailnet_token_steps",
+                    "native_local_tailnet_token_create", "native_local_tailnet_trust_label",
+                    "native_local_tailnet_trust_allows_title", "native_local_tailnet_trust_allows_body",
+                    "native_local_tailnet_trust_storage_title", "native_local_tailnet_trust_storage_body",
+                    "native_local_tailnet_trust_reach_title", "native_local_tailnet_trust_reach_body"]
+        for key in keys { #expect(!L.t(key).hasPrefix("native_")) }
+        #expect(!L.t("native_local_tailnet_other_fronts", "mac.tailnet.ts.net:443").hasPrefix("native_"))
+    }
+
     @Test func updateAndCheckControlsStayPresentButDisabledWhileUpdating() {
         let panel = LocalServerPanelState(state: .updating, busy: true, managesUpdates: true, updateBehind: 2)
         #expect(panel.showsUpdate && panel.showsUpdateCheck && panel.showsStart)

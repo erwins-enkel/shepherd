@@ -8525,7 +8525,7 @@ function handleHealth({ req, parts }: Ctx): Response | null {
     : json({
         ok: true,
         version: SHEPHERD_VERSION,
-        ...localHealthIdentity(config),
+        ...localHealthIdentity(config, req.headers),
       });
 }
 

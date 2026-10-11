@@ -22,6 +22,15 @@ import {
   registerSpawn,
   releaseSpawn,
 } from "./spawn-progress";
+import {
+  IDEMPOTENCY_KEY_HEADER,
+  cancelDispatch,
+  dispatchView,
+  isValidDispatchId,
+  payloadHash,
+  readDispatchKey,
+  runDispatch,
+} from "./dispatch";
 import { LearningsService } from "./learnings-service";
 import { isRelevanceMode } from "./house-rules-relevance";
 import { RepoConfigService } from "./repo-config-service";
@@ -29,6 +38,7 @@ import {
   BLOCK_JUDGE_MODES,
   EFFORTS,
   isBlockJudgeMode,
+  type CreateSessionInput,
   type MaintainBlock,
   type StandardCreateInput,
   type UsageJudgeSpend,
@@ -90,6 +100,7 @@ import {
   repositoryAllows,
   repositoryRoutePolicy,
   filterRepositoryEvent,
+  type RepositoryRoute,
 } from "./token-repositories";
 import {
   AccessTokenService,
@@ -1081,11 +1092,25 @@ function repositoryRequestError({ req, url, deps, token }: Ctx): Response | null
       : json({ error: "repository_not_allowed" }, 403);
   if (policy.kind === "upload")
     return token.repoPaths.length ? null : json({ error: "repository_not_allowed" }, 403);
-  let path: string | undefined;
+  return resourceRepositoryError(token, deps, policy);
+}
+
+/** An id-addressed resource must live in a granted repo, or it reads as absent (404). */
+function resourceRepositoryError(
+  token: VerifiedToken,
+  deps: AppDeps,
+  policy: RepositoryRoute,
+): Response | null {
+  let path: string | null | undefined;
   if (policy.kind === "session") path = deps.store.get(policy.id)?.repoPath;
   else if (policy.kind === "held") path = deps.store.getHeldTask(policy.id)?.input.repoPath;
   else if (policy.kind === "task") path = sessionByTaskKey(policy.id, deps)?.repoPath;
-  else return null;
+  else if (policy.kind === "dispatch") {
+    // A dispatch that never arrived (unknown, or cancelled before it did) carries no repository —
+    // GET answers 404 on its own and DELETE only reserves the key — so it needs no authority.
+    path = deps.store.getDispatch(policy.id)?.repoPath;
+    if (!path) return null;
+  } else return null;
   return path && tokenRepoAllowed(token, path) ? null : json({ error: "not found" }, 404);
 }
 
@@ -1597,6 +1622,22 @@ function parseUpNextStartPayload(body: unknown): UpNextStartPayload | Response {
     items: items as UpNextStartItem[],
     choice,
   };
+}
+
+// ── /api/dispatches/:id — outcome of a keyed POST /api/sessions (#2761, src/dispatch.ts) ──
+//   GET    → the dispatch (pending | started | held | failed); 404 = the key never arrived
+//   DELETE → make sure the key can never start: 200 when that holds, 409 once it has arrived
+async function handleDispatches({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "dispatches" || !parts[2] || parts[3]) return null;
+  if (req.method !== "GET" && req.method !== "DELETE") return null;
+  if (!isValidDispatchId(parts[2])) return json({ error: "invalid dispatch id" }, 400);
+  if (req.method === "GET") {
+    const view = dispatchView(deps.store, parts[2]);
+    return view ? json(view) : json({ error: "not found" }, 404);
+  }
+  const { canceled, dispatch } = cancelDispatch(deps.store, parts[2]);
+  if (canceled) return json(dispatch);
+  return json({ error: "dispatch already arrived", code: "dispatch_arrived", dispatch }, 409);
 }
 
 async function usageHoldApplies(value: StandardCreateInput, deps: AppDeps): Promise<boolean> {
@@ -2915,18 +2956,34 @@ async function handleSessionCreate({ req, parts, deps, token }: Ctx): Promise<Re
   if (b) return b;
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
+  const dispatchId = readDispatchKey(req.headers.get(IDEMPOTENCY_KEY_HEADER));
+  if (dispatchId === null) return json({ error: "invalid Idempotency-Key" }, 400);
   const body = await req.json().catch(() => null);
   const result = validateCreate(body, config.repoRoot);
   if (!result.ok) return json({ error: result.error }, 400);
   const repoErr = repositoryInputError(token, result.value);
   if (repoErr) return repoErr;
+  const create = () => createValidatedSession(req, body, result.value, deps);
+  if (dispatchId === undefined) return create();
+  // Keyed (#2761): reserved now — after validation and the repo grant, before the hold gate and
+  // the spawn — so a retry or a concurrent duplicate replays this outcome instead of running again.
+  const claim = { id: dispatchId, payloadHash: payloadHash(body), repoPath: result.value.repoPath };
+  return runDispatch(deps.store, claim, create);
+}
 
+/** The create itself, once the request is validated and authorized: terminal, held or spawned. */
+async function createValidatedSession(
+  req: Request,
+  body: unknown,
+  value: CreateSessionInput,
+  deps: AppDeps,
+): Promise<Response> {
   // Clean-terminal union arm: no usage-hold gate (a bare shell spends no agent budget) and no
   // issue claim — straight to create. Singleton/preflight conflicts map to 409 in
   // createErrorResponse (terminal_exists carries existingId so the UI can focus it).
-  if (result.value.terminal === true) {
+  if (value.terminal === true) {
     try {
-      const t = await deps.service.create(result.value);
+      const t = await deps.service.create(value);
       deps.events.emit("session:new", t);
       return json(t, 201);
     } catch (e) {
@@ -2935,18 +2992,18 @@ async function handleSessionCreate({ req, parts, deps, token }: Ctx): Promise<Re
   }
 
   // ── usage-aware hold gate ──────────────────────────────────────────────────
-  const held = await tryHoldNewTask(body, result.value, deps);
+  const held = await tryHoldNewTask(body, value, deps);
   if (held) return held;
 
   const tracker = spawnTrackerFor(req, deps);
   registerSpawn(tracker);
   let s;
   try {
-    s = await deps.service.create(result.value, tracker);
+    s = await deps.service.create(value, tracker);
   } catch (e) {
     // Plugin-refused create: park in held_tasks as a capacity hold for retry.
     if (e instanceof SandboxAutoRefused && e.cause instanceof PluginSpawnAborted) {
-      return persistHeldTask(result.value, deps, "capacity");
+      return persistHeldTask(value, deps, "capacity");
     }
     // create shells out to herdr (and git); surface the real reason instead of a
     // bare 500 so the New Task dialog can show it.
@@ -2960,8 +3017,8 @@ async function handleSessionCreate({ req, parts, deps, token }: Ctx): Promise<Re
   // worked and the drain won't double-spawn it. Deferred (macrotask) + best-effort:
   // addIssueLabel shells out synchronously via execFileSync, so merely not awaiting
   // would still block this tick — setTimeout(0) lets json(s, 201) flush first.
-  if (result.value.issueRef) {
-    const { repoPath, issueRef } = result.value;
+  if (value.issueRef) {
+    const { repoPath, issueRef } = value;
     setTimeout(
       () => void claimLinkedIssue(deps.resolveForge?.(repoPath) ?? null, issueRef.number),
       0,
@@ -6978,6 +7035,7 @@ async function heldSpawn(id: string, deps: AppDeps, body: unknown = null): Promi
     return createErrorResponse(e);
   }
   deps.store.removeHeldTask(h.id);
+  deps.store.markHeldDispatchStarted(h.id, s.id);
   // service.create does not emit session:new (see finalizeRelaunch) — emit it here so the
   // new session appears in the Herd live, then decrement the held badge.
   deps.events.emit("session:new", s);
@@ -6998,6 +7056,7 @@ async function heldSpawn(id: string, deps: AppDeps, body: unknown = null): Promi
 
 function heldDiscard(id: string, deps: AppDeps): Response {
   deps.store.removeHeldTask(id);
+  deps.store.markHeldDispatchDiscarded(id);
   deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
   return json({ ok: true });
 }
@@ -9586,6 +9645,7 @@ const ROUTE_HANDLERS = [
   handleProjectIcons,
   handleBroadcast,
   handleHeld,
+  handleDispatches,
   handleRetry,
   handleHalt,
   handleFsDirs,

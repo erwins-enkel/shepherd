@@ -1574,6 +1574,35 @@ export interface HeldTask {
   reason: "usage" | "capacity";
 }
 
+/** Outcome states of a keyed submission (#2761, `src/dispatch.ts`). */
+export const DISPATCH_STATES = ["pending", "started", "held", "failed"] as const;
+export type DispatchState = (typeof DISPATCH_STATES)[number];
+
+/** One `Idempotency-Key` submission of `POST /api/sessions`, persisted before anything runs. */
+export interface DispatchRecord {
+  id: string;
+  state: DispatchState;
+  /** sha256 of the canonical request body; null for an id cancelled before it ever arrived. */
+  payloadHash: string | null;
+  repoPath: string | null;
+  sessionId: string | null;
+  heldId: string | null;
+  /** Why a `failed` dispatch failed (the create's error text). */
+  reason: string | null;
+  /** Machine-readable failure code, when there is one. */
+  code: string | null;
+  /** HTTP status the failed create answered, replayed to a retry. */
+  httpStatus: number | null;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** How a settled dispatch ended — the fields `settleDispatch` writes over a `pending` row. */
+export type DispatchOutcome = Pick<
+  DispatchRecord,
+  "state" | "sessionId" | "heldId" | "reason" | "code" | "httpStatus"
+>;
+
 // ── per-session usage snapshot ────────────────────────────────────────────────
 
 /** SQLite row type for session_usage (model maps stored as JSON TEXT). */

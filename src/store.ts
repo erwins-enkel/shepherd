@@ -47,6 +47,8 @@ import type {
   PostMergeStep,
   PostMergeSteps,
   HeldTask,
+  DispatchRecord,
+  DispatchOutcome,
   StandardCreateInput,
   SessionUsageRow,
   SessionUsageSnapshot,
@@ -1314,6 +1316,14 @@ export function resolveStepId(ids: string[], idOrPrefix: string): StepIdResoluti
   return { ok: false, reason: "not-found" };
 }
 
+/** Keyed submissions of POST /api/sessions (#2761, src/dispatch.ts): reserved BEFORE any hold or
+ *  spawn so a retried or concurrent request with the same Idempotency-Key never runs twice, and so
+ *  the outcome survives a restart. Kept, not pruned — one row per keyed submission. */
+const DISPATCHES_DDL = `CREATE TABLE IF NOT EXISTS dispatches (
+  id TEXT PRIMARY KEY, state TEXT NOT NULL, payloadHash TEXT, repoPath TEXT,
+  sessionId TEXT, heldId TEXT, reason TEXT, code TEXT, httpStatus INTEGER,
+  createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL)`;
+
 /**
  * Fresh-install DDL for `reviewer_spawns`. Exported so the fresh-schema path can be tested in
  * isolation — running this ALONE (without migrateReviewerSpawnColumns) must already yield every
@@ -1987,6 +1997,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     if (!usageCols.some((c) => c.name === "claudeSessionId")) {
       this.db.run(`ALTER TABLE session_usage ADD COLUMN claudeSessionId TEXT NOT NULL DEFAULT ''`);
     }
+    this.db.run(DISPATCHES_DDL);
     // Commits the whole bootstrap (see the BEGIN above). No try/ROLLBACK: a throw here escapes the
     // constructor, so no caller ever holds this store, and SQLite discards the open transaction
     // when the handle is finalized. Deliberately no wrapping block — that would re-indent the
@@ -7638,6 +7649,77 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   countHeldTasks(): number {
     const row = this.db.query(`SELECT COUNT(*) AS n FROM held_tasks`).get() as { n: number };
     return row.n;
+  }
+
+  // ── dispatches (keyed POST /api/sessions, #2761) ───────────────────────────
+
+  /** Claim `id` as a `pending` dispatch. True only for the ONE caller whose insert landed — the
+   *  atomic gate that keeps two requests with the same key from both running. */
+  reserveDispatch(row: {
+    id: string;
+    payloadHash: string;
+    repoPath: string;
+    now: number;
+  }): boolean {
+    return (
+      this.db.run(
+        `INSERT INTO dispatches (id, state, payloadHash, repoPath, createdAt, updatedAt)
+         VALUES (?, 'pending', ?, ?, ?, ?) ON CONFLICT(id) DO NOTHING`,
+        [row.id, row.payloadHash, row.repoPath, row.now, row.now],
+      ).changes === 1
+    );
+  }
+
+  getDispatch(id: string): DispatchRecord | null {
+    return (
+      (this.db
+        .query(
+          `SELECT id, state, payloadHash, repoPath, sessionId, heldId, reason, code, httpStatus,
+                  createdAt, updatedAt FROM dispatches WHERE id = ?`,
+        )
+        .get(id) as DispatchRecord | null) ?? null
+    );
+  }
+
+  /** Record how a `pending` dispatch ended. A no-op on any other state: an outcome is written once. */
+  settleDispatch(id: string, o: DispatchOutcome, now = Date.now()): void {
+    this.db.run(
+      `UPDATE dispatches SET state = ?, sessionId = ?, heldId = ?, reason = ?, code = ?,
+         httpStatus = ?, updatedAt = ? WHERE id = ? AND state = 'pending'`,
+      [o.state, o.sessionId, o.heldId, o.reason, o.code, o.httpStatus, now, id],
+    );
+  }
+
+  /** Reserve an id that never arrived as cancelled, so a late submission with it never starts.
+   *  False when the id already exists (the caller reads what it is). */
+  cancelUnknownDispatch(id: string, now = Date.now()): boolean {
+    return (
+      this.db.run(
+        `INSERT INTO dispatches (id, state, reason, code, httpStatus, createdAt, updatedAt)
+         VALUES (?, 'failed', 'dispatch canceled before it arrived', 'dispatch_canceled', 409, ?, ?)
+         ON CONFLICT(id) DO NOTHING`,
+        [id, now, now],
+      ).changes === 1
+    );
+  }
+
+  /** A held dispatch's task was spawned (manually or by the release sweep): it is now `started`. */
+  markHeldDispatchStarted(heldId: string, sessionId: string, now = Date.now()): void {
+    this.db.run(
+      `UPDATE dispatches SET state = 'started', sessionId = ?, updatedAt = ?
+         WHERE heldId = ? AND state = 'held'`,
+      [sessionId, now, heldId],
+    );
+  }
+
+  /** A held dispatch's task was discarded by the operator: it will never start. */
+  markHeldDispatchDiscarded(heldId: string, now = Date.now()): void {
+    this.db.run(
+      `UPDATE dispatches SET state = 'failed', reason = 'held task discarded',
+         code = 'held_discarded', httpStatus = 409, updatedAt = ?
+         WHERE heldId = ? AND state = 'held'`,
+      [now, heldId],
+    );
   }
 
   // ── session usage snapshots ──────────────────────────────────────────────────

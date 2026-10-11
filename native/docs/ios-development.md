@@ -314,8 +314,8 @@ an outage while its socket reconnects. An explicitly selected
 session or composer keeps its server; offline servers remain selectable. Switching
 servers retains prompt text and resets server-specific repository, branch and upload state.
 
-Normal and isolated live launches bound ordinary GETs to four seconds without
-data and eight seconds overall, with one attempt. Uploads and other writes retain
+Normal and isolated live launches bound ordinary GETs to eight seconds without
+data and 30 seconds overall, with one attempt. Uploads and other writes retain
 their existing session. Slow opt-in operations keep
 the separate 300-second session and existing retry policy. Local isolated fixtures
 retain shared-session HTTP interception. Startup, multi-server pull-to-refresh and

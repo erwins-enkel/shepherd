@@ -23,8 +23,8 @@ final class IOSLaunchEnvironment {
     /// use ShepherdClient's separate 300-second session.
     static let requestSession: URLSession = {
         let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 4
-        configuration.timeoutIntervalForResource = 8
+        configuration.timeoutIntervalForRequest = 8
+        configuration.timeoutIntervalForResource = 30
         configuration.waitsForConnectivity = false
         return URLSession(configuration: configuration)
     }()

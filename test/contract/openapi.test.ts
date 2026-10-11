@@ -521,7 +521,11 @@ describe("sessions", () => {
     s.stubs.resolveForge.forge = { slug: "acme/app" };
     try {
       for (const outcome of outcomes) {
-        s.deps.remoteDispatch = { submit: async () => outcome };
+        s.deps.remoteDispatch = {
+          submit: async () => outcome,
+          list: () => [],
+          cancel: async () => ({ kind: "not_found" }),
+        };
         const body = { prompt: "remote", target: { instanceId: host.instanceId } };
         validateRequest("POST", "/api/sessions", {
           repoPath: s.validRepo,

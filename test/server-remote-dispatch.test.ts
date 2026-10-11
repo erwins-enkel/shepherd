@@ -14,6 +14,7 @@ import { RemoteDispatcher } from "../src/remote-instances/dispatch";
 import { CapabilityService } from "../src/remote-instances/capability-probe";
 import type { FetchLike } from "../src/remote-instances/client";
 import { validateCreate } from "../src/validate";
+import { payloadHash } from "../src/dispatch";
 import { stagingDir } from "../src/uploads";
 import { WorktreeMissingBaseError } from "../src/worktree";
 import type { CreateSessionInput, Session } from "../src/types";
@@ -567,5 +568,309 @@ describe("starting a task on a connected machine", () => {
     const again = await create(linux, body, { key: "ui-attempt-1" });
     expect(again.status).toBe(502);
     expect(mac.created).toEqual([]);
+  });
+});
+
+// #2774: a lost answer is "start status unknown", never "failed, start elsewhere". The coordinator
+// asks the machine after every probe that finds it connected, re-sends only what never arrived —
+// same ID, same machine — and a cancelled dispatch never starts, however late it arrives.
+describe("start status unknown", () => {
+  interface RemoteDispatchJson {
+    id: string;
+    state: string;
+    host: { instanceId: string };
+    summary: string;
+    sessionId?: string;
+  }
+
+  /** The dispatcher index.ts wires: on `node`'s events, reconciled after every probe. */
+  function reconciling(node: Node, net: FetchLike): RemoteDispatcher {
+    const dispatcher = new RemoteDispatcher({
+      store: node.deps.store,
+      instances: node.deps.remoteInstances,
+      events: node.deps.events,
+      fetch: net,
+    });
+    node.deps.remoteDispatch = dispatcher;
+    node.deps.remoteInstances.onChange((id) => void dispatcher.reconcile(id));
+    return dispatcher;
+  }
+
+  async function remoteDispatches(node: Node): Promise<RemoteDispatchJson[]> {
+    const res = await fetch(`${node.base}/api/remote-dispatches`, {
+      headers: { authorization: `Bearer ${node.token}` },
+    });
+    expect(res.status).toBe(200);
+    return ((await res.json()) as { dispatches: RemoteDispatchJson[] }).dispatches;
+  }
+
+  function cancel(node: Node, id: string): Promise<Response> {
+    return fetch(`${node.base}/api/remote-dispatches/${id}`, {
+      method: "DELETE",
+      headers: { authorization: `Bearer ${node.token}` },
+    });
+  }
+
+  const frames = (node: Node) =>
+    node.hub.filter(([event]) => event === "remote:dispatch").map(([, data]) => data);
+
+  const isCreate = (input: string, init: RequestInit) =>
+    init.method === "POST" && input.endsWith("/api/sessions");
+
+  test("an answer lost after the machine accepted: unknown, then running — one session", async () => {
+    const linux = startNode("app");
+    const mac = startNode("app-mac");
+    const macId = await connect(linux, mac);
+    let drop = true;
+    reconciling(linux, async (input, init) => {
+      const res = await fetch(input, init);
+      if (drop && isCreate(input, init)) {
+        drop = false;
+        await res.body?.cancel();
+        throw new TypeError("connection reset after the machine accepted");
+      }
+      return res;
+    });
+
+    const res = await create(
+      linux,
+      { ...task(linux), target: { instanceId: macId } },
+      { key: "ui-attempt-1" },
+    );
+    expect(res.status).toBe(504);
+    expect(mac.created).toHaveLength(1);
+    const [unknown] = await remoteDispatches(linux);
+    expect(unknown).toMatchObject({
+      state: "unknown",
+      host: { instanceId: macId },
+      summary: "Run on a machine",
+    });
+    // A token restricted to repositories does not reach the list.
+    const restricted = linux.deps.accessTokens!.mint("ext", null, "full", [linux.checkout]).token;
+    const denied = await fetch(`${linux.base}/api/remote-dispatches`, {
+      headers: { authorization: `Bearer ${restricted}` },
+    });
+    expect(denied.status).toBe(403);
+
+    // The next probe of the Mac reconciles it.
+    await linux.deps.remoteInstances.check(macId);
+    await until(
+      () => remoteDispatches(linux),
+      (l) => l.length === 0,
+    );
+    expect(mac.created).toHaveLength(1);
+    const [running] = mac.deps.store.list();
+    expect(frames(linux)).toEqual([
+      expect.objectContaining({ id: unknown!.id, state: "unknown" }),
+      expect.objectContaining({ id: unknown!.id, state: "started", sessionId: running!.id }),
+    ]);
+    // The session that runs there is in this herd, labelled with its machine.
+    const herd = await until(
+      () => sessions(linux),
+      (l) => l.some((s) => s.id === running!.id),
+    );
+    expect(herd.find((s) => s.id === running!.id)!.host).toMatchObject({ instanceId: macId });
+  });
+
+  test("a restart of this Shepherd mid-hand-off is reconciled without a duplicate", async () => {
+    const linux = startNode("app");
+    const mac = startNode("app-mac");
+    const macId = await connect(linux, mac);
+    // (a) the answer is lost — it started there; (b) the request is lost — it never arrived.
+    let lose: "answer" | "request" | null = "answer";
+    linux.deps.remoteDispatch = new RemoteDispatcher({
+      store: linux.deps.store,
+      instances: linux.deps.remoteInstances,
+      events: linux.deps.events,
+      fetch: async (input, init) => {
+        if (lose === "request" && isCreate(input, init)) {
+          lose = null;
+          throw new TypeError("connection refused");
+        }
+        const res = await fetch(input, init);
+        if (lose === "answer" && isCreate(input, init)) {
+          lose = "request";
+          await res.body?.cancel();
+          throw new TypeError("connection reset");
+        }
+        return res;
+      },
+    });
+    const a = { ...task(linux, { prompt: "task a" }), target: { instanceId: macId } };
+    const b = { ...task(linux, { prompt: "task b" }), target: { instanceId: macId } };
+    expect((await create(linux, a, { key: "key-a" })).status).toBe(504);
+    expect((await create(linux, b, { key: "key-b" })).status).toBe(504);
+    expect(mac.created.map((c) => (c as { prompt: string }).prompt)).toEqual(["task a"]);
+
+    // Restarted: a fresh dispatcher over the same store, nothing in flight.
+    let creates = 0;
+    const restarted = new RemoteDispatcher({
+      store: linux.deps.store,
+      instances: linux.deps.remoteInstances,
+      events: linux.deps.events,
+      fetch: (input, init) => {
+        if (isCreate(input, init)) creates++;
+        return fetch(input, init);
+      },
+    });
+    linux.deps.remoteDispatch = restarted;
+    expect((await remoteDispatches(linux)).map((d) => d.state)).toEqual(["unknown", "unknown"]);
+    await restarted.reconcile(macId);
+    expect(await remoteDispatches(linux)).toEqual([]);
+    // a was only asked about; b — which never arrived — went out once more, to the same machine.
+    expect(creates).toBe(1);
+    expect(mac.created.map((c) => (c as { prompt: string }).prompt)).toEqual(["task a", "task b"]);
+
+    // The clients' retries under their keys start nothing more.
+    expect((await create(linux, a, { key: "key-a" })).status).toBe(201);
+    expect((await create(linux, b, { key: "key-b" })).status).toBe(201);
+    expect(mac.created).toHaveLength(2);
+    expect(mac.deps.store.list()).toHaveLength(2);
+    expect(linux.created).toEqual([]);
+  });
+
+  test("a restart of the machine mid-start reads as interrupted — nothing starts", async () => {
+    const linux = startNode("app");
+    const mac = startNode("app-mac");
+    const macId = await connect(linux, mac);
+    // The machine reserved the dispatch, then went down before it started anything.
+    let dies = true;
+    reconciling(linux, async (input, init) => {
+      if (dies && isCreate(input, init)) {
+        dies = false;
+        mac.deps.store.reserveDispatch({
+          id: (init.headers as Record<string, string>)["idempotency-key"]!,
+          payloadHash: payloadHash(JSON.parse(init.body as string)),
+          repoPath: mac.checkout,
+          now: Date.now(),
+        });
+        throw new TypeError("connection reset");
+      }
+      return fetch(input, init);
+    });
+    const body = { ...task(linux), target: { instanceId: macId } };
+    expect((await create(linux, body, { key: "ui-attempt-1" })).status).toBe(504);
+
+    await linux.deps.remoteInstances.check(macId);
+    await until(
+      () => remoteDispatches(linux),
+      (l) => l.length === 0,
+    );
+    expect(linux.deps.store.getRemoteDispatchByKey("ui-attempt-1")).toMatchObject({
+      state: "rejected",
+      code: "dispatch_interrupted",
+    });
+    expect(frames(linux).at(-1)).toMatchObject({ state: "rejected", code: "dispatch_interrupted" });
+
+    // A retry under the key gets the machine's replay of that: still nothing starts.
+    const again = await create(linux, body, { key: "ui-attempt-1" });
+    expect(again.status).toBe(422);
+    expect(await again.json()).toMatchObject({
+      code: "remote_rejected",
+      remoteCode: "dispatch_interrupted",
+    });
+    expect(mac.created).toEqual([]);
+  });
+
+  test("a canceled dispatch never starts there, even when it arrives late", async () => {
+    const linux = startNode("app");
+    const mac = startNode("app-mac");
+    const macId = await connect(linux, mac);
+    let lost: [string, RequestInit] | null = null;
+    reconciling(linux, async (input, init) => {
+      if (!lost && isCreate(input, init)) {
+        lost = [input, init];
+        throw new TypeError("connection reset");
+      }
+      return fetch(input, init);
+    });
+    const body = { ...task(linux), target: { instanceId: macId } };
+    expect((await create(linux, body, { key: "ui-attempt-1" })).status).toBe(504);
+    const [d] = await remoteDispatches(linux);
+
+    const res = await cancel(linux, d!.id);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ id: d!.id, state: "canceled" });
+    expect(await remoteDispatches(linux)).toEqual([]);
+    expect(frames(linux).map((f) => (f as { state: string }).state)).toEqual([
+      "unknown",
+      "canceling",
+      "canceled",
+    ]);
+
+    // The request lost on the way arrives after all: refused there, nothing starts.
+    const late = await fetch(...lost!);
+    expect(late.status).toBe(409);
+    expect(await late.json()).toMatchObject({ code: "dispatch_canceled" });
+    // The client's retry under its key is refused here.
+    const again = await create(linux, body, { key: "ui-attempt-1" });
+    expect(again.status).toBe(409);
+    expect(await again.json()).toMatchObject({ code: "remote_dispatch_canceled" });
+    // Canceling again is fine; a settled or unknown one is not.
+    expect((await cancel(linux, d!.id)).status).toBe(200);
+    expect((await cancel(linux, "no-such-dispatch")).status).toBe(404);
+    expect(mac.created).toEqual([]);
+  });
+
+  test("a cancel while the machine is out of reach is delivered once it is back", async () => {
+    const linux = startNode("app");
+    const mac = startNode("app-mac");
+    const macId = await connect(linux, mac);
+    let down = false;
+    let lost: [string, RequestInit] | null = null;
+    reconciling(linux, async (input, init) => {
+      if (down) throw new TypeError("network unreachable");
+      if (!lost && isCreate(input, init)) {
+        lost = [input, init];
+        throw new TypeError("connection reset");
+      }
+      return fetch(input, init);
+    });
+    const body = { ...task(linux), target: { instanceId: macId } };
+    expect((await create(linux, body, { key: "ui-attempt-1" })).status).toBe(504);
+    const [d] = await remoteDispatches(linux);
+
+    down = true;
+    const res = await cancel(linux, d!.id);
+    expect(res.status).toBe(202);
+    expect(await res.json()).toMatchObject({ state: "canceling" });
+    expect((await remoteDispatches(linux)).map((x) => x.state)).toEqual(["canceling"]);
+
+    down = false;
+    await linux.deps.remoteInstances.check(macId);
+    await until(
+      () => remoteDispatches(linux),
+      (l) => l.length === 0,
+    );
+    expect(linux.deps.store.getRemoteDispatch(d!.id)!.state).toBe("canceled");
+    expect((await fetch(...lost!)).status).toBe(409);
+    expect(mac.created).toEqual([]);
+  });
+
+  test("a dispatch the machine already started cannot be canceled", async () => {
+    const linux = startNode("app");
+    const mac = startNode("app-mac");
+    const macId = await connect(linux, mac);
+    let drop = true;
+    reconciling(linux, async (input, init) => {
+      const res = await fetch(input, init);
+      if (drop && isCreate(input, init)) {
+        drop = false;
+        await res.body?.cancel();
+        throw new TypeError("connection reset");
+      }
+      return res;
+    });
+    const body = { ...task(linux), target: { instanceId: macId } };
+    expect((await create(linux, body, { key: "ui-attempt-1" })).status).toBe(504);
+    const [d] = await remoteDispatches(linux);
+
+    const res = await cancel(linux, d!.id);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      code: "remote_dispatch_not_cancelable",
+      dispatch: { id: d!.id, state: "started", sessionId: mac.deps.store.list()[0]!.id },
+    });
+    expect(mac.created).toHaveLength(1);
   });
 });

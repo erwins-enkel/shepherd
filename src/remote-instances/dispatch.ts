@@ -22,9 +22,25 @@
  * machine stored with it — never to another one, whatever the machine list says now. A different
  * body under a used key is refused before anything is sent. No answer after sending is `unknown`:
  * the task may be running there, and only the same dispatch may ask again.
+ *
+ * Start status unknown (#2774): an `unknown` dispatch — or one still `sending` that no send in this
+ * process runs, i.e. this Shepherd restarted mid-hand-off — is reconciled with its machine after
+ * every probe that finds it connected (`reconcile`, wired to the probe in index.ts): its
+ * `GET /api/dispatches/{id}` says started, held or failed, and 404 ("never arrived") sends the same
+ * task again under the same ID to the same machine. Still starting there, or no answer: it stays
+ * unknown until the next check. The operator may cancel an unconfirmed dispatch (`cancel`): its
+ * machine's `DELETE /api/dispatches/{id}` makes sure it never starts there, even if it arrives late;
+ * a machine out of reach gets that cancel on the next check (`canceling`), and nothing re-sends the
+ * task in between. A dispatch dashboards show — unknown, or a cancel on its way — announces each
+ * change as `remote:dispatch`, the one that resolves it included. One that never was unconfirmed
+ * is never announced: nothing about a session started straight away enters this event hub.
+ *
+ * One operation per dispatch at a time: a send (`inflight`, shared with a concurrent duplicate) or
+ * a check/cancel (`checks`). Each is registered in the same tick as the guard that admitted it.
  */
 import { randomUUID } from "node:crypto";
 import { extname } from "node:path";
+import type { EventHub } from "../events";
 import type { SessionStore } from "../store";
 import {
   type FetchLike,
@@ -35,6 +51,7 @@ import {
   parseProjectPath,
   postRemoteFile,
   postRemoteJson,
+  requestRemote,
 } from "./client";
 import type { RemoteInstanceService } from "./service";
 import { type SessionHost, hostNames } from "./sessions";
@@ -46,9 +63,28 @@ const REMOTE_CREATE_TIMEOUT_MS = 120_000;
 const REMOTE_UPLOAD_TIMEOUT_MS = 120_000;
 
 /** `sending` = stored, no answer yet; `unknown` = sent, no answer — it may have started;
- *  `upload_failed` = an attachment did not reach the machine, so the task was never sent. */
-type RemoteDispatchState =
-  "sending" | "started" | "held" | "rejected" | "unknown" | "upload_failed";
+ *  `upload_failed` = an attachment did not reach the machine, so the task was never sent;
+ *  `canceling` = the operator cancelled it before the machine confirmed it, and the machine has not
+ *  confirmed the cancel yet; `canceled` = it never starts there (#2774). */
+export type RemoteDispatchState =
+  | "sending"
+  | "started"
+  | "held"
+  | "rejected"
+  | "unknown"
+  | "upload_failed"
+  | "canceling"
+  | "canceled";
+
+/** Not confirmed by the machine: what a check re-asks and the herd shows. */
+const OPEN_STATES: ReadonlySet<RemoteDispatchState> = new Set(["sending", "unknown", "canceling"]);
+
+/** What dashboards show of an unconfirmed dispatch (a `sending` one is in flight, or adopted as
+ *  `unknown` first). */
+const SHOWN_STATES: ReadonlySet<RemoteDispatchState> = new Set(["unknown", "canceling"]);
+
+/** A dispatch's `summary` is a one-line label, not the task. */
+const SUMMARY_MAX = 120;
 
 /** A row as it sits in SQLite. */
 export interface RemoteDispatchRow {
@@ -79,6 +115,28 @@ export type RemoteDispatchOutcome = Pick<
   RemoteDispatchRow,
   "state" | "sessionId" | "heldId" | "reason" | "code" | "httpStatus"
 >;
+
+/** A dispatch as `GET /api/remote-dispatches` lists it and `remote:dispatch` announces it (#2774).
+ *  Never the body sent: `summary` is the issue title, else the prompt's first line. A `sending` row
+ *  no send in this process runs reads `unknown`. */
+export interface RemoteDispatchView {
+  id: string;
+  state: RemoteDispatchState;
+  host: SessionHost;
+  summary: string;
+  sessionId?: string;
+  heldId?: string;
+  reason?: string;
+  code?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** What cancelling an unconfirmed dispatch came to: done, pending until its machine answers, or
+ *  not possible (sending right now, or the machine already has it — `dispatch` says what it is). */
+export type RemoteCancelResult =
+  | { kind: "not_found" }
+  | { kind: "canceled" | "canceling" | "not_cancelable"; dispatch: RemoteDispatchView };
 
 export interface RemoteSubmit {
   /** The submitter's `Idempotency-Key`; undefined = a fresh one is generated (and reported). */
@@ -112,6 +170,7 @@ export type RemoteOutcome =
     }
   | { kind: "unknown"; host: SessionHost; dispatchKey: string }
   | { kind: "upload_failed"; host: SessionHost; reason: string }
+  | { kind: "canceled"; host: SessionHost }
   | { kind: "refused"; code: RemoteRefusalCode; reason: string | null };
 
 /** Why an attachment did not reach the machine; `httpStatus` when the machine answered. */
@@ -125,6 +184,9 @@ type Store = Pick<
   | "getRemoteInstance"
   | "insertRemoteDispatch"
   | "getRemoteDispatchByKey"
+  | "getRemoteDispatch"
+  | "listOpenRemoteDispatches"
+  | "markRemoteDispatchCanceling"
   | "setRemoteDispatchUploads"
   | "settleRemoteDispatch"
 >;
@@ -136,19 +198,117 @@ function refused(code: RemoteRefusalCode, reason: string | null = null): RemoteO
   return { kind: "refused", code, reason };
 }
 
+/** The machine's record of a dispatch (its `GET /api/dispatches/{id}`, #2761) as the outcome here;
+ *  null while it is still starting there (`pending`) or when it is not such a record. */
+function confirmedOutcome(record: unknown): RemoteDispatchOutcome | null {
+  if (!isRecord(record)) return null;
+  const text = (key: string) =>
+    typeof record[key] === "string" && record[key] ? (record[key] as string) : null;
+  const sessionId = text("sessionId");
+  if (record.state === "started" && sessionId)
+    return { ...NO_OUTCOME, state: "started", sessionId };
+  const heldId = text("heldId");
+  if (record.state === "held" && heldId) return { ...NO_OUTCOME, state: "held", heldId };
+  if (record.state !== "failed") return null;
+  return { ...NO_OUTCOME, state: "rejected", reason: text("reason"), code: text("code") };
+}
+
+function summaryOf(wireBody: string): string {
+  const body = JSON.parse(wireBody) as Record<string, unknown>;
+  const issue = isRecord(body.issueRef) ? body.issueRef.title : undefined;
+  const prompt = typeof body.prompt === "string" ? body.prompt : "";
+  const line =
+    (typeof issue === "string" && issue.trim()) ||
+    prompt
+      .split("\n")
+      .map((l) => l.trim())
+      .find(Boolean) ||
+    "";
+  return line.length > SUMMARY_MAX ? `${line.slice(0, SUMMARY_MAX - 1)}…` : line;
+}
+
+const dispatchPath = (id: string) => `/api/dispatches/${encodeURIComponent(id)}`;
+
 export class RemoteDispatcher {
   /** Sends running in this process, by dispatch ID — a concurrent duplicate waits for its outcome. */
   private readonly inflight = new Map<string, Promise<RemoteOutcome>>();
+  /** Checks and cancels running in this process, by dispatch ID (#2774). */
+  private readonly checks = new Map<string, Promise<void>>();
   private readonly store: Store;
   private readonly instances: Instances;
+  private readonly events: Pick<EventHub, "emit"> | undefined;
   private readonly fetch: FetchLike | undefined;
   private readonly now: () => number;
 
-  constructor(deps: { store: Store; instances: Instances; fetch?: FetchLike; now?: () => number }) {
+  constructor(deps: {
+    store: Store;
+    instances: Instances;
+    events?: Pick<EventHub, "emit">;
+    fetch?: FetchLike;
+    now?: () => number;
+  }) {
     this.store = deps.store;
     this.instances = deps.instances;
+    this.events = deps.events;
     this.fetch = deps.fetch;
     this.now = deps.now ?? Date.now;
+  }
+
+  /** Dispatches no machine has confirmed yet, of machines still connected here — what the herd
+   *  shows as "start status unknown". A send in flight here is left out: its answer is coming. */
+  list(): RemoteDispatchView[] {
+    const machines = new Set(this.instances.list().map((m) => m.instanceId));
+    return this.store
+      .listOpenRemoteDispatches()
+      .filter((row) => machines.has(row.instanceId) && !this.inflight.has(row.id))
+      .map((row) => this.view(row));
+  }
+
+  /**
+   * Ask `instanceId` what became of each dispatch it has not confirmed. Called after every probe of
+   * it (reconnect, this Shepherd's start, each round); does nothing unless it is connected. A
+   * dispatch already being sent or checked here is left to that.
+   */
+  async reconcile(instanceId: string): Promise<void> {
+    const machine = this.instances.get(instanceId);
+    const creds = this.store.getRemoteInstance(instanceId);
+    if (machine?.status !== "connected" || !creds) return;
+    const rows = this.store.listOpenRemoteDispatches().filter((r) => r.instanceId === instanceId);
+    await Promise.all(
+      rows
+        .filter((row) => !this.inflight.has(row.id) && !this.checks.has(row.id))
+        .map((row) => this.exclusive(row.id, () => this.check(row.id, creds))),
+    );
+  }
+
+  /**
+   * Cancel a dispatch its machine has not confirmed: the machine's `DELETE /api/dispatches/{id}`
+   * makes sure it never starts there, even if it arrives late. Out of reach, the cancel stays
+   * pending (`canceling`) and the next check delivers it; nothing re-sends the task meanwhile.
+   */
+  async cancel(id: string): Promise<RemoteCancelResult> {
+    const known = this.store.getRemoteDispatch(id);
+    if (!known || !this.store.getRemoteInstance(known.instanceId)) return { kind: "not_found" };
+    // A check of it is running: decide on what it learned.
+    for (let running = this.checks.get(id); running; running = this.checks.get(id)) await running;
+    const row = this.store.getRemoteDispatch(id)!;
+    if (row.state === "canceled") return { kind: "canceled", dispatch: this.view(row) };
+    if (this.inflight.has(id) || !OPEN_STATES.has(row.state)) {
+      return { kind: "not_cancelable", dispatch: this.view(row) };
+    }
+    return this.exclusive(id, async () => {
+      this.store.markRemoteDispatchCanceling(id, this.now());
+      this.announce(this.store.getRemoteDispatch(id)!);
+      const creds = this.store.getRemoteInstance(row.instanceId);
+      if (creds && this.instances.get(row.instanceId)?.status === "connected") {
+        await this.deliverCancel(id, creds);
+      }
+      const now = this.store.getRemoteDispatch(id)!;
+      const dispatch = this.view(now);
+      if (now.state === "canceled" || now.state === "canceling")
+        return { kind: now.state, dispatch };
+      return { kind: "not_cancelable", dispatch };
+    });
   }
 
   async submit(req: RemoteSubmit): Promise<RemoteOutcome> {
@@ -195,17 +355,121 @@ export class RemoteDispatcher {
     return parseProjectPath(repos.body, req.project) ?? refused("remote_project_missing");
   }
 
-  private retry(row: RemoteDispatchRow, payloadHash: string): Promise<RemoteOutcome> {
-    if (row.payloadHash !== payloadHash) {
-      return Promise.resolve(refused("dispatch_payload_mismatch"));
+  private async retry(row: RemoteDispatchRow, payloadHash: string): Promise<RemoteOutcome> {
+    if (row.payloadHash !== payloadHash) return refused("dispatch_payload_mismatch");
+    const sending = this.inflight.get(row.id);
+    if (sending) return sending;
+    // A check or cancel of it is running (#2774): what it settles decides what a retry may do.
+    for (let running = this.checks.get(row.id); running; running = this.checks.get(row.id)) {
+      await running;
     }
-    // Ended before it was sent (#2766): it never goes out under this key, so its machine has
-    // nothing to replay — the refusal is.
-    if (row.state === "upload_failed") {
+    const current = this.adopt(this.store.getRemoteDispatch(row.id) ?? row);
+    // Ended before it was sent (#2766), or cancelled (#2774): it never goes out under this key
+    // again, so its machine has nothing to replay — the refusal is.
+    if (current.state === "upload_failed") {
       const host = this.host(row.instanceId);
-      return Promise.resolve({ kind: "upload_failed", host, reason: row.reason ?? "" });
+      return { kind: "upload_failed", host, reason: current.reason ?? "" };
     }
-    return this.inflight.get(row.id) ?? this.track(row);
+    if (current.state === "canceling" || current.state === "canceled") {
+      return { kind: "canceled", host: this.host(row.instanceId) };
+    }
+    return this.inflight.get(row.id) ?? this.track(current);
+  }
+
+  /** Run `op` as the one check or cancel of dispatch `id`, registered in the same tick. */
+  private async exclusive<T>(id: string, op: () => Promise<T>): Promise<T> {
+    let done!: () => void;
+    this.checks.set(id, new Promise<void>((resolve) => (done = resolve)));
+    try {
+      return await op();
+    } finally {
+      this.checks.delete(id);
+      done();
+    }
+  }
+
+  /** What the machine knows of one unconfirmed dispatch. Started, held or failed there settles it
+   *  here; never arrived (404) sends it again — same ID, same machine; still starting there, or no
+   *  answer, leaves it unknown for the next check. A pending cancel is delivered instead. */
+  private async check(id: string, creds: RemoteTarget): Promise<void> {
+    const stored = this.store.getRemoteDispatch(id);
+    if (!stored || !OPEN_STATES.has(stored.state)) return;
+    const row = this.adopt(stored);
+    if (row.state === "canceling") return this.deliverCancel(id, creds);
+    const res = await this.ask(creds, "GET", id);
+    if (!res) return;
+    if (res.status === 404) {
+      await this.track(row);
+      return;
+    }
+    const outcome = res.status === 200 ? confirmedOutcome(res.body) : null;
+    if (outcome) this.settle(id, outcome);
+  }
+
+  /** The machine's `DELETE /api/dispatches/{id}`. 200: it never starts there. 409: it arrived
+   *  first, and what it became there is the outcome here — still starting reads `unknown` again,
+   *  for the next check to follow. Anything else leaves the cancel pending. */
+  private async deliverCancel(id: string, creds: RemoteTarget): Promise<void> {
+    const res = await this.ask(creds, "DELETE", id);
+    if (!res) return;
+    if (res.status === 200) return this.settle(id, { ...NO_OUTCOME, state: "canceled" });
+    const body = isRecord(res.body) ? res.body : {};
+    if (res.status !== 409 || body.code !== "dispatch_arrived" || !isRecord(body.dispatch)) return;
+    this.settle(id, confirmedOutcome(body.dispatch) ?? { ...NO_OUTCOME, state: "unknown" });
+  }
+
+  /** The machine's record of dispatch `id` (#2761): its status and JSON body, or null when no
+   *  usable answer came back (unreachable, timed out, its token refused). */
+  private async ask(
+    creds: RemoteTarget,
+    method: "GET" | "DELETE",
+    id: string,
+  ): Promise<{ status: number; body: unknown } | null> {
+    const res = await requestRemote(creds, dispatchPath(id), { method }, { fetch: this.fetch });
+    if (!res.ok) return null;
+    return { status: res.response.status, body: await res.response.json().catch(() => null) };
+  }
+
+  /** A `sending` row no send here runs was left by a restart. It is listed as unknown, so from
+   *  now on it is: what it settles to is then announced like any other unknown dispatch. */
+  private adopt(row: RemoteDispatchRow): RemoteDispatchRow {
+    if (row.state !== "sending" || this.inflight.has(row.id)) return row;
+    this.store.settleRemoteDispatch(row.id, { ...NO_OUTCOME, state: "unknown" }, this.now());
+    return this.store.getRemoteDispatch(row.id)!;
+  }
+
+  /** Write an outcome. Announced when dashboards show the dispatch before or after — the store
+   *  writes only over an unconfirmed row, so the event carries what the row really is now. */
+  private settle(id: string, outcome: RemoteDispatchOutcome): void {
+    const before = this.store.getRemoteDispatch(id)?.state;
+    this.store.settleRemoteDispatch(id, outcome, this.now());
+    const row = this.store.getRemoteDispatch(id);
+    if (row && (SHOWN_STATES.has(row.state) || (before && SHOWN_STATES.has(before)))) {
+      this.announce(row);
+    }
+  }
+
+  private announce(row: RemoteDispatchRow): void {
+    this.events?.emit("remote:dispatch", this.view(row));
+  }
+
+  private view(row: RemoteDispatchRow): RemoteDispatchView {
+    const orphaned = row.state === "sending" && !this.inflight.has(row.id);
+    const optional = {
+      sessionId: row.sessionId,
+      heldId: row.heldId,
+      reason: row.reason,
+      code: row.code,
+    };
+    return {
+      id: row.id,
+      state: orphaned ? "unknown" : row.state,
+      host: this.host(row.instanceId),
+      summary: summaryOf(row.wireBody),
+      ...Object.fromEntries(Object.entries(optional).filter(([, v]) => v !== null)),
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
   }
 
   /** Send `row`, registered as in flight in the same tick, so a duplicate always finds it. */
@@ -227,7 +491,7 @@ export class RemoteDispatcher {
     });
     const host = this.host(row.instanceId);
     const { outcome, record } = this.read(res, row, host);
-    this.store.settleRemoteDispatch(row.id, record, this.now());
+    this.settle(row.id, record);
     const line = `[remote-dispatch] ${host.name}: ${record.state}${record.httpStatus ? ` (${record.httpStatus})` : ""}`;
     if (record.state === "started" || record.state === "held") console.log(line);
     else console.warn(line);
@@ -288,17 +552,13 @@ export class RemoteDispatcher {
   /** An attachment did not get there: the task was not sent, and is never sent under this key. */
   private uploadFailed(row: RemoteDispatchRow, failure: UploadFailure): RemoteOutcome {
     const host = this.host(row.instanceId);
-    this.store.settleRemoteDispatch(
-      row.id,
-      {
-        ...NO_OUTCOME,
-        state: "upload_failed",
-        reason: failure.reason,
-        code: "remote_upload_failed",
-        httpStatus: failure.httpStatus,
-      },
-      this.now(),
-    );
+    this.settle(row.id, {
+      ...NO_OUTCOME,
+      state: "upload_failed",
+      reason: failure.reason,
+      code: "remote_upload_failed",
+      httpStatus: failure.httpStatus,
+    });
     console.warn(`[remote-dispatch] ${host.name}: upload_failed (${failure.reason})`);
     return { kind: "upload_failed", host, reason: failure.reason };
   }

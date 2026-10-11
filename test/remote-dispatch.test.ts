@@ -4,7 +4,11 @@ import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { SessionStore } from "../src/store";
 import type { FetchLike } from "../src/remote-instances/client";
-import { RemoteDispatcher, type RemoteSubmit } from "../src/remote-instances/dispatch";
+import {
+  RemoteDispatcher,
+  type RemoteDispatchRow,
+  type RemoteSubmit,
+} from "../src/remote-instances/dispatch";
 import type { RemoteInstanceSummary } from "../src/remote-instances/service";
 
 // The coordinator's side of a task sent to a connected machine (#2763), against a scripted fetch:
@@ -93,7 +97,7 @@ function reposAnswer(path: string): Response {
 function setup(
   fetch: FetchLike,
   machines: RemoteInstanceSummary[] = [machine(MAC)],
-): { store: SessionStore; dispatcher: RemoteDispatcher } {
+): { store: SessionStore; dispatcher: RemoteDispatcher; events: [string, unknown][] } {
   const store = new SessionStore(":memory:");
   for (const m of machines) {
     store.insertRemoteInstance({
@@ -109,7 +113,13 @@ function setup(
     get: (id: string) => machines.find((m) => m.instanceId === id) ?? null,
     list: () => machines,
   };
-  return { store, dispatcher: new RemoteDispatcher({ store, instances, fetch, now: () => 42 }) };
+  const events: [string, unknown][] = [];
+  const hub = { emit: (event: string, data: unknown) => void events.push([event, data]) };
+  return {
+    store,
+    events,
+    dispatcher: new RemoteDispatcher({ store, instances, events: hub, fetch, now: () => 42 }),
+  };
 }
 
 const BODY = {
@@ -381,6 +391,313 @@ describe("RemoteDispatcher", () => {
       reason: "removed",
     });
     expect(net.posts()).toHaveLength(1);
+  });
+});
+
+// #2774: a dispatch no machine has confirmed is reconciled with its machine — never sent anywhere
+// else, never started twice — and can be cancelled so a late arrival never starts.
+describe("RemoteDispatcher start status unknown", () => {
+  const HOST = { instanceId: MAC, name: "MacBook", platform: "macos" };
+  const WIRE = JSON.stringify({ ...BODY, repoPath: "/Users/kai/dev/app" });
+
+  function stored(store: SessionStore, over: Partial<RemoteDispatchRow> = {}): RemoteDispatchRow {
+    const row: RemoteDispatchRow = {
+      id: "d-1",
+      clientKey: "key-1",
+      instanceId: MAC,
+      payloadHash: "hash-1",
+      wireBody: WIRE,
+      state: "unknown",
+      sessionId: null,
+      heldId: null,
+      reason: null,
+      code: null,
+      httpStatus: null,
+      createdAt: 1,
+      updatedAt: 1,
+      uploads: null,
+      ...over,
+    };
+    store.insertRemoteDispatch(row);
+    return row;
+  }
+
+  /** The machine's record of a dispatch, as its GET /api/dispatches/{id} answers (#2761). */
+  const record = (fields: Record<string, unknown>, status = 200) =>
+    Response.json({ id: "d-1", createdAt: 1, updatedAt: 2, ...fields }, { status });
+
+  const states = (events: [string, unknown][]) =>
+    events.map(([event, data]) => [event, (data as { state: string }).state]);
+
+  test("a dispatch its machine started settles as started — asked, not sent again", async () => {
+    const net = scripted([record({ state: "started", sessionId: "s-1" })]);
+    const { store, dispatcher, events } = setup(net.fetch);
+    stored(store);
+    expect(dispatcher.list()).toEqual([
+      {
+        id: "d-1",
+        state: "unknown",
+        host: HOST,
+        summary: "build it",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ]);
+
+    await dispatcher.reconcile(MAC);
+    expect(net.calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      "GET http://mac.test/api/dispatches/d-1",
+    ]);
+    expect(net.calls[0]!.headers.authorization).toBe(`Bearer token-${MAC}`);
+    expect(store.getRemoteDispatch("d-1")).toMatchObject({ state: "started", sessionId: "s-1" });
+    expect(events).toEqual([
+      [
+        "remote:dispatch",
+        {
+          id: "d-1",
+          state: "started",
+          host: HOST,
+          summary: "build it",
+          sessionId: "s-1",
+          createdAt: 1,
+          updatedAt: 42,
+        },
+      ],
+    ]);
+    expect(dispatcher.list()).toEqual([]);
+  });
+
+  test("held or failed there settles as held or rejected with the machine's reason", async () => {
+    const answer = (call: Call) =>
+      call.url.endsWith("/d-1")
+        ? record({ state: "held", heldId: "h-1" })
+        : record({
+            id: "d-2",
+            state: "failed",
+            reason: "Shepherd restarted before this start finished",
+            code: "dispatch_interrupted",
+          });
+    const net = scripted([answer, answer]);
+    const { store, dispatcher } = setup(net.fetch);
+    stored(store);
+    stored(store, { id: "d-2", clientKey: "key-2" });
+    await dispatcher.reconcile(MAC);
+    expect(store.getRemoteDispatch("d-1")).toMatchObject({ state: "held", heldId: "h-1" });
+    expect(store.getRemoteDispatch("d-2")).toMatchObject({
+      state: "rejected",
+      reason: "Shepherd restarted before this start finished",
+      code: "dispatch_interrupted",
+    });
+    expect(net.posts()).toEqual([]);
+  });
+
+  test("never arrived (404): the same task again, under the same ID, to the same machine", async () => {
+    const net = scripted([Response.json({ error: "not found" }, { status: 404 }), session("s-1")]);
+    const { store, dispatcher, events } = setup(net.fetch, [machine(MAC), machine(LINUX)]);
+    stored(store);
+    await dispatcher.reconcile(MAC);
+    const [post] = net.posts();
+    expect(post!.url).toBe("http://mac.test/api/sessions");
+    expect(post!.headers["idempotency-key"]).toBe("d-1");
+    expect(post!.raw).toBe(WIRE);
+    expect(net.calls.some((c) => c.url.startsWith("http://linux.test"))).toBe(false);
+    expect(store.getRemoteDispatch("d-1")).toMatchObject({ state: "started", sessionId: "s-1" });
+    expect(states(events)).toEqual([["remote:dispatch", "started"]]);
+  });
+
+  test("still starting there, an error or no answer leaves it unknown for the next check", async () => {
+    const net = scripted([
+      record({ state: "pending" }),
+      Response.json({ error: "boom" }, { status: 500 }),
+      new TypeError("down"),
+    ]);
+    const { store, dispatcher, events } = setup(net.fetch);
+    stored(store);
+    for (let i = 0; i < 3; i++) await dispatcher.reconcile(MAC);
+    expect(net.calls.filter((c) => c.method === "GET")).toHaveLength(3);
+    expect(net.posts()).toEqual([]);
+    expect(store.getRemoteDispatch("d-1")!.state).toBe("unknown");
+    expect(events).toEqual([]);
+  });
+
+  test("a machine that is not connected is not asked", async () => {
+    const net = scripted([]);
+    const { store, dispatcher } = setup(net.fetch, [machine(MAC, { status: "unreachable" })]);
+    stored(store);
+    await dispatcher.reconcile(MAC);
+    await dispatcher.reconcile(LINUX);
+    expect(net.calls).toEqual([]);
+  });
+
+  test("a dispatch left sending by a restart reads unknown and is reconciled", async () => {
+    const net = scripted([record({ state: "started", sessionId: "s-1" })]);
+    const { store, dispatcher, events } = setup(net.fetch);
+    stored(store, { state: "sending" });
+    expect(dispatcher.list().map((d) => d.state)).toEqual(["unknown"]);
+    await dispatcher.reconcile(MAC);
+    expect(store.getRemoteDispatch("d-1")!.state).toBe("started");
+    expect(states(events)).toEqual([["remote:dispatch", "started"]]);
+  });
+
+  test("only what dashboards show is announced: unknown, and how it resolves", async () => {
+    // Two fresh submissions read the repo list twice: a fresh answer each time.
+    const net = scripted([session("s-1"), new TypeError("down"), session("s-2")], () =>
+      reposAnswer("/Users/kai/dev/app"),
+    );
+    const { dispatcher, events } = setup(net.fetch);
+    await dispatcher.submit(submit());
+    expect(events).toEqual([]);
+    await dispatcher.submit(submit({ clientKey: "key-2", payloadHash: "hash-2" }));
+    await dispatcher.submit(submit({ clientKey: "key-2", payloadHash: "hash-2" }));
+    expect(states(events)).toEqual([
+      ["remote:dispatch", "unknown"],
+      ["remote:dispatch", "started"],
+    ]);
+  });
+
+  test("a dispatch being sent here is neither listed nor checked", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const net = scripted([session("s-1")]);
+    const slow: FetchLike = async (input, init) => {
+      if (init.method === "POST") await gate;
+      return net.fetch(input, init);
+    };
+    const { dispatcher } = setup(slow);
+    const sent = dispatcher.submit(submit());
+    await Bun.sleep(5);
+    expect(dispatcher.list()).toEqual([]);
+    await dispatcher.reconcile(MAC);
+    expect(net.calls.filter((c) => c.url.includes("/api/dispatches/"))).toEqual([]);
+    release();
+    expect(await sent).toMatchObject({ kind: "started" });
+  });
+
+  test("the list holds only unconfirmed dispatches of machines still connected here", async () => {
+    const net = scripted([]);
+    const { store, dispatcher } = setup(net.fetch);
+    const long = "x".repeat(200);
+    stored(store, {
+      wireBody: JSON.stringify({ ...BODY, issueRef: { number: 7, title: "Fix the login" } }),
+    });
+    stored(store, {
+      id: "d-2",
+      clientKey: "key-2",
+      state: "canceling",
+      createdAt: 2,
+      wireBody: JSON.stringify({ ...BODY, prompt: `\n  ${long}\nmore` }),
+    });
+    stored(store, { id: "d-3", clientKey: "key-3", state: "started", sessionId: "s-3" });
+    stored(store, { id: "d-4", clientKey: "key-4", instanceId: LINUX });
+    expect(dispatcher.list().map((d) => [d.id, d.state, d.summary])).toEqual([
+      ["d-1", "unknown", "Fix the login"],
+      ["d-2", "canceling", `${"x".repeat(119)}…`],
+    ]);
+  });
+
+  test("a cancel the machine confirms: never sent again, never checked again", async () => {
+    const net = scripted([record({ state: "failed", code: "dispatch_canceled" })]);
+    const { store, dispatcher, events } = setup(net.fetch);
+    stored(store);
+    expect(await dispatcher.cancel("d-1")).toMatchObject({
+      kind: "canceled",
+      dispatch: { id: "d-1", state: "canceled", host: HOST },
+    });
+    expect(net.calls.map((c) => `${c.method} ${c.url}`)).toEqual([
+      "DELETE http://mac.test/api/dispatches/d-1",
+    ]);
+    expect(states(events)).toEqual([
+      ["remote:dispatch", "canceling"],
+      ["remote:dispatch", "canceled"],
+    ]);
+
+    // The client's retry under its key is refused here; the machine is not asked again.
+    expect(await dispatcher.submit(submit())).toEqual({ kind: "canceled", host: HOST });
+    await dispatcher.reconcile(MAC);
+    expect(await dispatcher.cancel("d-1")).toMatchObject({ kind: "canceled" });
+    expect(net.calls).toHaveLength(1);
+    expect(dispatcher.list()).toEqual([]);
+  });
+
+  test("out of reach, the cancel waits and the next check delivers it — no GET, no POST", async () => {
+    const net = scripted([new TypeError("down"), record({ state: "failed" })]);
+    const { store, dispatcher } = setup(net.fetch);
+    stored(store);
+    expect(await dispatcher.cancel("d-1")).toMatchObject({
+      kind: "canceling",
+      dispatch: { state: "canceling" },
+    });
+    expect(await dispatcher.submit(submit())).toEqual({ kind: "canceled", host: HOST });
+    await dispatcher.reconcile(MAC);
+    expect(net.calls.map((c) => c.method)).toEqual(["DELETE", "DELETE"]);
+    expect(store.getRemoteDispatch("d-1")!.state).toBe("canceled");
+  });
+
+  test("a machine that is not connected gets the cancel later, without a request now", async () => {
+    const net = scripted([]);
+    const { store, dispatcher } = setup(net.fetch, [machine(MAC, { status: "unreachable" })]);
+    stored(store, { state: "sending" });
+    expect(await dispatcher.cancel("d-1")).toMatchObject({ kind: "canceling" });
+    expect(net.calls).toEqual([]);
+  });
+
+  test("a dispatch the machine already has cannot be cancelled; what it became there counts", async () => {
+    const arrived = (dispatch: Record<string, unknown>) =>
+      Response.json(
+        { error: "dispatch already arrived", code: "dispatch_arrived", dispatch },
+        { status: 409 },
+      );
+    const net = scripted([
+      arrived({ id: "d-1", state: "started", sessionId: "s-1" }),
+      arrived({ id: "d-2", state: "pending" }),
+    ]);
+    const { store, dispatcher } = setup(net.fetch);
+    stored(store);
+    stored(store, { id: "d-2", clientKey: "key-2" });
+    expect(await dispatcher.cancel("d-1")).toMatchObject({
+      kind: "not_cancelable",
+      dispatch: { state: "started", sessionId: "s-1" },
+    });
+    // Still starting there: unknown again, for the next check to follow.
+    expect(await dispatcher.cancel("d-2")).toMatchObject({
+      kind: "not_cancelable",
+      dispatch: { state: "unknown" },
+    });
+    expect(store.getRemoteDispatch("d-2")!.state).toBe("unknown");
+  });
+
+  test("an unknown id, a settled dispatch or one of a removed machine is not cancelled", async () => {
+    const net = scripted([]);
+    const { store, dispatcher } = setup(net.fetch);
+    stored(store, { state: "started", sessionId: "s-1" });
+    stored(store, { id: "d-2", clientKey: "key-2", instanceId: LINUX });
+    expect(await dispatcher.cancel("nope")).toEqual({ kind: "not_found" });
+    expect(await dispatcher.cancel("d-2")).toEqual({ kind: "not_found" });
+    expect(await dispatcher.cancel("d-1")).toMatchObject({
+      kind: "not_cancelable",
+      dispatch: { state: "started" },
+    });
+    expect(net.calls).toEqual([]);
+  });
+
+  test("a retry while a cancel is on its way waits for it, then is refused", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const net = scripted([record({ state: "failed" })]);
+    const slow: FetchLike = async (input, init) => {
+      if (init.method === "DELETE") await gate;
+      return net.fetch(input, init);
+    };
+    const { store, dispatcher } = setup(slow);
+    stored(store);
+    const canceling = dispatcher.cancel("d-1");
+    await Bun.sleep(5);
+    const retry = dispatcher.submit(submit());
+    await dispatcher.reconcile(MAC);
+    release();
+    expect(await canceling).toMatchObject({ kind: "canceled" });
+    expect(await retry).toEqual({ kind: "canceled", host: HOST });
+    expect(net.calls.map((c) => c.method)).toEqual(["DELETE"]);
   });
 });
 

@@ -120,6 +120,12 @@ import {
   type ConnectError,
 } from "./remote-instances/service";
 import type { RemoteSessionMirror, RemoteTerminal } from "./remote-instances/sessions";
+import {
+  RemoteDispatcher,
+  type RemoteOutcome,
+  type RemoteRefusalCode,
+} from "./remote-instances/dispatch";
+import { isRecord } from "./remote-instances/client";
 import { scopeAllows } from "./token-scopes";
 import { resolvePlanAnswers, planAnswerSteerText, type RawAnswer } from "./plan-gate";
 import { slugifyManual } from "./namer";
@@ -417,6 +423,9 @@ export interface AppDeps {
     RemoteSessionMirror,
     "list" | "subscribe" | "has" | "terminalOwners" | "openTerminal"
   >;
+  /** Sends new tasks to connected machines (#2763). Same memo-slot contract as
+   *  `remoteInstances`: the `remoteDispatcher(deps)` accessor lazily builds one over it. */
+  remoteDispatch?: Pick<RemoteDispatcher, "submit">;
   /** Locates a Codex session's rollout for the transcript reads (issue #1992), with the TTL cache
    *  + miss backoff that keeps the Activity tab's 5s poll off the `$CODEX_HOME` tree. Optional for
    *  the same reason as the two above — the `codexTranscripts(deps)` accessor lazily builds one. */
@@ -901,6 +910,12 @@ function accessTokens(deps: AppDeps): AccessTokenService {
 }
 function remoteInstances(deps: AppDeps): RemoteInstanceService {
   return (deps.remoteInstances ??= new RemoteInstanceService({ store: deps.store }));
+}
+function remoteDispatcher(deps: AppDeps): Pick<RemoteDispatcher, "submit"> {
+  return (deps.remoteDispatch ??= new RemoteDispatcher({
+    store: deps.store,
+    instances: remoteInstances(deps),
+  }));
 }
 
 /**
@@ -3074,7 +3089,8 @@ async function handleSpawnCancel({ req, parts }: Ctx): Promise<Response | null> 
 }
 
 // POST /api/sessions — create a session.
-async function handleSessionCreate({ req, parts, deps, token }: Ctx): Promise<Response | null> {
+async function handleSessionCreate(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, deps, token } = ctx;
   if (!(req.method === "POST" && !parts[2])) return null;
   const b = firstRunBlock();
   if (b) return b;
@@ -3082,17 +3098,148 @@ async function handleSessionCreate({ req, parts, deps, token }: Ctx): Promise<Re
   if (ctErr) return ctErr;
   const dispatchId = readDispatchKey(req.headers.get(IDEMPOTENCY_KEY_HEADER));
   if (dispatchId === null) return json({ error: "invalid Idempotency-Key" }, 400);
-  const body = await req.json().catch(() => null);
+  const raw: unknown = await req.json().catch(() => null);
+  // The machine is chosen BEFORE any local check (#2763): a task for a connected machine never
+  // reaches this machine's path validation, hold gate or spawn.
+  const target = splitTarget(raw, deps.store);
+  if ("error" in target) return json({ error: target.error }, 400);
+  if (target.instanceId !== null) {
+    return createOnMachine(ctx, { ...target, raw, clientKey: dispatchId });
+  }
+  const body = target.body;
   const result = validateCreate(body, config.repoRoot);
   if (!result.ok) return json({ error: result.error }, 400);
   const repoErr = repositoryInputError(token, result.value);
   if (repoErr) return repoErr;
   const create = () => createValidatedSession(req, body, result.value, deps);
   if (dispatchId === undefined) return create();
+  // One key names one submission, local or sent to a machine — never both.
+  if (deps.store.getRemoteDispatchByKey(dispatchId)) return keyReusedResponse();
   // Keyed (#2761): reserved now — after validation and the repo grant, before the hold gate and
   // the spawn — so a retry or a concurrent duplicate replays this outcome instead of running again.
-  const claim = { id: dispatchId, payloadHash: payloadHash(body), repoPath: result.value.repoPath };
+  const claim = { id: dispatchId, payloadHash: payloadHash(raw), repoPath: result.value.repoPath };
   return runDispatch(deps.store, claim, create);
+}
+
+type CreateTarget =
+  { body: unknown; instanceId: null } | { body: Record<string, unknown>; instanceId: string };
+
+/** A create body's `target` (#2763): the connected machine to run on — or `null` for this one,
+ *  when it is absent or names this instance. The body comes back without it, so `target` never
+ *  reaches the local validator, a held task or the spawn. */
+function splitTarget(raw: unknown, store: AppDeps["store"]): CreateTarget | { error: string } {
+  if (!isRecord(raw) || !("target" in raw)) return { body: raw, instanceId: null };
+  const { target, ...body } = raw;
+  if (
+    !isRecord(target) ||
+    Object.keys(target).length !== 1 ||
+    typeof target.instanceId !== "string" ||
+    !target.instanceId
+  ) {
+    return { error: "target must be {instanceId: string}" };
+  }
+  if (target.instanceId === instanceIdentity(store).instanceId) return { body, instanceId: null };
+  return { body, instanceId: target.instanceId };
+}
+
+/** A repo's identity across machines: its forge slug — for a fork the clone origin, since a fork's
+ *  `slug` is its upstream. */
+function repoRemoteSlug(forge: GitForge | null | undefined): string | undefined {
+  return forge?.originSlug ?? forge?.slug ?? undefined;
+}
+
+const REMOTE_REFUSAL: Record<RemoteRefusalCode, { status: number; error: string }> = {
+  remote_target_unknown: { status: 422, error: "no connected machine has this instance ID" },
+  remote_target_unavailable: {
+    status: 409,
+    error: "the machine is not reachable right now; nothing was started",
+  },
+  remote_project_missing: { status: 422, error: "the machine has no checkout of this project" },
+  dispatch_payload_mismatch: {
+    status: 409,
+    error: "this Idempotency-Key was already used with a different request body",
+  },
+};
+
+function keyReusedResponse(): Response {
+  const { status, error } = REMOTE_REFUSAL.dispatch_payload_mismatch;
+  return json({ error, code: "dispatch_payload_mismatch" }, status);
+}
+
+/**
+ * POST /api/sessions with a `target` (#2763): the WHOLE session starts on that connected machine.
+ * General inputs are validated here exactly like a local create and need the same grant; paths,
+ * holds and the sandbox are the machine's to check. Nothing starts here and no local event is
+ * emitted — the session reaches this Shepherd's herd through the machine's mirror (#2762).
+ */
+async function createOnMachine(
+  { deps, token }: Ctx,
+  req: {
+    raw: unknown;
+    body: Record<string, unknown>;
+    instanceId: string;
+    clientKey: string | undefined;
+  },
+): Promise<Response> {
+  const result = validateCreate(req.body, config.repoRoot, { remote: true });
+  if (!result.ok) return json({ error: result.error }, 400);
+  const repoErr = repositoryInputError(token, result.value);
+  if (repoErr) return repoErr;
+  if (req.clientKey && deps.store.getDispatch(req.clientKey)) return keyReusedResponse();
+  const project = repoRemoteSlug(deps.resolveForge?.(result.value.repoPath));
+  if (!project) {
+    return json(
+      {
+        error: "this project has no forge identity another machine could match it by",
+        code: "remote_project_unknown",
+      },
+      422,
+    );
+  }
+  const outcome = await remoteDispatcher(deps).submit({
+    clientKey: req.clientKey,
+    instanceId: req.instanceId,
+    project,
+    body: req.body,
+    payloadHash: payloadHash(req.raw),
+  });
+  return remoteOutcomeResponse(outcome);
+}
+
+/** What a client sees of a remote dispatch: the machine's session or hold annotated with `host`,
+ *  its refusal with the reason, or "no answer" with the key to send it again under. */
+function remoteOutcomeResponse(o: RemoteOutcome): Response {
+  switch (o.kind) {
+    case "started":
+      return json(o.session, 201);
+    case "held":
+      return json({ held: true, id: o.id, count: o.count, host: o.host }, 200);
+    case "rejected":
+      return json(
+        {
+          error: o.reason,
+          code: "remote_rejected",
+          remoteStatus: o.remoteStatus,
+          ...(o.remoteCode && { remoteCode: o.remoteCode }),
+          host: o.host,
+        },
+        422,
+      );
+    case "unknown":
+      return json(
+        {
+          error: `no answer from ${o.host.name} after sending; the task may have started there. Send it again with the same Idempotency-Key — it never starts twice.`,
+          code: "remote_dispatch_unknown",
+          dispatchId: o.dispatchKey,
+          host: o.host,
+        },
+        504,
+      );
+    case "refused": {
+      const { status, error } = REMOTE_REFUSAL[o.code];
+      return json({ error, code: o.code, ...(o.reason && { reason: o.reason }) }, status);
+    }
+  }
 }
 
 /** The create itself, once the request is validated and authorized: terminal, held or spawned. */
@@ -6304,7 +6451,7 @@ async function handleRepos({ req, parts, deps, token }: Ctx): Promise<Response |
           isFork: forge?.isFork ?? false,
           // A fork's `slug` is its upstream; use the clone origin so callers identify
           // the account that owns the fork. Undefined fields are omitted from JSON.
-          remoteSlug: forge?.originSlug ?? forge?.slug ?? undefined,
+          remoteSlug: repoRemoteSlug(forge),
           hidden: hiddenSet.has(r.path),
         };
       });
@@ -10200,6 +10347,10 @@ export const slowRequestTimeoutSec = (req: Request, url: URL): number | null => 
   // 10s default Bun severs the socket mid-round and the New Task card reports a failure for a round
   // still running — the same bogus failure described for epic approve above.
   if (url.pathname === "/api/shape") return 255;
+  // A create waits for the worktree and the agent's boot — and one sent to a connected machine
+  // (#2763) for that machine's whole create, up to REMOTE_CREATE_TIMEOUT_MS. Cut at 10s, the
+  // answer would be lost for a start that is still running.
+  if (/^\/api\/sessions\/?$/.test(url.pathname)) return 150;
   if (url.pathname === "/api/uploads") return 120;
   if (/^\/api\/sessions\/[^/]+\/scratchpad\/upload$/.test(url.pathname)) return 120;
   if (url.pathname === "/api/prs/merge") return MERGE_ROUTE_TIMEOUT_SEC;

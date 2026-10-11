@@ -44,6 +44,10 @@ _Avoid_: screencast, remote desktop, VNC
 One task submission sent with an `Idempotency-Key`, accepted at most once; its outcome (pending, started, held, failed) survives restarts and is read back by that key.
 _Avoid_: job, order, request (overloaded)
 
+**Remote Dispatch**:
+A new task this Shepherd sends to a connected machine to run there: stored here before it is sent, delivered under its own dispatch ID, and only ever sent again to that same machine.
+_Avoid_: forward, relay, remote job
+
 **Base Commit**:
 The commit a session's worktree was actually created from; an explicitly requested one is used as-is, never freshened to the branch tip.
 _Avoid_: base sha, start commit

@@ -43,6 +43,25 @@ afterEach(() => {
   vi.mocked(connectPty).mockClear();
 });
 
+describe("RemoteSessionDetail started from here (#2763)", () => {
+  it("shows the commit the machine started from and a sandbox it did not have", async () => {
+    render(RemoteSessionDetail, {
+      session: remote({ baseCommit: "a".repeat(40), sandboxDegraded: true }),
+      nowMs: Date.now(),
+    });
+    await expect.element(page.getByText(m.remote_detail_base())).toBeInTheDocument();
+    await expect.element(page.getByText("main @ aaaaaaa")).toBeInTheDocument();
+    await expect.element(page.getByText(m.session_sandbox_degraded_label())).toBeInTheDocument();
+  });
+
+  it("shows neither fact for a session that reports no base commit and a working sandbox", async () => {
+    render(RemoteSessionDetail, { session: remote({ sandboxDegraded: false }), nowMs: Date.now() });
+    await expect.element(page.getByText("MacBook · TASK-07")).toBeInTheDocument();
+    expect(page.getByText(m.remote_detail_base()).elements()).toHaveLength(0);
+    expect(page.getByText(m.remote_detail_sandbox()).elements()).toHaveLength(0);
+  });
+});
+
 describe("RemoteSessionDetail (#2762)", () => {
   it("opens the session's terminal, bridged through this server (#2764)", async () => {
     render(RemoteSessionDetail, { session: remote(), nowMs: Date.now(), terminalOwners: {} });

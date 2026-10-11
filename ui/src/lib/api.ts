@@ -304,10 +304,16 @@ const SPAWN_ID_HEADER = "X-Shepherd-Spawn-Id";
 export async function createSession(
   input: CreateInput & { force?: boolean },
   spawnId?: string,
+  /** Names this submission so a retry never starts it twice (#2761) — the composer sends one for a
+   *  task it runs on a connected machine (#2763), and reuses it to retry an unanswered send. */
+  idempotencyKey?: string,
 ): Promise<Session | HeldResult> {
+  const headers: Record<string, string> = { ...JSON_HEADERS };
+  if (spawnId) headers[SPAWN_ID_HEADER] = spawnId;
+  if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   const r = await fetch("/api/sessions", {
     method: "POST",
-    headers: spawnId ? { ...JSON_HEADERS, [SPAWN_ID_HEADER]: spawnId } : JSON_HEADERS,
+    headers,
     body: JSON.stringify(input),
   });
   if (!r.ok) {

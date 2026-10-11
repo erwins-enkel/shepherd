@@ -6637,8 +6637,7 @@ export class SessionService {
         /* best-effort: recap must never block teardown */
       }
     }
-    if (s.isolated)
-      this.deps.worktree.remove(s.worktreePath, { branch: s.branch, baseBranch: s.baseBranch });
+    if (s.isolated) this.removeArchivedWorktree(s);
     // Stop the drop-watcher before removing the temp dir so it can't read a torn-down path.
     this.deps.egressWatcher?.stop(id);
     // Best-effort: drop this session's egress config dir (incl. dns.log). The agent is
@@ -6657,6 +6656,20 @@ export class SessionService {
     if (this.pendingRunawayIds) this.pendingRunawayIds.add(id);
     else this.deps.reapRunaway?.(new Set([id]));
     return reaped;
+  }
+
+  /** The agent is already stopped when `archive` gets here, so a throw would strand the row active
+   *  with nothing left to close — and every retry fails the same way (e.g. EACCES on root-owned
+   *  files a container wrote into the worktree). Log what could not be deleted and let the teardown
+   *  finish instead. */
+  private removeArchivedWorktree(s: Session): void {
+    try {
+      this.deps.worktree.remove(s.worktreePath, { branch: s.branch, baseBranch: s.baseBranch });
+    } catch (err) {
+      console.warn(
+        `[archive] session ${s.id}: worktree ${s.worktreePath} not fully removed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   /**
@@ -6686,7 +6699,7 @@ export class SessionService {
    * what `archive` actually reaped, so the number never overstates. The caller must
    * restrict `ids` to a safe set (e.g. merged-only) — this archives what it's given.
    *
-   * One session's teardown failing (e.g. `worktree.remove` throwing) must not abort
+   * One session's teardown failing (e.g. `herdr.stop` throwing) must not abort
    * the rest, so each is isolated: a failed id is skipped and left out of `cleared`,
    * so the caller emits archived events for exactly the rows that really went away.
    */

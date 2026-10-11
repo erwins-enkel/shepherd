@@ -122,6 +122,7 @@ import {
   parseLabelPatch,
   type ConnectError,
 } from "./remote-instances/service";
+import type { RemoteSessionMirror } from "./remote-instances/sessions";
 import { scopeAllows } from "./token-scopes";
 import { resolvePlanAnswers, planAnswerSteerText, type RawAnswer } from "./plan-gate";
 import { slugifyManual } from "./namer";
@@ -415,6 +416,9 @@ export interface AppDeps {
    *  `remoteInstances(deps)` accessor lazily builds an unstarted one from `store`; `index.ts`
    *  injects the started singleton that runs the periodic probe. */
   remoteInstances?: RemoteInstanceService;
+  /** Sessions mirrored from connected machines (#2762) — read-only references held apart from
+   *  `store`. Absent ⇒ `GET /api/sessions` and `/events` carry local sessions only. */
+  remoteSessions?: Pick<RemoteSessionMirror, "list" | "subscribe">;
   /** Locates a Codex session's rollout for the transcript reads (issue #1992), with the TTL cache
    *  + miss backoff that keeps the Activity tab's 5s poll off the `$CODEX_HOME` tree. Optional for
    *  the same reason as the two above — the `codexTranscripts(deps)` accessor lazily builds one. */
@@ -3353,19 +3357,35 @@ async function handleSessionSteerLog({ req, parts, deps }: Ctx): Promise<Respons
   return json(steerLog(deps.store.listSessionSteers(parts[2]!)));
 }
 
-async function handleSessionReads({ req, parts, url, deps, token }: Ctx): Promise<Response | null> {
-  if (req.method !== "GET") return null;
-  if (!parts[2])
-    return json(
-      await withScratchpadFlags(
-        deps.store
-          .list({ activeOnly: true })
-          // The Operator Assistant is not herd work: its own route serves it (#1446).
-          .filter(
-            (session) => !isOperatorAssistant(session) && tokenRepoAllowed(token, session.repoPath),
-          ),
+/**
+ * Sessions of connected machines (#2762), appended after the local ones. Left out for
+ * `?host=local` — another Shepherd mirroring this one asks for its own sessions only, so two
+ * machines connected to each other never pass references back and forth — and for a token
+ * restricted to repositories, whose grants name local paths only.
+ */
+function mirroredSessions(url: URL, deps: AppDeps, token: VerifiedToken | null | undefined) {
+  if (url.searchParams.get("host") === "local" || (token && token.repoPaths !== null)) return [];
+  return deps.remoteSessions?.list() ?? [];
+}
+
+/** `GET /api/sessions`: the active local sessions the caller may see, then mirrored ones. */
+async function sessionListRead({ url, deps, token }: Ctx): Promise<Response> {
+  const local = await withScratchpadFlags(
+    deps.store
+      .list({ activeOnly: true })
+      // The Operator Assistant is not herd work: its own route serves it (#1446).
+      .filter(
+        (session) => !isOperatorAssistant(session) && tokenRepoAllowed(token, session.repoPath),
       ),
-    );
+  );
+  const remote = mirroredSessions(url, deps, token);
+  return json(remote.length > 0 ? [...local, ...remote] : local);
+}
+
+async function handleSessionReads(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, url, deps } = ctx;
+  if (req.method !== "GET") return null;
+  if (!parts[2]) return sessionListRead(ctx);
   // Must precede the bare sessionRead fall-through so "done"/"archived" aren't read as session ids.
   const list = parts[3] ? undefined : SESSION_LISTS.get(parts[2]);
   if (list) return json(list(deps));
@@ -10133,7 +10153,14 @@ function parseTerminalClient(params: URLSearchParams) {
 }
 
 type WsData = (
-  | { kind: "events"; unsub?: () => void }
+  | {
+      kind: "events";
+      /** Opened with `?host=local` by another Shepherd that mirrors this one (#2762): it gets this
+       *  instance's own frames only, and it is not a dashboard (no presence). */
+      localOnly: boolean;
+      unsub?: () => void;
+      unsubRemote?: () => void;
+    }
   | { kind: "browser-view"; id: string; repoPath: string; view?: BrowserViewSession }
   | {
       kind: "pty";
@@ -10441,7 +10468,11 @@ export function serve(deps: AppDeps, port: number) {
     if (refused) return refused;
     if (pty) return upgradePty(req, url, server, tokenId, pty[1]!);
     if (view) return upgradeBrowserView(req, server, tokenId, view[1]!);
-    return upgradeWith(req, server, { kind: "events", tokenId });
+    return upgradeWith(req, server, {
+      kind: "events",
+      tokenId,
+      localOnly: url.searchParams.get("host") === "local",
+    });
   }
   // Browser View (#2881): one CdpPipe client per operator socket, attached to the repo's browser.
   function openBrowserViewSocket(ws: ServerWebSocket<WsData & { kind: "browser-view" }>): void {
@@ -10636,9 +10667,16 @@ export function serve(deps: AppDeps, port: number) {
           const unsub = deps.events.subscribe((event, data) => sendTokenEvent(ws, event, data));
           ws.data.unsub = unsub;
           sendTerminalOwners(ws);
-          // A live /events socket = a dashboard is open (regardless of focus), so
-          // background pollers should run warm. `close` drops it again.
-          deps.presence?.connect(ws);
+          if (!ws.data.localOnly) {
+            // Mirrored sessions travel on their own channel, never through `deps.events`, so no
+            // server-side listener ever acts on them; only dashboards receive them.
+            ws.data.unsubRemote = deps.remoteSessions?.subscribe((event, data) =>
+              sendTokenEvent(ws, event, data),
+            );
+            // A live /events socket = a dashboard is open (regardless of focus), so
+            // background pollers should run warm. `close` drops it again.
+            deps.presence?.connect(ws);
+          }
         } else if (ws.data.kind === "browser-view") {
           openBrowserViewSocket(ws as ServerWebSocket<WsData & { kind: "browser-view" }>);
         } else {
@@ -10667,6 +10705,7 @@ export function serve(deps: AppDeps, port: number) {
         if (ws.data.expiryTimer) clearTimeout(ws.data.expiryTimer);
         if (ws.data.kind === "events") {
           ws.data.unsub?.();
+          ws.data.unsubRemote?.();
           deps.presence?.drop(ws);
         } else if (ws.data.kind === "browser-view") {
           // only drop ownership if still the owner (a newer view may have taken over)

@@ -57,6 +57,7 @@ import { LearningsService } from "./learnings-service";
 import { RepoConfigService } from "./repo-config-service";
 import { AccessTokenService } from "./access-tokens";
 import { RemoteInstanceService } from "./remote-instances/service";
+import { RemoteSessionMirror } from "./remote-instances/sessions";
 import { StatusPoller } from "./poller";
 import { PrPoller } from "./pr-poller";
 import { resolveDiffBase } from "./diff-base";
@@ -1073,6 +1074,10 @@ const accessTokenSvc = new AccessTokenService(store);
 // first-run gate like the others. No machine connected ⇒ every round is a no-op without a request.
 const remoteInstances = new RemoteInstanceService({ store });
 deferredStarts.push(() => remoteInstances.start());
+// Their sessions (#2762) follow each machine's probe: a connected probe opens (or re-snapshots) the
+// mirror, anything else marks its sessions disconnected. Held apart from `store`, never on `events`.
+const remoteSessions = new RemoteSessionMirror({ store, instances: remoteInstances });
+remoteInstances.onChange((instanceId) => remoteSessions.sync(instanceId));
 
 // Build-queue reconciliation nudge: settled-idle backstop to the forward-fill cascade in
 // store.setBuildStepStatus. Steers a drifted, settled-idle session to post its progress.
@@ -3956,6 +3961,7 @@ const appDeps: AppDeps = {
   repoConfig: repoConfigSvc,
   accessTokens: accessTokenSvc,
   remoteInstances,
+  remoteSessions,
   events,
   pluginRegistry,
   pluginsDir: config.pluginsDir,

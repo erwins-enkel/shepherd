@@ -134,6 +134,7 @@
   import OperatorAssistantPanel from "#lib/components/OperatorAssistantPanel.svelte";
   import { AssistantLifecycle } from "#lib/operator-assistant.svelte.js";
   import DoneRecapPanel from "#lib/components/DoneRecapPanel.svelte";
+  import RemoteSessionDetail from "#lib/components/RemoteSessionDetail.svelte";
   import UpNextPreview from "#lib/components/UpNextPreview.svelte";
   import type { KickoffChoice } from "#lib/components/NewProject.svelte";
   import ActionBar from "#lib/components/ActionBar.svelte";
@@ -530,6 +531,15 @@
         )
       : byRepo;
   });
+  // Mirrored sessions (#2762) follow the status filter; a repo filter names local checkouts, so
+  // it hides them.
+  const herdRemoteSessions = $derived(
+    repoFilter.size
+      ? []
+      : statusFilter
+        ? store.remoteSessions.filter((s) => displayStatus(s, {}, {}) === statusFilter)
+        : store.remoteSessions,
+  );
   // Display name of the active filter for the herd's empty-state copy: null when unfiltered,
   // the basename for a single repo, "N repos" for a multi-selection.
   const repoFilterName = $derived(
@@ -846,6 +856,11 @@
   });
 
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
+  // A session mirrored from a connected machine (#2762): it opens its read-only detail, never the
+  // Viewport — `selected` stays null for it, so nothing keyed off the local selection acts on it.
+  const selectedRemote = $derived(
+    selected ? null : (store.remoteSessions.find((s) => s.id === selectedId) ?? null),
+  );
   // Pending MCP OAuth authorize URL for the selected session's awaiting-input block, if any.
   const selectedAuthUrl = $derived(
     selected ? (store.blocks[selected.id]?.reason.authUrl ?? null) : null,
@@ -2003,7 +2018,8 @@
       .then((list) => {
         store.setAll(list);
         if (deepLink && list.some((s) => s.id === deepLink)) selectedId = deepLink;
-        else if (!selectedId && list[0]) selectedId = list[0].id;
+        // First LOCAL session: a mirrored one (#2762) is never picked for you.
+        else if (!selectedId && store.sessions[0]) selectedId = store.sessions[0].id;
       })
       .catch(() => {});
     loadOperatorAssistant();
@@ -3249,6 +3265,7 @@
         <div class="col">
           <Herd
             sessions={herdSessions}
+            remoteSessions={herdRemoteSessions}
             filteredRepo={repoFilterName}
             {repoFilter}
             onrepofilter={applyRepoFilter}
@@ -3369,6 +3386,14 @@
             <div class="empty">{m.herd_done_empty()}</div>
           {/if}
         </div>
+      {:else if selectedRemote}
+        <div class="col">
+          <RemoteSessionDetail
+            session={selectedRemote}
+            {nowMs}
+            onback={() => (mobileScreen = "list")}
+          />
+        </div>
       {:else if selected}
         <div class="col">
           <Viewport
@@ -3433,6 +3458,7 @@
             {@render repoRail(canCollapse)}
             <Herd
               sessions={herdSessions}
+              remoteSessions={herdRemoteSessions}
               filteredRepo={repoFilterName}
               {repoFilter}
               onrepofilter={applyRepoFilter}
@@ -3538,6 +3564,8 @@
           {:else}
             <div class="empty">{m.herd_done_empty()}</div>
           {/if}
+        {:else if selectedRemote}
+          <RemoteSessionDetail session={selectedRemote} {nowMs} />
         {:else if store.sessions.length === 0}
           <BacklogView
             payload={backlog}

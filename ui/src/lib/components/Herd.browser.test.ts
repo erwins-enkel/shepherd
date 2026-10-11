@@ -1351,3 +1351,55 @@ describe("Herd epics to land", () => {
     expect(document.querySelector(".band")).toBeNull();
   });
 });
+
+describe("Herd machine groups (#2762)", () => {
+  const mac = { instanceId: "m1", name: "MacBook", platform: "macos" };
+  const studio = { instanceId: "m2", name: "Studio", platform: "linux" };
+  const remoteSessions = [
+    session({ id: "r1", name: "on mac", host: mac, connection: { state: "connected", since: 0 } }),
+    session({
+      id: "r2",
+      name: "on studio",
+      host: studio,
+      connection: { state: "disconnected", since: 0 },
+    }),
+  ];
+
+  it("lists each machine's sessions in its own group after the local ones", async () => {
+    await render(Herd, {
+      ...base,
+      sessions: [session({ id: "l1", name: "local one" })],
+      remoteSessions,
+      git: {},
+    });
+    const groups = page.getByRole("region");
+    await expect
+      .element(page.getByRole("region", { name: m.remote_group_aria({ machine: "MacBook" }) }))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByRole("region", { name: m.remote_group_aria({ machine: "Studio" }) }))
+      .toBeInTheDocument();
+    expect(groups.elements()).toHaveLength(2);
+    await expect
+      .element(page.getByText(m.remote_state_disconnected(), { exact: true }))
+      .toBeInTheDocument();
+    const local = page.getByRole("button", { name: m.unit_open_aria({ name: "local one" }) });
+    const mirrored = page.getByRole("button", { name: m.unit_open_aria({ name: "on mac" }) });
+    expect(
+      local.element().compareDocumentPosition(mirrored.element()) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("shows them even when there is no local session", async () => {
+    await render(Herd, { ...base, sessions: [], remoteSessions, git: {} });
+    await expect
+      .element(page.getByRole("button", { name: m.unit_open_aria({ name: "on mac" }) }))
+      .toBeInTheDocument();
+  });
+
+  it.each(["ready", "done"] as const)("keeps them out of the %s lens", async (filter) => {
+    await render(Herd, { ...base, filter, sessions: [], remoteSessions, git: {} });
+    expect(document.querySelector(".machine-group")).toBeNull();
+  });
+});

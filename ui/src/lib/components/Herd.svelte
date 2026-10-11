@@ -20,6 +20,7 @@
   import HerdExperimentGroups from "./herd/HerdExperimentGroups.svelte";
   import HerdDoneList from "./herd/HerdDoneList.svelte";
   import HerdEmptyState from "./herd/HerdEmptyState.svelte";
+  import HerdMachineGroups from "./herd/HerdMachineGroups.svelte";
   import IntegratedEpicsBand from "./IntegratedEpicsBand.svelte";
   import { deriveIntegratedEpicStatus } from "#lib/integrated-epic-status.js";
   import PostMergeStepsPanel from "./PostMergeStepsPanel.svelte";
@@ -43,6 +44,7 @@
 
   let {
     sessions,
+    remoteSessions = [],
     selectedId,
     jumpFlashId = null,
     nowMs,
@@ -114,6 +116,8 @@
     upNextLaunch = null,
   }: {
     sessions: Session[];
+    // sessions mirrored from connected machines (#2762) — read-only, one group per machine
+    remoteSessions?: Session[];
     selectedId: string | null;
     // The session a global jump (command bar, deep link, notification) just landed on —
     // its row flashes for ~1.5s so the operator's eye finds it after the rail scrolls.
@@ -832,6 +836,7 @@
         />
       {/each}
     {/if}
+    <HerdMachineGroups sessions={remoteSessions} {filter} {selectedId} {nowMs} {onselect} />
     {#if !epicNeedsOperator}{@render integratedEpics()}{/if}
   </div>
 </div>

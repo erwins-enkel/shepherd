@@ -144,6 +144,7 @@ function machineInfo({ version, federationApi, platform, arch }: InstanceIdentit
 export class RemoteInstanceService {
   private readonly states = new Map<string, ProbeState>();
   private readonly inflight = new Map<string, Promise<void>>();
+  private readonly listeners = new Set<(instanceId: string) => void>();
   private timer: ReturnType<typeof setInterval> | null = null;
   private readonly store: Store;
   private readonly fetch: FetchLike | undefined;
@@ -157,6 +158,18 @@ export class RemoteInstanceService {
 
   list(): RemoteInstanceSummary[] {
     return this.store.listRemoteInstances().map((row) => this.summary(row));
+  }
+
+  get(instanceId: string): RemoteInstanceSummary | null {
+    const row = this.store.getRemoteInstance(instanceId);
+    return row ? this.summary(row) : null;
+  }
+
+  /** Called with the machine's ID after every probe result, rename and removal — the session
+   *  mirror (#2762) follows a machine's state through this. Returns the unsubscribe. */
+  onChange(listener: (instanceId: string) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   /** Probe the target first and store it only once it answers as a compatible, distinct machine. */
@@ -185,13 +198,14 @@ export class RemoteInstanceService {
 
   rename(instanceId: string, label: string | null): RemoteInstanceSummary | null {
     if (!this.store.updateRemoteInstanceLabel(instanceId, label)) return null;
-    const row = this.store.getRemoteInstance(instanceId);
-    return row ? this.summary(row) : null;
+    this.notify(instanceId);
+    return this.get(instanceId);
   }
 
   remove(instanceId: string): boolean {
     const removed = this.store.deleteRemoteInstance(instanceId);
     this.states.delete(instanceId);
+    if (removed) this.notify(instanceId);
     return removed;
   }
 
@@ -277,10 +291,15 @@ export class RemoteInstanceService {
             projects: prev?.projects ?? null,
           };
     this.states.set(row.instanceId, next);
+    this.notify(row.instanceId);
     if (prev?.status === next.status && prev.reason === next.reason) return;
     const line = `[remote-instances] ${row.label ?? row.reportedName}: ${next.status}${next.reason ? ` (${next.reason})` : ""}`;
     if (next.status === "connected") console.log(line);
     else console.warn(line);
+  }
+
+  private notify(instanceId: string): void {
+    for (const listener of this.listeners) listener(instanceId);
   }
 
   private summary(row: RemoteInstanceRow): RemoteInstanceSummary {

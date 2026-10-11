@@ -1,5 +1,7 @@
 import { m } from "#lib/paraglide/messages.js";
 import type { TooltipExplanation } from "./content";
+import type { SessionConnection, SessionHost } from "#lib/types.js";
+import { lastKnownLabel, platformName } from "#lib/remote-sessions.js";
 
 export function planGateExplanation(): TooltipExplanation {
   return {
@@ -344,6 +346,33 @@ export function operatorAssistantExplanation(): TooltipExplanation {
         text: m.operator_assistant_tip_approval_body(),
       },
       { label: m.operator_assistant_tip_herdr(), text: m.operator_assistant_tip_herdr_body() },
+    ],
+  };
+}
+
+/** A session mirrored from a connected machine (#2762): where it runs, the state of the link, and
+ *  why its actions are not offered here. Shared by the machine badge and every disabled action. */
+export function remoteSessionExplanation(
+  host: SessionHost,
+  connection: SessionConnection,
+  nowMs: number,
+): TooltipExplanation {
+  const machine = host.name;
+  return {
+    title: m.remote_runs_on({ machine }),
+    summary: m.tooltip_remote_summary({ machine, platform: platformName(host.platform) }),
+    sections: [
+      {
+        label: m.tooltip_remote_connection(),
+        text:
+          connection.state === "connected"
+            ? m.tooltip_remote_connected_body()
+            : m.tooltip_remote_disconnected_body({
+                machine,
+                time: lastKnownLabel(connection.since, nowMs),
+              }),
+      },
+      { label: m.tooltip_remote_actions(), text: m.tooltip_remote_actions_body({ machine }) },
     ],
   };
 }

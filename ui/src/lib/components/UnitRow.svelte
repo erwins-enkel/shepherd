@@ -66,6 +66,7 @@
   import { sessionPulse } from "#lib/session-pulse.js";
   import { buildQueues } from "#lib/buildQueues.svelte.js";
   import { steerLogs } from "#lib/steerLogs.svelte.js";
+  import RemoteConnectionNote from "./RemoteConnectionNote.svelte";
   import { rowHold } from "#lib/hold-row.js";
   import { holdAwaitsOperator } from "#lib/hold.js";
   import { checksCleared } from "#lib/checks-cleared.js";
@@ -580,9 +581,10 @@
   const queueStepLive = $derived(!!linePulse?.step);
   // The steer log has no push: re-read it whenever a steer is likely to have just happened —
   // the session's status, its CI rollup or its PR head moved. Keyed on a primitive so a fresh
-  // session object with the same values doesn't refetch. Finished sessions need none.
+  // session object with the same values doesn't refetch. Finished sessions need none, and a
+  // mirrored one (#2762) has its log on its own machine.
   const steerLogKey = $derived(
-    session.status === "done" || session.status === "archived"
+    session.host || session.status === "done" || session.status === "archived"
       ? null
       : `${session.id}|${session.status}|${git?.checks ?? ""}|${git?.headSha ?? ""}`,
   );
@@ -772,19 +774,23 @@
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
   // Returns whether a menu actually opened (so the long-press can decide whether to
   // swallow the trailing tap). No-ops when nothing to offer or one is already open.
+  // A session mirrored from another machine (#2762) offers no action here — every one of them
+  // would run against this machine — so it gets no menu at all.
+  const remote = $derived(!!session.host);
   const hasMenu = $derived(
-    mergeable ||
-      stoppable ||
-      resumable ||
-      !!ondecommission ||
-      !!onrename ||
-      !!onamend ||
-      relaunchable ||
-      relaunchElsewhereAble ||
-      variantable ||
-      replaceable ||
-      cleanTerminalAble ||
-      askable,
+    !remote &&
+      (mergeable ||
+        stoppable ||
+        resumable ||
+        !!ondecommission ||
+        !!onrename ||
+        !!onamend ||
+        relaunchable ||
+        relaunchElsewhereAble ||
+        variantable ||
+        replaceable ||
+        cleanTerminalAble ||
+        askable),
   );
   function openMenuAt(x: number, y: number): boolean {
     if (menu || !hasMenu) return false;
@@ -921,6 +927,7 @@
   let overClock = false; // pointer currently within the cached clock bounds
   let clockRect: DOMRect | null = null; // wall-clock bounds, cached on card-enter
   function tipShow(delay = 450) {
+    if (remote) return; // its breakdown would read this machine's steer log (#2762)
     clearTimeout(tipTimer);
     tipTimer = setTimeout(() => (tipRect = elapsedEl?.getBoundingClientRect() ?? null), delay);
   }
@@ -1072,6 +1079,7 @@
         {/if}
       </div>
       <PulseLine pulse={linePulse} id="u-pulse-{session.id}" />
+      <RemoteConnectionNote {session} {nowMs} />
       {@render holdSubline()}
     </div>
 

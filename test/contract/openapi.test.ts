@@ -528,6 +528,29 @@ describe("sessions", () => {
     expect(missing.status).toBe(404);
   });
 
+  test("GET /api/sessions appends sessions mirrored from a connected machine", async () => {
+    const created = await createSession("mirrored");
+    const host = {
+      instanceId: "0b6f2c1e-7c1d-4e53-9d1a-3c1f2e4b5a6d",
+      name: "MacBook",
+      platform: "macos",
+    };
+    const connection = { state: "disconnected", since: 1_790_000_000_000 };
+    const ref = { ...created, id: "remote-session", desig: "TASK-07", host, connection };
+    s.deps.remoteSessions = { list: () => [ref], subscribe: () => () => {} } as never;
+    try {
+      const res = await fetch(`${s.baseUrl}/api/sessions`, { headers: bearer(token) });
+      const sessions = (await validateResponse("GET", "/api/sessions", res)) as object[];
+      expect(sessions.at(-1)).toEqual(ref);
+      expect(sessions.filter((x) => "host" in x)).toEqual([ref]);
+      // A relayed frame about a mirrored session carries the same annotation.
+      validateEvent("session:new", ref);
+      validateEvent("session:status", { id: ref.id, status: "idle", host, connection });
+    } finally {
+      s.deps.remoteSessions = undefined;
+    }
+  });
+
   test("POST /api/sessions/{id}/interrupt", async () => {
     const created = await createSession("interrupted");
     const ok = await fetch(`${s.baseUrl}/api/sessions/${created.id}/interrupt`, {

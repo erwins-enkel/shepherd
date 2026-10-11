@@ -44,6 +44,63 @@ test("create makes an isolated worktree on a shepherd/ branch", () => {
   expect(branches).toContain("shepherd/repo-flatten");
 });
 
+test("create reports the commit the new worktree's HEAD sits on (#2761)", () => {
+  const wt = new WorktreeMgr();
+  const head = execFileSync("git", ["rev-parse", "main"], { cwd: repo }).toString().trim();
+  const r = wt.create(repo, "main", "base-commit");
+  expect(r.baseCommit).toBe(head);
+  // an explicit commit as the base lands exactly there
+  const pinned = wt.create(repo, head, "base-commit-pinned");
+  expect(pinned.baseCommit).toBe(head);
+  wt.remove(r.worktreePath);
+  wt.remove(pinned.worktreePath);
+});
+
+test("ensureCommit fetches a commit only origin has, and never throws (#2761)", async () => {
+  const gitEnv = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "t",
+    GIT_AUTHOR_EMAIL: "t@t",
+    GIT_COMMITTER_NAME: "t",
+    GIT_COMMITTER_EMAIL: "t@t",
+  };
+  const parent = mkdtempSync(join(tmpdir(), "shepherd-wt-clone-"));
+  const clone = join(parent, "clone");
+  try {
+    execFileSync("git", ["clone", "-q", repo, clone]);
+    // A commit made upstream AFTER the clone: the clone has never seen it.
+    execFileSync("git", ["commit", "-q", "--allow-empty", "-m", "later"], {
+      cwd: repo,
+      env: gitEnv,
+    });
+    const later = execFileSync("git", ["rev-parse", "HEAD"], { cwd: repo }).toString().trim();
+    const has = (sha: string) => {
+      try {
+        execFileSync("git", ["cat-file", "-e", `${sha}^{commit}`], { cwd: clone, stdio: "pipe" });
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    expect(has(later)).toBe(false);
+
+    const wt = new WorktreeMgr();
+    await wt.ensureCommit(clone, later);
+    expect(has(later)).toBe(true);
+    // no ref was moved: the clone's main is still the pre-clone commit
+    expect(execFileSync("git", ["rev-parse", "main"], { cwd: clone }).toString().trim()).not.toBe(
+      later,
+    );
+    // a commit nobody has: best-effort, never throws; create() is what reports it missing
+    await wt.ensureCommit(clone, "0".repeat(40));
+    expect(() => wt.create(clone, "0".repeat(40), "missing-base")).toThrow(
+      WorktreeMissingBaseError,
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("remove() sweeps the worktree for orphaned processes before tearing it down (#1133)", () => {
   const calls: string[] = [];
   const stubReaper = {

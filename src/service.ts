@@ -16,7 +16,12 @@ import {
   sessionCapabilities,
   type AgentCapabilities,
 } from "./agent-control";
-import { worktreePathFor, type WorktreeMgr } from "./worktree";
+import {
+  worktreePathFor,
+  WorktreeMissingBaseError,
+  type WorktreeMgr,
+  type WorktreeResult,
+} from "./worktree";
 import type { HerdrAgent, HerdrDriver } from "./herdr";
 import {
   createSerializer,
@@ -239,6 +244,17 @@ const UNIQUE_NAME_MAX_PROBES = 100;
  *  sanitize can cut the trailing issue number off. */
 const ISSUE_NAME_MAX = HERDR_AGENT_NAME_MAX - `-${UNIQUE_NAME_MAX_PROBES + 1}`.length;
 
+/** The commit a new session's worktree actually starts from (#2761). An explicitly requested one
+ *  is never silently replaced: when the worktree came up anywhere else (a non-git repo, or the
+ *  retry path reusing an older orphan branch) the create fails as an unusable base (422) and the
+ *  caller's rollback removes the worktree. */
+function usedBaseCommit(input: StandardCreateInput, wt: WorktreeResult): string | null {
+  const used = wt.baseCommit ?? null;
+  if (input.baseCommit && used !== input.baseCommit)
+    throw new WorktreeMissingBaseError(input.baseCommit);
+  return used;
+}
+
 export interface ServiceDeps {
   /** Filesystem seam for persisted conversation availability; defaults to the real transcript file check. */
   transcriptExists?: (path: string) => boolean;
@@ -248,6 +264,7 @@ export interface ServiceDeps {
     WorktreeMgr,
     | "create"
     | "ensureBaseRef"
+    | "ensureCommit"
     | "remove"
     | "renameBranch"
     | "branchExists"
@@ -3904,6 +3921,13 @@ export class SessionService {
    * (diverged / no upstream / up to date). Falls back to the named branch when the
    * impl returns nothing — fail-safe, never undefined. */
   private async resolveBaseRef(input: StandardCreateInput): Promise<string> {
+    // An explicitly requested commit IS the base (#2761): fetched if missing, never freshened to
+    // the branch's upstream tip — `baseBranch` stays only the PR target.
+    if (input.baseCommit) {
+      await this.deps.worktree.ensureCommit(input.repoPath, input.baseCommit);
+      console.info(`[create] base ${input.baseBranch}: explicit commit ${input.baseCommit}`);
+      return input.baseCommit;
+    }
     const resolved = await this.deps.worktree.ensureBaseRef(input.repoPath, input.baseBranch);
     const baseRef = resolved?.baseRef ?? input.baseBranch;
     console.info(
@@ -4234,6 +4258,7 @@ export class SessionService {
     // before the store row exists — the store.create() call below receives this id explicitly.
     const sessionId = randomUUID();
     try {
+      const baseCommit = usedBaseCommit(input, wt);
       const claudeSessionId = randomUUID();
 
       const {
@@ -4291,6 +4316,7 @@ export class SessionService {
         prompt: input.prompt, // store the original user text, not the argv-augmented version
         repoPath: input.repoPath,
         baseBranch: input.baseBranch,
+        baseCommit,
         branch: wt.branch,
         worktreePath: wt.worktreePath,
         isolated: wt.isolated,

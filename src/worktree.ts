@@ -15,7 +15,13 @@ export interface WorktreeResult {
   worktreePath: string;
   branch: string | null;
   isolated: boolean;
+  /** The commit the new worktree's HEAD sits on — the base the session actually starts from
+   *  (#2761). null when it can't be read (non-git repo, unreadable HEAD). */
+  baseCommit?: string | null;
 }
+
+/** A full SHA-1 / SHA-256 object id — the only form `ensureCommit` will fetch by. */
+const FULL_COMMIT_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 export interface ResolvedBase {
   /** The ref or sha to pass to `worktree.create()` as the base commit. For a
@@ -114,9 +120,62 @@ export class WorktreeMgr {
         cwd: repoPath,
         stdio: "pipe",
       });
-      return { worktreePath, branch, isolated: true };
+      return this.withBaseCommit({ worktreePath, branch, isolated: true });
     } catch (err) {
-      return this.recoverFromAddFailure(repoPath, baseBranch, branch, worktreePath, err);
+      return this.withBaseCommit(
+        this.recoverFromAddFailure(repoPath, baseBranch, branch, worktreePath, err),
+      );
+    }
+  }
+
+  /** Stamp the commit the fresh worktree's HEAD sits on. Read AFTER the add rather than resolved
+   *  from the base ref up front, so the retry path's reused orphan branch reports what was really
+   *  checked out. Never throws — an unreadable HEAD is recorded as unknown (null). */
+  private withBaseCommit(wt: WorktreeResult): WorktreeResult {
+    try {
+      const out = execFileSync("git", ["rev-parse", "--verify", "HEAD^{commit}"], {
+        cwd: wt.worktreePath,
+        stdio: "pipe",
+        encoding: "utf8",
+      });
+      return { ...wt, baseCommit: out.trim() || null };
+    } catch {
+      return { ...wt, baseCommit: null };
+    }
+  }
+
+  /** Make an explicitly requested base commit available locally (#2761): a no-op when the object
+   *  is already present, else a bounded fetch of exactly that commit from origin (hosts like
+   *  GitHub serve any reachable sha). Never throws and never moves a ref — a commit still missing
+   *  afterwards surfaces as `create()`'s WorktreeMissingBaseError. `--no-write-fetch-head` keeps
+   *  concurrent fetches from racing on FETCH_HEAD (see upstreamStatus). */
+  async ensureCommit(repoPath: string, sha: string): Promise<void> {
+    if (!FULL_COMMIT_RE.test(sha)) return;
+    try {
+      await execFileAsync("git", ["cat-file", "-e", `${sha}^{commit}`], { cwd: repoPath });
+      return;
+    } catch {
+      // not present locally — fetch it below
+    }
+    try {
+      await timedAsync("git fetch", () =>
+        execFileAsync(
+          "git",
+          [
+            "-c",
+            "http.lowSpeedLimit=1000",
+            "-c",
+            "http.lowSpeedTime=5",
+            "fetch",
+            "--no-write-fetch-head",
+            "origin",
+            sha,
+          ],
+          { cwd: repoPath, timeout: 30_000, killSignal: "SIGKILL" },
+        ),
+      );
+    } catch (err) {
+      console.warn(`[worktree] ensureCommit: fetching ${sha} from origin failed: ${err}`);
     }
   }
 

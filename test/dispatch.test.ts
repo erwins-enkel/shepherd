@@ -322,3 +322,26 @@ test("keys are validated; an sf-string (quoted) key is accepted", async () => {
   expect((await call(h, "GET", "/api/dispatches/-bad")).status).toBe(400);
   expect((await call(h, "DELETE", "/api/dispatches/-bad")).status).toBe(400);
 });
+
+test("editing a held task keeps its pinned base commit unless the edit names one", async () => {
+  const h = harness();
+  h.usage.pct = 95;
+  const pinned = "a".repeat(40);
+  const { id } = (await (await post(h, "k-pinned", { baseCommit: pinned })).json()) as {
+    id: string;
+  };
+  const edit = (extra: Record<string, unknown>) =>
+    h.app.fetch(
+      new Request(`http://x/api/held/${id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body({ prompt: "edited", ...extra })),
+      }),
+    );
+  // The New Task composer has no base-commit field, so its edit omits it.
+  expect((await edit({})).status).toBe(200);
+  expect(h.store.getHeldTask(id)?.input).toMatchObject({ prompt: "edited", baseCommit: pinned });
+  const other = "b".repeat(40);
+  expect((await edit({ baseCommit: other })).status).toBe(200);
+  expect(h.store.getHeldTask(id)?.input.baseCommit).toBe(other);
+});

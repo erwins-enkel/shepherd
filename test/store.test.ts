@@ -225,9 +225,22 @@ test("session migration: an old sessions row without providerSessionId gains the
     const store = new SessionStore(dbPath);
     expect(store.get("old")?.providerSessionId).toBe("");
     expect(store.get("old")?.archiveReason).toBeNull();
+    expect(store.get("old")?.baseCommit).toBeNull();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("create persists the base commit the worktree was created from (#2761)", () => {
+  const s = mk();
+  const sha = "a".repeat(40);
+  const withCommit = s.create({ ...base, baseCommit: sha });
+  expect(withCommit.baseCommit).toBe(sha);
+  expect(s.get(withCommit.id)?.baseCommit).toBe(sha);
+  // Absent → null on both the returned row and the read-back, so the wire shape never differs.
+  const without = s.create({ ...base, herdrAgentId: "term_2" });
+  expect(without.baseCommit).toBeNull();
+  expect(s.get(without.id)?.baseCommit).toBeNull();
 });
 
 test("update can replace a session's agent identity without changing the row", () => {

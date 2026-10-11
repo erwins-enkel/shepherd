@@ -735,7 +735,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
   haltReason, haltedAt, manualStepsJson, manualStepsAckedAt, experimentId, experimentRole,
   spawnTerminalId, spawnAccountDir, providerSessionId, launchMetadataJson, archiveReason, codexLaunchId,
-  plain`;
+  plain, baseCommit`;
 
 /**
  * The SELECT column list: everything {@link COLS} inserts, plus the OBSERVED runtime identity
@@ -756,6 +756,7 @@ type SessionRow = {
   prompt: string;
   repoPath: string;
   baseBranch: string;
+  baseCommit: string | null;
   branch: string | null;
   worktreePath: string;
   isolated: number;
@@ -1373,10 +1374,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // is sub-second, so the worst-case wait is a brief, bounded stall — not a crash. Keep equal to
     // BUSY_TIMEOUT_MS in scripts/backup.ts.
     this.db.run("PRAGMA busy_timeout = 5000");
-    // Everything below is ONE transaction. A fresh open fires 154 write statements: 45
-    // CREATE TABLE IF NOT EXISTS (44 here, REVIEWER_SPAWNS_DDL, and terminal_claims inside
+    // Everything below is ONE transaction. A fresh open fires 156 write statements: 46
+    // CREATE TABLE IF NOT EXISTS (44 here, REVIEWER_SPAWNS_DDL, DISPATCHES_DDL, and terminal_claims inside
     // migrateSessionColumns), 14 index creations (13 here plus that method's partial unique
-    // index), 89 ALTER TABLE column adds behind PRAGMA table_info probes, and 3 seed INSERTs.
+    // index), 90 ALTER TABLE column adds behind PRAGMA table_info probes, and 3 seed INSERTs.
     // Each one left to autocommit pays SQLite's full rollback-journal fsync cycle — 310ms per open
     // on a fast NVMe, seconds on CI's disk, which is what times out the disk-backed migration
     // tests in test/store.test.ts. Batched: ~9ms. It also makes migration atomic — a crash mid-boot
@@ -3241,6 +3242,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       terminal: Boolean(input.terminal),
       terminalTabId: strOrNull(input.terminalTabId),
       terminalPaneId: strOrNull(input.terminalPaneId),
+      baseCommit: strOrNull(input.baseCommit),
       status: "running",
       lastState: "idle",
       createdAt: now,
@@ -3270,7 +3272,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -3335,6 +3337,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           null, // archiveReason — a fresh session has not been archived
           strOrEmpty(s.codexLaunchId),
           Number(s.plain), // Number() not `? 1 : 0` — same rationale as the other kind flags
+          strOrNull(s.baseCommit), // the worktree's HEAD at create (#2761); null without one
         ],
       );
       return s;
@@ -5874,6 +5877,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("spawnAccountDir", `spawnAccountDir TEXT`);
     add("launchMetadataJson", `launchMetadataJson TEXT`);
     add("archiveReason", `archiveReason TEXT`);
+    // The commit the worktree was actually created from (#2761). Nullable, no default: legacy rows
+    // never recorded one, and NULL means "unknown", never "no base".
+    add("baseCommit", `baseCommit TEXT`);
     // Settled clock (#1156): when the session last stopped working. Written ONLY by `update()`
     // (which derives it from the status transition) and `setSettledAt`. Nullable — null means
     // "never settled", never "settled at epoch 0".

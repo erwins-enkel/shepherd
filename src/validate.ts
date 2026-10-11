@@ -58,6 +58,7 @@ const ALLOWED_KEYS = new Set([
   "epicAuthoring",
   "plain",
   "mergeTrainPrs",
+  "baseCommit",
   "force", // transport-only: bypass hold gate; not forwarded to CreateSessionInput
 ]);
 
@@ -640,6 +641,7 @@ function validateOptions(obj: Record<string, unknown>): Field<{
   epicAuthoring: boolean;
   plain: boolean;
   mergeTrainPrs: number[] | undefined;
+  baseCommit: string | undefined;
 }> {
   const planGateEnabled = validatePlanGateEnabled(obj.planGateEnabled);
   if (!planGateEnabled.ok) return planGateEnabled;
@@ -662,6 +664,9 @@ function validateOptions(obj: Record<string, unknown>): Field<{
   const mergeTrainPrs = validateMergeTrainPrs(obj.mergeTrainPrs);
   if (!mergeTrainPrs.ok) return mergeTrainPrs;
 
+  const baseCommit = validateBaseCommit(obj.baseCommit);
+  if (!baseCommit.ok) return baseCommit;
+
   return field({
     planGateEnabled: planGateEnabled.value,
     autopilotEnabled: autopilotEnabled.value,
@@ -670,7 +675,19 @@ function validateOptions(obj: Record<string, unknown>): Field<{
     epicAuthoring: epicAuthoring.value,
     plain: plain.value,
     mergeTrainPrs: mergeTrainPrs.value,
+    baseCommit: baseCommit.value,
   });
+}
+
+/** A full SHA-1 or SHA-256 object id, lowercase — abbreviations are ambiguous by design. */
+const COMMIT_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/** baseCommit — optional explicit base commit (#2761); absent/null → resolved from baseBranch. */
+function validateBaseCommit(value: unknown): Field<string | undefined> {
+  if (value == null) return field(undefined);
+  if (typeof value !== "string" || !COMMIT_RE.test(value))
+    return err("baseCommit must be a full lowercase hex commit id");
+  return field(value);
 }
 
 /** planGateEnabled — optional per-task override; absent/null → inherit the repo default. */

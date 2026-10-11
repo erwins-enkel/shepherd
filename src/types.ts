@@ -37,6 +37,10 @@ export interface Session {
   prompt: string;
   repoPath: string;
   baseBranch: string;
+  /** The commit the session's worktree was actually created from (#2761) — its HEAD right after
+   *  `git worktree add`, before the agent commits anything. null for a non-git repo, a clean
+   *  terminal, or a row that predates the column. Optional so pre-existing fixtures need no change. */
+  baseCommit?: string | null;
   branch: string | null; // null when cwd fallback
   worktreePath: string;
   isolated: boolean;
@@ -324,6 +328,10 @@ export interface StandardCreateInput {
   terminal?: false;
   repoPath: string;
   baseBranch: string;
+  /** An explicitly requested base commit (full hex sha, #2761). When set the worktree is created
+   *  at exactly this commit — never freshened to `baseBranch`'s upstream tip; `baseBranch` stays
+   *  the PR target. Absent → the base is resolved from `baseBranch` as usual. */
+  baseCommit?: string;
   prompt: string;
   agentProvider?: AgentProvider;
   model: string | null; // null = provider default (no --model flag)

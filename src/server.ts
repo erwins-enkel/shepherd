@@ -7086,6 +7086,9 @@ async function heldUpdate(
   const value = existing.input.mergeTrainPrs?.length
     ? { ...result.value, mergeTrainPrs: existing.input.mergeTrainPrs }
     : result.value;
+  // Same for an explicit base commit (#2761): the composer has no field for it, and an edit must
+  // never silently re-base a task that was pinned to a revision. An edit that names one wins.
+  value.baseCommit ??= existing.input.baseCommit;
   deps.store.updateHeldTask(id, value);
   deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
   return json(deps.store.getHeldTask(id), 200);

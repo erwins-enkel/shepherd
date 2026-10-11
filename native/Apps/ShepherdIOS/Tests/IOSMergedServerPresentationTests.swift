@@ -50,10 +50,19 @@ final class IOSMergedServerPresentationTests: XCTestCase {
         let filtered = IOSMergedSessionPresentation.merge([a, b], selectedRepos: ["/repos/a"])
         XCTAssertEqual(filtered.groups.flatMap(\.rows).map(\.session.id), ["a", "c"])
         XCTAssertEqual(filtered.tallies.total, 2); XCTAssertEqual(filtered.tallies.idle, 1)
-        XCTAssertEqual(filtered.chips.map(\.path), ["/repos/a", "/repos/b"])
+        XCTAssertEqual(filtered.chips.map(\.name), ["a", "b"])
         XCTAssertEqual(filtered.chips.map(\.count), [2, 1])
         let stale = IOSMergedSessionPresentation.merge([a, b], selectedRepos: ["/gone"])
         XCTAssertTrue(stale.repos.isEmpty); XCTAssertEqual(stale.tallies.total, 3)
+    }
+    func testSameRepoOnTwoServersIsOneChip() {
+        let a = source(profile("studio"), sessions: [session("a", created: 1, repo: "/Users/kai/site")])
+        let b = source(profile("laptop"), sessions: [session("b", created: 2, repo: "/home/kai/site"), session("c", created: 3, repo: "/home/kai/app")])
+        let merged = IOSMergedSessionPresentation.merge([a, b], selectedRepos: [])
+        XCTAssertEqual(merged.chips.map(\.name), ["app", "site"])
+        XCTAssertEqual(merged.chips.map(\.count), [1, 2])
+        let filtered = IOSMergedSessionPresentation.merge([a, b], selectedRepos: merged.chips[1].paths)
+        XCTAssertEqual(filtered.groups.flatMap(\.rows).map(\.session.id), ["a", "b"])
     }
     func testFinishedAndOwedMergeUseTheirExistingSortKeys() {
         let a = profile("studio"), b = profile("laptop")

@@ -23,11 +23,13 @@ enum IOSMergedSessionPresentation {
         let record: PostMergeSteps
         var id: IOSSessionIdentity { .init(profileID: profile.id, sessionID: record.sessionId) }
     }
+    /// One chip per repo NAME: the same repo checked out on several servers lives under
+    /// different paths, and the operator still means one repo.
     struct Chip: Identifiable {
-        let path: String
+        let name: String
+        let paths: Set<String>
         let count: Int
-        var name: String { (path as NSString).lastPathComponent }
-        var id: String { path }
+        var id: String { name }
     }
     struct Tallies { var active = 0; var idle = 0; var blocked = 0; var total = 0 }
     struct Group: Identifiable {
@@ -135,8 +137,10 @@ enum IOSMergedSessionPresentation {
             return $0.id < $1.id
         }
         return Snapshot(epicGroups: epicGroups, groups: groups, finished: finished, owed: owed,
-            chips: counts.keys.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-                .map { Chip(path: $0, count: counts[$0]!) }, repos: repos, tallies: tallies)
+            chips: Dictionary(grouping: counts.keys) { ($0 as NSString).lastPathComponent }
+                .map { Chip(name: $0.key, paths: Set($0.value), count: $0.value.reduce(0) { $0 + counts[$1]! }) }
+                .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending },
+            repos: repos, tallies: tallies)
     }
 
     @MainActor static func snapshot(_ hub: IOSServerHub) -> Snapshot {

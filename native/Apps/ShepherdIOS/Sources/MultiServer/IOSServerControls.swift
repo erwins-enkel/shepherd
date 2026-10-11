@@ -26,8 +26,8 @@ struct IOSServerReposSheet: View {
                         label(L.t("herd_seg_all"), count: snapshot.chips.reduce(0) { $0 + $1.count }, selected: snapshot.repos.isEmpty)
                     }.accessibilityIdentifier("repo-filter-all")
                     ForEach(snapshot.chips) { chip in
-                        Button { hub.toggleRepo(chip.path); dismiss() } label: {
-                            label(chip.name, count: chip.count, selected: snapshot.repos.contains(chip.path))
+                        Button { hub.toggleRepo(chip.paths); dismiss() } label: {
+                            label(chip.name, count: chip.count, selected: !snapshot.repos.isEmpty && chip.paths.isSuperset(of: snapshot.repos))
                         }.accessibilityIdentifier("repo-filter-\(chip.name)")
                     }
                 }.scrollContentBackground(.hidden).background(SessionListStyle.background)

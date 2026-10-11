@@ -234,7 +234,7 @@ final class IOSServerHub {
         for model in connected { model.extension(SidebarModel.self)?.lens = lens }
     }
 
-    func toggleRepo(_ path: String) { selectedRepos = selectedRepos == [path] ? [] : [path] }
+    func toggleRepo(_ paths: Set<String>) { selectedRepos = selectedRepos == paths ? [] : paths }
     func toggleCollapsed(_ stage: HerdStage) {
         if !collapsedStages.insert(stage).inserted { collapsedStages.remove(stage) }
     }

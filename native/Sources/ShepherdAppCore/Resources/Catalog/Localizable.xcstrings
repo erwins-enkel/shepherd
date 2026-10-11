@@ -13726,6 +13726,24 @@
         }
       }
     },
+    "native_ios_server_unavailable": {
+      "comment": "%1$@ = server",
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ ist gerade nicht erreichbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%1$@ is currently unavailable"
+          }
+        }
+      }
+    },
     "native_ios_session_age": {
       "comment": "%1$@ = age",
       "extractionState": "manual",

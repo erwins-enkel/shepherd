@@ -799,6 +799,7 @@
 "native_ios_server_mirror_direct" = "direkt hinterlegt · Kopie ausgeblendet";
 "native_ios_server_mirror_only" = "nur gespiegelt";
 "native_ios_server_mirror_via" = "über %1$@";
+"native_ios_server_unavailable" = "%1$@ ist gerade nicht erreichbar";
 "native_ios_session_age" = "Alter: %1$@";
 "native_ios_steers_add" = "Neuer Steer";
 "native_ios_steers_all" = "Alle Steers";

@@ -1,4 +1,5 @@
 import Foundation
+import HTTPTypes
 import OpenAPIRuntime
 import OpenAPIURLSession
 
@@ -28,8 +29,8 @@ public final class ShepherdClient: Sendable {
   let generated: Client
 
   /// Opt-in generated client for slow operations in per-stream wrappers.
-  /// Shares credentials, logout signals and retry policy with `generated`,
-  /// but waits up to 300 seconds for response data by default.
+  /// Shares credentials and logout signals with `generated`, retains the default
+  /// GET retry policy, and waits up to 300 seconds for response data by default.
   let longRunning: Client
   /// Owned by this client and invalidated on deinit. Stream wrappers use
   /// `longRunning`; internal visibility lets tests inspect its configuration.
@@ -44,6 +45,8 @@ public final class ShepherdClient: Sendable {
   ///   https-unless-loopback-or-tailnet policy.
   /// - Parameters:
   ///   - urlSession: The unchanged session used by ordinary operations.
+  ///   - readURLSession: Optional shorter session for ordinary GETs; writes retain `urlSession`.
+  ///   - requestAttempts: GET attempts for ordinary operations; slow operations retain three.
   ///   - longRunningRequestTimeout: Request timeout for opt-in slow operations.
   ///     Their dedicated session copies `urlSession.configuration` (not its
   ///     delegate) and raises the resource timeout to at least this value.
@@ -52,7 +55,9 @@ public final class ShepherdClient: Sendable {
     credentials: any CredentialStore,
     urlSession: URLSession = .shared,
     longRunningRequestTimeout: TimeInterval = 300,
-    readOnlyAudit: ReadOnlyRequestAudit? = nil
+    readOnlyAudit: ReadOnlyRequestAudit? = nil,
+    requestAttempts: Int = 3,
+    readURLSession: URLSession? = nil
   ) throws {
     precondition(longRunningRequestTimeout.isFinite && longRunningRequestTimeout > 0)
     let validated = try profile.validated()
@@ -85,9 +90,13 @@ public final class ShepherdClient: Sendable {
       transport: URLSessionTransport(configuration: .init(session: longRunningURLSession)),
       middlewares: middlewares
     )
+    var ordinaryMiddlewares: [any ClientMiddleware] = [auth, RetryingMiddleware(maxAttempts: requestAttempts)]
+    if let readOnlyAudit { ordinaryMiddlewares.insert(ReadOnlyRequestMiddleware(audit: readOnlyAudit), at: 0) }
     generated = Client(
       serverURL: validated.baseURL,
-      transport: URLSessionTransport(configuration: .init(session: urlSession)),
+      transport: ReadTransport(
+        standard: URLSessionTransport(configuration: .init(session: urlSession)),
+        reads: URLSessionTransport(configuration: .init(session: readURLSession ?? urlSession))),
       // Latency is innermost: one sample per attempt, retries included, timed
       // to response headers. It only observes.
       // The first middleware is the outermost one. Auth signs the request
@@ -97,7 +106,7 @@ public final class ShepherdClient: Sendable {
       // because retry never retries a 401 in the first place: it only
       // retries transient failures, so ordering the two this way costs
       // nothing.
-      middlewares: middlewares + [LatencyMiddleware(recorder: latency)]
+      middlewares: ordinaryMiddlewares + [LatencyMiddleware(recorder: latency)]
     )
   }
 
@@ -260,4 +269,14 @@ public final class ShepherdClient: Sendable {
 public enum CreateOutcome: Equatable, Sendable {
   case created(Session)
   case held(HeldTask)
+}
+
+/// A bounded read must not impose its deadline on uploads or task creation.
+private struct ReadTransport: ClientTransport {
+  let standard: URLSessionTransport
+  let reads: URLSessionTransport
+  func send(_ request: HTTPRequest, body: HTTPBody?, baseURL: URL, operationID: String) async throws -> (HTTPResponse, HTTPBody?) {
+    try await (request.method == .get ? reads : standard).send(
+      request, body: body, baseURL: baseURL, operationID: operationID)
+  }
 }

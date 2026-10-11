@@ -799,6 +799,7 @@
 "native_ios_server_mirror_direct" = "added directly · copy hidden";
 "native_ios_server_mirror_only" = "mirrored only";
 "native_ios_server_mirror_via" = "via %1$@";
+"native_ios_server_unavailable" = "%1$@ is currently unavailable";
 "native_ios_session_age" = "Age: %1$@";
 "native_ios_steers_add" = "New steer";
 "native_ios_steers_all" = "All steers";

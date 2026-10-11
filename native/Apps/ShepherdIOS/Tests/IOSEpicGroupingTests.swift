@@ -108,6 +108,40 @@ final class IOSEpicGroupingTests: XCTestCase {
         XCTAssertNil(directory.summary(groups[0], owner: owner))
     }
 
+    func testDirectoryLoadsHealthySummaryWhileAnotherServerNeverAnswers() async throws {
+        URLProtocol.registerClass(IOSMultiServerFixtureTransport.self)
+        let launch = try IOSLaunchEnvironment(configuration: .init(isIsolated: true))
+        let hub = IOSServerHub(launch: launch)
+        let run = UUID().uuidString.lowercased()
+        let a = try hub.catalogue.addRemoteProfile(name: "Offline", address: "https://epic-a-\(run).multi.fixture.invalid")
+        let b = try hub.catalogue.addRemoteProfile(name: "Online", address: "https://epic-b-\(run).multi.fixture.invalid")
+        for profile in [a, b] {
+            try launch.credentials.save(.init(token: "fixture", tokenId: "fixture"), for: profile.credentialKey)
+            await hub.connect(profile)
+        }
+        defer { hub.disconnect(a.id); hub.disconnect(b.id) }
+        let offline = EpicReadGate(), online = EpicReadGate()
+        let summary = try JSONDecoder().decode(EpicSummary.self, from: Data(#"{"parentIssueNumber":100,"parentTitle":"Healthy summary","total":1,"merged":0,"status":"idle","source":"github"}"#.utf8))
+        let directory = IOSEpicDirectory { client, _ in
+            await (client.profile.id == a.id ? offline : online).wait()
+            return .init(epics: [summary], subIssues: [])
+        }
+        let groups = IOSMergedSessionPresentation.merge([
+            source(a, active: [session("a", parent: 100)]), source(b, active: [session("b", parent: 100)])], selectedRepos: []).epicGroups
+        let owner = try XCTUnwrap(hub.models[b.id])
+        let load = Task { await directory.load(groups, owners: hub.models, fallback: owner) }
+        let deadline = ContinuousClock.now.advanced(by: .seconds(15))
+        while !(offline.waiting && online.waiting), ContinuousClock.now < deadline { await Task.yield() }
+        XCTAssertTrue(offline.waiting && online.waiting, "Both requests must start independently")
+        online.release()
+        let group = try XCTUnwrap(groups.first { $0.profile.id == b.id })
+        while directory.summary(group, owner: owner) == nil, ContinuousClock.now < deadline { await Task.yield() }
+        XCTAssertEqual(directory.summary(group, owner: owner)?.parentTitle, "Healthy summary")
+        XCTAssertTrue(offline.waiting)
+        offline.release()
+        await load.value
+    }
+
     func testRenderDarkEpicListSection() async throws {
         let result = IOSMergedSessionPresentation.merge([source(profile("one"), active: [
             session("01", parent: 100, issue: 101), session("02", parent: 200, issue: 201), session("03")])], selectedRepos: [])
@@ -161,4 +195,16 @@ final class IOSEpicGroupingTests: XCTestCase {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try XCTUnwrap(renderer.uiImage?.pngData()).write(to: directory.appendingPathComponent("epic-session-list-dark.png"))
     }
+}
+
+@MainActor
+private final class EpicReadGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var released = false
+    var waiting: Bool { continuation != nil }
+    func wait() async {
+        guard !released else { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+    func release() { released = true; continuation?.resume(); continuation = nil }
 }

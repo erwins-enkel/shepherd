@@ -18,6 +18,16 @@ final class IOSLaunchEnvironment {
     let credentials: any CredentialStore
     private(set) var cleanup: IOSLiveCleanup?
     private var started = false
+    /// Bound ordinary reads, including a silent Tailscale peer. Writes keep their
+    /// existing session; slow opt-in routes
+    /// use ShepherdClient's separate 300-second session.
+    static let requestSession: URLSession = {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 4
+        configuration.timeoutIntervalForResource = 8
+        configuration.waitsForConnectivity = false
+        return URLSession(configuration: configuration)
+    }()
 
     static func configuration(arguments: [String] = ProcessInfo.processInfo.arguments,
                               environment: [String: String] = ProcessInfo.processInfo.environment) -> Configuration {
@@ -56,6 +66,13 @@ final class IOSLaunchEnvironment {
         let app = AppModel(defaults: defaults, credentials: credentials,
             notifications: IOSNotificationEnvironment.make(defaults: defaults),
             activeProfileKey: activeProfileKey, persistsProfileCatalogue: persistsProfileCatalogue, usesModelScopedSignals: true)
+        // Local isolated fixtures intercept the shared session via URLProtocol.
+        // Normal and isolated live launches both use the bounded iOS transport.
+        let session = configuration.isIsolated && configuration.baseURL == nil ? URLSession.shared : Self.requestSession
+        app.makeClient = { profile, credentials, audit in
+            try ShepherdClient(profile: profile, credentials: credentials,
+                readOnlyAudit: audit, requestAttempts: 1, readURLSession: session)
+        }
         app.register(BackendRecoveryModel.self)
         CoreStreamInstallers.installReadOnlySidebar(into: app)
         IOSPlanStream.install(into: app)

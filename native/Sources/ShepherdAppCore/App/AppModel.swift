@@ -241,6 +241,12 @@ public final class AppModel {
     var logout: @MainActor (ServerProfile, any CredentialStore) async throws -> Void = {
         try await ProfileSetup.logout(profile: $0, credentials: $1)
     }
+    /// Platform-scoped transport policy; the Mac retains the default client.
+    @ObservationIgnored
+    public var makeClient: (ServerProfile, any CredentialStore, ReadOnlyRequestAudit?) throws -> ShepherdClient = {
+        try ShepherdClient(profile: $0, credentials: $1, readOnlyAudit: $2)
+    }
+
     /// The health call, behind the same seam, so a test can stub the round-trip
     /// or hold it open. Takes the store's own client rather than building a
     /// second one: `/api/health` is the one route with `security: []`, so the
@@ -631,8 +637,7 @@ public final class AppModel {
         }
         let store: SessionStore
         do {
-            let client = try ShepherdClient(profile: profile, credentials: credentials,
-                readOnlyAudit: liveRequestAudit)
+            let client = try makeClient(profile, credentials, liveRequestAudit)
             store = SessionStore(client: client, events: EventStream(client: client))
         } catch {
             // The only failure `SessionStore.init(profile:credentials:)` has is

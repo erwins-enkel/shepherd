@@ -75,6 +75,50 @@ struct ShepherdClientLongRunningTests {
         == max(3, resourceTimeout))
   }
 
+  @Test("an iOS single-attempt policy leaves slow operations and defaults intact")
+  func ordinaryAttemptBudget() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    server.stub("GET", "/api/health", status: 503, json: try Fixtures.errorJSON("offline"))
+    let session = server.urlSession(requestTimeout: 4, resourceTimeout: 8)
+    defer { session.invalidateAndCancel() }
+    let client = try ShepherdClient(profile: profile(server), credentials: InMemoryCredentialStore(),
+      urlSession: session, requestAttempts: 1)
+    do { _ = try await client.health(); Issue.record("Expected failure") } catch {}
+    #expect(server.requests().count == 1)
+    do { _ = try await client.probeLongRunningHealth(); Issue.record("Expected failure") } catch {}
+    #expect(server.requests().count == 4)
+    #expect(client.longRunningURLSession.configuration.timeoutIntervalForRequest == 300)
+    #expect(client.longRunningURLSession.configuration.timeoutIntervalForResource == 300)
+    let ordinary = try ShepherdClient(profile: profile(server), credentials: InMemoryCredentialStore(), urlSession: session)
+    do { _ = try await ordinary.health(); Issue.record("Expected failure") } catch {}
+    #expect(server.requests().count == 7)
+  }
+
+  @Test("a shorter read session never caps writes or opt-in slow reads")
+  func boundedReadsKeepWriteTimeouts() async throws {
+    let server = FakeShepherdServer()
+    defer { server.tearDown() }
+    server.stub("GET", "/api/health", status: 200, json: try Fixtures.json(Fixtures.health()))
+    server.stub("POST", "/api/push/apns", status: 200, json: Data(#"{"endpoint":"apns:fixture"}"#.utf8))
+    let standard = server.urlSession(), reads = server.urlSession(requestTimeout: 4, resourceTimeout: 8)
+    defer { standard.invalidateAndCancel(); reads.invalidateAndCancel() }
+    let client = try ShepherdClient(profile: profile(server), credentials: InMemoryCredentialStore(),
+      urlSession: standard, requestAttempts: 1, readURLSession: reads)
+    _ = try await client.health()
+    _ = try await client.registerApnsDevice(token: "fixture", sandbox: true, locale: "en")
+    _ = try await client.probeLongRunningHealth()
+    let header = FakeShepherdServer.sessionHeader
+    let readID = reads.configuration.httpAdditionalHeaders?[header] as? String
+    let standardID = standard.configuration.httpAdditionalHeaders?[header] as? String
+    #expect(readID != standardID)
+    #expect(server.requests().map { $0.headers[header] } == [readID, standardID, standardID])
+    #expect(standard.configuration.timeoutIntervalForRequest == 60)
+    #expect(reads.configuration.timeoutIntervalForRequest == 4)
+    #expect(client.longRunningURLSession.configuration.timeoutIntervalForRequest == 300)
+    #expect(client.longRunningURLSession.configuration.timeoutIntervalForResource >= 300)
+  }
+
   @Test("both paths read current credentials and share the login signal")
   func sharesAuthentication() async throws {
     let server = FakeShepherdServer()

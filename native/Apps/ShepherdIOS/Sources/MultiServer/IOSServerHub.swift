@@ -16,7 +16,29 @@ final class IOSServerHub {
     let catalogue: AppModel
     private(set) var models: [UUID: AppModel] = [:]
     private(set) var connectedIDs: [UUID] = []
-    private(set) var focusedID: UUID?
+    private var requestedFocusID: UUID?
+    private(set) var focusedID: UUID? {
+        get {
+            if let id = requestedFocusID, let model = models[id],
+                model.selectedSessionID != nil || model.sheet != nil || isLive(model) { return id }
+            return connectedIDs.first { models[$0].map(isLive) == true }
+                ?? connectedIDs.first { models[$0].map { $0.store != nil && !isUnavailable($0) } == true }
+                ?? requestedFocusID
+        }
+        set { requestedFocusID = newValue }
+    }
+    private(set) var unavailableIDs: Set<UUID> = []
+    private var noticeIDs: Set<UUID> = []
+    private var dismissedIDs: Set<UUID> = []
+    @ObservationIgnored private var watchers: [UUID: ConnectionWatch] = [:]
+    @ObservationIgnored private var refreshTasks: [UUID: Task<Void, Never>] = [:]
+    private final class ConnectionWatch {
+        var task: Task<Void, Never>?
+        var deadline: Task<Void, Never>?
+        let signal: AsyncStream<Void>.Continuation
+        init(_ signal: AsyncStream<Void>.Continuation) { self.signal = signal }
+        deinit { task?.cancel(); deadline?.cancel(); signal.finish() }
+    }
     var managingServers = false
     var lens: HerdLens = .all
     var selectedRepos: Set<String> = []
@@ -57,7 +79,11 @@ final class IOSServerHub {
         }
         persist()
         loadingIDs = Set(connectedIDs)
-        for id in connectedIDs { models[id] = newModel(id) }
+        for id in connectedIDs {
+            let model = newModel(id)
+            models[id] = model
+            watchConnection(id, model: model)
+        }
         focusedID = connectedIDs.first
     }
 
@@ -85,9 +111,9 @@ final class IOSServerHub {
             await launch.start(catalogue)
             if let profile = catalogue.activeProfile { adopt(catalogue, profile: profile) }
         } else {
-            let tasks = connectedIDs.compactMap { id -> Task<Void, Never>? in
-                guard let profile = profiles.first(where: { $0.id == id }), let model = models[id] else { return nil }
-                return Task { [weak self, weak model] in
+            for id in connectedIDs {
+                guard let profile = profiles.first(where: { $0.id == id }), let model = models[id] else { continue }
+                Task { [weak self, weak model] in
                     guard let model, self?.models[id] === model else { return }
                     defer { if self?.models[id] === model { self?.loadingIDs.remove(id) } }
                     guard model.sheet == nil, model.activationGeneration == 0 else { return }
@@ -97,7 +123,6 @@ final class IOSServerHub {
                     model.extension(SidebarModel.self)?.lens = self?.lens ?? .all
                 }
             }
-            for task in tasks { await task.value }
         }
     }
 
@@ -120,6 +145,7 @@ final class IOSServerHub {
         let model = newModel(profile.id)
         model.reloadProfiles()
         models[profile.id] = model
+        watchConnection(profile.id, model: model)
         connectedIDs.append(profile.id)
         if focusedID == nil { focusedID = profile.id }
         persist()
@@ -161,6 +187,7 @@ final class IOSServerHub {
     /// Fixture/live launches already own an activated model and its credential lifetime.
     func adopt(_ model: AppModel, profile: ServerProfile) {
         models[profile.id] = model
+        watchConnection(profile.id, model: model)
         if !connectedIDs.contains(profile.id) { connectedIDs.append(profile.id) }
         focusedID = profile.id
         persist()
@@ -175,9 +202,12 @@ final class IOSServerHub {
             retired[profileID] = pending.isEmpty ? nil : pending
             model.deactivate(includingPendingActivation: true)
         }
+        watchers.removeValue(forKey: profileID)
+        refreshTasks.removeValue(forKey: profileID)?.cancel()
+        unavailableIDs.remove(profileID); noticeIDs.remove(profileID); dismissedIDs.remove(profileID)
         loadingIDs.remove(profileID)
         connectedIDs.removeAll { $0 == profileID }
-        if focusedID == profileID { focusedID = connectedIDs.first }
+        if requestedFocusID == profileID { focusedID = connectedIDs.first }
         persist()
     }
 
@@ -212,9 +242,10 @@ final class IOSServerHub {
         for model in connected { model.reloadProfiles() }
     }
 
-    /// Prefer focus, but a server awaiting authentication must not hide creation elsewhere.
+    /// Default to a live server; offline targets remain explicitly selectable.
     var composeModel: AppModel? {
-        ([focused] + connected.filter { $0 !== focused }).first { $0.store != nil && $0.liveRequestAudit == nil }
+        let candidates = ([focused] + connected.filter { $0 !== focused }).filter { $0.store != nil && $0.liveRequestAudit == nil }
+        return candidates.first(where: isLive) ?? candidates.first { !isUnavailable($0) } ?? candidates.first
     }
 
     @discardableResult
@@ -226,7 +257,7 @@ final class IOSServerHub {
     /// A no-store login has no automatic lookup left to finish after dismissal.
     /// Restored/connecting models and running sign-ins still have a lookup ahead.
     func awaitsNotificationLookup(_ app: AppModel) -> Bool {
-        if app.store?.hasLoadedSessions == true { return false }
+        if app.store?.hasLoadedSessions == true || isUnavailable(app) { return false }
         if let connection = app.store?.connection {
             switch connection {
             case .offline, .needsLogin, .firstRunPending: return false
@@ -234,6 +265,90 @@ final class IOSServerHub {
             }
         }
         return app.activeProfile != nil || app.pendingSignIns > 0 || connectedIDs.contains { models[$0] === app && loadingIDs.contains($0) }
+    }
+
+    func isUnavailable(_ model: AppModel) -> Bool {
+        if case .offline = model.store?.connection { return true }
+        if case .transport = model.store?.lastError { return true }
+        return connectedIDs.contains { models[$0] === model && unavailableIDs.contains($0) }
+    }
+    func isLive(_ model: AppModel) -> Bool { model.store?.connection == .live && !isUnavailable(model) }
+
+    func showsUnavailableNotice(_ id: UUID) -> Bool { noticeIDs.contains(id) }
+    func dismissUnavailableNotice(_ id: UUID) {
+        if unavailableIDs.contains(id) { dismissedIDs.insert(id) }
+        noticeIDs.remove(id)
+    }
+    private func markUnavailable(_ id: UUID) {
+        unavailableIDs.insert(id)
+        if !dismissedIDs.contains(id) { noticeIDs.insert(id) }
+        IOSPushRegistration.shared.routePendingNotification()
+    }
+
+    private func watchConnection(_ id: UUID, model: AppModel) {
+        let (changes, signal) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let watch = ConnectionWatch(signal)
+        watchers[id] = watch
+        watch.task = Task { [weak self, weak model] in
+            var iterator = changes.makeAsyncIterator()
+            while !Task.isCancelled {
+                guard let model, self?.models[id] === model else { return }
+                self?.connectionChanged(id, model: model)
+                withObservationTracking {
+                    _ = model.store?.connection
+                    _ = model.store?.lastError
+                } onChange: { signal.yield() }
+                guard await iterator.next() != nil else { return }
+                await Task.yield()
+            }
+        }
+    }
+
+    private func connectionChanged(_ id: UUID, model: AppModel) {
+        guard let watch = watchers[id] else { return }
+        watch.deadline?.cancel(); watch.deadline = nil
+        switch model.store?.connection {
+        case .live:
+            // Foreground/manual reconciliation can fail while the socket still looks live.
+            if case .transport = model.store?.lastError { markUnavailable(id) }
+            else { unavailableIDs.remove(id); dismissedIDs.remove(id) }
+            // Notices remain until Close, even if the server has recovered.
+        case .offline:
+            markUnavailable(id)
+        case .connecting, .idle:
+            guard let store = model.store else { return }
+            if case .transport = store.lastError { markUnavailable(id); return }
+            // Also bound a socket-only reconnect or a transport that never reports failure.
+            watch.deadline = Task { [weak self, weak model, weak store] in
+                do { try await Task.sleep(for: .seconds(8)) } catch { return }
+                guard let model, let store, self?.models[id] === model, model.store === store,
+                    store.connection == .connecting || store.connection == .idle else { return }
+                self?.markUnavailable(id)
+            }
+        default: break
+        }
+    }
+
+    /// Each server publishes its own result; no peer participates in a UI completion barrier.
+    func refreshServers() {
+        for id in connectedIDs {
+            guard refreshTasks[id] == nil, let model = models[id], let store = model.store else { continue }
+            refreshTasks[id] = Task { [weak self, weak model, weak store] in
+                guard let model, let store else { return }
+                defer { if self?.models[id] === model { self?.refreshTasks[id] = nil } }
+                let generation = model.activationGeneration
+                do { try await store.refresh() }
+                catch {
+                    guard self?.models[id] === model, model.store === store,
+                        generation == model.activationGeneration, !Task.isCancelled else { return }
+                    if case .transport = ShepherdError.from(error, route: "refresh") { self?.markUnavailable(id) }
+                    return
+                }
+                guard self?.models[id] === model, model.store === store,
+                    generation == model.activationGeneration, !Task.isCancelled else { return }
+                await model.extension(ReadOnlySidebarRecovery.self)?.refresh()
+            }
+        }
     }
 
     func focus(_ profileID: UUID) {

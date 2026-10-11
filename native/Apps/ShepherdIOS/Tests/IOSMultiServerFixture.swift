@@ -5,6 +5,16 @@ import ShepherdKit
 
 /// Per-origin snapshots prevent background reconnection from erasing rendered fixture rows.
 final class IOSMultiServerFixtureTransport: URLProtocol, @unchecked Sendable {
+    private static let hanging = Mutex<Set<String>>([])
+    private static let started = Mutex<Set<String>>([])
+    static func setHanging(_ value: Bool, for url: URL) {
+        hanging.withLock { if value { $0.insert(url.host() ?? "") } else { $0.remove(url.host() ?? "") } }
+    }
+    static func hasStarted(_ url: URL) -> Bool { started.withLock { $0.contains(url.host() ?? "") } }
+    private static let unavailable = Mutex<Set<String>>([])
+    static func setUnavailable(_ value: Bool, for url: URL) {
+        unavailable.withLock { if value { $0.insert(url.host() ?? "") } else { $0.remove(url.host() ?? "") } }
+    }
     private static let snapshots = Mutex<[String: [Session]]>([:])
     private static let repos = Mutex<[String: String]>([:])
     private static let settings = Mutex<[String: String]>([:])
@@ -39,6 +49,12 @@ final class IOSMultiServerFixtureTransport: URLProtocol, @unchecked Sendable {
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         guard let url = request.url else { return }
+        Self.started.withLock { $0.insert(url.host() ?? "") }
+        if Self.hanging.withLock({ $0.contains(url.host() ?? "") }) { return }
+        if Self.unavailable.withLock({ $0.contains(url.host() ?? "") }) {
+            client?.urlProtocol(self, didFailWithError: URLError(.timedOut))
+            return
+        }
         var status = 200
         let body: Data
         switch url.path {

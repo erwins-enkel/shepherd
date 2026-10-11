@@ -36,6 +36,7 @@ final class IOSEpicDirectory {
     func load(_ groups: [IOSMergedSessionPresentation.EpicGroup], owners: [UUID: AppModel],
               fallback: AppModel, force: Bool = false) async {
         let repos = Dictionary(grouping: groups, by: key)
+        var tasks: [Task<Void, Never>] = []
         for (key, groups) in repos {
             guard let group = groups.first else { continue }
             let owner = owners[group.profile.id] ?? fallback
@@ -49,15 +50,18 @@ final class IOSEpicDirectory {
             entries[key] = Entry(owner: identity, generation: generation, request: request,
                 parents: sameActivation ? old?.parents ?? [] : [],
                 summaries: sameActivation ? old?.summaries ?? [] : [])
-            let listing = try? await read(store.client, group.repoPath)
-            guard !Task.isCancelled, owner.activationGeneration == generation,
-                owner.store === store, entries[key]?.request == request else {
-                if entries[key]?.request == request { entries[key] = nil }
-                continue
-            }
-            // A failed read retains known copy; unknown parents use the number-only header.
-            entries[key]?.parents.formUnion(parents)
-            if let listing { entries[key]?.summaries = listing.epics }
+            tasks.append(Task {
+                let listing = try? await read(store.client, group.repoPath)
+                guard !Task.isCancelled, owner.activationGeneration == generation,
+                    owner.store === store, entries[key]?.request == request else {
+                    if entries[key]?.request == request { entries[key] = nil }
+                    return
+                }
+                // A failed read retains known copy; unknown parents use the number-only header.
+                entries[key]?.parents.formUnion(parents)
+                if let listing { entries[key]?.summaries = listing.epics }
+            })
         }
+        for task in tasks { await task.value }
     }
 }

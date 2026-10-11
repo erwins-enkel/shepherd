@@ -514,6 +514,11 @@ struct SessionListView: View {
 
     private func refresh() async {
         refreshError = nil
+        if let hub, hub.connected.count > 1 {
+            hub.refreshServers()
+            Task { await epicDirectory.load(presentation.epicGroups, owners: hub.models, fallback: app, force: true) }
+            return
+        }
         let tasks = (hub?.connected ?? [app]).map { owner in
             Task { @MainActor () -> String? in
                 let generation = owner.activationGeneration

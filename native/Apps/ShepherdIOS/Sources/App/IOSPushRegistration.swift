@@ -167,7 +167,11 @@ final class IOSPushRegistration {
         let targets = hub.notificationTargets(sessionID: pending.sessionID, server: pending.server)
         // Let connecting stores finish their first lookup; an offline peer must not block
         // a notification whose session is already available on another server.
-        guard pending.server != nil || !hub.connected.contains(where: hub.awaitsNotificationLookup) else { return }
+        if pending.server == nil, hub.connected.contains(where: hub.awaitsNotificationLookup) {
+            // Keep collision safety without withholding an already available session.
+            notificationChoices = targets
+            return
+        }
         if targets.count == 1, let target = targets.first {
             guard let store = hub.models[target.profileID]?.store, store.hasLoadedSessions, store.connection != .needsLogin else { return }
             chooseNotification(target)

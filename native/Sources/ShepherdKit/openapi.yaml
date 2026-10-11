@@ -7404,7 +7404,7 @@ paths:
                 $ref: "#/components/schemas/Error"
     delete:
       operationId: archiveSession
-      description: Archives the session (stops the agent, keeps the row). Always 200.
+      description: Archives the session (stops the agent, keeps the row). An unknown id is a no-op 200. A worktree the server cannot fully delete is logged, never a failure.
       requestBody:
         required: false
         content:
@@ -7420,6 +7420,12 @@ paths:
                 $ref: "#/components/schemas/Ok"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "500":
+          description: Teardown failed (e.g. herdr could not stop the agent); the session stays active.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/sessions/{id}/interrupt:
     parameters:
       - name: id

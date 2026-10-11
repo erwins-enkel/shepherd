@@ -12637,6 +12637,7 @@
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeFooterKeyboardTests.swift\",\"MacSeamTests.ComposeFooterKeyboardTests\",\"returnInsertsNewlineAndCommandReturnSubmitsOnce(holdLikely: Bool) async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeLayoutTests.swift\",\"MacSeamTests.ComposeLayoutTests\",\"columnsKeepFooterVisible(width: CGFloat, height: CGFloat) async throws\"]",
     "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeRecoveryTests.swift\",\"MacSeamTests.ComposeRecoveryTests\",\"credentialFailureHasUsableRetryInsideCompose() async throws\"]",
-    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeRecoveryTests.swift\",\"MacSeamTests.ComposeRecoveryTests\",\"unknownDefaultsNeverPresentManualTimeline(loading: Bool) async throws\"]"
+    "[\"ShepherdTests\",\"native/Apps/ShepherdMac/Tests/ComposeRecoveryTests.swift\",\"MacSeamTests.ComposeRecoveryTests\",\"unknownDefaultsNeverPresentManualTimeline(loading: Bool) async throws\"]",
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ShepherdClientWriteTests.swift\",\"ShepherdClientWriteTests\",\"archiveServerFailure() async throws\"]"
   ]
 }

@@ -133,6 +133,7 @@
   import Viewport from "#lib/components/Viewport.svelte";
   import DoneRecapPanel from "#lib/components/DoneRecapPanel.svelte";
   import RemoteSessionDetail from "#lib/components/RemoteSessionDetail.svelte";
+  import { summarizeClearMerged } from "#lib/clear-merged-result.js";
   import UpNextPreview from "#lib/components/UpNextPreview.svelte";
   import type { KickoffChoice } from "#lib/components/NewProject.svelte";
   import ActionBar from "#lib/components/ActionBar.svelte";
@@ -2479,7 +2480,7 @@
       key: id,
       onUndo: () => {
         // restore focus only if the row is still around (it never left the store)
-        if (store.sessions.some((s) => s.id === id)) selectedId = id;
+        if (store.sessions.some((s) => s.id === id) || remoteSession(id)) selectedId = id;
       },
       onCommit: async () => {
         // server stops the agent, removes the worktree, emits session:archived
@@ -2532,7 +2533,8 @@
   }
 
   function onarchive(id: string, reap?: string[]) {
-    const name = store.sessions.find((s) => s.id === id)?.name ?? id;
+    // A session on a connected machine (#2765) has no git state here, so it archives as "keep".
+    const name = (store.sessions.find((s) => s.id === id) ?? remoteSession(id))?.name ?? id;
     const git = store.git[id];
     if (git?.state === "open") {
       decommissionPr = { id, name, git, reap };
@@ -2719,17 +2721,32 @@
     }
   }
 
+  // A session mirrored from a connected machine (#2762), by id.
+  function remoteSession(id: string): Session | undefined {
+    return store.remoteSessions.find((s) => s.id === id);
+  }
+
   // Open the "clear all merged" confirm modal. The server is the source of truth
   // for which sessions are merged (same prCache the list partitions on) and for the
   // leftover count, so we ask it rather than trust the local snapshot.
   async function onclearmerged() {
     try {
-      const { ids, leftoversById, probesUnavailable } = await getMergedClearable();
-      // store.sessions mirrors every active session, so each merged id resolves to a
-      // row here — `targets` matches the server's `ids`. (Were a merged id somehow
-      // absent, we'd list and clear only the rows we can show.)
+      const { ids, leftoversById, probesUnavailable, machines } = await getMergedClearable();
+      // The ids include the merged sessions of the connected machines that answered (#2765);
+      // one that did not is named, since its merged sessions are missing from the list.
+      const unchecked = (machines ?? [])
+        .filter((machine) => !machine.ok)
+        .map((machine) => machine.name);
+      if (unchecked.length > 0) {
+        toasts.info(m.toast_clear_merged_unchecked({ machines: unchecked.join(", ") }), {
+          key: "clear-merged-unchecked",
+        });
+      }
+      // store.sessions mirrors every active session (store.remoteSessions every mirrored
+      // one), so each merged id resolves to a row here — `targets` matches the server's
+      // `ids`. (Were a merged id somehow absent, we'd list and clear only the rows we can show.)
       const targets = ids
-        .map((id) => store.sessions.find((s) => s.id === id))
+        .map((id) => store.sessions.find((s) => s.id === id) ?? remoteSession(id))
         .filter((s): s is Session => s != null);
       if (targets.length === 0) return; // nothing merged (or already cleared) → no modal
       clearMergedLeftovers = leftoversById;
@@ -2748,12 +2765,27 @@
   // since nothing was actually cleared.
   async function runClearMerged(ids: string[]) {
     try {
-      const { cleared } = await clearMerged(ids);
-      const gone = new Set(cleared);
+      const result = await clearMerged(ids);
+      const { count, failedMachines, retryIds } = summarizeClearMerged(result);
+      const gone = new Set(result.cleared);
       if (selectedId && gone.has(selectedId)) {
         selectedId = store.sessions.find((s) => !gone.has(s.id))?.id ?? null;
       }
-      toasts.info(m.toast_cleared_merged({ count: cleared.length }));
+      if (failedMachines.length === 0) {
+        toasts.info(m.toast_cleared_merged({ count }));
+        return;
+      }
+      // A machine that gave no usable answer (#2765): a partial result, never a claimed success.
+      // Retry re-sends only what went to those machines.
+      toasts.info(m.toast_cleared_merged_partial({ count, machines: failedMachines.join(", ") }), {
+        sticky: true,
+        alert: true,
+        key: "clear-merged-fail",
+        action:
+          retryIds.length > 0
+            ? { label: m.common_retry(), run: () => void runClearMerged(retryIds) }
+            : undefined,
+      });
     } catch {
       toasts.info(m.toast_clear_merged_failed(), {
         sticky: true,
@@ -3222,6 +3254,8 @@
             {nowMs}
             terminalOwners={store.terminalOwners}
             onback={() => (mobileScreen = "list")}
+            ondecommission={onarchive}
+            onedit={openSteersEditor}
           />
         </div>
       {:else if selected}
@@ -3396,6 +3430,8 @@
             session={selectedRemote}
             {nowMs}
             terminalOwners={store.terminalOwners}
+            ondecommission={onarchive}
+            onedit={openSteersEditor}
           />
         {:else if store.sessions.length === 0}
           <BacklogView

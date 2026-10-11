@@ -50,6 +50,8 @@ import type {
   AccessToken,
   InstanceIdentity,
   RemoteInstance,
+  ClearMergedPreview,
+  ClearMergedResult,
   ApnsStatus,
   PushDevice,
   PluginUpdatesStatus,
@@ -643,12 +645,8 @@ export const demoState = {
    *  Matches `getMergedClearable()`'s `{ids, leftovers, leftoversById, probesUnavailable}` in
    *  api.ts exactly; the demo has no real leftover subprocesses, so every count is 0 — and no
    *  probes to be broken, so that 0 is trustworthy. */
-  mergedClearable: (): {
-    ids: string[];
-    leftovers: number;
-    leftoversById: Record<string, number>;
-    probesUnavailable: boolean;
-  } => {
+  // The demo connects no machines (see remoteInstances), so `machines` is always empty.
+  mergedClearable: (): ClearMergedPreview => {
     const ids = world.sessions
       .filter((s) => world.gitStates[s.id]?.state === "merged")
       .map((s) => s.id);
@@ -657,6 +655,7 @@ export const demoState = {
       leftovers: 0,
       leftoversById: Object.fromEntries(ids.map((id) => [id, 0])),
       probesUnavailable: false,
+      machines: [],
     };
   },
 
@@ -1032,7 +1031,7 @@ export const demoState = {
   /** Archive every given id that's still merged (the server re-validates, same as
    *  the real API) — clears the herd's "Merged" group. Matches `clearMerged()`'s
    *  `{cleared, leftovers}` in api.ts; each archive emits its own `session:archived`. */
-  clearMerged(ids: string[]): { cleared: string[]; leftovers: number } {
+  clearMerged(ids: string[]): ClearMergedResult {
     const cleared: string[] = [];
     for (const id of ids) {
       if (world.gitStates[id]?.state === "merged" && find(id)) {
@@ -1040,6 +1039,6 @@ export const demoState = {
         cleared.push(id);
       }
     }
-    return { cleared, leftovers: 0 };
+    return { cleared, leftovers: 0, partial: false, machines: [] };
   },
 };

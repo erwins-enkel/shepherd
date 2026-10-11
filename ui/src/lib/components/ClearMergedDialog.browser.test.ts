@@ -100,3 +100,17 @@ describe("ClearMergedDialog without anything hidden", () => {
     expect(page.getByText(m.clearmerged_outside({ count: 0 })).elements()).toHaveLength(0);
   });
 });
+
+describe("ClearMergedDialog with sessions on connected machines (#2765)", () => {
+  it("labels a session on another machine with its machine", async () => {
+    const remote = {
+      ...s("r1", "app"),
+      desig: "TASK-07",
+      host: { instanceId: "m1", name: "MacBook", platform: "macos" },
+      connection: { state: "connected", since: 1 },
+    } as Session;
+    renderDialog({ sessions: [s("h1", "hunde-frontend"), remote], repoFilter: new Set() });
+    await expect.element(page.getByText("MacBook · TASK-07")).toBeVisible();
+    await expect.element(page.getByText("TASK-h1", { exact: true })).toBeVisible();
+  });
+});

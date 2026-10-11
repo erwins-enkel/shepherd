@@ -69,9 +69,10 @@
     elapsedEl?: HTMLSpanElement;
   } = $props();
 
-  // A session mirrored from another machine (#2762) is a read-only readout: its badges open
-  // nothing (their panels would act on this machine), and its ✕ stays visible but disabled,
-  // with the reason in its tooltip.
+  // A session mirrored from another machine (#2762): its badges open nothing (their panels would
+  // act on this machine). Its ✕ archives it on the machine while that is connected (#2765 — the
+  // row then has `ondecommission`); otherwise it stays visible but disabled, with the reason in
+  // its tooltip.
   const badgesInteractive = $derived(!coarsePointer && !session.host);
   const remoteTip = $derived(
     session.host && session.connection

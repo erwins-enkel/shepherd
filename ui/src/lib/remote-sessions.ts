@@ -1,9 +1,11 @@
 import type { Session, SessionConnection, SessionHost } from "./types";
+import { m } from "#lib/paraglide/messages.js";
 
 /**
- * Sessions mirrored from connected machines (#2762) — read-only references the server marks with
- * `host` + `connection`. The store keeps them apart from its own `sessions`, so nothing that acts
- * on a local session (attention queue, merge train, keyboard nav, side maps) ever sees one.
+ * Sessions mirrored from connected machines (#2762) — references the server marks with `host` +
+ * `connection`; the actions it forwards to their machine (#2765) run there, never here. The store
+ * keeps them apart from its own `sessions`, so nothing that acts on a local session (attention
+ * queue, merge train, keyboard nav, side maps) ever sees one.
  */
 
 /** A remote session with its annotation guaranteed. */
@@ -18,6 +20,20 @@ export function isMirrored(s: Pick<Session, "host" | "connection">): s is Mirror
  *  one session in the shared view. */
 export function qualifiedDesig(s: Pick<Session, "desig" | "host">): string {
   return s.host ? `${s.host.name} · ${s.desig}` : s.desig;
+}
+
+/**
+ * What to tell the operator when an action on a mirrored session did not reach its machine, or is
+ * not one this server forwards (#2765) — keyed on the server's stable `code`. Null for any other
+ * failure: the machine itself answered, so the caller's own copy for that action applies.
+ */
+export function remoteActionMessage(err: unknown, machine: string): string | null {
+  const code = (err as { code?: unknown } | null)?.code;
+  if (code === "machine_unreachable") return m.remote_action_unreachable({ machine });
+  if (code === "machine_timeout") return m.remote_action_timeout({ machine });
+  if (code === "machine_unauthorized") return m.remote_action_unauthorized({ machine });
+  if (code === "remote_unsupported") return m.remote_action_unsupported({ machine });
+  return null;
 }
 
 /** Proper names of the platforms the server reports; anything else passes through. */

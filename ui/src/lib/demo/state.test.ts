@@ -292,14 +292,15 @@ describe("demoState mutators emit the correct WsEvent frames", () => {
       leftovers: 0,
       leftoversById: { deps: 0, envflag: 0 },
       probesUnavailable: false,
+      machines: [],
     });
   });
 
   it("clearMerged archives the merged ids, emits session:archived, and deps disappears", () => {
-    let result: { cleared: string[]; leftovers: number } | undefined;
+    let result: ReturnType<typeof demoState.clearMerged> | undefined;
     const frames = capture(() => (result = demoState.clearMerged(["deps"])));
     expect(events(frames)).toEqual(["session:archived"]);
-    expect(result).toEqual({ cleared: ["deps"], leftovers: 0 });
+    expect(result).toEqual({ cleared: ["deps"], leftovers: 0, partial: false, machines: [] });
     expect(demoState.sessions().find((s) => s.id === "deps")).toBeUndefined();
     // envflag is still merged + un-archived, so it's still offered.
     expect(demoState.mergedClearable()).toEqual({
@@ -307,12 +308,13 @@ describe("demoState mutators emit the correct WsEvent frames", () => {
       leftovers: 0,
       leftoversById: { envflag: 0 },
       probesUnavailable: false,
+      machines: [],
     });
   });
 
   it("clearMerged skips ids that aren't actually merged", () => {
     const result = demoState.clearMerged(["coupon"]);
-    expect(result).toEqual({ cleared: [], leftovers: 0 });
+    expect(result).toEqual({ cleared: [], leftovers: 0, partial: false, machines: [] });
     expect(demoState.sessions().find((s) => s.id === "coupon")).toBeDefined();
   });
 

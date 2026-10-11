@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { open, readdir } from "node:fs/promises";
 import type { Server, ServerWebSocket } from "bun";
-import type { SessionPreviewState } from "./types";
+import type { PreviewReach, PreviewUnavailable, SessionPreviewState } from "./types";
 
 // ── detectDevCommand ──────────────────────────────────────────────────────────
 
@@ -395,6 +395,45 @@ export async function pickPrimaryPort(
   }
 
   return null;
+}
+
+// ── previewReach: where a session's preview can be opened (#2767) ─────────────
+
+export interface PreviewReachInput {
+  /** The session's bound preview slot, or null when no listener is bound. */
+  previewPort: number | null;
+  /** This node's tailnet host (`config.previewHost`); null when tailscale is unresolved. */
+  host: string | null;
+  /** `config.previewAutoServe`: Shepherd maps each slot with `tailscale serve` itself. */
+  autoServe: boolean;
+  /** This slot's `tailscale serve` state; undefined while it has not settled (or is unmanaged). */
+  serve: "ok" | "failed" | undefined;
+  /** `TailscaleServeService.permissionDenied()`: tailscale refused this user serve config. */
+  denied: boolean;
+}
+
+/**
+ * The URL a device in the tailnet opens a session's preview at, or why there is none. Built by the
+ * instance that runs the session, from its own host and slot — the same `https://<host>:<slot>/`
+ * the HUD builds locally (`tailscale serve --https` is HTTPS-only). With auto-serve off the operator
+ * maps the range by hand, so a bound slot is offered as the local HUD offers it. The two
+ * instance-wide reasons (no tailnet host, serve config refused) are reported for an unbound session
+ * too, so a caller can explain before a preview is started.
+ */
+export function previewReach(input: PreviewReachInput): PreviewReach {
+  const bound = input.previewPort !== null;
+  const none = (unavailable: PreviewUnavailable | null): PreviewReach => ({
+    bound,
+    url: null,
+    unavailable,
+  });
+  if (input.host === null) return none("not_served");
+  if (bound && (input.serve === "ok" || !input.autoServe)) {
+    return { bound, url: `https://${input.host}:${input.previewPort}/`, unavailable: null };
+  }
+  if (input.autoServe && input.denied) return none("serve_denied");
+  if (!bound) return none(null);
+  return none(input.serve === "failed" ? "serve_failed" : "serve_pending");
 }
 
 // ── PreviewService: per-session reverse-proxy listeners ───────────────────────

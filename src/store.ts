@@ -75,6 +75,7 @@ import { normalizeRepoDefaultModelSetting } from "./default-model";
 import { normalizeRepoDefaultEffortSetting } from "./default-effort";
 import { sanitizeScopeGlobs } from "./house-rules";
 import { decodeStoredRepoPaths, type AccessTokenRow } from "./access-tokens";
+import type { RemoteInstanceRow } from "./remote-instances/service";
 import {
   epicRunEnding,
   type EpicClock,
@@ -1934,6 +1935,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       scope: "TEXT NOT NULL DEFAULT 'full'",
       repoPaths: "TEXT",
     });
+    // Connected machines (#2759): other Shepherds this one reaches with a token minted THERE. Keyed
+    // by the remote's own instance ID, so one machine can be connected once. `token` is the
+    // plaintext credential for that machine (it has to be presented) and never leaves the server;
+    // `label` NULL = show the `reportedName` the machine itself reports.
+    this.db.run(`CREATE TABLE IF NOT EXISTS remote_instances (
+      instanceId TEXT PRIMARY KEY, url TEXT NOT NULL, token TEXT NOT NULL,
+      label TEXT, reportedName TEXT NOT NULL, createdAt INTEGER NOT NULL)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS session_usage (
       sessionId      TEXT PRIMARY KEY,
       desig          TEXT NOT NULL,
@@ -2011,6 +2019,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
+  deleteSetting(key: string): void {
+    this.db.run(`DELETE FROM settings WHERE key = ?`, [key]);
+  }
+
   // ── access_tokens (named machine bearer tokens, issue #2082) ─────────────
   // Persistence only: minting, hashing and verification live in AccessTokenService
   // (src/access-tokens.ts), which holds the hot-path lookup map in memory.
@@ -2060,6 +2072,57 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   touchAccessToken(id: string, at: number): void {
     this.db.run(`UPDATE access_tokens SET lastUsedAt = ? WHERE id = ?`, [at, id]);
+  }
+
+  // ── remote_instances (connected machines, issue #2759) ───────────────────
+  // Persistence only: probing and connection state live in RemoteInstanceService
+  // (src/remote-instances/service.ts), which is also the only reader of `token`.
+
+  listRemoteInstances(): RemoteInstanceRow[] {
+    return this.db
+      .query(
+        `SELECT instanceId, url, token, label, reportedName, createdAt
+         FROM remote_instances ORDER BY createdAt, instanceId`,
+      )
+      .all() as RemoteInstanceRow[];
+  }
+
+  getRemoteInstance(instanceId: string): RemoteInstanceRow | null {
+    return this.db
+      .query(
+        `SELECT instanceId, url, token, label, reportedName, createdAt
+         FROM remote_instances WHERE instanceId = ?`,
+      )
+      .get(instanceId) as RemoteInstanceRow | null;
+  }
+
+  insertRemoteInstance(row: RemoteInstanceRow): void {
+    this.db.run(
+      `INSERT INTO remote_instances (instanceId, url, token, label, reportedName, createdAt)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [row.instanceId, row.url, row.token, row.label, row.reportedName, row.createdAt],
+    );
+  }
+
+  /** True when the row exists — the route turns a false into a 404. */
+  updateRemoteInstanceLabel(instanceId: string, label: string | null): boolean {
+    return (
+      this.db.run(`UPDATE remote_instances SET label = ? WHERE instanceId = ?`, [label, instanceId])
+        .changes > 0
+    );
+  }
+
+  updateRemoteInstanceReportedName(instanceId: string, reportedName: string): void {
+    this.db.run(`UPDATE remote_instances SET reportedName = ? WHERE instanceId = ?`, [
+      reportedName,
+      instanceId,
+    ]);
+  }
+
+  deleteRemoteInstance(instanceId: string): boolean {
+    return (
+      this.db.run(`DELETE FROM remote_instances WHERE instanceId = ?`, [instanceId]).changes > 0
+    );
   }
 
   // ── plugin_state (scoped per-plugin key/value, issue #1124) ──────────────

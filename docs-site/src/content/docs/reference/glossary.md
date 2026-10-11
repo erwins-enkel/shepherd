@@ -275,6 +275,18 @@ reads, explains and tells you what to do, but changes nothing itself — every
 shell command waits for your approval. See
 [Operator Assistant](/operating/#operator-assistant).
 
+### Machine
+
+Another Shepherd instance this one is connected to, set up in **Settings →
+Machines** with its address and an [access token](#access-token) with scope
+**Full** and access to all repositories, minted on that machine. Shepherd checks
+each machine once a minute and shows its name, version, platform and projects
+(the forge slugs of its checkouts), or why it can't reach it: unreachable, not
+authorized, or an incompatible version. Two Shepherds can connect each other; a
+Shepherd cannot connect itself. Each machine keeps running its own sessions; the
+connection is the groundwork for running each task on the machine that has the
+tools it needs.
+
 ## Industry terms
 
 ### PR

@@ -100,6 +100,17 @@ import {
   parseMintRequest,
   type VerifiedToken,
 } from "./access-tokens";
+import {
+  instanceIdentity,
+  parseInstanceNamePatch,
+  setInstanceName,
+} from "./remote-instances/identity";
+import {
+  RemoteInstanceService,
+  parseConnectRequest,
+  parseLabelPatch,
+  type ConnectError,
+} from "./remote-instances/service";
 import { scopeAllows } from "./token-scopes";
 import { resolvePlanAnswers, planAnswerSteerText, type RawAnswer } from "./plan-gate";
 import { slugifyManual } from "./namer";
@@ -389,6 +400,10 @@ export interface AppDeps {
    *  instance no matter which dispatch entry point the request arrived through. */
   accessTokens?: AccessTokenService;
   pairingCodes?: PairingCodeService;
+  /** Connected machines (#2759). Same memo-slot contract as `accessTokens`: the
+   *  `remoteInstances(deps)` accessor lazily builds an unstarted one from `store`; `index.ts`
+   *  injects the started singleton that runs the periodic probe. */
+  remoteInstances?: RemoteInstanceService;
   /** Locates a Codex session's rollout for the transcript reads (issue #1992), with the TTL cache
    *  + miss backoff that keeps the Activity tab's 5s poll off the `$CODEX_HOME` tree. Optional for
    *  the same reason as the two above — the `codexTranscripts(deps)` accessor lazily builds one. */
@@ -874,6 +889,9 @@ function codexTranscripts(deps: AppDeps): CodexTranscriptLocator {
 function accessTokens(deps: AppDeps): AccessTokenService {
   return (deps.accessTokens ??= new AccessTokenService(deps.store));
 }
+function remoteInstances(deps: AppDeps): RemoteInstanceService {
+  return (deps.remoteInstances ??= new RemoteInstanceService({ store: deps.store }));
+}
 
 /**
  * Requests that pass the gate UN-credentialed (issue #1079). Scoped deliberately tight:
@@ -1320,6 +1338,104 @@ async function handleAccessTokens({ req, parts, deps }: Ctx): Promise<Response |
     return json({ ok: true });
   }
   return null; // unreachable given `matched`, but keeps the handler total
+}
+
+// ── instance identity (issue #2759) ────────────────────────────────────────
+// GET is what a coordinator reads when it connects this Shepherd as a machine; the token-scope
+// policy leaves it `full`-only (deny-by-default). Renaming this instance is operator-only.
+
+async function handleInstance({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "instance" || parts[2]) return null;
+  if (req.method === "GET") return json(instanceIdentity(deps.store));
+  if (req.method !== "PATCH") return null;
+  const sessErr = requireOperatorSession(req);
+  if (sessErr) return sessErr;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const parsed = parseInstanceNamePatch(await req.json().catch(() => null));
+  if ("error" in parsed) return json(parsed, 400);
+  setInstanceName(deps.store, parsed.name);
+  return json(instanceIdentity(deps.store));
+}
+
+// ── connected machines (issue #2759) ───────────────────────────────────────
+// Every route needs an INTERACTIVE operator session, like token management: a bearer can neither
+// plant a credential for another machine here nor read which machines this one trusts. Responses
+// never carry the stored token (RemoteInstanceService builds them field by field).
+
+const CONNECT_ERROR_STATUS: Record<ConnectError, number> = {
+  remote_unreachable: 502,
+  remote_unauthorized: 422,
+  remote_incompatible: 422,
+  self_connection: 409,
+  already_connected: 409,
+};
+
+const instanceOr404 = (instance: unknown) =>
+  instance ? json({ instance }) : json({ error: "not found" }, 404);
+
+async function connectRemoteInstance(req: Request, svc: RemoteInstanceService): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const parsed = parseConnectRequest(await req.json().catch(() => null));
+  if ("error" in parsed) return json(parsed, 400);
+  const result = await svc.connect(parsed);
+  if (result.ok) return json({ instance: result.instance }, 201);
+  return json(
+    { error: result.error, reason: result.reason ?? null },
+    CONNECT_ERROR_STATUS[result.error],
+  );
+}
+
+async function patchRemoteInstance(
+  req: Request,
+  svc: RemoteInstanceService,
+  id: string,
+): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const parsed = parseLabelPatch(await req.json().catch(() => null));
+  if ("error" in parsed) return json(parsed, 400);
+  return instanceOr404(svc.rename(id, parsed.label));
+}
+
+type RemoteInstanceRoute = "list" | "connect" | "patch" | "delete" | "check";
+
+/** `METHOD shape` → route; anything else falls through to the dispatch tail's 404 rather than
+ *  answering 403 here, which would advertise the route group to an unauthenticated caller. */
+const REMOTE_INSTANCE_ROUTES: Record<string, RemoteInstanceRoute> = {
+  "GET ": "list",
+  "POST ": "connect",
+  "PATCH :id": "patch",
+  "DELETE :id": "delete",
+  "POST :id/check": "check",
+};
+
+function remoteInstanceRoute(method: string, parts: string[]): RemoteInstanceRoute | null {
+  if (parts[0] !== "api" || parts[1] !== "remote-instances" || parts[4]) return null;
+  const shape = parts[2] ? (parts[3] ? `:id/${parts[3]}` : ":id") : "";
+  return REMOTE_INSTANCE_ROUTES[`${method} ${shape}`] ?? null;
+}
+
+async function handleRemoteInstances({ req, parts, deps }: Ctx): Promise<Response | null> {
+  const route = remoteInstanceRoute(req.method, parts);
+  if (!route) return null;
+  const sessErr = requireOperatorSession(req);
+  if (sessErr) return sessErr;
+  const svc = remoteInstances(deps);
+  const id = parts[2] ?? "";
+  switch (route) {
+    case "list":
+      return json({ instances: svc.list() });
+    case "connect":
+      return connectRemoteInstance(req, svc);
+    case "patch":
+      return patchRemoteInstance(req, svc, id);
+    case "delete":
+      return svc.remove(id) ? json({ ok: true }) : json({ error: "not found" }, 404);
+    case "check":
+      return instanceOr404(await svc.check(id));
+  }
 }
 
 function handleGitSnapshot({ req, parts, deps, token }: Ctx): Response | null {
@@ -9633,6 +9749,8 @@ const ROUTE_HANDLERS = [
   handleMe,
   handleAccessTokens,
   handlePairing,
+  handleInstance,
+  handleRemoteInstances,
   handlePing,
   handleHealth,
   handleTerminalTransport,

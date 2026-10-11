@@ -90,6 +90,8 @@ import type {
   UpNextSnapshot,
   UpNextItem,
   AccessToken,
+  InstanceIdentity,
+  RemoteInstance,
   ApnsConfigError,
   ApnsField,
   ApnsStatus,
@@ -903,6 +905,73 @@ export async function updateAccessTokenRepositories(
 export async function revokeAccessToken(id: string): Promise<void> {
   const r = await fetch(`/api/access-tokens/${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!r.ok) throw await failed(r, "revoke access token");
+}
+
+// ── machines (#2759) ───────────────────────────────────────────────────────
+// Settings → Machines. Every route but `GET /api/instance` needs the session cookie.
+
+export const getInstance = (): Promise<InstanceIdentity> => getJson("/api/instance", "instance");
+
+export async function renameInstance(name: string | null): Promise<InstanceIdentity> {
+  const r = await fetch("/api/instance", {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ name }),
+  });
+  if (!r.ok) throw await failed(r, "rename instance");
+  return r.json();
+}
+
+export const listRemoteInstances = (): Promise<{ instances: RemoteInstance[] }> =>
+  getJson("/api/remote-instances", "machines");
+
+/** A refused connection keeps the server's machine codes so the form can say what to fix. */
+export type ConnectMachineResult =
+  { ok: true; instance: RemoteInstance } | { ok: false; error: string; reason: string | null };
+
+export async function connectRemoteInstance(body: {
+  url: string;
+  token: string;
+  label?: string;
+}): Promise<ConnectMachineResult> {
+  const r = await fetch("/api/remote-instances", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
+  const data = (await r.json().catch(() => null)) as {
+    instance?: RemoteInstance;
+    error?: string;
+    reason?: string | null;
+  } | null;
+  if (r.ok && data?.instance) return { ok: true, instance: data.instance };
+  return { ok: false, error: data?.error ?? `http_${r.status}`, reason: data?.reason ?? null };
+}
+
+export async function renameRemoteInstance(
+  id: string,
+  label: string | null,
+): Promise<RemoteInstance> {
+  const r = await fetch(`/api/remote-instances/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ label }),
+  });
+  if (!r.ok) throw await failed(r, "rename machine");
+  return ((await r.json()) as { instance: RemoteInstance }).instance;
+}
+
+export async function checkRemoteInstance(id: string): Promise<RemoteInstance> {
+  const r = await fetch(`/api/remote-instances/${encodeURIComponent(id)}/check`, {
+    method: "POST",
+  });
+  if (!r.ok) throw await failed(r, "check machine");
+  return ((await r.json()) as { instance: RemoteInstance }).instance;
+}
+
+export async function removeRemoteInstance(id: string): Promise<void> {
+  const r = await fetch(`/api/remote-instances/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!r.ok) throw await failed(r, "remove machine");
 }
 
 // ── push administration (#2696) ────────────────────────────────────────────

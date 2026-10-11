@@ -134,6 +134,22 @@ describe("pairing", () => {
   });
 });
 
+describe("instance", () => {
+  test("GET /api/instance matches the contract and keeps its id", async () => {
+    const read = async () => {
+      const res = await fetch(`${s.baseUrl}/api/instance`, { headers: bearer(token) });
+      return (await validateResponse("GET", "/api/instance", res)) as {
+        instanceId: string;
+        federationApi: number;
+      };
+    };
+    const first = await read();
+    expect(first.instanceId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(first.federationApi).toBe(1);
+    expect((await read()).instanceId).toBe(first.instanceId);
+  });
+});
+
 describe("auth", () => {
   test("POST /api/login rejects a wrong password", async () => {
     const res = await fetch(`${s.baseUrl}/api/login`, {

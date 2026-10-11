@@ -450,6 +450,25 @@ describe("RemoteInstanceService", () => {
     expect(svc.remove(REMOTE_ID)).toBe(false);
   });
 
+  test("listeners hear every probe result, rename and removal", async () => {
+    const { svc } = setup();
+    const heard: string[] = [];
+    const unsubscribe = svc.onChange((id) => heard.push(`${id}:${svc.get(id)?.status ?? "gone"}`));
+    await svc.connect(connectReq);
+    await svc.check(REMOTE_ID);
+    svc.rename(REMOTE_ID, "Mac");
+    svc.remove(REMOTE_ID);
+    svc.remove(REMOTE_ID); // nothing left to remove → no call
+    unsubscribe();
+    await svc.connect(connectReq);
+    expect(heard).toEqual([
+      `${REMOTE_ID}:connected`,
+      `${REMOTE_ID}:connected`,
+      `${REMOTE_ID}:connected`,
+      `${REMOTE_ID}:gone`,
+    ]);
+  });
+
   test("without machines there is no outbound request", async () => {
     const { svc, fetch } = setup();
     svc.start();

@@ -434,10 +434,10 @@
       {
         "files": ["ui/src/routes/+page.svelte"],
         "functions": ["<template>"],
-        "maxCyclomatic": 45,
+        "maxCyclomatic": 47,
         "maxCognitive": 60,
         "maxCrap": 20000,
-        "reason": "The phone-list rework (docs/design/mobile-herd) adds two branches to the page shell: the repo rail becomes desktop-only chrome ({#if !mobile.current}) and the REPOS sheet mounts ({#if showRepos}). That takes the template just over the Tier-1 40 bar; cognitive stays under (52). Note this partially gives back #855's 78/96 -> 32/45 win, so the sheet mount belongs in page/AppOverlays with the other overlays — tracked in #855 rather than done here, because threading repoChips/repoFilter through the dispatcher is its own change."
+        "reason": "The phone-list rework (docs/design/mobile-herd) adds two branches to the page shell: the repo rail becomes desktop-only chrome ({#if !mobile.current}) and the REPOS sheet mounts ({#if showRepos}). That takes the template just over the Tier-1 40 bar; cognitive stays under (52). Note this partially gives back #855's 78/96 -> 32/45 win, so the sheet mount belongs in page/AppOverlays with the other overlays — tracked in #855 rather than done here, because threading repoChips/repoFilter through the dispatcher is its own change. Mirrored machine sessions (#2762) add one {:else if selectedRemote} to each detail chain (phone and desktop, 45 -> 47; cognitive 57): a mirrored session's read-only detail must REPLACE the Viewport, never mount it, so the branch sits beside the Viewport branch in both chains."
       },
       {
         "files": ["ui/src/lib/components/page/AppOverlays.svelte"],

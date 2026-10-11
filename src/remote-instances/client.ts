@@ -1,8 +1,9 @@
 /**
  * The one place a Shepherd talks HTTP to another Shepherd (issue #2759). Everything that reaches a
- * connected machine — today the connection probe, later session mirroring and hand-off — goes
- * through `getRemoteJson` here, so the timeout, the redirect policy and the failure vocabulary live in
- * exactly one spot.
+ * connected machine — the connection probe, the session mirror's snapshot (#2762), later hand-off —
+ * goes through `getRemoteJson` here, so the timeout, the redirect policy and the failure vocabulary
+ * live in exactly one spot. (The mirror's live `/events` socket is the one non-HTTP channel; it
+ * lives in `sessions.ts` and carries the token the same way: only in the `Authorization` header.)
  *
  * The bearer token is a credential for ANOTHER machine. It goes into the `Authorization` header
  * and nowhere else: nothing here logs, throws or returns it, and redirects are never followed
@@ -56,9 +57,9 @@ function statusFailure(status: number): ProbeFailure {
   return BAD_RESPONSE;
 }
 
-/** Authenticated GET of `path` on a machine, parsed as JSON. Never throws. Module-private until a
- *  second caller (session mirroring, #2762) needs it. */
-async function getRemoteJson(
+/** Authenticated GET of `path` on a machine, parsed as JSON. Never throws. Shared by the probe
+ *  below and the session mirror (#2762). */
+export async function getRemoteJson(
   target: RemoteTarget,
   path: string,
   opts: RemoteRequestOptions = {},

@@ -47,6 +47,7 @@ import { buildQueues as buildQueuesStore } from "./buildQueues.svelte";
 import { epicDrafts as epicDraftsStore } from "./epic-draft.svelte";
 import { postMergeSteps as postMergeStepsStore } from "./post-merge-steps.svelte";
 import { SAFE_ID, dropKey, safeMerge, setKey, setPathKey } from "./safe-keys";
+import { reduceRemoteSessions } from "./remote-sessions";
 
 /** Only follow http(s) URLs when opening a link from event-carried data — a `javascript:`
  *  (or other-scheme) value would be an open-redirect / script-execution vector
@@ -62,6 +63,10 @@ function isSafeHttpUrl(raw: string): boolean {
 
 export class HerdStore {
   sessions = $state<Session[]>([]);
+  /** Sessions mirrored from connected machines (#2762), held apart from `sessions` so nothing
+   *  that acts on a local session — or keys a side map by its id — ever sees one. Only the herd's
+   *  machine groups and the remote detail read them. */
+  remoteSessions = $state<Session[]>([]);
   blocks = $state<Record<string, BlockState>>({});
   connected = $state(false);
   terminalOwners = $state<Record<string, TerminalClientInfo> | null>(null);
@@ -186,7 +191,8 @@ export class HerdStore {
   private draftReconcileToastIds = new SvelteMap<string, number>();
 
   setAll(list: Session[]) {
-    this.sessions = list;
+    this.sessions = list.filter((s) => !s.host);
+    this.remoteSessions = list.filter((s) => s.host);
   }
   setGit(map: Record<string, GitState>) {
     this.git = map;
@@ -465,6 +471,12 @@ export class HerdStore {
   }
 
   apply(ev: WsEvent) {
+    const remote = reduceRemoteSessions(this.remoteSessions, ev);
+    if (remote) this.remoteSessions = remote;
+    else this.applyLocal(ev);
+  }
+
+  private applyLocal(ev: WsEvent) {
     switch (ev.event) {
       case "terminal:owners":
         this.terminalOwners = ev.data.owners;

@@ -691,10 +691,44 @@ components:
           nullable: true
         hasScratchpadFiles:
           type: boolean
+        host:
+          $ref: "#/components/schemas/SessionHost"
+        connection:
+          $ref: "#/components/schemas/SessionConnection"
     SessionList:
       type: array
       items:
         $ref: "#/components/schemas/Session"
+    SessionHost:
+      type: object
+      additionalProperties: true
+      required:
+        - instanceId
+        - name
+        - platform
+      description: Set only on a session mirrored from a connected machine (read-only; actions on it are not offered). Absent on this instance's own sessions. A `session:*` frame about a mirrored session carries the same `host` and `connection`.
+      properties:
+        instanceId:
+          type: string
+          description: The machine's persisted instance ID (GET /api/instance there).
+        name:
+          type: string
+          description: The machine's display name here, unique among the connected machines.
+        platform:
+          $ref: "#/components/schemas/InstancePlatform"
+    SessionConnection:
+      type: object
+      additionalProperties: true
+      required:
+        - state
+        - since
+      description: The link to the machine a mirrored session runs on. `disconnected` keeps the session with its last known state; it is not an end.
+      properties:
+        state:
+          type: string
+        since:
+          type: integer
+          description: When this state began (ms). For `disconnected`, when the shown data was last current.
     CreateSessionRequest:
       type: object
       additionalProperties: false

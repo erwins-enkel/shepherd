@@ -1634,3 +1634,59 @@ test("session:login-request sets and clears a session's Login Request; archive d
   s.apply({ event: "session:archived", data: { id: "s1" } });
   expect(s.loginRequests.s1).toBeUndefined();
 });
+
+// ── sessions mirrored from connected machines (#2762) ──
+const HOST = { instanceId: "m1", name: "MacBook", platform: "macos" };
+const LIVE = { state: "connected" as const, since: 1 };
+function mirrored(id: string, over: Partial<Session> = {}): Session {
+  return { ...session(id), host: HOST, connection: LIVE, ...over };
+}
+
+test("setAll keeps mirrored sessions apart from the local ones (#2762)", () => {
+  const s = new HerdStore();
+  s.setAll([session("local"), mirrored("remote")]);
+  expect(s.sessions.map((x) => x.id)).toEqual(["local"]);
+  expect(s.remoteSessions.map((x) => x.id)).toEqual(["remote"]);
+});
+
+test("frames about mirrored sessions never reach the local sessions or a side map (#2762)", () => {
+  const s = new HerdStore();
+  s.setAll([session("local")]);
+  const annotate = { host: HOST, connection: LIVE };
+  s.apply({ event: "session:new", data: mirrored("r1") });
+  s.apply({ event: "session:status", data: { id: "r1", status: "idle", ...annotate } });
+  s.apply({
+    event: "session:renamed",
+    data: { id: "r1", name: "renamed", branch: "x", ...annotate } as never,
+  });
+  s.apply({ event: "session:git", data: { id: "r1", git: GIT, ...annotate } as never });
+  s.apply({ event: "session:block", data: { id: "r1", block: null, ...annotate } as never });
+  s.apply({ event: "session:activity", data: { id: "r1", ...annotate } as never });
+  expect(s.sessions.map((x) => x.id)).toEqual(["local"]);
+  expect(s.remoteSessions).toHaveLength(1);
+  expect(s.remoteSessions[0]).toMatchObject({ id: "r1", status: "idle", name: "renamed" });
+  expect(s.git.r1).toBeUndefined();
+  expect(s.blocks.r1).toBeUndefined();
+  expect(s.activity.r1).toBeUndefined();
+  s.apply({ event: "session:archived", data: { id: "r1", ...annotate } as never });
+  expect(s.remoteSessions).toEqual([]);
+  expect(s.sessions.map((x) => x.id)).toEqual(["local"]);
+});
+
+test("remote:sessions replaces one machine's sessions and leaves the others (#2762)", () => {
+  const s = new HerdStore();
+  const other = { instanceId: "m2", name: "Studio", platform: "linux" };
+  s.setAll([session("local"), mirrored("a"), mirrored("b"), mirrored("c", { host: other })]);
+  const offline = { state: "disconnected" as const, since: 5 };
+  s.apply({
+    event: "remote:sessions",
+    data: { instanceId: "m1", sessions: [mirrored("b", { connection: offline })] },
+  });
+  expect(s.remoteSessions.map((x) => [x.id, x.connection?.state])).toEqual([
+    ["c", "connected"],
+    ["b", "disconnected"],
+  ]);
+  s.apply({ event: "remote:sessions", data: { instanceId: "m2", sessions: [] } });
+  expect(s.remoteSessions.map((x) => x.id)).toEqual(["b"]);
+  expect(s.sessions.map((x) => x.id)).toEqual(["local"]);
+});

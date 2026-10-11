@@ -1604,6 +1604,25 @@ export interface Session {
    *  Gates the Files tab. Not persisted — folded into the /api/sessions payload + session:status
    *  (idle/done) push; absent (undefined) on partial pushes that don't recompute it. */
   hasScratchpadFiles?: boolean;
+  /** Set only on a session mirrored from a connected machine (#2762) — a read-only reference
+   *  whose actions are not offered here. Absent on this instance's own sessions. */
+  host?: SessionHost;
+  /** The link to `host`; present exactly when `host` is. */
+  connection?: SessionConnection;
+}
+
+/** The connected machine a mirrored session runs on (#2762). `name` is unique among machines. */
+export interface SessionHost {
+  instanceId: string;
+  name: string;
+  platform: string;
+}
+
+/** `disconnected` keeps the session with its last known state; `since` is when the state began
+ *  (for `disconnected`: when the shown data was last current). */
+export interface SessionConnection {
+  state: "connected" | "disconnected";
+  since: number;
 }
 
 /** A manual operator step parsed from a PR's shepherd:manual-steps carrier (#1059). Mirrors the
@@ -2664,6 +2683,9 @@ export type WsEvent =
       };
     }
   | { event: "session:archived"; data: { id: string } }
+  /** Replaces every session mirrored from one machine (#2762): after each snapshot, on a
+   *  connection change, and with `[]` when the machine is removed. */
+  | { event: "remote:sessions"; data: { instanceId: string; sessions: Session[] } }
   | {
       event: "session:experiment";
       data: { id: string; experimentId: string | null; experimentRole: ExperimentRole | null };

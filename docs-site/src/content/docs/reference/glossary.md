@@ -275,7 +275,11 @@ Machines** with its address and an [access token](#access-token) with scope
 each machine once a minute and shows its name, version, platform and projects
 (the forge slugs of its checkouts), or why it can't reach it: unreachable, not
 authorized, or an incompatible version. Two Shepherds can connect each other; a
-Shepherd cannot connect itself. Each machine keeps running its own sessions; the
+Shepherd cannot connect itself. Each machine keeps running its own sessions, and
+they appear live in this Shepherd's herd, view-only, grouped under the machine
+they run on and labelled with it (for example `MacBook · TASK-07`). If a machine
+becomes unreachable, its sessions stay with their last known state and are marked
+disconnected; a session disappears only once its machine no longer reports it. The
 connection is the groundwork for running each task on the machine that has the
 tools it needs.
 

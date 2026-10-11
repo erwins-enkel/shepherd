@@ -283,9 +283,13 @@ machine with the machine's token, and only callers with full access reach it.
 Steering, stopping and archiving a session, and reading its activity, diff and
 files (including uploads to its scratchpad), work the same way: this Shepherd
 checks the caller's access as for a local session, sends the request to the
-machine, and the machine runs it. Its other actions — merging, relaunching,
-resuming, reviews, previews — are not offered here yet and are refused, never run
-on this machine instead. Clearing merged sessions covers the connected machines
+machine, and the machine runs it. The preview does too: the machine starts and
+stops the dev server, and the preview opens from the machine's own address in
+your tailnet (its `tailscale serve` slot) — never from a port of this Shepherd. A
+machine that can't publish previews into the tailnet (no Tailscale name, or serve
+permission refused) says so instead of offering a link. Its other actions —
+merging, relaunching, resuming, reviews — are not offered here yet and are
+refused, never run on this machine instead. Clearing merged sessions covers the connected machines
 too and names any machine that did not answer. If a machine becomes unreachable,
 its sessions stay with their last known state and are marked disconnected, nothing
 is sent to it, and an open terminal says so and reopens once the machine is back;

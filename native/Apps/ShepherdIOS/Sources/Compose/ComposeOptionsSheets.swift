@@ -19,6 +19,24 @@ struct ComposeBranchSheet: View {
         }.navigationTitle(L.t("newtask_branch_label"))
     }
 }
+enum ComposeSandboxCopy {
+    static func name(_ profile: Components.Schemas.SandboxProfile) -> String {
+        switch profile {
+        case .trusted: L.t("sandbox_profile_trusted")
+        case .standard: L.t("sandbox_profile_standard")
+        case .autonomous: L.t("sandbox_profile_autonomous")
+        }
+    }
+    /// Compact chip copy; nil means the inherited repo default has not loaded yet.
+    static func chip(_ profile: Components.Schemas.SandboxProfile?) -> String {
+        switch profile {
+        case .trusted: L.t("native_compose_sandbox_chip_trusted")
+        case .standard: L.t("native_compose_sandbox_chip_standard")
+        case .autonomous: L.t("native_compose_sandbox_chip_autonomous")
+        case nil: L.t("native_compose_sandbox_chip_default")
+        }
+    }
+}
 struct ComposeEngineSheet: View {
     @Environment(AppModel.self) private var app
     @Bindable var model: ComposeModel
@@ -53,7 +71,8 @@ struct ComposeEngineSheet: View {
                 .disabled(model.modeLocked).accessibilityIdentifier("compose.autopilot")
             if let explanation = model.guardExplanation { Text(verbatim: plain(explanation)).font(.caption) }
             Picker(L.t("newtask_sandbox_label"), selection: $model.sandboxProfile) {
-                Text(verbatim: L.t("newtask_sandbox_default")).tag(Optional<Components.Schemas.SandboxProfile>.none)
+                Text(verbatim: model.inheritedSandboxProfile.map { L.t("native_compose_sandbox_default_resolved", ComposeSandboxCopy.name($0)) } ?? L.t("newtask_sandbox_default"))
+                    .tag(Optional<Components.Schemas.SandboxProfile>.none)
                 Text(verbatim: L.t("sandbox_profile_trusted")).tag(Optional(Components.Schemas.SandboxProfile.trusted))
                 Text(verbatim: L.t("sandbox_profile_standard")).tag(Optional(Components.Schemas.SandboxProfile.standard))
                 Text(verbatim: L.t("sandbox_profile_autonomous")).tag(Optional(Components.Schemas.SandboxProfile.autonomous)).disabled(model.sandboxLocked)

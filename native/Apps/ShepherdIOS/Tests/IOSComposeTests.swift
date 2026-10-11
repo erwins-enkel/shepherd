@@ -228,6 +228,7 @@ final class IOSComposeTests: XCTestCase {
         for state in ["idle", "recording", "cancel", "locked", "result", "finalizing", "denied", "unsupported", "uploading"] {
             let (app, store, model) = try fixture()
             try await store.bootstrap()
+            model.repoSandboxDefault = .autonomous
             let engine = FakeDictationEngine()
             var clock = Date(timeIntervalSince1970: 100)
             let voice = DictationController(engine: engine, locale: "de-DE", now: { clock }, getText: { model.prompt }, setText: { model.prompt = $0 })

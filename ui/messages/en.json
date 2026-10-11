@@ -6399,5 +6399,10 @@
   "native_ios_server_mirror_only": "mirrored only",
   "native_ios_server_mirror_add": "Add",
   "native_ios_server_mirror_add_aria": "Add {machine} as a server",
-  "native_ios_server_mirror_via": "via {server}"
+  "native_ios_server_mirror_via": "via {server}",
+  "native_compose_sandbox_chip_default": "Sandbox",
+  "native_compose_sandbox_chip_trusted": "No sandbox",
+  "native_compose_sandbox_chip_standard": "Sandbox: Standard",
+  "native_compose_sandbox_chip_autonomous": "Sandbox: Autonomous",
+  "native_compose_sandbox_default_resolved": "Repo default · {profile}"
 }

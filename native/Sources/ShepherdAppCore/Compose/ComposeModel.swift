@@ -16,6 +16,7 @@ public final class ComposeModel {
             runOn.repo = repoPath.trimmingCharacters(in: .whitespacesAndNewlines)
             shaping.discard()
             repoGuardDefaults = nil
+            repoSandboxDefault = nil
             repoBranches.selectRepo(repoPath)
             generation += 1
             listing = nil; issues = []; commandListings = [:]; commandErrors = [:]; epicParents = []; subIssues = []
@@ -47,6 +48,8 @@ public final class ComposeModel {
     var epicAuthoring = false { didSet { if oldValue != epicAuthoring { shaping.discard() } } }
     var plain = false { didSet { if oldValue != plain { shaping.discard() } } }
     var repoGuardDefaults: (planGate: Bool, autopilot: Bool)?
+    /// The repo's configured profile, which a nil `sandboxProfile` inherits; nil until loaded.
+    public var repoSandboxDefault: Components.Schemas.SandboxProfile?
     public var planGateEnabled = false
     public var planGateTouched = false
     public var autopilotEnabled = false

@@ -12630,6 +12630,7 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeParityTests.swift\",\"CoreSeamTests.ComposeParityTests\",\"credentialRetryContinuesThePendingPrompt() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeParityTests.swift\",\"CoreSeamTests.ComposeParityTests\",\"defaultsKeepInheritanceAndRespectTouchedFlagsAndModes() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeParityTests.swift\",\"CoreSeamTests.ComposeParityTests\",\"designReturningToCodeAppliesLateDefaults(respectChoice: Bool)\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeParityTests.swift\",\"CoreSeamTests.ComposeParityTests\",\"effectiveSandboxResolvesRepoDefaultOverrideAndResearchDowngrade() throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeParityTests.swift\",\"CoreSeamTests.ComposeParityTests\",\"repoTimelineNeverPromisesUnconditionalPostPRWork()\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeParityTests.swift\",\"CoreSeamTests.ComposeParityTests\",\"serverHandoverPreservesPromptOnceAndResetsServerContext() async throws\"]",
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/ComposeParityTests.swift\",\"CoreSeamTests.ComposeParityTests\",\"timelineCoversEveryToggleAndProvider(planGate: Bool, autopilot: Bool)\"]",

@@ -21,4 +21,14 @@ extension ComposeModel {
     public var effectiveAutopilot: Bool? {
         autopilotTouched ? autopilotEnabled : repoGuardDefaults?.autopilot
     }
+
+    /// The profile a nil override inherits; nil until the repo default loads.
+    /// Mirrors the server, which downgrades autonomous to standard for research/epic sessions.
+    public var inheritedSandboxProfile: Components.Schemas.SandboxProfile? {
+        repoSandboxDefault.map { sandboxLocked && $0 == .autonomous ? .standard : $0 }
+    }
+    /// The profile the spawn will run under; nil while the inherited repo default is unresolved.
+    public var effectiveSandboxProfile: Components.Schemas.SandboxProfile? {
+        sandboxProfile ?? inheritedSandboxProfile
+    }
 }

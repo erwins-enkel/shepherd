@@ -44,7 +44,8 @@ private final class FakeTailscale: Sendable {
       return TailscaleCommandResult(exitCode: 0, stdout: Data(status.utf8))
     }
     if arguments == LocalTailnetExposure.serveStatusArguments {
-      let json = serve ?? (mapped.withLock { $0 } ? managedServe : "{}")
+      let isMapped = mapped.withLock { $0 }
+      let json = serve ?? (isMapped ? managedServe : "{}")
       return TailscaleCommandResult(exitCode: 0, stdout: Data(json.utf8))
     }
     if mutationExit == 0, mutationApplies { mapped.withLock { $0 = arguments.last != "off" } }

@@ -113,7 +113,8 @@ private final class TailnetScript: Sendable {
             return TailscaleCommandResult(exitCode: 0, stdout: Data(json.utf8))
         }
         if arguments == ["serve", "status", "--json"] {
-            let json = mapped.withLock { $0 }
+            let isMapped = mapped.withLock { $0 }
+            let json = isMapped
                 ? #"{"TCP":{"\#(port)":{"HTTPS":true}},"Web":{"mac.tailnet.ts.net:\#(port)":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:\#(port)"}}}}}"#
                 : "{}"
             return TailscaleCommandResult(exitCode: 0, stdout: Data(json.utf8))

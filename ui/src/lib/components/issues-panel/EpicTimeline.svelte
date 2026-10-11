@@ -108,7 +108,10 @@
 </section>
 
 <style>
+  /* isolation scopes the sticky label's z-index to this box, so the host's sticky run area
+     (RunPanel) stays on top when the timeline scrolls under it. */
   .timeline {
+    isolation: isolate;
     container-type: inline-size;
     display: flex;
     flex-direction: column;

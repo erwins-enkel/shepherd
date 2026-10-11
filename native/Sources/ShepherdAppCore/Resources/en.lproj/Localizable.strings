@@ -821,6 +821,7 @@
 "native_ios_terminal_hint" = "Live session output. Scroll to read earlier output.";
 "native_ios_terminal_latest" = "Latest output";
 "native_ios_terminal_reply" = "Reply";
+"native_ios_terminal_submit_draft" = "Send terminal input (Enter)";
 "native_ios_terminal_superseded_body" = "Another device attached to this terminal. Taking over returns it to this iPhone or iPad and detaches the other device.";
 "native_ios_usage_warning" = "%1$@: %2$@%% used";
 "native_ios_welcome_subtitle" = "Connect to a Shepherd server to follow your sessions.";

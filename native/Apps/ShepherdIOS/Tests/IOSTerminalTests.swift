@@ -819,6 +819,65 @@ final class IOSTerminalTests: XCTestCase {
         presentation.rendererUnmounted()
     }
 
+    func testPlainTextInTheInputBoxIsADraftToSubmit() {
+        let border = String(repeating: "─", count: 20)
+        func cells(_ text: String, dim: Bool) -> [IOSTerminalSuggestion.Cell] {
+            text.map { IOSTerminalSuggestion.Cell(character: $0, dim: dim) }
+        }
+        func read(_ rows: [String], prompt: [IOSTerminalSuggestion.Cell]) -> String? {
+            IOSTerminalSuggestion.draft(rows) { _ in prompt }
+        }
+        let rows = ["❯ Earlier prompt", "⏺ Done.", border, "❯ ja, starte den Build", border, "  Opus 5.5"]
+        XCTAssertEqual(read(rows, prompt: cells("❯ ja, starte den Build", dim: false)), "ja, starte den Build")
+        // A wrapped draft continues on indented rows above the bottom border.
+        let wrapped = [border, "❯ ja, starte den", "  Build", border]
+        XCTAssertEqual(read(wrapped, prompt: cells("❯ ja, starte den", dim: false)), "ja, starte den")
+        // A dim suggestion and an empty prompt are not drafts.
+        XCTAssertNil(read(rows, prompt: cells("❯ ", dim: false) + cells("ja, starte den Build", dim: true)))
+        XCTAssertNil(read(rows, prompt: cells("❯ j", dim: false) + cells("a, starte den Build", dim: true)))
+        XCTAssertNil(read([border, "❯ ", border], prompt: cells("❯ ", dim: false)))
+        // A sent prompt in the transcript is not inside the input box.
+        XCTAssertNil(read(["❯ ja", "⏺ Done.", border], prompt: cells("❯ ja", dim: false)))
+
+        let pty = IOSFixturePTY()
+        let core = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
+        let presentation = IOSTerminalPresentation(session: core, reply: { _ in })
+        presentation.screenChanged(rows, draft: "ja")
+        XCTAssertEqual(presentation.terminalDraft, "ja")
+        presentation.replayWillBegin()
+        XCTAssertNil(presentation.terminalDraft)
+    }
+
+    func testRendererReadsTheTerminalDraftAndOffersEnter() async {
+        let pty = IOSFixturePTY()
+        let session = TerminalSessionModel(sessionID: "fixture", reply: { _ in }, makeAttachment: { _, _ in pty })
+        let presentation = IOSTerminalPresentation(session: session, reply: { _ in })
+        let coordinator = IOSTerminalHostView.Coordinator(model: presentation)
+        let view = IOSWatchingTerminalView(frame: CGRect(x: 0, y: 0, width: 390, height: 400),
+            font: .monospacedSystemFont(ofSize: 12, weight: .regular))
+        view.terminalDelegate = coordinator
+        coordinator.bind(view)
+        presentation.visibilityChanged(visible: true, active: true)
+        pty.emit(.attached)
+        await settle { session.phase == .live }
+        let border = String(repeating: "─", count: 30)
+        pty.emit("⏺ Done.\r\n\(border)\r\n❯ ja, starte den Build\r\n\(border)\r\n  Opus 5.5")
+        await settle { presentation.terminalDraft == "ja, starte den Build" }
+        XCTAssertTrue(presentation.offersSubmit)
+        // A local draft has its own send button.
+        session.promptText = "andere Antwort"
+        XCTAssertFalse(presentation.offersSubmit)
+        session.promptText = ""
+        presentation.sendKey(.enter)
+        XCTAssertEqual(pty.sent.last, Data("\r".utf8))
+        // Sent: the input box is empty again.
+        pty.emit("\u{1b}[2J\u{1b}[H\(border)\r\n❯ \r\n\(border)")
+        await settle { presentation.terminalDraft == nil }
+        XCTAssertFalse(presentation.offersSubmit)
+        coordinator.cancelScreenScan()
+        presentation.rendererUnmounted()
+    }
+
     func testRenderFixtureImages() async throws {
         // SwiftUI ImageRenderer cannot draw a UIViewRepresentable. Inject text output
         // into the same production detail chrome; live UIKit feed is tested above.

@@ -5063,6 +5063,7 @@
   "native_ios_detail_branch": "Branch",
   "native_ios_terminal_font_size": "Terminal-Schriftgröße",
   "native_ios_terminal_accept_suggestion": "Vorschlag übernehmen (Tab)",
+  "native_ios_terminal_submit_draft": "Terminal-Eingabe absenden (Enter)",
   "native_ios_terminal_font_points": "{size} pt",
   "native_ios_terminal_hint": "Live-Ausgabe der Sitzung. Scrolle, um frühere Ausgaben zu lesen.",
   "native_ios_terminal_latest": "Neueste Ausgabe",

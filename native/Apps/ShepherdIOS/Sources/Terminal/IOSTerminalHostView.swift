@@ -346,7 +346,7 @@ struct IOSTerminalHostView: UIViewRepresentable {
             let rows = (0..<terminal.rows).map {
                 terminal.getLine(row: $0)?.translateToString(trimRight: true) ?? ""
             }
-            model.screenChanged(rows, suggestion: IOSTerminalSuggestion.text(rows) { row in
+            let cells = { (row: Int) -> [IOSTerminalSuggestion.Cell] in
                 guard let line = terminal.getLine(row: row) else { return [] }
                 // A wide character's trailing cell has width 0 and carries no character.
                 return (0..<line.count).map { line[$0] }.filter { $0.width > 0 }.map {
@@ -354,7 +354,9 @@ struct IOSTerminalHostView: UIViewRepresentable {
                     return IOSTerminalSuggestion.Cell(character: character == "\0" ? " " : character,
                         dim: $0.attribute.style.contains(.dim))
                 }
-            })
+            }
+            model.screenChanged(rows, suggestion: IOSTerminalSuggestion.text(rows, cells: cells),
+                draft: IOSTerminalSuggestion.draft(rows, cells: cells))
         }
 
         func sizeChanged(source: SwiftTerm.TerminalView, newCols: Int, newRows: Int) {

@@ -954,9 +954,12 @@ export const KEYS_MERGE: readonly string[] = [
   "buildqueue_start_steer",
   "buildqueue_start_plan_steer",
   "clearmerged_confirm",
+  "clearmerged_desc",
   "clearmerged_leftovers",
   "clearmerged_probes_unavailable",
   "clearmerged_title",
+  "herd_clear_merged_action",
+  "herd_clear_merged_title",
   "herd_merge_train_prompt",
   "mergeconfirm_confirm",
   "mergeconfirm_handoff_merger",
@@ -992,6 +995,7 @@ export const KEYS_MERGE: readonly string[] = [
   "owed_dismiss_confirm",
   "owed_post_merge_badge",
   "owed_tracking_issue",
+  "toast_clear_merged_failed",
 ];
 
 /** S10 — held tasks, up-next, done/recaps, halt and retry. */

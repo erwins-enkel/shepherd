@@ -69,6 +69,7 @@
 "cardmenu_stop_title" = "Send Esc to this session — stops the current turn, nothing else";
 "cardmenu_stop_toast" = "Stopped %1$@";
 "clearmerged_confirm" = "Decommission %1$@";
+"clearmerged_desc" = "These %1$@ sessions are on merged branches. Decommissioning them stops each agent, removes its worktree, and deletes the merged branch.";
 "clearmerged_leftovers" = "%1$@ background processes from these sessions will also be terminated.";
 "clearmerged_probes_unavailable" = "Shepherd can't detect running processes on this host, so background processes from these sessions aren't listed and may survive. See Diagnose.";
 "clearmerged_title" = "Decommission merged sessions";
@@ -353,6 +354,8 @@
 "herd_changes_requested_group" = "Changes requested (%1$@)";
 "herd_ci_failed_group" = "CI failed (%1$@)";
 "herd_ci_running_group" = "CI running (%1$@)";
+"herd_clear_merged_action" = "Decommission all";
+"herd_clear_merged_title" = "Decommission every merged-branch session and delete its branch";
 "herd_done_empty" = "No finished sessions yet.";
 "herd_done_title" = "Show finished (archived) sessions and their recaps";
 "herd_draft_awaiting_signoff_group" = "Draft: awaiting sign-off (%1$@)";
@@ -1595,6 +1598,7 @@
 "toast_broadcast_delivered" = "Broadcast steered %1$@ agents now.";
 "toast_broadcast_result" = "Broadcast · %1$@ steered now, %2$@ queued on busy agents (act after current turn), %3$@ unreachable.";
 "toast_broadcast_skipped_terminals" = "%1$@ terminal session(s) skipped — terminals receive no steers";
+"toast_clear_merged_failed" = "Couldn't decommission merged sessions";
 "toast_held_edit_saved" = "Held task updated.";
 "toast_renamed" = "Renamed to %1$@";
 "toast_retry_done" = "Retry sent · %1$@ resumed · %2$@ steered / %3$@";

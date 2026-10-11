@@ -100,7 +100,7 @@
     agentProvider={session.agentProvider ?? "claude"}
     {onedit}
   />
-  <div class="actions" role="group" aria-label={m.remote_detail_actions_aria({ machine })}>
+  <div class="actions" role="group" aria-label={m.remote_detail_actions_live_aria({ machine })}>
     <button type="button" class="gbtn" onclick={stop}>{m.remote_detail_stop()}</button>
     <button type="button" class="gbtn" class:armed onclick={archive}
       >{armed ? m.viewport_confirm_decommission() : m.remote_detail_archive()}</button

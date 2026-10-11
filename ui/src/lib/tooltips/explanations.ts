@@ -370,7 +370,7 @@ export function remoteSessionExplanation(
                 time: lastKnownLabel(connection.since, nowMs),
               }),
       },
-      { label: m.tooltip_remote_actions(), text: m.tooltip_remote_actions_body({ machine }) },
+      { label: m.tooltip_remote_actions(), text: m.tooltip_remote_forwarded_body({ machine }) },
     ],
   };
 }

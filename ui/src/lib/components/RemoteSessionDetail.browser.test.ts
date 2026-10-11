@@ -117,7 +117,7 @@ describe("RemoteSessionDetail (#2762)", () => {
   it("stops the session on its machine and names a machine that can't be reached (#2765)", async () => {
     render(RemoteSessionDetail, { session: remote(), nowMs: Date.now() });
     const actions = page.getByRole("group", {
-      name: m.remote_detail_actions_aria({ machine: "MacBook" }),
+      name: m.remote_detail_actions_live_aria({ machine: "MacBook" }),
     });
     await actions.getByRole("button", { name: m.remote_detail_stop() }).click();
     expect(api.interruptSession).toHaveBeenCalledWith("r1");
@@ -227,7 +227,7 @@ describe("RemoteSessionDetail (#2762)", () => {
       const button = page.getByRole("button", { name: label });
       await expect.element(button).toHaveAttribute("aria-disabled", "true");
       expect(button.element().getAttribute("aria-description")).toContain(
-        m.tooltip_remote_actions_body({ machine: "MacBook" }),
+        m.tooltip_remote_forwarded_body({ machine: "MacBook" }),
       );
     }
     for (const tab of [m.viewport_activity_tab(), m.viewport_diff_tab(), m.viewport_files_tab()])

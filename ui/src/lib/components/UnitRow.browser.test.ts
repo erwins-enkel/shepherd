@@ -2046,7 +2046,7 @@ describe("UnitRow mirrored session (#2762)", () => {
     const decom = page.getByRole("button", { name: m.viewport_decommission_aria() });
     await expect.element(decom).toHaveAttribute("aria-disabled", "true");
     expect(decom.element().getAttribute("aria-description")).toContain(
-      m.tooltip_remote_actions_body({ machine: "MacBook" }),
+      m.tooltip_remote_forwarded_body({ machine: "MacBook" }),
     );
     // A native click: Playwright (rightly) refuses to click an aria-disabled control.
     (decom.element() as HTMLElement).click();

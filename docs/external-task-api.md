@@ -335,15 +335,37 @@ a different body under that key is `409 dispatch_payload_mismatch`.
 | Started there                             | `201` with the machine's session, plus `host` and `connection`                                         |
 | Held there (its usage hold)               | `200 { held: true, id, count, host }` — `id` and `count` are the machine's                             |
 | The machine refused it                    | `422 { code: "remote_rejected", error: <its reason>, remoteStatus, remoteCode?, host }`                |
-| Sent, but no answer came back             | `504 { code: "remote_dispatch_unknown", dispatchId, host }` — send again with that key                 |
+| Sent, but no answer came back             | `504 { code: "remote_dispatch_unknown", dispatchId, host }` — start status unknown, see below          |
+| Canceled before the machine confirmed it  | `409 { code: "remote_dispatch_canceled", host }` — it never starts under that key                      |
+| Canceled, cancel not yet confirmed        | `409 { code: "remote_dispatch_cancel_pending", host }` — not sent again, but may run there             |
 | An attachment did not reach the machine   | `502 { code: "remote_upload_failed", error: <which and why>, host }` — nothing was sent                |
 | Not connected right now (nothing sent)    | `409 { code: "remote_target_unavailable", reason }`                                                    |
 | No such machine / no checkout of the repo | `422` with `remote_target_unknown` / `remote_project_missing` (`remote_project_unknown`: no slug)      |
 | Platform not released (Windows)           | `422 { code: "remote_target_unreleased", reason: <platform> }` — listed in Settings, never sent a task |
 
-`504` means the task **may be running** on the machine. Sending it again with the
-same key is always safe: the machine replays what became of it and never starts it
-a second time (`src/remote-instances/dispatch.ts`).
+`504` means the task **may be running** on the machine: its start status is
+_unknown_, not failed. This Shepherd follows it up by itself. After every check
+that finds the machine connected — when it reconnects, after either Shepherd
+restarts, and about once a minute — it asks the machine
+`GET /api/dispatches/{dispatch ID}`: started, held or failed there settles it here,
+and "never arrived" (`404`) sends the same task again, under the same dispatch ID,
+to the same machine. Still starting there, or no answer, leaves it unknown for the
+next check. It never starts twice and never moves to another machine
+(`src/remote-instances/dispatch.ts`). Sending it again yourself with the same key
+is safe too: the machine replays what became of it.
+
+`GET /api/remote-dispatches` lists the tasks no machine has confirmed —
+`{ dispatches: [{ id, state, host, summary, … }] }` with `state` `unknown`, or
+`canceling` for a cancel on its way — and the `remote:dispatch` event announces
+each change of one, including the one that resolves it (`started` with
+`sessionId`, `held`, `rejected` with `reason`/`code`, `canceled`). The herd shows
+them in the machine's group. `DELETE /api/remote-dispatches/{id}` cancels one: the
+machine's `DELETE /api/dispatches/{id}` makes sure it never starts there, even if
+it arrives late (`200`). A machine out of reach gets the cancel as soon as it
+answers (`202`, `canceling`), and nothing sends the task again meanwhile. Once the
+machine has it (or while it is being sent), the answer is
+`409 remote_dispatch_not_cancelable` with the current `dispatch`. Both routes need
+`full` scope.
 
 Attachments are uploaded to the machine's own `POST /api/uploads` **right before**
 the task is sent, and the task then names the machine's staged copies — never a

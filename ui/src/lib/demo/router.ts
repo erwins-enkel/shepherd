@@ -94,6 +94,8 @@ type GetHandler = (url: URL) => Response;
 const bootstrapGetRoutes: Record<string, GetHandler> = {
   "/api/me": () => json({ authenticated: true }),
   "/api/sessions": () => json(demoState.sessions()),
+  // Tasks whose start on a connected machine is unknown (#2774): the demo connects no machines.
+  "/api/remote-dispatches": () => json({ dispatches: [] }),
   // Admin "clear merged": derives the merged, non-archived session ids from live
   // state (currently `deps`) — shape matches getMergedClearable() in api.ts exactly.
   "/api/sessions/clear-merged": () => json(demoState.mergedClearable()),

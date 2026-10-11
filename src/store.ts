@@ -1338,6 +1338,9 @@ const REMOTE_DISPATCHES_DDL = `CREATE TABLE IF NOT EXISTS remote_dispatches (
   sessionId TEXT, heldId TEXT, reason TEXT, code TEXT, httpStatus INTEGER,
   createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, uploads TEXT)`;
 
+const REMOTE_DISPATCH_COLUMNS = `id, clientKey, instanceId, payloadHash, wireBody, state, sessionId,
+  heldId, reason, code, httpStatus, createdAt, updatedAt, uploads`;
+
 /**
  * Fresh-install DDL for `reviewer_spawns`. Exported so the fresh-schema path can be tested in
  * isolation — running this ALONE (without migrateReviewerSpawnColumns) must already yield every
@@ -2187,12 +2190,39 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   getRemoteDispatchByKey(clientKey: string): RemoteDispatchRow | null {
     return (
       (this.db
-        .query(
-          `SELECT id, clientKey, instanceId, payloadHash, wireBody, state, sessionId, heldId,
-                  reason, code, httpStatus, createdAt, updatedAt, uploads
-           FROM remote_dispatches WHERE clientKey = ?`,
-        )
+        .query(`SELECT ${REMOTE_DISPATCH_COLUMNS} FROM remote_dispatches WHERE clientKey = ?`)
         .get(clientKey) as RemoteDispatchRow | null) ?? null
+    );
+  }
+
+  getRemoteDispatch(id: string): RemoteDispatchRow | null {
+    return (
+      (this.db
+        .query(`SELECT ${REMOTE_DISPATCH_COLUMNS} FROM remote_dispatches WHERE id = ?`)
+        .get(id) as RemoteDispatchRow | null) ?? null
+    );
+  }
+
+  /** Dispatches no machine has confirmed yet (#2774): `sending`, `unknown`, `canceling` — oldest
+   *  first. What the reconciler re-checks and the herd shows. */
+  listOpenRemoteDispatches(): RemoteDispatchRow[] {
+    return this.db
+      .query(
+        `SELECT ${REMOTE_DISPATCH_COLUMNS} FROM remote_dispatches
+         WHERE state IN ('sending', 'unknown', 'canceling') ORDER BY createdAt, id`,
+      )
+      .all() as RemoteDispatchRow[];
+  }
+
+  /** The operator cancels a dispatch no machine has confirmed (#2774). Only from `sending` or
+   *  `unknown`: a known outcome is never turned into a cancel. */
+  markRemoteDispatchCanceling(id: string, now = Date.now()): boolean {
+    return (
+      this.db.run(
+        `UPDATE remote_dispatches SET state = 'canceling', updatedAt = ?
+           WHERE id = ? AND state IN ('sending', 'unknown')`,
+        [now, id],
+      ).changes === 1
     );
   }
 
@@ -2205,12 +2235,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
-  /** Record what the machine answered. Only over a row still `sending` or `unknown`: a known
-   *  outcome is never downgraded by a later retry that got no answer. */
+  /** Record what the machine answered. Only over a row not yet confirmed (`sending`, `unknown`,
+   *  `canceling`): a known outcome is never downgraded by a later retry that got no answer. */
   settleRemoteDispatch(id: string, o: RemoteDispatchOutcome, now = Date.now()): void {
     this.db.run(
       `UPDATE remote_dispatches SET state = ?, sessionId = ?, heldId = ?, reason = ?, code = ?,
-         httpStatus = ?, updatedAt = ? WHERE id = ? AND state IN ('sending', 'unknown')`,
+         httpStatus = ?, updatedAt = ?
+         WHERE id = ? AND state IN ('sending', 'unknown', 'canceling')`,
       [o.state, o.sessionId, o.heldId, o.reason, o.code, o.httpStatus, now, id],
     );
   }

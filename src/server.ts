@@ -441,9 +441,11 @@ export interface AppDeps {
     RemoteSessionMirror,
     "list" | "subscribe" | "has" | "terminalOwners" | "openTerminal" | "route" | "machines"
   >;
-  /** Sends new tasks to connected machines (#2763). Same memo-slot contract as
-   *  `remoteInstances`: the `remoteDispatcher(deps)` accessor lazily builds one over it. */
-  remoteDispatch?: Pick<RemoteDispatcher, "submit">;
+  /** Sends new tasks to connected machines (#2763), lists the ones no machine has confirmed and
+   *  cancels them (#2774). Same memo-slot contract as `remoteInstances`: the
+   *  `remoteDispatcher(deps)` accessor lazily builds one over it; `index.ts` injects the one its
+   *  probe reconciles. */
+  remoteDispatch?: Pick<RemoteDispatcher, "submit" | "list" | "cancel">;
   /** This instance's verified capabilities (#2770). Same memo-slot contract: the
    *  `capabilities(deps)` accessor lazily builds an unstarted one (no probe until asked);
    *  `index.ts` injects the started singleton that re-probes every 5 minutes. */
@@ -937,10 +939,11 @@ function accessTokens(deps: AppDeps): AccessTokenService {
 function remoteInstances(deps: AppDeps): RemoteInstanceService {
   return (deps.remoteInstances ??= new RemoteInstanceService({ store: deps.store }));
 }
-function remoteDispatcher(deps: AppDeps): Pick<RemoteDispatcher, "submit"> {
+function remoteDispatcher(deps: AppDeps): Pick<RemoteDispatcher, "submit" | "list" | "cancel"> {
   return (deps.remoteDispatch ??= new RemoteDispatcher({
     store: deps.store,
     instances: remoteInstances(deps),
+    events: deps.events,
   }));
 }
 function capabilities(deps: AppDeps): CapabilityService {
@@ -1898,6 +1901,28 @@ async function handleDispatches({ req, parts, deps }: Ctx): Promise<Response | n
   const { canceled, dispatch } = cancelDispatch(deps.store, parts[2]);
   if (canceled) return json(dispatch);
   return json({ error: "dispatch already arrived", code: "dispatch_arrived", dispatch }, 409);
+}
+
+// ── /api/remote-dispatches — tasks sent to connected machines that no machine confirmed (#2774) ──
+//   GET           → {dispatches}: start status unknown, or a cancel on its way
+//   DELETE /{id}  → cancel one: 200 done, 202 delivered once its machine answers, 409 not possible
+// `full` scope only, and not classified for repository-restricted tokens (deny by default there).
+async function handleRemoteDispatches({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (parts[0] !== "api" || parts[1] !== "remote-dispatches" || parts[3]) return null;
+  if (req.method === "GET" && !parts[2]) return json({ dispatches: remoteDispatcher(deps).list() });
+  if (req.method !== "DELETE" || !parts[2]) return null;
+  const result = await remoteDispatcher(deps).cancel(parts[2]);
+  if (result.kind === "not_found") return json({ error: "not found" }, 404);
+  if (result.kind === "canceled") return json(result.dispatch);
+  if (result.kind === "canceling") return json(result.dispatch, 202);
+  return json(
+    {
+      error: `this task can no longer be canceled: its state on ${result.dispatch.host.name} is ${result.dispatch.state}`,
+      code: "remote_dispatch_not_cancelable",
+      dispatch: result.dispatch,
+    },
+    409,
+  );
 }
 
 async function usageHoldApplies(value: StandardCreateInput, deps: AppDeps): Promise<boolean> {
@@ -3350,8 +3375,9 @@ async function createOnMachine(
 }
 
 /** What a client sees of a remote dispatch: the machine's session or hold annotated with `host`,
- *  its refusal with the reason, attachments that did not get there (nothing was sent), or "no
- *  answer" with the key to send it again under. */
+ *  its refusal with the reason, attachments that did not get there (nothing was sent), "no
+ *  answer" with the key to send it again under, or that it was canceled — for good, or with the
+ *  cancel still on its way to the machine. */
 function remoteOutcomeResponse(o: RemoteOutcome): Response {
   switch (o.kind) {
     case "started":
@@ -3372,7 +3398,7 @@ function remoteOutcomeResponse(o: RemoteOutcome): Response {
     case "unknown":
       return json(
         {
-          error: `no answer from ${o.host.name} after sending; the task may have started there. Send it again with the same Idempotency-Key — it never starts twice.`,
+          error: `no answer from ${o.host.name} after sending; the task may have started there. This Shepherd keeps asking ${o.host.name} and shows the outcome; sending it again with the same Idempotency-Key is safe — it never starts twice.`,
           code: "remote_dispatch_unknown",
           dispatchId: o.dispatchKey,
           host: o.host,
@@ -3381,6 +3407,24 @@ function remoteOutcomeResponse(o: RemoteOutcome): Response {
       );
     case "upload_failed":
       return json({ error: o.reason, code: "remote_upload_failed", host: o.host }, 502);
+    case "canceled":
+      return json(
+        {
+          error: `this task was canceled before ${o.host.name} confirmed it; it never starts under this Idempotency-Key`,
+          code: "remote_dispatch_canceled",
+          host: o.host,
+        },
+        409,
+      );
+    case "cancel_pending":
+      return json(
+        {
+          error: `this task was canceled here, but ${o.host.name} has not confirmed the cancel yet: if the task reached it first, it may be running there. It is not sent again; GET /api/remote-dispatches shows how it ends`,
+          code: "remote_dispatch_cancel_pending",
+          host: o.host,
+        },
+        409,
+      );
     case "refused": {
       const { status, error } = REMOTE_REFUSAL[o.code];
       return json({ error, code: o.code, ...(o.reason && { reason: o.reason }) }, status);
@@ -10240,6 +10284,7 @@ const ROUTE_HANDLERS = [
   handleBroadcast,
   handleHeld,
   handleDispatches,
+  handleRemoteDispatches,
   handleRetry,
   handleHalt,
   handleFsDirs,

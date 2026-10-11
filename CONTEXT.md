@@ -45,7 +45,7 @@ One task submission sent with an `Idempotency-Key`, accepted at most once; its o
 _Avoid_: job, order, request (overloaded)
 
 **Remote Dispatch**:
-A new task this Shepherd sends to a connected machine to run there: stored here before it is sent, delivered under its own dispatch ID, and only ever sent again to that same machine. Its attachments are uploaded to that machine just before it is sent, once.
+A new task this Shepherd sends to a connected machine to run there: stored here before it is sent, delivered under its own dispatch ID, and only ever sent again to that same machine. Its attachments are uploaded to that machine just before it is sent, once. When no answer comes back its start status is unknown — not failed — until this Shepherd has asked the machine what became of it; until the machine confirms it, it can be canceled.
 _Avoid_: forward, relay, remote job
 
 **Base Commit**:

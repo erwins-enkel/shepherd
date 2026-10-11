@@ -11,7 +11,11 @@ import { PTY_GONE_CODE, PTY_SUPERSEDED_CODE, type AppDeps } from "../../src/serv
 import { TOKEN_SCOPES } from "../../src/token-scopes";
 import { AGENT_PROVIDERS, DISPATCH_STATES, EFFORTS } from "../../src/types";
 import { WorktreeMissingBaseError } from "../../src/worktree";
-import type { RemoteOutcome } from "../../src/remote-instances/dispatch";
+import type {
+  RemoteCancelResult,
+  RemoteDispatchView,
+  RemoteOutcome,
+} from "../../src/remote-instances/dispatch";
 import * as fx from "./event-fixtures";
 import {
   bearer,
@@ -552,7 +556,7 @@ describe("sessions", () => {
   // #2763: a create with a target is handed to the remote dispatcher; each of its outcomes keeps
   // to the declared shapes. The dispatcher is stubbed — the network side is covered end to end in
   // test/server-remote-dispatch.test.ts.
-  test("POST /api/sessions with a target starts (201), holds (200), refuses (422), fails its attachments (502) or is unknown (504) on the machine", async () => {
+  test("POST /api/sessions with a target starts (201), holds (200), refuses (422), fails its attachments (502), is unknown (504) or was canceled (409) on the machine", async () => {
     const host = {
       instanceId: "0b6f2c1e-7c1d-4e53-9d1a-3c1f2e4b5a6d",
       name: "MacBook",
@@ -573,13 +577,19 @@ describe("sessions", () => {
       { kind: "rejected", host, reason: "base missing", remoteStatus: 422, remoteCode: null },
       { kind: "unknown", host, dispatchKey: "key-1" },
       { kind: "upload_failed", host, reason: "attachment 1 of 1: the machine answered 413" },
+      { kind: "canceled", host },
+      { kind: "cancel_pending", host },
       { kind: "refused", code: "remote_target_unavailable", reason: "timeout" },
     ];
     const savedForge = s.stubs.resolveForge.forge;
     s.stubs.resolveForge.forge = { slug: "acme/app" };
     try {
       for (const outcome of outcomes) {
-        s.deps.remoteDispatch = { submit: async () => outcome };
+        s.deps.remoteDispatch = {
+          submit: async () => outcome,
+          list: () => [],
+          cancel: async () => ({ kind: "not_found" }),
+        };
         const body = { prompt: "remote", target: { instanceId: host.instanceId } };
         validateRequest("POST", "/api/sessions", {
           repoPath: s.validRepo,
@@ -838,6 +848,96 @@ describe("dispatches", () => {
     } finally {
       s.stubs.worktree.create = savedCreate;
       delete s.stubs.worktree.ensureCommit;
+    }
+  });
+});
+
+// Start status unknown (#2774): what this instance sent to connected machines that no machine has
+// confirmed, and canceling one. The dispatcher is stubbed — reconciling and canceling against a
+// real machine are covered end to end in test/server-remote-dispatch.test.ts.
+describe("remote dispatches", () => {
+  const host = {
+    instanceId: "0b6f2c1e-7c1d-4e53-9d1a-3c1f2e4b5a6d",
+    name: "MacBook",
+    platform: "macos",
+  };
+  const dispatch = (
+    state: RemoteDispatchView["state"],
+    extra: Partial<RemoteDispatchView> = {},
+  ): RemoteDispatchView => ({
+    id: "d-1",
+    state,
+    host,
+    summary: "port the settings screen",
+    createdAt: 1,
+    updatedAt: 2,
+    ...extra,
+  });
+  const stub = (over: Partial<NonNullable<typeof s.deps.remoteDispatch>>) => {
+    s.deps.remoteDispatch = {
+      submit: async () => ({ kind: "refused", code: "remote_target_unknown", reason: null }),
+      list: () => [],
+      cancel: async () => ({ kind: "not_found" }),
+      ...over,
+    };
+  };
+  const list = () => fetch(`${s.baseUrl}/api/remote-dispatches`, { headers: bearer(token) });
+
+  test("GET /api/remote-dispatches lists the unconfirmed ones; remote:dispatch carries one", async () => {
+    try {
+      // Nothing was sent: nothing listed.
+      const empty = await list();
+      expect(await validateResponse("GET", "/api/remote-dispatches", empty)).toEqual({
+        dispatches: [],
+      });
+      const open = [dispatch("unknown"), dispatch("canceling", { id: "d-2" })];
+      stub({ list: () => open });
+      const res = await list();
+      expect(res.status).toBe(200);
+      expect(await validateResponse("GET", "/api/remote-dispatches", res)).toEqual({
+        dispatches: open,
+      });
+    } finally {
+      s.deps.remoteDispatch = undefined;
+    }
+    validateEvent("remote:dispatch", dispatch("unknown"));
+    validateEvent("remote:dispatch", dispatch("started", { sessionId: "s-1" }));
+    validateEvent(
+      "remote:dispatch",
+      dispatch("rejected", {
+        reason: "Shepherd restarted before this start finished",
+        code: "dispatch_interrupted",
+      }),
+    );
+  });
+
+  test("DELETE /api/remote-dispatches/{id} cancels (200), queues the cancel (202), is 404 or not cancelable (409)", async () => {
+    const cases: [RemoteCancelResult, number][] = [
+      [{ kind: "canceled", dispatch: dispatch("canceled") }, 200],
+      [{ kind: "canceling", dispatch: dispatch("canceling") }, 202],
+      [{ kind: "not_found" }, 404],
+      [{ kind: "not_cancelable", dispatch: dispatch("started", { sessionId: "s-1" }) }, 409],
+    ];
+    try {
+      for (const [result, status] of cases) {
+        stub({ cancel: async () => result });
+        const res = await fetch(`${s.baseUrl}/api/remote-dispatches/d-1`, {
+          method: "DELETE",
+          headers: bearer(token),
+        });
+        const body = await validateResponse("DELETE", "/api/remote-dispatches/{id}", res);
+        expect(res.status).toBe(status);
+        if (result.kind === "not_cancelable") {
+          expect(body).toMatchObject({
+            code: "remote_dispatch_not_cancelable",
+            dispatch: result.dispatch,
+          });
+        } else if (result.kind !== "not_found") {
+          expect(body).toEqual(result.dispatch);
+        }
+      }
+    } finally {
+      s.deps.remoteDispatch = undefined;
     }
   });
 });

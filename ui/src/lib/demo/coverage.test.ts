@@ -150,6 +150,7 @@ const INVENTORY: readonly Entry[] = [
   // bootstrap
   get("/api/me"),
   get("/api/sessions"),
+  get("/api/remote-dispatches"),
   get("/api/sessions/done"),
   get("/api/sessions/clear-merged"),
   get("/api/repos"),
@@ -402,6 +403,9 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     "/api/repo-browser/open",
     // Answering a Login Request: no seeded session raises one, so the banner never renders.
     "/api/sessions/:p/login-request",
+    // Canceling a task whose start on a machine is unknown (#2774): the demo connects no
+    // machines, so no such row renders.
+    "/api/remote-dispatches/:p",
   ],
 
   // Settings/plugin/update WRITES and the probes behind them. Every corresponding read is

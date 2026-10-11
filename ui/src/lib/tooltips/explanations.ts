@@ -1,6 +1,6 @@
 import { m } from "#lib/paraglide/messages.js";
 import type { TooltipExplanation } from "./content";
-import type { SessionConnection, SessionHost } from "#lib/types.js";
+import type { RemoteDispatch, SessionConnection, SessionHost } from "#lib/types.js";
 import { lastKnownLabel, platformName } from "#lib/remote-sessions.js";
 
 export function planGateExplanation(): TooltipExplanation {
@@ -360,6 +360,33 @@ export function runOnExplanation(): TooltipExplanation {
       { label: m.tooltip_runon_code(), text: m.tooltip_runon_code_body() },
       { label: m.tooltip_runon_attachments(), text: m.tooltip_runon_attachments_body() },
       { label: m.tooltip_runon_failure(), text: m.tooltip_runon_failure_body() },
+    ],
+  };
+}
+
+/** A task sent to a connected machine that has not confirmed it (#2774): why its start is unknown,
+ *  what Shepherd does about it, and what a cancel does — or, once cancelled, what happens until
+ *  the machine answers. */
+export function remoteDispatchExplanation(
+  d: Pick<RemoteDispatch, "state" | "host">,
+): TooltipExplanation {
+  const machine = d.host.name;
+  if (d.state === "canceling") {
+    return {
+      title: m.remote_dispatch_canceling(),
+      summary: m.tooltip_dispatch_canceling_summary({ machine }),
+      sections: [
+        { label: m.tooltip_dispatch_until(), text: m.tooltip_dispatch_until_body({ machine }) },
+      ],
+    };
+  }
+  return {
+    title: m.remote_dispatch_unknown(),
+    summary: m.tooltip_dispatch_unknown_summary({ machine }),
+    sections: [
+      { label: m.tooltip_dispatch_check(), text: m.tooltip_dispatch_check_body({ machine }) },
+      { label: m.tooltip_dispatch_once(), text: m.tooltip_dispatch_once_body({ machine }) },
+      { label: m.tooltip_dispatch_cancel(), text: m.tooltip_dispatch_cancel_body({ machine }) },
     ],
   };
 }

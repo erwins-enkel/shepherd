@@ -1,8 +1,9 @@
 <script lang="ts">
-  import type { Session } from "#lib/types.js";
+  import type { RemoteDispatch, Session } from "#lib/types.js";
   import type { HerdFilter } from "../herd-partition";
   import { m } from "#lib/paraglide/messages.js";
   import UnitRow from "../UnitRow.svelte";
+  import RemoteDispatchRow from "./RemoteDispatchRow.svelte";
   import { machineGroups, platformName } from "#lib/remote-sessions.js";
 
   // Sessions mirrored from connected machines (#2762): one group per machine, after the local
@@ -10,8 +11,11 @@
   // gets the one action callback this server forwards to its machine (#2765), decommission
   // (archive), and only while that machine is connected; UnitRow's remote mode adds Stop and
   // otherwise shows the machine and why its other actions are not offered.
+  // Tasks sent to a machine whose start it has not confirmed (#2774) lead its group; a machine
+  // with only those gets a group too, without a link state (no session reports one).
   let {
     sessions,
+    dispatches = [],
     filter,
     selectedId,
     nowMs,
@@ -19,6 +23,7 @@
     ondecommission = undefined,
   }: {
     sessions: Session[];
+    dispatches?: RemoteDispatch[];
     filter: HerdFilter;
     selectedId: string | null;
     nowMs: number;
@@ -26,7 +31,7 @@
     ondecommission?: (id: string) => void;
   } = $props();
 
-  const groups = $derived(filter === "all" ? machineGroups(sessions) : []);
+  const groups = $derived(filter === "all" ? machineGroups(sessions, dispatches) : []);
 </script>
 
 {#each groups as group (group.host.instanceId)}
@@ -34,19 +39,24 @@
     <div class="machine-head micro">
       <span class="machine-name">{group.host.name}</span>
       <span class="machine-platform">{platformName(group.host.platform)}</span>
-      <span class="machine-state" class:offline={group.connection.state === "disconnected"}
-        >{group.connection.state === "connected"
-          ? m.remote_state_connected()
-          : m.remote_state_disconnected()}</span
-      >
+      {#if group.connection}
+        <span class="machine-state" class:offline={group.connection.state === "disconnected"}
+          >{group.connection.state === "connected"
+            ? m.remote_state_connected()
+            : m.remote_state_disconnected()}</span
+        >
+      {/if}
     </div>
+    {#each group.dispatches as dispatch (dispatch.id)}
+      <RemoteDispatchRow {dispatch} />
+    {/each}
     {#each group.sessions as session (session.id)}
       <UnitRow
         {session}
         selected={session.id === selectedId}
         {nowMs}
         {onselect}
-        ondecommission={group.connection.state === "connected" ? ondecommission : undefined}
+        ondecommission={group.connection?.state === "connected" ? ondecommission : undefined}
       />
     {/each}
   </section>

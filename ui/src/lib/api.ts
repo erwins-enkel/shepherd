@@ -93,6 +93,7 @@ import type {
   UpNextItem,
   AccessToken,
   InstanceIdentity,
+  RemoteDispatch,
   RemoteInstance,
   ApnsConfigError,
   ApnsField,
@@ -982,6 +983,20 @@ export async function checkRemoteInstance(id: string): Promise<RemoteInstance> {
 export async function removeRemoteInstance(id: string): Promise<void> {
   const r = await fetch(`/api/remote-instances/${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!r.ok) throw await failed(r, "remove machine");
+}
+
+/** Tasks sent to connected machines that no machine confirmed yet (#2774). */
+export const listRemoteDispatches = async (): Promise<RemoteDispatch[]> =>
+  (await getJson<{ dispatches: RemoteDispatch[] }>("/api/remote-dispatches", "remote dispatches"))
+    .dispatches;
+
+/** Cancel an unconfirmed task: `canceled` once its machine confirms, `canceling` while the cancel
+ *  waits for the machine to answer. A dispatch that can no longer be canceled throws an ApiError
+ *  (`remote_dispatch_not_cancelable`). */
+export async function cancelRemoteDispatch(id: string): Promise<RemoteDispatch> {
+  const r = await fetch(`/api/remote-dispatches/${encodeURIComponent(id)}`, { method: "DELETE" });
+  if (!r.ok) throw await failed(r, "cancel task");
+  return r.json();
 }
 
 // ── push administration (#2696) ────────────────────────────────────────────

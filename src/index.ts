@@ -59,6 +59,7 @@ import { AccessTokenService } from "./access-tokens";
 import { CapabilityService } from "./remote-instances/capability-probe";
 import { RemoteInstanceService } from "./remote-instances/service";
 import { RemoteSessionMirror } from "./remote-instances/sessions";
+import { RemoteDispatcher } from "./remote-instances/dispatch";
 import { StatusPoller } from "./poller";
 import { PrPoller } from "./pr-poller";
 import { resolveDiffBase } from "./diff-base";
@@ -1079,6 +1080,19 @@ deferredStarts.push(() => remoteInstances.start());
 // mirror, anything else marks its sessions disconnected. Held apart from `store`, never on `events`.
 const remoteSessions = new RemoteSessionMirror({ store, instances: remoteInstances });
 remoteInstances.onChange((instanceId) => remoteSessions.sync(instanceId));
+// Tasks sent to them (#2763). A dispatch whose start is unknown (#2774) is reconciled after every
+// probe that finds its machine connected — on reconnect, after this restart, and each round.
+const remoteDispatch = new RemoteDispatcher({ store, instances: remoteInstances, events });
+remoteInstances.onChange((instanceId) => {
+  remoteDispatch
+    .reconcile(instanceId)
+    .catch((err: unknown) =>
+      console.warn(
+        "[remote-dispatch] reconcile failed:",
+        err instanceof Error ? err.message : String(err),
+      ),
+    );
+});
 // Verified capabilities (#2770): local probes only (no outbound connection), every 5 minutes once
 // the first-run gate opens. GET /api/instance serves the result; creates with requirements re-probe.
 const capabilities = new CapabilityService();
@@ -3967,6 +3981,7 @@ const appDeps: AppDeps = {
   accessTokens: accessTokenSvc,
   remoteInstances,
   remoteSessions,
+  remoteDispatch,
   capabilities,
   events,
   pluginRegistry,

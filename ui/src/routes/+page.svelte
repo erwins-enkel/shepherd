@@ -69,6 +69,7 @@
   import type {
     AgentProvider,
     CompletedEpic,
+    CreateInput,
     DeployState,
     BacklogPayload,
     HeldTask,
@@ -2291,6 +2292,8 @@
     epicAuthoring: boolean;
     force?: boolean;
     spawnId?: string;
+    target?: { instanceId: string };
+    dispatchKey?: string;
   }) {
     // The spawn id is TRANSPORT, not task data: it rides a header on create and must never reach
     // a request body. Stripped here, above the branches, because every one of them serializes
@@ -2298,11 +2301,13 @@
     // update PATCH) rejects an unknown key outright. Hence also why it isn't a body field to
     // begin with: the create body is what a usage-hold persists as a held task, and a replayed
     // id would address a spawn that is long gone.
-    const { spawnId, ...taskInput } = input;
+    // The dispatch key is transport too: it rides the Idempotency-Key header (#2763).
+    const { spawnId, dispatchKey, ...taskInput } = input;
     // Edit-held path persists the new input back onto the still-held task; relaunch-elsewhere
     // branches to submitRelaunch; otherwise the normal New Task create.
     if (editHeldId !== null) return submitEditHeld(editHeldId, taskInput);
     if (relaunchOriginalId !== null) return submitRelaunch(relaunchOriginalId, taskInput);
+    if (taskInput.target) return submitOnMachine(taskInput, dispatchKey);
     // With a spawn id the WS completion frame can settle this before a slow 201 arrives.
     const request = createSession(taskInput, spawnId);
     const r = spawnId
@@ -2317,6 +2322,22 @@
       return;
     }
     selectNewSession(r.id, input.repoPath);
+    showNew = false;
+    resetCompose();
+  }
+
+  /** A task started on another machine (#2763). That machine reports no spawn phases here, so this
+   *  waits for the answer itself. A hold waits in THAT machine's queue; a started session is shown
+   *  right away, before the mirror relays the machine's own frame — and since its repo is that
+   *  machine's checkout, the repo filter does not follow it. */
+  async function submitOnMachine(taskInput: CreateInput, dispatchKey: string | undefined) {
+    const r = await createSession(taskInput, undefined, dispatchKey);
+    if ("held" in r) {
+      toasts.info(m.toast_task_held_on({ machine: r.host?.name ?? "" }));
+    } else {
+      store.apply({ event: "session:new", data: r });
+      selectedId = r.id;
+    }
     showNew = false;
     resetCompose();
   }

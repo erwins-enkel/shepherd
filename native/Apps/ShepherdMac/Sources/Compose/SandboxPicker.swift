@@ -13,11 +13,20 @@ struct SandboxPicker: View {
         })
     }
 
+    static func name(_ profile: Components.Schemas.SandboxProfile) -> String {
+        switch profile {
+        case .trusted: L.t("sandbox_profile_trusted")
+        case .standard: L.t("sandbox_profile_standard")
+        case .autonomous: L.t("sandbox_profile_autonomous")
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(verbatim: L.t("newtask_sandbox_label")).font(.caption).foregroundStyle(.secondary)
             Picker(L.t("newtask_sandbox_label"), selection: selection) {
-                Text(verbatim: L.t("newtask_sandbox_default"))
+                Text(verbatim: model.inheritedSandboxProfile.map { L.t("native_compose_sandbox_default_resolved", Self.name($0)) }
+                    ?? L.t("newtask_sandbox_default"))
                     .tag(Optional<Components.Schemas.SandboxProfile>.none)
                 Text(verbatim: L.t("sandbox_profile_trusted"))
                     .tag(Optional(Components.Schemas.SandboxProfile.trusted))

@@ -155,7 +155,10 @@ struct ComposeSheetContent: View {
         guard !Task.isCancelled, current, model.repoPath == path else { return }
         repoConfig = config
         repoConfigLoading = false
-        if let config { model.applyRepoGuardDefaults(planGate: config.planGateEnabled, autopilot: config.autopilotEnabled) }
+        if let config {
+            model.applyRepoGuardDefaults(planGate: config.planGateEnabled, autopilot: config.autopilotEnabled)
+            model.repoSandboxDefault = Components.Schemas.SandboxProfile(rawValue: config.sandboxProfile)
+        }
     }
 
     private func seedRepo() {

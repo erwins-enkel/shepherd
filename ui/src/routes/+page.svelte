@@ -2309,6 +2309,7 @@
     force?: boolean;
     spawnId?: string;
     target?: { instanceId: string };
+    requirements?: string[];
     dispatchKey?: string;
   }) {
     // The spawn id is TRANSPORT, not task data: it rides a header on create and must never reach
@@ -2323,7 +2324,8 @@
     // branches to submitRelaunch; otherwise the normal New Task create.
     if (editHeldId !== null) return submitEditHeld(editHeldId, taskInput);
     if (relaunchOriginalId !== null) return submitRelaunch(relaunchOriginalId, taskInput);
-    if (taskInput.target) return submitOnMachine(taskInput, dispatchKey);
+    // Keyed while machines are connected (#2772): the server may run it elsewhere.
+    if (taskInput.target || dispatchKey) return submitPlaced(taskInput, spawnId, dispatchKey);
     // With a spawn id the WS completion frame can settle this before a slow 201 arrives.
     const request = createSession(taskInput, spawnId);
     const r = spawnId
@@ -2342,29 +2344,32 @@
     resetCompose();
   }
 
-  /** A task started on another machine (#2763). That machine reports no spawn phases here, so this
-   *  waits for the answer itself. A hold waits in THAT machine's queue; a started session is shown
-   *  right away, before the mirror relays the machine's own frame — and since its repo is that
-   *  machine's checkout, the repo filter does not follow it. */
-  async function submitOnMachine(taskInput: CreateInput, dispatchKey: string | undefined) {
+  /** A task named for a machine (#2763) or placed by the server while machines are connected
+   *  (#2772). Started elsewhere, that machine reports no spawn phases here, so this waits for the
+   *  answer itself: a hold waits in THAT machine's queue; a started session is shown right away,
+   *  before the mirror relays the machine's own frame — and since its repo is that machine's
+   *  checkout, the repo filter does not follow it. Started here, it is a local session as ever. */
+  async function submitPlaced(
+    taskInput: CreateInput,
+    spawnId: string | undefined,
+    dispatchKey: string | undefined,
+  ) {
     // Sent, but no answer (#2774): this Shepherd follows it up, and the herd shows it as "start
     // status unknown" in that machine's group — the dialog has nothing left to do. A network error
     // on the way HERE stays with the dialog's Retry: the task may never have reached this Shepherd.
-    const r = await createSession(taskInput, undefined, dispatchKey).catch((err: unknown) => {
+    const r = await createSession(taskInput, spawnId, dispatchKey).catch((err: unknown) => {
       if (err instanceof ApiError && err.code === "remote_dispatch_unknown") return null;
       throw err;
     });
     if (r === null) {
       toasts.info(m.toast_dispatch_unknown());
-      showNew = false;
-      resetCompose();
-      return;
-    }
-    if ("held" in r) {
-      toasts.info(m.toast_task_held_on({ machine: r.host?.name ?? "" }));
-    } else {
+    } else if ("held" in r) {
+      toasts.info(r.host ? m.toast_task_held_on({ machine: r.host.name }) : m.toast_task_held());
+    } else if (r.host) {
       store.apply({ event: "session:new", data: r });
       selectedId = r.id;
+    } else {
+      selectNewSession(r.id, taskInput.repoPath);
     }
     showNew = false;
     resetCompose();

@@ -111,7 +111,14 @@ const CAPABILITY_REASON: Record<string, () => string> = {
 };
 
 /** A capability a newer server might add reads as its raw id. */
-const capabilityLabel = (id: string) => CAPABILITY[id]?.() ?? id;
+export const capabilityLabel = (id: string) => CAPABILITY[id]?.() ?? id;
+
+/** Why a capability is unavailable, in words; a code a newer server might add reads as itself.
+ *  `not_verified` (#2772): no fresh report confirms it. */
+export const capabilityReasonLabel = (reason: string) =>
+  reason === "not_verified"
+    ? m.settings_machines_cap_reason_not_verified()
+    : (CAPABILITY_REASON[reason]?.() ?? reason);
 
 /** Names of the capabilities the machine verified, in vocabulary order, each with the version the
  *  machine found ("Xcode 16.4 (16F6)") when it reported one. */
@@ -127,7 +134,7 @@ export function missingCapabilities(report: CapabilityReport): string[] {
   return report.checks
     .filter((c) => !c.ok && c.reason !== "other_platform")
     .map((c) => {
-      const reason = c.reason ? (CAPABILITY_REASON[c.reason]?.() ?? c.reason) : "";
+      const reason = c.reason ? capabilityReasonLabel(c.reason) : "";
       return reason ? `${capabilityLabel(c.id)} (${reason})` : capabilityLabel(c.id);
     });
 }

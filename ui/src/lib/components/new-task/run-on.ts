@@ -1,12 +1,14 @@
-import { ApiError } from "#lib/api.js";
+import { ApiError, PlacementRefusedError } from "#lib/api.js";
 import { m } from "#lib/paraglide/messages.js";
+import { placementRefusalText } from "#lib/placement.js";
 import { platformName } from "#lib/remote-sessions.js";
 import type { RemoteInstance } from "#lib/types.js";
 
 /**
- * "Run on" in the New Task dialog (#2763): which connected machine a task starts on, and what the
- * dialog says when that machine could not start it. The field exists only while at least one
- * machine is connected, so without machines the dialog is exactly what it was.
+ * "Run on" in the New Task dialog (#2763): Automatic — the server chooses the machine (#2772) —,
+ * this machine, or a connected machine; and what the dialog says when the task could not start
+ * there. The field exists only while a machine is connected, so without machines the dialog is
+ * exactly what it was.
  */
 
 /** Connected machines released for tasks: a Windows machine is listed in Settings but never
@@ -58,26 +60,29 @@ export function dispatchKeyFor(
   return pending?.payload === payload ? pending.key : fresh();
 }
 
-/** One attempt to start a task on a machine: where, under which key, and the task as sent. */
-export interface MachineSend extends PendingSend {
-  machine: RemoteInstance;
-}
-
-/** The send of `input` to `machine` (null = it starts here). The key is the unanswered one's
- *  again while the task is unchanged; the spawn id is per attempt, so it is not part of the task. */
-export function machineSend(
-  machine: RemoteInstance | null,
+/** One attempt of a task while the machine choice is active (#2772): its key and the task as sent.
+ *  Every such create is keyed — wherever it lands, a send to another machine can go unanswered.
+ *  The key is the unanswered one's again while the task is unchanged; the spawn id is per attempt,
+ *  so it is not part of the task. Null when the choice is not active: no key, as before. */
+export function keyedSend(
+  keyed: boolean,
   pending: PendingSend | null,
   input: object,
-): MachineSend | null {
-  if (!machine) return null;
+): PendingSend | null {
+  if (!keyed) return null;
   const payload = JSON.stringify({ ...input, spawnId: undefined });
-  return { machine, key: dispatchKeyFor(pending, payload), payload };
+  return { key: dispatchKeyFor(pending, payload), payload };
 }
 
 /** What the next attempt may reuse after `send` failed with `err`: only an unanswered send. */
-export function pendingAfter(send: MachineSend | null, err: unknown): PendingSend | null {
+export function pendingAfter(send: PendingSend | null, err: unknown): PendingSend | null {
   return send && isUnansweredSend(err) ? { key: send.key, payload: send.payload } : null;
+}
+
+/** What the dialog says when the machine choice refused the task (#2772) — no machine fits, the
+ *  one it is meant for is out of reach, or the named one lacks a requirement — or null. */
+export function placementFailureMessage(err: unknown): string | null {
+  return err instanceof PlacementRefusedError ? placementRefusalText(err.refusal) : null;
 }
 
 /** What the dialog says when `machine` could not start the task, or null when the failure is not

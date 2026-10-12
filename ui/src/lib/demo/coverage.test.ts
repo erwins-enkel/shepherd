@@ -405,6 +405,9 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     // Canceling a task whose start on a machine is unknown (#2774): the demo connects no
     // machines, so no such row renders.
     "/api/remote-dispatches/:p",
+    // The machine choice preview (#2772): asked only while a machine is connected, and the demo
+    // connects none.
+    "/api/placement",
   ],
 
   // Settings/plugin/update WRITES and the probes behind them. Every corresponding read is

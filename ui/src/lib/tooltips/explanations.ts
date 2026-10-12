@@ -1,7 +1,8 @@
 import { m } from "#lib/paraglide/messages.js";
 import type { TooltipExplanation } from "./content";
-import type { RemoteDispatch, SessionConnection, SessionHost } from "#lib/types.js";
+import type { Placement, RemoteDispatch, SessionConnection, SessionHost } from "#lib/types.js";
 import { lastKnownLabel, platformName } from "#lib/remote-sessions.js";
+import { capabilityList, placementReason } from "#lib/placement.js";
 
 export function planGateExplanation(): TooltipExplanation {
   return {
@@ -334,16 +335,41 @@ export function sandboxOverrideExplanation(): TooltipExplanation {
   };
 }
 
-/** New Task "Run on" (#2763): where the session starts, what the machine has of the code, and what
- *  happens when it cannot start there. */
+/** New Task "Run on" (#2763): how Automatic chooses the machine (#2772), where the session starts,
+ *  what the machine has of the code, and what happens when it cannot start there. */
 export function runOnExplanation(): TooltipExplanation {
   return {
     title: m.tooltip_runon_title(),
     summary: m.tooltip_runon_summary(),
     sections: [
+      { label: m.tooltip_runon_auto(), text: m.tooltip_runon_auto_body() },
       { label: m.tooltip_runon_code(), text: m.tooltip_runon_code_body() },
       { label: m.tooltip_runon_attachments(), text: m.tooltip_runon_attachments_body() },
       { label: m.tooltip_runon_failure(), text: m.tooltip_runon_failure_body() },
+    ],
+  };
+}
+
+/** Why a task runs where it runs (#2772): the reason, what it needed, who decided — in New Task
+ *  before it starts and on its session afterwards. */
+export function placementExplanation(p: Placement): TooltipExplanation {
+  return {
+    title: m.tooltip_placement_title({ machine: p.target.name }),
+    summary: placementReason(p),
+    sections: [
+      {
+        label: m.tooltip_placement_needs(),
+        text:
+          p.requirements.length > 0
+            ? capabilityList(p.requirements)
+            : m.tooltip_placement_needs_none(),
+      },
+      {
+        label: m.tooltip_placement_how(),
+        text:
+          p.mode === "manual" ? m.tooltip_placement_how_manual() : m.tooltip_placement_how_auto(),
+      },
+      { label: m.tooltip_placement_by(), text: p.by.name },
     ],
   };
 }

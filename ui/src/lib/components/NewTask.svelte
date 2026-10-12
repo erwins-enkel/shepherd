@@ -16,6 +16,8 @@
     composeTaskBrief,
     cancelSpawn,
     listRemoteInstances,
+    getInstance,
+    previewPlacement,
     ApiError,
   } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
@@ -26,6 +28,8 @@
     type IssueRef,
     type AgentProvider,
     type ProviderTokenConstraint,
+    type InstanceIdentity,
+    type PlacementPreview,
     type RemoteInstance,
     type RepoEntry,
     type SandboxProfile,
@@ -99,14 +103,16 @@
   import type { UsageLimits } from "#lib/types.js";
   import { stashDraft, takeDraft } from "./new-task/draft-stash";
   import {
-    connectedMachines,
+    keyedSend,
     machineLabel,
-    machineSend,
     pendingAfter,
+    placementFailureMessage,
     runOnFailureMessage,
     runOnMachines,
     type PendingSend,
   } from "./new-task/run-on";
+  import RequirementChips from "./new-task/RequirementChips.svelte";
+  import PlacementLine from "./new-task/PlacementLine.svelte";
 
   type TaskAttachment = {
     path: string;
@@ -180,9 +186,12 @@
       force?: boolean;
       /** Correlates this create with its `spawn:progress` events + the cancel route. */
       spawnId?: string;
-      /** The connected machine to start on (#2763); absent = this machine. */
+      /** The machine to start on (#2763); absent = chosen by the server while a machine is
+       *  connected (#2772), else this machine. */
       target?: { instanceId: string };
-      /** Transport, like `spawnId`: the Idempotency-Key of a send to a machine. */
+      /** Capabilities the machine that runs it must have (#2770, #2772). */
+      requirements?: string[];
+      /** Transport, like `spawnId`: the Idempotency-Key of a create while machines are connected. */
       dispatchKey?: string;
     }) => Promise<void> | void;
     onclose?: () => void;
@@ -504,22 +513,79 @@
   const selectedRepo = $derived(repos.find((r) => r.path === repoPath));
   const selectedRepoName = $derived(selectedRepo?.name ?? "");
 
-  // ── Run on (#2763) ──────────────────────────────────────────────────────────
+  // ── Run on (#2763) and the automatic machine choice (#2772) ──────────────
   // Plain new tasks only, and only while a machine is connected: without one the dialog is
-  // exactly what it was. Offered are the connected machines with this project checked out.
+  // exactly what it was. Automatic (the default) leaves the machine to the server, whose preview
+  // says which and why before submitting; the operator may name this machine or a connected one
+  // with this project checked out instead.
   let machines = $state<RemoteInstance[]>([]);
-  /** The operator's pick; null = this machine. Read through `runOn`, which drops a pick the
-   *  current repo cannot run on. */
+  /** This Shepherd — "This machine" under Run on; loaded once a machine is known. */
+  let self = $state<InstanceIdentity | null>(null);
+  /** The operator's pick: null = Automatic, this Shepherd's ID = here, else a connected machine.
+   *  Read through `pickedId`, which drops a pick the current repo cannot run on. */
   let runOnId = $state<string | null>(null);
-  const runOnAvailable = $derived(!editHeld && !relaunch && connectedMachines(machines).length > 0);
+  /** The task's requirements (#2770), edited as chips. */
+  let requirements = $state<string[]>([]);
+  /** The server's preview of the choice; null while it is being asked or could not be. */
+  let preview = $state<PlacementPreview | null>(null);
+  let previewFailed = $state(false);
   const runOnOptions = $derived(runOnMachines(machines, selectedRepo?.remoteSlug));
-  const runOn = $derived(
-    runOnAvailable ? (runOnOptions.find((x) => x.instanceId === runOnId) ?? null) : null,
+  const pickedId = $derived(
+    runOnId !== null &&
+      (runOnId === self?.instanceId || runOnOptions.some((x) => x.instanceId === runOnId))
+      ? runOnId
+      : null,
   );
+  const runOnAvailable = $derived(
+    !editHeld && !relaunch && machines.length > 0 && preview?.active !== false,
+  );
+  /** The connected machine the operator named; null for Automatic or this machine. */
+  const runOn = $derived(
+    runOnAvailable ? (runOnOptions.find((x) => x.instanceId === pickedId) ?? null) : null,
+  );
+  /** Where the task goes when it does not start here: the named machine, or the one the preview
+   *  chose. Null while it starts here (or nothing is known yet). */
+  const remoteTarget = $derived.by((): { instanceId: string; name: string } | null => {
+    if (!runOnAvailable) return null;
+    if (runOn) return runOn;
+    const target = pickedId === null ? preview?.placement?.target : undefined;
+    return target && target.instanceId !== self?.instanceId ? target : null;
+  });
   /** The machine the in-flight create was sent to — the spawn panel names it. */
-  let sendingTo = $state<RemoteInstance | null>(null);
-  /** The last send to a machine that went unanswered: retrying the same task reuses its key. */
+  let sendingTo = $state<{ name: string } | null>(null);
+  /** The last keyed send that went unanswered: retrying the same task reuses its key. */
   let pendingSend: PendingSend | null = null;
+
+  // The preview follows the repo, the requirements and the pick, a beat after the last change.
+  let previewSeq = 0;
+  $effect(() => {
+    const repo = repoPath.trim();
+    const reqs = [...requirements];
+    const pick = pickedId;
+    if (editHeld || relaunch || machines.length === 0 || !repo) {
+      preview = null;
+      return;
+    }
+    const seq = ++previewSeq;
+    const timer = setTimeout(() => {
+      previewPlacement({
+        repoPath: repo,
+        ...(reqs.length > 0 && { requirements: reqs }),
+        ...(pick !== null && { target: { instanceId: pick } }),
+      })
+        .then((p) => {
+          if (seq !== previewSeq) return;
+          preview = p;
+          previewFailed = false;
+        })
+        .catch(() => {
+          if (seq !== previewSeq) return;
+          preview = null;
+          previewFailed = true;
+        });
+    }, 200);
+    return () => clearTimeout(timer);
+  });
 
   // ONE repo-aware seeded-issue predicate: feeds readiness, the submit guard, the
   // template materialization, and the issueRef payload — they can never disagree.
@@ -754,7 +820,10 @@
     // Run on (#2763): no machines (or no answer) leaves the dialog as it always was.
     if (!editHeld && !relaunch) {
       listRemoteInstances()
-        .then(({ instances }) => (machines = Array.isArray(instances) ? instances : []))
+        .then(({ instances }) => {
+          machines = Array.isArray(instances) ? instances : [];
+          if (machines.length > 0) return getInstance().then((identity) => (self = identity));
+        })
         .catch(() => {});
     }
     // Focus the prompt so the user can type immediately when the dialog opens.
@@ -1111,7 +1180,7 @@
       upstreamLoading,
       upstream: upstream ? { diverged: upstream.diverged, behind: upstream.behind } : null,
       // A machine judges its own usage hold (#2763); this one's forecast says nothing about it.
-      holdLikely: holdLikely && runOn === null,
+      holdLikely: holdLikely && remoteTarget === null,
       provider: agentProvider,
     }),
   );
@@ -1760,7 +1829,8 @@
       epicAuthoring,
       plain,
       force: force || undefined,
-      target: runOn ? { instanceId: runOn.instanceId } : undefined,
+      target: runOnAvailable && pickedId !== null ? { instanceId: pickedId } : undefined,
+      requirements: runOnAvailable && requirements.length > 0 ? [...requirements] : undefined,
     };
   }
 
@@ -1808,16 +1878,17 @@
     spawnNow = spawnStartedAt;
     spawnCanceled = false;
     const input = buildSpawnInput(finalPrompt, force, id);
-    // A send to a machine (#2763) carries a key; an unanswered one is retried under the same key
-    // while the task is unchanged, so it never starts twice there.
-    const send = machineSend(runOn, pendingSend, input);
-    sendingTo = runOn;
+    // While machines are connected every create carries a key (#2763, #2772): wherever it lands,
+    // an unanswered one is retried under the same key while the task is unchanged, so it never
+    // starts twice.
+    const send = keyedSend(runOnAvailable, pendingSend, input);
+    sendingTo = remoteTarget;
     try {
       await onsubmit(send ? { ...input, dispatchKey: send.key } : input);
       pendingSend = null;
     } catch (err) {
       pendingSend = pendingAfter(send, err);
-      showSpawnFailure(err, force, send?.machine.name ?? null);
+      showSpawnFailure(err, force, sendingTo?.name ?? null);
     } finally {
       // Clear submitting on every path (matters for the error path: the dialog stays
       // open showing the error and the buttons must re-enable for a retry).
@@ -1829,9 +1900,11 @@
     }
   }
 
-  /** What the dialog shows for a failed create. A start on a machine names it (#2763). */
+  /** What the dialog shows for a failed create. A start on a machine names it (#2763); a refused
+   *  machine choice says what is missing or out of reach (#2772). */
   function showSpawnFailure(err: unknown, force: boolean, machine: string | null) {
-    const machineError = machine === null ? null : runOnFailureMessage(err, machine);
+    const machineError =
+      placementFailureMessage(err) ?? (machine === null ? null : runOnFailureMessage(err, machine));
     if (machineError) {
       error = machineError;
       retry = () => doSpawn(force, uploadQueueRevision);
@@ -1895,7 +1968,7 @@
     // first-task confirmation does not apply to it.
     if (
       !editHeld &&
-      runOn === null &&
+      remoteTarget === null &&
       agentProvider === "claude" &&
       configLoaded &&
       !repoConfig.isAutomationConfirmed(repo)
@@ -1997,11 +2070,13 @@
         class={cls}
         aria-label={m.newtask_runon_label()}
         use:statusTip={tip ? { text: runOnExplanation(), wide: true, ...modeTip } : null}
-        value={runOn?.instanceId ?? ""}
-        disabled={runOnOptions.length === 0}
+        value={pickedId ?? ""}
         onchange={(e) => (runOnId = e.currentTarget.value || null)}
       >
-        <option value="">{m.newtask_runon_here()}</option>
+        <option value="">{m.newtask_runon_auto()}</option>
+        {#if self}
+          <option value={self.instanceId}>{m.newtask_runon_here()}</option>
+        {/if}
         {#each runOnOptions as machine (machine.instanceId)}
           <option value={machine.instanceId}>{machineLabel(machine)}</option>
         {/each}
@@ -2212,12 +2287,15 @@
               <BaseRepairNotice repairing={repairingBase} onrepair={repairInitialCommit} />
             {/if}
 
-            {#if runOn}
+            {#if runOnAvailable}
+              <!-- The machine choice (#2772): what the task needs, and where it will run and why. -->
+              <RequirementChips {requirements} onchange={(next) => (requirements = next)} />
+              <PlacementLine {preview} failed={previewFailed} selfId={self?.instanceId ?? null} />
+            {/if}
+            {#if remoteTarget}
               <span class="nt-upstream"
-                >{m.newtask_runon_notice({ machine: runOn.name, base: baseBranch })}</span
+                >{m.newtask_runon_notice({ machine: remoteTarget.name, base: baseBranch })}</span
               >
-            {:else if runOnAvailable && runOnOptions.length === 0}
-              <span class="nt-upstream">{m.newtask_runon_none()}</span>
             {/if}
 
             <!-- `agentProvider` is safe as the label: a provider flip re-runs the effect above in
@@ -4080,6 +4158,8 @@
        viewport. `.err` is intentionally KEPT — attach is usable during compose,
        so failure feedback must stay visible. */
     .card.composing .nt-upstream,
+    .card.composing :global(.nt-requirements),
+    .card.composing :global(.nt-placement),
     .card.composing :global(.nt-base-repair),
     .card.composing :global(.nt-video-brief),
     .card.composing .relaunch-note,

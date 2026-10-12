@@ -245,7 +245,20 @@ async function runsOn(from: Node, to: Node, toId: string): Promise<void> {
   // The machine got exactly what a local create would have, with its own checkout as the repo.
   const local = validateCreate(body, root);
   if (!local.ok) throw new Error(local.error);
-  expect(to.created).toEqual([{ ...local.value, repoPath: to.checkout }]);
+  // Plus the record of the choice (#2772): named by the operator, decided where it was submitted.
+  const placement = {
+    mode: "manual",
+    basis: "manual",
+    target: { instanceId: toId, name: expect.any(String), platform: expect.any(String) },
+    by: { instanceId: from.deps.store.getSetting("instanceId"), name: expect.any(String) },
+  };
+  expect(to.created).toEqual([
+    {
+      ...local.value,
+      repoPath: to.checkout,
+      placement: expect.objectContaining(placement),
+    } as CreateSessionInput,
+  ]);
   expect(to.deps.store.get(started.id)).not.toBeNull();
 
   // Nothing started here, nothing entered this store or this node's own event hub.
@@ -365,11 +378,12 @@ describe("starting a task on a connected machine", () => {
     expect(linux.created).toEqual([]);
   });
 
-  test("the machine checks the task's requirements itself and refuses a missing one by name", async () => {
+  test("a named machine must fit: its report's gaps are refused here, the machine re-checks the rest", async () => {
     const linux = startNode("app");
     const mac = startNode("app-mac");
     const macId = await connect(linux, mac);
     // The machine probes a host with claude only (#2770): no Android SDK, no codex, no Xcode.
+    let loggedIn = true;
     mac.deps.capabilities = new CapabilityService({
       platform: "macos",
       env: {},
@@ -379,12 +393,15 @@ describe("starting a task on a connected machine", () => {
       detectSandbox: () => ({ backend: false, egress: false }),
       exec: async (cmd, args) => ({
         code: cmd === "claude" ? 0 : null,
-        stdout: args[0] === "auth" ? JSON.stringify({ loggedIn: true }) : "",
+        stdout: args[0] === "auth" ? JSON.stringify({ loggedIn }) : "",
         timedOut: false,
         notFound: cmd !== "claude",
       }),
     });
+    await mac.deps.capabilities.refresh();
+    await linux.deps.remoteInstances.check(macId);
 
+    // What the machine's report lacks is refused here by name (#2772), and nothing is sent.
     const res = await create(linux, {
       ...task(linux),
       requirements: ["agent:claude", "android-sdk", "xcode"],
@@ -392,10 +409,31 @@ describe("starting a task on a connected machine", () => {
     });
     expect(res.status).toBe(422);
     expect(await res.json()).toMatchObject({
+      code: "missing_capabilities",
+      error: expect.stringContaining(
+        "is missing capabilities: android-sdk (sdk_not_found), xcode (not_installed)",
+      ),
+      missing: [
+        { capability: "android-sdk", reason: "sdk_not_found" },
+        { capability: "xcode", reason: "not_installed" },
+      ],
+      host: { instanceId: macId },
+    });
+    expect(linux.deps.store.listOpenRemoteDispatches()).toEqual([]);
+
+    // What the report confirms, the machine still verifies with a fresh probe when the task arrives.
+    loggedIn = false;
+    const stale = await create(linux, {
+      ...task(linux),
+      requirements: ["agent:claude"],
+      target: { instanceId: macId },
+    });
+    expect(stale.status).toBe(422);
+    expect(await stale.json()).toMatchObject({
       code: "remote_rejected",
       remoteStatus: 422,
       remoteCode: "missing_capabilities",
-      error: "missing capabilities: android-sdk (sdk_not_found), xcode (not_installed)",
+      error: "missing capabilities: agent:claude (not_logged_in)",
       host: { instanceId: macId },
     });
     expect(mac.created).toEqual([]);
@@ -467,9 +505,10 @@ describe("starting a task on a connected machine", () => {
     expect(mac.created).toHaveLength(1);
   });
 
-  test("without a target, or naming this instance, the task starts here as before", async () => {
+  test("naming this instance runs here; without a target a plain task stays on Linux", async () => {
     const linux = startNode("app");
     const mac = startNode("app-mac");
+    mac.deps.hostPlatform = "macos";
     await connect(linux, mac);
     const selfId = linux.deps.store.getSetting("instanceId")!;
 
@@ -479,6 +518,11 @@ describe("starting a task on a connected machine", () => {
     );
     expect(linux.created).toHaveLength(2);
     expect(linux.created[1]).not.toHaveProperty("target");
+    // Each records how it got here (#2772): chosen by the platform order, or by the operator.
+    expect(linux.created[0]).toMatchObject({
+      placement: { mode: "auto", basis: "preference", preferred: "linux" },
+    });
+    expect(linux.created[1]).toMatchObject({ placement: { mode: "manual", basis: "manual" } });
     expect(mac.created).toEqual([]);
   });
 

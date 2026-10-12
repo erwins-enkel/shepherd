@@ -1987,6 +1987,48 @@ test("createSession: a dropped (swept) attachment still spawns, notes the loss, 
   });
 });
 
+test("createSession: the record of the machine choice lands in launchMetadata (#2772)", async () => {
+  const store = new SessionStore(":memory:");
+  const service = new SessionService({
+    store,
+    namer: async () => "repo-x",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => ({ worktreePath: "/wt/repo-x", branch: "shepherd/repo-x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: async () => ({
+        terminalId: "term_y",
+        cwd: "/wt/repo-x",
+        agent: "claude",
+        agentStatus: "working",
+        paneId: "p",
+        tabId: "t",
+        workspaceId: "w",
+      }),
+      list: () => [],
+    } as any,
+  });
+  const placement = {
+    mode: "auto" as const,
+    target: { instanceId: "i-linux", name: "moes-tavern", platform: "linux" },
+    requirements: [],
+    basis: "preference" as const,
+    preferred: "linux",
+    by: { instanceId: "i-mac", name: "MacBook" },
+    decidedAt: 1,
+  };
+  const base = { repoPath: "/repo", baseBranch: "main", prompt: "x", model: null, images: [] };
+
+  const placed = await service.create({ ...base, placement });
+  expect(store.get(placed.id)?.launchMetadata?.placement).toEqual(placement);
+  // Unplaced (no machine connected): the metadata stays exactly as it was.
+  const plain = await service.create(base);
+  expect(store.get(plain.id)?.launchMetadata).not.toHaveProperty("placement");
+});
+
 test("createSession: issue content tripping an injection signature emits a signal + toast", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = {};

@@ -5,6 +5,7 @@ import type { ManualStep } from "./manual-steps";
 import type { PromptBlockMeasure } from "./prompt-budget";
 import type { TaskAmendment } from "./task-amendments";
 import type { Capability } from "./remote-instances/capabilities";
+import type { Placement } from "./remote-instances/placement";
 
 export type HerdrState = "idle" | "working" | "blocked" | "done" | "unknown";
 export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived";
@@ -307,6 +308,8 @@ export interface SessionLaunchMetadata {
     egressDegraded: boolean;
   };
   agent: { provider: AgentProvider; model: string | null; effort: string | null };
+  /** #2772: where the task was placed and why; absent when no machine choice was made. */
+  placement?: Placement;
 }
 
 /**
@@ -369,6 +372,10 @@ export interface StandardCreateInput {
   /** #2770: capabilities this instance must have — sorted, deduplicated, never empty. Checked by a
    *  fresh probe when POST /api/sessions accepts the request; the spawn itself ignores them. */
   requirements?: Capability[];
+  /** #2772: where this task was placed and why — the record of the Shepherd that chose the machine
+   *  (this one, or a coordinator that sent it here). Display only: it never decides where a task
+   *  runs. Absent while no machine is connected. Lands in `launchMetadata.placement`. */
+  placement?: Placement;
   /** #2225: standing operator task amendments CARRIED from a session this spawn continues
    *  (relaunch / provider replace). ARGV-ONLY — folded into the spawn prompt by
    *  `composePromptArg` and never persisted: the rows are copied separately, and baking them into

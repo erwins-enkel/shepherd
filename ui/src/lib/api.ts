@@ -92,6 +92,8 @@ import type {
   AccessToken,
   InstanceIdentity,
   RemoteDispatch,
+  PlacementPreview,
+  PlacementRefusal,
   RemoteInstance,
   ApnsConfigError,
   ApnsField,
@@ -214,6 +216,35 @@ export class MergeRefusedError extends ApiError {
   }
 }
 
+/** A create the machine choice refused (#2772): no machine fits, the one it is meant for is out of
+ *  reach, or the named machine lacks a requirement. Carries the refusal so the dialog can say what
+ *  is missing in words. Nothing was stored, sent or started. */
+export class PlacementRefusedError extends ApiError {
+  constructor(
+    base: ApiError,
+    readonly refusal: PlacementRefusal,
+  ) {
+    super(base.status, base.message, base.code, base.serverAuthored);
+  }
+}
+
+const PLACEMENT_REFUSALS = new Set([
+  "no_suitable_machine",
+  "preferred_machine_offline",
+  "missing_capabilities",
+]);
+
+/** The error for a failed create: a {@link PlacementRefusedError} for the machine choice's own
+ *  refusals, otherwise what {@link failed} builds. */
+async function createRefusal(r: Response): Promise<Error> {
+  const body = (await r.json().catch(() => null)) as (PlacementRefusal & { code?: string }) | null;
+  const base = apiError(r.status, body, `create failed: ${r.status}`);
+  if (base instanceof ApiError && body && PLACEMENT_REFUSALS.has(base.code ?? "")) {
+    return new PlacementRefusedError(base, body);
+  }
+  return base;
+}
+
 /** Build the error for a failed merge response. Returns a {@link MergeRefusedError} for the two
  *  confirmation refusals and an ordinary {@link ApiError} (code preserved) for everything else. */
 async function mergeRefusal(r: Response): Promise<Error> {
@@ -321,7 +352,7 @@ export async function createSession(
     body: JSON.stringify(input),
   });
   if (!r.ok) {
-    throw await failed(r, "create");
+    throw await createRefusal(r);
   }
   return r.json();
 }
@@ -916,6 +947,27 @@ export async function checkInstanceCapabilities(): Promise<InstanceIdentity> {
 
 export const listRemoteInstances = (): Promise<{ instances: RemoteInstance[] }> =>
   getJson("/api/remote-instances", "machines");
+
+/** Where a new task would run and why (#2772) — the same choice the create makes for the same
+ *  inputs. `active: false` while no connected machine could take a task. */
+export async function previewPlacement(body: {
+  repoPath: string;
+  requirements?: string[];
+  target?: { instanceId: string };
+}): Promise<PlacementPreview> {
+  const r = await fetch("/api/placement", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(body),
+  });
+  if (!r.ok) throw await failed(r, "preview placement");
+  return r.json();
+}
+
+/** This instance's platform order for the machine choice (#2772). */
+export const putMachinePlatformOrder = (
+  order: string[],
+): Promise<{ machinePlatformOrder: string[] }> => patchSettings({ machinePlatformOrder: order });
 
 /** A refused connection keeps the server's machine codes so the form can say what to fix. */
 export type ConnectMachineResult =

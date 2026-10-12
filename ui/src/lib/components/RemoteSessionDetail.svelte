@@ -4,7 +4,8 @@
   import { statusLabel } from "#lib/format.js";
   import { isMirrored, qualifiedDesig } from "#lib/remote-sessions.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
-  import { remoteSessionExplanation } from "#lib/tooltips/explanations.js";
+  import { placementExplanation, remoteSessionExplanation } from "#lib/tooltips/explanations.js";
+  import { placementReason } from "#lib/placement.js";
   import StatusPip from "./StatusPip.svelte";
   import MachineBadge from "./MachineBadge.svelte";
   import RemoteConnectionNote from "./RemoteConnectionNote.svelte";
@@ -95,6 +96,14 @@
       <dt>{m.remote_detail_base()}</dt>
       <dd class="base" title={session.baseCommit}>
         {session.baseBranch} @ {session.baseCommit.slice(0, 7)}
+      </dd>
+    {/if}
+    {#if session.launchMetadata?.placement}
+      <!-- Why it runs on that machine (#2772), as the Shepherd that chose it recorded. -->
+      {@const placement = session.launchMetadata.placement}
+      <dt>{m.remote_detail_placement()}</dt>
+      <dd class="placement" use:statusTip={{ text: placementExplanation(placement), wide: true }}>
+        {placementReason(placement)}
       </dd>
     {/if}
     {#if session.sandboxDegraded}

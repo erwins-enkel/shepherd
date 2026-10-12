@@ -209,7 +209,12 @@ describe("probeRemote", () => {
     ],
     [
       "another federation level",
-      { instance: { ...(fakeShepherd().instance as object), federationApi: 2 } },
+      {
+        instance: {
+          ...(fakeShepherd().instance as object),
+          federationApi: FEDERATION_API_VERSION + 1,
+        },
+      },
       "incompatible",
       "api_version",
     ],

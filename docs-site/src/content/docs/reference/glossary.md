@@ -295,7 +295,9 @@ its sessions stay with their last known state and are marked disconnected, nothi
 is sent to it, and an open terminal says so and reopens once the machine is back;
 a session disappears only once its machine no longer reports it. A new task can be
 started on a machine that has its project checked out — **Run on** in the New Task
-dialog — and then the whole session runs there, from the branch as pushed to origin.
+dialog, where **Automatic** lets Shepherd pick the machine by the task's
+[requirements](#requirement) — and then the whole session runs there, from the
+branch as pushed to origin.
 
 ### Capability
 
@@ -311,6 +313,17 @@ than 15 minutes as stale. A task created with `requirements` is checked again by
 the receiving Shepherd when it accepts the task, and refused with each missing
 capability named — stale information never starts a task. Windows machines are
 listed but not released for tasks until platform compatibility is proven.
+
+### Requirement
+
+A [capability](#capability) a task needs from the machine it runs on — for
+example `xcode`, `sdk:ios` or `android-sdk`. In New Task they are chips under the
+prompt; through the API, `requirements`. With **Run on: Automatic**, Shepherd starts
+the task on a connected [machine](#machine) — or this one — that has every
+requirement verified, preferring Linux over macOS, and shows which and why before
+it starts. If none has them, nothing starts and the missing capability is named; if
+the machine a task is meant for is offline, nothing starts elsewhere on its own.
+The machine checks the requirements again when it accepts the task.
 
 ## Industry terms
 

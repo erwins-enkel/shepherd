@@ -536,16 +536,40 @@ async function defaultReadTail(path: string, maxBytes: number): Promise<LogTail 
   }
 }
 
-/** The newest `count` lines matching `contains`, each redacted and clipped, the block capped. */
-function tailLines({ text, truncated }: LogTail, count: number, contains: string): string[] {
+const UUID_RE = /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi;
+/** A JSON-quoted secret (`"token":"…"`, `"apiKey": "…"`): redactSecretText's `KEY=value` and
+ *  `token: value` shapes don't reach past the closing quote of the key. */
+const JSON_SECRET_RE =
+  /("[^"]*(?:key|token|secret|password|credential|authorization)[^"]*"\s*:\s*)"(?:[^"\\]|\\.)*"/gi;
+
+/** A log line made safe to hand the agent: secrets redacted, and every UUID replaced — a session's
+ *  id (its agent-ingress capability) by its desig, any other id by `<id>`. */
+function scrubLogLine(line: string, desigs: ReadonlyMap<string, string>): string {
+  return redactSecretText(line)
+    .replace(JSON_SECRET_RE, '$1"<redacted>"')
+    .replace(UUID_RE, (id) => desigs.get(id.toLowerCase()) ?? "<id>");
+}
+
+/** The newest `count` lines matching `contains`, each scrubbed and clipped, the block capped.
+ *  `contains` matches the SCRUBBED line, so it finds a session by desig and can't probe a
+ *  redacted secret's prefix. */
+function tailLines(
+  { text, truncated }: LogTail,
+  count: number,
+  contains: string,
+  desigs: ReadonlyMap<string, string>,
+): string[] {
   const all = text.split("\n");
   if (truncated) all.shift(); // the window starts mid-line
   if (all.at(-1) === "") all.pop();
-  const picked = all.filter((l) => l.includes(contains)).slice(-count);
+  const picked = all
+    .map((l) => scrubLogLine(l, desigs))
+    .filter((l) => l.includes(contains))
+    .slice(-count);
   const out: string[] = [];
   let size = 0;
   for (let i = picked.length - 1; i >= 0; i--) {
-    const line = clip(redactSecretText(picked[i]!), LOG_MAX_LINE_CHARS);
+    const line = clip(picked[i]!, LOG_MAX_LINE_CHARS);
     size += line.length + 1;
     if (size > LOG_MAX_BLOCK_CHARS) break;
     out.unshift(line);
@@ -576,7 +600,8 @@ export async function applyLogsTail(
   }
   if (tail === null) return ok({ source, path, found: false });
   const contains = typeof args.contains === "string" ? args.contains : "";
-  const lines = tailLines(tail, linesArg(args.lines), contains);
+  const desigs = new Map(deps.store.list().map((s) => [s.id.toLowerCase(), s.desig] as const));
+  const lines = tailLines(tail, linesArg(args.lines), contains, desigs);
   return ok({
     source,
     path,

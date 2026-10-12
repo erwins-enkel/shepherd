@@ -507,6 +507,37 @@ test("logs_tail masks planted secrets and fences the block", async () => {
   expectFenced(out.text);
 });
 
+test("logs_tail maps session ids to desigs, masks other ids and JSON secrets, filters scrubbed text", async () => {
+  const other = "0f3c2b1a-1111-4222-8333-944455556666";
+  const reads: string[] = [];
+  let text = "";
+  const { store, deps } = setup({
+    readTail: async (path): Promise<LogTail> => {
+      reads.push(path);
+      return { text, truncated: false };
+    },
+  });
+  const s = addSession(store, { name: "revived" });
+  text =
+    [
+      `[revive] auto-revive threw for ${s.id.toUpperCase()}`,
+      `claude session ${other} resumed`,
+      `{"apiKey":"abc123secret","token": "tok-xyz","ok":true}`,
+    ].join("\n") + "\n";
+  const out = data(await applyLogsTail(deps, { source: "shepherd" }));
+  expect(out.text).toContain(`auto-revive threw for ${s.desig}`);
+  expect(out.text).not.toContain(s.id);
+  expect(out.text).not.toContain(other);
+  expect(out.text).toContain("claude session <id> resumed");
+  expect(out.text).not.toContain("abc123secret");
+  expect(out.text).not.toContain("tok-xyz");
+  expect(out.text).toContain('"ok":true');
+  const bySecret = data(await applyLogsTail(deps, { source: "shepherd", contains: "abc123" }));
+  expect(bySecret.lines).toBe(0);
+  const byDesig = data(await applyLogsTail(deps, { source: "shepherd", contains: s.desig }));
+  expect(byDesig.lines).toBe(1);
+});
+
 test("logs_tail returns the newest lines, honours the cap and filters case-sensitively", async () => {
   const body = Array.from({ length: 1000 }, (_, i) => `line ${i}${i % 10 === 0 ? " ERROR" : ""}`);
   const { deps } = logs(body.join("\n"));

@@ -181,8 +181,8 @@ final class IOSServerHubTests: XCTestCase {
 
     func testIOSRequestBudgetIsBoundedWithoutChangingSharedSession() {
         let configuration = IOSLaunchEnvironment.requestSession.configuration
-        XCTAssertEqual(configuration.timeoutIntervalForRequest, 4)
-        XCTAssertEqual(configuration.timeoutIntervalForResource, 8)
+        XCTAssertEqual(configuration.timeoutIntervalForRequest, 8)
+        XCTAssertEqual(configuration.timeoutIntervalForResource, 30)
         XCTAssertFalse(configuration.waitsForConnectivity)
         XCTAssertEqual(URLSession.shared.configuration.timeoutIntervalForRequest, 60)
     }

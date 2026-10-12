@@ -158,6 +158,7 @@
     onsettingscodexupdate,
     onsettingspluginupdates,
     onsettingswhatsnew,
+    onsettingsaskassistant,
     showUsage,
     onusageclose,
     showClone,
@@ -300,6 +301,8 @@
     onsettingscodexupdate: () => void;
     onsettingspluginupdates: () => void;
     onsettingswhatsnew: () => void;
+    /** Settings → Diagnose "Ask the assistant" (#1446): close Settings and type the question. */
+    onsettingsaskassistant?: (question: string) => void;
     showUsage: boolean;
     onusageclose: () => void;
     showClone: boolean;
@@ -665,6 +668,7 @@
     onpluginupdates={onsettingspluginupdates}
     onpluginapplied={onpluginupdated}
     onwhatsnew={onsettingswhatsnew}
+    onaskassistant={onsettingsaskassistant}
   />
 {/if}
 

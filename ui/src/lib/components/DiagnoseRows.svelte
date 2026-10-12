@@ -12,6 +12,7 @@
     onretry,
     onfix,
     onherdrupdate,
+    onask,
   }: {
     checks: DiagnosticCheck[] | null;
     failed?: boolean;
@@ -21,6 +22,9 @@
     /** Parent-owned: open the herdr-update modal, which offers the one-click
      *  downgrade for an install stranded on an unsupported herdr (#1898). */
     onherdrupdate?: () => void;
+    /** Parent-owned: ask the Operator Assistant about a failing check (#1446). Gets the check's
+     *  displayed label and its localized state word. Offered on warning and error rows only. */
+    onask?: (label: string, state: string) => void;
   } = $props();
 
   // The check whose Fix button was clicked → renders the confirm modal. null = closed.
@@ -114,6 +118,10 @@
   function isClear(state: DiagnosticCheck["state"]): boolean {
     return state === "ok" || state === "optional";
   }
+
+  function askable(check: DiagnosticCheck): boolean {
+    return !!onask && (check.state === "warning" || check.state === "error");
+  }
 </script>
 
 <!-- Data wins: once checks arrive (HTTP seed or the WS push) they render even if
@@ -170,6 +178,16 @@
               {m.diagnostics_doc_link()}<span aria-hidden="true"> ↗</span>
             </a>
             <!-- eslint-enable svelte/no-navigation-without-resolve -->
+          </div>
+        {/if}
+        {#if askable(check)}
+          <div class="fix-wrap">
+            <button
+              type="button"
+              class="fix micro"
+              onclick={() => onask?.(label(check.id), stateWord(check.state))}
+              >{m.operator_assistant_ask()}</button
+            >
           </div>
         {/if}
       </div>

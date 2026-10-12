@@ -5946,5 +5946,8 @@
   "gloss_operator_assistant_term": "Operator Assistant",
   "gloss_operator_assistant_def": "A Claude session Shepherd runs for you and grounds in its own telemetry, docs and source. Ask it why the herd stalled, an epic won't drain or an agent died: it reads, explains and tells you what to do, but changes nothing itself — every shell command waits for your approval.",
   "feat_operator_assistant_title": "Ask the Operator Assistant why something stalled",
-  "feat_operator_assistant_body": "The Assist button in the top bar opens the [[operator-assistant|Operator Assistant]] beside your terminal: a Claude session that reads Shepherd's own state — herd, automation, epics, diagnostics and redacted logs. Ask why the herd stalled or an epic won't drain. It changes nothing itself: every command waits for your approval. Herd rows and failing Diagnostics checks offer \"Ask the assistant\" too."
+  "feat_operator_assistant_body": "The Assist button in the top bar opens the [[operator-assistant|Operator Assistant]] beside your terminal: a Claude session that reads Shepherd's own state — herd, automation, epics, diagnostics and redacted logs. Ask why the herd stalled or an epic won't drain. It changes nothing itself: every command waits for your approval. Herd rows and failing Diagnostics checks offer \"Ask the assistant\" too.",
+  "operator_assistant_ask": "Ask the assistant",
+  "operator_assistant_ask_session": "What's going on with {desig}, and is anything stuck?",
+  "operator_assistant_ask_check": "Settings → Diagnostics shows {check} as \"{state}\". Why, and how do I fix it?"
 }

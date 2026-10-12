@@ -1766,6 +1766,52 @@ describe("UnitRow stop agent action", () => {
   });
 });
 
+describe("UnitRow ask-the-assistant action (#1446)", () => {
+  function openMenu(rowName: string) {
+    page
+      .getByRole("button", { name: m.unit_open_aria({ name: rowName }) })
+      .element()
+      .dispatchEvent(
+        new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+      );
+  }
+
+  it("offers Ask the assistant on a live row and hands over its desig", async () => {
+    const onaskassistant = vi.fn();
+    render(UnitRow, {
+      session: session({ id: "ask-row", name: "ask row", desig: "TASK-31" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      onaskassistant,
+    });
+
+    openMenu("ask row");
+    await page.getByRole("menuitem", { name: m.operator_assistant_ask() }).click();
+    expect(onaskassistant).toHaveBeenCalledExactlyOnceWith("TASK-31");
+    // the action closes the menu like every other item
+    await expect.element(page.getByRole("menu")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ["a clean-terminal row", { terminal: true }],
+    ["an archived row", { status: "archived", archivedAt: 1 }],
+  ] as const)("does not offer it on %s", async (_, partial) => {
+    render(UnitRow, {
+      session: session({ id: "no-ask", name: "no ask", ...partial }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      onaskassistant: vi.fn(),
+      onrename: vi.fn(), // something else to open the menu with
+    });
+
+    openMenu("no ask");
+    await expect.element(page.getByText(m.cardmenu_rename())).toBeInTheDocument();
+    await expect.element(page.getByText(m.operator_assistant_ask())).not.toBeInTheDocument();
+  });
+});
+
 // The rail's job after a global jump: say unmistakably WHICH session is selected. Both
 // cues are asserted through computed style (app.css is imported above), not class names,
 // so a rule that stops applying — a renamed token, a specificity collision with the

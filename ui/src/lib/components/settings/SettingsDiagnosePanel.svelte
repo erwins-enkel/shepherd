@@ -23,6 +23,7 @@
     initialDiagnostics = null,
     query = "",
     onherdrupdate,
+    onaskassistant,
   }: {
     /** Pre-seeded diagnostics checks from the store; loaded fresh on tab open if absent. */
     initialDiagnostics?: DiagnosticCheck[] | null;
@@ -30,7 +31,17 @@
     query?: string;
     /** Open the shared herdr recovery/update modal. */
     onherdrupdate?: () => void;
+    /** Ask the Operator Assistant a question (#1446): the page closes Settings and types it. */
+    onaskassistant?: (question: string) => void;
   } = $props();
+
+  // A failing check's "Ask the assistant": the question names the check and state as displayed.
+  const askAboutCheck = $derived(
+    onaskassistant
+      ? (check: string, state: string) =>
+          onaskassistant(m.operator_assistant_ask_check({ check, state }))
+      : undefined,
+  );
 
   // Diagnose tab — local checks + re-run state.
   // untrack: initialDiagnostics is intentionally only read once as the seed value.
@@ -102,7 +113,7 @@
   <span class="micro"><HighlightText text={m.diagnostics_title()} {query} /></span>
   <p class="hint"><HighlightText text={m.diagnostics_subtitle()} {query} /></p>
 </div>
-<DiagnoseRows checks={diagChecks} onfix={fixCheck} {onherdrupdate} />
+<DiagnoseRows checks={diagChecks} onfix={fixCheck} {onherdrupdate} onask={askAboutCheck} />
 <!-- Client-only: install/standalone state can't come from /api/diagnostics, so this
      row renders independently of the server snapshot's load/fail/empty state. -->
 <PwaInstallRow />

@@ -1532,6 +1532,7 @@
   let assistantPanelRef: OperatorAssistantPanel | undefined = $state();
   // An "Ask the assistant" prefill for the panel's terminal; cleared once typed, or on close.
   let assistantTypeRequest = $state<{ text: string; tick: number } | null>(null);
+  let assistantTypeSeq = 0;
   function openAssistant() {
     assistantFocusIntent = true;
     rememberAssistantOpen(true);
@@ -1561,6 +1562,17 @@
     const wasOpen = assistantOpen;
     openAssistant();
     if (wasOpen) void tick().then(() => assistantPanelRef?.focusTerminal());
+  }
+  function askAssistant(text: string) {
+    openAssistant();
+    assistantTypeRequest = { text, tick: ++assistantTypeSeq };
+  }
+  function askAboutSession(desig: string) {
+    askAssistant(m.operator_assistant_ask_session({ desig }));
+  }
+  function askFromSettings(question: string) {
+    showSettings = false;
+    askAssistant(question);
   }
   function resetAssistant() {
     assistantFocusIntent = true;
@@ -3240,6 +3252,7 @@
             {onrelaunch}
             {onrelaunchElsewhere}
             oncleanTerminal={openCleanTerminal}
+            onaskassistant={askAboutSession}
             {onvariant}
             {onreplace}
             {oncompare}
@@ -3423,6 +3436,7 @@
               {onrelaunch}
               {onrelaunchElsewhere}
               oncleanTerminal={openCleanTerminal}
+              onaskassistant={askAboutSession}
               {onvariant}
               {onreplace}
               {oncompare}
@@ -3710,6 +3724,7 @@
     showSettings = false;
     showWhatsNew = true;
   }}
+  onsettingsaskassistant={askFromSettings}
   {showUsage}
   onusageclose={() => (showUsage = false)}
   {showClone}

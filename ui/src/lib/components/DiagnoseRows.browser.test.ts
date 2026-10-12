@@ -468,3 +468,39 @@ describe("claude_install row (#2052)", () => {
     );
   });
 });
+
+describe("Ask the assistant (#1446)", () => {
+  it("is offered on warning and error rows only, and hands over the label and state word", async () => {
+    const onask = vi.fn();
+    render(DiagnoseRows, {
+      props: {
+        onask,
+        checks: [
+          check({ id: "git", state: "error" }),
+          check({
+            id: "tailscale",
+            state: "warning",
+            hintKey: "diagnostics_hint_tailscale_missing",
+          }),
+          check({ id: "herdr", state: "ok" }),
+          check({ id: "bun", state: "optional" }),
+        ],
+      },
+    });
+
+    const asks = page.getByRole("button", { name: m.operator_assistant_ask() });
+    await expect.element(asks.first()).toBeVisible();
+    expect(asks.all()).toHaveLength(2);
+
+    await asks.nth(1).click();
+    expect(onask).toHaveBeenCalledExactlyOnceWith(
+      m.diagnostics_label_tailscale(),
+      m.diagnostics_state_warning(),
+    );
+  });
+
+  it("is not offered without onask", () => {
+    render(DiagnoseRows, { props: { checks: [check({ state: "error" })] } });
+    expect(page.getByRole("button", { name: m.operator_assistant_ask() }).query()).toBeNull();
+  });
+});

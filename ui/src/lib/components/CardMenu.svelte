@@ -14,6 +14,7 @@
     onmergepr,
     onstop,
     onresume,
+    onaskassistant,
     onrename,
     onamend,
     onrelaunch,
@@ -42,6 +43,10 @@
     // and it is reversible — the operator can steer the session again immediately.
     onstop?: () => void;
     onresume?: () => void;
+    // when provided, an "Ask the assistant" item appears — opens the Operator Assistant with a
+    // question about this session typed into its prompt (not sent). One click: nothing happens
+    // until the operator sends it.
+    onaskassistant?: () => void;
     onrename?: () => void;
     // when provided, an "Amend task…" item appears — opens the amend dialog (#2225). One-click:
     // the dialog's own textarea + explicit submit IS the confirmation, so no two-step arm here.
@@ -216,6 +221,11 @@
   {#if resumable && onresume}
     <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={onresume}>
       <span class="cm-icon" aria-hidden="true">↻</span>{m.cardmenu_resume()}
+    </button>
+  {/if}
+  {#if onaskassistant}
+    <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={onaskassistant}>
+      <span class="cm-icon" aria-hidden="true">✦</span>{m.operator_assistant_ask()}
     </button>
   {/if}
   {#if onrename}

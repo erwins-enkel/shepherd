@@ -28,6 +28,8 @@
     onrelaunch?: (id: string) => void;
     onrelaunchElsewhere?: (id: string) => void;
     oncleanTerminal?: (repoPath: string) => void;
+    // "Ask the assistant" from a row's CardMenu (#1446): receives the row's desig
+    onaskassistant?: (desig: string) => void;
     onvariant?: (id: string, anchor: { x: number; y: number }) => void;
     onreplace?: (id: string, anchor: { x: number; y: number }) => void;
     repoFilter: ReadonlySet<string>;
@@ -152,6 +154,7 @@
       onrelaunch={ctx.onrelaunch}
       onrelaunchElsewhere={ctx.onrelaunchElsewhere}
       oncleanTerminal={ctx.oncleanTerminal}
+      onaskassistant={ctx.onaskassistant}
       onvariant={ctx.onvariant}
       onreplace={ctx.onreplace}
       repoFilter={ctx.repoFilter}

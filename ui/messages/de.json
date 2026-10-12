@@ -5946,5 +5946,8 @@
   "gloss_operator_assistant_term": "Operator-Assistent",
   "gloss_operator_assistant_def": "Eine Claude-Session, die Shepherd für dich betreibt und auf seine eigene Telemetrie, Doku und seinen Quellcode stützt. Frag sie, warum die Herde steht, ein Epic nicht abläuft oder ein Agent gestorben ist: Sie liest, erklärt und sagt dir, was zu tun ist, ändert aber selbst nichts — jeder Shell-Befehl wartet auf deine Freigabe.",
   "feat_operator_assistant_title": "Frag den Operator-Assistenten, warum etwas hängt",
-  "feat_operator_assistant_body": "Der Assistent-Button in der oberen Leiste öffnet den [[operator-assistant|Operator-Assistenten]] neben deinem Terminal: eine Claude-Session, die Shepherds eigenen Zustand liest — Herde, Automatisierung, Epics, Diagnose und geschwärzte Logs. Frag, warum die Herde steht oder ein Epic nicht abläuft. Er ändert selbst nichts: Jeder Befehl wartet auf deine Freigabe. Auch Herden-Zeilen und fehlschlagende Diagnose-Prüfungen bieten „Assistent fragen“ an."
+  "feat_operator_assistant_body": "Der Assistent-Button in der oberen Leiste öffnet den [[operator-assistant|Operator-Assistenten]] neben deinem Terminal: eine Claude-Session, die Shepherds eigenen Zustand liest — Herde, Automatisierung, Epics, Diagnose und geschwärzte Logs. Frag, warum die Herde steht oder ein Epic nicht abläuft. Er ändert selbst nichts: Jeder Befehl wartet auf deine Freigabe. Auch Herden-Zeilen und fehlschlagende Diagnose-Prüfungen bieten „Assistent fragen“ an.",
+  "operator_assistant_ask": "Assistent fragen",
+  "operator_assistant_ask_session": "Was ist mit {desig} los, und hängt irgendwo etwas?",
+  "operator_assistant_ask_check": "Einstellungen → Diagnose zeigt {check} als \"{state}\". Warum, und wie behebe ich das?"
 }

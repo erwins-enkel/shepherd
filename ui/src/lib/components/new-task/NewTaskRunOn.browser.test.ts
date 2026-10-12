@@ -333,6 +333,23 @@ describe("Run on (#2763) and the automatic choice (#2772)", () => {
     expect(onsubmit.mock.calls[1]![0].target).toEqual({ instanceId: "self-1" });
   });
 
+  it("keeps this machine's first-task confirmation for a task placed here", async () => {
+    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [machine()] });
+    // Even without this Shepherd's identity, the record says it was placed where it was decided.
+    vi.mocked(getInstance).mockRejectedValue(new Error("offline"));
+    vi.mocked(getRepoConfig).mockResolvedValue({ ...cfg(), automationConfirmed: false });
+    // A repo of its own: repo config is cached per path across the file.
+    const fresh = { ...repo, name: "fresh", path: "/repo/fresh", realPath: "/repo/fresh" };
+    vi.mocked(listRepos).mockResolvedValue({ repos: [fresh], recentWindowDays: 30 });
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: { onsubmit, initialRepoPath: fresh.path } });
+    await expect.poll(placementText).toContain("moes-tavern");
+    await typePrompt("change the settings page");
+    await submit();
+    await expect.element(page.getByText(m.firsttask_confirm_title())).toBeVisible();
+    expect(onsubmit).not.toHaveBeenCalled();
+  });
+
   it("says before submitting when no machine fits", async () => {
     vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [machine()] });
     const refused: PlacementPreview = {

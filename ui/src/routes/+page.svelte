@@ -2357,7 +2357,12 @@
     // Sent, but no answer (#2774): this Shepherd follows it up, and the herd shows it as "start
     // status unknown" in that machine's group — the dialog has nothing left to do. A network error
     // on the way HERE stays with the dialog's Retry: the task may never have reached this Shepherd.
-    const r = await createSession(taskInput, spawnId, dispatchKey).catch((err: unknown) => {
+    // Started here, the WS completion frame can settle it before a slow 201 arrives.
+    const request = createSession(taskInput, spawnId, dispatchKey);
+    const raced = spawnId
+      ? raceSpawnCompletion(request, spawnId, () => store.spawnProgress)
+      : request;
+    const r = await raced.catch((err: unknown) => {
       if (err instanceof ApiError && err.code === "remote_dispatch_unknown") return null;
       throw err;
     });
@@ -2365,7 +2370,7 @@
       toasts.info(m.toast_dispatch_unknown());
     } else if ("held" in r) {
       toasts.info(r.host ? m.toast_task_held_on({ machine: r.host.name }) : m.toast_task_held());
-    } else if (r.host) {
+    } else if ("host" in r && r.host) {
       store.apply({ event: "session:new", data: r });
       selectedId = r.id;
     } else {

@@ -526,8 +526,8 @@
   let runOnId = $state<string | null>(null);
   /** The task's requirements (#2770), edited as chips. */
   let requirements = $state<string[]>([]);
-  /** The server's preview of the choice; null while it is being asked or could not be. */
-  let preview = $state<PlacementPreview | null>(null);
+  /** The server's last preview of the choice, with the inputs it answers (`key`). */
+  let preview = $state<{ key: string; value: PlacementPreview } | null>(null);
   let previewFailed = $state(false);
   const runOnOptions = $derived(runOnMachines(machines, selectedRepo?.remoteSlug));
   const pickedId = $derived(
@@ -536,51 +536,56 @@
       ? runOnId
       : null,
   );
+  const previewKey = $derived(JSON.stringify([repoPath.trim(), requirements, pickedId]));
+  /** The preview of the inputs as they are now; null while that one is still being asked. */
+  const currentPreview = $derived(preview?.key === previewKey ? preview.value : null);
   const runOnAvailable = $derived(
-    !editHeld && !relaunch && machines.length > 0 && preview?.active !== false,
+    !editHeld && !relaunch && machines.length > 0 && preview?.value.active !== false,
   );
   /** The connected machine the operator named; null for Automatic or this machine. */
   const runOn = $derived(
     runOnAvailable ? (runOnOptions.find((x) => x.instanceId === pickedId) ?? null) : null,
   );
-  /** Where the task goes when it does not start here: the named machine, or the one the preview
-   *  chose. Null while it starts here (or nothing is known yet). */
+  /** Where the task goes when it does not start here: the named machine, or the one the current
+   *  preview chose — elsewhere when it is not the Shepherd that decided (`by`). Null while it
+   *  starts here, or while nothing is known yet. */
   const remoteTarget = $derived.by((): { instanceId: string; name: string } | null => {
     if (!runOnAvailable) return null;
     if (runOn) return runOn;
-    const target = pickedId === null ? preview?.placement?.target : undefined;
-    return target && target.instanceId !== self?.instanceId ? target : null;
+    const placement = pickedId === null ? currentPreview?.placement : undefined;
+    return placement && placement.target.instanceId !== placement.by.instanceId
+      ? placement.target
+      : null;
   });
   /** The machine the in-flight create was sent to — the spawn panel names it. */
   let sendingTo = $state<{ name: string } | null>(null);
   /** The last keyed send that went unanswered: retrying the same task reuses its key. */
   let pendingSend: PendingSend | null = null;
 
-  // The preview follows the repo, the requirements and the pick, a beat after the last change.
+  // The preview follows the repo, the requirements and the pick, a beat after the last change. An
+  // answer for inputs that changed meanwhile is dropped (`previewSeq`).
   let previewSeq = 0;
   $effect(() => {
+    const key = previewKey;
     const repo = repoPath.trim();
     const reqs = [...requirements];
     const pick = pickedId;
-    if (editHeld || relaunch || machines.length === 0 || !repo) {
-      preview = null;
-      return;
-    }
     const seq = ++previewSeq;
+    previewFailed = false;
+    if (editHeld || relaunch || machines.length === 0 || !repo) return;
     const timer = setTimeout(() => {
       previewPlacement({
         repoPath: repo,
         ...(reqs.length > 0 && { requirements: reqs }),
         ...(pick !== null && { target: { instanceId: pick } }),
       })
-        .then((p) => {
+        .then((value) => {
           if (seq !== previewSeq) return;
-          preview = p;
+          preview = { key, value };
           previewFailed = false;
         })
         .catch(() => {
           if (seq !== previewSeq) return;
-          preview = null;
           previewFailed = true;
         });
     }, 200);
@@ -2290,7 +2295,7 @@
             {#if runOnAvailable}
               <!-- The machine choice (#2772): what the task needs, and where it will run and why. -->
               <RequirementChips {requirements} onchange={(next) => (requirements = next)} />
-              <PlacementLine {preview} failed={previewFailed} selfId={self?.instanceId ?? null} />
+              <PlacementLine preview={currentPreview} failed={previewFailed} />
             {/if}
             {#if remoteTarget}
               <span class="nt-upstream"

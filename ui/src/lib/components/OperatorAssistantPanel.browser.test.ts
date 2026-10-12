@@ -46,6 +46,7 @@ function props(over: Partial<Props> = {}): Props {
     pending: null,
     failed: null,
     onretry: vi.fn(),
+    onresume: vi.fn(async () => {}),
     onreset: vi.fn(),
     onclose: vi.fn(),
     ondiagnose: vi.fn(),

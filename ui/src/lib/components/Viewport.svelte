@@ -156,6 +156,7 @@
     typeRequest = null,
     ontyped,
     herd = [],
+    onresume,
   }: {
     session: Session;
     terminalOwners?: Record<string, TerminalClientInfo> | null;
@@ -253,6 +254,9 @@
     ontyped?: (tick: number) => void;
     /** Live herd sessions (store.sessions) whose desigs the assistant variant links. */
     herd?: Session[];
+    /** Replaces the per-session resume (the assistant: its own ensure, which also starts a fresh
+     *  conversation when there is no transcript to resume). */
+    onresume?: () => Promise<void>;
   } = $props();
 
   // The Operator Assistant renders a bare terminal; every session-console surface checks this.
@@ -409,6 +413,8 @@
   // lands (connectPty drops sends on a socket that isn't open). Gates typeRequest; reset on every
   // rebuild, park and end.
   let ptyLive = $state(false);
+  // When the PTY last delivered output (plain, not reactive): typeRequest waits for it to settle.
+  let lastOutputAt = 0;
   // true once the connection stopped for good — show a recovery prompt. endReason
   // splits the two cases: "gone" = the agent exited (offer provider resume),
   // "unreachable" = herdr itself is down (offer a plain re-attach).
@@ -1626,7 +1632,8 @@
     resumeFailure = "";
     resumeTranscriptMissing = false;
     try {
-      await apiResumeSession(session.id, force);
+      if (onresume) await onresume();
+      else await apiResumeSession(session.id, force);
       ended = false;
       resumeEpoch++; // rebuild the terminal + attach to the fresh agent
     } catch (error) {
@@ -1811,6 +1818,7 @@
       term.rows,
       (d) => {
         hasFreshOutput = true;
+        lastOutputAt = Date.now();
         if (!ptyLive) ptyLive = true;
         term.write(d);
       },
@@ -2417,20 +2425,36 @@
   // Waits for ptyLive, so a request made before the terminal attached (the Ask that opens the
   // panel) is typed once it has. One send per tick; untracked so the send's own state writes
   // (operator-input counter, the owner's ontyped) can't re-run this.
+  // It also waits for the output to settle (TYPE_SETTLE_MS without new bytes, at most
+  // TYPE_SETTLE_MAX_MS): an Ask that spawns the agent attaches while claude is still drawing its
+  // boot screen, and a paste that lands before the prompt is up is lost.
   let typedTick = -1;
+  const TYPE_SETTLE_MS = 400;
+  const TYPE_SETTLE_MAX_MS = 4000;
   $effect(() => {
     const req = typeRequest;
     const c = conn;
     if (!req || req.tick === typedTick || !ptyLive || !c) return;
-    typedTick = req.tick;
-    untrack(() => {
-      bumpOperatorInput();
-      c.send(`\x1b[200~${req.text}\x1b[201~`);
-      // desktop only, like the mount auto-focus: on touch it would pop the soft keyboard over
-      // the question; the key bar's Enter sends it there.
-      if (!mobile && !touch) termRef?.focus();
-      ontyped?.(req.tick);
-    });
+    const since = Date.now();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const attempt = () => {
+      const quiet = Date.now() - lastOutputAt;
+      if (quiet < TYPE_SETTLE_MS && Date.now() - since < TYPE_SETTLE_MAX_MS) {
+        timer = setTimeout(attempt, TYPE_SETTLE_MS - quiet);
+        return;
+      }
+      typedTick = req.tick;
+      untrack(() => {
+        bumpOperatorInput();
+        c.send(`\x1b[200~${req.text}\x1b[201~`);
+        // desktop only, like the mount auto-focus: on touch it would pop the soft keyboard over
+        // the question; the key bar's Enter sends it there.
+        if (!mobile && !touch) termRef?.focus();
+        ontyped?.(req.tick);
+      });
+    };
+    attempt();
+    return () => clearTimeout(timer);
   });
 
   // repaint the live terminal when the active theme changes (no recreation)

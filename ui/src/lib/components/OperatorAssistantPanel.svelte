@@ -33,6 +33,7 @@
     onnavigate,
     consumeAutoFocusTerm,
     onretry,
+    onresume,
     onreset,
     onclose,
     ondiagnose,
@@ -62,6 +63,8 @@
     consumeAutoFocusTerm?: () => boolean;
     /** Re-run the request that failed (or re-check availability). */
     onretry: () => void;
+    /** The terminal's Resume: bring the assistant back (ensure), not a per-session resume. */
+    onresume: () => Promise<void>;
     /** New conversation, confirmed: archive this assistant and spawn a fresh one. */
     onreset: () => void;
     /** Close (desktop) or Back (phone). */
@@ -191,6 +194,7 @@
         {ontyped}
         {onnavigate}
         {consumeAutoFocusTerm}
+        {onresume}
       />
     </div>
   {:else if view === "unavailable"}

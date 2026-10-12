@@ -1519,6 +1519,12 @@
     if (__DEMO__) return;
     untrack(() => void assistantLifecycle.ensure());
   });
+  // A prefill whose ensure failed or found the assistant unavailable is dropped, not typed into
+  // whatever conversation a later Retry brings up.
+  $effect(() => {
+    if (assistantLifecycle.failed || store.assistantAvailable === false)
+      assistantTypeRequest = null;
+  });
   let assistantReturnScreen: "list" | "detail" = "list";
   // Like keynavFocusIntent, but for the assistant's terminal and defaulting to NO: it may take the
   // keyboard on mount only when the operator just opened the panel (not on a reload that restores
@@ -1534,7 +1540,9 @@
   let assistantTypeRequest = $state<{ text: string; tick: number } | null>(null);
   let assistantTypeSeq = 0;
   function openAssistant() {
-    assistantFocusIntent = true;
+    // Only an opening hands the terminal the keyboard: an already-open panel mounts nothing to
+    // consume the intent, which would then steal focus on some later remount.
+    if (!assistantOpen) assistantFocusIntent = true;
     rememberAssistantOpen(true);
     if (mobile.current && mobileScreen !== "assistant") {
       assistantReturnScreen = mobileScreen;
@@ -1544,6 +1552,7 @@
   async function closeAssistant() {
     rememberAssistantOpen(false);
     assistantTypeRequest = null;
+    assistantFocusIntent = false;
     if (mobileScreen === "assistant") {
       mobileScreen = assistantReturnScreen;
       return;
@@ -3115,6 +3124,7 @@
     onnavigate={jumpToSession}
     consumeAutoFocusTerm={consumeAssistantFocus}
     onretry={() => void assistantLifecycle.retry()}
+    onresume={() => assistantLifecycle.ensure()}
     onreset={resetAssistant}
     onclose={closeAssistant}
     ondiagnose={openDiagnose}

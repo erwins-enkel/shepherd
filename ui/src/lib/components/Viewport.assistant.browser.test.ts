@@ -14,14 +14,21 @@ type Client = {
   send: ReturnType<typeof vi.fn>;
   receive: Parameters<typeof connectPty>[3];
   park: () => void;
+  end: (reason: "gone" | "unreachable") => void;
 };
 const clients: Client[] = [];
 vi.mock("#lib/pty.js", () => ({
   connectPty: vi.fn((...args: Parameters<typeof connectPty>) => {
     const send = vi.fn();
-    clients.push({ id: args[0], send, receive: args[3], park: args[5]! });
+    clients.push({ id: args[0], send, receive: args[3], park: args[5]!, end: args[6]! });
     return { send, resize: vi.fn(), close: vi.fn(), poke: vi.fn(), takeover: vi.fn() };
   }),
+}));
+// The per-session resume, spied so the assistant's Resume can be shown NOT to use it.
+const apiResume = vi.fn(async () => {});
+vi.mock("#lib/api.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("#lib/api.js")>()),
+  resumeSession: (...a: unknown[]) => apiResume(...(a as [])),
 }));
 const { default: Viewport } = await import("./Viewport.svelte");
 type Props = ComponentProps<typeof Viewport>;
@@ -175,6 +182,34 @@ describe("Viewport — Operator Assistant variant", () => {
     await vi.waitFor(() => expect(sent(c)).toContain("\x1b[200~And TASK-07?\x1b[201~"));
     expect(sent(c).filter((d) => d.startsWith("\x1b[200~"))).toHaveLength(2);
     expect(ontyped).toHaveBeenLastCalledWith(2);
+  });
+
+  it("waits for a spawning agent's boot output to settle before typing", async () => {
+    await mount({ typeRequest: { text: "Q?", tick: 1 } });
+    const c = clientFor("oa");
+    c.receive("booting");
+    for (let i = 0; i < 4; i++) {
+      await new Promise((r) => setTimeout(r, 150));
+      expect(sent(c)).toEqual([]); // still drawing: a paste now would be lost
+      c.receive(".");
+    }
+    await vi.waitFor(() => expect(sent(c)).toEqual(["\x1b[200~Q?\x1b[201~"]));
+  });
+
+  it("resumes through onresume, never the per-session resume", async () => {
+    const onresume = vi.fn(async () => {});
+    await mount({ onresume });
+    const c = clientFor("oa");
+    c.receive("> ");
+    c.end("gone");
+    const button = await vi.waitFor(() => {
+      const b = document.querySelector<HTMLButtonElement>("button.parked.resume");
+      expect(b).not.toBeNull();
+      return b!;
+    });
+    button.click();
+    await vi.waitFor(() => expect(onresume).toHaveBeenCalledOnce());
+    expect(apiResume).not.toHaveBeenCalled();
   });
 
   it("holds a request while the terminal is parked and types it once it is live again", async () => {

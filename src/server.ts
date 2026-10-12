@@ -6,6 +6,7 @@ import type { PluginInfo } from "./plugins/types";
 import type { SessionService } from "./service";
 import {
   emitSessionAmendments,
+  OperatorAssistantSessionError,
   PREVIEW_SETUP_STEER,
   RestoreError,
   TerminalExistsError,
@@ -2786,13 +2787,16 @@ export async function claimLinkedIssue(forge: GitForge | null, issueNumber: numb
 /** Map a service.create() error to the appropriate Response.
  *  SandboxAutoRefused → 403; missing base ref → 422; agent_name_taken → 409;
  *  anything else → 502. */
-/** 409 mappings for the clean-terminal fences (TerminalExistsError & friends, service.ts).
- *  `existingId` rides the singleton conflict so the UI can focus the already-open terminal. */
+/** 409 mappings for the clean-terminal fences (TerminalExistsError & friends, service.ts) and the
+ *  Operator Assistant's verb fence, which mirrors them. `existingId` rides the singleton conflict
+ *  so the UI can focus the already-open terminal. */
 function terminalErrorResponse(e: unknown): Response | null {
   if (e instanceof TerminalExistsError)
     return json({ error: "terminal_exists", existingId: e.existingId }, 409);
   if (e instanceof TerminalUnsupportedError) return json({ error: "terminal_unsupported" }, 409);
   if (e instanceof TerminalSessionError) return json({ error: "terminal_session" }, 409);
+  if (e instanceof OperatorAssistantSessionError)
+    return json({ error: "operator_assistant_session" }, 409);
   return null;
 }
 

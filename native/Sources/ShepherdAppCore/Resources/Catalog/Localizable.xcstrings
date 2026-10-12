@@ -13724,6 +13724,23 @@
         }
       }
     },
+    "native_ios_steers_icon_only": {
+      "extractionState": "manual",
+      "localizations": {
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leiste: nur Icons bei Steers mit Icon"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bar: icons only for steers with an icon"
+          }
+        }
+      }
+    },
     "native_ios_steers_limit": {
       "extractionState": "manual",
       "localizations": {

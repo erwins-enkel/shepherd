@@ -799,6 +799,7 @@
 "native_ios_steers_edit_title" = "Steer bearbeiten";
 "native_ios_steers_empty" = "Noch keine Steers in der Steer-Leiste.";
 "native_ios_steers_end_hold" = "Stilllegen · gedrückt halten";
+"native_ios_steers_icon_only" = "Leiste: nur Icons bei Steers mit Icon";
 "native_ios_steers_limit" = "höchstens 40 Steers";
 "native_ios_steers_load_failed" = "Steers konnten nicht geladen werden: %1$@";
 "native_ios_steers_overview" = "Übersicht";

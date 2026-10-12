@@ -33,4 +33,14 @@ struct SteerShortcutTests {
         #expect(SteerShortcuts.number(for: "s3", in: scoped) == 1)
         #expect(SteerShortcuts.number(for: "s11", in: scoped) == 9)
     }
+
+    @Test func iconOnlyKeepsLabelForSteersWithoutEmoji() {
+        var steer = ComposeSteer(id: "a", label: "commit", text: "commit", inSteerBar: true, onIssues: false)
+        #expect(steer.chipTitle(iconOnly: true) == "commit")
+        steer.emoji = ""
+        #expect(steer.chipTitle(iconOnly: true) == "commit")
+        steer.emoji = "💯"
+        #expect(steer.chipTitle(iconOnly: true) == "💯")
+        #expect(steer.chipTitle(iconOnly: false) == "💯 commit")
+    }
 }

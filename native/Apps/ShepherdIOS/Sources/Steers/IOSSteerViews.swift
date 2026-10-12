@@ -9,6 +9,8 @@ struct IOSSteerChips: View {
     let steers: [ComposeSteer]
     let terminal: IOSTerminalPresentation
     let openAll: () -> Void
+    /// Steers with an emoji show only the emoji, so more of them fit the row.
+    var iconOnly = false
     /// ScrollView is UIKit-backed and does not draw into ImageRenderer.
     var rendersStaticFixture = false
     @State private var sentID: String?
@@ -49,7 +51,7 @@ struct IOSSteerChips: View {
         } label: {
             HStack(spacing: 5) {
                 if sentID == steer.id { Image(systemName: "checkmark") }
-                Text(verbatim: steer.chipTitle).lineLimit(1)
+                Text(verbatim: steer.chipTitle(iconOnly: iconOnly)).lineLimit(1)
             }
             .padding(.horizontal, 12).frame(height: 32)
             .background(ComposePalette.panel2, in: Capsule())
@@ -79,6 +81,8 @@ struct IOSSteerPanel: View {
     /// Opens the steer editor: an existing steer, or nil for a new one. Nil while the
     /// steers cannot be written.
     var edit: ((ComposeSteer?) -> Void)? = nil
+    /// The steer row's icon-only display; shown as a switch while editing.
+    var iconOnly: Binding<Bool>? = nil
     var rendersStaticFixture = false
     @State private var sendingID: String?
     @State var editing = false
@@ -157,6 +161,11 @@ struct IOSSteerPanel: View {
                 ForEach(steers, id: \.id) { steer in tile(steer) }
                 if let edit, editing || steers.isEmpty { addTile(edit) }
             }
+        }
+        if editing, let iconOnly {
+            Toggle(L.t("native_ios_steers_icon_only"), isOn: iconOnly)
+                .font(.system(.callout)).tint(ComposePalette.amber).frame(minHeight: 44)
+                .accessibilityIdentifier("steer-icon-only")
         }
     }
 

@@ -8,6 +8,7 @@ struct SessionDetailView: View {
     let model: DetailModel
     let terminal: IOSTerminalPresentation
     @AppStorage private var fontSize: Double
+    @AppStorage private var steersIconOnly: Bool
     @Environment(AppModel.self) private var app
     @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var latency: IOSLatencyMonitor?
@@ -20,6 +21,7 @@ struct SessionDetailView: View {
         self.model = model
         self.terminal = terminal
         _fontSize = AppStorage(wrappedValue: 12, "ios.terminal.fontSize", store: defaults)
+        _steersIconOnly = AppStorage(wrappedValue: false, "ios.steers.iconOnly", store: defaults)
     }
 
     var body: some View {
@@ -81,7 +83,7 @@ struct SessionDetailView: View {
     private var steerChips: AnyView? {
         guard app.allowsTerminalInput, !gesture.focused else { return nil }
         let chips = IOSSteerChips(steers: steers.barSteers(for: session), terminal: terminal,
-            openAll: { gesture.setSteersOpen(true) })
+            openAll: { gesture.setSteersOpen(true) }, iconOnly: steersIconOnly)
         return AnyView(chips)
     }
 
@@ -132,7 +134,7 @@ struct SessionDetailView: View {
                 .transition(.opacity)
             IOSSteerPanel(session: session, steers: steers.barSteers(for: session), loadError: steers.loadError,
                 terminal: terminal, decommission: decommission, close: { gesture.setSteersOpen(false) },
-                edit: editSteer)
+                edit: editSteer, iconOnly: $steersIconOnly)
                 .containerRelativeFrame(.horizontal) { width, _ in min(width * 0.86, 420) }
                 .simultaneousGesture(DragGesture(minimumDistance: 24).onEnded { value in
                     if value.translation.width > 80, abs(value.translation.width) > abs(value.translation.height) {

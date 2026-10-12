@@ -5970,5 +5970,6 @@
   "native_pairing_camera_denied": "Erlaube den Kamerazugriff in den Einstellungen, um den QR-Code zu scannen.",
   "native_pairing_open_settings": "Einstellungen öffnen",
   "native_pairing_mac_button": "iPhone verbinden…",
-  "native_pairing_mac_hint": "Zeigt in der Web-Oberfläche einen QR-Code, den du mit der Shepherd-App auf dem iPhone scannst."
+  "native_pairing_mac_hint": "Zeigt in der Web-Oberfläche einen QR-Code, den du mit der Shepherd-App auf dem iPhone scannst.",
+  "native_ios_steers_icon_only": "Leiste: nur Icons bei Steers mit Icon"
 }

@@ -225,6 +225,7 @@ export const KEYS_IOS_STEERS: readonly string[] = [
   "native_ios_steers_edit_title",
   "native_ios_steers_empty",
   "native_ios_steers_end_hold",
+  "native_ios_steers_icon_only",
   "native_ios_steers_limit",
   "native_ios_steers_load_failed",
   "native_ios_steers_overview",

@@ -490,6 +490,29 @@ describe("sessions", () => {
     }[];
     expect(all.map((x) => x.id)).toContain(created.id);
   });
+
+  // The native client shows this body's `error` verbatim; an undocumented 500 would read there as
+  // "the server speaks another API version" and send the operator to update the wrong thing.
+  test("DELETE /api/sessions/{id} answers a documented 500 when teardown fails", async () => {
+    const created = await createSession("stuck");
+    const saved = s.stubs.herdr.stop;
+    s.stubs.herdr.stop = async () => {
+      throw new Error("herdr unreachable");
+    };
+    try {
+      const del = await fetch(`${s.baseUrl}/api/sessions/${created.id}`, {
+        method: "DELETE",
+        headers: bearer(token),
+      });
+      const body = (await validateResponse("DELETE", "/api/sessions/{id}", del)) as {
+        error: string;
+      };
+      expect(del.status).toBe(500);
+      expect(body.error).toContain("herdr unreachable");
+    } finally {
+      s.stubs.herdr.stop = saved;
+    }
+  });
 });
 
 describe("usage snapshots", () => {

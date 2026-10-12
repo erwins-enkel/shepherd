@@ -242,6 +242,17 @@ async function failed(r: Response, label: string): Promise<Error> {
   return apiError(r.status, await r.json().catch(() => null), `${label} failed: ${r.status}`);
 }
 
+/** {@link failed} for routes whose body names the failure mode in `reason` rather than `code`:
+ *  the {@link ApiError}'s `code` is that reason, so callers branch without message-matching. */
+async function reasonFailed(r: Response, label: string): Promise<Error> {
+  const body = (await r.json().catch(() => null)) as { error?: string; reason?: string } | null;
+  return apiError(
+    r.status,
+    body ? { error: body.error, code: body.reason } : null,
+    `${label} failed: ${r.status}`,
+  );
+}
+
 /** GET a JSON resource, throwing `<label> failed: <status>` on a non-2xx response. */
 async function getJson<T>(url: string, label: string): Promise<T> {
   const r = await fetch(url);
@@ -3257,14 +3268,7 @@ export async function resolveLandingConflicts(
     headers: JSON_HEADERS,
     body: JSON.stringify({ repo: repoPath, parent }),
   });
-  if (!r.ok) {
-    const body = (await r.json().catch(() => null)) as { error?: string; reason?: string } | null;
-    throw apiError(
-      r.status,
-      body ? { error: body.error, code: body.reason } : null,
-      `resolve landing conflicts failed: ${r.status}`,
-    );
-  }
+  if (!r.ok) throw await reasonFailed(r, "resolve landing conflicts");
   return r.json();
 }
 
@@ -3278,14 +3282,7 @@ export async function repairLandingCi(repoPath: string, parent: number): Promise
     headers: JSON_HEADERS,
     body: JSON.stringify({ repo: repoPath, parent }),
   });
-  if (!r.ok) {
-    const body = (await r.json().catch(() => null)) as { error?: string; reason?: string } | null;
-    throw apiError(
-      r.status,
-      body ? { error: body.error, code: body.reason } : null,
-      `repair landing CI failed: ${r.status}`,
-    );
-  }
+  if (!r.ok) throw await reasonFailed(r, "repair landing CI");
   return r.json();
 }
 
@@ -3328,14 +3325,7 @@ export async function getOperatorAssistant(): Promise<OperatorAssistantState> {
  *  {@link operatorAssistantUnavailableReason}. */
 async function postOperatorAssistant(url: string, label: string): Promise<{ session: Session }> {
   const r = await fetch(url, { method: "POST", headers: JSON_HEADERS });
-  if (!r.ok) {
-    const body = (await r.json().catch(() => null)) as { error?: string; reason?: string } | null;
-    throw apiError(
-      r.status,
-      body ? { error: body.error, code: body.reason } : null,
-      `${label} failed: ${r.status}`,
-    );
-  }
+  if (!r.ok) throw await reasonFailed(r, label);
   return r.json();
 }
 

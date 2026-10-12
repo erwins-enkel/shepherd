@@ -13,15 +13,13 @@ import {
   hasMeaningfulLimit,
   herdrLimitFromProps,
   nextDiagnosticsDelay,
-  parseCgroupUnit,
   parseMemTotal,
-  parsePsiAvg10,
   parseSwap,
-  parseSystemctlShow,
   proposeHostLimits,
   type DiagnosticsDeps,
   type HostCapacityFacts,
 } from "../src/diagnostics";
+import { parseCgroupUnit, parsePsiAvg10, parseSystemctlShow } from "../src/host-parse";
 import type { HerdrAgent } from "../src/herdr";
 import type { MiseClaudeState } from "../src/mise-claude";
 import {
@@ -2147,6 +2145,23 @@ describe("defaultReadHerdrFleet (session ↔ fleet join)", () => {
     const facts = await defaultReadHerdrFleet(
       fakeStore([session({ id: "s1", herdrAgentId: "term-1" })]),
       fakeHerdr([agent({ terminalId: "term-1", paneId: "p1" })], { p1: ["node"] }),
+    );
+    expect(facts).toEqual({ orphanLive: 0, orphanHusk: 0 });
+  });
+
+  it("the Operator Assistant's pane is owned, never an orphan — even as a bare shell", async () => {
+    // It is an active session row, so the join claims it like any task; herd-facing reads skip it,
+    // but this one must not, or its pane would read as a leak (#1446).
+    const assistant = {
+      ...session({ id: "oa", herdrAgentId: "term-oa", worktreePath: "/assistant" }),
+      name: "operator-assistant",
+      operatorAssistant: true,
+    };
+    const facts = await defaultReadHerdrFleet(
+      fakeStore([assistant]),
+      fakeHerdr([agent({ terminalId: "term-oa", paneId: "poa", cwd: "/assistant" })], {
+        poa: ["zsh"],
+      }),
     );
     expect(facts).toEqual({ orphanLive: 0, orphanHusk: 0 });
   });

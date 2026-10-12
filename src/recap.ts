@@ -23,6 +23,7 @@ import { fitAssembledPrompt as fitFrom, describeClamps } from "./prompt-fit";
 import { readRoleResultText, CODEX_LAST_MESSAGE_FILE } from "./codex-last-message";
 import { execFile } from "node:child_process";
 import { redactSecretText } from "./redact";
+import { isOperatorAssistant } from "./operator-assistant-core";
 import { promisify } from "node:util";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
@@ -720,6 +721,9 @@ export class RecapService {
    * rather than throwing out of the archive hook.
    */
   async considerForArchive(session: Session): Promise<"started" | "empty" | "error" | "skip"> {
+    // The Operator Assistant's dir is not a repo: a recap would diff the wrong tree, or file a
+    // failure row, on every New conversation.
+    if (isOperatorAssistant(session)) return "skip";
     let head: string;
     try {
       head = await this._headSha(session.worktreePath);

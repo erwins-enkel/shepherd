@@ -32,6 +32,8 @@ import type {
   DocAgentOutcome,
   HoldReason,
   LoginRequest,
+  OperatorAssistantState,
+  OperatorAssistantUnavailableReason,
 } from "./types";
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
@@ -62,6 +64,14 @@ function isSafeHttpUrl(raw: string): boolean {
 
 export class HerdStore {
   sessions = $state<Session[]>([]);
+  /** The Operator Assistant's live row (#1446). Never part of `sessions` (the herd): seeded by GET
+   *  /api/operator-assistant, replaced by `operator-assistant:update`, and kept live by the ordinary
+   *  per-session events (patchSession matches it by id). null = none spawned yet, or archived. */
+  assistant = $state<Session | null>(null);
+  /** Whether the assistant can run right now; null until the bootstrap GET lands. */
+  assistantAvailable = $state<boolean | null>(null);
+  /** Why it can't run (`assistantAvailable === false`); null otherwise. */
+  assistantUnavailableReason = $state<OperatorAssistantUnavailableReason | null>(null);
   blocks = $state<Record<string, BlockState>>({});
   connected = $state(false);
   terminalOwners = $state<Record<string, TerminalClientInfo> | null>(null);
@@ -187,6 +197,26 @@ export class HerdStore {
 
   setAll(list: Session[]) {
     this.sessions = list;
+  }
+  /** Seed (or replace) the assistant's availability + row after the bootstrap GET. */
+  seedAssistant(state: OperatorAssistantState) {
+    this.assistant = state.session;
+    this.assistantAvailable = state.available;
+    this.assistantUnavailableReason = state.available ? null : state.reason;
+  }
+  /** Replace the assistant's row (`operator-assistant:update`, or an ensure/reset response). The
+   *  server only hands one out after it spawned or resumed it, so a row also proves availability. */
+  setAssistant(session: Session | null) {
+    this.assistant = session;
+    if (session) {
+      this.assistantAvailable = true;
+      this.assistantUnavailableReason = null;
+    }
+  }
+  /** An ensure/reset came back 503: the assistant can't run, for `reason`. */
+  setAssistantUnavailable(reason: OperatorAssistantUnavailableReason) {
+    this.assistantAvailable = false;
+    this.assistantUnavailableReason = reason;
   }
   setGit(map: Record<string, GitState>) {
     this.git = map;
@@ -440,7 +470,9 @@ export class HerdStore {
    *  change). Full-array replacement is reserved for events that change the SET
    *  of sessions (session:new / session:archived / setAll). */
   private patchSession(id: string, patch: Partial<Session>) {
-    const s = this.byId(id);
+    // The assistant is not in the herd, but its status/rename/… pushes arrive as the same per-session
+    // events, so it is the one other row this chokepoint patches.
+    const s = this.byId(id) ?? (this.assistant?.id === id ? this.assistant : undefined);
     // `Object.assign` uses [[Set]], so an own `__proto__` key in a decoded WS payload would set the
     // target's prototype instead of landing as a property. Guarded HERE rather than in the callers
     // because this is the single Object.assign chokepoint — every present and future caller of
@@ -457,6 +489,12 @@ export class HerdStore {
     const patch: Partial<Session> = { ...d, status: d.status };
     if (d.hasScratchpadFiles !== undefined) patch.hasScratchpadFiles = d.hasScratchpadFiles;
     this.patchSession(d.id, patch);
+  }
+
+  /** Clear the assistant when its row is archived (New conversation archives it server-side; the
+   *  fresh row follows as `operator-assistant:update`). */
+  private dropAssistant(id: string) {
+    if (this.assistant?.id === id) this.assistant = null;
   }
 
   /** Append a session on session:new, ignoring a duplicate id (pushes can race the bootstrap). */
@@ -509,6 +547,7 @@ export class HerdStore {
         break;
       case "session:archived":
         this.sessions = this.sessions.filter((s) => s.id !== ev.data.id);
+        this.dropAssistant(ev.data.id);
         this.blocks = dropKey(this.blocks, ev.data.id);
         this.git = dropKey(this.git, ev.data.id);
         this.activity = dropKey(this.activity, ev.data.id);
@@ -911,6 +950,9 @@ export class HerdStore {
         // Transient, never persisted: the New Task dialog reads it while its create request is in
         // flight and matches on its own spawn id. A stale value simply stops matching.
         this.spawnProgress = ev.data;
+        return true;
+      case "operator-assistant:update":
+        this.setAssistant(ev.data.session);
         return true;
     }
     return false;

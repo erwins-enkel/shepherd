@@ -11,6 +11,7 @@
   import GearGroupHead from "./GearGroupHead.svelte";
   import GearRow from "./GearRow.svelte";
   import GearAttentionRows from "./GearAttentionRows.svelte";
+  import AssistantGlyph from "../AssistantGlyph.svelte";
   import { REPO_URL, DOCS_URL, MAC_APP_DOWNLOAD_URL } from "#lib/build-info.js";
   import { isMacOSPlatform } from "#lib/platform.js";
   import type { FeedbackKind } from "#lib/feedback-link.js";
@@ -73,6 +74,7 @@
     pluginItems = [],
     onPluginItem,
     onManagePlugins,
+    onassistant,
   }: {
     limits: UsageLimits | null;
     connected: boolean;
@@ -111,6 +113,8 @@
     pluginItems?: { id: string; label: string; icon?: string; hint?: string }[];
     onPluginItem?: (id: string) => void;
     onManagePlugins?: () => void;
+    /** Opens the Operator Assistant screen (#1446); absent → no row. */
+    onassistant?: () => void;
   } = $props();
 
   let showMacApp = $state(false);
@@ -272,6 +276,13 @@
           onclick={closeAnd(onlearnings)}
         />
       {/if}
+      {#if onassistant}
+        <GearRow mobile label={m.operator_assistant_title()} onclick={closeAnd(onassistant)}>
+          {#snippet glyphIcon()}
+            <span class="assist-glyph"><AssistantGlyph /></span>
+          {/snippet}
+        </GearRow>
+      {/if}
       <GearRow mobile glyph="⚙" label={m.settings_title()} onclick={chooseSettings} />
       <!-- Hosted documentation site — distinct from the GitHub repo link below. -->
       <GearRow
@@ -385,6 +396,15 @@
      Uses the canonical .scrim primitive (dim + blur) from app.css. */
   .menu-scrim {
     z-index: 49;
+  }
+  /* The assistant's SVG mark in the row's 20px glyph column (snippet content carries this
+     component's scope, not GearRow's), muted like the text glyphs around it. */
+  .assist-glyph {
+    width: 20px;
+    display: flex;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--color-muted);
   }
 
   /* Rising sheet: full-width, bright top hairline, 12px top radius (reserved for

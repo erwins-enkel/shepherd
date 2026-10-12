@@ -65,6 +65,7 @@
     onrelaunch = undefined,
     onrelaunchElsewhere = undefined,
     oncleanTerminal = undefined,
+    onaskassistant = undefined,
     onvariant = undefined,
     onreplace = undefined,
     oncompare = undefined,
@@ -162,6 +163,8 @@
     onrelaunchElsewhere?: (id: string) => void;
     // when provided, each row's CardMenu gains a "Clean terminal in main repo" item
     oncleanTerminal?: (repoPath: string) => void;
+    // when provided, each row's CardMenu gains an "Ask the assistant" item (receives the desig)
+    onaskassistant?: (desig: string) => void;
     // when provided, each row's CardMenu gains "Start as variant…" / "Continue with…" items
     onvariant?: (id: string, anchor: { x: number; y: number }) => void;
     onreplace?: (id: string, anchor: { x: number; y: number }) => void;
@@ -461,6 +464,7 @@
     onvariant,
     onreplace,
     oncleanTerminal,
+    onaskassistant,
     repoFilter,
     onrepofilter,
     workingBlocked,

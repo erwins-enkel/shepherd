@@ -2,6 +2,7 @@
 import { execFileSync } from "./instrument";
 import type { SessionStore } from "./store";
 import type { GitForge } from "./forge/types";
+import { isOperatorAssistant } from "./operator-assistant-core";
 
 // Same refname grammar as worktree.ts: rejects a leading "-" so a branch name
 // can never smuggle a flag into the `git branch -D` argv.
@@ -155,10 +156,13 @@ export class BranchPruner {
       // Repos Shepherd has used (including archived sessions) unioned with the durable
       // repo source, de-duped — we only ever look at `shepherd/*` branches, which
       // Shepherd itself created. The union keeps fully-idle repos in scope even after
-      // session housekeeping prunes their last archived row from `store.list()`.
-      const repos = [
-        ...new Set([...this.store.list().map((s) => s.repoPath), ...this.extraRepos()]),
-      ];
+      // session housekeeping prunes their last archived row from `store.list()`. The Operator
+      // Assistant's repoPath is its own dir, not a git repo, so it never joins (#1446).
+      const sessionRepos = this.store
+        .list()
+        .filter((s) => !isOperatorAssistant(s))
+        .map((s) => s.repoPath);
+      const repos = [...new Set([...sessionRepos, ...this.extraRepos()])];
       // Branches of live sessions are off-limits regardless of merge state.
       const activeBranches = new Set(
         this.store

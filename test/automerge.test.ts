@@ -576,6 +576,41 @@ test("tick: skips repo with no full-auto session (no merge/steer)", async () => 
   expect(reply.mock.calls.length).toBe(0);
 });
 
+test("the Operator Assistant is never carried by the train, even with both overrides forced on", async () => {
+  const merge = mock(async () => {});
+  const reply = mock(() => true);
+  // Overrides forced on and a ready PR cached: only the assistant predicate keeps the train off it.
+  const session = baseSession({ operatorAssistant: true, auto: false, issueNumber: null });
+  const d = deps({
+    store: {
+      get: () => session as any,
+      list: () => [session as any],
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: true, criticEnabled: false, autopilotEnabled: true }) as any,
+      getReview: () => null,
+      setAutoMergeState: mock(() => {}),
+      setAutopilotState: mock(() => {}),
+      isEpicIntegratedChild: () => false,
+      getEpicRun: () => null,
+      getEpicIntegrationBranch: () => null,
+      recordEpicIntegrated: mock(() => {}),
+    } as any,
+    resolveForge: () =>
+      ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
+    service: {
+      archive: mock(() => 1),
+      reply,
+      resume: mock(() => true),
+      resolveMerging: mock(() => {}),
+    } as any,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.tick();
+  await svc.pump("/r");
+  expect(merge.mock.calls.length).toBe(0);
+  expect(reply.mock.calls.length).toBe(0);
+});
+
 // ── Fix 2: per-session override enables the train in a repo defaulting off ────────
 
 test("per-session override true + repo default false → merges (fullAutoRepos via override)", async () => {

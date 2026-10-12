@@ -600,6 +600,9 @@ components:
           type: boolean
         terminal:
           type: boolean
+        operatorAssistant:
+          type: boolean
+          description: The Operator Assistant's row (#1446). Never listed by GET /api/sessions; read it from GET /api/operator-assistant.
         autoMergeEnabled:
           type: boolean
           nullable: true
@@ -1497,6 +1500,46 @@ components:
           type: string
         host:
           type: string
+    OperatorAssistantUnavailableReason:
+      type: string
+    OperatorAssistantState:
+      type: object
+      additionalProperties: true
+      description: Whether the Operator Assistant can run, why not (read off Settings → Diagnose), and its live row (null before the first open).
+      required:
+        - available
+        - reason
+        - session
+      properties:
+        available:
+          type: boolean
+        reason:
+          allOf:
+            - $ref: "#/components/schemas/OperatorAssistantUnavailableReason"
+          nullable: true
+        session:
+          allOf:
+            - $ref: "#/components/schemas/Session"
+          nullable: true
+    OperatorAssistantSession:
+      type: object
+      additionalProperties: true
+      required:
+        - session
+      properties:
+        session:
+          $ref: "#/components/schemas/Session"
+    OperatorAssistantUnavailable:
+      type: object
+      additionalProperties: true
+      required:
+        - error
+        - reason
+      properties:
+        error:
+          type: string
+        reason:
+          $ref: "#/components/schemas/OperatorAssistantUnavailableReason"
     TerminalClientInfo:
       type: object
       additionalProperties: false
@@ -6353,6 +6396,16 @@ components:
       oneOf:
         - $ref: "#/components/schemas/HeldTask"
         - $ref: "#/components/schemas/Session"
+    EnsureOperatorAssistantError:
+      description: "Rust-only: every error body ensureOperatorAssistant can answer (statuses 401, 409, 502, 503)."
+      oneOf:
+        - $ref: "#/components/schemas/OperatorAssistantUnavailable"
+        - $ref: "#/components/schemas/Error"
+    ResetOperatorAssistantError:
+      description: "Rust-only: every error body resetOperatorAssistant can answer (statuses 401, 409, 502, 503)."
+      oneOf:
+        - $ref: "#/components/schemas/OperatorAssistantUnavailable"
+        - $ref: "#/components/schemas/Error"
     GetPullRequestReviewersError:
       description: "Rust-only: every error body getPullRequestReviewers can answer (statuses 400, 401, 404, 409, 502)."
       oneOf:
@@ -6835,6 +6888,88 @@ paths:
                 $ref: "#/components/schemas/RepoList"
         "401":
           $ref: "#/components/responses/Unauthorized"
+  /api/operator-assistant:
+    get:
+      operationId: getOperatorAssistant
+      description: Whether the Operator Assistant can run, why not, and its live session (#1446).
+      responses:
+        "200":
+          description: Availability and the live assistant row.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperatorAssistantState"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      operationId: ensureOperatorAssistant
+      description: Return the live Operator Assistant, spawning it on first use or resuming it when its agent is gone. Emits operator-assistant:update.
+      responses:
+        "200":
+          description: The live assistant.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperatorAssistantSession"
+        "401":
+          description: Missing or invalid credential.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnsureOperatorAssistantError"
+        "409":
+          description: Refused, e.g. herdr needs a restart first (code herdr_restart_required).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnsureOperatorAssistantError"
+        "502":
+          description: The assistant could not be spawned or resumed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnsureOperatorAssistantError"
+        "503":
+          description: The assistant cannot run here (see reason). Nothing was spawned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnsureOperatorAssistantError"
+  /api/operator-assistant/reset:
+    post:
+      operationId: resetOperatorAssistant
+      description: New conversation — archive the live Operator Assistant and spawn a fresh one. Emits operator-assistant:update.
+      responses:
+        "200":
+          description: The fresh assistant.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperatorAssistantSession"
+        "401":
+          description: Missing or invalid credential.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResetOperatorAssistantError"
+        "409":
+          description: Refused, e.g. herdr needs a restart first (code herdr_restart_required).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResetOperatorAssistantError"
+        "502":
+          description: The fresh assistant could not be spawned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResetOperatorAssistantError"
+        "503":
+          description: The assistant cannot run here (see reason). Nothing was archived or spawned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResetOperatorAssistantError"
   /api/sessions/{id}/reply:
     parameters:
       - name: id
@@ -10408,6 +10543,10 @@ x-shepherd-events:
     description: The egress firewall dropped a host for an autonomous session (reported once per host).
     schema:
       $ref: "#/components/schemas/SessionEgressDropEvent"
+  operator-assistant:update:
+    description: The Operator Assistant's row was created, resumed or replaced. Deliberately not session:new, so the row never joins the herd; its status changes still arrive as session:status.
+    schema:
+      $ref: "#/components/schemas/OperatorAssistantSession"
   terminal:owners:
     description: Full current PTY owners by session id. Sent on events connect, ownership changes and active presence reports. An absent id has no owner; unknown metadata still denotes a connected owner. Clients discard freshness when disconnected.
     schema:

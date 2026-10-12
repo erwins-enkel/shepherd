@@ -30,6 +30,7 @@ import type { Session } from "./types";
 import type { GitState } from "./forge/types";
 import type { NotifyInput } from "./push";
 import { isReadyForNotify } from "./ready-stage";
+import { isOperatorAssistant } from "./operator-assistant-core";
 
 /** Continuous time a session must hold "ready" before the push fires. */
 export const READY_DWELL_MS = 5000;
@@ -111,7 +112,8 @@ export class ReadyNotifier {
       }
 
       const now = this.now();
-      const sessions = this.deps.listSessions();
+      // The Operator Assistant is watched in its panel; it is never "ready for you" (#1446).
+      const sessions = this.deps.listSessions().filter((s) => !isOperatorAssistant(s));
       const flags: DisplayFlags = {
         wb: this.deps.workingBlocked(),
         bg: this.deps.backgroundBusy(),

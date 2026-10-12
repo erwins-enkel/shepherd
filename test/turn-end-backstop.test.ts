@@ -4,15 +4,19 @@ import type { PlanDecision, Session, SessionStatus } from "../src/types";
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
-function session(status: SessionStatus, planPhase: Session["planPhase"]): Session {
-  // Only id + status + planPhase are read by the service; the rest is filler.
-  return { id: "S", status, planPhase } as unknown as Session;
+function session(
+  status: SessionStatus,
+  planPhase: Session["planPhase"],
+  operatorAssistant = false,
+): Session {
+  // Only id + status + planPhase (+ the assistant flag) are read by the service; the rest is filler.
+  return { id: "S", status, planPhase, operatorAssistant } as unknown as Session;
 }
 
 const THRESHOLD = 1000;
 
 /** Build a service over a single session whose status + phase are mutable between sweeps. */
-function harness(planPhase: Session["planPhase"] = "planning") {
+function harness(planPhase: Session["planPhase"] = "planning", operatorAssistant = false) {
   const state = {
     status: "running" as SessionStatus,
     planPhase,
@@ -25,7 +29,7 @@ function harness(planPhase: Session["planPhase"] = "planning") {
   const pushes: string[] = [];
   const svc = new TurnEndBackstopService({
     store: {
-      list: () => [session(state.status, state.planPhase)],
+      list: () => [session(state.status, state.planPhase, operatorAssistant)],
       getPlanGate: () => (state.gateDecision ? { decision: state.gateDecision } : null),
     } as never,
     considerPlan: async (s: Session) => {
@@ -219,6 +223,14 @@ test("a session with the plan gate off still gets its autopilot turn-end", async
   await restWithoutDone(h);
   expect(h.dones).toEqual(["S"]);
   expect(h.plans).toEqual([]);
+});
+
+test("the Operator Assistant is never backstopped: no autopilot, plan review or push", async () => {
+  const h = harness(null, true); // the same rest that re-drives a plain session's autopilot above
+  await restWithoutDone(h);
+  expect(h.dones).toEqual([]);
+  expect(h.plans).toEqual([]);
+  expect(h.pushes).toEqual([]);
 });
 
 test("blocked is not a resting state — it never accrues settle time", async () => {

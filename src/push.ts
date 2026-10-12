@@ -6,6 +6,7 @@ import type { EventHub } from "./events";
 import type { BlockReason } from "./blocked";
 import type { ChecksState, GitState } from "./forge/types";
 import { blockReasonToHoldCode, renderHold } from "./hold";
+import { isOperatorAssistant } from "./operator-assistant-core";
 import { isDeadToken, parseApnsEndpoint, type ApnsSender } from "./apns";
 
 export interface PushPayload {
@@ -739,14 +740,17 @@ export function notifySessionDone(
   store: Pick<SessionStore, "get">,
   id: string,
 ): Promise<boolean> {
-  const name = store.get(id)?.name ?? id;
-  return push.notify({ kind: "done", sessionId: id, tag: id, name });
+  const s = store.get(id);
+  // The Operator Assistant never pushes: the operator is talking to it in its panel (#1446).
+  if (isOperatorAssistant(s)) return Promise.resolve(false);
+  return push.notify({ kind: "done", sessionId: id, tag: id, name: s?.name ?? id });
 }
 
 /** Push bodies get truncated by the OS anyway; keep the agent's reason to one line's worth. */
 const LOGIN_REASON_PUSH_CHARS = 160;
 
-/** Bridge F3 state events to push notifications. Both events are already edge-triggered. */
+/** Bridge F3 state events to push notifications. Both events are already edge-triggered. The
+ *  Operator Assistant never pushes: the operator is talking to it in its panel (#1446). */
 export function attachPush(events: EventHub, store: SessionStore, push: PushService): void {
   events.subscribe((event, data) => {
     if (event === "session:status") {
@@ -756,7 +760,9 @@ export function attachPush(events: EventHub, store: SessionStore, push: PushServ
     } else if (event === "session:block") {
       const { id, block } = data as { id: string; block: BlockReason | null };
       if (!block) return;
-      const name = store.get(id)?.name ?? id;
+      const s = store.get(id);
+      if (isOperatorAssistant(s)) return;
+      const name = s?.name ?? id;
       void push.notify({ kind: "blocked", sessionId: id, tag: id, name, reason: block });
     } else if (event === "session:login-request") {
       const { id, request } = data as {

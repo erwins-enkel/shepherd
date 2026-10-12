@@ -22,6 +22,7 @@ import {
   findServedPort,
 } from "./config";
 import { LSOF_ARGV, parseLsofFields } from "./proc-probes-darwin";
+import { parseCgroupUnit, parsePsiAvg10, parseSystemctlShow } from "./host-parse";
 import { parseGitVersion, gitVersionAtLeast, MIN_GIT_MAJOR, MIN_GIT_MINOR } from "./forge/local";
 import { compareSemver } from "./herdr-update";
 import { HERDR_LAST_SUPPORTED_VERSION, setDetectedHerdrVersion } from "./herdr-capabilities";
@@ -499,18 +500,6 @@ export interface HostCapacityFacts {
   cpuCount: number;
 }
 
-/** Parse `/proc/self/cgroup`. cgroup v2 emits a single `0::<path>` line; we trust only that
- *  (v1's `N:ctrl:<path>` lines are ignored). Returns the leaf unit when it is a `*.service`
- *  (⇒ systemd-managed) and whether it lives under a `user@…` manager (⇒ `systemctl --user`). */
-export function parseCgroupUnit(cgroup: string): { unit: string | null; userScope: boolean } {
-  const line = cgroup.split("\n").find((l) => l.startsWith("0::"));
-  if (!line) return { unit: null, userScope: false };
-  const path = line.slice(3);
-  const userScope = path.includes("/user@");
-  const leaf = path.split("/").filter(Boolean).pop() ?? "";
-  return { unit: leaf.endsWith(".service") ? leaf : null, userScope };
-}
-
 // ── host_capacity one-click fix (#1839) ──────────────────────────────────────
 // The fix dispatches on HOST_CAPACITY_FIX_ACTION (a `fixActionKey`), NOT a hintKey, because both the
 // Shepherd-unbounded and the herdr-gap warnings can carry it — hintKey alone can't discriminate.
@@ -549,17 +538,6 @@ export function proposeHostLimits(
   return { memoryHigh, cpuQuota };
 }
 
-/** Parse `systemctl show` KEY=VALUE lines into a map. */
-export function parseSystemctlShow(text: string): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const raw of text.split("\n")) {
-    const eq = raw.indexOf("=");
-    if (eq <= 0) continue;
-    out[raw.slice(0, eq)] = raw.slice(eq + 1).trim();
-  }
-  return out;
-}
-
 /** True when the unit sets at least one meaningful resource guardrail. systemd shows `infinity`
  *  for an unset MemoryHigh / MemoryMax / CPUQuota; `CPUQuotaPerSecUSec` is the real show-property
  *  for `CPUQuota`. `TasksMax` is intentionally NOT counted — systemd assigns a large default, so
@@ -567,14 +545,6 @@ export function parseSystemctlShow(text: string): Record<string, string> {
 export function hasMeaningfulLimit(props: Record<string, string>): boolean {
   const set = (v: string | undefined): boolean => v !== undefined && v !== "" && v !== "infinity";
   return set(props.MemoryHigh) || set(props.MemoryMax) || set(props.CPUQuotaPerSecUSec);
-}
-
-/** Parse a `/proc/pressure/<res>` file's `some avg10=` value (the standard some-stalled
- *  indicator), or null when absent/unparseable. */
-export function parsePsiAvg10(psi: string): number | null {
-  const some = psi.split("\n").find((l) => l.startsWith("some "));
-  const m = some?.match(/avg10=(\d+(?:\.\d+)?)/);
-  return m ? Number(m[1]) : null;
 }
 
 /** Parse MemTotal (bytes) from `/proc/meminfo`; null when the field is missing. */

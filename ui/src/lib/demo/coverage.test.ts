@@ -242,6 +242,7 @@ const INVENTORY: readonly Entry[] = [
   get("/api/amendments"),
   get("/api/spawn-notices"),
   get("/api/login-requests"),
+  get("/api/operator-assistant"),
 
   // session-detail tabs
   get("/api/sessions/:p/git", `/api/sessions/${PROBE}/git`),
@@ -432,6 +433,10 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
   // `$derived`, which is what separates them from `POST /api/projects` (in INVENTORY:
   // its response goes straight into `ondone(entry)` and the caller reads `entry.path`).
   "New Task Shape + Attach": ["/api/shape", "/api/shape/brief", "/api/uploads"],
+
+  // The demo reports the Operator Assistant unavailable (GET in INVENTORY), so nothing offers a
+  // New conversation; the ensure POST shares the GET's path and is covered by that classification.
+  "Operator Assistant reset": ["/api/operator-assistant/reset"],
 };
 
 const tailPaths = new Set(Object.values(DELIBERATE_TAIL).flat());

@@ -4,6 +4,7 @@ import type { ReviewVerdict, PlanGate, Recap } from "./types";
 import type { BlockReason } from "./blocked";
 import type { EventHub } from "./events";
 import { explainHold } from "./attention-core";
+import { isOperatorAssistant } from "./operator-assistant-core";
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
@@ -163,8 +164,9 @@ export class HoldReasonService {
 
   private recompute(id: string): void {
     const session = this.deps.store.get(id);
-    if (!session) {
-      // Session absent → treat as cleared.
+    if (!session || isOperatorAssistant(session)) {
+      // Session absent → treat as cleared. So is the Operator Assistant: it is not herd work, so
+      // it never holds and never asks for attention (#1446).
       const prev = this.lastSig.get(id);
       if (prev !== undefined && prev !== "null") {
         this.holds.delete(id);

@@ -44,6 +44,8 @@ export type CommandCtx = {
   /** Opens the epic-diagnosis entry (repo + arbitrary parent #) — reaches the fully
    *  unrecognized would-be epic that has no on-screen EpicPanel/Diagnose button (#1657). */
   onDiagnoseEpic: () => void;
+  /** Opens the Operator Assistant panel (#1446) and hands its terminal the keyboard. */
+  onOperatorAssistant: () => void;
   /** Decommission the current session (the page closes over the selected id). */
   onDecommission: () => void;
   /** Designation of the session Decommission would target, or null when the verb is unavailable:
@@ -128,6 +130,16 @@ export function buildCommands(ctx: CommandCtx): Command[] {
         label: () => m.commandbar_cmd_diagnose_epic(),
         keywords: () => m.commandbar_cmd_diagnose_epic_kw(),
         run: ctx.onDiagnoseEpic,
+      },
+    },
+    {
+      // Always offered: an assistant that can't run says why inside the panel it opens.
+      available: true,
+      cmd: {
+        id: "operator-assistant",
+        label: () => m.commandbar_cmd_operator_assistant(),
+        keywords: () => m.commandbar_cmd_operator_assistant_kw(),
+        run: ctx.onOperatorAssistant,
       },
     },
     {

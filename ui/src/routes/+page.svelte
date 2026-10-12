@@ -39,6 +39,7 @@
     blockStates,
     holdStates,
     loginRequestStates,
+    getOperatorAssistant,
     subagentStates,
     previewStates,
     getBacklog,
@@ -130,6 +131,8 @@
     pickTrainRepo,
   } from "#lib/components/merge-train.js";
   import Viewport from "#lib/components/Viewport.svelte";
+  import OperatorAssistantPanel from "#lib/components/OperatorAssistantPanel.svelte";
+  import { AssistantLifecycle } from "#lib/operator-assistant.svelte.js";
   import DoneRecapPanel from "#lib/components/DoneRecapPanel.svelte";
   import UpNextPreview from "#lib/components/UpNextPreview.svelte";
   import type { KickoffChoice } from "#lib/components/NewProject.svelte";
@@ -706,6 +709,14 @@
         if (!store.diagnostics) diagnosticsLoadFailed = true;
       });
   }
+  // Bootstrap the Operator Assistant (#1446): its row is not in the herd list, and a missed
+  // `operator-assistant:update` is gone for good, so mount and every resync re-read it. Best-effort:
+  // a failure leaves the panel's availability unknown and never touches the herd load.
+  function loadOperatorAssistant() {
+    getOperatorAssistant()
+      .then((s) => store.seedAssistant(s))
+      .catch(() => {});
+  }
   // Bootstrap the loaded-plugins list (issue #1124). Best-effort: a missing registry
   // returns an empty list, keeping the Settings → Plugins tab hidden. Live `plugin:status`
   // pushes update it thereafter via the store.
@@ -957,6 +968,7 @@
     listSessions()
       .then((list) => store.setAll(list))
       .catch(() => {});
+    loadOperatorAssistant();
     getUsageLimits()
       .then((r) => store.setUsageLimits(r.limits))
       .catch(() => {});
@@ -1352,14 +1364,19 @@
     handle.addEventListener("pointerup", onUp);
   }
 
-  let mobileScreen = $state<"list" | "detail">("list");
+  // "assistant" is the Operator Assistant's full-screen phone screen (#1446).
+  let mobileScreen = $state<"list" | "detail" | "assistant">("list");
   let chromeHidden = $state(false);
 
   // The fixed mobile ActionBar (+ New Task) is rendered iff this is true (see its
   // render guard in the mobile list branch below). Single source for "is the action
   // bar present?", consumed by <Toasts aboveActionBar> so the toast banner insets
-  // above the bar instead of covering it (issue #810).
+  // above the bar instead of covering it (issue #810). It is also the shell's `.list`
+  // (document-scroll) mode.
   const mobileActionBarPresent = $derived(mobile.current && mobileScreen === "list");
+  // The top chrome shows everywhere but on a phone's full-screen screens: the session console
+  // merges it into its own header, the assistant screen carries a Back button instead.
+  const showChrome = $derived(!mobile.current || mobileScreen === "list");
 
   // Scroll-compress the chrome header on mobile list: hide on scroll-down, restore
   // on scroll-up or at/near top. Window (document) scroll only — the mobile list
@@ -1410,6 +1427,10 @@
   });
 
   let showBacklog = $state(false);
+  // The desktop ActionBar's and the REPOS sheet's way into the backlog: it only exists once there
+  // are sessions (the same gate as the `r` shortcut). Resolved here, not inline in both tags, to
+  // keep the template under its complexity cap.
+  const openBacklog = $derived(store.sessions.length > 0 ? () => (showBacklog = true) : undefined);
   // Phone-only repo surface (D14, docs/design/mobile-herd): the repo filter + the way into the
   // backlog, one tap from REPOS in the bottom navigation. Replaces the top-edge repo rail, which
   // is now desktop/tablet chrome only.
@@ -1462,6 +1483,114 @@
     if (id !== selectedId) keynavFocusIntent = focusTerm;
     selectedId = id;
     if (toDetail && mobile.current) mobileScreen = "detail";
+  }
+
+  // ── Operator Assistant (#1446) ───────────────────────────────────────────
+  // Open/closed is remembered per device (localStorage). Desktop docks the panel as the grid's
+  // third track; a phone shows it as its own screen, and Back returns to the screen it left.
+  // Every open re-ensures the assistant (one request at a time): the server returns a live row as
+  // is and resumes one whose pane died with herdr, so opening is also the way back after restarts.
+  const ASSISTANT_OPEN_KEY = "shepherd:operator-assistant-open";
+  let showAssistant = $state(false);
+  onMount(() => {
+    try {
+      showAssistant = localStorage.getItem(ASSISTANT_OPEN_KEY) === "1";
+    } catch {
+      // private mode / blocked storage: the panel starts closed
+    }
+  });
+  function rememberAssistantOpen(open: boolean) {
+    showAssistant = open;
+    try {
+      if (open) localStorage.setItem(ASSISTANT_OPEN_KEY, "1");
+      else localStorage.removeItem(ASSISTANT_OPEN_KEY);
+    } catch {
+      // ignore: best-effort local preference
+    }
+  }
+  const assistantLifecycle = new AssistantLifecycle(store);
+  const assistantOpen = $derived(mobile.current ? mobileScreen === "assistant" : showAssistant);
+  const assistantDocked = $derived(showAssistant && !mobile.current);
+  // The panel showing (re-)ensures. Untracked: only the open transition re-runs this, never the
+  // request's own state writes.
+  $effect(() => {
+    if (!assistantOpen) return;
+    // The demo runs no agents; its GET already reports the assistant unavailable.
+    if (__DEMO__) return;
+    untrack(() => void assistantLifecycle.ensure());
+  });
+  // A prefill whose ensure failed or found the assistant unavailable is dropped, not typed into
+  // whatever conversation a later Retry brings up.
+  $effect(() => {
+    if (assistantLifecycle.failed || store.assistantAvailable === false)
+      assistantTypeRequest = null;
+  });
+  let assistantReturnScreen: "list" | "detail" = "list";
+  // Like keynavFocusIntent, but for the assistant's terminal and defaulting to NO: it may take the
+  // keyboard on mount only when the operator just opened the panel (not on a reload that restores
+  // it open beside the session they are typing into).
+  let assistantFocusIntent = false;
+  function consumeAssistantFocus(): boolean {
+    const v = assistantFocusIntent;
+    assistantFocusIntent = false;
+    return v;
+  }
+  let assistantPanelRef: OperatorAssistantPanel | undefined = $state();
+  // An "Ask the assistant" prefill for the panel's terminal; cleared once typed, or on close.
+  let assistantTypeRequest = $state<{ text: string; tick: number } | null>(null);
+  let assistantTypeSeq = 0;
+  function openAssistant() {
+    // Only an opening hands the terminal the keyboard: an already-open panel mounts nothing to
+    // consume the intent, which would then steal focus on some later remount.
+    if (!assistantOpen) assistantFocusIntent = true;
+    rememberAssistantOpen(true);
+    if (mobile.current && mobileScreen !== "assistant") {
+      assistantReturnScreen = mobileScreen;
+      mobileScreen = "assistant";
+    }
+  }
+  async function closeAssistant() {
+    rememberAssistantOpen(false);
+    assistantTypeRequest = null;
+    assistantFocusIntent = false;
+    if (mobileScreen === "assistant") {
+      mobileScreen = assistantReturnScreen;
+      return;
+    }
+    // The panel's close button unmounted with it: keep keyboard users at the toggle.
+    await tick();
+    document.getElementById("topbar-assist")?.focus();
+  }
+  function toggleAssistant() {
+    if (assistantOpen) void closeAssistant();
+    else openAssistant();
+  }
+  // ⌘K "Open Operator Assistant": opens it, or hands an already-open terminal the keyboard once
+  // the command bar has closed and given focus back.
+  function openAssistantFromCommand() {
+    const wasOpen = assistantOpen;
+    openAssistant();
+    if (wasOpen) void tick().then(() => assistantPanelRef?.focusTerminal());
+  }
+  function askAssistant(text: string) {
+    openAssistant();
+    assistantTypeRequest = { text, tick: ++assistantTypeSeq };
+  }
+  function askAboutSession(desig: string) {
+    askAssistant(m.operator_assistant_ask_session({ desig }));
+  }
+  function askFromSettings(question: string) {
+    showSettings = false;
+    askAssistant(question);
+  }
+  function resetAssistant() {
+    assistantFocusIntent = true;
+    void assistantLifecycle.reset();
+  }
+  function openDiagnose() {
+    settingsTab = "diagnose";
+    settingsDeepLink = true;
+    showSettings = true;
   }
 
   // A global session jump must leave the target visible in the herd, even when a lens or
@@ -1866,6 +1995,7 @@
         else if (!selectedId && list[0]) selectedId = list[0].id;
       })
       .catch(() => {});
+    loadOperatorAssistant();
     getUsageLimits()
       .then((r) => store.setUsageLimits(r.limits))
       .catch(() => {});
@@ -2035,6 +2165,7 @@
       onNextNeedsYou: () => selectNextNeedsYou(),
       onLearnings: openLearnings,
       onDiagnoseEpic: () => (showEpicDiagnose = true),
+      onOperatorAssistant: openAssistantFromCommand,
       onDecommission: () => {
         if (selectedId) commandDecommission(selectedId);
       },
@@ -2969,11 +3100,42 @@
   {/if}
 {/snippet}
 
+<!-- The Operator Assistant panel (#1446): the desktop grid's third track, or a phone's assistant
+     screen. One definition so the two homes can't drift. -->
+{#snippet assistantPanel()}
+  <OperatorAssistantPanel
+    bind:this={assistantPanelRef}
+    session={store.assistant}
+    available={store.assistantAvailable}
+    reason={store.assistantUnavailableReason}
+    pending={assistantLifecycle.pending}
+    failed={assistantLifecycle.failed}
+    mobile={mobile.current}
+    touch={touch.current}
+    connected={store.connected}
+    terminalOwners={store.terminalOwners}
+    workingBlocked={store.workingBlocked}
+    backgroundBusy={store.backgroundBusy}
+    herd={store.sessions}
+    typeRequest={assistantTypeRequest}
+    ontyped={(t) => {
+      if (assistantTypeRequest?.tick === t) assistantTypeRequest = null;
+    }}
+    onnavigate={jumpToSession}
+    consumeAutoFocusTerm={consumeAssistantFocus}
+    onretry={() => void assistantLifecycle.retry()}
+    onresume={() => assistantLifecycle.ensure()}
+    onreset={resetAssistant}
+    onclose={closeAssistant}
+    ondiagnose={openDiagnose}
+  />
+{/snippet}
+
 <div
   class="shell"
   class:mobile={mobile.current}
   class:touch-wide={canCollapse}
-  class:list={mobile.current && mobileScreen === "list"}
+  class:list={mobileActionBarPresent}
 >
   <!-- a11y: a single top-level heading for the app shell, visually hidden via the
        scoped .sr-only rule below (no layout change), gives screen-reader users an
@@ -2987,7 +3149,7 @@
   <!-- On a phone in the terminal-focus screen the top bar is subsumed by the
        viewport's merged header (repo · session + back + status tint), so it's
        hidden there; settings + global chrome stay on the herd overview. -->
-  {#if !(mobile.current && mobileScreen === "detail")}
+  {#if showChrome}
     <header class="chrome" class:chrome-hidden={chromeHidden}>
       <TopBar
         sessions={store.sessions}
@@ -3022,11 +3184,7 @@
         backgroundBusy={store.backgroundBusy}
         diagnostics={store.diagnostics}
         diagnosticsOverall={store.diagnosticsOverall}
-        ondiagnose={() => {
-          settingsTab = "diagnose";
-          settingsDeepLink = true;
-          showSettings = true;
-        }}
+        ondiagnose={openDiagnose}
         heldCount={store.heldCount}
         onedithheld={onEditHeld}
         pluginItems={pluginGearItems}
@@ -3038,6 +3196,9 @@
           showSettings = true;
         }}
         settingsChordAllowed={() => !anyOverlayOpen()}
+        assistant={store.assistant}
+        {assistantOpen}
+        onassistant={toggleAssistant}
       />
       <!-- The repo rail is mouse-desktop chrome only. On a phone it cost 48px of the screen's
            top edge for three 10px labels and put a filter out of thumb reach; it now lives in the
@@ -3101,6 +3262,7 @@
             {onrelaunch}
             {onrelaunchElsewhere}
             oncleanTerminal={openCleanTerminal}
+            onaskassistant={askAboutSession}
             {onvariant}
             {onreplace}
             {oncompare}
@@ -3177,6 +3339,8 @@
           {statusFilter}
           onstatusfilter={(s) => (statusFilter = s)}
         />
+      {:else if mobileScreen === "assistant"}
+        {@render assistantPanel()}
       {:else if herdFilter === "done"}
         <!-- Done lens detail (mobile): read-only recap; back returns to the done list -->
         <div class="col">
@@ -3236,6 +3400,7 @@
         class:collapsed={sidebarCollapsed}
         class:resized={herdResized}
         class:resizing={herdResizing}
+        class:assistant={assistantDocked}
         style={herdWidthStyle}
       >
         {#if sidebarCollapsed}
@@ -3281,6 +3446,7 @@
               {onrelaunch}
               {onrelaunchElsewhere}
               oncleanTerminal={openCleanTerminal}
+              onaskassistant={askAboutSession}
               {onvariant}
               {onreplace}
               {oncompare}
@@ -3416,13 +3582,16 @@
         {:else}
           <div class="empty">{m.main_no_unit_selected()}</div>
         {/if}
+        {#if assistantDocked}
+          {@render assistantPanel()}
+        {/if}
       </div>
     {/if}
   </main>
 
   <ActionBar
     onnew={() => (showNew = true)}
-    onbacklog={store.sessions.length > 0 ? () => (showBacklog = true) : undefined}
+    onbacklog={openBacklog}
     mobile={mobile.current}
     desktopOnly
   />
@@ -3565,6 +3734,7 @@
     showSettings = false;
     showWhatsNew = true;
   }}
+  onsettingsaskassistant={askFromSettings}
   {showUsage}
   onusageclose={() => (showUsage = false)}
   {showClone}
@@ -3719,7 +3889,7 @@
     {repoFilter}
     onrepofilter={applyRepoFilter}
     onclearfilter={() => replaceRepoFilter([])}
-    onbacklog={store.sessions.length > 0 ? () => (showBacklog = true) : undefined}
+    onbacklog={openBacklog}
     onclose={() => (showRepos = false)}
   />
 {/if}
@@ -3873,6 +4043,28 @@
   .grid.compact.collapsed {
     grid-template-columns: 44px 1fr;
     gap: 0;
+  }
+  /* Operator Assistant docked (#1446): a third track on the right, one rule per herd variant
+     above (each one class more specific than the variant it extends). The session column turns
+     minmax(0, 1fr) so its terminal shrinks instead of widening the page: at 1024px the herd's
+     and the panel's floors still leave it a column, with no horizontal scroll. */
+  .grid {
+    --assistant-w: clamp(360px, 30vw, 560px);
+  }
+  .grid.assistant {
+    grid-template-columns: minmax(300px, 360px) minmax(0, 1fr) var(--assistant-w);
+  }
+  .grid.assistant.resized {
+    grid-template-columns: var(--herd-w) minmax(0, 1fr) var(--assistant-w);
+  }
+  .grid.assistant.compact {
+    grid-template-columns: minmax(244px, 288px) minmax(0, 1fr) var(--assistant-w);
+  }
+  /* Collapsed drops the gap so the reopen tab abuts the terminal; with a panel docked the
+     compact gap comes back, or the two terminals' hairlines would fuse into one double rule. */
+  .grid.assistant.compact.collapsed {
+    grid-template-columns: 44px minmax(0, 1fr) var(--assistant-w);
+    gap: 10px;
   }
   .reopen-tab {
     height: 100%;

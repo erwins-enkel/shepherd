@@ -153,3 +153,7 @@ test("isFullAuto: unstamped session on the default branch → true (stamp absent
   };
   expect(isFullAuto(plain, fullAutoCfg)).toBe(true);
 });
+
+test("isFullAuto: never the Operator Assistant, whatever its overrides and repo say", () => {
+  expect(isFullAuto({ ...fullAutoSession, operatorAssistant: true }, fullAutoCfg)).toBe(false);
+});

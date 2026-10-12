@@ -61,6 +61,7 @@
     onpluginupdates,
     onpluginapplied,
     onwhatsnew,
+    onaskassistant,
     initialTab = "workspace",
     initialMobileView = "list",
     initialDiagnostics = null,
@@ -82,6 +83,8 @@
      *  snapshot (same contract as PluginUpdatesModal's `onapplied`). */
     onpluginapplied?: (status: PluginUpdatesStatus) => void;
     onwhatsnew?: () => void;
+    /** Diagnose → "Ask the assistant" on a failing check (#1446); receives the question. */
+    onaskassistant?: (question: string) => void;
     initialTab?: SettingsSectionId;
     /** Mobile entry route: "list" shows the section list (plain gear open);
      *  "detail" drills straight into initialTab (deep links — diagnostics dot,
@@ -580,6 +583,7 @@
           {initialDiagnostics}
           {query}
           onherdrupdate={() => onherdrupdate?.()}
+          {onaskassistant}
         />
       </div>
     </SettingsShell>

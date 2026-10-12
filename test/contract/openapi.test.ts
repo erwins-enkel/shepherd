@@ -7,7 +7,7 @@ import { firstRun } from "../../src/first-run";
 import { SESSION_COOKIE } from "../../src/operator-auth";
 import { RESIZE_PREFIX } from "../../src/operator-activity";
 import { SANDBOX_PROFILES } from "../../src/sandbox";
-import { PTY_GONE_CODE, PTY_SUPERSEDED_CODE } from "../../src/server";
+import { PTY_GONE_CODE, PTY_SUPERSEDED_CODE, type AppDeps } from "../../src/server";
 import { TOKEN_SCOPES } from "../../src/token-scopes";
 import { AGENT_PROVIDERS, EFFORTS } from "../../src/types";
 import { WorktreeMissingBaseError } from "../../src/worktree";
@@ -541,6 +541,85 @@ describe("repos", () => {
     };
     expect(body.repos.map((r) => r.path)).toContain(s.validRepo);
   });
+});
+
+describe("operator assistant", () => {
+  const BASE = "/api/operator-assistant";
+  const call = (method: string, path: string) =>
+    fetch(`${s.baseUrl}${path}`, {
+      method,
+      headers: { "content-type": "application/json", ...bearer(token) },
+    });
+
+  test("GET /api/operator-assistant reports availability and the live row", async () => {
+    const res = await call("GET", BASE);
+    const body = await validateResponse("GET", BASE, res);
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({ available: true, reason: null });
+  });
+
+  // The real ensure/reset would create the assistant dir and seed Claude's trust file on this
+  // host, so each case swaps the service method for its requests and puts the prototype's back.
+  for (const [path, method] of [
+    [BASE, "ensureOperatorAssistant"],
+    [`${BASE}/reset`, "resetOperatorAssistant"],
+  ] as const) {
+    test(`POST ${path}: 200 + operator-assistant:update, 409, 502, 503`, async () => {
+      const service = s.deps.service as unknown as Record<string, unknown>;
+      const savedDiagnostics = s.deps.diagnostics;
+      const live = s.deps.store.create({
+        name: "operator-assistant",
+        prompt: "",
+        repoPath: s.tmpRoot,
+        baseBranch: "",
+        branch: null,
+        worktreePath: s.tmpRoot,
+        isolated: false,
+        herdrSession: "default",
+        herdrAgentId: "term_assistant",
+        claudeSessionId: "claude-assistant",
+        model: null,
+        operatorAssistant: true,
+      });
+      const expectStatus = async (status: number) => {
+        const res = await call("POST", path);
+        const body = await validateResponse("POST", path, res);
+        expect(res.status).toBe(status);
+        return body as Record<string, unknown>;
+      };
+      try {
+        service[method] = async () => live;
+        const frames = await collectEvents(s, token, async () => {
+          expect(await expectStatus(200)).toMatchObject({ session: { id: live.id } });
+        });
+        const update = frames.find((f) => f.event === "operator-assistant:update");
+        expect(update, "operator-assistant:update not received").toBeTruthy();
+        validateEvent("operator-assistant:update", update!.data);
+
+        service[method] = async () => {
+          throw Object.assign(new Error("herdr protocol mismatch"), { code: "protocol_mismatch" });
+        };
+        expect((await expectStatus(409)).code).toBe("herdr_restart_required");
+        service[method] = async () => {
+          throw new Error("spawn failed");
+        };
+        await expectStatus(502);
+
+        s.deps.diagnostics = {
+          current: async () => ({
+            checks: [{ id: "herdr", state: "error", hintKey: "diagnostics_hint_herdr_offline" }],
+            generatedAt: 0,
+            overall: "error",
+          }),
+        } as unknown as AppDeps["diagnostics"];
+        expect((await expectStatus(503)).reason).toBe("herdr_unreachable");
+      } finally {
+        delete service[method];
+        s.deps.diagnostics = savedDiagnostics;
+        s.deps.store.archive(live.id);
+      }
+    });
+  }
 });
 
 describe("realtime /events", () => {

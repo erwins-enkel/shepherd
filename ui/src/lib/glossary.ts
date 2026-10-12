@@ -284,6 +284,12 @@ const glossary: readonly GlossaryTerm[] = [
     termKey: "gloss_token_scope_term",
     bodyKey: "gloss_token_scope_def",
   },
+  {
+    id: "operator-assistant",
+    kind: "internal",
+    termKey: "gloss_operator_assistant_term",
+    bodyKey: "gloss_operator_assistant_def",
+  },
 ];
 
 export const glossaryById = new Map<string, GlossaryTerm>(glossary.map((term) => [term.id, term]));

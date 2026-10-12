@@ -20,16 +20,23 @@ interface Harness {
   now: () => number;
 }
 
-function makeHarness(opts?: { sessions?: string[]; ready?: string[] }): Harness {
+function makeHarness(opts?: {
+  sessions?: string[];
+  ready?: string[];
+  /** Ids listed as Operator Assistant rows. */
+  assistants?: string[];
+}): Harness {
   let t = 1_000_000;
   let reduced = true;
   let notifyResult = true;
   const readyIds = new Set<string>(opts?.ready ?? []);
   let sessionIds = new Set<string>(opts?.sessions ?? []);
   const notifyCalls: NotifyInput[] = [];
+  const assistants = new Set(opts?.assistants ?? []);
 
   const deps: ReadyNotifierDeps = {
-    listSessions: () => [...sessionIds].map(sess),
+    listSessions: () =>
+      [...sessionIds].map((id) => ({ ...sess(id), operatorAssistant: assistants.has(id) })),
     workingBlocked: () => ({}),
     backgroundBusy: () => ({}),
     gitSnapshot: () => ({}),
@@ -101,6 +108,17 @@ describe("ReadyNotifier", () => {
     await h.notifier.tick();
     await h.notifier.tick();
     expect(readyCalls(h).length).toBe(1);
+  });
+
+  it("the Operator Assistant never fires; a ready task beside it does", async () => {
+    const h = makeHarness({ sessions: ["a", "oa"], ready: [], assistants: ["oa"] });
+    await h.notifier.tick(); // arm
+    h.advance(READY_WARMUP_MS + 1);
+    h.set("a", "oa");
+    await h.notifier.tick(); // dwell starts
+    h.advance(READY_DWELL_MS + 1);
+    await h.notifier.tick();
+    expect(readyCalls(h).map((c) => c.sessionId)).toEqual(["a"]);
   });
 
   it("dwell: <5s no fire, crossing 5s one fire (warm-up already met)", async () => {

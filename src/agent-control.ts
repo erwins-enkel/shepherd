@@ -21,6 +21,8 @@
  *     Plus `browser_request_login` (issue #2882), the one tool with no REST twin: it raises a
  *     Login Request (src/login-request.ts) and long-polls for the operator's answer. Only the
  *     operator app can resolve it — the agent cannot mark its own request done.
+ *     And the Operator Assistant's diagnostic tools (issue #1446), which live in
+ *     src/operator-assistant-tools.ts and are registered here for that one session only.
  *  3. **The session-gated tool catalog** (`agentTools`) — a session only sees the tools its
  *     capabilities warrant (queue tools when the repo runs the build queue, the draft tool for
  *     an epic-authoring session). An empty catalog means the spawn passes no `--mcp-config` at
@@ -44,6 +46,15 @@ import { validateEpicDraft } from "./epic-author";
 import type { RateLimitSnapshot } from "./forge/rate-limit";
 import type { GitState } from "./forge/types";
 import type { LoginRequestService } from "./login-request";
+import { isOperatorAssistant } from "./operator-assistant-core";
+import {
+  applyHerdStatus,
+  applyLogsTail,
+  applyRepoAutomation,
+  applySystemHealth,
+  OPERATOR_DIAG_TOOLS,
+  type OperatorDiagDeps,
+} from "./operator-assistant-tools";
 import type { PrCache } from "./pr-poller";
 import type { SessionStore } from "./store";
 import type { BuildQueue, EpicDraft, Session } from "./types";
@@ -71,6 +82,8 @@ export interface AgentControlDeps {
   openLoginTab?: (repoPath: string, url: string, sessionId: string) => Promise<void>;
   /** One `browser_request_login` call's wait window (ms); default `LOGIN_WAIT_MS`. */
   loginWaitMs?: number;
+  /** The Operator Assistant's diagnostic reads (#1446); absent ⇒ its tools answer "unavailable". */
+  operatorDiag?: OperatorDiagDeps;
 }
 
 /** Transport-neutral outcome of an applier: the REST route renders it as a Response, the MCP
@@ -157,9 +170,10 @@ function makeFence(): Fence {
   return (label, text) => (text ? fenceUntrusted(label, text, nonce) : "");
 }
 
-/** A session is readable when it is live and an agent session (terminal shells are not work). */
+/** A session is readable when it is live and an agent session (terminal shells are not work), and
+ *  not the Operator Assistant, which is the operator's own and not part of the herd (#1446). */
 function isReadable(s: Session): boolean {
-  return s.status !== "archived" && !s.terminal;
+  return s.status !== "archived" && !s.terminal && !isOperatorAssistant(s);
 }
 
 /** A session's PR + CI state, or null when it has none (or nothing is cached yet). */
@@ -537,7 +551,25 @@ export interface AgentCapabilities {
   /** `browser_request_login` — a non-plain, non-autonomous session in a repo with the Shared
    *  Browser on (the same sessions that get a Browser Attach config). */
   browserLogin: boolean;
+  /** The Operator Assistant's diagnostic tools (#1446) — that session only, and nothing else. */
+  operatorDiag: boolean;
 }
+
+/** An unknown session's capabilities: none. */
+const NO_CAPABILITIES: AgentCapabilities = {
+  buildQueue: false,
+  epicDraft: false,
+  sessionRead: false,
+  browserLogin: false,
+  operatorDiag: false,
+};
+
+/** The Operator Assistant's capabilities: its diagnostic tools and nothing else — no queue, epic,
+ *  browser or `sessions_*` tools. Shared by the spawn path (no row yet) and the row path. */
+export const OPERATOR_ASSISTANT_CAPABILITIES: AgentCapabilities = {
+  ...NO_CAPABILITIES,
+  operatorDiag: true,
+};
 
 /**
  * The NON-CODE session modes — research, epic-authoring, landing-repair, plain. The first three
@@ -569,6 +601,7 @@ function toolsFor(caps: AgentCapabilities): McpTool[] {
   if (caps.epicDraft) tools.push(EPIC_DRAFT);
   if (caps.sessionRead) tools.push(SESSIONS_LIST, SESSIONS_SHOW, SELF_STATUS);
   if (caps.browserLogin) tools.push(BROWSER_REQUEST_LOGIN);
+  if (caps.operatorDiag) tools.push(...OPERATOR_DIAG_TOOLS);
   return tools;
 }
 
@@ -592,8 +625,8 @@ export function browserLoginAllowed(
  *  mode flags, so a resume applies the same non-code suppression the spawn did. */
 export function sessionCapabilities(deps: AgentControlDeps, sessionId: string): AgentCapabilities {
   const session = deps.store.get(sessionId);
-  if (!session)
-    return { buildQueue: false, epicDraft: false, sessionRead: false, browserLogin: false };
+  if (!session) return NO_CAPABILITIES;
+  if (isOperatorAssistant(session)) return OPERATOR_ASSISTANT_CAPABILITIES;
   const repoConfig = deps.store.getRepoConfig(session.repoPath);
   return {
     buildQueue: repoConfig.buildQueueEnabled && !isNonCodeMode(session),
@@ -604,6 +637,7 @@ export function sessionCapabilities(deps: AgentControlDeps, sessionId: string): 
       session.plain,
       session.sandboxApplied,
     ),
+    operatorDiag: false,
   };
 }
 
@@ -684,6 +718,10 @@ const TOOL_HANDLERS: Record<string, ToolHandler> = {
   self_status: (deps, id) => applySelfStatus(deps, id),
   browser_request_login: (deps, id, args, signal) =>
     applyBrowserRequestLogin(deps, id, args, signal),
+  herd_status: (deps, _id, args) => applyHerdStatus(deps, args),
+  repo_automation: (deps, _id, args) => applyRepoAutomation(deps, args),
+  system_health: (deps) => applySystemHealth(deps),
+  logs_tail: (deps, _id, args) => applyLogsTail(deps, args),
 };
 
 /** Run one `tools/call`. A tool the session isn't entitled to is a protocol error (-32602); an

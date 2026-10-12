@@ -156,6 +156,37 @@ test("sweeps a repo present only via extraRepos (idle repo whose sessions were p
   rmSync(repo, { recursive: true, force: true });
 });
 
+test("never treats the Operator Assistant's dir as a repo; a task's repo beside it is swept", async () => {
+  const repo = mkRepo();
+  const assistantDir = mkRepo(); // worst case: the assistant dir sits inside a git checkout
+  git(repo, "branch", "shepherd/merged");
+  git(assistantDir, "branch", "shepherd/merged");
+  const store = new SessionStore(":memory:");
+  store.archive(store.create(sessionOn(repo, "shepherd/merged")).id);
+  store.create({
+    ...sessionOn(assistantDir, "shepherd/merged"),
+    name: "operator-assistant",
+    baseBranch: "",
+    branch: null,
+    worktreePath: assistantDir,
+    isolated: false,
+    operatorAssistant: true,
+  });
+  const asked: string[] = [];
+  const pruner = new BranchPruner(store, (dir) => {
+    asked.push(dir);
+    return forge({ "shepherd/merged": "merged" });
+  });
+
+  await pruner.tick();
+
+  expect(asked).not.toContain(assistantDir);
+  expect(localBranches(repo)).not.toContain("shepherd/merged");
+  expect(localBranches(assistantDir)).toContain("shepherd/merged");
+  rmSync(repo, { recursive: true, force: true });
+  rmSync(assistantDir, { recursive: true, force: true });
+});
+
 test("never deletes a checked-out branch, even when merged", async () => {
   const repo = mkRepo();
   const wt = join(repo, "..", `${Date.now()}-live`);

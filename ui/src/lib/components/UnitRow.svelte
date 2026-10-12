@@ -98,6 +98,7 @@
     onvariant,
     onreplace,
     oncleanTerminal,
+    onaskassistant,
     repoFilter = undefined,
     onrepofilter,
     workingBlocked = {},
@@ -149,6 +150,9 @@
     // when provided, the CardMenu gains a "Clean terminal in main repo" item (repo-scoped:
     // the handler receives repoPath, not the session id). Hidden on a terminal row itself.
     oncleanTerminal?: (repoPath: string) => void;
+    // when provided, the CardMenu gains an "Ask the assistant" item (#1446): the handler receives
+    // the desig to ask about. Hidden on a terminal row (no agent to ask about) and an archived one.
+    onaskassistant?: (desig: string) => void;
     // active page-level repo filter (selected repo paths); drives the icon's pressed state
     repoFilter?: ReadonlySet<string>;
     // when provided, clicking the inline repo emoji scopes the herd to this repo. Always a
@@ -755,6 +759,14 @@
   // terminal row (focusing itself is pointless).
   const cleanTerminalAble = $derived(!!oncleanTerminal && !session.terminal);
   const onCleanTerminal = $derived(cleanTerminalAble ? cleanTerminalFromMenu : undefined);
+  // Same cap rationale for "Ask the assistant".
+  const askable = $derived(
+    !!onaskassistant &&
+      !session.terminal &&
+      session.archivedAt == null &&
+      session.status !== "archived",
+  );
+  const onAskAssistant = $derived(askable ? askAssistantFromMenu : undefined);
   let hitEl = $state<HTMLButtonElement>();
   let elapsedEl = $state<HTMLSpanElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
@@ -771,7 +783,8 @@
       relaunchElsewhereAble ||
       variantable ||
       replaceable ||
-      cleanTerminalAble,
+      cleanTerminalAble ||
+      askable,
   );
   function openMenuAt(x: number, y: number): boolean {
     if (menu || !hasMenu) return false;
@@ -871,6 +884,10 @@
   function cleanTerminalFromMenu() {
     menu = null;
     oncleanTerminal?.(session.repoPath);
+  }
+  function askAssistantFromMenu() {
+    menu = null;
+    onaskassistant?.(session.desig);
   }
 
   function relaunchElsewhereFromMenu() {
@@ -1189,6 +1206,7 @@
     onmergepr={mergeable ? mergeFromMenu : undefined}
     onstop={onStop}
     onresume={resumeFromMenu}
+    onaskassistant={onAskAssistant}
     onrename={onrename ? renameFromMenu : undefined}
     onamend={onamend ? amendFromMenu : undefined}
     onrelaunch={relaunchable ? relaunchFromMenu : undefined}

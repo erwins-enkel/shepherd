@@ -437,3 +437,77 @@ If the script fails, herdr still starts.
 The unit also sets `TasksMax=16384`. Every pane and its threads count against
 herdr's task limit, and a low systemd default (2500 on some hosts) can make herdr
 crash with `pthread_create: EAGAIN`.
+
+## Operator Assistant
+
+The **Operator Assistant** is a Claude session that Shepherd runs for you and grounds
+in its own state. Ask it in plain words why the herd stalled, why an epic won't drain,
+why an agent died, or whether this node is healthy. It reads, explains and tells you
+what to do — it changes nothing itself.
+
+It uses Shepherd's default Claude model and effort, and its tokens count toward your
+usage like any session's. The first open starts it with no prompt, so nothing is spent
+until you ask.
+
+### Open it
+
+- **Assist** in the top bar opens it as a panel beside the selected session; ⌘K / Ctrl+K
+  → _Open Operator Assistant_ does the same. The session terminal keeps working next to
+  it. On a phone the assistant is its own screen, opened from the gear sheet; **Back**
+  returns to where you were.
+- **Ask the assistant** in a herd row's right-click / long-press menu opens it with
+  "What's going on with TASK-31, and is anything stuck?" typed into its prompt.
+- **Ask the assistant** on a warning or error check under Settings → Diagnose does the
+  same for that check.
+
+An Ask types the question but never sends it: read it, edit it, press Enter. Whether the
+panel is open is remembered per device. The Assist button carries a pip: amber while the
+assistant works, red while a command waits for your approval.
+
+### What it reads
+
+Through four read-only tools:
+
+- **the herd** — every live session's status, plan gate, hold reason and minutes since
+  its last update, plus the held tasks per repo; for one session also its recent signals
+  and its PR and CI state;
+- **repo automation** — the drain, auto-merge, critic and usage-ceiling settings, the drain
+  status, and epic runs and queues;
+- **diagnostics and the host** — the Settings → Diagnose checks, herdr's runtime, load,
+  memory and pressure, the Shepherd, herdr and claude versions, and the systemd state of
+  Shepherd and herdr;
+- **logs** — the tail of Shepherd's, herdr's and the updaters' logs, with secrets masked.
+
+It can also read Shepherd's own docs and source in the install directory.
+
+### The approval model
+
+The assistant runs in Claude's default permission mode:
+
+- **Every Bash command asks** for your approval in the panel — even one Claude would
+  normally treat as read-only. For anything that changes state it hands you the exact
+  command or the UI path instead of running it.
+- **File edits are denied** (Edit, Write, NotebookEdit).
+- **Credential files are unreadable:** `~/.shepherd/env`, `~/.config/shepherd/config.toml`,
+  `~/.claude/.credentials.json`, `~/.codex/auth.json`, `~/.config/gh/hosts.yml`,
+  `~/.ssh/`, `~/.aws/`, `~/.config/gcloud/`, `~/.azure/`, `~/.netrc`,
+  `~/.git-credentials`, `~/.docker/config.json` and `~/.kube/config`.
+- Reading anything outside its own directory and the install directory asks first. Raw
+  log files are no exception; the log tool's masked tail is the way in.
+- **Your own `~/.claude` settings don't apply inside it:** their allow rules can't approve
+  a command for you, and your plugins and hooks don't load. Only Shepherd's MCP server is
+  connected.
+
+### When herdr is down
+
+The assistant runs in a herdr pane, so it can't run while herdr is down. The panel then
+says so and links to Settings → Diagnose, which reports herdr's state and offers its
+repair. The same goes for a node without `claude`: the panel names the reason instead of
+starting anything.
+
+### New conversation
+
+**New conversation** in the panel header (click it twice to confirm) archives the current
+conversation and starts a fresh one. Closing the panel only hides it: the conversation
+keeps going, survives reloads, and after a Shepherd or herdr restart the next open
+resumes it.

@@ -6,6 +6,7 @@ import type { PluginInfo } from "./plugins/types";
 import type { SessionService } from "./service";
 import {
   emitSessionAmendments,
+  OperatorAssistantSessionError,
   PREVIEW_SETUP_STEER,
   RestoreError,
   TerminalExistsError,
@@ -249,6 +250,8 @@ import {
   type ApplyResult,
   type GithubBackoff,
 } from "./agent-control";
+import { isOperatorAssistant } from "./operator-assistant-core";
+import type { OperatorDiagDeps } from "./operator-assistant-tools";
 import {
   anyLiveRepairSession,
   computeLandingReady,
@@ -268,7 +271,7 @@ import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./ba
 import { peekIssue } from "./issue-peek";
 import { createIssueWithLabels, issueForgeGap } from "./issue-create";
 import { SNAPSHOT_TTL_MS, type OpenPrSnapshotService } from "./open-pr-snapshot";
-import { join, normalize, basename } from "node:path";
+import { dirname, join, normalize, basename } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import type { Server, ServerWebSocket } from "bun";
@@ -2786,13 +2789,16 @@ export async function claimLinkedIssue(forge: GitForge | null, issueNumber: numb
 /** Map a service.create() error to the appropriate Response.
  *  SandboxAutoRefused → 403; missing base ref → 422; agent_name_taken → 409;
  *  anything else → 502. */
-/** 409 mappings for the clean-terminal fences (TerminalExistsError & friends, service.ts).
- *  `existingId` rides the singleton conflict so the UI can focus the already-open terminal. */
+/** 409 mappings for the clean-terminal fences (TerminalExistsError & friends, service.ts) and the
+ *  Operator Assistant's verb fence, which mirrors them. `existingId` rides the singleton conflict
+ *  so the UI can focus the already-open terminal. */
 function terminalErrorResponse(e: unknown): Response | null {
   if (e instanceof TerminalExistsError)
     return json({ error: "terminal_exists", existingId: e.existingId }, 409);
   if (e instanceof TerminalUnsupportedError) return json({ error: "terminal_unsupported" }, 409);
   if (e instanceof TerminalSessionError) return json({ error: "terminal_session" }, 409);
+  if (e instanceof OperatorAssistantSessionError)
+    return json({ error: "operator_assistant_session" }, 409);
   return null;
 }
 
@@ -3098,7 +3104,9 @@ async function withScratchpadFlags(
 // (not per session): the window can hold many sessions across a few repos, and the first
 // resolveForge() call per dir shells out to git on a cold cache. Warm cache → no shell-out.
 function doneSessionsWithIssueUrl(deps: AppDeps): Array<Session & { issueUrl?: string }> {
-  const sessions = deps.store.listRecentlyArchived(Date.now() - DONE_LENS_WINDOW_MS);
+  const sessions = deps.store
+    .listRecentlyArchived(Date.now() - DONE_LENS_WINDOW_MS)
+    .filter((s) => !isOperatorAssistant(s));
   const repoWebUrl = new Map<string, string | null>();
   for (const path of new Set(sessions.map((s) => s.repoPath)))
     repoWebUrl.set(path, deps.resolveForge?.(path)?.webUrl ?? null);
@@ -3114,7 +3122,7 @@ const SESSION_LISTS = new Map<string, (deps: AppDeps) => unknown>([
   // "Done" lens: sessions archived within the last DONE_LENS_WINDOW_MS, newest-first.
   ["done", doneSessionsWithIssueUrl],
   // Every archived session, newest-first (`shepherd sessions list --all`, #2590).
-  ["archived", (deps) => deps.store.listArchivedSessions()],
+  ["archived", (deps) => deps.store.listArchivedSessions().filter((s) => !isOperatorAssistant(s))],
 ]);
 
 /** GET /api/sessions/:id/steer-log — who typed into the session and when (Shepherd's steers vs
@@ -3132,7 +3140,10 @@ async function handleSessionReads({ req, parts, url, deps, token }: Ctx): Promis
       await withScratchpadFlags(
         deps.store
           .list({ activeOnly: true })
-          .filter((session) => tokenRepoAllowed(token, session.repoPath)),
+          // The Operator Assistant is not herd work: its own route serves it (#1446).
+          .filter(
+            (session) => !isOperatorAssistant(session) && tokenRepoAllowed(token, session.repoPath),
+          ),
       ),
     );
   // Must precede the bare sessionRead fall-through so "done"/"archived" aren't read as session ids.
@@ -3204,7 +3215,8 @@ async function handleTaskExport({ req, parts, deps }: Ctx): Promise<Response | n
   if (parts[3] !== "export" && parts[3] !== "transcript") return null;
 
   const s = sessionByTaskKey(key, deps);
-  if (!s) return json({ error: "not found" }, 404);
+  // The Operator Assistant is not a task, so it has no task export (#1446).
+  if (!s || isOperatorAssistant(s)) return json({ error: "not found" }, 404);
   if (parts[3] === "transcript") return taskTranscriptDownload(s);
   return json(
     await buildTaskExport(s, {
@@ -4724,17 +4736,93 @@ async function handleSessionMcp({ req, parts, deps }: Ctx): Promise<Response | n
   return json(outcome.body, outcome.status);
 }
 
-/** The control plane's deps: AppDeps plus the Shared Browser tab opener `browser_request_login`
- *  needs (a tab remembered as the session's, so Browser View preselects it). */
+/** The control plane's deps: AppDeps plus the Operator Assistant's diagnostic reads and the Shared
+ *  Browser tab opener `browser_request_login` needs (a tab remembered as the session's, so Browser
+ *  View preselects it). */
 function mcpDeps(deps: AppDeps): AgentControlDeps {
   const browser = deps.sharedBrowser;
-  if (!browser) return deps;
   return {
     ...deps,
-    openLoginTab: async (repoPath, url, sessionId) => {
-      await browser.open(repoPath, url, { sessionId });
-    },
+    operatorDiag: operatorDiagDeps(deps),
+    ...(browser && {
+      openLoginTab: async (repoPath: string, url: string, sessionId: string) => {
+        await browser.open(repoPath, url, { sessionId });
+      },
+    }),
   };
+}
+
+/** The Operator Assistant's diagnostic reads (#1446): the same services the operator routes read.
+ *  The epic diagnosis is what GET /api/epic/diagnose returns — the drain's diagnosis of the
+ *  parent's run, which is the repo's stored run when it is this parent's (the diagnosis reads only
+ *  the run's repo and parent). herdr's server log sits beside its socket. */
+function operatorDiagDeps(deps: AppDeps): OperatorDiagDeps {
+  const drain = deps.drain;
+  return {
+    repos: () => listRepos(config.repoRoot).map((r) => r.path),
+    holds: deps.holds,
+    drain,
+    diagnoseEpic:
+      drain &&
+      ((repoPath, parent) => {
+        const dir = safeRepoDir(repoPath, config.repoRoot);
+        return dir
+          ? drain.diagnoseEpic(dir, runForParent(deps.store, dir, parent))
+          : Promise.resolve(null);
+      }),
+    diagnostics: deps.diagnostics,
+    logPaths: {
+      shepherd: config.shepherdLogPath,
+      "herdr-server": join(dirname(config.herdrSocketPath), "herdr-server.log"),
+      "herdr-update": config.herdrUpdateLogPath,
+      "codex-update": config.codexUpdateLogPath,
+    },
+    herdrSocketPath: config.herdrSocketPath,
+  };
+}
+
+/** Why the Operator Assistant can't run, read off Settings → Diagnose, or null when it can (or when
+ *  diagnostics is unwired). It runs claude only, so any non-ok `claude` check is missing — that row
+ *  reads `optional` rather than `error` while codex is present. It runs in a herdr pane, so a
+ *  `herdr` error (absent, offline, unsupported or needing a restart) leaves it nowhere to run. */
+async function operatorAssistantUnavailable(
+  deps: AppDeps,
+): Promise<"claude_missing" | "herdr_unreachable" | null> {
+  if (!deps.diagnostics) return null;
+  const { checks } = await deps.diagnostics.current(Date.now());
+  const state = (id: string) => checks.find((c) => c.id === id)?.state;
+  const claude = state("claude");
+  if (claude !== undefined && claude !== "ok") return "claude_missing";
+  if (state("herdr") === "error") return "herdr_unreachable";
+  return null;
+}
+
+// GET /api/operator-assistant → {available, reason, session}; POST → ensure the assistant is live;
+// POST /api/operator-assistant/reset → New conversation (#1446). Operator app only: none of these
+// sits under /api/sessions/<id>, so isAgentIngressRoute never admits them. Unavailable ⇒ 503
+// {error, reason} and nothing spawns. A successful ensure/reset emits `operator-assistant:update`,
+// deliberately not `session:new`, so the row never joins another client's herd.
+async function handleOperatorAssistant({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "operator-assistant")) return null;
+  const reset = parts[2] === "reset" && !parts[3];
+  if (parts[2] && !reset) return null;
+  if (req.method === "GET" && !reset) {
+    const reason = await operatorAssistantUnavailable(deps);
+    const session = deps.store.getLiveOperatorAssistant();
+    return json({ available: reason === null, reason, session });
+  }
+  if (req.method !== "POST") return null;
+  const reason = await operatorAssistantUnavailable(deps);
+  if (reason) return json({ error: "operator assistant unavailable", reason }, 503);
+  try {
+    const session = reset
+      ? await deps.service.resetOperatorAssistant()
+      : await deps.service.ensureOperatorAssistant();
+    deps.events.emit("operator-assistant:update", { session });
+    return json({ session });
+  } catch (e) {
+    return createErrorResponse(e);
+  }
 }
 
 // GET /api/login-requests — every open Login Request (#2882), keyed by session id (bootstrap).
@@ -9549,6 +9637,7 @@ const ROUTE_HANDLERS = [
   handleSessionMcp,
   handleSessionLoginRequest,
   handleLoginRequestsSnapshot,
+  handleOperatorAssistant,
   handleBuildQueue,
   handleEpicDraft,
   handleTaskExport,

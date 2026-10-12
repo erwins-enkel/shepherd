@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { claudeTranscriptExists } from "./usage";
 import type { RepoConfig, SessionStore } from "./store";
 import { TERMINAL_CLAIM_TTL_MS } from "./store";
@@ -13,9 +13,18 @@ import {
   browserLoginAllowed,
   hasAgentTools,
   isNonCodeMode,
+  OPERATOR_ASSISTANT_CAPABILITIES,
   sessionCapabilities,
   type AgentCapabilities,
 } from "./agent-control";
+import {
+  buildOperatorAssistantArgv,
+  isOperatorAssistant,
+  operatorAssistantBrief,
+  operatorAssistantPermissions,
+} from "./operator-assistant-core";
+import { claudeConfigPath, ensureRepoRootTrusted } from "./claude-trust";
+import { singleFlight } from "./single-flight";
 import { worktreePathFor, type WorktreeMgr } from "./worktree";
 import type { HerdrAgent, HerdrDriver } from "./herdr";
 import {
@@ -67,6 +76,7 @@ import { slugifyManual, isHeuristicNameStrong, NAMER_LABEL, withIssueNumber } fr
 import { SpawnCanceled, SpawnPhaseTracker } from "./spawn-progress";
 import {
   clampCodexModelForAuth,
+  drainSpawnModel,
   modelCompatibleWithProvider,
   modelForProviderOrDefault,
   spawnModelForAvailability,
@@ -74,7 +84,7 @@ import {
 } from "./default-model";
 import { readCodexAuthMode } from "./codex-auth";
 import { codexNoDaemonArgs } from "./codex-cli-capabilities";
-import { effortForSpawn } from "./default-effort";
+import { drainSpawnEffort, effortForSpawn, engineDefaultEffortSetting } from "./default-effort";
 import {
   isApiKeyMode,
   isApiKeyConfigured,
@@ -217,6 +227,24 @@ export class TerminalSessionError extends Error {
   }
 }
 
+/** Thrown by the per-task agent verbs (relaunch, provider replace / continue-with, variant,
+ *  restore) when targeted at the Operator Assistant: it is a singleton that only
+ *  `ensureOperatorAssistant` / `resetOperatorAssistant` spawn. Route-mapped to 409, like
+ *  TerminalSessionError. */
+export class OperatorAssistantSessionError extends Error {
+  constructor(verb: string) {
+    super(`${verb} is not available for the operator assistant`);
+    this.name = "OperatorAssistantSessionError";
+  }
+}
+
+/** Shepherd's install root, which the Operator Assistant reads via `--add-dir` (same derivation as
+ *  src/tool-guard-hook.ts: this file lives in `src/`). */
+const SHEPHERD_INSTALL_ROOT = resolve(import.meta.dir, "..");
+
+/** The Operator Assistant's base session name (uniqueName de-dupes it against live herdr agents). */
+const OPERATOR_ASSISTANT_NAME = "operator-assistant";
+
 export const MERGE_STALE_MS = 30 * 60_000;
 
 /** Absolute backstop for a STILL-RUNNING merge-train completion-tracker entry: a
@@ -331,6 +359,11 @@ export interface ServiceDeps {
   /** Dir holding per-session Browser Attach config files (seam); default
    *  `config.browserAttachDir`. */
   browserAttachDir?: string;
+  /** The Operator Assistant's working dir (seam); default `config.operatorAssistantDir`. */
+  operatorAssistantDir?: string;
+  /** Pre-accept Claude's workspace trust for the assistant dir (seam); default
+   *  `ensureRepoRootTrusted`, which writes the operator's `.claude.json`. */
+  trustDir?: (configPath: string, dir: string) => Promise<void>;
   /** slirp host-loopback capability probe seam (tests inject `() => true` / `() => false`); defaults
    *  to the cached real version probe in egress.ts. Gates reaching Shepherd via 10.0.2.2. */
   detectEgressHostLoopback?: () => boolean;
@@ -525,10 +558,14 @@ export function resetUserSkillNamesCacheForTests(): void {
  * The `PreToolUse` tool guard (issue #2002, `config.toolGuard`) is merged into the same `hooks`
  * object from buildToolGuardFragment. It is independent of `hooksIngest` — a local `command` hook,
  * not an HTTP one — so it rides even when ingest is off, and the two never collide on an event.
+ *
+ * `permissions` (the Operator Assistant only, #1446 — see operatorAssistantPermissions) adds Claude's
+ * `permissions` block. Absent → key omitted, so every task spawn's overlay stays byte-identical.
  */
 export function spawnSettingsOverlay(
   opts: SpawnTrimOverlay & {
     hooks?: { sessionId: string; baseUrl: string; token: string | null };
+    permissions?: { defaultMode: string; allow: string[]; ask: string[]; deny: string[] };
   } = {},
 ): string {
   const settings: Record<string, unknown> = {
@@ -551,6 +588,7 @@ export function spawnSettingsOverlay(
     ...(config.hooksIngest && opts.hooks ? buildHooksFragment(opts.hooks) : {}),
   };
   if (Object.keys(hooks).length > 0) settings.hooks = hooks;
+  if (opts.permissions) settings.permissions = opts.permissions;
   // #1159: an api key gets the five-minute prompt cache by default, so a coffee-break idle
   // re-writes the whole context. `promptCacheTtl` (Claude Code >= 2.1.242) lifts only the main
   // conversation to an hour — NOT `ENABLE_PROMPT_CACHING_1H`, which lifts subagents too — and it
@@ -2809,7 +2847,9 @@ export class SessionService {
     | { patchEnv: Record<string, string>; finalInnerArgv: string[] }
     | { holdReason: string; abortCause?: PluginSpawnAborted }
   > {
-    if (!this.deps.runSpawnHooks) return { patchEnv: {}, finalInnerArgv: innerArgv };
+    if (!this.deps.runSpawnHooks || ctx.operatorAssistant) {
+      return { patchEnv: {}, finalInnerArgv: innerArgv };
+    }
     // ADVISORY descriptor env: the explicit overlay Shepherd sets ON TOP OF the inherited
     // process env (see SpawnDescriptor). Under trusted the agent also inherits the parent
     // env; the sandbox passthrough vars are only set explicitly when a membrane wraps.
@@ -2900,6 +2940,9 @@ export class SessionService {
       /** Operator cancellation, checked inside herdr's auto-detect poll loop. Interactive
        *  create only — resume/drain/relaunch pass none and behave exactly as before. */
       signal?: AbortSignal;
+      /** The Operator Assistant (#1446): plugin onSpawn hooks are skipped, so no plugin can patch
+       *  its read-only argv (e.g. append a permission bypass) or its env. */
+      operatorAssistant?: boolean;
     },
   ): Promise<SpawnOutcome> {
     const repoConfig = this.deps.store.getRepoConfig(ctx.repoPath);
@@ -3257,6 +3300,12 @@ export class SessionService {
   /** Push the task `--model` flag onto `argv`, substituting opus[1m] when fable is
    *  globally unavailable. Argv-only — never rewrites the stored session model. */
   private pushModelFlag(argv: string[], model: string | null): void {
+    const spawnModel = this.spawnModel(model);
+    if (spawnModel) argv.push("--model", spawnModel);
+  }
+
+  /** The model a Claude spawn actually runs for a configured `model` — see pushModelFlag. */
+  private spawnModel(model: string | null): string | null {
     // Usage-aware downgrade wins over the configured model once live usage crosses the threshold;
     // the thunk already returns an availability-resolved alias, so it replaces `model` outright.
     // Scope: every spawn that flows through pushModelFlag — Claude main sessions + the role agents
@@ -3273,7 +3322,7 @@ export class SessionService {
     } else if (spawnModel !== requested) {
       console.info(`model: fable unavailable — spawning on ${spawnModel} instead of ${requested}`);
     }
-    if (spawnModel) argv.push("--model", spawnModel);
+    return spawnModel;
   }
 
   /**
@@ -3526,6 +3575,7 @@ export class SessionService {
       epicDraft: Boolean(input.epicAuthoring),
       sessionRead: !input.plain,
       browserLogin: browserLoginAllowed(repoConfig.sharedBrowserEnabled, input.plain, profile),
+      operatorDiag: false,
     };
     this.pushAgentMcpFlag(argv, sessionId, baseUrl, caps);
     // Serve the endpoint until the row exists; `create` clears this however the spawn ends.
@@ -3683,6 +3733,7 @@ export class SessionService {
     trim: TrimDecision,
     codexSessionId: string | null = null,
   ): string[] {
+    if (isOperatorAssistant(s)) return this.operatorAssistantArgv(s, true);
     return provider === "codex"
       ? this.buildCodexResumeArgv(s.model, s.effort, codexSessionId!)
       : this.buildClaudeResumeArgv(s, trim);
@@ -3788,6 +3839,7 @@ export class SessionService {
       // ctx.state keyed by sessionId; see issue #1124).
       model: session.model ?? null,
       agentProvider: session.agentProvider,
+      operatorAssistant: isOperatorAssistant(session),
     });
   }
 
@@ -4392,6 +4444,198 @@ export class SessionService {
     }
   }
 
+  // ── Operator Assistant (#1446) ─────────────────────────────────────────────
+
+  /** Tail of the assistant's lifecycle chain. Ensure and reset run strictly one after the other, so
+   *  a New conversation clicked while an ensure is still spawning archives THAT row instead of
+   *  racing it into a second live assistant. */
+  private assistantChain: Promise<unknown> = Promise.resolve();
+  /** Concurrent ensures (a double-clicked Assist, two open tabs) share one run; so do resets. */
+  private readonly ensureAssistantOnce = singleFlight(() =>
+    this.serializeAssistant(() => this.ensureOperatorAssistantNow()),
+  );
+  private readonly resetAssistantOnce = singleFlight(() =>
+    this.serializeAssistant(() => this.resetOperatorAssistantNow()),
+  );
+
+  private serializeAssistant<T>(run: () => Promise<T>): Promise<T> {
+    const next = this.assistantChain.then(run, run);
+    this.assistantChain = next.catch(() => {});
+    return next;
+  }
+
+  /**
+   * The live Operator Assistant row, bringing it up first when needed:
+   *  - no live row → spawn one;
+   *  - its pane is gone, or only a shell is left (claude exited, or herdr restored the tab after a
+   *    restart) → resume the SAME row with `--resume`, so the conversation survives;
+   *  - nothing to resume (no turn was ever sent, so Claude wrote no transcript) → archive it and
+   *    spawn a fresh one;
+   *  - otherwise it is live → returned as is. Status `done` is not "gone": the turn finished and
+   *    claude waits at its prompt.
+   */
+  ensureOperatorAssistant(): Promise<Session> {
+    return this.ensureAssistantOnce();
+  }
+
+  /** New conversation: archive the live assistant (normal archive path; it has no worktree to
+   *  remove) and spawn a fresh one. */
+  resetOperatorAssistant(): Promise<Session> {
+    return this.resetAssistantOnce();
+  }
+
+  private async ensureOperatorAssistantNow(): Promise<Session> {
+    const live = this.deps.store.getLiveOperatorAssistant();
+    if (!live) return this.createOperatorAssistant();
+    const agent = this.liveAgentFor(live.id);
+    // Re-point a herdr-restored pane first, so a replace below stops the pane that is really there.
+    const current = (agent && this.adoptLiveResumeAgent(live, agent)) || live;
+    if (agent && !(await this.paneIsBareShell(agent))) return current;
+    if (!this.canRespawnConversation(current)) return this.replaceOperatorAssistant(current);
+    const resumed = await this.resume(current.id, { force: agent !== null });
+    if (!resumed) throw new Error(`operator assistant ${current.desig} could not be resumed`);
+    return resumed;
+  }
+
+  private async resetOperatorAssistantNow(): Promise<Session> {
+    const live = this.deps.store.getLiveOperatorAssistant();
+    return live ? this.replaceOperatorAssistant(live) : this.createOperatorAssistant();
+  }
+
+  private async replaceOperatorAssistant(old: Session): Promise<Session> {
+    await this.archive(old.id);
+    return this.createOperatorAssistant();
+  }
+
+  /** True when a listed pane runs nothing but a shell: its agent exited and herdr kept the tab.
+   *  Fails toward "alive" — a pane that can't be inspected is never replaced on a guess. */
+  private async paneIsBareShell(agent: HerdrAgent): Promise<boolean> {
+    if (agent.agentStatus === "working") return false;
+    let procs: string[];
+    try {
+      procs = await this.deps.herdr.paneForegroundProcs(agent.paneId);
+    } catch {
+      return false;
+    }
+    return procs.length > 0 && procs.every((proc) => SHELLS.has(proc));
+  }
+
+  /**
+   * Spawn a fresh assistant: its private dir with Claude's workspace trust pre-accepted, then the
+   * assistant argv through the common prepareSpawn (api-key auth, env passthrough, renderer env;
+   * plugin onSpawn hooks skipped) on the `trusted` profile, then the row. No prompt rides the argv, so nothing is
+   * spent until the operator asks. Model and effort are Shepherd's configured Claude defaults.
+   */
+  private async createOperatorAssistant(): Promise<Session> {
+    const dir = this.deps.operatorAssistantDir ?? config.operatorAssistantDir;
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    await this.trustOperatorAssistantDir(dir);
+    const sessionId = randomUUID();
+    const claudeSessionId = randomUUID();
+    const model = modelForProviderOrDefault(drainSpawnModel(config.defaultModel), "claude");
+    const effort = drainSpawnEffort(engineDefaultEffortSetting("claude", config));
+    const name = this.uniqueName(OPERATOR_ASSISTANT_NAME);
+    // Served until the row exists: claude connects to its MCP server during startup (see
+    // spawningMcp). Cleared however the spawn ends.
+    this.spawningMcp.set(sessionId, OPERATOR_ASSISTANT_CAPABILITIES);
+    try {
+      const argv = this.operatorAssistantArgv(
+        { id: sessionId, worktreePath: dir, claudeSessionId, model, effort },
+        false,
+      );
+      const outcome = await this.prepareSpawnOrThrow(argv, {
+        sessionId,
+        name,
+        worktreePath: dir,
+        repoPath: dir,
+        isolated: false,
+        auto: false,
+        profileOverride: "trusted",
+        model,
+        agentProvider: "claude",
+        operatorAssistant: true,
+      });
+      try {
+        this.deps.store.create({
+          id: sessionId,
+          name,
+          prompt: "",
+          repoPath: dir,
+          baseBranch: "",
+          branch: null,
+          worktreePath: dir,
+          isolated: false,
+          herdrSession: config.herdrSession,
+          herdrAgentId: outcome.terminalId,
+          claudeSessionId,
+          agentProvider: "claude",
+          model,
+          effort,
+          sandboxApplied: outcome.applied,
+          sandboxDegraded: outcome.degraded,
+          egressApplied: outcome.egressApplied,
+          egressDegraded: outcome.egressDegraded,
+          auto: false,
+          issueNumber: null,
+          autopilotEnabled: false,
+          planGateEnabled: false,
+          planPhase: null,
+          operatorAssistant: true,
+        });
+        // Every per-session automation override off, not just inherited: auto-merge too.
+        this.deps.store.setAutoMergeState(sessionId, { enabled: false });
+      } catch (e) {
+        // The agent runs but has no row — stop it so nothing orphans.
+        await this.deps.herdr.stop(outcome.terminalId).catch(() => {});
+        throw e;
+      }
+      const created = this.deps.store.get(sessionId)!;
+      this.persistSpawnIdentity(created, outcome);
+      return this.deps.store.get(sessionId)!;
+    } finally {
+      this.spawningMcp.delete(sessionId);
+    }
+  }
+
+  /** Best-effort: without the seed claude opens on "do you trust this folder?", which the operator
+   *  can still answer in the pane, so a failed seed must not fail the spawn. The config file is the
+   *  one the trusted (unwrapped) spawn reads — api-key mode's mirror dir when that is on. */
+  private async trustOperatorAssistantDir(dir: string): Promise<void> {
+    const claudeDir = apiKeyPassthroughEnv(false)?.CLAUDE_CONFIG_DIR ?? config.claudeDir;
+    const trust = this.deps.trustDir ?? ensureRepoRootTrusted;
+    try {
+      await trust(claudeConfigPath(homedir(), claudeDir), dir);
+    } catch (err) {
+      console.warn(`[operator-assistant] could not pre-trust ${dir}:`, err);
+    }
+  }
+
+  /** The assistant's inner argv, fresh (`--session-id`) or resumed (`--resume`) — one builder for
+   *  create and resume so the two can't drift. */
+  private operatorAssistantArgv(
+    s: Pick<Session, "id" | "worktreePath" | "claudeSessionId" | "model" | "effort">,
+    resume: boolean,
+  ): string[] {
+    const baseUrl = this.resolveSpawnBaseUrl("trusted", s.worktreePath);
+    return buildOperatorAssistantArgv({
+      installRoot: SHEPHERD_INSTALL_ROOT,
+      resume,
+      claudeSessionId: s.claudeSessionId,
+      settings: spawnSettingsOverlay({
+        hooks: { sessionId: s.id, baseUrl, token: config.token },
+        permissions: operatorAssistantPermissions(dirname(config.dbPath)),
+      }),
+      mcpConfig: agentMcpConfigArg(s.id, baseUrl),
+      brief: operatorAssistantBrief({
+        installRoot: SHEPHERD_INSTALL_ROOT,
+        assistantDir: s.worktreePath,
+        language: config.operatorLanguage,
+      }),
+      model: this.spawnModel(s.model),
+      effort: s.effort,
+    });
+  }
+
   /**
    * Copy an original session's staged uploads into the repo staging dir with fresh
    * filenames (extension preserved) so create() lands them in the new worktree like
@@ -4458,6 +4702,13 @@ export class SessionService {
     if (s.terminal) throw new TerminalSessionError(verb);
   }
 
+  /** Per-task verb fence for the Operator Assistant: a relaunch, replace, variant or restore would
+   *  fork a second live assistant, or a task session spawned with a task's argv in its place. See
+   *  OperatorAssistantSessionError. */
+  private assertNotOperatorAssistant(s: Session, verb: string): void {
+    if (isOperatorAssistant(s)) throw new OperatorAssistantSessionError(verb);
+  }
+
   async relaunch(
     originalId: string,
     issueRef?: IssueRef,
@@ -4468,6 +4719,7 @@ export class SessionService {
     if (!s || s.status === "archived")
       throw new Error(`cannot relaunch ${originalId}: missing or archived`);
     this.assertNotTerminal(s, "relaunch");
+    this.assertNotOperatorAssistant(s, "relaunch");
 
     // Attachment handling forks on whether overrides are present:
     //   - quick relaunch (no overrides) → auto-carry the original's uploads, copied (not
@@ -4621,6 +4873,7 @@ export class SessionService {
     if (!s || s.status === "archived")
       throw new Error(`cannot replace agent for ${id}: missing or archived`);
     this.assertNotTerminal(s, "replace");
+    this.assertNotOperatorAssistant(s, "replace");
 
     const agentProvider = opts.agentProvider ?? s.agentProvider ?? "claude";
     const sourceProvider = s.agentProvider ?? "claude";
@@ -4815,6 +5068,8 @@ export class SessionService {
     const original = this.deps.store.get(originalId);
     if (!original || original.status === "archived")
       throw new Error(`cannot start variant of ${originalId}: missing or archived`);
+    // Before the experiment stamp below, so a refused variant leaves the original untouched.
+    this.assertNotOperatorAssistant(original, "variant");
 
     // Ensure the original anchors a group (reuse an existing id — idempotent under the guard).
     const experimentId = original.experimentId ?? randomUUID();
@@ -5394,6 +5649,7 @@ export class SessionService {
     // An archived terminal's pane is gone, and un-archiving would collide with the live-terminal
     // singleton (partial unique index) — restoring it is undefined by design.
     this.assertNotTerminal(s, "restore");
+    this.assertNotOperatorAssistant(s, "restore");
 
     const provider = s.agentProvider ?? "claude";
     // Codex resumes by an explicit id; Claude by `--resume`. resolveCodexRestoreId enforces
@@ -5831,10 +6087,11 @@ export class SessionService {
     let steered = 0;
     // Resolve + screen targets up front: unknown ids drop, and (defensively) so do clean
     // terminals — a terminal can never carry haltReason, and a mixed id set must not steer or
-    // resume one. Screening here (not per-iteration branches) keeps the loop's complexity flat.
+    // resume one — and the Operator Assistant, which only the operator steers (#1446). Screening
+    // here (not per-iteration branches) keeps the loop's complexity flat.
     const targets = ids
       .map((id) => this.deps.store.get(id))
-      .filter((s): s is Session => s !== null && !s.terminal);
+      .filter((s): s is Session => s !== null && !s.terminal && !isOperatorAssistant(s));
     for (const s of targets) {
       const id = s.id;
       let succeeded = false;
@@ -5901,8 +6158,9 @@ export class SessionService {
       // A clean-terminal session must never receive an agent steer (the herdr.send invariant) —
       // and one terminal in a fleet-wide id set must not abort the broadcast for everyone else.
       // Skipped BEFORE the liveness split and reported additively (delivered + queued + offline
-      // + skipped === total); old clients simply ignore the new count (#1630 precedent).
-      if (s?.terminal) {
+      // + skipped === total); old clients simply ignore the new count (#1630 precedent). The
+      // Operator Assistant is skipped the same way: a herd broadcast is not addressed to it (#1446).
+      if (s?.terminal || isOperatorAssistant(s)) {
         skipped++;
         continue;
       }
@@ -5945,8 +6203,11 @@ export class SessionService {
     const agents = this.deps.herdr.list(); // let a herdr-unreachable error propagate
     // Clean terminals are filtered out BEFORE matching: they have no agent, and a shell running
     // a long build could plausibly read `working` through some future match path — it must never
-    // receive a stray ESC (haltAll deliberately bypasses the sendSteerTo funnel guard).
-    const sessions = this.deps.store.list({ activeOnly: true }).filter((s) => !s.terminal);
+    // receive a stray ESC (haltAll deliberately bypasses the sendSteerTo funnel guard). The
+    // Operator Assistant is not herd work, so a herd e-stop leaves it alone too (#1446).
+    const sessions = this.deps.store
+      .list({ activeOnly: true })
+      .filter((s) => !s.terminal && !isOperatorAssistant(s));
     let halted = 0;
     for (const agent of matchAgents(sessions, agents).values()) {
       if (agent?.agentStatus !== "working") continue;

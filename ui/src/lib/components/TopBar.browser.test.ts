@@ -292,6 +292,8 @@ function baseProps(s: Scenario): Record<string, unknown> {
     nowMs: 1_700_000_000_000,
     connected: true,
     limits: null as UsageLimits | null,
+    // The page always wires the Operator Assistant, so its Assist chip is part of the real bar.
+    onassistant: () => {},
     ...FLAGS[s.mode],
     ...s.props,
   };
@@ -3594,5 +3596,59 @@ describe("TopBar — async diagnostics arrival re-measures the fold tier", () =>
     );
     assertNoOverflow(hud);
     assertControlsHittable(hud);
+  });
+});
+
+describe("TopBar — Operator Assistant entry points", () => {
+  const props = (over: Record<string, unknown> = {}) => ({
+    nowMs: 1_700_000_000_000,
+    connected: true,
+    sessions: [] as Session[],
+    ...over,
+  });
+  const toggle = () => page.getByRole("button", { name: m.operator_assistant_title() });
+
+  it("desktop: the Assist toggle opens the panel and shows it pressed while open", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const onassistant = vi.fn();
+    const { rerender } = await render(TopBar, props({ onassistant }));
+    await expect.element(toggle()).toHaveAttribute("aria-pressed", "false");
+    await toggle().click();
+    expect(onassistant).toHaveBeenCalledOnce();
+    await rerender({ assistantOpen: true });
+    await expect.element(toggle()).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("desktop: the pip follows the assistant's status", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    render(
+      TopBar,
+      props({ onassistant: vi.fn(), assistant: { id: "oa", status: "blocked" } as Session }),
+    );
+    await expect
+      .element(page.getByRole("button", { name: m.topbar_assist_blocked() }))
+      .toBeInTheDocument();
+  });
+
+  it("renders no toggle without onassistant", async () => {
+    await page.viewport(1280, 900);
+    render(TopBar, props());
+    await expect.element(page.getByRole("button", { name: m.topbar_menu_aria() })).toBeVisible();
+    expect(toggle().query()).toBeNull();
+  });
+
+  it("phone: no toggle in the bar; the Controls sheet row opens the assistant", async () => {
+    await page.viewport(390, 844);
+    document.body.style.width = "390px";
+    const onassistant = vi.fn();
+    render(TopBar, props({ onassistant, mobile: true, touch: true }));
+    expect(document.querySelector("#topbar-assist")).toBeNull();
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    const sheet = page.getByRole("dialog", { name: m.topbar_sheet_title() });
+    await sheet.getByRole("button", { name: m.operator_assistant_title() }).click();
+    expect(onassistant).toHaveBeenCalledOnce();
+    await expect.element(sheet).not.toBeInTheDocument();
   });
 });

@@ -331,3 +331,19 @@ export function sandboxOverrideExplanation(): TooltipExplanation {
     ],
   };
 }
+
+/** Operator Assistant (#1446): the Assist toggle, the panel's READ-ONLY badge and the glossary. */
+export function operatorAssistantExplanation(): TooltipExplanation {
+  return {
+    title: m.operator_assistant_title(),
+    summary: m.operator_assistant_tip_summary(),
+    sections: [
+      { label: m.operator_assistant_tip_reads(), text: m.operator_assistant_tip_reads_body() },
+      {
+        label: m.operator_assistant_tip_approval(),
+        text: m.operator_assistant_tip_approval_body(),
+      },
+      { label: m.operator_assistant_tip_herdr(), text: m.operator_assistant_tip_herdr_body() },
+    ],
+  };
+}

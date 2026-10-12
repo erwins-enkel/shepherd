@@ -14,6 +14,11 @@
 // When a sibling control owns focus — the compose/steer fields or a dialog
 // input — those live outside the terminal element, so we defer and they keep
 // their native Escape; likewise we stand down whenever an overlay is open.
+//
+// Two terminals can be on screen at once (a session and the Operator Assistant),
+// and each runs this for the same keydown. Focus inside a terminal picks it
+// unambiguously; a drifted focus belongs to exactly one (`ownsDriftedFocus`, from
+// ownsDriftedEscape below), so one Escape never reaches two agents.
 export interface ForwardEscapeInput {
   key: string;
   ctrlKey: boolean;
@@ -27,13 +32,13 @@ export interface ForwardEscapeInput {
   active: Element | null; // document.activeElement
   body: Element | null; // document.body
   terminalEl: { contains(node: Element | null): boolean } | null; // the xterm mount
+  ownsDriftedFocus: boolean; // a body/nothing focus belongs to THIS terminal (ownsDriftedEscape)
 }
 
 export function shouldForwardEscape(i: ForwardEscapeInput): boolean {
+  const drifted = i.active === null || i.active === i.body;
   const focusOwnedByTerminal =
-    i.active === null ||
-    i.active === i.body ||
-    (i.terminalEl !== null && i.terminalEl.contains(i.active));
+    (drifted && i.ownsDriftedFocus) || (i.terminalEl !== null && i.terminalEl.contains(i.active));
 
   return (
     i.key === "Escape" &&
@@ -47,4 +52,21 @@ export function shouldForwardEscape(i: ForwardEscapeInput): boolean {
     !i.overlayOpen &&
     focusOwnedByTerminal
   );
+}
+
+// The terminal mount that last held keyboard focus, shared by every mounted Viewport.
+let lastFocusedTerminal: HTMLElement | null = null;
+
+/** Record that the terminal mount `el` now holds the keyboard (its focusin). */
+export function noteTerminalFocus(el: HTMLElement): void {
+  lastFocusedTerminal = el;
+}
+
+/** Whether a drifted-focus Escape belongs to `terminalEl`: the terminal the operator last focused,
+ *  while it is still on screen; otherwise the `fallback` terminal (the session console, never the
+ *  assistant). With a single session terminal this is always true, so it forwards as before. */
+export function ownsDriftedEscape(terminalEl: HTMLElement | null, fallback: boolean): boolean {
+  const last = lastFocusedTerminal;
+  if (last === null || !last.isConnected || last.offsetParent === null) return fallback;
+  return last === terminalEl;
 }

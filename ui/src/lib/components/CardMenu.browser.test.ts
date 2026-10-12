@@ -176,3 +176,22 @@ describe("CardMenu bring-back action", () => {
     expect(onbringback).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("CardMenu ask-the-assistant action (#1446)", () => {
+  it("renders Ask the assistant only when onaskassistant is provided", async () => {
+    const { rerender } = await render(CardMenu, { props: base() });
+    expect(page.getByRole("menuitem", { name: m.operator_assistant_ask() }).query()).toBeNull();
+
+    await rerender(base({ onaskassistant: vi.fn() }));
+    await expect
+      .element(page.getByRole("menuitem", { name: m.operator_assistant_ask() }))
+      .toBeInTheDocument();
+  });
+
+  it("fires onaskassistant on a SINGLE click — nothing is sent until the operator sends it", async () => {
+    const onaskassistant = vi.fn();
+    render(CardMenu, { props: base({ onaskassistant }) });
+    await page.getByRole("menuitem", { name: m.operator_assistant_ask() }).click();
+    expect(onaskassistant).toHaveBeenCalledTimes(1);
+  });
+});

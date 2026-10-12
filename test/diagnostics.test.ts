@@ -2149,6 +2149,23 @@ describe("defaultReadHerdrFleet (session ↔ fleet join)", () => {
     expect(facts).toEqual({ orphanLive: 0, orphanHusk: 0 });
   });
 
+  it("the Operator Assistant's pane is owned, never an orphan — even as a bare shell", async () => {
+    // It is an active session row, so the join claims it like any task; herd-facing reads skip it,
+    // but this one must not, or its pane would read as a leak (#1446).
+    const assistant = {
+      ...session({ id: "oa", herdrAgentId: "term-oa", worktreePath: "/assistant" }),
+      name: "operator-assistant",
+      operatorAssistant: true,
+    };
+    const facts = await defaultReadHerdrFleet(
+      fakeStore([assistant]),
+      fakeHerdr([agent({ terminalId: "term-oa", paneId: "poa", cwd: "/assistant" })], {
+        poa: ["zsh"],
+      }),
+    );
+    expect(facts).toEqual({ orphanLive: 0, orphanHusk: 0 });
+  });
+
   it("a Shepherd helper agent is excluded even with a live proc — identified by its TAB label", async () => {
     // #2029: the skip used to read `agent.name`, which herdr 0.7.5 never sends, so every live
     // helper was counted as a fleet orphan. The agent built here HAS no name, as on 0.7.5.

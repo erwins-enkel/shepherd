@@ -1869,6 +1869,18 @@ test("considerForArchive: existing recap at current head → 'skip', no spawn", 
   expect(herdr.started.length).toBe(0);
 });
 
+test("considerForArchive: the operator assistant → 'skip', no spawn, no recap row", async () => {
+  const s = makeSession({ status: "done", operatorAssistant: true });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({ store, herdr, nowFn: () => 200_000, headSha: "sha-head" });
+
+  expect(await svc.considerForArchive(s)).toBe("skip");
+  expect(herdr.started.length).toBe(0);
+  expect(store.getRecap("s1")).toBeFalsy();
+});
+
 test("considerForArchive: no existing recap → generates", async () => {
   const s = makeSession({ status: "done" });
   const store = makeStore([s]);

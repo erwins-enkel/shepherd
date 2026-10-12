@@ -12323,13 +12323,14 @@ x-shepherd-events:
     schema:
       $ref: "#/components/schemas/DiagnosticsSnapshot"
 x-shepherd-pty:
-  description: WebSocket /pty/{id}?cols=&rows=. Same auth gate and origin check as HTTP; the bearer goes on the upgrade request. An unknown session id is answered 404 before the upgrade. cols/rows set the attach size so the first paint matches the client's viewport. On attach the server replays the pane's scrollback, so a client must clear its own buffer on every (re)attach rather than appending. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded and the loser must NOT reconnect (both would bump each other forever). closeCodes.gone means the session no longer has a live agent and no reattach can succeed. closeCodes.machineUnreachable means the session runs on a connected machine this server cannot reach right now; clients do not retry until that session's connection reports connected again. Any other close is transient; clients retry with backoff.
+  description: WebSocket /pty/{id}?cols=&rows=. Same auth gate and origin check as HTTP; the bearer goes on the upgrade request. An unknown session id is answered 404 before the upgrade. cols/rows set the attach size so the first paint matches the client's viewport. On attach the server replays the pane's scrollback, so a client must clear its own buffer on every (re)attach rather than appending. Server→client frames are raw terminal bytes (binary or text). Client→server text frames are keystrokes, except frames starting with resizePrefix which carry "<cols>:<rows>\n". One owner per terminal id; a new attach closes the previous socket with closeCodes.superseded and the loser must NOT reconnect (both would bump each other forever). closeCodes.gone means the session no longer has a live agent and no reattach can succeed. closeCodes.machineUnreachable means the session runs on a connected machine this server cannot reach right now; clients do not retry until that session's connection reports connected again. Any other close is transient; clients retry with backoff. resume=1 marks a client returning from a stream it paused itself; it attaches only when no other client owns the terminal, and is otherwise refused at once with closeCodes.superseded (park, do not reconnect) instead of taking the terminal over.
   path: /pty/{id}
   query:
     - cols
     - rows
     - clientKind
     - clientPlatform
+    - resume
   resizePrefix: "\0resize:"
   closeCodes:
     superseded: 4000

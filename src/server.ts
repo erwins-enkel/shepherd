@@ -10992,6 +10992,9 @@ type WsData = (
       terminalId: string;
       cols: number;
       rows: number;
+      /** `?resume=1`: a client returning from a paused stream — attach only if nobody else owns
+       *  the terminal now, instead of taking it over (#3035). */
+      resume: boolean;
       bridge?: PtyBridge | SocketPtyBridge;
       pendingInput?: string[];
       awaitingFirstFrame?: boolean;
@@ -11299,6 +11302,7 @@ export function serve(deps: AppDeps, port: number) {
       terminalId: s.herdrAgentId,
       cols,
       rows,
+      resume: url.searchParams.get("resume") === "1",
       client: parseTerminalClient(url.searchParams),
     });
   }
@@ -11386,9 +11390,16 @@ export function serve(deps: AppDeps, port: number) {
     }
     const tid = attach.terminalId;
     ws.data.terminalId = tid; // keep close()'s ptyOwners cleanup keyed on the same id
+    const prev = ptyOwners.get(tid);
+    // A client resuming a stream it paused while hidden (#3035) must not steal the terminal from
+    // a device that attached meanwhile: refuse with "superseded" so it parks behind the owner,
+    // exactly as if that device had bumped it. Unclaimed, so close() leaves ownership alone.
+    if (ws.data.resume && prev && prev !== ws) {
+      ws.close(PTY_SUPERSEDED_CODE, "superseded");
+      return;
+    }
     // single owner per terminal: claim it, then bump the previous owner
     // with a "superseded" close so it parks instead of fighting back.
-    const prev = ptyOwners.get(tid);
     ptyOwners.set(tid, ws);
     deps.events.emit("terminal:owners", terminalOwners());
     if (prev && prev !== ws) prev.close(PTY_SUPERSEDED_CODE, "superseded");

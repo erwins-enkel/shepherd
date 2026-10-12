@@ -85,6 +85,10 @@ struct SessionDetailView: View {
             Text(verbatim: session.desig).font(.title3.monospaced().weight(.semibold))
             Text(verbatim: session.name).font(.title3)
                 .lineLimit(1)
+            // Why it runs here (#2776): only when a machine choice was made.
+            if let placement = session.launchMetadata?.placement {
+                PlacementReason(placement: placement).font(.caption)
+            }
             Spacer()
             if let plan = model.extension(PlanModel.self) {
                 PlanGateBadgeView(session: session, model: plan)

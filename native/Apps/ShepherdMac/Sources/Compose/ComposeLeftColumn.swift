@@ -17,6 +17,7 @@ struct ComposeLeftColumn: View {
                     .modifier(ComposeKeycap(ids: ["server"]))
             }
             RepoBranchRow(model: model, repos: repos, sessions: sessions)
+            RunOnNotices(model: model)
             ComposePromptEditor(model: model)
                 .modifier(ComposeKeycap(ids: ["focus-prompt", "issue-token", "command-token", "paste-image"]))
             ShapeRoundView(model: model)

@@ -250,6 +250,14 @@ const DRAIN: DrainStatus = {
         },
       ],
     },
+    landingRepairs: [
+      {
+        sessionId: "5c0e1d2a-0000-4000-8000-000000000002",
+        desig: "TASK-04",
+        issueNumber: 40,
+        epicParent: 40,
+      },
+    ],
     next: Array.from({ length: 30 }, (_, i) => 100 + i),
     after: [],
     queued: [50],
@@ -290,8 +298,12 @@ test("repo_automation reports every repo's knobs, drain and epic state", async (
   expect(alpha.drain.runSummary.slots.holders).toEqual([
     { desig: "TASK-03", issueNumber: 41, epicParent: 40 },
   ]);
+  expect(alpha.drain.runSummary.landingRepairs).toEqual([
+    { desig: "TASK-04", issueNumber: 40, epicParent: 40 },
+  ]);
   expect(alpha.drain.runSummary.next).toHaveLength(20);
   expect(JSON.stringify(out)).not.toContain(DRAIN.runSummary!.slots.holders[0]!.sessionId);
+  expect(JSON.stringify(out)).not.toContain(DRAIN.runSummary!.landingRepairs[0]!.sessionId);
   expect(alpha.epicRun).toMatchObject({ parentIssueNumber: 40, status: "paused", mode: "auto" });
   expect(alpha.epicQueue).toEqual([{ parentIssueNumber: 50, position: 1, mode: "auto" }]);
   expect(beta.drain).toBeNull(); // the drain reports nothing for it

@@ -21,6 +21,7 @@ import { promisify } from "node:util";
 import type { AgentControlDeps, ApplyResult, McpTool } from "./agent-control";
 import type { DiagnosticsService } from "./diagnostics";
 import type { DrainStatus } from "./drain";
+import type { RunSummaryHolder } from "./drain-core";
 import type { EpicDiagnosis } from "./epic-diagnosis";
 import type { GitState } from "./forge/types";
 import { parseCgroupUnit, parsePsiAvg10, parseSystemctlShow } from "./host-parse";
@@ -261,6 +262,13 @@ function resolveRepos(known: string[], repo: unknown): string[] | ApplyResult<un
   return fail(404, `repo "${repo}" not found — known repos: ${names || "none"}`);
 }
 
+/** A run-summary session, keyed by desig — never its session id. */
+const holderBlock = ({ desig, issueNumber, epicParent }: RunSummaryHolder) => ({
+  desig,
+  issueNumber,
+  epicParent,
+});
+
 /** The drain's status without session ids; the run picture's lists are capped. */
 function drainBlock(status: DrainStatus | undefined) {
   if (!status) return null;
@@ -280,12 +288,9 @@ function drainBlock(status: DrainStatus | undefined) {
       slots: {
         used: summary.slots.used,
         max: summary.slots.max,
-        holders: summary.slots.holders.map(({ desig, issueNumber, epicParent }) => ({
-          desig,
-          issueNumber,
-          epicParent,
-        })),
+        holders: summary.slots.holders.map(holderBlock),
       },
+      landingRepairs: summary.landingRepairs.slice(0, MAX_LIST).map(holderBlock),
       next: summary.next.slice(0, MAX_LIST),
       after: summary.after.slice(0, MAX_LIST),
       queued: summary.queued.slice(0, MAX_LIST),

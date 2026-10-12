@@ -60,7 +60,9 @@ The app is an **early preview**, already usable day to day. Available today:
 - **Session detail:** activity, diff, files, git and the live terminal.
 - **Connected machines:** sessions running on a machine connected to your server appear in a group
   of their own, labelled with that machine and the state of its connection; their terminal opens
-  here too.
+  here too. New Task's **Run on** leaves the machine to the server (Automatic) or names one, shows
+  why and asks when a task's needs are unclear; tasks waiting for their machine can be canceled or
+  run elsewhere.
 - **Review and merge:** plan gates, pull-request actions, review requests and merge automation.
 - **Starting work:** a new-task composer that starts from an issue, plus held tasks, Up Next and
   the Done panel.

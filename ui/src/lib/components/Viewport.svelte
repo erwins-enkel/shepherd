@@ -1179,6 +1179,8 @@
   // `headerCollapsed` and the pre-tap tab via `preFoldTab`.
   // 500ms matches the common OS double-click default (400 dropped slow double-clicks).
   const DOUBLE_TAP_MS = 500;
+  /** How long a hidden window keeps streaming its terminal before pausing it (#3035). */
+  const PTY_HIDDEN_PAUSE_MS = 30_000;
   let lastTitleTap = 0;
   // compact only: the tab shown before a first-tap fold, restored if the second
   // tap turns the gesture into a rename (so rename leaves the fold — and the
@@ -2055,6 +2057,16 @@
     // mobile freezes backgrounded tabs and drops the WS; nudge a reconnect when
     // the tab returns (including iOS Safari's bfcache restore).
     const offPageReturn = onPageReturn(() => c.poke());
+    // A window hidden for PTY_HIDDEN_PAUSE_MS stops streaming altogether (#3035): nobody sees
+    // the output, yet every frame costs network, IPC and parsing. The grace period keeps a
+    // quick app switch from churning the attach; the poke() above resumes (and repaints).
+    let pauseTimer: ReturnType<typeof setTimeout> | undefined;
+    const onHidden = () => {
+      clearTimeout(pauseTimer);
+      if (document.visibilityState === "hidden")
+        pauseTimer = setTimeout(() => c.pause(), PTY_HIDDEN_PAUSE_MS);
+    };
+    document.addEventListener("visibilitychange", onHidden);
 
     // tap-to-focus opens the mobile keyboard — skip when the tap was a scroll drag
     let dragged = false;
@@ -2331,9 +2343,11 @@
     return () => {
       disposed = true; // stops a pending document.fonts.ready remeasure after teardown
       codexQuestions = false;
+      clearTimeout(pauseTimer);
       window.removeEventListener("keydown", onWindowKeydown, true);
       mount.removeEventListener("focusin", onTermFocusIn);
       offPageReturn();
+      document.removeEventListener("visibilitychange", onHidden);
       el?.removeEventListener("click", onTap);
       el?.removeEventListener("mousedown", onTermMouseDown, true);
       document.removeEventListener("mouseup", onDocMouseUp);

@@ -132,6 +132,89 @@ describe("connectPty", () => {
     expect(FakeWs.instances).toHaveLength(1); // still parked, no new socket
   });
 
+  describe("pause (hidden window, #3035)", () => {
+    it("closes the socket and never reconnects on its own", () => {
+      vi.useFakeTimers();
+      const { conn, last } = make();
+      last().open();
+      const paused = last();
+      conn.pause();
+      expect(paused.readyState).toBe(FakeWs.CLOSED);
+      paused.onclose?.(); // a late close event must not read as a drop
+      vi.advanceTimersByTime(60_000);
+      expect(FakeWs.instances).toHaveLength(1);
+      vi.useRealTimers();
+    });
+
+    it("cancels a pending retry", () => {
+      vi.useFakeTimers();
+      const { conn, last } = make();
+      last().open();
+      last().drop(); // retry scheduled
+      conn.pause();
+      vi.advanceTimersByTime(60_000);
+      expect(FakeWs.instances).toHaveLength(1);
+      vi.useRealTimers();
+    });
+
+    it("poke resumes with resume=1 and repaints like a reconnect", () => {
+      const onReconnect = vi.fn();
+      const { conn, last } = make(onReconnect);
+      last().open();
+      conn.pause();
+      conn.poke();
+      expect(FakeWs.instances).toHaveLength(2);
+      expect(last().url).toMatch(/&resume=1$/);
+      last().open();
+      expect(onReconnect).toHaveBeenCalledTimes(1);
+      // the resumed stream is an ordinary one again: a later drop reconnects without resume
+      vi.useFakeTimers();
+      last().drop();
+      vi.advanceTimersByTime(1000);
+      expect(FakeWs.instances).toHaveLength(3);
+      expect(last().url).not.toContain("resume");
+      vi.useRealTimers();
+    });
+
+    it("parks when another device owns the terminal by the time it resumes", () => {
+      vi.useFakeTimers();
+      const onParked = vi.fn();
+      const { conn, last } = make(() => {}, onParked);
+      last().open();
+      conn.pause();
+      conn.poke();
+      last().supersede(); // server refused the resume: someone else owns it now
+      expect(onParked).toHaveBeenCalledTimes(1);
+      conn.poke();
+      vi.advanceTimersByTime(5000);
+      expect(FakeWs.instances).toHaveLength(2); // parked: no retry, no steal-back
+      vi.useRealTimers();
+    });
+
+    it("is a no-op once parked or closed", () => {
+      const { conn, last } = make();
+      last().open();
+      last().supersede();
+      conn.pause();
+      conn.poke();
+      expect(FakeWs.instances).toHaveLength(1);
+      const other = make();
+      other.conn.close();
+      other.conn.pause();
+      other.conn.poke();
+      expect(FakeWs.instances).toHaveLength(1);
+    });
+
+    it("takeover after a pause attaches without resume", () => {
+      const { conn, last } = make();
+      last().open();
+      conn.pause();
+      conn.takeover();
+      expect(FakeWs.instances).toHaveLength(2);
+      expect(last().url).not.toContain("resume");
+    });
+  });
+
   it("takeover re-attaches after being parked", () => {
     const { conn, last } = make();
     last().open();

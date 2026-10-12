@@ -148,6 +148,7 @@ import { isRelevanceMode } from "./house-rules-relevance";
 import { tailLines } from "./blocked";
 import { recommendPrompt, RECOMMEND_LABEL } from "./prompt-recommend";
 import { shapeTask, SHAPE_LABEL } from "./task-shape";
+import { deriveRequirementsViaAgent, REQUIREMENTS_LABEL } from "./requirements-llm";
 import { CountsService } from "./backlog";
 import { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { GithubReadCache } from "./github-read-cache";
@@ -3063,6 +3064,7 @@ deferredStarts.push(() => {
   void reapTransientByLabel(herdr, VERIFY_KEY_LABEL, new Set(), "[verify-key]");
   void reapTransientByLabel(herdr, RECOMMEND_LABEL, new Set(), "[recommend]");
   void reapTransientByLabel(herdr, SHAPE_LABEL, new Set(), "[shape]");
+  void reapTransientByLabel(herdr, REQUIREMENTS_LABEL, new Set(), "[requirements]");
 });
 const gitignoreAdopter = new GitignoreAdopter({ worktree, resolveForge });
 // Daily: prune archived sessions, prune old signals, then consider a distill per repo
@@ -4188,6 +4190,17 @@ const appDeps: AppDeps = {
       },
       { herdr },
     ),
+  // New Task reads a task's requirements from its description (#2773) on the autopilot
+  // classifier's role CLI and model — the seam it reuses. No session exists yet, so the label
+  // carries a random suffix (the tab reaper knows the prefix).
+  deriveTaskRequirements: (task, signal) => {
+    const env = roleEnv(config.autopilotCli, config.autopilotModel, config.autopilotEffort);
+    return deriveRequirementsViaAgent(
+      task,
+      { herdr, provider: env.provider, model: env.model, effort: env.effort, signal },
+      `${REQUIREMENTS_LABEL}${randomUUID().slice(0, 8)}`,
+    );
+  },
 };
 
 // Load server-side plugins ONCE, now that every core service exists — and before the

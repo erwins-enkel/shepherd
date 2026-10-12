@@ -65,6 +65,7 @@ import { resolveAptabaseHost } from "./telemetry";
 import {
   validateCreate,
   validatePlacementPreview,
+  validateRequirementsDerive,
   validateRelaunchOverrides,
   validateModelChoice,
   validateReplaceAgentChoice,
@@ -122,6 +123,7 @@ import {
   type PlacementDecision,
   type PlacementRefusal,
   PLATFORM_ORDER_SETTING,
+  choiceDependsOn,
   decidePlacement,
   describeRefusal,
   localMachine,
@@ -132,6 +134,12 @@ import {
   storedPlatformOrder,
 } from "./remote-instances/placement";
 import { CapabilityService } from "./remote-instances/capability-probe";
+import {
+  DERIVABLE_CAPABILITIES,
+  type AnsweredDerivation,
+  type RequirementsDerivation,
+  type TaskText,
+} from "./requirements-classify-core";
 import {
   RemoteInstanceService,
   parseConnectRequest,
@@ -837,6 +845,10 @@ export interface AppDeps {
     /** `null` = inherit the spawn default (the New Task picker's "default" arrives as null). */
     model: string | null,
   ) => Promise<import("./task-shape").ShapeResult>;
+  /** Read a task's requirements with a transient helper (#2773); never throws. Wired to
+   *  deriveRequirementsViaAgent in index.ts; absent in tests that don't exercise it → `failed`
+   *  (`unavailable`). `signal` aborts when the client goes away. */
+  deriveTaskRequirements?: (task: TaskText, signal: AbortSignal) => Promise<AnsweredDerivation>;
 }
 
 /** Wire DTO for GET /api/sessions/:id/usage (mirrored by ui/src/lib/types.ts SessionUsage —
@@ -3321,12 +3333,47 @@ async function handlePlacementPreview(ctx: Ctx): Promise<Response | null> {
   if (!named && !placementActive(remoteInstances(deps).list())) return json({ active: false });
   const project = repoRemoteSlug(deps.resolveForge?.(repoPath));
   if (named && !project) return json({ active: true, refusal: PROJECT_UNKNOWN });
+  // Only Automatic reads requirements from the task (#2773): a named machine is the operator's pick.
+  const deriveRequirements = target.instanceId === null && (await derivationMatters(deps, project));
   const decision = await decide(deps, { requirements, project, override: target.instanceId });
   if (decision.ok) {
     const { placement, wait } = decision;
-    return json({ active: true, placement, ...(wait && { wait }) });
+    return json({ active: true, placement, ...(wait && { wait }), deriveRequirements });
   }
-  return json({ active: true, refusal: placementRefusal(decision.refusal).body });
+  return json({
+    active: true,
+    refusal: placementRefusal(decision.refusal).body,
+    deriveRequirements,
+  });
+}
+
+// ── POST /api/requirements/derive — what a task calls for, read from its description (#2773) ──
+//
+// New Task asks this while the operator is still writing, so the helper's seconds pass before the
+// task is submitted. It runs only when it can matter: with no machine connected, or while every
+// machine that could take the task verifies the same of what a description can call for, the
+// answer is `skipped` and nothing is spawned. The answer is data from the capability vocabulary —
+// or the alternatives to ask the operator about — never model prose; a failure derives nothing.
+// `POST /api/sessions` never derives: explicit requirements win, and a create never waits on this.
+async function handleRequirementsDerive(ctx: Ctx): Promise<Response | null> {
+  const { req, parts, deps, token } = ctx;
+  if (parts[0] !== "api" || parts[1] !== "requirements" || parts[2] !== "derive" || parts[3]) {
+    return null;
+  }
+  if (req.method !== "POST") return null;
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const parsed = validateRequirementsDerive(await req.json().catch(() => null), config.repoRoot);
+  if (!parsed.ok) return json({ error: parsed.error }, 400);
+  const { repoPath, task } = parsed.value;
+  const repoErr = repositoryInputError(token, { repoPath });
+  if (repoErr) return repoErr;
+  const skipped: RequirementsDerivation = { status: "skipped" };
+  if (!placementActive(remoteInstances(deps).list())) return json(skipped);
+  const project = repoRemoteSlug(deps.resolveForge?.(repoPath));
+  if (!(await derivationMatters(deps, project))) return json(skipped);
+  if (!deps.deriveTaskRequirements) return json({ status: "failed", cause: "unavailable" });
+  return json(await deps.deriveTaskRequirements(task, req.signal));
 }
 
 // ── cancel an in-flight spawn: POST /api/spawns/:spawnId/cancel ──
@@ -3476,6 +3523,14 @@ interface PlaceInput {
   project: string | undefined;
   /** null = automatic; else the named machine (this one's own ID included). */
   override: string | null;
+}
+
+/** Whether reading a task's requirements can change where it runs (#2773), over the same views the
+ *  choice decides over. */
+async function derivationMatters(deps: AppDeps, project: string | undefined): Promise<boolean> {
+  const local = await localMachineView(deps, true);
+  const machines = remoteMachineViews(remoteInstances(deps).list(), project);
+  return choiceDependsOn([local, ...machines], DERIVABLE_CAPABILITIES);
 }
 
 async function decide(deps: AppDeps, input: PlaceInput): Promise<PlacementDecision> {
@@ -10540,6 +10595,7 @@ const ROUTE_HANDLERS = [
   handleDispatches,
   handleRemoteDispatches,
   handlePlacementPreview,
+  handleRequirementsDerive,
   handleRetry,
   handleHalt,
   handleFsDirs,
@@ -10949,6 +11005,9 @@ export const slowRequestTimeoutSec = (req: Request, url: URL): number | null => 
   // 10s default Bun severs the socket mid-round and the New Task card reports a failure for a round
   // still running — the same bogus failure described for epic approve above.
   if (url.pathname === "/api/shape") return 255;
+  // The requirements helper (#2773) answers within its own 30 s deadline; on the 10s default Bun
+  // would cut a derivation that is still running.
+  if (url.pathname === "/api/requirements/derive") return 60;
   // A create waits for the worktree and the agent's boot — and one sent to a connected machine
   // (#2763) for the upload of its attachments (#2766) and that machine's whole create, up to
   // REMOTE_CREATE_TIMEOUT_MS. Cut at 10s, the answer would be lost for a start that is still

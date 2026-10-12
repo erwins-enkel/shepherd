@@ -8,6 +8,7 @@ import {
   DEFAULT_PLATFORM_ORDER,
   type MachineView,
   type PlacementRequest,
+  choiceDependsOn,
   decidePlacement,
   describeRefusal,
   fittingNow,
@@ -472,5 +473,48 @@ describe("waiting tasks (#2775)", () => {
       hasProject: true,
     });
     expect(remoteMachineViews([summary()], undefined)[0]!.hasProject).toBe(false);
+  });
+});
+
+describe("whether reading requirements from a task can change the choice (#2773)", () => {
+  const DERIVABLE: Capability[] = ["xcode", "sdk:ios", "ios-simulator", "android-sdk"];
+  const OTHER_LINUX = "c3333333-3333-4333-8333-333333333333";
+
+  test("Linux and a Mac with Xcode: it can", () => {
+    expect(choiceDependsOn([linux(), mac()], DERIVABLE)).toBe(true);
+  });
+
+  test("machines that verify the same of them: it cannot", () => {
+    const twin = machine(OTHER_LINUX, "box", "linux");
+    expect(choiceDependsOn([linux(), twin], DERIVABLE)).toBe(false);
+    // They differ, but not in anything a description can call for.
+    const codex = machine(OTHER_LINUX, "box", "linux", { report: report(["agent:codex"]) });
+    expect(choiceDependsOn([linux(), codex], DERIVABLE)).toBe(false);
+  });
+
+  test("a single candidate: it cannot", () => {
+    expect(choiceDependsOn([linux()], DERIVABLE)).toBe(false);
+    expect(choiceDependsOn([], DERIVABLE)).toBe(false);
+  });
+
+  test("a machine without the project or on an unreleased platform is no candidate", () => {
+    expect(choiceDependsOn([linux(), mac({ hasProject: false })], DERIVABLE)).toBe(false);
+    expect(choiceDependsOn([linux(), mac({ released: false })], DERIVABLE)).toBe(false);
+  });
+
+  test("a Mac out of reach counts on its last report; a connected one's stale report verifies nothing", () => {
+    const asleep = mac({
+      connected: false,
+      status: "unreachable",
+      report: report(["xcode"], true),
+    });
+    expect(choiceDependsOn([linux(), asleep], DERIVABLE)).toBe(true);
+    const stale = mac({ report: report(["xcode"], true) });
+    expect(choiceDependsOn([linux(), stale], DERIVABLE)).toBe(false);
+  });
+
+  test("an Android box next to plain Linux: it can", () => {
+    const android = machine(OTHER_LINUX, "box", "linux", { report: report(["android-sdk"]) });
+    expect(choiceDependsOn([linux(), android], DERIVABLE)).toBe(true);
   });
 });

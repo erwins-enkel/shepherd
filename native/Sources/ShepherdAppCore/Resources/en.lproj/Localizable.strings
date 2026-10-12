@@ -799,6 +799,7 @@
 "native_ios_steers_edit_title" = "Edit steer";
 "native_ios_steers_empty" = "No steers in the steer bar yet.";
 "native_ios_steers_end_hold" = "Decommission · hold";
+"native_ios_steers_icon_only" = "Bar: icons only for steers with an icon";
 "native_ios_steers_limit" = "at most 40 steers";
 "native_ios_steers_load_failed" = "Steers could not be loaded: %1$@";
 "native_ios_steers_overview" = "Overview";

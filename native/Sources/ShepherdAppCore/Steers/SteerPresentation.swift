@@ -5,6 +5,12 @@ extension ComposeSteer {
     public var chipTitle: String {
         [emoji, label].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " ")
     }
+
+    /// The emoji alone when asked for and the steer has one; text-only steers keep their label.
+    public func chipTitle(iconOnly: Bool) -> String {
+        if iconOnly, let emoji, !emoji.isEmpty { return emoji }
+        return chipTitle
+    }
 }
 
 /// Positions belong to the scoped bar, never to the current search results.

@@ -12644,6 +12644,7 @@
     "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/PairingLinkTests.swift\",\"CoreSeamTests.PairingLinkTests\",\"validAddressUsesFormNormalization() throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ProfileSetupTests.swift\",\"ProfileSetupTests\",\"pairInvalidDoesNotChangeCredential() async throws\"]",
     "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ProfileSetupTests.swift\",\"ProfileSetupTests\",\"pairRevokesWhenStorageFails() async throws\"]",
-    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ProfileSetupTests.swift\",\"ProfileSetupTests\",\"pairStoresCredential() async throws\"]"
+    "[\"ShepherdKitTests\",\"native/Tests/ShepherdKitTests/ProfileSetupTests.swift\",\"ProfileSetupTests\",\"pairStoresCredential() async throws\"]",
+    "[\"ShepherdAppCoreTests\",\"native/Tests/ShepherdAppCoreTests/SteerShortcutTests.swift\",\"SteerShortcutTests\",\"iconOnlyKeepsLabelForSteersWithoutEmoji()\"]"
   ]
 }

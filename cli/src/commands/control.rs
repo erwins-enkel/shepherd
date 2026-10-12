@@ -32,13 +32,25 @@ fn print_created(ctx: &mut Ctx<'_>, verb: &str, s: &Session) -> Result<()> {
     )
 }
 
-/// Prints what `POST /api/sessions` answered: the created session, or the held task.
+/// Prints what `POST /api/sessions` answered: the created session, the held task, or the task
+/// waiting for the machine it is meant for (#2775).
 pub fn print_create_result(ctx: &mut Ctx<'_>, created: CreateSessionSuccess) -> Result<()> {
     match created {
         CreateSessionSuccess::Session(s) => print_created(ctx, "created", &s),
         CreateSessionSuccess::HeldTask(h) => {
             if ctx.mode == Mode::Json {
                 return output::json(&mut ctx.io.stdout, &h);
+            }
+            if h.waiting == Some(true) {
+                let machine = h.host.as_ref().map_or("its machine", |m| m.name.as_str());
+                return output::line(
+                    &mut ctx.io.stdout,
+                    &format!(
+                        "waiting: {machine} is out of reach, so the task waits for it as {} and \
+                         starts there once it is back. Cancel or redirect it in the herd.",
+                        h.id
+                    ),
+                );
             }
             output::line(
                 &mut ctx.io.stdout,

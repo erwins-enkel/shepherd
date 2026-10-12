@@ -900,7 +900,7 @@ components:
     HeldTask:
       type: object
       additionalProperties: true
-      description: The usage hold tripped — the task was queued instead of spawned. With `host` it was held on that connected machine (`id` and `count` are that machine's).
+      description: "The usage hold tripped — the task was queued instead of spawned. With `host` it was held on that connected machine (`id` and `count` are that machine's). With `waiting` (#2775) it waits HERE for `host`, the machine it is meant for, which is out of reach: nothing was sent, it starts there once that machine can take it — `id` is the dispatch ID, `count` the tasks waiting here, `dispatch` the waiting RemoteDispatch (cancel or redirect it via /api/remote-dispatches)."
       required:
         - held
         - id
@@ -916,6 +916,12 @@ components:
           type: integer
         host:
           $ref: "#/components/schemas/SessionHost"
+        waiting:
+          type: boolean
+          enum:
+            - true
+        dispatch:
+          $ref: "#/components/schemas/RemoteDispatch"
     DispatchState:
       type: string
     Dispatch:
@@ -950,7 +956,7 @@ components:
     RemoteDispatch:
       type: object
       additionalProperties: true
-      description: "A task this instance sent to a connected machine (POST /api/sessions with a target), as GET /api/remote-dispatches lists it and remote:dispatch announces it. unknown = it was sent but no answer came back, so it may be running there (start status unknown); this instance asks the machine after every check that finds it connected and settles it, or sends the same task again to the same machine if it never arrived. canceling = canceled here, the cancel reaches the machine as soon as it answers. started (sessionId), held (heldId on that machine), rejected (reason, code — e.g. dispatch_interrupted: the machine restarted mid-start), canceled (it never starts there), upload_failed (an attachment did not get there; never sent). sending = being sent right now."
+      description: "A task this instance sent — or keeps to send — to a connected machine (POST /api/sessions with a target, or placed there automatically), as GET /api/remote-dispatches lists it and remote:dispatch announces it. unknown = it was sent but no answer came back, so it may be running there (start status unknown); this instance asks the machine after every check that finds it connected and settles it, or sends the same task again to the same machine if it never arrived. canceling = canceled here, the cancel reaches the machine as soon as it answers. waiting (#2775) = the machine it is meant for is out of reach or cannot take it yet: nothing was sent; it is sent after a check that finds the machine connected, the project checked out and — on a capability check the machine runs right then — every requirement met (`readiness` says what is missing now, `placement` why it is meant for that machine, `alternatives` the connected machines that could run it now). held = the machine holds it (its usage hold or capacity; heldId on that machine) and starts it when it can. started (sessionId), rejected (reason, code — e.g. dispatch_interrupted: the machine restarted mid-start; held_discarded: dropped from its held queue), canceled (it never starts there; code machine_removed when its machine was removed here), upload_failed (an attachment did not get there; never sent). sending = being sent right now. redirected = it left the machine's queue to run on this instance — only announced, never listed."
       required:
         - id
         - state
@@ -983,6 +989,47 @@ components:
           type: integer
         updatedAt:
           type: integer
+        placement:
+          $ref: "#/components/schemas/Placement"
+        readiness:
+          $ref: "#/components/schemas/DispatchReadiness"
+        alternatives:
+          type: array
+          description: "Waiting only: the connected machines — this instance included — that fit the task now, best first. A redirect to one of them is accepted; nothing goes there on its own."
+          items:
+            $ref: "#/components/schemas/SessionHost"
+    DispatchReadiness:
+      type: object
+      additionalProperties: true
+      required:
+        - state
+      description: "How far the machine a waiting task is meant for is from taking it (#2775), judged as the automatic choice judges it. offline: not connected (`status` says why — unreachable, unauthorized, …); unreleased: its platform runs no tasks; project_missing: no checkout of the project; missing_capabilities: its capability report lacks a requirement (`missing`; reason not_verified while no fresh report confirms one); ready: it fits — the task goes out with the next check."
+      properties:
+        state:
+          type: string
+        status:
+          type: string
+        missing:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+            required:
+              - capability
+              - reason
+            properties:
+              capability:
+                type: string
+              reason:
+                type: string
+    RedirectRequest:
+      type: object
+      additionalProperties: false
+      required:
+        - target
+      properties:
+        target:
+          $ref: "#/components/schemas/TaskTarget"
     RemoteDispatchList:
       type: object
       additionalProperties: true
@@ -1057,7 +1104,7 @@ components:
       required:
         - code
         - error
-      description: "Why POST /api/sessions would refuse the task, as it would answer it. no_suitable_machine (422): no machine fits — `missing` lists the capabilities no connected machine with the project has (all of them with `together` when none has them together), `elsewhere` the connected machines that would fit but have no checkout of the project. preferred_machine_offline (409): the machine the task is meant for is out of reach — `host`, its `status`, and the connected machines that fit too in `alternatives` (a manual choice away); nothing falls back on its own. missing_capabilities (422): the named machine lacks requirements — `host` and `missing` as {capability, reason}; reason not_verified when no fresh report confirms one. remote_target_unknown, remote_target_unavailable, remote_target_unreleased, remote_project_missing, remote_project_unknown: the named machine cannot take a task (see POST /api/sessions)."
+      description: "Why POST /api/sessions would refuse the task, as it would answer it. no_suitable_machine (422): no machine fits — `missing` lists the capabilities no connected machine with the project has (all of them with `together` when none has them together), `elsewhere` the connected machines that would fit but have no checkout of the project. missing_capabilities (422): the named machine lacks requirements — `host` and `missing` as {capability, reason}; reason not_verified when no fresh report confirms one. remote_target_unknown, remote_target_unavailable, remote_target_unreleased, remote_project_missing, remote_project_unknown: the named machine cannot take a task (see POST /api/sessions)."
       properties:
         code:
           type: string
@@ -1065,16 +1112,10 @@ components:
           type: string
         host:
           $ref: "#/components/schemas/SessionHost"
-        status:
-          type: string
         reason:
           type: string
         together:
           type: boolean
-        alternatives:
-          type: array
-          items:
-            $ref: "#/components/schemas/SessionHost"
         elsewhere:
           type: array
           items:
@@ -1090,8 +1131,24 @@ components:
           description: "false: no connected machine could take a task, so a create runs here exactly as it always did and the form shows no machine choice."
         placement:
           $ref: "#/components/schemas/Placement"
+        wait:
+          $ref: "#/components/schemas/PlacementWait"
         refusal:
           $ref: "#/components/schemas/PlacementRefusal"
+    PlacementWait:
+      type: object
+      additionalProperties: true
+      required:
+        - status
+        - alternatives
+      description: "The machine in `placement` is out of reach (#2775): POST /api/sessions stores the task to wait for it (a HeldTask with `waiting`) and sends it there once it can take it — it never falls back to another machine on its own. `status` says why it is out of reach; `alternatives` are the connected machines, this instance included, that fit too — a manual choice away."
+      properties:
+        status:
+          type: string
+        alternatives:
+          type: array
+          items:
+            $ref: "#/components/schemas/SessionHost"
     Repo:
       type: object
       additionalProperties: true
@@ -6774,6 +6831,11 @@ components:
       oneOf:
         - $ref: "#/components/schemas/HeldTask"
         - $ref: "#/components/schemas/Session"
+    RedirectRemoteDispatchSuccess:
+      description: "Rust-only: every success body redirectRemoteDispatch can answer (statuses 200, 201)."
+      oneOf:
+        - $ref: "#/components/schemas/HeldTask"
+        - $ref: "#/components/schemas/Session"
     GetPullRequestReviewersError:
       description: "Rust-only: every error body getPullRequestReviewers can answer (statuses 400, 401, 404, 409, 502)."
       oneOf:
@@ -7111,7 +7173,7 @@ paths:
           $ref: "#/components/responses/Unauthorized"
     post:
       operationId: createSession
-      description: "Creates and spawns a session, or answers 200 with a held task when the usage hold trips (force overrides the hold). While a machine is connected and no `target` is given, this instance chooses the machine itself (POST /api/placement shows the choice): machines whose platform is released, that have the project and whose report has every requirement, ranked by platform (Linux before macOS by default, this instance's machinePlatformOrder setting), then by instance ID. The choice is recorded on the session as `launchMetadata.placement`. Started on another machine — chosen or named in `target` — the 201 session and the 200 held task carry `host`, and nothing starts here. A keyed retry goes where its first submission went."
+      description: "Creates and spawns a session, or answers 200 with a held task when the usage hold trips (force overrides the hold). While a machine is connected and no `target` is given, this instance chooses the machine itself (POST /api/placement shows the choice): machines whose platform is released, that have the project and whose report has every requirement, ranked by platform (Linux before macOS by default, this instance's machinePlatformOrder setting), then by instance ID. The choice is recorded on the session as `launchMetadata.placement`. Started on another machine — chosen or named in `target` — the 201 session and the 200 held task carry `host`, and nothing starts here. When the chosen machine is out of reach (#2775) the task waits here for it: 200 with `waiting` (a HeldTask); nothing is sent or uploaded until that machine can take it, and nothing falls back to another machine. A keyed retry goes where its first submission went."
       parameters:
         - name: X-Shepherd-Spawn-Id
           in: header
@@ -7133,7 +7195,7 @@ paths:
               $ref: "#/components/schemas/CreateSessionRequest"
       responses:
         "200":
-          description: Usage hold tripped — queued as a held task instead of spawned.
+          description: "Usage hold tripped — queued as a held task instead of spawned (with `host`: held on that machine). With `waiting`: chosen automatically for a machine that is out of reach, the task waits here for it (#2775)."
           content:
             application/json:
               schema:
@@ -7153,7 +7215,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":
-          description: "First run pending, name taken, worktree occupied, or herdr restart required (see code). With an Idempotency-Key also: the key was used with a different body (dispatch_payload_mismatch), was withdrawn before it arrived (dispatch_canceled), or its first start was cut off by a restart (dispatch_interrupted). With a target also: the machine is not reachable right now and nothing was sent (remote_target_unavailable, `reason` says why), or the task was canceled before the machine confirmed it and never starts under that key (remote_dispatch_canceled), or it was canceled here but the machine has not confirmed the cancel yet — the task may have reached it first and be running there; it is not sent again (remote_dispatch_cancel_pending). Chosen automatically also: the machine the task is meant for is out of reach and nothing falls back on its own (preferred_machine_offline — `host`, `status`, the fitting connected machines in `alternatives`)."
+          description: "First run pending, name taken, worktree occupied, or herdr restart required (see code). With an Idempotency-Key also: the key was used with a different body (dispatch_payload_mismatch), was withdrawn before it arrived (dispatch_canceled), or its first start was cut off by a restart (dispatch_interrupted). With a target also: the machine is not reachable right now and nothing was sent (remote_target_unavailable, `reason` says why), or the task was canceled before the machine confirmed it and never starts under that key (remote_dispatch_canceled), or it was canceled here but the machine has not confirmed the cancel yet — the task may have reached it first and be running there; it is not sent again (remote_dispatch_cancel_pending)."
           content:
             application/json:
               schema:
@@ -7340,7 +7402,7 @@ paths:
   /api/remote-dispatches:
     get:
       operationId: listRemoteDispatches
-      description: "Tasks this instance sent to connected machines that no machine has confirmed yet: start status unknown, or a cancel on its way. Oldest first; only machines still registered here (connected or not). remote:dispatch announces every change of one, including the one that resolves it."
+      description: "Tasks for connected machines that are not settled: sent but not confirmed by the machine (start status unknown, or a cancel on its way), waiting here for their machine, or held there (#2775). Oldest first; only machines still registered here (connected or not). remote:dispatch announces every change of one, including the one that resolves it, and a waiting one again whenever its readiness or alternatives change."
       responses:
         "200":
           description: The unconfirmed dispatches.
@@ -7360,7 +7422,7 @@ paths:
           type: string
     delete:
       operationId: cancelRemoteDispatch
-      description: "Cancel a task no machine has confirmed: the machine's DELETE /api/dispatches/{id} makes sure it never starts there, even if the task arrives late. Until the cancel reaches the machine nothing sends the task again, and a retry under its Idempotency-Key is refused (remote_dispatch_cancel_pending while the cancel is on its way, remote_dispatch_canceled once the machine confirmed it). Idempotent."
+      description: "Cancel a task no machine has confirmed: the machine's DELETE /api/dispatches/{id} makes sure it never starts there, even if the task arrives late. Until the cancel reaches the machine nothing sends the task again, and a retry under its Idempotency-Key is refused (remote_dispatch_cancel_pending while the cancel is on its way, remote_dispatch_canceled once the machine confirmed it). A waiting task (#2775) was never sent: it is canceled at once. A task its machine holds is discarded there (DELETE /api/held/{heldId}) and canceled once the machine's dispatch record confirms it; if it started first, it is not cancelable. Idempotent."
       responses:
         "200":
           description: Canceled — it never starts on the machine.
@@ -7388,10 +7450,78 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+  /api/remote-dispatches/{id}/redirect:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: The dispatch ID of a waiting task, as GET /api/remote-dispatches lists it.
+        schema:
+          type: string
+    post:
+      operationId: redirectRemoteDispatch
+      description: Run a task that waits for its machine (#2775) on another one now — a connected machine or this instance. It must fit as a machine named in `target` must fit (connected, released, the project checked out, every requirement verified); otherwise the refusal is answered and the task keeps waiting. On another machine it is sent under the same dispatch ID (it was never sent) and answered as POST /api/sessions answers a task for a machine; if that machine cannot take it yet, it waits for that one instead (200 with `waiting`). On this instance it starts under the task's own Idempotency-Key, so a retry of the original create replays this start. The choice is recorded as manual. `full` scope only.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RedirectRequest"
+      responses:
+        "200":
+          description: Held on the machine it went to, held here by the usage hold, or (`waiting`) waiting for the new machine, which could not take it yet.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RedirectRemoteDispatchSuccess"
+        "201":
+          description: Started there (the session, with `host` on another machine) or here.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RedirectRemoteDispatchSuccess"
+        "400":
+          description: "The body was not {target: {instanceId}}, or the stored task no longer validates here (e.g. its attachments are gone)."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: No such dispatch, or its machine was removed here.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Not waiting (remote_dispatch_not_redirectable — `dispatch` says what it is now), the machine is not reachable right now (remote_target_unavailable), or a create conflict here (see POST /api/sessions).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: The machine does not fit (missing_capabilities with `host` and `missing`, remote_target_unknown, remote_target_unreleased, remote_project_missing), or it refused the task (remote_rejected).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "502":
+          description: An attachment did not reach the machine (remote_upload_failed), or the create here failed downstream.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "504":
+          description: Sent, but no answer came back (remote_dispatch_unknown — start status unknown); this instance keeps asking the machine.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
   /api/placement:
     post:
       operationId: previewPlacement
-      description: Where a new task would run and why — decided exactly as POST /api/sessions decides it for the same repoPath, requirements and target with the same readiness, so a form can show it before submitting. Nothing is stored or sent. While no connected machine could take a task `active` is false. Otherwise the answer has either `placement` (the target and the reason) or `refusal` (what POST /api/sessions would answer).
+      description: Where a new task would run and why — decided exactly as POST /api/sessions decides it for the same repoPath, requirements and target with the same readiness, so a form can show it before submitting. Nothing is stored or sent. While no connected machine could take a task `active` is false. Otherwise the answer has either `placement` (the target and the reason) or `refusal` (what POST /api/sessions would answer). With `wait` beside `placement`, that machine is out of reach and the task would wait for it (#2775).
       requestBody:
         required: true
         content:
@@ -10997,7 +11127,7 @@ x-shepherd-events:
     schema:
       $ref: "#/components/schemas/RemoteSessionsEvent"
   remote:dispatch:
-    description: "A task sent to a connected machine that no machine had confirmed changed state: it became unknown (no answer), a cancel was requested, or it resolved (started, held, rejected, canceled). The whole current RemoteDispatch; a client shows it while its state is unknown or canceling and drops it otherwise. Not sent for a task the machine confirmed right away."
+    description: "A task for a connected machine that is not settled changed: it became unknown (no answer), a cancel was requested, it started waiting here for its machine or its readiness or alternatives changed while it waits, its machine holds it, or it resolved (started, rejected, canceled, upload_failed, or redirected — it runs on this instance now). The whole current RemoteDispatch; a client shows it while its state is unknown, canceling, waiting or held and drops it otherwise. Not sent for a task the machine started right away."
     schema:
       $ref: "#/components/schemas/RemoteDispatch"
   terminal:owners:

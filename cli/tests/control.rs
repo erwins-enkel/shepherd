@@ -80,6 +80,30 @@ async fn new_reads_prompt_from_stdin_and_reports_held() {
 }
 
 #[tokio::test]
+async fn new_reports_a_task_waiting_for_its_machine() {
+    let s = server().await;
+    Mock::given(method("POST"))
+        .and(path("/api/sessions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "held": true, "waiting": true, "id": "d-1", "count": 1,
+            "host": {"instanceId": "m-1", "name": "MacBook", "platform": "macos"}
+        })))
+        .expect(1)
+        .mount(&s)
+        .await;
+    let mut h = Harness::new();
+    h.tty = true;
+    assert_eq!(
+        h.run(&["--url", &s.uri(), "new", "--repo", "/r", "Port the app"])
+            .await,
+        0
+    );
+    let out = h.out.text();
+    assert!(out.contains("waiting: MacBook is out of reach"), "{out}");
+    assert!(!out.contains("usage hold"), "{out}");
+}
+
+#[tokio::test]
 async fn new_submit_scope_message() {
     let s = server().await;
     Mock::given(method("POST"))

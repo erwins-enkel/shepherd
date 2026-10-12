@@ -3257,7 +3257,7 @@ async function refuseMissingCapabilities(
 
 // POST /api/sessions — create a session.
 async function handleSessionCreate(ctx: Ctx): Promise<Response | null> {
-  const { req, parts, deps, token } = ctx;
+  const { req, parts, deps } = ctx;
   if (!(req.method === "POST" && !parts[2])) return null;
   const b = firstRunBlock();
   if (b) return b;
@@ -3270,6 +3270,40 @@ async function handleSessionCreate(ctx: Ctx): Promise<Response | null> {
   // reaches this machine's path validation, hold gate or spawn.
   const target = splitTarget(raw, deps.store);
   if ("error" in target) return json({ error: target.error }, 400);
+  return onePerKey(deps.store, dispatchId, () => routeCreate(ctx, raw, target, dispatchId));
+}
+
+/** Keyed creates running in this process, per store and Idempotency-Key (#2772). The next one
+ *  under the same key waits for it and then follows it wherever it went, so a machine choice that
+ *  changes in between can never send one key here AND to a machine. */
+const keyedCreates = new WeakMap<object, Map<string, Promise<unknown>>>();
+
+async function onePerKey<T>(
+  store: object,
+  key: string | undefined,
+  run: () => Promise<T>,
+): Promise<T> {
+  if (key === undefined) return run();
+  let running = keyedCreates.get(store);
+  if (!running) keyedCreates.set(store, (running = new Map()));
+  const mine = (running.get(key) ?? Promise.resolve()).then(run, run);
+  running.set(key, mine);
+  try {
+    return await mine;
+  } finally {
+    if (running.get(key) === mine) running.delete(key);
+  }
+}
+
+/** A parsed create, from here on: a keyed retry follows its first submission, a named machine gets
+ *  it, anything else is validated here and placed (#2772). */
+async function routeCreate(
+  ctx: Ctx,
+  raw: unknown,
+  target: CreateTarget,
+  dispatchId: string | undefined,
+): Promise<Response> {
+  const { req, deps, token } = ctx;
   // A keyed retry goes where its first submission went (#2772) — whatever a choice would say now.
   const sentTo = dispatchId && deps.store.getRemoteDispatchByKey(dispatchId)?.instanceId;
   const named = target.instanceId !== null && !target.self ? target.instanceId : null;
@@ -3441,8 +3475,11 @@ async function placeCreate(
   if (req.dispatchId && deps.store.getDispatch(req.dispatchId)) return input;
   const active = placementActive(remoteInstances(deps).list());
   if (req.self) {
-    return sent || active
-      ? { ...input, placement: sent ?? (await manualHere(deps, input)) }
+    // A coordinator's record names this machine as its target; anything else is not one.
+    const own = instanceIdentity(deps.store).instanceId;
+    const record = sent?.target.instanceId === own ? sent : undefined;
+    return record || active
+      ? { ...input, placement: record ?? (await manualHere(deps, input)) }
       : input;
   }
   if (!active) return input;
@@ -7836,6 +7873,8 @@ async function heldUpdate(
   // Same for an explicit base commit (#2761): the composer has no field for it, and an edit must
   // never silently re-base a task that was pinned to a revision. An edit that names one wins.
   value.baseCommit ??= existing.input.baseCommit;
+  // The record of the machine choice (#2772) is the placer's, never an edit's: carried forward.
+  value.placement = existing.input.placement;
   deps.store.updateHeldTask(id, value);
   deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
   return json(deps.store.getHeldTask(id), 200);

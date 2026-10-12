@@ -10,6 +10,8 @@ import { config } from "../src/config";
 import { AccessTokenService } from "../src/access-tokens";
 import { RemoteInstanceService } from "../src/remote-instances/service";
 import { RemoteSessionMirror } from "../src/remote-instances/sessions";
+import { RemoteDispatcher } from "../src/remote-instances/dispatch";
+import type { FetchLike } from "../src/remote-instances/client";
 import type { CapabilityService } from "../src/remote-instances/capability-probe";
 import {
   CAPABILITIES,
@@ -349,6 +351,61 @@ describe("automatic machine choice", () => {
     expect(again.status).toBe(201);
     expect(linux.created).toHaveLength(1);
     expect(mac.created).toHaveLength(1);
+  });
+
+  test("concurrent keyed duplicates never start one key on two machines", async () => {
+    const { linux, mac } = await pair();
+    // The Mac's hand-off to Linux stalls while it maps the project (GET /api/repos)…
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    let stalled!: () => void;
+    const reached = new Promise<void>((resolve) => (stalled = resolve));
+    const slow: FetchLike = async (input, init) => {
+      if (String(input).endsWith("/api/repos")) {
+        stalled();
+        await gate;
+      }
+      return fetch(input, init);
+    };
+    mac.deps.remoteDispatch = new RemoteDispatcher({
+      store: mac.deps.store,
+      instances: mac.deps.remoteInstances,
+      fetch: slow,
+    });
+    const body = task(mac);
+    const first = create(mac, body, { key: "k-race" });
+    await reached;
+    // …and meanwhile the choice flips to the Mac itself: the duplicate must still follow the first.
+    mac.deps.store.setSetting("machinePlatformOrder", JSON.stringify(["macos", "linux"]));
+    const second = create(mac, body, { key: "k-race" });
+    await Bun.sleep(50);
+    release();
+    const [a, b] = await Promise.all([first, second]);
+    expect([a.status, b.status]).toEqual([201, 201]);
+    expect(b.body.id).toBe(a.body.id);
+    expect(linux.created).toHaveLength(1);
+    expect(mac.created).toEqual([]);
+  });
+
+  test("a placement record counts only when it names this machine as its target", async () => {
+    const { linux } = await pair();
+    const record = {
+      mode: "auto",
+      target: { instanceId: linux.id, name: "moes-tavern", platform: "linux" },
+      requirements: [],
+      basis: "only_candidate",
+      preferred: null,
+      by: { instanceId: "coordinator-1", name: "MacBook" },
+      decidedAt: 7,
+    };
+    const here = { target: { instanceId: linux.id } };
+    expect((await create(linux, task(linux, { ...here, placement: record }))).status).toBe(201);
+    expect(linux.created[0]).toMatchObject({ placement: record });
+    const forged = { ...record, target: { ...record.target, instanceId: "elsewhere-1" } };
+    expect((await create(linux, task(linux, { ...here, placement: forged }))).status).toBe(201);
+    expect(linux.created[1]).toMatchObject({
+      placement: { mode: "manual", basis: "manual", by: { instanceId: linux.id } },
+    });
   });
 
   test("the platform order is this instance's setting", async () => {

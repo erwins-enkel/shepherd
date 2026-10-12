@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore } from "../src/store";
@@ -23,6 +23,7 @@ import {
   missingRequirements,
 } from "../src/remote-instances/capabilities";
 import type { CreateSessionInput } from "../src/types";
+import type { TaskText } from "../src/requirements-classify-core";
 import type { GitForge } from "../src/forge/types";
 
 // Automatic machine choice (#2772) end to end: two real Shepherd servers in one process, connected
@@ -490,6 +491,108 @@ describe("automatic machine choice", () => {
   });
 });
 
+// ── requirements read from the task (#2773) ─────────────────────────────────────────────────────
+// The helper is stubbed: a deterministic stand-in for the model that records what it was given.
+
+type Answer = Awaited<ReturnType<NonNullable<AppDeps["deriveTaskRequirements"]>>>;
+
+function stubHelper(node: Node, answer: (task: TaskText) => Answer): TaskText[] {
+  const seen: TaskText[] = [];
+  node.deps.deriveTaskRequirements = async (task) => {
+    seen.push(task);
+    return answer(task);
+  };
+  return seen;
+}
+
+const derive = (node: Node, over: Record<string, unknown> = {}) =>
+  call(node, "POST", "/api/requirements/derive", {
+    repoPath: node.checkout,
+    prompt: "Implementiere die Web-Einstellungen",
+    ...over,
+  });
+
+describe("requirements read from the task", () => {
+  test("two tasks of one repo land on the Mac and on Linux by what they ask for", async () => {
+    const { linux, mac } = await pair();
+    // The repository carries native code; only the task text reaches the helper.
+    mkdirSync(join(linux.checkout, "native"));
+    writeFileSync(join(linux.checkout, "Package.swift"), "// swift-tools-version:6.0\n");
+    const seen = stubHelper(linux, (t) => ({
+      status: "derived",
+      requirements: t.prompt.includes("macOS") ? ["xcode"] : [],
+    }));
+    for (const [prompt, expected] of [
+      ["Erweitere die native macOS-App", mac],
+      ["Implementiere die Web-Einstellungen", linux],
+    ] as const) {
+      linux.created.length = 0;
+      mac.created.length = 0;
+      const shown = await preview(linux);
+      expect(shown.body.deriveRequirements).toBe(true);
+      const derived = await derive(linux, { prompt });
+      expect(derived.status).toBe(200);
+      const requirements = (derived.body as { requirements: Capability[] }).requirements;
+      const res = await create(
+        linux,
+        task(linux, { prompt, ...(requirements.length > 0 && { requirements }) }),
+      );
+      expect(res.status).toBe(201);
+      expect(ranOn([linux, mac])).toEqual([expected]);
+    }
+    expect(seen).toEqual([
+      { prompt: "Erweitere die native macOS-App", issue: null },
+      { prompt: "Implementiere die Web-Einstellungen", issue: null },
+    ]);
+  });
+
+  test("the helper's answer comes through as data: unclear, failed, an attached issue", async () => {
+    const { linux } = await pair();
+    stubHelper(linux, () => ({ status: "unclear", options: [["xcode"], []] }));
+    expect(await derive(linux)).toEqual({
+      status: 200,
+      body: { status: "unclear", options: [["xcode"], []] },
+    });
+    stubHelper(linux, () => ({ status: "failed", cause: "timeout" }));
+    expect(await derive(linux)).toEqual({
+      status: 200,
+      body: { status: "failed", cause: "timeout" },
+    });
+    const seen = stubHelper(linux, () => ({ status: "derived", requirements: ["android-sdk"] }));
+    const issue = { title: "Android: Push fehlt", body: "Die Android-App zeigt nichts an." };
+    expect((await derive(linux, { prompt: "", issue })).body).toEqual({
+      status: "derived",
+      requirements: ["android-sdk"],
+    });
+    expect(seen).toEqual([{ prompt: "", issue }]);
+  });
+
+  test("no helper wired: nothing derived, and it says why", async () => {
+    const { linux } = await pair();
+    expect((await derive(linux)).body).toEqual({ status: "failed", cause: "unavailable" });
+  });
+
+  test("a named machine is the operator's pick: the preview does not ask to derive", async () => {
+    const { linux, mac } = await pair();
+    expect((await preview(linux, { target: { instanceId: mac.id } })).body.deriveRequirements).toBe(
+      false,
+    );
+    expect(
+      (await preview(linux, { target: { instanceId: linux.id } })).body.deriveRequirements,
+    ).toBe(false);
+  });
+
+  test("machines that verify the same: skipped, the helper never runs", async () => {
+    const a = startNode("app", "linux", ["platform:linux", "agent:claude"]);
+    const b = startNode("app-b", "linux", ["platform:linux", "agent:claude"]);
+    await connect(a, b);
+    const seen = stubHelper(a, () => ({ status: "derived", requirements: ["xcode"] }));
+    expect((await preview(a)).body).toMatchObject({ active: true, deriveRequirements: false });
+    expect(await derive(a)).toEqual({ status: 200, body: { status: "skipped" } });
+    expect(seen).toEqual([]);
+  });
+});
+
 describe("without connected machines", () => {
   test("a create is exactly what it was, and the preview says the choice is not active", async () => {
     const solo = startNode("app", "linux", ["platform:linux"]);
@@ -498,6 +601,40 @@ describe("without connected machines", () => {
     expect(solo.created).toHaveLength(1);
     expect(Object.keys(solo.created[0]!)).not.toContain("placement");
     expect(await preview(solo)).toEqual({ status: 200, body: { active: false } });
+  });
+
+  test("reading requirements from the task is skipped, and nothing runs", async () => {
+    const solo = startNode("app", "linux", ["platform:linux"]);
+    const seen = stubHelper(solo, () => ({ status: "derived", requirements: ["xcode"] }));
+    expect(await derive(solo)).toEqual({ status: 200, body: { status: "skipped" } });
+    expect(seen).toEqual([]);
+  });
+
+  test("the derive route validates its input and the repository grant", async () => {
+    const solo = startNode("app", "linux", ["platform:linux"]);
+    mkdirSync(join(root, "other"));
+    for (const bad of [
+      { prompt: "" },
+      { prompt: "   ", issue: { title: " " } },
+      { prompt: 42 },
+      { prompt: "x".repeat(8001) },
+      { requirements: ["xcode"] },
+      { issue: "#12" },
+      { issue: { title: "t", url: "https://x" } },
+      { issue: { title: "t", body: 7 } },
+      { repoPath: join(root, "nope") },
+    ]) {
+      expect((await derive(solo, bad)).status, JSON.stringify(bad).slice(0, 80)).toBe(400);
+    }
+    const restricted = solo.deps.accessTokens!.mint("repo", null, "full", [solo.checkout]).token;
+    const denied = await call(
+      solo,
+      "POST",
+      "/api/requirements/derive",
+      { repoPath: join(root, "other"), prompt: "x" },
+      { token: restricted },
+    );
+    expect(denied).toEqual({ status: 403, body: { error: "repository_not_allowed" } });
   });
 
   test("the preview validates its input and the repository grant", async () => {

@@ -1,7 +1,14 @@
 import type { AgentProvider } from "#lib/types.js";
 
 export type ReadinessBlocker =
-  "empty_prompt" | "no_repo" | "base_missing" | "repairing" | "uploading" | "submitting";
+  | "empty_prompt"
+  | "no_repo"
+  | "base_missing"
+  | "repairing"
+  | "uploading"
+  | "submitting"
+  | "requirements_pending"
+  | "requirements_unclear";
 
 export type ReadinessAdvisory = "checking" | "diverged" | "behind" | "hold_likely";
 
@@ -19,6 +26,11 @@ export interface ReadinessInput {
   upstream: { diverged: boolean; behind: number } | null;
   holdLikely: boolean;
   provider: AgentProvider;
+  /** The task's requirements are still being read from its description (#2773): what it calls
+   *  for decides where it runs, so it does not start before the answer. */
+  requirementsPending: boolean;
+  /** The description was unclear: the operator answers the question first (#2773). */
+  requirementsUnclear: boolean;
 }
 
 export interface Readiness {
@@ -41,6 +53,8 @@ function deriveBlocker(i: ReadinessInput): ReadinessBlocker | null {
   if (!i.repoResolved) return "no_repo";
   if (i.baseMissing) return "base_missing";
   if (i.promptEmpty && !i.issueSeeded) return "empty_prompt";
+  if (i.requirementsUnclear) return "requirements_unclear";
+  if (i.requirementsPending) return "requirements_pending";
   return null;
 }
 

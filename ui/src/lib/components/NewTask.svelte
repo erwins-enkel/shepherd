@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { flushSync, onMount, tick } from "svelte";
+  import { flushSync, onMount, tick, untrack } from "svelte";
   import { MediaQuery } from "svelte/reactivity";
   import {
     listRepos,
@@ -18,6 +18,7 @@
     listRemoteInstances,
     getInstance,
     previewPlacement,
+    deriveRequirements,
     ApiError,
   } from "#lib/api.js";
   import { toasts } from "#lib/toasts.svelte.js";
@@ -30,6 +31,7 @@
     type ProviderTokenConstraint,
     type InstanceIdentity,
     type PlacementPreview,
+    type RequirementsDerivation as Derivation,
     type RemoteInstance,
     type RepoEntry,
     type SandboxProfile,
@@ -113,6 +115,7 @@
   } from "./new-task/run-on";
   import RequirementChips from "./new-task/RequirementChips.svelte";
   import PlacementLine from "./new-task/PlacementLine.svelte";
+  import RequirementsDerivation from "./new-task/RequirementsDerivation.svelte";
 
   type TaskAttachment = {
     path: string;
@@ -583,10 +586,15 @@
           if (seq !== previewSeq) return;
           preview = { key, value };
           previewFailed = false;
+          // Only Automatic says whether the task's description can matter; a pick says false.
+          if (pick === null) deriveFor = { repo, value: value.deriveRequirements === true };
         })
         .catch(() => {
           if (seq !== previewSeq) return;
           previewFailed = true;
+          // Unknown whether it matters: ask the derive route, which checks again itself and
+          // answers `skipped` when it does not — the start never waits forever, nor goes unread.
+          if (pick === null) deriveFor = { repo, value: true };
         });
     }, 200);
     return () => clearTimeout(timer);
@@ -595,6 +603,93 @@
   // ONE repo-aware seeded-issue predicate: feeds readiness, the submit guard, the
   // template materialization, and the issueRef payload — they can never disagree.
   const activeIssue = $derived(issueRef && repoPath === attachedRepoPath ? issueRef : null);
+
+  // ── Requirements read from the task (#2773) ─────────────────────────────────
+  // While the machines that could take the task differ in what a description can call for (the
+  // Automatic preview says so), the server reads the requirements from the prompt and the attached
+  // issue a second after the last edit — so its seconds pass while the operator is still writing.
+  // The answer becomes the chips, correctable; an unclear description asks first, and nothing
+  // starts before the answer. Once the operator sets the chips or answers, theirs win.
+  /** The operator set the requirements (a chip, or the question answered): nothing is read any more. */
+  let requirementsTouched = $state(false);
+  /** Whether reading them can change where the task runs, for this repo — from its last Automatic
+   *  preview. */
+  let deriveFor = $state<{ repo: string; value: boolean } | null>(null);
+  /** The last answer, with the task text it answers (`key`). */
+  let derivation = $state<{ key: string; value: Derivation } | null>(null);
+  const deriveApplies = $derived(
+    runOnAvailable &&
+      pickedId === null &&
+      !requirementsTouched &&
+      deriveFor?.repo === repoPath.trim() &&
+      deriveFor.value,
+  );
+  /** The task as the create sends it: the prompt and the attached issue. */
+  const deriveTask = $derived({
+    prompt: prompt.trim(),
+    ...(activeIssue && {
+      issue: { title: activeIssue.title, ...(activeIssue.body && { body: activeIssue.body }) },
+    }),
+  });
+  const deriveKey = $derived(JSON.stringify([repoPath.trim(), deriveTask]));
+  const deriveHasText = $derived(!!deriveTask.prompt || !!deriveTask.issue?.title.trim());
+  /** The answer for the task as it is now; null while that one is still being read. */
+  const currentDerivation = $derived(derivation?.key === deriveKey ? derivation.value : null);
+  /** No Automatic preview has answered for this repo yet, so whether reading the requirements
+   *  matters is not known: the task does not start before it is (the preview may wait on a
+   *  capability refresh, and a repo switch asks again). */
+  const deriveUnknown = $derived(
+    runOnAvailable &&
+      pickedId === null &&
+      !requirementsTouched &&
+      deriveFor?.repo !== repoPath.trim(),
+  );
+  const requirementsPending = $derived(
+    deriveHasText && ((deriveApplies && currentDerivation === null) || deriveUnknown),
+  );
+  const requirementsUnclear = $derived(deriveApplies && currentDerivation?.status === "unclear");
+
+  /** An answer for the current text: it replaces untouched chips — what was derived, else none, so
+   *  a chip read from an older text never stays (nothing is guessed). */
+  function applyDerivation(key: string, value: Derivation) {
+    derivation = { key, value };
+    if (requirementsTouched) return;
+    requirements = value.status === "derived" ? [...(value.requirements ?? [])] : [];
+  }
+
+  /** The operator's own requirements — a chip changed, or the question answered. */
+  function setRequirements(next: string[]) {
+    requirements = [...next].sort();
+    requirementsTouched = true;
+  }
+
+  // One read per settled text: a change aborts the read in flight (the server tears its helper
+  // down) and a stale answer is dropped (`deriveSeq`).
+  let deriveSeq = 0;
+  $effect(() => {
+    const key = deriveKey;
+    const repo = repoPath.trim();
+    const task = deriveTask;
+    if (!deriveApplies || !deriveHasText) return;
+    if (untrack(() => derivation?.key) === key) return;
+    const seq = ++deriveSeq;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      deriveRequirements({ repoPath: repo, ...task }, controller.signal)
+        .then((value) => {
+          if (seq === deriveSeq) applyDerivation(key, value);
+        })
+        .catch(() => {
+          if (seq === deriveSeq && !controller.signal.aborted) {
+            applyDerivation(key, { status: "failed", cause: "error" });
+          }
+        });
+    }, 1000);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  });
   // Non-viewer assignees of the attached issue, for the soft "you can still start"
   // notice (#1694). Fail-closed via viewer-cache.
   const attachedOthers = $derived(
@@ -1187,6 +1282,8 @@
       // A machine judges its own usage hold (#2763); this one's forecast says nothing about it.
       holdLikely: holdLikely && remoteTarget === null,
       provider: agentProvider,
+      requirementsPending,
+      requirementsUnclear,
     }),
   );
   const showDualCta = $derived(readiness.advisories.includes("hold_likely"));
@@ -1273,6 +1370,10 @@
         return m.newtask_readiness_base_missing();
       case "repairing":
         return m.newtask_readiness_repairing();
+      case "requirements_pending":
+        return m.newtask_readiness_requirements_pending();
+      case "requirements_unclear":
+        return m.newtask_readiness_requirements_unclear();
       case "uploading":
         return m.newtask_uploading();
       case "submitting":
@@ -2294,7 +2395,14 @@
 
             {#if runOnAvailable}
               <!-- The machine choice (#2772): what the task needs, and where it will run and why. -->
-              <RequirementChips {requirements} onchange={(next) => (requirements = next)} />
+              <RequirementChips {requirements} onchange={setRequirements} />
+              {#if deriveApplies}
+                <RequirementsDerivation
+                  pending={requirementsPending}
+                  derivation={currentDerivation}
+                  onanswer={setRequirements}
+                />
+              {/if}
               <PlacementLine preview={currentPreview} failed={previewFailed} />
             {/if}
             {#if remoteTarget}

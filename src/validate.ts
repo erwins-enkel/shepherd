@@ -25,6 +25,7 @@ import { parseRemote } from "./forge/remote";
 import { isSandboxProfile, SANDBOX_PROFILES, type SandboxProfile } from "./sandbox";
 import { type Capability, parseRequirements } from "./remote-instances/capabilities";
 import { type Placement, parsePlacementRecord } from "./remote-instances/placement";
+import type { TaskText } from "./requirements-classify-core";
 import { normalizeHost } from "./egress";
 
 /** Expand a leading `~` / `~/` to the user's home dir (the UI suggests `~/<repo>/…`). */
@@ -614,6 +615,55 @@ export function validatePlacementPreview(
   const requirements = parseRequirements(obj.requirements);
   if (requirements && "error" in requirements) return err(requirements.error);
   return { ok: true, value: { repoPath: repoPath.value, requirements: requirements ?? [] } };
+}
+
+const DERIVE_KEYS = new Set(["repoPath", "prompt", "issue"]);
+const DERIVE_ISSUE_KEYS = new Set(["title", "body"]);
+
+/** A `POST /api/requirements/derive` body (#2773): one of this machine's repos and the task text
+ *  as New Task would send it — the prompt and the attached issue's title and body, bounded like a
+ *  create's. Either the prompt or the issue title must say something. */
+export function validateRequirementsDerive(
+  body: unknown,
+  repoRoot: string,
+): { ok: true; value: { repoPath: string; task: TaskText } } | Err {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) {
+    return err("body must be a non-null object");
+  }
+  const obj = body as Record<string, unknown>;
+  const unknown = Object.keys(obj).find((key) => !DERIVE_KEYS.has(key));
+  if (unknown !== undefined) return err(`unknown key: ${unknown}`);
+  const repoPath = validateRepoPath(obj.repoPath, resolve(expandHome(repoRoot)));
+  if (!repoPath.ok) return repoPath;
+  if (typeof obj.prompt !== "string" || obj.prompt.length > 8000) {
+    return err("prompt must be a string ≤ 8000 chars");
+  }
+  const issue = validateDeriveIssue(obj.issue);
+  if (!issue.ok) return issue;
+  if (!obj.prompt.trim() && !issue.value?.title.trim()) {
+    return err("prompt or issue.title must not be empty");
+  }
+  const task = { prompt: obj.prompt, issue: issue.value };
+  return { ok: true, value: { repoPath: repoPath.value, task } };
+}
+
+/** The derive body's optional `issue`: `{ title, body? }`, bounded like a create's `issueRef`. */
+function validateDeriveIssue(raw: unknown): { ok: true; value: TaskText["issue"] } | Err {
+  if (raw === undefined) return { ok: true, value: null };
+  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
+    return err("issue must be an object");
+  }
+  const fields = raw as Record<string, unknown>;
+  const stray = Object.keys(fields).find((key) => !DERIVE_ISSUE_KEYS.has(key));
+  if (stray !== undefined) return err(`unknown key: issue.${stray}`);
+  if (typeof fields.title !== "string" || fields.title.length > 500) {
+    return err("issue.title must be a string ≤ 500 chars");
+  }
+  const { body } = fields;
+  if (body !== undefined && (typeof body !== "string" || body.length > 100000)) {
+    return err("issue.body must be a string ≤ 100000 chars");
+  }
+  return { ok: true, value: { title: fields.title, ...(body !== undefined && { body }) } };
 }
 
 const TERMINAL_ALLOWED_KEYS = new Set(["repoPath", "terminal"]);

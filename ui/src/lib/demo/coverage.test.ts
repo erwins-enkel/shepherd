@@ -406,9 +406,10 @@ const DELIBERATE_TAIL: Readonly<Record<string, readonly string[]>> = {
     // waits for its machine (#2775): the demo connects no machines, so no such row renders.
     "/api/remote-dispatches/:p",
     "/api/remote-dispatches/:p/redirect",
-    // The machine choice preview (#2772): asked only while a machine is connected, and the demo
-    // connects none.
+    // The machine choice preview (#2772) and the requirements read from a task (#2773): asked only
+    // while a machine is connected, and the demo connects none.
     "/api/placement",
+    "/api/requirements/derive",
   ],
 
   // Settings/plugin/update WRITES and the probes behind them. Every corresponding read is

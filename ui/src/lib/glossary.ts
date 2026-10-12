@@ -307,6 +307,14 @@ const glossary: readonly GlossaryTerm[] = [
     termKey: "gloss_requirement_term",
     bodyKey: "gloss_requirement_def",
   },
+  {
+    // Internal: a task kept for the machine it is meant for while that machine is out of reach or
+    // lacks a capability (#2775) — sent once the machine is back and checked, never elsewhere.
+    id: "waiting-task",
+    kind: "internal",
+    termKey: "gloss_waiting_task_term",
+    bodyKey: "gloss_waiting_task_def",
+  },
 ];
 
 export const glossaryById = new Map<string, GlossaryTerm>(glossary.map((term) => [term.id, term]));

@@ -216,9 +216,9 @@ export class MergeRefusedError extends ApiError {
   }
 }
 
-/** A create the machine choice refused (#2772): no machine fits, the one it is meant for is out of
- *  reach, or the named machine lacks a requirement. Carries the refusal so the dialog can say what
- *  is missing in words. Nothing was stored, sent or started. */
+/** A create the machine choice refused (#2772): no machine fits, or the named machine lacks a
+ *  requirement. Carries the refusal so the dialog can say what is missing in words. Nothing was
+ *  stored, sent or started. (A machine out of reach is waited for, #2775 — no refusal.) */
 export class PlacementRefusedError extends ApiError {
   constructor(
     base: ApiError,
@@ -228,11 +228,7 @@ export class PlacementRefusedError extends ApiError {
   }
 }
 
-const PLACEMENT_REFUSALS = new Set([
-  "no_suitable_machine",
-  "preferred_machine_offline",
-  "missing_capabilities",
-]);
+const PLACEMENT_REFUSALS = new Set(["no_suitable_machine", "missing_capabilities"]);
 
 /** The error for a failed create: a {@link PlacementRefusedError} for the machine choice's own
  *  refusals, otherwise what {@link failed} builds. */
@@ -1018,7 +1014,8 @@ export async function removeRemoteInstance(id: string): Promise<void> {
   if (!r.ok) throw await failed(r, "remove machine");
 }
 
-/** Tasks sent to connected machines that no machine confirmed yet (#2774). */
+/** Tasks for connected machines that are not settled: unconfirmed (#2774), waiting here for their
+ *  machine or held there (#2775). */
 export const listRemoteDispatches = async (): Promise<RemoteDispatch[]> =>
   (await getJson<{ dispatches: RemoteDispatch[] }>("/api/remote-dispatches", "remote dispatches"))
     .dispatches;
@@ -1029,6 +1026,23 @@ export const listRemoteDispatches = async (): Promise<RemoteDispatch[]> =>
 export async function cancelRemoteDispatch(id: string): Promise<RemoteDispatch> {
   const r = await fetch(`/api/remote-dispatches/${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!r.ok) throw await failed(r, "cancel task");
+  return r.json();
+}
+
+/** Run a task that waits for its machine on another one now (#2775) — a connected machine or this
+ *  one. Answered like a create: the session, a hold, or a wait for the new machine. A machine that
+ *  does not fit throws like a refused create ({@link PlacementRefusedError} for a missing
+ *  capability, an ApiError with its code otherwise). */
+export async function redirectRemoteDispatch(
+  id: string,
+  instanceId: string,
+): Promise<Session | HeldResult> {
+  const r = await fetch(`/api/remote-dispatches/${encodeURIComponent(id)}/redirect`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ target: { instanceId } }),
+  });
+  if (!r.ok) throw await createRefusal(r);
   return r.json();
 }
 

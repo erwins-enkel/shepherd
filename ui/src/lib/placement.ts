@@ -1,7 +1,7 @@
 import { m } from "#lib/paraglide/messages.js";
 import { getLocale } from "#lib/i18n.js";
 import { capabilityLabel, capabilityReasonLabel, platformLabel } from "#lib/machines.js";
-import type { Placement, PlacementRefusal, SessionHost } from "#lib/types.js";
+import type { Placement, PlacementRefusal, PlacementWait, SessionHost } from "#lib/types.js";
 
 // The automatic machine choice (#2772) in words. The server decides and reports a language-neutral
 // record (`Placement`) or why it would refuse (`PlacementRefusal`); this module is the one place
@@ -83,6 +83,14 @@ function noSuitableMachine(r: PlacementRefusal): string {
   return elsewhere ? `${head} ${m.placement_refusal_elsewhere({ machines: elsewhere })}` : head;
 }
 
+/** The preview when the machine a task is meant for is out of reach (#2775): "Waits for MacBook —
+ *  Needs Xcode", and where it could run now instead. */
+export function placementWaitText(p: Placement, wait: PlacementWait): string {
+  const text = m.placement_waits_for({ machine: p.target.name, reason: placementReason(p) });
+  const others = hostNames(wait.alternatives);
+  return others ? `${text} ${m.placement_refusal_alternatives({ machines: others })}` : text;
+}
+
 /** Why the task would not start — the preview's warning and the dialog's error after a refused
  *  create. A code a newer server might add reads as the server's own sentence. */
 export function placementRefusalText(r: PlacementRefusal): string {
@@ -90,11 +98,6 @@ export function placementRefusalText(r: PlacementRefusal): string {
   switch (r.code) {
     case "no_suitable_machine":
       return noSuitableMachine(r);
-    case "preferred_machine_offline": {
-      const text = m.placement_refusal_offline({ machine });
-      const others = hostNames(r.alternatives);
-      return others ? `${text} ${m.placement_refusal_alternatives({ machines: others })}` : text;
-    }
     case "missing_capabilities": {
       // Without a host: this machine's own fresh check at acceptance refused it.
       const list = missingOnMachine(r.missing);

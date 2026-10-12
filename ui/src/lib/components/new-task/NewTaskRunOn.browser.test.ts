@@ -11,7 +11,7 @@ import type {
   RepoEntry,
 } from "#lib/types.js";
 import { m } from "#lib/paraglide/messages.js";
-import { capabilityList } from "#lib/placement.js";
+import { capabilityList, placementRefusalText, placementWaitText } from "#lib/placement.js";
 import {
   ApiError,
   PlacementRefusedError,
@@ -372,26 +372,40 @@ describe("Run on (#2763) and the automatic choice (#2772)", () => {
   it("names what is missing when the create refuses the machine choice", async () => {
     vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [machine()] });
     const refusal = {
-      code: "preferred_machine_offline",
-      error: "MacBook would run this task but is not reachable right now (timeout)",
+      code: "missing_capabilities",
+      error: "MacBook is missing capabilities: xcode (not_installed)",
       host: mac,
-      status: "timeout",
-      alternatives: [],
+      missing: [{ capability: "xcode", reason: "not_installed" }],
     };
     const onsubmit = vi
       .fn()
       .mockRejectedValueOnce(
         new PlacementRefusedError(
-          new ApiError(409, refusal.error, "preferred_machine_offline", true),
+          new ApiError(422, refusal.error, "missing_capabilities", true),
           refusal,
         ),
       );
     render(NewTask, { props: { onsubmit, initialRepoPath: repo.path } });
     await typePrompt("build it");
     await submit();
-    await expect
-      .element(page.getByText(m.placement_refusal_offline({ machine: "MacBook" })))
-      .toBeVisible();
+    await expect.element(page.getByText(placementRefusalText(refusal))).toBeVisible();
+  });
+
+  it("says before submitting that the task would wait for a machine out of reach (#2775)", async () => {
+    vi.mocked(listRemoteInstances).mockResolvedValue({ instances: [machine()] });
+    const waits: PlacementPreview = {
+      active: true,
+      placement: placed(mac, { requirements: ["xcode"], basis: "requirements" }),
+      wait: { status: "timeout", alternatives: [here] },
+    };
+    vi.mocked(previewPlacement).mockResolvedValue(waits);
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repo.path } });
+    await expect.poll(placementText).toBe(placementWaitText(waits.placement!, waits.wait!));
+    const line = document.querySelector(".nt-placement")!;
+    expect(line.classList.contains("warn")).toBe(true);
+    expect(line.getAttribute("aria-description")).toContain(
+      m.tooltip_waiting_start_body({ machine: "MacBook" }),
+    );
   });
 
   const windows = () =>

@@ -1,12 +1,13 @@
 <script lang="ts">
   import { m } from "#lib/paraglide/messages.js";
-  import { placementReason, placementRefusalText } from "#lib/placement.js";
+  import { placementReason, placementRefusalText, placementWaitText } from "#lib/placement.js";
   import { statusTip } from "#lib/tooltips/statusTip.svelte.js";
-  import { placementExplanation } from "#lib/tooltips/explanations.js";
+  import { placementExplanation, placementWaitExplanation } from "#lib/tooltips/explanations.js";
   import type { PlacementPreview } from "#lib/types.js";
 
   // Where the task will run and why (#2772), before it is submitted: the server's preview of the
   // very choice the create makes. A refusal reads as a warning — submitting would start nothing.
+  // A machine out of reach (#2775) reads as a warning too: the task would wait for it.
   let { preview, failed = false }: { preview: PlacementPreview | null; failed?: boolean } =
     $props();
 
@@ -19,7 +20,15 @@
   );
 </script>
 
-{#if placement}
+{#if placement && preview?.wait}
+  <button
+    type="button"
+    class="nt-placement warn"
+    use:statusTip={{ text: placementWaitExplanation(placement, preview.wait), wide: true }}
+  >
+    {placementWaitText(placement, preview.wait)}
+  </button>
+{:else if placement}
   <button
     type="button"
     class="nt-placement"

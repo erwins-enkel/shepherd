@@ -223,6 +223,28 @@ test("ctx.sessions resolves ids for a loaded plugin, with PR state and null for 
   }
 });
 
+test("ctx.sessions never shows a plugin the Operator Assistant", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "shepherd-plugin-sessions-"));
+  const pluginDir = join(dir, "probe");
+  await mkdir(pluginDir);
+  await makeProbePlugin(pluginDir);
+
+  const store = new SessionStore(":memory:");
+  const registry = new PluginRegistry({ pluginsDir: dir, store, events: new EventHub() });
+  try {
+    const task = store.create(sessionInput("lambda"));
+    const assistant = store.create({ ...sessionInput("assistant"), operatorAssistant: true });
+    await registry.loadAll();
+
+    expect((await probe(registry, `one?id=${assistant.id}`)).snapshot).toBeNull();
+    const list = (await probe(registry, "all")).list as PluginSessionSnapshot[];
+    expect(list.map((s) => s.id)).toEqual([task.id]);
+  } finally {
+    registry.teardown();
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 test("ctx.sessions reflects state written after register(), not a boot-time freeze", async () => {
   const dir = await mkdtemp(join(tmpdir(), "shepherd-plugin-sessions-"));
   const pluginDir = join(dir, "probe");

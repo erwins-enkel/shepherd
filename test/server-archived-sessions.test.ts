@@ -14,7 +14,7 @@ function harness() {
     events: new EventHub(),
     usageLimits: { limits: () => ({}) } as any,
   };
-  const mk = (name: string) =>
+  const mk = (name: string, operatorAssistant?: boolean) =>
     store.create({
       name,
       prompt: "go",
@@ -27,6 +27,7 @@ function harness() {
       herdrAgentId: `term_${name}`,
       claudeSessionId: `claude-${name}`,
       model: null,
+      operatorAssistant,
     });
   return { app: makeApp(deps), store, mk };
 }
@@ -62,4 +63,21 @@ test("GET /api/sessions/{designation} finds an archived session", async () => {
   }
   const missing = await app.fetch(new Request("http://x/api/sessions/TASK-99999"));
   expect(missing.status).toBe(404);
+});
+
+test("GET /api/sessions, the done lens and the archived list leave out the Operator Assistant", async () => {
+  const { app, store, mk } = harness();
+  const live = mk("live");
+  const assistant = mk("assistant", true);
+  const ids = async (path: string) =>
+    ((await (await app.fetch(new Request(`http://x${path}`))).json()) as Session[]).map(
+      (s) => s.id,
+    );
+  expect(await ids("/api/sessions")).toEqual([live.id]);
+
+  const done = mk("done");
+  store.archive(done.id);
+  store.archive(assistant.id); // a New conversation archives the old assistant row
+  expect(await ids("/api/sessions/done")).toEqual([done.id]);
+  expect(await ids("/api/sessions/archived")).toEqual([done.id]);
 });

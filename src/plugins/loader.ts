@@ -30,6 +30,7 @@ import {
   type SpawnHook,
   type SpawnPatch,
 } from "./types";
+import { isOperatorAssistant } from "../operator-assistant-core";
 import { browserRepositoryUrl } from "./repository";
 import { makePluginIssues, type PluginIssuesDeps } from "./issues";
 import { makePluginForgeRuns, type PluginForgeDeps } from "./forge-runs";
@@ -465,16 +466,18 @@ export class PluginRegistry {
       keys: () => this.deps.store.listPluginStateKeys(id),
     };
     // Resolved lazily per call: a plugin holding `ctx.sessions` from register() must keep
-    // reading live state, never a boot-time freeze.
+    // reading live state, never a boot-time freeze. The Operator Assistant is the operator's own
+    // session, not herd work, so plugins never see it (#1446).
     const sessions: PluginSessions = {
       get: (sessionId) => {
         const session = this.deps.store.get(sessionId);
-        if (!session) return null;
+        if (!session || isOperatorAssistant(session)) return null;
         return toPluginSessionSnapshot(session, this.deps.store.getSessionGitCache(sessionId));
       },
       list: () =>
         this.deps.store
           .list()
+          .filter((s) => !isOperatorAssistant(s))
           .map((s) => toPluginSessionSnapshot(s, this.deps.store.getSessionGitCache(s.id))),
     };
     const issues = makePluginIssues(this.deps.issues, (msg) => log.warn(msg));

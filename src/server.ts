@@ -250,6 +250,7 @@ import {
   type ApplyResult,
   type GithubBackoff,
 } from "./agent-control";
+import { isOperatorAssistant } from "./operator-assistant-core";
 import type { OperatorDiagDeps } from "./operator-assistant-tools";
 import {
   anyLiveRepairSession,
@@ -3103,7 +3104,9 @@ async function withScratchpadFlags(
 // (not per session): the window can hold many sessions across a few repos, and the first
 // resolveForge() call per dir shells out to git on a cold cache. Warm cache → no shell-out.
 function doneSessionsWithIssueUrl(deps: AppDeps): Array<Session & { issueUrl?: string }> {
-  const sessions = deps.store.listRecentlyArchived(Date.now() - DONE_LENS_WINDOW_MS);
+  const sessions = deps.store
+    .listRecentlyArchived(Date.now() - DONE_LENS_WINDOW_MS)
+    .filter((s) => !isOperatorAssistant(s));
   const repoWebUrl = new Map<string, string | null>();
   for (const path of new Set(sessions.map((s) => s.repoPath)))
     repoWebUrl.set(path, deps.resolveForge?.(path)?.webUrl ?? null);
@@ -3119,7 +3122,7 @@ const SESSION_LISTS = new Map<string, (deps: AppDeps) => unknown>([
   // "Done" lens: sessions archived within the last DONE_LENS_WINDOW_MS, newest-first.
   ["done", doneSessionsWithIssueUrl],
   // Every archived session, newest-first (`shepherd sessions list --all`, #2590).
-  ["archived", (deps) => deps.store.listArchivedSessions()],
+  ["archived", (deps) => deps.store.listArchivedSessions().filter((s) => !isOperatorAssistant(s))],
 ]);
 
 /** GET /api/sessions/:id/steer-log — who typed into the session and when (Shepherd's steers vs
@@ -3137,7 +3140,10 @@ async function handleSessionReads({ req, parts, url, deps, token }: Ctx): Promis
       await withScratchpadFlags(
         deps.store
           .list({ activeOnly: true })
-          .filter((session) => tokenRepoAllowed(token, session.repoPath)),
+          // The Operator Assistant is not herd work: its own route serves it (#1446).
+          .filter(
+            (session) => !isOperatorAssistant(session) && tokenRepoAllowed(token, session.repoPath),
+          ),
       ),
     );
   // Must precede the bare sessionRead fall-through so "done"/"archived" aren't read as session ids.
@@ -3209,7 +3215,8 @@ async function handleTaskExport({ req, parts, deps }: Ctx): Promise<Response | n
   if (parts[3] !== "export" && parts[3] !== "transcript") return null;
 
   const s = sessionByTaskKey(key, deps);
-  if (!s) return json({ error: "not found" }, 404);
+  // The Operator Assistant is not a task, so it has no task export (#1446).
+  if (!s || isOperatorAssistant(s)) return json({ error: "not found" }, 404);
   if (parts[3] === "transcript") return taskTranscriptDownload(s);
   return json(
     await buildTaskExport(s, {

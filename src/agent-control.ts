@@ -170,9 +170,10 @@ function makeFence(): Fence {
   return (label, text) => (text ? fenceUntrusted(label, text, nonce) : "");
 }
 
-/** A session is readable when it is live and an agent session (terminal shells are not work). */
+/** A session is readable when it is live and an agent session (terminal shells are not work), and
+ *  not the Operator Assistant, which is the operator's own and not part of the herd (#1446). */
 function isReadable(s: Session): boolean {
-  return s.status !== "archived" && !s.terminal;
+  return s.status !== "archived" && !s.terminal && !isOperatorAssistant(s);
 }
 
 /** A session's PR + CI state, or null when it has none (or nothing is cached yet). */

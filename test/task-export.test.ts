@@ -189,6 +189,15 @@ test("export 404s an unknown key", async () => {
   expect(res.status).toBe(404);
 });
 
+test("export and transcript 404 the Operator Assistant: it is not a task", async () => {
+  writeTranscript(SESSION, toolUseLine("Edit", "2026-08-01T10:00:00.000Z") + "\n");
+  const app = makeApp(makeDeps({ ...SESSION, operatorAssistant: true }));
+  for (const route of ["export", "transcript"]) {
+    const res = await app.fetch(new Request(`http://localhost/api/tasks/TASK-42/${route}`));
+    expect(res.status).toBe(404);
+  }
+});
+
 // ── bundle contents ───────────────────────────────────────────────────────────
 
 test("export returns metadata + raw AND parsed transcript in one call", async () => {

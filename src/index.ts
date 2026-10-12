@@ -134,6 +134,7 @@ import { SessionRouter, type SessionConsumer } from "./session-router";
 import { AutoMergeService } from "./automerge";
 import { DraftReconcileService } from "./draft-reconcile";
 import { isFullAuto } from "./full-auto";
+import { isOperatorAssistant } from "./operator-assistant-core";
 import { classifyStop } from "./autopilot-llm";
 import { createTypeSafeJudge } from "./judge-typesafe";
 import { JudgeSpendLedger, dayKeyBefore } from "./judge-spend";
@@ -2087,7 +2088,9 @@ const sweepStaleReviewWorktrees = async () => {
     const sessions = store.list();
     const sessionWorktreePaths = new Set(sessions.map((s) => s.worktreePath));
     const parents = new Set<string>();
-    for (const s of sessions) parents.add(join(dirname(s.repoPath), ".shepherd-worktrees"));
+    // The Operator Assistant's repoPath is its own dir, not a repo with review worktrees (#1446).
+    for (const s of sessions)
+      if (!isOperatorAssistant(s)) parents.add(join(dirname(s.repoPath), ".shepherd-worktrees"));
     for (const row of store.listReviewerSpawns()) parents.add(dirname(row.worktreePath));
     const r = reapStaleReviewWorktrees({
       parents: [...parents],

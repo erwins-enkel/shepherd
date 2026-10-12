@@ -84,6 +84,8 @@ import type {
   DocAgentRun,
   HoldReason,
   LoginRequest,
+  OperatorAssistantState,
+  OperatorAssistantUnavailableReason,
   AgentProvider,
   UpNextSnapshot,
   UpNextItem,
@@ -3310,4 +3312,47 @@ export async function getDocAgentRuns(
   const r = await fetch(`/api/doc-agent/runs?repo=${encodeURIComponent(repoPath)}`);
   if (!r.ok) throw await failed(r, "doc agent runs");
   return r.json() as Promise<{ running: boolean; runs: DocAgentRun[] }>;
+}
+
+// ── Operator Assistant (#1446) ──────────────────────────────────────────────
+
+/** Whether the Operator Assistant can run, why not, and its live row (client bootstrap). */
+export async function getOperatorAssistant(): Promise<OperatorAssistantState> {
+  const r = await fetch("/api/operator-assistant");
+  if (!r.ok) throw await failed(r, "operator assistant");
+  return r.json();
+}
+
+/** POST an Operator Assistant lifecycle route. A 503 (`claude` missing, herdr unreachable) throws
+ *  an {@link ApiError} whose `code` is the server's `reason` — read it with
+ *  {@link operatorAssistantUnavailableReason}. */
+async function postOperatorAssistant(url: string, label: string): Promise<{ session: Session }> {
+  const r = await fetch(url, { method: "POST", headers: JSON_HEADERS });
+  if (!r.ok) {
+    const body = (await r.json().catch(() => null)) as { error?: string; reason?: string } | null;
+    throw apiError(
+      r.status,
+      body ? { error: body.error, code: body.reason } : null,
+      `${label} failed: ${r.status}`,
+    );
+  }
+  return r.json();
+}
+
+/** Return the live assistant, spawning it on first use or resuming it when its agent is gone. */
+export function ensureOperatorAssistant(): Promise<{ session: Session }> {
+  return postOperatorAssistant("/api/operator-assistant", "operator assistant");
+}
+
+/** New conversation: archive the current assistant and spawn a fresh one. */
+export function resetOperatorAssistant(): Promise<{ session: Session }> {
+  return postOperatorAssistant("/api/operator-assistant/reset", "operator assistant reset");
+}
+
+/** The unavailable reason carried by a failed ensure/reset, or null for any other failure. */
+export function operatorAssistantUnavailableReason(
+  e: unknown,
+): OperatorAssistantUnavailableReason | null {
+  if (!(e instanceof ApiError) || e.status !== 503) return null;
+  return e.code === "claude_missing" || e.code === "herdr_unreachable" ? e.code : null;
 }

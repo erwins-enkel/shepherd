@@ -1,4 +1,4 @@
-import { test, expect, vi, afterEach } from "vitest";
+import { describe, test, expect, vi, afterEach } from "vitest";
 import { amendments } from "./amendments.svelte";
 import { HerdStore } from "./store.svelte";
 import { dropKey } from "./safe-keys";
@@ -1633,4 +1633,64 @@ test("session:login-request sets and clears a session's Login Request; archive d
   s.setLoginRequests({ s1: request });
   s.apply({ event: "session:archived", data: { id: "s1" } });
   expect(s.loginRequests.s1).toBeUndefined();
+});
+
+describe("Operator Assistant row (#1446)", () => {
+  const assistantRow = (id = "oa1") => ({
+    ...session(id),
+    desig: "TASK-90",
+    operatorAssistant: true,
+  });
+
+  test("the bootstrap GET seeds the row and availability, with the reason only when unavailable", () => {
+    const s = new HerdStore();
+    expect(s.assistant).toBeNull();
+    expect(s.assistantAvailable).toBeNull();
+    s.seedAssistant({ available: true, reason: null, session: assistantRow() });
+    expect(s.assistant?.id).toBe("oa1");
+    expect(s.assistantAvailable).toBe(true);
+    s.seedAssistant({ available: false, reason: "claude_missing", session: null });
+    expect(s.assistant).toBeNull();
+    expect(s.assistantAvailable).toBe(false);
+    expect(s.assistantUnavailableReason).toBe("claude_missing");
+    expect(s.sessions).toEqual([]);
+  });
+
+  test("operator-assistant:update replaces the row, proves availability and never joins the herd", () => {
+    const s = new HerdStore();
+    s.setAll([session("s1")]);
+    s.setAssistantUnavailable("herdr_unreachable");
+    s.apply({ event: "operator-assistant:update", data: { session: assistantRow("oa2") } });
+    expect(s.assistant?.id).toBe("oa2");
+    expect(s.assistantAvailable).toBe(true);
+    expect(s.assistantUnavailableReason).toBeNull();
+    expect(s.sessions.map((x) => x.id)).toEqual(["s1"]);
+    s.apply({ event: "operator-assistant:update", data: { session: null } });
+    expect(s.assistant).toBeNull();
+    expect(s.assistantAvailable).toBe(true);
+  });
+
+  test("per-session pushes patch the assistant by id, behind the same __proto__ guard", () => {
+    const s = new HerdStore();
+    s.setAll([session("s1")]);
+    s.setAssistant(assistantRow());
+    s.apply({ event: "session:status", data: { id: "oa1", status: "blocked" } });
+    expect(s.assistant?.status).toBe("blocked");
+    expect(s.byId("s1")?.status).toBe("running");
+    const evil = JSON.parse('{"id":"oa1","status":"idle","__proto__":{"polluted":"yes"}}');
+    s.apply({ event: "session:status", data: evil });
+    expect(Object.getPrototypeOf(s.assistant)).toBe(Object.prototype);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+    expect(s.assistant?.status).toBe("idle");
+  });
+
+  test("archiving the assistant clears it; archiving a herd session leaves it", () => {
+    const s = new HerdStore();
+    s.setAll([session("s1")]);
+    s.setAssistant(assistantRow());
+    s.apply({ event: "session:archived", data: { id: "s1" } });
+    expect(s.assistant?.id).toBe("oa1");
+    s.apply({ event: "session:archived", data: { id: "oa1" } });
+    expect(s.assistant).toBeNull();
+  });
 });

@@ -1520,6 +1520,10 @@ export interface Session {
   terminalTabId?: string | null;
   /** herdr pane of the clean-terminal shell (socket attach target); null/absent otherwise. */
   terminalPaneId?: string | null;
+  /** Operator Assistant kind (#1446): the one interactive `claude` Shepherd owns. Never in the herd
+   *  list — it reaches the UI only through `/api/operator-assistant` and its update event. Optional
+   *  like the server mirror — absent and false are equivalent. */
+  operatorAssistant?: boolean;
   /** Epic-authoring task kind: attended guided shaping → an EPIC draft; writes no GitHub issues. */
   epicAuthoring: boolean;
   /** Plain task kind: the agent without guards — no plan gate, autopilot or build queue. Optional
@@ -2729,7 +2733,18 @@ export type WsEvent =
       event: "doc-agent:done";
       data: { repoPath: string; url: string | null; outcome: DocAgentOutcome };
     }
-  | { event: "repo:untrusted-author"; data: { repoPath: string; issue: number } };
+  | { event: "repo:untrusted-author"; data: { repoPath: string; issue: number } }
+  | { event: "operator-assistant:update"; data: { session: Session | null } };
+
+/** Why the Operator Assistant can't run: no `claude` on the node, or herdr is down. */
+export type OperatorAssistantUnavailableReason = "claude_missing" | "herdr_unreachable";
+
+/** `GET /api/operator-assistant`: whether the assistant can run, why not, and its live row. */
+export interface OperatorAssistantState {
+  available: boolean;
+  reason: OperatorAssistantUnavailableReason | null;
+  session: Session | null;
+}
 
 /** Optional override bag for relaunch; absent fields inherit the original session. */
 export interface RelaunchOverrides {

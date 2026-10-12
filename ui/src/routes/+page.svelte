@@ -39,6 +39,7 @@
     blockStates,
     holdStates,
     loginRequestStates,
+    getOperatorAssistant,
     subagentStates,
     previewStates,
     getBacklog,
@@ -706,6 +707,14 @@
         if (!store.diagnostics) diagnosticsLoadFailed = true;
       });
   }
+  // Bootstrap the Operator Assistant (#1446): its row is not in the herd list, and a missed
+  // `operator-assistant:update` is gone for good, so mount and every resync re-read it. Best-effort:
+  // a failure leaves the panel's availability unknown and never touches the herd load.
+  function loadOperatorAssistant() {
+    getOperatorAssistant()
+      .then((s) => store.seedAssistant(s))
+      .catch(() => {});
+  }
   // Bootstrap the loaded-plugins list (issue #1124). Best-effort: a missing registry
   // returns an empty list, keeping the Settings → Plugins tab hidden. Live `plugin:status`
   // pushes update it thereafter via the store.
@@ -957,6 +966,7 @@
     listSessions()
       .then((list) => store.setAll(list))
       .catch(() => {});
+    loadOperatorAssistant();
     getUsageLimits()
       .then((r) => store.setUsageLimits(r.limits))
       .catch(() => {});
@@ -1866,6 +1876,7 @@
         else if (!selectedId && list[0]) selectedId = list[0].id;
       })
       .catch(() => {});
+    loadOperatorAssistant();
     getUsageLimits()
       .then((r) => store.setUsageLimits(r.limits))
       .catch(() => {});

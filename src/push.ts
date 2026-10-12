@@ -740,8 +740,10 @@ export function notifySessionDone(
   store: Pick<SessionStore, "get">,
   id: string,
 ): Promise<boolean> {
-  const name = store.get(id)?.name ?? id;
-  return push.notify({ kind: "done", sessionId: id, tag: id, name });
+  const s = store.get(id);
+  // The Operator Assistant never pushes: the operator is talking to it in its panel (#1446).
+  if (isOperatorAssistant(s)) return Promise.resolve(false);
+  return push.notify({ kind: "done", sessionId: id, tag: id, name: s?.name ?? id });
 }
 
 /** Push bodies get truncated by the OS anyway; keep the agent's reason to one line's worth. */
@@ -753,7 +755,7 @@ export function attachPush(events: EventHub, store: SessionStore, push: PushServ
   events.subscribe((event, data) => {
     if (event === "session:status") {
       const { id, status } = data as { id: string; status: string };
-      if (status !== "done" || isOperatorAssistant(store.get(id))) return;
+      if (status !== "done") return;
       void notifySessionDone(push, store, id);
     } else if (event === "session:block") {
       const { id, block } = data as { id: string; block: BlockReason | null };

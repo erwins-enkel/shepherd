@@ -362,18 +362,19 @@ next check. It never starts twice and never moves to another machine
 (`src/remote-instances/dispatch.ts`). Sending it again yourself with the same key
 is safe too: the machine replays what became of it.
 
-`GET /api/remote-dispatches` lists the tasks no machine has confirmed —
-`{ dispatches: [{ id, state, host, summary, … }] }` with `state` `unknown`, or
-`canceling` for a cancel on its way — and the `remote:dispatch` event announces
-each change of one, including the one that resolves it (`started` with
-`sessionId`, `held`, `rejected` with `reason`/`code`, `canceled`). The herd shows
-them in the machine's group. `DELETE /api/remote-dispatches/{id}` cancels one: the
-machine's `DELETE /api/dispatches/{id}` makes sure it never starts there, even if
-it arrives late (`200`). A machine out of reach gets the cancel as soon as it
-answers (`202`, `canceling`), and nothing sends the task again meanwhile. Once the
-machine has it (or while it is being sent), the answer is
-`409 remote_dispatch_not_cancelable` with the current `dispatch`. Both routes need
-`full` scope.
+`GET /api/remote-dispatches` lists the tasks for machines that are not settled —
+`{ dispatches: [{ id, state, host, summary, … }] }` with `state` `unknown`,
+`canceling` for a cancel on its way, `waiting` for a task waiting here for its
+machine, or `held` for one the machine holds ([Waiting for a machine](#waiting-for-a-machine))
+— and the `remote:dispatch` event announces each change of one, including the one
+that resolves it (`started` with `sessionId`, `rejected` with `reason`/`code`,
+`canceled`, `redirected`). The herd shows them in the machine's group.
+`DELETE /api/remote-dispatches/{id}` cancels one: the machine's
+`DELETE /api/dispatches/{id}` makes sure it never starts there, even if it arrives
+late (`200`). A machine out of reach gets the cancel as soon as it answers (`202`,
+`canceling`), and nothing sends the task again meanwhile. Once the machine has it
+(or while it is being sent), the answer is `409 remote_dispatch_not_cancelable`
+with the current `dispatch`. The routes need `full` scope.
 
 Attachments are uploaded to the machine's own `POST /api/uploads` **right before**
 the task is sent, and the task then names the machine's staged copies — never a
@@ -403,19 +404,18 @@ do not depend on which Shepherd the task is submitted to:
 3. **The top machine** gets the task: here (a local create, as ever) or sent there
    exactly as with `target`. It then runs there and is never placed again.
 
-| Outcome                                     | Answer                                                                                                 |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Placed here or on a machine                 | as without machines, or as with `target` (above)                                                       |
-| No machine fits                             | `422 { code: "no_suitable_machine", missing, together, elsewhere }` — nothing starts                   |
-| The machine it is meant for is out of reach | `409 { code: "preferred_machine_offline", host, status, alternatives }` — nothing starts anywhere else |
+| Outcome                                     | Answer                                                                                          |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Placed here or on a machine                 | as without machines, or as with `target` (above)                                                |
+| No machine fits                             | `422 { code: "no_suitable_machine", missing, together, elsewhere }` — nothing starts            |
+| The machine it is meant for is out of reach | `200 { held: true, waiting: true, id, count, host, dispatch }` — it waits here for that machine |
 
 `missing` lists the capabilities no connected machine with the project has
 (all of them, with `together: true`, when each is on some machine but none has
 them together); `elsewhere` the connected machines that would fit but have no
 checkout of the project. A machine out of reach is judged on what it last
-reported, so a task meant for it is refused rather than silently started on the
-next machine; `alternatives` are the connected machines that fit too — name one
-in `target` to run it there.
+reported, so a task meant for it waits for it rather than silently starting on the
+next machine ([Waiting for a machine](#waiting-for-a-machine)).
 
 The decision is recorded on the session as `launchMetadata.placement`
 (`{ mode, target, requirements, basis, preferred, by, decidedAt }`) — on the
@@ -429,7 +429,64 @@ went, whatever the choice would say now.
 create with that body would do, without storing or sending anything:
 `{ active: false }` while no connected machine could take a task, else
 `{ active: true, placement }` or `{ active: true, refusal: { code, error, … } }`
-with the refusal's fields as above. New Task shows it before you submit.
+with the refusal's fields as above. `{ active: true, placement, wait: { status,
+alternatives } }` means the machine in `placement` is out of reach and the task
+would wait for it; `alternatives` are the connected machines that fit too. New Task
+shows it before you submit.
+
+### Waiting for a machine
+
+A create the automatic choice meant for a machine that is out of reach is not
+refused and not started elsewhere: it is stored here and answered
+`200 { held: true, waiting: true, id, count, host, dispatch }` — `id` is its
+dispatch ID, `host` the machine it waits for, `count` the tasks waiting here, and
+`dispatch` the waiting task as `GET /api/remote-dispatches` lists it. A client that
+does not know `waiting` reads it as a hold: queued, not started. Nothing is sent and
+no attachment is uploaded yet. A retry under the same `Idempotency-Key` answers the
+same wait. A machine named in `target` is never waited for: out of reach, it is
+`409 remote_target_unavailable` as above.
+
+A waiting dispatch carries `placement` (why it is meant for that machine),
+`readiness` and `alternatives`:
+
+| `readiness.state`      | Meaning                                                                                                      |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `offline`              | Not connected; `status` says why (`timeout`, `network`, `unauthorized`, …)                                   |
+| `missing_capabilities` | Connected, but its report lacks a requirement: `missing: [{ capability, reason }]` (`not_verified` if stale) |
+| `project_missing`      | Connected, but no checkout of the project                                                                    |
+| `unreleased`           | Its platform is not released for tasks                                                                       |
+| `ready`                | It fits: the task goes out with the next check                                                               |
+
+After every check that finds the machine connected — on reconnect, after this
+Shepherd restarts, and about once a minute — a ready waiting task is sent: for a
+task with requirements the machine first runs a fresh capability check
+(`POST /api/instance/capabilities`), then its checkout is looked up, the
+attachments are uploaded and the task goes out under its dispatch ID like any task
+for a machine. A check that lacks a requirement leaves it waiting. The staged
+attachments of a waiting task are kept until it is sent. Waiting tasks are stored,
+so they survive restarts; removing the machine cancels them
+(`canceled`, `code: "machine_removed"`).
+
+`DELETE /api/remote-dispatches/{id}` cancels a waiting task at once (`200`) — it
+was never sent. `POST /api/remote-dispatches/{id}/redirect` with
+`{ target: { instanceId } }` runs it on another machine now, or on this Shepherd
+(its own instance ID). The machine must fit as a named `target` must; otherwise the
+refusal is answered (`422 missing_capabilities` with `host`, `remote_target_*`,
+`remote_project_missing`; `409 remote_target_unavailable`) and the task keeps
+waiting. On another machine it goes out under the same dispatch ID and is answered
+like a create with `target` (`201`, `200` held, `502`, `504`, or `200` with
+`waiting` if that machine cannot take it yet). On this Shepherd it starts under the
+task's own `Idempotency-Key`, so retrying the original create replays this start.
+A task that is not waiting is `409 remote_dispatch_not_redirectable` with the
+current `dispatch`; an unknown one `404`. The choice is recorded as `manual`.
+
+A task the machine holds (its usage hold or capacity) is listed as `held` until the
+machine starts it or drops it there; this Shepherd asks the machine after every
+check. `DELETE /api/remote-dispatches/{id}` discards it there
+(`DELETE /api/held/{heldId}` on the machine) and settles once the machine's
+dispatch record confirms it — `canceling` (`202`) while the machine is out of
+reach, `409 remote_dispatch_not_cancelable` if it started first. A held task is not
+redirected: cancel it and submit it again.
 
 ## Usage-aware hold gate
 
